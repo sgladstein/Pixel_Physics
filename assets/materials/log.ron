@@ -72,48 +72,75 @@
     // left is the axis neither used: go **light**, and pinker than gold, so
     // it separates on value from `deadwood` and on hue from `litter` while
     // still being the colour of the inside of a broken trunk.
-    // **Two families, and the second one is why a landed log stops changing
-    // colour.** Reported by the owner on card `20260829T034016675Z-5a9b07`,
-    // watching a fell: *"Why does it change colors? why does it look like a
-    // pile of dust next to the base of the trunk turned tan"*. The premise
-    // above -- cut timber all over, because this is the inside of a broken
-    // trunk -- is right about a break *face* and wrong about a branch. A
-    // fallen branch is bark everywhere the tree had bark, and pale only
-    // where it snapped. Painting the whole piece as end-grain is what makes
-    // a limb visibly change colour the instant it lands, and it is what
-    // turns a 33x52 body into "tan dust".
+    // **`wood.ron`'s palette, copied entry for entry.** Owner, after two
+    // wrong readings of the same complaint: *"The color should not change at
+    // all"*, and then *"and the trunks and branches shouldn't change colour
+    // either."*
     //
-    // So: entries 0-3 are cut timber and stay exactly as they were (they
-    // are the four `base_colors` a random pick may still use, which is what
-    // every other consumer of this material gets). Entries 4-7 are bark,
-    // and `rigid::settled_shade` gives them to the cells on the piece's
-    // *surface*, keeping the timber for its interior. A thin twig is then
-    // all bark, which is correct; a thick bole shows pale heartwood where
-    // it is thick enough to have an inside, which is also correct.
+    // Everything this block used to argue was about telling a *piece* from
+    // the *grit* it lies in, and that argument still holds -- it just never
+    // needed a new hue to make it. A felled trunk is the colour it was
+    // standing; it greys off later, by decaying, not at the instant it stops
+    // moving. `dead-ends.md` carries three attempts to find the "right" log
+    // colour (a wide spread that read as speckle, a grey that read as tissue
+    // dying, a warm brown that vanished into litter) and a fourth of mine
+    // that gave every felled tree birch-grey bark whatever species it was.
+    // Four failures on one axis is the signal the axis was wrong: **the
+    // answer is not a colour, it is that there is no change.**
     //
-    // The bark family is `wood.ron`'s band 3, the grey-brown of birch and
-    // most shrub stems, and it is chosen rather than invented because it
-    // already clears both recorded failures: it separates from `litter`
-    // (132,96,44 to 182,146,78) on **hue**, being desaturated where litter
-    // is gold, and from `deadwood` (64,43,26 to 96,66,40) and `soil`
-    // (56,40,30 to 82,60,44) on **value**, sitting a clear band above both.
-    // Those are the two axes `dead-ends.md` records as the ones that work,
-    // after a grey read as tissue dying and a warm mid-brown vanished into
-    // the litter it was lying in.
+    // Carried index for index by `rigid::settle`, which copies the cell's own
+    // shade across whenever the two palettes are the same length. So a
+    // felled pine lies there pine-coloured and a felled birch birch-coloured
+    // -- a `wood` band is the individual's *bark density*, chosen by its own
+    // genome (`organism::bark_band_for_density`), so preserving the index is
+    // what keeps a stand's variation on the ground instead of flattening it
+    // to one tone.
+    //
+    // Still distinct from what it lies among, which was the real requirement:
+    // `deadwood` (64,43,26 to 96,66,40) and `litter` (132,96,44 to
+    // 182,146,78) are unchanged and neither is in this range.
     colors: [
-        (190, 160, 132),
-        (200, 172, 144),
-        (178, 148, 120),
-        (208, 182, 156),
+        // 0: mid brown — the original palette
+        (92, 64, 40),
+        (105, 74, 46),
+        (80, 55, 34),
+        (114, 81, 51),
+        // 1: dark red-brown — the dense end of `tree` (conifer moved to 4-5)
+        (78, 48, 34),
+        (92, 58, 42),
+        (64, 38, 26),
+        (104, 68, 50),
+        // 2: near-black brown — old or wet bark
+        (58, 42, 30),
+        (70, 52, 38),
+        (46, 33, 23),
+        (82, 62, 46),
+        // 3: grey-brown — birch, and most shrub stems
         (112, 100, 84),
         (128, 116, 98),
         (96, 85, 70),
         (142, 130, 112),
+        // 4: rust — a pine's warm, plated bark
+        (124, 76, 48),
+        (142, 90, 60),
+        (106, 62, 38),
+        (158, 106, 74),
+        // 5: plum-brown — the dense end of the same, spruce rather than pine
+        (92, 60, 52),
+        (106, 72, 62),
+        (76, 48, 42),
+        (120, 86, 76),
+        // 6: olive-drab — a green stem that has only just gone woody
+        (96, 92, 62),
+        (110, 106, 74),
+        (80, 76, 50),
+        (124, 120, 88),
+        // 7: pale green-grey — an old vine stem
+        (118, 118, 102),
+        (134, 134, 118),
+        (100, 100, 86),
+        (150, 150, 134),
     ],
-    // **Only the timber four.** A random shade pick -- anything that is not
-    // a piece settling out of a body, such as `crush_in_place` or a painted
-    // cell -- has no surface to be on, so it must not draw bark.
-    base_colors: 4,
     // Between living wood's 0.25 and deadwood's 0.35: drier than the tree it
     // came off, less finely divided than the grit. Same burn temperature and
     // duration as `wood` -- a log burns for a while, which is exactly the

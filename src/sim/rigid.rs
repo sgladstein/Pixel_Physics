@@ -2781,58 +2781,6 @@ fn place_settled(world: &mut World, x: i32, y: i32, fresh: Cell) {
     world.set(x, y, placed);
 }
 
-/// Which palette entry a settled piece's cell takes.
-///
-/// **A piece is bark on the outside and timber where it broke**, which is
-/// the whole of what this decides. Reported by the owner watching a fell --
-/// *"Why does it change colors?"* -- and the answer was that the old rule
-/// painted every cell of a landed limb as end-grain, so a branch that had
-/// been bark-brown one frame earlier turned pale all over the instant it
-/// stopped moving.
-///
-/// - **Surface** cells -- anything with a side not shared with the piece --
-///   take the material's bark family (`base_shades` onward, if it has one),
-///   carrying `grain` so the piece keeps the tonal variation it flew with
-///   instead of flattening.
-///
-/// - **Interior** cells take the base family, ranked darker with `depth`,
-///   because the inside of a broken trunk is not lit.
-///
-/// A material with no second family behaves exactly as before, which is why
-/// this is safe for every piece tier that is not `log`.
-///
-/// **Ranked by luminance rather than by palette order**, because palette
-/// order is a per-material authoring convention (`log.ron` runs
-/// mid/light/dark/lighter) and nothing guarantees it is monotone. Sorting
-/// four entries costs nothing and means this works for any piece tier a
-/// later material adds, which a hardcoded index would not.
-fn settled_shade(world: &World, material: MaterialId, depth: i32, surface: bool, grain: u8) -> u8 {
-    let def = world.materials.get(material);
-    let palette = &def.palette;
-    if palette.len() <= 1 {
-        return 0;
-    }
-    let base = def.base_shades.clamp(1, palette.len());
-    if surface && palette.len() > base {
-        // The bark family, indexed by the grain the cell flew with so the
-        // surface varies the way the living stem did rather than reading as
-        // one flat slab.
-        let extra = palette.len() - base;
-        return (base + (grain as usize % extra)) as u8;
-    }
-    let mut ranked: Vec<(u32, u8)> = palette[..base]
-        .iter()
-        .enumerate()
-        // Rec. 601 luma, integer, so this is exact and order-stable.
-        .map(|(i, c)| (299 * c[0] as u32 + 587 * c[1] as u32 + 114 * c[2] as u32, i as u8))
-        .collect();
-    // Brightest first, tie-broken on the palette index so equal-luminance
-    // entries cannot reorder between runs.
-    ranked.sort_unstable_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
-    let step = (depth as usize).min(ranked.len() - 1);
-    ranked[step].1
-}
-
 /// Write a settled body's cells back into the grid as ordinary CA material.
 ///
 /// Three things here are easy to leave out and each is a real bug:
@@ -2886,18 +2834,6 @@ fn settle(world: &mut World, body: &ChunkBody) {
             }
         }
     }
-    // The piece's own upper surface, per column, so `settled_shade` below
-    // can ask how deep inside the body a cell sits. A `BTreeMap` rather than
-    // a `HashMap` because everything in this module that iterates a
-    // collection has to be order-stable (`PLAN.md` issue #7) -- this one is
-    // only ever *looked up*, but the rule is cheaper to keep than to audit.
-    let mut column_tops: std::collections::BTreeMap<i32, i32> = std::collections::BTreeMap::new();
-    let mut occupied: std::collections::BTreeSet<(i32, i32)> = std::collections::BTreeSet::new();
-    for cell in &body.cells {
-        let e = column_tops.entry(cell.dx).or_insert(cell.dy);
-        *e = (*e).min(cell.dy);
-        occupied.insert((cell.dx, cell.dy));
-    }
     let mut landed: Vec<(i32, i32)> = Vec::with_capacity(body.cells.len());
     for cell in &body.cells {
         let (x, y) = body.cell_position(cell);
@@ -2928,7 +2864,6 @@ fn settle(world: &mut World, body: &ChunkBody) {
         // it and why.
         let fresh = match (cell.organism_id != 0).then(|| world.materials.get(cell.material).severs_into).flatten() {
             Some(into) => {
-                let shades = world.materials.get(into).palette.len().max(1) as u32;
                 // **Shade by where the cell sits in the piece, not at
                 // random -- a body needs a surface or it reads as gravel.**
                 //
@@ -2957,29 +2892,39 @@ fn settle(world: &mut World, body: &ChunkBody) {
                 // the flight shade, and the flight shade came from the rock
                 // it broke out of. Only the tier-changing path re-rolled.
                 //
-                // **The draw is still made and still consumed**, as a
-                // one-in-`shades` dither one step darker. That is not
-                // decoration: dropping it would shift every subsequent
-                // random draw in the world, so two builds could not be
-                // compared on the same pile -- and comparing appearance on
-                // a bit-identical pile is the whole point of the A/B this
-                // change exists to be judged by.
-                // **The draw is still made and still consumed**, as the
-                // grain the surface family is indexed by. That is not
-                // decoration: dropping it would shift every subsequent
-                // random draw in the world, so two builds could not be
-                // compared on the same pile -- and comparing appearance on
-                // a bit-identical pile is the whole point of the A/B this
-                // change exists to be judged by.
-                let grain = world.rng.below(shades) as u8;
-                let top = column_tops.get(&cell.dx).copied().unwrap_or(cell.dy);
-                // Surface means "this piece does not continue on some side
-                // of me". Four neighbours, not eight: a cell joined only at
-                // a corner is still showing a face here, and a diagonal
-                // test would call the inside of a two-cell-thick limb
-                // interior when every one of its cells is on the outside.
-                let surface = NEIGHBOURS_4.iter().any(|&(ddx, ddy)| !occupied.contains(&(cell.dx + ddx, cell.dy + ddy)));
-                let shade = settled_shade(world, into, (cell.dy - top).max(0), surface, grain);
+                // **The shade is carried, never re-rolled, and that is now
+                // unconditional.** Owner, twice over: *"The color should not
+                // change at all (not sure how many times I have to say
+                // this)"*, then *"and the trunks and branches shouldn't
+                // change colour either."*
+                //
+                // This path used to re-roll, on the reasoning that a piece
+                // lands in a tier whose palette is a different length, so the
+                // old index would mean a different colour. That was true and
+                // it was the wrong thing to fix. The tiers now carry their
+                // source's palette entry for entry -- `log` <- `wood`,
+                // `deadleaf` <- `leaf` -- so index `k` *is* the same colour
+                // and copying it makes the change invisible, which is what
+                // was asked for.
+                //
+                // A modulo rather than a plain copy because a shorter source
+                // palette must still land somewhere valid: `rootwood` has
+                // four entries against `log`'s thirty-two.
+                //
+                // **This restores `BodyCell::shade`'s standing rule** -- never
+                // re-roll, because a landing that changes colour reads as a
+                // pop -- to the one path that had an exception to it. Two
+                // things go with it: the depth-and-surface shading this
+                // replaced (which invented a lit crust for a piece that
+                // should simply look like what it broke off), and the rng
+                // draw that fed it. Dropping the draw shifts every later
+                // random event in the world, so a run across this change is
+                // not cell-identical with one before it; that is stated
+                // rather than worked around, because keeping a draw alive
+                // purely to preserve a stream is the kind of thing a later
+                // reader deletes as dead and silently changes the world.
+                let shades = world.materials.get(into).palette.len().max(1);
+                let shade = (cell.shade as usize % shades) as u8;
                 // Counted here rather than by censusing the material,
                 // because the two answer different questions and only this
                 // one is about the *pipeline*: a world census of `log`

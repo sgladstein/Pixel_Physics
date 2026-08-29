@@ -78,28 +78,79 @@
     // crown by, and it is why 48% of a tree's cells are only 20% of its
     // mass.
     density: 0.25,
-    // **Olive-khaki: leaves that have just died, not leaves that have lain
-    // on the ground all autumn.** That distinction is the whole job of this
-    // palette, because `litter` is directly below it in the same chain and
-    // the two have to be told apart at play zoom.
+    // **`leaf.ron`'s palette, copied entry for entry, and that is the whole
+    // point of this block.** Owner, third time of asking: *"The color should
+    // not change at all (not sure how many times I have to say this) and
+    // most of the leaves should stay on the branch."*
     //
-    // Chosen on the two axes `dead-ends.md` records as the ones that work
-    // for a debris tier, after three failed attempts on `log`: **hue**
-    // against `litter` (150,110,50 to 182,146,78), which is a saturated gold
-    // — this is desaturated, an r-b gap of ~58 against litter's ~100 — and
-    // **value** against `deadwood` (64,43,26 to 96,66,40) and `soil`
-    // (56,40,30 to 82,60,44), sitting a clear band above both.
+    // The first two readings of that were wrong and both are worth recording
+    // because they were plausible. It is not the *log* changing from bark to
+    // pale timber (fixed, `3bdf674`), and it is not the day/night cycle
+    // moving the ambient light between tiles of a contact sheet (a card I
+    // built badly, and the owner had to say so). **It is the leaves.** A
+    // living leaf is green; the first draft of this material invented an
+    // olive-khaki "dead foliage" tone, so cutting a branch turned its green
+    // leaves brown the instant they landed. Nobody asked for the foliage to
+    // look dead -- what was asked for is that it stay on the branch.
     //
-    // **Narrow, deliberately: 26 units.** The same entry that condemns a
-    // wide spread on a piece tier applies here and applies harder — a wide
-    // spread makes a field of cells draw randomly across a range, which is
-    // speckle, and speckle is exactly what destroys the one thing this
-    // material exists to show: that a clump of leaves is a *clump*.
+    // A freshly cut limb has green leaves on it for days. So this palette is
+    // `leaf`'s, index for index, and `rigid::settle` carries the cell's own
+    // shade across rather than re-rolling it (it does that whenever the two
+    // palettes are the same length -- see `settled_shade`'s call site). The
+    // colour is therefore **bit-identical** before and after the tier change,
+    // which is the only reading of "should not change at all" that cannot be
+    // got wrong a fourth time.
+    //
+    // Keeping all eight bands matters and is not padding: a band is a
+    // *species*' leaf colour, picked by its own range, so copying the whole
+    // thing is what makes a felled conifer stay conifer-green and a felled
+    // birch stay birch-green. Four colours here would have flattened every
+    // species to one.
+    //
+    // What says "this is dead" is not the hue, it is `decays_into` below:
+    // the foliage browns off into `litter` over time, on a schedule, instead
+    // of at the instant of the cut.
     colors: [
-        (108, 98, 52),
-        (118, 108, 60),
-        (100, 90, 46),
-        (126, 116, 68),
+        // 0: deep blue-green — fir, spruce
+        (42, 74, 52),
+        (52, 90, 62),
+        (34, 62, 44),
+        (60, 102, 72),
+        // 1: mid blue-green — pine
+        (46, 86, 58),
+        (56, 102, 70),
+        (38, 72, 48),
+        (66, 116, 80),
+        // 2: mid green — the original palette
+        (58, 96, 40),
+        (70, 116, 48),
+        (48, 82, 34),
+        (82, 132, 56),
+        // 3: yellow-green — birch, willow
+        (86, 118, 44),
+        (102, 138, 54),
+        (72, 100, 36),
+        (118, 158, 66),
+        // 4: olive — dry-site shrubs
+        (94, 104, 56),
+        (110, 122, 68),
+        (78, 88, 46),
+        (126, 140, 80),
+        // 5: dark olive
+        (66, 76, 38),
+        (80, 92, 46),
+        (54, 62, 30),
+        (94, 108, 56),
+        // 6: pale sage — glaucous, ivy and the ground layer
+        (104, 126, 100),
+        (120, 144, 116),
+        (86, 106, 82),
+        (138, 162, 134),
+        // 7: deep sage
+        (76, 98, 76),
+        (90, 114, 90),
+        (62, 82, 62),
+        (106, 132, 106),
     ],
     // Drier than the living leaf it was (0.75, burns out in 40) and drier
     // than `litter` (0.5), because this is foliage that has died on the
