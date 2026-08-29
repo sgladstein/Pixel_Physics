@@ -1,0 +1,54 @@
+{
+  "id": "20260829T040638213Z-a16293",
+  "created": "2026-08-29T04:06:38Z",
+  "board": "fracture",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/ground-collapse-regression-oh0yjs",
+    "commit": "eea5604",
+    "agent": null,
+    "session_id": "60b51001-a569-5eff-97d0-d51af9d7b109",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The cracked sea-stack: the textbook-correct rule against the one shipped",
+  "question": "Which of these reads as rock standing at rest, rather than rock being chewed?",
+  "context_md": "Following your question about why the stack is still cracked. It is a real bug, and I want your eye before I decide not to fix it.\n\nThe rule that cracks it asks whether a piece's weight sits within the middle third of the ground it stands on. It measures that offset **from whichever cell it happens to be looking at** rather than from the middle of the footing — so a piece sitting dead centre on its own base is judged to be toppling. Measured: a cell standing on a footing six wide, carrying a load whose centre of mass is two tenths of a cell off dead centre, crushed for an offset of 2.3 against an allowance of 1.\n\nOne of the panes below is the rule as shipped. The other is the same rule with that arithmetic corrected — which is unambiguously the right formula, and which I am proposing **not** to ship, because it loses 40% more rock and to my eye leaves the stack worse. Both runs are idle: no verb of any kind, same seed, same frames.\n\nIf the corrected one looks better to you, I will keep going on it — my reading of these two images is the thing I am least sure of.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A — rule as shipped",
+      "files": [
+        "20260829T040638213Z-a16293/000-stack-cell.png"
+      ],
+      "caption": "offset measured from the cell",
+      "meta": {
+        "rock cells destroyed": 76,
+        "times rock gave way under load": 57,
+        "times rock came away with nothing holding it": 25
+      },
+      "focus": null
+    },
+    {
+      "label": "B — corrected arithmetic",
+      "files": [
+        "20260829T040638213Z-a16293/001-stack-origin.png"
+      ],
+      "caption": "offset measured from the middle of the footing",
+      "meta": {
+        "rock cells destroyed": 106,
+        "times rock gave way under load": 41,
+        "times rock came away with nothing holding it": 14
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
