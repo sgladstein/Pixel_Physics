@@ -7,6 +7,8 @@
 
 use std::collections::HashSet;
 
+use rayon::prelude::*;
+
 use crate::sim::cell::{Cell, AMBIENT_TEMPERATURE};
 use crate::sim::chunk::{ChunkCoord, Rect, CHUNK_SIZE};
 use crate::sim::material;
@@ -2480,14 +2482,54 @@ impl Renderer {
                 .map(|r| (r, p.facing_left, p.action > 0))
         });
 
+        // **The per-pixel pass was the last large cost in the frame still
+        // running on one core.** `parallel.rs` has had the CA sweep on
+        // `rayon` since M5 and this loop never followed, which did not show
+        // while the viewport was small enough for a serial pass to fit.
+        // Measured on a 4-core box at the shipped 8192x2560 world: a forced
+        // full redraw of 512x320 costs **21.2 ms**, against the whole
+        // simulation's 6.3 ms mean -- and it runs on ~100% of frames while
+        // the gnome walks, because a camera move invalidates every pixel
+        // (see the `camera_moved` note above). The render was three times
+        // the simulation and nobody was looking at it, because
+        // `scale_probe phases=1` times `App::update` and `draw` is not in
+        // it.
+        //
+        // **Rows, not pixels.** A scanline is `4 * width` contiguous bytes,
+        // so a worker writes whole cache lines and consecutive `cell_colour`
+        // calls walk along one chunk row -- which is also what makes the
+        // chunk hoist below worth having. Splitting per pixel would hand
+        // rayon 655,360 items of four bytes each and spend more on the
+        // split than on the work.
+        //
+        // **Bit-identical to the serial version by construction, not by
+        // inspection**: `cell_colour` and everything it reaches
+        // (`background_at`, `apply_field_overlay`, `apply_bubbles`,
+        // `apply_organism_overlay`, `under_sky`, `screen_to_world`,
+        // `sub_cell`) take `&self` and `&World`, the grain is keyed on world
+        // position rather than on carried RNG state (`rng::jitter(x, y)`),
+        // and each row owns a disjoint slice of `frame`. So determinism --
+        // required here, per `PLAN.md` -- is unaffected, and
+        // `a_parallel_redraw_is_bit_identical_to_a_serial_one` is the guard
+        // that says so rather than this comment.
+        let row_bytes = width as usize * 4;
+        // The serial version walked the whole of `frame` and derived `sy`
+        // from the pixel index, so a buffer longer than the viewport would
+        // have had rows painted past `height`. Clamping to both is the same
+        // answer for the exactly-sized buffer every caller passes, and a
+        // defined one for anything else.
+        let painted = (row_bytes * height as usize).min(frame.len());
         let recomputed = if full {
-            for (i, pixel) in frame.chunks_exact_mut(4).enumerate() {
-                let sx = (i % width as usize) as i32;
-                let sy = (i / width as usize) as i32;
-                let (wx, wy) = self.screen_to_world(sx, sy);
-                let colour = self.cell_colour(world, wx, wy, self.sub_cell(sx, sy));
-                pixel.copy_from_slice(&colour);
-            }
+            let this = &*self;
+            frame[..painted].par_chunks_mut(row_bytes).enumerate().for_each(|(row, pixels)| {
+                let sy = row as i32;
+                for (sx, pixel) in pixels.chunks_exact_mut(4).enumerate() {
+                    let sx = sx as i32;
+                    let (wx, wy) = this.screen_to_world(sx, sy);
+                    let colour = this.cell_colour(world, wx, wy, this.sub_cell(sx, sy));
+                    pixel.copy_from_slice(&colour);
+                }
+            });
             self.last_player_pose = player_pose;
             (width as usize) * (height as usize)
         } else {
@@ -2564,14 +2606,44 @@ impl Renderer {
             }
             let mut n = 0usize;
             if let Some(rect) = dirty {
-                for sy in rect.min_y..=rect.max_y {
-                    for sx in rect.min_x..=rect.max_x {
-                        let (wx, wy) = self.screen_to_world(sx, sy);
-                        let colour = self.cell_colour(world, wx, wy, self.sub_cell(sx, sy));
-                        put(frame, width, height, sx, sy, colour);
-                        n += 1;
-                    }
+                // Parallel over rows, exactly as the full path above, and
+                // for the same reason: "when something big breaks into lots
+                // of little pieces, the performance gets bad" was reported
+                // from play, and a collapse is precisely when the dirty
+                // region stops being small. Rows outside the viewport are
+                // dropped here rather than inside `put`, which is what the
+                // serial version relied on it for.
+                let this = &*self;
+                let y0 = rect.min_y.max(0) as usize;
+                let y1 = rect.max_y.min(height as i32 - 1);
+                if y1 >= rect.min_y.max(0) {
+                    let rows = (y1 as usize + 1).saturating_sub(y0);
+                    frame[..painted]
+                        .par_chunks_mut(row_bytes)
+                        .enumerate()
+                        .skip(y0)
+                        .take(rows)
+                        .for_each(|(row, pixels)| {
+                            let sy = row as i32;
+                            for sx in rect.min_x.max(0)..=rect.max_x.min(width as i32 - 1) {
+                                let (wx, wy) = this.screen_to_world(sx, sy);
+                                let colour = this.cell_colour(world, wx, wy, this.sub_cell(sx, sy));
+                                let i = sx as usize * 4;
+                                if let Some(px) = pixels.get_mut(i..i + 4) {
+                                    px.copy_from_slice(&colour);
+                                }
+                            }
+                        });
                 }
+                // **The rect's whole area, including any part of it that
+                // fell outside the viewport.** The serial version counted
+                // every pixel it *attempted* -- `put` clipped, and `n += 1`
+                // ran regardless -- and `the_skip_recomputes_fewer_than_
+                // every_pixel` and its neighbours are written against that
+                // number, so it is preserved deliberately rather than
+                // tightened to what was painted.
+                n = ((rect.max_x - rect.min_x + 1).max(0) as usize)
+                    * ((rect.max_y - rect.min_y + 1).max(0) as usize);
             }
             n
         };
@@ -7121,6 +7193,98 @@ mod tests {
         let mut reference = vec![0u8; (uw * uh * 4) as usize];
         fresh.draw(&world, &particles, &HashSet::new(), &mut reference, (uw, uh), true);
         assert_eq!(frame, reference, "the skipped repaint left a stale pose behind");
+    }
+
+    #[test]
+    fn a_parallel_redraw_is_bit_identical_to_a_serial_one() {
+        // `draw`'s cell pass runs on `rayon` (see its own note). Determinism
+        // is required here (`PLAN.md`), and what makes it hold -- every
+        // helper taking `&self` and `&World`, and the grain keyed on world
+        // position rather than on carried RNG state -- is a property of code
+        // that will be edited by people who have not read that note. This is
+        // what notices when it stops being true.
+        //
+        // **Two comparisons, because they fail for different faults.** A
+        // one-thread pool against the default pool catches the parallelism
+        // itself -- a race, or a row split that reads another worker's
+        // slice; it cannot catch a wrong row index, since both arms would be
+        // wrong the same way. The serial reference below catches exactly
+        // that, and is written out here rather than shared with the
+        // implementation so the two cannot drift into agreeing.
+        //
+        // Sized so the split is uneven -- 83 rows over however many workers
+        // the box has is not a clean division, which is where an off-by-one
+        // in the chunking would show.
+        let (w, h) = (137i32, 83i32);
+        let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
+        // A mix, so this covers more than one branch of `cell_colour`: sky
+        // (the gradient and star hash), water (fill dimming), soil (the
+        // saturation darkening) and stone.
+        for y in (h / 4)..h {
+            for x in 0..w {
+                let m = if y < h / 2 {
+                    material::WATER
+                } else if y < 3 * h / 4 {
+                    material::SAND
+                } else {
+                    material::STONE
+                };
+                world.set(x, y, Cell::new(m, (x * 7 + y * 13) as u8));
+            }
+        }
+        world.end_step();
+
+        let (uw, uh) = (w as u32, h as u32);
+        let particles = ParticleSystem::new();
+        let bytes = (uw * uh * 4) as usize;
+
+        let mut renderer = Renderer::new();
+        let mut many = vec![0u8; bytes];
+        renderer.draw(&world, &particles, &HashSet::new(), &mut many, (uw, uh), true);
+
+        let pool = rayon::ThreadPoolBuilder::new().num_threads(1).build().expect("one-thread pool");
+        let mut one = vec![0u8; bytes];
+        pool.install(|| {
+            Renderer::new().draw(&world, &particles, &HashSet::new(), &mut one, (uw, uh), true);
+        });
+        let differing = |a: &[u8], b: &[u8]| -> Option<(i32, i32)> {
+            a.chunks_exact(4).zip(b.chunks_exact(4)).position(|(p, q)| p != q).map(|i| {
+                ((i % uw as usize) as i32, (i / uw as usize) as i32)
+            })
+        };
+        assert_eq!(
+            differing(&one, &many),
+            None,
+            "the redraw is not independent of how many workers painted it"
+        );
+
+        // The reference: the loop the parallel one replaced, run through
+        // **the renderer that painted `many`**. A fresh one is not a valid
+        // reference and the first version of this test used one -- `draw`
+        // fills the sky-light block cache, the `under_sky` genesis map and
+        // this frame's `Sky` before it paints, so `cell_colour` on a
+        // renderer that has never drawn answers a different question. That
+        // failure looks exactly like a real indexing bug, which is worth a
+        // sentence here. Reusing it also narrows the guard to the loop,
+        // which is the part that changed. `self.frame` is incremented at the
+        // top of `draw`, so it still holds the value the pixel loop saw.
+        let mut serial = vec![0u8; bytes];
+        for (i, pixel) in serial.chunks_exact_mut(4).enumerate() {
+            let sx = (i % uw as usize) as i32;
+            let sy = (i / uw as usize) as i32;
+            let (wx, wy) = renderer.screen_to_world(sx, sy);
+            let colour = renderer.cell_colour(&world, wx, wy, renderer.sub_cell(sx, sy));
+            pixel.copy_from_slice(&colour);
+        }
+        // Only the cell pass is under comparison, so the world deliberately
+        // holds no gnome, no particles and no chunk bodies -- the three
+        // things `draw` paints over the top of it.
+        assert!(!world.weather().is_precipitating(), "a drawn storm would paint over the cell pass");
+        assert_eq!(
+            differing(&serial, &many),
+            None,
+            "a pixel is not showing the world cell it should"
+        );
     }
 
     #[test]
