@@ -31,7 +31,7 @@
         // The reference world: a ridge, a valley, and bluffs in patches.
         // What every other preset is a variation on.
         "rolling": (
-            sky_rows: 95.0,
+            sky_rows: 190.0,
             relief_amplitude: 46.0,
             hill_amplitude: 30.0,
             hill_wavelength: 150.0,
@@ -45,7 +45,7 @@
             mask_wavelength: 150.0,
             terrace_slope_lo: 0.6,
             terrace_slope_hi: 2.0,
-            soil_depth: 26.0,
+            soil_depth: 42.0,
             soil_slope_cutoff: 0.8,
             bedrock_band: 4.0,
             strata_thickness: 9.0,
@@ -83,7 +83,7 @@
         // or as a flight of stairs — if it ever reads as stairs, it will read
         // as stairs here first.
         "terraced": (
-            sky_rows: 95.0,
+            sky_rows: 190.0,
             relief_amplitude: 40.0,
             hill_amplitude: 26.0,
             hill_wavelength: 170.0,
@@ -97,7 +97,7 @@
             mask_wavelength: 110.0,
             terrace_slope_lo: 0.6,
             terrace_slope_hi: 2.0,
-            soil_depth: 22.0,
+            soil_depth: 35.0,
             soil_slope_cutoff: 0.8,
             bedrock_band: 4.0,
             strata_thickness: 10.0,
@@ -133,7 +133,7 @@
         // Deep relief, thin soil, tall scree, water far down. Big vertical
         // faces to strike, mine and stand under.
         "canyon": (
-            sky_rows: 80.0,
+            sky_rows: 160.0,
             relief_amplitude: 70.0,
             hill_amplitude: 18.0,
             hill_wavelength: 200.0,
@@ -147,7 +147,7 @@
             mask_wavelength: 170.0,
             terrace_slope_lo: 0.6,
             terrace_slope_hi: 2.0,
-            soil_depth: 12.0,
+            soil_depth: 19.0,
             soil_slope_cutoff: 0.7,
             bedrock_band: 5.0,
             strata_thickness: 12.0,
@@ -184,7 +184,7 @@
         // world the parameters allow — the upper bound when judging whether
         // water helps the place or drowns it.
         "wetland": (
-            sky_rows: 110.0,
+            sky_rows: 220.0,
             relief_amplitude: 24.0,
             hill_amplitude: 16.0,
             hill_wavelength: 200.0,
@@ -198,7 +198,7 @@
             mask_wavelength: 180.0,
             terrace_slope_lo: 0.6,
             terrace_slope_hi: 2.0,
-            soil_depth: 34.0,
+            soil_depth: 54.0,
             soil_slope_cutoff: 0.85,
             bedrock_band: 3.0,
             strata_thickness: 8.0,
@@ -248,7 +248,7 @@
         // than against a literal, so the next size change fails a test
         // instead of quietly wetting the desert.
         "arid": (
-            sky_rows: 95.0,
+            sky_rows: 190.0,
             relief_amplitude: 18.0,
             hill_amplitude: 9.0,
             hill_wavelength: 150.0,
@@ -262,7 +262,7 @@
             mask_wavelength: 150.0,
             terrace_slope_lo: 0.6,
             terrace_slope_hi: 2.0,
-            soil_depth: 20.0,
+            soil_depth: 32.0,
             soil_slope_cutoff: 0.75,
             bedrock_band: 4.0,
             strata_thickness: 9.0,

@@ -3841,9 +3841,20 @@ pub struct Site {
 }
 
 /// Cells of soil that count as a full blanket. Read against the measured
-/// p90 of 27 with headroom, not against the 43-cell maximum: a bar set on
-/// the extreme makes every ordinary column read as thin.
-const DEEP_BLANKET: f32 = 30.0;
+/// p90 with headroom, not against the maximum: a bar set on the extreme
+/// makes every ordinary column read as thin.
+///
+/// **Re-derived when `soil_depth` was deepened (2026-08-28).** This is a
+/// normalisation of a quantity the presets set, so it is not independent of
+/// them: raising `soil_depth` 1.6x without moving this would have saturated
+/// `blanket` across most of the world and silently re-cut every niche band
+/// that reads the woody sum -- measured, the sum's p50 went 1.60 -> 1.47 and
+/// its p90 2.08 -> 1.84 before this constant followed, which shifts grass
+/// (whose band is cut at 1.0 -> 2.0 through that spread) across the whole
+/// world. Held at the same 1.11x headroom over the measured p90 that the
+/// original 30 had over its p90 of 27: `flora_census -- terrain=1 seeds=8`
+/// now reports p90 48, max 68.
+const DEEP_BLANKET: f32 = 53.0;
 
 impl Site {
     /// The three facts, read off the generator's own plan for a column.
@@ -4550,6 +4561,55 @@ pub fn pockets(ctx: &Ctx, world: &mut World) -> usize {
                     }
                 }
                 if !sealed {
+                    continue;
+                }
+                // **The rind above is an ellipse *offset*, not a dilation,
+                // and powder moves at eight neighbours.** `outer` grows the
+                // semi-axes by one each, which is a one-cell gap along u and
+                // along v but not along the diagonal: at the tip of an
+                // elongated lens the cell at `(u+1, v+1)` scores
+                // `sqrt(1 + 1/(b+1)^2) > 1`, so it falls outside the rind and
+                // is never tested. If the surface happens to cut there, the
+                // tip grain has an empty *diagonal* neighbour and slides on
+                // frame one -- the exact "loose powder outcropping on a
+                // slope" this pass's seal was written to prevent, leaking
+                // through the one neighbour the seal's shape cannot see.
+                //
+                // This is `CLAUDE.md`'s "a traversal must use the same
+                // neighbourhood the writer used": the writer here is the
+                // powder rule, which is 8-connected, so the seal has to be
+                // too. Checked exactly rather than by growing the rind,
+                // because no ellipse offset is a dilation and a bigger one
+                // would only move the leak further out while rejecting good
+                // lenses.
+                //
+                // Cheap, and correct for a reason worth stating: the lens is
+                // written *after* this, so every cell that is about to
+                // become gravel is still stone right now. Requiring all
+                // eight neighbours of every lens cell to be stone therefore
+                // leaves each written grain surrounded only by its own lens
+                // or by rock.
+                //
+                // **Found by measurement, not by reading.** Over 200 seeds of
+                // `canyon` at 512x320 the old seal leaked on seed 108 (4
+                // cells) and, once `sky_rows` moved the terrain against the
+                // 64-cell pocket grid, on seed 11 (2 cells) --
+                // `a_forced_residual_world_arrives_at_rest` sweeps only
+                // 1..=20, so it had been passing on luck rather than on the
+                // seal holding.
+                let dilated_seal = lens.iter().all(|&(px, py)| {
+                    (-1..=1).all(|dy: i32| {
+                        (-1..=1).all(|dx: i32| {
+                            let (qx, qy) = (px + dx, py + dy);
+                            qx >= 0
+                                && qx < w
+                                && qy >= 0
+                                && qy < ctx.terrain.h
+                                && world.get(qx, qy).material == ctx.stone
+                        })
+                    })
+                });
+                if !dilated_seal {
                     continue;
                 }
                 for (px, py) in lens {
