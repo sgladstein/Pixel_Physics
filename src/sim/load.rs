@@ -758,6 +758,7 @@ fn chain_reaches_anchor(world: &World, x: i32, y: i32, memo: &mut AnchorMemo) ->
         }
         path.push(at);
         if path.len() > MAX_SUPPORT_WALK {
+            super::structural::census(|c| c.walk_capped += 1);
             break true; // over the cap: call it supported, never the other way
         }
         match support_parent(world, at.0, at.1) {
@@ -818,6 +819,13 @@ fn is_supported(world: &World, x: i32, y: i32, memo: &mut AnchorMemo, budget: &m
         // budget is generous enough for a whole detached piece to be
         // searched in one frame, so deferring cannot become a livelock.
         if visited > MAX_REGION_CELLS || *budget == 0 {
+            super::structural::census(|c| {
+                if visited > MAX_REGION_CELLS {
+                    c.region_capped += 1;
+                } else {
+                    c.supported_budget0 += 1;
+                }
+            });
             return true;
         }
         for (dx, dy) in NEIGHBOURS_4 {
@@ -2241,7 +2249,7 @@ const ROOTWARD_CHECK_STEPS: usize = 48;
 /// `Cache::subtrees` already holds their sums.
 pub fn failing_along_support_chain(world: &World, x: i32, y: i32, cache: &mut Cache, budget: &mut u32) -> ChainVerdict {
     let mut at = (x, y);
-    for _ in 0..ROOTWARD_CHECK_STEPS {
+    'rootward: for step in 0..ROOTWARD_CHECK_STEPS {
         if *budget == 0 {
             // Out of room this frame. Reported rather than swallowed: a
             // half-finished walk that returns "holds" is a *dropped check*,
@@ -2280,7 +2288,12 @@ pub fn failing_along_support_chain(world: &World, x: i32, y: i32, cache: &mut Ca
         }
         match support_parent(world, at.0, at.1) {
             Some(parent) => at = parent,
-            None => break, // reached an anchor
+            None => break 'rootward, // reached an anchor
+        }
+        // Only reachable by the loop running out of iterations, which is the
+        // third cap that answers rather than bounds -- see `TickCensus`.
+        if step + 1 == ROOTWARD_CHECK_STEPS {
+            super::structural::census(|c| c.rootward_capped += 1);
         }
     }
     ChainVerdict::Holds

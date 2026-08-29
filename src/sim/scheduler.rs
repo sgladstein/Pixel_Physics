@@ -356,6 +356,15 @@ impl SchedTiming {
                 "  [struct] frame {frame:>6} worsened {:>5} improved {:>5} unmoved {:>5} | budget0 {:>5} chain-deferred {:>5} uninteresting {:>5} | grounded {:>5} (flat {:>5}) | max aux {}",
                 c.worsened, c.improved, c.unmoved, c.budget0, c.chain_deferred, c.uninteresting, c.grounded, c.grounded_flat, c.max_aux
             );
+            // §S5: which cap answered "supported" without finishing the
+            // search. Printed beside the rest rather than folded into it --
+            // these are *wrong answers*, where the line above counts work.
+            if c.walk_capped + c.region_capped + c.supported_budget0 + c.rootward_capped > 0 {
+                println!(
+                    "  [caps]   frame {frame:>6} walk {:>5} region {:>5} budget0-in-supported {:>5} rootward {:>5}",
+                    c.walk_capped, c.region_capped, c.supported_budget0, c.rootward_capped
+                );
+            }
         }
     }
 }
