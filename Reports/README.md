@@ -388,6 +388,17 @@ field rework — see `open-bugs-handoff.md`.
 - [plant-appearance-design.md](plant-appearance-design.md) — **design.**
   Why relabelling a cell cannot move a silhouette that texture and colour
   set; the report behind `CLAUDE.md`'s "ask which *pixels* a lever moves".
+- [subpixel-rendering-2026-08-29.md](subpixel-rendering-2026-08-29.md) —
+  **measurement + prototype.** The framebuffer does not have to be the cell
+  grid: the window already gives every cell a 2x2 block of physical pixels and
+  paints all four the same, and drawing the same world region into four times
+  the pixels measures at **1.13x** the redraw (nine times: 1.32x), because the
+  per-pixel work is under 10% of a full draw. Semantic sub-cell reconstruction
+  — from *what the cell is*, which is why hqx/xBR cannot do this — and the
+  ambient-occlusion and surface-normal terms that fall out of the same field
+  for free. Carries the class rule (masses keep their per-cell grain, thin
+  structures do not) and two interior-quilting bugs that a firing counter would
+  have been green through.
 - [plant-night-session-handoff.md](plant-night-session-handoff.md) —
   **handoff.**
 - [plant-project-review-2026-08-23.md](plant-project-review-2026-08-23.md) —
