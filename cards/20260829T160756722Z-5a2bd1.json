@@ -1,0 +1,67 @@
+{
+  "id": "20260829T160756722Z-5a2bd1",
+  "created": "2026-08-29T16:07:56Z",
+  "board": "worldgen",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/worldgen-revamp-plan-dot67g",
+    "commit": "3c464c2",
+    "agent": null,
+    "session_id": "2cb39797-d076-5699-b8bf-4494224deffe",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Three presets, one seed: is 'every world is the same shape' the complaint?",
+  "question": "Before I commit to a big worldgen rebuild I want to be sure I am fixing the thing that actually disappoints you. My reading of these: the tint changes between presets and almost nothing else does. Same sawtooth skyline of straight ramps meeting at sharp peaks and V-notches, same constant-thickness soil drape following the surface, same dead-level colour bands underground, same leopard-spot blobs cutting across them, same flat-sided slab spire, same knife-edge flat water. Is that what 'disappointing' means -- one shape language everywhere, only repainted? Or is the shape fine to you and the problem is somewhere else (scale, colour, emptiness, something you cannot do in it)?",
+  "context_md": "Same seed (1), same camera positions, three of the six presets. Nothing changed between them but the preset.\n\nSix rounds of worldgen work have shipped, and the verdict I keep finding in the queue is a version of **'I see no difference between the images'** -- six separate cards say it. I want to know whether that is a *painting* problem or a *shape* problem before choosing what to rebuild, because the two need completely different work.\n\nThe number under each is local texture (mean absolute deviation from the 3x3 neighbourhood, what the eye reads as speckle). They are near-identical -- the presets differ far less than their parameters suggest they should.",
+  "kind": "gallery",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "rolling",
+      "files": [
+        "20260829T160756722Z-5a2bd1/000-rolling.png"
+      ],
+      "caption": "seed 1, three places across the world",
+      "meta": {
+        "luma MAD": 4.13,
+        "chroma MAD": 1.82,
+        "distinct rock materials in engine": 1
+      },
+      "focus": null
+    },
+    {
+      "label": "canyon",
+      "files": [
+        "20260829T160756722Z-5a2bd1/001-canyon.png"
+      ],
+      "caption": "same seed, same places",
+      "meta": {
+        "luma MAD": 4.52,
+        "chroma MAD": 2.42,
+        "distinct rock materials in engine": 1
+      },
+      "focus": null
+    },
+    {
+      "label": "wetland",
+      "files": [
+        "20260829T160756722Z-5a2bd1/002-wetland.png"
+      ],
+      "caption": "same seed, same places",
+      "meta": {
+        "luma MAD": 3.24,
+        "chroma MAD": 1.49,
+        "distinct rock materials in engine": 1
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
