@@ -354,6 +354,28 @@ pub struct World {
     /// knobs default to the historical behaviour exactly. See
     /// `sim::clock`'s module doc for why the two are separable at all.
     pub clock: crate::sim::clock::Clock,
+    /// **How many cells this world spends per unit of ground**, relative to
+    /// the size the engine's constants were authored at. `1.0` is that size.
+    ///
+    /// Set once at generation from `WorldgenParams::cell_scale` and never
+    /// changed after — a world is built at one resolution and stays there,
+    /// which is what makes it safe for anything holding a `&World` to read
+    /// without wondering when it last moved.
+    ///
+    /// **It lives here rather than on the worldgen params because most of
+    /// the things that need it are not worldgen.** The resolution step
+    /// (`Reports/resolution-step-2026-08-29.md`) turns on making every
+    /// feature `k` times as many cells across; `WorldgenParams::scaled`
+    /// handles the terrain, and everything else that is a length in cells --
+    /// the gnome's 7x14 body, a blast radius, an internode -- lives in the
+    /// source, in files that have a `&World` in hand and no reason to know
+    /// what a `WorldgenParams` is.
+    ///
+    /// Reading it is the *only* supported way for such a constant to find
+    /// out the world got finer. Constants that ignore it come out at the
+    /// wrong physical size and read as slivers, which is the round-6
+    /// "1-2 pixels wide" complaint arriving from the other direction.
+    pub cell_scale: f32,
     pub materials: MaterialRegistry,
     pub rng: Rng,
     /// M8: coherent pieces of broken structure currently in flight
@@ -1077,6 +1099,10 @@ pub struct World {
     /// radius spans both, and which one is right is a question for the
     /// hand rather than for argument.
     pub chain_reach: i32,
+    /// **Which stem-straightness mode growth runs under** — see
+    /// `plant::StemMode`. `K` cycles it; `Off` is the default and is the
+    /// behaviour that predates the mechanism.
+    pub stem_mode: crate::sim::plant::StemMode,
     /// How long a disturbance keeps licensing failures near it, in frames.
     /// Generous by default: a cave-in that arrives a few seconds after you
     /// undermine something is the mechanic, not a bug.
@@ -1364,6 +1390,43 @@ pub struct FailureCounts {
     /// question, but a zero is a wiring one.
     pub rotations_asked: u32,
     pub rotations_refused: u32,
+    /// Quarter turns a body asked for because it had come to rest **out of
+    /// balance**, and how many the fit probe refused. See `rigid::topple`.
+    ///
+    /// Counted apart from `rotations_asked` rather than folded into it, and
+    /// the reason is the one `rotations_asked`'s own doc gives: a counter is
+    /// worth exactly as much as the claim that what it counts is what you
+    /// care about. These two fire for different reasons at different moments
+    /// — one in the air, from the break; one on the floor, from the footing
+    /// — and a single number that moved could not say which mechanism did
+    /// it. `asked` at zero over a scene that felled a tree means the tipping
+    /// test never ran; `refused` high means pieces are trying to go over
+    /// inside a pile with no room for them, which is a different problem
+    /// with a different fix.
+    pub topples_asked: u32,
+    pub topples_refused: u32,
+    /// How the pieces came to rest: bodies of `MIN_BODY_CELLS` or more,
+    /// counted at the moment they re-enter the grid, by whether their own
+    /// bounding box is wider than tall, taller than wide, or square.
+    ///
+    /// **A body census, and it exists because the census that already
+    /// answered this question cannot.** `filmstrip`'s `log_pieces` folds
+    /// settled `log` into 8-connected clusters, so two logs that land
+    /// touching are one "piece" whose orientation is the *pile's*, not
+    /// either log's — its own doc says so, and records the largest "piece"
+    /// moving from 49x48 to 99x71 purely because the pile packed tighter.
+    /// Measured across nine paired scenes, that reading moved 31/38/8 to
+    /// 27/40/7 while every run's rotation counters went from silent to
+    /// dozens of turns: a statistic over three-to-ten merged blobs cannot
+    /// resolve what happened to thirty pieces.
+    ///
+    /// This one is asked of the piece itself, once, at the only moment its
+    /// extent is unambiguous. It says nothing about how the pile *reads* —
+    /// that is the owner's to judge — but it can say whether the pieces are
+    /// lying down.
+    pub settled_lying: u32,
+    pub settled_upright: u32,
+    pub settled_square: u32,
     /// Organism cells the plant-support check broke free — a limb that lost
     /// its anchor becoming deadwood.
     ///
@@ -1499,6 +1562,25 @@ impl FailureCounts {
         }
     }
 
+    /// One quarter turn offered by a body that landed out of balance, and
+    /// whether it fitted. See `topples_asked`.
+    pub fn record_topple(&mut self, fits: bool) {
+        self.topples_asked = self.topples_asked.saturating_add(1);
+        if !fits {
+            self.topples_refused = self.topples_refused.saturating_add(1);
+        }
+    }
+
+    /// One piece coming to rest, `width` by `height`. See `settled_lying`.
+    pub fn record_settled_pose(&mut self, width: i32, height: i32) {
+        let counter = match width.cmp(&height) {
+            std::cmp::Ordering::Greater => &mut self.settled_lying,
+            std::cmp::Ordering::Less => &mut self.settled_upright,
+            std::cmp::Ordering::Equal => &mut self.settled_square,
+        };
+        *counter = counter.saturating_add(1);
+    }
+
     /// One body, `cells` cells, actually lifted off the grid. See
     /// `promoted_bodies`.
     ///
@@ -1578,6 +1660,7 @@ impl World {
             chunks: HashMap::new(),
             fields: HashMap::new(),
             bounds: Some(bounds),
+            cell_scale: 1.0,
             frame: 0,
             clock: crate::sim::clock::Clock::default(),
             materials: MaterialRegistry::builtin(),
@@ -1643,6 +1726,7 @@ impl World {
             // the default is one edit in one place. Currently SPREAD, so
             // this is `i32::MAX` -- the literal it replaced.
             chain_reach: crate::sim::structural::CHAIN_MODES[0].reach,
+            stem_mode: crate::sim::plant::StemMode::default(),
             chain_window: crate::sim::structural::CHAIN_WINDOW_FRAMES,
             disturbances: std::collections::VecDeque::new(),
             staged_fractures: std::collections::VecDeque::new(),

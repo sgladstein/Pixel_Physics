@@ -32,6 +32,34 @@ pub const LEGACY: &str = "legacy";
 #[serde(default)]
 pub struct WorldgenParams {
     // ---- surface composition ----
+    /// **How many cells this world spends per unit of ground**, relative to
+    /// the size everything here was authored at. `1.0` is that size.
+    ///
+    /// Not a shape parameter like the rest of this struct -- it is the unit
+    /// the rest are denominated in, and it exists because a handful of
+    /// lengths live in the *source* rather than here and cannot otherwise
+    /// find out that the world got finer. [`WorldgenParams::scaled`] is what
+    /// sets it, and its doc has the whole argument.
+    ///
+    /// **The first consumer is the one that made it necessary.**
+    /// `region::COMPOSITION_WINDOW` is 512 cells because that is "roughly one
+    /// screen at 1:1" -- composition is a property of what fits in view, so a
+    /// screen is the right unit and 512 is only its value at the resolution
+    /// this was written at. Left hardcoded, a world with twice the cells gets
+    /// *twice as many regions* rather than the same regions twice as wide, so
+    /// the same seed builds a different landscape. Measured on `rolling` seed
+    /// 1: rescaling with the regions keyed to a fixed 512 left the terrain
+    /// **39.1 rows** from the original, against **42.5** for an entirely
+    /// different seed -- no more like itself than a stranger. With the
+    /// regions disabled the same rescale lands **1.18** rows out. So this one
+    /// number was the whole difference between "the same world, finer" and "a
+    /// different world".
+    ///
+    /// `worldgen` sits below `app` in this crate's layering and so cannot
+    /// read `app::WIDTH` to work this out for itself, which is why it arrives
+    /// as data.
+    pub cell_scale: f32,
+
     /// Rows of clear sky kept above the highest possible ridge.
     pub sky_rows: f32,
     /// Amplitude of the base relief wave — the ridge-to-valley swing that
@@ -404,9 +432,209 @@ pub struct WorldgenParams {
 /// Also the fallback for any field a preset omits (`#[serde(default)]` on the
 /// struct), which gives presets inheritance for free: a preset lists only
 /// what it changes and still loads if a later version adds a field.
+impl WorldgenParams {
+    /// This same shape at `k` times the cell resolution — the same world,
+    /// built out of `k` times as many cells per unit of ground.
+    ///
+    /// **Written for the resolution step** (`Reports/resolution-step-2026-08-29.md`),
+    /// whose whole content half is "make every feature `k` times as many cells
+    /// across". The render side of that is already paid for; this is the first
+    /// piece of the content side, and it exists because the obvious version of
+    /// it — multiply the numbers by two — is wrong.
+    ///
+    /// **These 46 fields carry four different dimensions, and only one of them
+    /// scales as `k`.** The classification is the content of this function; the
+    /// arithmetic is trivial. Getting it wrong does not fail to compile and does
+    /// not fail a test — it produces a world that is subtly the wrong density of
+    /// everything, which is the failure `CLAUDE.md` describes under *fixing a bug
+    /// often exposes a constant that was compensating for it*.
+    ///
+    /// | dimension | factor | why |
+    /// |---|---|---|
+    /// | a length or a wavelength, in cells | `k` | a ridge `n` cells tall is `nk` cells tall when a cell is `1/k` the size |
+    /// | dimensionless — a ratio, a probability, a slope | `1` | rise-over-run is unitless; both terms scale and it cancels |
+    /// | a per-column probability | `1/k` | there are `k` times as many columns across the same ground, so each must fire `1/k` as often |
+    /// | a count per fixed *cell* region | `1/k²` or `1/k` | the region is a hardcoded cell size, so the same ground now holds `k²` (area) or `k` (column-strip) of them |
+    ///
+    /// **The last row is the trap**, and it is only visible from the consumer
+    /// rather than the field: `pocket_density` is drawn once per 64x64 cell
+    /// region over a *2-D* loop (`passes.rs`'s `REGION`), so it takes `1/k²`,
+    /// while `residual_density` is drawn per 256-*column* region over a 1-D loop
+    /// (`residual.rs`'s `REGION`), so it takes `1/k`. Two fields whose names,
+    /// types and doc comments all read the same way, needing different factors.
+    ///
+    /// **What this deliberately does not do.** Those `REGION` constants are
+    /// themselves lengths in cells and stay put, so the placement *grid* gets
+    /// finer while the density compensates — the counts come out right and the
+    /// grid is not what anyone looks at. The things sized by other source
+    /// constants (`LENS_LOBE`, the cave and speleothem widths, `MIN_FRACTURE_
+    /// CELLS`) do not move at all, so a params-only rescale gets the *surface*
+    /// right and leaves everything below it at the old size. That is the honest
+    /// boundary of this function and the next piece of work after it.
+    ///
+    /// `k == 1.0` returns an identical value, which
+    /// `scaling_by_one_changes_nothing` checks — so this is safe to route the
+    /// unscaled path through.
+    pub fn scaled(&self, k: f32) -> Self {
+        // **Destructured exhaustively on purpose.** No `..`, so adding a field
+        // to `WorldgenParams` stops compiling here until somebody says which of
+        // the four classes above it belongs to. That is the only mechanism in
+        // this file that will still be working in six months: a test over the
+        // current 46 fields says nothing about the 47th, and the failure this
+        // guards against is silent.
+        let Self {
+            cell_scale,
+            sky_rows,
+            relief_amplitude,
+            hill_amplitude,
+            hill_wavelength,
+            detail_amplitude,
+            detail_wavelength,
+            warp_strength,
+            warp_wavelength,
+            terrace_step,
+            terrace_strength,
+            riser_roughness,
+            mask_wavelength,
+            terrace_slope_lo,
+            terrace_slope_hi,
+            soil_depth,
+            soil_slope_cutoff,
+            bedrock_band,
+            strata_thickness,
+            strata_tilt,
+            strata_fold,
+            pocket_density,
+            lens_roughness,
+            talus_max_height,
+            brow_chance,
+            table_damping,
+            table_offset,
+            capillary_fringe,
+            pond_min_depth,
+            pond_min_width,
+            aridity,
+            dune_amplitude,
+            dune_wavelength,
+            dune_variation,
+            aridity_table_drop,
+            region_variation,
+            vault_density,
+            vault_min_depth,
+            vault_bedrock_margin,
+            palette_field,
+            residual_density,
+            spring_flow,
+            world_age,
+            moss_density,
+            tree_density,
+            grass_density,
+            life_cluster_wavelength,
+        } = *self;
+
+        // A distance in cells, whichever axis.
+        let len = |v: f32| v * k;
+        // A distance in cells held as a row count.
+        let rows = |v: i32| (v as f32 * k).round() as i32;
+        // A probability evaluated once per column.
+        let per_column = |v: f32| v / k;
+
+        Self {
+            // ---- the unit the rest are denominated in ----
+            // Multiplied rather than assigned, so `scaled` composes: a world
+            // already at 2x taken to 2x again is at 4x, and the source-side
+            // lengths that read this get the right answer either way.
+            cell_scale: cell_scale * k,
+
+            // ---- lengths and wavelengths: x k ----
+            sky_rows: len(sky_rows),
+            relief_amplitude: len(relief_amplitude),
+            hill_amplitude: len(hill_amplitude),
+            hill_wavelength: len(hill_wavelength),
+            detail_amplitude: len(detail_amplitude),
+            detail_wavelength: len(detail_wavelength),
+            warp_strength: len(warp_strength),
+            warp_wavelength: len(warp_wavelength),
+            terrace_step: len(terrace_step),
+            mask_wavelength: len(mask_wavelength),
+            soil_depth: len(soil_depth),
+            bedrock_band: len(bedrock_band),
+            strata_thickness: len(strata_thickness),
+            strata_fold: len(strata_fold),
+            talus_max_height: len(talus_max_height),
+            table_offset: len(table_offset),
+            capillary_fringe: len(capillary_fringe),
+            pond_min_depth: len(pond_min_depth),
+            pond_min_width: len(pond_min_width),
+            dune_amplitude: len(dune_amplitude),
+            dune_wavelength: len(dune_wavelength),
+            aridity_table_drop: len(aridity_table_drop),
+            life_cluster_wavelength: len(life_cluster_wavelength),
+            vault_min_depth: rows(vault_min_depth),
+            vault_bedrock_margin: rows(vault_bedrock_margin),
+            // `spring_flow` is a budget denominated in *columns* of emission
+            // (`sim::spring::MAX`), so the same physical spring wets the same
+            // ground only if the budget grows with the column count.
+            spring_flow: len(spring_flow),
+
+            // ---- dimensionless: unchanged ----
+            // Ratios and fractions of another field that is itself scaled
+            // (`riser_roughness` of `terrace_step`, `soil_slope_cutoff` of the
+            // friction angle), plain probabilities, and the two slopes --
+            // `strata_tilt` and the terrace pair are rise over run, so both
+            // terms scale and the quotient does not.
+            terrace_strength,
+            riser_roughness,
+            terrace_slope_lo,
+            terrace_slope_hi,
+            soil_slope_cutoff,
+            strata_tilt,
+            lens_roughness,
+            brow_chance,
+            table_damping,
+            aridity,
+            dune_variation,
+            region_variation,
+            palette_field,
+            // Count per *world*, not per region -- `passes.rs` takes its floor
+            // plus a fractional chance once -- and the world is the same
+            // world. A scaled `vault_density` would put four times the
+            // chambers in the same ground.
+            vault_density,
+            // **Unresolved, and left alone deliberately rather than by
+            // oversight.** This is an iteration budget for erosion -- a
+            // *time*, not a length -- so `k` is not obviously right; but
+            // erosion moves material a cell at a time, so at `k` times the
+            // cells it plausibly needs `k` (or `k²`) times the steps to carve
+            // the same physical valley. Nobody has measured which, it is the
+            // one field here whose factor is a question rather than a
+            // classification, and getting it wrong shows up as terrain that
+            // is the right shape and the wrong age. See the report.
+            world_age,
+
+            // ---- densities: divided ----
+            // Per-column probabilities. `k` times as many columns cross the
+            // same ground, so each has to fire `1/k` as often or the world
+            // grows `k` times the trees.
+            moss_density: per_column(moss_density),
+            tree_density: per_column(tree_density),
+            grass_density: per_column(grass_density),
+            // Per 256-*column* region, drawn in a 1-D loop over `rx` only
+            // (`residual.rs`), so it divides once.
+            residual_density: per_column(residual_density),
+            // Per 64x64 *cell* region, drawn in a 2-D loop over `rx` and `ry`
+            // (`passes.rs`), so the same ground now holds `k²` regions and it
+            // divides twice. The difference from `residual_density` above is
+            // the whole reason this function is a table and not a multiply.
+            pocket_density: pocket_density / (k * k),
+        }
+    }
+}
+
 impl Default for WorldgenParams {
     fn default() -> Self {
         Self {
+            cell_scale: 1.0,
             sky_rows: 190.0,
             relief_amplitude: 46.0,
             hill_amplitude: 30.0,
@@ -534,6 +762,86 @@ impl WorldgenPresets {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `scaled(1.0)` is the identity, so the unscaled path can route through
+    /// it without a special case -- and so that a field classified into the
+    /// wrong bucket still cannot change today's worlds.
+    #[test]
+    fn scaling_by_one_changes_nothing() {
+        let (presets, err) = WorldgenPresets::load();
+        assert!(err.is_none(), "{err:?}");
+        for name in presets.cycle_order() {
+            let Some(p) = presets.get(&name) else { continue };
+            assert_eq!(*p, p.scaled(1.0), "preset {name} moved under scaled(1.0)");
+        }
+    }
+
+    /// **A world built at `k` times the cell resolution is the same world,
+    /// `k` times as large.** This is the property the whole resolution step
+    /// rests on: if it does not hold, "double the resolution" cannot mean
+    /// "the same place, finer" and there is nothing to scale *to*.
+    ///
+    /// **The unrelated-seed control is inside the assertion, not beside it**,
+    /// and that is the entire design of this test. The residual is a mean
+    /// absolute difference in rows, and a small one means nothing on its own
+    /// -- a preset whose relief happened to be gentle would pass with the
+    /// rescale completely broken. Measured against a different seed of the
+    /// same preset, "broken" has a value: **when this was first run the
+    /// rescaled residual was 39.1 rows on `rolling` against a 42.5-row
+    /// control**, i.e. the rescaled world was no more like the original than
+    /// a stranger, which is exactly what the ratio below catches and what a
+    /// bare threshold would not have.
+    ///
+    /// The cause was `region::COMPOSITION_WINDOW`, a fixed 512 cells; with it
+    /// scaled by `cell_scale` the same five presets read 0.20 to 1.94 rows
+    /// against controls of 17 to 62 -- ratios of 1% to 11%. The bar is 25%,
+    /// which is a little over twice the worst measured value, per
+    /// `CLAUDE.md`'s "set bars from measurement with headroom".
+    ///
+    /// The residual does not go to zero and should not be expected to:
+    /// column `x` of the small world maps to column `round(kx)` of the big
+    /// one, and `column::strata_offset` folds its bands on a hardcoded
+    /// 130-cell wavelength that `scaled` cannot reach.
+    #[test]
+    fn a_rescaled_world_is_the_same_world_at_a_finer_grain() {
+        use crate::worldgen::column::Terrain;
+        const K: f32 = 2.0;
+        const W: i32 = 512;
+        const H: i32 = 320;
+        let (soil, sand) = (33.0_f32.to_radians().tan(), 34.0_f32.to_radians().tan());
+        let (presets, err) = WorldgenPresets::load();
+        assert!(err.is_none(), "{err:?}");
+
+        for name in ["rolling", "terraced", "canyon", "wetland", "arid"] {
+            let base = presets.get(name).expect("shipped preset").clone();
+            let big = base.scaled(K);
+            let small = Terrain::new(1, &base, W, H, soil, sand);
+            let large = Terrain::new(1, &big, (W as f32 * K) as i32, (H as f32 * K) as i32, soil, sand);
+            // The control: the same preset and size, a different seed.
+            let stranger = Terrain::new(2, &base, W, H, soil, sand);
+
+            let (mut rescaled, mut control) = (0.0f64, 0.0f64);
+            for x in 0..W {
+                let here = small.elev(x);
+                rescaled += (here - large.elev((x as f32 * K) as i32) / K).abs() as f64;
+                control += (here - stranger.elev(x)).abs() as f64;
+            }
+            let (rescaled, control) = (rescaled / W as f64, control / W as f64);
+
+            // The control has to be big, or the ratio below is meaningless --
+            // two identical worlds would pass it trivially.
+            assert!(
+                control > 5.0,
+                "{name}: the different-seed control is only {control:.2} rows, so this preset \
+                 cannot tell a rescaled world from an unrelated one either way"
+            );
+            assert!(
+                rescaled < control * 0.25,
+                "{name}: rescaling to {K}x left the terrain {rescaled:.2} rows from the original, \
+                 against {control:.2} for an unrelated seed -- the rescale is not preserving the world"
+            );
+        }
+    }
 
     #[test]
     fn shipped_asset_file_parses() {

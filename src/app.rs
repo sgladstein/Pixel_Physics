@@ -209,8 +209,6 @@ pub struct App {
     /// visible. Stored by identity (group/category/name), never by value,
     /// so it stays correct across a hot-reload that rebuilds the list.
     pinned: Option<(TunableGroup, String, String)>,
-    /// `K` — whether the current A/B experiment is on. See `toggle_experiment`.
-    pub experiment: bool,
     /// Which gesture the mouse lays material with. `Z` cycles it.
     ///
     /// Reported from play: *"using a paint brush type tool to build is not
@@ -521,7 +519,6 @@ impl App {
             // has the rest of that argument.
             tunables_group: TunableGroup::World,
             pinned: None,
-            experiment: false,
             tool: Tool::Brush,
             drag_from: None,
             show_stress: false,
@@ -1003,12 +1000,17 @@ impl App {
     /// at 0.65 draws across 54%..100% brightness and reads as a mottled band
     /// rather than a clean edge.
     pub fn toggle_experiment(&mut self) {
-        self.experiment = !self.experiment;
-        let value = if self.experiment { 0.20 } else { 0.65 };
-        if let Some(id) = self.world.materials.id_of("water") {
-            self.world.materials.get_mut(id).fill_dimming = value;
-        }
-        self.message = Some(format!("water fill_dimming {value:.2}"));
+        // **Reassigned, as this key's own doc says it should be**: the water
+        // `fill_dimming` question it used to carry was settled, and the live
+        // one is how straight a shoot draws itself. See `plant::StemMode`.
+        self.world.stem_mode = self.world.stem_mode.cycle();
+        let mode = self.world.stem_mode;
+        // **The instruction is half the feature.** Every other look selector
+        // re-draws the world on the next frame; this one changes how plants
+        // *grow*, so pressing it does nothing to a stand that has already
+        // grown, and without this line it reads as a dead key. `F6` is a
+        // fresh world, which is where the difference actually shows.
+        self.message = Some(format!("stem {} — F6 for a fresh world to see it", mode.label()));
     }
 
     pub fn tunables_move(&mut self, delta: i32) {
@@ -2138,7 +2140,7 @@ impl App {
                 // anybody scanning this list is looking for -- "tunables
                 // panel" told a reader who already knew what it was.
                 Key("O", "OPTIONS: DAY/NIGHT, WEATHER"),
-                Key("K", "A/B EXPERIMENT"),
+                Key("K", "STEM: OFF/AUTHORED/FULL"),
                 Key("/ ESC", "THIS HELP / CLOSE"),
             ],
             [
@@ -2505,7 +2507,10 @@ impl App {
             return;
         }
         let (x, y) = self.renderer.screen_to_world(screen_x, screen_y);
-        self.world.player = Some(player::Player::at(x, y));
+        // **At the world's own cell scale**, not the authored size -- a
+        // world generated finer needs a proportionally bigger gnome or he is
+        // half the character he was. See `Player::at_scaled`.
+        self.world.player = Some(player::Player::at_scaled(x, y, self.world.cell_scale));
         // Switched into the dig tool on arrival rather than left for the
         // player to find. A verb nobody knows exists is a verb that does
         // not exist — see `Tool::Dig` — and arriving in it also makes the
@@ -2571,7 +2576,7 @@ impl App {
         // which is the one furthest from the cause. Landing the world clock
         // hit exactly this against `main`'s sky-light indicator.
         format!(
-            "Pixel Physics — {:.0} fps — {} (brush {}) — chunks {}/{} awake — {} {:#018X}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}",
+            "Pixel Physics — {:.0} fps — {} (brush {}) — chunks {}/{} awake — {} {:#018X}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}",
             fps,
             self.selected_name(),
             self.brush_radius,
@@ -2643,6 +2648,16 @@ impl App {
                 String::new()
             } else {
                 format!(" — gas {}", self.renderer.gas.label())
+            },
+            // Same rule again for the stem walk (`K`). Silent at the default
+            // so the ordinary status line is untouched, named the moment it
+            // is not -- and this one matters more than the render selectors,
+            // because a screenshot of a grown stand carries no other clue as
+            // to which mode grew it.
+            if self.world.stem_mode == crate::sim::plant::StemMode::default() {
+                String::new()
+            } else {
+                format!(" — stem {}", self.world.stem_mode.label())
             },
             // Same rule again for the terrain depth light (`F10`), with the
             // roles flipped: the depth grade is the default, so the label
@@ -3303,6 +3318,28 @@ mod tests {
         assert!(!app.status(60.0).contains("ASSETS EDITED"), "a clean tree must not add noise to the title");
         app.assets_dirty = None;
         assert!(!app.status(60.0).contains("ASSETS EDITED"), "git being unavailable is silence, not a warning");
+    }
+
+    /// **A screenshot of a grown stand carries no clue which mode grew it**,
+    /// so the status line is the only record. That matters more here than for
+    /// the render selectors: `K` changes how plants *grow*, so a sheet posted
+    /// for judgement can be attributed to the wrong mode long after the key
+    /// was pressed, and nothing in the picture would say so.
+    #[test]
+    fn the_status_line_names_the_stem_mode_it_grew_under() {
+        let mut app = App::new();
+        assert!(
+            !app.status(60.0).contains("stem"),
+            "the default line must stay quiet, the same as grain, spoil, chain and organism do"
+        );
+        app.world.stem_mode = crate::sim::plant::StemMode::Full;
+        assert!(
+            app.status(60.0).contains("stem FULL"),
+            "a non-default stem mode must name itself: {}",
+            app.status(60.0)
+        );
+        app.world.stem_mode = crate::sim::plant::StemMode::Authored;
+        assert!(app.status(60.0).contains("stem AUTHORED"), "every non-default mode names itself, not just one");
     }
 
     /// The field overlay was the one selector on the status line that never

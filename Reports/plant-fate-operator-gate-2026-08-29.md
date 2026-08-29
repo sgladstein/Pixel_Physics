@@ -174,9 +174,12 @@ plant that cannot grow; that is an owner call, and it now has numbers under it.
 
 ## 5. What is not established
 
-- **One world seed** (7). Legitimate for a rate over *mutations* — a mutation
-  that destroys the frontier destroys it at any seed — and not for comparing
-  arms. Per-arm seed counts in the logs are not comparable to each other.
+- **One world seed** (7) for the eight-cell table. Legitimate for a rate over
+  *mutations* — a mutation that destroys the frontier destroys it at any seed —
+  and not for comparing arms. Per-arm seed counts in the logs are not
+  comparable to each other. **Controlled for on the two cells the argument
+  rests on**, see §6.
+
 - **n = 40 per cell**, everywhere except `tree retarget`, which was re-run at
   120 for the reason §1 gives — at n=38 the organ split rested on n=9 and did
   not separate. It does at n=112 (3.6 SE). **The other seven cells are still
@@ -190,6 +193,44 @@ plant that cannot grow; that is an owner call, and it now has numbers under it.
 - **The engine's own effective rate is unmeasured.** This gates the *operator*;
   what a lineage does with it over generations is the handoff's §3b and §3d, and
   still needs the lineage census and the genome probe.
+
+## 6. The control: is the silence structural, or is it the scene?
+
+Asked by the owner, and it is the right question — "this operator does nothing"
+and "this operator does nothing *here*" are different findings and only one of
+them generalises. `tree delete` and `tree recondition` re-run at a different
+world seed and at 2.5x the frame budget:
+
+| condition | base stand | `delete` effective | `recondition` effective |
+|---|---|---|---|
+| seed 7, 12k frames (the table above) | 79 seeds | **0/40** | **1/40** |
+| seed 23, 12k frames | 82 seeds | **0/40** | **2/40** |
+| seed 7, 30k frames | 206 seeds | **0/40** | **1/40** |
+
+**The arms moved and the result did not.** The unmutated stand goes from 79
+seeds to 206 — a 2.6x change in the exact quantity the gate reads — and
+`delete` does not shift by one mutant across three different worlds. That is
+the signature of a cause in the lookup rather than in the bed, and it agrees
+with the mechanism §3 names and the guard pins.
+
+**A second control was already in the table and is worth naming as one.**
+`herb` runs the same operators in the same scene at the same seed and budget,
+and reads 42% and 48% effective where `tree` reads 2% and 0%. The environment
+is *identical* across that pair; what differs is genome layout — herb carries
+nine rules over eight slots with one duplicated, and two of them are `Ripe`
+rules, the only slots `builtin_fate` cannot answer. Variation that tracks the
+genome while the world is held fixed is the same finding from the other side.
+
+**Three things this control does not establish.** It covers two of the eight
+cells, not all of them. It says nothing about **benefit** — the gate asks
+whether a mutant lives, never whether it wins, and no experiment in this
+repo yet asks the second question for plants (that needs competing arms in one
+world, read at an order statistic). And it does not touch the one place the
+environment demonstrably *does* bite, which is §1's finding rather than this
+one: on `tree` an organ cannot function at all, because the species file
+declares no organ material, no `Ripen` behaviour and no `Ripe` rule. That is a
+configuration gap of about three lines, not a balance one, and it is why
+organ-reaching mutants survive at 56% against 93%.
 
 ## Reproduce
 

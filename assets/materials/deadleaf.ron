@@ -169,6 +169,12 @@
     // is what keeps the ant and fire layers unchanged — they read `litter`
     // and `litter` is still what a forest floor is made of.
     breaks_into: "litter",
+    // **Stays on the branch it came down on.** The second half of the
+    // owner's ruling, and the half the friction angle above cannot deliver:
+    // a steep angle stops foliage *flowing away*, but nothing stops it
+    // falling off the limb it landed on. See `MaterialDef::clings_to_wood`
+    // and `update::on_a_branch`.
+    clings_to_wood: true,
     anchors_organisms: false,
     // **Rots into the forest floor, and this is the rate that decides
     // whether the mechanic reads.** Too fast and a felled crown is a gold

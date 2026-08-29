@@ -1152,6 +1152,32 @@ pub struct MaterialDef {
     #[serde(default)]
     pub woody: bool,
 
+    /// **This powder stays put while it is touching something `woody`.**
+    ///
+    /// Owner, twice: *"most of the leaves should stay on the branch"*, and
+    /// before that *"They can stay on the branch if that is easier."* A
+    /// severed limb already rides down whole with its foliage on it; what
+    /// went wrong is afterwards, because the foliage lands as a powder and a
+    /// powder falls off whatever it landed on.
+    ///
+    /// The obvious alternative -- make it a `Solid` so it cannot move at all
+    /// -- was built and rendered and is a recorded dead end: a severed crown
+    /// converts in mid-air, the first pieces to land become a scaffold that
+    /// nothing can ever fail, and the tree dies standing in the shape it
+    /// grew in. See `deadleaf.ron`'s own header. This is the narrower claim
+    /// that was actually wanted: foliage in open air falls like anything
+    /// else, and foliage *on a branch* stays on it.
+    ///
+    /// Deliberately the same shape as `reinforces_powder` read from the
+    /// other side -- one property, tested against the four neighbours,
+    /// before any movement rule runs. And deliberately binary for the same
+    /// reason that one is: it is one check and immediately judgeable by eye.
+    /// The graded version (clinging foliage gets a shorter roll reach, so it
+    /// sheds gradually as the branch rots out from under it) is the upgrade
+    /// if binary reads as too absolute.
+    #[serde(default)]
+    pub clings_to_wood: bool,
+
     /// What a **piece** of this material becomes when it lands, as against
     /// `breaks_into`'s grit.
     ///
@@ -1521,6 +1547,8 @@ pub struct Material {
     pub fragment_floor: u32,
     /// See `MaterialDef::woody`.
     pub woody: bool,
+    /// See `MaterialDef::clings_to_wood`.
+    pub clings_to_wood: bool,
     /// See `MaterialDef::anchors_organisms`.
     pub anchors_organisms: bool,
     /// See `MaterialDef::joint_spacing`. `0.0` means not jointed; never
@@ -1866,6 +1894,7 @@ impl From<MaterialDef> for Material {
             // reachable from a `.ron` file.
             fragment_floor: def.fragment_floor.max(1),
             woody: def.woody,
+            clings_to_wood: def.clings_to_wood,
             anchors_organisms: def.anchors_organisms,
             // Clamped rather than asserted: this is content, and a
             // hand-edited `.ron` must not be able to panic the simulation.
@@ -2199,6 +2228,7 @@ impl MaterialRegistry {
             fragment_rungs: 5,
             fragment_floor: default_fragment_floor(),
             woody: false,
+            clings_to_wood: false,
             severs_into: String::new(),
             anchors_organisms: true,
             joint_spacing: 0.0,
@@ -2274,6 +2304,7 @@ impl MaterialRegistry {
             fragment_rungs: 5,
             fragment_floor: default_fragment_floor(),
             woody: false,
+            clings_to_wood: false,
             severs_into: String::new(),
             anchors_organisms: true,
             joint_spacing: 0.0,

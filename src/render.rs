@@ -133,6 +133,135 @@ const DEPTH_LIGHT_SHOULDER_REACH: usize = 9;
 const SKY_LIGHT_AIR: f32 = 0.91;
 const SKY_LIGHT_SOLID: f32 = 0.56;
 
+/// Directions the **sky-view** term traces back toward the sky, as
+/// `tan(theta)` from straight up — the horizontal drift per row climbed.
+///
+/// # Why there is a second term at all
+///
+/// `SKY_LIGHT_AIR` above makes darkness a function of *distance from a lit
+/// cell*, and distance cannot tell a hole from a hollow. Measured on the
+/// design round's own table (`Reports/sky-light-design.md`, Finding 2): a
+/// 64-wide open pit reads **0.023** at its floor and a 1-wide shaft reads
+/// **0.010** at the same depth. Those are the same number, and the two
+/// geometries are not remotely the same place — one has most of the sky
+/// overhead and the other has a slot. Reported from play the moment anyone
+/// broke ground properly: *"the background remains black ... looks bad when
+/// I break up the ground near the surface"*, against a hilltop cut that is
+/// open air by inspection and drew as a black slab beside the sky it was
+/// level with.
+///
+/// So this asks the other question — **how much of the sky can this block
+/// actually see** — by tracing back along a fixed fan of directions and
+/// attenuating through *material only*. Clear air does not dim sunlight, and
+/// pretending it does is precisely what flattened the pit and the shaft onto
+/// one value. The two terms are combined with `max`, because they are two
+/// real ways for light to arrive and neither supersedes the other: the fan
+/// answers the open cut, the distance spread answers reaching *sideways* into
+/// a tunnel, which no straight ray from the sky ever reaches (`CAVE_FADE_
+/// DEPTH`'s soft cave mouth is that term's, and it stays).
+///
+/// # Why these directions
+///
+/// Eight rays whose **sines** are evenly spaced over `-1..1`, so each carries
+/// an equal share of the cosine-weighted sky and the average needs no
+/// weights: `sin = (2k+1)/8 - 1` for `k in 0..8`, i.e. `+-0.125, +-0.375,
+/// +-0.625, +-0.875`, listed here as their tangents.
+///
+/// **Bin midpoints, so no ray is exactly vertical, and that is load-bearing
+/// rather than tidy.** A straight-up ray is free daylight down any shaft
+/// wide enough to contain one block column, which is the *exact* defect that
+/// disqualified `field.rs`'s channel from driving this (`sky-light-design.md`
+/// Finding 1: a block-aligned 8-wide shaft reads full brightness 100 cells
+/// down). With the steepest ray at 7.2 degrees off vertical, a shaft has to
+/// be about `0.25 * depth` wide to admit even one ray to its floor — an
+/// aperture, which is the thing that genuinely separates a quarry from a
+/// mine, and not a width threshold, which is the thing four rejected models
+/// died of (`dead-ends.md`).
+const SKY_VIEW_RAYS: [f32; 8] = [-1.8074, -0.8006, -0.4045, -0.1260, 0.1260, 0.4045, 0.8006, 1.8074];
+
+/// Albedo of the rock and soil around an open cut, for the one bounce that
+/// turns *visible sky* into *how bright it is down there*.
+///
+/// The fan above measures the sky a block can see **directly**. That is not
+/// the light it gets: the walls of a pit are themselves in daylight and
+/// throw a good deal of it back, which is why standing in a quarry is
+/// nothing like standing in a cave with the same amount of sky overhead.
+/// Ignoring it drew the shaded side of a cut — a place with half the sky
+/// still open to it — a third of the way to unlit rock, and the strip read
+/// as smog rather than as shade.
+///
+/// The closed form for an enclosure whose surfaces sit at the ambient level
+/// is `A = V + albedo * (1 - V) * A`, i.e. `V / (1 - albedo * (1 - V))` —
+/// standard, not a curve fitted to this picture. It leaves both ends alone
+/// (`V = 1` stays 1, and a sealed chamber's `1e-7` is still nothing) and
+/// lifts only the middle, which is exactly the range the complaint was
+/// about: `0.4 -> 0.53`, `0.5 -> 0.63`, `0.75 -> 0.83`.
+///
+/// 0.4 is the top of the real range for dry rock and soil (0.15–0.4, sand
+/// about 0.4), taken there because these walls are lit stone and sand rather
+/// than damp earth. Rendered against 0.45 the two are indistinguishable, so
+/// the picture does not sit on this value.
+const SKY_VIEW_ALBEDO: f32 = 0.4;
+
+/// One `SKY_VIEW_RAYS` direction, swept across a row-major field of `w x h`
+/// blocks, accumulating `share` of its answer into `view`.
+///
+/// The ray descends one row per step (or climbs one, when `down` is false)
+/// and drifts `shift` columns as it goes, so what arrives at a block is
+/// whatever stood `shift` back along the row it came from, dimmed by the
+/// material in the block it has just entered — and never less than the
+/// block's own seed, since an outdoors block *is* the sky rather than
+/// something the sky has to reach.
+///
+/// **`shift` is fixed for the whole sweep, so the two interpolation weights
+/// are too.** That is the whole of why this is cheap: the inner loop is a
+/// pair of zipped slices and three multiplies, with no index arithmetic and
+/// nothing to recompute. `prev` and `cur` are scratch of at least
+/// `max(w, h) + 2` — the two spare entries are a skirt holding a copy of
+/// each end value, which is the clamp at the edge of the region expressed as
+/// data instead of as a branch in the loop.
+#[allow(clippy::too_many_arguments)]
+fn sky_view_ray(
+    seed: &[f32],
+    trans: &[f32],
+    view: &mut [f32],
+    w: usize,
+    h: usize,
+    shift: f32,
+    share: f32,
+    down: bool,
+    prev: &mut Vec<f32>,
+    cur: &mut Vec<f32>,
+) {
+    let off = (-shift).floor();
+    let w1 = -shift - off;
+    let w0 = 1.0 - w1;
+    // `|shift| < 1` always -- a steeper ray is transposed by the caller --
+    // so `off` is -1 or 0 and the skirted line is read at `i, i+1` or
+    // `i+1, i+2`. Both are in range for every `i` in `0..w`.
+    let base = (1.0 + off) as usize;
+    let first = if down { 0 } else { h - 1 };
+    for (x, (p, v)) in prev[1..=w].iter_mut().zip(&mut view[first * w..first * w + w]).enumerate() {
+        *p = seed[first * w + x];
+        *v += share * *p;
+    }
+    prev[0] = prev[1];
+    prev[w + 1] = prev[w];
+    for k in 1..h {
+        let r = (if down { k } else { h - 1 - k }) * w;
+        let (a, b) = (&prev[base..base + w], &prev[base + 1..base + 1 + w]);
+        let rows = seed[r..r + w].iter().zip(&trans[r..r + w]).zip(&mut view[r..r + w]);
+        for ((((s, t), v), c), (a, b)) in rows.zip(cur[1..=w].iter_mut()).zip(a.iter().zip(b)) {
+            let lit = ((a * w0 + b * w1) * t).max(*s);
+            *c = lit;
+            *v += share * lit;
+        }
+        cur[0] = cur[1];
+        cur[w + 1] = cur[w];
+        std::mem::swap(prev, cur);
+    }
+}
+
 /// How far outside the viewport the propagation is computed.
 ///
 /// **Not a tuning knob — it is where the falloff stops being representable.**
@@ -141,7 +270,23 @@ const SKY_LIGHT_SOLID: f32 = 0.56;
 /// screen edge a function of where the camera happens to be, which is the
 /// worst kind of artifact: invisible in a still and a crawling shimmer the
 /// moment anyone pans.
+///
+/// **What that reasoning does *not* cover, now that `SKY_VIEW_RAYS` sits
+/// beside the falloff.** A ray is not attenuated by air at all, so nothing
+/// makes it stop being representable with distance — it stops at the edge of
+/// the region instead, and the region follows the camera. A block therefore
+/// finds the sky only if an outdoors block is inside the region with it.
+///
+/// The case that reaches is a pit whose rim is more than this above the top
+/// of the screen while its floor is still on it — about **224 cells deep**,
+/// since the viewport is 320 and the camera would be near the bottom. Below
+/// that the floor loses the fan and reads dark, and would brighten if you
+/// scrolled up to bring the rim into the region. Left as it is deliberately:
+/// the answer it gives there (the bottom of a shaft that deep is dark) is the
+/// right one anyway, and buying exactness costs a taller region on every
+/// frame, which is the scan that dominates this whole rebuild.
 const SKY_LIGHT_MARGIN: i32 = 64;
+
 
 /// Where the darkness behind a void comes from — cycled with `F12`.
 ///
@@ -3005,20 +3150,32 @@ impl Renderer {
         // stays a pure function of world state so the dirty-rect skip's
         // pixel-identity still holds.
         let scenery_key = {
-            let (w, h) = (table[0].len() as i32, table.len() as i32);
+            let (w, h) = (player.w, player.h);
             (ox..ox + w)
                 .find(|&wx| {
                     (oy..oy + h).any(|wy| world.materials.get(world.get(wx, wy).material).scenery)
                 })
                 .unwrap_or(ox)
         };
-        for (dy, row) in table.iter().enumerate() {
-            for (dx, colour) in row.iter().enumerate() {
-                let Some(colour) = colour else { continue };
+        // **Walk the cells he occupies, not the cells the table has.** The
+        // sprite is authored at `PLAYER_WIDTH`x`PLAYER_HEIGHT`; a world
+        // generated at a finer `cell_scale` makes him proportionally bigger
+        // (`Player::at_scaled`), and a loop over the table would draw the
+        // authored 7x14 into a 14x28 body -- a quarter-size gnome standing
+        // in a full-size collision box. Sampling the table nearest-neighbour
+        // keeps him the right size on screen with no new art, which is the
+        // whole of the *size* fix; a sprite that actually spends the extra
+        // pixels is a separate, judge-by-eye change.
+        let (table_w, table_h) = (table[0].len() as i32, table.len() as i32);
+        for dy in 0..player.h {
+            let row = &table[(dy * table_h / player.h).clamp(0, table_h - 1) as usize];
+            for dx in 0..player.w {
+                let sprite_x = (dx * table_w / player.w).clamp(0, table_w - 1) as usize;
+                let Some(colour) = &row[sprite_x] else { continue };
                 // Mirrored on the *sprite* column, so the world rectangle
                 // he occupies is unchanged whichever way he faces.
-                let column = if player.facing_left { row.len() - 1 - dx } else { dx };
-                let (wx, wy) = (ox + column as i32, oy + dy as i32);
+                let column = if player.facing_left { player.w - 1 - dx } else { dx };
+                let (wx, wy) = (ox + column, oy + dy);
                 let Some((sx, sy)) = self.world_to_screen(wx, wy) else {
                     continue;
                 };
@@ -3229,6 +3386,11 @@ impl Renderer {
         let n = (bw * bh) as usize;
         let mut light = vec![0.0f32; n];
         let mut decay = vec![0.0f32; n];
+        // The same Beer-Lambert transmission with the *air* factor left out,
+        // for `SKY_VIEW_RAYS`. Free: `decay` already computes it as its own
+        // first half, so this keeps the intermediate rather than paying a
+        // second `powf` per block.
+        let mut through_solid = vec![0.0f32; n];
         let area = (block * block) as f32;
         // **One chunk lookup per block, not one per cell**, and this is the
         // whole cost of the feature. `World::get` is a `HashMap` lookup, and
@@ -3330,11 +3492,34 @@ impl Renderer {
                 // acceptable form of the quantisation -- unlike the existing
                 // channel, where a block-aligned shaft simply never dims.
                 let f = solid as f32 / area;
-                decay[i] = SKY_LIGHT_SOLID.powf(block as f32 * f) * SKY_LIGHT_AIR.powf(block as f32 * (1.0 - f));
+                through_solid[i] = SKY_LIGHT_SOLID.powf(block as f32 * f);
+                decay[i] = through_solid[i] * SKY_LIGHT_AIR.powf(block as f32 * (1.0 - f));
             }
         }
 
         let build_ms = t_build.elapsed().as_secs_f64() * 1000.0;
+        let t_view = std::time::Instant::now();
+
+        // **How much sky this block can see**, through one bounce off the
+        // walls (`SKY_VIEW_ALBEDO`), folded into the seeds so the spread
+        // below carries it onward — a tunnel opening off a bright cut gets
+        // its wedge of light from the cut, which no ray from the sky ever
+        // reaches. See `SKY_VIEW_RAYS` for why the distance term alone could
+        // not answer this, and for the fan.
+        //
+        // The seeds are read before they are written, so `light` is still
+        // exactly "is this block outdoors" here — which is what a ray has to
+        // reach to count as having found the sky. Nothing outside the grid
+        // is a source: a ray that leaves the region is worth whatever the
+        // edge of the region was worth, which is the same extrapolation
+        // `sky_light_at` makes when it clamps, and the reason the region
+        // carries `SKY_LIGHT_MARGIN` of context in the first place.
+        let view = self.sky_view(&light, &through_solid, bw, bh);
+        for (l, v) in light.iter_mut().zip(view) {
+            *l = l.max(v / (1.0 - SKY_VIEW_ALBEDO * (1.0 - v)));
+        }
+
+        let view_ms = t_view.elapsed().as_secs_f64() * 1000.0;
         let t_sweep = std::time::Instant::now();
 
         // Four directional sweeps, each carrying `max(light, neighbour *
@@ -3389,7 +3574,8 @@ impl Renderer {
 
         if timing {
             eprintln!(
-                "sky_light block={block} region={}x{} cells={} blocks={} build={build_ms:.2} ms sweep={:.2} ms",
+                "sky_light block={block} region={}x{} cells={} blocks={} build={build_ms:.2} ms \
+                 view={view_ms:.2} ms sweep={:.2} ms",
                 x1 - x0,
                 y1 - y0,
                 (x1 - x0) * (y1 - y0),
@@ -3406,6 +3592,78 @@ impl Renderer {
         self.sky_light_block = block;
         self.sky_light_dims = (bw, bh);
         changed
+    }
+
+    /// The fraction of the sky each block can see, traced back along
+    /// `SKY_VIEW_RAYS` — the *aperture* half of the model, against the
+    /// distance half its caller runs afterwards.
+    ///
+    /// `seed` is 1.0 where a block is outdoors and 0.0 elsewhere;
+    /// `through_solid` is the per-block transmission with the air factor
+    /// omitted, so a ray is dimmed only by material it actually crosses.
+    /// Returns one value per block, the plain mean over the fan — the rays
+    /// carry equal shares of the sky by construction, so there are no
+    /// weights to get wrong.
+    ///
+    /// **Each ray is one sweep along its own major axis**, which is what
+    /// keeps this the same order of cost as the four-sweep spread beside it
+    /// (measured together in `PIXEL_PHYSICS_SKY_LIGHT_TIMING`). A ray
+    /// steeper than 45 degrees is swept row by row, reading the row above at
+    /// a fractional column; a ray shallower than that is swept **column by
+    /// column** instead, reading the column behind it at a fractional row.
+    /// That swap is not tidiness: stepping a 61-degree ray one *row* at a
+    /// time moves it 1.8 blocks sideways per step and it simply jumps over
+    /// anything thinner than that, so grazing light would pour through every
+    /// one-block wall in the world.
+    fn sky_view(&self, seed: &[f32], through_solid: &[f32], bw: i32, bh: i32) -> Vec<f32> {
+        let (w, h) = (bw as usize, bh as usize);
+        let mut view = vec![0.0f32; w * h];
+        if w == 0 || h == 0 {
+            return view;
+        }
+        let share = 1.0 / SKY_VIEW_RAYS.len() as f32;
+        let mut prev = vec![0.0f32; w.max(h) + 2];
+        let mut cur = vec![0.0f32; w.max(h) + 2];
+        for &tan in SKY_VIEW_RAYS.iter().filter(|t| t.abs() <= 1.0) {
+            sky_view_ray(seed, through_solid, &mut view, w, h, tan, share, true, &mut prev, &mut cur);
+        }
+        // **The shallow rays are run on the transpose, and that is a cost
+        // decision rather than a tidy one.** Swept in place they stride the
+        // grid by a whole row per step, three arrays at a time, and the two
+        // of them cost more than the six steep ones together. Transposed
+        // they are ordinary top-down sweeps: three strided passes in total
+        // (two in, one back) instead of six. Measured on
+        // `PIXEL_PHYSICS_SKY_LIGHT_TIMING`, same region and same answer:
+        // the fan went **2.2-3.4 ms to 0.41-0.45 ms**, against a rebuild
+        // that pays 2.5 ms scanning cells before either of them runs.
+        //
+        // Transposing swaps the ray's axes, so a ray that drifts `tan` per
+        // row becomes one that drifts `1 / |tan|` per row — and one that
+        // drifts *leftward* becomes one that climbs, which is why the sweep
+        // takes a direction rather than always running top-down.
+        if SKY_VIEW_RAYS.iter().any(|t| t.abs() > 1.0) {
+            let flip = |src: &[f32]| {
+                let mut out = vec![0.0f32; w * h];
+                for y in 0..h {
+                    for x in 0..w {
+                        out[x * h + y] = src[y * w + x];
+                    }
+                }
+                out
+            };
+            let (seed_t, trans_t) = (flip(seed), flip(through_solid));
+            let mut view_t = vec![0.0f32; w * h];
+            for &tan in SKY_VIEW_RAYS.iter().filter(|t| t.abs() > 1.0) {
+                let (shift, down) = (1.0 / tan.abs(), tan > 0.0);
+                sky_view_ray(&seed_t, &trans_t, &mut view_t, h, w, shift, share, down, &mut prev, &mut cur);
+            }
+            for y in 0..h {
+                for x in 0..w {
+                    view[y * w + x] += view_t[x * h + y];
+                }
+            }
+        }
+        view
     }
 
     /// Sky visibility at a world cell, `0.0..=1.0`, read bilinearly off the
@@ -5186,10 +5444,40 @@ mod tests {
         let pit_floor = r.sky_light_at(100, 128);
         let chamber = r.sky_light_at(165, 160);
 
+        // A 1-wide shaft and a 40-wide pit at the same depth are the pair
+        // this whole model exists to tell apart, so the shaft's bar and the
+        // floor's are read against each other rather than in isolation.
         assert!(shaft_deep < 0.05, "a 1-wide shaft 75 cells down must be dark, not sunlit: {shaft_deep}");
         assert!(pit_rim > 0.3, "the rim of a 40-wide open pit must be lit: {pit_rim}");
         assert!(pit_floor < pit_rim, "the pit must be a gradient, not a flat fill: rim {pit_rim}, floor {pit_floor}");
         assert!(chamber < 0.05, "a sealed chamber must stay dark: {chamber}");
+        // **The floor of an open cut is still outdoors, and this is the
+        // assertion the distance-only model failed.** It read 0.023 at a
+        // 64-wide pit's floor against 0.010 down a 1-wide shaft — two places
+        // with nothing in common flattened onto one number, which is what
+        // drew a hilltop cut as a black slab beside the sky it was level
+        // with.
+        //
+        // Bar set from measurement with headroom on both sides, per
+        // `CLAUDE.md`: this floor reads **0.504** with the fan and **0.045**
+        // without it — 11x, measured by putting the fault back rather than
+        // by reasoning — so 0.25 clears the artifact by 5x and sits half
+        // under the value it guards. Deliberately not a fraction of the rim,
+        // which is 1.0 here: half of that lands on the measurement itself.
+        assert!(
+            pit_floor > 0.25,
+            "the floor of a 40-wide open pit is open to the sky and must not read as cave: \
+             rim {pit_rim}, floor {pit_floor}"
+        );
+        // And it must be aperture doing that rather than a general
+        // lightening, or the shaft would have come up with it: the same
+        // depth, three cells narrower than the pit's half-width.
+        let shaft_shallow = r.sky_light_at(30, 128);
+        assert!(
+            shaft_shallow < pit_floor * 0.5,
+            "at one depth the shaft must stay far darker than the open pit: \
+             shaft {shaft_shallow}, pit floor {pit_floor}"
+        );
     }
 
     /// A cliff brow must not shade the rock in its own column, all the way
