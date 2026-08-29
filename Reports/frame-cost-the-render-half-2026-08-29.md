@@ -390,6 +390,13 @@ alternating pairs on the same world:
 the table is a real but minor win, and §5's chunk-major walk is essentially
 all of the rebuild's improvement.
 
+**On the history, since the commits do not show this.** `0b16a35` bundles the
+`force_full` removal, `forget_world`, the table and the phase split together,
+so the table's price is not recoverable from the diff — it was measured
+afterwards, from two purpose-built binaries, and the numbers above are that
+measurement rather than anything the log can be asked. §5's `749e55c` is the
+recoverable one: its null is written at the call site.
+
 That makes **two** measurements in this function where the arithmetic was the
 obvious suspect and the hashing was the answer — this one, and §5's null on
 the scan hoist. Worth carrying as the shape of the thing: in a loop that
