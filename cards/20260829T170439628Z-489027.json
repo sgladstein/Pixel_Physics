@@ -1,0 +1,55 @@
+{
+  "id": "20260829T170439628Z-489027",
+  "created": "2026-08-29T17:04:39Z",
+  "board": "felling",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/plant-mechanics-handoff-d4zo44",
+    "commit": "9af3452",
+    "agent": null,
+    "session_id": "0b681d5e-ee2b-50cf-b73a-d5a1dfcfbc79",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Stress, made visible before anything uses it",
+  "question": "In the second image, does the bright/dark pattern look like where you would expect a tree to be under strain — and is anything obviously in the wrong place?",
+  "context_md": "**This is the foundation you asked for, not another fall.** Nothing in the simulation reads this number yet and nothing moves differently because of it. It is the quantity that has to exist before breakage can be a *consequence* rather than something I author at the cut.\n\nFor every plant cell: how much mass is it carrying, and how far to one side does that mass sit? That is the bending moment; divided by the cell's thickness across the load path, it is stress. Brighter is more strained; a cell carrying nothing off to one side is black.\n\n**What to look for.** The base of the trunk and the joints where limbs leave it should be brightest, because they carry the most on the longest lever. Free twig tips should be black — a tip carries only itself. On this tree the single hottest cell is at the very bottom of the trunk, which is right *because this tree leans*: a crown balanced squarely over its trunk would read near zero there instead, and that is deliberate — an upright stem fails by buckling, not bending, and that is a different rule.\n\n**What I am not asking:** whether it is pretty, or the colour. It is a debug channel on `L`, and in the harness as `channel=bend`.",
+  "kind": "ab",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A",
+      "files": [
+        "20260829T170439628Z-489027/000-p_plain.png"
+      ],
+      "caption": "the tree as it is drawn",
+      "meta": {
+        "living cells": 3164
+      },
+      "focus": null
+    },
+    {
+      "label": "B",
+      "files": [
+        "20260829T170439628Z-489027/001-p_bend.png"
+      ],
+      "caption": "the same tree, painted by how hard each cell is bent",
+      "meta": {
+        "cells measured": 3164,
+        "typical cell": 1.64,
+        "hottest cell": 15316,
+        "where the hottest cell is": "the base of the trunk",
+        "cells bending nothing at all": "280 (8%)",
+        "plant mass arriving at the ground": 2057
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
