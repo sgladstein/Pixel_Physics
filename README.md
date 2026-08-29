@@ -49,10 +49,10 @@ whole, then run `python3 scripts/readmetoc.py`.
 | [The ant colony — status](#the-ant-colony--status) | 2594 |
 | [M19 status — started](#m19-status--started) | 2623 |
 | [Felling status — the verb works, and what it produces is pieces](#felling-status--the-verb-works-and-what-it-produces-is-pieces) | 2659 |
-| [Performance](#performance) | 2789 |
-| [World speed — five independent time axes](#world-speed--five-independent-time-axes) | 2963 |
-| [Status](#status) | 3046 |
-| [License](#license) | 3157 |
+| [Performance](#performance) | 2790 |
+| [World speed — five independent time axes](#world-speed--five-independent-time-axes) | 2964 |
+| [Status](#status) | 3047 |
+| [License](#license) | 3158 |
 
 ### Milestones, in numeric order
 
@@ -86,7 +86,7 @@ them is named "plants". A section can appear twice; felling is honestly both
 plant work and structural work.
 
 **Known limitations for every topic are collected in one place**:
-[Status](#status), line 3046 — the *last* section in the
+[Status](#status), line 3047 — the *last* section in the
 file, not the first. Read it before concluding something is broken.
 
 | Topic | Sections, primary first |
@@ -101,9 +101,9 @@ file, not the first. Read it before concluding something is broken.
 | **the coarse field grid — pressure, heat, light** | [The coarse field grid](#the-coarse-field-grid) 449, [M12/M13 status](#m12m13-status) 711 |
 | **worldgen and world structure** | [M10 status](#m10-status--the-worldgen-half) 2462, [Architecture](#architecture) 292 |
 | **the gnome (player character)** | [M9 status](#m9-status--the-gnome) 2401, [Controls](#controls) 155 |
-| **weather, sky and the clock** | [Weather status](#weather-status) 2577, [M19 status](#m19-status--started) 2623, [World speed](#world-speed--five-independent-time-axes) 2963 |
+| **weather, sky and the clock** | [Weather status](#weather-status) 2577, [M19 status](#m19-status--started) 2623, [World speed](#world-speed--five-independent-time-axes) 2964 |
 | **rendering, UI and tunables** | [UI improvements](#ui-improvements--overnight-run-section-9) 2155, [Live tunables panel](#live-tunables-panel--overnight-run-section-10) 2200, [Rendering performance](#rendering-performance--overnight-run-section-11) 2268, [M6 deferral](#m6-deferral) 1013 |
-| **performance and the parallel sweep** | [Performance](#performance) 2789, [M5 status](#m5-status) 1023, [Architecture](#architecture) 292, [Rendering performance](#rendering-performance--overnight-run-section-11) 2268 |
+| **performance and the parallel sweep** | [Performance](#performance) 2790, [M5 status](#m5-status) 1023, [Architecture](#architecture) 292, [Rendering performance](#rendering-performance--overnight-run-section-11) 2268 |
 | **materials and the data schema** | [Materials](#materials) 218, [M12/M13 status](#m12m13-status) 711 |
 
 <!-- END GENERATED TOC -->
@@ -2764,12 +2764,13 @@ collapsing was foliage running downhill.
   instead of comparing two binaries. Verified identical to the pre-change
   build on `scene=fell`.
 
-On that cut: quarter turns 0 → 55, topples 0 → 21, the largest settled piece
-25x35 (on end) → 40x29 (lying down), `log` 667 → 738 cells and `deadwood` 612
-→ 547 — more mass surviving as pieces, the opposite of what the clamp did.
-**Pooled over nine paired scenes the cluster orientation census does not
-move**, which is why the report's §4 exists and why the picture is still the
-gate.
+On that cut: quarter turns 0 → 22, topples 0 → 16, and the largest settled
+piece 25x35 (on end) → 40x28 (lying down). Swept over eight uncontaminated
+pairs — three species by four weather phases, one binary — the per-piece lying
+share goes **34% → 45%** and the count left standing on end **211 → 163
+(−23%)**, up in 7 of 8 scenes. The *cluster* census over the same runs does
+not move at all, which is the measurement the report's §4 is about. Whether
+the pile now reads as a felled tree is with the owner.
 
 **Known limitations.** The tree does not hinge on its stump — the crown is
 severed into fragments at the cut and each falls on its own, so a felled

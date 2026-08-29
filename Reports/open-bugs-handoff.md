@@ -94,39 +94,39 @@ point.
 | I | closed | 4813 | The disturbance-extent guard inverts once rubble stops anchoring |
 | J | **OPEN** | 4878 | A blocked substep still vents the smoke it was only *probing* |
 | Q | **OPEN** | 4908 | Settled debris stands in one-cell vertical needles that never topple |
-| P | **OPEN** | 5090 | scene=worldcrack is not deterministic, so seedsweep.sh cannot compare two models on a cha... |
-| K | closed | 5237 | try_step's rotation-fit probe compares every cell against itself |
-| N | **OPEN** | 5319 | Decayed litter makes soil that does not match the soil around it, and roots will not ente... |
-| O | **OPEN** | 5387 | Litter rots into soil that never leaves, so the floor rises all run |
-| M | closed | 5444 | Two gating worldgen tests are red, and both are the same thing: generated water never com... |
-| R | closed | 5654 | filmstrip scene=colony panics at its own default seed, and degrades badly at others |
-| -- | historic | 5714 | R (original). filmstrip scene=colony panics at its own default seed, and degrades badly a... |
-| L | closed | 5793 | The colony has gone sessile: 98 round trips became 2 |
-| R2 | **OPEN** | 5925 | An ant put down on open water stands on the surface for ever, and found_colony puts them ... |
-| -- | historic | 5981 | R2 (original). An ant put down on open water stands on the surface for ever, and found_co... |
-| S | closed | 6043 | Every destructive verb but the brush leaves the structural scheduler pinned at its cap fo... |
-| S2 | **OPEN** | 7040 | The brush's anchor rule destroys structures the other two rules leave standing |
-| S4 | **OPEN** | 7228 | Rock still crushes itself on an idle world |
-| S3 | closed | 7300 | A world nobody has touched pulls its own ground apart |
-| -- | closed | 7349 | The plant model bounds height and does not bound width FIXED |
-| 1 | note | 7440 | MAX_ROOT_FRACTION feeds the staleness counter, permanently retiring roots |
-| 2 | note | 7454 | Grow into soil destroys the soil's stored water |
-| 3 | note | 7466 | Capillary exchange can push a neighbour above its own capacity |
-| W1a | note | 7484 | creeper.ron's root tips still run the superseded in-tick branch path |
-| W1b | note | 7505 | A material-counting guard cannot see a species |
-| W1c | note | 7518 | generated_terrain_is_already_at_rest went red on main |
-| T1a | note | 7652 | load::grain_is_footing reads *attachment* where it means *supported* |
-| T1b | note | 7730 | The structural opt-out did not hold against bearing |
-| T1d | note | 7741 | acceptance.sh's lavadrop sits close enough to its frame budget to flake, and is over it o... |
-| T1e | note | 7775 | "The pieces hit the ground and turn to dust" was not settle, and the measurement says so |
-| T1f | note | 7829 | The felled pile is 74% powder because the tree is 56% leaves. The piece ladder cannot fix... |
-| T1g | note | 7883 | A "refixed" claim went out over a settled state that had barely moved |
-| T1c | note | 7912 | §1c's settle loss is now a counter |
-| -- | note | 7929 | What landed |
-| -- | note | 7952 | Do not re-derive these |
-| -- | note | 7980 | Measurements that contradict something written |
-| -- | note | 8000 | Open |
-| -- | note | 8035 | Unmerged at close, and one of it is a fix main needs anyway |
+| P | **OPEN** | 5092 | scene=worldcrack is not deterministic, so seedsweep.sh cannot compare two models on a cha... |
+| K | closed | 5239 | try_step's rotation-fit probe compares every cell against itself |
+| N | **OPEN** | 5321 | Decayed litter makes soil that does not match the soil around it, and roots will not ente... |
+| O | **OPEN** | 5389 | Litter rots into soil that never leaves, so the floor rises all run |
+| M | closed | 5446 | Two gating worldgen tests are red, and both are the same thing: generated water never com... |
+| R | closed | 5656 | filmstrip scene=colony panics at its own default seed, and degrades badly at others |
+| -- | historic | 5716 | R (original). filmstrip scene=colony panics at its own default seed, and degrades badly a... |
+| L | closed | 5795 | The colony has gone sessile: 98 round trips became 2 |
+| R2 | **OPEN** | 5927 | An ant put down on open water stands on the surface for ever, and found_colony puts them ... |
+| -- | historic | 5983 | R2 (original). An ant put down on open water stands on the surface for ever, and found_co... |
+| S | closed | 6045 | Every destructive verb but the brush leaves the structural scheduler pinned at its cap fo... |
+| S2 | **OPEN** | 7042 | The brush's anchor rule destroys structures the other two rules leave standing |
+| S4 | **OPEN** | 7230 | Rock still crushes itself on an idle world |
+| S3 | closed | 7302 | A world nobody has touched pulls its own ground apart |
+| -- | closed | 7351 | The plant model bounds height and does not bound width FIXED |
+| 1 | note | 7442 | MAX_ROOT_FRACTION feeds the staleness counter, permanently retiring roots |
+| 2 | note | 7456 | Grow into soil destroys the soil's stored water |
+| 3 | note | 7468 | Capillary exchange can push a neighbour above its own capacity |
+| W1a | note | 7486 | creeper.ron's root tips still run the superseded in-tick branch path |
+| W1b | note | 7507 | A material-counting guard cannot see a species |
+| W1c | note | 7520 | generated_terrain_is_already_at_rest went red on main |
+| T1a | note | 7654 | load::grain_is_footing reads *attachment* where it means *supported* |
+| T1b | note | 7732 | The structural opt-out did not hold against bearing |
+| T1d | note | 7743 | acceptance.sh's lavadrop sits close enough to its frame budget to flake, and is over it o... |
+| T1e | note | 7777 | "The pieces hit the ground and turn to dust" was not settle, and the measurement says so |
+| T1f | note | 7831 | The felled pile is 74% powder because the tree is 56% leaves. The piece ladder cannot fix... |
+| T1g | note | 7885 | A "refixed" claim went out over a settled state that had barely moved |
+| T1c | note | 7914 | §1c's settle loss is now a counter |
+| -- | note | 7931 | What landed |
+| -- | note | 7954 | Do not re-derive these |
+| -- | note | 7982 | Measurements that contradict something written |
+| -- | note | 8002 | Open |
+| -- | note | 8037 | Unmerged at close, and one of it is a fix main needs anyway |
 
 <!-- END GENERATED INDEX -->
 
@@ -5069,23 +5069,25 @@ about thirty cells, so a whole fall banks 0.36 of a turn against a threshold
 of one. So the tipping test could not have been judged before the rotation
 worked, exactly as the paragraph above predicted.
 
-| `scene=fell fell=7150`, settled | before | after |
+| `scene=fell fell=7150`, settled | `FALL=off` | `FALL=on` |
 |---|---|---|
-| quarter turns asked | **0** | **55** (22 refused) |
-| landed out of balance and went over | — | **21** (11 refused) |
-| lying / upright / square | 4 / 10 / 1 | 5 / 3 / 0 |
-| largest piece | 225 cells **25x35** | 249 cells **40x29** |
-| `log` cells | 667 | 738 |
-| `deadwood` cells | 612 | 547 |
+| quarter turns asked | **0** | **22** (3 refused) |
+| landed out of balance and went over | 0 | **16** (6 refused) |
+| pieces lying / upright / square | 28 / 31 / 2 | 28 / 22 / 4 |
+| largest piece | 225 cells **25x35** | 240 cells **40x28** |
 
-More mass survives as pieces and less crumbles — the opposite of what the
-clamp did. **But read `tree-fall-2026-08-29.md` §4 before quoting that
-table**: pooled over nine paired scenes the *cluster* orientation census does
-not move at all, and the census itself is the first suspect, since it folds
-touching logs into one blob whose orientation is the pile's. A per-piece
-census now exists beside it (`how pieces came to rest`). **So §Q's felled-tree
-half is answered as a mechanism and not yet as a picture**, and the picture is
-what the bug is about.
+The largest thing on the ground goes from standing on end to lying down.
+**But read `tree-fall-2026-08-29.md` §4 before quoting that table.** Swept
+over eight uncontaminated pairs — three species by four weather phases, one
+binary, four pairs dropped because §Z3 was running in one arm — the per-piece
+lying share goes **34% to 45%** and the count left standing on end **211 to
+163, −23%**, up in 7 of 8 scenes. Real, consistent, and modest. The *cluster*
+census over the same runs does not move at all, because it folds touching logs
+into one blob whose orientation is the pile's.
+
+**So §Q's felled-tree half is answered as a mechanism, and as a picture it is
+with the owner** (card `20260829T101450056Z-eddae4`, board `felling`) — which
+is where a bug about what something looks like has to end.
 
 ### P. `scene=worldcrack` is not deterministic, so `seedsweep.sh` cannot compare two models on a chaotic seed
 
