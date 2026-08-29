@@ -7,13 +7,13 @@
 // layout twice, old page and new, and compares them: a careless media query
 // breaking the page the owner actually uses is the likeliest regression here.
 //
-// Usage: node review_mobile.js <newPort> <oldPort> <outDir>
+// Usage: node review_mobile.js <newPort> <oldPort> <railNew> <railOld> <outDir>
 
 const { chromium } = require("/opt/node22/lib/node_modules/playwright");
 const fs = require("fs");
 const path = require("path");
 
-const [newPort, oldPort, outDir] = process.argv.slice(2);
+const [newPort, oldPort, railNew, railOld, outDir] = process.argv.slice(2);
 const CHROME = "/opt/pw-browsers/chromium-1194/chrome-linux/chrome";
 const PHONE = { width: 390, height: 844 };   // iPhone 14/15 CSS pixels
 
@@ -199,6 +199,74 @@ async function drag(cdp, x, y, dx, dy, steps = 10) {
         errors.slice(0, 2).join(" | "));
   await ctx.close();
 
+
+  // ------------------------------------------------------- the sidebar rail
+  //
+  // The Send-verdicts button was reported missing and was not: with the owner's
+  // 14 boards it sat 428px below the bottom of #rail's own scroller, reachable
+  // only by hovering the sidebar and scrolling it. The run that signed it off
+  // used a two-board fixture, which cannot overflow a sidebar at any viewport
+  // -- so it was not a weak check, it was one that could never fail.
+  //
+  // Hence both pages here: the current one must pass, and the baseline must
+  // FAIL, or this check has the same defect as the one it replaces.
+  console.log("\nsidebar reach (rail fixture)");
+  async function railProbe(port, w, h) {
+    const c = await browser.newContext({ viewport: { width: w, height: h } });
+    const p = await c.newPage();
+    await p.goto(`http://127.0.0.1:${port}/`, { waitUntil: "networkidle" });
+    await p.waitForSelector("#notify");
+    const r = await p.evaluate(() => {
+      const rail = document.getElementById("rail");
+      const rr = rail.getBoundingClientRect();
+      // Visible means inside the rail's client box AND inside the window --
+      // either one alone passes a button that is merely off the bottom.
+      const seen = el => {
+        if (!el) return false;
+        const b = el.getBoundingClientRect();
+        return b.bottom <= rr.bottom + 1 && b.bottom <= window.innerHeight + 1
+               && b.top >= rr.top - 1 && b.height > 0;
+      };
+      const scroller = document.getElementById("rail-scroll") || rail;
+      const rows = document.querySelectorAll("#boards .rail-item");
+      return {
+        notify: seen(document.getElementById("notify")),
+        sync: seen(document.getElementById("syncbox")),
+        notifyBottom: Math.round(document.getElementById("notify").getBoundingClientRect().bottom),
+        railBottom: Math.round(rr.bottom),
+        boards: rows.length,
+        listScrolls: scroller.scrollHeight > scroller.clientHeight,
+        lastRowReachable: (() => {
+          const last = rows[rows.length - 1];
+          if (!last) return false;
+          scroller.scrollTop = scroller.scrollHeight;
+          const b = last.getBoundingClientRect();
+          return b.top >= scroller.getBoundingClientRect().top - 1
+                 && b.bottom <= scroller.getBoundingClientRect().bottom + 1;
+        })(),
+      };
+    });
+    await p.screenshot({ path: path.join(outDir, `rail-${port}-${w}x${h}.png`) });
+    await c.close();
+    return r;
+  }
+
+  for (const [w, h] of [[1440, 760], [1440, 900], [1280, 700]]) {
+    const r = await railProbe(railNew, w, h);
+    check(r.notify, `Send verdicts is on screen at ${w}x${h} with ${r.boards} boards`,
+          r.notify ? "" : `button bottom ${r.notifyBottom}px vs rail bottom ${r.railBottom}px`);
+    check(r.sync, `sync status is on screen at ${w}x${h}`);
+    // Pinning the actions must not clip the lists instead.
+    check(r.listScrolls && r.lastRowReachable,
+          `the board list still scrolls to its last row at ${w}x${h}`,
+          `scrolls=${r.listScrolls} lastReachable=${r.lastRowReachable}`);
+  }
+
+  const baseline = await railProbe(railOld, 1440, 760);
+  check(!baseline.notify,
+        "the guard fails against the page before the fix (it can actually fail)",
+        baseline.notify ? "baseline passed too -- this check proves nothing" : "");
+
   // ---------------------------------------------------- desktop is unchanged
   console.log("\ndesktop regression");
   // Geometry, not pixels. Every box of every element, in DOM order, plus the
@@ -226,10 +294,12 @@ async function drag(cdp, x, y, dx, dy, steps = 10) {
         const base = el.tagName + "#" + el.id + "." + cls;
         const n = seen[base] = (seen[base] || 0) + 1;
         const r = el.getBoundingClientRect(), cs = getComputedStyle(el);
-        out[base + "@" + n] = [Math.round(r.x), Math.round(r.y),
-                               Math.round(r.width), Math.round(r.height),
-                               cs.display, cs.position, cs.overflowX,
-                               cs.fontSize, cs.minHeight].join("|");
+        const inRail = el.id === "rail" || !!el.closest("#rail");
+        out[base + "@" + n] = (inRail ? "rail:" : "feed:")
+          + [Math.round(r.x), Math.round(r.y),
+             Math.round(r.width), Math.round(r.height),
+             cs.display, cs.position, cs.overflowX,
+             cs.fontSize, cs.minHeight].join("|");
       });
       return out;
     });
@@ -237,10 +307,21 @@ async function drag(cdp, x, y, dx, dy, steps = 10) {
   }
   const shared = Object.keys(geom.old).filter(k => k in geom.new);
   const moved = shared.filter(k => geom.old[k] !== geom.new[k]);
-  check(moved.length === 0,
-        "the desktop layout is geometrically identical to the page before this change",
-        moved.length === 0 ? `${shared.length} elements compared`
-          : moved.slice(0, 3).map(k =>
+  // The rail is deliberately restructured -- its actions are pinned to the
+  // bottom now -- so movement inside it is the change, not a regression. What
+  // must not move is the feed: the cards and controls the owner reads. Moved
+  // rail elements are printed rather than ignored, so a rail change nobody
+  // intended is still visible in the log.
+  const outside = moved.filter(k => !geom.new[k].startsWith("rail:"));
+  const inside = moved.filter(k => geom.new[k].startsWith("rail:"));
+  if (inside.length) {
+    console.log(`  note  ${inside.length} element(s) moved inside #rail (expected):`);
+    inside.forEach(k => console.log(`          ${k}\n            old ${geom.old[k]}\n            new ${geom.new[k]}`));
+  }
+  check(outside.length === 0,
+        "nothing outside the sidebar moved against the page before this change",
+        outside.length === 0 ? `${shared.length} elements compared, ${inside.length} rail-only`
+          : outside.slice(0, 3).map(k =>
               `\n      ${k}\n        old ${geom.old[k]}\n        new ${geom.new[k]}`).join(""));
 
   await browser.close();
