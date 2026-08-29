@@ -1,0 +1,63 @@
+{
+  "id": "20260829T181437634Z-2c719c",
+  "created": "2026-08-29T18:14:37Z",
+  "board": "worldgen",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/worldgen-revamp-plan-dot67g",
+    "commit": "41f0597",
+    "agent": null,
+    "session_id": "2cb39797-d076-5699-b8bf-4494224deffe",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Rock you could name, in five countries",
+  "question": "Which side is made of rock you could put a name to? Step the slider: both sides show the same five worlds at the same camera.",
+  "context_md": "The ground is **90% of every picture** and until now it was one material: `stone`, four greys, with a warm tint and a pale tint sprayed over it by a 2-D noise blob that cuts *across* the bedding.\n\nOne side keeps that. The other gives the world six real rocks -- mudstone, sandstone, stone, limestone, ironstone, basalt -- decided **per bed** rather than per cell, so a layer is one rock from its floor to its roof and you can follow it along a cliff. They differ in hardness, in how coarsely they break and in their joint fabric, not only in colour.\n\nFrames, in order: arid, canyon, rolling, terraced, wetland. Same seed, same camera, same binary, noon pinned.",
+  "kind": "frames",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "current",
+      "files": [
+        "20260829T181437634Z-2c719c/000-x2-off-arid-v4.png",
+        "20260829T181437634Z-2c719c/001-x2-off-canyon-v4.png",
+        "20260829T181437634Z-2c719c/002-x2-off-rolling-v4.png",
+        "20260829T181437634Z-2c719c/003-x2-off-terraced-v4.png",
+        "20260829T181437634Z-2c719c/004-x2-off-wetland-v4.png"
+      ],
+      "caption": "one rock, four greys, two tints",
+      "meta": {
+        "rock materials in the world": 1,
+        "colours covering half the ground": "4-8",
+        "pixels moved vs the other arm": 0
+      },
+      "focus": null
+    },
+    {
+      "label": "rock vocabulary",
+      "files": [
+        "20260829T181437634Z-2c719c/005-x2-on-arid-v4.png",
+        "20260829T181437634Z-2c719c/006-x2-on-canyon-v4.png",
+        "20260829T181437634Z-2c719c/007-x2-on-rolling-v4.png",
+        "20260829T181437634Z-2c719c/008-x2-on-terraced-v4.png",
+        "20260829T181437634Z-2c719c/009-x2-on-wetland-v4.png"
+      ],
+      "caption": "six rocks, chosen per bed",
+      "meta": {
+        "rock materials in the world": 6,
+        "colours covering half the ground": "5-14",
+        "pixels moved vs the other arm": "28.5% of the viewport, measured over 6 presets x 3 seeds x 16 views",
+        "flat preset moved": "0 pixels, all 3 seeds"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
