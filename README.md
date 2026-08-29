@@ -50,10 +50,10 @@ whole, then run `python3 scripts/readmetoc.py`.
 | [The ant colony — status](#the-ant-colony--status) | 2677 |
 | [M19 status — started](#m19-status--started) | 2706 |
 | [Felling status — the verb works, and what it produces is pieces](#felling-status--the-verb-works-and-what-it-produces-is-pieces) | 2762 |
-| [Performance](#performance) | 2900 |
-| [World speed — five independent time axes](#world-speed--five-independent-time-axes) | 3074 |
-| [Status](#status) | 3157 |
-| [License](#license) | 3268 |
+| [Performance](#performance) | 2911 |
+| [World speed — five independent time axes](#world-speed--five-independent-time-axes) | 3085 |
+| [Status](#status) | 3168 |
+| [License](#license) | 3279 |
 
 ### Milestones, in numeric order
 
@@ -87,7 +87,7 @@ them is named "plants". A section can appear twice; felling is honestly both
 plant work and structural work.
 
 **Known limitations for every topic are collected in one place**:
-[Status](#status), line 3157 — the *last* section in the
+[Status](#status), line 3168 — the *last* section in the
 file, not the first. Read it before concluding something is broken.
 
 | Topic | Sections, primary first |
@@ -102,9 +102,9 @@ file, not the first. Read it before concluding something is broken.
 | **the coarse field grid — pressure, heat, light** | [The coarse field grid](#the-coarse-field-grid) 450, [M12/M13 status](#m12m13-status) 712 |
 | **worldgen and world structure** | [M10 status](#m10-status--the-worldgen-half) 2545, [Architecture](#architecture) 293 |
 | **the gnome (player character)** | [M9 status](#m9-status--the-gnome) 2484, [Controls](#controls) 156 |
-| **weather, sky and the clock** | [Weather status](#weather-status) 2660, [M19 status](#m19-status--started) 2706, [World speed](#world-speed--five-independent-time-axes) 3074 |
+| **weather, sky and the clock** | [Weather status](#weather-status) 2660, [M19 status](#m19-status--started) 2706, [World speed](#world-speed--five-independent-time-axes) 3085 |
 | **rendering, UI and tunables** | [UI improvements](#ui-improvements--overnight-run-section-9) 2238, [Live tunables panel](#live-tunables-panel--overnight-run-section-10) 2283, [Rendering performance](#rendering-performance--overnight-run-section-11) 2351, [M6 deferral](#m6-deferral) 1014 |
-| **performance and the parallel sweep** | [Performance](#performance) 2900, [M5 status](#m5-status) 1024, [Architecture](#architecture) 293, [Rendering performance](#rendering-performance--overnight-run-section-11) 2351 |
+| **performance and the parallel sweep** | [Performance](#performance) 2911, [M5 status](#m5-status) 1024, [Architecture](#architecture) 293, [Rendering performance](#rendering-performance--overnight-run-section-11) 2351 |
 | **materials and the data schema** | [Materials](#materials) 219, [M12/M13 status](#m12m13-status) 712 |
 
 <!-- END GENERATED TOC -->
@@ -2874,13 +2874,24 @@ collapsing was foliage running downhill.
   unchanged (promoted 701 → 723) and roughly **doubles a leashed one** (506 →
   1,217), inside the leash throughout. The report's §4c has the table.
 
-On that cut: quarter turns 0 → 22, topples 0 → 16, and the largest settled
-piece 25x35 (on end) → 40x28 (lying down). Swept over eight uncontaminated
-pairs — three species by four weather phases, one binary — the per-piece lying
-share goes **34% → 45%** and the count left standing on end **211 → 163
-(−23%)**, up in 7 of 8 scenes. The *cluster* census over the same runs does
-not move at all, which is the measurement the report's §4 is about. Whether
-the pile now reads as a felled tree is with the owner.
+On that cut: quarter turns 0 → 3, topples 0 → 11, and the pieces 26/32/1 →
+33/20/3 lying/upright/square. Swept over ten uncontaminated pairs — three
+species by four weather phases, one binary — the per-piece lying share goes
+**28% → 36%** and the count left standing on end **364 → 287 (−21%)**, up in
+8 of 10 scenes and flat in the other two. The **topple does nearly all of
+it**: 109 topples against 21 in-flight turns over twelve scenes, because a
+severed crown's pieces mostly sit over the cut rather than out to one side.
+The *cluster* census over the same runs does not move at all, which is the
+measurement the report's §4 is about. Whether the pile now reads as a felled
+tree is with the owner.
+
+Frame cost, `ascii scene=ants` over 12,000 frames, three alternating pairs in
+one session: mean **2.186 ms against 2.173 ms**, faster with the change in two
+runs of three. That is noise in the direction that flatters it and is reported
+as noise — no measurable cost. Everything new is O(cells) at a promotion or at
+a settle; the per-frame addition inside `advance` is two float operations and
+a comparison. (The worst-frame column spans 22.66 to 41.29 ms **in the control
+arm alone**, so it is not a quantity this can be read from.)
 
 **Known limitations.** The tree does not hinge on its stump — the crown is
 severed into fragments at the cut and each falls on its own, so a felled
