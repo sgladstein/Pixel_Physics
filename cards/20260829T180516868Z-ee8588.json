@@ -1,0 +1,38 @@
+{
+  "id": "20260829T180516868Z-ee8588",
+  "created": "2026-08-29T18:05:16Z",
+  "board": "fracture",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/gnome-mining-mechanic-obm7j4",
+    "commit": "192ee77",
+    "agent": null,
+    "session_id": "7e6d7527-9f19-5475-bb25-535b32238ac6",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Hammer: a second hit closes the outline",
+  "question": "You said the cracks never fully complete, and that multiple hits should surround a chunk so the whole thing falls out as one piece. That was a real gap and not a tuning one: how a given rock splits is a fixed property of the rock, so the one boundary in ten a first blow leaves shut was shut for ever, however many times you hit it. Rock that has already been hit now parts more readily, so a second blow closes what the first left open. Same swing, animated. Does the outline complete now, and are the pieces the size you meant?",
+  "context_md": "The same cliff face, five blows, 80 frames from the first swing. Counters, because the picture cannot carry them. On the shelf bed (scene=worked, six blows at one spot) the shelf's overload failures went 6 -> 14 and the piece-size ladder gained a 64+ tier and eight more pieces in the 8-15 band. On this cliff face, cells broken 376 -> 406, pieces in flight at once 3 -> 4, largest single piece 8 -> 15 cells. Still short of a gnome-sized block coming out whole on a flat wall: the wound is at ground level and a block there is held from behind, so what completes is the ring nearest the face. If that is the thing still missing, say so and I will go after the size rather than the completion.",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "",
+      "files": [
+        "20260829T180516868Z-ee8588/000-hammer2.gif"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null,
+      "gif_frames": 80
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
