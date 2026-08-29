@@ -1,0 +1,104 @@
+{
+  "id": "20260829T145430162Z-8d878d",
+  "created": "2026-08-29T14:54:30Z",
+  "board": "plants",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/plant-visual-improvements-q1mked",
+    "commit": "9215344",
+    "agent": null,
+    "session_id": "a72d6728-5352-5912-9975-53b6a7accdc8",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Three different ideas about why plants look wrong, growing",
+  "question": "Scrub all four together — same stand, same seed, same instant in each pane. Which of the three, if any, is worth pursuing? And if none of them is, say so: that is the useful answer, because it means the drawing is not the problem.",
+  "context_md": "You asked for a timelapse and for three approaches. These are **not three tunings of the last one** — that one came back 'not clearly better' three times, and the repo's rule is that repeated failure the same way means the approach is wrong rather than the tuning. So each of these changes something different:\n\n- **masses** — bets the shape primitive is *too small*. A tree's silhouette is a few overlapping foliage masses, so foliage is grouped into crown regions and each is drawn as one blob, instead of hundreds of individual leaf cells.\n- **stamps** — bets the simulation should say *where* foliage is and **art** should say what it looks like. Little hand-drawn leaf clumps stamped at foliage positions. This is how 2D games actually draw trees, and these are the only authored pixels anywhere in this world.\n- **tone** — bets it is **not shape at all**. This one changes *no pixel's shape*: every cell is still exactly its own square, drawn at 1:1 and magnified like the control. What moves is value and depth — each tree gets a near/far bit so the stand has layers, foliage is shaded at *crown* scale rather than per leaf, and bark drops away from leaf-green in lightness.\n\n**If `tone` is the one that reads best, that is the most useful outcome**, because it would mean four rounds of silhouette work were aimed at the wrong quantity — and it is also by far the cheapest.\n\nGrowth runs 155 plant cells in the first frame to 14,857 in the last. No simulation change in any arm: identical world, identical frames, only the drawing differs.",
+  "kind": "frames",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "shipped (control)",
+      "files": [
+        "20260829T145430162Z-8d878d/000-shipped_00.png",
+        "20260829T145430162Z-8d878d/001-shipped_01.png",
+        "20260829T145430162Z-8d878d/002-shipped_02.png",
+        "20260829T145430162Z-8d878d/003-shipped_03.png",
+        "20260829T145430162Z-8d878d/004-shipped_04.png",
+        "20260829T145430162Z-8d878d/005-shipped_05.png",
+        "20260829T145430162Z-8d878d/006-shipped_06.png",
+        "20260829T145430162Z-8d878d/007-shipped_07.png"
+      ],
+      "caption": "what the window shows today, magnified 3x",
+      "meta": {
+        "shape primitive": "one cell, one square",
+        "changes": "nothing"
+      },
+      "focus": null
+    },
+    {
+      "label": "masses",
+      "files": [
+        "20260829T145430162Z-8d878d/008-masses_00.png",
+        "20260829T145430162Z-8d878d/009-masses_01.png",
+        "20260829T145430162Z-8d878d/010-masses_02.png",
+        "20260829T145430162Z-8d878d/011-masses_03.png",
+        "20260829T145430162Z-8d878d/012-masses_04.png",
+        "20260829T145430162Z-8d878d/013-masses_05.png",
+        "20260829T145430162Z-8d878d/014-masses_06.png",
+        "20260829T145430162Z-8d878d/015-masses_07.png"
+      ],
+      "caption": "foliage grouped into crown regions",
+      "meta": {
+        "shape primitive": "a whole crown region",
+        "bet": "the primitive is too small"
+      },
+      "focus": null
+    },
+    {
+      "label": "stamps",
+      "files": [
+        "20260829T145430162Z-8d878d/016-stamps_00.png",
+        "20260829T145430162Z-8d878d/017-stamps_01.png",
+        "20260829T145430162Z-8d878d/018-stamps_02.png",
+        "20260829T145430162Z-8d878d/019-stamps_03.png",
+        "20260829T145430162Z-8d878d/020-stamps_04.png",
+        "20260829T145430162Z-8d878d/021-stamps_05.png",
+        "20260829T145430162Z-8d878d/022-stamps_06.png",
+        "20260829T145430162Z-8d878d/023-stamps_07.png"
+      ],
+      "caption": "authored leaf-clump sprites",
+      "meta": {
+        "shape primitive": "a drawn leaf clump",
+        "bet": "art should say what a leaf looks like"
+      },
+      "focus": null
+    },
+    {
+      "label": "tone",
+      "files": [
+        "20260829T145430162Z-8d878d/024-tone_00.png",
+        "20260829T145430162Z-8d878d/025-tone_01.png",
+        "20260829T145430162Z-8d878d/026-tone_02.png",
+        "20260829T145430162Z-8d878d/027-tone_03.png",
+        "20260829T145430162Z-8d878d/028-tone_04.png",
+        "20260829T145430162Z-8d878d/029-tone_05.png",
+        "20260829T145430162Z-8d878d/030-tone_06.png",
+        "20260829T145430162Z-8d878d/031-tone_07.png"
+      ],
+      "caption": "same squares, different value and depth",
+      "meta": {
+        "shape primitive": "unchanged - still one cell, one square",
+        "bet": "the problem is not shape"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
