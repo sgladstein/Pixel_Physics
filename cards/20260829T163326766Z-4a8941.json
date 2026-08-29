@@ -1,0 +1,98 @@
+{
+  "id": "20260829T163326766Z-4a8941",
+  "created": "2026-08-29T16:33:26Z",
+  "board": "fracture",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/explosion-effects-menu-isljo5",
+    "commit": "d6fde7a",
+    "agent": null,
+    "session_id": "59c041f8-0d1c-593e-b4e4-5d71a4ffff4c",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Five charge types -- which of these should a bomb be?",
+  "question": "Which of these five reads best as an explosion? (And is there one you would drop?)",
+  "context_md": "The EXPLOSION menu now opens with a single **type** row that moves all twenty-six numbers at once, so you can walk five whole charges instead of guessing which slider to sweep. These are those five, same hole, same depth (26 cells under the surface), same rock, at rest.\n\nThey are not five sizes. Each one spends its energy differently:\n\n- **POWDER** and **MINING** are the two ends -- powder *heaves* (671 cells thrown, barely any cracking), a mining shot *shatters* (23 cells thrown, the whole event is the crack web).\n- **DYNAMITE** is exactly what ships today, unchanged.\n- **CAP** is a detonator, **DEMOLITION** is the spectacle.\n\nNothing is locked: pick a type, then move any number from there, and the row reads HELD once you do.",
+  "kind": "gallery",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "CAP",
+      "files": [
+        "20260829T163326766Z-4a8941/000-p_cap.png"
+      ],
+      "caption": "a detonator: a pockmark and a tight web",
+      "meta": {
+        "cells cleared": 27,
+        "joints woken": 182,
+        "seams opened": 76,
+        "radius": 9
+      },
+      "focus": null
+    },
+    {
+      "label": "POWDER",
+      "files": [
+        "20260829T163326766Z-4a8941/001-p_powder.png"
+      ],
+      "caption": "black powder: a slow heave, mostly thrown rubble and smoke",
+      "meta": {
+        "cells cleared": 671,
+        "joints woken": 231,
+        "seams opened": 80,
+        "radius": 24
+      },
+      "focus": null
+    },
+    {
+      "label": "DYNAMITE",
+      "files": [
+        "20260829T163326766Z-4a8941/002-p_dynamite.png"
+      ],
+      "caption": "the general-purpose stick -- today's shipped tuning exactly",
+      "meta": {
+        "cells cleared": 370,
+        "joints woken": 833,
+        "seams opened": 418,
+        "radius": 22
+      },
+      "focus": null
+    },
+    {
+      "label": "MINING",
+      "files": [
+        "20260829T163326766Z-4a8941/003-p_mining.png"
+      ],
+      "caption": "a confined shot-hole: it cracks the mountain instead of digging it",
+      "meta": {
+        "cells cleared": 23,
+        "joints woken": 786,
+        "seams opened": 494,
+        "radius": 16
+      },
+      "focus": null
+    },
+    {
+      "label": "DEMOLITION",
+      "files": [
+        "20260829T163326766Z-4a8941/004-p_demolition.png"
+      ],
+      "caption": "big crater, big throw, big fireball",
+      "meta": {
+        "cells cleared": 1026,
+        "joints woken": 1400,
+        "seams opened": 923,
+        "radius": 34
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
