@@ -387,6 +387,122 @@ fn shot(presets: &worldgen::WorldgenPresets, a: &Args) {
     }
 }
 
+/// **The rock-vocabulary A/B, in pixels.** `mode=vocab`.
+///
+/// `Reports/rock-vocabulary-design-2026-08-29.md`. The question this answers
+/// is the one `plant-appearance-design.md` says every appearance proposal
+/// owes: *which pixels does it move, and how many.* A pass ablation
+/// (`mode=passes`) cannot answer it, because the rock vocabulary is not a
+/// pass — it changes what `stone_massif` writes rather than whether it runs.
+///
+/// **Both arms are built in one process, from one binary, on one machine**,
+/// with `worldgen::passes::set_rock_vocab` as the only difference. That is
+/// CLAUDE.md's rule for a change of this shape: hold the semantic rule fixed
+/// with one switch rather than measuring around the confound. It is also why
+/// this is a mode here and not a shell loop over two `mode=shot` runs — those
+/// arms would differ by a process.
+///
+/// Cameras are computed from the **off** arm and reused, so a bed that
+/// changes colour cannot be scored for moving the camera.
+///
+/// ```text
+/// cargo run --release --example world_look -- mode=vocab seeds=3 views=16
+/// ```
+fn vocab(presets: &worldgen::WorldgenPresets, a: &Args) {
+    println!("Rock vocabulary A/B. Both arms in one process; only `set_rock_vocab` differs.");
+    println!("  'moved' is rendered pixels that differ between the arms, over {} pixels per world.", WIDTH * HEIGHT * a.views as u32);
+    println!("  'ground moved' is the same count as a share of pixels that hold material in either arm.");
+    println!();
+    println!("  preset      seed   moved        % of view   % of ground   b50 off>on   bins off>on   luma off>on     speckle off>on");
+    let mut all_moved = 0u64;
+    let mut all_px = 0u64;
+    for preset in &a.presets {
+        let Some(params) = presets.get(preset) else { continue };
+        for seed in 1..=a.seeds {
+            // `stage=weather` moves the OFF arm to "vocabulary on, weathering
+            // off", so the difference prices the weathering half on its own
+            // rather than pooling it with the rocks.
+            // `out=` names the stage rather than a file here: the three
+            // parts of the proposal are priced separately, each against the
+            // arm that has everything before it.
+            //
+            //   (default)  everything off   vs  rocks + weathering + damp
+            //   rocks      everything off   vs  rocks only
+            //   weather    rocks only       vs  rocks + weathering
+            //   damp       rocks + weather  vs  rocks + weathering + damp
+            let (v0, w0, d0) = match a.out.as_str() {
+                "weather" => (true, false, false),
+                "damp" => (true, true, false),
+                _ => (false, false, false),
+            };
+            let (v1, w1, d1) = match a.out.as_str() {
+                "rocks" => (true, false, false),
+                "weather" => (true, true, false),
+                _ => (true, true, true),
+            };
+            worldgen::passes::set_rock_vocab(v0);
+            worldgen::passes::set_rock_weather(w0);
+            worldgen::passes::set_rock_damp(d0);
+            let off = build_settled(params, seed, "", a.settle);
+            let cams = camera_positions(&off, a.views);
+            worldgen::passes::set_rock_vocab(v1);
+            worldgen::passes::set_rock_weather(w1);
+            worldgen::passes::set_rock_damp(d1);
+            let on = build_settled(params, seed, "", a.settle);
+
+            let (mut moved, mut total, mut ground) = (0u64, 0u64, 0u64);
+            let (mut coff, mut con) = (Census::default(), Census::default());
+            for &cam in &cams {
+                let a_v = render_view(&off, cam);
+                let b_v = render_view(&on, cam);
+                coff.add_view(&off, &a_v, cam);
+                con.add_view(&on, &b_v, cam);
+                for i in 0..(WIDTH * HEIGHT) as usize {
+                    total += 1;
+                    let solid = a_v.behind[i] != material::EMPTY || b_v.behind[i] != material::EMPTY;
+                    if solid {
+                        ground += 1;
+                    }
+                    if a_v.frame[i * 4..i * 4 + 3] != b_v.frame[i * 4..i * 4 + 3] {
+                        moved += 1;
+                    }
+                }
+            }
+            all_moved += moved;
+            all_px += total;
+            let stat = |c: &Census| {
+                let h = c.ground_hist();
+                let n = c.ground_px.max(1) as f64;
+                let mean = c.luma_sum / n;
+                (bins_covering(&h, 0.5), c.ground_bins.len(), mean, c.mad())
+            };
+            let (b50a, binsa, lumaa, mada) = stat(&coff);
+            let (b50b, binsb, lumab, madb) = stat(&con);
+            println!(
+                "  {preset:<11} {seed:<5}  {moved:<11}  {:<10.2}  {:<12.2}  {b50a:>3} > {b50b:<4}  {binsa:>4} > {binsb:<5}  {lumaa:>5.1} > {lumab:<7.1} {mada:>5.2} > {madb:.2}",
+                100.0 * moved as f64 / total as f64,
+                100.0 * moved as f64 / ground.max(1) as f64,
+            );
+            // Material shares in the viewport, on arm only -- what the rock
+            // actually is where the player is standing, as against the
+            // whole-world cell counts `massif detail` prints.
+            let hist = con.material_hist(&on.materials);
+            let mut shares: Vec<(usize, f64)> =
+                hist.iter().copied().enumerate().filter(|(_, v)| *v > 0.002).collect();
+            shares.sort_by(|x, y| y.1.total_cmp(&x.1));
+            let line: Vec<String> = shares
+                .iter()
+                .map(|(i, v)| {
+                    format!("{} {:.1}%", on.materials.get(MaterialId(*i as u16)).name, 100.0 * v)
+                })
+                .collect();
+            println!("        on-arm viewport cells: {}", line.join("  "));
+        }
+    }
+    println!();
+    println!("  pooled: {all_moved} of {all_px} pixels moved ({:.2}%)", 100.0 * all_moved as f64 / all_px.max(1) as f64);
+}
+
 fn census_of(world: &World, cams: &[(i32, i32)]) -> Census {
     let mut c = Census::default();
     for &cam in cams {
@@ -475,6 +591,7 @@ fn main() {
         "distance" => distance(&presets, &a),
         "passes" => passes(&presets, &a),
         "shot" => shot(&presets, &a),
+        "vocab" => vocab(&presets, &a),
         m => panic!("unknown mode {m:?}"),
     }
 }

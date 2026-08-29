@@ -1,0 +1,74 @@
+// **The marker bed**, and the only red in the ground.
+//
+// `Reports/worldgen-appearance-audit-2026-08-29.md` §5 measured four to nine
+// colours covering half of everything the player sees below the skyline, and
+// every one of them is a grey, a brown or a tan: the mineral world spans
+// 92..192 in value and essentially one hue. Ironstone is the entry that is
+// not on that list. It is deliberately **rare** -- roughly one bed in
+// twenty-five -- because a marker bed's whole value is that you can find it
+// again, and a rock you see everywhere marks nothing.
+//
+// Set relative to `stone.ron`; see
+// `Reports/rock-vocabulary-design-2026-08-29.md` for the set.
+(
+    name: "ironstone",
+    display: "Ironstone",
+    kind: Solid,
+    // The heaviest of the bedded rocks -- it is a third iron.
+    density: 3.4,
+
+    //   0  fresh    dark rust. Random picks stay here.
+    //   1  weathered  **brighter, not darker.** Iron is the one rock here
+    //      whose exposed skin gains saturation: it oxidises to a bloom. So
+    //      an ironstone bed announces itself hardest exactly where the
+    //      player can see it, on the open face, and is quieter in a cut.
+    colors: [
+        // 0: fresh
+        (128, 72, 48),
+        (112, 62, 41),
+        (146, 86, 58),
+        (96, 53, 35),
+        // 1: weathered -- rust bloom
+        (156, 84, 46),
+        (138, 72, 38),
+        (176, 102, 60),
+        (120, 62, 32),
+        // 2: **damp** -- rock below the water table, and rock a pond or a
+        // stream is standing against.
+        //
+        // Derived rather than eyeballed, and stated so it can be re-derived:
+        // family 0 multiplied by (0.78, 0.79, 0.83). Wet rock is darker
+        // because the water film kills the diffuse scatter off the grain,
+        // and it is *cooler* because the loss is smallest at the blue end --
+        // so a single multiplier per channel says the whole thing, and no
+        // rock in the set needs its own artistic judgement about being wet.
+        // It is one byte, written at genesis, exactly like the other two.
+        (100, 57, 40),
+        (87, 49, 34),
+        (114, 68, 48),
+        (75, 42, 29),
+    ],
+    base_colors: 4,
+
+    // Hard, and the reason a marker bed survives to be a marker: it stands
+    // proud of the softer beds either side of it as a rib on the face.
+    max_unsupported_span: 20,
+    attached_span_bonus: 13,
+    support_cost_below: 1,
+    support_cost_beside: 1,
+    support_cost_above: 3,
+
+    blast_resistance: 1.5,
+
+    // Blocky nodules: {8, 16, 32, 64}. Fewer rungs than limestone, all of
+    // them large -- ironstone does not grade down into grit, it comes off in
+    // lumps or not at all.
+    fragment_floor: 3,
+    fragment_rungs: 4,
+
+    joint_spacing: 17.0,
+
+    breaks_into: "rubble",
+    heat_conductivity: 0.1,
+    rock: true,
+)

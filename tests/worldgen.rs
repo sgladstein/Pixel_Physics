@@ -344,15 +344,17 @@ fn every_solid_is_anchored_and_no_liquid_carries_a_stale_fill() {
     let presets = presets();
     let params = presets.get(&presets.default_name()).expect("default preset");
     let world = build(params, 3);
-    let stone = world.materials.id_of("stone").unwrap();
-
+    // Every intact rock, not just `stone`: the massif is six materials
+    // under the rock vocabulary and counting one of them made this guard
+    // vacuous on `arid`, which has no `stone` in it at all
+    // (`Material::rock`, and `Reports/rock-vocabulary-design-2026-08-29.md`).
     let mut attached_stone = 0;
     for y in 0..=BOUNDS.1 {
         for x in 0..=BOUNDS.0 {
             let c = world.get(x, y);
-            if c.material == stone {
-                assert!(c.attached(), "unattached stone in the massif at ({x}, {y})");
-                assert!(c.aux() < u16::MAX, "stone at ({x}, {y}) never reached an anchor");
+            if world.materials.get(c.material).rock {
+                assert!(c.attached(), "unattached rock in the massif at ({x}, {y})");
+                assert!(c.aux() < u16::MAX, "rock at ({x}, {y}) never reached an anchor");
                 attached_stone += 1;
             }
             if c.material == material::BEDROCK {
@@ -360,7 +362,7 @@ fn every_solid_is_anchored_and_no_liquid_carries_a_stale_fill() {
             }
         }
     }
-    assert!(attached_stone > 10_000, "vacuous: only {attached_stone} stone cells in the world");
+    assert!(attached_stone > 10_000, "vacuous: only {attached_stone} rock cells in the world");
 }
 
 #[test]
@@ -1645,6 +1647,22 @@ fn a_varied_world_uses_more_than_one_rock_family() {
         let params = presets.get(preset).expect("preset");
         let world = build(params, 1);
         let stone = world.materials.id_of("stone").expect("stone");
+        // **What "more than one rock" means changed under it, and the test
+        // has to move with it.** This guard was written when the only rock
+        // was `stone` and variety could only be a palette *family*; under
+        // the rock vocabulary variety is carried by the material, and on
+        // `arid` there is no `stone` cell in the world at all -- so the old
+        // reading came out as "every rock cell is in family {}" and was
+        // measuring an empty set. Either axis counts.
+        let mut rocks: std::collections::BTreeSet<u16> = Default::default();
+        for y in 0..=BOUNDS.1 {
+            for x in 0..=BOUNDS.0 {
+                let m = world.get(x, y).material;
+                if world.materials.get(m).rock {
+                    rocks.insert(m.0);
+                }
+            }
+        }
         let seen = families(&world, stone);
         // Printed as well as asserted: the bar is "more than one", and the
         // number next to the strip is what says whether that means a token
@@ -1659,7 +1677,10 @@ fn a_varied_world_uses_more_than_one_rock_family() {
             }
         }
         println!("{preset} seed 1 rock families (0 neutral, 1 wet, 2 dry, 3 cap-rock): {counts:?}");
-        assert!(seen.len() > 1, "{preset} seed 1: every rock cell is in family {seen:?}");
+        assert!(
+            seen.len() > 1 || rocks.len() > 1,
+            "{preset} seed 1: one rock ({rocks:?}) in one family ({seen:?})"
+        );
     }
     // And the control: `flat` asks for no regional variation, so it must get
     // none. Without this the test above passes just as well for a generator
@@ -2123,7 +2144,6 @@ fn a_forced_vault_world_is_sealed_and_arrives_at_rest() {
         for seed in SEEDS {
             let world = build_cave_world(&with, seed);
             let control = build_cave_world(&without, seed);
-            let stone = world.materials.id_of("stone").expect("stone");
 
             let mut vault_cells = Vec::new();
             for y in 0..=CAVE_BOUNDS.1 {
@@ -2144,10 +2164,13 @@ fn a_forced_vault_world_is_sealed_and_arrives_at_rest() {
             // envelope was stone. Checked on the *control* world, which is
             // what "before the pass ran" means.
             for &(x, y) in &vault_cells {
-                assert_eq!(
-                    control.get(x, y).material,
-                    stone,
-                    "{preset} seed {seed}: vault wrote ({x}, {y}), which was not stone before"
+                // The seal is over *intact country rock*, not over one
+                // material: with a rock vocabulary the massif has six of
+                // them and a chamber sunk in a sandstone bed is exactly as
+                // sealed as one in stone (`Material::rock`).
+                assert!(
+                    control.materials.get(control.get(x, y).material).rock,
+                    "{preset} seed {seed}: vault wrote ({x}, {y}), which was not intact rock before"
                 );
             }
             // And no vault cell touches anything that was not stone -- which
@@ -2161,10 +2184,12 @@ fn a_forced_vault_world_is_sealed_and_arrives_at_rest() {
                     if changed.contains(&(nx, ny)) {
                         continue;
                     }
-                    assert_eq!(
-                        control.get(nx, ny).material,
-                        stone,
-                        "{preset} seed {seed}: vault cell ({x}, {y}) is flush against ({nx}, {ny}), which was not stone"
+                    // Intact rock, for the same reason the envelope check
+                    // above takes it: the seal is against the massif, and
+                    // the massif is six materials.
+                    assert!(
+                        control.materials.get(control.get(nx, ny).material).rock,
+                        "{preset} seed {seed}: vault cell ({x}, {y}) is flush against ({nx}, {ny}), which was not intact rock"
                     );
                 }
             }
@@ -3419,10 +3444,18 @@ fn a_seated_boulder_stands_at_a_believable_height() {
         worldgen::generate(&mut world, Spec::Generated { params: &params, seed });
         let stone = world.materials.id_of("stone").expect("stone");
 
+        // **A boulder identifies itself by its rock.** Under the rock
+        // vocabulary (`Reports/rock-vocabulary-design-2026-08-29.md`) a
+        // boulder is limestone -- the resistant rock, because that is what a
+        // hard-band survivor is made of; with the vocabulary off it is
+        // `stone` in the pale cap-rock family, which is what that used to
+        // mean. Both readings are accepted so this test measures the same
+        // *landform* either way rather than one build's palette.
+        let limestone = world.materials.id_of("limestone").expect("limestone");
         let is_boulder_stone = |x: i32, row: i32| -> bool {
             let ground = plans[x as usize].surface_y;
             let c = world.get(x, ground - row);
-            c.material == stone && c.shade / 4 == 3
+            c.material == limestone || (c.material == stone && c.shade / 4 == 3)
         };
         let height_at = |x: i32| -> i32 {
             let mut h = 0;

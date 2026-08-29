@@ -219,6 +219,52 @@ pub enum Purpose {
     /// wants one or two springs, and picking "the first one scanning left to
     /// right" would put every world's waterfall near x = 0.
     Spring = 34,
+    /// **Which rock a bed is.** Keyed on the *band index alone*, so a bed is
+    /// the same rock everywhere in the world — the same property the tone
+    /// draw (`Strata`) already has, and for the same reason: a layer you can
+    /// follow from one cliff face to another is the entire point of drawing
+    /// them.
+    ///
+    /// Its own stream rather than sharing `Strata`, which draws the bed's
+    /// *tone* at the same band index: sharing would tie a bed's rock to its
+    /// brightness, so every limestone bed in the world would also be the
+    /// pale one and the two channels would carry one bit between them.
+    RockType = 35,
+    /// The lateral facies dither — **per `(band, x)`, never per cell.**
+    ///
+    /// This is the correction that the whole rock vocabulary turns on.
+    /// `Palette` dithers per `(x, y)`, which is right for a *tint* and wrong
+    /// for a *rock*: it makes the boundary between two rocks an amorphous
+    /// 2-D blob that cuts across the bedding, and the rendered result reads
+    /// as camouflage rather than as geology (see
+    /// `Reports/rock-vocabulary-design-2026-08-29.md` §3, and the baseline
+    /// shots it is measured from). Dropping `y` from the key makes a bed one
+    /// rock top to bottom while still letting it interfinger with its
+    /// neighbour along strike, which is what a facies change actually is.
+    RockFacies = 36,
+    /// The warp that makes a rock **unit** thicker or thinner than the
+    /// nominal few beds.
+    ///
+    /// Its own stream, and it exists because giving the rock real contrast
+    /// exposed a defect the old low-contrast palette was hiding: every
+    /// bedding plane in this world is exactly `strata_thickness` apart, so a
+    /// section drawn in six distinct rocks came out as a **layer cake** --
+    /// equal stripes, the wallpaper failure `strata_shade`'s own note warns
+    /// about, arriving through thickness instead of through period. Warping
+    /// the unit coordinate before flooring it gives units from roughly a
+    /// third to nearly twice the nominal thickness while leaving the *bedding*
+    /// inside them regular, which is what real sections look like.
+    RockUnit = 37,
+    /// **Marker beds** -- ironstone ribs and basalt sills -- drawn per
+    /// *bed* rather than per unit.
+    ///
+    /// Its own stream and its own granularity, both for one reason: a marker
+    /// bed's whole value is that it is thin. Drawn on the unit stream
+    /// alongside the ordinary rocks, a marker inherits the unit's thickness
+    /// and a rust rib comes out as a 60-cell rust *formation*, which was the
+    /// first rendering of it and reads as a different world rather than as a
+    /// bed you can follow.
+    RockMarker = 38,
 }
 
 /// SplitMix64-style finalizer over `(seed, purpose, x, y)`.

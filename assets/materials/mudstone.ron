@@ -1,0 +1,94 @@
+// **The soft bed.** Every cliff in this world used to be one rock, so
+// nothing ever undercut: a face retreated uniformly or not at all. Mudstone
+// is the bed that goes first -- weak, thin-bedded, fissile -- and its whole
+// job is to be the thing a harder cap sits on and outlives.
+//
+// See `Reports/rock-vocabulary-design-2026-08-29.md` for the set this
+// belongs to and where the numbers came from. Every field below is set
+// *relative to `stone.ron`*, which is the reference rock and carries the
+// reasoning for what each field means; only the departures are argued here.
+(
+    name: "mudstone",
+    display: "Mudstone",
+    kind: Solid,
+    // Lighter than stone (2.5): mud lithifies porous and stays that way.
+    density: 2.2,
+
+    // **Two families of four tones**, `family * 4 + tone`, tone order
+    // (mid, dark, light, darkest) exactly as `stone.ron` numbers them --
+    // the band tone draw is shared code and must mean the same thing in
+    // every rock.
+    //
+    //   0  fresh    what a cut face shows. Random picks stay here.
+    //   1  weathered  what open air has had at. Paler and a little olive:
+    //      mudstone does not case-harden, it slakes and crumbles, so its
+    //      exposed skin is *lighter* than its interior -- the opposite of
+    //      sandstone's varnish, and the reason the two read apart on a
+    //      cliff even where they are the same value.
+    colors: [
+        // 0: fresh
+        (86, 80, 72),
+        (74, 69, 62),
+        (100, 94, 85),
+        (64, 60, 54),
+        // 1: weathered
+        (104, 99, 84),
+        (92, 88, 74),
+        (118, 113, 97),
+        (82, 78, 66),
+        // 2: **damp** -- rock below the water table, and rock a pond or a
+        // stream is standing against.
+        //
+        // Derived rather than eyeballed, and stated so it can be re-derived:
+        // family 0 multiplied by (0.78, 0.79, 0.83). Wet rock is darker
+        // because the water film kills the diffuse scatter off the grain,
+        // and it is *cooler* because the loss is smallest at the blue end --
+        // so a single multiplier per channel says the whole thing, and no
+        // rock in the set needs its own artistic judgement about being wet.
+        // It is one byte, written at genesis, exactly like the other two.
+        (67, 63, 60),
+        (58, 55, 51),
+        (78, 74, 71),
+        (50, 47, 45),
+    ],
+    base_colors: 4,
+
+    // **The number this material exists for.** Stone reaches 16 unconfined
+    // and 16 * 12 = 192 attached; mudstone reaches 7 and 42. A drift driven
+    // into a mudstone bed brings its own roof down at a quarter of the span
+    // stone holds, which is what makes choosing where to dig a decision
+    // rather than a formality.
+    max_unsupported_span: 7,
+    attached_span_bonus: 6,
+    // Weak in bending and weaker in tension than stone's 1/1/3: a mudstone
+    // lip peels off a face rather than hanging.
+    support_cost_below: 1,
+    support_cost_beside: 2,
+    support_cost_above: 4,
+
+    // Loose, muddy rock: a blast probe pushes through it for little more
+    // than it costs to push through gravel (0.4).
+    blast_resistance: 0.55,
+
+    // **It crumbles rather than calving.** Rungs 3 from floor 1 is
+    // {2, 4, 8}, and `rigid::MIN_FRACTURE_CELLS` is 6 -- so two of the three
+    // rungs are below the size at which a fragment can become a body at all,
+    // and most of what comes off a mudstone bed is grit. That is the
+    // intended reading and it is the honest opposite of `limestone.ron`,
+    // which calves slabs. Read `filmstrip`'s `crumbled to grit` column, not
+    // the mean region size, when checking it (CLAUDE.md).
+    fragment_floor: 1,
+    fragment_rungs: 3,
+
+    // Close-spaced fissility: a blast finds a plane every few cells, so the
+    // halo comes apart into chips rather than blocks. Stone is 13.
+    joint_spacing: 6.0,
+
+    breaks_into: "rubble",
+    // Matching `stone.ron`'s, and for its reason: rock sitting beside a
+    // quenched flow must have somewhere to put the heat it inherits.
+    heat_conductivity: 0.1,
+    // Intact country rock, so worldgen's cave, vault and pocket passes may
+    // carve it -- see `Material::rock`.
+    rock: true,
+)

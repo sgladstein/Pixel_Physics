@@ -2,7 +2,8 @@
 
 *Current as of: 2026-08-29. Updated when worldgen started sowing four
 woody species instead of one, again when grass joined them as a ground
-layer, and again when the sky was doubled and the soil blanket deepened.*
+layer, again when the sky was doubled and the soil blanket deepened, and
+again when the world stopped being made of one rock.*
 
 Every world is generated. There is no single fixed map: the world you get is
 built from a **seed** — a number — and a **preset**, which is a named style of
@@ -40,14 +41,33 @@ instead of soil, shapes itself into dunes, has its water table far below the
 surface, and grows very little; a wet one is deep-soiled, green, and likely to
 hold standing water. Both can occur in the same world.
 
-**Each region colours its own country.** Dry country runs to warm, pale
-sandstone and dusty ground; wet country to cooler, darker rock and rich
-loam; a particularly hard region bleaches toward pale cap-rock. The change
-arrives along a wandering boundary — bays and headlands, the odd island of
-one country stranded inside the other — rather than as a painted line, and
-a cut face keeps its region's colour all the way down — so crossing an escarpment changes what the rock *is*, not just
-how high it stands. Nothing you place by hand picks up these regional
-casts; built stone is the same familiar grey everywhere.
+**The ground is made of layers, and the layers are different rocks.** Cut
+into a hillside and you are cutting through a section: a pale hard band that
+stands out on every cliff, a dark soft one under it that has already
+crumbled back, a thin rust-coloured rib you can find again on the next face
+along. Six rocks in all, and they are not just colours — the soft ones give
+way sooner when you undercut them and come apart into grit, the hard ones
+hold a longer overhang and calve off in slabs. Dig far enough down and
+everything turns to the same near-black rock; that is the floor the world is
+built on.
+
+**Each region is made of different rock.** The layers are the same layers
+everywhere — you can follow a bed across a world — but what a bed is made of
+depends on the country it runs through. Dry country runs to warm sandstone
+and dusty ground; wet country to grey stone, dark mud-rock and rich loam.
+The change arrives along a wandering boundary — bays and headlands, the odd
+island of one country stranded inside the other — rather than as a painted
+line, so crossing an escarpment changes what the rock *is*, not just how
+high it stands.
+
+**Rock looks different where the weather has been at it.** An open face is
+not the colour of the rock behind it: sandstone darkens, limestone goes
+dull, mud-rock bleaches pale, and iron rock rusts brighter. Cut a few cells
+in and the colour steps once, to what the rock actually is. Ground below the
+water line is wet and darker, with a visible line where it stops.
+
+Nothing you place by hand picks up any of this; built stone is the same
+familiar grey everywhere.
 
 Every world is laid out differently. What is guaranteed is not a particular
 shape but a particular amount of *relief*: the regions of a world always

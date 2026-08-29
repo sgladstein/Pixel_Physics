@@ -187,6 +187,21 @@ const PASSES: &[Pass] = &[
 
 /// Everything the passes share: the decided columns, and the material ids
 /// they write.
+/// The six intact rocks a bed can be, resolved once.
+///
+/// A struct rather than an array because the passes name them: `mudstone` is
+/// *the soft bed* and `limestone` is *the cap*, and a rule that reads
+/// `rocks[2]` is a rule nobody can check.
+#[derive(Clone, Copy)]
+pub struct RockIds {
+    pub stone: MaterialId,
+    pub mudstone: MaterialId,
+    pub sandstone: MaterialId,
+    pub limestone: MaterialId,
+    pub ironstone: MaterialId,
+    pub basalt: MaterialId,
+}
+
 pub struct Ctx<'a> {
     pub terrain: Terrain<'a>,
     /// One entry per column of the world, indexed by x.
@@ -199,6 +214,15 @@ pub struct Ctx<'a> {
     /// in, which `plan_all` alone cannot answer.
     pub deposits: erosion::Deposits,
     pub stone: MaterialId,
+    /// **The rock vocabulary.** `stone` above is still the reference rock
+    /// and the brush's material; these are the other five beds a massif can
+    /// be made of. See `Reports/rock-vocabulary-design-2026-08-29.md`, and
+    /// `passes::strata_rock` for how a bed picks one.
+    ///
+    /// Held as ids on the context for the ordinary reason every other
+    /// material here is: `id_of("sandstone")` is a string hash, and this is
+    /// consulted once per bed per column over an 8192-wide world.
+    pub rocks: RockIds,
     pub soil: MaterialId,
     pub sand: MaterialId,
     pub gravel: MaterialId,
@@ -223,6 +247,16 @@ pub struct Ctx<'a> {
     /// separately so the printed erosion detail line can say how much of
     /// the deposit actually realised distinct from the raw plan-side sum.
     pub talus_recolored: std::cell::Cell<usize>,
+    /// Cells `stone_massif` wrote of each rock, in `RockIds` declaration
+    /// order (stone, mudstone, sandstone, limestone, ironstone, basalt), and
+    /// how many of them took the weathered family.
+    ///
+    /// **A counter, not a picture.** `CLAUDE.md`'s rule: a rendered band is
+    /// the same shape whether the vocabulary fired or the region tint
+    /// happened to land there, and only the number says which. Printed by
+    /// the `massif detail` line under `PASS_TIMING=1`.
+    pub rock_cells: [std::cell::Cell<usize>; 6],
+    pub weathered_cells: std::cell::Cell<usize>,
     /// Boulders (not boulder *cells* — the pass-table row already has
     /// those) `boulders` actually seated, out of however many markers
     /// `erosion::Deposits::boulder` proposed.
@@ -240,6 +274,14 @@ impl<'a> Ctx<'a> {
         };
         let (stone, soil, sand, gravel, water) =
             (id("stone"), id("soil"), id("sand"), id("gravel"), id("water"));
+        let rocks = RockIds {
+            stone,
+            mudstone: id("mudstone"),
+            sandstone: id("sandstone"),
+            limestone: id("limestone"),
+            ironstone: id("ironstone"),
+            basalt: id("basalt"),
+        };
         let crystal = id("crystal");
         let (flowstone, spar) = (id("flowstone"), id("spar"));
         // Read soil's angle of repose from the material data rather than
@@ -257,6 +299,7 @@ impl<'a> Ctx<'a> {
             plans,
             deposits,
             stone,
+            rocks,
             soil,
             sand,
             gravel,
@@ -266,6 +309,8 @@ impl<'a> Ctx<'a> {
             spar,
             gravel_tan,
             talus_recolored: std::cell::Cell::new(0),
+            rock_cells: std::array::from_fn(|_| std::cell::Cell::new(0)),
+            weathered_cells: std::cell::Cell::new(0),
             boulders_seated: std::cell::Cell::new(0),
         }
     }
@@ -387,6 +432,22 @@ fn generate_reported_with(
             // generated, and the `iterations == 0` guard means an age-0
             // world -- every preset until task 4, `flat` still -- prints
             // nothing at all.
+            if timing {
+                let c = |i: usize| ctx.rock_cells[i].get();
+                let total: usize = (0..6).map(c).sum::<usize>().max(1);
+                println!(
+                    "  massif detail: stone {} ({:.1}%) mudstone {} ({:.1}%) sandstone {} ({:.1}%) \
+                     limestone {} ({:.1}%) ironstone {} ({:.1}%) basalt {} ({:.1}%) | weathered {} ({:.1}%)",
+                    c(0), 100.0 * c(0) as f64 / total as f64,
+                    c(1), 100.0 * c(1) as f64 / total as f64,
+                    c(2), 100.0 * c(2) as f64 / total as f64,
+                    c(3), 100.0 * c(3) as f64 / total as f64,
+                    c(4), 100.0 * c(4) as f64 / total as f64,
+                    c(5), 100.0 * c(5) as f64 / total as f64,
+                    ctx.weathered_cells.get(),
+                    100.0 * ctx.weathered_cells.get() as f64 / total as f64,
+                );
+            }
             if ctx.deposits.iterations > 0 {
                 println!(
                     "  erosion detail: moved {:.1} exported {:.1} talus {:.1} sediment {:.1} \

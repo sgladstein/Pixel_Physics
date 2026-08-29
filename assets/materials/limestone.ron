@@ -1,0 +1,75 @@
+// **The cap.** Its four fresh tones are byte-for-byte `stone.ron`'s old
+// family 3 ("pale cap-rock"), promoted from a tint to a rock -- see
+// `sandstone.ron`'s note, which says the same thing about family 2, and
+// `Reports/rock-vocabulary-design-2026-08-29.md` for the set.
+//
+// This is the strongest of the bedded rocks and the one that makes a
+// landform: a limestone bed over a mudstone bed is a bench, a brow and
+// eventually an overhang, because the two now genuinely differ in what they
+// will hold up. Under one rock, a "cap" was a colour.
+(
+    name: "limestone",
+    display: "Limestone",
+    kind: Solid,
+    density: 2.6,
+
+    //   0  fresh    the old family 3, unchanged. Random picks stay here.
+    //   1  weathered  karst grey: rain dissolves limestone rather than
+    //      staining it, so the exposed skin goes duller and greyer -- less
+    //      of a value shift than sandstone's varnish and much less than
+    //      mudstone's bleach, because the rock is what is being removed.
+    colors: [
+        // 0: fresh -- stone.ron's retired family 3, entry for entry
+        (178, 176, 169),
+        (166, 164, 158),
+        (192, 190, 183),
+        (154, 153, 147),
+        // 1: weathered -- karst
+        (156, 154, 142),
+        (144, 142, 131),
+        (170, 168, 157),
+        (132, 131, 121),
+        // 2: **damp** -- rock below the water table, and rock a pond or a
+        // stream is standing against.
+        //
+        // Derived rather than eyeballed, and stated so it can be re-derived:
+        // family 0 multiplied by (0.78, 0.79, 0.83). Wet rock is darker
+        // because the water film kills the diffuse scatter off the grain,
+        // and it is *cooler* because the loss is smallest at the blue end --
+        // so a single multiplier per channel says the whole thing, and no
+        // rock in the set needs its own artistic judgement about being wet.
+        // It is one byte, written at genesis, exactly like the other two.
+        (139, 139, 140),
+        (129, 130, 131),
+        (150, 150, 152),
+        (120, 121, 122),
+    ],
+    base_colors: 4,
+
+    // Above stone's 16 / 12. This is the number that makes a cap a cap: a
+    // limestone bed reaches 20 cells unconfined and 280 attached, so it
+    // stands out over a mudstone bed that has already retreated.
+    max_unsupported_span: 20,
+    attached_span_bonus: 14,
+    support_cost_below: 1,
+    support_cost_beside: 1,
+    support_cost_above: 3,
+
+    blast_resistance: 1.2,
+
+    // **It calves slabs.** Floor 3 rungs 6 is {8, 16, 32, 64, 128, 256} --
+    // every rung above `rigid::MIN_FRACTURE_CELLS` and the top of the ladder
+    // near `MAX_BODY_CELLS` (400), so a struck limestone face throws pieces
+    // that read as *a piece of the wall* rather than as rubble. This is the
+    // far end of the axis `mudstone.ron` holds the near end of.
+    fragment_floor: 3,
+    fragment_rungs: 6,
+
+    // Wide-spaced joints. Stone is 13; at 21 a blast halo holds three or
+    // four polygons instead of six or seven, so the blocks read as blocks.
+    joint_spacing: 21.0,
+
+    breaks_into: "rubble",
+    heat_conductivity: 0.1,
+    rock: true,
+)

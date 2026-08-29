@@ -1223,6 +1223,27 @@ pub struct MaterialDef {
     #[serde(default = "default_true")]
     pub anchors_organisms: bool,
 
+    /// Whether this is **intact country rock** — the massif the world is cut
+    /// out of, as against soil lying on it, rubble that fell off it, or
+    /// anything a player built.
+    ///
+    /// Stated as data for the same reason `anchors_organisms` above is: the
+    /// generator's cave, vault and pocket passes need to ask *"is this the
+    /// massif"* and, until a rock vocabulary existed, asked
+    /// `material == ctx.stone` — a question with exactly one right answer
+    /// while there was exactly one rock. With six, that test silently means
+    /// "is this specifically the grey one", so a chamber sunk in sandstone
+    /// reads as breached and a cave refuses to erode through a limestone
+    /// bed. Neither failure is visible; both are wrong.
+    ///
+    /// A flag rather than a name lookup, per `CLAUDE.md`'s hot-path rule:
+    /// these tests run per cell over a chamber envelope, and
+    /// `id_of("sandstone")` in that loop is a string hash where a `Vec`
+    /// index will do. `bedrock` is deliberately **not** rock — it is the
+    /// world floor, and nothing may carve it.
+    #[serde(default)]
+    pub rock: bool,
+
     /// The pitch of this material's **joint fabric**, in world cells — the
     /// characteristic width of the block it comes apart into. `0.0` (the
     /// default) means *not jointed*, and nothing about
@@ -1551,6 +1572,8 @@ pub struct Material {
     pub clings_to_wood: bool,
     /// See `MaterialDef::anchors_organisms`.
     pub anchors_organisms: bool,
+    /// See `MaterialDef::rock`.
+    pub rock: bool,
     /// See `MaterialDef::joint_spacing`. `0.0` means not jointed; never
     /// negative, and never small enough to divide the world into slivers.
     pub joint_spacing: f32,
@@ -1896,6 +1919,7 @@ impl From<MaterialDef> for Material {
             woody: def.woody,
             clings_to_wood: def.clings_to_wood,
             anchors_organisms: def.anchors_organisms,
+            rock: def.rock,
             // Clamped rather than asserted: this is content, and a
             // hand-edited `.ron` must not be able to panic the simulation.
             // A negative or sub-cell pitch is meaningless, so both read as
@@ -2127,6 +2151,22 @@ const EMBEDDED: &[&str] = &[
     // shouldn't turn to powder ever." Addressed by name and through the
     // resolved `Material::severs_into`, never by number.
     include_str!("../../assets/materials/deadleaf.ron"),
+    // **The rock vocabulary**, appended per the rule stated four times
+    // above: never inserted among the others, because the well-known
+    // constants are positions in this array.
+    //
+    // `stone` was the entire geology of the world -- one material, four
+    // colour families, the family a region tint and the tone a bedding
+    // index. These five split the *rock* axis out of that byte and give it
+    // physics: hardness, how coarsely it calves, its joint fabric and how
+    // it weathers. `Reports/rock-vocabulary-design-2026-08-29.md` has the
+    // set and the numbers; `stone.ron` stays the reference rock and the
+    // brush's material, and every one of these is authored relative to it.
+    include_str!("../../assets/materials/mudstone.ron"),
+    include_str!("../../assets/materials/sandstone.ron"),
+    include_str!("../../assets/materials/limestone.ron"),
+    include_str!("../../assets/materials/ironstone.ron"),
+    include_str!("../../assets/materials/basalt.ron"),
 ];
 
 /// Where the loader looks for material files, relative to the working directory.
@@ -2231,6 +2271,7 @@ impl MaterialRegistry {
             clings_to_wood: false,
             severs_into: String::new(),
             anchors_organisms: true,
+            rock: false,
             joint_spacing: 0.0,
             joint_band_contrast: 0.0,
             support_cost_below: 1,
@@ -2307,6 +2348,7 @@ impl MaterialRegistry {
             clings_to_wood: false,
             severs_into: String::new(),
             anchors_organisms: true,
+            rock: false,
             joint_spacing: 0.0,
             joint_band_contrast: 0.0,
             support_cost_below: 1,
