@@ -641,8 +641,24 @@ impl Handler {
             // panel already shadows `S` (save, over the gnome's descend)
             // on the same reasoning, and this arm must stay *above* the
             // unconditional `Tab` arm below or the guard never fires.
+            // Shift reverses it. `held.grab` is the shift key -- it is named
+            // for the gnome, who is the other thing it drives -- and reading
+            // it here rather than plumbing a `ModifiersState` through keeps
+            // one source of truth for "is shift down".
+            KeyCode::Tab if self.app.show_tunables && self.held.grab => self.app.tunables_cycle_group_back(),
             KeyCode::Tab if self.app.show_tunables => self.app.tunables_cycle_group(),
-            KeyCode::PageUp | KeyCode::PageDown if self.app.show_tunables => self.app.tunables_cycle_group(),
+            // **These used to cycle the menu too, and now page the list.**
+            // Tab was added because `PageUp`/`PageDown` are absent from 60%
+            // and many laptop keyboards, which had left the WORLD menu
+            // unreachable there -- so the menu cycle no longer needs them,
+            // and paging is what they mean in every other list in the world.
+            // A hundred-odd rows of PHYSICS is why that matters. Anyone
+            // without the keys loses nothing they could reach before: the
+            // arrows still walk the list.
+            KeyCode::PageUp if self.app.show_tunables => self.app.tunables_page(-1),
+            KeyCode::PageDown if self.app.show_tunables => self.app.tunables_page(1),
+            KeyCode::Home if self.app.show_tunables => self.app.tunables_jump(false),
+            KeyCode::End if self.app.show_tunables => self.app.tunables_jump(true),
             KeyCode::KeyS if self.app.show_tunables => self.app.save_tunable(),
             KeyCode::KeyI => self.app.toggle_hover_inspector(),
             KeyCode::KeyN => self.app.toggle_stress_view(),

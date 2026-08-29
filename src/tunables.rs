@@ -27,10 +27,11 @@
 //! starting point, and registering it would either silently clamp to a
 //! misleadingly-finite value or need its own special-cased UI.
 
-use crate::sim::clock::{Clock, MAX_SLOWDOWN};
+use crate::sim::clock::{Clock, SkyPin, MAX_SLOWDOWN};
 use crate::sim::explosion::Tuning as Explosion;
 use crate::sim::material::{MaterialKind, MaterialRegistry};
 use crate::sim::player::Tuning as Player;
+use crate::sim::weather::{Pin as WeatherPin, Weather};
 
 /// Which menu the tunables panel shows an entry in.
 ///
@@ -75,41 +76,59 @@ impl TunableGroup {
         }
     }
 
+    /// **`World` first, and it is the menu the panel opens on.**
+    ///
+    /// The order was `Physics, Visual, Explosion, Player, World`, which put
+    /// what the sky is doing four presses behind a hundred-odd rows of
+    /// material fields — reasonable while this was a material panel and wrong
+    /// once it grew a time-of-day and a weather control, which are the two
+    /// things anybody opens it *to use* rather than to sweep. Everything else
+    /// keeps its relative order; only `World` moved, and it moved to the
+    /// front rather than being special-cased out of the cycle.
     pub fn next(self) -> Self {
         match self {
+            TunableGroup::World => TunableGroup::Physics,
             TunableGroup::Physics => TunableGroup::Visual,
             TunableGroup::Visual => TunableGroup::Explosion,
             TunableGroup::Explosion => TunableGroup::Player,
             TunableGroup::Player => TunableGroup::World,
-            TunableGroup::World => TunableGroup::Physics,
         }
     }
 
     /// **Kept an exact inverse of [`Self::next`], and guarded as one.** This
     /// read `Physics => Player` for as long as `World` existed: the world-speed
     /// menu was added to `next` and to `all`, and this direction was missed.
-    /// Nothing caught it because `prev` has no caller yet -- an unused `pub fn`
-    /// is not dead code to clippy -- so the bug was waiting for whoever first
+    /// Nothing caught it because `prev` had no caller -- an unused `pub fn`
+    /// is not dead code to clippy -- so the bug sat waiting for whoever first
     /// wired a "previous menu" key, which is exactly the reader least able to
     /// tell a wrong answer from a right one. `next_and_prev_are_inverses`
     /// fails now if a new variant updates only one direction.
+    ///
+    /// `Shift+Tab` is that caller, wired with the panel's own redesign. The
+    /// guard was written before the key existed and was already green when it
+    /// arrived, which is the cheap half of `CLAUDE.md`'s put-the-fault-back
+    /// rule: a guard written before the fix has already been watched failing.
     pub fn prev(self) -> Self {
         match self {
+            TunableGroup::World => TunableGroup::Player,
             TunableGroup::Physics => TunableGroup::World,
             TunableGroup::Visual => TunableGroup::Physics,
             TunableGroup::Explosion => TunableGroup::Visual,
             TunableGroup::Player => TunableGroup::Explosion,
-            TunableGroup::World => TunableGroup::Player,
         }
     }
 
+    /// **In cycle order, and that is a contract rather than a coincidence.**
+    /// The panel draws this as a tab strip, so a list that disagreed with
+    /// [`Self::next`] would show a row of tabs that `Tab` walks in some other
+    /// order — asserted by `all_is_the_cycle_order`.
     pub fn all() -> [TunableGroup; 5] {
         [
+            TunableGroup::World,
             TunableGroup::Physics,
             TunableGroup::Visual,
             TunableGroup::Explosion,
             TunableGroup::Player,
-            TunableGroup::World,
         ]
     }
 }
@@ -160,18 +179,123 @@ pub struct Tunable {
     /// specifically invite people to sweep live. Reported from live play,
     /// reproduced directly against `water.ron` before this field existed.
     pub integral: bool,
+    /// **A closed set of named states rather than a number.** `None` is the
+    /// ordinary numeric entry; `Some(labels)` makes `value` an index into
+    /// `labels`, which the panel renders in place of the figure and draws as
+    /// discrete segments instead of a fill.
+    ///
+    /// Exists because the two controls the options menu most needed — what
+    /// time of day it is, and what the weather is doing — are *modes*, and a
+    /// slider is the wrong instrument for a mode twice over: `3.000` is not
+    /// an answer to "what is the sky doing", and a value between two states
+    /// is not a state. Everything else about a choice is a number, so it
+    /// reuses the whole registry, adjust and clamp path rather than forking
+    /// it; only the rendering and the wrap differ.
+    ///
+    /// **An index past the end is a real, reachable value and means "held at
+    /// something unnamed"** — see `weather::Pin::of`. The panel draws it as
+    /// `HELD`; `max` deliberately does *not* cover it, because it is a state
+    /// to be read and left, never one to be selected into.
+    pub options: Option<Vec<&'static str>>,
 }
 
 impl Tunable {
     /// A float-valued tunable — the common case.
     fn float(group: TunableGroup, category: &str, name: &str, value: f32, min: f32, max: f32, step: f32) -> Self {
-        Self { group, category: category.into(), name: name.into(), value, min, max, step, integral: false }
+        Self {
+            group,
+            category: category.into(),
+            name: name.into(),
+            value,
+            min,
+            max,
+            step,
+            integral: false,
+            options: None,
+        }
     }
 
     /// An integer-valued one, whose `.ron` field must never be written with
     /// a decimal point — see `integral`.
     fn integer(group: TunableGroup, category: &str, name: &str, value: f32, min: f32, max: f32, step: f32) -> Self {
-        Self { group, category: category.into(), name: name.into(), value, min, max, step, integral: true }
+        Self {
+            group,
+            category: category.into(),
+            name: name.into(),
+            value,
+            min,
+            max,
+            step,
+            integral: true,
+            options: None,
+        }
+    }
+
+    /// One of a closed set of named states — see [`Tunable::options`].
+    ///
+    /// `index` may legitimately be `options.len()`, meaning the live state is
+    /// not one of the named ones; `max` stays at the last *named* index so
+    /// that no adjustment can ever land back on it.
+    fn choice(group: TunableGroup, category: &str, name: &str, index: usize, options: Vec<&'static str>) -> Self {
+        let last = options.len().saturating_sub(1) as f32;
+        Self {
+            group,
+            category: category.into(),
+            name: name.into(),
+            value: index as f32,
+            min: 0.0,
+            max: last,
+            step: 1.0,
+            integral: true,
+            options: Some(options),
+        }
+    }
+
+    /// What this entry reads as on screen: the chosen label for a choice,
+    /// the number for everything else.
+    ///
+    /// **`HELD` is not a placeholder.** An index past the end of the list is
+    /// the live state being something no menu entry names, which is
+    /// reachable whenever anything but the panel writes the underlying value
+    /// (a test, a harness, a hand-edited asset). Rendering it as the first or
+    /// nearest entry instead would be a readout that disagrees with the
+    /// world — `CLAUDE.md`'s "a knob whose value you cannot see is a knob you
+    /// cannot tell is disconnected", one step worse because it would be
+    /// confidently wrong rather than absent.
+    pub fn display(&self) -> String {
+        match &self.options {
+            Some(options) => options.get(self.value.round().max(0.0) as usize).map_or("HELD", |s| s).to_string(),
+            None if self.integral => format!("{}", self.value.round() as i64),
+            None => format!("{:.3}", self.value),
+        }
+    }
+
+    /// The value one press of the arrow keys moves this to.
+    ///
+    /// **Choices wrap; numbers clamp**, and the difference is the point. A
+    /// slider that stops at its end tells you there is no more headroom,
+    /// which is information; a mode list that stops at its end is just a
+    /// list you have to walk back down. Wrapping makes any state reachable
+    /// in whichever direction is shorter, which is what a `LEFT/RIGHT`
+    /// selector on nine entries needs to be usable at all.
+    ///
+    /// From an unnamed held state (`value` past the end) *either* direction
+    /// goes to entry 0 — the running state. That is the one thing anybody in
+    /// that position wants, and it is reachable without knowing how they got
+    /// there.
+    pub fn stepped(&self, sign: i32) -> f32 {
+        let Some(options) = &self.options else {
+            return (self.value + sign as f32 * self.step).clamp(self.min, self.max);
+        };
+        let len = options.len() as i32;
+        if len == 0 {
+            return 0.0;
+        }
+        let index = self.value.round().max(0.0) as i32;
+        if index >= len {
+            return 0.0;
+        }
+        (index + sign).rem_euclid(len) as f32
     }
 }
 
@@ -424,6 +548,66 @@ pub fn from_clock(c: &Clock) -> Vec<Tunable> {
     ]
 }
 
+/// **The two mode rows the WORLD menu opens with** — what time it is, and
+/// what the weather is doing.
+///
+/// Separate from [`from_clock`] rather than folded into it, and the split is
+/// not cosmetic. Those five are *rates*: whole multiples of baseline, floored
+/// at 1, capped at [`MAX_SLOWDOWN`], and three tests assert exactly that over
+/// everything `from_clock` returns. These two are choices with none of those
+/// properties, and widening those assertions to admit them would have thrown
+/// away the guard rather than extended it.
+///
+/// They are listed first because they are the two controls the owner asked
+/// for and the two a player reaches for; the rates are how fast the world
+/// ages, which is a session setting you set once.
+///
+/// Takes the weather override rather than a `&World` so that the whole
+/// registry stays buildable from plain values — `from_clock`'s own reason for
+/// taking a `&Clock`.
+pub fn from_pins(clock: &Clock, weather_override: Option<Weather>) -> Vec<Tunable> {
+    let g = TunableGroup::World;
+    let c = WORLD_CATEGORY;
+    // `map_or(len, ..)` is the "held at something unnamed" index — see
+    // `Tunable::options`. Reached whenever anything but this panel wrote the
+    // underlying value.
+    let sky_labels: Vec<&'static str> = SkyPin::ALL.iter().map(|p| p.label()).collect();
+    let sky = SkyPin::of(clock.sky_hold)
+        .and_then(|p| SkyPin::ALL.iter().position(|q| *q == p))
+        .unwrap_or(sky_labels.len());
+    let weather_labels: Vec<&'static str> = WeatherPin::ALL.iter().map(|p| p.label()).collect();
+    let weather = WeatherPin::of(weather_override)
+        .and_then(|p| WeatherPin::ALL.iter().position(|q| *q == p))
+        .unwrap_or(weather_labels.len());
+    vec![
+        Tunable::choice(g, c, "time_of_day", sky, sky_labels),
+        Tunable::choice(g, c, "weather", weather, weather_labels),
+    ]
+}
+
+/// Which [`SkyPin`] a `time_of_day` row's value selects, and which
+/// [`WeatherPin`] a `weather` row's does — [`from_pins`]' other half.
+///
+/// Returns the pin rather than applying it, because applying is not a field
+/// write: both go through `World` seams that also have to wake the field
+/// (`World::set_sky_hold`, `World::set_weather_pin`), and a function here
+/// that took a `&mut Clock` could do only half of it. That asymmetry with
+/// `apply_clock` is deliberate and is the reason this is named `select` and
+/// not `apply`.
+///
+/// An out-of-range index cannot arrive from [`Tunable::stepped`], which sends
+/// every adjustment to 0; it is defended against anyway because the value
+/// also reaches here from a pinned readout (`App::adjust_pinned`) rebuilt
+/// against a list that may have changed underneath it.
+pub fn select_sky_pin(value: f32) -> SkyPin {
+    SkyPin::ALL.get(value.round().max(0.0) as usize).copied().unwrap_or_default()
+}
+
+/// As [`select_sky_pin`], for the weather row.
+pub fn select_weather_pin(value: f32) -> WeatherPin {
+    WeatherPin::ALL.get(value.round().max(0.0) as usize).copied().unwrap_or_default()
+}
+
 /// Apply one adjusted world-time value back onto the live clock.
 ///
 /// **Goes through `Clock::set_rates`, never straight at the field**, and that
@@ -653,6 +837,7 @@ fn format_value(v: f32, integral: bool) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::sim::weather::Precipitation;
     use crate::sim::material;
 
     /// **`next` and `prev` must be exact inverses, in both directions and
@@ -1006,4 +1191,118 @@ mod tests {
             }
         }
     }
+    /// **The tab strip and `Tab` must walk the same order.** The panel draws
+    /// `all()` left to right and `next()` is what the key does, so a list
+    /// that disagreed would show tabs in an order the key does not follow —
+    /// which reads as the key being broken, not the list.
+    #[test]
+    fn all_is_the_cycle_order() {
+        let all = TunableGroup::all();
+        for w in all.windows(2) {
+            assert_eq!(w[0].next(), w[1], "{} is drawn before {} but Tab does not go there", w[0].label(), w[1].label());
+        }
+        assert_eq!(all[all.len() - 1].next(), all[0], "the cycle must close");
+    }
+
+    /// **The two pin rows must round-trip through the panel**, the same
+    /// contract `every_registered_world_knob_can_be_written_back` holds the
+    /// rate knobs to — and it needs its own test because these do not go
+    /// through `apply_clock` at all (they are not field writes; see
+    /// `from_pins`).
+    #[test]
+    fn every_named_sky_and_weather_can_be_selected_and_reads_back() {
+        for (i, pin) in SkyPin::ALL.iter().enumerate() {
+            assert_eq!(select_sky_pin(i as f32), *pin, "row index {i} does not select {}", pin.label());
+            let mut c = Clock::default();
+            c.set_rates(0, |c| c.sky_hold = pin.hold());
+            let row = from_pins(&c, None).into_iter().find(|t| t.name == "time_of_day").expect("listed");
+            assert_eq!(row.display(), pin.label(), "a held {} does not read back as itself", pin.label());
+        }
+        for (i, pin) in WeatherPin::ALL.iter().enumerate() {
+            assert_eq!(select_weather_pin(i as f32), *pin, "row index {i} does not select {}", pin.label());
+            let row = from_pins(&Clock::default(), pin.weather())
+                .into_iter()
+                .find(|t| t.name == "weather")
+                .expect("listed");
+            assert_eq!(row.display(), pin.label(), "a pinned {} does not read back as itself", pin.label());
+        }
+    }
+
+    /// **A state no menu entry names must read as `HELD`, and any adjustment
+    /// from it must reach the running state.**
+    ///
+    /// The one case the round-trip above cannot see, and it is reachable:
+    /// the sky hold is a `pub` field in an asset file and the weather
+    /// override takes any `Weather`. Rendering an unnamed hold as one of the
+    /// presets would be a readout that is confidently wrong about what the
+    /// world is doing.
+    #[test]
+    fn an_unnamed_hold_reads_as_held_and_any_press_releases_it() {
+        let mut c = Clock::default();
+        c.set_rates(0, |c| c.sky_hold = Some(137));
+        let odd = Weather { intensity: 0.3, kind: Precipitation::Rain, wind: 0.1, chill: 0.0 };
+        let rows = from_pins(&c, Some(odd));
+        for t in &rows {
+            assert_eq!(t.display(), "HELD", "{} should read as HELD when nothing names it", t.name);
+            // Either direction, because somebody in this state does not know
+            // which way is "back".
+            for sign in [-1, 1] {
+                assert_eq!(t.stepped(sign), 0.0, "{} must release to the running state", t.name);
+            }
+        }
+        assert_eq!(select_sky_pin(rows[0].stepped(1)), SkyPin::Live);
+        assert_eq!(select_weather_pin(rows[1].stepped(1)), WeatherPin::Live);
+    }
+
+    /// **A choice wraps and a number clamps** — see `Tunable::stepped` for
+    /// why those are different and both right. A choice that clamped would
+    /// make the last entry of a nine-item list eight presses from the first.
+    #[test]
+    fn choices_wrap_where_numbers_clamp() {
+        let rows = from_pins(&Clock::default(), None);
+        let sky = rows.iter().find(|t| t.name == "time_of_day").expect("listed");
+        assert_eq!(sky.value, 0.0, "a fresh clock is not held");
+        assert_eq!(sky.stepped(-1), sky.max, "left from the first entry wraps to the last");
+        let last = Tunable { value: sky.max, ..sky.clone() };
+        assert_eq!(last.stepped(1), 0.0, "right from the last entry wraps to the first");
+
+        // The numeric half, on a knob sitting at its own floor.
+        let day = from_clock(&Clock::default()).into_iter().find(|t| t.name == "day_minutes").expect("listed");
+        assert_eq!(day.value, day.min);
+        assert_eq!(day.stepped(-1), day.min, "a number at its floor stays there");
+        assert_eq!(day.stepped(1), day.min + day.step);
+    }
+
+    /// Every choice draws its label, and every number draws a figure — the
+    /// property the panel's value column depends on, asserted over the whole
+    /// registry rather than the two rows that motivated it.
+    #[test]
+    fn a_choice_displays_a_label_and_a_number_displays_a_number() {
+        let mut all = from_materials(&MaterialRegistry::builtin());
+        all.extend(from_explosion(&Explosion::default()));
+        all.extend(from_player(&Player::default()));
+        all.extend(from_clock(&Clock::default()));
+        all.extend(from_pins(&Clock::default(), None));
+        let mut choices = 0;
+        for t in &all {
+            let shown = t.display();
+            match &t.options {
+                Some(options) => {
+                    choices += 1;
+                    assert!(
+                        options.contains(&shown.as_str()) || shown == "HELD",
+                        "{} shows {shown}, which is not one of its options",
+                        t.name
+                    );
+                }
+                None => assert!(
+                    shown.chars().all(|c| c.is_ascii_digit() || c == '.' || c == '-'),
+                    "{} shows {shown}, which is not a number",
+                    t.name
+                ),
+            }
+        }
+        assert_eq!(choices, 2, "the registry should hold exactly the two pin rows as choices");
+    }
+
 }

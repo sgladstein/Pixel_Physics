@@ -578,6 +578,16 @@ if [ -f scripts/lanecheck.py ]; then
   fi
 fi
 
+# --- plaincheck can still fire ----------------------------------------------
+# `scripts/plaincheck.py` scores a draft message to the owner. Unlike every
+# other check here it gates nothing -- chat is not an artifact the repo can
+# see -- so the only thing worth verifying in CI is that its checks are not
+# blind. Its --selftest runs the positive control (a known-good draft must be
+# clean) and puts each fault back. Sub-second.
+if [ -f scripts/plaincheck.py ]; then
+  pc=$(python3 scripts/plaincheck.py --selftest 2>&1) || note "$pc"
+fi
+
 # --- result -----------------------------------------------------------------
 if [ "$fail" -eq 0 ]; then
   echo "docscheck: clean"
