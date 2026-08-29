@@ -1,0 +1,56 @@
+{
+  "id": "20260829T031310690Z-006553",
+  "created": "2026-08-29T03:13:10Z",
+  "board": "fracture",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/ground-collapse-regression-oh0yjs",
+    "commit": "d5c2996",
+    "agent": null,
+    "session_id": "60b51001-a569-5eff-97d0-d51af9d7b109",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Idle world: the sea-stack that fell over with nobody playing",
+  "question": "In the fixed run, does the ground now read as at rest — or is there still something coming apart that shouldn't be?",
+  "context_md": "Your report: ground breaking after just waiting at startup. It reproduces with **no verb of any kind applied** — this is `worldcrack` with the strike turned off, so nothing in either run is the player.\n\nSame seed, same frames, same times of day (frames 902 / 2102 / 3302). The only difference is the fix.\n\nCause: when the ground root was given a real distance last week, one function that reads it (`dependants`) was left behind, so two boulders sitting on the same scree slope started being treated as though the lower one were carrying the upper — all the way down the hill, until the rock at the foot was reckoned to be holding up the entire hillside and gave way.\n\n**What I am unsure about and would like your eye on:** whether the fixed run still loses anything it shouldn't. It is not zero — 76 cells of rock still go, against 1,756 — and I do not know whether what remains is honest weathering or the tail of the same bug.",
+  "kind": "ab",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "before — on main",
+      "files": [
+        "20260829T031310690Z-006553/000-stack-before.png"
+      ],
+      "caption": "the stack collapses into a rubble cone by the second frame",
+      "meta": {
+        "rock cells destroyed": 1756,
+        "times rock gave way under load": 1963,
+        "times rock came away with nothing holding it": 1821,
+        "still getting worse when the run ended": "yes"
+      },
+      "focus": null
+    },
+    {
+      "label": "after — with the fix",
+      "files": [
+        "20260829T031310690Z-006553/001-stack-after.png"
+      ],
+      "caption": "the stack cracks but stands",
+      "meta": {
+        "rock cells destroyed": 76,
+        "times rock gave way under load": 57,
+        "times rock came away with nothing holding it": 25,
+        "still getting worse when the run ended": "no, settled"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
