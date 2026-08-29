@@ -2826,7 +2826,10 @@ impl App {
             return;
         }
         let (x, y) = self.renderer.screen_to_world(screen_x, screen_y);
-        self.world.player = Some(player::Player::at(x, y));
+        // **At the world's own cell scale**, not the authored size -- a
+        // world generated finer needs a proportionally bigger gnome or he is
+        // half the character he was. See `Player::at_scaled`.
+        self.world.player = Some(player::Player::at_scaled(x, y, self.world.cell_scale));
         // Switched into the dig tool on arrival rather than left for the
         // player to find. A verb nobody knows exists is a verb that does
         // not exist — see `Tool::Dig` — and arriving in it also makes the

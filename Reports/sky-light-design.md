@@ -403,4 +403,90 @@ it lit a sealed room to 486 where full dark is 93. Caught by
 four guards `underground-definition.md` left behind, doing precisely the job
 it was written for four milestones ago.
 
+## What play found wrong with it, 2026-08-29
+
+**Finding 2's table contains the defect, and this report read past it.** Look
+again at the two rows that matter:
+
+| sample | exact solve |
+|---|---|
+| 64-wide pit, rim → floor | 0.828 → **0.023** |
+| 1-wide shaft, 48 down | **0.010** |
+
+Those are the same number. A pit forty rows deep with most of the sky
+overhead and a slot you can barely stand in were scored within a factor of
+two of each other, and the "wanted" column let it pass because it asked only
+for *a gradient* — which a gradient ending in black satisfies. What the model
+measures is **distance from the nearest lit cell**, and distance cannot tell
+a hole from a hollow.
+
+Reported from play the moment anyone broke ground properly: *"When destroying
+parts of the world, the background remains black. This is good underground but
+looks bad when I break up the ground near the surface."* Reproduced in one
+command — `viewshot quarry=150x70 aim=4608 seed=6 shots=2` cuts the top off a
+hill and the cut draws as a black slab, its edges soft, sitting beside open
+sky at the same height.
+
+### The fix is a second term, not a retune
+
+`SKY_VIEW_RAYS`: each block traces back toward the sky along a fan of eight
+directions and takes the mean of what gets through. The rays' **sines** are
+evenly spaced over `-1..1`, so each carries an equal share of the
+cosine-weighted sky and there are no weights. Attenuation is through
+**material only** — clear air does not dim sunlight, and charging it for air
+is exactly what flattened the pit and the shaft onto one value. The two terms
+are combined with `max`, because they are two real ways for light to arrive
+and neither supersedes the other: the fan answers the open cut, and the
+distance spread answers reaching *sideways* into a tunnel, which no straight
+ray from the sky ever reaches.
+
+One bounce follows it (`SKY_VIEW_ALBEDO`, 0.4): the walls of a pit are
+themselves in daylight and throw a good deal of it back, so visible sky is not
+the same quantity as how bright it is down there. `V / (1 - a(1 - V))` is the
+standard closed form, it leaves both ends alone, and rendered at 0.45 instead
+it is indistinguishable — the picture does not sit on that value.
+
+**No ray is exactly vertical, and that is load-bearing.** Bin midpoints put
+the steepest at 7.2 degrees off, so a shaft has to be roughly `0.25 * depth`
+wide to admit even one ray to its floor. A straight-up ray would be free
+daylight down any shaft wide enough to hold one block column — Finding 1's
+disqualification of `field.rs`'s channel, arriving through the back door.
+
+### Measured
+
+On the guard's own geometry (`a_dug_shaft_goes_dark_while_a_wide_pit_keeps_
+its_rim_lit`: a 40-wide pit 30 deep, a 1-wide shaft, a sealed chamber), by
+switching the fan off rather than by reasoning:
+
+| sample | distance only | with the fan |
+|---|---|---|
+| pit rim | 0.765 | 1.000 |
+| **pit floor** | **0.045** | **0.504** |
+| 1-wide shaft, same depth | 0 | 0 |
+| 1-wide shaft, 75 down | 0 | 0 |
+| sealed chamber | 0 | 0 |
+
+Eleven times brighter where it was wrong and unmoved everywhere it was right,
+which is the shape a fix wants. The guard now asserts the pit floor above
+0.25 as well as the shaft below 0.05 — the pair from one run, so neither
+"everything dark" nor "everything lit" can pass it.
+
+### Cost
+
+`PIXEL_PHYSICS_SKY_LIGHT_TIMING` reports the fan separately. First written
+with a clamped index per block it cost **2.2–3.4 ms**, against a rebuild whose
+cell scan is 2.5 ms — measured on a full redraw, paired and alternating
+against a binary built from the parent commit, at **+2.8 ms on 8.1 ms, slower
+in 4 of 4**. Two changes took it to **0.41–0.45 ms**:
+
+- the drift per row is fixed for a whole ray, so both interpolation weights
+  are constant and the inner loop is two zipped slices with no index
+  arithmetic in it;
+- the two rays shallower than 45 degrees are swept **on the transpose**. In
+  place they stride the grid by a row per step across three arrays and cost
+  more than the six steep ones together; transposed they are ordinary
+  top-down sweeps, three strided passes in total instead of six.
+
+*Freshness: 2026-08-29.*
+
 *Shipped freshness: 2026-08-23.*

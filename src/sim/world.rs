@@ -354,6 +354,28 @@ pub struct World {
     /// knobs default to the historical behaviour exactly. See
     /// `sim::clock`'s module doc for why the two are separable at all.
     pub clock: crate::sim::clock::Clock,
+    /// **How many cells this world spends per unit of ground**, relative to
+    /// the size the engine's constants were authored at. `1.0` is that size.
+    ///
+    /// Set once at generation from `WorldgenParams::cell_scale` and never
+    /// changed after — a world is built at one resolution and stays there,
+    /// which is what makes it safe for anything holding a `&World` to read
+    /// without wondering when it last moved.
+    ///
+    /// **It lives here rather than on the worldgen params because most of
+    /// the things that need it are not worldgen.** The resolution step
+    /// (`Reports/resolution-step-2026-08-29.md`) turns on making every
+    /// feature `k` times as many cells across; `WorldgenParams::scaled`
+    /// handles the terrain, and everything else that is a length in cells --
+    /// the gnome's 7x14 body, a blast radius, an internode -- lives in the
+    /// source, in files that have a `&World` in hand and no reason to know
+    /// what a `WorldgenParams` is.
+    ///
+    /// Reading it is the *only* supported way for such a constant to find
+    /// out the world got finer. Constants that ignore it come out at the
+    /// wrong physical size and read as slivers, which is the round-6
+    /// "1-2 pixels wide" complaint arriving from the other direction.
+    pub cell_scale: f32,
     pub materials: MaterialRegistry,
     pub rng: Rng,
     /// M8: coherent pieces of broken structure currently in flight
@@ -1582,6 +1604,7 @@ impl World {
             chunks: HashMap::new(),
             fields: HashMap::new(),
             bounds: Some(bounds),
+            cell_scale: 1.0,
             frame: 0,
             clock: crate::sim::clock::Clock::default(),
             materials: MaterialRegistry::builtin(),
