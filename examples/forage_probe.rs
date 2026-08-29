@@ -470,6 +470,18 @@ fn main() {
     // to how a creature moves.
     if gate {
         let falls_max = order_stats(forage_rows.iter().map(|r| if r.moves > 0 { r.falls as f64 / r.moves as f64 } else { 0.0 }).collect()).2;
+        // **Both terms, because the ratio alone cannot say which one moved.**
+        // Measured 2026-08-29, wiring the impulse verb into `ant.ron` and
+        // re-running this exact sweep: falls/move went 0.225 -> 0.298 and the
+        // gate fired -- while the *absolute* falls went from ~7,430 to
+        // ~1,520. The colony fell a fifth as often. `moves` counts walking
+        // steps only, so a species that hops instead of walking collapses the
+        // denominator (33,020 -> 5,100 median) and the ratio rises on a
+        // numerator that fell. Read the ratio for the species it was
+        // baselined on; read these two for anything that leaves the ground.
+        let falls_med = order_stats(forage_rows.iter().map(|r| r.falls as f64).collect()).1;
+        let moves_med = order_stats(forage_rows.iter().map(|r| r.moves as f64).collect()).1;
+        println!("      falls  {falls_med:>8.0}  (median, absolute) against {moves_med:>8.0} walking moves");
         if frames != GATE_FRAMES || seeds < GATE_MIN_SEEDS {
             eprintln!(
                 "gate=1 refused: the bar is {FALLS_PER_MOVE_BAR:.2} measured at frames={GATE_FRAMES} over >={GATE_MIN_SEEDS} seeds, \
@@ -480,9 +492,12 @@ fn main() {
         }
         if falls_max > FALLS_PER_MOVE_BAR {
             eprintln!(
-                "GATE FAIL: worst seed falls/move {falls_max:.3} is over the {FALLS_PER_MOVE_BAR:.2} bar. \
-                 This is the failure two reverted attempts at airborne creatures had (59-80%); \
-                 it is the mechanism, not the tuning. Reports/creature-motion-design.md §2d, §7."
+                "GATE FAIL: worst seed falls/move {falls_max:.3} is over the {FALLS_PER_MOVE_BAR:.2} bar \
+                 (median absolute falls {falls_med:.0} against {moves_med:.0} walking moves). \
+                 Reports/creature-motion-design.md §2d, §7. \
+                 **Check which term moved before concluding anything**: this ratio is the failure \
+                 two reverted attempts had (59-80%) only when the numerator is what rose. A species \
+                 that hops walks less, so `moves` collapses and the ratio climbs on falls that fell."
             );
             std::process::exit(1);
         }

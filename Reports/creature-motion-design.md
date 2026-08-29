@@ -517,6 +517,45 @@ run** at any other frame budget: the statistic does not settle (0.239 / 0.225
 / 0.215 at 6k / 12k / 24k), so a bar quoted without its budget is not
 reproducible. Checked: at `seeds=2 frames=6000` it exits 2 and says why.
 
+### 1b. The guard is sensitive — and the ratio does not survive a hopper
+
+**The fault §2d is named for, put back**: `(Bias, Impulse, 2.0)` authored into
+`ant.ron` and the *identical* sweep re-run. The gate fires — `gate=1` exits 1
+at a worst seed of **0.405** against its 0.40 bar. So the guard is not blind,
+and its green above is evidence rather than a default.
+
+**But read which term moved, because it is not the one the bar assumes.**
+
+| | shipped ant | ant with the verb wired |
+|---|---|---|
+| falls / move (min / med / max) | 0.208 / **0.225** / 0.334 | 0.248 / **0.298** / **0.405** |
+| walking `moves`, median | **33,020** | **5,100** |
+| **absolute falls, median-implied** | **~7,430** | **~1,520** |
+| blocked / move | 0.031 / 0.034 / 0.065 | 0.044 / 0.060 / 0.089 |
+| tumbles / move | 0.683 / 0.791 / 0.857 | 4.452 / 6.251 / 7.195 |
+| deliveries | 0 / 0 / 6 | **42 / 104 / 478** |
+| deepest excursion | 59 / 71 / 118 | **164 / 226 / 290** |
+
+**The hopping colony falls about a fifth as often** — ~1,520 against ~7,430 —
+while the *ratio* climbs 32%. `CreatureStats::moves` counts **walking steps
+only**, deliberately (a ballistic step is `flight_moves`), so a species that
+hops instead of walking collapses the denominator 6.5x and the ratio rises on
+a numerator that fell. `tumbles/move` going 0.79 → 6.25 is the same
+arithmetic, eight times over.
+
+**So `falls / moves` is a guard about the species it was baselined on, and is
+not a cross-species statistic once anything leaves the ground.** That matters
+beyond this branch: read naively, 0.298 says "hopping makes ants fall more",
+and a session acting on it would revert a mechanism that is *reducing* falls
+while tripling foraging depth and taking deliveries from zero to a hundred.
+This is `CLAUDE.md`'s "ask what your number counts" arriving as a **ratio
+whose denominator the change moved** — the one shape that table does not yet
+have an entry for.
+
+`forage_probe gate=1` now prints **both terms** and its failure message says
+to check which one moved before concluding anything. The bar itself is
+unchanged and still correct for the shipped ant, which is what it gates.
+
 ### 2. Blocked moves — the body is read, and by 8–10x
 
 Measured with the appearance lane's own instrument on its own preset, so the
