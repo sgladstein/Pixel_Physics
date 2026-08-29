@@ -186,7 +186,18 @@ takes one of the diagonals more often than not — so it wanders off its own
 line and then wanders back, and a stem came out as a wobble rather than a
 stem.
 
-**So a shoot now draws its heading rather than groping for it.** It still
+**So a shoot can draw its heading rather than groping for it — and whether it
+does is yours to choose.** `K` cycles it: off (what plants have always done),
+each species' own setting, or forced to the maximum on everything. It changes
+how plants *grow*, not how they are drawn, so pressing it does nothing to a
+tree that has already grown — press `F6` for a fresh world to see it, and the
+status line names whichever mode is on.
+
+Off is the default, because asked three times whether the straighter version
+looked better, the answer was "neither". It is here to be tried, not because
+it won.
+
+When it is on, it still
 weighs its neighbours and still picks one at random exactly as before, but
 that pick now steers where the shoot is *aimed*; the cell it actually enters
 is whichever one keeps it closest to the line it is aiming along, with the

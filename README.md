@@ -36,24 +36,24 @@ whole, then run `python3 scripts/readmetoc.py`.
 | [The generation loop: plants die, seeds expire, slots come back](#the-generation-loop-plants-die-seeds-expire-slots-come-back) | 1189 |
 | [The economy re-derived: standing tissue costs something](#the-economy-re-derived-standing-tissue-costs-something) | 1241 |
 | [Stems draw a line: the growth walk renders its heading](#stems-draw-a-line-the-growth-walk-renders-its-heading) | 1341 |
-| [Plants that stop: organs, determinacy, and a price on both](#plants-that-stop-organs-determinacy-and-a-price-on-both) | 1401 |
-| [M16 status](#m16-status) | 1469 |
-| [M17 status](#m17-status) | 1655 |
-| [M18 status](#m18-status) | 1882 |
-| [UI improvements — overnight run, section 9](#ui-improvements--overnight-run-section-9) | 2216 |
-| [Live tunables panel — overnight run, section 10](#live-tunables-panel--overnight-run-section-10) | 2261 |
-| [Rendering performance — overnight run, section 11](#rendering-performance--overnight-run-section-11) | 2329 |
-| [M8 status — started, not complete](#m8-status--started-not-complete) | 2349 |
-| [M9 status — the gnome](#m9-status--the-gnome) | 2462 |
-| [M10 status — the worldgen half](#m10-status--the-worldgen-half) | 2523 |
-| [Weather status](#weather-status) | 2638 |
-| [The ant colony — status](#the-ant-colony--status) | 2655 |
-| [M19 status — started](#m19-status--started) | 2684 |
-| [Felling status — the verb works, and what it produces is pieces](#felling-status--the-verb-works-and-what-it-produces-is-pieces) | 2720 |
-| [Performance](#performance) | 2801 |
-| [World speed — five independent time axes](#world-speed--five-independent-time-axes) | 2975 |
-| [Status](#status) | 3058 |
-| [License](#license) | 3169 |
+| [Plants that stop: organs, determinacy, and a price on both](#plants-that-stop-organs-determinacy-and-a-price-on-both) | 1423 |
+| [M16 status](#m16-status) | 1491 |
+| [M17 status](#m17-status) | 1677 |
+| [M18 status](#m18-status) | 1904 |
+| [UI improvements — overnight run, section 9](#ui-improvements--overnight-run-section-9) | 2238 |
+| [Live tunables panel — overnight run, section 10](#live-tunables-panel--overnight-run-section-10) | 2283 |
+| [Rendering performance — overnight run, section 11](#rendering-performance--overnight-run-section-11) | 2351 |
+| [M8 status — started, not complete](#m8-status--started-not-complete) | 2371 |
+| [M9 status — the gnome](#m9-status--the-gnome) | 2484 |
+| [M10 status — the worldgen half](#m10-status--the-worldgen-half) | 2545 |
+| [Weather status](#weather-status) | 2660 |
+| [The ant colony — status](#the-ant-colony--status) | 2677 |
+| [M19 status — started](#m19-status--started) | 2706 |
+| [Felling status — the verb works, and what it produces is pieces](#felling-status--the-verb-works-and-what-it-produces-is-pieces) | 2742 |
+| [Performance](#performance) | 2823 |
+| [World speed — five independent time axes](#world-speed--five-independent-time-axes) | 2997 |
+| [Status](#status) | 3080 |
+| [License](#license) | 3191 |
 
 ### Milestones, in numeric order
 
@@ -65,16 +65,16 @@ order they were written.
 | 5 | [M5 status](#m5-status) | 1024 |
 | 6 | [M6 deferral](#m6-deferral) | 1014 |
 | 7 | [M7 status](#m7-status) | 913 |
-| 8 | [M8 status — started, not complete](#m8-status--started-not-complete) | 2349 |
-| 9 | [M9 status — the gnome](#m9-status--the-gnome) | 2462 |
-| 10 | [M10 status — the worldgen half](#m10-status--the-worldgen-half) | 2523 |
+| 8 | [M8 status — started, not complete](#m8-status--started-not-complete) | 2371 |
+| 9 | [M9 status — the gnome](#m9-status--the-gnome) | 2484 |
+| 10 | [M10 status — the worldgen half](#m10-status--the-worldgen-half) | 2545 |
 | 12 | [M12/M13 status](#m12m13-status) | 712 |
 | 14 | [M14 status](#m14-status) | 765 |
 | 15 | [M15 status](#m15-status) | 942 |
-| 16 | [M16 status](#m16-status) | 1469 |
-| 17 | [M17 status](#m17-status) | 1655 |
-| 18 | [M18 status](#m18-status) | 1882 |
-| 19 | [M19 status — started](#m19-status--started) | 2684 |
+| 16 | [M16 status](#m16-status) | 1491 |
+| 17 | [M17 status](#m17-status) | 1677 |
+| 18 | [M18 status](#m18-status) | 1904 |
+| 19 | [M19 status — started](#m19-status--started) | 2706 |
 
 ### By topic
 
@@ -87,24 +87,24 @@ them is named "plants". A section can appear twice; felling is honestly both
 plant work and structural work.
 
 **Known limitations for every topic are collected in one place**:
-[Status](#status), line 3058 — the *last* section in the
+[Status](#status), line 3080 — the *last* section in the
 file, not the first. Read it before concluding something is broken.
 
 | Topic | Sections, primary first |
 |---|---|
-| **plants, trees and moss** | [M16 status](#m16-status) 1469, [Plant lines merged](#plant-lines-merged-the-genome-and-the-ecology) 1119, [The economy re-derived](#the-economy-re-derived-standing-tissue-costs-something) 1241, [Plants that stop](#plants-that-stop-organs-determinacy-and-a-price-on-both) 1401, [The generation loop](#the-generation-loop-plants-die-seeds-expire-slots-come-back) 1189, [Stems draw a line](#stems-draw-a-line-the-growth-walk-renders-its-heading) 1341, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 2720 |
-| **creatures — worms and the ant colony** | [M18 status](#m18-status) 1882, [The ant colony](#the-ant-colony--status) 2655 |
-| **structural collapse, felling and rigid bodies** | [M17 status](#m17-status) 1655, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 2720, [M8 status](#m8-status--started-not-complete) 2349 |
+| **plants, trees and moss** | [M16 status](#m16-status) 1491, [Plant lines merged](#plant-lines-merged-the-genome-and-the-ecology) 1119, [The economy re-derived](#the-economy-re-derived-standing-tissue-costs-something) 1241, [Plants that stop](#plants-that-stop-organs-determinacy-and-a-price-on-both) 1423, [The generation loop](#the-generation-loop-plants-die-seeds-expire-slots-come-back) 1189, [Stems draw a line](#stems-draw-a-line-the-growth-walk-renders-its-heading) 1341, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 2742 |
+| **creatures — worms and the ant colony** | [M18 status](#m18-status) 1904, [The ant colony](#the-ant-colony--status) 2677 |
+| **structural collapse, felling and rigid bodies** | [M17 status](#m17-status) 1677, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 2742, [M8 status](#m8-status--started-not-complete) 2371 |
 | **fire, heat and phase change** | [M14 status](#m14-status) 765, [Materials](#materials) 219 |
 | **explosions, particles and debris** | [M15 status](#m15-status) 942, [M7 status](#m7-status) 913 |
 | **liquids and gases** | [Liquid physics](#liquid-physics-compressible-volume-not-discrete-occupied-cells) 739, [The coarse field grid](#the-coarse-field-grid) 450 |
 | **powders and granular flow** | [Materials](#materials) 219, [Architecture](#architecture) 293 |
 | **the coarse field grid — pressure, heat, light** | [The coarse field grid](#the-coarse-field-grid) 450, [M12/M13 status](#m12m13-status) 712 |
-| **worldgen and world structure** | [M10 status](#m10-status--the-worldgen-half) 2523, [Architecture](#architecture) 293 |
-| **the gnome (player character)** | [M9 status](#m9-status--the-gnome) 2462, [Controls](#controls) 156 |
-| **weather, sky and the clock** | [Weather status](#weather-status) 2638, [M19 status](#m19-status--started) 2684, [World speed](#world-speed--five-independent-time-axes) 2975 |
-| **rendering, UI and tunables** | [UI improvements](#ui-improvements--overnight-run-section-9) 2216, [Live tunables panel](#live-tunables-panel--overnight-run-section-10) 2261, [Rendering performance](#rendering-performance--overnight-run-section-11) 2329, [M6 deferral](#m6-deferral) 1014 |
-| **performance and the parallel sweep** | [Performance](#performance) 2801, [M5 status](#m5-status) 1024, [Architecture](#architecture) 293, [Rendering performance](#rendering-performance--overnight-run-section-11) 2329 |
+| **worldgen and world structure** | [M10 status](#m10-status--the-worldgen-half) 2545, [Architecture](#architecture) 293 |
+| **the gnome (player character)** | [M9 status](#m9-status--the-gnome) 2484, [Controls](#controls) 156 |
+| **weather, sky and the clock** | [Weather status](#weather-status) 2660, [M19 status](#m19-status--started) 2706, [World speed](#world-speed--five-independent-time-axes) 2997 |
+| **rendering, UI and tunables** | [UI improvements](#ui-improvements--overnight-run-section-9) 2238, [Live tunables panel](#live-tunables-panel--overnight-run-section-10) 2283, [Rendering performance](#rendering-performance--overnight-run-section-11) 2351, [M6 deferral](#m6-deferral) 1014 |
+| **performance and the parallel sweep** | [Performance](#performance) 2823, [M5 status](#m5-status) 1024, [Architecture](#architecture) 293, [Rendering performance](#rendering-performance--overnight-run-section-11) 2351 |
 | **materials and the data schema** | [Materials](#materials) 219, [M12/M13 status](#m12m13-status) 712 |
 
 <!-- END GENERATED TOC -->
@@ -1340,8 +1340,22 @@ the six mechanisms this package built and reverted.
 
 ## Stems draw a line: the growth walk renders its heading
 
-**The complaint:** no plant had a smooth straight stem. Everything read as a
-wobble, and the owner named the random walk as the suspect.
+**Shipped as a selector, default off. `K` cycles OFF / AUTHORED / FULL.**
+Read that first, because it is the conclusion: three still A/B cards asking
+whether this looks better came back **"neither"**, including one re-shot at a
+single trunk and ~800px after the first two were rejected as unreadable. A
+measured improvement that nobody can see is not a default, so this ships as a
+thing the hand settles rather than a thing this session decided. `plant::
+StemMode` carries the reasoning; `sim::plant` holds the mechanism.
+
+The one wrinkle, and it is why the key prints an instruction rather than just
+a name: unlike every other look selector this changes how plants **grow**, so
+pressing it re-draws nothing. `F6` for a fresh world is what shows it. The
+status line names the active mode, because a screenshot of a grown stand
+carries no other clue which mode grew it.
+
+**The complaint it came from:** no plant had a smooth straight stem. Everything
+read as a wobble, and the owner named the random walk as the suspect.
 
 **It was not a weight that needed tuning, and this is the part worth
 carrying.** Eight neighbours cannot express a direction. A shoot heading dead
@@ -1376,6 +1390,14 @@ authored weights: **0.88 cells before, 0.41 after** (a perfectly drawn line is
 plants established either way (9, 8, 8, 8) and mean height moved +4%. The
 default is exactly the old behaviour: `stem_stiffness` unset costs nothing and
 was verified byte-identical against the pre-change binary.
+
+**What the modes cost.** `OFF` is the behaviour that predates the mechanism
+and is byte-identical to it. `AUTHORED` uses each species' own values — a hard
+leader on a conifer, a firm trunk and wandering twigs on a broadleaf, a
+deliberately gnarled shrub, a creeper left alone. `FULL` forces 1.0 on every
+order of every species including roots, past anything a species authors; it is
+there because a subtle thing that reads as nothing is indistinguishable from a
+broken thing that reads as nothing, and this one cannot be missed.
 
 **Known limitation: grass is the one species carrying this unjudged.** Tree
 and conifer were rendered as blind A/B pairs; shrub was rendered and shows no

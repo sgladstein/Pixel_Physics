@@ -78,6 +78,70 @@ fn normalize(v: (f32, f32)) -> (f32, f32) {
 /// preferentially follow existing pores and old channels rather than
 /// displacing bulk soil at all. Converting one cell is closer to that than
 /// a piston would be, as well as cheaper.
+/// **How straight shoots draw, as a thing the player switches**, rather than
+/// a number this session picked for them.
+///
+/// A live selector for exactly the reason `render::GrainMode` is one, and
+/// this repo's convention says so outright: *for "does this look right", ship
+/// a runtime selector rather than choosing*. Three still A/B cards on this
+/// question came back "neither", which is a real answer to *"is my framing
+/// better than yours"* and no answer at all to *"what do you want plants to
+/// look like"* — a question the hand settles in a minute and argument does
+/// not settle at all.
+///
+/// `Off` is the default and is the behaviour that predates the mechanism, so
+/// nothing changes on screen until someone asks for it.
+///
+/// **It applies to growth, not to what is already grown**, which is the one
+/// thing that makes this different from the render selectors: flipping it
+/// re-draws nothing. `F6` for a fresh world is what shows it, and the message
+/// the key prints says so.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum StemMode {
+    /// Every shoot takes the direction it sampled, exactly as before this
+    /// mechanism existed. The default.
+    #[default]
+    Off,
+    /// Each species' own authored `stem_stiffness`: a hard leader on a
+    /// conifer, a firm trunk and wandering twigs on a broadleaf, a
+    /// deliberately gnarled shrub, and a creeper left alone entirely.
+    Authored,
+    /// `1.0` on every order of every species, roots included — past what any
+    /// species authors. Here because the authored setting is subtle by
+    /// design, and a subtle thing that reads as nothing is indistinguishable
+    /// from a broken thing that reads as nothing. This one cannot be missed,
+    /// so it answers whether the mechanism is visible *at all* separately
+    /// from whether the tuning is right.
+    Full,
+}
+
+impl StemMode {
+    pub fn cycle(self) -> Self {
+        match self {
+            StemMode::Off => StemMode::Authored,
+            StemMode::Authored => StemMode::Full,
+            StemMode::Full => StemMode::Off,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            StemMode::Off => "OFF (current)",
+            StemMode::Authored => "AUTHORED",
+            StemMode::Full => "FULL",
+        }
+    }
+
+    /// The stiffness this mode forces, or `None` to read the species'.
+    fn forced(self) -> Option<f32> {
+        match self {
+            StemMode::Off => Some(0.0),
+            StemMode::Authored => None,
+            StemMode::Full => Some(1.0),
+        }
+    }
+}
+
 /// **Sweep override for `Behavior::Grow::stem_stiffness`** — one value for
 /// every order of every species, so a stiffness sweep costs one build rather
 /// than one per point.
@@ -2807,7 +2871,12 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                     heading.0 * heading_inertia + intent.0 * (1.0 - heading_inertia),
                     heading.1 * heading_inertia + intent.1 * (1.0 - heading_inertia),
                 ));
-                let stiffness = stem_stiffness_override().unwrap_or_else(|| stem_stiffness.at(order)).clamp(0.0, 1.0);
+                // Env first, so a headless sweep can pin a value without a
+                // key to press; then the player's selector; then the species.
+                let stiffness = stem_stiffness_override()
+                    .or_else(|| world.stem_mode.forced())
+                    .unwrap_or_else(|| stem_stiffness.at(order))
+                    .clamp(0.0, 1.0);
                 // Guarded at the call site, and exactly zero work while a
                 // species leaves this unset -- which is every species that
                 // predates it.
@@ -10316,6 +10385,38 @@ The night factor belongs on income only -- see NIGHT_INCOME_FLOOR"
             worst = worst.max(d);
         }
         worst
+    }
+
+    /// **The selector is not a dead key.** `plant::StemMode` is reachable
+    /// only from `K`, and a look selector that silently stops reaching the
+    /// thing it names is this repo's most-repeated failure -- a channel with
+    /// a writer and no reader, or a knob wired to nothing, reads exactly like
+    /// a mechanism that simply does not show.
+    ///
+    /// So: grow the same seed under two modes and require the stands to
+    /// differ. It costs one flood of cells and it is the only thing standing
+    /// between "the owner pressed K and judged it" and "the owner pressed K,
+    /// judged nothing, and told us it made no difference".
+    #[test]
+    fn the_stem_selector_actually_reaches_growth() {
+        let grow = |mode: StemMode| {
+            let mut w = test_world();
+            w.stem_mode = mode;
+            plant_tree_on_ground(&mut w, 100, 20);
+            run_with_fields(&mut w, 4000);
+            let b = w.bounds().expect("the tree should have grown");
+            (b.min_y..=b.max_y)
+                .flat_map(|y| (b.min_x..=b.max_x).map(move |x| (x, y)))
+                .filter(|&(x, y)| w.get(x, y).organism_id() != 0)
+                .collect::<Vec<_>>()
+        };
+        let off = grow(StemMode::Off);
+        let full = grow(StemMode::Full);
+        assert!(!off.is_empty() && !full.is_empty(), "both modes must grow something to compare");
+        assert_ne!(
+            off, full,
+            "StemMode::Off and StemMode::Full grew identical stands -- the selector is not reaching the growth walk"
+        );
     }
 
     /// **The property `stem_stiffness` exists for**: a shoot spelling a
