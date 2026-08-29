@@ -39,20 +39,20 @@ whole, then run `python3 scripts/readmetoc.py`.
 | [M16 status](#m16-status) | 1402 |
 | [M17 status](#m17-status) | 1588 |
 | [M18 status](#m18-status) | 1815 |
-| [UI improvements — overnight run, section 9](#ui-improvements--overnight-run-section-9) | 2069 |
-| [Live tunables panel — overnight run, section 10](#live-tunables-panel--overnight-run-section-10) | 2114 |
-| [Rendering performance — overnight run, section 11](#rendering-performance--overnight-run-section-11) | 2182 |
-| [M8 status — started, not complete](#m8-status--started-not-complete) | 2202 |
-| [M9 status — the gnome](#m9-status--the-gnome) | 2315 |
-| [M10 status — the worldgen half](#m10-status--the-worldgen-half) | 2376 |
-| [Weather status](#weather-status) | 2491 |
-| [The ant colony — status](#the-ant-colony--status) | 2508 |
-| [M19 status — started](#m19-status--started) | 2522 |
-| [Felling status — the verb works, and what it produces is pieces](#felling-status--the-verb-works-and-what-it-produces-is-pieces) | 2558 |
-| [Performance](#performance) | 2639 |
-| [World speed — five independent time axes](#world-speed--five-independent-time-axes) | 2788 |
-| [Status](#status) | 2871 |
-| [License](#license) | 2982 |
+| [UI improvements — overnight run, section 9](#ui-improvements--overnight-run-section-9) | 2109 |
+| [Live tunables panel — overnight run, section 10](#live-tunables-panel--overnight-run-section-10) | 2154 |
+| [Rendering performance — overnight run, section 11](#rendering-performance--overnight-run-section-11) | 2222 |
+| [M8 status — started, not complete](#m8-status--started-not-complete) | 2242 |
+| [M9 status — the gnome](#m9-status--the-gnome) | 2355 |
+| [M10 status — the worldgen half](#m10-status--the-worldgen-half) | 2416 |
+| [Weather status](#weather-status) | 2531 |
+| [The ant colony — status](#the-ant-colony--status) | 2548 |
+| [M19 status — started](#m19-status--started) | 2562 |
+| [Felling status — the verb works, and what it produces is pieces](#felling-status--the-verb-works-and-what-it-produces-is-pieces) | 2598 |
+| [Performance](#performance) | 2679 |
+| [World speed — five independent time axes](#world-speed--five-independent-time-axes) | 2828 |
+| [Status](#status) | 2911 |
+| [License](#license) | 3022 |
 
 ### Milestones, in numeric order
 
@@ -64,16 +64,16 @@ order they were written.
 | 5 | [M5 status](#m5-status) | 1017 |
 | 6 | [M6 deferral](#m6-deferral) | 1007 |
 | 7 | [M7 status](#m7-status) | 906 |
-| 8 | [M8 status — started, not complete](#m8-status--started-not-complete) | 2202 |
-| 9 | [M9 status — the gnome](#m9-status--the-gnome) | 2315 |
-| 10 | [M10 status — the worldgen half](#m10-status--the-worldgen-half) | 2376 |
+| 8 | [M8 status — started, not complete](#m8-status--started-not-complete) | 2242 |
+| 9 | [M9 status — the gnome](#m9-status--the-gnome) | 2355 |
+| 10 | [M10 status — the worldgen half](#m10-status--the-worldgen-half) | 2416 |
 | 12 | [M12/M13 status](#m12m13-status) | 705 |
 | 14 | [M14 status](#m14-status) | 758 |
 | 15 | [M15 status](#m15-status) | 935 |
 | 16 | [M16 status](#m16-status) | 1402 |
 | 17 | [M17 status](#m17-status) | 1588 |
 | 18 | [M18 status](#m18-status) | 1815 |
-| 19 | [M19 status — started](#m19-status--started) | 2522 |
+| 19 | [M19 status — started](#m19-status--started) | 2562 |
 
 ### By topic
 
@@ -86,24 +86,24 @@ them is named "plants". A section can appear twice; felling is honestly both
 plant work and structural work.
 
 **Known limitations for every topic are collected in one place**:
-[Status](#status), line 2871 — the *last* section in the
+[Status](#status), line 2911 — the *last* section in the
 file, not the first. Read it before concluding something is broken.
 
 | Topic | Sections, primary first |
 |---|---|
-| **plants, trees and moss** | [M16 status](#m16-status) 1402, [Plant lines merged](#plant-lines-merged-the-genome-and-the-ecology) 1112, [The economy re-derived](#the-economy-re-derived-standing-tissue-costs-something) 1234, [Plants that stop](#plants-that-stop-organs-determinacy-and-a-price-on-both) 1334, [The generation loop](#the-generation-loop-plants-die-seeds-expire-slots-come-back) 1182, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 2558 |
-| **creatures — worms and the ant colony** | [M18 status](#m18-status) 1815, [The ant colony](#the-ant-colony--status) 2508 |
-| **structural collapse, felling and rigid bodies** | [M17 status](#m17-status) 1588, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 2558, [M8 status](#m8-status--started-not-complete) 2202 |
+| **plants, trees and moss** | [M16 status](#m16-status) 1402, [Plant lines merged](#plant-lines-merged-the-genome-and-the-ecology) 1112, [The economy re-derived](#the-economy-re-derived-standing-tissue-costs-something) 1234, [Plants that stop](#plants-that-stop-organs-determinacy-and-a-price-on-both) 1334, [The generation loop](#the-generation-loop-plants-die-seeds-expire-slots-come-back) 1182, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 2598 |
+| **creatures — worms and the ant colony** | [M18 status](#m18-status) 1815, [The ant colony](#the-ant-colony--status) 2548 |
+| **structural collapse, felling and rigid bodies** | [M17 status](#m17-status) 1588, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 2598, [M8 status](#m8-status--started-not-complete) 2242 |
 | **fire, heat and phase change** | [M14 status](#m14-status) 758, [Materials](#materials) 218 |
 | **explosions, particles and debris** | [M15 status](#m15-status) 935, [M7 status](#m7-status) 906 |
 | **liquids and gases** | [Liquid physics](#liquid-physics-compressible-volume-not-discrete-occupied-cells) 732, [The coarse field grid](#the-coarse-field-grid) 443 |
 | **powders and granular flow** | [Materials](#materials) 218, [Architecture](#architecture) 292 |
 | **the coarse field grid — pressure, heat, light** | [The coarse field grid](#the-coarse-field-grid) 443, [M12/M13 status](#m12m13-status) 705 |
-| **worldgen and world structure** | [M10 status](#m10-status--the-worldgen-half) 2376, [Architecture](#architecture) 292 |
-| **the gnome (player character)** | [M9 status](#m9-status--the-gnome) 2315, [Controls](#controls) 155 |
-| **weather, sky and the clock** | [Weather status](#weather-status) 2491, [M19 status](#m19-status--started) 2522, [World speed](#world-speed--five-independent-time-axes) 2788 |
-| **rendering, UI and tunables** | [UI improvements](#ui-improvements--overnight-run-section-9) 2069, [Live tunables panel](#live-tunables-panel--overnight-run-section-10) 2114, [Rendering performance](#rendering-performance--overnight-run-section-11) 2182, [M6 deferral](#m6-deferral) 1007 |
-| **performance and the parallel sweep** | [Performance](#performance) 2639, [M5 status](#m5-status) 1017, [Architecture](#architecture) 292, [Rendering performance](#rendering-performance--overnight-run-section-11) 2182 |
+| **worldgen and world structure** | [M10 status](#m10-status--the-worldgen-half) 2416, [Architecture](#architecture) 292 |
+| **the gnome (player character)** | [M9 status](#m9-status--the-gnome) 2355, [Controls](#controls) 155 |
+| **weather, sky and the clock** | [Weather status](#weather-status) 2531, [M19 status](#m19-status--started) 2562, [World speed](#world-speed--five-independent-time-axes) 2828 |
+| **rendering, UI and tunables** | [UI improvements](#ui-improvements--overnight-run-section-9) 2109, [Live tunables panel](#live-tunables-panel--overnight-run-section-10) 2154, [Rendering performance](#rendering-performance--overnight-run-section-11) 2222, [M6 deferral](#m6-deferral) 1007 |
+| **performance and the parallel sweep** | [Performance](#performance) 2679, [M5 status](#m5-status) 1017, [Architecture](#architecture) 292, [Rendering performance](#rendering-performance--overnight-run-section-11) 2222 |
 | **materials and the data schema** | [Materials](#materials) 218, [M12/M13 status](#m12m13-status) 705 |
 
 <!-- END GENERATED TOC -->
@@ -2004,6 +2004,46 @@ tops out ~125 rows above the ground and the walk was running out *inside the
 canopy*: the tallest trees, whose leaves have furthest to fall, were the ones
 whose litter never reached the floor. Litter against plant 44.4% → 39.3%,
 within three rows of the ground 29.5% → 35.4%.
+
+**A third, 2026-08-29: a shed leaf keeps falling after it is shed.** Reported
+by the owner — *"when leaves fall off trees they often get stuck and built up
+in the tree branches… we don't want to be stuck by the limitations of 2D
+physics"*. `shed_to_litter`'s walk was doing exactly this reading of the 2D
+slice already, but only on the abscission event, so litter that reached
+mid-canopy by any other route stopped on the first branch for good — and
+because that walk halts at the first cell which is *not* organism-owned, every
+leaf shed in the column then stacked on it. The picture is unmistakable in
+`litter_probe`'s overlay: magenta streaks running up the middle of a crown.
+
+`Material::falls_through_organisms` (a `.ron` opt-in, `litter` alone) makes
+`update::update_powder` carry such a cell down through organism-owned cells to
+the first air below, bounded at 16 rows a frame and only after the ordinary
+straight-down and both diagonal moves have failed. It stops dead at the first
+cell that is neither air nor organism-owned, which is what leaves the drift
+banked against a root collar alone; `deadwood` — a snapped branch — is
+deliberately left out and still hangs up in a crown.
+
+Measured paired, one build each. `litter_probe frames=12000 trees=8`: standing
+litter more than 32 rows above the ground **23% → 0%**, more than 16 rows 31%
+→ 8%, resting on plant tissue 57.6% → 44.1%, four cells still airborne at
+frame 12,000 → none. `crown_census frames=28800 trees=8`, one seed, which is
+`open-bugs-handoff.md` §V3's own instrument for the owner's earlier *"the soil
+build-up in between the branches is horrible"*: mid-canopy (y 120–160) litter
+**283 → 25** and soil **84 → 6**, y 80–120 cleared entirely, the highest row
+holding any soil y 115 → y 145. Total soil above the ground line is unchanged
+at 508 → 498 — the material did not go away, it reached the floor.
+
+Cost: every counter in `examples/ascii` is identical across the two builds,
+and the check is one `Cell` flag read on a value the caller already holds,
+reached only after three failed moves. **Timed paired and alternating**, three
+base/fix pairs of `frame_profile frames=600`, five scenes each: the pooled
+`ca_sweep` median is **3.079 → 3.082 ms**, the fix is faster in **9 of the 15
+paired cells**, and the per-scene medians move between −4.3% and +2.6% in both
+directions. That is the box, not the change — the same binary's own spread
+across three runs of one scene reaches 3.005/3.093/2.915. The honest claim is
+*not measurable here*, not *free*. §V3 stays open for its other half —
+the floor now receives what the canopy was holding (band 0 litter 661 → 1009)
+and standing litter still has a source with no weathering sink.
 
 **Foraging range, and why `nest_visits` was never the guard it read as.**
 `CreatureStats::nest_visits` guards on `since_nest > 0`, and `since_nest` is

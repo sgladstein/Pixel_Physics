@@ -596,6 +596,56 @@ pub struct MaterialDef {
     /// one line to change is `footing`'s test of this flag.
     #[serde(default)]
     pub insubstantial: bool,
+    /// Whether a falling cell of this material **passes through living
+    /// tissue** instead of coming to rest on it — a leaf that lets go does
+    /// not sit on the branch below it, it goes past.
+    ///
+    /// **This is the 2D-slice rule, stated as data.** The world is one
+    /// vertical slice of a 3D wood, so a branch drawn one cell wide is not a
+    /// shelf spanning the whole depth of the tree: a leaf falling past it is
+    /// the overwhelmingly common outcome and resting on it is the rare one.
+    /// The grid cannot express "beside the branch" — two materials cannot
+    /// share a cell — so the flag says which materials are light and thin
+    /// enough that the slice should be read the generous way.
+    ///
+    /// **`plant::shed_to_litter` already did exactly this at the moment of
+    /// abscission, and that was not enough**, which is the measurement this
+    /// field exists for. A leaf is walked down through its own crown when it
+    /// is shed, but nothing kept it falling afterwards: any litter that
+    /// reached mid-canopy by another route (landing on a raindrop's cell,
+    /// on another cell of debris, on a branch that grew under it) stopped on
+    /// the first branch and stayed for ever — and every leaf shed in that
+    /// column then stacked on top of it, because `shed_to_litter`'s own walk
+    /// stops at the first cell that is *not* organism-owned. Measured paired
+    /// on `litter_probe frames=12000 trees=8`, one build each: **23% of
+    /// standing litter more than 32 rows above the ground → 0%, and 57.6%
+    /// resting on plant tissue → 44.1%** — magenta streaks running up the
+    /// middle of a crown in that harness's overlay before, magenta only at
+    /// the trunk bases after. What remains is the drift banked against a
+    /// trunk, which `litter.ron`'s 42-degree friction angle exists to build
+    /// and which scores in the same column; see `litter_probe`'s module doc
+    /// on why that column must be read with the height bands.
+    ///
+    /// A flag rather than a rule inferred from `density` or `kind`, for the
+    /// same reason `climbable`, `insubstantial` and `scenery` are flags: a
+    /// snapped branch (`deadwood`, density 0.7) is chunky enough to hang up
+    /// in a crown and should, while a shed leaf at 0.3 should not. Geometry
+    /// cannot state that difference.
+    ///
+    /// **Distinct from `insubstantial`, deliberately.** That one says *the
+    /// gnome wades through this*; this one says *this falls through a
+    /// branch*. They happen to agree on litter today and are opposite
+    /// questions — one is about a character passing through the material,
+    /// the other about the material passing through something else — so
+    /// folding them together would make either one impossible to change
+    /// without moving the other.
+    ///
+    /// Read by `update::update_powder` only, and only after an ordinary
+    /// downward move has already failed **and** the cell below is
+    /// organism-owned, so nothing that is not caught on a plant ever pays
+    /// for it. See that call site for the bound on the drop.
+    #[serde(default)]
+    pub falls_through_organisms: bool,
     /// Whether the character walks *through* this material without climbing
     /// it — cave formations, and anything else that is scenery rather than
     /// architecture.
@@ -1408,6 +1458,8 @@ pub struct Material {
     pub climbable: bool,
     /// See `MaterialDef::insubstantial`.
     pub insubstantial: bool,
+    /// See `MaterialDef::falls_through_organisms`.
+    pub falls_through_organisms: bool,
     /// See `MaterialDef::scenery`.
     pub scenery: bool,
     /// See `MaterialDef::fall_drag`.
@@ -1744,6 +1796,7 @@ impl From<MaterialDef> for Material {
             reinforces_powder: def.reinforces_powder,
             climbable: def.climbable,
             insubstantial: def.insubstantial,
+            falls_through_organisms: def.falls_through_organisms,
             scenery: def.scenery,
             fall_drag: def.fall_drag,
             palette: def
@@ -2061,6 +2114,7 @@ impl MaterialRegistry {
             reinforces_powder: false,
             climbable: false,
             insubstantial: false,
+            falls_through_organisms: false,
             scenery: false,
             fall_drag: 0.0,
             colors: vec![[0, 0, 0]],
@@ -2132,6 +2186,7 @@ impl MaterialRegistry {
             reinforces_powder: false,
             climbable: false,
             insubstantial: false,
+            falls_through_organisms: false,
             scenery: false,
             fall_drag: 0.0,
             colors: vec![[20, 20, 24]],

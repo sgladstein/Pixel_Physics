@@ -1370,6 +1370,20 @@ consider it at all.
   shared checkout is the cause. Force-push, rebase, amend and `reset --hard`
   are on `ask` rather than `deny`: those are forbidden *on someone else's
   branch* and fine on your own, and a conditional rule can only be asked.
+- **A green local `cargo clippy` is not evidence that CI's clippy is green.**
+  Measured 2026-08-29: the container ships **1.94.1** and CI runs **1.98.0**,
+  and a lint's heuristic can widen between them. `clippy::explicit_counter_loop`
+  accepted a `for _ in 0..N` with a counter incremented in the body on 1.94.1
+  and rejected the identical code on 1.98.0 -- so the gate that is supposed to
+  catch this locally passed, and the failure arrived as a red PR instead. The
+  fix is one command and needs no toolchain switch:
+  `rustup toolchain install 1.98.0 --component clippy --profile minimal`, then
+  `cargo +1.98.0 clippy --all-targets -- -D warnings`. It leaves the default
+  toolchain alone, so nothing else in the tree changes. Worth reaching for
+  before pushing anything that adds a loop, an iterator chain or a `match` --
+  the lints that move between releases are the ones about *shape*. `rustup
+  check` prints the two versions if you want to know whether they have drifted
+  at all.
 - **`cargo fmt` is all-or-nothing.** `cargo fmt -- some/file.rs` formats the
   whole project, not that file — 28 files and ~3,000 lines in one go. The
   full-format pass is deliberately deferred work (`PLAN.md` issue #10) and
