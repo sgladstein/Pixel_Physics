@@ -1,16 +1,18 @@
 # Explosions
 
-*Current as of: 2026-08-22. A blast breaks rock along the grain the rock
-already has, rather than drawing a star of fissures across it, and as of
-2026-08-22 so does every collapse that follows it — that is the newest
-part of this page and the half most likely to change again; see also the
-note at the top of [Structural Collapse](structural-collapse.md), and
-confinement, the crack halo and per-material blast resistance. New on
-2026-08-22: shallow and surface charges crack a visible web instead of almost
-nothing, and a charge going off in mid-air marks the ground under it. Newer still:
-what falls in after the bang now comes apart on the same size ladder a
-hammer blow uses, so a big collapse calves blocks where it used to shed
-chips.*
+*Current as of: 2026-08-29. A blast breaks rock along the grain the rock
+already has, rather than drawing a star of fissures across it, and so does
+every collapse that follows it; see also the note at the top of
+[Structural Collapse](structural-collapse.md), and confinement, the crack
+halo and per-material blast resistance. Shallow and surface charges crack a
+visible web instead of almost nothing, a charge going off in mid-air marks
+the ground under it, and what falls in after the bang comes apart on the
+same size ladder a hammer blow uses, so a big collapse calves blocks where
+it used to shed chips. **Newest on 2026-08-29, and the half most likely to
+change again: cracks now have weight** — a fissure is bold where it leaves
+the crater and fades to a hairline at its own end, instead of every crack in
+the web being the same line. There are also five named kinds of charge now,
+which behave differently rather than being five sizes of the same bang.*
 
 **Rock has a grain, and a blast finds it.** Stone is not uniform: it is
 disposed to part along particular planes, and where those planes run is a
@@ -21,15 +23,22 @@ a web of closed, straight-sided blocks around the crater, meeting at
 three-way junctions, the way dried mud or cooled lava cracks: not a
 scribble of wandering lines, and not a star of spokes.
 
-**Near the crater the joints come open; further out they only score.**
-Close in, the rock actually parts: a thin dark seam of empty space with
-loose grit trickling out of it, so blocks that are cut free on every side
-have nowhere to hold on and come away. Further out the same joints are
-only cracked — the rock is scored and weakened but everything is still
-standing. Beyond that, nothing. There is no clean edge to the damaged
-area: some joints reach a long way out from the blast while their
-neighbours stop short, so the damage fades raggedly into intact rock
-instead of ending on a circle.
+**A crack is bold where it starts and fades out where it ends.** Follow any
+one fissure outward from the crater and it does four things in turn: the
+rock is thrown frankly apart, a broad dark seam with grit trickling out of
+it; then the seam narrows to a single cell; then it stops parting and is
+only *scored*, a hairline where the stone is cracked and weakened but
+everything is still standing; then it is gone. So blocks cut free on every
+side near the bang have nowhere to hold on and come away, while the same
+joint out at the fringe is a mark on intact rock.
+
+**And no two cracks are the same weight.** A fissure's boldness and its
+length are the same fact about it: the ones that leave the crater widest are
+the ones that run furthest, and a faint one gives out close in without ever
+having properly opened. That means there is no ring anywhere in the pattern
+— not at the edge of the damage, and not at the edge of the bold part. Some
+joints reach a long way out while their neighbours stop short, and the whole
+thing fades raggedly into intact rock instead of ending on a circle.
 
 **The near breakage happens with the flash; the rest spreads.** The seams
 around the crater open on the frame the charge goes off, so there is
@@ -81,6 +90,17 @@ cracked rock is weaker: it breaks more easily under the next blast or
 blow, and striking the same spot again drives the same joints deeper.
 Blasting in a sequence toward a face — the way real mining works — is now
 the effective way to dig with explosives.
+
+**Not every charge is the same kind of event.** There are five, and they are
+not five sizes — they differ in *how* they spend themselves. At one end a
+low explosive like black powder **heaves**: it arrives slowly, throws a
+great deal of rubble and smoke, and leaves the surrounding rock comparatively
+uncracked. At the other a confined shot-hole charge **shatters**: it
+excavates almost nothing, crushes a small pocket, and puts everything else
+into the grain, cracking rock several blast-widths out. Between them sits the
+ordinary stick of dynamite. A blasting cap is barely more than a pockmark and
+a tight little web, and a demolition shot is the spectacle — a wide crater,
+a long throw and a real fireball.
 
 Materials also differ in how much a blast chews through: loose ground
 like sand and soil gives way much further than solid stone under the same

@@ -30,30 +30,30 @@ whole, then run `python3 scripts/readmetoc.py`.
 | [M14 status](#m14-status) | 767 |
 | [M7 status](#m7-status) | 915 |
 | [M15 status](#m15-status) | 944 |
-| [M6 deferral](#m6-deferral) | 1016 |
-| [M5 status](#m5-status) | 1026 |
-| [Plant lines merged: the genome, and the ecology](#plant-lines-merged-the-genome-and-the-ecology) | 1121 |
-| [The generation loop: plants die, seeds expire, slots come back](#the-generation-loop-plants-die-seeds-expire-slots-come-back) | 1191 |
-| [The economy re-derived: standing tissue costs something](#the-economy-re-derived-standing-tissue-costs-something) | 1243 |
-| [Stems draw a line: the growth walk renders its heading](#stems-draw-a-line-the-growth-walk-renders-its-heading) | 1343 |
-| [Plants that stop: organs, determinacy, and a price on both](#plants-that-stop-organs-determinacy-and-a-price-on-both) | 1425 |
-| [M16 status](#m16-status) | 1493 |
-| [M17 status](#m17-status) | 1679 |
-| [M18 status](#m18-status) | 1906 |
-| [UI improvements — overnight run, section 9](#ui-improvements--overnight-run-section-9) | 2240 |
-| [Live tunables panel — overnight run, section 10](#live-tunables-panel--overnight-run-section-10) | 2285 |
-| [Rendering performance — overnight run, section 11](#rendering-performance--overnight-run-section-11) | 2353 |
-| [M8 status — started, not complete](#m8-status--started-not-complete) | 2373 |
-| [M9 status — the gnome](#m9-status--the-gnome) | 2486 |
-| [M10 status — the worldgen half](#m10-status--the-worldgen-half) | 2638 |
-| [Weather status](#weather-status) | 2753 |
-| [The ant colony — status](#the-ant-colony--status) | 2770 |
-| [M19 status — started](#m19-status--started) | 2879 |
-| [Felling status — the verb works, and what it produces is pieces](#felling-status--the-verb-works-and-what-it-produces-is-pieces) | 2935 |
-| [Performance](#performance) | 3084 |
-| [World speed — five independent time axes](#world-speed--five-independent-time-axes) | 3258 |
-| [Status](#status) | 3341 |
-| [License](#license) | 3452 |
+| [M6 deferral](#m6-deferral) | 1075 |
+| [M5 status](#m5-status) | 1085 |
+| [Plant lines merged: the genome, and the ecology](#plant-lines-merged-the-genome-and-the-ecology) | 1180 |
+| [The generation loop: plants die, seeds expire, slots come back](#the-generation-loop-plants-die-seeds-expire-slots-come-back) | 1250 |
+| [The economy re-derived: standing tissue costs something](#the-economy-re-derived-standing-tissue-costs-something) | 1302 |
+| [Stems draw a line: the growth walk renders its heading](#stems-draw-a-line-the-growth-walk-renders-its-heading) | 1402 |
+| [Plants that stop: organs, determinacy, and a price on both](#plants-that-stop-organs-determinacy-and-a-price-on-both) | 1484 |
+| [M16 status](#m16-status) | 1552 |
+| [M17 status](#m17-status) | 1738 |
+| [M18 status](#m18-status) | 1965 |
+| [UI improvements — overnight run, section 9](#ui-improvements--overnight-run-section-9) | 2299 |
+| [Live tunables panel — overnight run, section 10](#live-tunables-panel--overnight-run-section-10) | 2344 |
+| [Rendering performance — overnight run, section 11](#rendering-performance--overnight-run-section-11) | 2412 |
+| [M8 status — started, not complete](#m8-status--started-not-complete) | 2432 |
+| [M9 status — the gnome](#m9-status--the-gnome) | 2545 |
+| [M10 status — the worldgen half](#m10-status--the-worldgen-half) | 2697 |
+| [Weather status](#weather-status) | 2812 |
+| [The ant colony — status](#the-ant-colony--status) | 2829 |
+| [M19 status — started](#m19-status--started) | 2938 |
+| [Felling status — the verb works, and what it produces is pieces](#felling-status--the-verb-works-and-what-it-produces-is-pieces) | 2994 |
+| [Performance](#performance) | 3143 |
+| [World speed — five independent time axes](#world-speed--five-independent-time-axes) | 3317 |
+| [Status](#status) | 3400 |
+| [License](#license) | 3511 |
 
 ### Milestones, in numeric order
 
@@ -62,19 +62,19 @@ order they were written.
 
 | M | Section | Line |
 |---|---|---|
-| 5 | [M5 status](#m5-status) | 1026 |
-| 6 | [M6 deferral](#m6-deferral) | 1016 |
+| 5 | [M5 status](#m5-status) | 1085 |
+| 6 | [M6 deferral](#m6-deferral) | 1075 |
 | 7 | [M7 status](#m7-status) | 915 |
-| 8 | [M8 status — started, not complete](#m8-status--started-not-complete) | 2373 |
-| 9 | [M9 status — the gnome](#m9-status--the-gnome) | 2486 |
-| 10 | [M10 status — the worldgen half](#m10-status--the-worldgen-half) | 2638 |
+| 8 | [M8 status — started, not complete](#m8-status--started-not-complete) | 2432 |
+| 9 | [M9 status — the gnome](#m9-status--the-gnome) | 2545 |
+| 10 | [M10 status — the worldgen half](#m10-status--the-worldgen-half) | 2697 |
 | 12 | [M12/M13 status](#m12m13-status) | 714 |
 | 14 | [M14 status](#m14-status) | 767 |
 | 15 | [M15 status](#m15-status) | 944 |
-| 16 | [M16 status](#m16-status) | 1493 |
-| 17 | [M17 status](#m17-status) | 1679 |
-| 18 | [M18 status](#m18-status) | 1906 |
-| 19 | [M19 status — started](#m19-status--started) | 2879 |
+| 16 | [M16 status](#m16-status) | 1552 |
+| 17 | [M17 status](#m17-status) | 1738 |
+| 18 | [M18 status](#m18-status) | 1965 |
+| 19 | [M19 status — started](#m19-status--started) | 2938 |
 
 ### By topic
 
@@ -87,24 +87,24 @@ them is named "plants". A section can appear twice; felling is honestly both
 plant work and structural work.
 
 **Known limitations for every topic are collected in one place**:
-[Status](#status), line 3341 — the *last* section in the
+[Status](#status), line 3400 — the *last* section in the
 file, not the first. Read it before concluding something is broken.
 
 | Topic | Sections, primary first |
 |---|---|
-| **plants, trees and moss** | [M16 status](#m16-status) 1493, [Plant lines merged](#plant-lines-merged-the-genome-and-the-ecology) 1121, [The economy re-derived](#the-economy-re-derived-standing-tissue-costs-something) 1243, [Plants that stop](#plants-that-stop-organs-determinacy-and-a-price-on-both) 1425, [The generation loop](#the-generation-loop-plants-die-seeds-expire-slots-come-back) 1191, [Stems draw a line](#stems-draw-a-line-the-growth-walk-renders-its-heading) 1343, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 2935 |
-| **creatures — worms and the ant colony** | [M18 status](#m18-status) 1906, [The ant colony](#the-ant-colony--status) 2770 |
-| **structural collapse, felling and rigid bodies** | [M17 status](#m17-status) 1679, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 2935, [M8 status](#m8-status--started-not-complete) 2373 |
+| **plants, trees and moss** | [M16 status](#m16-status) 1552, [Plant lines merged](#plant-lines-merged-the-genome-and-the-ecology) 1180, [The economy re-derived](#the-economy-re-derived-standing-tissue-costs-something) 1302, [Plants that stop](#plants-that-stop-organs-determinacy-and-a-price-on-both) 1484, [The generation loop](#the-generation-loop-plants-die-seeds-expire-slots-come-back) 1250, [Stems draw a line](#stems-draw-a-line-the-growth-walk-renders-its-heading) 1402, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 2994 |
+| **creatures — worms and the ant colony** | [M18 status](#m18-status) 1965, [The ant colony](#the-ant-colony--status) 2829 |
+| **structural collapse, felling and rigid bodies** | [M17 status](#m17-status) 1738, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 2994, [M8 status](#m8-status--started-not-complete) 2432 |
 | **fire, heat and phase change** | [M14 status](#m14-status) 767, [Materials](#materials) 221 |
 | **explosions, particles and debris** | [M15 status](#m15-status) 944, [M7 status](#m7-status) 915 |
 | **liquids and gases** | [Liquid physics](#liquid-physics-compressible-volume-not-discrete-occupied-cells) 741, [The coarse field grid](#the-coarse-field-grid) 452 |
 | **powders and granular flow** | [Materials](#materials) 221, [Architecture](#architecture) 295 |
 | **the coarse field grid — pressure, heat, light** | [The coarse field grid](#the-coarse-field-grid) 452, [M12/M13 status](#m12m13-status) 714 |
-| **worldgen and world structure** | [M10 status](#m10-status--the-worldgen-half) 2638, [Architecture](#architecture) 295 |
-| **the gnome (player character)** | [M9 status](#m9-status--the-gnome) 2486, [Controls](#controls) 156 |
-| **weather, sky and the clock** | [Weather status](#weather-status) 2753, [M19 status](#m19-status--started) 2879, [World speed](#world-speed--five-independent-time-axes) 3258 |
-| **rendering, UI and tunables** | [UI improvements](#ui-improvements--overnight-run-section-9) 2240, [Live tunables panel](#live-tunables-panel--overnight-run-section-10) 2285, [Rendering performance](#rendering-performance--overnight-run-section-11) 2353, [M6 deferral](#m6-deferral) 1016 |
-| **performance and the parallel sweep** | [Performance](#performance) 3084, [M5 status](#m5-status) 1026, [Architecture](#architecture) 295, [Rendering performance](#rendering-performance--overnight-run-section-11) 2353 |
+| **worldgen and world structure** | [M10 status](#m10-status--the-worldgen-half) 2697, [Architecture](#architecture) 295 |
+| **the gnome (player character)** | [M9 status](#m9-status--the-gnome) 2545, [Controls](#controls) 156 |
+| **weather, sky and the clock** | [Weather status](#weather-status) 2812, [M19 status](#m19-status--started) 2938, [World speed](#world-speed--five-independent-time-axes) 3317 |
+| **rendering, UI and tunables** | [UI improvements](#ui-improvements--overnight-run-section-9) 2299, [Live tunables panel](#live-tunables-panel--overnight-run-section-10) 2344, [Rendering performance](#rendering-performance--overnight-run-section-11) 2412, [M6 deferral](#m6-deferral) 1075 |
+| **performance and the parallel sweep** | [Performance](#performance) 3143, [M5 status](#m5-status) 1085, [Architecture](#architecture) 295, [Rendering performance](#rendering-performance--overnight-run-section-11) 2412 |
 | **materials and the data schema** | [Materials](#materials) 221, [M12/M13 status](#m12m13-status) 714 |
 
 <!-- END GENERATED TOC -->
@@ -942,6 +942,65 @@ particles (debug tool, ahead of M15 giving explosions a real reason to call
 `ParticleSystem::spawn`).
 
 ## M15 status
+
+**Cracks have weight, and a charge has a type (2026-08-29).** Two reports
+from play, both about the same panel and the same pattern.
+
+*"The cracks should be thicker near the explosion and thinner far away with
+variation between cracks... some thinner cracks should stop closer to the
+center and cracks that start thicker should extend farther."* Every opened
+joint used to be exactly one cell wide, and the boundary between the opened
+zone and the merely-scored one was a **circle** at
+`joint_open_fraction * halo`. So the web had one weight everywhere and one
+visible edge. Now a joint's width is read off its own **headroom** — how far
+that particular boundary still has to run before the activation ramp drops
+under its draw — which is a quantity the fabric already computed and threw
+away. One number then carries all three properties at once: a seam narrows
+along its own length and finishes as a score, boundaries differ in weight at
+the same distance, and the bold ones are *by identity* the ones that reach
+furthest. `Tuning::joint_seam_width` caps the ladder (default `3`; `1` is the
+old uniform seam and is the A/B control).
+
+**The first cut of it was too quiet, and the fix was the ladder's shape
+rather than its cap.** Posted blind, the owner picked the tapered arm and
+said *"better but too subtle. Both effects need to be much stronger."*
+Raising the cap alone does almost nothing and the reason is legibility, not
+magnitude: under a ladder linear in the headroom the top rung needs `u >=
+1 - 1/cap`, a sliver of the `(prominence, distance)` space, so the widest
+seams appear at a *point* on a crack — caps of 2, 3 and 4 render as nearly
+the same picture. The rung is chosen on `sqrt(u)` now, so a bold crack holds
+its width for about half its own run before stepping down, and the taper is
+something the eye can follow rather than something a census can find.
+
+The shape changed and the *amount* did not, deliberately:
+`seam_open_threshold` is `1 - sqrt(f(2-f))`, chosen by equating the two
+rules' expected opened run so that every number
+`default_joint_open_fraction` was swept against still means what it was
+swept to mean — 4% apart at the shipped `0.30`, and exact at both ends.
+`the_new_open_rule_opens_as_much_as_the_circle_it_replaced` integrates both
+rules and fails if that drifts. Cost, `seedsweep.sh` over 3 presets x 4
+seeds, `blast=300,8,20,180,60`, run to rest, reading `rock destroyed` (not
+`cells lost`, which rides the water cycle), both arms from one build: total
+**5,062 -> 6,831** and max **1,022 -> 1,397** for `joint_seam_width` 1 -> 3.
+A third more rock comes down per blast. (The linear ladder at cap 3 was
+6,318 / **1,465** — so the concave one costs more in total and *less* on the
+worst case, which is the half that matters for a sweep gate.)
+
+*"In the menu there are so many different options for changing explosions
+and I don't really know what each does and it is too complicated."* The
+EXPLOSION menu now opens with a **type** row — `Preset::ALL`, five whole
+tunings (`CAP`, `POWDER`, `DYNAMITE`, `MINING`, `DEMOLITION`) that move all
+twenty-six numbers at once, reading `HELD` the moment anything else is
+touched. They are not five sizes: `POWDER` heaves (671 cells cleared, 231
+joints woken) and `MINING` shatters (23 cells cleared, 786 joints woken) —
+opposite corners of what this struct can express. `DYNAMITE` **is**
+`Tuning::default()` byte for byte, so the shipped calibration is still what
+runs. The remaining rows are grouped into `the bang` / `cracks` /
+`rubble, smoke and fire` / `advanced`, in reach-for-it-first order; nothing
+was removed, because a knob that is hard to find is a different problem from
+one that should not exist. `filmstrip charge=<name>` renders any of them
+headlessly, and `blast=x,depth,0,0,frame` takes the charge's own radius and
+strength.
 
 **Rebuilt after a diagnosis pass** — see
 [`Reports/explosion-mechanics-diagnosis.md`](Reports/explosion-mechanics-diagnosis.md)
