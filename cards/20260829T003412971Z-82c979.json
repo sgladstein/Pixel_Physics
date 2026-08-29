@@ -1,0 +1,54 @@
+{
+  "id": "20260829T003412971Z-82c979",
+  "created": "2026-08-29T00:34:12Z",
+  "board": "ui",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/options-menu-day-night-weather-g9i4i8",
+    "commit": "f3818d7",
+    "agent": null,
+    "session_id": "75c10d57-1b57-5531-9e51-f46222d0e80b",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Options panel: before and after the redesign",
+  "question": "Is the new panel easier to read and get around? If one thing still bothers you, which?",
+  "context_md": "Both panes are the real `App::draw` under the same world, seed and frame -- not a mockup. Top row is the PHYSICS menu, bottom row the WORLD menu.\n\nWhat changed:\n\n- a **tab strip**, so the other four menus are visible instead of discoverable by pressing Tab five times\n- **category subheaders** (STONE / SAND / GRAVEL / ASH), so 182 rows across a dozen materials are scannable; the `STONE.` prefix on every row is gone with them\n- **integers print as integers** -- `16`, `1`, `3` rather than `16.000`, `1.000`, `3.000`\n- a **scrollbar and an n/N counter**; position in a long menu was previously unknowable\n- **two footer lines** of key hints instead of one crammed one\n- **WORLD moved to the front** of the cycle and is the menu the panel now opens on -- see the bottom row, where TIME_OF_DAY and WEATHER are the first two rows\n\nNew keys: Shift+Tab goes back a menu, PageUp/PageDown page the list (they used to duplicate Tab), Home/End jump to the ends.\n\n**What I am unsure about:** the two footer hint lines sit on a 10px pitch with 7px glyphs, so there is a 3px gap. Legible when I zoomed in, dense at 1x. Also the subheaders cost about three rows of list per screen.",
+  "kind": "ab",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A -- before",
+      "files": [
+        "20260829T003412971Z-82c979/000-menus_before.png"
+      ],
+      "caption": "one flat list, one hint line, no tabs; WORLD is four Tab presses away and has no sky or weather row at all",
+      "meta": {
+        "PHYSICS rows visible": 24,
+        "menus visible at once": 1,
+        "position indicator": "none"
+      },
+      "focus": null
+    },
+    {
+      "label": "B -- after",
+      "files": [
+        "20260829T003412971Z-82c979/001-menus_after.png"
+      ],
+      "caption": "tabs, subheaders, value column, scrollbar; WORLD opens first with TIME_OF_DAY and WEATHER on top",
+      "meta": {
+        "PHYSICS rows visible": 21,
+        "menus visible at once": 5,
+        "position indicator": "1/182 + scrollbar"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
