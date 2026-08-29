@@ -1,0 +1,42 @@
+{
+  "id": "20260829T163558152Z-1ed00d",
+  "created": "2026-08-29T16:35:58Z",
+  "board": "worldgen",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/worldgen-revamp-plan-dot67g",
+    "commit": "1b66548",
+    "agent": null,
+    "session_id": "2cb39797-d076-5699-b8bf-4494224deffe",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Two different presets, one country",
+  "question": "Left is the 'rolling' preset, right is 'terraced' — same seed, same camera, same hour. Is this two different kinds of country, or the same country twice?",
+  "context_md": "Measuring why worldgen keeps coming back 'I see no difference'.\n\nA colour-histogram distance over everything below the skyline says these two presets are **closer to each other (0.149) than 'rolling' is to another 'rolling' at a different seed (0.173)**. So on the number, changing the preset moves the picture *less* than changing the seed does.\n\nI want to know whether your eye agrees before a revamp is scoped around it. The companion card ('arid' vs 'wetland') is the control — the same measurement says that pair is 4.8x further apart.",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "rolling | terraced, seed 1",
+      "files": [
+        "20260829T163558152Z-1ed00d/000-pair-rolling-terraced.png"
+      ],
+      "caption": "left rolling, right terraced",
+      "meta": {
+        "colour distance between these two": 0.149,
+        "rolling vs rolling, other seed": 0.173,
+        "shape distance (skyline)": 0.059,
+        "distinct colours covering half the ground": 5
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
