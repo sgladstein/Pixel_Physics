@@ -1,0 +1,93 @@
+{
+  "id": "20260829T171510934Z-d57fca",
+  "created": "2026-08-29T17:15:10Z",
+  "board": "worldgen",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/worldgen-revamp-plan-dot67g",
+    "commit": "077b142",
+    "agent": null,
+    "session_id": "2cb39797-d076-5699-b8bf-4494224deffe",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "All five presets, same seed, same place",
+  "question": "Is what's missing colour variety, or is it that the ground has no shape? Each of these is one full player screen.",
+  "context_md": "Reference study, Lane D. Same seed (1), same world column (4096), one tile per preset, left to right: **rolling, terraced, canyon, arid, wetland**.\n\nThe number under each is **how far the skyline rises and falls across the whole screen**, out of 320 rows. The tallest hill any of these puts in front of the player is 42 rows — about an eighth of the screen height. Every tile is otherwise the same picture: a low bumpy line near the top, a dark topsoil band under it, flat horizontal strata below.\n\nI could not fetch a single photograph — this container's proxy blocks every image host I tried — so this is our world measured against itself, not against a reference image.",
+  "kind": "gallery",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "rolling",
+      "files": [
+        "20260829T171510934Z-d57fca/000-one_rolling.png"
+      ],
+      "caption": "",
+      "meta": {
+        "skyline rise and fall (of 320 rows)": 26,
+        "biggest single step in the skyline": 10,
+        "ground within reach of a surface": "4.8%"
+      },
+      "focus": null
+    },
+    {
+      "label": "terraced",
+      "files": [
+        "20260829T171510934Z-d57fca/001-one_terraced.png"
+      ],
+      "caption": "",
+      "meta": {
+        "skyline rise and fall (of 320 rows)": 42,
+        "biggest single step in the skyline": 8,
+        "ground within reach of a surface": "5.0%"
+      },
+      "focus": null
+    },
+    {
+      "label": "canyon",
+      "files": [
+        "20260829T171510934Z-d57fca/002-one_canyon.png"
+      ],
+      "caption": "",
+      "meta": {
+        "skyline rise and fall (of 320 rows)": 42,
+        "biggest single step in the skyline": 7,
+        "ground within reach of a surface": "4.7%"
+      },
+      "focus": null
+    },
+    {
+      "label": "arid",
+      "files": [
+        "20260829T171510934Z-d57fca/003-one_arid.png"
+      ],
+      "caption": "",
+      "meta": {
+        "skyline rise and fall (of 320 rows)": 12,
+        "biggest single step in the skyline": 1,
+        "ground within reach of a surface": "4.4%"
+      },
+      "focus": null
+    },
+    {
+      "label": "wetland",
+      "files": [
+        "20260829T171510934Z-d57fca/004-one_wetland.png"
+      ],
+      "caption": "",
+      "meta": {
+        "skyline rise and fall (of 320 rows)": 28,
+        "biggest single step in the skyline": 9,
+        "ground within reach of a surface": "4.7%"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
