@@ -1099,6 +1099,21 @@ pub enum OrganismOverlay {
     /// a cell that is not part of a creature returns `base` untouched, so
     /// the two are still told apart by whether the cell is painted at all.
     GutBias,
+    /// **How hard each plant cell is being bent** — `plant::stress_field`,
+    /// `|moment| / section²`.
+    ///
+    /// Stage 1 of `Reports/tree-mechanics-plan-2026-08-29.md`, and it exists
+    /// *before* anything reads the number to decide anything, which is the
+    /// order that plan insists on and that this repo has been bitten for
+    /// skipping: light shipped with no writer, canopy density with an
+    /// always-zero reader. A channel that decides behaviour and cannot be
+    /// looked at is a channel nobody can tell is wrong.
+    ///
+    /// Drawn on a **log** scale, and that is not a stylistic choice: stress
+    /// spans four orders of magnitude between a trunk's median and a
+    /// cantilever's root, so a linear ramp is a black plant with three lit
+    /// cells on it. See `SCALAR_RAMP_BEND_DECADES`.
+    Stress,
 }
 
 impl OrganismOverlay {
@@ -1111,7 +1126,8 @@ impl OrganismOverlay {
             OrganismOverlay::VeinConductance => OrganismOverlay::SoilMoisture,
             OrganismOverlay::SoilMoisture => OrganismOverlay::FoodValue,
             OrganismOverlay::FoodValue => OrganismOverlay::GutBias,
-            OrganismOverlay::GutBias => OrganismOverlay::Off,
+            OrganismOverlay::GutBias => OrganismOverlay::Stress,
+            OrganismOverlay::Stress => OrganismOverlay::Off,
         }
     }
 
@@ -1125,6 +1141,7 @@ impl OrganismOverlay {
             OrganismOverlay::SoilMoisture => "SOIL MOISTURE",
             OrganismOverlay::FoodValue => "FOOD VALUE",
             OrganismOverlay::GutBias => "GUT BIAS",
+            OrganismOverlay::Stress => "BENDING STRESS",
         }
     }
 }
@@ -1175,6 +1192,22 @@ const CELL_TYPE_BLEND: f32 = 0.85;
 /// very different bugs.
 const SCALAR_RAMP_RESOURCE: [f32; 3] = [120.0, 255.0, 160.0];
 const SCALAR_RAMP_CANOPY: [f32; 3] = [255.0, 80.0, 80.0];
+
+/// The bright end of the bending-stress ramp: a hot cyan-white, chosen
+/// because nothing a plant is ever drawn in is near it. Wood is brown and
+/// leaf is green, so a ramp in either would be a channel you cannot read off
+/// the material — which is exactly how the canopy-density sheet came to look
+/// blank.
+const SCALAR_RAMP_BEND: [f32; 3] = [120.0, 240.0, 255.0];
+
+/// How many decades of stress the ramp spans before it saturates.
+///
+/// **Four, set from the measured spread and not from taste.** `beam_probe`
+/// puts the shipped tree's stress at 17,888x between median and max, which is
+/// 4.25 decades; four covers it with the top of the ramp reached only by the
+/// genuinely worst cell. A linear ramp over the same data is a black plant
+/// with three lit cells on it.
+const SCALAR_RAMP_BEND_DECADES: f32 = 4.0;
 const SCALAR_RAMP_MOISTURE: [f32; 3] = [80.0, 170.0, 255.0];
 /// Deliberately unlike `SCALAR_RAMP_RESOURCE`: conductance and the carbon
 /// it carries are different quantities on different timescales, and two
@@ -1705,6 +1738,14 @@ const HAZE_DIM: u16 = 168;
 type LookKey = (TerrainLight, bool, GrainMode, GlowShape, Option<u64>, Option<Weather>);
 
 pub struct Renderer {
+    /// Per-cell plant bending stress, refilled once per `draw` and only
+    /// while `OrganismOverlay::Stress` is selected.
+    ///
+    /// Cached rather than asked per cell because `plant::stress_field` is
+    /// `O(cells)` for a whole plant: calling it from the per-cell tint would
+    /// make the overlay quadratic in the size of every tree on screen. Free
+    /// when the channel is off — the map is cleared and never filled.
+    bend_field: std::collections::HashMap<(i32, i32), f32>,
     /// Which `GrainMode` a `Liquid` cell's brightness grain comes from.
     /// Prototype switch — see the enum's own doc.
     pub grain: GrainMode,
@@ -2006,6 +2047,7 @@ pub struct Renderer {
 impl Renderer {
     pub fn new() -> Self {
         Self {
+            bend_field: std::collections::HashMap::new(),
             grain: GrainMode::default(),
             bubbles: BubbleMode::default(),
             gas: GasMode::default(),
@@ -2421,6 +2463,7 @@ impl Renderer {
     /// per `App::draw`, which `main.rs`'s own catch-up loop does whenever a
     /// frame runs behind).
     pub fn draw(&mut self, world: &World, particles: &ParticleSystem, touched: &HashSet<ChunkCoord>, frame: &mut [u8], (width, height): (u32, u32), force_full: bool) -> usize {
+        self.refresh_bend_field(world);
         let zoom_state = (self.zoom, self.zoom_out_stride);
         let scale_changed = self.last_zoom_state != Some(zoom_state);
         self.last_zoom_state = Some(zoom_state);
@@ -4562,6 +4605,32 @@ impl Renderer {
     /// `CellType` is categorical (there is no "less of a `RootTip`") and
     /// keeps a high flat blend, so a burning or dimmed cell still reads as
     /// such underneath the type colour.
+    /// Refill `bend_field` for this frame, or drop it if the channel is off.
+    ///
+    /// **Unbudgeted and uncached across frames**, matching `load::evaluate`'s
+    /// own reasoning: a readout must give the same answer however busy the
+    /// frame was, and a stale one is worse than none — it would show the
+    /// stress of a plant that has since grown, which is precisely the kind of
+    /// thing a debug channel exists to rule out.
+    ///
+    /// Costs nothing at all when the overlay is off, which is the normal
+    /// case: the map is emptied once and never walked.
+    fn refresh_bend_field(&mut self, world: &World) {
+        if self.organism_overlay != OrganismOverlay::Stress {
+            if !self.bend_field.is_empty() {
+                self.bend_field.clear();
+                self.bend_field.shrink_to_fit();
+            }
+            return;
+        }
+        self.bend_field.clear();
+        for id in world.live_organism_ids() {
+            for (at, stress) in crate::sim::plant::stress_field(world, id) {
+                self.bend_field.insert(at, stress.stress);
+            }
+        }
+    }
+
     fn apply_organism_overlay(&self, world: &World, x: i32, y: i32, base: [u8; 4]) -> [u8; 4] {
         if self.organism_overlay == OrganismOverlay::Off {
             return base;
@@ -4689,6 +4758,25 @@ impl Renderer {
             OrganismOverlay::CanopyDensity => {
                 let t = (world.canopy_density_at(x, y) / organism::CANOPY_DENSITY_SCALE).clamp(0.0, 1.0);
                 (scalar_ramp(t, SCALAR_RAMP_CANOPY), 1.0)
+            }
+            OrganismOverlay::Stress => {
+                // **A full replace on a fixed ramp, never a blend into the
+                // cell's own colour**, which is the recorded failure this
+                // channel would otherwise repeat exactly: a magnitude-scaled
+                // blend produced a canopy-density sheet that read as blank,
+                // because the ramp was red, wood is brown, and a mid-range
+                // value moved one colour byte from 139 to 155. The obvious
+                // reading -- "the mechanism is dead" -- would have sent a fix
+                // at working code.
+                //
+                // Log, because the quantity spans decades. A cell at zero
+                // sits at the ramp floor rather than a third of the way up
+                // it, which matters here more than anywhere: a balanced
+                // trunk reading ~0 is the design's central claim and it has
+                // to be visibly dark, not merely dim.
+                let stress = self.bend_field.get(&(x, y)).copied().unwrap_or(0.0);
+                let t = (stress.max(0.0).log10().max(0.0) / SCALAR_RAMP_BEND_DECADES).clamp(0.0, 1.0);
+                (scalar_ramp(t, SCALAR_RAMP_BEND), 1.0)
             }
         };
         let mut out = base;

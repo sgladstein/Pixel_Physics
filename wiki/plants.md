@@ -3,9 +3,10 @@
 *What plants do, and what it looks like when they are working. No code, no
 file names — see `Reports/` for why any of it is built the way it is.*
 
-*Current as of: 2026-08-29 (what breaks off a plant now turns as it falls and
-goes over where it lands, instead of dropping in the pose it grew in -- see
-**Cutting a plant down**; stems draw a line instead of wandering into one --
+*Current as of: 2026-08-29 (most of a felled tree's leaves now stay on the
+branch rather than only the layer touching it -- see **Cutting a plant down**;
+what breaks off a plant turns as it falls and goes over where it lands, instead of dropping in the pose it
+grew in; stems draw a line instead of wandering into one --
 see **How a stem is shaped**; plants flower and fruit: two new kinds of plant
 stop growing on purpose and put an organ where the shoot tip used to be, the
 ripe fruit falls carrying the seed inside it, and building either costs the
@@ -528,14 +529,20 @@ rather than the other. And a piece that comes to rest with its weight
 overhanging its footing tips instead of standing there, until it is seated or
 until there is no room to turn into.
 
-**What it still does not do is hinge on its stump.** A real tree pivots on
-the cut and sweeps across the ground; here the crown lets go as separate
-pieces and each of those falls and turns on its own. So expect limbs lying
-across each other rather than a trunk lying full length in one line, and
-expect a crowded pile to hold on to more of its awkward poses than an open
-floor does — a piece with nothing to turn into stays as it is, which is a
-real outcome and not a failure. Whether the settled pile now reads as a
-felled tree is the open question on this section.
+**Most of the leaves stay on now.** Foliage holds to a limb it is lying
+on, and it holds through another leaf as well as directly — which is the
+difference between a third of a crown's leaves staying put and about
+three-quarters. Foliage in open air still falls; the chain has to reach real
+wood.
+
+**What it still does not do is fall over.** The crown breaks into pieces at
+the moment it is cut and they drop, rather than the tree detaching from the
+ground, going over because it is unstable, and *then* shedding branches where
+it hits. That is the open question on this section, and it is a bigger one
+than it looks: an attempt to make the pieces sweep over together was rejected
+in play for reading as "an invisible force pushing things around", which is
+what any imposed motion will read as until the stress that ought to cause it
+exists.
 
 **Burning a trunk out from under a crown** now brings the crown down too,
 which it did not before at the tighter `F9` settings — the fire licenses
@@ -556,6 +563,42 @@ one, the setting is the lever.
 of trunk are still anchored, so they are still the plant. What they do not
 yet do is regrow — a topped tree sits there indefinitely rather than
 resprouting, which is a separate piece of work.
+
+## Bending in the wind
+
+**New on 2026-08-29.** Wind pushes on a plant, and the parts of a plant that
+are too weak to hold what is hanging on them give way and swing over.
+
+The wind is not the same everywhere. A plant on an open ridge catches the
+whole of it; one tucked behind a rise barely feels it, and one growing in the
+middle of a wood is sheltered by the wood. It also does not blow underground —
+roots take nothing.
+
+**What gives way is the soft stuff.** Wood does not bend. Grass and foliage
+do, and they bend where the load actually is: a leafy cluster hanging off the
+far end of a long branch swings, while the quiet middle of a canopy sits
+still. What swings is a whole section of the limb at once, and it swings
+about the point that is holding it, so the far end of it moves most and the
+part nearest the branch barely moves — the limb curls rather than sliding
+sideways. Keep watching and the curl travels back along the limb as the tip
+runs out of room to move into.
+
+**It stops.** A limb that has leaned over is no longer reaching out as far,
+so there is less of it hanging out in the wind, so it stops leaning. A plant
+does not creep across the world in a gale.
+
+**It also never comes apart.** Whatever swings stays joined to the plant. A
+leaf that leans is a leaf still on its branch — and in a wind, a plant that
+can lean loses *fewer* leaves than one that cannot, because leaning is how it
+takes the load off.
+
+**What you will not see yet.** A tree does not sway. Trunks and branches are
+rigid, and the reason is that a leaning trunk has no way to relieve what the
+wind is doing to it — what stops a real tree in a gale is that it breaks, and
+breaking is not built yet. Meanwhile the wind is already pushing on the trunk
+and the number is already being kept; nothing is reading it. Foliage in a
+thick canopy is also packed too tightly to move much: there is simply nowhere
+for it to go.
 
 ## Fire and death
 

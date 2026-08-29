@@ -4102,6 +4102,11 @@ pub fn step_organisms(world: &mut World) {
             // `allocate_to_frontier` so a cell created this tick is already in
             // the list being walked.
             timing.time(3, || anchor_support(world, organism_id));
+            // After `anchor_support`, which writes the `support` field the
+            // stress flow reads, and before growth -- a tip that flushes this
+            // tick should grow from where the stem has leaned to, not from
+            // where it was.
+            bend_under_load(world, organism_id);
             // Before upkeep, so a bud that flushes this tick is already a
             // `GrowingTip` when `thicken` runs and can be counted as frontier
             // rather than thickened over on the same tick it woke up.
@@ -4861,6 +4866,645 @@ fn is_structural_anchor(world: &World, x: i32, y: i32, organism_id: u16) -> bool
         // the cut working perfectly. See `MaterialDef::anchors_organisms`.
         (m.kind == MaterialKind::Solid && m.anchors_organisms) || (root_tissue && m.kind == MaterialKind::Powder && m.water_capacity > 0)
     })
+}
+
+/// What one plant cell is carrying, and how hard that is bending it.
+///
+/// `Reports/tree-mechanics-plan-2026-08-29.md` §2a, and every field is kept
+/// rather than just the last because they fail in different ways: a `stress`
+/// that looks wrong is usually a `section` that read across a fork, and only
+/// having both says so.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct CellStress {
+    /// Mass this cell carries, itself included, in `MaterialDef::density`
+    /// units. Leaf is 0.25 against wood's 0.9, so a crown that is 48% of a
+    /// tree's cells is about 20% of its mass.
+    pub carried: f32,
+    /// The bending moment about this cell, **signed** — positive where the
+    /// mass it carries hangs to its right.
+    ///
+    /// Signed rather than absolute because the sign is the direction a limb
+    /// would go, and storing it costs nothing; every *criterion* takes the
+    /// absolute value.
+    pub moment: f32,
+    /// The run of same-order tissue across the load path. See
+    /// `section_across` for why same-order, and why a run at all.
+    pub section: u16,
+    /// `|moment| / section²` — **the slab reading**, and it is written down
+    /// here because the alternative is a silent constant change later.
+    ///
+    /// A slab one cell thick has section modulus `Z ∝ D²`; a slice through a
+    /// cylinder gives `Z ∝ D³`. This engine counts cells for mass, which is
+    /// the slab reading, and `load.rs` is quadratic for the same reason. Take
+    /// the slab and say so, or someone later "fixes" the exponent and every
+    /// constant in the model moves under them.
+    ///
+    /// There is no strength constant in this yet, deliberately: nothing reads
+    /// this number to decide anything, and the plan's §9 records that the one
+    /// measurement anybody has of the scale is an artifact of an instrument
+    /// whose section measure is not this one. The constant belongs to the
+    /// stage that breaks things, fitted from a seed sweep with headroom.
+    pub stress: f32,
+    /// How far this cell wants to lean, in cells, **signed** — `moment /
+    /// MaterialDef::stiffness`.
+    ///
+    /// Infinite stiffness gives exactly zero, which is every material that
+    /// has not opted in, so a plant made of rigid tissue reads a deflection
+    /// of 0 everywhere rather than something small and meaningless.
+    pub deflection: f32,
+    /// Whether this cell is where the plant's weight actually leaves it —
+    /// nothing beneath it or closer to an anchor to hand on to.
+    ///
+    /// **Not the same as `support == 0`**, and the difference is what makes
+    /// the conservation claim checkable: standing is free in
+    /// `anchor_support`, so an upright stem reads distance 0 for its whole
+    /// height, and summing `carried` over those cells counts the trunk once
+    /// per storey. The sinks are these. Together they carry the plant's
+    /// entire mass exactly once, which is what the share division buys.
+    pub grounded: bool,
+}
+
+/// Let a plant lean under its own weight: find where it is bending, and
+/// swing everything above that point one cell over.
+///
+/// `Reports/tree-mechanics-plan-2026-08-29.md` §3, and the owner's ask in his
+/// own words: *"The system needs to make grass bend and not break. It is ok
+/// if the grass gets a little smaller."*
+///
+/// # The hinge moves nothing; what it carries is what moves
+///
+/// **The first version moved the loaded cell itself, and it could never
+/// work.** A cell may only step into empty space, so it required a cell with
+/// nothing underneath it — and the cells with a large moment are precisely
+/// the ones near the base with the whole plant on top of them, while the
+/// cells with nothing underneath are tips that carry nothing and have a
+/// moment of about zero. The two conditions select disjoint sets. Measured on
+/// a grass tuft: **0 cells moved against 452 refused**, every single one, and
+/// the intent counter said "4 cells leaning" throughout. That is `CLAUDE.md`'s
+/// "pair every *it fired* counter with an effect counter from the far side of
+/// the call", and it is the only reason this was caught.
+///
+/// Bending a stem does not displace the cell that is bending. It rotates
+/// everything **distal** to it — so the hinge is the loaded cell, and the
+/// cells that move are the ones whose weight it is carrying. That is also
+/// what makes bending relieve its own cause: the distal mass swings, and its
+/// lever arm about the hinge changes with it.
+///
+/// # One hinge per plant per tick
+///
+/// The most-deflected qualifying cell, and only that one. It bounds the work
+/// at one flood per organism per tick and it is the physical reading too — a
+/// stem bends most where it is weakest, and the next tick asks again from the
+/// new shape.
+///
+/// # Why this is not the sway that is a recorded dead end
+///
+/// Sim-side sway — a per-frame integrator over every cell of every plant — is
+/// a do-not-retry with four independently fatal counts, and a canopy that
+/// never stops moving measured **+8.0 ms/frame**, not from the arithmetic but
+/// because it defeats the dirty-rect render skip. This runs once per organism
+/// per `ORGANISM_TICK_INTERVAL` (45 frames), so a settled meadow is still and
+/// the renderer's skip still works.
+///
+/// Rigid tissue never reaches this: `MaterialDef::stiffness` is infinite by
+/// default, so a deflection is exactly zero for everything that has not been
+/// measured, and wood does not creep.
+/// `BEND=off` holds every plant rigid, whatever its `stiffness` says.
+///
+/// The control, and it exists because the two mistakes in this mechanism were
+/// both found by holding the semantics fixed and changing nothing else --
+/// once for the fall, once here. Comparing two *binaries* cannot do it: the
+/// counters that catch the error are added alongside the mechanism, so the
+/// arm being measured against does not have them.
+fn bend_enabled() -> bool {
+    use std::sync::OnceLock;
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| !matches!(std::env::var("BEND").as_deref(), Ok("off")))
+}
+
+fn bend_under_load(world: &mut World, organism_id: u16) {
+    if !bend_enabled() {
+        return;
+    }
+    let field = stress_field(world, organism_id);
+    let support_of = |w: &World, p: (i32, i32)| w.organism_cell(p.0, p.1).map_or(u16::MAX, |c| c.support);
+
+    // Every cell that wants to bend, most-deflected first — not just the
+    // worst one.
+    //
+    // **Trying only the worst is what a stand exposed.** On an isolated tuft
+    // the most-loaded hinge is free and it swings; in a stand its distal mass
+    // has a neighbour in the way, the whole swing is refused, and the plant
+    // does nothing at all — measured, **1 cell moved against 295 refused**
+    // over six plants, against 2 against 0 for the same species alone. A real
+    // stem that cannot swing its whole length bends *further out* instead,
+    // where less has to move, so the candidates are worked down in order
+    // until one takes.
+    //
+    // Sorted rather than scanned for a maximum so the fallback is
+    // deterministic, and by `(deflection, y, x)` so a tie is broken by the
+    // world rather than by the hash order.
+    let mut candidates: Vec<((i32, i32), f32)> = field
+        .iter()
+        .filter(|(&at, s)| {
+            let support = support_of(world, at);
+            support != 0 && support != u16::MAX && s.deflection.abs() >= 1.0
+        })
+        .map(|(&at, s)| (at, s.deflection.abs()))
+        .collect();
+    if candidates.is_empty() {
+        return;
+    }
+    candidates.sort_by(|a, b| (b.1, b.0.1, b.0.0).partial_cmp(&(a.1, a.0.1, a.0.0)).unwrap_or(std::cmp::Ordering::Equal));
+
+    for (hinge, _) in candidates.into_iter().take(BEND_ATTEMPTS_PER_TICK) {
+        if try_bend_at(world, organism_id, &field, hinge) {
+            return;
+        }
+    }
+}
+
+/// How many hinges a plant may try in one tick before giving up.
+///
+/// Bounds the work — each attempt is a flood over what that hinge carries —
+/// while leaving enough room for a stem in a crowded stand to find a place it
+/// *can* bend. One was measurably too few (1 move against 295 refusals over
+/// six plants); this is not a physical quantity and is a work bound, so it
+/// stops at the first success rather than spending the budget.
+const BEND_ATTEMPTS_PER_TICK: usize = 8;
+
+/// Try to swing everything one hinge carries, one cell over. Returns whether
+/// it moved.
+fn try_bend_at(
+    world: &mut World,
+    organism_id: u16,
+    field: &std::collections::HashMap<(i32, i32), CellStress>,
+    hinge: (i32, i32),
+) -> bool {
+    let support_of = |w: &World, p: (i32, i32)| w.organism_cell(p.0, p.1).map_or(u16::MAX, |c| c.support);
+
+    // Everything the hinge carries: flood outward to strictly greater
+    // support, which is the same ordering the stress flow used and therefore
+    // exactly the set whose weight arrived here. Eight-connected, because
+    // `Grow` places organism cells at eight.
+    let mut carried: Vec<(i32, i32)> = Vec::new();
+    let mut seen: std::collections::HashSet<(i32, i32)> = std::collections::HashSet::from([hinge]);
+    let mut queue = std::collections::VecDeque::from([hinge]);
+    while let Some((x, y)) = queue.pop_front() {
+        let here = support_of(world, (x, y));
+        for (dx, dy) in NEIGHBOURS_8 {
+            let (nx, ny) = (x + dx, y + dy);
+            // `seen` marks what was *taken*, never what was looked at. Marking
+            // on inspection dropped cells out of the set: a cell reached first
+            // from a higher-support neighbour was rejected and never
+            // reconsidered from its real parent, so part of what the hinge
+            // carries went missing -- and a cell left out of the set is a cell
+            // stranded when the rest of the limb moves out from under it.
+            if world.get(nx, ny).organism_id() != organism_id || support_of(world, (nx, ny)) <= here {
+                continue;
+            }
+            if seen.insert((nx, ny)) {
+                carried.push((nx, ny));
+                queue.push_back((nx, ny));
+            }
+        }
+    }
+    if carried.is_empty() {
+        world.structural_failures.record_bend(false);
+        return false;
+    }
+
+    // **Which way it goes: perpendicular to the limb, and that is what makes
+    // a droop stop.**
+    //
+    // Gravity turns the mass about the hinge, so the step is the
+    // eight-direction closest to perpendicular-and-downward from the hinge to
+    // what it carries. An arm reaching straight out steps straight down; one
+    // already sagging at forty-five degrees steps down *and inward*, which is
+    // a rotation shortening its own horizontal reach.
+    //
+    // That inward pull is the whole reason a limb settles. Stepping always
+    // straight down was tried: the shape was right and the arm curled for
+    // ever, because `moment` is a horizontal lever arm and a vertical step
+    // never shortens one. Perpendicular does -- and mass hanging directly
+    // below the hinge has no perpendicular-downward direction left at all,
+    // which is a plumb line, which is where a droop belongs.
+    //
+    // Mass stacked *above* the hinge ties: both perpendiculars are level, and
+    // the moment's sign says which way the limb lies over.
+    //
+    // Taken from the whole limb rather than from each cut below, which is
+    // both cheaper and steadier: every cut shares this hinge, so they all
+    // want the same perpendicular, and re-deriving it per cut made the two
+    // checks below non-monotone and cost a quadratic loop.
+    let reach = carried.iter().fold((0.0f32, 0.0f32), |(ax, ay), &(x, y)| {
+        (ax + (x - hinge.0) as f32, ay + (y - hinge.1) as f32)
+    });
+    let fall = (-reach.1, reach.0);
+    let fall = if fall.1 < 0.0 || (fall.1 == 0.0 && field[&hinge].deflection < 0.0) { (-fall.0, -fall.1) } else { fall };
+    let step = NEIGHBOURS_8
+        .iter()
+        .copied()
+        .max_by(|&(ax, ay), &(bx, by)| {
+            let dot = |(dx, dy): (i32, i32)| (fall.0 * dx as f32 + fall.1 * dy as f32) / ((dx * dx + dy * dy) as f32).sqrt();
+            dot((ax, ay)).partial_cmp(&dot((bx, by))).unwrap_or(std::cmp::Ordering::Equal).then(ay.cmp(&by)).then(ax.cmp(&bx))
+        })
+        .unwrap_or((0, 1));
+
+    // **How much of the limb swings: a cross-section, chosen so the curve can
+    // advance.**
+    //
+    // A bend is a rotation, so the tip moves furthest and the cell beside the
+    // hinge barely moves. At one-cell granularity that is a *cut* -- part of
+    // the limb steps, the rest holds -- and the whole question is where.
+    //
+    // Splitting on distance-from-the-hinge was tried and tears the limb in
+    // two, because the cut never advances. A ten-cell arm drooped its outer
+    // four one row; next tick the same four were still the outer half, so they
+    // stepped again while their parent held, and the diagonal link across the
+    // cut became a two-row gap. Six cells lost their anchors. The cut has to
+    // *migrate inward* as the tip runs out of room, which is what a curve
+    // propagating along a stem physically is.
+    //
+    // So the cut is a level set of `support` -- the geodesic distance along
+    // the tissue, i.e. a genuine cross-section of the member -- and the
+    // threshold is the **largest** one that can still move. Largest is least
+    // mass and most curvature at the tip; when the tip can no longer step
+    // without leaving its parent behind, the next level down brings the parent
+    // with it and the bend travels one cell further in. A limb therefore sags
+    // into a curve rather than hinging at one joint.
+    //
+    // **Grown, not rebuilt, and that is worth the extra state.** Both tests
+    // below are monotone in the cut: a cell whose target is occupied may be
+    // freed when the occupant joins the movers, and a cell that has kept its
+    // parent keeps it when the parent joins and travels alongside. So a cell
+    // that once passed never fails again, and only the still-failing ones are
+    // re-checked. Rebuilding both sets per level instead was quadratic in the
+    // limb, and on a crown-sized flood it was the whole of a worst-frame
+    // spike.
+    carried.sort_unstable_by_key(|&p| (std::cmp::Reverse(support_of(world, p)), p.1, p.0));
+    let mut moving: std::collections::HashSet<(i32, i32)> = std::collections::HashSet::new();
+    let mut pending: Vec<(i32, i32)> = Vec::new();
+    let mut next = Vec::new();
+    let (mut blocked, mut would_tear) = (0u32, 0u32);
+    let mut at = 0usize;
+    while at < carried.len() {
+        let cut = support_of(world, carried[at]);
+        let level = at;
+        while at < carried.len() && support_of(world, carried[at]) == cut {
+            moving.insert(carried[at]);
+            at += 1;
+        }
+        pending.extend_from_slice(&carried[level..at]);
+
+        // **All of it or none of it.** A partial swing tears the limb in half,
+        // which is shedding rather than bending. A cell may land where another
+        // moving cell is leaving, so the moving set counts as clear.
+        next.clear();
+        for &(x, y) in &pending {
+            let (tx, ty) = (x + step.0, y + step.1);
+            if !(world.in_bounds(tx, ty) && (moving.contains(&(tx, ty)) || world.get(tx, ty).material == material::EMPTY)) {
+                next.push((x, y));
+            }
+        }
+        if !next.is_empty() {
+            blocked += 1;
+            std::mem::swap(&mut pending, &mut next);
+            continue;
+        }
+
+        // **And it must still be one plant afterwards.**
+        //
+        // Every cell needs an eight-neighbour of strictly smaller `support`;
+        // follow that chain and it can only end at zero, which is an anchor.
+        // Cells that stay keep theirs -- the moving set is a support level
+        // set, so nothing smaller than a stayer ever moves out from under it
+        // -- and a mover whose parent also moves travels with it. What is left
+        // to check is the innermost row of the cut, whose parent holds:
+        // stepping *away* from a parent that sits on the far side of the step
+        // is exactly the tear above. Checked over the whole moving set rather
+        // than argued per cell, because the argument is what was wrong last
+        // time.
+        let occupant = |q: (i32, i32)| -> Option<u16> {
+            let from = (q.0 - step.0, q.1 - step.1);
+            let src = if moving.contains(&from) {
+                from
+            } else if !moving.contains(&q) {
+                q
+            } else {
+                return None;
+            };
+            (world.get(src.0, src.1).organism_id() == organism_id).then(|| support_of(world, src))
+        };
+        let torn = moving.iter().any(|&(x, y)| {
+            let mine = support_of(world, (x, y));
+            let (tx, ty) = (x + step.0, y + step.1);
+            !NEIGHBOURS_8.iter().any(|&(dx, dy)| occupant((tx + dx, ty + dy)).is_some_and(|s| s < mine))
+        });
+        if torn {
+            would_tear += 1;
+            pending.clear();
+            continue;
+        }
+
+        // Lifted whole and put down whole, in a deterministic order, so that
+        // the grid never holds two copies of a cell and the sidecars travel
+        // with them.
+        let mut swinging: Vec<(i32, i32)> = moving.iter().copied().collect();
+        swinging.sort_unstable_by_key(|&(x, y)| (y, x));
+        let cells: Vec<(Cell, Option<organism::OrganismCell>)> =
+            swinging.iter().map(|&(x, y)| (world.get(x, y), world.organism_cell(x, y).cloned())).collect();
+        for &(x, y) in &swinging {
+            world.set(x, y, Cell::EMPTY);
+        }
+        for (&(x, y), (cell, sidecar)) in swinging.iter().zip(cells) {
+            let (tx, ty) = (x + step.0, y + step.1);
+            world.set(tx, ty, cell);
+            if let (Some(from), Some(slot)) = (sidecar, world.organism_cell_mut(tx, ty)) {
+                *slot = from;
+            }
+        }
+        world.structural_failures.record_bend(true);
+        return true;
+    }
+
+    world.structural_failures.record_bend(false);
+    world.structural_failures.record_bend_refusal(blocked, would_tear);
+    false
+}
+
+/// The run of tissue across the load path at `(x, y)`, in cells.
+///
+/// # Why a run, and why the load path
+///
+/// A beam resists bending with the material *across* the direction it is
+/// loaded, not along it. So the section is measured perpendicular to the way
+/// the load leaves this cell — horizontally for a trunk, vertically for a
+/// limb reaching sideways — and the direction is read from the cell's own
+/// supporters rather than assumed.
+///
+/// # Why same-order, which is the correction the reviews forced
+///
+/// **A fork must not read as the widest section in the tree.** `stem_run`'s
+/// doc records the identical defect from the pipe-model side: *"53% of
+/// occupied rows containing more than one separate run… worst case 23 cells
+/// across 9 runs read as one 23-wide stem."* Two limbs that happen to cross a
+/// row are not one thick beam, and reading them as one makes the fork — where
+/// a limb actually tears out — the strongest place in the plant.
+///
+/// `OrganismCell::order` already distinguishes them: it increments when a tip
+/// throws a lateral and is inherited when a shoot continues itself, so a
+/// trunk and the branch leaving it carry different values. The run stops at
+/// the first cell of a different order, which puts the narrow section exactly
+/// at the fork.
+///
+/// Uncapped on purpose. A cap here would *understate* a wide stem's section
+/// and so **overstate** its stress, which is `CLAUDE.md`'s "a size cap must
+/// bound work, never gate whether something happens" in its most dangerous
+/// form — a truncation that returns a plausible answer. The run terminates on
+/// its own at the first cell that is not same-order tissue.
+fn section_across(world: &World, x: i32, y: i32, organism_id: u16, load_path: (f32, f32)) -> u16 {
+    let Some(own) = world.organism_cell(x, y).map(|c| c.order) else { return 1 };
+    let same = |px: i32, py: i32| {
+        world.get(px, py).organism_id() == organism_id && world.organism_cell(px, py).is_some_and(|c| c.order == own)
+    };
+    // Perpendicular to the load path, quantised to the two axes: a load
+    // running mostly up or down is resisted by the horizontal run, and one
+    // running mostly sideways by the vertical run. Quantised rather than
+    // free-angle because the run is counted in whole cells either way, and a
+    // diagonal walk would count a staircase as a section.
+    let (step_x, step_y) = if load_path.1.abs() >= load_path.0.abs() { (1, 0) } else { (0, 1) };
+    let mut run: u16 = 1;
+    for dir in [-1, 1] {
+        let mut k = 1;
+        while same(x + dir * step_x * k, y + dir * step_y * k) {
+            run = run.saturating_add(1);
+            k += 1;
+        }
+    }
+    run
+}
+
+/// Every cell of one plant, with what it carries and how hard that bends it.
+///
+/// **Unbudgeted and uncached**, matching `load::evaluate`'s own reasoning:
+/// this is a readout, and a readout must give the same answer however busy
+/// the frame was. Nothing in the simulation reads it yet — this is the plan's
+/// stage 1, *see the stress*, and the stages that bend and break things come
+/// after the picture has been judged.
+///
+/// # It is a flow over a DAG, and that is the deepest thing in the design
+///
+/// The obvious implementation accumulates mass up the parent array
+/// `accumulate_support` already builds, and **that is a recorded dead end for
+/// exactly this use** (`Reports/dead-ends.md`): a parent array is a spanning
+/// *tree* over what, for a thickened trunk, is a **blob**, so `q_now == 0`
+/// means "not on the arbitrary path this tick's walk happened to take" — true
+/// of most of a trunk's girth. A rule built on it took a stand from 3,437
+/// cells to 704.
+///
+/// `load.rs` had the same choice and its `dependants` doc records what a
+/// spanning tree cost there: *"a one-pixel red line through an otherwise
+/// green building — a table's whole span loaded its left leg while the right
+/// leg carried nothing."* A fifteen-cell bole under a spanning tree gives one
+/// spine cell the entire crown's moment and its fourteen neighbours nothing.
+///
+/// So this ports `load.rs`'s **share division** and not its traversal: cells
+/// are visited in decreasing `OrganismCell::support` — furthest from an
+/// anchor first — and each divides what it carries among the neighbours
+/// strictly *closer* to an anchor than itself. Dividing by the number of
+/// supports is what keeps the total conserved: what leaves a cell is what it
+/// carries, however many ways it splits.
+///
+/// Eight-connected, because `Grow` places organism cells at eight and
+/// `anchor_support` — whose `support` field this reads — walks eight.
+/// `CLAUDE.md`'s standing rule: a traversal must use the same neighbourhood
+/// the writer used. (`load.rs` is four-connected on purpose; rock is.)
+/// How hard the wind pushes on one cell of tissue, per unit of field
+/// velocity, in the same units as a cell's weight.
+///
+/// **Not scaled by density**, and that is the modelling choice rather than an
+/// omission: drag acts on the area a cell presents to the flow, and at
+/// one-cell granularity every cell presents the same area. Scaling by mass
+/// would make a heavy twig and a light blade deflect identically, which is
+/// the one thing wind visibly does *not* do.
+///
+/// Fitted, not derived -- see `Reports/tree-mechanics-plan-2026-08-29.md`
+/// §2c on why every constant in this model is. It multiplies the weather's
+/// bipolar wind (-1..1) by the column's `exposure` (0..1), so the push on
+/// one cell never exceeds `WIND_DRAG` itself, and it is fitted so that a
+/// real gust lays a `grassblade` over -- stiffness 2.0 -- and a breeze does
+/// not.
+const WIND_DRAG: f32 = 1.0;
+
+/// Below this the wind is a breeze and the whole term is skipped, exposure
+/// walk and all.
+///
+/// Not a physical cut-off -- a real breeze pushes a little -- but a work
+/// bound that costs nothing real: at `GUST_THRESHOLD / 2` the push is under
+/// a tenth of what lays a blade over, and `weather`'s wind channel is
+/// bipolar and spends much of its time near zero. Set at half
+/// `weather::GUST_THRESHOLD` so the term is comfortably live before the
+/// gust machinery the plan's bar names starts firing, rather than switching
+/// on at the same instant and making the two indistinguishable.
+const WIND_STIRS_TISSUE: f32 = 0.225;
+
+pub fn stress_field(world: &World, organism_id: u16) -> std::collections::HashMap<(i32, i32), CellStress> {
+    let mut out = std::collections::HashMap::new();
+    let Some(state) = world.organism(organism_id) else { return out };
+    if state.cells.is_empty() {
+        return out;
+    }
+    // Sorted for the same determinism reason `anchor_support` sorts: `cells`
+    // is a `HashMap` and the visit order must be a property of the world
+    // rather than of the hasher's seed.
+    let mut cells: Vec<(i32, i32)> = state.cells.keys().copied().collect();
+    cells.sort_unstable_by_key(|&(x, y)| (y, x));
+    let index: std::collections::HashMap<(i32, i32), usize> = cells.iter().enumerate().map(|(i, &p)| (p, i)).collect();
+    let support_of = |p: (i32, i32)| world.organism_cell(p.0, p.1).map_or(u16::MAX, |c| c.support);
+
+    // **Rank, not `support` alone, and the difference is the whole trunk.**
+    // `anchor_support` charges `SUPPORT_COST_STANDING`, which is **zero**:
+    // standing on something is free, because the field it builds answers
+    // "can this reach the ground" and a vertical stack always can. So every
+    // cell of an upright stem reads distance 0, and ordering by `support`
+    // alone gives a twelve-cell trunk twelve independent anchors and no way
+    // for a crown's load to travel down it — measured, a crown hung entirely
+    // off one side produced a moment of exactly **0** at the base.
+    //
+    // Ties are broken by height instead: at equal distance from an anchor, a
+    // cell hands its load to the neighbours *beneath* it, which is what
+    // standing on something means. `y` grows downward, so the rank is
+    // `(support, -y)` and a cell hands to strictly smaller rank — strict, so
+    // the flow still cannot cycle.
+    let rank = |p: (i32, i32)| (support_of(p), std::cmp::Reverse(p.1));
+
+    // **The gust, not the local air velocity, and that is a measurement
+    // rather than a preference.** The obvious read is `field_at_bilinear`'s
+    // `vx` at the cell, which is what `wind_lean_dir` uses for growth.
+    // Measured on `scene=grove species=grass`: over every cell of living
+    // tissue in the stand it runs **`vx` from -0.040 to +0.077, median
+    // 0.000** -- the momentum solve holds no-penetration at the ground and
+    // grass grows at the ground, so the one channel that looks like wind is
+    // flat exactly where the plants are. A term built on it is a channel with
+    // a reader and no writer.
+    //
+    // What the rest of the engine means by surface wind is the weather's own
+    // bipolar `wind` in -1..1 times the column's `exposure` -- a hill's
+    // windward face catching what its lee does not -- and that is what
+    // `report_exposure` and the gust machinery both read. So does this.
+    //
+    // One exposure walk per organism per organism-tick, skipped outright
+    // below `WIND_STIRS_TISSUE`.
+    let gust = crate::sim::weather::at(world.seed, world.frame).wind;
+    let push = if gust.abs() < WIND_STIRS_TISSUE {
+        0.0
+    } else {
+        let base = cells[cells.len() - 1];
+        WIND_DRAG * gust * crate::sim::weather::exposure(world, base.0, base.1, gust)
+    };
+    // **The wind does not blow underground.** Roots take no drag, and
+    // without this gate a plant's own root plate contributes a torque the
+    // wind could never apply to it -- worse, one that grows with root depth,
+    // so the better-anchored plant would be the one the wind moves most.
+    // `collar_y` is the root/shoot boundary the upkeep pass already
+    // maintains; an organism that has not run one yet takes no wind at all,
+    // which is the safe direction.
+    let collar = state.collar_y;
+    let push_at = |y: i32| match collar {
+        Some(c) if y < c => push,
+        _ => 0.0,
+    };
+    let mut visit: Vec<usize> = (0..cells.len()).collect();
+    visit.sort_by_key(|&i| (std::cmp::Reverse(rank(cells[i])), cells[i].0));
+
+    let mut carried = vec![0.0f32; cells.len()];
+    let mut moment_x = vec![0.0f32; cells.len()];
+    // The wind's own two accumulators, flowing down the same DAG. Gravity
+    // pulls down so its lever arm is horizontal; the wind pushes sideways so
+    // its lever arm is *vertical*, and the two cannot share a sum.
+    let mut wind_fx = vec![0.0f32; cells.len()];
+    let mut wind_my = vec![0.0f32; cells.len()];
+    let mut load_path = vec![(0.0f32, 0.0f32); cells.len()];
+    let mut grounded = vec![false; cells.len()];
+    let mut supporters: Vec<usize> = Vec::with_capacity(8);
+    for &i in &visit {
+        let (x, y) = cells[i];
+        let mass = world.materials.density(world.get(x, y).material);
+        carried[i] += mass;
+        moment_x[i] += mass * x as f32;
+        let f = push_at(y);
+        wind_fx[i] += f;
+        wind_my[i] += f * y as f32;
+
+        let own = rank((x, y));
+        supporters.clear();
+        for (dx, dy) in NEIGHBOURS_8 {
+            let Some(&j) = index.get(&(x + dx, y + dy)) else { continue };
+            if rank(cells[j]) < own {
+                supporters.push(j);
+            }
+        }
+        grounded[i] = supporters.is_empty();
+        if supporters.is_empty() {
+            // An anchor carries itself and hands on to nothing; so does a
+            // cell that reaches no anchor at all, which is already detached
+            // and is `organism_structural_tick`'s business rather than this
+            // one's.
+            continue;
+        }
+        let share = 1.0 / supporters.len() as f32;
+        let (mut px, mut py) = (0.0f32, 0.0f32);
+        for &j in &supporters {
+            carried[j] += carried[i] * share;
+            moment_x[j] += moment_x[i] * share;
+            wind_fx[j] += wind_fx[i] * share;
+            wind_my[j] += wind_my[i] * share;
+            px += (cells[j].0 - x) as f32;
+            py += (cells[j].1 - y) as f32;
+        }
+        load_path[i] = (px * share, py * share);
+    }
+
+    for (i, &(x, y)) in cells.iter().enumerate() {
+        // `Sx − x_c · M`: the moment of everything this cell carries, taken
+        // about the cell itself. A crown balanced over its own trunk sums to
+        // nearly zero here, which is not a bug and is §4's whole argument —
+        // an upright stem fails by buckling, not by bending.
+        //
+        // **Plus the wind's, and without it this whole channel is inert on a
+        // stand.** Self-weight bends a cantilever and does essentially
+        // nothing to an upright: a grass tuft carries its mass over its own
+        // base, so its gravity moment is near zero by construction. Measured
+        // on `scene=grove species=grass` before the wind term existed: five
+        // cells in the whole stand wanted to lean and **not one ever moved**
+        // -- 0 applied against 302 refused, and `BEND=off` was bit-identical.
+        // A blade lies over because something *pushes* it, which is the
+        // plan's "and at a gust" and is what makes this a load model rather
+        // than a sag model.
+        //
+        // `y_c·ΣF − Σ(F·y)`: the same first-moment arithmetic as gravity's,
+        // about the same cell, with the axes swapped because the force is.
+        // A cell above the hinge (`y_j < y_c`) in a rightward wind turns it
+        // clockwise, the same sign gravity gives mass hanging to the right.
+        let moment = moment_x[i] - x as f32 * carried[i] + (y as f32 * wind_fx[i] - wind_my[i]);
+        let path = if load_path[i] == (0.0, 0.0) { (0.0, -1.0) } else { load_path[i] };
+        let section = section_across(world, x, y, organism_id, path);
+        out.insert(
+            (x, y),
+            CellStress {
+                carried: carried[i],
+                moment,
+                section,
+                stress: moment.abs() / (section as f32).powi(2),
+                // Rigid tissue divides by infinity and gets exactly 0, which
+                // is what every material that has not opted in should read.
+                deflection: moment / world.materials.get(world.get(x, y).material).stiffness,
+                grounded: grounded[i],
+            },
+        );
+    }
+    out
 }
 
 /// Recompute every cell's weighted distance to this organism's nearest
@@ -7605,6 +8249,361 @@ mod tests {
             slot.carbon = carbon;
             slot.canopy_density = density;
         }
+    }
+
+
+
+
+    /// **The overlay and the number must be the same thing**, which is the
+    /// plan's own bar for this stage and the one that cannot be got by
+    /// looking.
+    ///
+    /// A ramp is a lossy view of a scalar, so this does not compare colours —
+    /// it compares the *ordering*: the cell the field calls hottest must be
+    /// the cell the ramp draws brightest, and a cell reading zero must land
+    /// on the ramp floor. A channel that disagreed with its own data would
+    /// still look like a plausible picture, which is exactly the failure the
+    /// canopy-density sheet shipped with.
+    #[test]
+    fn the_bend_channel_paints_what_the_field_measured() {
+        let mut cells: Vec<((i32, i32), u8)> = (90..100).map(|y| ((50, y), 0u8)).collect();
+        cells.extend((51..70).map(|x| ((x, 90), 1u8)));
+        let (w, organism) = stem_world(&cells);
+        let field = stress_field(&w, organism);
+
+        let hottest = field.iter().max_by(|a, b| a.1.stress.total_cmp(&b.1.stress)).map(|(&p, s)| (p, s.stress)).expect("a field");
+        assert!(hottest.1 > 0.0, "test setup: nothing is stressed, so the ordering below is vacuous");
+
+        // The ramp the renderer applies, reproduced here rather than
+        // imported, so that a change to either side has to be made in two
+        // places deliberately instead of drifting in one.
+        let ramp = |stress: f32| (stress.max(0.0).log10().max(0.0) / 4.0).clamp(0.0, 1.0);
+        let brightest = field.iter().max_by(|a, b| ramp(a.1.stress).total_cmp(&ramp(b.1.stress))).map(|(&p, _)| p).expect("a field");
+        assert_eq!(brightest, hottest.0, "the brightest cell on the ramp must be the one the field calls hottest");
+
+        let tip = field.get(&(69, 90)).copied().unwrap_or_default();
+        assert_eq!(tip.stress, 0.0, "a free tip carries only itself and bends nothing: {tip:?}");
+        assert_eq!(ramp(tip.stress), 0.0, "and it must sit on the ramp floor, not a third of the way up it");
+    }
+
+    /// Build a plant out of hand-placed wood on a stone plate, and run the
+    /// support pass so `stress_field` has the gradient it reads.
+    ///
+    /// The plate matters: `is_structural_anchor` wants a `Solid` that
+    /// `anchors_organisms` under the base, and without it every cell reads
+    /// `u16::MAX` and the whole field is zero — which would pass a
+    /// non-flatness bar while measuring nothing.
+    fn stem_world(cells: &[((i32, i32), u8)]) -> (World, u16) {
+        stem_world_of(cells, "wood")
+    }
+
+    fn stem_world_of(cells: &[((i32, i32), u8)], tissue: &str) -> (World, u16) {
+        let mut w = test_world();
+        let wood = w.materials.id_of(tissue).unwrap_or_else(|| panic!("{tissue}"));
+        // **Registered, not just stamped on the cells.** `World::set` writes
+        // the `OrganismCell` sidecar but does not create the `OrganismState`,
+        // and `anchor_support` returns early without one -- so a hand-built
+        // plant that skips this reads `support` as absent everywhere and its
+        // whole stress field is zero. It fails the setup assertion below
+        // rather than passing a non-flatness bar with nothing in it.
+        let species = w.species.id_of("tree").expect("tree");
+        let organism = w.push_organism(species).expect("an organism slot");
+        for x in 30..90 {
+            w.set(x, 100, Cell::new(material::STONE, 0).with_attached(true));
+        }
+        for &((x, y), order) in cells {
+            place(&mut w, (x, y), wood, organism, CellType::MatureBody, (1.0, 0.0));
+            if let Some(slot) = w.organism_cell_mut(x, y) {
+                slot.order = order;
+            }
+        }
+        anchor_support(&mut w, organism);
+        let anchored = cells.iter().filter(|&&((x, y), _)| w.organism_cell(x, y).is_some_and(|c| c.support == 0)).count();
+        assert!(anchored > 0, "test setup: nothing reached the plate, so every stress would be zero for the wrong reason");
+        (w, organism)
+    }
+
+
+    /// **Rigid tissue never bends, and that is the opt-in doing its job.**
+    ///
+    /// `MaterialDef::stiffness` is infinite by default, so every material in
+    /// the world that has not been measured is untouched. The fault put back
+    /// is the second half: the identical plant made of something soft *does*
+    /// move, so this is testing the property and not a scene that could never
+    /// bend anyway.
+    #[test]
+    fn rigid_tissue_does_not_bend_and_soft_tissue_does() {
+        // A cantilever: an upright stem with an arm reaching out to one side,
+        // which is the shape with a real moment in it.
+        let arm: Vec<((i32, i32), u8)> =
+            (90..100).map(|y| ((50, y), 0u8)).chain((51..60).map(|x| ((x, 90), 1u8))).collect();
+
+        let (mut rigid, id) = stem_world(&arm);
+        let before: Vec<(i32, i32)> = rigid.organism(id).expect("state").cells.keys().copied().collect();
+        bend_under_load(&mut rigid, id);
+        let after: Vec<(i32, i32)> = rigid.organism(id).expect("state").cells.keys().copied().collect();
+        let (mut a, mut b) = (before.clone(), after);
+        a.sort_unstable();
+        b.sort_unstable();
+        assert_eq!(a, b, "wood has no stiffness and must not have moved a single cell");
+
+        let (mut soft, soft_id) = stem_world_of(&arm, "grassblade");
+        let moment_before = peak_moment(&soft, soft_id);
+        bend_under_load(&mut soft, soft_id);
+        let moved: Vec<(i32, i32)> = soft.organism(soft_id).expect("state").cells.keys().copied().collect();
+        let mut m = moved.clone();
+        m.sort_unstable();
+        assert_ne!(a, m, "the same arm in grass must bend -- otherwise the rigid arm above proves nothing");
+
+        // **And it relieves the moment, and then it stops.**
+        //
+        // Both halves are needed and the first one is the plan's bar. A
+        // version of this that stepped the mass straight down passed a
+        // termination check and relieved **nothing** -- measured, 13.50
+        // before and 13.50 after -- because `moment` is a horizontal lever
+        // arm (`Sx - x_c*M`) and a vertical step does not shorten one. That
+        // is a plant sinking, not a plant bending, and only a moment
+        // assertion tells the two apart. The perpendicular step rotates the
+        // limb, which pulls its reach in.
+        //
+        // Settling is the other half: a mechanism that relieves the moment by
+        // creeping for ever has not found a shape, it has just kept moving.
+        let mut shape: Vec<(i32, i32)> = Vec::new();
+        for _ in 0..40 {
+            anchor_support(&mut soft, soft_id);
+            bend_under_load(&mut soft, soft_id);
+        }
+        shape.extend(soft.organism(soft_id).expect("state").cells.keys().copied());
+        shape.sort_unstable();
+        let moment_after = peak_moment(&soft, soft_id);
+        assert!(
+            moment_after < moment_before * 0.5,
+            "bending must take the load off: peak moment {moment_before} before, {moment_after} after"
+        );
+        for _ in 0..20 {
+            anchor_support(&mut soft, soft_id);
+            bend_under_load(&mut soft, soft_id);
+        }
+        let mut settled: Vec<(i32, i32)> = soft.organism(soft_id).expect("state").cells.keys().copied().collect();
+        settled.sort_unstable();
+        assert_eq!(shape, settled, "a bending plant must come to rest, not creep -- twenty more ticks moved it again");
+    }
+
+    /// A bend must never tear the plant in half. Every cell still has to
+    /// reach an anchor afterwards, or what happened was shedding.
+    ///
+    /// **Checked every tick, and the reason is that this guard was blind when
+    /// it checked only the last one.** A bend that tears heals itself on the
+    /// following tick -- the cut migrates one cell inward and catches up with
+    /// what it dropped -- so stranding alternates on and off, and a fixed
+    /// iteration count samples whichever phase it lands in. Measured: with the
+    /// one-piece rule deleted the arm stranded its tip on ticks 2, 5 and 7 and
+    /// was whole on 3 and 6, and the original six-tick version read tick 6 and
+    /// passed. A transient tear is a real one: for that tick the limb is
+    /// detached, and everything downstream of `support` -- shedding, the
+    /// structural check -- sees a crown with no anchors.
+    #[test]
+    fn bending_leaves_the_plant_in_one_piece() {
+        let arm: Vec<((i32, i32), u8)> =
+            (90..100).map(|y| ((50, y), 0u8)).chain((51..60).map(|x| ((x, 90), 1u8))).collect();
+        let (mut w, id) = stem_world_of(&arm, "grassblade");
+        for tick in 0..40 {
+            anchor_support(&mut w, id);
+            bend_under_load(&mut w, id);
+            anchor_support(&mut w, id);
+            let stranded: Vec<(i32, i32)> = w
+                .organism(id)
+                .expect("state")
+                .cells
+                .keys()
+                .copied()
+                .filter(|&(x, y)| w.organism_cell(x, y).is_some_and(|c| c.support == u16::MAX))
+                .collect();
+            assert!(
+                stranded.is_empty(),
+                "bending stranded {} cells from the plant's anchors on tick {tick}: {stranded:?}",
+                stranded.len()
+            );
+        }
+    }
+
+    /// The base holds the plant to the ground. A base that slides sideways is
+    /// a plant walking, not a plant bending.
+    #[test]
+    fn an_anchor_never_slides() {
+        let arm: Vec<((i32, i32), u8)> =
+            (90..100).map(|y| ((50, y), 0u8)).chain((51..60).map(|x| ((x, 90), 1u8))).collect();
+        let (mut w, id) = stem_world_of(&arm, "grassblade");
+        let anchors: Vec<(i32, i32)> = w
+            .organism(id)
+            .expect("state")
+            .cells
+            .keys()
+            .copied()
+            .filter(|&(x, y)| w.organism_cell(x, y).is_some_and(|c| c.support == 0))
+            .collect();
+        assert!(!anchors.is_empty(), "test setup: no anchors, so this asserts nothing");
+        for _ in 0..6 {
+            anchor_support(&mut w, id);
+            bend_under_load(&mut w, id);
+        }
+        for at in anchors {
+            assert!(w.get(at.0, at.1).organism_id() == id, "the anchor at {at:?} left its footing");
+        }
+    }
+
+    fn peak_moment(w: &World, id: u16) -> f32 {
+        stress_field(w, id).values().map(|s| s.moment.abs()).fold(0.0, f32::max)
+    }
+
+    /// **The bar the plan names, and it is not "the field is non-flat".**
+    ///
+    /// A cantilever is most stressed where it leaves its trunk and least
+    /// stressed at its free tip, because the root carries the whole arm on
+    /// the longest lever and the tip carries only itself on none. Any model
+    /// that gets this backwards — or flat — is not a bending model, and
+    /// non-flatness alone could not tell the difference.
+    #[test]
+    fn a_cantilever_is_most_stressed_at_its_root() {
+        let mut cells: Vec<((i32, i32), u8)> = (90..100).map(|y| ((50, y), 0u8)).collect();
+        cells.extend((51..70).map(|x| ((x, 90), 1u8)));
+        let (w, organism) = stem_world(&cells);
+        let field = stress_field(&w, organism);
+
+        let at = |x: i32, y: i32| field.get(&(x, y)).copied().unwrap_or_default();
+        let root = at(51, 90);
+        let tip = at(69, 90);
+        assert!(root.stress > tip.stress, "the arm's root must be the hottest part of it: root {:?} against tip {:?}", root, tip);
+        assert!(root.carried > tip.carried, "and it must be carrying more: {} against {}", root.carried, tip.carried);
+
+        // Monotone outward, which is the shape rather than the endpoints --
+        // two endpoints can be got right by an accident that a gradient
+        // cannot.
+        let mut previous = f32::INFINITY;
+        for x in 51..70 {
+            let here = at(x, 90).stress;
+            assert!(here <= previous + 1e-4, "stress must fall towards the tip; it rose at x={x}: {here} after {previous}");
+            previous = here;
+        }
+    }
+
+    /// **A balanced upright stem is the least stressed place in the plant**,
+    /// and this is the measurement the whole design turns on: it is why
+    /// "narrow base, heavy top" cannot come out of a *bending* rule at all,
+    /// and why the plan sends that ask to buckling instead.
+    ///
+    /// A null that has to be true, so it is asserted against a case that is
+    /// *not* null — the same stem with its crown hung off one side.
+    #[test]
+    fn a_balanced_crown_barely_bends_its_trunk_and_a_lopsided_one_does() {
+        let mut balanced: Vec<((i32, i32), u8)> = (88..100).map(|y| ((50, y), 0u8)).collect();
+        balanced.extend((45..56).map(|x| ((x, 88), 1u8)));
+        let (w, organism) = stem_world(&balanced);
+        let base = stress_field(&w, organism).get(&(50, 99)).copied().unwrap_or_default();
+
+        let mut lopsided: Vec<((i32, i32), u8)> = (88..100).map(|y| ((50, y), 0u8)).collect();
+        lopsided.extend((51..62).map(|x| ((x, 88), 1u8)));
+        let (w2, organism2) = stem_world(&lopsided);
+        let leaning = stress_field(&w2, organism2).get(&(50, 99)).copied().unwrap_or_default();
+
+        assert!(
+            base.moment.abs() < 1.0,
+            "a crown balanced over its own trunk has almost no moment about the base: {:?}",
+            base
+        );
+        assert!(
+            leaning.moment.abs() > 10.0 * base.moment.abs().max(0.1),
+            "and hanging the same crown off one side must be plainly different: {} against {}",
+            leaning.moment.abs(),
+            base.moment.abs()
+        );
+        assert!(leaning.moment > 0.0, "a crown hanging to the right must read positive, not merely large: {leaning:?}");
+    }
+
+    /// **The fault the spanning tree would put back.** Two legs both reach
+    /// the ground; a parent array picks one and sends it everything, which
+    /// `dead-ends.md` records as a one-pixel red line down a trunk and as a
+    /// stand falling from 3,437 cells to 704.
+    ///
+    /// So the assertion is not "both legs are loaded" — it is that they are
+    /// loaded *within a few per cent of each other*, which a tree cannot do
+    /// and which is the whole reason `load.rs`'s share division was ported.
+    #[test]
+    fn a_load_over_two_legs_divides_rather_than_picking_one() {
+        let mut cells: Vec<((i32, i32), u8)> = Vec::new();
+        for y in 92..100 {
+            cells.push(((46, y), 0));
+            cells.push(((54, y), 0));
+        }
+        for x in 46..55 {
+            cells.push(((x, 91), 1));
+        }
+        for x in 48..53 {
+            cells.push(((x, 90), 2));
+        }
+        let (w, organism) = stem_world(&cells);
+        let field = stress_field(&w, organism);
+        let left = field.get(&(46, 99)).copied().unwrap_or_default().carried;
+        let right = field.get(&(54, 99)).copied().unwrap_or_default().carried;
+        assert!(left > 0.0 && right > 0.0, "both legs must carry something: {left} and {right}");
+        let ratio = left.max(right) / left.min(right);
+        assert!(ratio < 1.25, "the legs must share the span, not one take it all: {left} against {right} (ratio {ratio:.2})");
+    }
+
+    /// Dividing each hand-off by the number of supports is what keeps the
+    /// total conserved — *"what leaves a cell is what it carries, however
+    /// many ways it splits."* If it were not conserved, the flood over a DAG
+    /// would count a subtree once per path, which is the trap the parent
+    /// version was originally written to avoid.
+    #[test]
+    fn the_share_division_conserves_the_plants_whole_mass() {
+        let mut cells: Vec<((i32, i32), u8)> = Vec::new();
+        for y in 92..100 {
+            cells.push(((46, y), 0));
+            cells.push(((54, y), 0));
+        }
+        for x in 46..55 {
+            cells.push(((x, 91), 1));
+        }
+        let (w, organism) = stem_world(&cells);
+        let field = stress_field(&w, organism);
+        let total: f32 = cells.iter().map(|&((x, y), _)| w.materials.density(w.get(x, y).material)).sum();
+        // Summed over the cells the load actually *leaves* through, not over
+        // `support == 0`: standing is free, so a whole upright stem reads
+        // distance 0 and summing those counts the trunk once per storey --
+        // measured, 134.5 against a true 22.5.
+        let at_anchors: f32 = field.values().filter(|s| s.grounded).map(|s| s.carried).sum();
+        assert!(
+            (at_anchors - total).abs() < total * 0.01,
+            "every gram has to arrive at an anchor exactly once: {at_anchors} reached them of {total}"
+        );
+    }
+
+    /// **A fork must not read as the widest section in the tree.** Two limbs
+    /// that happen to cross a row are not one thick beam, and reading them as
+    /// one makes the fork — where a limb actually tears out — the *strongest*
+    /// place in the plant. `stem_run`'s doc records the identical defect from
+    /// the pipe-model side: 23 cells across 9 runs read as one 23-wide stem.
+    ///
+    /// The fault is put back by the second half: with both limbs at the same
+    /// order the run does span them, so this is measuring the order test and
+    /// not the geometry.
+    #[test]
+    fn two_limbs_crossing_a_row_are_not_one_wide_stem() {
+        let mut cells: Vec<((i32, i32), u8)> = (90..100).map(|y| ((50, y), 0u8)).collect();
+        cells.extend((44..50).map(|x| ((x, 90), 1u8)));
+        cells.extend((51..57).map(|x| ((x, 90), 2u8)));
+        let (w, organism) = stem_world(&cells);
+        let split = section_across(&w, 47, 90, organism, (0.0, 1.0));
+        assert_eq!(split, 6, "the left limb is six cells of its own order and must read as six, not as the whole row");
+
+        // The trunk cell at (50, 90) has to join the run too, or it breaks
+        // it at x=50 whatever the limbs say and this arm measures nothing.
+        let mut merged: Vec<((i32, i32), u8)> = (91..100).map(|y| ((50, y), 0u8)).collect();
+        merged.extend((44..57).map(|x| ((x, 90), 1u8)));
+        let (w2, organism2) = stem_world(&merged);
+        let joined = section_across(&w2, 47, 90, organism2, (0.0, 1.0));
+        assert!(joined > split, "with one order throughout the run does span the row -- so this is testing the order, not the shape: {joined} against {split}");
     }
 
     /// **What a tree lets go of has to land somewhere an animal can find it.**
