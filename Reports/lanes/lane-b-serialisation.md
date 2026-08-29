@@ -145,8 +145,20 @@ argument — it is the 39-landing hotspot and I stayed out of it.
 
 ---
 
-**Head SHA:** `69af111` (`Merge main into the genome-serialisation lane`), with
-the work in its parent `71714a8`. Branch
-`claude/creature-genome-serialisation-lane-b`, based on `main` at `f96c08d`.
-If a later commit lands here, this line is the one to re-read — it is set in
-the last commit of the branch.
+**Where the work is.** Branch
+`claude/creature-genome-serialisation-lane-b`, pushed, based on `main` at
+`f96c08d`. **The branch name is the address** — a commit cannot contain its
+own SHA, so fetch the ref rather than trusting a number here:
+
+```
+git fetch origin claude/creature-genome-serialisation-lane-b
+git log --oneline origin/claude/creature-genome-serialisation-lane-b -4
+```
+
+At the time of writing the head is `c980111`, the merge of `main` is
+`69af111`, and **the whole of the work is the single commit `71714a8`** —
+that is the one to read, and the only one that is not a merge or a note
+update.
+
+PR body: `Reports/lanes/lane-b-pr-body.md` on this branch. Design record:
+`Reports/creature-export-design.md`.
