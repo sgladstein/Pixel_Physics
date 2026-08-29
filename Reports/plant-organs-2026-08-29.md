@@ -151,6 +151,36 @@ picture can be checked against:
 The two are opposite, which is the point: the erect habit is mostly in flower
 at any moment and the sprawling one mostly in fruit.
 
+### 6a. What it costs the frame
+
+**One hot-path change, and it is the fate lookup rather than anything organs
+do.** Organ cells are inert but for `Behavior::Ripen`, which runs on cells that
+exist only for the two new species, so no existing content pays anything at
+all. What every plant pays is the hoist: `fate_for` now runs above the resource
+and turgor gates, so a tip that fails one of them does a lookup it previously
+skipped. It is a `Vec` index plus a linear find over at most six cell-type
+entries and four rules, once per `Grow` evaluation per tip per organism tick —
+not per cell per frame.
+
+Measured anyway, paired and alternating, `filmstrip scene=grove species=tree
+plants=6` at frame 12,000, against the phase-3 head (`7478a79`) built in its own
+worktree:
+
+| | worst frame (ms) | living plant tissue |
+|---|---|---|
+| baseline | 46.67, 43.74, 46.98 | 14,800 |
+| this branch | 45.27, 47.73, 43.52 | 14,800 |
+
+**The tissue count is the positive control and it is the more interesting
+number**: identical to the cell in all six runs, which is what says the two
+binaries grow the same stand and therefore that the timing comparison is
+measuring cost rather than a different world. On the timing itself the arms
+interleave and the within-arm spread (43.5–47.7) swamps any difference, so the
+honest reading is *no cost detectable at this noise level*, not *no cost*. A
+worst frame is an order statistic over many similar frames here — `CLAUDE.md`'s
+`mean × frames ≈ worst` test does not pin it — so it is worth exactly that much
+and no more.
+
 ## 7. Four ways this went wrong, all caught by looking rather than by a number
 
 Recorded because each is a repeat of a failure `CLAUDE.md` already names, and
