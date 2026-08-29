@@ -3,7 +3,8 @@
 **Status: living index. Current as of 2026-08-26.**
 
 Every measurement in this repo comes out of an `examples/` binary, there are
-**31 of them**, and their names do not say what they can answer. This file
+**35 of them** (recounted 2026-08-29; the 31 this line carried was the
+2026-08-26 census), and their names do not say what they can answer. This file
 exists because instruments were being rebuilt: a lane needs a number, does not
 know a harness for it already exists, and writes a second one. The specific
 case that prompted this — W3's `divergence` — turned out to answer at least
@@ -87,6 +88,7 @@ Not an `examples/` binary — these read what an agent run already wrote down.
 | `ant_ablation` | Is the authored brain doing anything, or is it the substrate? | The control that separates a mechanism from its scaffolding |
 | `forage_probe` | Does the colony actually range, and how far? | |
 | `gnome_depth` | Does the gnome weave *through* a formation, or get sliced *by* it? | |
+| `species_export` | **Can this individual be kept?** Writes a genome + traits out as `assets/species/<name>.ron` and reads it back through the loader | Not a measurement — the dev-tool exit for E8. `genome=rNNN` takes the same labels `creature_space` ranks, so a good row in that sweep can be saved as a species. `verify=1` (default) is the round trip |
 
 ## The ones that generalise past what they were built for
 

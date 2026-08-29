@@ -93,6 +93,7 @@ fn authored_matches_the_species_file(world: &World) {
         &AUTHORED.iter().map(|&(i, o, w)| Instinct(i, o, w)).collect::<Vec<_>>(),
         &def.hidden_wiring,
         &def.hidden_outputs,
+        &def.recurrence,
     );
     assert_eq!(
         from_copy,
@@ -267,7 +268,7 @@ fn run_one(instincts: &[Instinct], frames: usize, seed: u64, rough: bool, world_
     // every arm, so an ablation cannot be confounded by the gate changing
     // underneath it.
     let def = world.species.get(species).creature.as_ref().expect("ant is a creature").clone();
-    let genome = pixel_physics::sim::brain::genome_from_wiring(instincts, &def.hidden_wiring, &def.hidden_outputs);
+    let genome = pixel_physics::sim::brain::genome_from_wiring(instincts, &def.hidden_wiring, &def.hidden_outputs, &def.recurrence);
     world.species.set_genome(species, genome);
 
     // Real generated terrain, when asked for: the hand-built profile below

@@ -37,7 +37,7 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::Path;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use super::cell::Cell;
 use super::material::MaterialKind;
@@ -62,7 +62,7 @@ const NEIGHBOURS_8: [(i32, i32); 8] = [(-1, -1), (0, -1), (1, -1), (-1, 0), (1, 
 /// species it's looking at. Explicit discriminants, matching `pack_aux`'s
 /// own bit layout directly rather than relying on declaration order — room
 /// for 11 more variants than are named yet.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Deserialize)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Deserialize, Serialize)]
 pub enum CellType {
     /// A dormant organism-owned cell waiting on `Germinate`'s field-reading
     /// check (light/moisture thresholds) to transition to `GrowingTip`/
@@ -165,7 +165,7 @@ pub enum CellType {
 /// enum) rather than a separate named struct wrapped in a newtype variant,
 /// matching `ActiveKind`'s own existing shape (e.g. `Moss { stale_ticks:
 /// u8 }`) and RON's more direct syntax for it.
-#[derive(Clone, Copy, Deserialize)]
+#[derive(Clone, Copy, Deserialize, Serialize)]
 pub enum Behavior {
     Divide {
         /// Resource spent from the dividing cell on a successful division.
@@ -840,15 +840,48 @@ pub const PALETTE_BAND: u8 = 4;
 /// drawn uniformly from the whole palette. That is what every species
 /// without a declared range gets (moss, and any asset set that predates
 /// this), so adding bands cost no existing species its look.
-#[derive(Clone, Copy, Deserialize, Default, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Deserialize, Serialize, Default, Debug, PartialEq, Eq)]
 pub struct PaletteBands {
     pub first: u8,
     pub count: u8,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 pub struct SpeciesDef {
     pub name: String,
+    /// **The brain scaffold this file's wiring was written against**, as
+    /// `brain::genome_manifest()` — present on a file an *export* wrote,
+    /// absent on one a human authored.
+    ///
+    /// Checked at load by `check_genome_manifest`, which fails loudly on a
+    /// mismatch rather than letting the file load as a fresh animal. That
+    /// asymmetry is the design and it is worth stating, because "why do
+    /// the shipped species not carry one" is the obvious question:
+    ///
+    /// - An **authored** file is a claim about *meanings*. It names
+    ///   `Crowding` and `Turn`, so a lawful append renumbers nothing it
+    ///   refers to, and an unlawful rename fails to parse. It needs no
+    ///   stamp, and giving it one would only add a literal that goes stale
+    ///   on every legitimate scaffold change.
+    /// - An **exported** file is a claim about one individual that existed
+    ///   under one scaffold. Most of it is still name-addressed and
+    ///   survives the same appends — but `hidden_wiring`, `hidden_outputs`
+    ///   and `recurrence` address hidden units by **index**, and a hidden
+    ///   unit has no name to be checked against. The manifest hashes
+    ///   `BRAIN_HIDDEN` and `HIDDEN_SLOTS` among its six dimensions, so a
+    ///   change on that axis turns a silent reinterpretation into a
+    ///   refusal to load.
+    ///
+    /// **Stated honestly: this is a provenance stamp with one load-bearing
+    /// axis, not a migration.** It cannot see a slot whose *meaning* was
+    /// redefined under an unchanged name, and it does not attempt a
+    /// conversion — there is nothing here that rewrites an old file into a
+    /// new scaffold. What it buys is that the day the reserve fills and
+    /// `brain.rs`'s own doc says "a real migration is needed", every
+    /// exported creature in `assets/species/` says so out loud instead of
+    /// loading as a subtly different animal.
+    #[serde(default)]
+    pub genome_manifest: Option<u32>,
     /// Which bands of `leaf`'s palette this species' foliage draws from.
     #[serde(default)]
     pub foliage_bands: PaletteBands,
@@ -949,7 +982,7 @@ pub struct SpeciesDef {
 /// badly — often no legal position at all — where a chain flows over
 /// anything. That cost is also what makes a wide predator unable to follow
 /// a one-cell-wide ant into its tunnel, with no "hiding" code anywhere.
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Deserialize, Serialize)]
 pub enum BodyPlan {
     /// `n` cells in a following chain, head first. 1 is the worm, 2-3 an
     /// ant. Owner open question #1 lives here: how many cells does a
@@ -1005,7 +1038,7 @@ impl BodyPlan {
 /// Separate from `cell_types` because these are properties of the
 /// *individual*, not of a cell type: a chain has one length however many
 /// cell types it uses, and one genome however many cells it has.
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Deserialize, Serialize)]
 pub struct CreatureDef {
     /// What this creature is made of, and how it moves.
     pub body: BodyPlan,
@@ -1158,6 +1191,40 @@ pub struct CreatureDef {
     pub hidden_wiring: Vec<super::brain::HiddenWire>,
     #[serde(default)]
     pub hidden_outputs: Vec<super::brain::OutputWire>,
+    /// Authored **self-recurrence** on the hidden units — the fourth
+    /// wiring list, and the one no species file could write until the
+    /// export needed it.
+    ///
+    /// Empty for every shipped species, which is exactly the behaviour
+    /// they already had: the recurrence block defaults to zero, so a
+    /// hidden unit reads none of its own previous activation. See
+    /// `brain::Recurrence` for why the gap mattered — `eval_brain` has
+    /// always read these four slots and `random_genome` has always filled
+    /// them, so an evolved brain can carry memory that a species file was
+    /// unable to describe.
+    #[serde(default)]
+    pub recurrence: Vec<super::brain::Recurrence>,
+}
+
+impl SpeciesDef {
+    /// Refuse a file whose stored genome manifest is not this build's.
+    ///
+    /// `Ok(())` when the field is absent — see `genome_manifest` for why an
+    /// authored file legitimately carries none.
+    pub fn check_genome_manifest(&self) -> Result<(), String> {
+        let Some(stamped) = self.genome_manifest else { return Ok(()) };
+        let current = super::brain::genome_manifest();
+        if stamped == current {
+            return Ok(());
+        }
+        Err(format!(
+            "species '{}' was exported against brain manifest {stamped}, this build is {current}. \
+             The brain scaffold has changed since this creature was saved, so its hidden-unit \
+             indices no longer mean what they meant when it was written. Re-export it from a \
+             build that can still load it, or migrate the file by hand.",
+            self.name
+        ))
+    }
 }
 
 fn default_shoot_material() -> String {
@@ -1212,6 +1279,16 @@ pub struct Species {
 }
 
 impl Species {
+    /// The cell-type table as the species file declared it — **for writing
+    /// a species back out**, and there is no other caller.
+    ///
+    /// Everything in the engine asks `behaviors()` about one cell type;
+    /// only `species_export` needs the whole list, because a file it writes
+    /// has to declare the same cell types the file it came from did.
+    pub fn cell_types(&self) -> &[(CellType, Vec<Behavior>)] {
+        &self.cell_types
+    }
+
     /// Behaviors registered for `cell_type`, or an empty slice if this
     /// species doesn't use it — not an error, since a species is free to
     /// only define the cell types it actually has (moss has exactly one).
@@ -1298,7 +1375,7 @@ impl Species {
 
 impl From<SpeciesDef> for Species {
     fn from(def: SpeciesDef) -> Self {
-        let genome = def.creature.as_ref().map(|c| super::brain::genome_from_wiring(&c.instincts, &c.hidden_wiring, &c.hidden_outputs)).unwrap_or_default();
+        let genome = def.creature.as_ref().map(|c| super::brain::genome_from_wiring(&c.instincts, &c.hidden_wiring, &c.hidden_outputs, &c.recurrence)).unwrap_or_default();
         Self {
             name: def.name,
             foliage_bands: def.foliage_bands,
@@ -2231,7 +2308,15 @@ impl SpeciesRegistry {
         let mut reg = Self::empty();
         for (i, source) in EMBEDDED.iter().enumerate() {
             match ron::from_str::<SpeciesDef>(source) {
-                Ok(def) => reg.upsert(def),
+                Ok(def) => {
+                    // An embedded species is compiled in, so a manifest
+                    // mismatch here is a build that shipped a creature it
+                    // cannot read -- a panic is the right loudness.
+                    if let Err(e) = def.check_genome_manifest() {
+                        panic!("embedded species {i}: {e}");
+                    }
+                    reg.upsert(def);
+                }
                 Err(e) => panic!("embedded species {i} is malformed: {e}"),
             }
         }
@@ -2255,10 +2340,9 @@ impl SpeciesRegistry {
         for path in &paths {
             let source = std::fs::read_to_string(path).map_err(SpeciesError::Io)?;
             let source = source.strip_prefix('\u{feff}').unwrap_or(&source);
-            let def = ron::from_str::<SpeciesDef>(source).map_err(|e| SpeciesError::Parse {
-                file: path.file_name().unwrap_or_default().to_string_lossy().into(),
-                error: e.to_string(),
-            })?;
+            let name = || -> String { path.file_name().unwrap_or_default().to_string_lossy().into() };
+            let def = ron::from_str::<SpeciesDef>(source).map_err(|e| SpeciesError::Parse { file: name(), error: e.to_string() })?;
+            def.check_genome_manifest().map_err(|error| SpeciesError::Parse { file: name(), error })?;
             defs.push(def);
         }
 
@@ -2406,7 +2490,7 @@ fn one_u8() -> u8 {
 /// selects — for a plagiotropic tier it is an *outward* weight, the name
 /// notwithstanding; renaming a field every genome salt table references
 /// was judged worse than one doc line here.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, serde::Deserialize)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, serde::Deserialize, serde::Serialize)]
 pub enum Tropism {
     Orthotropic,
     Plagiotropic,
@@ -2472,6 +2556,33 @@ impl<T: Copy> ByOrder<T> {
 impl<T: Copy + Default> Default for ByOrder<T> {
     fn default() -> Self {
         Self::uniform(T::default())
+    }
+}
+
+/// The mirror of the `Deserialize` below, and it writes the **full**
+/// `BRANCH_ORDERS` list rather than the shortest one that would pad back to
+/// the same values.
+///
+/// The short form is an *authoring* convenience — "and so on" — and
+/// re-deriving it on the way out is a compression pass that can only ever
+/// be wrong: `[0.05, 0.05, 0.05, 0.05]` and `[0.05]` load identically
+/// today, and would stop doing so the moment `BRANCH_ORDERS` grows, at
+/// which point every file written in the short form would silently gain a
+/// tier. A generated file states every tier it means.
+impl<T> Serialize for ByOrder<T>
+where
+    T: Serialize + Copy,
+{
+    fn serialize<S: serde::Serializer>(&self, ser: S) -> Result<S::Ok, S::Error> {
+        // **`as_slice()`, and it is load-bearing.** `self.values` is a
+        // `[T; BRANCH_ORDERS]`, and serde serializes a fixed-size array as
+        // a *tuple* -- which RON writes as `(0.03, 0.12, 0.2, 0.25)` while
+        // the `Deserialize` below reads a `Vec<T>` and demands a list. The
+        // whole plant half of the export produced files that would not
+        // parse, and nothing noticed, because `species_export` refuses a
+        // plant so this impl had no caller. A slice serializes as a
+        // sequence, which is the list the loader wants.
+        self.values.as_slice().serialize(ser)
     }
 }
 
