@@ -132,6 +132,17 @@ needs. I am one subsystem deep and may be over-weighting it.**
    open a second PR for `claude/frame-cost-bisect`: two PRs on one function
    would conflict, which is why they took the union. Biggest player-visible win
    of the day (~17 fps → ~45), and it is not ours to land.
+   **One loose end there**: commit `8c4b8d6` (two entries for
+   `Reports/instruments.md` — that `Renderer::draw` is in none of the
+   instruments, and the runtime-loaded vs `include_str!` asymmetry) is **not**
+   in #133. Verified, not assumed. PR #132 is retitled `SUPERSEDED by #133`
+   and carries it; the render session has been asked to cherry-pick. **If it
+   is dropped, re-add those two entries somewhere** — they are the part that
+   outlives the fix.
+   **Two owner cards are unanswered** on board `world-scale`:
+   `20260829T212042349Z-f536cc` and its correction
+   `20260829T222341766Z-a77a1c`, the second saying the sky is now free and the
+   choice is purely about the look.
 2. **Run §1's control.** Cheap, and it either unblocks the reproduction build
    or voids a report.
 3. **Then the reproduction build** if the control passes.
