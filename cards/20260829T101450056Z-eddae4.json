@@ -1,0 +1,60 @@
+{
+  "id": "20260829T101450056Z-eddae4",
+  "created": "2026-08-29T10:14:50Z",
+  "board": "felling",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/plant-mechanics-handoff-d4zo44",
+    "commit": "ddd4f6f",
+    "agent": null,
+    "session_id": "0b681d5e-ee2b-50cf-b73a-d5a1dfcfbc79",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "A felled tree, settled — does either one read as fallen wood?",
+  "question": "Which of these looks like a tree that fell over, rather than a heap of what used to be a tree?",
+  "context_md": "Same cut, same tree, same instant, noon pinned. One arm has a change in it and the other is the engine as it stands.\n\n**What I already know and am not asking about.** Before this change, a whole felled tree asked for **zero** quarter turns — nothing that broke off a tree had ever rotated, on any fall, so pieces landed in the pose they grew in. That is now fixed and the counters below say so. What I cannot judge is whether the settled pile *reads* better, and the numbers disagree with each other about it: counted per piece it is a clear improvement, counted over the pile it is not.\n\n**Please ignore** the colour (unchanged, deliberately), the amount of green (unchanged), and the fact that the crown still lets go as separate pieces rather than the trunk hinging on its stump — that is real, it is next, and it is not what this asks.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A",
+      "files": [
+        "20260829T101450056Z-eddae4/000-pane_off.png"
+      ],
+      "caption": "the engine as it stands",
+      "meta": {
+        "pieces that came to rest lying down": 28,
+        "pieces left standing on end": 31,
+        "times a piece turned as it fell": 0,
+        "times a piece went over where it landed": 0,
+        "biggest piece left, cells across x tall": "25 x 35",
+        "wood left as pieces rather than crumbs, in cells": 667
+      },
+      "focus": null
+    },
+    {
+      "label": "B",
+      "files": [
+        "20260829T101450056Z-eddae4/001-pane_on.png"
+      ],
+      "caption": "pieces turn as they fall, and go over where they land",
+      "meta": {
+        "pieces that came to rest lying down": 28,
+        "pieces left standing on end": 22,
+        "times a piece turned as it fell": 22,
+        "times a piece went over where it landed": 16,
+        "biggest piece left, cells across x tall": "40 x 28",
+        "wood left as pieces rather than crumbs, in cells": 651
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
