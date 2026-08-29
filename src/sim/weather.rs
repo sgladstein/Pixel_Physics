@@ -140,6 +140,18 @@ impl Weather {
 /// lightning. A preset that quietly sat under one of those bars would be an
 /// entry that appears to do nothing, which is the failure this file's own
 /// history is full of.
+///
+/// **Nine is the owner's number, not a guess.** The set was put to the review
+/// queue as an explicit question — *"is nine the right set, and is the gap
+/// between each and the next big enough to be worth a separate entry? Which
+/// would you cut, and what is missing?"*, card `20260829T003459380Z-1c9bdc`,
+/// answered **5/5 with nothing cut and nothing asked for** on 2026-08-29.
+/// The counters that card carried are the evidence each entry earns its
+/// place: BREEZE 23 gusts at 230 delivered against GALE's 23 at 486, RAIN 0
+/// bolts against STORM's 1, FROST 3,844 freezes on a clear sky, BLIZZARD
+/// 29,248, and CLEAR the control at zero — 600 frames each, at a pinned
+/// noon, on the shipped world. Adding or cutting one is a change to a judged
+/// set; re-post rather than re-reason.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum Pin {
     /// Not pinned — the seeded cycle, which is what a world does on its own.
