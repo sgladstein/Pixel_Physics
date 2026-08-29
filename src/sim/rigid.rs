@@ -565,6 +565,57 @@ impl Turn {
     }
 }
 
+/// The stump a severed crown is still swinging on.
+///
+/// # Why the pieces need to share one of these
+///
+/// **A felled tree came apart before it fell.** `fell_severed_tissue` runs
+/// the fragment ladder over the whole severed region at the *instant of the
+/// cut*, so on `scene=fell` **56 separate bodies exist before a cell has
+/// moved**, each falling on its own. The owner's verdict on the animation
+/// (card `20260829T141251798Z-6040b0`) named it exactly: *"because the whole
+/// thing just comes apart and falls directly downward, it looks unrealistic
+/// ... it should hinge at the trunk, hit the ground, and the bottom branches
+/// break off from the impact ... not just unzip and fall to the ground"*.
+///
+/// **The fragments are not the problem and are not being taken away** —
+/// they are what stopped a crown reading as sawdust, and `deadleaf.ron` and
+/// `fracture`'s own doc record what happens without them. What was missing
+/// is that they had no shared motion. So every fragment off one cut carries
+/// the same hinge, and while it does, its velocity is the rigid-body
+/// `omega x r` about that stump rather than its own ballistic fall. A piece
+/// forty cells up the trunk travels four times as fast as one ten cells up,
+/// which is what makes the assembly *sweep* instead of dropping, and what
+/// puts the base on the ground while the crown is still in the air.
+///
+/// # Gravity is replaced, not added
+///
+/// `alpha` is computed **from** gravity (`angular_acceleration`), so a
+/// hinged body that also took `GRAVITY` on its `vy` would be counting the
+/// same force twice and would sag out of its own arc. `advance` skips the
+/// gravity line while a hinge is held. The stump supplies the reaction; that
+/// is what a hinge *is*.
+///
+/// # It is released by the first thing it hits
+///
+/// A real tree stops being hinged when it lands, and so does this: `landed`
+/// clears it on the first vertical collision, and the piece keeps the
+/// velocity it had. That is where "the bottom branches break off from the
+/// impact" comes from — the low pieces arrive first, at low speed, and the
+/// crown is still swinging above them.
+#[derive(Clone, Copy, Debug)]
+struct Hinge {
+    /// The cut, in world cells — `load::Failure::at`.
+    pivot: (i32, i32),
+    /// Angular acceleration about it, radians per frame squared, signed.
+    /// One value shared by every fragment of one severance, which is what
+    /// makes them one tree rather than fifty-six.
+    alpha: f32,
+    /// Angular velocity so far. Starts at zero, because a tree that has just
+    /// been cut is not yet moving.
+    omega: f32,
+}
+
 /// A coherent piece of broken structure, in flight.
 ///
 /// This is the pipeline's first *gameplay* wiring: `label_component` and
@@ -643,6 +694,9 @@ pub struct ChunkBody {
     topples: u8,
     /// The offset this body turns about. See `ChunkBody::centre_of`.
     pivot: (i32, i32),
+    /// The stump this piece is still swinging on, while it still is. See
+    /// `Hinge`.
+    hinge: Option<Hinge>,
     stalled: u8,
     /// Fastest this body has ever travelled, in cells per frame.
     ///
@@ -682,7 +736,7 @@ impl ChunkBody {
     #[cfg(test)]
     pub fn at(cells: Vec<BodyCell>, x: f32, y: f32) -> Self {
         let pivot = Self::centre_of(&cells);
-        Self { cells, x, y, vx: 0.0, vy: 0.0, spin: 0.0, spin_rate: 0.0, spin_accel: 0.0, topples: 0, pivot, stalled: 0, peak_speed: 0.0, reserved: false }
+        Self { cells, x, y, vx: 0.0, vy: 0.0, spin: 0.0, spin_rate: 0.0, spin_accel: 0.0, topples: 0, pivot, hinge: None, stalled: 0, peak_speed: 0.0, reserved: false }
     }
 
     /// The same, already falling. Test-only for the same reason.
@@ -883,7 +937,7 @@ fn fracture(world: &mut World, region: &[(i32, i32)], broke_at: (i32, i32)) {
         .iter()
         .fold((i32::MAX, i32::MIN, i32::MAX, i32::MIN), |(x0, x1, y0, y1), &(x, y)| (x0.min(x), x1.max(x), y0.min(y), y1.max(y)));
     let extent = ((half.1 - half.0) / 2).max((half.3 - half.2) / 2);
-    fracture_with_impulse(world, region, None, size_bias(extent), Some(broke_at), false);
+    fracture_with_impulse(world, region, None, size_bias(extent), Some(broke_at), false, None);
 }
 
 /// As `fracture`, but every fragment is thrown away from `origin` at
@@ -897,6 +951,7 @@ fn fracture_with_impulse(
     size_bias: u32,
     broke_at: Option<(i32, i32)>,
     tissue: bool,
+    hinge: Option<Hinge>,
 ) -> (usize, usize) {
     // Every destructive event owes feedback (`Reports/design-philosophy.md`
     // §0a), and a collapse is one. `break_free` has always written this for
@@ -1009,7 +1064,7 @@ fn fracture_with_impulse(
         // fed from `record` and measures the failing *region*, not the
         // fragment, so it is a different quantity and both are kept.
         if fragment.len() >= MIN_BODY_CELLS {
-            promote(world, &fragment, impulse, broke_at);
+            promote(world, &fragment, impulse, broke_at, hinge);
             promoted_cells += fragment.len();
         } else {
             for &(fx, fy) in &fragment {
@@ -1105,6 +1160,45 @@ fn fracture_with_impulse(
 /// -- written twice in `CLAUDE.md` and recorded three times in
 /// `dead-ends.md`, and it is exactly the failure this function exists to
 /// undo.
+/// Where the severed piece was **standing**, which is what it swings about.
+///
+/// **Not `broke_at`, and the difference is the whole mechanism.**
+/// `load::Failure::at` is the one cell the support check happened to
+/// evaluate, and for a whole crown that is an arbitrary point on it.
+/// Measured on `scene=fell`: the region spans x 201..320, `broke_at` is
+/// `(201, 170)` — its far *left* edge, halfway up — and the region's centre
+/// of mass sits 58.5 cells to the right of it and 2.0 cells below. `r` is
+/// therefore very nearly horizontal, so `omega x r` points almost straight
+/// **down**, and a hinge built on it is indistinguishable from dropping. The
+/// arithmetic was right and the pivot was not.
+///
+/// The cut face is the region's own **lowest row**, at that row's horizontal
+/// centre of mass: for a felled tree that is the stump's cross-section, and
+/// `r` then points up the trunk, so the swing is horizontal — a fall.
+///
+/// **What it gives up**, named rather than discovered later: a limb that
+/// breaks off *sideways* has its lowest row at its own drooping tip rather
+/// than at the shoulder it tore from, so it swings about the wrong end.
+/// `broke_at` is the better answer for that case and the worse one for this,
+/// and telling them apart wants the attachment face — the region cells still
+/// touching standing tissue — which is a bigger change than this. The scene
+/// the owner is judging is a felled trunk.
+fn cut_face(world: &World, region: &[(i32, i32)], broke_at: (i32, i32)) -> (i32, i32) {
+    let Some(&lowest) = region.iter().map(|(_, y)| y).max() else {
+        return broke_at;
+    };
+    let (mut mass, mut moment) = (0.0f64, 0.0f64);
+    for &(x, y) in region.iter().filter(|&&(_, y)| y == lowest) {
+        let m = world.materials.density(world.get(x, y).material) as f64;
+        mass += m;
+        moment += m * x as f64;
+    }
+    if mass <= 0.0 {
+        return broke_at;
+    }
+    ((moment / mass).round() as i32, lowest)
+}
+
 pub(crate) fn fell_severed_tissue(world: &mut World, region: &[(i32, i32)], broke_at: (i32, i32)) -> (u32, u32) {
     if region.is_empty() {
         return (0, 0);
@@ -1142,7 +1236,46 @@ pub(crate) fn fell_severed_tissue(world: &mut World, region: &[(i32, i32)], brok
             .fold((i32::MAX, i32::MIN, i32::MAX, i32::MIN), |(x0, x1, y0, y1), &(x, y)| (x0.min(x), x1.max(x), y0.min(y), y1.max(y)));
         ((half.1 - half.0) / 2).max((half.3 - half.2) / 2)
     };
-    let (promoted, grit) = fracture_with_impulse(world, region, None, size_bias(extent), Some(broke_at), true);
+    // **One hinge for the whole severance, computed before anything is
+    // lifted**, and this is what makes the fragments a falling tree rather
+    // than fifty-six independent drops. `angular_acceleration` over the
+    // *entire* severed region about the cut is the tree's own — the same
+    // arithmetic a single fragment gets, asked of the thing that is actually
+    // pivoting. See `Hinge` for why they must share it and why gravity is
+    // then replaced rather than added.
+    //
+    // Read here rather than inside `fracture_with_impulse` because the
+    // ladder empties the grid as it goes: by the second fragment the cells
+    // the sum needs are gone.
+    let stump = cut_face(world, region, broke_at);
+    let alpha = angular_acceleration(world, region, stump);
+    // **`HINGE_PROBE=1` prints the hinge's own arithmetic**, which is the
+    // only way to tell a hinge that is working from one that is pivoting
+    // about the wrong point -- the two are indistinguishable on a contact
+    // sheet, and that cost a render and a wrong reading here. Read `r` : if
+    // the centre of mass is level with the pivot rather than above it, the
+    // swing is a fall whatever `alpha` says.
+    if std::env::var("HINGE_PROBE").is_ok() {
+        let (mut mass, mut torque, mut inertia, mut lift) = (0.0f64, 0.0f64, 0.0f64, 0.0f64);
+        for &(cx, cy) in region {
+            let m = world.materials.density(world.get(cx, cy).material) as f64;
+            let (dx, dy) = ((cx - stump.0) as f64, (cy - stump.1) as f64);
+            mass += m;
+            torque += m * dx;
+            inertia += m * (dx * dx + dy * dy);
+            lift += m * dy;
+        }
+        let mass = mass.max(1.0);
+        println!(
+            "  HINGE: {} cells, mass {mass:.0}, stump {stump:?} (broke_at {broke_at:?}), \
+             centre of mass r = ({:.1}, {:.1}), sum(m*r2) {inertia:.0}, alpha {alpha:.3e} rad/f2",
+            region.len(),
+            torque / mass,
+            lift / mass,
+        );
+    }
+    let hinge = (alpha != 0.0).then_some(Hinge { pivot: stump, alpha, omega: 0.0 });
+    let (promoted, grit) = fracture_with_impulse(world, region, None, size_bias(extent), Some(broke_at), true, hinge);
     ((promoted + grit) as u32, promoted as u32)
 }
 
@@ -1284,11 +1417,11 @@ fn angular_acceleration(world: &World, cells: &[(i32, i32)], broke_at: (i32, i32
         // lever, so there is no turn -- and no division either.
         return 0.0;
     }
-    (GRAVITY as f64 * torque / inertia) as f32 / QUARTER_TURN
+    (GRAVITY as f64 * torque / inertia) as f32
 }
 
 /// Lift `cells` out of the grid as one coherent falling body.
-fn promote(world: &mut World, cells: &[(i32, i32)], impulse: Option<((f32, f32), f32)>, broke_at: Option<(i32, i32)>) {
+fn promote(world: &mut World, cells: &[(i32, i32)], impulse: Option<((f32, f32), f32)>, broke_at: Option<(i32, i32)>, hinge: Option<Hinge>) {
     let (ox, oy) = cells[0];
     let body_cells: Vec<BodyCell> = cells
         .iter()
@@ -1311,9 +1444,13 @@ fn promote(world: &mut World, cells: &[(i32, i32)], impulse: Option<((f32, f32),
     // origin -- so this arm is the shape of the argument rather than a live
     // case, and it is the door a genuinely origin-less event would come in
     // through.
-    let spin_accel = broke_at
-        .filter(|_| fall_enabled() && is_tissue(&body_cells))
-        .map_or(0.0, |at| angular_acceleration(world, cells, at));
+    // Read once: the struct literal below moves `body_cells`, and both the
+    // spin seed and the hinge are gated on the same question.
+    let falls = fall_enabled() && is_tissue(&body_cells);
+    // Divided into quarter turns here, because `spin` is the only thing in
+    // the engine that counts them -- `angular_acceleration` is radians, and
+    // so is `Hinge::alpha`, which takes it unconverted.
+    let spin_accel = broke_at.filter(|_| falls).map_or(0.0, |at| angular_acceleration(world, cells, at) / QUARTER_TURN);
     let heading = Turn::of(spin_accel);
     for &(cx, cy) in cells {
         world.set(cx, cy, Cell::EMPTY);
@@ -1371,6 +1508,10 @@ fn promote(world: &mut World, cells: &[(i32, i32)], impulse: Option<((f32, f32),
         spin_rate: 0.0,
         spin_accel,
         topples: 0,
+        // **Every fragment of one severance carries the same hinge**, which
+        // is the whole of what makes them one falling tree rather than
+        // fifty-six independent drops. See `Hinge`.
+        hinge: hinge.filter(|_| falls),
         stalled: 0,
         peak_speed: 0.0,
         reserved: false,
@@ -1943,7 +2084,7 @@ pub fn strike(world: &mut World, cx: i32, cy: i32, radius: i32, force: f32) {
     // and then threw nothing at all -- the larger the swing, the less
     // happened, which is exactly backwards.
     if loosened.len() >= MIN_FRACTURE_CELLS {
-        fracture_with_impulse(world, &loosened, Some(((cx as f32, cy as f32), force)), size_bias(radius), Some((cx, cy)), false);
+        fracture_with_impulse(world, &loosened, Some(((cx as f32, cy as f32), force)), size_bias(radius), Some((cx, cy)), false, None);
     }
     // Every destructive event owes feedback (`Reports/design-philosophy.md`
     // §0a). A blow shoves the air as well as the rock, which is what makes
@@ -1979,7 +2120,7 @@ pub fn strike(world: &mut World, cx: i32, cy: i32, radius: i32, force: f32) {
 pub fn fracture_shell(world: &mut World, origin: (i32, i32), inner: i32, outer: i32, force: f32, size_bias: u32, confinement: super::explosion::Confinement) {
     let loosened = loosen_shell(world, origin, inner, outer, confinement, ShellSectors::Open);
     if loosened.len() >= MIN_FRACTURE_CELLS {
-        fracture_with_impulse(world, &loosened, Some(((origin.0 as f32, origin.1 as f32), force)), size_bias, Some(origin), false);
+        fracture_with_impulse(world, &loosened, Some(((origin.0 as f32, origin.1 as f32), force)), size_bias, Some(origin), false, None);
     }
 }
 
@@ -2032,7 +2173,7 @@ pub fn calve_collar(
         // with almost no rim to give eat a little of it anyway, every time.
         return 0;
     }
-    fracture_with_impulse(world, &loosened, Some(((origin.0 as f32, origin.1 as f32), force)), size_bias, Some(origin), false);
+    fracture_with_impulse(world, &loosened, Some(((origin.0 as f32, origin.1 as f32), force)), size_bias, Some(origin), false, None);
     loosened.len() as u32
 }
 
@@ -2140,7 +2281,12 @@ pub fn step_chunk_bodies(world: &mut World) {
 /// Returns whether the body is still in flight; `false` means it has come
 /// to rest and should be re-rasterized.
 fn advance(world: &mut World, body: &mut ChunkBody) -> bool {
-    body.vy += GRAVITY;
+    // **Swinging on the stump, or falling.** Never both: `alpha` is computed
+    // from gravity, so a hinged body that also took `GRAVITY` here would
+    // count the same force twice and sag out of its own arc. See `Hinge`.
+    if !swing_on_hinge(body) {
+        body.vy += GRAVITY;
+    }
 
     // Tip while falling. Two terms, and they answer different questions.
     //
@@ -2293,6 +2439,31 @@ fn advance(world: &mut World, body: &mut ChunkBody) -> bool {
     topple(world, body)
 }
 
+/// Advance the body's swing about its stump by one frame, returning whether
+/// it is on one at all.
+///
+/// The velocity is **set**, not accumulated: a point on a rigid body turning
+/// about a fixed pivot has `v = omega x r` exactly, and integrating an
+/// acceleration towards that instead lets the pieces drift off the arc and
+/// out of formation, which is the unzip this exists to remove.
+///
+/// `r` is measured from the pivot to the body's own centre, once per frame.
+/// Screen `y` points down, so the clockwise tangent at `r` is `(-r.y, r.x)` —
+/// the same handedness as `Turn::Cw`, and it has to be, or a crown would
+/// lean one way and its pieces spin the other.
+fn swing_on_hinge(body: &mut ChunkBody) -> bool {
+    let Some(hinge) = body.hinge.as_mut() else {
+        return false;
+    };
+    hinge.omega += hinge.alpha;
+    let (px, py) = (hinge.pivot.0 as f32, hinge.pivot.1 as f32);
+    let (cx, cy) = (body.x + body.pivot.0 as f32, body.y + body.pivot.1 as f32);
+    let (rx, ry) = (cx - px, cy - py);
+    body.vx = -hinge.omega * ry;
+    body.vy = hinge.omega * rx;
+    true
+}
+
 /// **The hinge does not survive the landing**, and a collision takes the turn
 /// off a piece the same way it takes the speed off it.
 ///
@@ -2320,6 +2491,10 @@ fn advance(world: &mut World, body: &mut ChunkBody) -> bool {
 fn landed(body: &mut ChunkBody) {
     body.spin_rate *= COLLISION_RETENTION;
     body.spin_accel = 0.0;
+    // **And the stump lets go.** The piece keeps whatever velocity the swing
+    // gave it and is ballistic from here, which is what makes the low
+    // fragments arrive first and stop while the crown is still coming over.
+    body.hinge = None;
 }
 
 /// Turn the body, taking its footprint reservation with it if it holds one.
@@ -5365,7 +5540,7 @@ mod tests {
         w.begin_step();
         w.take_touched_chunks();
         let before = w.active_site_count();
-        promote(&mut w, &piece, None, None);
+        promote(&mut w, &piece, None, None, None);
         assert_eq!(
             w.active_site_count(),
             before,
@@ -5380,7 +5555,7 @@ mod tests {
         }
         inert.begin_step();
         let before = inert.active_site_count();
-        promote(&mut inert, &slab, None, None);
+        promote(&mut inert, &slab, None, None, None);
         assert!(
             inert.active_site_count() > before,
             "rock that lost what was resting on it must still be re-asked -- the decline is about tissue, not about promotion"
@@ -5672,6 +5847,107 @@ mod tests {
         );
     }
 
+
+    /// **The stump, not the cell that happened to fail.**
+    ///
+    /// `load::Failure::at` is one arbitrary cell of a severed region, and on
+    /// `scene=fell` it is the crown's far *left* edge — 58 cells from the
+    /// trunk. A hinge built on it has an almost horizontal `r`, so `omega x
+    /// r` points straight down and the swing is indistinguishable from
+    /// dropping. This pins the thing that fixed it.
+    #[test]
+    fn the_cut_face_is_the_stump_rather_than_the_cell_that_failed() {
+        let mut w = test_world();
+        // A crown 20 wide sitting on a 4-wide stump, and a `broke_at` off at
+        // the crown's left edge -- the shape the real scene produced.
+        let mut region: Vec<(i32, i32)> = Vec::new();
+        for y in 10..20 {
+            for x in 10..30 {
+                region.push((x, y));
+            }
+        }
+        // Odd width, so the stump's centre is a whole cell and this test
+        // does not quietly depend on which way `round` breaks a half.
+        for y in 20..24 {
+            for x in 18..21 {
+                region.push((x, y));
+            }
+        }
+        for &(x, y) in &region {
+            w.set(x, y, Cell::new(material::STONE, 0));
+        }
+        let broke_at = (10, 12);
+        let stump = cut_face(&w, &region, broke_at);
+        assert_eq!(stump, (19, 23), "the hinge must sit on the bottom of the stump, not at {broke_at:?}");
+
+        // ...and the difference is not cosmetic: about the stump the centre
+        // of mass is overhead, about `broke_at` it is off to one side.
+        let mass_centre_x = region.iter().map(|c| c.0).sum::<i32>() as f32 / region.len() as f32;
+        let mass_centre_y = region.iter().map(|c| c.1).sum::<i32>() as f32 / region.len() as f32;
+        let (up_dx, up_dy) = (mass_centre_x - stump.0 as f32, mass_centre_y - stump.1 as f32);
+        let (side_dx, side_dy) = (mass_centre_x - broke_at.0 as f32, mass_centre_y - broke_at.1 as f32);
+        assert!(up_dy.abs() > up_dx.abs(), "about the stump the mass must be overhead: ({up_dx:.1}, {up_dy:.1})");
+        assert!(side_dx.abs() > side_dy.abs(), "about the failing cell it is off to the side: ({side_dx:.1}, {side_dy:.1})");
+    }
+
+    /// **The whole mechanism, as a ratio.** A piece high on the trunk travels
+    /// several times faster than one near the base, and that is what makes
+    /// the assembly sweep rather than drop: it is one rigid tree expressed
+    /// through fifty-odd independent bodies.
+    ///
+    /// The fault put back is the third assertion — with no hinge the same
+    /// body's velocity is untouched here and it simply falls.
+    #[test]
+    fn a_hinged_piece_sweeps_and_one_at_the_stump_barely_moves() {
+        let block = |ox: i32, oy: i32| {
+            let cells: Vec<BodyCell> = (0..3)
+                .flat_map(|dy| (0..3).map(move |dx| BodyCell { dx, dy, material: material::STONE, shade: 0, organism_id: 1 }))
+                .collect();
+            let mut b = ChunkBody::at(cells, ox as f32, oy as f32);
+            b.hinge = Some(Hinge { pivot: (30, 40), alpha: 0.01, omega: 0.0 });
+            b
+        };
+
+        // High up the trunk: 19 cells above the stump.
+        let mut high = block(30, 20);
+        assert!(swing_on_hinge(&mut high));
+        assert!(high.vx.abs() > 10.0 * high.vy.abs(), "a piece up the trunk must swing sideways, not fall: ({}, {})", high.vx, high.vy);
+
+        // Down at the stump: 1 cell above it.
+        let mut low = block(30, 38);
+        assert!(swing_on_hinge(&mut low));
+        assert!(
+            high.vx.abs() > 8.0 * low.vx.abs(),
+            "the top must outrun the base -- that ratio is the sweep: {} against {}",
+            high.vx,
+            low.vx
+        );
+
+        // And with the stump gone it is an ordinary falling body: `advance`
+        // gives it gravity and this gives it nothing.
+        let mut free = block(30, 20);
+        free.hinge = None;
+        let (vx, vy) = (free.vx, free.vy);
+        assert!(!swing_on_hinge(&mut free), "a body with no hinge is not on one");
+        assert_eq!((free.vx, free.vy), (vx, vy), "and its velocity must be left entirely alone");
+    }
+
+    /// The stump lets go the moment the piece hits something, which is where
+    /// "the bottom branches break off from the impact" comes from: the low
+    /// pieces arrive first and stop, while the crown is still coming over.
+    #[test]
+    fn the_stump_lets_go_on_impact() {
+        let cells: Vec<BodyCell> =
+            (0..4).map(|dx| BodyCell { dx, dy: 0, material: material::STONE, shade: 0, organism_id: 1 }).collect();
+        let mut body = ChunkBody::at(cells, 30.0, 20.0);
+        body.hinge = Some(Hinge { pivot: (30, 40), alpha: 0.01, omega: 0.5 });
+        body.spin_accel = 0.02;
+        assert!(body.hinge.is_some(), "test setup");
+        landed(&mut body);
+        assert!(body.hinge.is_none(), "a landing must release the stump, or the piece keeps being driven along the arc");
+        assert_eq!(body.spin_accel, 0.0, "and the break's own wind-up goes with it");
+    }
+
     /// **The positive control for the fall, run against the closed form.**
     ///
     /// A uniform limb of `L` cells breaking at one end is the one case
@@ -5695,7 +5971,7 @@ mod tests {
             for &(x, y) in &cells {
                 w.set(x, y, Cell::new(material::STONE, 0));
             }
-            let radians = angular_acceleration(&w, &cells, (10, 20)) * QUARTER_TURN;
+            let radians = angular_acceleration(&w, &cells, (10, 20));
             let closed_form = 3.0 * GRAVITY / (2.0 * l as f32 + 1.0);
             assert!((radians - closed_form).abs() < 1e-6, "L={l}: {radians} rad/frame^2 against the closed form {closed_form}");
             assert!(radians < 3.0 * GRAVITY / (2.0 * l as f32), "L={l}: should converge on 3g/2L from below");
