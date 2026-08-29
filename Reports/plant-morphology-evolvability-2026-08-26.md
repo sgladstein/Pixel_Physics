@@ -301,12 +301,24 @@ cheaply.
    morphology** is **not measured here and is not claimed either way** — if
    every morphology survives equally, the walk is a random walk wearing an
    evolutionary label.
-4. **A confound already on the record.** §7d: `Chunk::rng` is seeded from
-   chunk coordinates, so the same genome planted in two places draws a
-   different sequence — position becomes a hidden inherited variable, *"which
-   is exactly the kind of thing that produces a spurious evolutionary
-   result."* A per-organism stream keeps determinism and removes it. Land it
-   **before** any radiation run, not after.
+4. **A confound already on the record — ~~`Chunk::rng`~~ CORRECTED
+   2026-08-28.** This gate read: *"§7d: `Chunk::rng` is seeded from chunk
+   coordinates, so the same genome planted in two places draws a different
+   sequence… A per-organism stream keeps determinism and removes it. Land it
+   before any radiation run."*
+
+   **Plants never touch `Chunk::rng`** (it is reached only by the CA sweep via
+   `CellSurface::rng()`), and **the per-organism stream already shipped** —
+   `rng::stream(organism_id, x, y, frame)` at `plant.rs:1388`.
+   `src/sim/rng.rs:105-117` says so in source and names the two research
+   reports that got it wrong. **There is nothing to land here.**
+
+   What survives is narrower and `plant-evolution-design.md` §1c has it right:
+   inherited genomes short-circuit the positional draw, so the confound
+   **binds founders only** — a favourable cell re-sown repeatedly draws the
+   same founding genotype. The gate on that is the founder-versus-descendant
+   fraction, not a re-keying. Full correction in
+   `plant-evolvability-facts-2026-08-27.md` §6.
 
 **The judging half is already built.** `divergence` is axis-agnostic —
 *"adding an axis is one arm on `Axis` and nothing else"* — and

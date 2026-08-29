@@ -7,8 +7,10 @@
 
 use std::collections::HashSet;
 
+use rayon::prelude::*;
+
 use crate::sim::cell::{Cell, AMBIENT_TEMPERATURE};
-use crate::sim::chunk::{ChunkCoord, Rect, CHUNK_SIZE};
+use crate::sim::chunk::{Chunk, ChunkCoord, Rect, CHUNK_SIZE};
 use crate::sim::material;
 use crate::sim::organism;
 use crate::sim::particle::ParticleSystem;
@@ -1007,6 +1009,12 @@ const CELL_TYPE_DORMANT_BUD: [f32; 3] = [80.0, 255.0, 255.0];
 /// available that is also unlike every plant colour above.
 const CELL_TYPE_HEAD: [f32; 3] = [255.0, 255.0, 255.0];
 const CELL_TYPE_SEGMENT: [f32; 3] = [130.0, 130.0, 140.0];
+/// The two organ types, on the `CellType` debug overlay. Far apart from each
+/// other and from every colour above, because the question this overlay is
+/// asked about organs is *did the axis terminate where I think it did* --
+/// which is a matter of telling a flower from the bud beside it at a glance.
+const CELL_TYPE_FLOWER: [f32; 3] = [255.0, 240.0, 60.0];
+const CELL_TYPE_FRUIT: [f32; 3] = [255.0, 60.0, 90.0];
 
 /// Flat blend for `OrganismOverlay::CellType`. High, but short of 1.0 on
 /// purpose: keeping a little of the underlying material colour through
@@ -2480,14 +2488,55 @@ impl Renderer {
                 .map(|r| (r, p.facing_left, p.action > 0))
         });
 
+        // **The per-pixel pass was the last large cost in the frame still
+        // running on one core.** `parallel.rs` has had the CA sweep on
+        // `rayon` since M5 and this loop never followed, which did not show
+        // while the viewport was small enough for a serial pass to fit.
+        // Measured on a 4-core box at the shipped 8192x2560 world: a forced
+        // full redraw of 512x320 costs **21.2 ms**, against the whole
+        // simulation's 6.3 ms mean -- and it runs on ~100% of frames while
+        // the gnome walks, because a camera move invalidates every pixel
+        // (see the `camera_moved` note above). The render was three times
+        // the simulation and nobody was looking at it, because
+        // `scale_probe phases=1` times `App::update` and `draw` is not in
+        // it.
+        //
+        // **Rows, not pixels.** A scanline is `4 * width` contiguous bytes,
+        // so a worker writes whole cache lines and consecutive `cell_colour`
+        // calls walk along one chunk row -- which is also what makes the
+        // chunk hoist below worth having. Splitting per pixel would hand
+        // rayon 655,360 items of four bytes each and spend more on the
+        // split than on the work.
+        //
+        // **Bit-identical to the serial version by construction, not by
+        // inspection**: `cell_colour` and everything it reaches
+        // (`background_at`, `apply_field_overlay`, `apply_bubbles`,
+        // `apply_organism_overlay`, `under_sky`, `screen_to_world`,
+        // `sub_cell`) take `&self` and `&World`, the grain is keyed on world
+        // position rather than on carried RNG state (`rng::jitter(x, y)`),
+        // and each row owns a disjoint slice of `frame`. So determinism --
+        // required here, per `PLAN.md` -- is unaffected, and
+        // `a_parallel_redraw_is_bit_identical_to_a_serial_one` is the guard
+        // that says so rather than this comment.
+        let row_bytes = width as usize * 4;
+        // The serial version walked the whole of `frame` and derived `sy`
+        // from the pixel index, so a buffer longer than the viewport would
+        // have had rows painted past `height`. Clamping to both is the same
+        // answer for the exactly-sized buffer every caller passes, and a
+        // defined one for anything else.
+        let painted = (row_bytes * height as usize).min(frame.len());
         let recomputed = if full {
-            for (i, pixel) in frame.chunks_exact_mut(4).enumerate() {
-                let sx = (i % width as usize) as i32;
-                let sy = (i / width as usize) as i32;
-                let (wx, wy) = self.screen_to_world(sx, sy);
-                let colour = self.cell_colour(world, wx, wy, self.sub_cell(sx, sy));
-                pixel.copy_from_slice(&colour);
-            }
+            let this = &*self;
+            frame[..painted].par_chunks_mut(row_bytes).enumerate().for_each(|(row, pixels)| {
+                let sy = row as i32;
+                let mut held = ChunkRun::default();
+                for (sx, pixel) in pixels.chunks_exact_mut(4).enumerate() {
+                    let sx = sx as i32;
+                    let (wx, wy) = this.screen_to_world(sx, sy);
+                    let colour = held.colour(this, world, wx, wy, this.sub_cell(sx, sy));
+                    pixel.copy_from_slice(&colour);
+                }
+            });
             self.last_player_pose = player_pose;
             (width as usize) * (height as usize)
         } else {
@@ -2564,14 +2613,45 @@ impl Renderer {
             }
             let mut n = 0usize;
             if let Some(rect) = dirty {
-                for sy in rect.min_y..=rect.max_y {
-                    for sx in rect.min_x..=rect.max_x {
-                        let (wx, wy) = self.screen_to_world(sx, sy);
-                        let colour = self.cell_colour(world, wx, wy, self.sub_cell(sx, sy));
-                        put(frame, width, height, sx, sy, colour);
-                        n += 1;
-                    }
+                // Parallel over rows, exactly as the full path above, and
+                // for the same reason: "when something big breaks into lots
+                // of little pieces, the performance gets bad" was reported
+                // from play, and a collapse is precisely when the dirty
+                // region stops being small. Rows outside the viewport are
+                // dropped here rather than inside `put`, which is what the
+                // serial version relied on it for.
+                let this = &*self;
+                let y0 = rect.min_y.max(0) as usize;
+                let y1 = rect.max_y.min(height as i32 - 1);
+                if y1 >= rect.min_y.max(0) {
+                    let rows = (y1 as usize + 1).saturating_sub(y0);
+                    frame[..painted]
+                        .par_chunks_mut(row_bytes)
+                        .enumerate()
+                        .skip(y0)
+                        .take(rows)
+                        .for_each(|(row, pixels)| {
+                            let sy = row as i32;
+                            let mut held = ChunkRun::default();
+                            for sx in rect.min_x.max(0)..=rect.max_x.min(width as i32 - 1) {
+                                let (wx, wy) = this.screen_to_world(sx, sy);
+                                let colour = held.colour(this, world, wx, wy, this.sub_cell(sx, sy));
+                                let i = sx as usize * 4;
+                                if let Some(px) = pixels.get_mut(i..i + 4) {
+                                    px.copy_from_slice(&colour);
+                                }
+                            }
+                        });
                 }
+                // **The rect's whole area, including any part of it that
+                // fell outside the viewport.** The serial version counted
+                // every pixel it *attempted* -- `put` clipped, and `n += 1`
+                // ran regardless -- and `the_skip_recomputes_fewer_than_
+                // every_pixel` and its neighbours are written against that
+                // number, so it is preserved deliberately rather than
+                // tightened to what was painted.
+                n = ((rect.max_x - rect.min_x + 1).max(0) as usize)
+                    * ((rect.max_y - rect.min_y + 1).max(0) as usize);
             }
             n
         };
@@ -3686,12 +3766,44 @@ impl Renderer {
     /// function rather than splitting into a cell pass and a pixel pass: the
     /// heat glow, the grain and the sky light all cost more than the strip
     /// test that needs the offset.
-    fn cell_colour(&self, world: &World, x: i32, y: i32, sub: (i32, i32)) -> [u8; 4] {
+    /// [`Renderer::cell_colour`] doing its own read, for tests that ask
+    /// "what colour is this position" rather than painting a run of them.
+    ///
+    /// **Test-only, and that is not an oversight.** The shipped draw loop
+    /// never wants this form -- hoisting the chunk lookup out of the inner
+    /// loop is the whole point of `cell_colour` taking the cell -- so a
+    /// non-test wrapper would be dead code, which is what clippy said when
+    /// there was one.
+    #[cfg(test)]
+    fn cell_colour_at(&self, world: &World, x: i32, y: i32, sub: (i32, i32)) -> [u8; 4] {
         if !world.in_bounds(x, y) {
             return VOID;
         }
-        let cell = world.get(x, y);
-        let palette = &world.materials.get(cell.material).palette;
+        self.cell_colour(world, x, y, sub, world.get(x, y))
+    }
+
+    /// **Takes the cell rather than reading it**, so the draw loop can hoist
+    /// the chunk lookup out of the inner loop. `World::get` is a `HashMap<ChunkCoord, Chunk>` fetch,
+    /// so calling it per pixel is one SipHash per pixel for a coordinate
+    /// that changes chunk only every 64th of them; `examples/render_cost.rs`
+    /// measures the two read paths side by side and asserts they return the
+    /// same cells, at **11.8 ns/px through `World::get` against 2.7 ns/px
+    /// hoisted**. Same trick `build_sky_light` above already applies to its
+    /// block scan, and the same one `ChunkView` applies to the sweep.
+    ///
+    /// **Callers owe the bounds check**, which `ChunkRun::colour` makes --
+    /// there, because outside the world there is no chunk worth looking up
+    /// either, and because `World::get` answers `Cell::OUT_OF_BOUNDS` there,
+    /// which is not a colour this ever wants. Out of bounds draws `VOID`.
+    fn cell_colour(&self, world: &World, x: i32, y: i32, sub: (i32, i32), cell: Cell) -> [u8; 4] {
+        // **One `Materials::get` for the cell, not six.** The palette, the
+        // kind (three separate liquid tests), `water_capacity` and
+        // `fill_dimming` were each fetching it again -- a `Vec` index each
+        // time, but six touches of a struct that is not otherwise in cache
+        // on the pixel that just missed.
+        let mat = world.materials.get(cell.material);
+        let is_liquid = mat.kind == material::MaterialKind::Liquid;
+        let palette = &mat.palette;
         // Modulo keeps any shade value valid, so a palette can shrink on hot
         // reload in M3 without invalidating cells already in the world.
         let mut base = palette[cell.shade as usize % palette.len()];
@@ -3823,7 +3935,7 @@ impl Renderer {
         // this way, and the note above says the two should agree. It is also
         // strictly stronger for this path's own purpose: sand and gravel are
         // `Powder` with `water_capacity: 0`, and only `soil.ron` opts in.
-        let saturation = if world.materials.get(cell.material).water_capacity > 0 {
+        let saturation = if mat.water_capacity > 0 {
             crate::sim::update::soil_moisture(cell)
         } else {
             0
@@ -3887,14 +3999,14 @@ impl Renderer {
         // honest representation and needs no new per-pixel lookups. Clamped
         // at 1.0 so a compressed (over-full) cell doesn't draw *brighter*
         // than a full one -- depth should not glow.
-        if world.materials.kind(cell.material) == material::MaterialKind::Liquid {
+        if is_liquid {
             let fill = crate::sim::update::liquid_fill(cell) as f32 / material::LIQUID_FULL as f32;
             // Per-material now (`Material::fill_dimming`) rather than the
             // hardcoded floor this used, because how conspicuous a partial
             // cell should be is a look judgement -- and it is the one that
             // decides whether a settled waterline reads as a clean edge or a
             // mottled band. See that field's own doc for the measurements.
-            let dimming = world.materials.get(cell.material).fill_dimming.clamp(0.0, 1.0);
+            let dimming = mat.fill_dimming.clamp(0.0, 1.0);
             let strength = (1.0 - dimming) + dimming * fill.clamp(0.0, 1.0);
             for c in &mut rgb {
                 *c = (*c as f32 * strength).round() as u8;
@@ -3905,7 +4017,7 @@ impl Renderer {
         // the grain so the jitter textures the foam too, after the fill
         // dimming so a thin flying sheet is pale *and* faint rather than
         // opaque white.
-        if world.materials.kind(cell.material) == material::MaterialKind::Liquid && cell.flowing() {
+        if is_liquid && cell.flowing() {
             for (c, foam) in rgb.iter_mut().zip(FOAM_TINT) {
                 *c = (*c as f32 + (foam - *c as f32) * FOAM_BLEND).round() as u8;
             }
@@ -3922,7 +4034,6 @@ impl Renderer {
         // `GrainMode` only ever diverts the `Liquid` path — every other kind
         // keeps the position-keyed grain unconditionally, because for a
         // settled pile that is the correct answer and not a compromise.
-        let is_liquid = world.materials.kind(cell.material) == material::MaterialKind::Liquid;
         let (grain, strength) = match (is_liquid, self.grain) {
             (true, GrainMode::Cell) => (rng::jitter_u8(cell.shade), JITTER_STRENGTH),
             (true, GrainMode::Muted) => (rng::jitter(x, y), JITTER_STRENGTH / 3.0),
@@ -4248,6 +4359,8 @@ impl Renderer {
                     Some(organism::CellType::DormantBud) => CELL_TYPE_DORMANT_BUD,
                     Some(organism::CellType::Head) => CELL_TYPE_HEAD,
                     Some(organism::CellType::Segment) => CELL_TYPE_SEGMENT,
+                    Some(organism::CellType::Flower) => CELL_TYPE_FLOWER,
+                    Some(organism::CellType::Fruit) => CELL_TYPE_FRUIT,
                     None => [255.0, 0.0, 0.0],
                 };
                 (colour, CELL_TYPE_BLEND)
@@ -4654,6 +4767,58 @@ fn underground_from_scratch(world: &World, b: Rect) -> Vec<u64> {
         }
     }
     bits
+}
+
+/// The chunk that a run of pixels along one scanline shares, held across it.
+///
+/// `World::get` is a `HashMap<ChunkCoord, Chunk>` fetch -- one SipHash per
+/// call -- and a draw loop walking a scanline changes chunk only every
+/// `CHUNK_SIZE` pixels at 1:1 zoom. Holding the last answer turns that into
+/// one lookup per run of 64. Measured by `examples/render_cost.rs`, whose two
+/// read paths assert they return the same cells before it times them:
+/// **11.8 ns/px through `World::get` against 2.7 ns/px hoisted**, on a redraw
+/// where the reads are 9% of the whole.
+///
+/// **A miss is remembered as deliberately as a hit.** A non-resident chunk is
+/// in-bounds space that has not been materialised, which `World::get` reports
+/// as `Cell::EMPTY`; re-asking the map about it once per pixel is exactly the
+/// cost being removed, and the empty sky at the top of every world is where a
+/// run of misses is longest.
+///
+/// Correct at any zoom without knowing about zoom: consecutive pixels
+/// magnified onto one cell hit the same coord, and a minified stride that
+/// skips a chunk simply misses and re-fetches.
+#[derive(Default)]
+struct ChunkRun<'a> {
+    at: Option<ChunkCoord>,
+    chunk: Option<&'a Chunk>,
+}
+
+impl<'a> ChunkRun<'a> {
+    /// `Renderer::cell_colour` for one pixel, reusing this run's chunk.
+    ///
+    /// The bounds check is here rather than in `cell_colour_of` because it
+    /// also decides whether the lookup is worth making at all -- outside the
+    /// world there is no chunk to find.
+    fn colour(
+        &mut self,
+        renderer: &Renderer,
+        world: &'a World,
+        x: i32,
+        y: i32,
+        sub: (i32, i32),
+    ) -> [u8; 4] {
+        if !world.in_bounds(x, y) {
+            return VOID;
+        }
+        let coord = ChunkCoord::containing(x, y);
+        if self.at != Some(coord) {
+            self.at = Some(coord);
+            self.chunk = world.chunk(coord);
+        }
+        let cell = self.chunk.map_or(Cell::EMPTY, |c| c.get_world(x, y));
+        renderer.cell_colour(world, x, y, sub, cell)
+    }
 }
 
 pub(crate) fn put(frame: &mut [u8], width: u32, height: u32, x: i32, y: i32, colour: [u8; 4]) {
@@ -5098,7 +5263,7 @@ mod tests {
                     // strip, and this band is about the depth grade. Any
                     // fixed offset would do; the cell's own origin is the
                     // one that needs no explaining.
-                    let c = r.cell_colour(&world, x, y, (0, 0));
+                    let c = r.cell_colour_at(&world, x, y, (0, 0));
                     total += c[0] as i64 + c[1] as i64 + c[2] as i64;
                 }
             }
@@ -5285,16 +5450,16 @@ mod tests {
         r.rebuild_horizon(&world);
 
         r.terrain_light = TerrainLight::Depth;
-        let surface = brightness(r.cell_colour(&world, 10, 64, (0, 0)));
-        let shallow = brightness(r.cell_colour(&world, 10, 65, (0, 0)));
-        let deep = brightness(r.cell_colour(&world, 10, 64 + DEPTH_LIGHT_RAMP_ROWS, (0, 0)));
-        let water_depth = r.cell_colour(&world, 64, 60, (0, 0));
+        let surface = brightness(r.cell_colour_at(&world, 10, 64, (0, 0)));
+        let shallow = brightness(r.cell_colour_at(&world, 10, 65, (0, 0)));
+        let deep = brightness(r.cell_colour_at(&world, 10, 64 + DEPTH_LIGHT_RAMP_ROWS, (0, 0)));
+        let water_depth = r.cell_colour_at(&world, 64, 60, (0, 0));
 
         r.terrain_light = TerrainLight::Off;
-        let shallow_flat = brightness(r.cell_colour(&world, 10, 65, (0, 0)));
-        let deep_flat = brightness(r.cell_colour(&world, 10, 64 + DEPTH_LIGHT_RAMP_ROWS, (0, 0)));
-        let surface_flat = brightness(r.cell_colour(&world, 10, 64, (0, 0)));
-        let water_flat = r.cell_colour(&world, 64, 60, (0, 0));
+        let shallow_flat = brightness(r.cell_colour_at(&world, 10, 65, (0, 0)));
+        let deep_flat = brightness(r.cell_colour_at(&world, 10, 64 + DEPTH_LIGHT_RAMP_ROWS, (0, 0)));
+        let surface_flat = brightness(r.cell_colour_at(&world, 10, 64, (0, 0)));
+        let water_flat = r.cell_colour_at(&world, 64, 60, (0, 0));
 
         assert!(
             deep < shallow,
@@ -5325,8 +5490,8 @@ mod tests {
         // depth 1, stays bright. Grain differs by position, so the
         // comparison needs the ramp's spread (~2.4x at these depths), not
         // equality.
-        let notch_rock = brightness(r.cell_colour(&world, 112, 97, (0, 0)));
-        let valley_rock = brightness(r.cell_colour(&world, 160, 97, (0, 0)));
+        let notch_rock = brightness(r.cell_colour_at(&world, 112, 97, (0, 0)));
+        let valley_rock = brightness(r.cell_colour_at(&world, 160, 97, (0, 0)));
         assert!(
             notch_rock < valley_rock * 3 / 4,
             "rock beside a narrow notch floor must not light up as if at the surface ({notch_rock} vs valley {valley_rock})"
@@ -5395,9 +5560,9 @@ mod tests {
         r.sky = crate::sky::Sky::at(600, 0, 127, 0, 127); // mid-morning, so the sky is bright
 
         let brightness = |c: [u8; 4]| c[0] as i32 + c[1] as i32 + c[2] as i32;
-        let sky = brightness(r.cell_colour(&world, 64, 19, (0, 0)));
-        let just_under = brightness(r.cell_colour(&world, 64, 21, (0, 0)));
-        let deep = brightness(r.cell_colour(&world, 64, 21 + CAVE_FADE_DEPTH, (0, 0)));
+        let sky = brightness(r.cell_colour_at(&world, 64, 19, (0, 0)));
+        let just_under = brightness(r.cell_colour_at(&world, 64, 21, (0, 0)));
+        let deep = brightness(r.cell_colour_at(&world, 64, 21 + CAVE_FADE_DEPTH, (0, 0)));
         let dark = brightness(UNDERGROUND);
 
         assert!(
@@ -5443,11 +5608,11 @@ mod tests {
         // Deep enough that the cave fade is at its floor for both reads.
         let (x, y) = (32, 50);
         world.set(x, y, Cell::new(material::STONE, 3).with_aux(0));
-        let anchored = r.cell_colour(&world, x, y, (0, 0));
+        let anchored = r.cell_colour_at(&world, x, y, (0, 0));
         // 900 is a plausible standing distance in generated terrain, and
         // above `SOIL_SATURATED`'s own scale it would be a 41% darkening.
         world.set(x, y, Cell::new(material::STONE, 3).with_aux(900));
-        let far_from_an_anchor = r.cell_colour(&world, x, y, (0, 0));
+        let far_from_an_anchor = r.cell_colour_at(&world, x, y, (0, 0));
 
         assert_eq!(
             anchored, far_from_an_anchor,
@@ -5479,9 +5644,9 @@ mod tests {
         let (x, y) = (32, 50);
         let brightness = |c: [u8; 4]| c[0] as i32 + c[1] as i32 + c[2] as i32;
         world.set(x, y, Cell::new(soil, 3).with_aux(0));
-        let dry = brightness(r.cell_colour(&world, x, y, (0, 0)));
+        let dry = brightness(r.cell_colour_at(&world, x, y, (0, 0)));
         world.set(x, y, Cell::new(soil, 3).with_aux(900));
-        let wet = brightness(r.cell_colour(&world, x, y, (0, 0)));
+        let wet = brightness(r.cell_colour_at(&world, x, y, (0, 0)));
 
         assert!(
             wet < dry - dry / 8,
@@ -5786,7 +5951,7 @@ mod tests {
             (base[2] as i32 + (base[2] as i32 * jitter_permille) / 1000).clamp(0, 255) as u8,
             255,
         ];
-        assert_eq!(renderer.cell_colour(&world, 10, 10, (0, 0)), expected);
+        assert_eq!(renderer.cell_colour_at(&world, 10, 10, (0, 0)), expected);
     }
 
     /// **K4's degradation pin: at zoom 1 a crack draws exactly what it
@@ -5816,7 +5981,7 @@ mod tests {
         // would be measuring the grain, not the crack.
         let mut colour_of = |cell: Cell| {
             world.set(10, 10, cell);
-            r.cell_colour(&world, 10, 10, (0, 0))
+            r.cell_colour_at(&world, 10, 10, (0, 0))
         };
 
         let plain = colour_of(stone);
@@ -5865,7 +6030,7 @@ mod tests {
         // Same cell, same grain, three states -- see the 1:1 pin above.
         let mut cracked = |cell: Cell, sub: (i32, i32)| {
             world.set(10, 10, cell);
-            r.cell_colour(&world, 10, 10, sub)
+            r.cell_colour_at(&world, 10, 10, sub)
         };
         let plain = cracked(stone, (0, 0));
         let down = stone.with_crack_down(true);
@@ -5890,7 +6055,7 @@ mod tests {
         let strip = cracked(down, (0, 5));
         let mut flat = Renderer::new();
         flat.zoom = 1;
-        let whole = flat.cell_colour(&world, 10, 10, (0, 0));
+        let whole = flat.cell_colour_at(&world, 10, 10, (0, 0));
         assert!(strip[0] < whole[0], "the strip should darken harder than the whole-cell version it replaces");
     }
 
@@ -5908,7 +6073,7 @@ mod tests {
         world.set(50, 50, Cell::new(material::STONE, 0));
         world.add_pressure_impulse(5, 5, 3, 40.0); // disturbance confined to a far corner
         let mut renderer = Renderer::new();
-        let off = renderer.cell_colour(&world, 50, 50, (0, 0));
+        let off = renderer.cell_colour_at(&world, 50, 50, (0, 0));
         // **Blend channels only, deliberately.** `PheromoneA`/`PheromoneB`
         // are excluded because they are full-replace by design: a cell with
         // a zero reading draws at `SCALAR_RAMP_FLOOR` of its ramp colour,
@@ -5926,7 +6091,7 @@ mod tests {
         // _from_cool` below is the guard that replaced this one for it.
         for overlay in [FieldOverlay::Pressure, FieldOverlay::Light, FieldOverlay::Moisture] {
             renderer.field_overlay = overlay;
-            assert_eq!(renderer.cell_colour(&world, 50, 50, (0, 0)), off, "{overlay:?} tinted an unaffected cell far from any real disturbance");
+            assert_eq!(renderer.cell_colour_at(&world, 50, 50, (0, 0)), off, "{overlay:?} tinted an unaffected cell far from any real disturbance");
         }
     }
 
@@ -5946,9 +6111,9 @@ mod tests {
         world.add_heat(50, 10, 2, -6.0); // and a cold night
         let mut renderer = Renderer::new();
         renderer.field_overlay = FieldOverlay::Temperature;
-        let ambient = renderer.cell_colour(&world, 10, 10, (0, 0));
-        let warm = renderer.cell_colour(&world, 30, 10, (0, 0));
-        let cool = renderer.cell_colour(&world, 50, 10, (0, 0));
+        let ambient = renderer.cell_colour_at(&world, 10, 10, (0, 0));
+        let warm = renderer.cell_colour_at(&world, 30, 10, (0, 0));
+        let cool = renderer.cell_colour_at(&world, 50, 10, (0, 0));
         assert_ne!(warm, ambient, "a 6-degree warm reading rendered identically to ambient");
         assert_ne!(cool, ambient, "a 6-degree cool reading rendered identically to ambient");
         assert!(warm[0] > cool[0] && cool[2] > warm[2], "warm and cool must not be the same hue: warm {warm:?}, cool {cool:?}");
@@ -6031,8 +6196,8 @@ mod tests {
         let mut r = Renderer::new();
         r.field_overlay = FieldOverlay::PheromoneA;
         assert_eq!(
-            r.cell_colour(&world, 10, 10, (0, 0)),
-            r.cell_colour(&world, 20, 20, (0, 0)),
+            r.cell_colour_at(&world, 10, 10, (0, 0)),
+            r.cell_colour_at(&world, 20, 20, (0, 0)),
             "equal pheromone over different materials must draw identically -- a blend would leak the material colour through"
         );
 
@@ -6041,10 +6206,10 @@ mod tests {
         let off_pixel = {
             let mut plain = Renderer::new();
             plain.field_overlay = FieldOverlay::Off;
-            plain.cell_colour(&world, 40, 40, (0, 0))
+            plain.cell_colour_at(&world, 40, 40, (0, 0))
         };
-        assert_ne!(r.cell_colour(&world, 40, 40, (0, 0)), off_pixel, "a zero reading must draw at the ramp floor, so an empty channel reads as empty rather than as absent");
-        assert_ne!(r.cell_colour(&world, 40, 40, (0, 0)), r.cell_colour(&world, 10, 10, (0, 0)), "and a zero reading must still be distinguishable from a strong one");
+        assert_ne!(r.cell_colour_at(&world, 40, 40, (0, 0)), off_pixel, "a zero reading must draw at the ramp floor, so an empty channel reads as empty rather than as absent");
+        assert_ne!(r.cell_colour_at(&world, 40, 40, (0, 0)), r.cell_colour_at(&world, 10, 10, (0, 0)), "and a zero reading must still be distinguishable from a strong one");
     }
 
     #[test]
@@ -7121,6 +7286,104 @@ mod tests {
         let mut reference = vec![0u8; (uw * uh * 4) as usize];
         fresh.draw(&world, &particles, &HashSet::new(), &mut reference, (uw, uh), true);
         assert_eq!(frame, reference, "the skipped repaint left a stale pose behind");
+    }
+
+    #[test]
+    fn a_parallel_redraw_is_bit_identical_to_a_serial_one() {
+        // `draw`'s cell pass runs on `rayon` (see its own note). Determinism
+        // is required here (`PLAN.md`), and what makes it hold -- every
+        // helper taking `&self` and `&World`, and the grain keyed on world
+        // position rather than on carried RNG state -- is a property of code
+        // that will be edited by people who have not read that note. This is
+        // what notices when it stops being true.
+        //
+        // **Two comparisons, because they fail for different faults.** A
+        // one-thread pool against the default pool catches the parallelism
+        // itself -- a race, or a row split that reads another worker's
+        // slice; it cannot catch a wrong row index, since both arms would be
+        // wrong the same way. The serial reference below catches exactly
+        // that, and is written out here rather than shared with the
+        // implementation so the two cannot drift into agreeing.
+        //
+        // Sized so the split is uneven -- 83 rows over however many workers
+        // the box has is not a clean division, which is where an off-by-one
+        // in the chunking would show.
+        let (w, h) = (137i32, 83i32);
+        let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
+        // A mix, so this covers more than one branch of `cell_colour`: sky
+        // (the gradient and star hash), water (fill dimming), soil (the
+        // saturation darkening) and stone.
+        for y in (h / 4)..h {
+            for x in 0..w {
+                let m = if y < h / 2 {
+                    material::WATER
+                } else if y < 3 * h / 4 {
+                    material::SAND
+                } else {
+                    material::STONE
+                };
+                world.set(x, y, Cell::new(m, (x * 7 + y * 13) as u8));
+            }
+        }
+        world.end_step();
+
+        let (uw, uh) = (w as u32, h as u32);
+        let particles = ParticleSystem::new();
+        let bytes = (uw * uh * 4) as usize;
+
+        let mut renderer = Renderer::new();
+        let mut many = vec![0u8; bytes];
+        renderer.draw(&world, &particles, &HashSet::new(), &mut many, (uw, uh), true);
+
+        let pool = rayon::ThreadPoolBuilder::new().num_threads(1).build().expect("one-thread pool");
+        let mut one = vec![0u8; bytes];
+        pool.install(|| {
+            Renderer::new().draw(&world, &particles, &HashSet::new(), &mut one, (uw, uh), true);
+        });
+        let differing = |a: &[u8], b: &[u8]| -> Option<(i32, i32)> {
+            a.chunks_exact(4).zip(b.chunks_exact(4)).position(|(p, q)| p != q).map(|i| {
+                ((i % uw as usize) as i32, (i / uw as usize) as i32)
+            })
+        };
+        assert_eq!(
+            differing(&one, &many),
+            None,
+            "the redraw is not independent of how many workers painted it"
+        );
+
+        // The reference: the loop the parallel one replaced, run through
+        // **the renderer that painted `many`**. A fresh one is not a valid
+        // reference and the first version of this test used one -- `draw`
+        // fills the sky-light block cache, the `under_sky` genesis map and
+        // this frame's `Sky` before it paints, so `cell_colour` on a
+        // renderer that has never drawn answers a different question. That
+        // failure looks exactly like a real indexing bug, which is worth a
+        // sentence here. Reusing it also narrows the guard to the loop,
+        // which is the part that changed. `self.frame` is incremented at the
+        // top of `draw`, so it still holds the value the pixel loop saw.
+        let mut serial = vec![0u8; bytes];
+        for (i, pixel) in serial.chunks_exact_mut(4).enumerate() {
+            let sx = (i % uw as usize) as i32;
+            let sy = (i / uw as usize) as i32;
+            let (wx, wy) = renderer.screen_to_world(sx, sy);
+            // The bounds check and the unhoisted read, which is what
+            // `ChunkRun::colour` does either side of the chunk it holds.
+            let colour = if world.in_bounds(wx, wy) {
+                renderer.cell_colour(&world, wx, wy, renderer.sub_cell(sx, sy), world.get(wx, wy))
+            } else {
+                VOID
+            };
+            pixel.copy_from_slice(&colour);
+        }
+        // Only the cell pass is under comparison, so the world deliberately
+        // holds no gnome, no particles and no chunk bodies -- the three
+        // things `draw` paints over the top of it.
+        assert!(!world.weather().is_precipitating(), "a drawn storm would paint over the cell pass");
+        assert_eq!(
+            differing(&serial, &many),
+            None,
+            "a pixel is not showing the world cell it should"
+        );
     }
 
     #[test]

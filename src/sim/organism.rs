@@ -157,6 +157,68 @@ pub enum CellType {
     /// variant between them afterwards would be the renumbering that
     /// encoding forbids.
     Segment = 7,
+    /// **A flower** — the organ a determinate axis terminates in, and the
+    /// first cell type in this engine whose point is that it is *seen*.
+    ///
+    /// Inert: it carries no `Grow`, deposits no canopy density and creates
+    /// nothing, so it costs the sweep one scheduled site and no per-frame
+    /// work. What it does carry is `Behavior::Ripen`, which is a clock —
+    /// after enough ticks the flower's fate table decides whether it sets a
+    /// `Fruit` or simply falls.
+    ///
+    /// **The material is not a detail of this cell type, it is the cell
+    /// type.** A label change has failed to read on this project five
+    /// times — `weeping`, `prostrate`, sympody, tropism, acrotony, founder
+    /// variance — every one of them firing, counted, and invisible. The one
+    /// lever that ever read changed *material*. So a `Flower` drawing from
+    /// `leaf`'s foliage palette would be the sixth, and `flower.ron` exists
+    /// for exactly that reason (`Reports/plant-organs-handoff-2026-08-28.md`
+    /// §4b).
+    ///
+    /// **8, not a reuse of `Segment`.** `aux`'s low four bits are a
+    /// positional, never-renumbered encoding with room to 15, and the reach
+    /// report's suggestion that `Segment` "sits unused" is a trap: it is the
+    /// creature body cell, unused only because the worm is a one-cell chain,
+    /// and renumbering around it is precisely what that encoding forbids.
+    Flower = 8,
+    /// **A fruit**, ripening on the plant. A `Flower` that set rather than
+    /// fell, and the cell that carries a genome to the ground.
+    ///
+    /// Ripeness lives in the `OrganismCell` sidecar
+    /// ([`OrganismCell::ripeness`]), never in `aux` — `render.rs` reads
+    /// `palette[cell.shade]` and `shade` is already spent on band identity
+    /// plus grain, so there is no free colour readout there whatever
+    /// `Reports/plant-morphology-reach-2026-08-23.md` §2a says.
+    ///
+    /// Ripe, it does not convert in place: it **detaches**, becoming a
+    /// `windfall` powder cell owned by a fresh child organism as a
+    /// `CellType::Seed`, which then falls, rolls and germinates where it
+    /// comes to rest. That is the owner's 2026-08-23 call — fruit carries
+    /// the seed — and it needs no dispersal code at all, because a powder
+    /// already does every part of it.
+    Fruit = 9,
+}
+
+impl CellType {
+    /// **Is this a reproductive organ** — a flower or a fruit?
+    ///
+    /// Three rules key on this rather than on the two variants by name, and
+    /// each is a place where an organ is genuinely not shoot tissue:
+    ///
+    /// - it is not counted in `OrganismState::shoot_cells`, so building
+    ///   organs neither advances the `seed_maturity` fence nor dilutes the
+    ///   per-bearer seed rate (`Reports/plant-organs-handoff-2026-08-28.md`
+    ///   §6 names that two-sided reallocation as the sharpest one in the
+    ///   phase);
+    /// - it takes its material from the species' organ materials rather than
+    ///   inheriting its parent's, which is what stops a flower being a
+    ///   green cell in a leaf palette;
+    /// - and an apex that becomes one creates no continuation, because a
+    ///   floral meristem *is* the end of the axis. That is what determinate
+    ///   means.
+    pub fn is_organ(self) -> bool {
+        matches!(self, CellType::Flower | CellType::Fruit)
+    }
 }
 
 /// One behavior a cell type can carry, composed freely by species data —
@@ -401,6 +463,35 @@ pub enum Behavior {
         /// than its branches to the extent that the foliage is above it.
         #[serde(default = "one_u8")]
         leaf_cluster: u8,
+        /// **How many cells a terminal organ is made of** — the flower head,
+        /// as against the single cell a bare `becomes: Flower` would give.
+        ///
+        /// **This is the field that decides whether the phase reads**, and
+        /// the reason it exists is measured rather than aesthetic. Five
+        /// consecutive morphology levers on this project fired, printed
+        /// their counters and changed nothing the owner could see; the one
+        /// that read changed material *and* size. A one-cell flower on a
+        /// stalk is a single pixel of a new colour — it is a material change
+        /// with the size half missing, which is half of the only lever that
+        /// has ever worked here.
+        ///
+        /// The same argument `leaf_cluster` makes above applies with more
+        /// force: at this cell size a real flower head is many times the
+        /// width of the stalk bearing it, so one cell per head is
+        /// **under**-scaled, not over-scaled.
+        ///
+        /// Built by the same flood outward from the apex the leaf spray uses,
+        /// with one difference: the leaf walk refuses cells adjacent to or
+        /// ahead of the node, because a spray that rings an apex walls its
+        /// own tip in and growth stops dead. A terminal organ has no tip
+        /// left to wall in — that is what determinate means — so the head
+        /// sits *on* the apex, which is also where a real one is.
+        ///
+        /// Truncated by carbon like the leaf spray, so a poor plant makes a
+        /// small head rather than none: `CLAUDE.md`'s first ethos law, an
+        /// outcome is a distribution.
+        #[serde(default = "one_u8")]
+        organ_cluster: u8,
         /// Shoot cells below which this plant is **juvenile**. `0` disables
         /// the whole juvenile stage.
         ///
@@ -803,6 +894,41 @@ pub enum Behavior {
         seed_maturity: u32,
     },
     SecondaryThicken { pipe_ratio: f32 },
+    /// **An organ's clock.** The only behaviour a `Flower` or `Fruit`
+    /// carries, and the mechanism behind flower → fruit → windfall.
+    ///
+    /// Each organism tick it adds `rate` to [`OrganismCell::ripeness`]; when
+    /// that reaches 1 it consults the species' `FateWhen::Ripe` rule and
+    /// does one of three things:
+    ///
+    /// - **`becomes` another organ** (`Flower` → `Fruit`): a relabel plus a
+    ///   material swap, charged `cost`, ripeness reset to 0 so the new organ
+    ///   runs its own clock. This is fruit *set*, and charging it is what
+    ///   makes a poor plant flower without fruiting — which is a graded
+    ///   outcome where "fruits or does not" would be a binary.
+    /// - **`becomes: Seed`**: the organ lets go. `plant::drop_organ` writes
+    ///   a `windfall` powder cell owned by a fresh child organism carrying
+    ///   the parent's mutated genome, which then falls, rolls and germinates
+    ///   where it lands. This is the owner's *fruit carries the seed* call
+    ///   of 2026-08-23, and it needs no dispersal code because a powder
+    ///   already does all of it.
+    /// - **no rule at all**: the organ keeps its label for ever and leaves
+    ///   the active-site schedule. A flower that persists, which is the
+    ///   honest reading of an absent rule rather than an error.
+    ///
+    /// **`rate` is per organism tick, not per frame** — organisms tick on
+    /// `ORGANISM_TICK_INTERVAL`, so 0.02 is roughly fifty ticks from set to
+    /// ripe. Authored rather than derived because ripening time is a real
+    /// species axis (a strawberry against a sloe) and there is nothing in
+    /// the engine to derive it from.
+    Ripen {
+        rate: f32,
+        /// Carbon charged to the organ's own cell when its fate fires.
+        /// Filling a fruit is the expensive half of reproduction in a real
+        /// plant, and this is where that lands; the seed the windfall
+        /// carries is provisioned from it (`OrganismState::endowment`).
+        cost: f32,
+    },
     /// A `Seed` cell's transition to `GrowingTip`/`RootTip`, checked on a
     /// schedule against local field readings. `instant: true` is a
     /// test-only escape hatch that fires unconditionally next tick,
@@ -846,6 +972,496 @@ pub struct PaletteBands {
     pub count: u8,
 }
 
+/// When a [`Fate`] applies — the *condition* half of the production rule.
+///
+/// These are the moments at which this engine decides what a cell is. There
+/// are exactly four, and before the fate table they were four unrelated
+/// hardcoded writes scattered across `plant.rs`; collecting them here is what
+/// makes the developmental program a single object rather than a habit.
+///
+/// **Ordering matters at lookup**: the first rule whose `when` matches wins,
+/// so a species lists `Node` before `Grew` if it wants nodes handled
+/// specially. `plant::species_fate` documents the search.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Deserialize)]
+pub enum FateWhen {
+    /// A tip that grew this tick and this step is **not** a node.
+    Grew,
+    /// A tip that grew this tick and the plastochron fell due — the metamer
+    /// boundary, where a leaf and its axillary bud are placed.
+    Node,
+    /// A tip that found nowhere to go for `ORGANISM_STALE_LIMIT` ticks and is
+    /// retiring rather than growing.
+    ///
+    /// **This one is easy to forget and expensive to miss.** A determinate
+    /// axis whose terminal tip ages out instead of growing takes this path,
+    /// which is the *normal* case for an axis that has run out of room or
+    /// carbon — so a fate table that covers only `Grew`/`Node` silently
+    /// produces no terminal organ, and the only symptom is a counter reading
+    /// lower than expected.
+    Stale,
+    /// A dormant bud being flushed into a tip by `Behavior::BudBreak`.
+    Flush,
+    /// An organ whose `Behavior::Ripen` clock has run out — a flower that has
+    /// been open long enough to set, or a fruit that has finished ripening.
+    ///
+    /// **Added with the species that needs it, not ahead of it.** The handoff
+    /// is explicit that a condition no species uses is a channel with a
+    /// writer and no reader, which this project has shipped three times;
+    /// `herb.ron` and `scrambler.ron` are its readers and they land in the
+    /// same change.
+    ///
+    /// The two rules it expresses are the whole flower→fruit→seed sequence,
+    /// as data rather than as code:
+    ///
+    /// ```text
+    /// (Flower, [(when: Ripe, becomes: Fruit)])   // it set
+    /// (Fruit,  [(when: Ripe, becomes: Seed)])    // it let go
+    /// ```
+    ///
+    /// A `becomes: Seed` on an organ is the one fate the engine does not
+    /// resolve by relabelling: `plant::drop_organ` detaches the cell into a
+    /// falling `windfall` powder owned by a fresh child organism. And an
+    /// organ with **no** `Ripe` rule keeps its label for ever, which is the
+    /// honest reading of an absent rule and gives a species a flower that
+    /// simply persists.
+    Ripe,
+}
+
+/// One production rule: **what this cell becomes, and what it creates.**
+///
+/// The three outputs are separate because they are three different cells, and
+/// collapsing them is what limits a substrate to one axis of variation:
+///
+/// - `becomes` relabels the cell that just acted. On its own this can only
+///   express *"the axis ends in X after N steps"* — a terminal organ, and
+///   nothing else.
+/// - `child` labels the straight continuation. This is the term that carries
+///   novelty, because it decides what a shoot is *made of* rather than where
+///   it stops. Today every species sets it to the growing cell's own type
+///   (a tip's child is a tip), which is exactly why every species is a
+///   variation on one plant.
+/// - `lateral` labels a branch child, so a species can put something other
+///   than more shoot on its side axes — a fruiting truss is a lateral whose
+///   label differs from its parent's.
+///
+/// `child` and `lateral` are `None` on `Stale` and `Flush`, which create no
+/// cell. That is an honest absence rather than a default: a value there would
+/// be a field with a writer and no reader, which this project has shipped
+/// three times and paid for each time.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Deserialize)]
+pub struct Fate {
+    pub when: FateWhen,
+    /// What the acting cell becomes.
+    pub becomes: CellType,
+    /// What a straight-continuation child is created as. `None` where the
+    /// rule creates no child.
+    #[serde(default)]
+    pub child: Option<CellType>,
+    /// What a lateral (branch) child is created as. `None` where the rule
+    /// creates no lateral.
+    #[serde(default)]
+    pub lateral: Option<CellType>,
+    /// **Determinacy: how many metamers this axis makes before the rule
+    /// applies.** `None` (the default) is every existing rule — it applies
+    /// from the axis's first step, which is what indeterminate means.
+    ///
+    /// A metamer is internode + leaf + axillary bud, so the count is the
+    /// lineage's step number divided by its own plastochron — the number of
+    /// *nodes* this lineage has passed, not cells laid. `plant.rs`'s `Grow`
+    /// arm computes both from the `plastochron` the active site already
+    /// carries, so this costs no state and no traversal.
+    ///
+    /// **A field on `Fate` rather than a `FateWhen` variant, and that is not
+    /// a style call.** `FateWhen` is the lookup *key* and is fieldless by
+    /// construction; a condition carrying a number cannot be one without
+    /// making the key a compound. Ordering does the rest: rules are searched
+    /// first-match-wins, so a species lists its determinate rule above its
+    /// ordinary one and the ordinary one — `after_metamers: None` — catches
+    /// every step before the count is met.
+    ///
+    /// This is the field the viability gate says is safe to mutate. Of 40
+    /// effective mutations to a production rule, `becomes` and `lateral`
+    /// took 34 without a single sterile plant while `child` killed 5 of 6
+    /// (`Reports/plant-fate-viability-2026-08-28.md` §2) — and a determinate
+    /// axis ending in an organ is a `becomes` rule that never touches
+    /// `child`.
+    #[serde(default)]
+    pub after_metamers: Option<u8>,
+}
+
+/// **How many production rules one organism's genome can hold.**
+///
+/// A hard capacity rather than a `Vec`, and the bound is the design rather
+/// than an optimisation. A rule table that can grow without limit under
+/// mutation is a genome with no upper bound on its own size, which is a
+/// runaway this engine has no counterweight for — and it would put one heap
+/// allocation on every plant in the world, where `OrganismState`'s existing
+/// `Vec`s are creature-only.
+///
+/// 16 against the widest shipped species at 9 (`herb.ron`: four shoot rules,
+/// two root, one bud, two organ), so there is room for mutation to *add* a
+/// rule later without the cap being the thing that stops it. Sized from the
+/// assets rather than guessed, and `a_species_table_fits_the_genome` fails
+/// loudly if a species file ever outgrows it — silently truncating a table
+/// would drop rules off the end of the developmental program, which reads as
+/// a plant that inexplicably stops.
+pub const MAX_FATES: usize = 16;
+
+/// One production rule packed into a `u32`, together with the cell type it
+/// belongs to.
+///
+/// **Packed because this is genome, not configuration.** Every plant in the
+/// world carries its own copy from the moment it exists, so the whole table
+/// is 64 bytes and no allocation; a `Vec<(CellType, Vec<Fate>)>` per organism
+/// would be two levels of indirection per lookup on a structure read at every
+/// fate decision.
+///
+/// ```text
+///   bits  0..4   the cell type this rule belongs to
+///         4..7   `FateWhen`
+///        7..11   `becomes`
+///       11..15   `child`, and bit 15 whether it is present
+///       16..20   `lateral`, and bit 20 whether it is present
+///       21..29   `after_metamers`, with 0 meaning None
+/// ```
+///
+/// **`after_metamers: Some(0)` and `None` collapse to the same value, and
+/// that is lossless rather than a compromise**: the field gates a rule on
+/// *`metamers >= n`*, so `Some(0)` is satisfied by every lineage at every
+/// step, which is exactly what `None` means. Nothing can distinguish them.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct PackedFate(u32);
+
+impl PackedFate {
+    pub fn pack(owner: CellType, f: Fate) -> Self {
+        let opt = |c: Option<CellType>| c.map_or(0u32, |t| (t as u32) | 0b1_0000);
+        Self(
+            (owner as u32)
+                | (f.when as u32) << 4
+                | (f.becomes as u32) << 7
+                | opt(f.child) << 11
+                | opt(f.lateral) << 16
+                | (f.after_metamers.unwrap_or(0) as u32) << 21,
+        )
+    }
+
+    pub fn owner(self) -> Option<CellType> {
+        cell_type(self.0 as u16)
+    }
+
+    /// The rule itself, or `None` if any packed field does not decode — a
+    /// mutated genome is the one place a bit pattern can be nonsense, and it
+    /// must read as "no rule here" rather than aliasing onto whichever
+    /// variant happens to sit at that pattern.
+    pub fn unpack(self) -> Option<Fate> {
+        let when = match (self.0 >> 4) & 0b111 {
+            0 => FateWhen::Grew,
+            1 => FateWhen::Node,
+            2 => FateWhen::Stale,
+            3 => FateWhen::Flush,
+            4 => FateWhen::Ripe,
+            _ => return None,
+        };
+        let opt = |shift: u32, present: u32| -> Option<Option<CellType>> {
+            if self.0 & (1 << present) == 0 {
+                return Some(None);
+            }
+            cell_type(((self.0 >> shift) & 0b1111) as u16).map(Some)
+        };
+        Some(Fate {
+            when,
+            becomes: cell_type(((self.0 >> 7) & 0b1111) as u16)?,
+            child: opt(11, 15)?,
+            lateral: opt(16, 20)?,
+            after_metamers: match ((self.0 >> 21) & 0xFF) as u8 {
+                0 => None,
+                n => Some(n),
+            },
+        })
+    }
+
+    /// Rewrite one cell-type field in place, leaving everything else alone —
+    /// the mutation operator's only write. `slot` is 0 `becomes`, 1 `child`,
+    /// 2 `lateral`; a slot whose field is absent is left untouched, because
+    /// inventing a `child` on a rule that creates no cell would be mutating a
+    /// field the engine never reads.
+    pub fn retarget(self, slot: u8, to: CellType) -> Self {
+        let (shift, present) = match slot {
+            0 => (7, None),
+            1 => (11, Some(15)),
+            _ => (16, Some(20)),
+        };
+        if present.is_some_and(|b| self.0 & (1 << b) == 0) {
+            return self;
+        }
+        Self((self.0 & !(0b1111 << shift)) | (to as u32) << shift)
+    }
+
+    /// Which of the three cell-type slots this rule actually carries — the
+    /// set a mutation may draw from.
+    pub fn live_slots(self) -> Vec<u8> {
+        let mut v = vec![0u8];
+        if self.0 & (1 << 15) != 0 {
+            v.push(1);
+        }
+        if self.0 & (1 << 20) != 0 {
+            v.push(2);
+        }
+        v
+    }
+}
+
+/// **An organism's own production rule — the developmental program as
+/// heritable material rather than as a property of its species.**
+///
+/// Until this existed, `fates` lived on `Species` in the registry and a seed
+/// inherited its parent's species id unchanged, so *nothing a genome carried
+/// could reach the production rule*. A plant could not mutate into a
+/// determinate one, or into one that bears an organ, at any rate whatsoever;
+/// the only channel to that vocabulary was a human writing a species file.
+/// That is the layer `Reports/plant-morphology-evolvability-2026-08-26.md` §6
+/// marks as the one to replace — *"Species as an outcome, not an input"* —
+/// and this is the replacement.
+///
+/// **Founded from the species file and varied only by breeding.** Every
+/// founder of a species gets that species' table exactly; drift enters at
+/// `plant::bear_seed_at`, one point mutation at a time. Deliberately no
+/// founder variance, unlike the discrete loci: an allele is a dial the
+/// species centres, while a rule table *is* the species, and a founding stand
+/// with polymorphic rule tables would not be a population of one plant.
+///
+/// **Empty means "use the species table, then the built-in rule"**, which is
+/// what a creature and any pre-genome organism gets, and which keeps
+/// `plant::builtin_fate`'s role as the control unchanged.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct FateGenome {
+    rules: [PackedFate; MAX_FATES],
+    len: u8,
+}
+
+impl Default for FateGenome {
+    fn default() -> Self {
+        Self { rules: [PackedFate(0); MAX_FATES], len: 0 }
+    }
+}
+
+impl FateGenome {
+    /// Flatten a species' authored table into a genome, in order.
+    ///
+    /// **Order is preserved and it is load-bearing**: lookup is first-match
+    /// wins, so a species listing a determinate rule above its ordinary one
+    /// depends on the flattening keeping them that way.
+    ///
+    /// Truncates at `MAX_FATES` rather than panicking — a `.ron` is data and
+    /// a bad one should not take the process down — and
+    /// `a_species_table_fits_the_genome` is the guard that stops it happening
+    /// silently.
+    pub fn from_table(table: &[(CellType, Vec<Fate>)]) -> Self {
+        let mut g = Self::default();
+        for (ct, rules) in table {
+            for &f in rules {
+                if (g.len as usize) < MAX_FATES {
+                    g.rules[g.len as usize] = PackedFate::pack(*ct, f);
+                    g.len += 1;
+                }
+            }
+        }
+        g
+    }
+
+    pub fn is_empty(self) -> bool {
+        self.len == 0
+    }
+
+    pub fn len(self) -> usize {
+        self.len as usize
+    }
+
+    /// The rule in force for this cell type at this moment, under the same
+    /// first-match-wins search and the same `after_metamers` filter
+    /// `Species::fate` runs — the two must agree, or a founder and its own
+    /// species file would develop differently.
+    pub fn fate(self, cell_type: CellType, when: FateWhen, metamers: u8) -> Option<Fate> {
+        self.rules[..self.len as usize].iter().find_map(|p| {
+            if p.owner() != Some(cell_type) {
+                return None;
+            }
+            let f = p.unpack()?;
+            (f.when == when && f.after_metamers.is_none_or(|n| metamers >= n)).then_some(f)
+        })
+    }
+
+    /// Every rule, for a probe or a census. Order is the genome's own.
+    pub fn rules(self) -> impl Iterator<Item = (Option<CellType>, Option<Fate>)> {
+        (0..self.len as usize).map(move |i| (self.rules[i].owner(), self.rules[i].unpack()))
+    }
+
+    /// **Apply one mutation.** Four operators: retarget a cell-type field,
+    /// change a rule's condition, insert a rule, delete a rule.
+    ///
+    /// **Owner's call, 2026-08-29: the most flexible operator available**, on
+    /// the reasoning that it can be narrowed later. The consequence is worth
+    /// stating because it is the whole point — with retargeting alone a
+    /// lineage can only ever move the rules it already has, so a `tree`
+    /// lineage could *never* acquire a flower: `tree.ron` has no
+    /// `FateWhen::Ripe` rule to retarget, and nothing could create one. Insert
+    /// is what makes a growth form reachable rather than only adjustable.
+    ///
+    /// **Weighted toward the one operator whose viability is measured.**
+    /// Retargeting is `examples/fate_viability.rs`'s operator exactly — 92% of
+    /// effective mutations still produce a living plant on the woody base, 97%
+    /// on the determinate one, both with controls. The other three are
+    /// **unmeasured**, and the weighting says so rather than pretending
+    /// otherwise: 60% retarget, and 40% split across the three that no gate
+    /// has yet been run on. Measuring them is the obvious next use of that
+    /// harness.
+    ///
+    /// **Delete stops at one rule, and the floor is load-bearing.** An empty
+    /// genome means *fall back to the species table* (see `plant::fate_for`),
+    /// so a lineage that deleted its way to zero would silently revert to
+    /// being non-heritable — which reads as "evolution stopped" with nothing
+    /// broken anywhere.
+    ///
+    /// Every draw that picks a value redraws until the value actually moves,
+    /// for the reason the gate records: a draw landing on the value already
+    /// held is a no-op, and a no-op counted as a mutation makes a rate that is
+    /// a dilution rather than a rate.
+    pub fn mutate(&mut self, rng: &mut super::rng::Rng) {
+        if self.len == 0 {
+            return;
+        }
+        match rng.below(100) {
+            0..=59 => self.retarget_one(rng),
+            60..=74 => self.recondition_one(rng),
+            75..=89 => self.insert_one(rng),
+            _ => self.delete_one(rng),
+        }
+    }
+
+    /// Point one cell-type field of one rule somewhere else — the measured
+    /// operator.
+    fn retarget_one(&mut self, rng: &mut super::rng::Rng) {
+        let i = rng.below(self.len as u32) as usize;
+        let slots = self.rules[i].live_slots();
+        let slot = slots[rng.below(slots.len() as u32) as usize];
+        let Some(f) = self.rules[i].unpack() else { return };
+        // `live_slots` offers a slot only when that field is present, so both
+        // of these hold by construction.
+        let current = match slot {
+            0 => f.becomes,
+            1 => f.child.expect("slot 1 is offered only when child is present"),
+            _ => f.lateral.expect("slot 2 is offered only when lateral is present"),
+        };
+        // Bounded rather than `while`: a degenerate draw set would spin here,
+        // and declining to move is a silent no-op rather than a hang.
+        for _ in 0..8 {
+            let pick = PLANT_CELL_TYPES[rng.below(PLANT_CELL_TYPES.len() as u32) as usize];
+            if pick != current {
+                self.rules[i] = self.rules[i].retarget(slot, pick);
+                return;
+            }
+        }
+    }
+
+    /// Change *when* a rule applies — its `FateWhen`, or its determinacy
+    /// count.
+    ///
+    /// `after_metamers` is the determinacy knob, so this is the operator that
+    /// lets a lineage turn an indeterminate axis into one that stops, and move
+    /// where it stops. It draws from a small ladder rather than the full 0-255
+    /// range: a count above what any axis reaches is indistinguishable from
+    /// never firing, so a uniform draw would spend most of its mass on rules
+    /// that do nothing.
+    fn recondition_one(&mut self, rng: &mut super::rng::Rng) {
+        let i = rng.below(self.len as u32) as usize;
+        let Some(owner) = self.rules[i].owner() else { return };
+        let Some(mut f) = self.rules[i].unpack() else { return };
+        if rng.chance(0.5) {
+            let pick = ALL_FATE_WHENS[rng.below(ALL_FATE_WHENS.len() as u32) as usize];
+            if pick == f.when {
+                return;
+            }
+            f.when = pick;
+        } else {
+            const LADDER: [Option<u8>; 6] = [None, Some(2), Some(4), Some(8), Some(16), Some(32)];
+            let pick = LADDER[rng.below(LADDER.len() as u32) as usize];
+            if pick == f.after_metamers {
+                return;
+            }
+            f.after_metamers = pick;
+        }
+        self.rules[i] = PackedFate::pack(owner, f);
+    }
+
+    /// Insert a freshly drawn rule at a random position.
+    ///
+    /// **Position is drawn, not appended**, and that is the difference between
+    /// a rule that can take effect and one that mostly cannot: lookup is
+    /// first-match-wins, so a rule inserted ahead of an existing one for the
+    /// same `(cell type, when)` shadows it, and one appended after it is dead
+    /// unless the earlier rule's `after_metamers` declines. A determinate rule
+    /// only works listed *above* the ordinary one — which is exactly how the
+    /// authored species write it.
+    fn insert_one(&mut self, rng: &mut super::rng::Rng) {
+        if self.len as usize >= MAX_FATES {
+            return;
+        }
+        let pick = |r: &mut super::rng::Rng| PLANT_CELL_TYPES[r.below(PLANT_CELL_TYPES.len() as u32) as usize];
+        let owner = pick(rng);
+        let f = Fate {
+            when: ALL_FATE_WHENS[rng.below(ALL_FATE_WHENS.len() as u32) as usize],
+            becomes: pick(rng),
+            child: rng.chance(0.5).then(|| pick(rng)),
+            lateral: rng.chance(0.5).then(|| pick(rng)),
+            after_metamers: rng.chance(0.25).then(|| [2u8, 4, 8, 16][rng.below(4) as usize]),
+        };
+        let at = rng.below(self.len as u32 + 1) as usize;
+        for j in (at..self.len as usize).rev() {
+            self.rules[j + 1] = self.rules[j];
+        }
+        self.rules[at] = PackedFate::pack(owner, f);
+        self.len += 1;
+    }
+
+    /// Drop one rule, never the last — see `mutate`'s note on why zero is not
+    /// an allowed length.
+    fn delete_one(&mut self, rng: &mut super::rng::Rng) {
+        if self.len <= 1 {
+            return;
+        }
+        let i = rng.below(self.len as u32) as usize;
+        for j in i..(self.len as usize - 1) {
+            self.rules[j] = self.rules[j + 1];
+        }
+        self.len -= 1;
+        self.rules[self.len as usize] = PackedFate(0);
+    }
+}
+
+/// The cell types a fate mutation may point at.
+///
+/// **The creature types are excluded** — `Head` and `Segment` are not part of
+/// a plant's vocabulary, and a mutation reaching one would measure the
+/// operator's carelessness rather than the substrate's tolerance. The organ
+/// types *are* included: they are what the organ package added to the space,
+/// and a genome that cannot reach them leaves that space authored-only.
+/// Every condition a drawn rule may carry. Kept beside `PLANT_CELL_TYPES` so
+/// that adding a `FateWhen` variant and forgetting to make it reachable by
+/// mutation is one grep rather than a silent gap.
+pub const ALL_FATE_WHENS: [FateWhen; 5] =
+    [FateWhen::Grew, FateWhen::Node, FateWhen::Stale, FateWhen::Flush, FateWhen::Ripe];
+
+pub const PLANT_CELL_TYPES: [CellType; 8] = [
+    CellType::Seed,
+    CellType::GrowingTip,
+    CellType::MatureBody,
+    CellType::Leaf,
+    CellType::RootTip,
+    CellType::DormantBud,
+    CellType::Flower,
+    CellType::Fruit,
+];
+
 #[derive(Deserialize)]
 pub struct SpeciesDef {
     pub name: String,
@@ -883,6 +1499,38 @@ pub struct SpeciesDef {
     pub root_material: String,
     #[serde(default = "default_leaf_material")]
     pub leaf_material: String,
+    /// **What this species' organs are made of.** The same three-line
+    /// mechanism as `shoot`/`root`/`leaf` above, pointed at the organ cell
+    /// types — and the reason the organ package is a materials change first
+    /// and a cell-type change second.
+    ///
+    /// Unlike the three above these are *not* seeds propagated by growth: an
+    /// organ creates nothing, so its material is looked up at the moment the
+    /// cell is made and goes no further. `plant::organ_material` is the one
+    /// reader.
+    ///
+    /// The defaults are the organ materials rather than the leaf, so a
+    /// species that authors an organ fate and forgets the material line
+    /// still gets a flower that looks like a flower. An unknown name falls
+    /// back to the parent cell's own material, exactly as the three above do.
+    #[serde(default = "default_flower_material")]
+    pub flower_material: String,
+    #[serde(default = "default_fruit_material")]
+    pub fruit_material: String,
+    /// **What a ripe fruit becomes on the way down** — the powder that
+    /// carries the seed. Defaults to `seed`, which is what a species with no
+    /// fruit would produce and is the pre-organ behaviour exactly; the two
+    /// authored fruiting species name `windfall`.
+    #[serde(default = "default_windfall_material")]
+    pub windfall_material: String,
+    /// Which bands of `flower`'s palette this species' petals draw from, and
+    /// of `fruit`'s for its fruit. Same `PaletteBands` scheme as
+    /// `foliage_bands`/`bark_bands`: the range is the species' colour, the
+    /// draw inside it is the individual's.
+    #[serde(default)]
+    pub flower_bands: PaletteBands,
+    #[serde(default)]
+    pub fruit_bands: PaletteBands,
     /// **How long this species' seeds stay viable**, as a half-life in
     /// frames: the number of frames over which half a dormant seed bank
     /// disappears. `0.0` means immortal, which is what every seed was
@@ -919,6 +1567,21 @@ pub struct SpeciesDef {
     #[serde(default = "default_remains_half_life")]
     pub remains_half_life: f32,
     pub cell_types: Vec<(CellType, Vec<Behavior>)>,
+    /// **What a cell becomes** — the production rule, as data.
+    ///
+    /// `cell_types` says which behaviours run on a cell type; this says what
+    /// a cell type *turns into*, and the two are deliberately separate
+    /// tables. Until this landed the answer was a hardcoded `if/else` in
+    /// `plant.rs` (`self_type_after_grow`) plus two more hardcoded writes for
+    /// the staleness and bud-flush paths, so no species could express a
+    /// different developmental program and no genome could reach one.
+    ///
+    /// **Empty means "use the built-in rule"**, which is what every species
+    /// got before this field existed and what keeps an unauthored `.ron`
+    /// parsing and behaving unchanged. `plant::builtin_fate` is that rule,
+    /// and it is the single place the old hardcoded answers now live.
+    #[serde(default)]
+    pub fates: Vec<(CellType, Vec<Fate>)>,
     /// Everything only a *creature* species needs. `#[serde(default)]` so
     /// `moss.ron` and `tree.ron` keep parsing untouched — a plant is a
     /// species with an empty `Creature` block, not a species missing one.
@@ -1169,6 +1832,18 @@ fn default_root_material() -> String {
 fn default_leaf_material() -> String {
     "leaf".to_string()
 }
+fn default_flower_material() -> String {
+    "flower".to_string()
+}
+fn default_fruit_material() -> String {
+    "fruit".to_string()
+}
+/// **`seed`, not `windfall`** — a species that never fruits still reads this
+/// field, and defaulting it to the fallen-fruit powder would put windfalls
+/// under a tree that has no fruit to drop.
+fn default_windfall_material() -> String {
+    "seed".to_string()
+}
 
 /// Set against the measured bank rather than from a target. On the
 /// eight-tree stand the bank stood at **160 seeds at 60,000 frames and was
@@ -1201,11 +1876,22 @@ pub struct Species {
     pub shoot_material: String,
     pub root_material: String,
     pub leaf_material: String,
+    /// See `SpeciesDef::flower_material` — and note these are looked up at
+    /// the moment an organ cell is made, not propagated by growth the way
+    /// the three above are.
+    pub flower_material: String,
+    pub fruit_material: String,
+    pub windfall_material: String,
+    pub flower_bands: PaletteBands,
+    pub fruit_bands: PaletteBands,
     /// See `SpeciesDef::seed_half_life`.
     pub seed_half_life: f32,
     /// See `SpeciesDef::remains_half_life`.
     pub remains_half_life: f32,
     cell_types: Vec<(CellType, Vec<Behavior>)>,
+    /// See `SpeciesDef::fates`. Empty means the built-in rule
+    /// (`plant::builtin_fate`) applies, which is every species today.
+    fates: Vec<(CellType, Vec<Fate>)>,
     pub creature: Option<CreatureDef>,
     /// The authored genome, expanded once at load rather than per spawn.
     pub genome: Vec<f32>,
@@ -1221,6 +1907,52 @@ impl Species {
             .find(|(ct, _)| *ct == cell_type)
             .map(|(_, b)| b.as_slice())
             .unwrap_or(&[])
+    }
+
+    /// The authored production rule for this cell type at this moment, or
+    /// `None` if the species declares none and the built-in rule applies.
+    ///
+    /// **First match wins**, so a species lists its more specific conditions
+    /// first. The search is linear over at most a handful of rules and runs
+    /// only at a fate decision — a tip retiring, a bud flushing — never per
+    /// cell per frame, so it costs the sweep nothing. Same shape and same
+    /// reasoning as `behaviors` above.
+    ///
+    /// `metamers` is how many nodes the acting lineage has passed, and it
+    /// filters on [`Fate::after_metamers`]: a determinate rule listed first
+    /// is skipped until its count is met, and the ordinary rule below it
+    /// answers in the meantime. Pass 0 where the count is meaningless (a bud
+    /// flushing, an organ ripening) — a rule with no `after_metamers` is
+    /// unaffected by it, which is every rule that existed before determinacy.
+    /// **This is now the *founding* table rather than the one in force.**
+    /// `plant::fate_for` reads the organism's own `FateGenome` first and only
+    /// falls through to here for an organism that has none — a creature, or
+    /// anything created before the genome existed. `World::push_organism`
+    /// copies this into every new organism, so for a founder the two agree by
+    /// construction and `a_founders_genome_matches_its_species_file` asserts
+    /// it.
+    pub fn fate(&self, cell_type: CellType, when: FateWhen, metamers: u8) -> Option<Fate> {
+        self.fates
+            .iter()
+            .find(|(ct, _)| *ct == cell_type)
+            .and_then(|(_, rules)| rules.iter().find(|f| f.when == when && f.after_metamers.is_none_or(|n| metamers >= n)))
+            .copied()
+    }
+
+    /// Whether this species declares any production rule at all.
+    ///
+    /// Used by the guard that proves the authored tables reproduce the
+    /// built-in rule exactly: a species with no table cannot disagree with
+    /// it, so a suite where nothing declares one would pass while testing
+    /// nothing.
+    pub fn has_fates(&self) -> bool {
+        !self.fates.is_empty()
+    }
+
+    /// The authored table, for `World::push_organism` to flatten into a new
+    /// organism's genome.
+    pub fn fate_table(&self) -> &[(CellType, Vec<Fate>)] {
+        &self.fates
     }
 
     /// Whether this species grows a separate `Leaf` stage at all.
@@ -1307,9 +2039,15 @@ impl From<SpeciesDef> for Species {
             shoot_material: def.shoot_material,
             root_material: def.root_material,
             leaf_material: def.leaf_material,
+            flower_material: def.flower_material,
+            fruit_material: def.fruit_material,
+            windfall_material: def.windfall_material,
+            flower_bands: def.flower_bands,
+            fruit_bands: def.fruit_bands,
             seed_half_life: def.seed_half_life,
             remains_half_life: def.remains_half_life,
             cell_types: def.cell_types,
+            fates: def.fates,
             creature: def.creature,
             genome,
         }
@@ -1544,6 +2282,19 @@ pub struct OrganismState {
     /// crosses a shared face, and a diagonal cell shares only a corner.
     pub contact_root_cells: u32,
     pub shoot_cells: u32,
+    /// **Flower and fruit cells**, counted apart from `shoot_cells` above.
+    ///
+    /// Apart, because `shoot_cells` has three consumers that would each be
+    /// moved the wrong way by organs joining it — the `seed_maturity` fence,
+    /// the juvenile check, and the per-bearer denominator that spreads a
+    /// tick's affordable seeds over the crown. See `plant::organism_upkeep`'s
+    /// own note at the branch that fills this, and
+    /// `Reports/plant-organs-handoff-2026-08-28.md` §6.
+    ///
+    /// Counted rather than merely excluded so that the exclusion has a
+    /// reader: this is the number a probe asks "is this plant carrying
+    /// anything" and the one a review card prints beside the picture.
+    pub organ_cells: u32,
     /// **How many of this plant's cells are structural anchors** — the
     /// `is_structural_anchor` set, tallied in `anchor_support`'s seeding
     /// loop rather than in a walk of its own.
@@ -1865,6 +2616,25 @@ pub struct OrganismState {
     /// palette the material has — the pre-band look.
     pub foliage_band: u8,
     pub bark_band: u8,
+    /// **This individual's organ colours**, the same absolute-index scheme as
+    /// the two above, into the `flower` and `fruit` palettes.
+    ///
+    /// Drawn from their own streams (70/71) rather than derived from an
+    /// existing allele, deliberately. Petal colour is the loudest single
+    /// pixel a plant owns, and hanging it off the leaf-economy locus would
+    /// make it a *readout* of leaf strategy — so a stand could never show a
+    /// yellow flower on a cheap leaf, which is a correlation nobody
+    /// designed. Free-drawn, it is exactly what it looks like: variety.
+    ///
+    /// **Not heritable yet, and that is a stated gap rather than an
+    /// oversight.** `set_seed` copies the parent's alleles and derives
+    /// foliage and bark from them; these two have no locus to derive from,
+    /// so a bred child re-draws them from where it germinated like a founder
+    /// does. Giving petal colour a locus is a genome change and belongs with
+    /// the heritability survey (`Reports/plant-equilibrium-costs-2026-08-27.md`
+    /// §9 step 6), not smuggled in beside a materials change.
+    pub flower_band: u8,
+    pub fruit_band: u8,
     /// **This individual's genome came from a parent, not from where it
     /// landed.** `plant::seed_genotype` redraws a genotype from
     /// `(world seed, germination coordinate)` — which is right for a seed
@@ -1892,6 +2662,14 @@ pub struct OrganismState {
     /// authored species is the *starting point* a population diverges from
     /// rather than a fixed identity it is stuck with.
     pub alleles: [u8; DISCRETE_LOCI],
+    /// **This individual's production rule** — see [`FateGenome`].
+    ///
+    /// Founded from the species file at `World::push_organism` and mutated
+    /// one rule at a time when a seed is borne, so a lineage's developmental
+    /// program drifts the way its continuous traits and discrete alleles
+    /// already do. Empty on a creature and on anything founded before this
+    /// existed, which falls back to the species table exactly as before.
+    pub fates: FateGenome,
     /// **This seed was told "not yet" at least once.** Set on the
     /// germination path's not-ready branch and read in `germinate`, so
     /// `World::seeds_germinated_after_waiting` counts only the seeds that
@@ -2196,6 +2974,40 @@ const EMBEDDED: &[&str] = &[
     // the species the plant programme is for, and the one that differs from
     // a tree on all four of the axes in `plant-evolution-design.md` §4a.
     include_str!("../../assets/species/grass.ron"),
+    // **The organ package's two**, appended for the same reason every block
+    // above is: a species not in this list does not exist to any headless
+    // harness, because only the app's F5 reload reads the directory.
+    //
+    // Two rather than one, deliberately. The acceptance question is *"are
+    // these different plants, or one plant in several sizes?"*, and a single
+    // organ species can only be judged against the woody set -- which would
+    // let "it has flowers" stand in for "it is a different plant". Two that
+    // share all three new primitives and differ on habit, determinacy,
+    // organ distribution and organ colour is the comparison that can
+    // actually fail.
+    //
+    // **A category of plant, never a particular one -- and that is the whole
+    // of the naming rule, which is weaker than it may look.** This list is
+    // *not* a taxonomy and not one level of specificity: `shrub` and
+    // `creeper` are growth forms, `conifer`, `grass` and `moss` are
+    // vernacular clade names, and `tree` is a growth form that a conifer also
+    // satisfies -- so the categories overlap and do not partition anything.
+    // What they share is only that each names a *kind* of plant rather than
+    // one real organism, which is what a species file can honestly be.
+    //
+    // These two shipped for one draft as `sunflower.ron`/`tomato.ron`, taken
+    // from the older reach report's superseded sequencing note, against
+    // `Reports/plant-morphology-evolvability-2026-08-26.md` §6: *"The
+    // acceptance artifact is not a sunflower ... Twelve tomatoes = it does not
+    // [work]."* The mechanism was never the problem and did not change with
+    // the rename.
+    //
+    // **Worth noticing where those two would have fitted in the list above:
+    // nowhere.** There is no herbaceous non-grass category in it at all,
+    // which is the real argument for adding files rather than knobs, and a
+    // better one than the naming rule is.
+    include_str!("../../assets/species/herb.ron"),
+    include_str!("../../assets/species/scrambler.ron"),
 ];
 
 /// Where the loader looks for species files, relative to the working
@@ -2267,6 +3079,33 @@ impl SpeciesRegistry {
             self.upsert(def);
         }
         Ok(count)
+    }
+
+    /// **Register a species defined at runtime**, from the same RON the
+    /// embedded set is written in. Returns its id.
+    ///
+    /// Until this existed nothing in `src/` or `examples/` could create a
+    /// species: the set was fixed at compile time by `include_str!` and the
+    /// only other way in was the F5 asset reload, which reads a directory.
+    /// That is fine for shipping a game and fatal for asking *what else could
+    /// this substrate grow* — a question that needs hundreds of variants, none
+    /// of which anyone wants on disk.
+    ///
+    /// Deliberately takes the source text rather than a built `SpeciesDef`, so
+    /// a variant goes through **exactly** the parse and validation path a
+    /// shipped species does. A constructor taking a struct would let a harness
+    /// build a species the `.ron` grammar could not express, and then measure
+    /// it — which is how an instrument ends up describing a system that does
+    /// not exist.
+    ///
+    /// An existing name is replaced, matching `reload`'s semantics.
+    pub fn register_ron(&mut self, source: &str) -> Result<SpeciesId, SpeciesError> {
+        let source = source.strip_prefix('\u{feff}').unwrap_or(source);
+        let def = ron::from_str::<SpeciesDef>(source)
+            .map_err(|e| SpeciesError::Parse { file: "<runtime>".into(), error: e.to_string() })?;
+        let name = def.name.clone();
+        self.upsert(def);
+        Ok(self.id_of(&name).expect("upsert just inserted this name"))
     }
 
     fn upsert(&mut self, def: SpeciesDef) {
@@ -2554,6 +3393,8 @@ pub fn cell_type(aux: u16) -> Option<CellType> {
         5 => Some(CellType::DormantBud),
         6 => Some(CellType::Head),
         7 => Some(CellType::Segment),
+        8 => Some(CellType::Flower),
+        9 => Some(CellType::Fruit),
         _ => None,
     }
 }
@@ -2791,6 +3632,24 @@ pub struct OrganismCell {
     ///
     /// Sidecar, not a `Cell` bit: all sixteen aux bits are spoken for.
     pub primed: bool,
+    /// **How far along an organ is**, 0 at set and 1 when its clock runs out
+    /// — `Behavior::Ripen`'s only state, and the reason organs have a
+    /// sidecar field at all.
+    ///
+    /// **In the sidecar rather than in `aux`, and that is a correction to a
+    /// design note rather than a preference.**
+    /// `Reports/plant-morphology-reach-2026-08-23.md` §2a proposes staging
+    /// ripening in `aux` as "a colour readout for free". It is not free and
+    /// it is not a readout: `render.rs` draws a cell as
+    /// `palette[cell.shade % len]`, and `shade` is already carrying band
+    /// identity plus grain (`plant::banded_shade`), so a value in `aux`
+    /// reaches no pixel at all. Colour comes from the ripe fruit being its
+    /// own material, which is the whole design of the organ package.
+    ///
+    /// Zero on every non-organ cell in the world, and read by exactly one
+    /// behaviour, so it costs four bytes on a struct that already holds
+    /// eleven fields and no work anywhere else.
+    pub ripeness: f32,
 }
 
 impl Default for OrganismCell {
@@ -2833,6 +3692,7 @@ impl Default for OrganismCell {
             heading: (0.0, 0.0),
             path_len: 0,
             primed: false,
+            ripeness: 0.0,
         }
     }
 }
@@ -3626,14 +4486,23 @@ mod tests {
 
     #[test]
     fn an_unrecognized_type_bit_pattern_is_none() {
-        // 0-7 are Seed/GrowingTip/MatureBody/Leaf/RootTip/DormantBud/Head/
-        // Segment, so the first unassigned pattern is 8. Deliberately the
-        // *next* one rather than a far-away value: what this guards is that
-        // adding a variant does not silently start aliasing a stale bit
-        // pattern onto it, and the pattern that has just become valid is
-        // the one that proves the boundary moved with the enum.
+        // 0-9 are Seed/GrowingTip/MatureBody/Leaf/RootTip/DormantBud/Head/
+        // Segment/Flower/Fruit, so the first unassigned pattern is 10.
+        // Deliberately the *next* one rather than a far-away value: what
+        // this guards is that adding a variant does not silently start
+        // aliasing a stale bit pattern onto it, and the pattern that has
+        // just become valid is the one that proves the boundary moved with
+        // the enum.
+        //
+        // **It has now done its job once.** The organ package added `Flower`
+        // and `Fruit` at 8 and 9, and this test went red on the `8 => None`
+        // line -- which is exactly the boundary check working, not a
+        // breakage. Updating the numbers is the intended maintenance; what
+        // would be wrong is widening the assertion so it stops noticing.
         assert_eq!(cell_type(7), Some(CellType::Segment));
-        assert_eq!(cell_type(8), None);
+        assert_eq!(cell_type(8), Some(CellType::Flower));
+        assert_eq!(cell_type(9), Some(CellType::Fruit));
+        assert_eq!(cell_type(10), None);
         assert_eq!(cell_type(15), None);
     }
 

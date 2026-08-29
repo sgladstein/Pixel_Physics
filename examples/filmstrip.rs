@@ -1271,6 +1271,23 @@ fn build_scene(args: &Args) -> World {
         // Built from `common::PlantScene`, the same code `plant_probe`
         // uses -- see that module for why these two harnesses may not build
         // their own worlds any more.
+        // `grove`, on the heterogeneous bed -- the same scene with three
+        // conflicting tasks in it (moisture gradient, varying soil depth,
+        // clumped founders). A separate scene name rather than a knob on
+        // `grove`, so every stored `grove` sheet still means what it meant.
+        "gradient" => {
+            let base = common::PlantScene::varied();
+            let plants = if args.plants > 0 { args.plants } else { base.trees };
+            return common::PlantScene {
+                species: args.species.clone(),
+                trees: plants,
+                soil_moisture: args.soil_moisture,
+                soil_depth: args.soil_depth,
+                start_frame: args.frame0,
+                ..base
+            }
+            .build();
+        }
         "grove" => {
             let base = common::PlantScene::default();
             let plants = if args.plants > 0 { args.plants } else { base.trees };
@@ -5952,6 +5969,71 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, (usize, usize), (i
                 leaf + wood,
                 100.0 * leaf as f64 / total as f64,
             );
+        }
+        // **The standing organ census, which is a different question from the
+        // organ counters and the one a picture can actually be checked
+        // against.** `CLAUDE.md`: when the complaint is visible and
+        // persistent, measure the standing state, not the event rate. A
+        // stand can build a thousand organs and show none, because each one
+        // ripened and let go inside the interval between two tiles -- which
+        // is exactly what a first pass at the fruiting habit did, and the
+        // sheet showed flowers and no fruit at all while `organs built` read
+        // 1,126. This line is what says whether there is anything on the
+        // plant to see.
+        //
+        // Windfall is on it too, and separately: a fallen fruit is on the
+        // *ground*, so counting it with the fruit would let a floor of them
+        // stand in for a crop.
+        {
+            let count = |name: &str| {
+                world.materials.id_of(name).map_or(0usize, |id| {
+                    (0..WIDTH).flat_map(|x| (0..HEIGHT).map(move |y| (x, y))).filter(|&(x, y)| world.get(x, y).material == id).count()
+                })
+            };
+            let (flower, fruit, windfall) = (count("flower"), count("fruit"), count("windfall"));
+            if flower + fruit + windfall + world.organs_built as usize > 0 {
+                // **Where the windfall actually is, not where it is assumed
+                // to be.** The first version of this line called every
+                // windfall cell "on the ground" without checking, which is
+                // exactly the unverified label this repo keeps paying for --
+                // and it is a live question, because `main` added
+                // `Material::falls_through_organisms` for litter lodging in
+                // crowns and a dropped fruit takes the same path. Banded the
+                // way `litter_probe` bands litter so the two are comparable:
+                // a cell resting on plant tissue and a cell high above the
+                // ground are different failures and a total hides both.
+                let (mut lodged, mut high) = (0usize, 0usize);
+                if let Some(id) = world.materials.id_of("windfall") {
+                    let ground = common::PlantScene::default().ground_y;
+                    for x in 0..WIDTH {
+                        for y in 0..HEIGHT {
+                            if world.get(x, y).material != id {
+                                continue;
+                            }
+                            if world.get(x, y + 1).organism_id() != 0 {
+                                lodged += 1;
+                            }
+                            if y + 16 < ground {
+                                high += 1;
+                            }
+                        }
+                    }
+                }
+                println!(
+                    "    organs standing: {flower} flower + {fruit} fruit on the plant, \
+                     {windfall} windfall ({lodged} resting on plant tissue, {high} more than 16 rows up)"
+                );
+                // The event counters beside the standing census, because they
+                // are different questions and a card needs both: *built* says
+                // the mechanism fired, *terminated* says determinacy fired
+                // (a truss builds four organs off one terminated axis), and
+                // *dropped* is the far side of the whole sequence -- organs
+                // can be built in quantity and never once let go.
+                println!(
+                    "    organ events: {} built, {} axes terminated, {} fruit dropped",
+                    world.organs_built, world.axes_terminated, world.fruit_dropped
+                );
+            }
         }
         println!(
             "    shed: {} shade + {} drought + {} stranded = {} leaves",
