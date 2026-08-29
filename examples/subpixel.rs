@@ -122,6 +122,23 @@ struct Args {
     shade: f32,
     /// Sun direction for `shade`, in screen space, pointing *toward* the sun.
     sun: (f32, f32),
+    /// **How dark a shell just inside the silhouette is drawn** — a cartoon
+    /// ink line, in `0..1` of the fill colour.
+    ///
+    /// Asked for directly, 2026-08-29: the first tuning was rejected with
+    /// *"the edges between color or material look weird, kinda 3d-ish. Could
+    /// it be more flat or cartoony"*, which is a verdict on `ao` and `shade`
+    /// rather than on the reconstruction — those two are what put a lit side
+    /// and a shaded side on every lobe, and reading as rounded volume is
+    /// exactly what they are for. Flat wants the opposite: one fill, and the
+    /// form carried by a drawn **edge** instead of by shading.
+    ///
+    /// It rides the same field as everything else. `cov` is an occupancy
+    /// fraction, so the shell is just the band immediately above the
+    /// threshold — no edge detection, no second pass.
+    outline: f32,
+    /// How thick that shell is, in occupancy fraction above `level`.
+    outline_width: f32,
     crop: Option<(i32, i32, i32, i32)>,
     daylight: Option<f32>,
     out: String,
@@ -143,6 +160,8 @@ impl Default for Args {
             ao: 0.30,
             shade: 0.30,
             sun: (-0.55, -0.84),
+            outline: 0.0,
+            outline_width: 0.22,
             crop: None,
             daylight: Some(1.0),
             out: "/tmp/subpixel.png".into(),
@@ -293,6 +312,8 @@ fn main() {
             "blend" => a.colour_blend = v.parse().expect("blend"),
             "ao" => a.ao = v.parse().expect("ao"),
             "shade" => a.shade = v.parse().expect("shade"),
+            "outline" => a.outline = v.parse().expect("outline"),
+            "outline_width" => a.outline_width = v.parse().expect("outline_width"),
             "daylight" => a.daylight = Some(v.parse().expect("daylight")),
             "crop" => {
                 let n: Vec<i32> = v.split(',').map(|s| s.parse().expect("crop")).collect();
@@ -309,7 +330,10 @@ fn main() {
         "subpixel: scale={} arm={} frames={} plants={} species={:?} wood_r={} leaf_r={} level={} band={} blend={}",
         a.scale, a.arm, a.frames, a.plants, a.species, a.wood_r, a.leaf_r, a.level, a.band, a.colour_blend
     );
-    println!("          ao={} shade={} sun={:?}", a.ao, a.shade, a.sun);
+    println!(
+        "          ao={} shade={} sun={:?} outline={} outline_width={}",
+        a.ao, a.shade, a.sun, a.outline, a.outline_width
+    );
 
     let base = common::PlantScene::default();
     let mut world = common::PlantScene {
@@ -494,6 +518,14 @@ fn main() {
                         // give a crown a highlight with a flat middle.
                         let ndl = (-l.grad[0] * a.sun.0 - l.grad[1] * a.sun.1).clamp(-1.0, 1.0);
                         lift *= 1.0 + a.shade * ndl;
+                    }
+                    if a.outline > 0.0 {
+                        // The ink line: darkest right at the threshold,
+                        // gone by `outline_width` into the mass. Linear
+                        // rather than smoothstepped, because a cartoon line
+                        // wants a defined inner edge, not a vignette.
+                        let into = ((l.cov - a.level) / a.outline_width).clamp(0.0, 1.0);
+                        lift *= 1.0 - a.outline * (1.0 - into);
                     }
                     for i in 0..3 {
                         plant[i] *= lift;

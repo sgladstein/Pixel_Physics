@@ -222,12 +222,9 @@ coincidence.
   nothing for any cell whose neighbourhood is uniform (which is every interior
   cell of every mass in the world). The optimisations are standard and large,
   and **none of them is measured**. Quote the 139 ns/px, not a projection.
-- **The owner has not ruled on the look.** Card
-  `20260829T080553450Z-675375` (board `plants`) is a blind A/B of the shipped
-  1:1 render against the reconstruction, asking the question that actually
-  decides this: does it read better, or does it just read *blurry*. Some
-  players want the hard lattice. Nothing here should be landed in the shipped
-  renderer before that comes back.
+- **The look is under revision, not settled.** See §9 — the first tuning was
+  rejected and the direction it was rejected *toward* is recorded there.
+  Nothing should reach the shipped renderer before that lands.
 - **Nothing was changed in `src/`.** This is an instrument and a measurement.
 - The parameters (`wood_r 1.1`, `leaf_r 1.3`, `level 0.30`, `band 0.10`,
   `blend 0.75`, `ao 0.45`, `shade 0.40`) were set **by eye on one stand**, not
@@ -244,3 +241,43 @@ and lower-contrast — would separate a stand into two planes for free, and a
 stand reading as one flat hedge is the other half of the complaint
 `plant-appearance-design.md` §5a was chasing with `leaf_cluster`. Render-only,
 no simulation cost, not built.
+
+
+## 9. The owner's verdict, and what it rules out
+
+Card `20260829T080553450Z-675375`, board `plants`, blind A/B of the shipped
+1:1 render against the reconstruction, answered within five minutes. Decoded
+through `blind_was: [1, 0]`, so the displayed "Option A" is the **stored B**,
+the reconstruction — the owner identified the new arm correctly:
+
+> *"Option A is obviously new. I don't like how it looks but maybe we just need
+> to tweak it more, not give up. The edges between color or material look
+> weird, kinda 3d-ish. Could it be more flat or cartoony"*
+
+**This is a verdict on §5c, not on the reconstruction.** The ambient-occlusion
+and surface-normal terms are precisely what put a lit side and a shaded side on
+every lobe, and "reads as rounded volume" is what they are *for* — so the
+complaint lands exactly on the mechanism this report was most pleased with, and
+lands on nothing else. The silhouette work, the layer split and the resolution
+decoupling are all untouched by it.
+
+Worth stating plainly, because the pull to defend the clever part is strong:
+**deriving a normal and a thickness from the field is a real capability and it
+is the wrong art direction for this game.** Both can be true. The capability
+stays available for anything that does want volume (a boulder, a body of
+water); it is off for plants.
+
+The direction asked for — *flat or cartoony* — has an implementation on the
+same field and it needs no new state. `cov` is an occupancy fraction, so a
+**drawn edge** is just the band immediately above the threshold: darken there,
+fill flat inside, no edge detection and no second pass (`outline` /
+`outline_width` in the prototype). Flat is `ao: 0`, `shade: 0`,
+`colour_blend: 1.0`, a narrower `band`. Card posted as the follow-up; the
+answer to *"is the problem the smoothing itself or how far it goes"* is the
+thing still genuinely open.
+
+**And note what the round trip cost**: one card, five minutes, and it
+overturned the part of this work that no test, no counter and no amount of
+reasoning here would have questioned — the shading fired, the numbers were
+right, and it was wrong anyway. That is the fourth entry in this repo's tally
+of models overturned only by the owner's eye.
