@@ -1,7 +1,39 @@
 # Motion is the empty axis: how many verbs a creature should get
 
-**Status: design; §6 answered by the owner 2026-08-29, call 4 still open.**
-**§4c reverses this report's own first recommendation — see there.**
+**Status: built 2026-08-29 — `BrainOutput::Impulse`, §7's five guards
+green, and judged by the owner rather than by them.** All four of §6's calls
+are answered; call 4 was the last, and is decision **E11**. §4c reverses this
+report's own first recommendation — see there.
+
+**The verdict this had to have, and could not get from a test.** Card
+`20260829T154736312Z-2536dc`, a paired frame sequence of the two equal-mass
+bodies with the verb off and on: *"With the new jump is great. I choose B"*.
+That is the whole of what `CLAUDE.md`'s ethos asks and what §7's counters
+cannot answer — whether a hop reads as a hop. The counters say the mechanism
+fired (5 launches, 200 airborne frames, 0 falls, against 0 / 0 / 9 in the
+control); the owner says it is worth having.
+
+**What shipped, against what §5 promised.** One output, no per-species
+locomotion, and the four numbers below are read off the four *shipped* body
+plans with nothing authored per species:
+
+| body | cells | launch speed | terminal speed | §5's row |
+|---|---|---|---|---|
+| `ant` `Chain(2)` | 2 | 2.00 | 1.73 | hops far |
+| `ant_long` `Chain(6)` | 6 | 1.15 | 1.37 | shallower |
+| `ant_wide` 5x2 | 9 | 0.94 | 2.04 | barely leaves the ground, **glides** |
+| `ant_block` 3x3 | 9 | 0.94 | **4.74** | the same launch, drops like a stone |
+
+The last two rows are the design claim: **identical mass, identical launch,
+and 2.3x apart on the way down** — the whole difference being the bounding
+box. `src/sim/creature.rs`'s `body_drag` is where it is computed and there is
+no `match` on species anywhere in the path.
+
+**The float limit E9 asks for is in the same three lines and cost nothing**,
+exactly as §2c predicted: `buoyant_share` is `rigid::drag_through_liquid`'s
+own `carried`, so a body no denser than what it is in has zero effective
+weight and hangs. No creature material is buoyant today, so this is
+mechanism rather than behaviour — but authoring one now works.
 
 Written for the owner's question — *"I think motion could be a big
 differentiator. Can creatures hop, fly, only swim, different speeds,
@@ -418,10 +450,15 @@ a longer one on screen.**
    near future"*) was right and the argument against it was wrong: the
    reserve is inert, `live_slots()` stays at 268, and the cost is 2.1 MB at
    the population ceiling.
-4. **Is "creatures can cross gaps" wanted at all?** §2d records that the
-   current refusal is deliberate and hard-won — an impulse verb reverses a
-   decision that cost two attempts. **Still open**, and the guards in §7 are
-   what make it answerable rather than an argument.
+4. **Is "creatures can cross gaps" wanted at all? — YES.** Asked directly,
+   given that the refusal in §2d is deliberate and cost two attempts, the
+   owner chose *"Yes, they should cross"* over both *"No, refusing is fine"*
+   and an offer to render both readings first. Recorded as decision **E11**
+   in `Reports/creature-evolution-plan.md` §0; answered in session, so there
+   is no review card to cite, unlike E9 and E10.
+   **The condition travelled with the authorisation**: the verb ships with
+   §7's guards, and especially falls-per-move, or it does not ship. It has —
+   see the status line at the top of this report for the readings.
 
 ---
 
@@ -449,6 +486,169 @@ Non-negotiable given §2d, and each named with its known-good reading:
   §3's cost 3 arriving.
 - **Frame cost.** Airborne creatures keep chunks awake. Quote the whole-frame
   figure from `frame_profile`, paired and alternating, never a sub-phase.
+
+---
+
+## 7b. What the guards actually read, 2026-08-29
+
+Every figure here was taken on this branch merged up to `main` at `3c464c2`,
+on a container shared with three other agents. **Everything gated is a
+counter**; the one wall-clock figure is quoted with its caveat and carries no
+conclusion.
+
+### 1. Falls per move — unchanged, and the bar now refuses a wrong budget
+
+`forage_probe seeds=12 frames=12000 spacing=4`:
+
+| | min | median | max |
+|---|---|---|---|
+| falls / move | 0.208 | **0.225** | 0.334 |
+| blocked / move | 0.031 | 0.034 | 0.065 |
+| tumbles / move | 0.683 | 0.791 | 0.857 |
+
+The same three figures lane C measured before this verb existed
+(`creature-motion-baselines-2026-08-29.md`), which is what "the shipped ant
+takes the same draws in the same order" predicts.
+
+**The bar ships as `forage_probe gate=1`, set at 0.40** — above the *worst*
+seed rather than on the median, because which seed is worst reshuffles on any
+legitimate change and a bar on the median gets rubber-stamped. It **refuses to
+run** at any other frame budget: the statistic does not settle (0.239 / 0.225
+/ 0.215 at 6k / 12k / 24k), so a bar quoted without its budget is not
+reproducible. Checked: at `seeds=2 frames=6000` it exits 2 and says why.
+
+### 1b. The guard is sensitive — and the ratio does not survive a hopper
+
+**The fault §2d is named for, put back**: `(Bias, Impulse, 2.0)` authored into
+`ant.ron` and the *identical* sweep re-run. The gate fires — `gate=1` exits 1
+at a worst seed of **0.405** against its 0.40 bar. So the guard is not blind,
+and its green above is evidence rather than a default.
+
+**But read which term moved, because it is not the one the bar assumes.**
+
+| | shipped ant | ant with the verb wired |
+|---|---|---|
+| falls / move (min / med / max) | 0.208 / **0.225** / 0.334 | 0.248 / **0.298** / **0.405** |
+| walking `moves`, median | **33,020** | **5,100** |
+| **absolute falls, median** | **7,516** | **~1,520** |
+| blocked / move | 0.031 / 0.034 / 0.065 | 0.044 / 0.060 / 0.089 |
+| tumbles / move | 0.683 / 0.791 / 0.857 | 4.452 / 6.251 / 7.195 |
+| deliveries | 0 / 0 / 6 | **42 / 104 / 478** |
+| deepest excursion | 59 / 71 / 118 | **164 / 226 / 290** |
+
+**The hopping colony falls about a fifth as often** — ~1,520 against
+**7,516** — while the *ratio* climbs 32%. (The shipped figure is printed
+directly by `gate=1` now; the hopping one is its ratio times its median
+moves, since that arm exits before the line.) `CreatureStats::moves` counts **walking steps
+only**, deliberately (a ballistic step is `flight_moves`), so a species that
+hops instead of walking collapses the denominator 6.5x and the ratio rises on
+a numerator that fell. `tumbles/move` going 0.79 → 6.25 is the same
+arithmetic, eight times over.
+
+**So `falls / moves` is a guard about the species it was baselined on, and is
+not a cross-species statistic once anything leaves the ground.** That matters
+beyond this branch: read naively, 0.298 says "hopping makes ants fall more",
+and a session acting on it would revert a mechanism that is *reducing* falls
+while tripling foraging depth and taking deliveries from zero to a hundred.
+This is `CLAUDE.md`'s "ask what your number counts" arriving as a **ratio
+whose denominator the change moved** — the one shape that table does not yet
+have an entry for.
+
+`forage_probe gate=1` now prints **both terms** and its failure message says
+to check which one moved before concluding anything. The bar itself is
+unchanged and still correct for the shipped ant, which is what it gates.
+
+### 2. Blocked moves — the body is read, and by 8–10x
+
+Measured with the appearance lane's own instrument on its own preset, so the
+figures are comparable to `creature-appearance-design.md` §5 rather than to a
+number invented here. `creature_look mode=live count=40 frames=600`:
+
+| body | cells | moves blocked |
+|---|---|---|
+| `ant` `Chain(2)` | 2 | **5%** |
+| `ant_long` `Chain(6)` | 6 | **4%** |
+| `ant_wide` 5x2 | 9 | **41%** |
+| `ant_block` 3x3 | 9 | **43%** |
+
+That reproduces §5's table exactly, so a rigid body is still blocked 8–10x as
+often as a chain and still sits inside the 25–43% band §7 names. **What it
+does *not* show is anything about this verb**, and saying so matters: blocked
+movement is a property of `BodyPlan` that lane A shipped and this branch does
+not touch. The claim *this* branch has to support is that the same bounding
+box now also decides the descent, and that has its own reading — the 5x2 slab
+and the 3x3 block, identical mass and identical launch, differ **2.3x** in
+terminal speed and **1.64x** in time aloft (113 frames against 69 on one
+plinth over one drop, same seed and same organism id).
+
+### 3. `ascii` counters — byte-identical
+
+Two binaries, this branch against `origin/main`, same scenes:
+**1,109 counter lines match byte for byte.** The 146 lines that differ all
+carry a millisecond figure, which is the machine rather than the simulation.
+
+### 4. Ablatable — and it is the largest single output in the table
+
+`ant_ablation seeds=3 frames=6000`, 22 arms:
+
+| arm | travelled | coverage | foraged | first-pickup | pickups | deliveries |
+|---|---|---|---|---|---|---|
+| `zero` (control) | 0.0 | 46 | 0.00 | never | 0.0 | 0.0 |
+| `authored` | 71.2 | 1,267 | 0.06 | 1,208 | 2.7 | 0.0 |
+| `Impulse=lo` | **71.2** | **1,267** | **0.06** | **1,208** | **2.7** | 0.0 |
+| `Impulse=hi` | **331.4** | **3,989** | **0.50** | **118** | **29.3** | **8.3** |
+| `-Bias->Move` | 0.0 | 46 | 0.00 | never | 0.0 | 0.0 |
+
+Three readings, and they are three different claims:
+
+- **`Impulse=lo` reproduces `authored` to every printed digit.** At a
+  saturated-negative weight the `> 0.0` gate never opens, so the run is
+  bit-identical to the ant that ships. The gate is where it claims to be.
+- **`-Bias->Move` still reproduces `zero`**, which is the harness's own
+  positive control and the thing that makes every other row readable. If it
+  ever stops matching, nothing in this table means anything.
+- **`Impulse=hi` moves every column**: 4.7x travelled, 3.1x coverage, 8.3x the
+  fraction that ever forages, first pickup ten times sooner, 11x pickups —
+  and deliveries **0.0 → 8.3**, a colony completing nest → food → nest, which
+  the authored ant does not do at all in this scene. It is not a dead channel;
+  it is the largest single output in the table by a wide margin.
+
+**And that last row is a warning, not only a result.** §1's whole argument is
+that a strictly better trait makes every lineage converge on it — measured, in
+S5's diet genes producing one animal. On these columns hopping *is* strictly
+better, and the reason is that **this scene cannot see what it costs**:
+`ant.ron` is `start_energy` 900 at `idle_cost` 0.10 and `tick_interval` 6, an
+idle life of ~54,000 frames against a 6,000-frame run, so nothing starves and
+an energy price is invisible in every harness we have. That is exactly the
+arithmetic decision **E14** (the horizon change) is about. Until it lands,
+*"is the impulse priced correctly"* is not a question any instrument here can
+answer, and this report does not claim it is.
+
+### 5. Frame cost — a counter first, because the box was not quiet
+
+The shipped ant never launches, so the only cost the verb adds to today's
+game is one `f32` clamp and compare per creature tick, plus 20 bytes of
+`Option<Flight>` on every `OrganismState`. Guard 3 is the evidence that the
+first does no work: the counters are byte-identical.
+
+**What a *hopping* creature costs is scheduler slots, and that is countable
+rather than timed.** An airborne creature is rescheduled every frame instead
+of every `tick_interval`, so its footprint is **6x while it is in the air** —
+and it carries no `eval_brain` on any of those frames, because
+`creature_tick` returns before `sense`. Against
+`scheduler::MAX_CREATURE_SITES_PER_FRAME` = **256**:
+
+| | sites per frame |
+|---|---|
+| 52 ants walking (`tick_interval` 6) | ~9 |
+| 52 ants *all* airborne at once | 52 |
+| the reserve | 256 |
+
+So the budget binds at **256 concurrently-airborne creatures** against ~1,536
+walking ones. That is the number to re-take when S6 breeding raises the
+population past 55, and it is a graceful ceiling rather than a cliff: #118's
+own comment records that the budget bounds work and never gates whether a
+creature ticks, so exhausting it stretches an arc rather than dropping one.
 
 ---
 

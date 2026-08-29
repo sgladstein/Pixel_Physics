@@ -146,6 +146,12 @@ tried?"*.
   Carries the measured dead ends for this area — read it before touching
   `explosion.rs`, `fracture_field.rs` or the confined branch of
   `structural.rs`.
+- [explosion-menu-guide.md](explosion-menu-guide.md) — **reference, for the
+  owner rather than for an agent.** What every row of the `O` -> EXPLOSION
+  panel does, measured on one scene so the rows can be read against each
+  other, plus the five charge types and what each spends its energy on.
+  Written from the report that the panel was "too complicated"; it also
+  records why nothing was deleted from it.
 - [building-rethink.md](building-rethink.md) — **proposal, not built.**
   Building should not be a physics puzzle; from a direct playtest steer.
 - [load-concentration-review.md](load-concentration-review.md) — **merged,
@@ -464,6 +470,34 @@ drift that two of these documents still reflect.**
   fruit, where the clocks predict 58. Records four failures caught by looking
   rather than by a number, including a turgor bound that cut the axis short of
   its own metamer count.
+- [plant-rule-drift-observed-2026-08-29.md](plant-rule-drift-observed-2026-08-29.md)
+  — **§3d closed: a plant's production rule has been watched drifting.** Twenty
+  coexisting rule tables in one `herb` stand at 45,000 frames, from a world that
+  shipped with one, with all four operator signatures visible in a live
+  population. Drift **plateaus** near 1% rather than accumulating. Returns a
+  **null** on whether a drifted table costs a plant its establishment (3 of 385
+  distinct plants against 4.5 expected) and says how underpowered that null is.
+  Its §3a is worth reading on its own: the first version of that statistic
+  pooled organism-*samples* and printed a headline finding of strong selection
+  that was an artifact of counting persistent plants once per sample — caught on
+  tidiness, two seeds at exactly 0.00%. Leaves one open discrepancy: observed
+  drift runs **2.6x below** a per-birth model, with the settling measurement
+  named (a mutation counter at `bear_seed_at`, whose return value is currently
+  discarded).
+- [plant-throughput-herb-2026-08-29.md](plant-throughput-herb-2026-08-29.md)
+  — **which species the evolution programme should actually run on, and the
+  answer is `herb`.** Three seeds: deepest *established* generation 5, 7 and 3,
+  with 88% of established plants carrying an inherited genome and 8,000–11,000
+  seeds set per run, against `tree`'s 0-of-16 and `grass`'s best-ever 2. Put
+  beside the operator gate it is the only species with **both** halves — a
+  genome that can move (48% / 42% / 18% where tree and grass are 0% / 2% / 8%,
+  because `Ripe` is the one condition `builtin_fate` does not backfill) and
+  lineages that last long enough to move it. **Withdraws two standing
+  conclusions**: *"run evolution experiments on grass"* (grass sets **zero**
+  seeds on `main` today — `open-bugs-handoff.md` §1n, four scene controls) and
+  *"the 4,095-organism ceiling is nowhere near binding"* (herb runs at 44–61%
+  of it). Also records that `grass.ron`'s fate table is **byte-identical** to
+  `tree.ron`'s, so switching to grass would never have bought mutability.
 - [plant-fate-operator-gate-2026-08-29.md](plant-fate-operator-gate-2026-08-29.md)
   — **all four mutation operators now have a viability gate**, closing §3a of
   the handoff below, and the answer is not the one its weighting hedged
@@ -614,8 +648,13 @@ drift that two of these documents still reflect.**
 
 ## Creatures and ecology
 
-- [creature-motion-design.md](creature-motion-design.md) — **design,
-  awaiting the owner's call on §6.** Motion is the axis nobody has measured:
+- [creature-motion-design.md](creature-motion-design.md) — **built
+  2026-08-29; all four of §6's calls answered, §7's five guards green.**
+  `BrainOutput::Impulse` ships: one verb, and the *body* decides what it
+  does — launch speed is `sqrt(2W/m)` off cell count, descent is a drag law
+  off the bounding box, and `ant_wide` and `ant_block` (same mass, 5x2
+  against 3x3) launch identically and fall **2.3x** apart. E9's float limit
+  came free with it. Motion is the axis nobody had measured:
   there is no jump, fly, swim or hop anywhere in the engine. Answers the
   owner's "how many impulse verbs" debate by asking of each candidate
   *decision or property?* — **five of nine need no verb at all**, because the
@@ -629,7 +668,10 @@ drift that two of these documents still reflect.**
   the whole cost is 2.1 MB at the population ceiling. §4d answers "can we
   name the held slot now": no, naming is what makes a slot live. Carries the
   principal risk: `step_chain` refuses gaps deliberately, after two attempts
-  that put falls at 59–80% of all moves.
+  that put falls at 59–80% of all moves. **That risk was retired by not
+  touching the walk at all** — the verb is a separate opt-in path, the
+  shipped ant authors no weight into it, and falls per move on the foraging
+  scene is unchanged.
 - [creature-appearance-design.md](creature-appearance-design.md) —
   **design + measured study.** Why a two-cell ant cannot be found in a
   picture, and what does: extent is the only lever, the dark palette is
