@@ -1,0 +1,46 @@
+{
+  "id": "20260829T031457881Z-791603",
+  "created": "2026-08-29T03:14:57Z",
+  "board": "plants",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/leaves-on-the-floor-followup",
+    "commit": "9f6664d",
+    "agent": null,
+    "session_id": "2b1a1663-ed7a-57ee-a73a-db2e67efd103",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Leaves on the floor: the drift that climbed the trunk",
+  "question": "Which reads as a forest floor? (real colours, no overlay — the gold is leaf litter)",
+  "context_md": "You said the last card looked better but the leaves still didn't look like they\nwere all on the floor. You were right twice, and I was wrong twice.\n\n**1. The picture I sent you was misleading.** It painted \"resting on plant\ntissue\" in magenta — the same colour for a leaf stuck forty rows up a tree and\nfor a drift lying on the floor banked against a trunk. The caption said so; a\ncaption doesn't beat a picture. The overlay now paints on *air underneath*\ninstead, which is the one thing that isn't confounded. On that measure the\nprevious fix had already worked: 4 of 497 standing cells held off the ground.\n\n**2. There was still a real defect, and no number in the repo could see it.** A\ndrift that can't spread sideways has nowhere to go but *up*. Wedged between\ntrunks it climbed out of the forest floor into the low branches as a column —\ntouching the ground the whole way, so every measure that asks \"what is under\nthis cell\" called it floor. That is the gold mass in one of these panes.\n\nThese two panes are **the same scene, same seed, same binary, 12,000 frames**,\nwith one environment variable turning the new sideways rule on and off. Real\nmaterial colours, no markers, no dimming — this is what it looks like. Crop\nx120..380, y150..210, at 5x.\n\n|  | as stored A | as stored B |\n|---|---|---|\n| litter grounded but >8 rows up | 119 (23.9%) | **10 (4.9%)** |\n| ...with plant tissue right beside it | 81 of those | 9 of those |\n| tallest litter column above terrain | 28 rows | **10 rows** |\n| litter within 3 rows of the ground | 43.1% | **73.4%** |\n| held off the ground (air underneath) | 0.8% | 0.5% |\n\nEvery counter in `examples/ascii` is unchanged except the ant-colony scene's,\nwhich moves because litter is ant food and it genuinely relocated — forage\ntrips 68 -> 67 against a bar of 8.\n\nThe one thing I'd like your eye on beyond the choice: **is the winning floor\ntoo thin?** `litter.ron`'s 42-degree friction angle is there so a drift piles\nagainst a trunk rather than running out to a flat sheet. The new rule only\nspills a leaf where there is somewhere lower to go, so drifts should still\nform — but this is the trade, and it is yours to call, not mine.\n",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "leaves fall through branches only",
+      "files": [
+        "20260829T031457881Z-791603/000-plain_before.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "+ drifts spill round trunks",
+      "files": [
+        "20260829T031457881Z-791603/001-plain_after.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
