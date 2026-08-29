@@ -1,0 +1,56 @@
+{
+  "id": "20260829T222341766Z-a77a1c",
+  "created": "2026-08-29T22:23:41Z",
+  "board": "world-scale",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics/.claude/worktrees/agent-aaf90002fe101e5b3",
+    "branch": "claude/frame-cost-bisect",
+    "commit": "749e55c",
+    "agent": null,
+    "session_id": "8decc404-1166-54ad-9ca6-a460991ec93f",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics/.claude/worktrees/agent-aaf90002fe101e5b3"
+  },
+  "title": "Correction: the taller sky is free after all",
+  "question": "Same question as before, now that both cost the same: which of these two worlds do you want?",
+  "context_md": "**This corrects the card I posted an hour ago** (*Two skies, and what the taller one costs a frame*). Its pictures are right and its numbers are now wrong — please answer this one instead.\n\nI said painting the taller sky cost 29 ms a frame and that I thought it was a bug rather than the price of the sky. It was a bug, and it is fixed. **Painting A now costs 7.5 ms where it cost 42, and B costs 6.7 ms where it cost 11.** The sky is very nearly free.\n\nWhat was actually happening: every glowing crystal underground throws a halo, and building those halos was doing a hash lookup for every cell of every halo, on every frame the camera moves — which is every frame you are walking. Moving the terrain down spread the same pile of crystals across more of the map, so the taller sky paid for more of them. Nothing to do with the sky itself.\n\n**So this is now purely a question about the look.** No performance reason to prefer either. The frame is still over budget — 18.9 ms of simulation against a 16.6 ms budget — but that is the world simulating, not the drawing, and it is a separate job.",
+  "kind": "before_after",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A — the sky that ships now",
+      "files": [
+        "20260829T222341766Z-a77a1c/000-card.now.png"
+      ],
+      "caption": "sky_rows 190 (PR #94)",
+      "meta": {
+        "time to paint one frame": "7.5 ms (was 42)",
+        "time to simulate one frame": "18.6 ms",
+        "budget for both, at 60 fps": "16.6 ms",
+        "share of the screen that is sky": "70%"
+      },
+      "focus": null
+    },
+    {
+      "label": "B — the sky of the day before",
+      "files": [
+        "20260829T222341766Z-a77a1c/001-card.sky95.png"
+      ],
+      "caption": "sky_rows 95 (everything else identical)",
+      "meta": {
+        "time to paint one frame": "6.7 ms (was 11)",
+        "time to simulate one frame": "16.6 ms",
+        "budget for both, at 60 fps": "16.6 ms",
+        "share of the screen that is sky": "40%"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
