@@ -1,0 +1,56 @@
+{
+  "id": "20260829T181524158Z-9a64fa",
+  "created": "2026-08-29T18:15:24Z",
+  "board": "worldgen",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/worldgen-revamp-plan-dot67g",
+    "commit": "41f0597",
+    "agent": null,
+    "session_id": "2cb39797-d076-5699-b8bf-4494224deffe",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Wet rock below the water table",
+  "question": "One of these darkens every rock cell below the column's own water table. Which is the ground you would rather stand on?",
+  "context_md": "Both sides already have the six-rock vocabulary; the only difference is the damp family. It is one byte written at genesis -- family 0 multiplied by (0.78, 0.79, 0.83), because a water film kills the diffuse scatter off the grain and loses least at the blue end -- so it costs nothing per frame and nothing per cell after genesis.\n\n**It is the largest single thing in the proposal by pixels and it is the one I am least sure of.** On its own it moves 19.5% of the viewport -- more than the whole `soil_blanket` pass -- and it moves exactly **0 pixels on arid**, which has no water table at all. But it also *reduces* the number of colours covering half the ground on three of five presets, because it pulls a very large area toward one value. That is the trade I cannot judge by measuring: real wet ground, or a world with the lights turned down.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "dry rock everywhere",
+      "files": [
+        "20260829T181524158Z-9a64fa/000-x2-nodamp-rolling-v4.png"
+      ],
+      "caption": "rocks only, no damp family",
+      "meta": {
+        "pixels this arm differs by": 0,
+        "colours covering half the ground": 15,
+        "mean ground luma": 112.5
+      },
+      "focus": null
+    },
+    {
+      "label": "damp below the table",
+      "files": [
+        "20260829T181524158Z-9a64fa/001-x2-on-rolling-v4.png"
+      ],
+      "caption": "rock at or below ColumnPlan::table_y takes the damp family",
+      "meta": {
+        "pixels moved by this alone": "19.5% of the viewport, pooled over 5 presets x 2 seeds x 16 views",
+        "on rolling": "29.4%",
+        "on arid": "0.0% -- no water table",
+        "colours covering half the ground": 13,
+        "mean ground luma": 97.5
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
