@@ -1,34 +1,45 @@
 # Creature line — evening handoff, 2026-08-29
 
-**Written by `session_019RCxVVRPrYbeRtqCmofeUK`** (08:44–22:00), successor to
-`creature-line-handoff-2026-08-29.md` (04:00–08:00). Same contract as that
-one: the things a fresh session cannot reconstruct from commits are **which of
-my claims were wrong**, **which numbers are stale**, and **what is authorised
-rather than discussed**.
+**From `session_019RCxVVRPrYbeRtqCmofeUK`** (08:44–23:00), successor to
+`creature-line-handoff-2026-08-29.md` (04:00–08:00).
 
-**Read in this order:** this file, then `Reports/creature-reproduction-economics.md`
-(on `claude/creature-reproduction-economics`, unmerged by design), then
-`creature-evolution-plan.md` §0 for E11–E14.
+## 0. How to use this file
 
----
+**Sections 1–5 are measured. Section 6 is my opinion and you should form your
+own.** I have been in one subsystem all day, which makes me well informed about
+the creature line and *badly* placed to judge what the project needs next. Read
+the sources and decide for yourself:
 
-## 1. STOP — the one thing to do before building anything
+- **`CLAUDE.md`** — the method. Its *By topic* table maps subsystem to owning
+  section; do not read `README.md` whole (~46k tokens).
+- **`PLAN.md`** Contents, and the dated *(State …)* line in any handoff section.
+- **`Reports/README.md`** — the index, with each report's standing.
+- **`Reports/open-bugs-handoff.md`** — its generated status index is the first
+  table; read that, then only the sections for your area.
+- **`Reports/dead-ends.md`** — grep the **mechanism** you are about to build,
+  never your subsystem (~97k tokens).
+- `creature-evolution-plan.md` §0 for decisions E1–E14.
 
-**The reproduction analysis is void until a positive control passes, and it has
-not been run.** S6 explains a *null* — births never happen — and nothing has
-shown the ceiling model can permit a birth **at all**. Run this first:
+**If your reading of the priorities differs from §6, follow yours.** The one
+thing I would ask you not to skip is §1, because it is a gate rather than a
+preference.
+
+## 1. STOP — the gate, not yet run
+
+**The reproduction analysis is unproven until a positive control passes.** S6
+explains a *null* — births never happen — and nothing has shown the ceiling
+model can permit a birth **at all**:
 
 ```
 creature_probe start_energy=200 body_energy=20 threshold=241 hunger=0.9 terrain=world frames=24000
 ```
 
-`birth_cost` 240, `reproduce_at` 241, ceiling 300. `hunger=0.9` is deliberately
-in dead-end territory — it is a control, not a proposal. **If it reports
-`births 0`, §§1–5 of the economics report are wrong and the build must not
-start.** I could not run it: the perf lane owned the box for timings and a
-build would have corrupted its numbers.
+`birth_cost` 240, `reproduce_at` 241, ceiling 300. (`hunger=0.9` is deliberately
+in dead-end territory — a control, not a proposal.) **If it reports `births 0`,
+the economics report's §§1–5 are wrong.** I could not run it: the perf lane
+owned the box, and a build would have corrupted its timings.
 
-## 2. What landed (all merged to `main`)
+## 2. What landed today
 
 | PR | what |
 |---|---|
@@ -36,113 +47,104 @@ build would have corrupted its numbers.
 | #122 | The predation pre-flight, and the decision **not** to build it |
 | #123 | Motion baselines re-taken; a headline corrected the same day |
 | #124 | Creatures can leave the ground; the body decides what a jump does |
-| #126 | S6 reproduction — built, guarded, and unreachable by arithmetic |
+| #126 | S6 reproduction — built, guarded, unreachable by arithmetic |
 
-## 3. Authorised vs discussed
+**Unmerged and open:** `claude/frame-cost-bisect` (the render fix — needs a PR
+merged once CI is green), `claude/creature-reproduction-economics` (a design
+document, deliberately no PR), and this branch.
 
-**Authorised by the owner, in session (no card ids — E9/E10 have them, E11–E14
-do not):**
+## 3. Decisions — authorised vs not
 
-- **E11** gap-crossing → the impulse verb. Shipped.
-- **E12** S6 reproduction. Shipped.
-- **E13** predation, as E7's one-file probe. Shipped as a *decision not to build*.
-- **E14** the horizon change — *"Yes, let them starve"*. **Authorised, NOT
-  shipped**; see §5.
-- **The reproduction economics build** — *"this all sounds good. start building
-  when ready"*. `birth_grant` plus newborn-starts-small-and-grows.
+**Authorised by the owner, in session** (no card ids; E9/E10 have them):
+**E11** gap-crossing → the impulse verb · **E12** S6 reproduction · **E13**
+predation as E7's one-file probe · **E14** the horizon change, *"Yes, let them
+starve"* — **authorised, NOT shipped**, see §5 · and the reproduction economics
+build (`birth_grant` + newborn-starts-small).
 
-**NOT authorised — do not start:**
+**Not authorised:**
 
-- **`birth_size` as a gene.** The economics report refuses it and I verified
-  why: `idle_cost`/`move_cost` are **flat per organism** (`creature.rs` ~1288,
-  ~1329) — nothing reads `chain.len()`. **E10's premise that "per-cell
-  metabolic cost already prices a longer body" is false in the code**, so size
-  would ratchet to one extreme however priced. Needs its own owner decision.
-- The nest-larder fork of reproduction (fork 2), until its experiment E3 says
-  it is reachable.
+- **`birth_size` as a gene.** `idle_cost`/`move_cost` are **flat per organism**
+  (`creature.rs` ~1288, ~1329) — nothing reads `chain.len()`. **E10's premise
+  that per-cell metabolic cost already prices a longer body is false in the
+  code**, so size would ratchet to one extreme however priced. Needs an owner
+  decision.
+- The nest-larder fork of reproduction, until its experiment E3 says it exists.
 - `shade-by-cell-type`, heritable chain length, the fear-scent channel,
-  `Strike` as a brain verb (slot 12 stays unnamed per motion-design §4b).
+  `Strike` as a brain verb (slot 12 stays unnamed).
 
-## 4. Things I asserted that were WRONG — do not inherit them
+## 4. Where I was wrong — do not inherit these
 
-Six, and the pattern is worth more than the list: **every one was a claim
-generalised from partial evidence I had not finished reading.**
+Six, and **the pattern is worth more than the list: every one was generalised
+from partial evidence I had not finished reading.**
 
 | I claimed | truth |
 |---|---|
-| An ant's bank ceiling is **930** | **570.** The diet matched filter pays a neutral gut **120** from a 480 leaf, not 480. I quoted the measured bank (**568**) and the 930 model in the same message and did not notice they disagreed by 40% |
-| `food_energy == body_energy` across every edible material | **False.** `flower` 1440, `fruit`/`windfall` 960 against `body_energy` 480. I read the first eight matches alphabetically — all 480 — and generalised. **The pump invariant binds *flesh* only** |
-| "Only creatures are slow" rules out a frame-rate cause | **Wrong reasoning.** Creature ticks are quantised (nothing on 5 frames in 6), so they degrade *visibly* while the CA sweep degrades smoothly. I told a lane to drop that hypothesis; it pushed back and was right |
-| The scheduler is not starving creatures | **Scene-limited, not general.** True of an undisturbed colony, false once a pick is in the world. I relayed a null as though it were universal |
-| A card's counters were missing because top-level `meta` was null | They were in **`items[].meta`**, which is where the spec puts per-item counters |
-| A local test result would carry to the current head | It would not — another PR had landed 1,400 lines under it. Caught only because I checked |
+| An ant's bank ceiling is **930** | **570.** The diet matched filter pays a neutral gut **120** from a 480 leaf. I quoted the measured bank (**568**) and the 930 model in one message without noticing they disagreed by 40% |
+| `food_energy == body_energy` everywhere | **False.** `flower` 1440, `fruit`/`windfall` 960 against 480. I read the first eight matches alphabetically and generalised. The pump invariant binds **flesh** only |
+| "Only creatures are slow" rules out a frame-rate cause | **Wrong reasoning.** Creature ticks are quantised (nothing on 5 frames in 6), so they degrade visibly while the CA degrades smoothly. A lane pushed back and was right |
+| The scheduler is not starving creatures | **Scene-limited.** True of an undisturbed colony, false once a pick is in the world |
+| Counters were missing from a review card | They were in **`items[].meta`**, which is where the spec puts them |
+| **The sky is the frame cost** | **Correlated, not causal** — see §5. I passed this to another session, who could have cut `sky_rows` on my say-so |
 
-I also **pushed a merge without rebuilding** and broke CI: `main` and a lane
-both edited one format string, git merged the text cleanly, and the result had
-one more argument than slots. A clean text merge is not a working tree.
+I also **pushed a merge without rebuilding** and broke CI. A clean text merge
+is not a working tree.
 
-## 5. Stale numbers and standing traps
+## 5. Measured — do not re-derive
 
-- **The horizon change is authorised and deliberately unshipped.** It does what
-  it was designed to do (`deaths` 0 → 25, `eats` 16 → 58) and **does not fix
-  breeding**: cutting `start_energy` lowers the bank ceiling faster than the
-  birth bar. It belongs with the ecology decision, not riding in on a mechanism
-  change.
-- **Falls-per-move for a hopping species reads backwards.** The ratio climbs
-  0.225 → 0.298 while *absolute* falls drop 7,516 → ~1,520, because
-  `CreatureStats::moves` counts walking steps only. `gate=1` prints both terms;
-  read both. A ratio whose denominator the change moved is not in `CLAUDE.md`'s
-  metric-trap table.
-- **§13o's "no beetle ever touched an ant" is dead.** Beetles kill ~2 ants in
-  52; S5's food model changed under that measurement. The conclusion survives,
-  the stated reason does not.
-- **`open-bugs-handoff.md` §S is marked closed and is not.** Under sustained
-  mining the structural queue is self-sustaining — 5,558–9,080 sites produced
-  against 2,000 drained, pending through 62,658. #118 insulates creatures from
-  it and deliberately does not touch the cause.
-- **Every frame figure this repo has ever quoted excludes `Renderer::draw`.**
-  That is the standing finding: every instrument times `App::update`, and the
-  renderer is not in it. Simulation measured 18.9 ms against a **39.7 ms**
-  redraw — an honest frame of ~59 ms, ~17 fps.
-- **The sky was NOT the cost, and I said it was — twice, including to the
-  rendering session.** The bisect found PR #94's taller sky worth ~29 ms of
-  every redraw, which was true and not causal. `rebuild_near_glow` splats a
-  radius-14 disc from every glowing cell and hashed a `ChunkCoord` **twice per
-  disc cell** (~615 cells x ~6,900 discs, every full redraw). The control that
-  named it: with vaults off, both worlds cost **5.2 ms** and place the same
-  number of glowing cells — so it was never "more crystals", it was how many
-  chunks a fixed pile got spread across, which moving terrain 95 rows down
-  changes. Callgrind: `sip.rs` 145.0M instructions against 32.3M, every other
-  symbol identical. **Fixed** by walking the disc chunk-major — four lookups
-  per glowing cell rather than 1,230. **~42 ms -> ~7.5 ms, and PR #94 stays.**
-  See `Reports/frame-cost-the-render-half-2026-08-29.md` on
-  `claude/frame-cost-bisect`. The lesson is the one this file keeps repeating:
-  a cliff correlated with a knob is not the knob.
+- **The render was 2/3 of the frame and nobody had ever measured it.**
+  `Renderer::draw` is not in `App::update`, which is what every instrument
+  times, so **every whole-frame figure on record is half a number.** Simulation
+  18.9 ms against a **39.7 ms** redraw.
+- **The cause was `rebuild_near_glow` hashing a `ChunkCoord` twice per disc
+  cell** (~615 cells x ~6,900 discs, every full redraw) — not the sky. Control:
+  with vaults off **both** worlds cost 5.2 ms and place the same number of
+  glowing cells, so it was chunk *spread*, not crystal count. Fixed
+  chunk-major: **~42 ms → ~7.5 ms, and PR #94 stays.**
+- **The horizon change works and does not fix breeding.** `deaths` 0 → 25,
+  `eats` 16 → 58; but cutting `start_energy` lowers the bank ceiling faster
+  than the birth bar.
+- **Falls-per-move reads backwards for a hopping species** — the ratio climbs
+  0.225 → 0.298 while *absolute* falls drop 7,516 → ~1,520, because `moves`
+  counts walking steps only. A ratio whose denominator the change moved.
+- **§13o's "no beetle ever touched an ant" is dead** — beetles kill ~2 in 52.
+  Conclusion survives, stated reason does not.
+- **Predation is blocked by the sampler**, not perception: 31 nonzero trail
+  cells in an 81,920-cell world against a two-cell read.
+- **`open-bugs-handoff.md` §S is marked closed and is not** — under sustained
+  mining the structural queue is self-sustaining, 5,558–9,080 produced against
+  2,000 drained.
 
-## 6. Where the work goes next
+## 6. What I would do next — a suggestion, not a work order
 
-1. **The positive control in §1.** Nothing else until it passes.
-2. **`birth_grant` + newborn-grows-into-its-plan** (economics report fork 1).
-3. **Experiment E3** — does the nest-larder fork exist?
-4. **The body-size pricing decision** (§3) — E10 rests on something untrue.
-5. **E9 water response** — still unstarted. Note its old justification is
-   weaker now: starvation already puts carrion in the world, and a corpse
-   **emits nothing on either pheromone plane**, so carrion helps a blunderer
-   without making anything findable.
+**Judge this against the sources in §0 and your own read of what the project
+needs. I am one subsystem deep and may be over-weighting it.**
+
+1. **Merge the render fix.** Biggest player-visible win available (~17 → ~38
+   fps) and it is already measured and built.
+2. **Run §1's control.** Cheap, and it either unblocks the reproduction build
+   or voids a report.
+3. **Then the reproduction build** if the control passes.
+4. **Put the body-size pricing question to the owner** — E10 rests on something
+   untrue, and it blocks heritable anatomy.
+5. **Someone should own `§S`** — it is marked fixed and is not.
+
+**What I would *not* do:** start a new mechanic before §1's control runs; treat
+my §6 order as settled; or re-measure anything in §5 without reading the report
+that produced it first.
 
 ## 7. Environment notes that cost me time
 
 - **`SendMessage` does not resolve cloud sessions.** Cross-session contact
-  works via `create_trigger` with `persistent_session_id` + `fire_trigger` —
-  the mechanism `Reports/session-programs.md` documents. Both handoffs today
-  went that way after `SendMessage` failed on ID *and* title.
-- **`review.py inbox` filters by author**, so it will not show a lane's own
-  card. Read `.git/pixel-physics-review/sync/cards/` and `sync/responses/`
-  directly. Per-item counters live in `items[].meta`.
+  works via `create_trigger` + `persistent_session_id` + `fire_trigger`.
+- **`review.py inbox` filters by author** — it will not show a lane's own card.
+  Read `.git/pixel-physics-review/sync/cards/` and `sync/responses/`.
 - **`/tmp` scratchpad notes die with the container.** Anything worth keeping
   goes on a branch.
-- Container clippy is **1.94.1**, CI pins **1.98.0**. That drift produced two
-  red PRs today. `cargo +1.98.0 clippy --all-targets -- -D warnings`.
+- Container clippy is **1.94.1**, CI pins **1.98.0** — that drift produced two
+  red PRs today.
 - **The box is a measurement instrument.** Frame timings are worthless while
-  another lane compiles — a byte-identical binary has been recorded 2.42x
-  apart on load alone. Run one lane when timing.
+  another lane compiles; a byte-identical binary has read 2.42x apart on load
+  alone. Run one lane when timing.
+- `assets/worldgen.ron` is runtime-loaded; `materials/*.ron` and `species/*.ron`
+  are `include_str!`ed. A worldgen A/B needs no rebuild and has no
+  stale-binary hazard; a materials A/B has nothing but.
