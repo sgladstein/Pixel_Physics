@@ -102,30 +102,30 @@ point.
 | -- | historic | 5527 | R (original). filmstrip scene=colony panics at its own default seed, and degrades badly a... |
 | L | closed | 5606 | The colony has gone sessile: 98 round trips became 2 |
 | R2 | **OPEN** | 5738 | An ant put down on open water stands on the surface for ever, and found_colony puts them ... |
-| -- | historic | 5771 | R2 (original). An ant put down on open water stands on the surface for ever, and found_co... |
-| S | closed | 5833 | Every destructive verb but the brush leaves the structural scheduler pinned at its cap fo... |
-| S2 | **OPEN** | 6830 | The brush's anchor rule destroys structures the other two rules leave standing |
-| S4 | **OPEN** | 7018 | Rock still crushes itself on an idle world |
-| S3 | closed | 7090 | A world nobody has touched pulls its own ground apart |
-| -- | closed | 7139 | The plant model bounds height and does not bound width FIXED |
-| 1 | note | 7230 | MAX_ROOT_FRACTION feeds the staleness counter, permanently retiring roots |
-| 2 | note | 7244 | Grow into soil destroys the soil's stored water |
-| 3 | note | 7256 | Capillary exchange can push a neighbour above its own capacity |
-| W1a | note | 7274 | creeper.ron's root tips still run the superseded in-tick branch path |
-| W1b | note | 7295 | A material-counting guard cannot see a species |
-| W1c | note | 7308 | generated_terrain_is_already_at_rest went red on main |
-| T1a | note | 7442 | load::grain_is_footing reads *attachment* where it means *supported* |
-| T1b | note | 7520 | The structural opt-out did not hold against bearing |
-| T1d | note | 7531 | acceptance.sh's lavadrop sits close enough to its frame budget to flake, and is over it o... |
-| T1e | note | 7565 | "The pieces hit the ground and turn to dust" was not settle, and the measurement says so |
-| T1f | note | 7619 | The felled pile is 74% powder because the tree is 56% leaves. The piece ladder cannot fix... |
-| T1g | note | 7673 | A "refixed" claim went out over a settled state that had barely moved |
-| T1c | note | 7702 | §1c's settle loss is now a counter |
-| -- | note | 7719 | What landed |
-| -- | note | 7742 | Do not re-derive these |
-| -- | note | 7770 | Measurements that contradict something written |
-| -- | note | 7790 | Open |
-| -- | note | 7825 | Unmerged at close, and one of it is a fix main needs anyway |
+| -- | historic | 5794 | R2 (original). An ant put down on open water stands on the surface for ever, and found_co... |
+| S | closed | 5856 | Every destructive verb but the brush leaves the structural scheduler pinned at its cap fo... |
+| S2 | **OPEN** | 6853 | The brush's anchor rule destroys structures the other two rules leave standing |
+| S4 | **OPEN** | 7041 | Rock still crushes itself on an idle world |
+| S3 | closed | 7113 | A world nobody has touched pulls its own ground apart |
+| -- | closed | 7162 | The plant model bounds height and does not bound width FIXED |
+| 1 | note | 7253 | MAX_ROOT_FRACTION feeds the staleness counter, permanently retiring roots |
+| 2 | note | 7267 | Grow into soil destroys the soil's stored water |
+| 3 | note | 7279 | Capillary exchange can push a neighbour above its own capacity |
+| W1a | note | 7297 | creeper.ron's root tips still run the superseded in-tick branch path |
+| W1b | note | 7318 | A material-counting guard cannot see a species |
+| W1c | note | 7331 | generated_terrain_is_already_at_rest went red on main |
+| T1a | note | 7465 | load::grain_is_footing reads *attachment* where it means *supported* |
+| T1b | note | 7543 | The structural opt-out did not hold against bearing |
+| T1d | note | 7554 | acceptance.sh's lavadrop sits close enough to its frame budget to flake, and is over it o... |
+| T1e | note | 7588 | "The pieces hit the ground and turn to dust" was not settle, and the measurement says so |
+| T1f | note | 7642 | The felled pile is 74% powder because the tree is 56% leaves. The piece ladder cannot fix... |
+| T1g | note | 7696 | A "refixed" claim went out over a settled state that had barely moved |
+| T1c | note | 7725 | §1c's settle loss is now a counter |
+| -- | note | 7742 | What landed |
+| -- | note | 7765 | Do not re-derive these |
+| -- | note | 7793 | Measurements that contradict something written |
+| -- | note | 7813 | Open |
+| -- | note | 7848 | Unmerged at close, and one of it is a fix main needs anyway |
 
 <!-- END GENERATED INDEX -->
 
@@ -5757,14 +5757,37 @@ ground** — rather than "no creature cell is ever over water", which fails for 
 correct two-cell ant whose head is on the bank and whose tail overhangs the
 shore by one cell. Verified red with the `Liquid` refusal removed.
 
-**Locomotion: still open, and it is the owner's call, not a bug fix.** An ant
-that walks onto a pond under its own power still stands on it: `step_chain`
-judges it unsupported correctly, but the fall it attempts needs every cell to
-land somewhere `World::is_empty` calls free, and water is not free, so the fall
-is refused. Does an ant **drown, float, or swim**? Drowning is the cheapest and
-has a side effect worth noticing — it is the only mechanism currently proposed
-anywhere that would put **carrion** in the world, which is what the diet gene
-(S5) measured as missing.
+**Locomotion: ANSWERED 2026-08-29, and the answer is not one of the three.**
+An ant that walks onto a pond under its own power still stands on it:
+`step_chain` judges it unsupported correctly, but the fall it attempts needs
+every cell to land somewhere `World::is_empty` calls free, and water is not
+free, so the fall is refused. The card asked **drown, float, or swim**; the
+owner's verdict is **all three, as a heritable trait**, with one constraint
+added that the card did not offer:
+
+> *"I like the idea of all those being possible for creatures and could we
+> integrate that into the genetics as traits that could evolve. Although there
+> should be a mechanical limit to floating as we wouldn't want really large
+> creatures (if we could even get there with our engine) floating."*
+
+Recorded as **E9** in `creature-evolution-plan.md`. Three things follow, and
+the third is the one a implementer will get wrong:
+
+1. Water response joins `gut_bias` in `OrganismState::traits` — the same
+   shape, one scalar, drown at one end and swim at the other.
+2. **The float limit is physical, not genetic.** Buoyancy bounded by body mass
+   against displacement, so no genome can evolve a large creature onto the
+   surface. Stating it as a world rule rather than a gene is what stops it
+   becoming a number somebody has to keep re-tuning against every new body
+   size — `CLAUDE.md`'s *"when a rule must tell apart two things that can look
+   identical, state the difference as data"*, applied before the fact for
+   once.
+3. **Nothing evolves yet, and the entry should not imply otherwise.** There is
+   no reproduction and no mutation operator, so this ships as a per-species
+   knob that *becomes* evolvable the day S6 lands. It is still worth building
+   first: drowning is the only mechanism yet proposed that puts **carrion** in
+   the world, which `creature-evolution-plan.md` §2.5 measured as the reason
+   the survival-versus-`gut_bias` curve has one hump instead of two.
 
 **Original entry follows.**
 
