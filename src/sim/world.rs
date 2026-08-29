@@ -1077,6 +1077,10 @@ pub struct World {
     /// radius spans both, and which one is right is a question for the
     /// hand rather than for argument.
     pub chain_reach: i32,
+    /// **Which stem-straightness mode growth runs under** — see
+    /// `plant::StemMode`. `K` cycles it; `Off` is the default and is the
+    /// behaviour that predates the mechanism.
+    pub stem_mode: crate::sim::plant::StemMode,
     /// How long a disturbance keeps licensing failures near it, in frames.
     /// Generous by default: a cave-in that arrives a few seconds after you
     /// undermine something is the mechanic, not a bug.
@@ -1643,6 +1647,7 @@ impl World {
             // the default is one edit in one place. Currently SPREAD, so
             // this is `i32::MAX` -- the literal it replaced.
             chain_reach: crate::sim::structural::CHAIN_MODES[0].reach,
+            stem_mode: crate::sim::plant::StemMode::default(),
             chain_window: crate::sim::structural::CHAIN_WINDOW_FRAMES,
             disturbances: std::collections::VecDeque::new(),
             staged_fractures: std::collections::VecDeque::new(),
