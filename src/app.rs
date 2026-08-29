@@ -1553,7 +1553,7 @@ impl App {
             return false;
         };
         p.tool = tool;
-        self.show_toast(&format!("{} - {}", tool.label(), tool.note().to_uppercase()));
+        self.show_toast(format!("{} - {}", tool.label(), tool.note().to_uppercase()));
         true
     }
 
@@ -1566,7 +1566,7 @@ impl App {
         };
         let tool = p.tool.next();
         p.tool = tool;
-        self.show_toast(&format!("{} - {}", tool.label(), tool.note().to_uppercase()));
+        self.show_toast(format!("{} - {}", tool.label(), tool.note().to_uppercase()));
         true
     }
 
@@ -1581,7 +1581,7 @@ impl App {
         };
         let style = p.dig_style.next();
         p.dig_style = style;
-        self.show_toast(&format!("DIG: {} - {}", style.label(), style.note().to_uppercase()));
+        self.show_toast(format!("DIG: {} - {}", style.label(), style.note().to_uppercase()));
         true
     }
 }
