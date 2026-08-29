@@ -326,6 +326,14 @@ measured against, and the first reading of this change fell back on a
 cluster-level statistic for exactly that reason. Verified against the
 pre-change binary on `scene=fell`: every physics line identical.
 
+**`filmstrip channel=bend` draws the plant bending stress**, and its
+quantitative pair is the `bending stress over N cells` line in the felling
+census — median, peak, **where the peak is**, and how many cells read exactly
+zero. Read them together: a ramp can only say "brighter", and whether the
+hottest cell is at a trunk's base or out on a twig is the entire claim of the
+model. **Not `channel=stress`**, which is `load::evaluate`'s rock stress and
+a different quantity.
+
 **`HINGE_PROBE=1` prints the felling hinge's own arithmetic** — the region's
 size and mass, the stump it pivots about, `broke_at` beside it, the centre of
 mass **as a vector from the pivot**, the second moment and `alpha`. Read the

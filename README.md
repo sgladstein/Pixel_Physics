@@ -50,10 +50,10 @@ whole, then run `python3 scripts/readmetoc.py`.
 | [The ant colony — status](#the-ant-colony--status) | 2770 |
 | [M19 status — started](#m19-status--started) | 2799 |
 | [Felling status — the verb works, and what it produces is pieces](#felling-status--the-verb-works-and-what-it-produces-is-pieces) | 2855 |
-| [Performance](#performance) | 3050 |
-| [World speed — five independent time axes](#world-speed--five-independent-time-axes) | 3224 |
-| [Status](#status) | 3307 |
-| [License](#license) | 3418 |
+| [Performance](#performance) | 3092 |
+| [World speed — five independent time axes](#world-speed--five-independent-time-axes) | 3266 |
+| [Status](#status) | 3349 |
+| [License](#license) | 3460 |
 
 ### Milestones, in numeric order
 
@@ -87,7 +87,7 @@ them is named "plants". A section can appear twice; felling is honestly both
 plant work and structural work.
 
 **Known limitations for every topic are collected in one place**:
-[Status](#status), line 3307 — the *last* section in the
+[Status](#status), line 3349 — the *last* section in the
 file, not the first. Read it before concluding something is broken.
 
 | Topic | Sections, primary first |
@@ -102,9 +102,9 @@ file, not the first. Read it before concluding something is broken.
 | **the coarse field grid — pressure, heat, light** | [The coarse field grid](#the-coarse-field-grid) 452, [M12/M13 status](#m12m13-status) 714 |
 | **worldgen and world structure** | [M10 status](#m10-status--the-worldgen-half) 2638, [Architecture](#architecture) 295 |
 | **the gnome (player character)** | [M9 status](#m9-status--the-gnome) 2486, [Controls](#controls) 156 |
-| **weather, sky and the clock** | [Weather status](#weather-status) 2753, [M19 status](#m19-status--started) 2799, [World speed](#world-speed--five-independent-time-axes) 3224 |
+| **weather, sky and the clock** | [Weather status](#weather-status) 2753, [M19 status](#m19-status--started) 2799, [World speed](#world-speed--five-independent-time-axes) 3266 |
 | **rendering, UI and tunables** | [UI improvements](#ui-improvements--overnight-run-section-9) 2240, [Live tunables panel](#live-tunables-panel--overnight-run-section-10) 2285, [Rendering performance](#rendering-performance--overnight-run-section-11) 2353, [M6 deferral](#m6-deferral) 1016 |
-| **performance and the parallel sweep** | [Performance](#performance) 3050, [M5 status](#m5-status) 1026, [Architecture](#architecture) 295, [Rendering performance](#rendering-performance--overnight-run-section-11) 2353 |
+| **performance and the parallel sweep** | [Performance](#performance) 3092, [M5 status](#m5-status) 1026, [Architecture](#architecture) 295, [Rendering performance](#rendering-performance--overnight-run-section-11) 2353 |
 | **materials and the data schema** | [Materials](#materials) 221, [M12/M13 status](#m12m13-status) 714 |
 
 <!-- END GENERATED TOC -->
@@ -3033,8 +3033,50 @@ described instead is causal and is the plan's own §2-§4: a severed trunk
 the *impact* generates the stress that breaks limbs off. The leaf fix is
 independent of all of this and stands.
 
-**Known limitations.** The crown breaks into limbs as it is *cut* rather than
-as it lands, so a felled tree is several pieces sweeping over together rather
+**Every plant cell knows how hard it is being bent.** Landed 2026-08-29 as
+stage 1 of [`Reports/tree-mechanics-plan-2026-08-29.md`](Reports/tree-mechanics-plan-2026-08-29.md),
+after the owner rejected the fall itself as *"an animation and not a physics
+system that results in realistic damage"*. **Nothing reads it yet**, which is
+the point: it is the quantity breakage has to be a consequence *of*, and this
+repo has shipped a channel with no writer and a reader that was always zero
+often enough to build the readout first.
+
+`plant::stress_field` — `M(c)` is the mass a cell carries, `Sx(c)` the same
+weighted by position, `moment = Sx − x·M`, and `stress = |moment| / section²`.
+The **slab** reading, written down so nobody later "fixes" the exponent and
+moves every constant.
+
+- **A flow over a DAG, not a walk over a spanning tree.** Cells are visited
+  furthest-from-anchor first and each divides what it carries among the
+  neighbours closer to an anchor. Porting `accumulate_support`'s parent array
+  instead is a recorded dead end for exactly this use — a spanning tree gives
+  one spine cell a whole crown's moment and its fourteen neighbours nothing,
+  the *"one-pixel red line"* `load.rs` records. The share division is ported;
+  the traversal is not.
+- **Ties broken by height, because `SUPPORT_COST_STANDING` is zero.**
+  Standing is free in `anchor_support`, so an upright stem reads distance 0
+  for its whole height and load has nowhere to flow: measured, a crown hung
+  entirely off one side produced a moment of exactly **0** at its base.
+- **The section is same-`order` only**, so a fork does not read as the widest
+  section in the tree — `stem_run` records the identical defect from the
+  pipe-model side, 23 cells across 9 runs reading as one 23-wide stem.
+- **`OrganismOverlay::Stress`** on `L`, and `filmstrip channel=bend` — not
+  `channel=stress`, which is already rock's. A full replace on a fixed log
+  ramp over four decades, never a blend into the cell's own colour.
+
+Measured on the shipped tree: 3,164 cells, median 1.64, peak **15,316 at the
+base of the trunk**, 8% reading exactly zero. Guarded by six tests, each
+watched failing: a cantilever hottest at its root and monotone to zero at its
+tip; a balanced crown reading ~0 at the base where a lopsided one reads 10×
+more and *positive*; two legs sharing a span within 25% rather than one
+taking it all; the share division conserving the plant's whole mass to 1%;
+two limbs crossing a row not reading as one wide stem; and the ramp's
+brightest cell being the field's hottest.
+
+**Known limitations.** Nothing bends or breaks yet — those are stages 2 and 3,
+and the strength constant belongs to the stage that uses it, fitted from a
+seed sweep rather than derived. The crown breaks into limbs as it is *cut*
+rather than as it lands, so a felled tree is several pieces sweeping over together rather
 than one trunk bending and snapping. `rotation_fits` checks the final footprint and not the
 swept path; turning about the centre shrinks the sweep to the body's bounding
 circle rather than removing it. In-flight turns are refused 40% of the time

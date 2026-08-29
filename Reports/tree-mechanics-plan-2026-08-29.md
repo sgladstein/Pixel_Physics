@@ -390,12 +390,35 @@ tier, and `deadwood` off `soil`'s hue (they overlap almost exactly —
 *Bar:* a blind A/B on a **byte-identical settled pile**, which `3bdf674`
 established is achievable by preserving the rng draw count.
 
-**Stage 1 — see the stress.** `OrganismOverlay::Stress` on a fixed
-dark→bright full-replace ramp, `filmstrip channel=stress`, and
-`beam_probe.rs` as its quantitative pair.
-*Bar:* not "the field is non-flat" — that is already true and cannot fail.
-The bar is that the overlay and the probe agree cell-for-cell, and that a
-hand-built cantilever reads hottest **at its root**.
+**Stage 1 — see the stress.** **LANDED 2026-08-29.**
+`plant::stress_field`, `OrganismOverlay::Stress` on `L`, and
+`filmstrip channel=bend`. Nothing reads the number to decide anything, which
+is the point: it exists before the rules that use it.
+*Bar, met:* a hand-built cantilever reads hottest at its root and falls
+monotonically to zero at its free tip; the ramp's brightest cell is the
+field's hottest cell; a free tip lands on the ramp floor rather than a third
+of the way up it. Measured on the shipped tree: 3,164 cells, median 1.64,
+peak **15,316 at the base of the trunk**, 8% at exactly zero.
+
+Three corrections the build forced, all worth carrying:
+
+- **`SUPPORT_COST_STANDING` is zero, so `support` alone cannot order a
+  trunk.** Standing on something is free in `anchor_support` — the field
+  answers "can this reach the ground", and a vertical stack always can — so
+  every cell of an upright stem reads distance 0 and a crown's load has
+  nowhere to flow. Measured before the fix: a crown hung entirely off one
+  side produced a moment of exactly **0** at the base. Ties are broken by
+  height instead, so at equal distance a cell hands its load to the
+  neighbours beneath it. The rank stays strict, so the flow still cannot
+  cycle.
+- **`channel=stress` was already taken** by `load::evaluate`'s *rock* stress.
+  The plant channel is `channel=bend`; two quantities under one name is how a
+  reader judges the wrong picture.
+- **"Which cells is the load leaving through" is not `support == 0`**, for
+  the same reason as the first point, and `CellStress::grounded` exists
+  because the conservation guard could not be written without it — summing
+  `carried` over distance-zero cells counts a trunk once per storey, measured
+  134.5 against a true 22.5.
 
 **Stage 2 — bend.** Stiffness per material; deflection from stress at
 organism cadence and at a gust. Grass first, because it is the cheapest,

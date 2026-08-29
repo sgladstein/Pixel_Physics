@@ -3069,6 +3069,12 @@ fn parse() -> Args {
                 // rejected -- so a sheet rendered with a typo'd channel
                 // looks exactly like a mechanism that does nothing.
                 "gutbias" => a.organism_overlay = OrganismOverlay::GutBias,
+                // **`bend`, not `stress`** -- `channel=stress` is already
+                // taken by `load::evaluate`'s *rock* stress, and two
+                // different quantities under one name is how a reader ends
+                // up judging the wrong picture. This is the plant bending
+                // channel, `plant::stress_field`.
+                "bend" => a.organism_overlay = OrganismOverlay::Stress,
                 "light" => a.field_overlay = FieldOverlay::Light,
                 "moisture" => a.field_overlay = FieldOverlay::Moisture,
                 "temperature" => a.field_overlay = FieldOverlay::Temperature,
@@ -4176,6 +4182,41 @@ struct LogPieces {
     square: usize,
     cells_in_pieces: usize,
     sizes: Vec<(usize, i32, i32)>,
+}
+
+/// **What the bending channel actually holds**, so the picture is never
+/// judged on its own.
+///
+/// `CLAUDE.md`'s standing rule for an invisible per-cell scalar: pair the
+/// overlay with a probe that prints the values, and reach for it the moment
+/// the question turns quantitative. A ramp can only say "brighter"; whether
+/// the hottest cell is at a trunk's base or out on a twig is the whole claim
+/// of the model, and only the coordinate says it.
+fn bend_census(world: &World) {
+    let mut all: Vec<(f32, (i32, i32))> = Vec::new();
+    let mut carried_at_ground = 0.0f32;
+    for id in world.live_organism_ids() {
+        for (at, s) in pixel_physics::sim::plant::stress_field(world, id) {
+            all.push((s.stress, at));
+            if s.grounded {
+                carried_at_ground += s.carried;
+            }
+        }
+    }
+    if all.is_empty() {
+        println!("      bending stress: no living tissue");
+        return;
+    }
+    all.sort_by(|a, b| a.0.total_cmp(&b.0));
+    let median = all[all.len() / 2].0;
+    let (peak, where_peak) = all[all.len() - 1];
+    let zero = all.iter().filter(|(v, _)| *v == 0.0).count();
+    println!(
+        "      bending stress over {} cells: median {median:.2}, peak {peak:.1} at {where_peak:?}, {} at zero ({}%); mass reaching the ground {carried_at_ground:.0}",
+        all.len(),
+        zero,
+        (zero * 100).checked_div(all.len()).unwrap_or(0),
+    );
 }
 
 /// **How far the settled foliage is from any wood**, in steps through other
@@ -7315,6 +7356,7 @@ impl FellCensus {
             let listed: Vec<String> = tally.iter().rev().map(|(n, c)| format!("{n} {c}")).collect();
             println!("      unattached debris in the fall box (x 200..340): {} cells -- {}", total, listed.join(", "));
             leaf_reach(world);
+            bend_census(world);
             println!(
                 "      of that, {loose} cells are a Powder kind ({:.0}% of the pile is loose grain by count)",
                 if total == 0 { 0.0 } else { 100.0 * loose as f64 / total as f64 }
