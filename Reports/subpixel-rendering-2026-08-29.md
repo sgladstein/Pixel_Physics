@@ -11,6 +11,14 @@ replication.** This report is the measurement, the prototype, and the two
 things the prototype got wrong on the way — both of which are the same class of
 bug and would have been shipped as features.
 
+**Not to be confused with the other resolution work.** `worldgen-resolution`
+(PR #112, landed the same day) makes the *simulation* cell resolution
+changeable — `WorldgenParams::scaled(k)`, so the same seed at twice the cells
+is the same world. This changes the **render** lattice and leaves the
+simulation's alone; the two are complementary and neither supersedes the
+other. If you arrived here grepping for "resolution", check which one you
+want: more cells, or more pixels per cell.
+
 ## 1. Why plants specifically, and not everything
 
 The complaint singles out plants, and that is not taste — it is structural.
