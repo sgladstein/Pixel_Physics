@@ -3107,8 +3107,21 @@ did not vanish, it reached the floor (band 0 litter 661 → 1009).
 
 Cost: every counter in `examples/ascii` is byte-identical across the two
 builds; only the timings differ, and they differ in both directions, which is
-the machine. Acceptance green, `cargo test` green on all four binaries
-(955 + 9 + 2 + 44), clippy green.
+the machine. Put a number on it paired and alternating -- three base/fix pairs
+of `frame_profile frames=600`, five scenes each: pooled `ca_sweep` median
+**3.079 -> 3.082 ms**, fix faster in **9 of 15 paired cells**, per-scene
+medians between -4.3% and +2.6%. The same binary's own spread across three runs
+of one scene is 3.005/3.093/2.915, wider than the effect, so the claim is *not
+measurable here* rather than *free*. Acceptance green, `cargo test` green on
+all four binaries (955 + 9 + 2 + 44), clippy green.
+
+**A late one, and it is CLAUDE.md's own rule about gates.** The clippy that
+gates this repo is CI's, not the container's: 1.94.1 here against 1.98.0 there,
+and `clippy::explicit_counter_loop` widened between them, so the local gate was
+green on code CI refused. Reproduced with `cargo +1.98.0 clippy` before fixing,
+and written up as a gotcha -- a green local run of a gate that is not the gate
+is exactly the "before you cite a guard's green as evidence" case, one level up
+from the tests it was written for.
 
 **§V3 stays OPEN for its other half.** The canopy pile is gone; candidate 2 —
 cap the standing column above the original ground line — is untouched, and the

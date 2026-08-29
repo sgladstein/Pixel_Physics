@@ -38,20 +38,20 @@ whole, then run `python3 scripts/readmetoc.py`.
 | [M16 status](#m16-status) | 1333 |
 | [M17 status](#m17-status) | 1519 |
 | [M18 status](#m18-status) | 1746 |
-| [UI improvements — overnight run, section 9](#ui-improvements--overnight-run-section-9) | 2034 |
-| [Live tunables panel — overnight run, section 10](#live-tunables-panel--overnight-run-section-10) | 2079 |
-| [Rendering performance — overnight run, section 11](#rendering-performance--overnight-run-section-11) | 2147 |
-| [M8 status — started, not complete](#m8-status--started-not-complete) | 2167 |
-| [M9 status — the gnome](#m9-status--the-gnome) | 2280 |
-| [M10 status — the worldgen half](#m10-status--the-worldgen-half) | 2341 |
-| [Weather status](#weather-status) | 2456 |
-| [The ant colony — status](#the-ant-colony--status) | 2473 |
-| [M19 status — started](#m19-status--started) | 2487 |
-| [Felling status — the verb works, and what it produces is pieces](#felling-status--the-verb-works-and-what-it-produces-is-pieces) | 2523 |
-| [Performance](#performance) | 2604 |
-| [World speed — five independent time axes](#world-speed--five-independent-time-axes) | 2753 |
-| [Status](#status) | 2836 |
-| [License](#license) | 2947 |
+| [UI improvements — overnight run, section 9](#ui-improvements--overnight-run-section-9) | 2040 |
+| [Live tunables panel — overnight run, section 10](#live-tunables-panel--overnight-run-section-10) | 2085 |
+| [Rendering performance — overnight run, section 11](#rendering-performance--overnight-run-section-11) | 2153 |
+| [M8 status — started, not complete](#m8-status--started-not-complete) | 2173 |
+| [M9 status — the gnome](#m9-status--the-gnome) | 2286 |
+| [M10 status — the worldgen half](#m10-status--the-worldgen-half) | 2347 |
+| [Weather status](#weather-status) | 2462 |
+| [The ant colony — status](#the-ant-colony--status) | 2479 |
+| [M19 status — started](#m19-status--started) | 2493 |
+| [Felling status — the verb works, and what it produces is pieces](#felling-status--the-verb-works-and-what-it-produces-is-pieces) | 2529 |
+| [Performance](#performance) | 2610 |
+| [World speed — five independent time axes](#world-speed--five-independent-time-axes) | 2759 |
+| [Status](#status) | 2842 |
+| [License](#license) | 2953 |
 
 ### Milestones, in numeric order
 
@@ -63,16 +63,16 @@ order they were written.
 | 5 | [M5 status](#m5-status) | 1016 |
 | 6 | [M6 deferral](#m6-deferral) | 1006 |
 | 7 | [M7 status](#m7-status) | 905 |
-| 8 | [M8 status — started, not complete](#m8-status--started-not-complete) | 2167 |
-| 9 | [M9 status — the gnome](#m9-status--the-gnome) | 2280 |
-| 10 | [M10 status — the worldgen half](#m10-status--the-worldgen-half) | 2341 |
+| 8 | [M8 status — started, not complete](#m8-status--started-not-complete) | 2173 |
+| 9 | [M9 status — the gnome](#m9-status--the-gnome) | 2286 |
+| 10 | [M10 status — the worldgen half](#m10-status--the-worldgen-half) | 2347 |
 | 12 | [M12/M13 status](#m12m13-status) | 704 |
 | 14 | [M14 status](#m14-status) | 757 |
 | 15 | [M15 status](#m15-status) | 934 |
 | 16 | [M16 status](#m16-status) | 1333 |
 | 17 | [M17 status](#m17-status) | 1519 |
 | 18 | [M18 status](#m18-status) | 1746 |
-| 19 | [M19 status — started](#m19-status--started) | 2487 |
+| 19 | [M19 status — started](#m19-status--started) | 2493 |
 
 ### By topic
 
@@ -85,24 +85,24 @@ them is named "plants". A section can appear twice; felling is honestly both
 plant work and structural work.
 
 **Known limitations for every topic are collected in one place**:
-[Status](#status), line 2836 — the *last* section in the
+[Status](#status), line 2842 — the *last* section in the
 file, not the first. Read it before concluding something is broken.
 
 | Topic | Sections, primary first |
 |---|---|
-| **plants, trees and moss** | [M16 status](#m16-status) 1333, [Plant lines merged](#plant-lines-merged-the-genome-and-the-ecology) 1111, [The economy re-derived](#the-economy-re-derived-standing-tissue-costs-something) 1233, [The generation loop](#the-generation-loop-plants-die-seeds-expire-slots-come-back) 1181, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 2523 |
-| **creatures — worms and the ant colony** | [M18 status](#m18-status) 1746, [The ant colony](#the-ant-colony--status) 2473 |
-| **structural collapse, felling and rigid bodies** | [M17 status](#m17-status) 1519, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 2523, [M8 status](#m8-status--started-not-complete) 2167 |
+| **plants, trees and moss** | [M16 status](#m16-status) 1333, [Plant lines merged](#plant-lines-merged-the-genome-and-the-ecology) 1111, [The economy re-derived](#the-economy-re-derived-standing-tissue-costs-something) 1233, [The generation loop](#the-generation-loop-plants-die-seeds-expire-slots-come-back) 1181, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 2529 |
+| **creatures — worms and the ant colony** | [M18 status](#m18-status) 1746, [The ant colony](#the-ant-colony--status) 2479 |
+| **structural collapse, felling and rigid bodies** | [M17 status](#m17-status) 1519, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 2529, [M8 status](#m8-status--started-not-complete) 2173 |
 | **fire, heat and phase change** | [M14 status](#m14-status) 757, [Materials](#materials) 217 |
 | **explosions, particles and debris** | [M15 status](#m15-status) 934, [M7 status](#m7-status) 905 |
 | **liquids and gases** | [Liquid physics](#liquid-physics-compressible-volume-not-discrete-occupied-cells) 731, [The coarse field grid](#the-coarse-field-grid) 442 |
 | **powders and granular flow** | [Materials](#materials) 217, [Architecture](#architecture) 291 |
 | **the coarse field grid — pressure, heat, light** | [The coarse field grid](#the-coarse-field-grid) 442, [M12/M13 status](#m12m13-status) 704 |
-| **worldgen and world structure** | [M10 status](#m10-status--the-worldgen-half) 2341, [Architecture](#architecture) 291 |
-| **the gnome (player character)** | [M9 status](#m9-status--the-gnome) 2280, [Controls](#controls) 154 |
-| **weather, sky and the clock** | [Weather status](#weather-status) 2456, [M19 status](#m19-status--started) 2487, [World speed](#world-speed--five-independent-time-axes) 2753 |
-| **rendering, UI and tunables** | [UI improvements](#ui-improvements--overnight-run-section-9) 2034, [Live tunables panel](#live-tunables-panel--overnight-run-section-10) 2079, [Rendering performance](#rendering-performance--overnight-run-section-11) 2147, [M6 deferral](#m6-deferral) 1006 |
-| **performance and the parallel sweep** | [Performance](#performance) 2604, [M5 status](#m5-status) 1016, [Architecture](#architecture) 291, [Rendering performance](#rendering-performance--overnight-run-section-11) 2147 |
+| **worldgen and world structure** | [M10 status](#m10-status--the-worldgen-half) 2347, [Architecture](#architecture) 291 |
+| **the gnome (player character)** | [M9 status](#m9-status--the-gnome) 2286, [Controls](#controls) 154 |
+| **weather, sky and the clock** | [Weather status](#weather-status) 2462, [M19 status](#m19-status--started) 2493, [World speed](#world-speed--five-independent-time-axes) 2759 |
+| **rendering, UI and tunables** | [UI improvements](#ui-improvements--overnight-run-section-9) 2040, [Live tunables panel](#live-tunables-panel--overnight-run-section-10) 2085, [Rendering performance](#rendering-performance--overnight-run-section-11) 2153, [M6 deferral](#m6-deferral) 1006 |
+| **performance and the parallel sweep** | [Performance](#performance) 2610, [M5 status](#m5-status) 1016, [Architecture](#architecture) 291, [Rendering performance](#rendering-performance--overnight-run-section-11) 2153 |
 | **materials and the data schema** | [Materials](#materials) 217, [M12/M13 status](#m12m13-status) 704 |
 
 <!-- END GENERATED TOC -->
@@ -1966,7 +1966,13 @@ at 508 → 498 — the material did not go away, it reached the floor.
 
 Cost: every counter in `examples/ascii` is identical across the two builds,
 and the check is one `Cell` flag read on a value the caller already holds,
-reached only after three failed moves. §V3 stays open for its other half —
+reached only after three failed moves. **Timed paired and alternating**, three
+base/fix pairs of `frame_profile frames=600`, five scenes each: the pooled
+`ca_sweep` median is **3.079 → 3.082 ms**, the fix is faster in **9 of the 15
+paired cells**, and the per-scene medians move between −4.3% and +2.6% in both
+directions. That is the box, not the change — the same binary's own spread
+across three runs of one scene reaches 3.005/3.093/2.915. The honest claim is
+*not measurable here*, not *free*. §V3 stays open for its other half —
 the floor now receives what the canopy was holding (band 0 litter 661 → 1009)
 and standing litter still has a source with no weathering sink.
 
