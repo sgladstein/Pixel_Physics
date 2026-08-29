@@ -265,7 +265,7 @@ struct Outcome {
 /// has been eliminated has no defined log-odds, and clamping invents a finite
 /// value whose magnitude is set by the clamp rather than by the data.
 /// Returns `None` below three usable samples.
-fn logit_slope(traj: &[(f64, f64)]) -> Option<f64> {
+fn logit_slope(traj: &[(f64, f64)]) -> Option<(f64, f64)> {
     let pts: Vec<(f64, f64)> = traj
         .iter()
         .filter(|&&(_, p)| p > 1e-6 && p < 1.0 - 1e-6)
@@ -279,7 +279,18 @@ fn logit_slope(traj: &[(f64, f64)]) -> Option<f64> {
     let my = pts.iter().map(|p| p.1).sum::<f64>() / n;
     let sxx: f64 = pts.iter().map(|p| (p.0 - mx).powi(2)).sum();
     let sxy: f64 = pts.iter().map(|p| (p.0 - mx) * (p.1 - my)).sum();
-    (sxx.abs() > 1e-9).then(|| sxy / sxx)
+    // Returns `(slope, intercept)`. **The intercept is not decoration**: both
+    // arms start equal, so the log-odds at generation 0 is 0 by construction,
+    // and a fitted intercept far from 0 means the trajectory is *curved* --
+    // arm B losing fast during establishment and then levelling, say -- so a
+    // single slope is a poor summary of it and `s` is not constant.
+    //
+    // Omitting it produced a false alarm the first time this harness
+    // cross-checked itself: `slope x generations` was compared against the
+    // endpoint log-odds as though the line passed through the origin, read
+    // -0.676 against -0.426, and looked like the two readouts disagreeing.
+    // They did not; the line simply has an intercept.
+    (sxx.abs() > 1e-9).then(|| (sxy / sxx, my - (sxy / sxx) * mx))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -565,6 +576,7 @@ fn main() {
     // for the endpoint share.
     let mut slopes: Vec<f64> = Vec::new();
     let mut gens_final: Vec<f64> = Vec::new();
+    let mut intercepts: Vec<f64> = Vec::new();
     for s in 0..seeds {
         // The mirror pair: same world, arm assignment inverted, pooled.
         let mut a = Tally::default();
@@ -572,6 +584,7 @@ fn main() {
         let assignments: &[bool] = if mirrored { &[false, true] } else { &[false] };
         let mut pair_slopes: Vec<f64> = Vec::new();
         let mut pair_gens: Vec<f64> = Vec::new();
+        let mut pair_intercepts: Vec<f64> = Vec::new();
         for &mirror in assignments {
             let o = run_world(
                 &species, founders, width, soil_depth, moisture, relief_varied, s + 1, frames, every,
@@ -583,8 +596,9 @@ fn main() {
             b.organisms += o.b.organisms;
             b.cells += o.b.cells;
             b.seeds_set += o.b.seeds_set;
-            if let Some(sl) = logit_slope(&o.traj) {
+            if let Some((sl, ic)) = logit_slope(&o.traj) {
                 pair_slopes.push(sl);
+                pair_intercepts.push(ic);
             }
             pair_gens.push(o.final_gen);
             let _ = o.ever;
@@ -608,6 +622,9 @@ fn main() {
         }
         if !pair_gens.is_empty() {
             gens_final.push(pair_gens.iter().sum::<f64>() / pair_gens.len() as f64);
+        }
+        if !pair_intercepts.is_empty() {
+            intercepts.push(pair_intercepts.iter().sum::<f64>() / pair_intercepts.len() as f64);
         }
         usable += 1;
         if sc < 50.0 {
@@ -701,14 +718,26 @@ fn main() {
             let gbar = median(&mut g);
             let mut sc2 = share_cells.clone();
             let endp = median(&mut sc2) / 100.0;
+            let mut ic = intercepts.clone();
+            let icbar = if ic.is_empty() { 0.0 } else { median(&mut ic) };
             if endp > 1e-6 && endp < 1.0 - 1e-6 {
-                let implied = med * gbar;
+                let implied = icbar + med * gbar;
                 let actual = (endp / (1.0 - endp)).ln();
                 println!(
-                    "  cross-check: slope {med:+.4} x mean generation {gbar:.2} = {implied:+.3}, against\n  \
-                     the endpoint share's own log-odds {actual:+.3}. These are two readings of one run and\n  \
-                     must agree; a gap means one of the two is wrong."
+                    "  cross-check: intercept {icbar:+.3} + slope {med:+.4} x mean generation {gbar:.2}\n  \
+                     = {implied:+.3}, against the endpoint share's own log-odds {actual:+.3}."
                 );
+                // Both arms start equal, so the honest intercept is 0. A large
+                // one is the finding, not the arithmetic: it says the log-odds
+                // trajectory is curved and a single `s` does not describe it.
+                if icbar.abs() > 0.15 {
+                    println!(
+                        "  WARNING: the fitted intercept is {icbar:+.3}, not ~0. Both arms start equal, so\n  \
+                         log-odds at generation 0 must be 0 -- a large intercept means the trajectory is\n  \
+                         CURVED (arm B losing fast early, then levelling) and a single slope is a poor\n  \
+                         summary of it. Treat `s` as an average over this run's generations, not a rate."
+                    );
+                }
             }
         }
     } else {
