@@ -1,0 +1,46 @@
+{
+  "id": "20260829T045443527Z-7f3c9b",
+  "created": "2026-08-29T04:54:43Z",
+  "board": "creatures",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/creature-project-status-unuvyo",
+    "commit": "39e6f36",
+    "agent": null,
+    "session_id": "66c727e2-c2ca-56ad-b1a6-5e50100fa9e9",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Ants on the lake are gone. What should one do if it walks in?",
+  "question": "The colony no longer gets FOUNDED on water — that half is fixed. What I need from you is the other half: an ant that WALKS onto a pond under its own power still stands on it. Should it drown, float, or swim?",
+  "context_md": "Same seed (2), same frame (600), same crop, same zoom. The dark two-cell marks out on the water in the first image are ants. They were placed there at frame 0 and never fell off: the engine correctly judges them unsupported, but the fall it attempts needs somewhere free to land and water is not free, so the fall is refused for ever.\n\nWHY IT MATTERED BEYOND LOOKING WRONG: this is the scene every ant review card you have ever judged was rendered from. On several seeds a large share of the colony spent the whole run standing on a lake, so the foraging and survival numbers taken from it were partly numbers about ants on water.\n\nThe count going DOWN (19 to 14) is the fix working — the ants that vanished are the ones that were standing on water.\n\nALSO FIXED, same change: the scene panicked outright at its own default seed and had done for six days. The cause was not the lake — it was the trees. The scene grows a forest for 2,400 frames and then looked for dry ground by scanning each column from the sky down, so it found LEAVES. On seed 1, 217 of 308 columns had a leaf on top, 91 had water, and NONE had ground. Default seed now founds 13 ants instead of crashing.\n\nTHE QUESTION. Three options, and they are not equal:\n\n  DROWN  - an ant that goes in dies and leaves a corpse. Cheapest to build. It\n           is also the only thing anyone has proposed that would put CARRION in\n           the world, and carrion is exactly what the diet gene measured as\n           missing (the food census currently reads 'of which corpse 0' for a\n           whole run). Risk: a colony next to a lake could bleed ants steadily.\n\n  FLOAT  - an ant rests on the surface deliberately, as a water strider does.\n           Closest to what happens now, but it has to LOOK intended rather than\n           like the bug above, and right now it looks identical to it.\n\n  SWIM   - an ant crosses water at a cost. Most work, opens the map up most.\n\nI have not built any of them. Tell me which and I will.",
+  "kind": "ab",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "before — 19 ants founded, 4 of them standing on the open lake",
+      "files": [
+        "20260829T045443527Z-7f3c9b/000-colony_zoom.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "after — 14 ants founded, 0 on the lake",
+      "files": [
+        "20260829T045443527Z-7f3c9b/001-colony_fixed.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
