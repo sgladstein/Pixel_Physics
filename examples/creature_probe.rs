@@ -45,6 +45,17 @@ fn main() {
     // the other, and the slab has no wet ground to be one side of.
     let mut world_terrain = false;
     let mut seed = 0xA17u64;
+    // **The four numbers S6's reachability question turns on**, overridable
+    // in-process rather than by editing `ant.ron`, because assets are
+    // `include_str!`ed and a sweep that edits one and re-runs a prebuilt
+    // binary produces bit-identical "runs" — the gotcha that has already
+    // produced whole invalid sweeps here. `-1` means "leave the species
+    // file alone", so the default run measures the shipped animal.
+    let mut start_energy = -1.0f32;
+    let mut body_energy = -1.0f32;
+    let mut threshold = -1.0f32;
+    let mut hunger = -1.0f32;
+    let mut mutation_rate = -1.0f32;
     for arg in std::env::args().skip(1) {
         let Some((k, v)) = arg.split_once('=') else { continue };
         match k {
@@ -53,7 +64,14 @@ fn main() {
             "ants" => ants = v.parse().expect("ants"),
             "terrain" => world_terrain = v == "world",
             "seed" => seed = v.parse().expect("seed"),
-            other => panic!("unknown arg {other:?}; known: frames, every, ants, terrain, seed"),
+            "start_energy" => start_energy = v.parse().expect("start_energy"),
+            "body_energy" => body_energy = v.parse().expect("body_energy"),
+            "threshold" => threshold = v.parse().expect("threshold"),
+            "hunger" => hunger = v.parse().expect("hunger"),
+            "mutation_rate" => mutation_rate = v.parse().expect("mutation_rate"),
+            other => panic!(
+                "unknown arg {other:?}; known: frames, every, ants, terrain, seed, start_energy, body_energy, threshold, hunger, mutation_rate"
+            ),
         }
     }
 
@@ -65,13 +83,98 @@ fn main() {
     let corpse = world.materials.id_of("corpse").expect("corpse is compiled in");
     let ant = world.materials.id_of("ant").expect("ant is compiled in");
 
-    // Echo the parameters, so a log that does not name its terrain was
-    // written by a binary that never had the knob (`CLAUDE.md`: a knob
-    // nobody can see the value of is a knob nobody can tell is
-    // disconnected).
+    // **The overrides, applied through `set_creature`** — the same seam
+    // `creature_space` cuts `START_ENERGY` with, and the same reason: a
+    // knob that has to rebuild between points cannot hold everything else
+    // fixed within one process.
+    //
+    // `body_energy` moves the ant *material*'s `food_energy` with it. That
+    // equality is deliberate and is `ant.ron`'s own: a bitten live ant must
+    // be worth to the biter exactly what its stamp took out of the world,
+    // or scavenging becomes an energy pump. It is no longer *load-bearing*
+    // for the ledger — S6 booked the living-flesh stamp to `meat_lost` —
+    // but it is still the honest price, so the harness holds it rather
+    // than opening a pump it would then measure.
+    let species = world.species.id_of("ant").expect("ant species");
+    {
+        let mut def = world.species.get(species).creature.clone().expect("ant is a creature");
+        if start_energy >= 0.0 {
+            def.start_energy = start_energy;
+        }
+        if body_energy >= 0.0 {
+            def.body_energy = body_energy;
+            for name in ["ant", "corpse"] {
+                if let Some(id) = world.materials.id_of(name) {
+                    world.materials.get_mut(id).food_energy = body_energy;
+                }
+            }
+        }
+        if threshold >= 0.0 {
+            def.reproduce_threshold = threshold;
+        }
+        if hunger >= 0.0 {
+            def.hunger_fraction = hunger;
+        }
+        if mutation_rate >= 0.0 {
+            def.mutation_rate = mutation_rate;
+        }
+        world.species.set_creature(species, def);
+    }
+    let def = world.species.get(species).creature.clone().expect("ant is a creature");
+    // Echo every parameter, so a log that does not name its terrain or its
+    // prices was written by a binary that never had the knob (`CLAUDE.md`:
+    // a knob nobody can see the value of is a knob nobody can tell is
+    // disconnected). The two derived numbers are printed beside them
+    // because they are what the reachability question is actually about.
+    // **The best mouthful *this gut* can actually digest, not the fattest
+    // number in the material table.** The first version of this line used
+    // `body_energy` and overstated the ceiling by 6x on the shipped ant:
+    // S5's matched filter pays `worth * (1 - |gut - class|/2)^2`, so the
+    // neutral gut draws 120 from a 480 leaf, and a readout quoting 480
+    // would have said REACHABLE where the animal measurably banks 568
+    // against a 1,860 bar. A debug readout that is a function of the wrong
+    // quantity is the failure this project has paid for twice; the
+    // authority is the measured `richest bank` below, and this is the
+    // arithmetic that has to agree with it.
+    let gut = def.traits[pixel_physics::sim::organism::TRAIT_GUT_BIAS];
+    let best_mouthful = (0..world.materials.len())
+        .map(|i| pixel_physics::sim::material::MaterialId(i as u16))
+        .map(|id| {
+            // A corpse carries its worth per cell in `aux`; everything else
+            // reads its material's face value, so the probe cell has to
+            // carry a stamp or the whole carrion half reads as worthless.
+            let aux = if world.materials.get(id).worth_in_aux { def.body_energy.round().clamp(0.0, 65535.0) as u16 } else { 0 };
+            pixel_physics::sim::creature::diet_yield(&world, Cell::new(id, 0).with_aux(aux), gut)
+        })
+        .fold(0.0f32, f32::max);
+    let ceiling = def.hunger_fraction * def.start_energy + best_mouthful;
     println!(
         "creature probe: {frames} frames, reporting {ants} ants every {every} | terrain={} seed={seed:#x}",
         if world_terrain { "world" } else { "slab" }
+    );
+    println!(
+        "  economy: start_energy {:.0} body_energy {:.0} hunger_fraction {:.2} reproduce_threshold {:.0} mutation_rate {:.3}",
+        def.start_energy, def.body_energy, def.hunger_fraction, def.reproduce_threshold, def.mutation_rate
+    );
+    println!(
+        "  reachability: birth costs {:.0}, and an ant banks at most about {:.0} (hunger_fraction * start_energy + best digestible mouthful {best_mouthful:.0}) -- {}",
+        pixel_physics::sim::creature::birth_cost(&def),
+        ceiling,
+        // **This can rule out and it can never rule in**, and the wording
+        // has to say so. `best_mouthful` is the best cell in the whole
+        // material table, not the best one an ant in this world can
+        // actually reach -- 360 comes off a flower, which no ant here has
+        // ever touched. So a ceiling *under* the bar is a proof of
+        // unreachability, and a ceiling over it is only the absence of one:
+        // measured, arms at 495 against a 330 bar still produced zero
+        // births, because the reachable food is worth a third of the best
+        // food. Reading a bound as a verdict is the size-cap failure in a
+        // readout's clothing -- exhausting it must not produce an answer.
+        if ceiling > pixel_physics::sim::creature::birth_cost(&def) {
+            "the bar is not ruled out by this bound (which is optimistic -- read `richest bank` below)"
+        } else {
+            "UNREACHABLE, and this is a proof: the bar is above the best bank arithmetic allows"
+        }
     );
 
     if world_terrain {
@@ -129,11 +232,33 @@ fn main() {
         }
     }
 
+    // **Frame cost, because §2.6 asks for it and the inherited number does
+    // not transfer.** Creature work was measured free at 55 ants against a
+    // 0-ant control; a breeding population is not 55, and the whole point
+    // of reproduction is that nobody sets the population any more. Timed
+    // over the same four phases `App::update` runs so this is a whole-frame
+    // figure rather than a subsystem one — an isolated harness overstates,
+    // and the phase a change is made cheaper *against* is the whole frame.
+    //
+    // Read the mean, and read the worst only against the ratio: `mean *
+    // frames ~= worst` is what says an aggregate pins it. Here it does not
+    // (thousands of comparable frames), so the worst is an order statistic
+    // over a noisy box and the mean is the number to quote.
+    let mut worst = 0.0f64;
+    let mut total = 0.0f64;
+    let mut peak_live = 0usize;
     for frame in 0..frames {
+        let t0 = std::time::Instant::now();
         parallel::step(&mut world);
         world.step_active_sites();
         world.step_fields();
         world.step_pheromones();
+        let ms = t0.elapsed().as_secs_f64() * 1000.0;
+        total += ms;
+        worst = worst.max(ms);
+        if frame % 200 == 0 {
+            peak_live = peak_live.max(world.live_creature_count());
+        }
         if frame % every == 0 {
             report(&world, frame, ants, ant, w, h);
             sensor_census(&world, frame, ant, w, h);
@@ -146,6 +271,51 @@ fn main() {
     println!(
         "\ntotals: moves {} blocked {} falls {} | eats {} pickups {} digs {} drops {} deliveries {} nest-visits {} deaths {}",
         st.moves, st.moves_blocked, st.falls, st.eats, st.pickups, st.digs, st.drops, st.deliveries, st.nest_visits, st.deaths
+    );
+    // **The reproduction readout.** `births` alone cannot say why a run
+    // produced none: a colony too poor to reach the bar and a birth path
+    // that never fires read identically. `richest bank` is what separates
+    // them, and the lineage columns are what say whether anything is left
+    // to select on -- a population at one lineage has converged whatever
+    // its genomes look like.
+    let mut lineages: std::collections::HashMap<u32, usize> = std::collections::HashMap::new();
+    let mut deepest = 0u16;
+    let mut richest = 0.0f32;
+    let mut live = 0usize;
+    for x in 0..w {
+        for y in 0..h {
+            let cell = world.get(x, y);
+            if pixel_physics::sim::organism::cell_type(cell.aux()) != Some(pixel_physics::sim::organism::CellType::Head) {
+                continue;
+            }
+            let Some(state) = world.organism(cell.organism_id()) else { continue };
+            if world.species.get(state.species).creature.is_none() {
+                continue;
+            }
+            live += 1;
+            deepest = deepest.max(state.generation);
+            richest = richest.max(state.energy);
+            *lineages.entry(state.lineage).or_default() += 1;
+        }
+    }
+    // **Share, not just count.** The count says how many lines are left;
+    // the share of the biggest is what the clonal-drift band is a
+    // distribution *of*, and the two come apart badly — 45 lines surviving
+    // says nothing if one of them is 90% of the animals.
+    let top_share = lineages.values().copied().max().unwrap_or(0) as f32 / live.max(1) as f32;
+    println!(
+        "frame cost: mean {:.3} ms, worst {:.3} ms over {frames} frames | peak creature population {}",
+        total / frames as f64,
+        worst,
+        peak_live.max(live)
+    );
+    println!(
+        "reproduction: births {} denied-no-space {} refused-no-slot {} | live {live} deepest generation {deepest} | lineages {} top share {top_share:.3} | richest bank {richest:.0} against a birth cost of {:.0}",
+        st.births,
+        st.births_denied_no_space,
+        world.organisms_refused(),
+        lineages.len(),
+        pixel_physics::sim::creature::birth_cost(&def)
     );
     println!(
         "energy census: live {:.2} vs ledger {:.2} (delta {:.4})",
