@@ -144,8 +144,28 @@ measurement above. **This work backs C's side**, on the owner's instruction of
 
 - The blind acceptance card for the organ package
   (`20260829T005132631Z-0b56d4`), asking *"are these different plants, or one
-  plant in several sizes?"* over four panes, is **posted and unanswered**.
-  Nothing in Phase 4 claims a verdict.
+  plant in several sizes?"* over four panes, is **answered**: *"Different
+  (although not very pretty)."* The organ package's core claim passes — four
+  species read as four kinds of plant rather than one plant at four sizes.
+  The caveat is aesthetic and is not this line's to close.
+
+  **Read it against the rest of the plants board, though, because the pattern
+  there is older and it is not aesthetic.** Across the earlier four-species
+  cards the owner says the same thing repeatedly — *"the biggest differences
+  are still size and color"*, *"most of the difference between all of these is
+  just size and color"*, and, on the fourth attempt, *"I think the issue is in
+  the base design of the random walk growth."* Organs moved that verdict where
+  five successive label changes did not, which is `plant-appearance-design.md`'s
+  finding restated: **the levers that read are the ones that change material or
+  size, not the ones that relabel a cell.**
+
+  That is worth carrying into any decision about the mutation operators
+  (`plant-fate-operator-gate-2026-08-29.md`), because it cuts both ways. The
+  three inert operators are the ones that would let a lineage *acquire* an
+  organ — the one class of change the owner's eye has actually credited — so
+  their inertness costs more than their share of the budget suggests. And
+  equally: making them effective moves labels, and a label change has failed to
+  read here six times now.
 - ~~`bramble` may be renamed `scrambler`~~ — **decided: `scrambler`**, owner,
   2026-08-29. The argument that settled it belongs to this document's own
   subject rather than to botanical style: a species file is now a *starting
