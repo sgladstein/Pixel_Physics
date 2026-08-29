@@ -935,9 +935,18 @@ mod tests {
             Instinct(BrainInput::FoodAdjacent, BrainOutput::Move, -0.8),
             Instinct(BrainInput::Carrying, BrainOutput::EmitB, 0.9),
         ]);
-        g[IO_END + BrainInput::Crowding as usize * BRAIN_HIDDEN + 1] = 0.5;
-        g[IH_END + 1] = -0.4;
-        g[HH_END + BRAIN_OUTPUTS + BrainOutput::Turn as usize] = 0.6;
+        // **Through the named accessors, not hand arithmetic.** These three
+        // lines were `IO_END + input * BRAIN_HIDDEN + 1`, `IH_END + 1` and
+        // `HH_END + BRAIN_OUTPUTS + output` — stride expressions that did not
+        // match `eval_brain`'s indexing and survived only because the old
+        // constants made them land somewhere live by coincidence. The
+        // 64/64/64 re-lay broke them, which is precisely what `io_slot` and
+        // friends exist to prevent: *"every caller outside `eval_brain`'s
+        // inner loops goes through these, so a future re-lay is one edit
+        // rather than a hunt through hand-written index expressions."*
+        g[ih_slot(BrainInput::Crowding, 1)] = 0.5;
+        g[hh_slot(1)] = -0.4;
+        g[ho_slot(1, BrainOutput::Turn)] = 0.6;
 
         let (_, active) = eval_brain(&g, &[1.0; BRAIN_INPUTS], &mut zero_state());
         assert_eq!(active, 6);

@@ -13,10 +13,30 @@ which of my claims were **wrong**, which numbers are **stale**, and what is
 
 ## 1. STOP — verify this before anything else
 
-**`claude/creature-motion-design` at `a655a8e` is pushed but its gates were
-still running when this was written.** I committed it to satisfy a repo hook
-and because it is branch work, not a landing. **Do not open a PR for it until
-you have run, on that branch:**
+**Updated after the first full suite came back.** `cargo test --lib` on the
+re-lay: **1004 passed, 3 failed.** All three are now fixed, and one of them
+was not a stale literal:
+
+| failed | why | fixed |
+|---|---|---|
+| `the_block_layout_exactly_fills_the_genome` | pins the block boundaries to literals — fired by design | re-derived: 4096 / 8192 / 8256 / 12,352 |
+| `the_genome_manifest_is_pinned` | fired by design; its comment demands the commit say every genome now means something else | 2,369,832,241 -> 1,235,247,055 |
+| `the_active_count_matches_a_hand_counted_sparse_genome` | **a latent bug the re-lay exposed** — see below | rewritten through the named accessors |
+
+**The third one is worth understanding before you touch `brain.rs`.** It wrote
+genome weights with its own stride arithmetic (`IO_END + input * BRAIN_HIDDEN
++ 1`), which does **not** match how `eval_brain` indexes that block
+(`hidden * INPUT_SLOTS + input`). It was wrong before this change and passed
+only because the old constants made the wrong arithmetic land on a live slot
+by coincidence. `brain.rs`'s accessors exist for exactly this and say so:
+*"every caller outside `eval_brain`'s inner loops goes through these, so a
+future re-lay is one edit rather than a hunt through hand-written index
+expressions — which is how the 6 -> 9 growth got as far as it did."* That test
+was the one caller that did not. **If you add any code that indexes a genome,
+use `io_slot` / `ih_slot` / `hh_slot` / `ho_slot`.**
+
+**Still to verify before opening a PR** — the full suite has not been re-run
+green end to end since these fixes, so run on that branch:
 
 ```
 cargo test --lib
