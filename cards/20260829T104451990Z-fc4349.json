@@ -1,0 +1,37 @@
+{
+  "id": "20260829T104451990Z-fc4349",
+  "created": "2026-08-29T10:44:51Z",
+  "board": "gnome",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/gnome-mining-mechanic-obm7j4",
+    "commit": "1166d64",
+    "agent": null,
+    "session_id": "7e6d7527-9f19-5475-bb25-535b32238ac6",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The hammer: what it breaks vs what it cracks",
+  "question": "The gnome alternates hammer and pick along a cliff: hammer to break, pick to clear the rubble. Do the fissure stars radiating from each blow read as damage the rock is carrying - the reason to pick the hammer up rather than the pick? And is the amount of visible cracking right, or too much / too little?",
+  "context_md": "11 hammer blows landed (241 cells broken) + 53 pick bites over the run; he travels 171 -> 305. Hammering ALONE stalls at 3 blows: a blow does not excavate, so the rock it breaks stays as rubble, the face retreats past hammer_reach, and the pile is a drift he cannot wade through. Alternating the two is the loop the belt exists for, and is what this sheet shows. zoom=3, cropped on the passage.",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "",
+      "files": [
+        "20260829T104451990Z-fc4349/000-smash.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
