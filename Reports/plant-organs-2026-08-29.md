@@ -25,7 +25,7 @@ rule was already data (`SpeciesDef::fates`, Phase 1), so organs are new
 | `Grow::organ_cluster` | the head: an organ is a cluster, not a cell |
 | `ORGAN_CONSTRUCTION_MULTIPLE = 2.0` | charged at the decision, paired with four counters |
 | `OrganismState::organ_cells` | organs counted apart from `shoot_cells` |
-| `herb.ron`, `bramble.ron` | one erect determinate axis; sympodial repeated axes |
+| `herb.ron`, `scrambler.ron` | one erect determinate axis; sympodial repeated axes |
 
 ## 2. The finding that shaped it, and what it forced
 
@@ -130,7 +130,7 @@ vegetative shoot mass.
 | | organs built | axes terminated | fruit dropped | construction binds | cluster binds |
 |---|---|---|---|---|---|
 | `herb` | 222 | 27 | 74 | 35.7% | 32.1% |
-| `bramble` | 1,126 | 188 | 500 | 27.1% | 11.6% |
+| `scrambler` | 1,126 | 188 | 500 | 27.1% | 11.6% |
 
 **The prices bind**, which is the thing that had to be checked before any of
 those numbers meant anything: a construction charge that never binds is real
@@ -146,7 +146,7 @@ picture can be checked against:
 | | flower | fruit | windfall on the ground |
 |---|---|---|---|
 | `herb` | 46 | 25 | 0 |
-| `bramble` | 19 | 81 | 27 |
+| `scrambler` | 19 | 81 | 27 |
 
 The two are opposite, which is the point: the erect habit is mostly in flower
 at any moment and the sprawling one mostly in fruit.
@@ -242,7 +242,7 @@ six discrete alleles, and nothing a genome carries can touch the production
 rule. `fate_viability` mutates it by generating a new species RON and
 registering it — a harness operation, not a live mechanism. **So the organ
 vocabulary is reachable only by hand-authoring a species file**, which is why
-`herb.ron` and `bramble.ron` exist at all: the repo's own rule against a
+`herb.ron` and `scrambler.ron` exist at all: the repo's own rule against a
 channel with a writer and no reader forced at least one, and hand-authoring is
 the only channel there is.
 
@@ -317,7 +317,7 @@ taken from `plant-morphology-reach-2026-08-23.md` §6's sequencing note
 **That note is superseded**, and the superseding text is a heading:
 `plant-morphology-evolvability-2026-08-26.md` §6, *"The acceptance artifact is
 not a sunflower … Twelve tomatoes = it does not [work]."* Renamed to `herb`
-and `bramble`; the mechanism was never the problem and did not change.
+and `scrambler`; the mechanism was never the problem and did not change.
 
 **The rule the rename appeals to is weaker than the first draft of this
 section claimed**, and the correction is owed. That draft said the existing
@@ -330,11 +330,20 @@ and that is the whole of the rule. It is enough to disqualify a species-level
 name, which commits a file to matching a particular plant this engine cannot
 produce, and it is not enough to support the tidier claim that was made.
 
-`bramble` is the weaker of the two names by that rule — *Rubus* is a genus, so
-it sits at `conifer`'s level rather than `shrub`'s. Kept because the
-vernacular covers any sprawling thorny fruiting thicket-former rather than one
-species, and because a second rename costs more than it buys; the strict
-growth-form word for the habit is *scrambler*.
+**The sprawling species went through that rule twice**, and the second pass is
+the more interesting one. It was `bramble` for one draft, which is *Rubus* — a
+genus, so a taxon name sitting at `conifer`'s level rather than `shrub`'s. That
+passes the rule above and would have been defensible; it is a category, not one
+organism.
+
+What changed it is the heritable production rule (`organism::FateGenome`).
+**A species file is now a starting point rather than an identity**: rule tables
+mutate, so a lineage drifts away from its founding table while keeping the
+name it was founded under. A growth-form name degrades gracefully under that —
+a *scrambler* that has stopped scrambling is a mis-named habit. A taxon name
+does not: a `bramble` with no fruit that does not sprawl is a false claim about
+what the thing is. Owner's call, 2026-08-29, and the argument is specific to
+this engine rather than to botanical style.
 
 **And the sharper observation, which is a better argument than the naming rule
 and was missed entirely at the time: a sunflower or a tomato fits nowhere in

@@ -1384,10 +1384,10 @@ together. They are counted in `organ_cells` instead, so the exclusion has a
 reader.
 
 Two authored habits use all of it: **`herb`** (one erect axis, eight metamers,
-a nine-cell terminal head) and **`bramble`** (sympodial, three-metamer axes
+a nine-cell terminal head) and **`scrambler`** (sympodial, three-metamer axes
 repeated, many four-cell trusses). Measured over `plant_probe trees=8
 frames=25000`: herb 222 organs / 27 axes terminated / 74 fruit dropped, with
-the construction charge binding 35.7% of the time; bramble 1,126 / 188 / 500 at
+the construction charge binding 35.7% of the time; scrambler 1,126 / 188 / 500 at
 27.1%. The prices bind, which is what makes the heads a spread of sizes rather
 than all-or-nothing.
 

@@ -140,9 +140,14 @@ measurement above. **This work backs C's side**, on the owner's instruction of
   (`20260829T005132631Z-0b56d4`), asking *"are these different plants, or one
   plant in several sizes?"* over four panes, is **posted and unanswered**.
   Nothing in Phase 4 claims a verdict.
-- `bramble` may be renamed `scrambler` — the strict growth-form word. Raised
-  with the owner, unanswered. See `assets/species/bramble.ron`'s header for
-  why the current name is the weaker of the two.
+- ~~`bramble` may be renamed `scrambler`~~ — **decided: `scrambler`**, owner,
+  2026-08-29. The argument that settled it belongs to this document's own
+  subject rather than to botanical style: a species file is now a *starting
+  point rather than an identity*, because rule tables mutate and a lineage
+  keeps the name it was founded under. A growth-form name degrades gracefully
+  when a lineage drifts; a taxon name (`bramble` is *Rubus*) becomes a false
+  claim about what the thing is. `assets/species/scrambler.ron`'s header
+  carries it.
 - `windfall`'s `falls_through_organisms` is on and its effect is **unmeasured**
   — neither authored fruiting species has a crown deep enough to lodge a
   fruit in. The first tall fruiting species should measure it.

@@ -8758,7 +8758,7 @@ The night factor belongs on income only -- see NIGHT_INCOME_FLOOR"
         let w = test_world();
         let mut authored_species = 0usize;
         let mut authored_answers = 0usize;
-        // **`herb` and `bramble` are deliberately not in this list**, and
+        // **`herb` and `scrambler` are deliberately not in this list**, and
         // the omission is the point of the change that added them. Their
         // whole purpose is to *disagree* with the built-in rule: a
         // determinate axis terminating in a flower is exactly a production
@@ -8827,7 +8827,7 @@ The night factor belongs on income only -- see NIGHT_INCOME_FLOOR"
     fn every_species_table_fits_the_fate_genome() {
         let w = test_world();
         let mut checked = 0usize;
-        for name in ["tree", "conifer", "shrub", "creeper", "grass", "moss", "herb", "bramble"] {
+        for name in ["tree", "conifer", "shrub", "creeper", "grass", "moss", "herb", "scrambler"] {
             let Some(id) = w.species.id_of(name) else { continue };
             let table = w.species.get(id).fate_table();
             let authored: usize = table.iter().map(|(_, r)| r.len()).sum();
@@ -8861,7 +8861,7 @@ The night factor belongs on income only -- see NIGHT_INCOME_FLOOR"
         use organism::FateWhen::{Flush, Grew, Node, Ripe, Stale};
         let mut w = test_world();
         let mut compared = 0usize;
-        for name in ["tree", "conifer", "shrub", "creeper", "grass", "herb", "bramble"] {
+        for name in ["tree", "conifer", "shrub", "creeper", "grass", "herb", "scrambler"] {
             let Some(id) = w.species.id_of(name) else { continue };
             if !w.species.get(id).has_fates() {
                 continue;

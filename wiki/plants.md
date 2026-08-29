@@ -283,7 +283,7 @@ of it, and it is what the two look like:
 - an **erect herb** puts everything into one stem that goes straight up on a
   bare stalk with a few large leaves widely spaced along it, and finishes in a
   single flower head several cells across at the top;
-- a **bramble** makes a short run, stops, throws a side shoot that takes over
+- a **scrambler** makes a short run, stops, throws a side shoot that takes over
   and does the same, over and over — so it sprawls into a low thicket studded
   with small clusters of flowers and fruit at every place an axis ended.
 

@@ -4,21 +4,25 @@
 // two organ species that read as one plant in two sizes would fail this phase
 // exactly as the four woody species did.
 //
-// **A category rather than a particular plant**, for the reason `herb.ron`'s
-// header sets out: everything already in the set names a *kind* of plant, at
-// whatever level of specificity was convenient, and never one real organism.
-// `Reports/plant-morphology-evolvability-2026-08-26.md` §6 rules directly
-// against portraits of named plants as the artifact.
+// **A growth form, and the name is the strict one on purpose.** A scrambler
+// is a plant that clambers over its neighbours *without true climbing
+// organs* -- no tendrils, no adhesive pads, no twining stem. It leans and
+// hooks, which is exactly what the numbers below describe: short determinate
+// axes, upward weight falling away with branch order, sprawling into a
+// thicket.
 //
-// **This name is the weaker of the two and it is worth saying so.** A bramble
-// is *Rubus*, which is a genus -- so it sits at `conifer`'s level of
-// specificity rather than `shrub`'s, and it is closer to a named plant than
-// `herb` is. It is kept because the vernacular is genuinely used for any
-// sprawling thorny fruiting thicket-former rather than for one species, and
-// because renaming a file twice costs more than it buys. The strict
-// growth-form word for this habit is *scrambler* -- a plant that clambers
-// over its neighbours without true climbing organs -- and that is the name to
-// take if the distinction is ever tightened.
+// **It was `bramble` for one draft, and the reason it is not is the heritable
+// production rule.** A bramble is *Rubus*, a genus -- a taxon name, sitting
+// at `conifer`'s level of specificity rather than `shrub`'s. That passes the
+// only rule the existing set actually shares (a category of plant, never one
+// real organism), and it would have been defensible. What decided it is that
+// **a species file is now a starting point rather than an identity**: rule
+// tables mutate (`organism::FateGenome`), so a lineage drifts away from its
+// founding table while keeping the name it was founded under. A growth-form
+// name degrades gracefully -- a scrambler that has stopped scrambling is a
+// mis-named habit. A taxon name does not: a `bramble` with no fruit that does
+// not sprawl is a false claim about what the thing *is*. Owner's call,
+// 2026-08-29.
 //
 // **Sympody is what carries it, and this engine has had sympody as a
 // heritable allele since Phase 2** (`plant-morphology-reach-2026-08-23.md`
@@ -29,7 +33,7 @@
 // terminates in now is a **truss**: a small cluster of flowers that sets
 // fruit.
 //
-//                    herb                   bramble
+//                    herb                   scrambler
 //   habit            one erect leader       sympodial, sprawling
 //   determinacy      8 metamers, once       3 metamers, over and over
 //   organs           one big terminal head  many small trusses
@@ -37,7 +41,7 @@
 //   fruit colour     gold seed head         red and crimson
 //   leaves           8-cell sprays, sparse  6-cell sprays, dense
 (
-    name: "bramble",
+    name: "scrambler",
     // Mid green, like a tree's -- the *foliage* is deliberately not what
     // separates these two, because a foliage-only difference is the
     // colour-only distinction the owner has already rejected three times.
@@ -191,7 +195,7 @@
         ]),
         (Flower, [
             // Faster to *set* than `herb`, slower to ripen. The set rate is
-            // what makes a bramble carry flowers and fruit at once; the ripen
+            // what makes a scrambler carry flowers and fruit at once; the ripen
             // rate is how long the fruit is on the plant to be *seen*, and
             // the first pass had it at 0.02 -- fruit that appeared and fell
             // inside 50 ticks, so a contact sheet of a fruiting stand showed
@@ -199,7 +203,7 @@
             // a picture can judge. This habit turns over
             // trusses continuously where an erect determinate herb spends its
             // whole season on one head, and that difference is visible on a
-            // sheet: a bramble carries flowers and fruit at once.
+            // sheet: a scrambler carries flowers and fruit at once.
             Ripen(rate: 0.035, cost: 0.22),
         ]),
         (Fruit, [

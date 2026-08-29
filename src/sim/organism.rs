@@ -1007,7 +1007,7 @@ pub enum FateWhen {
     /// **Added with the species that needs it, not ahead of it.** The handoff
     /// is explicit that a condition no species uses is a channel with a
     /// writer and no reader, which this project has shipped three times;
-    /// `herb.ron` and `bramble.ron` are its readers and they land in the
+    /// `herb.ron` and `scrambler.ron` are its readers and they land in the
     /// same change.
     ///
     /// The two rules it expresses are the whole flower→fruit→seed sequence,
@@ -3007,7 +3007,7 @@ const EMBEDDED: &[&str] = &[
     // which is the real argument for adding files rather than knobs, and a
     // better one than the naming rule is.
     include_str!("../../assets/species/herb.ron"),
-    include_str!("../../assets/species/bramble.ron"),
+    include_str!("../../assets/species/scrambler.ron"),
 ];
 
 /// Where the loader looks for species files, relative to the working

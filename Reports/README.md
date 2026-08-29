@@ -435,7 +435,7 @@ drift that two of these documents still reflect.**
 - [plant-organs-2026-08-29.md](plant-organs-2026-08-29.md)
   — **built: Phase 4, the organ package.** Flowers and fruit as cell types with
   their own materials, a determinate axis that terminates in one, and a carbon
-  price on building them, plus two authored habits (`herb`, `bramble`). The
+  price on building them, plus two authored habits (`herb`, `scrambler`). The
   materials came first, deliberately: a label change has failed to read five
   times and the one lever that ever read changed material. Two accounts, and
   the split is the useful finding — **construction** is charged at the decision

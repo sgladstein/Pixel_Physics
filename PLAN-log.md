@@ -3052,7 +3052,7 @@ All three were true when written and false the moment the workflow landed.
 Phase 4 of the plant-morphology programme, against
 `Reports/plant-organs-handoff-2026-08-28.md`. Two organ cell types with their
 own materials, a determinate axis that terminates in one, a carbon price on
-building them, and two authored habits (`herb`, `bramble`) that use all three.
+building them, and two authored habits (`herb`, `scrambler`) that use all three.
 Full account in `Reports/plant-organs-2026-08-29.md`.
 
 **Three things worth carrying out of it, none of which is the mechanism.**
@@ -3097,7 +3097,8 @@ species shipped for one draft as `sunflower.ron` and `tomato.ron`, from
 `plant-morphology-reach-2026-08-23.md` §6's sequencing note. That note is
 superseded by `plant-morphology-evolvability-2026-08-26.md` §6, whose heading
 is *"The acceptance artifact is not a sunflower … Twelve tomatoes = it does not
-[work]"*. Renamed to `herb` and `bramble`; the mechanism did not change.
+[work]"*. Renamed to `herb` and `bramble`, and the second was renamed again to
+`scrambler` a few hours later; the mechanism did not change through either.
 
 **The justification given for the rename was wrong and is now fixed in place.**
 It claimed the existing names are "habit words throughout", which the owner
