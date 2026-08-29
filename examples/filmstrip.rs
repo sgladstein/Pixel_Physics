@@ -2179,10 +2179,14 @@ struct Args {
     /// loose grains above the wade line he pushes past. 0 is the old veto,
     /// under which one stray soil cell in a canopy was an impassable wall.
     shoulder_grains: u8,
-    /// `dig=bore|free` -- which cut shape the pick uses, so the two can be
-    /// rendered as a controlled pair on one scene. The app's own default is
+    /// `digstyle=bore|free` -- which cut shape the pick uses, so the two can
+    /// be rendered as a controlled pair on one scene. The app's own default is
     /// `bore`; `free` is what the pick did before it existed, and is still
     /// reachable in play on `4`.
+    ///
+    /// **Not `dig=` or `cut=`**, which `scene=room`'s cut radius and the
+    /// crop rectangle have held all along -- see the parse arm for what
+    /// claiming one of them twice cost.
     dig_style: pixel_physics::sim::player::DigStyle,
     /// `species=` -- which species `scene=grove` plants (tree, conifer,
     /// shrub). The grove is the shape harness, and Phase 2's whole point
@@ -2928,11 +2932,22 @@ fn parse() -> Args {
             "seed" => a.seed = v.parse().expect("seed"),
             "yield" => a.dig_yield = v.parse().expect("yield"),
             "shoulder" => a.shoulder_grains = v.parse().expect("shoulder"),
-            "dig" => {
+            // `digstyle=`, because **both shorter names were already
+            // taken**: `dig=` is `scene=room`'s cut radius and `cut=` is a
+            // crop rectangle. `dig=` was tried first, and
+            // `scene=room`'s cut radius, and adding a second arm for it
+            // shadowed that one: `acceptance.sh` passes `dig=0` and `dig=4`,
+            // which then panicked with "known: bore, free" and took **ten
+            // acceptance cases** down with it. The compiler said so —
+            // `unreachable_patterns` on the older arm — and a background
+            // `--release --examples` whose tail was grepped rather than read
+            // is how the warning went by. `cut=` also matches the HUD's own
+            // wording for the key that swaps it.
+            "digstyle" => {
                 a.dig_style = match v {
                     "bore" => pixel_physics::sim::player::DigStyle::Bore,
                     "free" => pixel_physics::sim::player::DigStyle::Free,
-                    other => panic!("dig={other:?}; known: bore, free"),
+                    other => panic!("digstyle={other:?}; known: bore, free"),
                 }
             }
             "species" => a.species = v.into(),
