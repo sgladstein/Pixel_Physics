@@ -45,16 +45,16 @@ whole, then run `python3 scripts/readmetoc.py`.
 | [Rendering performance — overnight run, section 11](#rendering-performance--overnight-run-section-11) | 2413 |
 | [M8 status — started, not complete](#m8-status--started-not-complete) | 2433 |
 | [M9 status — the gnome](#m9-status--the-gnome) | 2546 |
-| [M10 status — the worldgen half](#m10-status--the-worldgen-half) | 2698 |
-| [Weather status](#weather-status) | 2813 |
-| [The ant colony — status](#the-ant-colony--status) | 2830 |
-| [M19 status — started](#m19-status--started) | 2939 |
-| [Felling status — the verb works, and what it produces is pieces](#felling-status--the-verb-works-and-what-it-produces-is-pieces) | 3011 |
-| [Bending status — soft tissue lies over, and the wind is what pushes it](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) | 3248 |
-| [Performance](#performance) | 3325 |
-| [World speed — five independent time axes](#world-speed--five-independent-time-axes) | 3522 |
-| [Status](#status) | 3605 |
-| [License](#license) | 3716 |
+| [M10 status — the worldgen half](#m10-status--the-worldgen-half) | 2931 |
+| [Weather status](#weather-status) | 3046 |
+| [The ant colony — status](#the-ant-colony--status) | 3063 |
+| [M19 status — started](#m19-status--started) | 3172 |
+| [Felling status — the verb works, and what it produces is pieces](#felling-status--the-verb-works-and-what-it-produces-is-pieces) | 3244 |
+| [Bending status — soft tissue lies over, and the wind is what pushes it](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) | 3481 |
+| [Performance](#performance) | 3558 |
+| [World speed — five independent time axes](#world-speed--five-independent-time-axes) | 3755 |
+| [Status](#status) | 3838 |
+| [License](#license) | 3949 |
 
 ### Milestones, in numeric order
 
@@ -68,14 +68,14 @@ order they were written.
 | 7 | [M7 status](#m7-status) | 916 |
 | 8 | [M8 status — started, not complete](#m8-status--started-not-complete) | 2433 |
 | 9 | [M9 status — the gnome](#m9-status--the-gnome) | 2546 |
-| 10 | [M10 status — the worldgen half](#m10-status--the-worldgen-half) | 2698 |
+| 10 | [M10 status — the worldgen half](#m10-status--the-worldgen-half) | 2931 |
 | 12 | [M12/M13 status](#m12m13-status) | 715 |
 | 14 | [M14 status](#m14-status) | 768 |
 | 15 | [M15 status](#m15-status) | 945 |
 | 16 | [M16 status](#m16-status) | 1553 |
 | 17 | [M17 status](#m17-status) | 1739 |
 | 18 | [M18 status](#m18-status) | 1966 |
-| 19 | [M19 status — started](#m19-status--started) | 2939 |
+| 19 | [M19 status — started](#m19-status--started) | 3172 |
 
 ### By topic
 
@@ -88,24 +88,24 @@ them is named "plants". A section can appear twice; felling is honestly both
 plant work and structural work.
 
 **Known limitations for every topic are collected in one place**:
-[Status](#status), line 3605 — the *last* section in the
+[Status](#status), line 3838 — the *last* section in the
 file, not the first. Read it before concluding something is broken.
 
 | Topic | Sections, primary first |
 |---|---|
-| **plants, trees and moss** | [M16 status](#m16-status) 1553, [Plant lines merged](#plant-lines-merged-the-genome-and-the-ecology) 1181, [The economy re-derived](#the-economy-re-derived-standing-tissue-costs-something) 1303, [Plants that stop](#plants-that-stop-organs-determinacy-and-a-price-on-both) 1485, [The generation loop](#the-generation-loop-plants-die-seeds-expire-slots-come-back) 1251, [Stems draw a line](#stems-draw-a-line-the-growth-walk-renders-its-heading) 1403, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 3011, [Bending status](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) 3248 |
-| **creatures — worms and the ant colony** | [M18 status](#m18-status) 1966, [The ant colony](#the-ant-colony--status) 2830 |
-| **structural collapse, felling and rigid bodies** | [M17 status](#m17-status) 1739, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 3011, [Bending status](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) 3248, [M8 status](#m8-status--started-not-complete) 2433 |
+| **plants, trees and moss** | [M16 status](#m16-status) 1553, [Plant lines merged](#plant-lines-merged-the-genome-and-the-ecology) 1181, [The economy re-derived](#the-economy-re-derived-standing-tissue-costs-something) 1303, [Plants that stop](#plants-that-stop-organs-determinacy-and-a-price-on-both) 1485, [The generation loop](#the-generation-loop-plants-die-seeds-expire-slots-come-back) 1251, [Stems draw a line](#stems-draw-a-line-the-growth-walk-renders-its-heading) 1403, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 3244, [Bending status](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) 3481 |
+| **creatures — worms and the ant colony** | [M18 status](#m18-status) 1966, [The ant colony](#the-ant-colony--status) 3063 |
+| **structural collapse, felling and rigid bodies** | [M17 status](#m17-status) 1739, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 3244, [Bending status](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) 3481, [M8 status](#m8-status--started-not-complete) 2433 |
 | **fire, heat and phase change** | [M14 status](#m14-status) 768, [Materials](#materials) 222 |
 | **explosions, particles and debris** | [M15 status](#m15-status) 945, [M7 status](#m7-status) 916 |
 | **liquids and gases** | [Liquid physics](#liquid-physics-compressible-volume-not-discrete-occupied-cells) 742, [The coarse field grid](#the-coarse-field-grid) 453 |
 | **powders and granular flow** | [Materials](#materials) 222, [Architecture](#architecture) 296 |
 | **the coarse field grid — pressure, heat, light** | [The coarse field grid](#the-coarse-field-grid) 453, [M12/M13 status](#m12m13-status) 715 |
-| **worldgen and world structure** | [M10 status](#m10-status--the-worldgen-half) 2698, [Architecture](#architecture) 296 |
+| **worldgen and world structure** | [M10 status](#m10-status--the-worldgen-half) 2931, [Architecture](#architecture) 296 |
 | **the gnome (player character)** | [M9 status](#m9-status--the-gnome) 2546, [Controls](#controls) 157 |
-| **weather, sky and the clock** | [Weather status](#weather-status) 2813, [M19 status](#m19-status--started) 2939, [World speed](#world-speed--five-independent-time-axes) 3522 |
+| **weather, sky and the clock** | [Weather status](#weather-status) 3046, [M19 status](#m19-status--started) 3172, [World speed](#world-speed--five-independent-time-axes) 3755 |
 | **rendering, UI and tunables** | [UI improvements](#ui-improvements--overnight-run-section-9) 2300, [Live tunables panel](#live-tunables-panel--overnight-run-section-10) 2345, [Rendering performance](#rendering-performance--overnight-run-section-11) 2413, [M6 deferral](#m6-deferral) 1076 |
-| **performance and the parallel sweep** | [Performance](#performance) 3325, [M5 status](#m5-status) 1086, [Architecture](#architecture) 296, [Rendering performance](#rendering-performance--overnight-run-section-11) 2413 |
+| **performance and the parallel sweep** | [Performance](#performance) 3558, [M5 status](#m5-status) 1086, [Architecture](#architecture) 296, [Rendering performance](#rendering-performance--overnight-run-section-11) 2413 |
 | **materials and the data schema** | [Materials](#materials) 222, [M12/M13 status](#m12m13-status) 715 |
 
 <!-- END GENERATED TOC -->
@@ -170,8 +170,8 @@ here is a cross-repo edit, not a cosmetic one.
 | `.` | Step one frame while paused |
 | `F` | Force-ignite whatever's under the brush (debug tool) |
 | `P` | Throw a burst of the selected material as free particles (debug tool) |
-| `X` | Trigger an explosion (its own radius/strength, tunable under `O` -> EXPLOSION, **not** the brush radius) |
-| `C` | **Strike** the rock under the cursor — pulverizes the centre, loosens the rock around it and throws the pieces. Force scales with brush size. The destruction *verb*: erasing removes support but delivers no load, so before this nothing could fail from being hit |
+| `X` | Trigger an explosion at the cursor (its own radius/strength, tunable under `O` -> EXPLOSION, **not** the brush radius). Names itself in the toast — see `C` below; `X` sits under `S` |
+| `C` | **Strike** the rock under the cursor — pulverizes the centre, breaks the rock out to the full brush radius into pieces and throws them. Force scales with brush size. The destruction *verb*: erasing removes support but delivers no load, so before this nothing could fail from being hit. **Names itself in the toast**, because it is the identical `rigid::strike` the gnome's hammer swings and it sits directly under `D` — a slipped finger put an unattributable hole at the cursor and got reported as a hammer bug (`X` and `H` do the same for the same reason) |
 | `T` | Plant a tree seed under the brush (M16 debug tool) |
 | `M` | Plant a moss seed under the brush (M16 debug tool) |
 | `J` | Plant a worm under the brush (M18 debug tool; was `W` before the gnome claimed WASD) |
@@ -186,7 +186,7 @@ here is a cross-repo edit, not a cosmetic one.
 | `L` | Cycle the organism overlay — per-cell organism channels on a fixed dark→bright ramp |
 | `I` | Toggle the hover inspector — material, temperature, every field channel at the cursor |
 | `N` | Toggle the structural stress view — every load-bearing cell tinted green at rest through red at its limit |
-| `H` | Dig — a precise cut that loosens and cracks the rock around it, unlike the eraser (was `D`, which now runs the gnome right) |
+| `H` | Dig at the cursor — a precise cut that loosens and cracks the rock around it, unlike the eraser (was `D`, which now runs the gnome right). Names itself in the toast, like `C` and `X` |
 | `Z` | Cycle the build tool — freehand brush, solid rectangle, hollow room, line |
 | `B` | Stamp a **reference room** — 200x160, standing on whatever ground is under the cursor, walls as thick as the brush. Deliberately sized at the measured edge of what the structural model holds (`Reports/next-session-handoff.md` §2b), so the open question "is a room this big a reasonable thing to want to build?" can be judged in the hand instead of argued from a contact sheet |
 | `V` | Cycle the field overlay: off → pressure → temperature → light → moisture → off |
@@ -2559,7 +2559,7 @@ rather than three sizes of the same swing:
 | tool | verb | what it is for |
 |---|---|---|
 | `Pick` | `rigid::mine_rect` / `mine_swept` | getting through the world |
-| `Hammer` | `rigid::strike` | breaking it — and cracking far more than it breaks |
+| `Hammer` | `rigid::strike` | breaking it into pieces — and cracking further still |
 | `Axe` | `mine_swept` at a third the radius, half the yield | cutting what is alive |
 
 **The bore.** `player::bore_rect` sizes a box off `PLAYER_WIDTH`/`HEIGHT`
@@ -2598,6 +2598,239 @@ style is selected, and
 charged to whichever struck), because two would have made the belt an
 exploit: strike, switch, strike again at the sum of both rates. The HUD's
 swing bar draws it.
+
+### What the first playtest of the belt sent back
+
+Two complaints, both about the same thing the ethos names: a verb has to
+*deliver* something legible.
+
+**"The direction switches too easy as the gnome moves."** The bore took
+its direction from the vector `gnome -> cursor`, evaluated fresh on every
+stroke. Walking down your own corridor carries you *past* a stationary
+cursor, that vector sweeps through the diagonal, and the box flips from a
+corridor to a shaft with the player's hand still. `Dir::sticky` latches
+the direction on the stroke that set it, together with the cursor position
+it was set at, and keeps it until the cursor moves `REAIM_DEADZONE` (12
+cells, just under his own height) from there.
+
+**The hysteresis is on the *cursor*, not on the offset, and the first
+attempt was on the offset.** A ratio (1.6:1) plus a floor (6 cells) over
+the current `gnome -> cursor` offset looked like the obvious rule and
+cannot work: after the walk the offset is `dx=2, dy=11`, which is a
+genuine 5.5:1 vertical — there is no ratio or floor that holds that
+sideways and still lets a deliberate re-point through, because the two
+cases are *the same offset*. What separates them is which end moved.
+`walking_does_not_change_which_way_he_is_boring` is the complaint as a
+test and goes red on `Dir::toward`; `pointing_somewhere_new_still_changes_
+the_bore` is the other half, so the fix cannot become a control that
+ignores the hand.
+
+**"The hammer mostly makes big strike lines instead of breaking rock into
+pieces."** True, and the arithmetic said so before the sheet did.
+`strike`'s chip zone was `radius * 2 / 3` while its cracks ran
+`radius * CRACK_REACH` as five straight radial rays, so at the gnome's
+`hammer_radius: 7` the visible *line* was 17 cells long and the visible
+*damage* was 4 — four to one in favour of the half that is only a mark.
+And the loosened ring was ~37 cells against a fragment ladder drawing
+4..64 at `size_bias(7) == 1`, so one seed routinely swallowed the lot and
+a blow calved a single lump.
+
+Widening the chip zone to the blow's full radius fixed the second half and
+went to the owner as a blind A/B against the shipped tuning. **He declined
+both arms**, which is the verdict that set the shape of the change:
+*"neither, fully get rid of the lines that it makes — it should just make
+cracks similar to an explosion and have the pieces fall off in chunks. if
+the chunks are hit, they break into stone dust."* Three changes, one per
+clause:
+
+- **The lines are gone.** `strike` reveals the rock's **joint fabric**
+  instead of drawing rays — `structural::shatter_joints_around`, over
+  `fracture_field`'s Worley domains, which is what a blast reads and has
+  read since `d5cb19a`. `score_cracks` was the last production caller of a
+  radial-ray pattern on the destruction path; it survives on `mine`, at
+  `radius + MINE_CRACK_REACH`, a reach short enough to read as a cut
+  fraying its edges. `fracture_field`'s module doc has the three
+  escalating rejections that put the blast here, and the two properties a
+  walker cannot have: the edges are **straight** and the cells are
+  **closed**.
+- **The pieces come off.** The reveal's density is flat at
+  `CRUSH_JOINT_DENSITY` out to the chip radius before it ramps to nothing
+  at `radius * CRACK_REACH` — a `flat_to` argument `crush_in_place` passes
+  as `0.0`, so its pinned PNG hash on `scene=strike` is unmoved. The flat
+  zone is what makes pieces rather than dashes: everything inside `chip`
+  is already gone, so every joint a blow can reach sits at `d >= chip`
+  where a pure ramp parts well under all of a boundary — and a domain
+  whose boundary only partly parts is not enclosed, so nothing falls out
+  of it. `shatter_joints_around` then unbraces every cell it severed,
+  which is the half `score_cracks` carried in its own loop.
+- **And the reach comes in from 3x the radius to 2x** (`BLOW_JOINT_REACH`
+  against `CRACK_REACH`), which is a cost change rather than a looks one.
+  A ray star is sparse — five lines, ~85 cells — so unbracing all of it
+  over three times the radius was cheap; the fabric opens several hundred
+  edges over the same disc, and `detach_around_crack` schedules a check
+  for every cell it unbraces. At 3x, `acceptance.sh`'s `strike` case (one
+  radius-14 blow into a solid massif) finished with **2,284 pending
+  scheduler sites, flat, every chunk asleep** against its bar of 1,500 —
+  §S's backlog that climbs instead of draining, caught by that case and by
+  nothing else in the tree. **Filtering the severed set by distance
+  instead was tried and abandoned**: the cascade is chaotic in that
+  parameter rather than monotone — 1,553 sites at twice the chip radius,
+  **3,109 at 1.75x**, 1,277 at 1.5x, while `scene=worked`'s shelf needed
+  the wide bound to give way at all. Any value clearing both cases there
+  is landing on luck. Cutting the reach opens fewer joints instead of
+  filtering them afterwards: `strike` 1,163 sites with 22% headroom,
+  `worked` 6 overload failures against a bar of 3.
+- **A chunk that is hit bursts.** This could not happen at all before, for
+  a reason invisible from `strike`: `promote` writes `Cell::EMPTY` into a
+  flying body's footprint and holds it as a managed-empty reservation, so
+  `is_tool_target` said no and **a swing passed clean through the rock it
+  had just knocked loose**. `burst_bodies_at` settles any body the blow
+  overlaps back into the grid and shatters every cell of it. The whole
+  body, not the cells under the disc: biting a hole in one means
+  re-deriving its shape, mass and spin around the hole, and *burst* is
+  what the complaint describes anyway.
+
+**And a fourth thing, from his reply to the sheet of that:** *"Yes this is
+what I am asking, but I don't see pieces coming off in chunks. Do you?"*
+No — and the census said 226 cells *had* come off as chunks on the same
+run, which is the contradiction that named the cause. `promote` turns a
+blow's `force` into a fragment's launch speed as
+`force / distance_from_the_blow`, so at `hammer_force: 3.0` a chunk five
+cells out left the wound at **0.6 cells a frame** — slower than it then
+fell. The pieces were coming off and going nowhere. At 12.0 the fastest
+piece on `scene=smash` goes 1.07 -> **4.02 cells/frame**. `hammer_recoil`
+is its own number, so this does not change how far the swing shoves him.
+
+**And a fifth, from the reply to *that* sheet:** *"none of the cracks
+fully complete to break a chunk off... multiple hammer hits should result
+in those cracks completely surrounding the chunk and then the whole chunk
+falls out as one piece."* True, and structural rather than tuned:
+`joint_draw` is a pure function of the domain pair, so the boundaries a
+first blow declines are declined **identically for ever**, and a domain
+missing one edge of its outline is never enclosed and never comes away.
+`CRUSH_JOINT_DENSITY` deliberately leaves one boundary in ten shut so the
+near field does not read as a drawn tessellation — which is right for one
+blow and wrong for a second.
+
+`structural::JOINT_REPEAT_BONUS` (0.15) raises the activation ramp where
+the rock either side of a boundary is **already damaged**, taking the flat
+zone past 1.0 — so a second blow closes every outline the first left open,
+and further out it merely deepens. Keyed on damage that was there *before*
+the call, per `score_cracks`' recorded trap of counting its own writes.
+
+**Per *domain*, and the per-cell version was written first and is
+vacuous** — a domain with five of six boundaries open has cracked cells
+along those five and none in the middle of the sixth, which is exactly the
+edge that has to be persuaded. Caught by
+`a_second_blow_completes_what_the_first_one_left_open`, which read **36
+fresh edges -> 36** on a second blow at the same spot: the tell for a
+mechanism that never ran, and the reason this is asserted as a count
+rather than judged by eye. `scene=worked`'s overload failures went 6 ->
+**14** on the fix, and `scene=smash`'s pieces grew from a largest failing
+region of 8 cells to a distribution carrying eight regions in the 8-15
+band.
+
+**And a sixth, which is the one that made the outline and the piece the
+same shape:** *"The chunks should break off along the crack pattern that
+is already there. this mostly looks like small dust breaking first. maybe
+as a first step just no dust, it forms cracks and then large pieces fall
+specifically from the existing crack line when they completely surround a
+chunk."* Two halves:
+
+- **`structural::free_blocks_around` promotes a joint-bounded block
+  whole.** The enclosure was already real — a crack is a place support
+  cannot cross, so a fully bounded block is genuinely unsupported and the
+  cascade did find it. What it *did* with it was the problem:
+  `structural::tick` hands a failing region to `fracture`, which re-cuts
+  it on the power-of-two ladder, so a 170-cell block bounded by four
+  visible joints came apart into ladder-sized fragments and grit. The
+  outline and the piece were different shapes, which is exactly what "the
+  chunks should break off along the crack pattern" says is wrong. A block
+  counts as free when every face of every cell is inside the block, across
+  a severed edge, or not rock at all; one unsevered joint anywhere and it
+  stays put, which is what the repeat bonus is for.
+- **The blast calves its enclosed blocks too**, through the same
+  `rigid::calve_free_blocks` — the owner ruled that half of the work into
+  this lane after the explosion lane's own measurement landed on the same
+  conclusion from *"when the cracks have fully surrounded a chunk of rock
+  it should detach... Every single rock. That doesn't happen
+  consistently."* **It is a partial fix and the honest number is the
+  median, not the pooled total.** Paired over five presets x four seeds:
+  median **1.00x**, better on 8 runs of 20, worse on 5, unchanged on 7;
+  `rolling 7` — the case §S5 identified as supported-while-severed — goes
+  1,382 → 2,191 cells. Widening the search from the calved shell to the
+  fissure halo (~3x reach, ~10x area) moves the median by **nothing** and
+  pushes the worst frame to 70.6 ms against acceptance's 60, so the reach
+  was never the constraint: a hammer completes an outline because its
+  *second* blow reopens what the first declined, and a blast is one event.
+  The rest is a `JointSeams` calibration question, filed on §S5.
+- **No pulverized core.** `strike` used to `shatter_to_rubble` a
+  `radius / 3` disc outright — grit made by fiat rather than by anything
+  breaking, and the first thing the eye sees, because it appears on the
+  swing frame where a piece has to wait for its outline to close. `core`
+  is 0. What is left is the honest ladder: whatever comes off below
+  `MIN_BODY_CELLS` is grit as a *consequence* of the draw, which is the
+  distinction `fracture`'s own doc draws.
+
+Measured on `acceptance.sh`'s two blow cases: `scene=strike` (one radius-14
+blow into a solid massif) calves **18 bodies carrying 937 cells** on the
+blow frame against the pre-change **11 / 553**, and `scene=worked` (six
+blows on a shelf) puts **1,529 cells off as chunks at 64% by mass** with
+15 overload failures against a bar of 3.
+
+**And the seed sweep, which is the gate a change to a destruction model
+owes** (`scripts/seedsweep.sh strike=12`, six presets x four seeds, read
+at `every=900 count=5` because the default budget stops mid-cascade).
+Paired against the same binary with both changes switched off, by rock
+destroyed: **median +63 cells, p90 +165, max +210, min −157**, pooled
+1.22x. No seed runs away — the failure this sweep exists for was 26x on
+one seed and 50x on another, both green on every acceptance case at the
+time. The *largest failing region* falls sharply on several seeds
+(`canyon 7` 112 → 2, `flat 1` 60 → 1, `rolling 1` 109 → 33), which is the
+mechanism seen from the other side: a block that is released as a body on
+the blow is no longer found later as a large region to be re-cut.
+
+Measured on `filmstrip scene=smash`, same seed, same script:
+
+| | rays (played) | joint fabric |
+|---|---|---|
+| blows that landed | 3 | **5** |
+| cells broken | 98 | **376** |
+| of what came off, chunks | 44 cells | **313 cells** |
+| fastest piece | 1.07 cells/frame | **4.12** |
+| worst frame | 13.47 ms | 14.44 ms |
+
+The blow count moving 3 -> 5 is the same change seen from the other side:
+a blow that throws its pieces clear keeps the face inside `hammer_reach`,
+where one that left rubble in place walled him off after three. That is
+`scene=smash`'s own recorded stall, and it was a symptom.
+
+**The third change is guarded rather than shown, and had to be.** The
+sheet came back **byte-identical** across it — the gnome swings every 90
+frames and every piece has settled long before the next blow, so no body
+was ever in flight when one landed. That is `CLAUDE.md`'s tell for a
+mechanism that never ran, not for a small effect, so the control is
+constructed: `a_blow_bursts_a_chunk_that_is_still_in_the_air` puts a body
+in the air and swings at it, and `a_blow_that_misses_a_chunk_leaves_it_
+flying` is the half that stops "burst every body in the world" from
+passing. `a_blow_cracks_along_the_rocks_own_joints_and_not_in_rays`
+states the first change as a property no picture is needed for — every
+crack edge in comparable jointed rock separates two domains — and goes red
+with `score_cracks` put back (64 edges off-joint).
+
+**"…and sometimes randomly makes a hole at the mouse, which is not near
+the gnome."** Not the hammer, and it could not be: `face_toward` clamps
+the blow to `hammer_reach` of his own centre, and `player::smash` is the
+only path from the left button. `C` is the sandbox strike **at the
+cursor**, at brush radius — the identical `rigid::strike`, so the wound is
+indistinguishable from a hammer blow — and it sits directly under `D`, the
+key running the gnome right. `X` (blast) sits under `S`. Both said
+nothing at all when they fired; `strike` even carried a comment that the
+count was being discarded because there was nowhere to put it. They name
+themselves in the toast now, which turns an unattributable hole into a
+slip you can see and costs no tool. Left as live keys rather than gated
+behind "no gnome summoned": a blast beside the gnome is a thing this repo
+tests with deliberately.
 
 **Counters, per `CLAUDE.md`'s "did it fire at all" rule.** `rigid::strike`
 returns the cells it acted on — pulverized plus loosened — so a swing at

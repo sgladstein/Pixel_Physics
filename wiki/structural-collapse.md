@@ -1,9 +1,15 @@
 # Structural Collapse
 
-*Current as of: 2026-08-29. Changed on 2026-08-29: a piece that breaks off a
-**plant** turns as it falls, and one that comes to rest
-overhanging its own footing goes over instead of standing on end — broken
-rock is unchanged; see **What a collapse looks like**. Changed on 2026-08-28: ground that is standing
+*Current as of: 2026-08-29. Changed on 2026-08-29: **a blow opens the rock's
+own joints instead of drawing lines of its own, and what comes off comes off
+along them** — a block whose outline has parted all the way round leaves
+whole, in the shape the cracks drew, and nothing is pulverised on the swing
+frame. A piece caught in mid-air can be hit, which bursts it. See
+**What cracks do**.
+Also on 2026-08-29: a piece that breaks off a
+**plant** now turns as it falls, and one that comes to rest overhanging its
+own footing goes over instead of standing on end — broken rock is unchanged;
+see **What a collapse looks like**. Changed on 2026-08-28: ground that is standing
 on scree is held by the scree, and no longer also leans on the rock beside
 it — which is what stopped hillsides taking themselves apart while nobody
 was playing; see **What rubble does**. Changed on 2026-08-27: debris that comes to
@@ -79,21 +85,44 @@ including deep inside solid rock where there is no open face anywhere near
 it — which is what the paragraph below has always claimed and, until
 recently, was not quite true of a crack drawn at an angle.
 
-Hitting rock scores fissures into it that run well past the material the
+Hitting rock opens fissures in it that run well past the material the
 blow actually removes, and they stay. Cracked rock carries less than
-intact rock, and striking the same spot again drives the existing fissures
-deeper rather than scribbling fresh ones somewhere else — so a span you
+intact rock, and the fissures a given piece of rock opens are the same
+ones every time it is hit — how it splits is a property of the rock, not
+of the swing — so working a spot deepens one set of fissures and eats
+into the face, rather than scribbling fresh ones beside them. A span you
 can't chew through can still be *worked* until it gives. A crack is also a
 place support cannot cross, so a fissure carried all the way through
 something separates it.
 
-Rock has a grain, and breaks follow it. Stone cut loose deep inside a
-mountain cracks where it stands rather than coming away, and it cracks along
-the same grain a blast finds rather than along wandering lines of its own.
-The breaks it draws are one cell wide, straight and closed — they match the
-web a blast leaves rather than sitting on top of it as a darker tangle. A
-piece smaller than one block of the grain has no joint inside it at all, and
-so cracks nothing.
+Rock has a grain, and **every break in this world follows it**. A blast, a
+crush deep inside a mountain, and a hammer blow all open the same joints —
+straight, one cell wide, and closed, so a cell of the grain whose whole
+outline has parted is genuinely cut off and falls out as a piece. A blow
+used to draw a star of long lines of its own instead, which read as a
+graphic stamped on the stone; nothing on the destruction side does that any
+more. A piece smaller than one block of the grain has no joint inside it at
+all, and so cracks nothing.
+
+Density is what makes a blow different from a crush: the joints part
+almost completely where the hammer landed and thin out to nothing further
+off, so the damaged patch is dense at the middle, ragged at its edge, and
+sheds pieces from the near ring.
+
+**Rock that has been hit already parts more readily**, and that is what
+makes working a spot get you somewhere. A single blow leaves the odd joint
+shut — a block with all but one of its edges open is still held, and stays
+where it is. Hit it again and the ones it left shut give, the outline
+closes all the way round, and the whole block comes out as one piece.
+
+**And it comes out as the shape you can see.** A block whose outline has
+parted all the way round leaves along that outline, whole, rather than
+being broken up again on its way out — so the hole a blow leaves is the
+same polygon the cracks drew, and the piece lying at the bottom of it is
+that polygon. Nothing is pulverised on the swing frame any more: a blow
+makes cracks, and what comes off comes off along them. Grit is what is
+left over from pieces too small to be pieces, not something the blow
+manufactures.
 
 ## What a collapse looks like
 
