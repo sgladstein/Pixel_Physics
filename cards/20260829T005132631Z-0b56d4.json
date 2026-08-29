@@ -1,0 +1,86 @@
+{
+  "id": "20260829T005132631Z-0b56d4",
+  "created": "2026-08-29T00:51:32Z",
+  "board": "plants",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/plant-morphology-organs-phase-4-uubdv1",
+    "commit": "3fa780d",
+    "agent": null,
+    "session_id": "ba408896-3a71-5c7b-bf81-d1b9ae055dfd",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Four plant types from one engine, same scene and frame",
+  "question": "are these different plants, or one plant in several sizes?",
+  "context_md": "Phase 4, the organ package: flowers and fruit as real cell types with their own materials, a determinate axis that terminates in one, and a carbon price on building them.\n\nEach pane is **three plants of one species**, grown 30,000 frames in the same bed, same frame, same lighting (noon), same crop and zoom. Two of the four are new plant types this change adds; two shipped before it. **Which is which is hidden**, deliberately -- I have a stake in the answer.\n\nWhat I already measured, so you do not have to look for it:\n\n- The organs fire. Counts are under each pane; two panes read zero because those species have no organ rule, not because the mechanism failed.\n- The price binds: 36% of axes that reached their metamer count could not pay for a head, and 32% of wanted head cells were refused. So the heads are a spread of sizes rather than all-or-nothing.\n- The fruit really drops -- it becomes a falling powder carrying the seed, so it rolls and lands away from its parent.\n\nWhat I am **not** asking about and would ignore: the soil mound and root spill at ground level, and the fact that one pane's plants are visibly taller than another's. Size is the thing the last five of these changes only moved, and it is the answer I am trying not to get again.\n\nIf the answer is \"one plant in several sizes\", say which two you could not tell apart -- that is the pair I would work on next.",
+  "kind": "single",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "tree",
+      "files": [
+        "20260829T005132631Z-0b56d4/000-pane_tree.png"
+      ],
+      "caption": "",
+      "meta": {
+        "organs built": 0,
+        "axes terminated": 0,
+        "fruit dropped": 0,
+        "cells (leaf + wood)": "4991 + 8812"
+      },
+      "focus": null
+    },
+    {
+      "label": "shrub",
+      "files": [
+        "20260829T005132631Z-0b56d4/001-pane_shrub.png"
+      ],
+      "caption": "",
+      "meta": {
+        "organs built": 0,
+        "axes terminated": 0,
+        "fruit dropped": 0,
+        "cells (leaf + wood)": "3230 + 4398"
+      },
+      "focus": null
+    },
+    {
+      "label": "herb (new)",
+      "files": [
+        "20260829T005132631Z-0b56d4/002-pane_herb.png"
+      ],
+      "caption": "",
+      "meta": {
+        "organs built": 143,
+        "axes terminated": 18,
+        "fruit dropped": 10,
+        "organs standing now": "46 flower + 25 fruit",
+        "cells (leaf + wood)": "1282 + 2059"
+      },
+      "focus": null
+    },
+    {
+      "label": "bramble (new)",
+      "files": [
+        "20260829T005132631Z-0b56d4/003-pane_bramble.png"
+      ],
+      "caption": "",
+      "meta": {
+        "organs built": 1469,
+        "axes terminated": 204,
+        "fruit dropped": 624,
+        "organs standing now": "19 flower + 81 fruit",
+        "cells (leaf + wood)": "1576 + 3186"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
