@@ -288,7 +288,15 @@ impl RegionMap {
         let per_window = per_window.clamp(MIN_REGIONS, MAX_REGIONS);
         // Regions per *window*, scaled up by how many windows wide the world
         // is. At the original 512 this is exactly the old behaviour.
-        let windows = (w as f32 / COMPOSITION_WINDOW).max(1.0);
+        //
+        // **Times `cell_scale`, because a window is one screen and a screen
+        // is a number of cells, not a number of ground.** Without it a world
+        // built at twice the cell resolution gets twice the regions rather
+        // than the same regions twice as wide -- which is not a subtle
+        // difference: measured on `rolling` seed 1, it is the whole reason a
+        // rescaled world came out no more like the original than a different
+        // seed did. See `WorldgenParams::cell_scale`.
+        let windows = (w as f32 / (COMPOSITION_WINDOW * p.cell_scale.max(f32::EPSILON))).max(1.0);
         let count = ((per_window as f32 * windows).round() as i32).clamp(MIN_REGIONS, MAX_TOTAL_REGIONS);
 
         // Centres first, and the country field over them, because the rock

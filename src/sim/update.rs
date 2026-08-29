@@ -232,6 +232,24 @@ fn root_reinforced<S: CellSurface>(surface: &S, x: i32, y: i32) -> bool {
         .any(|&(dx, dy)| surface.materials().get(surface.get(x + dx, y + dy).material).reinforces_powder)
 }
 
+/// Whether this cell is resting against woody tissue -- a branch, a trunk,
+/// or a landed log.
+///
+/// `root_reinforced` above read from the other side: there a root holds the
+/// soil it threads through, here a branch holds the leaves that came down on
+/// it. Same four neighbours, same "before any movement rule" placement, and
+/// the same reason it asks the *material* rather than organism state -- this
+/// function holds a bare `Cell` and has no route to an organism.
+///
+/// Four neighbours rather than eight, deliberately. A leaf touching a branch
+/// only at a corner is not sitting on it, and eight would let a spray hang
+/// diagonally off a twig's tip in open air.
+fn on_a_branch<S: CellSurface>(surface: &S, x: i32, y: i32) -> bool {
+    [(0, -1), (0, 1), (-1, 0), (1, 0)]
+        .iter()
+        .any(|&(dx, dy)| surface.materials().get(surface.get(x + dx, y + dy).material).woody)
+}
+
 /// Infiltration and gravity drainage for one `Powder` cell.
 ///
 /// Two rules, both local, run before the movement rules below:
@@ -466,7 +484,11 @@ fn update_powder<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: Cell, ri
     // feature that does nothing in that scene is not a trade worth making.
     // The caller already has `cell`, so reusing it makes the check a Vec
     // index and nothing else.
-    let holds_water = surface.materials().get(cell.material).water_capacity > 0;
+    // One lookup for both opt-ins: the caller already has `cell`, so this is
+    // a `Vec` index and two field reads rather than two indexes.
+    let def = surface.materials().get(cell.material);
+    let holds_water = def.water_capacity > 0;
+    let clings = def.clings_to_wood;
     let wet_changed = if holds_water { update_soil_water(surface, x, y) } else { false };
 
     // **Root-reinforced soil does not fall.** One check, before any of the
@@ -504,6 +526,35 @@ fn update_powder<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: Cell, ri
     // reasoning as the water pass above: the sand-and-water stress scene
     // must not pay for a plant mechanic it has no plants for.
     if holds_water && root_reinforced(surface, x, y) {
+        return wet_changed;
+    }
+
+    // **Foliage stays on the branch it came down on.** Owner, twice: *"most
+    // of the leaves should stay on the branch"*, and before that *"They can
+    // stay on the branch if that is easier."*
+    //
+    // A severed limb already rides down whole with its leaves attached
+    // (`rigid::fell_severed_tissue`). What went wrong is what happens after
+    // it lands: the foliage arrives as a powder, and a powder falls off
+    // whatever it landed on, so within a few frames the leaves had slid
+    // clear of the wood and pooled around it.
+    //
+    // The tempting fix is to make the tier a `Solid` instead, and it is a
+    // recorded dead end -- built, rendered, and it leaves the tree **dying
+    // standing in the shape it grew in**, because the first pieces to land
+    // form a scaffold that nothing can ever fail. `deadleaf.ron`'s header
+    // carries the measurement. This is the narrower claim that was actually
+    // wanted, and the difference matters: foliage in open air still falls
+    // like anything else, and only foliage *touching wood* holds.
+    //
+    // Gated on a flag read off the material already in hand, for exactly the
+    // reason the water pass above states at length: a powder that is not
+    // foliage must never pay the four neighbour fetches. Every other powder
+    // in the world pays one `Vec` index and a `bool` test -- which is
+    // `CLAUDE.md`'s "guard hot-path work at the call site that already has
+    // the data", and the sand-and-water stress scene has no foliage in it at
+    // all.
+    if clings && on_a_branch(surface, x, y) {
         return wet_changed;
     }
 

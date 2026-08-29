@@ -177,8 +177,14 @@ tried?"*.
   history instead. Its postscript records the depth grade going off by
   default on a playtest, and two framing errors in how a fix was shown.
 - [sky-light-design.md](sky-light-design.md) — **design round; shipped on
-  `F12`, /4 the default.** Measures the candidates for the open-cast-dig
-  case (`examples/sky_light_probe.rs`): why `field.rs`'s light channel
+  `F12`, /4 the default — and *extended 2026-08-29* after play found the
+  shipped model drew a broken-open hilltop black.** Its own Finding 2 table
+  holds the defect: a 64-wide pit's floor and a 1-wide shaft scored 0.023
+  against 0.010, because distance from a lit cell cannot tell a hole from a
+  hollow. Read *What play found wrong with it* at the bottom first — the
+  second term, the eight-ray fan, and what it cost.
+  Below that, the original round measures the candidates for the
+  open-cast-dig case (`examples/sky_light_probe.rs`): why `field.rs`'s light channel
   cannot drive it, why seeded propagation can, why block size 4 rather than
   `FIELD_SCALE`'s 8, and — tested later — why a stored incrementally
   maintained field is *not* worth it. Two of its own claims were wrong and
@@ -186,8 +192,10 @@ tried?"*.
 - [prior-art-underground-lighting.md](prior-art-underground-lighting.md) —
   **research.** How Terraria (a per-tile wall layer, then 0.91/0.56 light
   propagation) and Noita (a coarse blurred fog of war, no classification at
-  all) answer "is this dark", and which of the two the still-open
-  open-cast-dig case needs.
+  all) answer "is this dark", and which of the two the open-cast-dig case
+  needs. Its call — propagation, not a better boolean — was right and
+  incomplete: propagation *by distance* is what `sky-light-design.md`'s
+  2026-08-29 postscript had to add an aperture term beside.
 
 - [structural-reconvergence-design.md](structural-reconvergence-design.md) —
   **design, nothing built.** The scope for §S: converge the support field over
@@ -388,6 +396,17 @@ field rework — see `open-bugs-handoff.md`.
 - [plant-appearance-design.md](plant-appearance-design.md) — **design.**
   Why relabelling a cell cannot move a silhouette that texture and colour
   set; the report behind `CLAUDE.md`'s "ask which *pixels* a lever moves".
+- [subpixel-rendering-2026-08-29.md](subpixel-rendering-2026-08-29.md) —
+  **measurement + prototype.** The framebuffer does not have to be the cell
+  grid: the window already gives every cell a 2x2 block of physical pixels and
+  paints all four the same, and drawing the same world region into four times
+  the pixels measures at **1.13x** the redraw (nine times: 1.32x), because the
+  per-pixel work is under 10% of a full draw. Semantic sub-cell reconstruction
+  — from *what the cell is*, which is why hqx/xBR cannot do this — and the
+  ambient-occlusion and surface-normal terms that fall out of the same field
+  for free. Carries the class rule (masses keep their per-cell grain, thin
+  structures do not) and two interior-quilting bugs that a firing counter would
+  have been green through.
 - [plant-night-session-handoff.md](plant-night-session-handoff.md) —
   **handoff.**
 - [plant-project-review-2026-08-23.md](plant-project-review-2026-08-23.md) —
@@ -454,7 +473,11 @@ drift that two of these documents still reflect.**
   mechanism explains it: `fate_for` falls back **per query**, so a slot a
   mutation vacates is refilled by the species table or the built-in rule, and
   first-match-wins shadows an insert that lands below an existing rule.
-  `retarget` is the only operator that changes a rule *in place*. Also: the
+  `retarget` is the only operator that changes a rule *in place*. **Its §6 is
+  the control that makes that a finding rather than a scene report**: the two
+  extreme cells re-run at another world seed and 2.5x the frame budget, with
+  the base stand moving 79 -> 206 seeds and `delete` not shifting by one
+  mutant. Also: the
   harness had been measuring a **lookalike** of the operator, not
   `FateGenome`'s own — six replacement cell types on the woody base where the
   engine draws from eight — so the recorded 92% was about a mutation nothing
@@ -591,6 +614,22 @@ drift that two of these documents still reflect.**
 
 ## Creatures and ecology
 
+- [creature-motion-design.md](creature-motion-design.md) — **design,
+  awaiting the owner's call on §6.** Motion is the axis nobody has measured:
+  there is no jump, fly, swim or hop anywhere in the engine. Answers the
+  owner's "how many impulse verbs" debate by asking of each candidate
+  *decision or property?* — **five of nine need no verb at all**, because the
+  ballistic physics already exists in `rigid.rs` (terminal velocity from
+  weight-minus-buoyancy against drag, which is also E9's float limit already
+  implemented). Recommends **one verb, one slot held with a stated condition
+  for spending it**. **§4c reverses the report's own first recommendation**
+  and now says *enlarge* the reserve, on the finding that `is_live_slot`
+  gates on the live counts rather than the reserves, so the reserve is never
+  drawn, mutated or evaluated — `live_slots()` stays at 268 either way and
+  the whole cost is 2.1 MB at the population ceiling. §4d answers "can we
+  name the held slot now": no, naming is what makes a slot live. Carries the
+  principal risk: `step_chain` refuses gaps deliberately, after two attempts
+  that put falls at 59–80% of all moves.
 - [creature-appearance-design.md](creature-appearance-design.md) —
   **design + measured study.** Why a two-cell ant cannot be found in a
   picture, and what does: extent is the only lever, the dark palette is
@@ -786,6 +825,22 @@ drift that two of these documents still reflect.**
   fallen log anchoring the tree it fell off — and, in §4c–§4g, three rounds
   of owner review including two framing failures of the session's own.
 
+- [plant-mechanics-handoff-2026-08-29.md](plant-mechanics-handoff-2026-08-29.md)
+  — **handoff, written to be picked up cold; read it with the plan below.**
+  What happened *after* the plan: PR #102 landed (the plan, the debris tiers,
+  colour preservation), and six findings that change what to build next. The
+  one to carry: **what has always looked like a crown collapsing was leaf
+  powder running downhill, not a fall** — nothing makes a severed piece
+  travel sideways, which is why the previous attempt kept measuring well and
+  looking wrong, and which makes the fall the critical path rather than a
+  polish item. Also: the load model has **no `topple` outcome**, proved by a
+  control that falsified the session's own source reading (giving logs the
+  tipping test crushes them and leaves *more* standing); ask 1 is **buckling,
+  not bending**, because a balanced stem's base reads 0.0–0.3 against a max
+  of 7,171; and rotation seeds from angular acceleration, not torque. §4 is a
+  code map of the promotion path with the constants and commands, §5 the
+  staged work, §6 the traps, §7 the standing owner rulings verbatim.
+
 - [tree-fall-2026-08-29.md](tree-fall-2026-08-29.md) — **shipped, and one of
   its two claims is not established.** The fall: a severed piece now turns as
   it comes down, at a rate read off its own mass about the joint that gave
@@ -797,9 +852,10 @@ drift that two of these documents still reflect.**
   falling tree. Closes the felled-tree half of `open-bugs-handoff.md` §Q by
   supplying the *outcome* §Q found missing — the tipping test was never the
   gap. **Read §4 before quoting §3**: the single-scene result is clean and
-  the nine-scene pooled one is not, and the cluster census that produced both
+  the twelve-scene pooled one is not, and the cluster census that produced both
   provably cannot see individual pieces. Also carries a raft regression the
-  suite caught, and why `FALL=off` had to exist for the control to be real.
+  suite caught, why `FALL=off` had to exist for the control to be real, and
+  the re-promotion loop (§Z3) the negative control turned up in *both* arms.
 
 - [tree-mechanics-plan-2026-08-29.md](tree-mechanics-plan-2026-08-29.md) —
   **plan; one change landed** (`3bdf674`). Structure and physics for *all*
