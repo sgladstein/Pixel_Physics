@@ -1,0 +1,48 @@
+{
+  "id": "20260829T160924663Z-28e06d",
+  "created": "2026-08-29T16:09:24Z",
+  "board": "fracture",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/gnome-playtest-fixes",
+    "commit": "dad59c5",
+    "agent": null,
+    "session_id": "7e6d7527-9f19-5475-bb25-535b32238ac6",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The hammer in motion — do you see pieces now?",
+  "question": "You asked: 'I don't see pieces coming off in chunks. Do you?' Honest answer on that still sheet: no, and I do not think you were wrong. This is the same swing animated. What I can see: a notch opens, joints part, and a few small angular lumps hop out and land. What I think is actually wrong is that a landed piece of stone is drawn as *stone* — the exact grey it came out of — so a chunk lying at his feet is invisible against the cliff. Do you want broken-off rock to read as a different colour once it lands (the way rubble already does), or is the problem the size and number of the pieces?",
+  "context_md": "Counters, since the eye cannot get them off a grey-on-grey pile. On this cliff face one blow promotes roughly 13-45 cells as bodies and everything lands within 8 frames. I also quadrupled the throw a blow gives its fragments (fastest piece 1.07 -> 4.02 cells/frame) so they at least leave the wound. On a scene where pieces have somewhere to go -- an attached shelf worked with repeated blows, the second gif -- the same code gives 41 bodies, 1,498 cells promoted, 66% chunk by mass, sizes [1:40 2:28 3-5:31 6-7:7 8-15:4 16-63:2 64+:6]. So the mechanism does produce a distribution of pieces; on a flat wall at ground level they are small, they land immediately, and they are the colour of the wall.",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "item 1",
+      "files": [
+        "20260829T160924663Z-28e06d/000-hammer.gif"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null,
+      "gif_frames": 70
+    },
+    {
+      "label": "item 2",
+      "files": [
+        "20260829T160924663Z-28e06d/001-worked.gif"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null,
+      "gif_frames": 80
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
