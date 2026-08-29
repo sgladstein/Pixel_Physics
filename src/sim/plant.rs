@@ -8977,6 +8977,78 @@ The night factor belongs on income only -- see NIGHT_INCOME_FLOOR"
         );
     }
 
+    /// **A genome survives the round trip through a species table.**
+    ///
+    /// `to_table` regroups a flat first-match-wins list by owner, which looks
+    /// as though it must reorder something load-bearing and does not:
+    /// `FateGenome::fate` filters by owner before it examines anything else,
+    /// so only a rule's position among its *own* owner's rules can change an
+    /// answer. This asserts that as behaviour rather than as layout — every
+    /// `(cell type, when, metamers)` question must get the same answer from a
+    /// genome and from a genome rebuilt out of that genome's table.
+    ///
+    /// **Mutated genomes, not authored ones, and that is the whole point.**
+    /// An authored table is already grouped by owner, so it survives the round
+    /// trip trivially and would prove nothing. `insert` is what interleaves
+    /// two owners' rules and so creates the only case where grouping actually
+    /// moves anything — hence the interleaving count at the end, which is this
+    /// test's own positive control: without it a run in which nothing
+    /// interleaved would pass while asserting nothing, and would keep passing
+    /// with `to_table` reordering arbitrarily.
+    ///
+    /// The determinate `herb` base is in here because its `after_metamers`
+    /// rule sits deliberately *above* the ordinary one for the same cell type,
+    /// so it is the species a careless regroup would break first.
+    #[test]
+    fn a_genome_survives_the_round_trip_through_a_table() {
+        let w = test_world();
+        let mut interleaved = 0usize;
+        let mut checked = 0usize;
+        for species in ["tree", "herb"] {
+            let id = w.species.id_of(species).unwrap_or_else(|| panic!("{species} is compiled in"));
+            let base = organism::FateGenome::from_table(w.species.get(id).fate_table());
+            for i in 0..150u64 {
+                let mut g = base;
+                let mut rng = rng::stream(5, 9, i, 0);
+                // Several, so that owners interleave and rules shadow -- one
+                // mutation of an authored table usually leaves it grouped.
+                for _ in 0..4 {
+                    g.mutate(&mut rng);
+                }
+                let round = organism::FateGenome::from_table(&g.to_table());
+                let owners: Vec<_> = g.rules().map(|(o, _)| o).collect();
+                let mut runs: Vec<Option<organism::CellType>> = Vec::new();
+                for o in &owners {
+                    if runs.last() != Some(o) {
+                        runs.push(*o);
+                    }
+                }
+                if runs.iter().enumerate().any(|(k, o)| runs[..k].contains(o)) {
+                    interleaved += 1;
+                }
+                for &ct in &organism::PLANT_CELL_TYPES {
+                    for &when in &organism::ALL_FATE_WHENS {
+                        for metamers in [0u8, 1, 2, 4, 8, 16, 32, 255] {
+                            assert_eq!(
+                                g.fate(ct, when, metamers),
+                                round.fate(ct, when, metamers),
+                                "{species} mutant {i}: the table round trip changed the rule for \
+                                 {ct:?}/{when:?} at {metamers} metamers"
+                            );
+                            checked += 1;
+                        }
+                    }
+                }
+            }
+        }
+        assert!(checked > 0, "the sweep asked nothing");
+        assert!(
+            interleaved > 0,
+            "no mutant interleaved two owners' rules, so grouping never had to move one -- \
+             this test would pass with `to_table` emitting rules in any order at all"
+        );
+    }
+
     /// **The individual's genome shadows its species' table** — growth reads
     /// the plant, not the plant's label.
     ///

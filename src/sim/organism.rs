@@ -1296,6 +1296,36 @@ impl FateGenome {
         (0..self.len as usize).map(move |i| (self.rules[i].owner(), self.rules[i].unpack()))
     }
 
+    /// **Regroup this genome back into a species-style table** — the inverse
+    /// of [`FateGenome::from_table`], and the route by which a mutated genome
+    /// can be handed back to the world as a species file.
+    ///
+    /// **Grouping by owner is semantics-preserving, and that is worth stating
+    /// because the shape suggests otherwise.** The genome is a flat
+    /// first-match-wins list, so a rule's *absolute* position looks
+    /// load-bearing. It is not: [`FateGenome::fate`] filters by owner before
+    /// it examines anything else, so only a rule's position *among its own
+    /// owner's rules* can change an answer — which is exactly what grouping
+    /// preserves. `a_genome_survives_the_round_trip_through_a_table` is the
+    /// guard, and it compares answers rather than layouts for this reason.
+    ///
+    /// Rules that do not decode are dropped rather than carried across:
+    /// `fate` already skips them, so the genome and its table agree either
+    /// way.
+    pub fn to_table(self) -> Vec<(CellType, Vec<Fate>)> {
+        let mut out: Vec<(CellType, Vec<Fate>)> = Vec::new();
+        for i in 0..self.len as usize {
+            let (Some(owner), Some(f)) = (self.rules[i].owner(), self.rules[i].unpack()) else {
+                continue;
+            };
+            match out.iter_mut().find(|(ct, _)| *ct == owner) {
+                Some((_, rules)) => rules.push(f),
+                None => out.push((owner, vec![f])),
+            }
+        }
+        out
+    }
+
     /// **Apply one mutation.** Four operators: retarget a cell-type field,
     /// change a rule's condition, insert a rule, delete a rule.
     ///
@@ -1326,25 +1356,51 @@ impl FateGenome {
     /// for the reason the gate records: a draw landing on the value already
     /// held is a no-op, and a no-op counted as a mutation makes a rate that is
     /// a dilution rather than a rate.
-    pub fn mutate(&mut self, rng: &mut super::rng::Rng) {
+    pub fn mutate(&mut self, rng: &mut super::rng::Rng) -> Option<FateMutation> {
         if self.len == 0 {
-            return;
+            return None;
         }
-        match rng.below(100) {
-            0..=59 => self.retarget_one(rng),
-            60..=74 => self.recondition_one(rng),
-            75..=89 => self.insert_one(rng),
-            _ => self.delete_one(rng),
+        let op = match rng.below(100) {
+            0..=59 => FateOp::Retarget,
+            60..=74 => FateOp::Recondition,
+            75..=89 => FateOp::Insert,
+            _ => FateOp::Delete,
+        };
+        Some(FateMutation { op, applied: self.apply(op, rng) })
+    }
+
+    /// Apply one *named* operator, reporting whether it changed the genome.
+    ///
+    /// **This exists for the gate, and the weighting above is what makes it
+    /// necessary.** `mutate` picks an operator 60/15/15/10, so a 40-mutant
+    /// run spends about four draws on delete — far too few to gate on. Forcing
+    /// the operator measures each at its own N, and the shipped mixture is
+    /// then arithmetic over those four rates rather than a fifth experiment.
+    ///
+    /// **`applied` is a different question from "was it viable", and merging
+    /// the two inflates a rate.** Every one of the four can decline: retarget
+    /// after eight draws that all land on the value already held, recondition
+    /// when its own single draw equals the current value, insert at
+    /// `MAX_FATES`, delete at one rule. A declined operator leaves the genome
+    /// untouched, so what grows is the *base* plant — counting that as a
+    /// mutation the substrate tolerated is counting the positive control as
+    /// evidence about mutation.
+    pub fn apply(&mut self, op: FateOp, rng: &mut super::rng::Rng) -> bool {
+        match op {
+            FateOp::Retarget => self.retarget_one(rng),
+            FateOp::Recondition => self.recondition_one(rng),
+            FateOp::Insert => self.insert_one(rng),
+            FateOp::Delete => self.delete_one(rng),
         }
     }
 
     /// Point one cell-type field of one rule somewhere else — the measured
     /// operator.
-    fn retarget_one(&mut self, rng: &mut super::rng::Rng) {
+    fn retarget_one(&mut self, rng: &mut super::rng::Rng) -> bool {
         let i = rng.below(self.len as u32) as usize;
         let slots = self.rules[i].live_slots();
         let slot = slots[rng.below(slots.len() as u32) as usize];
-        let Some(f) = self.rules[i].unpack() else { return };
+        let Some(f) = self.rules[i].unpack() else { return false };
         // `live_slots` offers a slot only when that field is present, so both
         // of these hold by construction.
         let current = match slot {
@@ -1358,9 +1414,10 @@ impl FateGenome {
             let pick = PLANT_CELL_TYPES[rng.below(PLANT_CELL_TYPES.len() as u32) as usize];
             if pick != current {
                 self.rules[i] = self.rules[i].retarget(slot, pick);
-                return;
+                return true;
             }
         }
+        false
     }
 
     /// Change *when* a rule applies — its `FateWhen`, or its determinacy
@@ -1372,25 +1429,26 @@ impl FateGenome {
     /// range: a count above what any axis reaches is indistinguishable from
     /// never firing, so a uniform draw would spend most of its mass on rules
     /// that do nothing.
-    fn recondition_one(&mut self, rng: &mut super::rng::Rng) {
+    fn recondition_one(&mut self, rng: &mut super::rng::Rng) -> bool {
         let i = rng.below(self.len as u32) as usize;
-        let Some(owner) = self.rules[i].owner() else { return };
-        let Some(mut f) = self.rules[i].unpack() else { return };
+        let Some(owner) = self.rules[i].owner() else { return false };
+        let Some(mut f) = self.rules[i].unpack() else { return false };
         if rng.chance(0.5) {
             let pick = ALL_FATE_WHENS[rng.below(ALL_FATE_WHENS.len() as u32) as usize];
             if pick == f.when {
-                return;
+                return false;
             }
             f.when = pick;
         } else {
             const LADDER: [Option<u8>; 6] = [None, Some(2), Some(4), Some(8), Some(16), Some(32)];
             let pick = LADDER[rng.below(LADDER.len() as u32) as usize];
             if pick == f.after_metamers {
-                return;
+                return false;
             }
             f.after_metamers = pick;
         }
         self.rules[i] = PackedFate::pack(owner, f);
+        true
     }
 
     /// Insert a freshly drawn rule at a random position.
@@ -1402,9 +1460,9 @@ impl FateGenome {
     /// unless the earlier rule's `after_metamers` declines. A determinate rule
     /// only works listed *above* the ordinary one — which is exactly how the
     /// authored species write it.
-    fn insert_one(&mut self, rng: &mut super::rng::Rng) {
+    fn insert_one(&mut self, rng: &mut super::rng::Rng) -> bool {
         if self.len as usize >= MAX_FATES {
-            return;
+            return false;
         }
         let pick = |r: &mut super::rng::Rng| PLANT_CELL_TYPES[r.below(PLANT_CELL_TYPES.len() as u32) as usize];
         let owner = pick(rng);
@@ -1421,13 +1479,14 @@ impl FateGenome {
         }
         self.rules[at] = PackedFate::pack(owner, f);
         self.len += 1;
+        true
     }
 
     /// Drop one rule, never the last — see `mutate`'s note on why zero is not
     /// an allowed length.
-    fn delete_one(&mut self, rng: &mut super::rng::Rng) {
+    fn delete_one(&mut self, rng: &mut super::rng::Rng) -> bool {
         if self.len <= 1 {
-            return;
+            return false;
         }
         let i = rng.below(self.len as u32) as usize;
         for j in i..(self.len as usize - 1) {
@@ -1435,7 +1494,49 @@ impl FateGenome {
         }
         self.len -= 1;
         self.rules[self.len as usize] = PackedFate(0);
+        true
     }
+}
+
+/// Which of the four operators [`FateGenome::mutate`] chose.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum FateOp {
+    /// Point one cell-type field of an existing rule somewhere else.
+    Retarget,
+    /// Change *when* an existing rule applies — its `FateWhen`, or its
+    /// determinacy count.
+    Recondition,
+    /// Insert a freshly drawn rule at a drawn position.
+    Insert,
+    /// Drop one rule, never the last.
+    Delete,
+}
+
+impl FateOp {
+    pub const ALL: [FateOp; 4] = [FateOp::Retarget, FateOp::Recondition, FateOp::Insert, FateOp::Delete];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            FateOp::Retarget => "retarget",
+            FateOp::Recondition => "recondition",
+            FateOp::Insert => "insert",
+            FateOp::Delete => "delete",
+        }
+    }
+}
+
+/// What one call to [`FateGenome::mutate`] actually did.
+///
+/// **`applied` is here because a declined operator is invisible from the
+/// outside and is not a mutation.** All four can decline — see
+/// [`FateGenome::apply`] — and a declined draw leaves the genome byte for byte
+/// as it was, so the lineage carries on unmutated. A gate that counts those
+/// as mutations the substrate tolerated is quoting its own positive control
+/// back at itself.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct FateMutation {
+    pub op: FateOp,
+    pub applied: bool,
 }
 
 /// The cell types a fate mutation may point at.
