@@ -77,6 +77,13 @@ struct Sample {
     /// a generation-0 organism whose table differs means the census is reading
     /// the wrong thing, not that the lineage drifted.
     fate_gen0_drifted: usize,
+    /// **Drift among *established* plants, against drift in the whole
+    /// population** — the in-vivo form of the viability question
+    /// `fate_viability` asks in a harness. A drifted genome that establishes
+    /// less often than an undrifted one is being selected against; equal rates
+    /// are the null. Counted as (drifted & established, established).
+    fate_est_drifted: usize,
+    fate_established: usize,
     /// An empty genome falls back to the species table, so a population of
     /// them would read as *no drift* while meaning *no genomes*. Distinct
     /// state, distinct column.
@@ -221,6 +228,7 @@ fn main() {
         let mut n = 0.0f32;
         let (mut fd, mut fl, mut fs, mut fc, mut f0, mut fe) = (0usize, 0usize, 0usize, 0usize, 0usize, 0usize);
         let mut fate_keys: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+        let (mut fed, mut fest) = (0usize, 0usize);
         let mut sum = [0.0f64; organism::GENOTYPE_TRAITS];
         let mut sumsq = [0.0f64; organism::GENOTYPE_TRAITS];
         let (mut gen_sum, mut gen_max) = (0u64, 0u16);
@@ -237,6 +245,13 @@ fn main() {
             // value; `FateGenome` is `PartialEq`, and the comparison is over
             // the packed rules, so it catches a retarget that changes one
             // cell-type field as readily as an insert that changes the length.
+            // `>= 20 cells` is `plant_probe`'s and `fate_viability`'s
+            // establishment bar, reused deliberately so the three instruments
+            // are answering about the same object.
+            let established = s.cells.len() >= 20;
+            if established {
+                fest += 1;
+            }
             let g = s.fates;
             if g.is_empty() {
                 fe += 1;
@@ -246,6 +261,9 @@ fn main() {
                     fd += 1;
                     if s.generation == 0 {
                         f0 += 1;
+                    }
+                    if established {
+                        fed += 1;
                     }
                     match g.len().cmp(&base_fates.len()) {
                         std::cmp::Ordering::Greater => fl += 1,
@@ -283,6 +301,8 @@ fn main() {
             fate_changed: fc,
             fate_distinct: fate_keys.len(),
             fate_gen0_drifted: f0,
+            fate_est_drifted: fed,
+            fate_established: fest,
             fate_empty: fe,
         };
         print!(
@@ -351,6 +371,24 @@ fn main() {
             s.fate_empty
         );
     }
+    // **Does a drifted rule table cost a plant its establishment?** The
+    // harness gate (`fate_viability`) asks this of one mutation at a time in a
+    // constructed stand; this asks it of a living population, which is a
+    // different and weaker question -- it cannot separate "the mutation is bad"
+    // from "this individual was unlucky" -- but it is the only in-vivo form
+    // available, and the two rates being equal is a real null.
+    let tot_d: usize = samples.iter().map(|s| s.fate_drifted).sum();
+    let tot_n: usize = samples.iter().map(|s| s.live).sum();
+    let tot_ed: usize = samples.iter().map(|s| s.fate_est_drifted).sum();
+    let tot_e: usize = samples.iter().map(|s| s.fate_established).sum();
+    println!("\ndoes a drifted table cost establishment? (pooled over samples)");
+    let pc = |a: usize, b: usize| if b == 0 { f32::NAN } else { 100.0 * a as f32 / b as f32 };
+    println!("  drifted among ALL organisms          {tot_d} of {tot_n}  ({:.2}%)", pc(tot_d, tot_n));
+    println!("  drifted among ESTABLISHED plants     {tot_ed} of {tot_e}  ({:.2}%)", pc(tot_ed, tot_e));
+    println!("  Equal rates are the null. A lower established rate is viability selection against");
+    println!("  the drifted; a higher one would mean drift is reaching establishment preferentially,");
+    println!("  which nothing in the model provides for and would point at this census instead.");
+
     let bad_control = samples.iter().any(|s| s.fate_gen0_drifted > 0);
     let ever_drifted = samples.iter().any(|s| s.fate_drifted > 0);
     if bad_control {
