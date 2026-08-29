@@ -906,9 +906,15 @@ impl App {
     const TUNABLES_ROW_HEIGHT: i32 = 10;
     /// Title, tab strip and the rule under them.
     const TUNABLES_HEADER_HEIGHT: i32 = 34;
-    /// Two lines of key hints and one of message. Reserved unconditionally —
-    /// see the draw.
-    const TUNABLES_FOOTER_HEIGHT: i32 = 34;
+    /// Two lines of key hints and one of message, at `TUNABLES_ROW_HEIGHT`
+    /// apart plus a gap before the message.
+    ///
+    /// **Sized from a render, not from the arithmetic.** At 34 the three
+    /// lines were 7px glyphs on a 7px pitch — mathematically non-overlapping
+    /// and, in the picture, one solid block of unreadable text with the
+    /// message sitting directly on the hint above it. The gap is the thing
+    /// being reserved, and only a rendered panel shows whether there is one.
+    const TUNABLES_FOOTER_HEIGHT: i32 = 40;
     /// How many rows fit between the two. Drawn rows, which include category
     /// subheaders, so paging by this lands within a row or two of a
     /// screenful rather than exactly on one in a menu that has them — the
@@ -926,6 +932,14 @@ impl App {
     /// instead, which is what they mean everywhere else and what a
     /// hundred-row PHYSICS menu needs. Resets the selection, since an index
     /// into one group means nothing in another.
+    /// Which menu the panel is showing. Read-only, for `examples/uishot.rs`,
+    /// which cycles to a named menu through the real key handler rather than
+    /// writing the field -- so a sheet's PHYSICS tab is the one `Tab` would
+    /// have reached.
+    pub fn tunables_group(&self) -> TunableGroup {
+        self.tunables_group
+    }
+
     pub fn tunables_cycle_group(&mut self) {
         self.tunables_group = self.tunables_group.next();
         self.tunables_selected = 0;
@@ -1633,7 +1647,7 @@ impl App {
             WIDTH,
             HEIGHT,
             left + 8,
-            rows_bottom + 7,
+            rows_bottom + 6,
             "TAB / SHIFT+TAB  MENU     UP/DOWN  SELECT     PGUP/PGDN  PAGE",
             DIM,
         );
@@ -1642,12 +1656,15 @@ impl App {
             WIDTH,
             HEIGHT,
             left + 8,
-            rows_bottom + 17,
+            rows_bottom + 16,
             "LEFT/RIGHT  CHANGE     ENTER  PIN + CLOSE     S  SAVE     ESC  CLOSE",
             DIM,
         );
+        // A clear gap under the hints rather than the next 10px slot: the
+        // message is a different kind of thing (what just happened, not what
+        // the keys do) and has to read as one.
         if let Some(message) = &self.message {
-            hud::draw_text(frame, WIDTH, HEIGHT, left + 8, bottom - 10, message, SELECTED);
+            hud::draw_text(frame, WIDTH, HEIGHT, left + 8, rows_bottom + 29, message, SELECTED);
         }
 
         if list.is_empty() {
@@ -1719,10 +1736,14 @@ impl App {
                 }
             }
             let colour = if selected { SELECTED } else { WHITE };
-            // The category is the subheader's job wherever there is one, so
-            // the row carries the field name alone and the eye has one
-            // column of varying text instead of two.
-            let name = if multi_category { t.name.clone() } else { format!("{}.{}", t.category, t.name) };
+            // **Always the bare field name.** The category is the
+            // subheader's job in a menu that has more than one, and in a
+            // menu that does not the category *is* the menu — `WORLD.` on
+            // all seven rows of the WORLD tab, `EXPLOSION.` on all
+            // twenty-five of EXPLOSION, is a prefix that repeats the
+            // highlighted tab directly above it and pushes every name a
+            // column and a half to the right for nothing.
+            let name = &t.name;
             let marker = if selected { ">" } else { " " };
             hud::draw_text(frame, WIDTH, HEIGHT, left + 8, y, &format!("{marker} {name}"), colour);
             let value = t.display();
