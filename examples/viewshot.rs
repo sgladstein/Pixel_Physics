@@ -124,6 +124,20 @@ struct Args {
     /// whether a bigger viewport is showing more world or the same world
     /// larger.
     view: (u32, u32),
+    /// `world=WxH` -- build a world this size instead of the shipped
+    /// `app::WORLD_WIDTH`x`WORLD_HEIGHT`. The resolution comparison needs a
+    /// world small enough to generate twice in a sitting; the shipped one at
+    /// `cellscale=2` is 84M cells.
+    world: (i32, i32),
+    /// `cellscale=K` -- build the world through `WorldgenParams::scaled(K)`,
+    /// at `K` times the cell resolution.
+    ///
+    /// Paired with `view=` and `world=` scaled by the same `K`, this renders
+    /// **the same place, drawn out of K times as many cells** -- which is the
+    /// whole question the resolution step asks. On its own it renders the
+    /// same place at K times the size, which is a different question and not
+    /// usually the one wanted.
+    cellscale: f32,
 }
 
 fn main() {
@@ -161,6 +175,8 @@ fn main() {
         gutter: None,
         out: "target/filmstrips/viewshot.png".to_string(),
         view: (WIDTH, HEIGHT),
+        world: (WORLD_WIDTH as i32, WORLD_HEIGHT as i32),
+        cellscale: 1.0,
     };
     for arg in std::env::args().skip(1) {
         let Some((k, v)) = arg.split_once('=') else { continue };
@@ -198,6 +214,11 @@ fn main() {
             // (`Reports/underground-definition.md`), so no width threshold
             // can be mistaken for the cause.
             "quarry" => a.quarry = v.parse().expect("quarry=WIDTH"),
+            "cellscale" => a.cellscale = v.parse().expect("cellscale=K"),
+            "world" => {
+                let (w, h) = v.split_once('x').expect("world=WxH");
+                a.world = (w.parse().expect("world=WxH"), h.parse().expect("world=WxH"));
+            }
             "view" => {
                 let (w, h) = v.split_once('x').expect("view=WxH");
                 a.view = (w.parse().expect("view=WxH"), h.parse().expect("view=WxH"));
@@ -354,9 +375,13 @@ fn main() {
     // existed, which is exactly how a 3.5-hour study once turned out to be
     // three populations wearing 24 logs.
     let (view_w, view_h) = a.view;
-    println!("viewport {view_w}x{view_h} cells (default {WIDTH}x{HEIGHT})");
+    let (world_w, world_h) = a.world;
+    println!(
+        "viewport {view_w}x{view_h} cells (default {WIDTH}x{HEIGHT}), world {world_w}x{world_h} (default {WORLD_WIDTH}x{WORLD_HEIGHT}), cellscale {}",
+        a.cellscale
+    );
 
-    let bounds = Rect::new(0, 0, WORLD_WIDTH as i32 - 1, WORLD_HEIGHT as i32 - 1);
+    let bounds = Rect::new(0, 0, world_w - 1, world_h - 1);
     let mut world = World::new(bounds);
     let (presets, err) = pixel_physics::worldgen::WorldgenPresets::load();
     if let Some(e) = err {
@@ -371,6 +396,17 @@ fn main() {
             &aged
         }
         None => params,
+    };
+    // **After `age`, so `cellscale` scales whatever the other flags settled
+    // on** -- and `scaled(1.0)` is the identity, so the default path is
+    // bit-identical to one that never called it (`scaling_by_one_changes_
+    // nothing` in `params.rs` is what says so).
+    let rescaled;
+    let params = if a.cellscale == 1.0 {
+        params
+    } else {
+        rescaled = params.scaled(a.cellscale);
+        &rescaled
     };
     let build = std::time::Instant::now();
     pixel_physics::worldgen::generate(&mut world, pixel_physics::worldgen::Spec::Generated { params, seed: a.seed as u64 });
@@ -430,22 +466,22 @@ fn main() {
         // planned water table; the registration and mechanics are the
         // shipped ones either way.
         let surface = |x: i32| -> i32 {
-            (0..WORLD_HEIGHT as i32)
+            (0..world_h)
                 .find(|&y| {
                     matches!(
                         world.materials.kind(world.get(x, y).material),
                         pixel_physics::sim::material::MaterialKind::Solid | pixel_physics::sim::material::MaterialKind::Powder
                     )
                 })
-                .unwrap_or(WORLD_HEIGHT as i32 - 1)
+                .unwrap_or(world_h - 1)
         };
-        let heights: Vec<i32> = (0..WORLD_WIDTH as i32).map(surface).collect();
+        let heights: Vec<i32> = (0..world_w).map(surface).collect();
         let mut best = (0i32, 1i32, 0i32); // (rim_x, dir, drop)
-        for x in 0..WORLD_WIDTH as i32 {
+        for x in 0..world_w {
             for dir in [1i32, -1] {
                 let mut deepest = 0;
                 for d in 1..=12 {
-                    let nx = (x + dir * d).clamp(0, WORLD_WIDTH as i32 - 1);
+                    let nx = (x + dir * d).clamp(0, world_w - 1);
                     deepest = deepest.max(heights[nx as usize] - heights[x as usize]);
                 }
                 if deepest > best.2 {
@@ -459,13 +495,13 @@ fn main() {
         // sheet drops down the face rather than half of it landing on the
         // bench behind the edge.
         let x0 = if dir > 0 { rim + 1 } else { rim - span };
-        let outlet = (x0.clamp(0, WORLD_WIDTH as i32 - span), heights[rim as usize]);
+        let outlet = (x0.clamp(0, world_w - span), heights[rim as usize]);
         assert!(world.add_spring(outlet.0, outlet.1, span));
         // Drains match the flow, one per emission column, across the
         // world's lowest floor — the basin the fall ultimately feeds.
-        let low = (0..WORLD_WIDTH as i32).max_by_key(|&x| heights[x as usize]).unwrap_or(0);
+        let low = (0..world_w).max_by_key(|&x| heights[x as usize]).unwrap_or(0);
         for d in 0..span {
-            let dx = (low + d - span / 2).clamp(0, WORLD_WIDTH as i32 - 1);
+            let dx = (low + d - span / 2).clamp(0, world_w - 1);
             world.add_drain(dx, heights[dx as usize] - 1);
         }
         println!("spring span {span} at ({}, {}) over a {drop}-cell drop; {span} drains around x={low}", outlet.0, outlet.1);
@@ -576,40 +612,40 @@ fn main() {
         let terrain = Terrain::new(
             a.seed as u64,
             params,
-            WORLD_WIDTH as i32,
-            WORLD_HEIGHT as i32,
+            world_w,
+            world_h,
             world.materials.get(soil).friction_angle.to_radians().tan(),
             world.materials.get(sand).friction_angle.to_radians().tan(),
         );
         let (plans, deposits) = terrain.plan_all_with_deposits();
         let mut centres: Vec<i32> = Vec::new();
         let mut x = 0i32;
-        while x < WORLD_WIDTH as i32 {
+        while x < world_w {
             if !deposits.boulder[x as usize] {
                 x += 1;
                 continue;
             }
             let start = x;
-            while x < WORLD_WIDTH as i32 && deposits.boulder[x as usize] {
+            while x < world_w && deposits.boulder[x as usize] {
                 x += 1;
             }
             centres.push((start + x - 1) / 2);
         }
         let top = |x: i32| -> i32 {
-            (0..WORLD_HEIGHT as i32)
+            (0..world_h)
                 .find(|&y| world.get(x, y).material != material::EMPTY)
-                .unwrap_or(WORLD_HEIGHT as i32 - 1)
+                .unwrap_or(world_h - 1)
         };
-        let tops: Vec<i32> = (0..WORLD_WIDTH as i32).map(top).collect();
+        let tops: Vec<i32> = (0..world_w).map(top).collect();
         // Prominence over the whole world, so the boulder's own number can
         // be read against what an ordinary hillside does. A metric with no
         // null case is a number nobody can interpret.
         let prom = |x: i32| -> i32 {
             let l = tops[(x - 5).max(0) as usize];
-            let r = tops[(x + 5).min(WORLD_WIDTH as i32 - 1) as usize];
+            let r = tops[(x + 5).min(world_w - 1) as usize];
             (l - tops[x as usize]).min(r - tops[x as usize])
         };
-        let mut all: Vec<i32> = (5..WORLD_WIDTH as i32 - 5).map(prom).collect();
+        let mut all: Vec<i32> = (5..world_w - 5).map(prom).collect();
         all.sort_unstable();
         let q = |f: f32| all[((all.len() as f32 - 1.0) * f) as usize];
         // **Prominence at several reaches, because the reach is a scale and
@@ -624,10 +660,10 @@ fn main() {
         for reach in [5i32, 15, 30, 60] {
             let pr = |x: i32| -> i32 {
                 let l = tops[(x - reach).max(0) as usize];
-                let r = tops[(x + reach).min(WORLD_WIDTH as i32 - 1) as usize];
+                let r = tops[(x + reach).min(world_w - 1) as usize];
                 (l - tops[x as usize]).min(r - tops[x as usize])
             };
-            let mut v: Vec<i32> = (reach..WORLD_WIDTH as i32 - reach).map(pr).collect();
+            let mut v: Vec<i32> = (reach..world_w - reach).map(pr).collect();
             v.sort_unstable();
             let qq = |f: f32| v[((v.len() as f32 - 1.0) * f) as usize];
             println!(
@@ -715,13 +751,13 @@ fn main() {
     };
 
     let vault_at = if a.vault {
-        let deep = WORLD_HEIGHT as i32 / 2;
+        let deep = world_h / 2;
         let mut found: Option<(i32, i32)> = None;
         let mut best = 0;
         let mut air = 0usize;
-        for x in 0..WORLD_WIDTH as i32 {
+        for x in 0..world_w {
             let mut run = 0;
-            for y in deep..WORLD_HEIGHT as i32 {
+            for y in deep..world_h {
                 if world.get(x, y).material == material::EMPTY {
                     run += 1;
                     air += 1;
@@ -748,7 +784,7 @@ fn main() {
     // patch of sky. Reported next to the image, because a contact sheet
     // cannot show *where* it was taken and four pictures of the same hill
     // look exactly like four different hills.
-    println!("world {}x{} ({name}, seed {}), built in {build_ms:.0} ms", WORLD_WIDTH, WORLD_HEIGHT, a.seed);
+    println!("world {}x{} ({name}, seed {}), built in {build_ms:.0} ms", world_w, world_h, a.seed);
 
     // The animation branch: one encoded frame per simulated frame of a held
     // scroll key, driven through the same `Renderer::pan` the app calls at the
@@ -762,9 +798,9 @@ fn main() {
     // the same reason the sheet does -- a scroll that looks smooth because the
     // dirty-rect skip froze it would look smooth in a gif too.
     if a.gif {
-        let ground = (0..WORLD_HEIGHT as i32)
+        let ground = (0..world_h)
             .find(|&y| world.get(0, y).material != material::EMPTY)
-            .unwrap_or(WORLD_HEIGHT as i32 / 2);
+            .unwrap_or(world_h / 2);
         renderer.set_camera(0, ground - view_h as i32 / 2, (view_w, view_h), world.bounds());
         let total = a.shots * 60;
         let mut frames = Vec::with_capacity(total);
@@ -870,20 +906,20 @@ fn main() {
             (true, _, _) => vault_at
                 .or(boulder_at)
                 .map(|(vx, _)| vx)
-                .unwrap_or(WORLD_WIDTH as i32 / 2),
-            (_, true, _) => WORLD_WIDTH as i32 / 4,
-            _ if a.quarry > 0 => WORLD_WIDTH as i32 / 4,
+                .unwrap_or(world_w / 2),
+            (_, true, _) => world_w / 4,
+            _ if a.quarry > 0 => world_w / 4,
             (_, _, Some(sx)) => sx,
-            _ => ((shot as f32 + 0.5) / a.shots as f32 * WORLD_WIDTH as f32) as i32,
+            _ => ((shot as f32 + 0.5) / a.shots as f32 * world_w as f32) as i32,
         };
         // Normally the camera is aimed at the skyline, which is the right
         // target for every other scene here and exactly wrong for a vault:
         // the whole feature is below the bottom of that frame.
         let ground = match (a.vault || a.boulder, vault_at.or(boulder_at)) {
             (true, Some((_, vy))) => vy,
-            _ => (0..WORLD_HEIGHT as i32)
+            _ => (0..world_h)
                 .find(|&y| world.get(x, y).material != material::EMPTY)
-                .unwrap_or(WORLD_HEIGHT as i32 / 2),
+                .unwrap_or(world_h / 2),
         };
         // `pan=` scrolls with the real map-scroll rate between shots instead
         // of teleporting to a target, so consecutive tiles are what a player
@@ -908,7 +944,7 @@ fn main() {
             // vertically at every join and reintroduce the artifact in the
             // other axis.
             let span = renderer.visible_span((view_w, view_h)).0;
-            let start = a.at.unwrap_or_else(|| (WORLD_WIDTH as f32 / (2.0 * a.shots as f32)) as i32 - span / 2);
+            let start = a.at.unwrap_or_else(|| (world_w as f32 / (2.0 * a.shots as f32)) as i32 - span / 2);
             if shot == 0 {
                 strip_y = ground - view_h as i32 / 2;
             }
@@ -937,7 +973,7 @@ fn main() {
         // asserted below rather than eyeballed.
         if a.gnome {
             let span = renderer.visible_span((view_w, view_h)).0;
-            let gx = (cam_x + span / 2).clamp(0, WORLD_WIDTH as i32 - 1);
+            let gx = (cam_x + span / 2).clamp(0, world_w - 1);
             // **The highest ground under any column he occupies, not the
             // ground under his middle.** He is 7 cells wide and the ground is
             // not level; the first version of this read `surface` at `gx`
@@ -951,11 +987,11 @@ fn main() {
             // below still confirms rock under at least one foot.
             let half = PLAYER_WIDTH / 2;
             let ground_at = |x: i32| {
-                (0..WORLD_HEIGHT as i32)
+                (0..world_h)
                     .find(|&y| world.get(x, y).material != material::EMPTY)
-                    .unwrap_or(WORLD_HEIGHT as i32 / 2)
+                    .unwrap_or(world_h / 2)
             };
-            let surface = ((gx - half).max(0)..=(gx + half).min(WORLD_WIDTH as i32 - 1))
+            let surface = ((gx - half).max(0)..=(gx + half).min(world_w - 1))
                 .map(ground_at)
                 .min()
                 .unwrap_or_else(|| ground_at(gx));
@@ -1013,7 +1049,7 @@ fn main() {
         // the sheet carries the before and the after side by side.
         if a.vault && shot == 1 {
             if let Some((vx, vy)) = vault_at {
-                let top = (0..WORLD_HEIGHT as i32)
+                let top = (0..world_h)
                     .find(|&y| world.get(vx, y).material != material::EMPTY)
                     .unwrap_or(0);
                 for x in vx - 1..=vx + 1 {
@@ -1028,7 +1064,7 @@ fn main() {
         if a.mine && shot == 0 {
             for (i, w) in [1i32, 3, 8].iter().enumerate() {
                 let cx = cam_x + 140 + i as i32 * 90;
-                let top = (0..WORLD_HEIGHT as i32)
+                let top = (0..world_h)
                     .find(|&y| world.get(cx, y).material != material::EMPTY)
                     .unwrap_or(0);
                 for x in cx - w / 2..=cx + w / 2 {
@@ -1053,7 +1089,7 @@ fn main() {
             // dark-band report -- a narrow shaft can be argued to be a
             // tunnel and this cannot.
             let cx = cam_x + view_w as i32 / 2;
-            let top = (0..WORLD_HEIGHT as i32)
+            let top = (0..world_h)
                 .find(|&y| world.get(cx, y).material != material::EMPTY)
                 .unwrap_or(0);
             for x in cx - a.quarry / 2..=cx + a.quarry / 2 {

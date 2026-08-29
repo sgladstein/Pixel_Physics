@@ -165,11 +165,20 @@ files**, and they are in every subsystem, not just worldgen:
 
 Suggested order, and the reason for it:
 
-1. **The terrain** (`assets/worldgen.ron`'s 6 presets plus
-   `params.rs`'s 46 fields). This is where the owner's original complaint
-   lives — *"you cannot create good looking crystals or stalagmites and
-   stalactites that are only 1-2 pixels wide"* — so it is where the visible
-   payoff is, and it is data rather than code.
+1. **The terrain — DONE, and it was two changes rather than 46.** See the
+   section below; `WorldgenParams::scaled(k)` plus one line in `region.rs`
+   makes the generated surface scale-covariant, measured. What it does *not*
+   reach is the features sized by source constants, which is item 1b.
+1b. **The features `scaled` cannot reach** — `residual.rs`'s stack and tor
+   widths, the cave and speleothem widths, `LENS_LOBE`. These are lengths in
+   cells living in the source, so a rescaled world draws them at half their
+   proper width and they read as slivers. **This is the owner's round-6
+   complaint arriving from the other direction** — *"you cannot create good
+   looking crystals or stalagmites and stalactites that are only 1-2 pixels
+   wide"* — and it is visible in the rendered pair below as two thin grey
+   slabs where there should be tors. `cell_scale` is on the params precisely
+   so these can read it; each site needs a decision, not a rewrite.
+
 2. **World dimensions and `FIELD_SCALE`.** `FIELD_SCALE` 8 -> 16 keeps a
    field block covering the same *physical* area it does today, so light and
    shade look identical and the field's cost falls ~4x — which would close
@@ -197,6 +206,69 @@ them has to be judged against what the owner just approved, not against what
 this report first measured. `CLAUDE.md`'s file-ownership rule still applies
 — that lane's landing is exactly why it does.
 
+## The terrain half, done: two changes, not forty-six
+
+**Worldgen is scale-covariant once one constant stops being hardcoded**, and
+that was worth finding out before anyone hand-edited 46 parameters.
+
+`WorldgenParams::scaled(k)` reinterprets the whole struct at `k` times the
+cell resolution. The classification is the work; the arithmetic is trivial.
+**The 46 fields carry four dimensions, not one:**
+
+| dimension | factor | example |
+|---|---|---|
+| a length or wavelength in cells | `k` | `sky_rows`, `hill_wavelength`, `soil_depth` |
+| dimensionless — ratio, probability, slope | `1` | `strata_tilt` is rise over run; both terms scale |
+| a per-column probability | `1/k` | `tree_density`: `k` times the columns cross the same ground |
+| a count per fixed *cell* region | `1/k` or `1/k²` | see below |
+
+**The last row is the trap and it is invisible from the field.**
+`pocket_density` is drawn once per 64x64 cell region in a *2-D* loop, so it
+takes `1/k²`; `residual_density` is drawn per 256-*column* region in a 1-D
+loop, so it takes `1/k`. Two fields whose names, types and doc comments all
+read the same way, needing different factors — which is why the function is
+an exhaustive destructure with no `..`: adding a 47th field stops compiling
+until somebody classifies it.
+
+**And one hardcoded constant was the whole difference between "the same
+world, finer" and "a different world."** `region::COMPOSITION_WINDOW` is 512
+cells because that is *"roughly one screen at 1:1"* — its own comment says
+composition is a property of what fits in view. A screen is the right unit;
+512 is only its value at today's resolution. Left fixed, a world with twice
+the cells gets **twice as many regions** rather than the same regions twice
+as wide.
+
+Measured with `examples/scale_covariance.rs`, mean absolute difference in
+rows between the small world's elevation profile and the big one's rescaled
+back down — **each against a control of the same preset at a different
+seed**, because a small residual means nothing on its own:
+
+| preset | window fixed at 512 | window scaled | unrelated seed |
+|---|---|---|---|
+| rolling | 39.13 | **1.27** | 42.49 |
+| terraced | 34.55 | **1.29** | 34.47 |
+| canyon | 58.32 | **1.10** | 61.61 |
+| wetland | 19.77 | **0.20** | 20.32 |
+| arid | 16.01 | **1.94** | 16.96 |
+
+Read the first and last columns together: with the window fixed, **a
+rescaled world was no more like the original than a stranger was**. That is
+the finding, and no bare threshold would have shown it — which is why
+`a_rescaled_world_is_the_same_world_at_a_finer_grain` carries the
+different-seed control *inside* the assertion and asserts a ratio rather
+than a bar. Verified sensitive by putting the fixed 512 back.
+
+`worldgen` sits below `app` in the crate layering and cannot read
+`app::WIDTH`, so the factor arrives as data: `WorldgenParams::cell_scale`,
+which `scaled` multiplies and which any source-side length in cells can now
+consult. That is the mechanism item 1b needs.
+
+The residual does not reach zero and should not: column `x` maps to column
+`round(kx)`, and `column::strata_offset` folds its bands on a hardcoded
+130-cell wavelength `scaled` cannot reach. 1-2 rows against 17-62 is the
+floor, not a defect.
+
+
 ## Instruments
 
 - **`render_cost` gained `viewport_scaling`** — one world drawn at 512x320,
@@ -210,3 +282,12 @@ this report first measured. `CLAUDE.md`'s file-ownership rule still applies
   the ruler that says whether a bigger viewport is showing more world or the
   same world larger. `view=256x640 stride=4` renders the world's whole
   2,560-row depth in one frame, which is the picture in the section above.
+  It also gained **`world=WxH`** and **`cellscale=K`**, which is what renders
+  the resolution pair: the shipped world at `cellscale=2` is 84M cells and
+  will not generate twice in a sitting, so the comparison is made on a
+  smaller world at both scales.
+- **`scale_covariance`** — *is the same seed at `k` times the resolution the
+  same landscape?* Reports the rescaled elevation residual **beside an
+  unrelated-seed control and a `region_variation=0` arm**, which is what
+  turned "the residual is 39 rows" from a number into a diagnosis: the flat
+  arm read 1.18 and named the regions as the cause in one run.
