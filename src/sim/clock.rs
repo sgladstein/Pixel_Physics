@@ -486,9 +486,17 @@ impl Clock {
 /// which is the middle of `sky.rs`'s twilight band and therefore the most
 /// strongly coloured sky the renderer draws — and, by
 /// `sky_light_amplitude`'s own clipping, still ground light at the night
-/// floor. That pairing is deliberate and was checked in a render rather than
-/// argued: a lit twilight would need a positive elevation, which is a
-/// prettier picture of a time that is not actually sunset.
+/// floor. That pairing is deliberate: a lit twilight would need a positive
+/// elevation, which is a prettier picture of a time that is not actually
+/// sunset.
+///
+/// **Settled by the owner, not by this file.** The dark ground was the one
+/// thing about these four the author was unsure of, so it was put to the
+/// review queue as an explicit question — *"is DAWN/DUSK too dark on the
+/// ground to be worth having?"*, card `20260829T003436894Z-4e5a81`, answered
+/// **5/5 with no complaint** on 2026-08-29. So moving them to a positive
+/// elevation is a change that has already been declined; propose it only
+/// with a fresh verdict, not from the doc above.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum SkyPin {
     /// Not held — the sun runs at whatever [`Clock::day_minutes`] says.
