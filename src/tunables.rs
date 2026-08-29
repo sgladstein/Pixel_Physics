@@ -28,7 +28,7 @@
 //! misleadingly-finite value or need its own special-cased UI.
 
 use crate::sim::clock::{Clock, SkyPin, MAX_SLOWDOWN};
-use crate::sim::explosion::Tuning as Explosion;
+use crate::sim::explosion::{Preset, Tuning as Explosion};
 use crate::sim::material::{MaterialKind, MaterialRegistry};
 use crate::sim::player::Tuning as Player;
 use crate::sim::weather::{Pin as WeatherPin, Weather};
@@ -133,9 +133,30 @@ impl TunableGroup {
     }
 }
 
-/// The one category name every [`TunableGroup::Explosion`] entry uses.
-/// Not a material — see that variant's own doc.
-pub const EXPLOSION_CATEGORY: &str = "explosion";
+/// The section headings the EXPLOSION menu is split into. Not materials —
+/// see [`TunableGroup::Explosion`]'s own doc for why a category here is not a
+/// `.ron` file name.
+///
+/// **These are the whole of the menu simplification, and they are load-bearing
+/// rather than decorative.** Reported from play: *"there are so many different
+/// options for changing explosions and I don't really know what each does and
+/// it is too complicated."* The panel already draws a subheader wherever the
+/// category changes (`App::draw_tunables_panel`), and every explosion row used
+/// to carry the same one — so twenty-six numbers arrived as one undivided
+/// scroll, in the order they happened to be written, with the charge-shaping
+/// knobs interleaved with the debris ballistics.
+///
+/// So the ordering is the fix, and the order is by *what you would reach for
+/// first*: the charge type, then how big the bang is, then the two things you
+/// can see it do, then the numbers that only matter once you are tuning one of
+/// those. Nothing was removed — a knob that is hard to find is a different
+/// problem from a knob that should not exist, and `crack_rays` in particular
+/// is a settled A/B (see its own field doc) that still has to stay reachable.
+pub const EXPLOSION_CATEGORY: &str = "charge";
+pub const EXPLOSION_SIZE_CATEGORY: &str = "the bang";
+pub const EXPLOSION_CRACK_CATEGORY: &str = "cracks";
+pub const EXPLOSION_DEBRIS_CATEGORY: &str = "rubble, smoke and fire";
+pub const EXPLOSION_ADVANCED_CATEGORY: &str = "advanced";
 
 /// Likewise for [`TunableGroup::Player`].
 pub const PLAYER_CATEGORY: &str = "player";
@@ -381,62 +402,92 @@ pub fn from_materials(materials: &MaterialRegistry) -> Vec<Tunable> {
 pub fn from_explosion(t: &Explosion) -> Vec<Tunable> {
     let g = TunableGroup::Explosion;
     let c = EXPLOSION_CATEGORY;
+    // The charge type first, and on its own, because it is the row that makes
+    // the other twenty-six optional: it moves the whole tuning at once, so
+    // "what can a blast be" is answerable by walking one row rather than by
+    // guessing which number to sweep. `HELD` the moment anything else is
+    // touched -- see `Preset::of`.
+    let charge_labels: Vec<&'static str> = Preset::ALL.iter().map(|p| p.label()).collect();
+    let charge = Preset::of(t)
+        .and_then(|p| Preset::ALL.iter().position(|q| *q == p))
+        .unwrap_or(charge_labels.len());
+    let size = EXPLOSION_SIZE_CATEGORY;
+    let crack = EXPLOSION_CRACK_CATEGORY;
+    let debris = EXPLOSION_DEBRIS_CATEGORY;
+    let adv = EXPLOSION_ADVANCED_CATEGORY;
     vec![
-        Tunable::float(g, c, "radius", t.radius, 1.0, 80.0, 1.0),
-        Tunable::float(g, c, "strength", t.strength, 10.0, 600.0, 10.0),
-        Tunable::float(g, c, "duration", t.duration, 1.0, 40.0, 1.0),
-        Tunable::float(g, c, "debris_fraction", t.debris_fraction, 0.0, 1.0, 0.05),
-        Tunable::float(g, c, "smoke_fraction", t.smoke_fraction, 0.0, 1.0, 0.02),
-        Tunable::float(g, c, "flash_temperature", t.flash_temperature, 0.0, 2000.0, 50.0),
-        Tunable::float(g, c, "fireball_fraction", t.fireball_fraction, 0.0, 3.0, 0.1),
-        Tunable::float(g, c, "vaporize_fraction", t.vaporize_fraction, 0.0, 1.0, 0.02),
-        Tunable::float(g, c, "shockwave_multiplier", t.shockwave_multiplier, 1.0, 4.0, 0.1),
-        Tunable::float(g, c, "pierce_divisor", t.pierce_divisor, 1.0, 200.0, 2.0),
-        Tunable::float(g, c, "speed_per_strength", t.speed_per_strength, 0.0, 0.5, 0.005),
-        Tunable::float(g, c, "debris_jitter", t.debris_jitter, 0.0, 2.0, 0.05),
-        Tunable::float(g, c, "heat_fraction", t.heat_fraction, 0.5, 20.0, 0.5),
-        // The crack star (R1). `crack_growth` and `crack_stagger` are the
-        // pair that decide whether the fissures read as a thing that
-        // *happens* or as a graphic stamped on the stone, which is a
-        // judged-in-the-hand question and therefore exactly what this panel
-        // is for. The counts (`crack_rays`, `crack_growth`, and
-        // `calve_depth` below) are `u32` on `Tuning`, so they register as
-        // `integer` -- see `Tunable::integral`.
-        Tunable::integer(g, c, "crack_rays", t.crack_rays as f32, 0.0, 48.0, 1.0),
-        Tunable::float(g, c, "crack_reach", t.crack_reach, 0.0, 6.0, 0.1),
-        // Floored at 1, matching the clamp where it is read: `0` freezes the
-        // star half-drawn, so it is not a setting anyone can want.
-        Tunable::integer(g, c, "crack_growth", t.crack_growth as f32, 1.0, 20.0, 1.0),
-        // In frames, so a whole-frame step like `duration`'s rather than a
-        // fractional one.
-        Tunable::float(g, c, "crack_stagger", t.crack_stagger, 0.0, 40.0, 1.0),
+        Tunable::choice(g, c, "type", charge, charge_labels),
+        // How big the bang is. Three numbers, and between them they set the
+        // scale of everything below -- most of the rest are fractions *of*
+        // these.
+        Tunable::float(g, size, "radius", t.radius, 1.0, 80.0, 1.0),
+        Tunable::float(g, size, "strength", t.strength, 10.0, 600.0, 10.0),
+        Tunable::float(g, size, "duration", t.duration, 1.0, 40.0, 1.0),
+        // The joint fabric (F) and the growth beat -- everything that decides
+        // what the rock looks like afterwards, which is the half of an
+        // explosion that is still there once the smoke clears.
+        //
+        // `joint_reach` is a multiple of `radius` like `crack_reach`; the
+        // next two are 0..1 fractions. These are the density controls the
+        // owner's verdict on the pattern lands on -- *"I like a little of it,
+        // but there is too much"* -- so they are exactly the kind of
+        // judged-by-eye question this panel exists for. A fourth control is
+        // `stone.ron`'s `joint_spacing`, which is a material field and is
+        // already listed by `from_materials`.
+        Tunable::float(g, crack, "joint_reach", t.joint_reach, 0.0, 6.0, 0.1),
+        Tunable::float(g, crack, "joint_density", t.joint_density, 0.0, 1.0, 0.05),
+        Tunable::float(g, crack, "joint_open_fraction", t.joint_open_fraction, 0.0, 1.0, 0.05),
+        // The aperture cap. `1` is the uniform one-cell seam that shipped
+        // before the ladder existed, and is the A/B control rather than a
+        // degenerate setting -- hence a range that starts there rather than
+        // at 0, which would be "no seams at all" and is what
+        // `joint_open_fraction` already says.
+        Tunable::integer(g, crack, "joint_seam_width", t.joint_seam_width as f32, 1.0, 6.0, 1.0),
+        // `crack_growth` and `crack_stagger` are the pair that decide whether
+        // the fissures read as a thing that *happens* or as a graphic stamped
+        // on the stone, which is a judged-in-the-hand question and therefore
+        // exactly what this panel is for. Floored at 1, matching the clamp
+        // where it is read: `0` freezes the star half-drawn, so it is not a
+        // setting anyone can want. `crack_stagger` is in frames, so a
+        // whole-frame step like `duration`'s rather than a fractional one.
+        Tunable::integer(g, crack, "crack_growth", t.crack_growth as f32, 1.0, 20.0, 1.0),
+        Tunable::float(g, crack, "crack_stagger", t.crack_stagger, 0.0, 40.0, 1.0),
         // A temperature, so the same 10-degree granularity the material
         // temperatures use. Capped well below `flash_temperature`'s 2000:
         // `render.rs`'s glow ramp is saturated by ~420 and stone cannot
         // ignite from it, so the range past that buys nothing visible.
-        Tunable::float(g, c, "crack_glow_temperature", t.crack_glow_temperature, 0.0, 1000.0, 10.0),
-        // Confinement (R2), and the collar the finished star calves off the
-        // rim. `containment_floor` is a multiple of `radius`, not a 0..1
-        // fraction, hence the wider range and coarser step.
-        Tunable::float(g, c, "containment_floor", t.containment_floor, 0.0, 5.0, 0.1),
-        Tunable::float(g, c, "confined_cavity_fraction", t.confined_cavity_fraction, 0.0, 1.0, 0.05),
-        Tunable::integer(g, c, "calve_depth", t.calve_depth as f32, 0.0, 32.0, 1.0),
+        Tunable::float(g, crack, "crack_glow_temperature", t.crack_glow_temperature, 0.0, 1000.0, 10.0),
+        // The collar the finished web calves off the rim -- the beat where
+        // the cracks stop being a picture and pieces come away.
+        Tunable::integer(g, crack, "calve_depth", t.calve_depth as f32, 0.0, 32.0, 1.0),
+        // What flies, what is left burning, and what is left standing in the
+        // air afterwards.
+        Tunable::float(g, debris, "debris_fraction", t.debris_fraction, 0.0, 1.0, 0.05),
+        Tunable::float(g, debris, "vaporize_fraction", t.vaporize_fraction, 0.0, 1.0, 0.02),
+        Tunable::float(g, debris, "smoke_fraction", t.smoke_fraction, 0.0, 1.0, 0.02),
+        Tunable::float(g, debris, "fireball_fraction", t.fireball_fraction, 0.0, 3.0, 0.1),
+        Tunable::float(g, debris, "flash_temperature", t.flash_temperature, 0.0, 2000.0, 50.0),
         // A *per-frame* retention, so the interesting band is the top tenth
         // (0.94 fades in ~90 frames, 0.99 in ~550) and a 0.05 step would
         // step straight over it -- `swim_damp`'s 0.01 for the same reason.
-        Tunable::float(g, c, "afterglow_retention", t.afterglow_retention, 0.5, 1.0, 0.01),
-        // The joint fabric (F). `joint_reach` is a multiple of `radius`
-        // like `crack_reach`, and the other two are 0..1 fractions.
+        Tunable::float(g, debris, "afterglow_retention", t.afterglow_retention, 0.5, 1.0, 0.01),
+        // Below here: the ballistics of a single grain, the confinement probe
+        // (R2), and the superseded radial walker. All real, none of them the
+        // first thing anybody wants, and `crack_rays` in particular defaults
+        // to `0` because the fabric replaced the walker rather than joining
+        // it -- 4-6 puts the old star back on top for an A/B.
         //
-        // These three are the density controls the owner's verdict on the
-        // pattern lands on -- *"I like a little of it, but there is too
-        // much"* -- so they are exactly the kind of judged-by-eye question
-        // this panel exists for. The fourth control is
-        // `stone.ron`'s `joint_spacing`, which is a material field and is
-        // already listed by `from_materials`.
-        Tunable::float(g, c, "joint_reach", t.joint_reach, 0.0, 6.0, 0.1),
-        Tunable::float(g, c, "joint_open_fraction", t.joint_open_fraction, 0.0, 1.0, 0.05),
-        Tunable::float(g, c, "joint_density", t.joint_density, 0.0, 1.0, 0.05),
+        // `containment_floor` is a multiple of `radius`, not a 0..1 fraction,
+        // hence the wider range and coarser step.
+        Tunable::float(g, adv, "containment_floor", t.containment_floor, 0.0, 5.0, 0.1),
+        Tunable::float(g, adv, "confined_cavity_fraction", t.confined_cavity_fraction, 0.0, 1.0, 0.05),
+        Tunable::float(g, adv, "shockwave_multiplier", t.shockwave_multiplier, 1.0, 4.0, 0.1),
+        Tunable::float(g, adv, "pierce_divisor", t.pierce_divisor, 1.0, 200.0, 2.0),
+        Tunable::float(g, adv, "speed_per_strength", t.speed_per_strength, 0.0, 0.5, 0.005),
+        Tunable::float(g, adv, "debris_jitter", t.debris_jitter, 0.0, 2.0, 0.05),
+        Tunable::float(g, adv, "heat_fraction", t.heat_fraction, 0.5, 20.0, 0.5),
+        Tunable::integer(g, adv, "crack_rays", t.crack_rays as f32, 0.0, 48.0, 1.0),
+        Tunable::float(g, adv, "crack_reach", t.crack_reach, 0.0, 6.0, 0.1),
     ]
 }
 
@@ -673,6 +724,19 @@ pub fn apply_clock(c: &mut Clock, frame: u64, name: &str, value: f32) {
 /// this at least keeps the new half honest.
 pub fn apply_explosion(t: &mut Explosion, name: &str, value: f32) {
     match name {
+        // **Not a field write** -- it replaces the whole struct. It stays
+        // here rather than being special-cased in `App::apply_adjust` the way
+        // the two WORLD pins are, because unlike those it needs nothing but
+        // the tuning itself: no `World` seam to wake, no phase to re-anchor.
+        // An index past the last preset is the `HELD` readout and is never
+        // selectable (`Tunable::stepped` wraps within the named range), so a
+        // stray value leaves the tuning alone instead of snapping it to a
+        // charge the player did not choose.
+        "type" => {
+            if let Some(p) = select_charge_preset(value) {
+                *t = p.tuning();
+            }
+        }
         "radius" => t.radius = value,
         "strength" => t.strength = value,
         "duration" => t.duration = value,
@@ -701,8 +765,23 @@ pub fn apply_explosion(t: &mut Explosion, name: &str, value: f32) {
         "joint_reach" => t.joint_reach = value,
         "joint_open_fraction" => t.joint_open_fraction = value,
         "joint_density" => t.joint_density = value,
+        // Floored at 1 for the reason `crack_growth` is: the panel is not the
+        // only caller, and a 0 written in from anywhere turns every seam into
+        // a score, which `joint_open_fraction` already expresses and which
+        // reads here as the fabric having broken.
+        "joint_seam_width" => t.joint_seam_width = value.max(1.0).round() as u32,
         _ => {}
     }
+}
+
+/// Which [`Preset`] a `type` row's value selects — `None` for an index that
+/// names no charge, which is `HELD` and must not be selectable into.
+///
+/// Free-standing and `pub` for the same reason `select_sky_pin` is: the
+/// mapping from a row index to a named state is the half of a choice row a
+/// test can pin without building an `App`.
+pub fn select_charge_preset(value: f32) -> Option<Preset> {
+    Preset::ALL.get(value.max(0.0).round() as usize).copied()
 }
 
 /// Where a saved edit's target `.ron` file lives, by the same
@@ -1024,6 +1103,7 @@ mod tests {
             joint_reach,
             joint_open_fraction,
             joint_density,
+            joint_seam_width,
         );
         let listed = from_explosion(&base);
         for field in fields {
@@ -1032,7 +1112,16 @@ mod tests {
                 "explosion.{field} exists on Tuning but has no panel entry -- it cannot be swept in play"
             );
         }
-        assert_eq!(listed.len(), fields.len(), "from_explosion lists an entry that is not a field on Tuning");
+        // **Counted over the numeric rows only, and the choice rows are named
+        // separately rather than excused.** The menu now carries one row that
+        // is deliberately not a field -- `type`, which writes a whole
+        // `Preset` -- and widening the count to "fields + 1" would have let a
+        // second such row appear with nothing noticing. Both halves still
+        // fail closed: a new field with no row, and a new row with no field.
+        let (choices, numeric): (Vec<_>, Vec<_>) = listed.iter().partition(|t| t.options.is_some());
+        assert_eq!(numeric.len(), fields.len(), "from_explosion lists a numeric entry that is not a field on Tuning");
+        let choice_names: Vec<&str> = choices.iter().map(|t| t.name.as_str()).collect();
+        assert_eq!(choice_names, ["type"], "an unexpected choice row appeared in the EXPLOSION menu");
 
         for t in from_explosion(&base) {
             let mut probe = base;
@@ -1328,7 +1417,11 @@ mod tests {
                 ),
             }
         }
-        assert_eq!(choices, 2, "the registry should hold exactly the two pin rows as choices");
+        // The two WORLD pins, and EXPLOSION's charge type. Counted rather
+        // than listed on purpose: a *new* choice row is the thing this
+        // catches, and it catches it by failing rather than by being widened
+        // to admit whatever appeared.
+        assert_eq!(choices, 3, "the registry should hold the two pin rows and the charge type as choices");
     }
 
 }

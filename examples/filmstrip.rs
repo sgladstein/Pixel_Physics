@@ -426,7 +426,8 @@ fn gnome_stand(args: &Args) -> World {
 }
 
 /// The world-level settings `build` applies from the arguments:
-/// `confine=`, `arch=`, `share=`, `chain_reach=`, `joints=`, `bands=`.
+/// `confine=`, `arch=`, `share=`, `chain_reach=`, `joints=`, `bands=`,
+/// `jwidth=`.
 ///
 /// **Applied twice, and the second time is a bug fix.** They are set before
 /// the scene is built because several scenes cut into the world during
@@ -2834,6 +2835,18 @@ struct Args {
     joint_reach: Option<f32>,
     joint_open: Option<f32>,
     joint_density: Option<f32>,
+    /// `charge=<cap|powder|dynamite|mining|demolition>` -- load a whole
+    /// `explosion::Preset` before any of the individual overrides below are
+    /// applied, so a sheet can compare the five charge *types* rather than
+    /// five settings of one. `blast=` with a radius or strength of `0` then
+    /// takes the charge's own, which is the only way to see a preset as
+    /// itself: a `CAP` fired at `DEMOLITION`'s radius is neither.
+    charge: Option<String>,
+    /// `jwidth=` -- `explosion::Tuning::joint_seam_width`, the cap on the
+    /// seam-aperture ladder. `1` is the uniform one-cell seam that shipped
+    /// before the ladder, and is the control any before/after over the crack
+    /// pattern's *weight* has to be run against.
+    joint_seam_width: Option<u32>,
     /// `crack_rays=` -- the hybrid knob. `0` (the default) is pure fabric;
     /// 4-6 puts the old radial walker back on top of it for an A/B.
     crack_rays: Option<u32>,
@@ -2927,6 +2940,8 @@ fn parse() -> Args {
         joint_reach: None,
         joint_open: None,
         joint_density: None,
+        joint_seam_width: None,
+        charge: None,
         crack_rays: None,
         smoke: None,
         wall: 3,
@@ -3142,6 +3157,8 @@ fn parse() -> Args {
             "jreach" => a.joint_reach = Some(v.parse().expect("jreach")),
             "jopen" => a.joint_open = Some(v.parse().expect("jopen")),
             "jdensity" => a.joint_density = Some(v.parse().expect("jdensity")),
+            "jwidth" => a.joint_seam_width = Some(v.parse().expect("jwidth=<max seam cells 1..4>")),
+            "charge" => a.charge = Some(v.into()),
             "crack_rays" => a.crack_rays = Some(v.parse().expect("crack_rays")),
             "smoke" => a.smoke = Some(v.parse().expect("smoke=<fraction 0..1>")),
             "max_frame_ms" => a.max_frame_ms = Some(v.parse().expect("max_frame_ms")),
@@ -3529,6 +3546,9 @@ fn fire_due_explosions(
             // appears only for `blast=`; `explode=`'s line above is
             // unchanged byte for byte, because recorded measurements in
             // `Reports/explosion-stone-review.md` parse out of it.
+            // `0` means "whatever this charge is" -- see `Args::charge`.
+            let r = if r > 0 { r } else { blasts.tuning.radius.max(1.0) as i32 };
+            let strength = if strength > 0.0 { strength } else { blasts.tuning.strength };
             println!("  boom: ({x}, {y}) r={r} strength={strength} at frame {now} -- blast={x},{depth} (surface y={surface})");
             blasts.trigger_with(world, particles, x, y, r, strength);
             fired.push(FiredCharge { x, y, radius: r, frame: now });
@@ -5125,6 +5145,21 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, (usize, usize), (i
     }
     if let Some(v) = args.joint_open {
         blasts.tuning.joint_open_fraction = v;
+    }
+    // **First**, so every override below still wins over it -- a preset is a
+    // starting point, not a lock.
+    if let Some(name) = args.charge.as_deref() {
+        let want = name.trim().to_ascii_lowercase();
+        let found = explosion::Preset::ALL.into_iter().find(|p| p.label().eq_ignore_ascii_case(&want));
+        let Some(p) = found else {
+            let names: Vec<&str> = explosion::Preset::ALL.iter().map(|p| p.label()).collect();
+            panic!("unknown charge {name:?}; known: {}", names.join(", "));
+        };
+        blasts.tuning = p.tuning();
+        println!("  charge: {} -- radius {} strength {}", p.label(), blasts.tuning.radius, blasts.tuning.strength);
+    }
+    if let Some(v) = args.joint_seam_width {
+        blasts.tuning.joint_seam_width = v.max(1);
     }
     if let Some(v) = args.joint_density {
         blasts.tuning.joint_density = v;

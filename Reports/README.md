@@ -146,6 +146,12 @@ tried?"*.
   Carries the measured dead ends for this area — read it before touching
   `explosion.rs`, `fracture_field.rs` or the confined branch of
   `structural.rs`.
+- [explosion-menu-guide.md](explosion-menu-guide.md) — **reference, for the
+  owner rather than for an agent.** What every row of the `O` -> EXPLOSION
+  panel does, measured on one scene so the rows can be read against each
+  other, plus the five charge types and what each spends its energy on.
+  Written from the report that the panel was "too complicated"; it also
+  records why nothing was deleted from it.
 - [building-rethink.md](building-rethink.md) — **proposal, not built.**
   Building should not be a physics puzzle; from a direct playtest steer.
 - [load-concentration-review.md](load-concentration-review.md) — **merged,
