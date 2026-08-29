@@ -100,7 +100,8 @@ report's new §7b.
 
 | | guard | reading |
 |---|---|---|
-| **1** | falls per move | `forage_probe seeds=12 frames=12000 spacing=4`: min **0.208** / median **0.225** / max **0.334** — lane C's pre-verb baseline to three decimals. Blocked per move likewise unchanged at 0.031 / 0.034 / 0.065 |
+| **1** | falls per move | `forage_probe seeds=12 frames=12000 spacing=4`: min **0.208** / median **0.225** / max **0.334** — lane C's pre-verb baseline to three decimals; `gate=1` **PASSES** at 0.334 ≤ 0.40. Blocked per move likewise unchanged at 0.031 / 0.034 / 0.065 |
+| **1b** | ...and the guard is sensitive | With the verb authored into `ant.ron`, the identical sweep makes `gate=1` **FAIL, exit 1** at 0.405. **But the term that moved is the denominator**: absolute falls go **7,516 → ~1,520** while walking `moves` collapse 33,020 → 5,100, because `moves` counts walking steps only. The hopping colony falls a fifth as often. Recorded as §1b; `gate=1` now prints both terms |
 | **2** | blocked moves | `creature_look mode=live count=40 frames=600`: `ant` **5%**, `ant_long` **4%**, `ant_wide` **41%**, `ant_block` **43%** — `creature-appearance-design.md` §5's table reproduced, rigid 8–10x the chains |
 | **3** | `ascii` counters | **1,109 counter lines byte-identical** against `origin/main`; the 146 that differ all carry a millisecond figure |
 | **4** | ablatable | `Impulse=lo` reproduces `authored` **to every printed digit**; `-Bias->Move` still reproduces `zero`; `Impulse=hi` moves every column — travelled 71.2 → **331.4**, coverage 1,267 → **3,989**, foraged 0.06 → **0.50**, first pickup 1,208 → **118**, pickups 2.7 → **29.3**, deliveries **0.0 → 8.3** |

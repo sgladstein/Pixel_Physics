@@ -530,14 +530,16 @@ and its green above is evidence rather than a default.
 |---|---|---|
 | falls / move (min / med / max) | 0.208 / **0.225** / 0.334 | 0.248 / **0.298** / **0.405** |
 | walking `moves`, median | **33,020** | **5,100** |
-| **absolute falls, median-implied** | **~7,430** | **~1,520** |
+| **absolute falls, median** | **7,516** | **~1,520** |
 | blocked / move | 0.031 / 0.034 / 0.065 | 0.044 / 0.060 / 0.089 |
 | tumbles / move | 0.683 / 0.791 / 0.857 | 4.452 / 6.251 / 7.195 |
 | deliveries | 0 / 0 / 6 | **42 / 104 / 478** |
 | deepest excursion | 59 / 71 / 118 | **164 / 226 / 290** |
 
-**The hopping colony falls about a fifth as often** — ~1,520 against ~7,430 —
-while the *ratio* climbs 32%. `CreatureStats::moves` counts **walking steps
+**The hopping colony falls about a fifth as often** — ~1,520 against
+**7,516** — while the *ratio* climbs 32%. (The shipped figure is printed
+directly by `gate=1` now; the hopping one is its ratio times its median
+moves, since that arm exits before the line.) `CreatureStats::moves` counts **walking steps
 only**, deliberately (a ballistic step is `flight_moves`), so a species that
 hops instead of walking collapses the denominator 6.5x and the ratio rises on
 a numerator that fell. `tumbles/move` going 0.79 → 6.25 is the same
