@@ -1,0 +1,38 @@
+{
+  "id": "20260829T191455703Z-f03d67",
+  "created": "2026-08-29T19:14:55Z",
+  "board": "fracture",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/gnome-mining-mechanic-obm7j4",
+    "commit": "536e2d8",
+    "agent": null,
+    "session_id": "7e6d7527-9f19-5475-bb25-535b32238ac6",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The gnome's own hammer, same change",
+  "question": "Same change at the gnome's hammer size against a cliff face -- five swings. The blocks here are smaller than in the previous card because the swing is (radius 7 against 14) and because a block in a wall at ground level is held from behind, so what comes away is the ring nearest the face. Is the size right, or should the gnome's swing be bigger so it takes gnome-sized blocks?",
+  "context_md": "Paired with the previous card, which is one radius-14 blow into open rock. Nothing here is pulverised by the swing; grit is only what comes off below the size a piece has to be. Both acceptance blow cases stay green and the frame cost is unmoved.",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "",
+      "files": [
+        "20260829T191455703Z-f03d67/000-hammer3.gif"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null,
+      "gif_frames": 90
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
