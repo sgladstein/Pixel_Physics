@@ -3150,20 +3150,32 @@ impl Renderer {
         // stays a pure function of world state so the dirty-rect skip's
         // pixel-identity still holds.
         let scenery_key = {
-            let (w, h) = (table[0].len() as i32, table.len() as i32);
+            let (w, h) = (player.w, player.h);
             (ox..ox + w)
                 .find(|&wx| {
                     (oy..oy + h).any(|wy| world.materials.get(world.get(wx, wy).material).scenery)
                 })
                 .unwrap_or(ox)
         };
-        for (dy, row) in table.iter().enumerate() {
-            for (dx, colour) in row.iter().enumerate() {
-                let Some(colour) = colour else { continue };
+        // **Walk the cells he occupies, not the cells the table has.** The
+        // sprite is authored at `PLAYER_WIDTH`x`PLAYER_HEIGHT`; a world
+        // generated at a finer `cell_scale` makes him proportionally bigger
+        // (`Player::at_scaled`), and a loop over the table would draw the
+        // authored 7x14 into a 14x28 body -- a quarter-size gnome standing
+        // in a full-size collision box. Sampling the table nearest-neighbour
+        // keeps him the right size on screen with no new art, which is the
+        // whole of the *size* fix; a sprite that actually spends the extra
+        // pixels is a separate, judge-by-eye change.
+        let (table_w, table_h) = (table[0].len() as i32, table.len() as i32);
+        for dy in 0..player.h {
+            let row = &table[(dy * table_h / player.h).clamp(0, table_h - 1) as usize];
+            for dx in 0..player.w {
+                let sprite_x = (dx * table_w / player.w).clamp(0, table_w - 1) as usize;
+                let Some(colour) = &row[sprite_x] else { continue };
                 // Mirrored on the *sprite* column, so the world rectangle
                 // he occupies is unchanged whichever way he faces.
-                let column = if player.facing_left { row.len() - 1 - dx } else { dx };
-                let (wx, wy) = (ox + column as i32, oy + dy as i32);
+                let column = if player.facing_left { player.w - 1 - dx } else { dx };
+                let (wx, wy) = (ox + column, oy + dy);
                 let Some((sx, sy)) = self.world_to_screen(wx, wy) else {
                     continue;
                 };
