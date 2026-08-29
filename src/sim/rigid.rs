@@ -2210,7 +2210,12 @@ pub(crate) fn calve_free_blocks(world: &mut World, origin: (i32, i32), reach: f3
         // joint-blind and is exactly what was re-cutting a bounded block
         // into fragments, so the outline and the piece were different
         // shapes.
-        promote(world, block, Some(((origin.0 as f32, origin.1 as f32), force)), Some(origin));
+        // **No hinge.** A `Hinge` is for a piece still pivoting on what it
+        // broke off (`fell_severed_tissue`'s crown on its stump); a block
+        // the joints have cut out is free on *every* side by definition —
+        // that is what `free_blocks_around` tests — so there is nothing
+        // for it to swing about. It leaves on the blow's impulse alone.
+        promote(world, block, Some(((origin.0 as f32, origin.1 as f32), force)), Some(origin), None);
     }
     freed
 }
