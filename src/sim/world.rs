@@ -160,6 +160,43 @@ pub struct CreatureStats {
     /// the colony is searching or commuting.
     pub tumbles: u64,
     pub falls: u64,
+    /// **Launches — the `BrainOutput::Impulse` verb firing.** The "did it
+    /// happen at all" counter `CLAUDE.md` demands beside any picture of a
+    /// hop: a creature arcing through the air and a creature falling off a
+    /// ledge are the same photograph, and only this says which. Zero for
+    /// every species that has not authored the weight, which is the guard
+    /// `creature-motion-design.md` §7 names third.
+    pub impulses: u64,
+    /// Frames spent airborne, summed over the colony. Paired with
+    /// `impulses` because the ratio is the mean hop *duration*, which is
+    /// the quantity the body is supposed to change: same launch, a slab
+    /// glides and a block drops.
+    ///
+    /// It is also the frame-cost readout. An airborne creature is
+    /// rescheduled every frame instead of every `tick_interval`, so this is
+    /// exactly the extra scheduler traffic the verb buys — in the units the
+    /// scheduler charges.
+    pub flight_frames: u64,
+    /// Cell relocations made while airborne.
+    ///
+    /// **Deliberately not folded into `moves`.** `falls / moves` is the
+    /// §7 guard and it was baselined before this verb existed; adding
+    /// ballistic steps to the denominator would make that ratio fall for a
+    /// hopping species and the guard would report an improvement it had
+    /// manufactured. `moves` still counts exactly what it counted — one
+    /// walking step, decided and paid for — and this counts the other kind.
+    pub flight_moves: u64,
+    /// Launches the brain asked for and the body could not make — the
+    /// creature was already off the ground.
+    ///
+    /// **The effect-side pair `impulses` needs, and `CLAUDE.md` asks for by
+    /// name**: a counter that says a call happened is only as good as the
+    /// claim that the call did something, and the worked case there is a
+    /// mining harness that reported 200 cuts having removed 0 cells. These
+    /// two split the verb's firings into the ones that produced an arc and
+    /// the ones that produced nothing, so a rise in `impulses` with a flat
+    /// `flight_frames` cannot be read as the verb working.
+    pub impulses_refused: u64,
     pub eats: u64,
     pub pickups: u64,
     pub digs: u64,
@@ -2342,6 +2379,8 @@ impl World {
             traits: [0.0; organism::CREATURE_TRAITS],
             chain: Vec::new(),
             heading: 0,
+            // Nothing is born in the air. Only `creature::launch` sets this.
+            flight: None,
             energy: 0.0,
             carrying: None,
             since_nest: 0,

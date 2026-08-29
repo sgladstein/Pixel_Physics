@@ -63,7 +63,7 @@ use super::cell::{Cell, AMBIENT_TEMPERATURE};
 use super::chunk::Rect;
 use super::field;
 use super::material::{self, MaterialKind};
-use super::organism::{pack_cell_type, Carried, CellType, CreatureDef, SpeciesId, TRAIT_GUT_BIAS};
+use super::organism::{pack_cell_type, Carried, CellType, CreatureDef, Flight, SpeciesId, TRAIT_GUT_BIAS};
 use super::pheromone::{self, Channel};
 use super::rng;
 use super::scheduler::{ActiveKind, ActiveSite};
@@ -988,6 +988,17 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
     if !reconcile_chain(world, organism) {
         return Vec::new();
     }
+
+    // --- airborne: integrate, do not decide -----------------------------
+    // **Before `sense`, and that ordering is the cost.** A creature in the
+    // air does not read the world, does not evaluate its brain, and does not
+    // act; it is committed to the arc it launched on until it lands. See
+    // `step_flight`, and `brain::BrainOutput::Impulse` for why it is a
+    // separate path rather than a change to the walk.
+    if world.organism(organism).is_some_and(|s| s.flight.is_some()) {
+        return step_flight(world, organism, def);
+    }
+
     let heading = world.organism(organism).map_or(0, |s| s.heading);
     let inputs = sense(world, x, y, organism, heading, def);
     let (outputs, active_synapses) = {
@@ -1031,10 +1042,33 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
     let p_move = outputs[brain::BrainOutput::Move as usize].clamp(0.0, 1.0);
     let mut moved = false;
     if draw.unit_f32() < p_move {
-        moved = step_chain(world, organism, heading, &outputs, def, &mut draw);
-        if moved {
-            spent += def.move_cost;
-            world.energy_ledger.moved += def.move_cost as f64;
+        // **Hop, or walk.** `Impulse` is read raw and gated on strictly
+        // positive, which is the whole of the "byte-identical for species
+        // that do not use the verb" guard (`creature-motion-design.md` §7):
+        // `squash(0.0)` is exactly 0.0 for a row nothing has authored, so
+        // `&&` short-circuits and **no RNG draw is taken**. Take one
+        // unconditionally here and every ant in the world gets a different
+        // stream from the next line on, whether or not it can jump.
+        let impulse = outputs[brain::BrainOutput::Impulse as usize].clamp(0.0, 1.0);
+        if impulse > 0.0 && draw.unit_f32() < impulse && launch(world, organism, heading) {
+            // Charged where it is decided, not inside `launch`, so the
+            // energy ledger has one owner. The flight frames themselves
+            // charge only pro-rated metabolism -- ballistics is free once
+            // you have paid to leave.
+            let cost = def.move_cost * LAUNCH_COST_IN_MOVES;
+            spent += cost;
+            world.energy_ledger.moved += cost as f64;
+            // **Deliberately not `moved`.** `moved` gates the pheromone
+            // deposit (P-11) and a creature in the air is not touching the
+            // ground it would be laying a trail on. It also keeps
+            // `CreatureStats::moves` meaning exactly one walking step, which
+            // is what §7's falls-per-move bar was baselined against.
+        } else {
+            moved = step_chain(world, organism, heading, &outputs, def, &mut draw);
+            if moved {
+                spent += def.move_cost;
+                world.energy_ledger.moved += def.move_cost as f64;
+            }
         }
     } else if draw.unit_f32() < brain::unit_scale(outputs[brain::BrainOutput::Tumble as usize], 1.0) {
         tumble(world, organism, def, &mut draw);
@@ -1757,6 +1791,502 @@ fn step_chain(
         }
     }
     true
+}
+
+// --- the impulse verb: leaving the ground -------------------------------
+//
+// `Reports/creature-motion-design.md` is the whole argument; three things
+// from it are load-bearing enough to repeat at the code.
+//
+// **1. Nothing here touches the walk.** §2d records that `step_chain`'s
+// refusal to step into unsupported air is deliberate and was arrived at
+// after two failed attempts at airborne creatures, both of which put falls
+// at 59-80% of all moves. Both failed the same way: they changed the
+// *candidate scoring*, so every ant in the world became airborne whether it
+// wanted to or not. This verb adds a separate, opt-in path -- a creature is
+// in the air only if `OrganismState::flight` is `Some`, and only `launch`
+// ever sets it. An ant with no `Impulse` weight reads `squash(0.0) == 0.0`
+// exactly, takes no RNG draw, and behaves bit-for-bit as it did before the
+// slot existed.
+//
+// **2. There is no table of creature types.** §5's five rows -- a short
+// chain hops far, a long one shallower, a wide slab barely leaves the
+// ground but glides, a compact block drops like a stone, a buoyant body
+// floats -- are all produced by three numbers a body already has: the sum
+// of its cells' densities, its bounding box, and the density of whatever it
+// is in. `match def.body` appears nowhere below, and `match species` must
+// never appear. That is `CLAUDE.md`'s "state the difference as data", which
+// four successive support models learned the expensive way.
+//
+// **3. The verb has to cost something.** §1: a trait that is strictly
+// better makes every lineage converge on it, which is measured rather than
+// hypothetical (S5's diet genes produced one animal). A launch costs a flat
+// price in energy and, more sharply, costs the creature its *turn*: while
+// airborne it does not think, eat, dig, steer or deposit. A light body buys
+// a lot of ground with that; a heavy one buys almost none.
+
+/// Per-frame downward acceleration. **Deliberately the same 0.15 as
+/// `rigid.rs` and `particle.rs`**, and duplicated for the same reason those
+/// two are: a hopping ant, a falling rock and blast debris share a screen,
+/// and two different fall rates in one scene reads as a bug even when
+/// neither is wrong.
+const GRAVITY: f32 = 0.15;
+
+/// Hard cap per axis, matching `rigid.rs`'s `MAX_SPEED_PER_AXIS`. The drag
+/// law below already bounds the descent; this bounds the *launch* of a body
+/// so light that `LAUNCH_WORK` would otherwise fling it across the world in
+/// two frames, and it bounds the substep count so one flight frame can
+/// never test hundreds of intermediate positions.
+const MAX_FLIGHT_SPEED: f32 = 6.0;
+
+/// **The work one launch does, and the only number that sets how far
+/// anything jumps.**
+///
+/// Work rather than impulse, and that choice is what makes §5's table fall
+/// out instead of being written down. A fixed impulse gives `v = J/m`; a
+/// fixed *energy* gives
+///
+/// ```text
+///     v = sqrt( 2 W / m )
+/// ```
+///
+/// -- the same `1/sqrt(m)` that a muscle's force scaling with its
+/// cross-section produces, and the reason small animals out-jump large ones
+/// by so much less than `1/m` would predict. At `1/m` the spread across the
+/// four authored bodies is 4.5x in speed and the 6-cell chain is already
+/// immobile, which leaves no room between "shallower hop" and "almost
+/// nothing"; at `1/sqrt(m)` it is 2.1x in speed and 4.5x in height and
+/// every row of §5's table is distinguishable.
+///
+/// **Set from a specification, not from a scene** (`CLAUDE.md`, and
+/// `rigid::CROWN_SPEED` is the worked precedent): *the heaviest authored
+/// body clears about a cell and a half -- a hop over a pebble -- and
+/// everything lighter scales from there.* At 9 cells that is
+/// `sqrt(2 * 0.15 * 1.5) / sin(45 deg)` = 0.94 cells/frame, so
+/// `W = m v^2 / 2` = 4.0. What the four shipped bodies then do, in cells:
+///
+/// | body | cells | launch v | rise | ballistic range |
+/// |---|---|---|---|---|
+/// | `ant` `Chain(2)` | 2 | 2.00 | 6.7 | 26.7 |
+/// | `ant_long` `Chain(6)` | 6 | 1.15 | 2.2 | 8.9 |
+/// | `ant_wide` 5x2 | 9 | 0.94 | 1.5 | 5.9 |
+/// | `ant_block` 3x3 | 9 | 0.94 | 1.5 | 5.9 |
+///
+/// The last two are the same mass and so launch identically **on purpose**:
+/// what separates them is the descent, and it only separates them over a
+/// drop taller than their own hop. That is why the review scene is a ledge.
+const LAUNCH_WORK: f32 = 4.0;
+
+/// How much of the launch goes upward, added to the heading's own y.
+///
+/// A hop is up-and-forward, and one constant is the whole of it: an
+/// east-facing creature (`DIRS` y of 0) leaves at 45 degrees, one already
+/// facing up-east leaves steeply, one facing down-east skims. No per-species
+/// jump angle, and no clamp forcing every body onto the same arc -- a
+/// creature that wants a flatter hop turns first, which is a decision the
+/// brain already has an output for.
+const LAUNCH_LIFT: f32 = 1.0;
+
+/// What a launch costs, as a multiple of the species' own `move_cost`.
+///
+/// **Flat, and the flatness is the mechanism.** One price, and the body
+/// decides what it buys: the 2-cell ant covers ~27 cells for four walking
+/// steps' worth of energy, which is a bargain, and the 9-cell block covers
+/// ~6 for the same, which is worse than walking. Nothing anywhere says
+/// "heavy creatures should not jump" -- it is simply a bad deal for them,
+/// which is §1's cost-and-benefit rather than a rule.
+const LAUNCH_COST_IN_MOVES: f32 = 4.0;
+
+/// The density the air is given, in the same units a material's `density`
+/// is written in.
+///
+/// **Set from what a fall should look like, not from a physical table, and
+/// the physical value is unusable here.** Real air is ~1/1000 of chitin, at
+/// which the drag term below is numerically invisible and every body falls
+/// at exactly the same rate -- which would delete the glide the whole design
+/// turns on. The specification instead: *a lone 2-cell ant reaches terminal
+/// velocity at the speed a ten-cell free fall would give it* (1.73
+/// cells/frame, `v = sqrt(2 g d)`), and solving `terminal_speed` backwards
+/// for that body gives this.
+///
+/// Everything else follows from it with no further tuning. Terminal speeds,
+/// in cells per frame:
+///
+/// | body | mass | Cd | frontal width | terminal |
+/// |---|---|---|---|---|
+/// | `ant` (2x1) | 2 | 1.25 | 2 | 1.73 |
+/// | `ant_long` strung out (6x1) | 6 | 2.00 | 6 | 1.37 |
+/// | `ant_wide` (5x2) | 9 | 1.63 | 5 | 2.04 |
+/// | `ant_block` (3x3) | 9 | 0.50 | 3 | **4.74** |
+///
+/// The last two rows are the design claim in one line: **same mass, same
+/// launch, and the block comes down 2.3x faster than the slab.** That ratio
+/// is what this constant does *not* set — it is scale-free in
+/// `AIR_DENSITY`, being a ratio of two `sqrt(1/(Cd A))` — so tuning this
+/// changes how brisk every fall looks and changes none of the differences
+/// between bodies. It is the one knob to reach for if a hop reads as
+/// floating, and reaching for anything else would be re-tuning the design.
+const AIR_DENSITY: f32 = 0.08;
+
+/// Drag coefficient of a body that presents a flat plate, and of one that
+/// presents a compact blunt shape.
+///
+/// **Not invented here.** `rigid::SINK_DRAG_COEFFICIENT`'s own doc records
+/// the regime check for pixel-scale rubble -- *"Flat plates are nearer 2 and
+/// spheres nearer 0.5"* -- and settles on 2.0 for a tumbling irregular
+/// solid. A creature's shape is *known* rather than irregular, so the two
+/// ends of that same range become the two ends of a ramp instead of one
+/// being picked.
+const PLATE_DRAG: f32 = 2.0;
+/// See [`PLATE_DRAG`].
+const COMPACT_DRAG: f32 = 0.5;
+
+/// The width-to-height ratio at which a body counts as a full flat plate.
+///
+/// 3.0 rather than something larger so the shipped `ant_wide` (5 wide by 2
+/// tall, ratio 2.5) lands most of the way up the ramp rather than at the
+/// bottom of it. A body taller than it is wide gets `COMPACT_DRAG`: a chain
+/// standing on end is a needle, not a parachute, and it should fall like
+/// one.
+const PLATE_FLATNESS: f32 = 3.0;
+
+/// A body's mass, frontal width and drag coefficient -- everything the
+/// ballistics needs, read off the cells themselves.
+///
+/// **Recomputed per flight frame rather than cached on the species, and
+/// that is the point rather than an inefficiency.** A `Chain` has no fixed
+/// shape: six cells strung out along a ledge are a 6x1 plate and the same
+/// six coiled at a corner are a 3x3 block, and this reports 2.0 and 0.5
+/// respectively for a creature whose species file never mentions drag. The
+/// cost is a walk over a body 2-9 cells long, on the frames it is airborne
+/// only.
+struct BodyDrag {
+    /// Summed material density over the body's cells. Cell count when every
+    /// cell is density 1.0, which every creature material currently is.
+    mass: f32,
+    /// Frontal width presented to a vertical fall: the bounding box's
+    /// horizontal extent, in cells.
+    width: f32,
+    /// Interpolated between `COMPACT_DRAG` and `PLATE_DRAG` on how much
+    /// wider than tall the body is.
+    drag: f32,
+    /// Mean density, for the buoyancy comparison against a fluid.
+    density: f32,
+}
+
+fn body_drag(world: &World, cells: &[(i32, i32)]) -> BodyDrag {
+    let mut mass = 0.0;
+    let (mut min_x, mut max_x, mut min_y, mut max_y) = (i32::MAX, i32::MIN, i32::MAX, i32::MIN);
+    for &(cx, cy) in cells {
+        mass += world.materials.density(world.get(cx, cy).material);
+        min_x = min_x.min(cx);
+        max_x = max_x.max(cx);
+        min_y = min_y.min(cy);
+        max_y = max_y.max(cy);
+    }
+    let width = (max_x - min_x + 1).max(1) as f32;
+    let height = (max_y - min_y + 1).max(1) as f32;
+    // Wider than tall ramps toward a plate; anything square or taller is
+    // blunt.
+    let t = ((width / height - 1.0) / (PLATE_FLATNESS - 1.0)).clamp(0.0, 1.0);
+    let n = cells.len().max(1) as f32;
+    let mass = mass.max(f32::MIN_POSITIVE);
+    BodyDrag { mass, width, drag: COMPACT_DRAG + t * (PLATE_DRAG - COMPACT_DRAG), density: mass / n }
+}
+
+/// The fluid this body is in: the density of any `Liquid` touching it, or
+/// [`AIR_DENSITY`].
+///
+/// **Asked of the neighbours, not of the body's own cells**, because a
+/// creature's cells hold the creature -- reading `world.get` at the head
+/// returns chitin and would report every ant as flying through solid ant.
+/// The same trap `rigid::surrounding_liquid` exists to avoid, and the same
+/// answer.
+fn surrounding_density(world: &World, cells: &[(i32, i32)]) -> f32 {
+    for &(cx, cy) in cells {
+        for (dx, dy) in NEIGHBOURS_8 {
+            let m = world.get(cx + dx, cy + dy).material;
+            if world.materials.kind(m) == MaterialKind::Liquid {
+                return world.materials.density(m).max(f32::MIN_POSITIVE);
+            }
+        }
+    }
+    AIR_DENSITY
+}
+
+/// Terminal speed for this body in this fluid, in cells per frame.
+///
+/// Weight-minus-buoyancy balanced against quadratic drag, which is
+/// `rigid.rs`'s own derivation with the frontal area written out rather
+/// than folded into a size term:
+///
+/// ```text
+///     v = sqrt( 2 m g_eff / (rho_fluid * Cd * A) )
+/// ```
+///
+/// `g_eff` is `GRAVITY` less the share the displaced fluid carries, exactly
+/// as `rigid::drag_through_liquid` computes it -- one buoyancy model in the
+/// engine, not two. A body no denser than what it is in has `g_eff == 0`
+/// and hangs: **that is the float limit decision E9 asks for, and it needed
+/// no new physics** (§2c). It also cannot be evolved around, because the
+/// only way to get it is to be made of something light, and being made of
+/// something light is what makes a body easy to shift.
+fn terminal_speed(shape: &BodyDrag, fluid_density: f32, gravity_effective: f32) -> f32 {
+    let denom = fluid_density * shape.drag * shape.width;
+    if denom <= 0.0 || gravity_effective <= 0.0 {
+        return 0.0;
+    }
+    (2.0 * shape.mass * gravity_effective / denom).sqrt().min(MAX_FLIGHT_SPEED)
+}
+
+/// The share of gravity the surrounding fluid carries -- near zero in air, 1
+/// for a body no denser than the liquid it is in. `rigid::
+/// drag_through_liquid`'s `carried`, unchanged.
+fn buoyant_share(body_density: f32, fluid_density: f32) -> f32 {
+    (fluid_density / body_density.max(f32::MIN_POSITIVE)).min(1.0)
+}
+
+/// Try to translate the whole body by `(dx, dy)`.
+///
+/// **The whole body, rigidly, for both body plans** -- unlike `step_chain`,
+/// where a chain's segments follow the head into cells it has vacated. A
+/// chain walking is a queue of legs; a chain in the air is one object, and
+/// having it snake through its own trail mid-flight would read as a glitch
+/// rather than as motion.
+fn translated_if_free(world: &World, cells: &[(i32, i32)], dx: i32, dy: i32) -> Option<Vec<(i32, i32)>> {
+    let to: Vec<(i32, i32)> = cells.iter().map(|&(x, y)| (x + dx, y + dy)).collect();
+    // Its own cells are not obstacles: a one-cell step overlaps them.
+    to.iter().all(|p| world.is_empty(p.0, p.1) || cells.contains(p)).then_some(to)
+}
+
+/// Is this body held up by anything? The identical predicate `step_chain`
+/// opens with, shared rather than copied so a landing and a walk can never
+/// disagree about what counts as ground.
+fn body_is_supported(world: &World, cells: &[(i32, i32)]) -> bool {
+    cells.iter().any(|&(cx, cy)| {
+        NEIGHBOURS_8.iter().any(|&(dx, dy)| {
+            matches!(world.materials.kind(world.get(cx + dx, cy + dy).material), MaterialKind::Solid | MaterialKind::Powder | MaterialKind::Plant)
+        })
+    })
+}
+
+/// **The verb.** Convert one launch's worth of work into a velocity and put
+/// the creature in the air. `false` if the body could not push off.
+///
+/// The only thing in the engine that sets `OrganismState::flight`.
+fn launch(world: &mut World, organism: u16, heading: u8) -> bool {
+    let Some(cells) = world.organism(organism).map(|s| s.chain.clone()) else {
+        return false;
+    };
+    if cells.is_empty() {
+        return false;
+    }
+    // **You cannot push off nothing.** A creature already falling has
+    // nothing to push against, so the verb is refused rather than granted
+    // for free -- which also stops it being a mid-air double jump, and stops
+    // it being a way to cancel a fall.
+    if !body_is_supported(world, &cells) {
+        world.creature_stats.impulses_refused += 1;
+        return false;
+    }
+    let shape = body_drag(world, &cells);
+    let speed = (2.0 * LAUNCH_WORK / shape.mass).sqrt().min(MAX_FLIGHT_SPEED);
+    // Along the heading, plus a fixed lift, normalised -- so `LAUNCH_WORK`
+    // sets the speed and the heading only chooses the direction.
+    let (dx, dy) = DIRS[heading as usize];
+    let (ax, ay) = (dx as f32, dy as f32 - LAUNCH_LIFT);
+    let len = (ax * ax + ay * ay).sqrt().max(f32::MIN_POSITIVE);
+    if let Some(state) = world.organism_mut(organism) {
+        state.flight = Some(Flight { vx: speed * ax / len, vy: speed * ay / len, fx: 0.0, fy: 0.0 });
+    }
+    world.creature_stats.impulses += 1;
+    true
+}
+
+/// One frame of ballistics for an airborne creature, and the reschedule.
+///
+/// **Every frame, not every `tick_interval`.** An ant decides once every 6
+/// frames; a hop lasting 16 frames integrated at that rate would be three
+/// teleports. The extra scheduler traffic is real and is counted
+/// (`CreatureStats::flight_frames`), and it is bounded by the arc: gravity
+/// always wins, so a body that went up comes down and stops being
+/// rescheduled this way.
+///
+/// **No brain, no verbs, no deposit.** The creature is committed -- it
+/// cannot eat, dig, drop, steer or lay pheromone until it lands. That is
+/// most of what the verb costs, and it is also why the extra frames are
+/// cheap: there is no `eval_brain` on any of them.
+fn step_flight(world: &mut World, organism: u16, def: &CreatureDef) -> Vec<ActiveSite> {
+    let (Some(mut flight), Some(mut cells)) =
+        (world.organism(organism).and_then(|s| s.flight), world.organism(organism).map(|s| s.chain.clone()))
+    else {
+        return Vec::new();
+    };
+    if cells.is_empty() {
+        if let Some(state) = world.organism_mut(organism) {
+            state.flight = None;
+        }
+        return Vec::new();
+    }
+
+    let shape = body_drag(world, &cells);
+    let fluid = surrounding_density(world, &cells);
+    let carried = buoyant_share(shape.density, fluid);
+    let gravity_effective = GRAVITY * (1.0 - carried);
+    let terminal = terminal_speed(&shape, fluid, gravity_effective);
+
+    flight.vy += gravity_effective;
+    // Downward only: this is a *terminal* velocity, and clamping the rising
+    // half of an arc with it would collapse every launch speed to the same
+    // number and delete the mass law the whole design rests on.
+    flight.vy = flight.vy.min(terminal);
+    // Horizontal drag in a liquid only. In air a hop keeps the ground speed
+    // it left with until it lands, which is what makes a glide *go
+    // somewhere*: the slab's advantage is the twenty-odd frames it stays up,
+    // and bleeding vx away would hand that straight back.
+    if fluid > AIR_DENSITY {
+        flight.vx = flight.vx.clamp(-terminal, terminal);
+    }
+    flight.vx = flight.vx.clamp(-MAX_FLIGHT_SPEED, MAX_FLIGHT_SPEED);
+    flight.vy = flight.vy.clamp(-MAX_FLIGHT_SPEED, MAX_FLIGHT_SPEED);
+
+    flight.fx += flight.vx;
+    flight.fy += flight.vy;
+
+    // Substep one cell at a time, the same anti-tunnelling rule
+    // `rigid::advance` and `particle::advance_and_check_landing` both use: a
+    // body moving 3 cells this frame must test the two it passes through, or
+    // it walks through a one-cell floor.
+    let mut landed = false;
+    let mut moves = 0u64;
+    loop {
+        let sx = axis_step(flight.fx);
+        let sy = axis_step(flight.fy);
+        if sx == 0 && sy == 0 {
+            break;
+        }
+        if let Some(to) = translated_if_free(world, &cells, sx, sy) {
+            relocate_chain(world, organism, &cells, &to);
+            cells = to;
+            flight.fx -= sx as f32;
+            flight.fy -= sy as f32;
+            moves += 1;
+            continue;
+        }
+        // The diagonal was refused. Take whichever axis is still free and
+        // give up the one that is not -- a body clipping a corner should
+        // slide along it, not stop dead in the air.
+        if sy != 0 {
+            if let Some(to) = translated_if_free(world, &cells, 0, sy) {
+                relocate_chain(world, organism, &cells, &to);
+                cells = to;
+                flight.fy -= sy as f32;
+                moves += 1;
+                // Hit a wall sideways: the vertical half of the flight
+                // continues, the horizontal half is over.
+                flight.vx = 0.0;
+                flight.fx = 0.0;
+                continue;
+            }
+        }
+        if sx != 0 {
+            if let Some(to) = translated_if_free(world, &cells, sx, 0) {
+                relocate_chain(world, organism, &cells, &to);
+                cells = to;
+                flight.fx -= sx as f32;
+                moves += 1;
+                flight.vy = 0.0;
+                flight.fy = 0.0;
+                // Blocked below while descending is the definition of
+                // arriving.
+                landed = sy > 0;
+                if landed {
+                    break;
+                }
+                continue;
+            }
+        }
+        // Nowhere to go on either axis.
+        if sy > 0 {
+            landed = true;
+        } else {
+            // A ceiling, or a wall taken head-on while rising. Stop and let
+            // gravity have it next frame.
+            flight.vy = 0.0;
+            flight.fy = 0.0;
+            flight.vx = 0.0;
+            flight.fx = 0.0;
+        }
+        break;
+    }
+
+    world.creature_stats.flight_frames += 1;
+    world.creature_stats.flight_moves += moves;
+
+    let (hx, hy) = cells.first().copied().unwrap_or((0, 0));
+    // **`since_nest` counts ticks, and a flight frame is not a tick.**
+    // Advancing it once per airborne frame would age a hopping creature's
+    // nest memory six times faster than a walking one's, purely because the
+    // scheduler visits it more often -- and `since_nest` scales the
+    // channel-A deposit, so a hop would quietly cost trail strength that
+    // nothing in the design asks it to cost. One increment per
+    // `tick_interval` frames keeps the *rate* identical, the same
+    // pro-rating the idle cost below uses and for the same reason.
+    let frame = world.frame;
+    let interval = def.tick_interval.max(1);
+    if let Some(state) = world.organism_mut(organism) {
+        state.flight = if landed { None } else { Some(flight) };
+        // `is_multiple_of` rather than `% == 0`: `clippy::manual_is_multiple_of`
+        // is a 1.98 lint and the container ships 1.94.1, so the local gate was
+        // green and CI was red -- the exact drift `CLAUDE.md` records, caught
+        // by a red PR rather than by the check meant to prevent it.
+        if frame.is_multiple_of(interval) {
+            state.since_nest = state.since_nest.saturating_add(1);
+        }
+        // **The excursion depth has to see a hop, or the foraging-range
+        // instrument understates exactly the creature it was built to
+        // measure.** `forage_max` is measurement-only (see its own doc), and
+        // a counter that cannot move for the mechanism under test is the
+        // failure `CLAUDE.md` names -- a hopper crossing 160 cells would
+        // have registered a range of zero.
+        let (ax, ay) = state.forage_anchor;
+        let depth = (hx - ax).abs().max((hy - ay).abs());
+        state.forage_max = state.forage_max.max(depth.clamp(0, u16::MAX as i32) as u16);
+    }
+
+    // **Metabolism per unit *time*, not per tick.** An airborne creature is
+    // rescheduled `tick_interval` times more often than a walking one, so
+    // charging the full `idle_cost` on each of those frames would tax
+    // hanging in the air six times harder than standing still -- a cost that
+    // came from the scheduler rather than from the design. Pro-rating keeps
+    // the *rate* identical and leaves `LAUNCH_COST_IN_MOVES` as the only
+    // thing the verb actually charges for.
+    let idle = def.idle_cost / def.tick_interval.max(1) as f32;
+    world.energy_ledger.metabolized += idle as f64;
+    if landed {
+        // Back on the normal schedule, and back to deciding things.
+        return apply_creature_energy(world, hx, hy, organism, -idle, def);
+    }
+    let Some(state) = world.organism_mut(organism) else {
+        return Vec::new();
+    };
+    state.energy -= idle;
+    if state.energy <= 0.0 {
+        creature_dies(world, organism);
+        return Vec::new();
+    }
+    vec![ActiveSite { x: hx, y: hy, kind: ActiveKind::Creature { organism }, next_frame: world.frame + 1 }]
+}
+
+/// One cell of travel in the direction an accumulator has banked, or 0.
+fn axis_step(f: f32) -> i32 {
+    if f >= 1.0 {
+        1
+    } else if f <= -1.0 {
+        -1
+    } else {
+        0
+    }
 }
 
 /// Pick a new heading at random from the directions that actually lead
@@ -4743,6 +5273,249 @@ mod tests {
         for (i, &c) in counts.iter().enumerate() {
             assert!((900..1100).contains(&c), "candidate {i} drawn {c}/4000 times; a flat field should be sampled uniformly");
         }
+    }
+
+    // --- the impulse verb ------------------------------------------------
+    //
+    // Five guards, and `Reports/creature-motion-design.md` §7 is why there
+    // are five: this verb reverses a decision (§2d) that cost two previous
+    // attempts, both of which shipped and were reverted after putting falls
+    // at 59-80% of all moves. Each of these was written before the code it
+    // guards and watched failing, which is the exemption `CLAUDE.md` grants
+    // from putting the fault back afterwards.
+
+    /// A body of `ant` cells at the given offsets, and the world holding it.
+    /// Material rather than a real organism because what is under test is
+    /// the *shape* law, and a species would only add plumbing that could
+    /// disagree with it.
+    fn body_of(cells: &[(i32, i32)]) -> (World, Vec<(i32, i32)>) {
+        let mut w = test_world();
+        let ant = w.materials.id_of("ant").expect("ant material is compiled in");
+        for &(x, y) in cells {
+            w.set(x, y, Cell::new(ant, 0));
+        }
+        (w, cells.to_vec())
+    }
+
+    #[test]
+    fn the_body_decides_what_one_impulse_does() {
+        // **The whole design claim, as one assertion.** §5's table is
+        // supposed to fall out of cell count and bounding box, with no
+        // `match species` anywhere; if someone replaces `body_drag` with a
+        // constant, or moves the jump height onto `CreatureDef`, this is
+        // what has to notice.
+        //
+        // **The four shipped body plans, read off the species files rather
+        // than typed out here.** The first version of this test hand-listed
+        // a 5x2 as ten cells; `ant_wide` is nine, because its template has a
+        // notch in the top row. The test failed, which is the instrument
+        // working -- and a guard over "the body decides" that carries its own
+        // idea of what the bodies are is not guarding the shipped ones.
+        let plan = |name: &str, at: (i32, i32)| -> Vec<(i32, i32)> {
+            let w = test_world();
+            let species = w.species.id_of(name).unwrap_or_else(|| panic!("species {name:?} is compiled in"));
+            let def = w.species.get(species).creature.as_ref().expect("a creature").clone();
+            def.body.offsets(false).iter().map(|&(dx, dy)| (at.0 + dx, at.1 + dy)).collect()
+        };
+        let chain2 = plan("ant", (10, 10));
+        let chain6 = plan("ant_long", (30, 10));
+        let wide = plan("ant_wide", (60, 10));
+        let block = plan("ant_block", (90, 10));
+        assert_eq!(wide.len(), block.len(), "the controlled pair is only controlled if they are the same size");
+
+        let launch_speed = |cells: &[(i32, i32)]| -> f32 {
+            let (w, c) = body_of(cells);
+            (2.0 * LAUNCH_WORK / body_drag(&w, &c).mass).sqrt()
+        };
+        let terminal = |cells: &[(i32, i32)]| -> f32 {
+            let (w, c) = body_of(cells);
+            terminal_speed(&body_drag(&w, &c), AIR_DENSITY, GRAVITY)
+        };
+
+        // 1. Heavier launches slower, strictly, across all four.
+        let (v2, v6, vw, vb) = (launch_speed(&chain2), launch_speed(&chain6), launch_speed(&wide), launch_speed(&block));
+        assert!(v2 > v6, "a 2-cell chain must out-launch a 6-cell one: {v2} vs {v6}");
+        assert!(v6 > vw, "a 6-cell chain must out-launch a 9-cell slab: {v6} vs {vw}");
+
+        // 2. **The controlled pair.** Same mass, so the same launch to the
+        //    last bit -- and that equality is what makes the descent
+        //    difference below attributable to shape alone.
+        assert_eq!(vw, vb, "a 5x2 and a 3x3 of the same material are the same mass and must launch identically");
+
+        // 3. ...and the compact one comes down more than twice as fast.
+        //    This is the row of §5 that says "glides" against "drops like a
+        //    stone", and it is the only difference between them.
+        let (tw, tb) = (terminal(&wide), terminal(&block));
+        assert!(tb > tw * 2.0, "the 3x3 block must fall more than 2x faster than the 5x2 slab: {tb} vs {tw}");
+
+        // 4. And a *chain* has no fixed shape, which is the reason drag is
+        //    read off the cells and not off `BodyPlan`. The same six cells
+        //    coiled into a square fall faster than strung out flat.
+        let coiled: Vec<(i32, i32)> = [(80, 10), (81, 10), (82, 10), (80, 11), (81, 11), (82, 11)].into();
+        assert!(
+            terminal(&coiled) > terminal(&chain6),
+            "six cells coiled ({}) must fall faster than the same six strung out ({})",
+            terminal(&coiled),
+            terminal(&chain6)
+        );
+    }
+
+    #[test]
+    fn a_buoyant_body_hangs_instead_of_sinking() {
+        // Decision E9's float limit, and §2c's claim that it needed no new
+        // physics: it is the sign of `(density - fluid density)` and nothing
+        // else. Asserted on the *mechanism* rather than on a species,
+        // because no buoyant creature is authored yet -- what has to be true
+        // is that authoring one would work.
+        let (w, cells) = body_of(&[(10, 10), (11, 10)]);
+        let shape = body_drag(&w, &cells);
+        // In something twice its own density there is no net weight left.
+        let carried = buoyant_share(shape.density, shape.density * 2.0);
+        assert_eq!(carried, 1.0, "a body less dense than its fluid keeps none of its weight");
+        assert_eq!(terminal_speed(&shape, shape.density * 2.0, GRAVITY * (1.0 - carried)), 0.0, "and so does not sink");
+        // In something half its density it still goes down, slowly.
+        let carried = buoyant_share(shape.density, shape.density * 0.5);
+        assert!(carried > 0.0 && carried < 1.0, "a denser body keeps some of its weight: {carried}");
+        assert!(terminal_speed(&shape, shape.density * 0.5, GRAVITY * (1.0 - carried)) > 0.0, "and sinks");
+    }
+
+    #[test]
+    fn the_shipped_ant_reads_exactly_zero_on_the_impulse_output() {
+        // **Guard 3 of §7, at the level the byte-identical claim rests on.**
+        // `ascii`'s counters can only be unchanged if the ant never launches,
+        // and it can only never launch if this output is *exactly* 0.0 --
+        // not small. `creature_tick` gates on `> 0.0` before touching the
+        // RNG, so an exact zero is also what stops the draw stream shifting
+        // under every other decision the ant makes.
+        //
+        // Read through the real species genome, not a hand-built one: what
+        // is being claimed is about the animal that ships.
+        let w = test_world();
+        let species = w.species.id_of("ant").expect("ant species");
+        let genome = w.species.get(species).genome.clone();
+        let mut state = [0.0; brain::BRAIN_HIDDEN];
+        // Every input saturated, which is the worst case for a stray weight.
+        let (out, _) = brain::eval_brain(&genome, &[1.0; brain::BRAIN_INPUTS], &mut state);
+        assert_eq!(
+            out[brain::BrainOutput::Impulse as usize],
+            0.0,
+            "ant.ron authors no Impulse weight, so the output must be exactly 0.0 -- \
+             anything else means the ant now jumps and every counter in ascii has moved"
+        );
+    }
+
+    /// A creature of `species` standing on a stone shelf, and its id.
+    fn creature_on_a_shelf(w: &mut World, species: &str, x: i32, y: i32) -> u16 {
+        for sx in (x - 20)..(x + 20) {
+            for sy in y..(y + 3) {
+                w.set(sx, sy, Cell::new(material::STONE, 0).with_attached(true));
+            }
+        }
+        let site = plant_creature_seed(w, x, y - 1, species).expect("the creature fits");
+        let ActiveKind::Creature { organism } = site.kind else { unreachable!() };
+        w.schedule_active_site(site);
+        organism
+    }
+
+    #[test]
+    fn a_launch_leaves_the_ground_and_comes_back_down() {
+        // The verb end to end: it fires, the creature is airborne for a
+        // while, it lands, and it is standing on something afterwards.
+        //
+        // **`landed_on_ground` is the half that matters.** A verb that put
+        // creatures in the air and left them there is exactly the failure
+        // §2d reverted twice, and "it went up" alone cannot see it.
+        let mut w = test_world();
+        let ant = creature_on_a_shelf(&mut w, "ant", 100, 60);
+        let def = w.species.get(w.organism(ant).expect("live").species).creature.clone().expect("a creature");
+        let start = w.organism(ant).expect("live").chain[0];
+
+        assert!(launch(&mut w, ant, 0), "an ant standing on stone can push off");
+        assert_eq!(w.creature_stats.impulses, 1);
+        assert!(w.organism(ant).expect("live").flight.is_some(), "and is airborne");
+
+        let mut airborne_frames = 0;
+        for _ in 0..600 {
+            if w.organism(ant).and_then(|s| s.flight).is_none() {
+                break;
+            }
+            step_flight(&mut w, ant, &def);
+            airborne_frames += 1;
+        }
+        assert!(w.organism(ant).expect("live").flight.is_none(), "the hop has to end");
+        assert!(airborne_frames > 4, "and it has to last long enough to read as an arc, not a teleport: {airborne_frames}");
+        let end = w.organism(ant).expect("live").chain[0];
+        assert!(end.0 > start.0, "an east-facing launch travels east: {start:?} -> {end:?}");
+        assert!(
+            body_is_supported(&w, &w.organism(ant).expect("live").chain.clone()),
+            "and it lands on something -- a hop that ends in mid-air is the reverted failure coming back"
+        );
+        assert_eq!(w.creature_stats.flight_frames, airborne_frames as u64);
+        assert!(w.creature_stats.flight_moves > 0, "the counter that says the arc went somewhere");
+    }
+
+    #[test]
+    fn a_creature_in_the_air_cannot_launch_again() {
+        // No double jump, and no using the verb to cancel a fall: the
+        // launch needs something to push against. `impulses_refused` is the
+        // effect-side pair `CLAUDE.md` asks for beside `impulses` -- a
+        // counter that says a call happened is only worth the claim that the
+        // call did something.
+        let mut w = test_world();
+        let ant = creature_on_a_shelf(&mut w, "ant", 100, 60);
+        // Pick it up off the shelf: nothing within 8 of it any more.
+        let chain = w.organism(ant).expect("live").chain.clone();
+        let aloft: Vec<(i32, i32)> = chain.iter().map(|&(x, y)| (x, y - 20)).collect();
+        relocate_chain(&mut w, ant, &chain, &aloft);
+
+        assert!(!launch(&mut w, ant, 0), "there is nothing to push off");
+        assert_eq!(w.creature_stats.impulses, 0, "and it must not be counted as a launch");
+        assert_eq!(w.creature_stats.impulses_refused, 1, "it is counted as a refusal");
+        assert!(w.organism(ant).expect("live").flight.is_none());
+    }
+
+    #[test]
+    fn the_same_launch_carries_a_slab_further_than_a_block() {
+        // **§5's controlled pair, played out rather than computed.** The
+        // unit assertion above says the two shapes get different terminal
+        // speeds; this says the difference survives the integrator, the
+        // collision handling and the landing -- which is the part a formula
+        // cannot promise.
+        //
+        // Same mass, same launch, same shelf, same drop. The only difference
+        // on screen is how long each stays up.
+        let travel = |species: &str| -> (i32, u64) {
+            let mut w = test_world();
+            let id = creature_on_a_shelf(&mut w, species, 40, 30);
+            let def = w.species.get(w.organism(id).expect("live").species).creature.clone().expect("a creature");
+            // Off the end of the shelf, over open air down to row 199.
+            let chain = w.organism(id).expect("live").chain.clone();
+            let out: Vec<(i32, i32)> = chain.iter().map(|&(x, y)| (x + 22, y)).collect();
+            relocate_chain(&mut w, id, &chain, &out);
+            let start = w.organism(id).expect("live").chain[0];
+            // Put it back in touch with the shelf for one instant so the
+            // launch is legal, then let it go: a plinth of one cell.
+            w.set(start.0 - 1, start.1 + 1, Cell::new(material::STONE, 0).with_attached(true));
+            assert!(launch(&mut w, id, 0), "{species} can push off");
+            w.set(start.0 - 1, start.1 + 1, Cell::EMPTY);
+            let mut frames = 0u64;
+            while w.organism(id).and_then(|s| s.flight).is_some() && frames < 2000 {
+                step_flight(&mut w, id, &def);
+                frames += 1;
+            }
+            let end = w.organism(id).expect("live").chain[0];
+            (end.0 - start.0, frames)
+        };
+        let (slab_x, slab_frames) = travel("ant_wide");
+        let (block_x, block_frames) = travel("ant_block");
+        assert!(
+            slab_frames > block_frames,
+            "the 5x2 slab must stay up longer than the 3x3 block of the same mass: {slab_frames} vs {block_frames} frames"
+        );
+        assert!(
+            slab_x > block_x,
+            "and therefore land further out: {slab_x} vs {block_x} cells -- if these are equal the body is not being read"
+        );
     }
 
     #[test]
