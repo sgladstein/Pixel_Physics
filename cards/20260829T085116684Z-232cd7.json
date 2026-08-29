@@ -1,0 +1,46 @@
+{
+  "id": "20260829T085116684Z-232cd7",
+  "created": "2026-08-29T08:51:16Z",
+  "board": "plants",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/plant-visual-improvements-q1mked",
+    "commit": "37c63e2",
+    "agent": null,
+    "session_id": "a72d6728-5352-5912-9975-53b6a7accdc8",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Flat and cartoony, as asked — against the 3-D-ish one you rejected",
+  "question": "You said the last one looked 'kinda 3d-ish' and asked for flatter or more cartoony. A is that same rejected version. B drops the volume shading entirely and replaces it with a flat fill plus a drawn edge. Is B the direction — and if it still isn't, is the problem the smoothing itself or how far it goes?",
+  "context_md": "Same stand, same frame, same 14,857 plant cells, no simulation change. A and B differ only in how the reconstructed shape is coloured: A shades every lobe with a lit and a shaded side (that is the 3-D reading you named), B fills each shape flat and inks a dark edge just inside the outline instead. The smooth silhouette is identical in both.",
+  "kind": "ab",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "rounded shading (rejected)",
+      "files": [
+        "20260829T085116684Z-232cd7/000-v2-rounded.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "flat fill + drawn edge",
+      "files": [
+        "20260829T085116684Z-232cd7/001-v2-flat.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
