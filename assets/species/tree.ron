@@ -197,6 +197,13 @@
                 // difference between a limb and a meander, and without it
                 // `branch_angle` is undone on the lateral's next step.
                 internode: [0, 6, 4, 3],
+                // **The shoot draws its own heading instead of sampling
+                // it** -- see Behavior::Grow::stem_stiffness. Strongest on
+                // the trunk, which is the axis the eye actually follows and
+                // the one `internode: 0` deliberately leaves scoring every
+                // step, and eased outward so twigs keep some wander: a
+                // perfectly ruled twig reads as drawn rather than grown.
+                stem_stiffness: [1.0, 0.9, 0.8, 0.7],
                 // A 2D cross-section shows every twig, so one leaf cell per
                 // node renders as a bare skeleton with green specks. See
                 // Behavior::Grow::leaf_cluster.

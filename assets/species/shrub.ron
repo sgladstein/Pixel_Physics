@@ -73,6 +73,11 @@
                 // height budget doing it alone.
                 branch_angle: [50.0, 45.0],
                 internode: [2, 3],
+                // Deliberately the softest of the woody three: a shrub
+                // is twiggy and gnarled and should stay so. Enough to stop
+                // a stem dissolving into a wobble, not enough to rule it
+                // straight. See Behavior::Grow::stem_stiffness.
+                stem_stiffness: [0.7, 0.55],
                 // **The leaf-area-per-node axis, spread across the four
                 // woody species on 2026-08-23 (item C2).** Height budget and
                 // cluster size now run opposite ways -- conifer 150 rows at

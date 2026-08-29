@@ -192,6 +192,15 @@
                 // stop and report on.
                 branch_angle: [22.0, 18.0],
                 internode: [1, 1],
+                // **A blade is a straight line, and this is the species
+                // with the least to hide behind.** A tree's wobble is
+                // buried under thickening and foliage; a one-cell grass
+                // blade is nothing *but* its own path, so the lattice
+                // jitter shows undiluted -- and `heading_inertia: 0.55` is
+                // the lowest of any shoot here, which is what let it
+                // wander in the first place. See
+                // Behavior::Grow::stem_stiffness.
+                stem_stiffness: [0.9, 0.8],
                 leaf_cluster: 0,
                 juvenile_size: 6,
                 juvenile_plastochron: 1.0,

@@ -94,6 +94,13 @@
                 // does not have.
                 branch_angle: [80.0, 75.0],
                 internode: [2, 2],
+                // **Deliberately left unset, and that is a choice rather
+                // than an omission.** A vine is supposed to wander -- it is
+                // the one shoot here authored at `heading_inertia: 0.05`,
+                // i.e. no memory at all -- so rendering its heading as a
+                // clean line would take away the thing that makes it read
+                // as a creeper. `stem_stiffness` is species identity, not a
+                // global improvement, and this is the species that says so.
                 // **The far end of the leaf-area-per-node axis** (item C2,
                 // 2026-08-23): 8 -> 14, against conifer's 6 at nineteen
                 // times this species' height budget. A runner spends nothing

@@ -605,6 +605,45 @@ pub enum Behavior {
         /// behaviour.
         #[serde(default)]
         internode: ByOrder<u8>,
+        /// **How straight a shoot draws its own heading**, `0.0`..`1.0`.
+        ///
+        /// `0.0` is the historical behaviour and costs nothing: the tip
+        /// simply takes the direction it sampled. Above zero, the sampled
+        /// direction stops being the step and becomes a *vote on the
+        /// heading*; the step actually taken is the heading rendered onto
+        /// the lattice by error diffusion, exactly as a line-drawing
+        /// routine renders a slope.
+        ///
+        /// **This is a rendering knob, not a steering one, and that is the
+        /// whole point.** The scoring loop above is untouched -- same
+        /// weights, same weighted sample, same one `rng` draw -- so what a
+        /// tip *wants* is unchanged and every economic quantity that
+        /// depends on it (income, turgor, crowding) is undisturbed. What
+        /// changes is only how a continuous want is spelled in whole
+        /// cells.
+        ///
+        /// Why that is the fix and a bigger `continuation_weight` is not:
+        /// the eight-neighbour lattice cannot hold a direction. A tip
+        /// heading dead-on vertical scores `(0,-1)` at 1.0 and both upward
+        /// diagonals at 0.707, so it steps off its own axis **59% of the
+        /// time** however hard continuation is weighted -- and because
+        /// each step is drawn independently, those departures accumulate
+        /// instead of cancelling. That is a random walk, and a random
+        /// walk's distance from its own axis grows without bound. Error
+        /// diffusion keeps the identical *average* direction (a 17-degree
+        /// shoot still leans 17 degrees) and bounds the error at under one
+        /// cell, which is the difference between a staircase and a wobble.
+        ///
+        /// Measured on the order-0 trunk's own weights, RMS departure from
+        /// the local best-fit line: **0.88 cells at `0.0`, 0.41 at `1.0`**
+        /// (a perfect line renders at ~0.3). Sharpening the sample instead
+        /// was measured and **made it worse** -- see `Reports/dead-ends.md`.
+        ///
+        /// Costs one `(f32, f32)` per organism cell
+        /// (`OrganismCell::growth_residual`) and nothing at all while this
+        /// is zero, which is the state every species predating it is in.
+        #[serde(default)]
+        stem_stiffness: ByOrder<f32>,
         /// Mechanical resistance, in MPa, this cell type can force its way
         /// through — a `RootTip` converts a `Powder` neighbour whose
         /// `Material::penetration_resistance` is *below* this into root
@@ -2739,6 +2778,21 @@ pub struct OrganismCell {
     /// read, which is correct for a cell that has just germinated and has
     /// no history to carry.
     pub heading: (f32, f32),
+    /// **Error-diffusion carry for `stem_stiffness`** — the fraction of a
+    /// cell the shoot still owes its own heading, in cells, on each axis.
+    ///
+    /// `Grow` accumulates `heading` into this, steps to whichever lattice
+    /// neighbour lands nearest, and subtracts the step it took. That is
+    /// Bresenham's residual, and it is what lets an eight-neighbour walk
+    /// spell a direction it has no lattice vector for: a 17-degree shoot
+    /// becomes a regular run of verticals with a periodic diagonal instead
+    /// of an independent coin flip per step. The eye reads the first as a
+    /// line and the second as jitter, which is the whole of the
+    /// difference.
+    ///
+    /// Zero on a fresh cell, and left at zero for any species that does not
+    /// set `stem_stiffness` — nothing reads it in that case.
+    pub growth_residual: (f32, f32),
     /// **Hydraulic path length from the collar, in cells** — how far sap has
     /// actually had to travel to reach here, not how high up it is.
     ///
@@ -2831,6 +2885,7 @@ impl Default for OrganismCell {
             q_peak: 0.0,
             q_now: 0.0,
             heading: (0.0, 0.0),
+            growth_residual: (0.0, 0.0),
             path_len: 0,
             primed: false,
         }
