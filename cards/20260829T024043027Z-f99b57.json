@@ -1,0 +1,58 @@
+{
+  "id": "20260829T024043027Z-f99b57",
+  "created": "2026-08-29T02:40:43Z",
+  "board": "worldgen",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/worldgen-sky-soil-mw9jhb",
+    "commit": "04c5272",
+    "agent": null,
+    "session_id": "a4edad78-5904-55be-97b2-7c59459b4de3",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Soil deepened another 2.5x, as asked (rolling, seed 1)",
+  "question": "Is this the depth you wanted, or should it go further still? Sky is unchanged from last time, per your note.",
+  "context_md": "Follow-up to your *\"increase the soil another 2-3x, keep the sky the same\"*. Same world, same seed, same strip as the last card.\n\n- **A** is what you already saw and approved (`soil_depth` 42)\n- **B** is 2.5x that — the middle of the range you gave (`soil_depth` 105)\n\nSky is identical in both at `sky_rows` 190; nothing about it changed.\n\n**What the numbers say**, since depth is mostly below the surface and the picture only shows the cross-section: realised soil went p50 25 -> 62 cells, p90 48 -> 120, max 68 -> 166.\n\n**One thing this turned up.** Two separate 'how far may I dig through loose cover' bounds (residuals and boulders) were both set at 80 cells against a world whose deepest cover used to be 43. At this depth ordinary ground is deeper than that, so the bounds had quietly started refusing real rock formations — seed 1 was losing 22% of its residual stone. Both re-derived to 300, and that stone is back. Nothing about it is visible in this pair; it is why the tors on the left are there at all.\n\nIf you want it deeper still, say so and I will take it to 3x or past it — nothing in the engine now objects.",
+  "kind": "ab",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A — previous (approved)",
+      "files": [
+        "20260829T024043027Z-f99b57/000-after_rolling.png"
+      ],
+      "caption": "soil_depth 42",
+      "meta": {
+        "soil_depth nominal": 42,
+        "realised p50": 25,
+        "realised p90": 48,
+        "realised max": 68,
+        "sky_rows": 190
+      },
+      "focus": null
+    },
+    {
+      "label": "B — 2.5x deeper",
+      "files": [
+        "20260829T024043027Z-f99b57/001-soil25x.png"
+      ],
+      "caption": "soil_depth 105",
+      "meta": {
+        "soil_depth nominal": 105,
+        "realised p50": 62,
+        "realised p90": 120,
+        "realised max": 166,
+        "sky_rows": 190
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
