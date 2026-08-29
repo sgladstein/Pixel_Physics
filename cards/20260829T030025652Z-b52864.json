@@ -1,0 +1,56 @@
+{
+  "id": "20260829T030025652Z-b52864",
+  "created": "2026-08-29T03:00:25Z",
+  "board": "world-scale",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/world-size-resolution-perf-uftzla",
+    "commit": "e020c05",
+    "agent": null,
+    "session_id": "8c608298-387d-5ad1-a523-aa0f9f5e9e67",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Double the resolution: which of these two did you mean?",
+  "question": "Both panes are the same window on the same spot of the same world. Left is today. Right is the framebuffer doubled with the world's content left exactly as it is. Is the right-hand picture what you want — or should everything stay the size it is on the left, and simply be drawn out of four times as many cells?",
+  "context_md": "You asked whether we can shrink the world and double the resolution without losing performance. **The performance half is answered: yes.** The renderer was painting every pixel on one core while the simulation has been on all of them since M5; it is now parallel, and a 1024x640 redraw costs **21.1 ms against the old 512x320's 21.9 ms** — so doubling the framebuffer is now free, where before it cost 52.8 ms.\n\nWhat that leaves is a question only you can answer, because the two readings look nothing alike:\n\n- **Left — what you have today.** 512x320 cells, each drawn as a 2x2 block in the window.\n- **Right — the same world, framebuffer doubled.** 1024x640 cells at 1:1. Four times as much world on screen, finer grain, and the rock spires on the right edge finally fit in frame. But the gnome halves in size, and so does everything else.\n\nThe other reading is that the picture should look like the **left** one — gnome the same size, same amount of world — but with every feature made of four times as many cells, so the edges are smooth and a stalagmite has an interior. That is the one that actually deserves the name *resolution*, and it is much the more expensive: every constant in the engine that is measured in cells has to double with it. There are **258 of them across 20 files**, from `sky_rows` and cave widths through to the gnome's own 7x14 body, plant internode lengths and ant size.\n\nAlso worth knowing before you choose, because it cuts against the plan in your question: **shrinking the stone depth buys load time and memory, not frame rate.** Measured just now —\n\n| world | cells | generation | memory | field, settled |\n|---|---|---|---|---|\n| 8192x2560 (today) | 21.0M | 4824 ms | 361 MiB | 8.48 ms |\n| 8192x1536 | 12.6M | 2770 ms | 218 MiB | 8.39 ms |\n| 6144x1536 | 9.4M | 2042 ms | 165 MiB | 6.28 ms |\n\nCutting 1,024 rows of deep stone halves the load and the memory and leaves the frame cost untouched — that rock was never in the field's working set. Only narrowing the world moves the frame. So the depth cut is worth doing on its own merits, it just is not what pays for resolution. The render was.",
+  "kind": "ab",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "Today — 512x320 cells, 2x upscale",
+      "files": [
+        "20260829T030025652Z-b52864/000-res-today.png"
+      ],
+      "caption": "What the window shows now.",
+      "meta": {
+        "world cells on screen": 163840,
+        "how tall the gnome draws, in window pixels": 28,
+        "how much world is in frame, left to right": "512 cells",
+        "cost of one full redraw": "11.4 ms"
+      },
+      "focus": null
+    },
+    {
+      "label": "Framebuffer doubled — 1024x640 cells, no upscale",
+      "files": [
+        "20260829T030025652Z-b52864/001-res-doubled.png"
+      ],
+      "caption": "Same window, four times the cells, content unchanged.",
+      "meta": {
+        "world cells on screen": 655360,
+        "how tall the gnome draws, in window pixels": 14,
+        "how much world is in frame, left to right": "1024 cells",
+        "cost of one full redraw": "21.1 ms"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
