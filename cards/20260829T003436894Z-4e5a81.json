@@ -1,0 +1,45 @@
+{
+  "id": "20260829T003436894Z-4e5a81",
+  "created": "2026-08-29T00:34:36Z",
+  "board": "ui",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/options-menu-day-night-weather-g9i4i8",
+    "commit": "f3818d7",
+    "agent": null,
+    "session_id": "75c10d57-1b57-5531-9e51-f46222d0e80b",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Turn to a time of day and stop there",
+  "question": "Do the four held times read as four distinct times of day? Is DAWN/DUSK too dark on the ground to be worth having?",
+  "context_md": "One world, one seed, regenerated identically per tile, then held at each time of day for 400 frames before the shot. `Clock::sky_hold` stops the sun outright -- `day_minutes` at its cap is a half-hour day, not a stopped one, and no finite slowdown ever holds a particular hour.\n\nSun elevation per tile (the positive control that the pin moved the sun at all): LIVE **+0.98**, DAWN **0.00**, NOON **+1.00**, DUSK **0.00**, MIDNIGHT **-1.00**. DAWN and DUSK are told apart by which half of the cycle they are on, which is what `sky.rs` paints sunrise pink and sunset orange from.\n\n**The pin changes the world, not just the picture** -- water lost to evaporation over the same 400 frames: NOON **-210**, DAWN/DUSK **-107**, MIDNIGHT **+11** (it gains). Weather is left running underneath, which is why it is raining in all five.\n\n**The thing I would change if you say so:** DAWN and DUSK sit exactly on the horizon crossing, which is the most strongly coloured sky the renderer draws and also, by `sky_light_amplitude`'s own clipping, ground light at the night floor. Moving them a little above the horizon would light the ground but would be a prettier picture of a time that is not actually sunset.",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "five held skies",
+      "files": [
+        "20260829T003436894Z-4e5a81/000-sky.png"
+      ],
+      "caption": "LIVE / DAWN / NOON / DUSK / MIDNIGHT, in that reading order",
+      "meta": {
+        "sun LIVE": "+0.98",
+        "sun DAWN": "0.00",
+        "sun NOON": "+1.00",
+        "sun DUSK": "0.00",
+        "sun MIDNIGHT": "-1.00",
+        "water over 400f, NOON": -210,
+        "water over 400f, MIDNIGHT": 11
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
