@@ -38,20 +38,20 @@ whole, then run `python3 scripts/readmetoc.py`.
 | [M16 status](#m16-status) | 1333 |
 | [M17 status](#m17-status) | 1519 |
 | [M18 status](#m18-status) | 1746 |
-| [UI improvements — overnight run, section 9](#ui-improvements--overnight-run-section-9) | 2000 |
-| [Live tunables panel — overnight run, section 10](#live-tunables-panel--overnight-run-section-10) | 2045 |
-| [Rendering performance — overnight run, section 11](#rendering-performance--overnight-run-section-11) | 2076 |
-| [M8 status — started, not complete](#m8-status--started-not-complete) | 2096 |
-| [M9 status — the gnome](#m9-status--the-gnome) | 2209 |
-| [M10 status — the worldgen half](#m10-status--the-worldgen-half) | 2270 |
-| [Weather status](#weather-status) | 2385 |
-| [The ant colony — status](#the-ant-colony--status) | 2402 |
-| [M19 status — started](#m19-status--started) | 2416 |
-| [Felling status — the verb works, and what it produces is pieces](#felling-status--the-verb-works-and-what-it-produces-is-pieces) | 2452 |
-| [Performance](#performance) | 2533 |
-| [World speed — five independent time axes](#world-speed--five-independent-time-axes) | 2682 |
-| [Status](#status) | 2723 |
-| [License](#license) | 2834 |
+| [UI improvements — overnight run, section 9](#ui-improvements--overnight-run-section-9) | 2040 |
+| [Live tunables panel — overnight run, section 10](#live-tunables-panel--overnight-run-section-10) | 2085 |
+| [Rendering performance — overnight run, section 11](#rendering-performance--overnight-run-section-11) | 2153 |
+| [M8 status — started, not complete](#m8-status--started-not-complete) | 2173 |
+| [M9 status — the gnome](#m9-status--the-gnome) | 2286 |
+| [M10 status — the worldgen half](#m10-status--the-worldgen-half) | 2347 |
+| [Weather status](#weather-status) | 2462 |
+| [The ant colony — status](#the-ant-colony--status) | 2479 |
+| [M19 status — started](#m19-status--started) | 2493 |
+| [Felling status — the verb works, and what it produces is pieces](#felling-status--the-verb-works-and-what-it-produces-is-pieces) | 2529 |
+| [Performance](#performance) | 2610 |
+| [World speed — five independent time axes](#world-speed--five-independent-time-axes) | 2759 |
+| [Status](#status) | 2842 |
+| [License](#license) | 2953 |
 
 ### Milestones, in numeric order
 
@@ -63,16 +63,16 @@ order they were written.
 | 5 | [M5 status](#m5-status) | 1016 |
 | 6 | [M6 deferral](#m6-deferral) | 1006 |
 | 7 | [M7 status](#m7-status) | 905 |
-| 8 | [M8 status — started, not complete](#m8-status--started-not-complete) | 2096 |
-| 9 | [M9 status — the gnome](#m9-status--the-gnome) | 2209 |
-| 10 | [M10 status — the worldgen half](#m10-status--the-worldgen-half) | 2270 |
+| 8 | [M8 status — started, not complete](#m8-status--started-not-complete) | 2173 |
+| 9 | [M9 status — the gnome](#m9-status--the-gnome) | 2286 |
+| 10 | [M10 status — the worldgen half](#m10-status--the-worldgen-half) | 2347 |
 | 12 | [M12/M13 status](#m12m13-status) | 704 |
 | 14 | [M14 status](#m14-status) | 757 |
 | 15 | [M15 status](#m15-status) | 934 |
 | 16 | [M16 status](#m16-status) | 1333 |
 | 17 | [M17 status](#m17-status) | 1519 |
 | 18 | [M18 status](#m18-status) | 1746 |
-| 19 | [M19 status — started](#m19-status--started) | 2416 |
+| 19 | [M19 status — started](#m19-status--started) | 2493 |
 
 ### By topic
 
@@ -85,24 +85,24 @@ them is named "plants". A section can appear twice; felling is honestly both
 plant work and structural work.
 
 **Known limitations for every topic are collected in one place**:
-[Status](#status), line 2723 — the *last* section in the
+[Status](#status), line 2842 — the *last* section in the
 file, not the first. Read it before concluding something is broken.
 
 | Topic | Sections, primary first |
 |---|---|
-| **plants, trees and moss** | [M16 status](#m16-status) 1333, [Plant lines merged](#plant-lines-merged-the-genome-and-the-ecology) 1111, [The economy re-derived](#the-economy-re-derived-standing-tissue-costs-something) 1233, [The generation loop](#the-generation-loop-plants-die-seeds-expire-slots-come-back) 1181, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 2452 |
-| **creatures — worms and the ant colony** | [M18 status](#m18-status) 1746, [The ant colony](#the-ant-colony--status) 2402 |
-| **structural collapse, felling and rigid bodies** | [M17 status](#m17-status) 1519, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 2452, [M8 status](#m8-status--started-not-complete) 2096 |
+| **plants, trees and moss** | [M16 status](#m16-status) 1333, [Plant lines merged](#plant-lines-merged-the-genome-and-the-ecology) 1111, [The economy re-derived](#the-economy-re-derived-standing-tissue-costs-something) 1233, [The generation loop](#the-generation-loop-plants-die-seeds-expire-slots-come-back) 1181, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 2529 |
+| **creatures — worms and the ant colony** | [M18 status](#m18-status) 1746, [The ant colony](#the-ant-colony--status) 2479 |
+| **structural collapse, felling and rigid bodies** | [M17 status](#m17-status) 1519, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 2529, [M8 status](#m8-status--started-not-complete) 2173 |
 | **fire, heat and phase change** | [M14 status](#m14-status) 757, [Materials](#materials) 217 |
 | **explosions, particles and debris** | [M15 status](#m15-status) 934, [M7 status](#m7-status) 905 |
 | **liquids and gases** | [Liquid physics](#liquid-physics-compressible-volume-not-discrete-occupied-cells) 731, [The coarse field grid](#the-coarse-field-grid) 442 |
 | **powders and granular flow** | [Materials](#materials) 217, [Architecture](#architecture) 291 |
 | **the coarse field grid — pressure, heat, light** | [The coarse field grid](#the-coarse-field-grid) 442, [M12/M13 status](#m12m13-status) 704 |
-| **worldgen and world structure** | [M10 status](#m10-status--the-worldgen-half) 2270, [Architecture](#architecture) 291 |
-| **the gnome (player character)** | [M9 status](#m9-status--the-gnome) 2209, [Controls](#controls) 154 |
-| **weather, sky and the clock** | [Weather status](#weather-status) 2385, [M19 status](#m19-status--started) 2416, [World speed](#world-speed--five-independent-time-axes) 2682 |
-| **rendering, UI and tunables** | [UI improvements](#ui-improvements--overnight-run-section-9) 2000, [Live tunables panel](#live-tunables-panel--overnight-run-section-10) 2045, [Rendering performance](#rendering-performance--overnight-run-section-11) 2076, [M6 deferral](#m6-deferral) 1006 |
-| **performance and the parallel sweep** | [Performance](#performance) 2533, [M5 status](#m5-status) 1016, [Architecture](#architecture) 291, [Rendering performance](#rendering-performance--overnight-run-section-11) 2076 |
+| **worldgen and world structure** | [M10 status](#m10-status--the-worldgen-half) 2347, [Architecture](#architecture) 291 |
+| **the gnome (player character)** | [M9 status](#m9-status--the-gnome) 2286, [Controls](#controls) 154 |
+| **weather, sky and the clock** | [Weather status](#weather-status) 2462, [M19 status](#m19-status--started) 2493, [World speed](#world-speed--five-independent-time-axes) 2759 |
+| **rendering, UI and tunables** | [UI improvements](#ui-improvements--overnight-run-section-9) 2040, [Live tunables panel](#live-tunables-panel--overnight-run-section-10) 2085, [Rendering performance](#rendering-performance--overnight-run-section-11) 2153, [M6 deferral](#m6-deferral) 1006 |
+| **performance and the parallel sweep** | [Performance](#performance) 2610, [M5 status](#m5-status) 1016, [Architecture](#architecture) 291, [Rendering performance](#rendering-performance--overnight-run-section-11) 2153 |
 | **materials and the data schema** | [Materials](#materials) 217, [M12/M13 status](#m12m13-status) 704 |
 
 <!-- END GENERATED TOC -->
@@ -1936,6 +1936,46 @@ canopy*: the tallest trees, whose leaves have furthest to fall, were the ones
 whose litter never reached the floor. Litter against plant 44.4% → 39.3%,
 within three rows of the ground 29.5% → 35.4%.
 
+**A third, 2026-08-29: a shed leaf keeps falling after it is shed.** Reported
+by the owner — *"when leaves fall off trees they often get stuck and built up
+in the tree branches… we don't want to be stuck by the limitations of 2D
+physics"*. `shed_to_litter`'s walk was doing exactly this reading of the 2D
+slice already, but only on the abscission event, so litter that reached
+mid-canopy by any other route stopped on the first branch for good — and
+because that walk halts at the first cell which is *not* organism-owned, every
+leaf shed in the column then stacked on it. The picture is unmistakable in
+`litter_probe`'s overlay: magenta streaks running up the middle of a crown.
+
+`Material::falls_through_organisms` (a `.ron` opt-in, `litter` alone) makes
+`update::update_powder` carry such a cell down through organism-owned cells to
+the first air below, bounded at 16 rows a frame and only after the ordinary
+straight-down and both diagonal moves have failed. It stops dead at the first
+cell that is neither air nor organism-owned, which is what leaves the drift
+banked against a root collar alone; `deadwood` — a snapped branch — is
+deliberately left out and still hangs up in a crown.
+
+Measured paired, one build each. `litter_probe frames=12000 trees=8`: standing
+litter more than 32 rows above the ground **23% → 0%**, more than 16 rows 31%
+→ 8%, resting on plant tissue 57.6% → 44.1%, four cells still airborne at
+frame 12,000 → none. `crown_census frames=28800 trees=8`, one seed, which is
+`open-bugs-handoff.md` §V3's own instrument for the owner's earlier *"the soil
+build-up in between the branches is horrible"*: mid-canopy (y 120–160) litter
+**283 → 25** and soil **84 → 6**, y 80–120 cleared entirely, the highest row
+holding any soil y 115 → y 145. Total soil above the ground line is unchanged
+at 508 → 498 — the material did not go away, it reached the floor.
+
+Cost: every counter in `examples/ascii` is identical across the two builds,
+and the check is one `Cell` flag read on a value the caller already holds,
+reached only after three failed moves. **Timed paired and alternating**, three
+base/fix pairs of `frame_profile frames=600`, five scenes each: the pooled
+`ca_sweep` median is **3.079 → 3.082 ms**, the fix is faster in **9 of the 15
+paired cells**, and the per-scene medians move between −4.3% and +2.6% in both
+directions. That is the box, not the change — the same binary's own spread
+across three runs of one scene reaches 3.005/3.093/2.915. The honest claim is
+*not measurable here*, not *free*. §V3 stays open for its other half —
+the floor now receives what the canopy was holding (band 0 litter 661 → 1009)
+and standing litter still has a source with no weathering sink.
+
 **Foraging range, and why `nest_visits` was never the guard it read as.**
 `CreatureStats::nest_visits` guards on `since_nest > 0`, and `since_nest` is
 incremented unconditionally every tick — so the guard is false exactly once
@@ -2072,6 +2112,43 @@ save; and the same blind spot existed in the "does this file need a
 leading comma before the appended field" check. Both fixed by making the
 relevant scans comment-aware, each confirmed via a test that failed
 against the pre-fix code first.
+
+### The panel, rebuilt (2026-08-29)
+
+`Tunable` gained `options`: a closed set of named states, which is what a
+mode is and what a slider cannot express — `3.000` is not an answer to "what
+is the sky doing", and a value between two states is not a state. Choices
+wrap where numbers clamp (a number stopping at its end reports no headroom,
+which is information; a nine-item mode list stopping at its end is a list you
+have to walk back down), and an index past the end is a real reachable value
+— "held at something unnamed", from a hand-edited asset or a test — drawn as
+`HELD` rather than collapsing to the first entry.
+
+Layout: a tab strip, so the other four menus are visible rather than
+discoverable by pressing `Tab` five times; category subheaders, so PHYSICS'
+182 rows across a dozen materials are scannable and the `stone.` prefix on
+every row can go; integers printed as integers; a right-aligned value column,
+so a scan down the panel reads as a table instead of zig-zagging with name
+length; a scrollbar and an `n/N` counter, since position in a long menu was
+previously unknowable; two footer lines of key hints. `World` moved to the
+front of the cycle and is the menu the panel opens on — the two rows anyone
+opens this to *use* rather than to sweep were four presses behind a hundred
+material fields.
+
+`Shift+Tab` cycles back, which is `TunableGroup::prev`'s first caller since
+it was written; its own doc records the bug that hid in it as a result.
+`PageUp`/`PageDown` page the list instead of duplicating `Tab` — they were
+the menu cycle's fallback before `Tab` existed, and `Tab` covers keyboards
+that lack them. `Home`/`End` jump to the ends. Row geometry lives in
+associated constants so the page key and the draw cannot disagree about what
+a screenful is.
+
+Two defects were visible in the first render and in nothing else: the three
+footer lines were 7px glyphs on a 7px pitch, arithmetically non-overlapping
+and one solid block in the picture; and single-category menus printed
+`world.` on all seven of their rows, directly under a highlighted tab reading
+WORLD. `examples/uishot.rs` is what made looking possible — see
+`Reports/instruments.md`.
 
 ## Rendering performance — overnight run, section 11
 
@@ -2710,6 +2787,48 @@ else baseline); `World::new` does not, so every test, harness and acceptance
 scene stays at baseline. Harnesses take the knobs as explicit arguments
 instead — `filmstrip day=/weather=/growth=/creatures=/gnome=`, `plant_probe
 growth=` — and echo them.
+
+### Holding the sky and the weather
+
+A rate cannot stop a cycle: `day_minutes` at its cap is a half-hour day, not
+a stopped one, and no finite slowdown ever holds a particular hour. Two
+*choices* sit above the five rates in the same menu.
+
+`Clock::sky_hold: Option<u64>` short-circuits `sky_frame` outright.
+`clock::SkyPin` names the four cardinal phases, every value derived from
+`DAY_NIGHT_PERIOD_FRAMES` rather than written out, so a change to the period
+moves them with it. Writes go through `World::set_sky_hold`, which does two
+things a field write does not: `Clock::set_rates`, so releasing resumes the
+sun from where it stopped rather than teleporting it to where an unstopped
+clock would have reached; and clearing `fields_settled`, because
+`field::step`'s early-out compares this frame's sky against last frame's and
+a hold moves both sides together — a settled world would otherwise keep
+midnight's light under a noon sky indefinitely. From there the per-tile
+`FieldTile::sky_drifted` check does the rest.
+
+`weather::Pin` is nine named skies over the existing `World::
+weather_override`, graded nothing → wind → cold → wet → violent, each chosen
+to cross a bar something downstream actually reads: `Frost` above
+`DRY_FROST_CHILL` so a clear night really freezes, `Storm` above
+`STRIKE_MIN_INTENSITY` so it really has lightning, `Rain` deliberately below
+it. Measured over 600 frames at a pinned noon on the shipped world: BREEZE 23
+gusts at 230 delivered against GALE's 23 at 486, FROST 3,844 freezes with no
+gusts, RAIN 0 bolts against STORM's 1, BLIZZARD 29,248 freezes. CLEAR is the
+control and moves nothing.
+
+Both are said out loud in three places — the panel row, a top-right badge and
+the window title — because of every control in the app these two are the ones
+whose effect cannot be attributed by looking: a world stuck at midnight looks
+exactly like a world that happens to be at midnight. The pin state is part of
+`Renderer`'s `LookKey`, so the frame a pin changes forces one full redraw.
+
+`weather::strike` **did not honour the override** and now does. It re-derived
+the sky from `(seed, frame)`, so a pinned thunderstorm flashed only when the
+seed's own weather happened to be storming under it, and a world pinned clear
+still lit up — a writer with one consumer that quietly did not read it.
+
+The sky hold persists in `assets/clock.ron`; the weather pin is session-only
+and the panel says so rather than reporting a save that did not happen.
 
 **Known limitation: these are not behaviour-preserving, and the plant one is
 not close.** Each subsystem's internal economy rescales exactly, but every

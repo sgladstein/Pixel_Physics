@@ -1,7 +1,8 @@
 # Weather
 
-*Current as of: 2026-08-26 (how fast the weather changes its mind is now a
-setting, separate from the length of a day; rain now reaches the soil through
+*Current as of: 2026-08-29 (you can now pick a weather pattern and hold it,
+or let the world go back to making its own; before that, how fast the weather
+changes its mind became a setting, separate from the length of a day; rain now reaches the soil through
 leaf litter, grass and other loose cover instead of being stopped dead by it,
 and bare ground goes on drying downwards after its surface is dry, so
 unplanted ground rises and falls with the weather instead of only ever getting
@@ -29,6 +30,33 @@ the time — around one part in seven is wet, and some worlds are drier than
 others — so rain is an occasion rather than scenery. Fronts arrive and
 depart over a couple of days, gathering and fading rather than switching
 on, and you can usually see one coming in the sky before anything falls.
+
+## Asking for weather
+
+Waiting for a storm is fine when you are playing and useless when you want
+to see one. **Weather** is the second row of `O` → WORLD, and it holds the
+sky at whatever you pick until you set it back to LIVE:
+
+| | what it does that the one before it does not |
+|---|---|
+| **CLEAR** | nothing at all — the control |
+| **BREEZE** | a dry wind, enough to move smoke and lean a tree |
+| **GALE** | the same wind, rather more than twice as hard |
+| **FROST** | a clear sky cold enough to freeze standing water |
+| **RAIN** | steady rain, no thunder |
+| **STORM** | a downpour, a hard wind, and lightning |
+| **SNOW** | snow that settles and freezes what it lands on |
+| **BLIZZARD** | twice the snow, and a hard wind behind it |
+
+Each one is a real weather state rather than a shortcut, so everything
+downstream behaves as it would have: a held STORM soaks the ground, fills
+hollows and strikes; a held FROST ices a pond over on its own schedule, which
+is slow — give it a minute or two before deciding it has done nothing.
+
+Held weather is separate from the time of day, so you can have a blizzard at
+noon or a clear midnight. As with a held sky, anything held says so on a
+badge in the top right and on the title bar. Unlike the day length, it is not
+saved: a new session starts with the world making its own weather again.
 
 ## Rain
 

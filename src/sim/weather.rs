@@ -121,6 +121,113 @@ impl Weather {
     }
 }
 
+/// **A named sky the weather can be pinned to** — the player-facing half of
+/// [`crate::sim::world::World::weather_override`].
+///
+/// [`at`] is a pure function of `(seed, frame)`, which is the right shape for
+/// a world that runs itself and no shape at all for *"make it snow"*. The
+/// override was already the mechanism; this is the small closed set of skies
+/// worth naming, and the reason it is an enum rather than a free `Weather` is
+/// that a menu has to be able to read its own state back — see [`Pin::of`].
+///
+/// **Graded, not binary, and every entry delivers something.** `CLAUDE.md`'s
+/// two laws, applied to a menu: the list runs nothing → wind → cold → wet →
+/// violent so that there is a middle everywhere rather than a
+/// clear/apocalypse switch, and each entry is chosen to cross a threshold
+/// something downstream actually reads — [`Frost`](Pin::Frost) sits above
+/// `DRY_FROST_CHILL` so a clear night really freezes, and
+/// [`Storm`](Pin::Storm) above `STRIKE_MIN_INTENSITY` so it really has
+/// lightning. A preset that quietly sat under one of those bars would be an
+/// entry that appears to do nothing, which is the failure this file's own
+/// history is full of.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum Pin {
+    /// Not pinned — the seeded cycle, which is what a world does on its own.
+    #[default]
+    Live,
+    Clear,
+    Breeze,
+    Gale,
+    Frost,
+    Rain,
+    Storm,
+    Snow,
+    Blizzard,
+}
+
+impl Pin {
+    /// In menu order, which is the order above: the running state, then dry,
+    /// then cold, then wet, each pair mild before hard.
+    pub const ALL: [Pin; 9] = [
+        Pin::Live,
+        Pin::Clear,
+        Pin::Breeze,
+        Pin::Gale,
+        Pin::Frost,
+        Pin::Rain,
+        Pin::Storm,
+        Pin::Snow,
+        Pin::Blizzard,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Pin::Live => "LIVE",
+            Pin::Clear => "CLEAR",
+            Pin::Breeze => "BREEZE",
+            Pin::Gale => "GALE",
+            Pin::Frost => "FROST",
+            Pin::Rain => "RAIN",
+            Pin::Storm => "STORM",
+            Pin::Snow => "SNOW",
+            Pin::Blizzard => "BLIZZARD",
+        }
+    }
+
+    /// The sky this pin holds, or `None` for the running one.
+    ///
+    /// `intensity` is zero **exactly** when `kind` is [`Precipitation::None`],
+    /// which is [`Weather`]'s own stated invariant and is asserted over this
+    /// whole table rather than trusted.
+    pub fn weather(self) -> Option<Weather> {
+        let w = |intensity, kind, wind, chill| Weather { intensity, kind, wind, chill };
+        Some(match self {
+            Pin::Live => return None,
+            Pin::Clear => Weather::CLEAR,
+            // Dry wind. Signed, so the two blow opposite ways from the two
+            // cold ones below and a pinned sky is not always a westerly.
+            Pin::Breeze => w(0.0, Precipitation::None, 0.45, 0.10),
+            Pin::Gale => w(0.0, Precipitation::None, 0.95, 0.25),
+            // Above `DRY_FROST_CHILL`, which is the whole entry: a clear sky
+            // that freezes standing water is a weather pattern the world
+            // already models and nothing in the UI could previously ask for.
+            Pin::Frost => w(0.0, Precipitation::None, -0.20, 0.85),
+            Pin::Rain => w(0.45, Precipitation::Rain, 0.20, 0.15),
+            // Above `STRIKE_MIN_INTENSITY` (0.55) so it carries lightning,
+            // which is the difference between this and heavier rain.
+            Pin::Storm => w(1.0, Precipitation::Rain, 0.80, 0.20),
+            // Above `SNOW_THRESHOLD` on chill as well as declaring `Snow`:
+            // `kind` is what falls, `chill` is what it does when it lands,
+            // and a snowfall that melts on contact is not the entry anyone
+            // picked.
+            Pin::Snow => w(0.40, Precipitation::Snow, -0.20, 0.80),
+            Pin::Blizzard => w(1.0, Precipitation::Snow, -0.90, 1.0),
+        })
+    }
+
+    /// Which pin a live override corresponds to, or `None` for a held sky
+    /// that is not one of these.
+    ///
+    /// **`None` is a real answer and must not collapse to `Live`.** The
+    /// override is `pub` and takes any `Weather` — tests set it directly, and
+    /// so may a harness — so "held at something unnamed" is reachable, and a
+    /// menu rendering it as LIVE would show a running sky over a pinned one.
+    /// The panel spells this case `HELD`.
+    pub fn of(held: Option<Weather>) -> Option<Pin> {
+        Pin::ALL.into_iter().find(|p| p.weather() == held)
+    }
+}
+
 /// A smooth channel in `0.0..=1.0`, interpolated across weather epochs.
 ///
 /// `tag` separates channels that share a seed and a frame — the same job
@@ -899,7 +1006,19 @@ pub struct Strike {
 /// `day_minutes`, which contradicted the decision that the two are
 /// independent -- lightning would have been gated on a clock the rain was not
 /// using.
-pub fn strike(seed: u64, frame: u64, weather_frame_of: impl Fn(u64) -> u64, bounds: Option<Rect>) -> Option<Strike> {
+///
+/// `held` is [`World::weather_override`]'s value: `Some(w)` means the sky is
+/// pinned and `w` *is* the weather, so the seed's own channels must not be
+/// consulted at all. Threaded through rather than resolved by the caller
+/// because the frame this function needs the weather *at* is the window's
+/// start, which it computes in here.
+pub fn strike(
+    seed: u64,
+    frame: u64,
+    weather_frame_of: impl Fn(u64) -> u64,
+    held: Option<Weather>,
+    bounds: Option<Rect>,
+) -> Option<Strike> {
     let bounds = bounds?;
     // Which window we might be in the flash of -- including the previous one,
     // since a flash that began near the end of a window is still lit in this
@@ -927,7 +1046,7 @@ pub fn strike(seed: u64, frame: u64, weather_frame_of: impl Fn(u64) -> u64, boun
         }
         // The weather at the moment it *began*, so a strike is not cut off
         // mid-flash by the front easing below the threshold.
-        let at_start = at(seed, weather_frame_of(start));
+        let at_start = held.unwrap_or_else(|| at(seed, weather_frame_of(start)));
         if at_start.kind != Precipitation::Rain || at_start.intensity < STRIKE_MIN_INTENSITY {
             continue;
         }
@@ -1906,7 +2025,7 @@ mod tests {
         let bounds = Some(Rect::new(0, 0, 511, 319));
         for seed in 0..256u64 {
             for frame in 0..STRIKE_WINDOW * 2 {
-                let _ = strike(seed, frame, |f| f, bounds);
+                let _ = strike(seed, frame, |f| f, None, bounds);
             }
         }
     }
@@ -2267,7 +2386,7 @@ mod tests {
         let b = Some(Rect::new(0, 0, 511, 319));
         let seed = 4;
         let strikes: Vec<u64> = (0..WEATHER_EPOCH_FRAMES * 20)
-            .filter(|&f| strike(seed, f, |g| g, b).is_some_and(|s| s.age == 0))
+            .filter(|&f| strike(seed, f, |g| g, None, b).is_some_and(|s| s.age == 0))
             .collect();
         println!("{} strikes over 20 epochs", strikes.len());
         assert!(!strikes.is_empty(), "a storm world never produced a single strike");
@@ -2278,7 +2397,7 @@ mod tests {
         }
         // Pure, like everything else here: the same frame is the same strike.
         for &f in strikes.iter().take(4) {
-            assert_eq!(strike(seed, f, |g| g, b), strike(seed, f, |g| g, b));
+            assert_eq!(strike(seed, f, |g| g, None, b), strike(seed, f, |g| g, None, b));
         }
         // ...and a flash lasts a bounded time rather than latching on. A
         // strike that never ended would leave the world permanently white
@@ -2286,7 +2405,7 @@ mod tests {
         // redraw.
         for &f in strikes.iter().take(4) {
             assert!(
-                strike(seed, f + STRIKE_FRAMES, |g| g, b).is_none_or(|s| s.age == 0),
+                strike(seed, f + STRIKE_FRAMES, |g| g, None, b).is_none_or(|s| s.age == 0),
                 "a flash was still lit a full duration after it began"
             );
         }
@@ -2300,7 +2419,7 @@ mod tests {
         let dry: Vec<u64> = (0..WEATHER_EPOCH_FRAMES * 20).filter(|&f| !at(4, f).is_precipitating()).collect();
         assert!(!dry.is_empty(), "seed 4 is never dry, so this proves nothing");
         assert!(
-            dry.iter().all(|&f| strike(4, f, |g| g, b).is_none()),
+            dry.iter().all(|&f| strike(4, f, |g| g, None, b).is_none()),
             "lightning struck out of a clear sky"
         );
     }
@@ -3764,4 +3883,96 @@ is what this measures rather than the rule"
             );
         }
     }
+    /// **Every named sky must be a sky the rest of the file agrees with.**
+    ///
+    /// `Weather`'s own stated invariant is that `intensity` is zero exactly
+    /// when `kind` is `None`, and three separate consumers branch on it. A
+    /// preset that broke it would draw rain from a clear sky or a downpour
+    /// that deposits nothing, and neither reads as a bug in the preset.
+    #[test]
+    fn every_weather_pin_is_a_coherent_sky() {
+        for pin in Pin::ALL {
+            let Some(w) = pin.weather() else {
+                assert_eq!(pin, Pin::Live, "only LIVE may hold nothing");
+                continue;
+            };
+            assert_eq!(
+                w.is_precipitating(),
+                w.intensity > 0.0,
+                "{}: intensity is zero exactly when nothing is falling",
+                pin.label()
+            );
+            assert!((0.0..=1.0).contains(&w.intensity), "{}: intensity out of range", pin.label());
+            assert!((-1.0..=1.0).contains(&w.wind), "{}: wind out of range", pin.label());
+            assert!((0.0..=1.0).contains(&w.chill), "{}: chill out of range", pin.label());
+            // Snow that lands warm melts on contact, which is not the entry
+            // anybody picked -- `kind` says what falls, `chill` decides what
+            // it does when it gets there.
+            if w.kind == Precipitation::Snow {
+                assert!(w.chill > SNOW_THRESHOLD, "{}: snow must land cold", pin.label());
+            }
+        }
+    }
+
+    /// **The two presets that exist to cross a threshold must cross it.**
+    ///
+    /// This is the positive control `CLAUDE.md` asks for rather than a
+    /// restatement of the table: FROST and STORM are the only entries whose
+    /// whole point is a bar somewhere else in this file, and a preset sitting
+    /// a hair under one is an option that appears to do nothing -- the
+    /// failure this module's own history is full of. Both bars are private
+    /// constants, so nothing outside this file could assert it.
+    #[test]
+    fn frost_freezes_and_a_storm_carries_lightning() {
+        let frost = Pin::Frost.weather().unwrap();
+        assert!(!frost.is_precipitating(), "FROST is a clear sky");
+        assert!(frost.chill > DRY_FROST_CHILL, "FROST must be cold enough to freeze a clear night");
+        let storm = Pin::Storm.weather().unwrap();
+        assert_eq!(storm.kind, Precipitation::Rain);
+        assert!(storm.intensity >= STRIKE_MIN_INTENSITY, "STORM must be heavy enough for lightning");
+        // ...and the entry below it must *not* be, or the two are one entry
+        // wearing two labels.
+        assert!(Pin::Rain.weather().unwrap().intensity < STRIKE_MIN_INTENSITY, "RAIN is the one without bolts");
+    }
+
+    /// A pin must read back as itself, and an unnamed hold must not read as
+    /// one of them — see `Pin::of`, where `None` is a real answer.
+    #[test]
+    fn a_pin_reads_back_as_itself_and_an_unnamed_hold_does_not() {
+        for pin in Pin::ALL {
+            assert_eq!(Pin::of(pin.weather()), Some(pin), "{} does not round-trip", pin.label());
+        }
+        let odd = Weather { intensity: 0.3, kind: Precipitation::Rain, wind: 0.11, chill: 0.02 };
+        assert_eq!(Pin::of(Some(odd)), None, "an unnamed held sky must not read as a preset");
+    }
+
+    /// **A pinned storm has lightning and a pinned clear sky has none**, on
+    /// a seed whose own weather says the opposite in both directions.
+    ///
+    /// The guard for the bug this control was written to catch: `strike`
+    /// re-derives the sky from `(seed, frame)`, so before the override was
+    /// threaded through it, pinning the weather moved the rain and the drawn
+    /// sky and left the bolts on the seed's own schedule. Both directions are
+    /// asserted because only checking that a pinned storm flashes would pass
+    /// for a build that ignores the pin entirely on a seed that happens to
+    /// storm.
+    #[test]
+    fn a_pinned_sky_decides_whether_it_is_lightning() {
+        let bounds = Some(Rect { min_x: 0, min_y: 0, max_x: 255, max_y: 127 });
+        // A whole strike window either side, so the answer cannot be an
+        // artifact of which window one frame lands in.
+        let frames: Vec<u64> = (0..STRIKE_WINDOW * 8).collect();
+        let count = |held: Option<Weather>| {
+            frames.iter().filter(|&&f| strike(7, f, |g| g, held, bounds).is_some_and(|s| s.age == 0)).count()
+        };
+        let stormy = count(Pin::Storm.weather());
+        assert!(stormy > 0, "a pinned STORM produced no lightning at all in eight windows");
+        assert_eq!(count(Pin::Clear.weather()), 0, "a pinned CLEAR sky must not flash");
+        assert_eq!(count(Pin::Snow.weather()), 0, "snow is not a thunderstorm");
+        // The seed's own weather is what it was before: this says the two
+        // answers really are different, so the assertions above are about the
+        // pin rather than about seed 7.
+        assert_ne!(stormy, count(None), "seed 7 unpinned already behaves like a pinned storm; pick another");
+    }
+
 }

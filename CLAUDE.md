@@ -225,6 +225,35 @@ owner views it with the `serve` command above; it does not need to be running
 for you to post. Full protocol, including the JSON card spec, in
 `.claude/skills/review/SKILL.md`.
 
+## Writing to the owner
+
+**The owner runs several sessions at once and reads your messages cold.**
+Stated 2026-08-29: they "are often not helpful... sometimes I don't actually
+know what they're doing because they're being too specific and not giving me
+any bigger picture." This is about *chat*; reports, PR bodies and lane notes
+are read deliberately and are exempt.
+
+**Lead with what the change does and where it is going. Put the mechanism
+after that, not instead of it.**
+
+- **What it does**, in the vocabulary of the world or of the work rather
+  than of the code — `wiki/*.md` has those words. Not every change shows on
+  screen; when it doesn't, say what it is *for*.
+- **Where it sits** — the arc, and this step's place in it. **A position in a
+  queue is not a direction**: *"third of §S's verbs"* says nothing; *"making
+  broken rock carry weight — last of three places it was wrong"* does.
+  Measured over 158 review cards and 283 commit subjects, **no message in any
+  corpus stated one**, and the owner ranks this first.
+- **Then the mechanism, as technical as it needs to be.** Nothing is deleted
+  and no number dropped; the order changes. Name a number for what it says
+  rather than for its instrument: `wrong cells 35,102 -> 1,337` is *ground
+  that collapsed when it should have held: 35,102 cells -> 1,337*.
+
+**Scale it to the message.** A one-line update is one plain line, not four
+headings; a long one carries the whole shape. Either way it must be
+**abandonable at any line**. `python3 scripts/plaincheck.py` scores a draft
+and cannot gate anything; `Reports/agent-communication.md` holds the census.
+
 ## Working alongside another session
 
 **This tree is worked in concurrently, and often by more than one agent at
@@ -1341,6 +1370,20 @@ consider it at all.
   shared checkout is the cause. Force-push, rebase, amend and `reset --hard`
   are on `ask` rather than `deny`: those are forbidden *on someone else's
   branch* and fine on your own, and a conditional rule can only be asked.
+- **A green local `cargo clippy` is not evidence that CI's clippy is green.**
+  Measured 2026-08-29: the container ships **1.94.1** and CI runs **1.98.0**,
+  and a lint's heuristic can widen between them. `clippy::explicit_counter_loop`
+  accepted a `for _ in 0..N` with a counter incremented in the body on 1.94.1
+  and rejected the identical code on 1.98.0 -- so the gate that is supposed to
+  catch this locally passed, and the failure arrived as a red PR instead. The
+  fix is one command and needs no toolchain switch:
+  `rustup toolchain install 1.98.0 --component clippy --profile minimal`, then
+  `cargo +1.98.0 clippy --all-targets -- -D warnings`. It leaves the default
+  toolchain alone, so nothing else in the tree changes. Worth reaching for
+  before pushing anything that adds a loop, an iterator chain or a `match` --
+  the lints that move between releases are the ones about *shape*. `rustup
+  check` prints the two versions if you want to know whether they have drifted
+  at all.
 - **`cargo fmt` is all-or-nothing.** `cargo fmt -- some/file.rs` formats the
   whole project, not that file — 28 files and ~3,000 lines in one go. The
   full-format pass is deliberately deferred work (`PLAN.md` issue #10) and
