@@ -2236,7 +2236,11 @@ fn step_flight(world: &mut World, organism: u16, def: &CreatureDef) -> Vec<Activ
     let interval = def.tick_interval.max(1);
     if let Some(state) = world.organism_mut(organism) {
         state.flight = if landed { None } else { Some(flight) };
-        if frame % interval == 0 {
+        // `is_multiple_of` rather than `% == 0`: `clippy::manual_is_multiple_of`
+        // is a 1.98 lint and the container ships 1.94.1, so the local gate was
+        // green and CI was red -- the exact drift `CLAUDE.md` records, caught
+        // by a red PR rather than by the check meant to prevent it.
+        if frame.is_multiple_of(interval) {
             state.since_nest = state.since_nest.saturating_add(1);
         }
         // **The excursion depth has to see a hop, or the foraging-range
