@@ -464,6 +464,20 @@ drift that two of these documents still reflect.**
   fruit, where the clocks predict 58. Records four failures caught by looking
   rather than by a number, including a turgor bound that cut the axis short of
   its own metamer count.
+- [plant-throughput-herb-2026-08-29.md](plant-throughput-herb-2026-08-29.md)
+  — **which species the evolution programme should actually run on, and the
+  answer is `herb`.** Three seeds: deepest *established* generation 5, 7 and 3,
+  with 88% of established plants carrying an inherited genome and 8,000–11,000
+  seeds set per run, against `tree`'s 0-of-16 and `grass`'s best-ever 2. Put
+  beside the operator gate it is the only species with **both** halves — a
+  genome that can move (48% / 42% / 18% where tree and grass are 0% / 2% / 8%,
+  because `Ripe` is the one condition `builtin_fate` does not backfill) and
+  lineages that last long enough to move it. **Withdraws two standing
+  conclusions**: *"run evolution experiments on grass"* (grass sets **zero**
+  seeds on `main` today — `open-bugs-handoff.md` §1n, four scene controls) and
+  *"the 4,095-organism ceiling is nowhere near binding"* (herb runs at 44–61%
+  of it). Also records that `grass.ron`'s fate table is **byte-identical** to
+  `tree.ron`'s, so switching to grass would never have bought mutability.
 - [plant-fate-operator-gate-2026-08-29.md](plant-fate-operator-gate-2026-08-29.md)
   — **all four mutation operators now have a viability gate**, closing §3a of
   the handoff below, and the answer is not the one its weighting hedged
