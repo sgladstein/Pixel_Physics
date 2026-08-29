@@ -45,15 +45,15 @@ whole, then run `python3 scripts/readmetoc.py`.
 | [Rendering performance — overnight run, section 11](#rendering-performance--overnight-run-section-11) | 2353 |
 | [M8 status — started, not complete](#m8-status--started-not-complete) | 2373 |
 | [M9 status — the gnome](#m9-status--the-gnome) | 2486 |
-| [M10 status — the worldgen half](#m10-status--the-worldgen-half) | 2811 |
-| [Weather status](#weather-status) | 2926 |
-| [The ant colony — status](#the-ant-colony--status) | 2943 |
-| [M19 status — started](#m19-status--started) | 3052 |
-| [Felling status — the verb works, and what it produces is pieces](#felling-status--the-verb-works-and-what-it-produces-is-pieces) | 3108 |
-| [Performance](#performance) | 3257 |
-| [World speed — five independent time axes](#world-speed--five-independent-time-axes) | 3431 |
-| [Status](#status) | 3514 |
-| [License](#license) | 3625 |
+| [M10 status — the worldgen half](#m10-status--the-worldgen-half) | 2844 |
+| [Weather status](#weather-status) | 2959 |
+| [The ant colony — status](#the-ant-colony--status) | 2976 |
+| [M19 status — started](#m19-status--started) | 3085 |
+| [Felling status — the verb works, and what it produces is pieces](#felling-status--the-verb-works-and-what-it-produces-is-pieces) | 3141 |
+| [Performance](#performance) | 3290 |
+| [World speed — five independent time axes](#world-speed--five-independent-time-axes) | 3464 |
+| [Status](#status) | 3547 |
+| [License](#license) | 3658 |
 
 ### Milestones, in numeric order
 
@@ -67,14 +67,14 @@ order they were written.
 | 7 | [M7 status](#m7-status) | 915 |
 | 8 | [M8 status — started, not complete](#m8-status--started-not-complete) | 2373 |
 | 9 | [M9 status — the gnome](#m9-status--the-gnome) | 2486 |
-| 10 | [M10 status — the worldgen half](#m10-status--the-worldgen-half) | 2811 |
+| 10 | [M10 status — the worldgen half](#m10-status--the-worldgen-half) | 2844 |
 | 12 | [M12/M13 status](#m12m13-status) | 714 |
 | 14 | [M14 status](#m14-status) | 767 |
 | 15 | [M15 status](#m15-status) | 944 |
 | 16 | [M16 status](#m16-status) | 1493 |
 | 17 | [M17 status](#m17-status) | 1679 |
 | 18 | [M18 status](#m18-status) | 1906 |
-| 19 | [M19 status — started](#m19-status--started) | 3052 |
+| 19 | [M19 status — started](#m19-status--started) | 3085 |
 
 ### By topic
 
@@ -87,24 +87,24 @@ them is named "plants". A section can appear twice; felling is honestly both
 plant work and structural work.
 
 **Known limitations for every topic are collected in one place**:
-[Status](#status), line 3514 — the *last* section in the
+[Status](#status), line 3547 — the *last* section in the
 file, not the first. Read it before concluding something is broken.
 
 | Topic | Sections, primary first |
 |---|---|
-| **plants, trees and moss** | [M16 status](#m16-status) 1493, [Plant lines merged](#plant-lines-merged-the-genome-and-the-ecology) 1121, [The economy re-derived](#the-economy-re-derived-standing-tissue-costs-something) 1243, [Plants that stop](#plants-that-stop-organs-determinacy-and-a-price-on-both) 1425, [The generation loop](#the-generation-loop-plants-die-seeds-expire-slots-come-back) 1191, [Stems draw a line](#stems-draw-a-line-the-growth-walk-renders-its-heading) 1343, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 3108 |
-| **creatures — worms and the ant colony** | [M18 status](#m18-status) 1906, [The ant colony](#the-ant-colony--status) 2943 |
-| **structural collapse, felling and rigid bodies** | [M17 status](#m17-status) 1679, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 3108, [M8 status](#m8-status--started-not-complete) 2373 |
+| **plants, trees and moss** | [M16 status](#m16-status) 1493, [Plant lines merged](#plant-lines-merged-the-genome-and-the-ecology) 1121, [The economy re-derived](#the-economy-re-derived-standing-tissue-costs-something) 1243, [Plants that stop](#plants-that-stop-organs-determinacy-and-a-price-on-both) 1425, [The generation loop](#the-generation-loop-plants-die-seeds-expire-slots-come-back) 1191, [Stems draw a line](#stems-draw-a-line-the-growth-walk-renders-its-heading) 1343, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 3141 |
+| **creatures — worms and the ant colony** | [M18 status](#m18-status) 1906, [The ant colony](#the-ant-colony--status) 2976 |
+| **structural collapse, felling and rigid bodies** | [M17 status](#m17-status) 1679, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 3141, [M8 status](#m8-status--started-not-complete) 2373 |
 | **fire, heat and phase change** | [M14 status](#m14-status) 767, [Materials](#materials) 221 |
 | **explosions, particles and debris** | [M15 status](#m15-status) 944, [M7 status](#m7-status) 915 |
 | **liquids and gases** | [Liquid physics](#liquid-physics-compressible-volume-not-discrete-occupied-cells) 741, [The coarse field grid](#the-coarse-field-grid) 452 |
 | **powders and granular flow** | [Materials](#materials) 221, [Architecture](#architecture) 295 |
 | **the coarse field grid — pressure, heat, light** | [The coarse field grid](#the-coarse-field-grid) 452, [M12/M13 status](#m12m13-status) 714 |
-| **worldgen and world structure** | [M10 status](#m10-status--the-worldgen-half) 2811, [Architecture](#architecture) 295 |
+| **worldgen and world structure** | [M10 status](#m10-status--the-worldgen-half) 2844, [Architecture](#architecture) 295 |
 | **the gnome (player character)** | [M9 status](#m9-status--the-gnome) 2486, [Controls](#controls) 156 |
-| **weather, sky and the clock** | [Weather status](#weather-status) 2926, [M19 status](#m19-status--started) 3052, [World speed](#world-speed--five-independent-time-axes) 3431 |
+| **weather, sky and the clock** | [Weather status](#weather-status) 2959, [M19 status](#m19-status--started) 3085, [World speed](#world-speed--five-independent-time-axes) 3464 |
 | **rendering, UI and tunables** | [UI improvements](#ui-improvements--overnight-run-section-9) 2240, [Live tunables panel](#live-tunables-panel--overnight-run-section-10) 2285, [Rendering performance](#rendering-performance--overnight-run-section-11) 2353, [M6 deferral](#m6-deferral) 1016 |
-| **performance and the parallel sweep** | [Performance](#performance) 3257, [M5 status](#m5-status) 1026, [Architecture](#architecture) 295, [Rendering performance](#rendering-performance--overnight-run-section-11) 2353 |
+| **performance and the parallel sweep** | [Performance](#performance) 3290, [M5 status](#m5-status) 1026, [Architecture](#architecture) 295, [Rendering performance](#rendering-performance--overnight-run-section-11) 2353 |
 | **materials and the data schema** | [Materials](#materials) 221, [M12/M13 status](#m12m13-status) 714 |
 
 <!-- END GENERATED TOC -->
@@ -2669,6 +2669,39 @@ rather than judged by eye. `scene=worked`'s overload failures went 6 ->
 **14** on the fix, and `scene=smash`'s pieces grew from a largest failing
 region of 8 cells to a distribution carrying eight regions in the 8-15
 band.
+
+**And a sixth, which is the one that made the outline and the piece the
+same shape:** *"The chunks should break off along the crack pattern that
+is already there. this mostly looks like small dust breaking first. maybe
+as a first step just no dust, it forms cracks and then large pieces fall
+specifically from the existing crack line when they completely surround a
+chunk."* Two halves:
+
+- **`structural::free_blocks_around` promotes a joint-bounded block
+  whole.** The enclosure was already real — a crack is a place support
+  cannot cross, so a fully bounded block is genuinely unsupported and the
+  cascade did find it. What it *did* with it was the problem:
+  `structural::tick` hands a failing region to `fracture`, which re-cuts
+  it on the power-of-two ladder, so a 170-cell block bounded by four
+  visible joints came apart into ladder-sized fragments and grit. The
+  outline and the piece were different shapes, which is exactly what "the
+  chunks should break off along the crack pattern" says is wrong. A block
+  counts as free when every face of every cell is inside the block, across
+  a severed edge, or not rock at all; one unsevered joint anywhere and it
+  stays put, which is what the repeat bonus is for.
+- **No pulverized core.** `strike` used to `shatter_to_rubble` a
+  `radius / 3` disc outright — grit made by fiat rather than by anything
+  breaking, and the first thing the eye sees, because it appears on the
+  swing frame where a piece has to wait for its outline to close. `core`
+  is 0. What is left is the honest ladder: whatever comes off below
+  `MIN_BODY_CELLS` is grit as a *consequence* of the draw, which is the
+  distinction `fracture`'s own doc draws.
+
+Measured on `acceptance.sh`'s two blow cases: `scene=strike` (one radius-14
+blow into a solid massif) calves **18 bodies carrying 937 cells** on the
+blow frame against the pre-change **11 / 553**, and `scene=worked` (six
+blows on a shelf) puts **1,529 cells off as chunks at 64% by mass** with
+15 overload failures against a bar of 3.
 
 Measured on `filmstrip scene=smash`, same seed, same script:
 

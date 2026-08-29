@@ -1,9 +1,11 @@
 # Structural Collapse
 
 *Current as of: 2026-08-29. Changed on 2026-08-29: **a blow opens the rock's
-own joints instead of drawing lines of its own**, so a hammer now cracks the
-way a blast does and sheds pieces from the ring around the wound — and a
-piece caught in mid-air can be hit, which bursts it; see **What cracks do**.
+own joints instead of drawing lines of its own, and what comes off comes off
+along them** — a block whose outline has parted all the way round leaves
+whole, in the shape the cracks drew, and nothing is pulverised on the swing
+frame. A piece caught in mid-air can be hit, which bursts it. See
+**What cracks do**.
 Also on 2026-08-29: a piece that breaks off a
 **plant** now turns as it falls, and one that comes to rest overhanging its
 own footing goes over instead of standing on end — broken rock is unchanged;
@@ -112,6 +114,15 @@ makes working a spot get you somewhere. A single blow leaves the odd joint
 shut — a block with all but one of its edges open is still held, and stays
 where it is. Hit it again and the ones it left shut give, the outline
 closes all the way round, and the whole block comes out as one piece.
+
+**And it comes out as the shape you can see.** A block whose outline has
+parted all the way round leaves along that outline, whole, rather than
+being broken up again on its way out — so the hole a blow leaves is the
+same polygon the cracks drew, and the piece lying at the bottom of it is
+that polygon. Nothing is pulverised on the swing frame any more: a blow
+makes cracks, and what comes off comes off along them. Grit is what is
+left over from pieces too small to be pieces, not something the blow
+manufactures.
 
 ## What a collapse looks like
 

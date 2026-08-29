@@ -2341,6 +2341,115 @@ pub(crate) fn shatter_joints_around(world: &mut World, at: (i32, i32), reach: f3
     fresh
 }
 
+/// Every **joint-bounded block within `reach` of `at` whose outline is
+/// completely open** — the pieces a blow has actually cut free, as whole
+/// domains rather than as ladder-sized fragments of a disc.
+///
+/// Owner's verdict on the hammer, 2026-08-29, after the joint fabric and
+/// the repeat bonus landed: *"The chunks should break off along the crack
+/// pattern that is already there. this mostly looks like small dust
+/// breaking first. maybe as a first step just no dust, it forms cracks and
+/// then large pieces fall specifically from the existing crack line when
+/// they completely surround a chunk."*
+///
+/// **This is the piece the pipeline was missing, and the reason is worth
+/// stating.** The joints were already being opened, and a fully enclosed
+/// domain *is* unsupported — a crack is a place support cannot cross — so
+/// the ordinary cascade did eventually find one. But it finds it as a
+/// `failing region` and hands it to `rigid::fracture`, which re-cuts it on
+/// the power-of-two ladder: a 170-cell block comes apart into ladder-sized
+/// fragments and grit, so what the player sees is the crack pattern being
+/// *ignored* by the thing that breaks. Reading the enclosure directly is
+/// what makes the outline and the piece the same shape.
+///
+/// A block counts as free when every 4-neighbour of every one of its cells
+/// is one of: another cell of the same block; a cell across a **severed**
+/// edge; or not body material at all (open air, powder, the world edge —
+/// a free face, which is not holding anything). One unsevered joint
+/// anywhere on the outline and the block stays put, which is precisely the
+/// "hit it again" the repeat bonus exists for.
+///
+/// Returns the blocks, each as its own cell list, largest first so a
+/// caller that budgets takes the pieces that read.
+pub(crate) fn free_blocks_around(world: &World, at: (i32, i32), reach: f32) -> Vec<Vec<(i32, i32)>> {
+    let r = reach.ceil() as i32;
+    let mut seen: std::collections::HashSet<(i32, i32)> = std::collections::HashSet::new();
+    let mut out: Vec<Vec<(i32, i32)>> = Vec::new();
+    for y in (at.1 - r)..=(at.1 + r) {
+        for x in (at.0 - r)..=(at.0 + r) {
+            let (dx, dy) = (x - at.0, y - at.1);
+            if dx * dx + dy * dy > r * r || seen.contains(&(x, y)) {
+                continue;
+            }
+            let Some((home, pitch)) = joint_domain(world, x, y) else { continue };
+            // Flood the block: same domain, same lattice. Bounded by
+            // `MAX_BLOCK_CELLS` for `CLAUDE.md`'s cap rule -- exhausting
+            // it must bound *work*, never decide the answer, so a flood
+            // that overruns is abandoned as "not a block" rather than
+            // promoted as a partial one. At stone's 13-cell grain a
+            // domain is ~170 cells, so the cap is never the deciding
+            // factor on real rock; it is there so a material authored with
+            // an enormous `joint_spacing` cannot walk the world.
+            let mut block = Vec::new();
+            let mut stack = vec![(x, y)];
+            let mut inside: std::collections::HashSet<(i32, i32)> = std::collections::HashSet::new();
+            inside.insert((x, y));
+            let mut overran = false;
+            while let Some((cx, cy)) = stack.pop() {
+                if block.len() >= MAX_BLOCK_CELLS {
+                    overran = true;
+                    break;
+                }
+                block.push((cx, cy));
+                for (nx, ny) in NEIGHBOURS_4.iter().map(|(ox, oy)| (cx + ox, cy + oy)) {
+                    if inside.contains(&(nx, ny)) {
+                        continue;
+                    }
+                    if joint_domain(world, nx, ny) == Some((home, pitch)) {
+                        inside.insert((nx, ny));
+                        stack.push((nx, ny));
+                    }
+                }
+            }
+            for &c in &block {
+                seen.insert(c);
+            }
+            if overran || block.is_empty() {
+                continue;
+            }
+            // The outline test. Every face of every cell that leaves the
+            // block has to be either severed or not rock at all.
+            let free = block.iter().all(|&(cx, cy)| {
+                NEIGHBOURS_4.iter().all(|&(ox, oy)| {
+                    let (nx, ny) = (cx + ox, cy + oy);
+                    if inside.contains(&(nx, ny)) {
+                        return true;
+                    }
+                    if !world.in_bounds(nx, ny) || joint_domain(world, nx, ny).is_none() {
+                        return true; // a free face holds nothing
+                    }
+                    // The crack bit for an edge lives on the cell with the
+                    // lower coordinate along that axis, which is what
+                    // `sever_joint` writes -- so which of the two cells to
+                    // ask depends on the direction.
+                    let cell = if ox > 0 || oy > 0 { world.get(cx, cy) } else { world.get(nx, ny) };
+                    if ox != 0 { cell.crack_right() } else { cell.crack_down() }
+                })
+            });
+            if free {
+                out.push(block);
+            }
+        }
+    }
+    out.sort_by_key(|b| std::cmp::Reverse(b.len()));
+    out
+}
+
+/// The largest joint-bounded block `free_blocks_around` will flood before
+/// abandoning it. See that function for why exhausting it must not promote
+/// a partial block.
+const MAX_BLOCK_CELLS: usize = 512;
+
 /// Reveal only the joints **inside** a severed piece -- both cells of the
 /// edge in `region` -- and return how many were newly severed.
 ///

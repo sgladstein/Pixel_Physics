@@ -3455,6 +3455,20 @@ six boundaries open has no cracked cell in the middle of the sixth --
 caught by a positive control reading 36 fresh edges -> 36, which is the
 tell for a mechanism that never ran. `scene=worked` overloads 6 -> 14.
 
+**And a sixth, which made the outline and the piece the same shape:**
+*"The chunks should break off along the crack pattern that is already
+there... just no dust, it forms cracks and then large pieces fall
+specifically from the existing crack line when they completely surround a
+chunk."* The enclosure was already real and the cascade already found it;
+what it *did* with it was the problem — `tick` hands a failing region to
+`fracture`, which re-cuts it on the power-of-two ladder, so a 170-cell
+block bounded by four visible joints came apart into fragments and grit.
+`free_blocks_around` promotes the block whole, so the hole is the polygon
+the cracks drew. And the pulverized core is gone: it was grit made by
+fiat, on the swing frame, where a piece has to wait for its outline to
+close. `scene=strike` calves 18 bodies carrying 937 cells on the blow
+frame against 11 / 553 before.
+
 Measured on `scene=smash`: cells broken 98 -> 406, cells off as chunks
 44 -> 313, fastest piece 1.07 -> 4.12 cells/frame, pieces in flight at
 once 2 -> 4, worst frame 13.47 -> 14.27 ms. Blows that landed went 3 -> 5 for a reason

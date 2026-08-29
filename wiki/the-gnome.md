@@ -307,9 +307,9 @@ cliff for long enough and it will come apart above and behind you.
 ## The hammer
 
 The pick *removes* rock. The hammer **breaks** it, and that is a
-different thing to have. A blow pulverises a small core to grit, breaks
-the rock out to the full width of the swing into pieces and throws them
-clear of the wound, and **opens the rock's own joints** past all of that
+different thing to have. A blow breaks the rock out to the full width of
+the swing into pieces and throws them clear of the wound, and **opens the
+rock's own joints** past all of that
 — the grain stone already has, before anything hits it. So the hammer is
 the tool for bringing a ceiling down, calving a slab off a face or
 starting a collapse, and a poor way to dig a hole: what it breaks it
@@ -322,8 +322,12 @@ one spot and the joints deepen rather than new ones appearing beside them,
 because how a given rock splits at a given point is a property of the
 rock. **One blow usually leaves an edge or two shut, and a block held by
 one edge stays put** — hit it again and the outline closes all the way
-round and the whole block comes away. That is what makes working a face
-progress rather than repeat.
+round and the whole block comes away, **whole and in the shape the cracks
+drew**. That is what makes working a face progress rather than repeat, and
+it is why the hole a hammer leaves is angular rather than round.
+
+Nothing is ground to powder by the swing itself. Grit is what is left over
+where a piece came out too small to be a piece.
 
 Most of what comes off a blow is *pieces* rather than grit — a few blocks,
 more cobbles, and grit besides. **And a piece is still something you can

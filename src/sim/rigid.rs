@@ -2069,7 +2069,20 @@ pub fn strike(world: &mut World, cx: i32, cy: i32, radius: i32, force: f32) -> u
     // knocked loose does literally nothing — see that function's doc for
     // why the grid says the cell is empty.
     let dusted_bodies = burst_bodies_at(world, cx, cy, radius);
-    let core = (radius / 3).max(1);
+    // **No pulverized core.** Owner's instruction, 2026-08-29: *"maybe as
+    // a first step just no dust, it forms cracks and then large pieces
+    // fall specifically from the existing crack line."* A blow used to
+    // `shatter_to_rubble` a `radius / 3` disc outright, which is grit made
+    // by fiat rather than by anything breaking, and it is the first thing
+    // the eye sees -- it appears on the swing frame, where a piece has to
+    // wait for its outline to close. What is left is the honest ladder:
+    // the whole disc is *loosened*, and whatever comes off it below
+    // `MIN_BODY_CELLS` is grit as a **consequence** of the draw, which is
+    // the distinction `fracture`'s own doc draws.
+    //
+    // Zero rather than deleted, so the three zones are still legible and
+    // putting a core back is one number.
+    let core = 0;
     // **The chip zone is the blow's whole radius**, and it used to be two
     // thirds of it. Reported from playtest of the gnome's hammer: *"it
     // mostly makes big strike lines instead of breaking rock into
@@ -2114,7 +2127,7 @@ pub fn strike(world: &mut World, cx: i32, cy: i32, radius: i32, force: f32) -> u
             if !is_tool_target(world, x, y) {
                 continue;
             }
-            if d2 <= core * core {
+            if core > 0 && d2 <= core * core {
                 // Counted by **what changed**, not by what was attempted:
                 // `shatter_to_rubble` declines a material with no
                 // `breaks_into` and leaves the cell exactly as it was, and
@@ -2158,6 +2171,37 @@ pub fn strike(world: &mut World, cx: i32, cy: i32, radius: i32, force: f32) -> u
     // nothing. Held at full density, the ring of domains around the wound
     // closes and falls out.
     super::structural::shatter_joints_around(world, (cx, cy), (radius * BLOW_JOINT_REACH) as f32, chip as f32);
+    // **And now take out whatever the cracks have completely surrounded,
+    // as whole blocks along the outline the player can see.**
+    //
+    // Owner's verdict, 2026-08-29, on the sheet of the reveal plus the
+    // repeat bonus: *"The chunks should break off along the crack pattern
+    // that is already there. this mostly looks like small dust breaking
+    // first... it forms cracks and then large pieces fall specifically
+    // from the existing crack line when they completely surround a
+    // chunk."*
+    //
+    // The enclosure was already real -- a crack is a place support cannot
+    // cross, so a fully bounded block is genuinely unsupported and the
+    // cascade did find it. What it did with it is the problem:
+    // `structural::tick` hands a failing region to `fracture`, which
+    // re-cuts it on the power-of-two ladder, so a 170-cell block bounded
+    // by four visible joints came apart into ladder-sized fragments and
+    // grit. The outline and the piece were different shapes, which is
+    // exactly what "the chunks should break off along the crack pattern"
+    // says is wrong. Promoting the block whole makes them the same shape.
+    //
+    // Each block goes through `promote` directly rather than through
+    // `fracture_with_impulse`: the ladder is what would break it up again.
+    let blocks = super::structural::free_blocks_around(world, (cx, cy), (radius * BLOW_JOINT_REACH) as f32);
+    let mut freed = 0;
+    for block in &blocks {
+        if block.len() < MIN_BODY_CELLS {
+            continue; // below a piece; leave it for the cascade to grit
+        }
+        freed += block.len();
+        promote(world, block, Some(((cx as f32, cy as f32), force)), Some((cx, cy)));
+    }
     // Loosen first, so the fracture below sees rock that is no longer
     // claiming to be braced by the massif.
     for &(x, y) in &loosened {
@@ -2183,7 +2227,7 @@ pub fn strike(world: &mut World, cx: i32, cy: i32, radius: i32, force: f32) -> u
     for &(x, y) in &loosened {
         world.schedule_structural_check_around(x, y);
     }
-    pulverized + loosened.len() + dusted_bodies
+    pulverized + loosened.len() + dusted_bodies + freed
 }
 
 /// Break the loosened rock around a blast into chunks and throw them.
@@ -3987,6 +4031,61 @@ mod tests {
         // the worst possible reason.
         assert!(on_joint + off_joint > 20, "the blow scored almost nothing in rock it could classify: {on_joint} on joints, {off_joint} off");
         assert_eq!(off_joint, 0, "{off_joint} crack edges do not lie on a joint -- something is drawing lines again");
+    }
+
+    #[test]
+    fn a_blow_calves_a_whole_block_in_the_shape_the_cracks_drew() {
+        // **The owner's ask, as the property it actually is.** 2026-08-29:
+        // *"The chunks should break off along the crack pattern that is
+        // already there... large pieces fall specifically from the
+        // existing crack line when they completely surround a chunk."*
+        //
+        // The enclosure was already real and the cascade already found it;
+        // what it did with it was hand the region to `fracture`, whose
+        // power-of-two ladder is joint-blind, so the piece that came out
+        // was not the polygon that was drawn. This asserts the two are the
+        // same shape: at least one body a blow promotes lies **entirely
+        // inside one joint domain**, which a ladder-cut fragment of a disc
+        // essentially never does.
+        //
+        // Delete the `free_blocks_around` loop from `strike` and this goes
+        // red -- what is left promotes fragments of the loosened annulus,
+        // which straddle domains by construction.
+        let mut w = World::new(Rect::new(0, 0, 191, 191)).without_chain_limit();
+        for y in 4..188 {
+            for x in 4..188 {
+                w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+            }
+        }
+        // Two blows: the first opens the fabric, the second closes the
+        // outlines it declined (`structural::JOINT_REPEAT_BONUS`). One is
+        // not reliably enough on a given seed, which is the mechanic
+        // working rather than a flaky test.
+        strike(&mut w, 96, 96, 10, 3.0);
+        strike(&mut w, 96, 96, 10, 3.0);
+
+        assert!(!w.chunk_bodies.is_empty(), "the blows promoted nothing at all");
+        let pitch_at = |x: i32, y: i32, m: &crate::sim::material::Material| {
+            crate::sim::fracture_field::pitch_at(w.seed, x, y, m.joint_spacing, m.joint_band_contrast)
+        };
+        let whole = w.chunk_bodies.iter().any(|b| {
+            if b.cells.len() < MIN_BODY_CELLS {
+                return false;
+            }
+            let mut one: Option<(i32, i32)> = None;
+            b.cells.iter().all(|c| {
+                let (x, y) = b.cell_position(c);
+                let m = w.materials.get(c.material);
+                let p = pitch_at(x, y, m);
+                if p <= 0.0 {
+                    return false;
+                }
+                let d = crate::sim::fracture_field::domain(w.seed, x, y, p);
+                *one.get_or_insert(d) == d
+            })
+        });
+        let sizes: Vec<usize> = w.chunk_bodies.iter().map(|b| b.cells.len()).collect();
+        assert!(whole, "no promoted body is a single joint block -- the piece is not the shape the cracks drew; body sizes {sizes:?}");
     }
 
     #[test]
