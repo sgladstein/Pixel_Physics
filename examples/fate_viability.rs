@@ -44,7 +44,52 @@ use pixel_physics::sim::rng;
 use pixel_physics::sim::world::World;
 
 /// The species the mutants are variants of.
-const BASE_RON: &str = include_str!("../assets/species/tree.ron");
+///
+/// **Two, and which one is in force decides what the run means.** `tree` is
+/// the indeterminate woody base the recorded 92% was measured on and is still
+/// the default, so that figure keeps meaning what it meant. `herb` is the
+/// determinate base added with the organ package, and it exists because
+/// `tree.ron` cannot answer the organ question at all: it declares no organ
+/// materials, no `Ripen` behaviour and no `Ripe` rule, so a mutant that
+/// pointed a `becomes` at `Flower` there would grow a wood-coloured cell that
+/// never ripens and read as a dead end that is really three missing lines of
+/// `.ron`.
+const TREE_RON: &str = include_str!("../assets/species/tree.ron");
+const HERB_RON: &str = include_str!("../assets/species/herb.ron");
+
+/// Which base this run mutates, from `base=tree|herb`.
+#[derive(Clone, Copy, PartialEq)]
+enum Base {
+    Tree,
+    Herb,
+}
+
+impl Base {
+    fn source(self) -> &'static str {
+        match self {
+            Base::Tree => TREE_RON,
+            Base::Herb => HERB_RON,
+        }
+    }
+    fn name(self) -> &'static str {
+        match self {
+            Base::Tree => "tree",
+            Base::Herb => "herb",
+        }
+    }
+    /// The cell types a mutation may point a fate at, for this base.
+    ///
+    /// **The organ types are offered only on a base that can express them**,
+    /// which is the whole reason this is a method rather than a constant. See
+    /// `TREE_RON` above for what a `Flower` grown off `tree.ron` would
+    /// actually measure.
+    fn draw_set(self) -> &'static [CellType] {
+        match self {
+            Base::Tree => &PLANT_TYPES,
+            Base::Herb => &ORGAN_TYPES,
+        }
+    }
+}
 
 /// Cell types a mutation may point a fate at.
 ///
@@ -63,6 +108,24 @@ const BASE_RON: &str = include_str!("../assets/species/tree.ron");
 /// lines of `.ron`. Re-running this gate over `herb.ron` is the honest
 /// way to ask that question, and it is a different run from the one whose
 /// 92% is on record.
+/// `PLANT_TYPES` plus the two organ types — the vocabulary a determinate base
+/// can actually reach.
+///
+/// This is the set that answers the question the organ package leaves open:
+/// the substrate gained a wider space of expressible plants, and whether
+/// *mutation* can reach that space is a different claim from whether a species
+/// file can be written in it.
+const ORGAN_TYPES: [CellType; 8] = [
+    CellType::Seed,
+    CellType::GrowingTip,
+    CellType::MatureBody,
+    CellType::Leaf,
+    CellType::RootTip,
+    CellType::DormantBud,
+    CellType::Flower,
+    CellType::Fruit,
+];
+
 const PLANT_TYPES: [CellType; 6] = [
     CellType::Seed,
     CellType::GrowingTip,
@@ -108,12 +171,42 @@ type Table = Vec<(CellType, Vec<Fate>)>;
 /// the run says so: the positive control is grown from *this* table, so a
 /// disagreement shows up as the control failing rather than as a silent shift
 /// in what "unmutated" means.
-fn base_table() -> Table {
-    // `after_metamers: None` throughout: `tree.ron` is indeterminate, which
-    // is what the base control has to reproduce. A determinacy mutation is a
-    // *different* experiment from this one -- it varies a number, not a cell
-    // type -- and folding it in here would change what the 92% figure means.
+fn base_table(base: Base) -> Table {
+    // `after_metamers: None` on every rule this builds *except* the herb
+    // base's determinate one. A determinacy mutation -- varying the number
+    // rather than a cell type -- is a different experiment and is deliberately
+    // not folded in here; what the herb base changes is the *vocabulary* the
+    // draw may reach, and the determinate rule is carried across only because
+    // the control has to reproduce the shipped plant.
     let f = |when, becomes, child, lateral| Fate { when, becomes, child, lateral, after_metamers: None };
+    let at = |when, becomes, n| Fate { when, becomes, child: None, lateral: None, after_metamers: Some(n) };
+    if base == Base::Herb {
+        // Must agree with `herb.ron` rule for rule, for the reason this
+        // function's doc gives: the positive control is grown from *this*
+        // table, so drift shows up as the control failing rather than as a
+        // silent shift in what "unmutated" means.
+        return vec![
+            (
+                CellType::GrowingTip,
+                vec![
+                    at(FateWhen::Node, CellType::Flower, 8),
+                    f(FateWhen::Node, CellType::DormantBud, Some(CellType::GrowingTip), Some(CellType::GrowingTip)),
+                    f(FateWhen::Grew, CellType::MatureBody, Some(CellType::GrowingTip), Some(CellType::GrowingTip)),
+                    f(FateWhen::Stale, CellType::MatureBody, None, None),
+                ],
+            ),
+            (
+                CellType::RootTip,
+                vec![
+                    f(FateWhen::Grew, CellType::MatureBody, Some(CellType::RootTip), Some(CellType::RootTip)),
+                    f(FateWhen::Stale, CellType::MatureBody, None, None),
+                ],
+            ),
+            (CellType::DormantBud, vec![f(FateWhen::Flush, CellType::GrowingTip, None, None)]),
+            (CellType::Flower, vec![f(FateWhen::Ripe, CellType::Fruit, None, None)]),
+            (CellType::Fruit, vec![f(FateWhen::Ripe, CellType::Seed, None, None)]),
+        ];
+    }
     vec![
         (
             CellType::GrowingTip,
@@ -141,6 +234,9 @@ fn table_to_ron(t: &Table) -> String {
         s.push_str(&format!("        ({}, [\n", type_name(*ct)));
         for r in rules {
             s.push_str(&format!("            (when: {}, becomes: {}", when_name(r.when), type_name(r.becomes)));
+            if let Some(n) = r.after_metamers {
+                s.push_str(&format!(", after_metamers: Some({n})"));
+            }
             if let Some(c) = r.child {
                 s.push_str(&format!(", child: Some({})", type_name(c)));
             }
@@ -159,11 +255,12 @@ fn table_to_ron(t: &Table) -> String {
 ///
 /// The `fates:` block is bracket-matched rather than line-counted, so this
 /// does not quietly truncate if the shipped block is reformatted.
-fn variant_ron(name: &str, t: &Table) -> String {
-    let start = BASE_RON.find("    fates: [").expect("tree.ron declares a fates block");
+fn variant_ron(base: Base, name: &str, t: &Table) -> String {
+    let src = base.source();
+    let start = src.find("    fates: [").expect("the base species declares a fates block");
     let mut depth = 0usize;
     let mut end = start;
-    for (i, c) in BASE_RON[start..].char_indices() {
+    for (i, c) in src[start..].char_indices() {
         match c {
             '[' => depth += 1,
             ']' => {
@@ -177,14 +274,14 @@ fn variant_ron(name: &str, t: &Table) -> String {
         }
     }
     // past the trailing comma and newline of the block
-    let end = BASE_RON[end..].find('\n').map_or(end, |n| end + n + 1);
-    let mut out = String::with_capacity(BASE_RON.len() + 512);
-    out.push_str(&BASE_RON[..start]);
+    let end = src[end..].find('\n').map_or(end, |n| end + n + 1);
+    let mut out = String::with_capacity(src.len() + 512);
+    out.push_str(&src[..start]);
     out.push_str(&table_to_ron(t));
-    out.push_str(&BASE_RON[end..]);
-    // Rename so the variant does not replace `tree` in the registry.
+    out.push_str(&src[end..]);
+    // Rename so the variant does not replace the base in the registry.
     let quoted = format!("name: \"{name}\"");
-    out.replacen("name: \"tree\"", &quoted, 1)
+    out.replacen(&format!("name: \"{}\"", base.name()), &quoted, 1)
 }
 
 /// Apply one point mutation: pick a rule, pick a field, point it somewhere
@@ -196,7 +293,7 @@ fn variant_ron(name: &str, t: &Table) -> String {
 /// fraction. Measured on the first run: 7 of 48. A rate whose denominator
 /// includes mutations that could not have done anything is not a tolerance,
 /// it is a dilution.
-fn mutate(t: &mut Table, rng: &mut rng::Rng) -> String {
+fn mutate(t: &mut Table, draw_set: &[CellType], rng: &mut rng::Rng) -> String {
     let ci = rng.below(t.len() as u32) as usize;
     let (ct, rules) = &mut t[ci];
     let ri = rng.below(rules.len() as u32) as usize;
@@ -220,7 +317,7 @@ fn mutate(t: &mut Table, rng: &mut rng::Rng) -> String {
     // Redraw until it actually moves -- see this function's doc.
     let mut to = current;
     while to == current {
-        to = PLANT_TYPES[rng.below(PLANT_TYPES.len() as u32) as usize];
+        to = draw_set[rng.below(draw_set.len() as u32) as usize];
     }
     let what = match slot {
         0 => {
@@ -278,17 +375,41 @@ fn main() {
     let frames = arg("frames=", 12000);
     let founders = arg("founders=", 3) as usize;
     let worldseed = arg("worldseed=", 7);
-    println!("fate_viability: mutants={mutants} frames={frames} founders={founders} worldseed={worldseed}");
+    // **The base is echoed, and it has to be.** `CLAUDE.md`'s harness rule,
+    // paid for by a 3.5-hour study that turned out to be three populations
+    // wearing 24 logs: a log that does not name its own parameters was written
+    // by a binary that never had them. The draw set is echoed for the same
+    // reason -- the whole difference between the two runs is which cell types
+    // a mutation may reach, and that is invisible in every other line.
+    let base = match std::env::args().find_map(|a| a.strip_prefix("base=").map(str::to_string)).as_deref() {
+        None | Some("tree") => Base::Tree,
+        Some("herb") => Base::Herb,
+        Some(other) => panic!("unknown base {other:?} (tree|herb)"),
+    };
+    let draw_set = base.draw_set();
+    println!("fate_viability: base={} mutants={mutants} frames={frames} founders={founders} worldseed={worldseed}", base.name());
+    println!("fate_viability: mutations may point a fate at [{}]", draw_set.iter().map(|&t| type_name(t)).collect::<Vec<_>>().join(", "));
 
     // --- positive control: the unmutated table ---
-    let base = base_table();
-    let (be, bs) = trial(&variant_ron("fv_base", &base), "fv_base", frames, founders, worldseed);
+    let base_t = base_table(base);
+    let (be, bs) = trial(&variant_ron(base, "fv_base", &base_t), "fv_base", frames, founders, worldseed);
     println!("\npositive control (unmutated table): {be}/{founders} established, {bs} seeds set");
 
     // --- negative control: a table that must be dead ---
-    let mut lethal = base_table();
-    lethal[0].1[1].child = Some(CellType::Seed); // GrowingTip.Grew.child -> Seed
-    let (le, ls) = trial(&variant_ron("fv_lethal", &lethal), "fv_lethal", frames, founders, worldseed);
+    //
+    // **Its index is found rather than hardcoded**, because the herb base
+    // carries a determinate rule ahead of the ordinary `Grew` one and
+    // `[0].1[1]` names a different rule in the two tables. A negative control
+    // that silently mutates the wrong rule is a control that proves nothing --
+    // and it would fail *open*, reading as "even the lethal mutation lived".
+    let mut lethal = base_table(base);
+    let grew = lethal[0]
+        .1
+        .iter_mut()
+        .find(|f| f.when == FateWhen::Grew)
+        .expect("the base's shoot has a Grew rule to poison");
+    grew.child = Some(CellType::Seed);
+    let (le, ls) = trial(&variant_ron(base, "fv_lethal", &lethal), "fv_lethal", frames, founders, worldseed);
     println!("negative control (shoot child -> Seed):  {le}/{founders} established, {ls} seeds set");
 
     if be == 0 {
@@ -320,11 +441,11 @@ fn main() {
     // is one nobody can tell is working.
     println!("\nper mutation (established of {founders} founders, and seeds set):");
     for i in 0..mutants {
-        let mut t = base_table();
+        let mut t = base_table(base);
         let mut r = rng::stream(worldseed, 0xF8, i as u64, 0);
-        let what = mutate(&mut t, &mut r);
+        let what = mutate(&mut t, draw_set, &mut r);
         let name = format!("fv_{i}");
-        let (e, s) = trial(&variant_ron(&name, &t), &name, frames, founders, worldseed);
+        let (e, s) = trial(&variant_ron(base, &name, &t), &name, frames, founders, worldseed);
         if e > 0 {
             viable += 1;
         }

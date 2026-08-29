@@ -181,6 +181,81 @@ worst frame is an order statistic over many similar frames here — `CLAUDE.md`'
 `mean × frames ≈ worst` test does not pin it — so it is worth exactly that much
 and no more.
 
+## 6b. Is the organ space reachable by mutation? Measured: yes, 37 of 38
+
+**The question the owner asked, and the half of §1's claim that was
+unproven.** The substrate additions widen what a production rule can
+*express*; whether *mutation* can reach that wider space is a different claim,
+and asserting it without measuring it is the shape of error this report's §7
+is otherwise about.
+
+`examples/fate_viability.rs` already mutates a production rule and classifies
+viable / lethal / silent. It was extended rather than replaced: a `base=`
+argument selecting `tree.ron` (the default, so the recorded 92% keeps meaning
+what it meant) or `herb.ron`, with `Flower`/`Fruit` added to the draw set only
+on the latter.
+
+**The organ types are offered only on a base that can express them, and that
+is not fussiness.** `tree.ron` declares no organ materials, no `Ripen`
+behaviour and no `Ripe` rule, so a mutant pointing a `becomes` at `Flower`
+there would grow a wood-coloured cell that never ripens — a dead end that is
+really three missing lines of `.ron`, counted as evidence about the substrate.
+
+```
+40 point mutations, base=herb
+  silent (output identical to base — the field is never read here)   2/40
+  EFFECTIVE mutations                                                 38
+    established at all                                            37/38  (97%)
+    set at least one seed                                         37/38  (97%)
+  controls: base 23 plants / 327 seeds,  lethal 0 plants / 0 seeds
+```
+
+Mutations that pointed a fate straight at an organ all produced living,
+breeding plants — `RootTip.Grew.lateral → Flower` (11 plants, 297 seeds),
+`DormantBud.Flush.becomes → Fruit` (19 / 292), `Flower.Ripe.becomes →
+GrowingTip` (22 / 339), `Fruit.Ripe.becomes → MatureBody` (23 / 326).
+
+**97% against tree's 92% is not a comparison.** One world seed, two different
+bases, and the per-arm seed counts are not comparable between arms at all —
+within-genome spread here runs 31–153 cells. What the number supports is the
+*rate over mutations*, which is what a viability gate is for.
+
+**Two harness details worth keeping.** The negative control's rule is now
+found by `when == Grew` rather than indexed at `[0].1[1]`, because the herb
+base carries its determinate rule ahead of the ordinary one and the old index
+names a different rule in the two tables — a control that silently poisons the
+wrong rule fails *open*, reading as "even the lethal mutation lived". And the
+run echoes its own base and draw set, per `CLAUDE.md`'s harness rule: the whole
+difference between the two runs is which cell types a mutation may reach, and
+that is invisible in every other line.
+
+### 6c. What this does and does not settle
+
+It settles that the widened space is survivable, so making it reachable is not
+disqualified on viability grounds — the same thing gate 1 established for the
+original vocabulary.
+
+**It does not make any of it reachable, and that is the standing gap this
+report should have led with.** `fates` lives on `Species` in the registry; a
+seed inherits its parent's species id unchanged plus ten continuous draws and
+six discrete alleles, and nothing a genome carries can touch the production
+rule. `fate_viability` mutates it by generating a new species RON and
+registering it — a harness operation, not a live mechanism. **So the organ
+vocabulary is reachable only by hand-authoring a species file**, which is why
+`herb.ron` and `bramble.ron` exist at all: the repo's own rule against a
+channel with a writer and no reader forced at least one, and hand-authoring is
+the only channel there is.
+
+That is precisely the layer
+`plant-morphology-evolvability-2026-08-26.md` §6 marks open — *"Species as an
+outcome, not an input… what replaces this layer is open"* — and Phase 4 did
+not touch it and was not scoped to. Note also that the review it points at
+(`plant-evolvability-three-reviews-2026-08-27.md`) is a live disagreement
+rather than a pending verdict: its unanimous "nothing can evolve yet" was
+partly overturned by `plant-recruitment-measurement-2026-08-27.md` (grass
+reaches generation 2 in 7 of 8 seeds), and reviewer C's prerequisite —
+founder variance on the frozen loci — landed as Phase 0 of this programme.
+
 ## 7. Four ways this went wrong, all caught by looking rather than by a number
 
 Recorded because each is a repeat of a failure `CLAUDE.md` already names, and
