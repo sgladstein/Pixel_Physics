@@ -35,8 +35,10 @@ expressions — which is how the 6 -> 9 growth got as far as it did."* That test
 was the one caller that did not. **If you add any code that indexes a genome,
 use `io_slot` / `ih_slot` / `hh_slot` / `ho_slot`.**
 
-**Still to verify before opening a PR** — the full suite has not been re-run
-green end to end since these fixes, so run on that branch:
+**One thing left before opening a PR**, and only one: the full suite has not
+been re-run green *end to end* since the third fix landed (every run so far
+predates one of them; the last was 1006/1 with that single known failure now
+fixed and passing in isolation). Run on that branch:
 
 ```
 cargo test --lib
@@ -44,20 +46,26 @@ cargo clippy --all-targets -- -D warnings          # and on 1.98.0, see CLAUDE.m
 bash scripts/docscheck.sh                          # was clean at commit time
 ```
 
-**And one check that is not in the gates and matters more than they do:**
-`a655a8e` re-lays the brain genome. Authored species files store *named*
-wiring lists rather than slot indices, so `genome_from_wiring` should
-re-expand them into the new layout transparently — **but that is an
-assumption, not a measurement.** Confirm it:
+**The equivalence check is DONE and it passes.** This was the highest-value
+open item: does a species file still load to the same brain after the genome
+blocks moved? Two `ascii` binaries from identical trees differing *only* in
+the three reserve constants — so the re-lay is isolated rather than confounded
+with the merge — run and diffed:
 
-```
-# build ascii from the commit BEFORE a655a8e, keep the binary, then from a655a8e
-# run both, diff the counters. They must be byte-identical.
-```
+- **Every creature counter identical.** moves 2457, blocked 128, falls 421,
+  pickups 394, drops 382, deliveries 182, digs 18, nest-visits 258, deaths 0;
+  forage trips 7, mean depth 11.1, deepest 20, reach `[260, 38, 23, 7, 1, 0,
+  0, 0]`. 9 counter lines, zero differences.
+- **Every other line identical too**, once wall-clock is removed. The raw diff
+  shows only `worst frame N ms` rows and one ratio *derived* from them
+  (281.78x vs 277.04x) — the same-binary variation this repo has measured at
+  up to 3.5x on worst-frame. **A first pass at this comparison reported
+  "DIFFERS" because it diffed timings; do not repeat that.** Strip timing
+  rows, as lane C does.
 
-If they are not identical, the re-lay changed behaviour and `a655a8e` should
-come out. **I did not get to this check.** It is the single highest-value
-thing on this list.
+So `genome_from_wiring` re-expands authored named wiring lists into the new
+layout transparently, as the design intends. **`a655a8e` is behaviourally
+inert**, which is what a reserve change should be.
 
 ---
 
