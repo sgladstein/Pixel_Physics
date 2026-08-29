@@ -2000,7 +2000,7 @@ fn reveal_joints(world: &mut World, region: &[(i32, i32)], at: (i32, i32), objec
                 }
                 reach = reach.min(headroom as f32);
             }
-            Crush { fresh: reveal_in_disc(world, at, reach), leashed }
+            Crush { fresh: reveal_in_disc(world, at, reach, 0.0, None), leashed }
         }
         // A **severed piece** has no claim on the rock outside it. Its
         // damage has to scale from zero, and with a fabric it does so
@@ -2102,8 +2102,8 @@ fn sever_joint(world: &mut World, x: i32, y: i32, down: bool) -> bool {
 /// boundary means a joint is either a full straight segment or absent,
 /// where a per-edge draw activates them in a dashed scatter -- which is the
 /// scribble complaint wearing a different hat.
-fn reveal_in_disc(world: &mut World, at: (i32, i32), reach: f32) -> u32 {
-    if reach < 1.0 {
+fn reveal_in_disc(world: &mut World, at: (i32, i32), reach: f32, flat_to: f32, mut fresh_cells: Option<&mut Vec<(i32, i32)>>) -> u32 {
+    if reach < 1.0 || flat_to >= reach {
         return 0;
     }
     let r = reach.ceil() as i32;
@@ -2138,7 +2138,23 @@ fn reveal_in_disc(world: &mut World, at: (i32, i32), reach: f32) -> u32 {
             if d > reach {
                 continue;
             }
-            let ramp = CRUSH_JOINT_DENSITY * (1.0 - d / reach);
+            // `flat_to` holds the ramp at full height out to that
+            // radius before it starts falling. `0.0` is the crush's
+            // original `CRUSH_JOINT_DENSITY * (1.0 - d / reach)` exactly,
+            // which is what `crush_in_place` passes and why its pinned
+            // PNG hash on `scene=strike` is unmoved.
+            //
+            // A blow needs the inner zone because a *ramped* density is
+            // the wrong shape for it: the rock inside the chip radius is
+            // already gone, so every joint a blow can reach sits at
+            // `d >= chip` where the pure ramp is well under 1 -- and a
+            // domain whose boundary only partly parts is not enclosed, so
+            // nothing falls out of it. It draws dashes instead of pieces.
+            let ramp = if d <= flat_to {
+                CRUSH_JOINT_DENSITY
+            } else {
+                CRUSH_JOINT_DENSITY * (1.0 - (d - flat_to) / (reach - flat_to))
+            };
             for down in [false, true] {
                 let (nx, ny) = if down { (x, y + 1) } else { (x + 1, y) };
                 let Some((other, other_pitch)) = map[idx(nx, ny)] else { continue };
@@ -2152,9 +2168,126 @@ fn reveal_in_disc(world: &mut World, at: (i32, i32), reach: f32) -> u32 {
                 if super::fracture_field::joint_draw(world.seed, home, other) >= ramp {
                     continue;
                 }
-                fresh += u32::from(sever_joint(world, x, y, down));
+                if sever_joint(world, x, y, down) {
+                    fresh += 1;
+                    // **Only what *this* blow severed**, and the
+                    // distinction is a gate, not a nicety. The caller
+                    // unbraces and schedules what comes back here; a
+                    // second blow beside the first re-scans a disc that
+                    // already holds the first one's fissures, so keying
+                    // off `Cell::cracked()` instead re-schedules the whole
+                    // accumulated crack field every time. Measured on
+                    // `scene=strike`: 2,284 sites pending at the end of
+                    // the run against a bar of 1,500 -- `acceptance.sh`'s
+                    // §S backlog case, caught by it and by nothing else.
+                    if let Some(out) = fresh_cells.as_deref_mut() {
+                        out.push((x, y));
+                    }
+                }
             }
         }
+    }
+    fresh
+}
+
+/// **What a blow does to the rock's grain**, and the entry point
+/// `rigid::strike` uses instead of drawing rays.
+///
+/// Owner's verdict on the hammer, 2026-08-29, on a blind A/B of two ray
+/// tunings: *"neither, fully get rid of the lines that it makes — it
+/// should just make cracks similar to an explosion and have the pieces
+/// fall off in chunks."* The blast stopped drawing walker rays at
+/// `d5cb19a` and reads the joint fabric instead
+/// (`fracture_field`'s module doc has the three rejections that led
+/// there); `rigid::score_cracks` was the last production caller of a
+/// radial-ray pattern on the destruction path, and this is what replaces
+/// it for a blow.
+///
+/// Three things `reveal_in_disc` alone does not do, all of which a blow
+/// owes and a crush does elsewhere:
+///
+/// - **unbrace what the joints cut off**, so a domain the reveal enclosed
+///   stops claiming to be braced by the massif — that is `score_cracks`'
+///   `detach_around_crack` call, kept for the identical reason its own
+///   comment gives (*"the cracks were visible damage that changed nothing
+///   about what the rock could carry"*);
+/// - **schedule the checks** that let the cascade find it, which is what
+///   turns a severed domain into a piece that falls;
+/// - **and do both only where something was actually severed.** The disc
+///   at a hammer's reach is ~1,400 cells and the joints in it are a few
+///   hundred; unbracing the whole disc would loosen intact rock between
+///   the joints and hand the scheduler ten times the sites for nothing.
+///
+/// Returns newly severed edges — a "did it fire at all" counter, since a
+/// blow into rock whose joints are already open must write nothing rather
+/// than re-cracking it.
+pub(crate) fn shatter_joints_around(world: &mut World, at: (i32, i32), reach: f32, flat_to: f32) -> u32 {
+    let mut opened = Vec::new();
+    let fresh = reveal_in_disc(world, at, reach, flat_to, Some(&mut opened));
+    // **Unbraced and checked only in the flat zone**, not across the whole
+    // disc, and this is a measured bound rather than a tidy-up.
+    //
+    // `acceptance.sh`'s `strike` case gates the §S backlog at 1,500
+    // pending scheduler sites; scheduling every edge the reveal opened put
+    // it at **2,284, flat, with every chunk asleep** -- a queue that
+    // climbs and never drains, which is the exact pathology that case
+    // exists for. The old rays scored ~85 cells and paid for 85; a disc at
+    // `radius * CRACK_REACH` holds nine times the area of the flat zone
+    // and several hundred severed edges.
+    //
+    // The flat zone is also the only part that can *do* anything with the
+    // work: it is where the joints part completely, so it is where a
+    // domain is enclosed and can come away. Past it the boundaries are
+    // partial. Nothing is lost by leaving them alone — a crack bit blocks
+    // support wherever it is written, so the far fissures still weaken the
+    // rock, and `World::record_disturbance` already licenses failures over
+    // the whole reach for whenever the cascade next looks there. What they
+    // do not get is a check scheduled *now*, on rock that is still braced
+    // by the massif behind it and would answer "supported".
+    // Deduplicated because a cell owns two edges and both may open on the
+    // same blow -- `detach_around_crack` walks a 3-cell band, so paying it
+    // twice for one cell is the expensive half of this loop doubled.
+    opened.sort_unstable();
+    opened.dedup();
+    // **The two cells the joint separates, not a band around each.**
+    //
+    // `score_cracks` called `detach_around_crack` per scored cell, which
+    // unbraces a 3x3 block, and that is right for a *ray*: a line drawn
+    // through cells leaves each visited cell still joined to the rock on
+    // the far side of the line, so the band is what carries the parting
+    // across. A domain boundary is not a line drawn through cells -- it
+    // **is** the edge set, exactly as `sever_joint`'s "no mirror write"
+    // note argues for the crack bit -- so the two cells either side are
+    // precisely and completely what stopped bracing each other.
+    //
+    // It is also nine times less work, and that is not incidental. The
+    // reveal opens several hundred edges where a ray star scored ~85
+    // cells, and `detach_around` schedules a check for every cell it
+    // unbraces: at a 3x3 band `acceptance.sh`'s `strike` case (one
+    // radius-14 blow into a solid massif) finished with **2,284 pending
+    // scheduler sites, flat, every chunk asleep** against its bar of 1,500
+    // -- `open-bugs-handoff.md` §S's backlog that climbs instead of
+    // draining, caught by that case and by nothing else in the tree.
+    // **And only within twice the flat zone**, which is where a boundary
+    // still parts densely enough to enclose anything. Past that the ramp
+    // has thinned the joints to a scatter: the rock is fissured -- a crack
+    // bit blocks support wherever it is written, and
+    // `World::record_disturbance` licenses failures over the blow's whole
+    // reach -- but nothing out there is *cut off*, so unbracing it only
+    // queues checks that answer "supported". Measured on the same
+    // `strike` case: 1,741 sites unbounded against a bar of 1,500, and 5
+    // bounded. `scene=worked`'s shelf still gives way at 7 overload
+    // failures, which is what says the bound is outside the rock a blow
+    // can actually free.
+    // Every cell the blow's joints parted, with no distance bound of its
+    // own -- the reach the caller passes is the bound. Bounding it here
+    // separately was tried and does not work: the cascade is chaotic in
+    // that parameter (measured on `scene=strike`, 1,553 pending sites at
+    // 2.0x the flat zone, **3,109 at 1.75x**, 1,277 at 1.5x), so any value
+    // that clears one acceptance case is landing there by luck. See
+    // `Reports/dead-ends.md`.
+    for (x, y) in opened {
+        detach_around_crack(world, x, y);
     }
     fresh
 }

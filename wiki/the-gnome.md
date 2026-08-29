@@ -6,8 +6,11 @@ middle mouse button, named in a small HUD in the top-left corner while he
 exists, and visible in his hand on the sprite. **The pick's default dig is
 no longer free-hand**: it cuts a passage his own size, up, down, left or
 right, and the box it will open is drawn before you commit to it; the old
-round bite is still there on `4`. The hammer smashes and cracks rock it
-does not break, and shoves him back when it lands. The axe chops living
+round bite is still there on `4`. **The bore no longer changes direction
+because he walked** — only moving the mouse a real distance re-points it.
+The hammer breaks rock out to the full width of the swing, opens the
+rock's own joints around it the way a blast does, throws the pieces clear
+(and bursts one caught in mid-air), and shoves him back when it lands. The axe chops living
 wood, and cutting a bole through fells the tree.*
 
 *Before that — 2026-08-26: loose grains at
@@ -210,7 +213,7 @@ colour the cursor is wearing.
 | | what it's for |
 |---|---|
 | **Pick** | getting through the world — passages, shafts, tunnels |
-| **Hammer** | breaking the world — and cracking a great deal more than it breaks |
+| **Hammer** | breaking the world into pieces — and cracking further still |
 | **Axe** | cutting what's alive — chop a bole through and the tree comes down |
 
 Under the readout is a short bar that empties when he strikes and fills as
@@ -235,6 +238,13 @@ from what it used to do. A corridor comes out straight and walkable
 because it was cut to the shape of the thing that has to walk down it —
 before this, digging left a wandering bore of round bites whose clearance
 you found out about by getting stuck in it.
+
+**The direction stays where you put it until you move the mouse to change
+it.** Walking down your own corridor carries you past the cursor, and the
+direction from him to it swings round as you go — so a corridor would turn
+into a shaft under you without your having touched anything. It's the
+hand that re-points the dig now, not the legs: move the cursor a real
+distance, about his own height, and it re-points at once.
 
 The box sites itself against **the first rock in reach** in that
 direction, not against his boots, so a wall a dozen cells off is cut
@@ -296,18 +306,36 @@ cliff for long enough and it will come apart above and behind you.
 
 ## The hammer
 
-The pick *removes* rock. The hammer **damages** it, and that is a
-different thing to have. A blow pulverises a small core, chips a shell off
-around it, and scores cracks reaching a long way past both — damage that
-shows, accumulates, and makes the rock around it far readier to give way.
-So the hammer is the tool for bringing a ceiling down, calving a slab off
-a face or starting a collapse, and a poor way to dig a hole.
+The pick *removes* rock. The hammer **breaks** it, and that is a
+different thing to have. A blow pulverises a small core to grit, breaks
+the rock out to the full width of the swing into pieces and throws them
+clear of the wound, and **opens the rock's own joints** past all of that
+— the grain stone already has, before anything hits it. So the hammer is
+the tool for bringing a ceiling down, calving a slab off a face or
+starting a collapse, and a poor way to dig a hole: what it breaks it
+leaves lying there.
+
+The cracks are the same kind an explosion makes: straight-edged angular
+cells, dense where the blow landed and thinning out with distance, and a
+cell whose whole outline has parted falls out of the face as a piece. Work
+one spot and the joints deepen rather than new ones appearing beside them,
+because how a given rock splits at a given point is a property of the
+rock. Hit the rock twice in the same place and you get the same fissures,
+further open.
+
+Most of what comes off a blow is *pieces* rather than grit — a few blocks,
+more cobbles, and grit besides. **And a piece is still something you can
+hit.** Catch one in the air and it bursts where it flies; let it land and
+it is rock again, and breaks the way rock does. That is the whole ladder:
+face, to pieces, to dust.
 
 The cursor draws that difference: a bright ring for what the blow takes
 and a second, dimmer one for how far the cracks reach. The gap between the
 two is the reason to pick the hammer up.
 
-It swings slower than the pick — three times slower — and it shoves him
+A blow throws what it breaks, hard enough that the pieces leave the wound
+rather than dropping at your feet. It swings slower than the pick — three
+times slower — and it shoves him
 back a little when it lands, which it does not do when it hits nothing.
 He's swinging something heavy, and a blow that moves the world and not the
 arm swinging it reads as a cursor effect.

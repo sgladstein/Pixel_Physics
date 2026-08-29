@@ -3361,3 +3361,120 @@ calves a slab stop being the same picture; `filmstrip scene=smash` and
 `scene=chop` print that beside the tile and share their beds with
 `scene=tunnel` and `scene=shake`, so each pair is a controlled comparison
 with the belt as the only variable.
+
+## 2026-08-29 — the belt's first playtest, and the two things it sent back
+
+**Where this sits:** making the gnome's tools *deliver* — the second pass
+over the belt, driven by play rather than by tests. Both complaints were
+the ethos's two laws, and both were right.
+
+**"The direction switches too easy as the gnome moves."** The bore read
+its direction off the vector `gnome -> cursor` every stroke, so walking
+down your own corridor carried you past a stationary cursor, the vector
+swept through the diagonal, and the box flipped from a corridor to a
+shaft with the player's hand still. `Dir::sticky` latches the direction
+with the cursor position that chose it, and holds it until the cursor
+moves 12 cells from there — the hand re-points the dig, never the legs.
+
+**The first attempt at that was on the wrong end of the vector**, and it
+is in `dead-ends.md` because the failure is structural rather than
+tuned: a ratio-and-floor rule over the *current* offset. After the walk
+that offset is `dx=2, dy=11`, a genuine 5.5:1 vertical — which is
+exactly what a player who deliberately points down produces. No
+threshold on the offset can separate the two, because they are the same
+offset. Damp the end the player controls.
+
+**"The hammer mostly makes big strike lines instead of breaking rock
+into pieces."** Also arithmetic before it was a picture. `strike`'s chip
+zone was `radius * 2 / 3` against five straight rays running
+`radius * CRACK_REACH`, so at the gnome's `hammer_radius: 7` the *line*
+was 17 cells and the *damage* 4.
+
+**Widening the chip zone went to the queue as a blind A/B and he
+declined both arms**, which is the verdict that set the shape of the
+change: *"neither, fully get rid of the lines that it makes — it should
+just make cracks similar to an explosion and have the pieces fall off in
+chunks. if the chunks are hit, they break into stone dust."* Three
+changes, one per clause.
+
+**The lines are gone.** A blow reveals the rock's **joint fabric** now
+— the Worley grain in `fracture_field`, which is what a blast has read
+since `d5cb19a` and carries the owner's own three earlier rejections of
+walker rays. `score_cracks` was the last production caller of a radial
+pattern on the destruction path; it survives on `mine` at a reach short
+enough to read as a cut fraying its edges.
+
+**The pieces come off** — and the work is bounded to where they can. The
+reveal is flat at full density out to the chip radius before it ramps away — a `flat_to` argument the crush passes
+as `0.0`, so its pinned hash is unmoved. Without it a blow drew *dashes*:
+everything inside the chip radius is already gone, so every joint a blow
+can reach sits where a pure ramp parts only part of a boundary, and a
+domain that is not fully enclosed does not fall out.
+
+**And the reach comes in from 3x the radius to 2x**, which is cost and
+not looks. `acceptance.sh` is what said so: a ray star is sparse, so
+unbracing all ~85 cells of it over three times the radius was cheap, while
+the fabric opens several hundred edges over the same disc and
+`detach_around_crack` schedules a check per cell it unbraces. At 3x the
+`strike` case finished with **2,284 pending scheduler sites, flat, every
+chunk asleep** against a bar of 1,500 — §S's backlog that climbs instead
+of draining, caught by that case and by nothing else in the tree.
+Filtering the severed set by distance was tried first and abandoned: the
+cascade is **chaotic** in that parameter, 1,553 sites at twice the chip
+radius, 3,109 at 1.75x, 1,277 at 1.5x, while `scene=worked` needed the
+wide one to give way at all. Cutting the reach opens fewer joints rather
+than filtering them afterwards — `strike` 1,163 with 22% headroom,
+`worked` 6 overloads against a bar of 3.
+
+**And a chunk in the air can be hit.** It could not be before, for a
+reason invisible from `strike`: a promoted body's footprint is
+managed-empty in the grid, so `is_tool_target` said no and a swing passed
+straight through the rock it had just knocked loose.
+
+**And a fourth, from his reply to the sheet of those three:** *"Yes this
+is what I am asking, but I don't see pieces coming off in chunks. Do
+you?"* No — while the census on that same run said 226 cells had come off
+as chunks, which is the contradiction that named the cause. A blow's
+`force` becomes a fragment's launch speed as `force / distance`, so at
+3.0 a chunk five cells out left the wound at 0.6 cells a frame, slower
+than it then fell. The pieces were coming off and going nowhere. At 12.0
+the fastest piece goes 1.07 -> 4.02 cells/frame; `hammer_recoil` is a
+separate number so the swing shoves him no harder.
+
+Measured on `scene=smash`: cells broken 98 -> 376, cells off as chunks
+44 -> 313, fastest piece 1.07 -> 4.12 cells/frame, worst frame
+13.47 -> 14.44 ms. Blows that landed went 3 -> 5 for a reason
+worth keeping: a blow that throws its pieces clear keeps the face inside
+`hammer_reach`, where one that leaves rubble in place walls him off —
+`scene=smash`'s own recorded stall, and it turns out to have been a
+symptom rather than a property of hammers.
+
+**The third change is guarded rather than shown, and the sheet is why.**
+It came back byte-identical across it: the gnome swings every 90 frames
+and every piece has settled long before the next blow, so no body was
+ever airborne when one landed. Identical output is the tell for a
+mechanism that never ran, not for a small effect, so the control is
+constructed — `a_blow_bursts_a_chunk_that_is_still_in_the_air`, with
+`a_blow_that_misses_a_chunk_leaves_it_flying` as the half that stops
+"burst every body in the world" passing. The first change has a property
+guard needing no picture at all: every crack edge in comparable jointed
+rock separates two domains, which goes red at 64 off-joint edges with the
+rays put back.
+
+**The other half of that complaint was not the hammer at all.** "It
+sometimes randomly makes a hole at the mouse, which is not near the
+gnome" cannot come from `player::smash` — `face_toward` clamps every blow
+to `hammer_reach` of his own centre. `C` is the sandbox strike **at the
+cursor**, calling the identical `rigid::strike`, and it sits directly
+under `D`, the key running the gnome right; `X` (blast) sits under `S`.
+Neither said anything when it fired, and `strike` carried a comment
+saying the count was discarded because there was nowhere to put it.
+They name themselves in the toast now. Left live rather than gated on
+"no gnome": a blast beside the gnome is something this repo tests with
+on purpose.
+
+**Both fixes are guarded and both guards were watched going red**, per
+the standing check — `walking_does_not_change_which_way_he_is_boring`
+fails on `Dir::toward`, and its sibling
+`pointing_somewhere_new_still_changes_the_bore` stops the fix becoming a
+control that ignores the hand.
