@@ -13,6 +13,7 @@
 
 use std::cmp::Reverse;
 use std::collections::{BinaryHeap, HashMap};
+use std::sync::OnceLock;
 
 use super::cell::Cell;
 use super::chunk::{Chunk, ChunkCoord, Rect, CHUNK_SIZE, MAX_REACH};
@@ -89,6 +90,25 @@ struct BodySlot {
     state: Option<LiquidBody>,
 }
 
+/// Whether creature ticks get their own per-frame budget rather than
+/// competing with world-scale background work for
+/// `scheduler::MAX_SITES_PER_FRAME`. On by default; `CREATURE_PRIORITY=0`
+/// restores the pooled behaviour.
+///
+/// **Read once per process**, so a site cannot be routed one way at
+/// schedule time and looked for the other way at pop time — the switch has
+/// to be constant for the lifetime of a heap or the two halves disagree
+/// and sites are silently stranded.
+///
+/// The `0` spelling rather than a presence test: this is a control that
+/// wants to be *turned off* in an A/B, and `CREATURE_PRIORITY=1` reading
+/// as "off" because the variable merely exists is exactly the kind of
+/// harness knob `CLAUDE.md`'s echo rule was written about.
+pub(crate) fn creature_priority() -> bool {
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| std::env::var("CREATURE_PRIORITY").map_or(true, |v| v != "0"))
+}
+
 /// Per-verb creature counters. Printed beside every scene.
 ///
 /// `trips_completed` is the one that proves the *loop* rather than its
@@ -97,6 +117,41 @@ struct BodySlot {
 #[derive(Default, Clone, Copy, Debug)]
 pub struct CreatureStats {
     pub spawned: u64,
+    /// **Creature sites the scheduler actually dispatched to a live
+    /// creature** — the "was it asked at all" counter, and the one thing
+    /// `moves` cannot say on its own.
+    ///
+    /// A creature that is never popped off the active-site heap and one
+    /// that is popped and declines to move both read `moves 0`, and those
+    /// want opposite fixes: the first is scheduler starvation, the second
+    /// is the brain. `CLAUDE.md`'s standing rule is to pair every "it
+    /// fired" counter with an effect counter from the far side of the
+    /// call; this is the near side, `moves` is the far side, and the ratio
+    /// between them is the readout.
+    ///
+    /// Counted after the organism handle resolves, so a site outliving its
+    /// creature does not inflate it — every tick counted here is a live
+    /// creature that was handed a decision.
+    pub ticks: u64,
+    /// Summed **scheduling lateness**, in frames: how far past its own
+    /// `next_frame` each dispatched creature site actually ran.
+    ///
+    /// Zero is the healthy value and it is not an aspiration — a creature
+    /// reschedules itself to an exact future frame
+    /// (`World::creature_due`), so if the scheduler keeps up, every site
+    /// runs on the frame it asked for. Anything above zero is the shared
+    /// `scheduler::MAX_SITES_PER_FRAME` budget being spent on other kinds
+    /// of site before this one, which is invisible in every other readout:
+    /// the creature still ticks, still moves on the ticks it gets, and
+    /// only the *rate* changes. `/ ticks` is the mean lateness, and it is
+    /// the number that converts an owner's "long pause, move a pixel" into
+    /// something checkable.
+    pub tick_lag_sum: u64,
+    /// Worst single lateness in frames, bounding the mean above. A colony
+    /// whose mean is small and whose max is huge was starved in a burst
+    /// (one blast, one settling forest) rather than continuously, and
+    /// those are different bugs.
+    pub tick_lag_max: u64,
     pub moves: u64,
     pub moves_blocked: u64,
     /// Heading re-rolls — the tumble half of run-and-tumble. High is not a
@@ -436,6 +491,43 @@ pub struct World {
     /// thing every frame regardless, and a `HashMap`'s randomized iteration
     /// order was the engine's one documented source of non-determinism).
     active_sites: BinaryHeap<Reverse<ActiveSite>>,
+    /// **Creature ticks, on their own heap, so world-scale background work
+    /// cannot starve them.** Same shape and same ordering as
+    /// `active_sites`; the only thing that separates them is who competes
+    /// with whom for `scheduler::MAX_SITES_PER_FRAME`.
+    ///
+    /// # Why a second heap rather than a priority
+    ///
+    /// The two queues have different *growth laws*, which is the whole
+    /// argument. Structural checks, decay, evaporation and dissipation
+    /// scale with the size of the world and with how much of it has been
+    /// disturbed — a forest settling or one charge can put tens of
+    /// thousands of sites in front of the scheduler. Creature ticks scale
+    /// with the **population**: 52 ants at `tick_interval` 6 is nine sites
+    /// a frame, for ever. Pooling an O(world) queue and an O(population)
+    /// queue under one per-frame budget does not share it, it hands the
+    /// whole thing to the first one.
+    ///
+    /// And the min-heap makes that total rather than proportional. A
+    /// backlogged site sits at a `next_frame` in the *past* and a creature
+    /// reschedules itself to `world.frame + interval`, in the future, so
+    /// every backlogged site sorts ahead of every creature: while the
+    /// backlog is deeper than the budget, the creature is not merely
+    /// behind in the queue, it cannot be reached at all. That is the
+    /// owner's "long pause, move a pixel, long pause" — the creature is
+    /// not declining to move, it is not being asked.
+    ///
+    /// Reordering the comparator instead (kind before `next_frame`) would
+    /// invert the same unfairness rather than remove it: creatures would
+    /// then be able to starve the structural queue, and the ordering would
+    /// stop meaning "soonest due" for everything else in it.
+    ///
+    /// `CREATURE_PRIORITY=0` routes creature sites back into
+    /// `active_sites`, restoring the pooled behaviour exactly — the
+    /// control for any measurement of this, and the reason it is an env
+    /// switch and not a deleted branch (`CLAUDE.md`: hold the semantic
+    /// rule fixed, do not measure around the confound).
+    creature_sites: BinaryHeap<Reverse<ActiveSite>>,
     /// Positions with an `ActiveKind::StructuralCheck` currently somewhere
     /// in `active_sites` — a dedup index the heap itself can't answer
     /// cheaply (a `BinaryHeap` has no membership test). Exists because
@@ -1706,6 +1798,7 @@ impl World {
             drains: Vec::new(),
             spring_ledger: crate::sim::spring::SpringLedger::default(),
             active_sites: BinaryHeap::new(),
+            creature_sites: BinaryHeap::new(),
             pending_structural_checks: std::collections::HashSet::new(),
             damage_seeds: Vec::new(),
             pending_evaporation: std::collections::HashSet::new(),
@@ -2040,6 +2133,13 @@ impl World {
         if matches!(site.kind, scheduler::ActiveKind::Decay) && !self.pending_decay_sites.insert((site.x, site.y)) {
             return;
         }
+        // **The routing that makes the reserve real.** Everything above is
+        // per-kind dedup; this is the one line that decides which budget a
+        // site competes for. See `creature_sites`.
+        if creature_priority() && matches!(site.kind, scheduler::ActiveKind::Creature { .. }) {
+            self.creature_sites.push(Reverse(site));
+            return;
+        }
         self.active_sites.push(Reverse(site));
     }
 
@@ -2050,14 +2150,21 @@ impl World {
     /// no meaning; every caller filters.
     #[cfg(test)]
     pub(crate) fn active_sites_for_test(&self) -> Vec<ActiveSite> {
-        self.active_sites.iter().map(|&Reverse(site)| site).collect()
+        // Both heaps, because every caller is asking "what is scheduled",
+        // and a guard that could not see a creature site would go quietly
+        // blind the moment the reserve was switched on.
+        self.active_sites
+            .iter()
+            .chain(self.creature_sites.iter())
+            .map(|&Reverse(site)| site)
+            .collect()
     }
 
     /// Total pending active sites. The headline number for whether the
     /// scheduler's cost is actually proportional to "interesting cells"
     /// rather than world size — see the debug overlay.
     pub fn active_site_count(&self) -> usize {
-        self.active_sites.len()
+        self.active_sites.len() + self.creature_sites.len()
     }
 
     /// How many of `organism_id`'s cells currently read as `cell_type` —
@@ -2124,6 +2231,26 @@ impl World {
     /// tick, so `schedule_active_site` — and anything that reads the heap,
     /// like `organism_active_tip_count` — works correctly no matter where in
     /// the call stack it's invoked from.
+    /// Pop the next due creature tick off the reserved heap, or `None`.
+    /// The twin of [`World::pop_due_active_site`] over `creature_sites`,
+    /// and deliberately much simpler: none of the per-kind dedup indices
+    /// that function clears can hold a `Creature` site, because a creature
+    /// is scheduled by exactly one thing — itself.
+    ///
+    /// Always `None` under `CREATURE_PRIORITY=0`, since routing then puts
+    /// creature sites in the main heap and this one stays empty. That is
+    /// what makes the switch a true control rather than a second code
+    /// path: `scheduler::step`'s loop below it is unchanged and simply
+    /// finds nothing reserved.
+    pub(crate) fn pop_due_creature_site(&mut self, due: u64) -> Option<ActiveSite> {
+        let &Reverse(site) = self.creature_sites.peek()?;
+        if site.next_frame > due {
+            return None;
+        }
+        self.creature_sites.pop();
+        Some(site)
+    }
+
     pub(crate) fn pop_due_active_site(&mut self, due: u64) -> Option<ActiveSite> {
         let &Reverse(site) = self.active_sites.peek()?;
         if site.next_frame > due {
