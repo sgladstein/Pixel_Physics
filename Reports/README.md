@@ -851,11 +851,15 @@ drift that two of these documents still reflect.**
   whole felled tree, so the rotation mechanism had never once fired on a
   falling tree. Closes the felled-tree half of `open-bugs-handoff.md` §Q by
   supplying the *outcome* §Q found missing — the tipping test was never the
-  gap. **Read §4 before quoting §3**: the single-scene result is clean and
-  the twelve-scene pooled one is not, and the cluster census that produced both
-  provably cannot see individual pieces. Also carries a raft regression the
-  suite caught, why `FALL=off` had to exist for the control to be real, and
-  the re-promotion loop (§Z3) the negative control turned up in *both* arms.
+  gap — and the numbers agree, 109 topples against 21 in-flight turns over
+  twelve scenes. **Read §4 before quoting §3**: pooled over ten paired scenes
+  the per-piece lying share moves **28% → 36%** and pieces left standing on
+  end **364 → 287**, up in 8 of 10 and flat in 2, while the *cluster* census
+  the repo already had does not move at all because it folds touching logs
+  into one blob. Also carries a raft regression the suite caught, why
+  `FALL=off` had to exist for the control to be real, the re-promotion loop
+  (§Z3) the negative control turned up in *both* arms, and §4c's measured
+  price of extending any of it to rock.
 
 - [tree-mechanics-plan-2026-08-29.md](tree-mechanics-plan-2026-08-29.md) —
   **plan; one change landed** (`3bdf674`). Structure and physics for *all*
