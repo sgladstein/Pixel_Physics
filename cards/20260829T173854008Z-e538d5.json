@@ -1,0 +1,53 @@
+{
+  "id": "20260829T173854008Z-e538d5",
+  "created": "2026-08-29T17:38:54Z",
+  "board": "worldgen",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/worldgen-revamp-plan-dot67g",
+    "commit": "22b2854",
+    "agent": null,
+    "session_id": "2cb39797-d076-5699-b8bf-4494224deffe",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The same world, once it has had time to grow",
+  "question": "Should the world arrive already grown like this? This is not a change to the terrain — it is the world we already ship, waited on.",
+  "context_md": "Same seed, same preset, same camera, **same time of day** (frame 600 against frame 29,400 — exactly eight day/night cycles later, so the light is identical and only the world has aged).\n\nNothing about the terrain differs between these two. The only thing that happened is that the seeds we already sow had time to germinate.\n\nWhat that is worth, measured: the fraction of the screen a light or a shadow could ever reach goes from **5% to 16%**, because a canopy is the geometry our bare rock does not have. So the trees do not only add life and the only green in the picture — they are also what would make any lighting work worth doing above ground.\n\nThe catch: the whole flora of an 8192-column world is **343 one-cell seeds**, five of the six species need thousands of frames to germinate, and an **arid** world sows none at all. A player arriving at frame 0 sees the left-hand picture and never the right-hand one.",
+  "kind": "before_after",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "as the player arrives (frame 600)",
+      "files": [
+        "20260829T173854008Z-e538d5/000-card_surf_base.png"
+      ],
+      "caption": "",
+      "meta": {
+        "living cells in view": 0,
+        "screen a light could reach": "5%"
+      },
+      "focus": null
+    },
+    {
+      "label": "the same world, grown (frame 29,400)",
+      "files": [
+        "20260829T173854008Z-e538d5/001-card_grown_day.png"
+      ],
+      "caption": "",
+      "meta": {
+        "trees in view": 2,
+        "screen a light could reach": "16%",
+        "terrain changes": "none"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
