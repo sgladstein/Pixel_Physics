@@ -2152,6 +2152,15 @@ impl Renderer {
     /// copying every frame and paying for it; the glow splat cannot, because
     /// its rebuild is the most expensive thing in the frame. So the reset
     /// says so instead.
+    ///
+    /// **If you are here wondering why this call exists, it is because
+    /// `force_full` used to cover this case by accident** — and covered it
+    /// only on the frames the cursor happened to be over the window, since
+    /// that is what made `force_full` true. Removing `force_full` from the
+    /// splat's rebuild condition is what took a full redraw from 39.6 ms to
+    /// 2.4 ms (`Reports/frame-cost-the-render-half-2026-08-29.md` §7); this
+    /// is the half of it that was doing real work, made explicit rather than
+    /// deleted with the rest.
     pub fn forget_world(&mut self) {
         self.near_glow.clear();
         self.near_glow_key = None;
@@ -4125,6 +4134,16 @@ impl Renderer {
         // the radius, with the knee near the source where the eye reads a
         // light's shape. Written per splat cell it was a `sqrt` two million
         // times a rebuild; here it is 841 entries once.
+        //
+        // **Worth ~0.4 ms of a ~6 ms rebuild, and not the win** -- measured
+        // separately, three alternating pairs against a build that keeps the
+        // per-cell `sqrt` and changes nothing else: 6.10 / 5.89 / 6.15 ms
+        // against 5.63 / 5.85 / 4.90, faster in three of three with the
+        // spreads overlapping. Nearly all of the rebuild's 37.2 -> 5.4 ms is
+        // the chunk-major walk below. Separated because a bundle cannot be
+        // attributed afterwards, and because the arithmetic is the obvious
+        // suspect and is not the answer -- the same shape as the measured
+        // null on the scan hoist above.
         let kernel: Vec<f32> = (-r..=r)
             .flat_map(|dy| {
                 (-r..=r).map(move |dx| {

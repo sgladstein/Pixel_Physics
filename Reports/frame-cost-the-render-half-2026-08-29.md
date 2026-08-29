@@ -370,12 +370,30 @@ The pixel loop everyone reasoned about is 1.9 ms. Everything anyone had
 proposed optimising — the sky gradient, the star hash, the per-pixel chunk
 lookup, the sky-view ray fan added the same day — lives inside it.
 
-### A third thing the falloff was costing
+### The falloff table, measured on its own — and it is not the win either
 
-The disc's falloff is a function of the offset alone, so it is a table:
-841 entries once, rather than a `sqrt` per splat cell — two million of them
-a rebuild. Folded into §5's chunk-major walk, the rebuild is **37.2 -> 5.4
-ms** rather than §5's ~6x.
+The disc's falloff is a function of the offset alone, so it is a table: 841
+entries once, rather than a `sqrt` per splat cell — two million of them a
+rebuild. Folded into §5's chunk-major walk, the rebuild is **37.2 → 5.4 ms**.
+
+**Almost none of that is the table**, and it is separated here because a
+change landed as a bundle cannot be attributed afterwards. One binary keeping
+the per-cell `sqrt` against one with the table, everything else held, three
+alternating pairs on the same world:
+
+| | rebuild |
+|---|---|
+| per-cell `sqrt` | 6.10 / 5.89 / 6.15 ms |
+| table | 5.63 / 5.85 / 4.90 ms |
+
+**~0.4 ms of ~6**, faster in three of three with the spreads overlapping. So
+the table is a real but minor win, and §5's chunk-major walk is essentially
+all of the rebuild's improvement.
+
+That makes **two** measurements in this function where the arithmetic was the
+obvious suspect and the hashing was the answer — this one, and §5's null on
+the scan hoist. Worth carrying as the shape of the thing: in a loop that
+touches a `HashMap` key per iteration, the `sqrt` is not where the time is.
 
 ### And the rebuild guard was blind in the same way §5's renders were
 
