@@ -50,10 +50,10 @@ whole, then run `python3 scripts/readmetoc.py`.
 | [The ant colony — status](#the-ant-colony--status) | 2677 |
 | [M19 status — started](#m19-status--started) | 2706 |
 | [Felling status — the verb works, and what it produces is pieces](#felling-status--the-verb-works-and-what-it-produces-is-pieces) | 2762 |
-| [Performance](#performance) | 2911 |
-| [World speed — five independent time axes](#world-speed--five-independent-time-axes) | 3085 |
-| [Status](#status) | 3168 |
-| [License](#license) | 3279 |
+| [Performance](#performance) | 2957 |
+| [World speed — five independent time axes](#world-speed--five-independent-time-axes) | 3131 |
+| [Status](#status) | 3214 |
+| [License](#license) | 3325 |
 
 ### Milestones, in numeric order
 
@@ -87,7 +87,7 @@ them is named "plants". A section can appear twice; felling is honestly both
 plant work and structural work.
 
 **Known limitations for every topic are collected in one place**:
-[Status](#status), line 3168 — the *last* section in the
+[Status](#status), line 3214 — the *last* section in the
 file, not the first. Read it before concluding something is broken.
 
 | Topic | Sections, primary first |
@@ -102,9 +102,9 @@ file, not the first. Read it before concluding something is broken.
 | **the coarse field grid — pressure, heat, light** | [The coarse field grid](#the-coarse-field-grid) 450, [M12/M13 status](#m12m13-status) 712 |
 | **worldgen and world structure** | [M10 status](#m10-status--the-worldgen-half) 2545, [Architecture](#architecture) 293 |
 | **the gnome (player character)** | [M9 status](#m9-status--the-gnome) 2484, [Controls](#controls) 156 |
-| **weather, sky and the clock** | [Weather status](#weather-status) 2660, [M19 status](#m19-status--started) 2706, [World speed](#world-speed--five-independent-time-axes) 3085 |
+| **weather, sky and the clock** | [Weather status](#weather-status) 2660, [M19 status](#m19-status--started) 2706, [World speed](#world-speed--five-independent-time-axes) 3131 |
 | **rendering, UI and tunables** | [UI improvements](#ui-improvements--overnight-run-section-9) 2238, [Live tunables panel](#live-tunables-panel--overnight-run-section-10) 2283, [Rendering performance](#rendering-performance--overnight-run-section-11) 2351, [M6 deferral](#m6-deferral) 1014 |
-| **performance and the parallel sweep** | [Performance](#performance) 2911, [M5 status](#m5-status) 1024, [Architecture](#architecture) 293, [Rendering performance](#rendering-performance--overnight-run-section-11) 2351 |
+| **performance and the parallel sweep** | [Performance](#performance) 2957, [M5 status](#m5-status) 1024, [Architecture](#architecture) 293, [Rendering performance](#rendering-performance--overnight-run-section-11) 2351 |
 | **materials and the data schema** | [Materials](#materials) 219, [M12/M13 status](#m12m13-status) 712 |
 
 <!-- END GENERATED TOC -->
@@ -2893,10 +2893,56 @@ a settle; the per-frame addition inside `advance` is two float operations and
 a comparison. (The worst-frame column spans 22.66 to 41.29 ms **in the control
 arm alone**, so it is not a quantity this can be read from.)
 
-**Known limitations.** The tree does not hinge on its stump — the crown is
-severed into fragments at the cut and each falls on its own, so a felled
-trunk does not sweep across the ground in one arc, and segmenting and shear
-velocity are still T2. `rotation_fits` checks the final footprint and not the
+**And then the owner rejected both arms of the animation**, on two counts,
+and was right on both. One of the two answers was accepted and one was
+rejected in its turn; the account is §9 of the report, and **§9d is the one
+to read** — the fall it describes is withdrawn.
+
+- *"It should hinge at the trunk... not just unzip and fall to the ground."*
+  **Built, and then rejected in play — do not rebuild it, see §9d and
+  `dead-ends.md`.** `fell_severed_tissue` ran the fragment ladder over the whole severed region
+  **at the instant of the cut** — 56 separate bodies before a cell had moved,
+  so there was never a tree to hinge, and that is why everything above
+  measured a modest effect. Every fragment off one severance now shares a
+  `Hinge { pivot, alpha, omega }`; while it holds one, its velocity is the
+  rigid-body `omega x r` about the stump, so a piece high up outruns one at
+  the base, the assembly sweeps, and `landed` releases it on impact. Gravity
+  is **replaced** while hinged, not added — `alpha` is computed from gravity.
+  Two defects on the first build that **no contact sheet could have shown**,
+  because a hinge about the wrong point is indistinguishable from falling:
+  the pivot was `Failure::at` (an arbitrary cell — measured, the crown's far
+  *left* edge, giving `r = (58.5, 2.0)`, nearly horizontal, so the swing
+  pointed straight down), replaced by `cut_face`'s lowest-row centre of mass
+  (`r = (58.5, -26.0)`); and a units error, `Hinge` integrating radians while
+  `angular_acceleration` returned quarter-turns. `HINGE_PROBE=1` prints both.
+- *"All the leaves still fall off the branch."* `clings_to_wood` was working
+  and **one cell too shallow**: `on_a_branch` asked only the four cells
+  touching a leaf, and a crown is mostly leaf resting on other leaves.
+  Censused by steps-to-wood over 1,122 settled cells — 405 at one step, 201
+  at two — one step holds **36%** and two holds **53%**. It reaches one
+  further now. Two and not more because depth is how near this gets to
+  `deadleaf.ron`'s scaffold dead end.
+
+Measured after: foliage within two steps of wood **53% → 74%**, the tail that
+had run five or more cells clear **214 cells → 74**, and the `log` the hinge
+had cost (732 → 587) came back to **772**, better than either.
+
+**The hinge did not survive its own review, and the verdict is the useful
+part.** *"A still looks like everything breaking but because of an invisible
+force pushing things around, not because it fell and hit the ground"*, and
+then: *"you are trying to force a full motion and break up... It seems like
+you are trying to create an animation and not a physics system that results
+in realistic damage."* That is an exact description of the mechanism —
+`Hinge` **imposes** `v = omega x r` on every fragment from a number computed
+at the cut, which is choreography in physics notation. The model the owner
+described instead is causal and is the plan's own §2-§4: a severed trunk
+**detaches** rather than fragmenting, goes over because it is unstable, and
+the *impact* generates the stress that breaks limbs off. The leaf fix is
+independent of all of this and stands.
+
+**Known limitations.** The crown breaks into limbs as it is *cut* rather than
+as it lands, so a felled tree is several pieces sweeping over together rather
+than one trunk bending and snapping. `rotation_fits` checks the final footprint and not the
 swept path; turning about the centre shrinks the sweep to the body's bounding
 circle rather than removing it. In-flight turns are refused 40% of the time
 and topples 52%, which may be a pile with no room in it or a probe that is

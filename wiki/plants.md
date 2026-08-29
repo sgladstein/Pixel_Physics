@@ -3,9 +3,10 @@
 *What plants do, and what it looks like when they are working. No code, no
 file names — see `Reports/` for why any of it is built the way it is.*
 
-*Current as of: 2026-08-29 (what breaks off a plant now turns as it falls and
-goes over where it lands, instead of dropping in the pose it grew in -- see
-**Cutting a plant down**; stems draw a line instead of wandering into one --
+*Current as of: 2026-08-29 (most of a felled tree's leaves now stay on the
+branch rather than only the layer touching it -- see **Cutting a plant down**;
+what breaks off a plant turns as it falls and goes over where it lands, instead of dropping in the pose it
+grew in; stems draw a line instead of wandering into one --
 see **How a stem is shaped**; plants flower and fruit: two new kinds of plant
 stop growing on purpose and put an organ where the shoot tip used to be, the
 ripe fruit falls carrying the seed inside it, and building either costs the
@@ -528,14 +529,20 @@ rather than the other. And a piece that comes to rest with its weight
 overhanging its footing tips instead of standing there, until it is seated or
 until there is no room to turn into.
 
-**What it still does not do is hinge on its stump.** A real tree pivots on
-the cut and sweeps across the ground; here the crown lets go as separate
-pieces and each of those falls and turns on its own. So expect limbs lying
-across each other rather than a trunk lying full length in one line, and
-expect a crowded pile to hold on to more of its awkward poses than an open
-floor does — a piece with nothing to turn into stays as it is, which is a
-real outcome and not a failure. Whether the settled pile now reads as a
-felled tree is the open question on this section.
+**Most of the leaves stay on now.** Foliage holds to a limb it is lying
+on, and it holds through another leaf as well as directly — which is the
+difference between a third of a crown's leaves staying put and about
+three-quarters. Foliage in open air still falls; the chain has to reach real
+wood.
+
+**What it still does not do is fall over.** The crown breaks into pieces at
+the moment it is cut and they drop, rather than the tree detaching from the
+ground, going over because it is unstable, and *then* shedding branches where
+it hits. That is the open question on this section, and it is a bigger one
+than it looks: an attempt to make the pieces sweep over together was rejected
+in play for reading as "an invisible force pushing things around", which is
+what any imposed motion will read as until the stress that ought to cause it
+exists.
 
 **Burning a trunk out from under a crown** now brings the crown down too,
 which it did not before at the tighter `F9` settings — the fire licenses

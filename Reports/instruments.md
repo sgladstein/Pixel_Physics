@@ -325,6 +325,24 @@ measured against, and the first reading of this change fell back on a
 cluster-level statistic for exactly that reason. Verified against the
 pre-change binary on `scene=fell`: every physics line identical.
 
+**`HINGE_PROBE=1` prints the felling hinge's own arithmetic** — the region's
+size and mass, the stump it pivots about, `broke_at` beside it, the centre of
+mass **as a vector from the pivot**, the second moment and `alpha`. Read the
+vector, not `alpha`: a hinge whose centre of mass is level with its pivot
+swings straight *down*, which on a contact sheet is indistinguishable from
+the piece simply falling. That is not hypothetical — it is what the first
+build did, for a whole render and a wrong reading, and no image could have
+told anyone.
+
+**`filmstrip`'s "foliage by steps to the nearest wood"** is a multi-source
+BFS out of every woody cell, crossing only foliage, so bucket 1 is exactly
+the set `update::on_a_branch` holds. It exists because "the leaves fall off
+the branch" and "the rule that holds them is one cell too shallow" produce
+the identical picture; the histogram separates them, and it is what set the
+clinging depth (36% at one step, 53% at two). `no path` is foliage with no
+route to wood through its own kind — already run clear, and no depth
+recovers it.
+
 **Two orientation censuses on `scene=fell`, and they answer different
 questions.** `settled log pieces` folds settled `log` into 8-connected
 clusters, so two logs that land touching are one "piece" whose orientation is

@@ -3942,6 +3942,74 @@ struct LogPieces {
     sizes: Vec<(usize, i32, i32)>,
 }
 
+/// **How far the settled foliage is from any wood**, in steps through other
+/// foliage.
+///
+/// The owner's standing complaint is that a felled crown's leaves come off
+/// the branch, and `MaterialDef::clings_to_wood` is supposed to hold them --
+/// but `update::on_a_branch` asks only the four *immediate* neighbours, so a
+/// leaf resting on another leaf that is resting on a branch still falls. This
+/// says how much of a crown that leaves out: it is the difference between the
+/// mechanism being broken and the mechanism being one cell deep.
+///
+/// A multi-source BFS out of every woody cell, crossing only foliage, so
+/// "distance 1" is exactly the set `on_a_branch` holds today. `unreachable`
+/// is foliage with no path to wood at all through its own kind -- litter that
+/// has already run clear, which no clinging rule of any depth would recover.
+fn leaf_reach(world: &World) {
+    let Some(deadleaf) = world.materials.id_of("deadleaf") else { return };
+    let mut dist: std::collections::HashMap<(i32, i32), u32> = std::collections::HashMap::new();
+    let mut queue: std::collections::VecDeque<(i32, i32)> = std::collections::VecDeque::new();
+    let foliage = |x: i32, y: i32| world.get(x, y).material == deadleaf;
+    for y in 0..HEIGHT {
+        for x in 0..WIDTH {
+            if world.materials.get(world.get(x, y).material).woody {
+                dist.insert((x, y), 0);
+                queue.push_back((x, y));
+            }
+        }
+    }
+    while let Some((x, y)) = queue.pop_front() {
+        let d = dist[&(x, y)];
+        for (dx, dy) in [(0, -1), (0, 1), (-1, 0), (1, 0)] {
+            let (nx, ny) = (x + dx, y + dy);
+            if !world.in_bounds(nx, ny) || !foliage(nx, ny) || dist.contains_key(&(nx, ny)) {
+                continue;
+            }
+            dist.insert((nx, ny), d + 1);
+            queue.push_back((nx, ny));
+        }
+    }
+    let mut buckets = [0usize; 6];
+    let mut unreachable = 0usize;
+    let mut total = 0usize;
+    for y in 0..HEIGHT {
+        for x in 0..WIDTH {
+            if !foliage(x, y) {
+                continue;
+            }
+            total += 1;
+            match dist.get(&(x, y)) {
+                Some(&d) => buckets[(d as usize).min(5)] += 1,
+                None => unreachable += 1,
+            }
+        }
+    }
+    let share = |n: usize| (n * 100).checked_div(total).unwrap_or(0);
+    println!(
+        "      foliage by steps to the nearest wood: 1 {} ({}%), 2 {} ({}%), 3 {}, 4 {}, 5+ {}, no path {} ({}%) of {total} cells",
+        buckets[1],
+        share(buckets[1]),
+        buckets[2],
+        share(buckets[2]),
+        buckets[3],
+        buckets[4],
+        buckets[5],
+        unreachable,
+        share(unreachable),
+    );
+}
+
 /// The settled `log` pieces, folded into 8-connected clusters: how many,
 /// how big, and — the part nothing else here can say — **how many are lying
 /// down rather than standing on end**.
@@ -7004,6 +7072,7 @@ impl FellCensus {
             let total: usize = tally.values().sum();
             let listed: Vec<String> = tally.iter().rev().map(|(n, c)| format!("{n} {c}")).collect();
             println!("      unattached debris in the fall box (x 200..340): {} cells -- {}", total, listed.join(", "));
+            leaf_reach(world);
             println!(
                 "      of that, {loose} cells are a Powder kind ({:.0}% of the pile is loose grain by count)",
                 if total == 0 { 0.0 } else { 100.0 * loose as f64 / total as f64 }
