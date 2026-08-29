@@ -1,6 +1,8 @@
 # Ants
 
-*Current as of: 2026-08-23, when ants learned to climb over each other. The
+*Current as of: 2026-08-29, when founding a colony learned to see past a
+tree canopy and to refuse open water. Before that: 2026-08-23, when ants
+learned to climb over each other. The
 colony forages, digs, builds and carries food home; food is worth what it is
 rather than a flat rate to whatever eats it, and a wood now drops food onto its
 own floor — where it rots back into the ground instead of piling up forever.
@@ -123,6 +125,16 @@ patch along whatever surface is there and stands about fifty ants on it.
 Fifty, not one, because fewer than that does not look like ants. It follows
 the terrain, so it works on a hillside or in a cave mouth as well as on flat
 ground.
+
+Where it *cannot* put an ant, it puts none, and the number it managed is
+reported rather than quietly rounded up. Water is the clearest case: ants are
+not swimmers and a colony will not be founded on a lake, so a shoreline
+colony is smaller than the same colony on a beach. So is one founded in a
+wood, because a column with a trunk standing in it has nowhere for an ant to
+stand — the ants go on the ground *beneath* the canopy, which is where they
+belong, but the trees take some of the room. Expect somewhere between a third
+and half of a colony to be lost to water and trees on rough, wooded, wet
+ground, and nearly none of it on open ground.
 
 The two scents are invisible. Press **V** to cycle the field overlays past
 the usual ones to **PHEROMONE A** (the home scent, magenta) and **PHEROMONE
