@@ -1899,17 +1899,21 @@ fn forage_loop_scene() {
     // are kept beside the new ones because the gap is the finding.** This
     // scene measured **98 trips, deepest 18, mean depth 10.3** after the
     // litter merge (2026-08-23), and the bar below was set at a seventh of
-    // that. It now measures **24 trips, deepest 37, mean depth 17.4** --
-    // four times fewer excursions, each twice as deep. Neither number was
-    // touched by creature code: the sky/soil worldgen work (`39e6f36`,
-    // 2026-08-29) reshaped the terrain the colony forages over.
+    // that. It now measures **23 trips, deepest 28, mean depth 11.0** --
+    // four times fewer excursions. Neither number was touched by creature
+    // code: the sky/soil worldgen work (`39e6f36`) reshaped the terrain the
+    // colony forages over, and the plant organs merge (`f96c08d`, the same
+    // day) changed what grows on it. Both were measured, four runs, and the
+    // trip count is the stable half: 24 on `ba6fc98` and 23 after the organs
+    // merge, while the depth moved 37 -> 28 across the same step. **Depth is
+    // the volatile column; do not set a tight bar on it.**
     //
     // **The bar had therefore gone fragile without anyone editing it.** At
     // `>= 14` against a measurement of 24 it sat at 58% of the value, which
     // is the "bar near the measurement flakes" case this comment warns
     // about, while still telling the reader the measurement was 98. It is
     // now **6**: the largest legitimate drift on record is the 4.1x this
-    // paragraph documents, and 24/4.1 is 5.8, so another drift as big as the
+    // paragraph documents, and 23/4.1 is 5.6, so another drift as big as the
     // one that just happened still passes while the failure the guard is
     // named for -- a sessile colony, which scores exactly 0 -- still fails.
     // Lowering a bar weakens it, and that trade is stated rather than
@@ -1929,7 +1933,7 @@ fn forage_loop_scene() {
     // and this is the only one that goes to zero.
     assert!(
         st.forage_trips >= 6,
-        "the colony has gone sessile: {} round trips of {}+ cells (measured 24 here on 2026-08-29; was 98 on 2026-08-23), deepest excursion {} cells, reach profile {:?}",
+        "the colony has gone sessile: {} round trips of {}+ cells (measured 23 here on 2026-08-29 at `f96c08d`, 24 at `ba6fc98`; was 98 on 2026-08-23), deepest excursion {} cells, reach profile {:?}",
         st.forage_trips,
         pixel_physics::sim::creature::FORAGE_TRIP_MIN,
         st.forage_depth_max,
@@ -1937,7 +1941,7 @@ fn forage_loop_scene() {
     );
     assert!(
         st.forage_depth_max >= 8,
-        "no ant got further than {} cells from home (measured 37 here on 2026-08-29; was 18 on 2026-08-23 -- the bar stays at 8, which is now 4.6x headroom)",
+        "no ant got further than {} cells from home (measured 28 here on 2026-08-29 at `f96c08d`, 37 at `ba6fc98`; was 18 on 2026-08-23 -- the bar stays at 8, which is 3.5x headroom and this column is the volatile one)",
         st.forage_depth_max
     );
     let phero_b: u64 = (0..w).flat_map(|x| (0..h).map(move |y| (x, y))).map(|(x, y)| world.pheromone_at(Channel::B, x, y) as u64).sum();

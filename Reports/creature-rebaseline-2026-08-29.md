@@ -50,6 +50,37 @@ energy census: granted 24300  plant 720  corpse 0
 in it. Delete every leaf in the world and the colony's budget moves by
 2.9%.
 
+### The prediction, and the accidental test of it
+
+`main` moved 30 commits while this was being written — the plant-organs
+merge (`f96c08d`), which adds flower, fruit and windfall as materials and
+rewrites `plant.rs`. The trees *are* this scene's food supply, so the whole
+re-baseline had to be taken again on the merged tree. That accident is the
+best evidence in this document, because the two readings separate the two
+explanations cleanly.
+
+| | `ba6fc98` | `f96c08d` + this branch |
+|---|---|---|
+| food stock at 12,000 frames | 3,057,600 | **3,685,920** (+21%) |
+| `harvested_plant` | 720 | **360** |
+| food's share of colony energy | 2.9% | **1.5%** |
+| `moved` (movement cost paid) | 3,165 | **2,507** |
+| energy spent, as share of budget | 45% | **43.5%** |
+| **`eats`** | **6** | **3** |
+| `deaths` | 0 | 0 |
+
+**Food abundance went up 21% and `eats` halved.** The abundance reading
+predicts the opposite sign — more food underfoot, more eating, or at the
+very least not less. The depletion reading predicts exactly this: the ants
+moved less (`moved` 3,165 → 2,507), so they depleted less (45% → 43.5%),
+so fewer of them crossed the 50% threshold, so `eats` fell. The mechanism
+predicted the direction of a change nobody planned, on a tree it was not
+fitted to.
+
+This also disposes of the strongest counter-argument — that `eats 6` might
+be a saturated or broken counter. A broken counter does not move from 6 to
+3 in step with a 21% change in movement cost.
+
 **Nothing is hungry because the run stops just short of the threshold.**
 `ant.ron` sets `hunger_fraction: 0.5`, so an ant is not hungry until it is
 50% depleted. The mean ant finishes this run at **45%**. `eats 6` is not a
@@ -111,24 +142,96 @@ a question its scene cannot answer.
 nothing else running — `CLAUDE.md`'s rule that a timing baseline must be
 re-measured on the machine that reports it.
 
-| Guard | 2026-08-23 (`creature-evolution-plan.md` §4) | **today, `ba6fc98`** |
-|---|---|---|
-| Frame cost — colony scene, mean over 12,000 frames | 3.488 / 3.491 ms | **2.906 / 2.943 ms** (worst 39.6 / 38.7) |
-| Determinism — two `ascii` runs diff | identical | **identical**; 0 differing lines with timing rows removed |
+| Guard | 2026-08-23 (`creature-evolution-plan.md` §4) | **today, `ba6fc98`** | **`f96c08d` + this branch** |
+|---|---|---|---|
+| Frame cost — colony scene, mean over 12,000 frames | 3.488 / 3.491 ms | **2.906 / 2.943 ms** (worst 39.6 / 38.7) | 3.038 / 3.093 — **discard, see below** |
+| Determinism — two `ascii` runs diff | identical | **identical** | **identical**; 0 differing lines with timing rows removed |
+| Live organisms in the colony scene | — | 126 | **153** |
 
-Frame cost is down ~17%, which is consistent with `ba6fc98`'s own subject
-(*"paint the frame on all cores"*). It is quoted as a **same-session
-reading**, not as a comparison against 3.488 — that figure came off a
-different container and `CLAUDE.md` forbids the subtraction.
+Frame cost on `ba6fc98` is down ~17% from 3.488, consistent with that
+commit's own subject (*"paint the frame on all cores"*). It is quoted as a
+**same-session reading**, not as a comparison against 3.488 — that figure
+came off a different container and `CLAUDE.md` forbids the subtraction.
+
+**Those two merged-tree runs were taken while a `creature_space` sweep still
+occupied all four cores** (load average 4.2), so they were discarded and the
+pair re-run on a quiet box. Six `ascii` runs in total:
+
+| run | tree | box | colony mean | parallel-stress worst (machine proxy) |
+|---|---|---|---|---|
+| 1 | `ba6fc98` | quiet | **2.906** | 9.896 |
+| 2 | `ba6fc98` | quiet | **2.943** | 15.552 |
+| 3 | `f96c08d` | loaded | 3.038 | 15.012 |
+| 4 | `f96c08d` | loaded | 3.093 | 16.670 |
+| 5 | `f96c08d` | quiet | **3.362** | 9.441 |
+| 6 | `f96c08d` | quiet | **3.417** | 9.521 |
+
+**The proxy swings 77% (9.4 → 16.7) on a fixed scene and a fixed binary**,
+which is `CLAUDE.md`'s worst-frame rule arriving on schedule — that column
+is not a machine ruler, it is noise wearing a number. The *mean* is the
+stable statistic: runs 1 and 2 differ by 1.3% while their proxies differ by
+57%.
+
+**Proxy-matched, the comparison holds up.** Runs 5 and 6 (proxy 9.44/9.52)
+are the closest match to run 1 (proxy 9.90), and against it the colony mean
+goes **2.906 → 3.36–3.42, about +16%**. But the same scene went from **126
+to 153 live organisms** (+21%) across that merge, because the organs work
+grows more plant material. **Cost per live organism did not rise** — it fell
+slightly. This is a bigger scene, not a slower one, and it should not be
+read as a creature-path regression.
+
+### Foraging pays, ants fed, and the reference genomes
+
+`creature_space mode=economy seeds=4 frames=18000` (2,193 s) and
+`creature_space genomes=1 seeds=8 frames=18000` (612 s). **The economy sweep
+ran on `ba6fc98` and the reference pair on the merged tree** — the merge
+landed between them, and saying which tree each number came off is the whole
+discipline this document is about.
+
+| Guard | 2026-08-23 | **re-measured** | tree |
+|---|---|---|---|
+| **Foraging pays** — forager minus immobile, no moss / moss | +0.474 / +0.466 | **+0.427 / +0.459** | `ba6fc98` |
+| **Ants fed** — fraction ever above starting energy | 0.75 / 0.75 | **0.68 / 0.75** | `ba6fc98` |
+| **Reference genomes** — `authored` / `zero` | 0.690 / 0.297 | **0.696 / 0.299** | `f96c08d` |
+
+**All three guards hold.** Foraging still pays by a wide margin — the
+failure condition is "goes to zero or negative" and it is nowhere near it.
+The no-moss `ants fed` row is the only one that moved outside its own third
+digit (0.75 → 0.68); the moss row is unchanged.
+
+**The reference pair is the finding here, and it is a negative one.** §4
+recorded `zero` moving 0.300 → 0.298 and argued that because an immobile
+animal never eats and never pays a move cost, its survival "is a pure
+function of the *scene*". Today, across **both** the sky/soil worldgen merge
+and the plant-organs merge, it reads **0.299**, and `authored` reads 0.696
+against 0.690. The `immobile` column of the economy sweep independently
+reads 0.298 at every one of its four settings.
+
+So the wetland economy scene these guards run on was **barely touched by
+either merge**, while the `ascii` foraging scene over the same period went
+from 98 round trips to 23. Two creature scenes, two opposite answers to "did
+this week's worldgen work move my baseline". **A blanket "the world changed,
+so re-measure everything" would have been wrong in one direction and a
+blanket "the guards are fine" wrong in the other** — which is the argument
+for re-measuring rather than reasoning about it, and also the reason the
+economy sweep's `ba6fc98` reading is worth flagging as not yet re-taken on
+the merged tree. It is the one measurement in this document I would spend
+another 37 minutes on next.
 
 ---
 
 ## 3. The `forage_reach` bars had gone fragile without being edited
 
-| | `ascii.rs` comment said | **measured today** | bar was | bar now |
-|---|---|---|---|---|
-| `forage_trips` | "measured 98 here" | **24** | `>= 14` | **`>= 6`** |
-| `forage_depth_max` | "measured 18 here" | **37** | `>= 8` | `>= 8` |
+| | `ascii.rs` comment said | `ba6fc98` | **`f96c08d`** | bar was | bar now |
+|---|---|---|---|---|---|
+| `forage_trips` | "measured 98 here" | 24 | **23** | `>= 14` | **`>= 6`** |
+| `forage_depth_max` | "measured 18 here" | 37 | **28** | `>= 8` | `>= 8` |
+
+**Four runs across two trees separate the stable column from the volatile
+one.** Trips read 24 then 23 — steady. Depth read 37 then 28 across the same
+step, a 24% swing from a merge that added plant organs. **Depth is the
+column not to set a tight bar on**, and that is measured rather than
+guessed.
 
 The trip bar was set at *a seventh* of 98, with the comment explaining that
 "a bar near the measurement flakes". Nobody edited it; the world moved
@@ -137,10 +240,10 @@ exact condition the comment warns about — while still telling every reader
 the measurement was 98.
 
 The colony has not gone sessile. It has changed shape: **four times fewer
-excursions, each roughly twice as deep** (mean depth 10.3 → 17.4, deepest
-18 → 37). Fewer, longer trips over reshaped terrain.
+excursions, each roughly twice as deep** (mean depth 10.3 → 11.0, deepest
+18 → 28). Fewer, longer trips over reshaped terrain.
 
-**The new bar and the trade it makes.** 6 is 24/4.1, where 4.1x is the
+**The new bar and the trade it makes.** 6 is 23/4.1, where 4.1x is the
 largest legitimate drift on record — the one documented in the row above.
 Another drift as large as the one that just happened still passes, and the
 failure the guard is named for (a sessile colony scores exactly 0) still

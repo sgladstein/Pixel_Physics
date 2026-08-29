@@ -96,12 +96,29 @@ nothing else on the box.
 
 | Guard | 2026-08-23 (§4 table) | **today, `ba6fc98`** |
 |---|---|---|
-| Frame cost, colony scene, mean over 12,000 frames | 3.488 / 3.491 ms | **2.906 / 2.943 ms** (worst 39.6 / 38.7) |
-| Determinism, two `ascii` runs | identical | **identical** — 0 differing lines with timing rows removed |
+| Frame cost, colony scene, mean over 12,000 frames | 3.488 / 3.491 ms | **2.906 / 2.943** (`ba6fc98`), **3.362 / 3.417** (`f96c08d`) |
+| Foraging pays — forager minus immobile, no moss / moss | +0.474 / +0.466 | **+0.427 / +0.459** (`ba6fc98`) |
+| Ants fed | 0.75 / 0.75 | **0.68 / 0.75** (`ba6fc98`) |
+| Reference genomes — `authored` / `zero` | 0.690 / 0.297 | **0.696 / 0.299** (`f96c08d`) |
+| Determinism, two `ascii` runs | identical | **identical**, both trees — 0 differing lines |
 
-Frame cost is **down ~17%**, consistent with `ba6fc98`'s own subject
-(*"paint the frame on all cores"*). Quoted as a same-session reading, not as
-a comparison against 3.488 — that figure is another container.
+**All guards hold.** Two things worth your attention:
+
+**The frame cost rise is scene size, not a creature regression.** The colony
+went **126 → 153 live organisms** across the organs merge (+21%) while the
+mean went +16%, so cost per organism fell. Six runs, and the parallel-stress
+worst-frame proxy swings **77% (9.4 → 16.7 ms)** on a fixed binary and scene
+— that column is noise, not a machine ruler. The *mean* is stable: runs 1
+and 2 differ 1.3% while their proxies differ 57%.
+
+**The reference pair did not move, and that is the informative half.** §4
+argued `zero`'s survival is "a pure function of the scene". Across *both*
+this week's merges it reads **0.299**, and the economy sweep's `immobile`
+column reads 0.298 at all four settings. So the wetland economy scene was
+barely touched, while the `ascii` foraging scene lost three quarters of its
+trips over the same period. **Two creature scenes, opposite answers** — a
+blanket "re-measure everything" would have been wrong one way and "the
+guards are fine" wrong the other.
 
 ### 4. The `forage_reach` bars in `examples/ascii.rs` have quietly gone fragile
 
@@ -109,8 +126,8 @@ This is the finding with a live consequence.
 
 | | comment in `ascii.rs` says | **measured today** | bar |
 |---|---|---|---|
-| `forage_trips` | "measured 98 here" | **24** | `>= 14` |
-| `forage_depth_max` | "measured 18 here" | **37** | `>= 8` |
+| `forage_trips` | "measured 98 here" | **24** → **23** after the organs merge | `>= 14`, now **`>= 6`** |
+| `forage_depth_max` | "measured 18 here" | **37** → **28** | `>= 8`, unchanged |
 
 The trip bar was set as *"a seventh of the trip count … because outcome
 spread here is large and a bar near the measurement flakes"*. Against 98
@@ -158,5 +175,7 @@ against 4.0).
   competing edit into the file `CLAUDE.md` names as the repo's most
   collision-prone (118 landings). Your today-column numbers are quoted in my
   report as provenance only.
-- The `Foraging pays`, `Ants fed` and `Reference genomes` rows of §4 are
-  running as this is written; they are appended below when they land.
+- **The economy sweep is a `ba6fc98` reading.** `main` moved 30 commits
+  mid-session (plant organs, `f96c08d`) and I re-ran `ascii` on the merged
+  tree but not the 37-minute economy sweep. It is the one number here I would
+  spend another 37 minutes on next.
