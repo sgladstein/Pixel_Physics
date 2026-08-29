@@ -1,0 +1,37 @@
+{
+  "id": "20260829T211450662Z-0211dc",
+  "created": "2026-08-29T21:14:50Z",
+  "board": "plants",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/plant-mechanics-handoff-d4zo44",
+    "commit": "ec9b792",
+    "agent": null,
+    "session_id": "0b681d5e-ee2b-50cf-b73a-d5a1dfcfbc79",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Bending landed, but nothing in this world is shaped to show it",
+  "question": "Soft tissue now bends under load, and wind is now one of the loads — it pushes on every plant cell, trunk included.\n\nTwo things I could not make it show, both measured rather than guessed:\n\n1. **Grass here is not blades.** The whole stand is eight knots of about twenty cells, five rows tall. 'A blade lies over' has nothing to act on — 3 bends across the entire stand.\n2. **A crown is packed too tight.** Foliage swings as a whole section into empty space, and inside a canopy there is none: 15,893 blocked against 28 that moved. Pushing harder does not help — tripling the wind took refusals 318 → 651 and successes 3 → 4.\n\nWood is still rigid on purpose. A bend relieves load by shortening a sideways lever, and wind on a trunk is a leaning-over one that a lean does not shorten — so a trunk that could bend would just keep leaning for as long as the wind blew. What stops a real trunk is that it snaps.\n\n**Which do you want next?**\n\n**(a) Break** — wood snaps under load. That is what lets wind actually fell a tree, and what makes a falling crown lose its bottom branches on impact. Bending stays nearly invisible until then.\n\n**(b) Grass with blades first** — change what grass grows into, so the bending you asked for is on screen, then break.\n\nI'd go (a): you said it needs to affect trees, and break is the only thing that lets it.",
+  "context_md": "**28 successful bends against 15,893 refused for want of room**, over 8,600\nframes on this tree. Cost **+0.46 ms/frame** against an 8.0 ms bar.\n\nThe image is the same tree as a gust falls from **−0.53 to +0.03**, left to\nright. The load on it changes a lot. The shape barely does — and that gap is\nthe whole question below.\n\nWhat the rule does, on a hand-built test arm (a flat branch, left, sagging\nover six ticks):\n\n```\ntick 0    . . . . . . . . .        flat\ntick 2    . . . . . . .\n                       . .\ntick 4    . . . . .\n                   .\n                    .\n                     .\ntick 6    . . .\n               .\n                .\n                 .\n                  .\n                   .\n```\n\nIt curls from the tip inward, stays in one piece, and stops — peak load\n**19.3 → 2.40**. That part is right. There is just nothing in the world\nshaped like that arm.\n",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "",
+      "files": [
+        "20260829T211450662Z-0211dc/000-windplain.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
