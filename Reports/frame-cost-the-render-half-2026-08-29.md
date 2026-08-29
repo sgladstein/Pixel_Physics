@@ -19,7 +19,11 @@ that more sky and deeper soil mean more tiles for the per-tile field solve to
 walk.
 
 **The reasoning was right about the commit and wrong about the mechanism, and
-the mechanism is the part that decides what to do about it.**
+the mechanism is the part that decides what to do about it.** The sky does
+cost 29 ms a frame, and not one millisecond of it is the field: it is the
+renderer's glow halo, and the taller sky only decided how far a fixed pile of
+crystals got spread. §5 has the fix; a full redraw of the shipped world falls
+from ~42 ms to ~7.5 ms and PR #94 stays.
 
 ## 1. The simulation is not the problem — it got 28% faster
 
@@ -201,19 +205,99 @@ What is safe: **on the simulation side PR #94 is worth about 2 ms of an
 18.6 ms frame; on the render side it is worth 29 ms.** The simulation is not
 where this went wrong.
 
-## 5. What to do
+## 5. The cause, and the fix
 
-1. **Put `Renderer::draw` in the frame budget, permanently.** It is the
-   larger half of the frame and no report, gate or plan counts it.
+It is the **glow halo**, and the control is decisive. Turning the vaults off
+(`vault_density` 0, which is where the crystal and spar come from) on one
+binary:
+
+| `sky_rows` | `vault_density` | full redraw | speleothems placed |
+|---|---|---|---|
+| 190 | 1.6 | 42.77 ms | 6,875 |
+| 190 | **0.0** | **5.24 ms** | — |
+| 95 | 1.6 | 16.03 ms | 6,946 |
+| 95 | **0.0** | **5.34 ms** | — |
+
+**Both worlds cost 5.2 ms with no glowing material in them.** The two worlds
+place essentially the same number of glowing cells, so it is not "more
+crystals" — it is how many *chunks* they are spread across, which the taller
+sky changes by moving the whole underground.
+
+`Renderer::rebuild_near_glow` splats a radius-14 disc from every glowing
+cell into per-chunk buffers, and it ran **twice per disc cell through a hash
+container**: `glow_tiles.contains(coord)` (a `HashSet`) and
+`near_glow.entry(coord)` (a `HashMap`), for ~615 cells of each of ~6,900
+discs. That is what callgrind saw — `sip.rs` alone 145.0M instructions
+against 32.3M, hashbrown 49.4M against 10.9M. It ran on every **forced full
+redraw**, which is ~100% of frames while the gnome is walking.
+
+Two changes, in that one function:
+
+1. **One chunk lookup per emitter tile, not one per cell** in the scan that
+   finds the glowing cells. This is the identical fix `rebuild_sky_light`
+   records making in the function directly above ("+7.5 ms on a 13.2 ms
+   redraw"), and a field tile is exactly one chunk here so it cannot
+   straddle. **Measured on its own: nothing.** 47.02 -> 50.74 ms, inside
+   noise. Kept because it removes a real per-cell `HashMap` lookup, but it is
+   not the win and must not be reported as one.
+2. **Walk the disc chunk-major**: take the up-to-four chunks its bounding box
+   can touch, look each up once, and splat the part of the disc that lands
+   inside it. Four lookups per glowing cell rather than 1,230.
+
+Paired and alternating, two fixed binaries (md5 `4d7d1466…` and
+`95d8b99f…`), six passes:
+
+| | pass 1 | pass 2 | pass 3 |
+|---|---|---|---|
+| before | 44.41 | 46.45 | 39.78 ms |
+| **after** | **7.48** | **7.86** | **7.26 ms** |
+
+**A full redraw of the shipped world goes from ~42 ms to ~7.5 ms**, and the
+whole PR #94 gap goes with it: the two worlds now read 7.5 and 6.7 ms
+against 39.7 and 10.6 before. **The taller sky is close to free once the
+halo stops hashing.** So the frame is now roughly 18.9 ms of simulation plus
+7.5 ms of render — still over the 16.6 ms budget, but the render is no
+longer the reason.
+
+### Every image-level check of this is blind, and that was measured
+
+**Do not verify a change to the glow splat by rendering the world.** A
+deliberate off-by-one in the clip — dropping the last column of every chunk
+— left *all* of the following green:
+
+- a full 512x320 render of the shipped world, **byte-for-byte identical**;
+- a `viewshot vault=1` render, with a lit vault actually in frame, **also
+  byte-for-byte identical**;
+- `glow_lights_the_cave_air_around_a_crystal_lining`;
+- `a_settled_glow_does_not_rebuild_its_halo_every_frame`;
+- both of `field::glow_tests`.
+
+The reason is structural: the existing scenes put their linings in chunk
+*interiors*, so no clip they exercise ever runs, and the halo's contribution
+to any one pixel is small against the grain. `CLAUDE.md`'s rule fired exactly
+as written — the guard did not go red, so it was not weak, it was blind.
+
+`a_glow_halo_is_symmetric_across_a_chunk_seam` (new) puts one emitter at
+`x == CHUNK_SIZE` so its disc is cut in two and both halves are clipped, and
+asserts the halo is the same `f32` either side. **It goes red on that fault**
+where the five checks above do not, and it carries its own positive control
+(the emitter's own cell must be lit, or the symmetry is `0.0 == 0.0` with the
+halo deleted).
+
+## 6. What is left
+
+1. **Put `Renderer::draw` in the frame budget, permanently.** It was the
+   larger half of the frame and no report, gate or plan counted it.
    `scale_probe phases=1`'s "WHOLE FRAME" row is a whole `App::update`, which
    is a different thing, and it has been quoted as if it were the frame.
-2. **Do not revert PR #94.** The cost is a cliff and a fixed per-draw charge,
-   not a price per sky pixel, so the sky and the frame are not actually in
-   competition. Find the threshold.
-3. **Rain is a second, separate ~8 ms.** Worth its own look.
-4. **If the cliff turns out to be inherent after all**, the question for the
-   owner is a picture, not a table: what the taller sky buys against ~29 ms
-   a frame.
+2. **The simulation is now the whole of the overspend**: 18.9 ms against
+   16.6, with the field 59% and `plant::step_organisms` 27% and rising with
+   plant biomass.
+3. **Rain is a second, separate ~8 ms** of a redraw *and* forces a full
+   repaint on every frame it falls. Not looked at here beyond sizing it.
+4. **PR #94 does not need reverting**, which is what the cliff predicted:
+   its ~29 ms was the halo, not the sky. Its ~2 ms on the simulation side
+   stands and is not separable from ordinary terrain variation at one seed.
 
 ## How to retake any of it
 

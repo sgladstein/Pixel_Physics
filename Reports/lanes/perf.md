@@ -166,7 +166,27 @@ render cost is a **cliff between `sky_rows` 115 and 120** and a *fixed* per
 draw charge (~29 ms, same per-pixel price either side, independent of
 viewport size), so it is a defect to find rather than a price for the sky.
 
-→ **anyone touching the renderer:** rain is worth **~8 ms** of a shipped
-redraw (49.3 -> 41.3 ms picking a dry frame, against 16.8 -> 13.8 in the
-pre-#94 world) *and* forces a full repaint every frame it falls. Separate
-from the above and also in no budget.
+→ **anyone touching the renderer:** two things, both separate from the
+above and both in no budget. Rain is worth **~8 ms** of a shipped redraw
+(49.3 -> 41.3 ms picking a dry frame, against 16.8 -> 13.8 in the pre-#94
+world) *and* forces a full repaint every frame it falls. And **the glow
+splat cannot be verified by rendering the world** -- a deliberate off-by-one
+in its chunk clip left a full 512x320 shipped-world render and a
+`viewshot vault=1` render **byte-for-byte identical**, and left all four
+existing glow guards green. Only a direct assertion on `near_glow` catches
+it; `a_glow_halo_is_symmetric_across_a_chunk_seam` is that assertion and is
+proven to go red on the fault.
+
+**The cause was found and fixed, and it was not the sky as such.**
+`rebuild_near_glow` hashed a `ChunkCoord` twice for each of ~615 disc cells
+of each of ~6,900 glowing cells, every forced full redraw. Walking the disc
+chunk-major takes a full redraw of the shipped world **~42 ms -> ~7.5 ms**
+(six of six paired passes, two fixed binaries), and the whole PR #94 gap
+goes with it: 7.5 against 6.7 ms where it was 39.7 against 10.6. The taller
+sky only decided how far a fixed pile of crystals got spread.
+
+**One measured null worth having**, since it is the obvious fix and it is
+not the one that works: hoisting the chunk lookup out of the *scan* that
+finds glowing cells -- the same repair `rebuild_sky_light` records making
+one function above -- measured **47.02 -> 50.74 ms, inside noise**. The cost
+was all in the disc, not the scan.

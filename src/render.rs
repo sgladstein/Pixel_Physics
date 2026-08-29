@@ -4023,37 +4023,116 @@ impl Renderer {
         self.near_glow_rebuilds += 1;
         let area = (CHUNK_SIZE * CHUNK_SIZE) as usize;
         for &tile in emitter_tiles {
+            // **One chunk lookup per emitter tile, not one per cell** -- the
+            // same fix `rebuild_sky_light` records making, in the function
+            // directly above, and for the same reason: `World::get` is a
+            // `HashMap` lookup and therefore a SipHash, and this scan was
+            // paying one for every one of the 4,096 cells of every glowing
+            // tile, on every forced full redraw -- which is ~100% of frames
+            // while the gnome is walking, because a camera move invalidates
+            // every pixel.
+            //
+            // A field tile *is* a chunk here: the loop below addresses
+            // `tile.x * CHUNK_SIZE + lx` for `lx in 0..CHUNK_SIZE`, so the
+            // tile spans exactly one chunk and can never straddle two. One
+            // lookup covers all of it, which is the identical argument
+            // `ChunkRun` makes for a run of pixels.
+            //
+            // Bit-identical: `World::get` resolves to `Cell::EMPTY` for a
+            // coordinate whose chunk is not resident, which is what
+            // `map_or` does here -- `ChunkRun::colour` already stands on
+            // that equivalence.
+            //
+            // **On its own this measured nothing, and that is worth knowing
+            // before anyone "fixes" it again.** 2026-08-29 at 8192x2560,
+            // `sky_rows` 190: a full redraw 47.02 -> 50.74 ms, inside noise.
+            // The hashing that actually costs is in the disc splat below,
+            // not in this scan -- there are ~615 disc cells for every cell
+            // this loop finds. Kept anyway because it removes a real
+            // per-cell `HashMap` lookup and costs nothing to keep, but it is
+            // not the win. `Reports/frame-cost-the-render-half-2026-08-29.md`
+            // has the split.
+            let chunk = world.chunk(tile);
             for ly in 0..CHUNK_SIZE {
                 for lx in 0..CHUNK_SIZE {
                     let (wx, wy) = (tile.x * CHUNK_SIZE + lx, tile.y * CHUNK_SIZE + ly);
                     if !world.in_bounds(wx, wy) {
                         continue;
                     }
-                    let glow = world.materials.get(world.get(wx, wy).material).glow;
+                    let cell = chunk.map_or(Cell::EMPTY, |c| c.get_world(wx, wy));
+                    let glow = world.materials.get(cell.material).glow;
                     if glow <= 0.0 {
                         continue;
                     }
-                    for dy in -NEAR_GLOW_RADIUS..=NEAR_GLOW_RADIUS {
-                        for dx in -NEAR_GLOW_RADIUS..=NEAR_GLOW_RADIUS {
-                            let d2 = (dx * dx + dy * dy) as f32;
-                            let r = NEAR_GLOW_RADIUS as f32;
-                            if d2 > r * r {
-                                continue;
-                            }
-                            // Squared linear falloff: full at the emitter,
-                            // zero at the radius, with the knee near the
-                            // source where the eye reads a light's shape.
-                            let t = 1.0 - d2.sqrt() / r;
-                            let v = t * t;
-                            let (nx, ny) = (wx + dx, wy + dy);
-                            let coord = ChunkCoord::containing(nx, ny);
+                    // **The destination chunk changes every 64 cells, so it
+                    // must not be hashed every cell.** The disc is 29 cells
+                    // across and `ChunkCoord` is the key of two hash
+                    // containers, so the unhoisted form paid two SipHashes
+                    // for each of ~615 disc cells of each glowing cell --
+                    // measured as 145M instructions of `sip.rs` inside one
+                    // `Renderer::draw`, 22% of it, and the single largest
+                    // thing in the frame at the shipped world size.
+                    //
+                    // So the disc is walked **chunk-major**: take the up-to-
+                    // four chunks its bounding box can touch, look each one
+                    // up once, and splat the part of the disc that lands
+                    // inside it. Four lookups per glowing cell rather than
+                    // 1,230.
+                    //
+                    // **Bit-identical, and the reason is that this visits
+                    // the same cells with the same values.** The membership
+                    // test is a function of the chunk alone, the radius test
+                    // is a function of `(nx, ny)` alone, and the
+                    // accumulation is `max` -- so neither the gate nor the
+                    // result depends on the order the disc is walked in.
+                    // Checked at the pixel level as well as by the guards:
+                    // the rendered PNG is byte-for-byte the pre-change one
+                    // on two different worlds.
+                    //
+                    // **Do not "simplify" this by dropping the membership
+                    // test as vacuous.** It is *currently* always true -- a
+                    // disc of radius 14 around a cell of tile T cannot leave
+                    // T's 3x3 neighbourhood, and `glow_tiles` is exactly
+                    // that neighbourhood -- but it is the only thing keeping
+                    // the splat inside the region `glow_at` will ever read,
+                    // and it stops being vacuous the moment
+                    // `NEAR_GLOW_RADIUS` exceeds `CHUNK_SIZE` or the
+                    // neighbourhood stops being 3x3.
+                    let r = NEAR_GLOW_RADIUS;
+                    let rf = r as f32;
+                    let (bx0, by0) = (wx - r, wy - r);
+                    let (bx1, by1) = (wx + r, wy + r);
+                    // Through `ChunkCoord::containing` rather than a division
+                    // of our own: the world has negative coordinates and
+                    // `containing` is the one place that floors them the same
+                    // way everything else does.
+                    let lo = ChunkCoord::containing(bx0, by0);
+                    let hi = ChunkCoord::containing(bx1, by1);
+                    for cy in lo.y..=hi.y {
+                        for cx in lo.x..=hi.x {
+                            let coord = ChunkCoord::new(cx, cy);
                             if !self.glow_tiles.contains(&coord) {
                                 continue;
                             }
+                            let (ox, oy) = (cx * CHUNK_SIZE, cy * CHUNK_SIZE);
                             let buf = self.near_glow.entry(coord).or_insert_with(|| vec![0.0; area]);
-                            let (bx, by) = (nx - coord.x * CHUNK_SIZE, ny - coord.y * CHUNK_SIZE);
-                            let slot = &mut buf[(by * CHUNK_SIZE + bx) as usize];
-                            *slot = slot.max(v);
+                            for ny in by0.max(oy)..=by1.min(oy + CHUNK_SIZE - 1) {
+                                for nx in bx0.max(ox)..=bx1.min(ox + CHUNK_SIZE - 1) {
+                                    let (dx, dy) = (nx - wx, ny - wy);
+                                    let d2 = (dx * dx + dy * dy) as f32;
+                                    if d2 > rf * rf {
+                                        continue;
+                                    }
+                                    // Squared linear falloff: full at the
+                                    // emitter, zero at the radius, with the
+                                    // knee near the source where the eye
+                                    // reads a light's shape.
+                                    let t = 1.0 - d2.sqrt() / rf;
+                                    let v = t * t;
+                                    let slot = &mut buf[((ny - oy) * CHUNK_SIZE + (nx - ox)) as usize];
+                                    *slot = slot.max(v);
+                                }
+                            }
                         }
                     }
                 }
@@ -6286,6 +6365,79 @@ mod tests {
             lit_wall > dark_wall,
             "stone under the lining should draw brighter than stone under the dark cavity: lit {lit_wall}, dark {dark_wall}"
         );
+    }
+
+    /// One emitter sitting on a chunk seam: its halo must come out the same
+    /// on both sides of it.
+    ///
+    /// **This exists because the two guards above are blind to the thing it
+    /// tests, and that was measured rather than assumed.** `rebuild_near_glow`
+    /// splats a radius-`NEAR_GLOW_RADIUS` disc, and the disc is written into
+    /// *per-chunk* buffers, so an emitter near a seam has its halo cut in two
+    /// and clipped into each half separately. A deliberate off-by-one in that
+    /// clip — dropping the last column of every chunk — left
+    /// `glow_lights_the_cave_air_around_a_crystal_lining`,
+    /// `a_settled_glow_does_not_rebuild_its_halo_every_frame` and both of
+    /// `field::glow_tests` **green**, and left a full 512x320 render of the
+    /// shipped world byte-for-byte identical. Their linings sit in chunk
+    /// interiors, so no clip they exercise ever runs.
+    ///
+    /// The assertion is exact equality rather than a tolerance: the splat is
+    /// a symmetric disc of a pure function of distance, accumulated with
+    /// `max`, so mirrored positions either side of a single emitter are the
+    /// same `f32` bit pattern or the clip is wrong.
+    #[test]
+    fn a_glow_halo_is_symmetric_across_a_chunk_seam() {
+        // The emitter goes at exactly x == CHUNK_SIZE, so its disc spans the
+        // seam between chunk 0 and chunk 1 and both halves are clipped.
+        let seam = CHUNK_SIZE;
+        let mut world = World::new(Rect::new(0, 0, 255, 255));
+        let crystal = world.materials.id_of("crystal").expect("crystal ships in the registry");
+        for y in 100..256 {
+            for x in 0..256 {
+                world.set(x, y, Cell::new(material::STONE, 0));
+            }
+        }
+        // A sealed cavity around the seam, with one crystal cell in it: one
+        // emitter, so the halo has nothing else to be a maximum of.
+        for y in 150..170 {
+            for x in seam - 30..seam + 30 {
+                world.set(x, y, Cell::EMPTY);
+            }
+        }
+        world.set(seam, 160, Cell::new(crystal, 0));
+        for _ in 0..300 {
+            crate::sim::field::step(&mut world);
+        }
+
+        let mut renderer = Renderer::new();
+        let particles = ParticleSystem::new();
+        let (w, h) = (256u32, 256u32);
+        let mut frame = vec![0u8; (w * h * 4) as usize];
+        renderer.draw(&world, &particles, &HashSet::new(), &mut frame, (w, h), true);
+
+        // The positive control first: the halo has to exist at all, or the
+        // symmetry below is 0.0 == 0.0 and this guard is the blind kind it
+        // was written to replace.
+        let centre = renderer.near_glow_at(seam, 160);
+        assert!(centre > 0.0, "the emitter's own cell should carry full near glow, got {centre}");
+
+        for d in 1..=NEAR_GLOW_RADIUS {
+            let left = renderer.near_glow_at(seam - d, 160);
+            let right = renderer.near_glow_at(seam + d, 160);
+            assert_eq!(
+                left, right,
+                "the halo is clipped differently either side of the seam at distance {d}: \
+                 left {left}, right {right}"
+            );
+            // Strictly inside the radius, or the check is vacuous: the
+            // falloff is `1 - d/r` squared, so the value *at* `d == r` is
+            // legitimately 0.0 and `0.0 == 0.0` would pass with the halo
+            // deleted.
+            if d < NEAR_GLOW_RADIUS {
+                assert!(left > 0.0, "the halo should reach {d} cells from the emitter, got {left}");
+            }
+        }
     }
 
     #[test]

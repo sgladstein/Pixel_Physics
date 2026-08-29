@@ -810,11 +810,15 @@ drift that two of these documents still reflect.**
   and nothing had ever counted it: it is **~40 ms**, the larger half of the
   frame by 2:1. Bisects the owner's "the game feels slow" to `39e6f36`
   (PR #94) and to the **sky** half of it, worth ~29 ms a redraw and ~2 ms of
-  simulation, with the soil half worth nothing. The cost is a *cliff* between
-  `sky_rows` 115 and 120 and a fixed per-draw charge rather than a price per
-  sky pixel, so the sky and the frame are not in competition. Carries a
-  separate ~8 ms finding for rain, and the four things ruled out by
-  measurement.
+  simulation, with the soil half worth nothing. The cost was a *cliff* rather
+  than a price per sky pixel, which is what said it was a defect — and it
+  was: `rebuild_near_glow` hashed a `ChunkCoord` twice for each of ~615 disc
+  cells of each of ~6,900 glowing cells, on every forced full redraw. Fixed
+  here, **~42 ms -> ~7.5 ms**, and PR #94 stays. **Read its "every
+  image-level check of this is blind" section before verifying any change to
+  the glow splat by rendering** — a deliberate off-by-one left two renders
+  byte-identical and four existing guards green. Carries a separate ~8 ms
+  finding for rain.
 - [world-review-2026-08.md](world-review-2026-08.md) — **review.** A
   multi-lens pass over the generated world.
 - [cave-beauty-review-2026-08.md](cave-beauty-review-2026-08.md) —

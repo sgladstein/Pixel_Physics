@@ -51,9 +51,9 @@ whole, then run `python3 scripts/readmetoc.py`.
 | [M19 status — started](#m19-status--started) | 2938 |
 | [Felling status — the verb works, and what it produces is pieces](#felling-status--the-verb-works-and-what-it-produces-is-pieces) | 2994 |
 | [Performance](#performance) | 3143 |
-| [World speed — five independent time axes](#world-speed--five-independent-time-axes) | 3317 |
-| [Status](#status) | 3400 |
-| [License](#license) | 3511 |
+| [World speed — five independent time axes](#world-speed--five-independent-time-axes) | 3338 |
+| [Status](#status) | 3421 |
+| [License](#license) | 3532 |
 
 ### Milestones, in numeric order
 
@@ -87,7 +87,7 @@ them is named "plants". A section can appear twice; felling is honestly both
 plant work and structural work.
 
 **Known limitations for every topic are collected in one place**:
-[Status](#status), line 3400 — the *last* section in the
+[Status](#status), line 3421 — the *last* section in the
 file, not the first. Read it before concluding something is broken.
 
 | Topic | Sections, primary first |
@@ -102,7 +102,7 @@ file, not the first. Read it before concluding something is broken.
 | **the coarse field grid — pressure, heat, light** | [The coarse field grid](#the-coarse-field-grid) 452, [M12/M13 status](#m12m13-status) 714 |
 | **worldgen and world structure** | [M10 status](#m10-status--the-worldgen-half) 2697, [Architecture](#architecture) 295 |
 | **the gnome (player character)** | [M9 status](#m9-status--the-gnome) 2545, [Controls](#controls) 156 |
-| **weather, sky and the clock** | [Weather status](#weather-status) 2812, [M19 status](#m19-status--started) 2938, [World speed](#world-speed--five-independent-time-axes) 3317 |
+| **weather, sky and the clock** | [Weather status](#weather-status) 2812, [M19 status](#m19-status--started) 2938, [World speed](#world-speed--five-independent-time-axes) 3338 |
 | **rendering, UI and tunables** | [UI improvements](#ui-improvements--overnight-run-section-9) 2299, [Live tunables panel](#live-tunables-panel--overnight-run-section-10) 2344, [Rendering performance](#rendering-performance--overnight-run-section-11) 2412, [M6 deferral](#m6-deferral) 1075 |
 | **performance and the parallel sweep** | [Performance](#performance) 3143, [M5 status](#m5-status) 1085, [Architecture](#architecture) 295, [Rendering performance](#rendering-performance--overnight-run-section-11) 2412 |
 | **materials and the data schema** | [Materials](#materials) 221, [M12/M13 status](#m12m13-status) 714 |
@@ -3188,6 +3188,27 @@ resolution step affordable at all. `Reports/resolution-step-2026-08-29.md`
 has the ledger, the owner's verdict on what "double the resolution" means,
 and the measured finding that cutting stone depth buys load time and memory
 but **not** frame rate.
+
+**Both numbers above were overtaken the same day, and by a cost neither of
+them contained.** Re-measured on a deliberately quiet box, on the shipped
+generated world rather than the one those figures were taken on, a forced
+full redraw at 512x320 was **~42 ms** — the glow halo's splat was hashing a
+`ChunkCoord` twice for every cell of every emitter's disc, on every forced
+redraw, which is ~100% of frames while the gnome walks. Walking the disc
+chunk-major instead takes it to **~7.5 ms** (six of six paired passes, two
+fixed binaries, output byte-identical). The same fix removes the whole cost
+of PR #94's taller sky, which was that halo spread over more chunks and not
+the field at all.
+
+So the current picture is **`App::update` 18.88 ms ±0.9% plus a ~7.5 ms
+render**, against a 16.6 ms budget — and the simulation is now the whole of
+the overspend, with the field 59% of it and `plant::step_organisms` 27%.
+(The 6.28 ms above is a short window; 18.88 is the two-day-cycle protocol
+`Reports/frame-cost-audit-2026-08.md` uses, which is the one that compares.)
+`Reports/frame-cost-the-render-half-2026-08-29.md` has all of it — including
+why **no image-level check can verify a change to the glow splat**, measured
+by putting a fault back and watching two byte-identical renders and four
+guards stay green.
 
 Measured by `cargo run --release --example ascii`, which reports the worst
 single frame of each scenario — now run through both drivers back to back
