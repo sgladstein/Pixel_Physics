@@ -1,0 +1,38 @@
+{
+  "id": "20260829T191451245Z-eb0436",
+  "created": "2026-08-29T19:14:51Z",
+  "board": "fracture",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/gnome-mining-mechanic-obm7j4",
+    "commit": "536e2d8",
+    "agent": null,
+    "session_id": "7e6d7527-9f19-5475-bb25-535b32238ac6",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "One blow, and the blocks come out along the cracks",
+  "question": "This is the change you asked for: no dust made by the swing at all, the joints open, and any block whose outline has parted all the way round comes out WHOLE, in the shape the cracks drew. One big blow into solid stone, sixty frames, zoomed right in so you can see the outlines and the holes they leave. Is this the behaviour? (The next card is the same thing at the gnome's own hammer size, which is much smaller.)",
+  "context_md": "What was actually wrong: the enclosure was already real and the engine already found it, but it then handed the block to the fragment ladder, which is joint-blind -- so a 170-cell block bounded by four visible joints was re-cut into ladder-sized bits and grit. The outline and the piece were different shapes. Blocks are now promoted whole, and the pulverised core is gone (it was grit made by fiat, and it landed on the swing frame where a piece has to wait for its outline to close). Counters: this one blow calves 18 bodies carrying 937 cells on the blow frame, against 11 bodies / 553 cells before. On the shelf bed, 1,529 cells off as chunks at 64% by mass.",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "",
+      "files": [
+        "20260829T191451245Z-eb0436/000-blocks.gif"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null,
+      "gif_frames": 60
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
