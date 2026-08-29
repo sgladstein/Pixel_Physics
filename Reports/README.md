@@ -445,14 +445,31 @@ drift that two of these documents still reflect.**
   fruit, where the clocks predict 58. Records four failures caught by looking
   rather than by a number, including a turgor bound that cut the axis short of
   its own metamer count.
+- [plant-fate-operator-gate-2026-08-29.md](plant-fate-operator-gate-2026-08-29.md)
+  — **all four mutation operators now have a viability gate**, closing §3a of
+  the handoff below, and the answer is not the one its weighting hedged
+  against. The three unmeasured operators are not dangerous — 46 of 46
+  effective mutants lived — they are close to **inert**: on the woody base
+  `delete` is 0% effective in 40 draws, `recondition` 2%, `insert` 8%. One
+  mechanism explains it: `fate_for` falls back **per query**, so a slot a
+  mutation vacates is refilled by the species table or the built-in rule, and
+  first-match-wins shadows an insert that lands below an existing rule.
+  `retarget` is the only operator that changes a rule *in place*. Also: the
+  harness had been measuring a **lookalike** of the operator, not
+  `FateGenome`'s own — six replacement cell types on the woody base where the
+  engine draws from eight — so the recorded 92% was about a mutation nothing
+  performs. Consequence for the programme: `FATE_MUTATION_CHANCE = 0.01` is
+  not the rate in effect.
 - [plant-heritable-fates-handoff-2026-08-29.md](plant-heritable-fates-handoff-2026-08-29.md)
   — **handoff; read first if you are continuing the plant-evolution line.**
   The production rule is heritable now: every organism carries its own
   `FateGenome`, founded from its species file, read ahead of it, and
   copied-then-mutated when a seed is borne — so a lineage can move its
   developmental program, which nothing could do before. The operator is the
-  flexible one by owner's call (retarget / recondition / insert / delete), and
-  **only retarget has a viability gate**; the rate is a guess; and throughput
+  flexible one by owner's call (retarget / recondition / insert / delete).
+  **Its §3a is now closed** — all four are gated, see the report above, which
+  also corrects this one's premise that the harness measured the shipped
+  operator. The rate is a guess; and throughput
   is still the blocker, since a tree reaches generation 1 in 8 of 8 seeds and
   never more. Its §4a is the one to read before writing any guard here: with
   the mechanism disabled outright the two obvious tests stayed **green**,
@@ -574,6 +591,12 @@ drift that two of these documents still reflect.**
 
 ## Creatures and ecology
 
+- [creature-appearance-design.md](creature-appearance-design.md) —
+  **design + measured study.** Why a two-cell ant cannot be found in a
+  picture, and what does: extent is the only lever, the dark palette is
+  already the best of the values tested, and a nine-cell pale body puts less
+  on screen than the shipped two-cell dark one. The creature-side answer to
+  `plant-appearance-design.md`.
 - [creature-direction.md](creature-direction.md) — **direction agreed
   (2026-08-17).** Cell-chain ants, the caged brain, the heritable genome;
   decision record plus implementation plan.
@@ -590,6 +613,20 @@ drift that two of these documents still reflect.**
   than a genome sidecar, the genome block (hidden self-recurrence) that
   **24% of sampled genomes carry and no species file could describe**, and
   what the manifest stamp does and does not catch.
+- [creature-rebaseline-2026-08-29.md](creature-rebaseline-2026-08-29.md) —
+  **measured re-baseline, 2026-08-29, across `ba6fc98` and `f96c08d`.** Every
+  creature figure in the record predates this week's worldgen work, so none of
+  it was checkable. Re-measures the §4 guards (foraging pays +0.427/+0.459,
+  ants fed 0.68/0.75, reference genomes 0.696/0.299, determinism identical,
+  frame cost a bigger scene rather than a slower one), re-sets `ascii.rs`'s
+  `forage_reach` trip bar (comment said 98, measured 23, bar 14 → 6 with the
+  trade stated), prices `ant_ablation` (868 s at its defaults, which cannot
+  answer the feeding question), and **overturns the reading of
+  `eats 6 / deaths 0`** — the energy ledger shows food supplied 2.9% of the
+  colony's energy and the scene stops at 45% depletion against a 50% hunger
+  threshold, so the cause is the horizon, not free food. Supersedes the
+  `Reads today` column of `creature-evolution-plan.md` §4 and the `98`/`18`
+  figures quoted in `examples/ascii.rs`.
 - [creature-review-2026-08.md](creature-review-2026-08.md) — **review +
   proposed plan, written the day S1–S4 merged.** Where the creature line
   stands, the decisions never posted to the queue (E5, the abundance dial),

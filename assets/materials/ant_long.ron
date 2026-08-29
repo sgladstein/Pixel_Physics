@@ -1,0 +1,37 @@
+// A colony creature (Reports/creature-direction.md). `kind: Creature`, so
+// the CA sweep never moves it -- `creature.rs` relocates the whole chain
+// explicitly from the active-site schedule, exactly as it does the worm.
+//
+// Flammable on the same terms as everything else, which is the entire
+// reason a burning nest needs no code: fire.rs applies uniformly from these
+// numbers alone, an ant burns into `corpse`, and a corpse is food. The loop
+// closes itself.
+//
+// Dark, and deliberately not red: an ant is one or two cells at play zoom
+// against soil and sand, and the readable signal at that size is contrast
+// against the ground rather than hue. Three shades so a column of them does
+// not read as a drawn line.
+(
+    name: "ant_long",
+    display: "Ant (ant_long)",
+    kind: Creature,
+    density: 1.0,
+    colors: [
+        (38, 30, 28),
+        (52, 42, 38),
+        (28, 22, 20),
+    ],
+    flammability: 0.6,
+    burn_temperature: 500.0,
+    burn_duration: 40,
+    burns_into: "corpse",
+    heat_conductivity: 0.1,
+
+    // Live flesh, for whatever eats an ant. Static rather than
+    // per-individual because a creature cell's `aux` is already the organism
+    // cell-type packing and cannot also carry a worth -- and predation has
+    // never once fired (13o), so this number is close to unreachable today.
+    // Flagged rather than dressed up.
+    food_energy: 480.0,
+    food_class: 1.0,
+)

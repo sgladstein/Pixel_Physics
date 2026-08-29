@@ -37,10 +37,10 @@ reasoning that it can be narrowed later.
 
 | operator | weight | measured? |
 |---|---|---|
-| retarget a cell-type field | 60% | **yes** — 92% viable on the woody base, 97% on the determinate one |
-| change `when` or `after_metamers` | 15% | no |
-| insert a drawn rule at a drawn position | 15% | no |
-| delete a rule | 10% | no |
+| retarget a cell-type field | 60% | **yes**, and re-measured: 74% woody / 97% determinate through the *shipped* operator (the 92% on the left was a lookalike's) |
+| change `when` or `after_metamers` | 15% | yes — 2% of draws do anything on woody, 42% on determinate; all that land, live |
+| insert a drawn rule at a drawn position | 15% | yes — 8% woody, 18% determinate |
+| delete a rule | 10% | yes — **0% woody**, 48% determinate |
 
 **Insert is what the flexibility actually buys.** With retargeting alone a
 `tree` lineage could never acquire a flower: `tree.ron` has no `FateWhen::Ripe`
@@ -58,13 +58,19 @@ anywhere.
 
 ## 3. What is NOT established — in priority order
 
-**3a. Three of the four operators have no viability gate.** The harness to run
-it exists and is already parameterised: `examples/fate_viability.rs` takes
-`base=tree|herb` and mutates a production rule N ways with both controls
-printing. What it does *not* yet do is exercise insert, delete or recondition —
-its `mutate` is the retarget operator alone. Pointing it at the new operators
-is the cheapest real measurement on this board and it is a harness change, not
-a design one.
+**3a. CLOSED, 2026-08-29 — and the answer inverts the premise.** See
+`plant-fate-operator-gate-2026-08-29.md`. All four operators are now gated, and
+the three unmeasured ones are not the hazard this section assumed: 46 of 46
+effective mutants lived. They are **inert** — on the woody base `delete` is 0%
+effective in 40 draws, `recondition` 2%, `insert` 8%, because `fate_for` falls
+back *per query* and the layer beneath refills any slot a mutation vacates.
+
+Two things this section got wrong, both worth carrying forward. It was **not**
+only a harness change: the harness had been measuring a *lookalike* of the
+operator rather than `FateGenome`'s own, drawing from six replacement cell types
+on the woody base where the engine draws from eight — so the 92% below is about
+a mutation nothing in the engine performs. And it is not true that the operators
+merely lacked a number; three of them barely function.
 
 **3b. `FATE_MUTATION_CHANCE = 0.01` is a guess.** Gate 1 measured what *one*
 mutation does to a fresh table. A rate compounds over generations and nobody
@@ -138,8 +144,28 @@ measurement above. **This work backs C's side**, on the owner's instruction of
 
 - The blind acceptance card for the organ package
   (`20260829T005132631Z-0b56d4`), asking *"are these different plants, or one
-  plant in several sizes?"* over four panes, is **posted and unanswered**.
-  Nothing in Phase 4 claims a verdict.
+  plant in several sizes?"* over four panes, is **answered**: *"Different
+  (although not very pretty)."* The organ package's core claim passes — four
+  species read as four kinds of plant rather than one plant at four sizes.
+  The caveat is aesthetic and is not this line's to close.
+
+  **Read it against the rest of the plants board, though, because the pattern
+  there is older and it is not aesthetic.** Across the earlier four-species
+  cards the owner says the same thing repeatedly — *"the biggest differences
+  are still size and color"*, *"most of the difference between all of these is
+  just size and color"*, and, on the fourth attempt, *"I think the issue is in
+  the base design of the random walk growth."* Organs moved that verdict where
+  five successive label changes did not, which is `plant-appearance-design.md`'s
+  finding restated: **the levers that read are the ones that change material or
+  size, not the ones that relabel a cell.**
+
+  That is worth carrying into any decision about the mutation operators
+  (`plant-fate-operator-gate-2026-08-29.md`), because it cuts both ways. The
+  three inert operators are the ones that would let a lineage *acquire* an
+  organ — the one class of change the owner's eye has actually credited — so
+  their inertness costs more than their share of the budget suggests. And
+  equally: making them effective moves labels, and a label change has failed to
+  read here six times now.
 - ~~`bramble` may be renamed `scrambler`~~ — **decided: `scrambler`**, owner,
   2026-08-29. The argument that settled it belongs to this document's own
   subject rather than to botanical style: a species file is now a *starting
