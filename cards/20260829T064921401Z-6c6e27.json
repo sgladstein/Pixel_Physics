@@ -1,0 +1,82 @@
+{
+  "id": "20260829T064921401Z-6c6e27",
+  "created": "2026-08-29T06:49:21Z",
+  "board": "felling",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/tree-physics-destruction-l6eocs",
+    "commit": "c48a33a",
+    "agent": null,
+    "session_id": "3ce830d2-1b4d-5fed-9af2-1e59f8344f7a",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Severed foliage, re-posted at noon: leaves or dust?",
+  "question": "Top row is the settled pile, one frame each, both pinned at noon, same cut and same crop. Bottom row is the same two runs animated from the moment of the cut. Does B read as a fallen leafy crown rather than a heap of dust -- and is that olive right, or has it just traded gold dust for green dust?",
+  "context_md": "**Your last verdict was about my card, not the change, and you were right.** I showed six frames spanning a whole day/night cycle, so the tiles differed in *ambient light* -- which is why the colour looked like it was still changing. That was me putting back the exact confound the change exists to remove. Re-posted the way you asked: pinned at noon, side by side, with animation.\n\nOnly one thing differs between A and B: what a leaf becomes when the branch it rode down comes to rest. In A it turns to leaf litter the instant it lands. In B it stays foliage and rots down to litter over time instead.\n\n**Not blinded this time**, deliberately -- with four panes a shuffle would make the pairing unreadable, and you have already told me what you expect to see. So: A is current, B is the change.\n\n**Still not branches lying on the ground.** Nothing makes a severed piece travel sideways yet; that is the next piece of work and it is why both piles are heaps. Judge the material, not the shape.",
+  "kind": "gallery",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A - current, settled at noon",
+      "files": [
+        "20260829T064921401Z-6c6e27/000-v2_before_still.png"
+      ],
+      "caption": "severed leaves become leaf litter the moment they land",
+      "meta": {
+        "litter cells": 432,
+        "deadwood cells": 608,
+        "log cells": 600,
+        "dead foliage cells": 0
+      },
+      "focus": null
+    },
+    {
+      "label": "B - dead foliage tier, settled at noon",
+      "files": [
+        "20260829T064921401Z-6c6e27/001-v2_after_still.png"
+      ],
+      "caption": "severed leaves stay foliage and rot to litter over time",
+      "meta": {
+        "litter cells": 135,
+        "deadwood cells": 572,
+        "log cells": 734,
+        "dead foliage cells": 1035
+      },
+      "focus": null
+    },
+    {
+      "label": "A - the fall",
+      "files": [
+        "20260829T064921401Z-6c6e27/002-v2_before.gif"
+      ],
+      "caption": "same run, from the cut",
+      "meta": {
+        "cells severed": 2500,
+        "left as pieces": 2471
+      },
+      "focus": null,
+      "gif_frames": 48
+    },
+    {
+      "label": "B - the fall",
+      "files": [
+        "20260829T064921401Z-6c6e27/003-v2_after.gif"
+      ],
+      "caption": "same run, from the cut",
+      "meta": {
+        "cells severed": 2501,
+        "left as pieces": 2471
+      },
+      "focus": null,
+      "gif_frames": 48
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
