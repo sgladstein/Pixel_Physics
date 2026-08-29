@@ -1,0 +1,46 @@
+{
+  "id": "20260829T155007345Z-70ff6a",
+  "created": "2026-08-29T15:50:07Z",
+  "board": "fracture",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/gnome-playtest-fixes",
+    "commit": "dad59c5",
+    "agent": null,
+    "session_id": "7e6d7527-9f19-5475-bb25-535b32238ac6",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Hammer, second attempt: the rock's own joints",
+  "question": "You said get rid of the lines and make cracks like an explosion. The rays are gone — a blow now opens the same joint fabric the blast reads (straight Worley boundaries, closed cells), densely at the impact and thinning out. Is this the crack pattern you meant, and do the pieces read as coming off in chunks?",
+  "context_md": "A = what you playtested. B = now. Cells left carrying a fissure 122 -> 82, and they are polygon boundaries rather than 5 radial rays. Of what came off the rock: 44 chunks : 59 dust (42% chunk) -> 226 : 102 (68% chunk). Blows that landed in the same script 3 -> 5, because a blow that throws its pieces clear no longer walls him in behind his own rubble. Worst frame 13.5 -> 13.8 ms. Also in, but this scene cannot show it (no piece was still airborne when a blow landed): hitting a chunk that is still in the air now bursts it into grit where it flies — before, a swing passed straight through one, because a flying piece is not in the grid.",
+  "kind": "ab",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "rays (what you played)",
+      "files": [
+        "20260829T155007345Z-70ff6a/000-smash_A.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "joint fabric (now)",
+      "files": [
+        "20260829T155007345Z-70ff6a/001-smash_D.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
