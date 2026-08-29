@@ -1,0 +1,143 @@
+// **Foliage that came off with its branch, lying where the branch landed.**
+//
+// The owner's ruling, watching a fell (card `20260829T034016675Z-5a9b07`):
+// *"The leaves shouldn't turn to powder ever. They can stay on the branch if
+// that is easier (but if they do fall off, i feel like they should stay as
+// larger leaf pieces). It should look like a bunch of branches are broken on
+// the ground."*
+//
+// Before this, `leaf.ron`'s `severs_into` was `litter` — a `Powder` with a
+// friction angle — so the instant a severed limb touched down, every leaf on
+// it became a grain and ran off into a cone. Measured on `scene=fell
+// fell=7150`: `litter` 992 cells and `deadwood` 557 against `log` 868, i.e.
+// **the settled pile was two-thirds loose grain**, and `open-bugs-handoff.md`
+// T1f records that this, not the fragment ladder, is what has failed the
+// acceptance twice. 91%+ of *woody* mass already promotes as coherent pieces;
+// what the eye sees is the foliage lying over the top of them.
+//
+// So this is the **third** debris tier, and it is to `leaf` exactly what
+// `log` is to `wood`: the piece, as against the grit. `litter` is not
+// replaced and does not move — it is still what a *shed* leaf becomes, still
+// what the ant, decay and fire layers read, and still what this rots down
+// into. The difference is that a leaf now reaches it by **decaying**, over
+// time, rather than by being pulverised the moment its branch stops moving.
+// That is `CLAUDE.md`'s first law arriving where it was missing: the outcome
+// has a middle.
+//
+// # Why a Powder that cannot flow, and not a Solid — measured, both ways
+//
+// `Solid` is the obvious reading of "leaves should not turn to powder", it
+// is what `log` does for the wood tier, and **it was built and rendered and
+// it is wrong**. A severed crown converted to Solid in mid-air; the first
+// pieces to land became a scaffold that nothing could ever fail, because a
+// piece tier is opted out of the structural check; and the tree **died
+// standing in the shape it grew in** instead of falling. `scene=fell
+// fell=7150`, unmistakable at 3x.
+//
+// Giving it the lowest real span instead (`max_unsupported_span: 2`) fails
+// the other way and just as hard: the crown comes apart on the way down and
+// the settled box goes to **80% loose grain against a 76% baseline**, with
+// `deadwood` 557 -> 941 as the failing foliage takes the logs' support with
+// it. Two settings of one knob, opposite failures — `CLAUDE.md`'s own signal
+// that the knob is not the problem.
+//
+// **The finding underneath is worth more than either attempt, and it
+// reframes the whole package**: what has always *looked* like a crown
+// collapsing was **powder flowing downhill**, not a fall. Nothing in the
+// engine yet makes a severed piece travel. Take the grain away and there is
+// no fall left at all — which is why the Solid version leaves a standing
+// dead tree, and why this material cannot be judged on its own until a
+// piece genuinely falls over (`Reports/tree-mechanics-plan-2026-08-29.md`
+// §7 stage 4).
+//
+// So: a Powder, which falls, at a friction angle steep enough that it does
+// not *flow*. That separates the two properties the Solid attempt conflated
+// — coming down is not the same as running out — and it is a knob with a
+// measured floor (`litter` at 42 already mats rather than slumping) rather
+// than a binary.
+//
+// `anchors_organisms: false` for the reason `log` carries it: a leafy limb
+// landing beside a stump must not hold up the crown the cut just detached.
+// Measured when `log` first shipped, that took `acceptance.sh`'s `fell` case
+// from 2,360 cells severed to **0**.
+(
+    name: "deadleaf",
+    display: "Dead foliage",
+    kind: Powder,
+    // **85 degrees, against `litter`'s 42 and sand's 34 — the steepest in
+    // the shipped set, and this is the whole mechanism.** A clump of dead
+    // foliage falls, because anything that does not fall becomes a scaffold
+    // (see the Solid attempt above); but it must not *flow*, because
+    // flowing to an angle of repose is the cone of dust the owner rejected.
+    // At 85 a drift holds a near-vertical face, so a limb's worth of leaves
+    // comes down and stays in the shape it landed in instead of running out
+    // across the floor.
+    friction_angle: 85.0,
+    // `leaf` is 0.25 and `litter` 0.3. Foliage does not get heavier by
+    // dying, and the number matters: it is what the moment model weighs a
+    // crown by, and it is why 48% of a tree's cells are only 20% of its
+    // mass.
+    density: 0.25,
+    // **Olive-khaki: leaves that have just died, not leaves that have lain
+    // on the ground all autumn.** That distinction is the whole job of this
+    // palette, because `litter` is directly below it in the same chain and
+    // the two have to be told apart at play zoom.
+    //
+    // Chosen on the two axes `dead-ends.md` records as the ones that work
+    // for a debris tier, after three failed attempts on `log`: **hue**
+    // against `litter` (150,110,50 to 182,146,78), which is a saturated gold
+    // — this is desaturated, an r-b gap of ~58 against litter's ~100 — and
+    // **value** against `deadwood` (64,43,26 to 96,66,40) and `soil`
+    // (56,40,30 to 82,60,44), sitting a clear band above both.
+    //
+    // **Narrow, deliberately: 26 units.** The same entry that condemns a
+    // wide spread on a piece tier applies here and applies harder — a wide
+    // spread makes a field of cells draw randomly across a range, which is
+    // speckle, and speckle is exactly what destroys the one thing this
+    // material exists to show: that a clump of leaves is a *clump*.
+    colors: [
+        (108, 98, 52),
+        (118, 108, 60),
+        (100, 90, 46),
+        (126, 116, 68),
+    ],
+    // Drier than the living leaf it was (0.75, burns out in 40) and drier
+    // than `litter` (0.5), because this is foliage that has died on the
+    // branch rather than foliage lying on damp ground. A felled crown left
+    // to stand is the most flammable thing in a wood, which is a real
+    // property worth having and not a number invented to be interesting.
+    flammability: 0.7,
+    ignition_temperature: 320.0,
+    burn_temperature: 620.0,
+    burn_duration: 60,
+    burns_into: "ash",
+    heat_conductivity: 0.1,
+    // **The grit tier, reached two ways.** Hit it, blast it or burn round it
+    // and it comes apart into `litter` at once; leave it alone and
+    // `decays_into` takes it there slowly. Same material either way, which
+    // is what keeps the ant and fire layers unchanged — they read `litter`
+    // and `litter` is still what a forest floor is made of.
+    breaks_into: "litter",
+    anchors_organisms: false,
+    // **Rots into the forest floor, and this is the rate that decides
+    // whether the mechanic reads.** Too fast and a felled crown is a gold
+    // drift again inside a few hundred frames, which is the state this
+    // material exists to remove. Too slow and a wood fills with khaki that
+    // never becomes ground.
+    //
+    // Set between `litter` (0.5 damp / 0.1 dry — a shed leaf is thin, wet
+    // and already on the soil) and `log` (0.02 / 0.002 — a bole is not).
+    // Foliage on a fallen branch is off the ground and still whole, so it
+    // is nearer the log end than the leaf end. **A number to sweep, not a
+    // derived one**, and the quantity to sweep it against is how long a
+    // felled crown reads as a felled crown.
+    decays_into: "litter",
+    decay_chance_damp: 0.08,
+    decay_chance_dry: 0.015,
+    // Unchanged from `litter`, so a stand's felled foliage is worth to an
+    // ant exactly what its shed foliage was. Moving it would be an ecology
+    // change riding along with a rendering one, which is the kind of thing
+    // `CLAUDE.md` records costing a session to attribute afterwards.
+    food_energy: 480.0,
+    food_class: -1.0,
+)
