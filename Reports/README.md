@@ -527,6 +527,12 @@ drift that two of these documents still reflect.**
 
 ## Creatures and ecology
 
+- [creature-appearance-design.md](creature-appearance-design.md) —
+  **design + measured study.** Why a two-cell ant cannot be found in a
+  picture, and what does: extent is the only lever, the dark palette is
+  already the best of the values tested, and a nine-cell pale body puts less
+  on screen than the shipped two-cell dark one. The creature-side answer to
+  `plant-appearance-design.md`.
 - [creature-direction.md](creature-direction.md) — **direction agreed
   (2026-08-17).** Cell-chain ants, the caged brain, the heritable genome;
   decision record plus implementation plan.
