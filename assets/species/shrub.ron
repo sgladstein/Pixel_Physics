@@ -34,6 +34,47 @@
     // See tree.ron: the stock fraction where stomata start closing,
     // multiplied per individual by genotype slot 7.
     stomatal_reserve: 0.2,
+    // **The production rule: what a cell becomes, and what it creates.**
+    //
+    // This is today's built-in behaviour written out (`plant::builtin_fate`
+    // is the same answers in code, and a guard checks the two agree rule by
+    // rule). Authored rather than left empty so the table has a real writer:
+    // a channel that is read and never written is worse than one that is
+    // written and never read, because every consumer of it is dead code that
+    // looks alive.
+    //
+    // `child`/`lateral` are what a continuation and a branch are *created*
+    // as. Both are `GrowingTip` here -- a tip's child is a tip -- and that is
+    // the ceiling, not a detail: nothing today can change what a cell is
+    // created as, which is why every species is a variation on one plant
+    // however its placement is tuned. A determinate axis ending in an organ
+    // sets `becomes` on `Stale`; a truss sets `lateral`.
+    fates: [
+        (GrowingTip, [
+            // The metamer boundary: the retiring parent becomes the axillary
+            // bud its leaf subtends. The leaf is placed beside the stem, not
+            // in it.
+            (when: Node,  becomes: DormantBud, child: Some(GrowingTip), lateral: Some(GrowingTip)),
+            // An ordinary step: the tip retires the instant it grows, so the
+            // frontier advances instead of radiating from static hubs.
+            (when: Grew,  becomes: MatureBody, child: Some(GrowingTip), lateral: Some(GrowingTip)),
+            // Aged out with nowhere to go. Same destination as the successful
+            // path, deliberately -- and this is the site a determinate axis
+            // actually retires through, since a terminal tip more often runs
+            // out of room than grows one last time.
+            (when: Stale, becomes: MatureBody),
+        ]),
+        (RootTip, [
+            // A root has plastochron 0, so it never reaches `Node` -- no
+            // leaves and no buds underground.
+            (when: Grew,  becomes: MatureBody, child: Some(RootTip), lateral: Some(RootTip)),
+            (when: Stale, becomes: MatureBody),
+        ]),
+        (DormantBud, [
+            // The only mechanism in the engine that *creates* frontier.
+            (when: Flush, becomes: GrowingTip),
+        ]),
+    ],
     cell_types: [
         (Seed, [
             Germinate(

@@ -125,7 +125,7 @@ something that cost effort to find.
 
 ```
 cargo test                                       # unit + integration. The --skip this line carried until 2026-08-26 is vestigial: bug A's test is #[ignore]d, so it does not run. Measured: `cargo test --lib` with no flag gives 943 passed / 0 failed / 54 ignored
-cargo clippy --all-targets -- -D warnings        # CI gates this
+cargo clippy --all-targets -- -D warnings        # CI gates this -- but CI pins 1.98 (ci.yml) and a container may ship an older rustc, in which case a local green proves nothing about lints newer than yours. Check `cargo clippy --version` before believing it
 cargo run --release --example ascii              # headless behaviour + worst-frame timing; CI runs it
 cargo run --release --example filmstrip -- scene=fall zoom=2 crop=0,140,256,110
 python3 scripts/review.py serve --open      # the owner's review queue; see below

@@ -1271,6 +1271,23 @@ fn build_scene(args: &Args) -> World {
         // Built from `common::PlantScene`, the same code `plant_probe`
         // uses -- see that module for why these two harnesses may not build
         // their own worlds any more.
+        // `grove`, on the heterogeneous bed -- the same scene with three
+        // conflicting tasks in it (moisture gradient, varying soil depth,
+        // clumped founders). A separate scene name rather than a knob on
+        // `grove`, so every stored `grove` sheet still means what it meant.
+        "gradient" => {
+            let base = common::PlantScene::varied();
+            let plants = if args.plants > 0 { args.plants } else { base.trees };
+            return common::PlantScene {
+                species: args.species.clone(),
+                trees: plants,
+                soil_moisture: args.soil_moisture,
+                soil_depth: args.soil_depth,
+                start_frame: args.frame0,
+                ..base
+            }
+            .build();
+        }
         "grove" => {
             let base = common::PlantScene::default();
             let plants = if args.plants > 0 { args.plants } else { base.trees };
@@ -1456,19 +1473,19 @@ fn build_scene(args: &Args) -> World {
             // water in it by definition -- that is the point of it -- so the
             // scene has to say which surface it wants.
             use pixel_physics::sim::material::MaterialKind;
-            let dry_surface = |w: &World, x: i32| -> Option<i32> {
-                let y = (0..HEIGHT).find(|&y| !matches!(w.materials.kind(w.get(x, y).material), MaterialKind::Empty | MaterialKind::Gas))?;
-                matches!(w.materials.kind(w.get(x, y).material), MaterialKind::Solid | MaterialKind::Powder).then_some(y)
-            };
-            // Widest stretch of dry ground nearest mid-width, so the colony
-            // has somewhere to walk rather than a two-cell island.
-            // **Score the thing actually wanted: how many ants would land.**
-            // Scoring "dry columns within 60 cells" instead was a proxy, and
-            // it picked a plateau too narrow for the colony -- 31 of 52 ants
-            // placed, the rest quietly dropped into a lake. Count the real
-            // 52 placement sites.
+            // **Ask the engine where a colony can go; do not re-derive it.**
+            // This scene used to carry its own `dry_surface` predicate, and
+            // `World::found_colony` carried a different one -- which is
+            // `Reports/open-bugs-handoff.md` §R2, and it cost this scene its
+            // default seed for six days. `creature::colony_ant_site` is now
+            // the single definition and both callers use it, so the scene
+            // can no longer believe it chose ground that placement refuses.
+            use pixel_physics::sim::creature::colony_ant_site;
+            // Scored at the row the colony would actually be founded at, so
+            // the estimate and the placement see the same cursor.
             let would_place = |w: &World, x: i32| -> i32 {
-                (0..52).filter(|i| dry_surface(w, x - 102 + i * 4).is_some()).count() as i32
+                let Some(cy) = colony_ant_site(w, x, 0) else { return 0 };
+                (0..52).filter(|i| colony_ant_site(w, x - 102 + i * 4, cy - 2).is_some()).count() as i32
             };
             // Only where the colony's whole 204-cell span fits inside the
             // world: `found_colony` centres 52 ants at spacing 4, and
@@ -1476,16 +1493,55 @@ fn build_scene(args: &Args) -> World {
             // outside (16 of 52, the first time this scene ran).
             let half_span = 102;
             let (cx, cy) = (half_span..WIDTH - half_span)
-                .filter_map(|x| dry_surface(&w, x).map(|y| (x, y)))
+                .filter_map(|x| colony_ant_site(&w, x, 0).map(|y| (x, y)))
                 // Most dry ground within reach, ties broken toward the
                 // middle of the map. A score rather than a hard window: on a
                 // wetland seed there may be no unbroken 200-cell beach, and
                 // demanding one made the scene panic rather than degrade.
                 .max_by_key(|&(x, _)| (would_place(&w, x), -(x - WIDTH / 2).abs()))
-                .expect("some dry ground");
+                // **Say which seed, and say what was there instead.** This
+                // `.expect` fired on the scene's own default seed for six
+                // days, and its message ("some dry ground") sent the next
+                // reader looking for a lake. Name the seed so the failure is
+                // reproducible from the line, and census the band so the
+                // reader learns whether the obstruction was water or wood.
+                .unwrap_or_else(|| {
+                    let (mut liquid, mut plant, mut empty) = (0, 0, 0);
+                    for x in half_span..WIDTH - half_span {
+                        match (0..HEIGHT).find(|&y| !matches!(w.materials.kind(w.get(x, y).material), MaterialKind::Empty | MaterialKind::Gas)) {
+                            None => empty += 1,
+                            Some(y) => match w.materials.kind(w.get(x, y).material) {
+                                MaterialKind::Liquid => liquid += 1,
+                                MaterialKind::Plant => plant += 1,
+                                _ => {}
+                            },
+                        }
+                    }
+                    panic!(
+                        "scene=colony seed={}: no dry ground in columns {half_span}..{}. \
+                         Topmost cell over that band: {liquid} liquid, {plant} plant, {empty} empty. \
+                         Try another seed=.",
+                        args.seed,
+                        WIDTH - half_span
+                    )
+                });
+            // **Before placement, not after.** Measured after the call, this
+            // counts only the sites the colony did *not* use -- every ant
+            // makes its own site read as occupied -- so it came out lower
+            // than `placed` on every seed. Arithmetically correct, and an
+            // answer to a different question.
+            let viable = would_place(&w, cx);
             let placed = w.found_colony(cx, cy - 2);
             assert!(placed > 0, "the colony scene placed no ants -- the scene is not showing what it claims to");
-            println!("scene=colony genome={} : {placed} ants founded at x={cx}, surface y={cy}", args.genome);
+            // **Three numbers, because the two gaps have different causes.**
+            // 52 -> viable is the scene losing sites to water or a canopy;
+            // viable -> placed is `found_colony` disagreeing with the scene
+            // about what counts as ground, which is the predicate mismatch
+            // `open-bugs-handoff.md` §R2 flags. One number hides which.
+            println!(
+                "scene=colony genome={} seed={} : {placed} ants founded of {viable} viable sites of 52 asked, at x={cx}, surface y={cy}",
+                args.genome, args.seed
+            );
             println!("  suggested crop: crop={},{},240,110", cx - 120, cy - 70);
         }
         "terrain" => {
@@ -5952,6 +6008,71 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, (usize, usize), (i
                 leaf + wood,
                 100.0 * leaf as f64 / total as f64,
             );
+        }
+        // **The standing organ census, which is a different question from the
+        // organ counters and the one a picture can actually be checked
+        // against.** `CLAUDE.md`: when the complaint is visible and
+        // persistent, measure the standing state, not the event rate. A
+        // stand can build a thousand organs and show none, because each one
+        // ripened and let go inside the interval between two tiles -- which
+        // is exactly what a first pass at the fruiting habit did, and the
+        // sheet showed flowers and no fruit at all while `organs built` read
+        // 1,126. This line is what says whether there is anything on the
+        // plant to see.
+        //
+        // Windfall is on it too, and separately: a fallen fruit is on the
+        // *ground*, so counting it with the fruit would let a floor of them
+        // stand in for a crop.
+        {
+            let count = |name: &str| {
+                world.materials.id_of(name).map_or(0usize, |id| {
+                    (0..WIDTH).flat_map(|x| (0..HEIGHT).map(move |y| (x, y))).filter(|&(x, y)| world.get(x, y).material == id).count()
+                })
+            };
+            let (flower, fruit, windfall) = (count("flower"), count("fruit"), count("windfall"));
+            if flower + fruit + windfall + world.organs_built as usize > 0 {
+                // **Where the windfall actually is, not where it is assumed
+                // to be.** The first version of this line called every
+                // windfall cell "on the ground" without checking, which is
+                // exactly the unverified label this repo keeps paying for --
+                // and it is a live question, because `main` added
+                // `Material::falls_through_organisms` for litter lodging in
+                // crowns and a dropped fruit takes the same path. Banded the
+                // way `litter_probe` bands litter so the two are comparable:
+                // a cell resting on plant tissue and a cell high above the
+                // ground are different failures and a total hides both.
+                let (mut lodged, mut high) = (0usize, 0usize);
+                if let Some(id) = world.materials.id_of("windfall") {
+                    let ground = common::PlantScene::default().ground_y;
+                    for x in 0..WIDTH {
+                        for y in 0..HEIGHT {
+                            if world.get(x, y).material != id {
+                                continue;
+                            }
+                            if world.get(x, y + 1).organism_id() != 0 {
+                                lodged += 1;
+                            }
+                            if y + 16 < ground {
+                                high += 1;
+                            }
+                        }
+                    }
+                }
+                println!(
+                    "    organs standing: {flower} flower + {fruit} fruit on the plant, \
+                     {windfall} windfall ({lodged} resting on plant tissue, {high} more than 16 rows up)"
+                );
+                // The event counters beside the standing census, because they
+                // are different questions and a card needs both: *built* says
+                // the mechanism fired, *terminated* says determinacy fired
+                // (a truss builds four organs off one terminated axis), and
+                // *dropped* is the far side of the whole sequence -- organs
+                // can be built in quantity and never once let go.
+                println!(
+                    "    organ events: {} built, {} axes terminated, {} fruit dropped",
+                    world.organs_built, world.axes_terminated, world.fruit_dropped
+                );
+            }
         }
         println!(
             "    shed: {} shade + {} drought + {} stranded = {} leaves",

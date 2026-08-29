@@ -694,6 +694,17 @@ pub(crate) fn ground_footing_distance(world: &World, x: i32, y: i32) -> Option<u
             // situation: the answer *is* a distance, the field is the only
             // thing that has one, and being a tick stale is what every other
             // reader of it already tolerates.
+            // **It may hand back a saturated `u16::MAX`, and that is
+            // load-bearing rather than an oversight.** Refusing it -- on the
+            // reasoning that the field reads `u16::MAX` as *no path*, so
+            // rooting a cell at it calls a pile open air -- was tried on
+            // 2026-08-28 and **reverts §6.5d's fix**: `scene=strike` goes
+            // straight back to 7,145 pending sites against its 1,500 bar,
+            // byte-identical to `GROUND_ROOT=flat`. The win on that scene
+            // *is* the sentinel: writing it stops the neighbourhood relaxing
+            // off a false zero, which is the whole of §S. Recorded in
+            // `Reports/dead-ends.md`; do not re-refuse it without re-running
+            // that case.
             return Some(cell.aux().saturating_add(through));
         }
         if world.materials.kind(cell.material) != MaterialKind::Powder {
@@ -712,6 +723,7 @@ pub(crate) fn ground_footing_distance(world: &World, x: i32, y: i32) -> Option<u
 /// physically right one, since anything under eight cells of scree is
 /// bearing through the scree whatever it is.
 const GRAIN_FOOTING_PROBE: usize = 8;
+
 
 /// The buoyant half of `rests_on_ground`, split out because the caller of
 /// `bearing_moment` has to tell the two cases apart: a pile is a footing
@@ -838,6 +850,26 @@ pub type Subtree = (i64, i64, bool);
 /// Per-frame cache of `subtree_sum` results, cleared by `scheduler::step`.
 pub type SubtreeMemo = HashMap<(i32, i32), Subtree>;
 
+/// `rests_on_ground` answers for one frame, keyed by position.
+///
+/// Shares `SubtreeMemo`'s lifetime and its invalidation exactly, because it
+/// is the same claim about the same unchanging grid. It exists because
+/// `dependants` has to ask the question of every candidate and the powder
+/// branch walks up to `GRAIN_FOOTING_PROBE` cells: the load walk asks about
+/// a given cell once per *neighbour* that reaches it, so the same column was
+/// being walked about four times over.
+///
+/// Measured on `examples/ascii`'s 182-organism scene, alternating paired runs
+/// of two fixed binaries, mean frame over 12,000 frames -- an aggregate
+/// rather than a worst, per `CLAUDE.md`. **Without this memo the anchor skip
+/// cost +8.2%** and was slower in **3 of 3** pairs (3.303/3.370/3.375 against
+/// 3.668/3.730/3.474). **With it the cost is gone**: faster in **3 of 4**
+/// (3.435/3.075/3.138/3.119 against 3.314/3.172/3.069/3.058), a 1.2%
+/// difference on the means that sits well inside the baseline's own 3.08-3.44
+/// spread and is not resolvable by this instrument. Claimed as "no measurable
+/// cost", not as a speedup.
+pub type GroundMemo = HashMap<(i32, i32), bool>;
+
 /// Per-frame cache of "does this cell's support chain reach an anchor",
 /// cleared alongside `SubtreeMemo`.
 ///
@@ -854,6 +886,7 @@ pub type AnchorMemo = HashMap<(i32, i32), bool>;
 #[derive(Default)]
 pub struct Cache {
     pub subtrees: SubtreeMemo,
+    pub grounded: GroundMemo,
     pub anchors: AnchorMemo,
     pub cuts: CutMemo,
     pub shares: ShareCounts,
@@ -862,6 +895,7 @@ pub struct Cache {
 impl Cache {
     pub fn clear(&mut self) {
         self.subtrees.clear();
+        self.grounded.clear();
         self.anchors.clear();
         self.cuts.clear();
         // `shares` is deliberately **not** cleared. The memos describe one
@@ -973,7 +1007,7 @@ fn support_count(world: &World, x: i32, y: i32) -> i64 {
 /// version was written to avoid. Dividing each cell's load by the number
 /// of supports it has is exactly what makes the total conserved again:
 /// what leaves a cell is what it carries, however many ways it splits.
-fn dependants(world: &World, x: i32, y: i32, out: &mut Vec<(i32, i32)>) {
+fn dependants(world: &World, x: i32, y: i32, ground: &mut GroundMemo, out: &mut Vec<(i32, i32)>) {
     out.clear();
     let own = world.get(x, y).aux();
     for (dx, dy) in NEIGHBOURS_4 {
@@ -986,6 +1020,58 @@ fn dependants(world: &World, x: i32, y: i32, out: &mut Vec<(i32, i32)>) {
             continue;
         }
         if cell.aux() > own {
+            // **An anchor carries itself, so nothing carries it** -- and
+            // this reader lost track of what an anchor was on 2026-08-27.
+            //
+            // Every other reader in this model says so by testing
+            // `aux == 0`: `support_count` returns 0 for it ("held from
+            // outside the model"), `support_parent` returns `None`. That
+            // test worked because `structural::tick` wrote a flat 0 under
+            // any cell resting on loose ground, so ground-resting cells
+            // *were* zeros. §6.5d replaced that 0 with the true footing
+            // distance -- correctly; it is what fixed the hammer -- and at a
+            // stroke every ground-resting cell stopped answering to the
+            // anchor test, here and nowhere else that mattered.
+            //
+            // What that costs is a **lateral chain**. Two cells standing on
+            // the same scree slope whose footings differ by a step now order
+            // strictly, so the lower one collects the higher one as a
+            // dependant, and the one at the bottom of the slope ends up
+            // carrying the whole hillside -- every cell of which is
+            // independently standing on the ground and perfectly fine.
+            // `evaluate_within`'s bearing clamp then judges that assembled
+            // piece, centroid tens of cells uphill, against **one cell's**
+            // footing width, and a world nobody has touched pulls itself
+            // apart. `CLAUDE.md`'s recurring question in a new costume:
+            // *which object does this rule evaluate?*
+            //
+            // Measured on an untouched world -- `scene=worldcrack strike=0`,
+            // no verb of any kind, frame 4,502: `rolling` seed 7 went **rock
+            // -1,756 with 1,963 overload failures and still climbing**,
+            // against **-76 and 57, settled**, with this skip in.
+            //
+            // Load stays conserved: the share this drops is the share that
+            // goes into the ground, which is what an anchor does with it.
+            // `support_count` is its exact mirror and needs no change --
+            // it is only ever consulted for a cell that is *already* someone
+            // else's dependant, which this one no longer is.
+            // `Reports/structural-support-model.md` §6.5f.
+            // **Narrowed to peers on purpose**, and the wider rule was
+            // tried first. "A cell the ground holds up leans on nobody" is
+            // the honest statement, and applied to *any* carrier it lets a
+            // deep pile shoved under a shelf's tip take the shelf's load off
+            // its root -- which is `structural::tick`'s own warning, *"a
+            // sprinkle of sand under a beam holds the beam up"*, arriving by
+            // a new route. It also turns
+            // `sand_beside_and_beneath_a_shelf_weighs_nothing_on_it` red,
+            // which is that guard doing exactly its job.
+            //
+            // Two cells *both* standing on the ground is the case the
+            // measured collapse is made of, and neither can be holding the
+            // other up.
+            if *ground.entry((nx, ny)).or_insert_with(|| rests_on_ground(world, nx, ny)) {
+                continue;
+            }
             out.push((nx, ny));
         }
     }
@@ -1142,7 +1228,7 @@ fn powder_surcharge(world: &World, x: i32, y: i32) -> i64 {
 ///
 /// Iterative rather than recursive on purpose — a support chain is as deep
 /// as a structure is tall, and a 200-cell column is a 200-deep recursion.
-fn subtree_sum(world: &World, x: i32, y: i32, memo: &mut SubtreeMemo, budget: &mut u32) -> Subtree {
+fn subtree_sum(world: &World, x: i32, y: i32, memo: &mut SubtreeMemo, ground: &mut GroundMemo, budget: &mut u32) -> Subtree {
     if let Some(&known) = memo.get(&(x, y)) {
         return known;
     }
@@ -1180,7 +1266,7 @@ fn subtree_sum(world: &World, x: i32, y: i32, memo: &mut SubtreeMemo, budget: &m
                 }
                 *budget = budget.saturating_sub(1);
                 walked += 1;
-                dependants(world, node.0, node.1, &mut kids);
+                dependants(world, node.0, node.1, ground, &mut kids);
                 let mut held = [(0, 0); 4];
                 for (slot, &kid) in held.iter_mut().zip(kids.iter()) {
                     *slot = kid;
@@ -1755,7 +1841,7 @@ fn evaluate_within(world: &World, x: i32, y: i32, cache: &mut Cache, budget: &mu
     // below need to know it and it decides which *object* is on trial.
     let vertical_path = flows_down(world, x, y);
     let section = section_cells(world, x, y, parent);
-    let (mut mass_fp, mut moment_fp, mut truncated) = subtree_sum(world, x, y, &mut cache.subtrees, budget);
+    let (mut mass_fp, mut moment_fp, mut truncated) = subtree_sum(world, x, y, &mut cache.subtrees, &mut cache.grounded, budget);
     // **On a column, the thing under trial is the section, not the cell --
     // and until this line the demand was per cell while the capacity was
     // per section.** That mismatch is the one-pixel red line the owner
@@ -1861,7 +1947,7 @@ fn evaluate_within(world: &World, x: i32, y: i32, cache: &mut Cache, budget: &mu
                     if (sx, sy) == (x, y) {
                         continue;
                     }
-                    let (cm, cmo, ct) = subtree_sum(world, sx, sy, &mut cache.subtrees, budget);
+                    let (cm, cmo, ct) = subtree_sum(world, sx, sy, &mut cache.subtrees, &mut cache.grounded, budget);
                     // The whole `(mass, moment)` pair moves together, never
                     // the larger mass with this cell's own moment: they
                     // describe one subtree and mixing two of them describes
@@ -2318,6 +2404,61 @@ mod tests {
         let mut w = test_world();
         w.set(20, 55, Cell::new(material::STONE, 0).with_attached(true).with_aux(7));
         assert_eq!(ground_footing_distance(&w, 20, 54), None, "rock directly under rock is the relaxation's job, not this one");
+    }
+
+    /// **The walk may hand back a saturated `u16::MAX`, and refusing it
+    /// reverts §6.5d.** This pins that, because it looks exactly like a bug.
+    ///
+    /// `attached` is a worldgen flag and not a claim about reachability, so
+    /// real attached rock can carry `u16::MAX` — joined to the world, not
+    /// joined to bedrock *through rock*. The sum then saturates and `tick`
+    /// stores the one value the field reads as *no path at all*, which reads
+    /// as a false **void**: the obvious conclusion is that a pile is being
+    /// called open air, and the obvious fix is to return `None` here and let
+    /// `tick` keep its old flat `0`.
+    ///
+    /// Measured 2026-08-28, and that fix is wrong: `scene=strike` goes from
+    /// **289 pending sites to 7,145** against its 1,500 bar — byte-identical
+    /// to `GROUND_ROOT=flat`, i.e. §S all the way back. The win on that
+    /// scene *is* the sentinel. Writing it is what stops the neighbourhood
+    /// relaxing off a false zero, and a cell that reads unreachable is
+    /// re-asked rather than trusted, which is the conservative direction
+    /// here. `Reports/dead-ends.md`.
+    ///
+    /// The idle-world collapse that sent someone looking at this line is
+    /// real and is **not** here — it is `support_parent` no longer
+    /// recognising an anchor; see
+    /// `a_cell_standing_on_scree_is_a_chain_root_not_a_link`.
+    #[test]
+    fn the_footing_walk_may_lend_the_sentinel_and_that_is_load_bearing() {
+        let mut w = test_world();
+        w.set(20, 55, Cell::new(material::STONE, 0).with_attached(true).with_aux(u16::MAX));
+        w.set(20, 54, Cell::new(material::GRAVEL, 0));
+        w.set(20, 53, Cell::new(material::GRAVEL, 0));
+        assert_eq!(
+            ground_footing_distance(&w, 20, 52),
+            Some(u16::MAX),
+            "refusing this reverts §6.5d -- scene=strike returns to 7,145 pending sites"
+        );
+    }
+
+    /// The control for the pin above — a footing one short of the sentinel
+    /// is an ordinary distance and must be lent as one.
+    ///
+    /// Without this, the pin could be satisfied by a walk that returned
+    /// `u16::MAX` for *everything*, which is `CLAUDE.md`'s blind guard: green
+    /// by asserting nothing that could have come out differently.
+    #[test]
+    fn a_reachable_footing_still_lends_its_distance() {
+        let mut w = test_world();
+        let grain = w.materials.get(material::GRAVEL).support_cost_below;
+        w.set(20, 55, Cell::new(material::STONE, 0).with_attached(true).with_aux(u16::MAX - grain - 1));
+        w.set(20, 54, Cell::new(material::GRAVEL, 0));
+        assert_eq!(
+            ground_footing_distance(&w, 20, 53),
+            Some(u16::MAX - 1),
+            "one short of the sentinel is a real distance and must be lent"
+        );
     }
 
     /// A pile deeper than the probe has nothing to measure from, and the
@@ -2821,6 +2962,71 @@ mod tests {
         assert!(load.torque <= load.capacity, "a tower must stand at any height");
     }
 
+    /// **A cell the ground holds up is not carried by its neighbour** — the
+    /// guard for the idle-world collapse.
+    ///
+    /// Every reader in this model calls a cell an anchor by testing
+    /// `aux == 0`, and that worked because `structural::tick` wrote a flat 0
+    /// under anything resting on loose ground. §6.5d gave those cells their
+    /// true footing distance instead — correctly — and `dependants` was the
+    /// reader left behind: two cells on one scree slope whose footings
+    /// differ by a step began ordering strictly, so the lower collected the
+    /// higher, and the foot of the slope carried the hillside. On an
+    /// **untouched** world (`scene=worldcrack strike=0 preset=rolling
+    /// seed=7`) that was rock −1,756 and still climbing, against −76 settled.
+    ///
+    /// The two cells differ in stored distance exactly the way a real
+    /// slope's do. Deliberately *not* equal: equal values are refused by the
+    /// strict `>` anyway, so a test built on a plateau would pass with the
+    /// fix reverted — `CLAUDE.md`'s blind guard, and the reason a flat `0`
+    /// hid this for as long as it did.
+    #[test]
+    fn a_cell_the_ground_holds_up_is_not_carried_by_its_neighbour() {
+        let mut w = test_world();
+        for x in 0..64 {
+            w.set(x, 63, Cell::new(material::BEDROCK, 0));
+        }
+        // A scree bed with two rock cells standing on it, footings a step
+        // apart — the gradient a real talus slope produces.
+        for x in 18..24 {
+            w.set(x, 62, Cell::new(material::GRAVEL, 0));
+            w.set(x, 61, Cell::new(material::GRAVEL, 0));
+        }
+        w.set(20, 60, Cell::new(material::STONE, 0).with_aux(20));
+        w.set(21, 60, Cell::new(material::STONE, 0).with_aux(24));
+        assert!(rests_on_ground(&w, 20, 60), "the scene must contain the situation being tested");
+        assert!(rests_on_ground(&w, 21, 60), "...for both cells, or the test proves nothing");
+
+        let mut kids = Vec::new();
+        dependants(&w, 20, 60, &mut GroundMemo::new(), &mut kids);
+        assert!(
+            !kids.contains(&(21, 60)),
+            "a cell the ground holds up leans on nobody; collecting it chains a hillside \
+             into one piece and charges it to one cell's footing"
+        );
+
+        // The control, and the whole reason this is not blind: the same
+        // geometry with the scree taken out from under the *higher* cell
+        // leaves it genuinely hanging, and it must still be collected.
+        let mut bare = test_world();
+        for x in 0..64 {
+            bare.set(x, 63, Cell::new(material::BEDROCK, 0));
+        }
+        for x in 18..21 {
+            bare.set(x, 62, Cell::new(material::GRAVEL, 0));
+            bare.set(x, 61, Cell::new(material::GRAVEL, 0));
+        }
+        bare.set(20, 60, Cell::new(material::STONE, 0).with_aux(20));
+        bare.set(21, 60, Cell::new(material::STONE, 0).with_aux(24));
+        assert!(!rests_on_ground(&bare, 21, 60), "nothing under it: this is the hanging arm");
+        let mut kids = Vec::new();
+        dependants(&bare, 20, 60, &mut GroundMemo::new(), &mut kids);
+        assert!(
+            kids.contains(&(21, 60)),
+            "a cell with nothing under it really does lean on its neighbour, and must still be collected"
+        );
+    }
+
     #[test]
     fn support_parents_form_a_forest_rooted_at_anchors() {
         // The structural claim the whole accumulation rests on: following
@@ -3225,6 +3431,21 @@ mod tests {
         let mut flanked = beam(14);
         for depth in 0..POWDER_SURCHARGE_CAP {
             flanked.set(15, 30 - depth, Cell::new(material::SAND, 0)); // past the tip
+        }
+        // **The column under the tip is deliberately shallower than
+        // `GRAIN_FOOTING_PROBE`**, and it used to be `POWDER_SURCHARGE_CAP`
+        // (12) deep. At that depth `grain_is_footing` takes its give-up
+        // branch -- *"a pile that deep is a pile"* -- so a column of sand
+        // hanging in mid-air read as a footing, the tip read as anchored,
+        // and `dependants` stopped handing it to the beam. That is the
+        // anchor rule doing its job on a scene that could not survive one
+        // frame of the real sweep, not the surcharge rule failing.
+        //
+        // Four cells keeps this test on the question it is named for -- a
+        // neighbourhood-scanning `powder_surcharge` still counts these
+        // grains and still turns it red -- and leaves the anchor rule to
+        // `a_pile_that_reaches_the_floor_takes_a_tips_load_off_the_beam`.
+        for depth in 0..4 {
             flanked.set(14, 31 + depth, Cell::new(material::SAND, 0)); // under the tip
         }
         structural::compute_world_distances(&mut flanked);
@@ -3235,6 +3456,49 @@ mod tests {
             (plain.mass, plain.torque, plain.capacity),
             "grain alongside and underneath is not a load -- only what stands on top is"
         );
+    }
+
+    /// **Shoring works: a pile that actually reaches the floor takes the
+    /// load of whatever stands on it off the rock beside it.**
+    ///
+    /// The other side of the rule above, and the reason it is stated rather
+    /// than left implicit. `is_anchor` has always said a cell resting on
+    /// footing-grade ground is held from outside the model; `support_parent`
+    /// and `support_count` have always agreed, by way of `aux == 0`. Until
+    /// 2026-08-28 `dependants` was the one reader that did not, so the beam
+    /// went on carrying a tip the ground was already holding.
+    ///
+    /// The honest limit, named because it is the risk this carries:
+    /// `grain_is_footing` gives up after `GRAIN_FOOTING_PROBE` cells and
+    /// calls anything deeper a footing, so a *mid-air* pile that deep
+    /// relieves the beam too. In a running world that pile is falling and
+    /// the tip is re-asked within a few frames (`GROUNDED_RECHECK_INTERVAL`);
+    /// in a hand-built static world it simply stands there, which is what
+    /// the test above had to be moved off. `Reports/dead-ends.md` records
+    /// the two narrower rules tried instead and what each one cost.
+    #[test]
+    fn a_pile_that_reaches_the_floor_takes_a_tips_load_off_the_beam() {
+        let mut propped = beam(14);
+        for y in 31..63 {
+            propped.set(14, y, Cell::new(material::SAND, 0));
+        }
+        propped.set(14, 63, Cell::new(material::BEDROCK, 0));
+        structural::compute_world_distances(&mut propped);
+        assert!(rests_on_ground(&propped, 14, 30), "the scene must contain the situation being tested");
+
+        let mut kids = Vec::new();
+        dependants(&propped, 13, 30, &mut GroundMemo::new(), &mut kids);
+        assert!(
+            !kids.contains(&(14, 30)),
+            "a tip standing on a pile that reaches the floor is held by the pile, not by the beam"
+        );
+
+        // The control: take the pile away and the identical tip is an
+        // ordinary cantilever end the beam must still carry.
+        let bare = beam(14);
+        let mut kids = Vec::new();
+        dependants(&bare, 13, 30, &mut GroundMemo::new(), &mut kids);
+        assert!(kids.contains(&(14, 30)), "with nothing under it the tip is the beam's to carry");
     }
 
     /// A cap must bound *work*, never gate whether the term applies at all

@@ -778,6 +778,72 @@ pub struct World {
     /// cover a seed — the denominator for `seed_budget_blocked`.
     pub seed_budget_available: u64,
 
+    /// **Organ cells created** — flowers and fruit, by every route: a
+    /// determinate apex converting, a truss lateral, and a flower setting
+    /// fruit.
+    ///
+    /// The organ package's "did it fire at all" counter, and it exists
+    /// because an image cannot answer that question. A collapse once
+    /// rendered as coherent falling slabs, was read as "chunks are working",
+    /// and the body count was zero for the whole run; two very different
+    /// mechanisms look identical at the zoom a contact sheet is read at. A
+    /// review card carrying an organ species must print this beside the
+    /// picture.
+    pub organs_built: u64,
+
+    /// **Axes that terminated in an organ** — determinacy's own counter,
+    /// which `organs_built` alone cannot give: a truss bearing six fruit
+    /// builds six organs and terminates one axis, and a plant whose apices
+    /// all flowered builds and terminates the same number. The ratio is the
+    /// shape of the plant.
+    pub axes_terminated: u64,
+
+    /// **Times an apex reached its metamer count and could not pay for the
+    /// organ** — the effect counter for `plant::ORGAN_CONSTRUCTION_MULTIPLE`,
+    /// the same shape as `leaf_cells_unaffordable` and
+    /// `seed_budget_blocked`, and required for the same measured reason:
+    /// a construction charge that never binds is real arithmetic that does
+    /// nothing, and a sweep over the multiple would move nothing while
+    /// looking like a converged result.
+    ///
+    /// Counted before any roll and gated on nothing, so it consumes no
+    /// randomness and cannot change the stand.
+    pub organ_charge_blocked: u64,
+
+    /// Opportunities where an apex reached its metamer count and *could*
+    /// pay — the denominator for `organ_charge_blocked`.
+    pub organ_charge_available: u64,
+
+    /// **Organ cells an apex wanted and could not afford** — the same
+    /// truncation counter `leaf_cells_unaffordable` is for the leaf spray,
+    /// and read the same way: against `organs_built`, as a ratio.
+    ///
+    /// It is a *different* question from `organ_charge_blocked` beside it,
+    /// and keeping the two apart is the point. That one says an axis could
+    /// not flower at all; this says it flowered small. A phase that reported
+    /// only the first would call a stand of pinhead flowers a success.
+    pub organ_cells_unaffordable: u64,
+
+    /// **Times an organ's clock ran out and the reproductive budget could
+    /// not pay** — the effect counter for `Behavior::Ripen`'s cost, and the
+    /// one that separates *a flower waiting* from *a flower stuck*.
+    ///
+    /// It exists because those two are indistinguishable in a picture and
+    /// were confused once already: a stand read 35 flowers standing against
+    /// 2 fruit, where the authored clock rates predict about 58, and the
+    /// difference was an account that could never be paid from.
+    pub organ_ripening_blocked: u64,
+
+    /// Organ fates that did fire and were paid for — the denominator for
+    /// `organ_ripening_blocked`.
+    pub organ_ripening_paid: u64,
+
+    /// **Ripe fruit that let go**, each one a seed carried to the ground
+    /// inside a `windfall` powder. The far-side effect counter for the drop:
+    /// `organs_built` says fruit were made, and only this says any of them
+    /// were ever dispersed.
+    pub fruit_dropped: u64,
+
     /// Decay events, split by which side of `DECAY_MOISTURE_THRESHOLD` the
     /// field humidity was on when the roll was made.
     ///
@@ -1551,6 +1617,14 @@ impl World {
             wood_cells_built: 0,
             seed_budget_blocked: 0,
             seed_budget_available: 0,
+            organs_built: 0,
+            axes_terminated: 0,
+            organ_charge_blocked: 0,
+            organ_charge_available: 0,
+            organ_cells_unaffordable: 0,
+            organ_ripening_blocked: 0,
+            organ_ripening_paid: 0,
+            fruit_dropped: 0,
             decayed_damp: 0,
             decayed_dry: 0,
             rotted_to_solid: 0,
@@ -1687,7 +1761,12 @@ impl World {
     ///
     /// Collected rather than iterated in place because the caller needs
     /// `&mut World` to run each organism's pass.
-    pub(crate) fn live_organism_ids(&self) -> Vec<u16> {
+    ///
+    /// **Public for the experimental-disturbance seam** — see
+    /// `mark_organism_senescent`. A harness studying selection has to be able
+    /// to enumerate the population before it can disturb it, and every
+    /// in-crate caller wanted exactly this already.
+    pub fn live_organism_ids(&self) -> Vec<u16> {
         self.organisms
             .iter()
             .enumerate()
@@ -1993,7 +2072,15 @@ impl World {
             return None;
         }
         self.organisms_born += 1;
+        // **The founding genome, read before the state is built** because
+        // `self.species` and `self.organisms` cannot both be borrowed. Every
+        // organism carries its own production rule from the instant it
+        // exists, so nothing downstream has to ask whether it has one yet;
+        // `plant::bear_seed_at` overwrites it with the parent's mutated copy
+        // for a bred seed, which is later in the same call.
+        let fates = super::organism::FateGenome::from_table(self.species.get(species).fate_table());
         let state = OrganismState {
+            fates,
             water: 0.0,
             water_status: 1.0,
             water_uptake: 0.0,
@@ -2006,6 +2093,7 @@ impl World {
             root_cells: 0,
             contact_root_cells: 0,
             shoot_cells: 0,
+            organ_cells: 0,
             anchor_cells: 0,
             anchor_moment: 0.0,
             crown_moment: 0.0,
@@ -2055,6 +2143,8 @@ impl World {
             plagiotropic_steps: 0,
             foliage_band: 0,
             bark_band: 0,
+            flower_band: 0,
+            fruit_band: 0,
             inherited: false,
             generation: 0,
             seeds_set: 0,
@@ -2122,6 +2212,36 @@ impl World {
     /// stale `organism_id` still held by some cell resolve to `None` rather
     /// than silently editing an unrelated organism that has since been
     /// allocated the same slot.
+    /// **Kill one organism the way the engine already kills organisms** —
+    /// the experimental-disturbance seam. Returns whether the id resolved.
+    ///
+    /// Sets `senescent`, which `plant::rot_remains` then carries out at the
+    /// species' own `remains_half_life`. That reuse is the whole point and it
+    /// is not incidental: a disturbance that deleted the cells outright would
+    /// be a disappearance, and this project's stated ethos is that **an
+    /// outcome is a distribution, not a binary** — the owner's own ruling on
+    /// this exact seam was that a plant which cannot pay its way is marked
+    /// senescent and thinned out over time, so the death is *graded*. A
+    /// harness that invented its own removal path would both duplicate that
+    /// machinery and look wrong on screen.
+    ///
+    /// **What this is for, and the trap it must not be used for.** Studying
+    /// whether selection can sort morphologies needs a *neutral* hazard —
+    /// fixed probability per plant, independent of age, size and genotype.
+    /// Culling by age is itself a selective force favouring fast reproducers,
+    /// so it would manufacture the ruderal-strategy result such an experiment
+    /// is hoping to observe (`Reports/plant-evolvability-handoff-2026-08-27.md`
+    /// §5). The caller owns that choice; this function only carries it out.
+    pub fn mark_organism_senescent(&mut self, organism_id: u16) -> bool {
+        match self.organism_mut(organism_id) {
+            Some(state) => {
+                state.senescent = true;
+                true
+            }
+            None => false,
+        }
+    }
+
     pub(crate) fn organism_mut(&mut self, organism_id: u16) -> Option<&mut OrganismState> {
         let (slot_index, generation) = decode_organism_id(organism_id);
         if slot_index == 0 {

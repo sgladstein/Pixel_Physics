@@ -411,6 +411,53 @@ field rework — see `open-bugs-handoff.md`.
 it carries the reading order, what is established, and an owner-caught
 drift that two of these documents still reflect.**
 
+- [plant-organs-handoff-2026-08-28.md](plant-organs-handoff-2026-08-28.md)
+  — **handoff; read first if you are building the organ package (Phase 4).**
+  What Phases 0–3 landed and what machinery they give you, the six owner
+  decisions not to re-litigate, and seven traps each already paid for. Its two
+  load-bearing findings: gate 1 says `becomes` and `lateral` — the fields a
+  determinate axis and a truss need — took 34 mutations without one failure,
+  while `child` killed 5 of 6; and **a label change has now failed to read five
+  times**, so the organ's *material* is the load-bearing half of the phase, not
+  a detail of it. Names the retune budget, including `shoot_cells`' two-sided
+  effect on the reproduction economy that no other report records.
+- [plant-fate-viability-2026-08-28.md](plant-fate-viability-2026-08-28.md)
+  — **gate 1, measured, and it passes.** 92% of effective point mutations to a
+  species' production rule still produce a plant that establishes and breeds,
+  against §7a's literature prediction that most structural mutations are
+  nonviable. **The shape matters more than the rate**: every failure was a
+  `child` mutation on a frontier type — the only way to kill the plant is to
+  destroy the frontier — while `becomes` and `lateral` took 34 mutations
+  without a single failure. Those two are exactly the fields a determinate
+  axis and a truss need, so the organ work is aimed at the tolerant half.
+  Records two instrument bugs caught by controls rather than by inspection,
+  one of which would have published a decisive, false 0%.
+- [plant-organs-2026-08-29.md](plant-organs-2026-08-29.md)
+  — **built: Phase 4, the organ package.** Flowers and fruit as cell types with
+  their own materials, a determinate axis that terminates in one, and a carbon
+  price on building them, plus two authored habits (`herb`, `scrambler`). The
+  materials came first, deliberately: a label change has failed to read five
+  times and the one lever that ever read changed material. Two accounts, and
+  the split is the useful finding — **construction** is charged at the decision
+  from the acting cell, while **ripening** had to move to the reproductive
+  budget because `allocate_to_frontier` makes an organ a permanent *donor*, so
+  a flower charged against its own carbon can never set: 35 flowers against 2
+  fruit, where the clocks predict 58. Records four failures caught by looking
+  rather than by a number, including a turgor bound that cut the axis short of
+  its own metamer count.
+- [plant-heritable-fates-handoff-2026-08-29.md](plant-heritable-fates-handoff-2026-08-29.md)
+  — **handoff; read first if you are continuing the plant-evolution line.**
+  The production rule is heritable now: every organism carries its own
+  `FateGenome`, founded from its species file, read ahead of it, and
+  copied-then-mutated when a seed is borne — so a lineage can move its
+  developmental program, which nothing could do before. The operator is the
+  flexible one by owner's call (retarget / recondition / insert / delete), and
+  **only retarget has a viability gate**; the rate is a guess; and throughput
+  is still the blocker, since a tree reaches generation 1 in 8 of 8 seeds and
+  never more. Its §4a is the one to read before writing any guard here: with
+  the mechanism disabled outright the two obvious tests stayed **green**,
+  because a founder and its species agree by construction whichever table was
+  read.
 - [plant-evolvability-handoff-2026-08-27.md](plant-evolvability-handoff-2026-08-27.md)
   — **handoff; read first when picking this line up.** Reading order for the
   six documents, what is actually established, and **§3: an owner-caught
@@ -536,6 +583,13 @@ drift that two of these documents still reflect.**
   material rather than on the eater, corpse worth in `Cell::aux`, and the
   edible forest floor. Its "As built" notes carry the measurements; every
   S4 number in them predates the litter merge and is superseded by it.
+- [creature-export-design.md](creature-export-design.md) — **built and
+  landed 2026-08-29.** The dev-tool exit decision **E8** asks for and nothing
+  implemented: an evolved individual written back out as a species `.ron` the
+  existing loader reads to the same animal. Why it is a species file rather
+  than a genome sidecar, the genome block (hidden self-recurrence) that
+  **24% of sampled genomes carry and no species file could describe**, and
+  what the manifest stamp does and does not catch.
 - [creature-review-2026-08.md](creature-review-2026-08.md) — **review +
   proposed plan, written the day S1–S4 merged.** Where the creature line
   stands, the decisions never posted to the queue (E5, the abundance dial),
@@ -616,6 +670,17 @@ drift that two of these documents still reflect.**
   **review.** Why the caves do not look good, ahead of rounds 5 and 6.
 - [pass-interference-2026-08.md](pass-interference-2026-08.md) —
   **investigation.** Which worldgen passes overwrite each other.
+- [resolution-step-2026-08-29.md](resolution-step-2026-08-29.md) —
+  **handoff; start here for the resolution step**, which
+  `world-scale-handoff.md` names as "higher resolution later". The render
+  was three times the simulation and nobody was watching it, because
+  `scale_probe phases=1` times `App::update` and `Renderer::draw` is not in
+  it; it is now parallel and a **1024x640 redraw costs 18.6 ms against the
+  old 512x320's 21.2 ms**, so doubling the framebuffer is paid for. Carries
+  the owner's verdict on which of the two readings of "resolution" is meant
+  (the apparent scale must not change), the measured finding that **cutting
+  stone depth buys load time and memory but not frame rate**, and the 261
+  cell-valued sites across 29 files that the content half has to move.
 - [world-scale-handoff.md](world-scale-handoff.md) — **handoff; start
   here for the 4x world.** What round 7's performance work landed, the one
   target it missed and why, the question waiting on the owner, and Phases

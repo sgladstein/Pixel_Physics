@@ -388,13 +388,29 @@ wall clock. Evolution needs thousands of generations. This needs a headless
 fast-forward mode with its own clock — `examples/ascii.rs` is already the right
 seed for it, and it already runs in CI.
 
-**Per-chunk RNG becomes a confound.** `Chunk::rng` is seeded from the chunk's
+**Per-chunk RNG becomes a confound.** ~~`Chunk::rng` is seeded from the chunk's
 coordinate. That was the right call for the parallel sweep, but it means the same
 genome planted in two different places draws a different sequence — position
-becomes a hidden inherited variable. For a fitness comparison that's noise
+becomes a hidden inherited variable.~~ For a fitness comparison that's noise
 correlated with location, which is exactly the kind of thing that produces a
 spurious "evolutionary" result. A per-organism RNG stream, seeded from the
 organism id, would keep determinism and remove the confound.
+
+> **CORRECTED 2026-08-28 — this paragraph names the wrong culprit, and
+> `src/sim/rng.rs:105-117` has said so in source for some time without the
+> correction reaching this file.** Organisms never touch `Chunk::rng`; it is
+> reached only by the CA sweep, through `CellSurface::rng()`. The real
+> mechanism was **order coupling** — `world.rng`'s sequence depending on how
+> many draws every other organism made first — and **the recommendation was
+> right and has shipped**: `rng::stream(organism_id, x, y, frame)`
+> (`plant.rs:1388`) is the per-organism stream this asks for.
+>
+> Position deliberately stays *in* that key, so two identical genomes planted
+> in different places still grow differently; what changed is that the
+> difference comes from where they are rather than from what else happens to
+> exist. The residual confound binds **founders only** — see
+> `plant-evolution-design.md` §1c and
+> `plant-evolvability-facts-2026-08-27.md` §6.
 
 ---
 
