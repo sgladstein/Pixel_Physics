@@ -786,6 +786,22 @@ drift that two of these documents still reflect.**
   fallen log anchoring the tree it fell off — and, in §4c–§4g, three rounds
   of owner review including two framing failures of the session's own.
 
+- [plant-mechanics-handoff-2026-08-29.md](plant-mechanics-handoff-2026-08-29.md)
+  — **handoff, written to be picked up cold; read it with the plan below.**
+  What happened *after* the plan: PR #102 landed (the plan, the debris tiers,
+  colour preservation), and six findings that change what to build next. The
+  one to carry: **what has always looked like a crown collapsing was leaf
+  powder running downhill, not a fall** — nothing makes a severed piece
+  travel sideways, which is why the previous attempt kept measuring well and
+  looking wrong, and which makes the fall the critical path rather than a
+  polish item. Also: the load model has **no `topple` outcome**, proved by a
+  control that falsified the session's own source reading (giving logs the
+  tipping test crushes them and leaves *more* standing); ask 1 is **buckling,
+  not bending**, because a balanced stem's base reads 0.0–0.3 against a max
+  of 7,171; and rotation seeds from angular acceleration, not torque. §4 is a
+  code map of the promotion path with the constants and commands, §5 the
+  staged work, §6 the traps, §7 the standing owner rulings verbatim.
+
 - [tree-mechanics-plan-2026-08-29.md](tree-mechanics-plan-2026-08-29.md) —
   **plan; one change landed** (`3bdf674`). Structure and physics for *all*
   plants, from the owner's five asks — a top-heavy tree falling, a rock
