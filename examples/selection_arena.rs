@@ -221,6 +221,61 @@ struct Outcome {
     b: Tally,
     /// Descendants ever seen, per arm, accumulated over samples.
     ever: (usize, usize),
+    /// **The frequency trajectory**: `(population mean generation, arm B's
+    /// share of biomass)` at each sample.
+    ///
+    /// This is the half of the harness that can see a *small* selection
+    /// coefficient, and the endpoint share above is the half that cannot.
+    /// The arithmetic, which is why it is worth carrying:
+    ///
+    /// Under neutral drift the log-odds of an arm's frequency random-walks
+    /// with `sd ~= sqrt(g / Ne)` after `g` generations, while selection at
+    /// `s` per generation moves the mean by `s * g`. So the signal-to-noise
+    /// ratio is `s * sqrt(g * Ne)` -- it grows with the *length* of the run,
+    /// not with how many worlds are run. Detecting `s` at |z|>2 needs
+    /// `g * Ne > 4 / s^2`:
+    ///
+    /// | s | generations at Ne=500 |
+    /// |---|---|
+    /// | 0.05 | 3 |
+    /// | 0.02 | 20 |
+    /// | **0.01** | **80** |
+    ///
+    /// At herb's ~6,400 frames per generation that is a single ~512,000-frame
+    /// run for `s = 1%`, against the **620 worlds** the endpoint share needs
+    /// for the same coefficient. Sampling more often does not help -- samples
+    /// along one trajectory are autocorrelated; running *longer* does.
+    traj: Vec<(f64, f64)>,
+}
+
+/// **Least-squares slope of `logit(freq)` against generation** -- the
+/// selection coefficient per generation, signed so that negative means arm B
+/// is losing.
+///
+/// Log-odds rather than the raw share because that is the scale selection is
+/// linear on: a constant fitness ratio per generation moves log-odds by a
+/// constant amount, while the share itself saturates near 0 and 1 and would
+/// make a strong coefficient read as a decelerating one.
+///
+/// Samples at exactly 0 or 1 are dropped rather than clamped -- an arm that
+/// has been eliminated has no defined log-odds, and clamping invents a finite
+/// value whose magnitude is set by the clamp rather than by the data.
+/// Returns `None` below three usable samples.
+fn logit_slope(traj: &[(f64, f64)]) -> Option<f64> {
+    let pts: Vec<(f64, f64)> = traj
+        .iter()
+        .filter(|&&(_, p)| p > 1e-6 && p < 1.0 - 1e-6)
+        .map(|&(g, p)| (g, (p / (1.0 - p)).ln()))
+        .collect();
+    if pts.len() < 3 {
+        return None;
+    }
+    let n = pts.len() as f64;
+    let mx = pts.iter().map(|p| p.0).sum::<f64>() / n;
+    let my = pts.iter().map(|p| p.1).sum::<f64>() / n;
+    let sxx: f64 = pts.iter().map(|p| (p.0 - mx).powi(2)).sum();
+    let sxy: f64 = pts.iter().map(|p| (p.0 - mx) * (p.1 - my)).sum();
+    (sxx.abs() > 1e-9).then(|| sxy / sxx)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -293,6 +348,7 @@ fn run_world(
 
     let mut ever_a: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
     let mut ever_b: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
+    let mut traj: Vec<(f64, f64)> = Vec::new();
     let mut last = (Tally::default(), Tally::default());
 
     for f in 0..frames {
@@ -305,6 +361,7 @@ fn run_world(
         let mut a = Tally::default();
         let mut b = Tally::default();
         let mut counted: std::collections::BTreeSet<u16> = std::collections::BTreeSet::new();
+        let (mut gen_sum, mut gen_n) = (0u64, 0u64);
         for y in 0..w_height {
             for x in 0..w_width {
                 let id = w.get(x, y).organism_id();
@@ -318,6 +375,8 @@ fn run_world(
                 if counted.insert(id) {
                     t.organisms += 1;
                     t.seeds_set += state.seeds_set as u64;
+                    gen_sum += state.generation as u64;
+                    gen_n += 1;
                     // `u16` handles are recycled, so an id is only unique
                     // among the live; pair it with the lineage so a reused
                     // handle in a different arm cannot be double-counted.
@@ -330,9 +389,16 @@ fn run_world(
                 }
             }
         }
+        // The x-axis is the population's mean generation, not the frame
+        // number: selection acts per generation, and two runs that breed at
+        // different rates would otherwise be put on incomparable axes.
+        let tot = a.cells + b.cells;
+        if gen_n > 0 && tot > 0 {
+            traj.push((gen_sum as f64 / gen_n as f64, b.cells as f64 / tot as f64));
+        }
         last = (a, b);
     }
-    Outcome { a: last.0, b: last.1, ever: (ever_a.len(), ever_b.len()) }
+    Outcome { a: last.0, b: last.1, ever: (ever_a.len(), ever_b.len()), traj }
 }
 
 /// **Wilcoxon signed-rank against a 50% null, two-sided.**
@@ -489,11 +555,16 @@ fn main() {
     // nothing gives A and B *exactly* equal integer tallies, so it is
     // detectable rather than merely suspected.
     let mut exact_ties = 0usize;
+    // Per-seed selection coefficient: the mean of the mirrored pair's two
+    // slopes, so position and genotype draw cancel here exactly as they do
+    // for the endpoint share.
+    let mut slopes: Vec<f64> = Vec::new();
     for s in 0..seeds {
         // The mirror pair: same world, arm assignment inverted, pooled.
         let mut a = Tally::default();
         let mut b = Tally::default();
         let assignments: &[bool] = if mirrored { &[false, true] } else { &[false] };
+        let mut pair_slopes: Vec<f64> = Vec::new();
         for &mirror in assignments {
             let o = run_world(
                 &species, founders, width, soil_depth, moisture, relief_varied, s + 1, frames, every,
@@ -505,6 +576,9 @@ fn main() {
             b.organisms += o.b.organisms;
             b.cells += o.b.cells;
             b.seeds_set += o.b.seeds_set;
+            if let Some(sl) = logit_slope(&o.traj) {
+                pair_slopes.push(sl);
+            }
             let _ = o.ever;
         }
         let tot_o = a.organisms + b.organisms;
@@ -521,6 +595,9 @@ fn main() {
         println!("  {:>5} {:>15.1}% {:>15.1}% {:>14}", s + 1, so, sc, b.seeds_set);
         share_orgs.push(so);
         share_cells.push(sc);
+        if !pair_slopes.is_empty() {
+            slopes.push(pair_slopes.iter().sum::<f64>() / pair_slopes.len() as f64);
+        }
         usable += 1;
         if sc < 50.0 {
             b_lower += 1;
@@ -571,6 +648,31 @@ fn main() {
              (Confirm with: `arm={handicap_name} mirror=off` against `arm=same mirror=off` at the same\n  \
              seeds -- byte-identical output is the proof.)"
         );
+    }
+
+    // **The trajectory readout -- the half that can see a small coefficient.**
+    if slopes.len() >= 3 {
+        let mut sl = slopes.clone();
+        let (q_lo, q_hi) = quartiles(&mut sl.clone());
+        let med = median(&mut sl);
+        // Offset by 50 so the same signed-rank helper (which tests against a
+        // 50% null) tests these against zero.
+        let (_, z, p) = signed_rank(&slopes.iter().map(|v| 50.0 + v).collect::<Vec<_>>());
+        println!("\nselection coefficient per generation, from the frequency trajectory:");
+        println!("  s (median over {} seeds)  {med:+.4}   quartiles {q_lo:+.4} .. {q_hi:+.4}", slopes.len());
+        println!("  signed-rank vs 0: z={z:.2} p={p:.4}");
+        println!("  Negative means arm B loses ground per generation. THIS is the readout that scales:");
+        println!("  detecting s needs g*Ne > 4/s^2, so it improves with RUN LENGTH (generations reached)");
+        println!("  where the endpoint share improves only with seed count. At Ne~500, s=0.05 needs ~3");
+        println!("  generations and s=0.01 needs ~80 -- one long run against ~620 worlds.");
+        if med.abs() > 1e-6 {
+            let gens = 4.0 / med.powi(2) / 500.0;
+            println!("  (a coefficient this size is resolvable in ~{gens:.0} generations at Ne=500)");
+        }
+    } else {
+        println!("\nselection coefficient: only {} seeds gave a usable slope.", slopes.len());
+        println!("  Needs >=3 samples per run with arm B strictly between 0 and 1: lower `every`, or the");
+        println!("  arm is eliminated too fast for a log-odds slope to exist at all (this is `lethal`).");
     }
 
     if handicap == Handicap::Same && mirrored {
