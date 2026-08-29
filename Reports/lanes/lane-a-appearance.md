@@ -89,6 +89,9 @@ Two traps, both hit here before the numbers were right:
   `assets/species/chitin_pale.ron` — candidates and probes. At most one should
   survive the owner's choice; **none of them should land as-is.**
 
-**Head SHA: `487a9924f33e0ebd2d84f97618c4d043b321486b`.** Gates on it: `cargo test --lib` 986
+**Head SHA: `77b43a1aa2063bb9b3323405b67dbf6e7958b82e`, plus exactly one commit
+on top of it** — the one that stamped this line, which a note can never name
+without changing it. `git log -1 origin/claude/creature-appearance-lane-a` is
+the head; everything below it is the work. Gates on `77b43a1`: `cargo test --lib` 986
 passed / 0 failed / 54 ignored, `clippy --all-targets -D warnings` green on
 1.94.1 and on CI's 1.98.0, `docscheck` clean.
