@@ -2576,7 +2576,7 @@ impl App {
         // which is the one furthest from the cause. Landing the world clock
         // hit exactly this against `main`'s sky-light indicator.
         format!(
-            "Pixel Physics — {:.0} fps — {} (brush {}) — chunks {}/{} awake — {} {:#018X}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}",
+            "Pixel Physics — {:.0} fps — {} (brush {}) — chunks {}/{} awake — {} {:#018X}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}",
             fps,
             self.selected_name(),
             self.brush_radius,
@@ -2639,6 +2639,11 @@ impl App {
             // Same rule again: silent at the default, named the moment it
             // is not, because the value of a look selector is being able to
             // say afterwards which one you liked.
+            if self.renderer.foliage == render::FoliageMode::default() {
+                String::new()
+            } else {
+                format!(" — foliage {}", self.renderer.foliage.label())
+            },
             if self.renderer.bubbles == render::BubbleMode::default() {
                 String::new()
             } else {

@@ -477,6 +477,84 @@ impl GrainMode {
 /// eyes-only question). `Depth` is the default because the review's graphics
 /// lens ranked the missing vertical light axis as the single largest
 /// whole-picture defect; `Off` is one `F10` away and is the pre-review look.
+/// **How foliage is drawn** — `Shift+G`, beside `G`'s grain, because both
+/// answer the same kind of question about the same kind of thing: what the
+/// texture of a material looks like when one cell of it is one pixel.
+///
+/// `Cells` is what ships and stays the default, so nothing changes until
+/// someone asks for it. Same reasoning as `GrainMode`: *for "does this look
+/// right", ship a runtime selector rather than choosing.*
+///
+/// The question this exists to settle is four review rounds old. Smoothing a
+/// leaf cell's silhouette — rounded, then flat, then flat and ragged — came
+/// back "not clearly better" every time, and
+/// `Reports/subpixel-rendering-2026-08-29.md` §13 is why the next thing tried
+/// was not a fourth smoothing but a different bet: **let the simulation say
+/// where foliage is and let art say what it looks like.** That is `Stamps`.
+///
+/// **It changes no simulation state and cannot.** This module resolves colours
+/// at draw time from a material id and a shade index and the simulation never
+/// writes a colour, so a mode here is unable to reach growth, collision, fire
+/// or foraging. What it *does* change is that a leaf cell paints outside its
+/// own square, so the **drawn** crown is wider than the **physical** one — and
+/// everything physical still reads cells: `MaterialDef::climbable`,
+/// `fall_drag`, fire spread and an ant's footing all stop at a boundary the
+/// picture no longer shows. That is a real design consequence rather than a
+/// bug, and it is why this is a selector and not a silent default.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum FoliageMode {
+    /// Every leaf cell is its own square. What ships.
+    #[default]
+    Cells,
+    /// Each leaf cell stamps a small authored leaf clump, so a crown is made
+    /// of overlapping leaf shapes rather than of squares. Evaluated at
+    /// whatever resolution the renderer has — sub-cell when zoomed in,
+    /// cell-coarse at 1:1 — so it is one code path at every zoom.
+    Stamps,
+}
+
+impl FoliageMode {
+    pub fn next(self) -> Self {
+        match self {
+            FoliageMode::Cells => FoliageMode::Stamps,
+            FoliageMode::Stamps => FoliageMode::Cells,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            FoliageMode::Cells => "CELLS",
+            FoliageMode::Stamps => "STAMPS",
+        }
+    }
+}
+
+/// Four leaf clumps as 7x7 bitmasks — **the only authored pixels in this
+/// world.** Everything else here is derived from simulation state, which is
+/// the whole point of the bet: the cell grid cannot know what a leaf looks
+/// like, and no amount of reconstructing its silhouette will tell it.
+const LEAF_STAMPS: [[u8; 7]; 4] = [
+    [0b0011100, 0b0111110, 0b1111111, 0b1111111, 0b0111110, 0b0011100, 0b0001000],
+    [0b0001000, 0b0011100, 0b0111110, 0b1111110, 0b1111100, 0b0111000, 0b0010000],
+    [0b0111000, 0b1111100, 0b1111110, 0b0111111, 0b0011110, 0b0001100, 0b0000100],
+    [0b0010000, 0b0111100, 0b1111110, 0b1111111, 0b1111110, 0b0111100, 0b0011000],
+];
+
+/// How many world cells across one stamp is drawn.
+///
+/// Above 1.0 by design — a leaf cell painting only its own square is exactly
+/// the mode this is an alternative to. `2.2` lets a clump hang about half a
+/// cell past its own edge on each side, which fills a crown out without
+/// moving the trunk. It is also what sets how far the drawn crown outruns the
+/// physical one, so it is the knob to pull *down* if the gnome falling through
+/// a painted edge starts to read as a bug.
+const LEAF_STAMP_SPREAD: f32 = 2.2;
+
+/// How far, in whole cells, a stamp can reach — the neighbourhood the
+/// per-pixel scan walks. `ceil` of half the spread, because a clump is centred
+/// on its own cell.
+const LEAF_STAMP_REACH: i32 = 2;
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum TerrainLight {
     /// Solid cells dim from full surface brightness at the skyline to
@@ -1663,12 +1741,14 @@ const HAZE_DIM: u16 = 168;
 /// either, so the screen would keep midnight's rock under a noon sky until
 /// something else happened. It also erases the on-screen pin badge on the
 /// frame the pin is released, which has no tracked footprint of its own.
-type LookKey = (TerrainLight, bool, GrainMode, GlowShape, Option<u64>, Option<Weather>);
+type LookKey = (TerrainLight, bool, GrainMode, FoliageMode, GlowShape, Option<u64>, Option<Weather>);
 
 pub struct Renderer {
     /// Which `GrainMode` a `Liquid` cell's brightness grain comes from.
     /// Prototype switch — see the enum's own doc.
     pub grain: GrainMode,
+    /// `Shift+G` — see [`FoliageMode`].
+    pub foliage: FoliageMode,
     /// How boiling liquid is drawn — see `BubbleMode`. `Off` by default,
     /// cycled by `H`, and free on a settled world for the reason that enum
     /// documents.
@@ -1968,6 +2048,7 @@ impl Renderer {
     pub fn new() -> Self {
         Self {
             grain: GrainMode::default(),
+            foliage: FoliageMode::default(),
             bubbles: BubbleMode::default(),
             gas: GasMode::default(),
             tree_depth: TreeDepth::default(),
@@ -2087,6 +2168,12 @@ impl Renderer {
 
     pub fn cycle_grain(&mut self) {
         self.grain = self.grain.next();
+    }
+
+    /// `Shift+G` — swap how foliage is drawn. See [`FoliageMode`]; it changes
+    /// only the picture and cannot reach the simulation.
+    pub fn cycle_foliage(&mut self) {
+        self.foliage = self.foliage.next();
     }
 
     /// `H` — step through the boiling looks. Same reasoning as
@@ -2501,7 +2588,7 @@ impl Renderer {
         // owner reported exactly that. (The animated modes force full
         // frames on their own; the static-to-static switches were the gap.)
         let look =
-            (self.terrain_light, self.reveal_voids, self.grain, self.glow_shape, world.clock.sky_hold, world.weather_override);
+            (self.terrain_light, self.reveal_voids, self.grain, self.foliage, self.glow_shape, world.clock.sky_hold, world.weather_override);
         let look_changed = self.last_look != Some(look);
         self.last_look = Some(look);
 
@@ -4053,6 +4140,84 @@ impl Renderer {
     /// there, because outside the world there is no chunk worth looking up
     /// either, and because `World::get` answers `Cell::OUT_OF_BOUNDS` there,
     /// which is not a colour this ever wants. Out of bounds draws `VOID`.
+    /// **Which leaf clump, if any, covers this pixel** — the whole of
+    /// [`FoliageMode::Stamps`].
+    ///
+    /// Returns the *cell* whose stamp covers the pixel, so the caller colours
+    /// it through the ordinary palette path and a stamped leaf is the same
+    /// green the cell would have been. Nothing here invents a colour.
+    ///
+    /// **Gated at the call site, not inside.** `CLAUDE.md`'s rule for new
+    /// per-cell work is that the opt-in is tested where the data already is;
+    /// every caller checks `self.foliage` first, so a world in the default
+    /// mode never reaches this and pays one enum compare per pixel.
+    ///
+    /// The scan is a `LEAF_STAMP_REACH` neighbourhood, and the *last* covering
+    /// cell wins rather than the nearest: clumps then overpaint each other the
+    /// way real foliage does, instead of averaging into a wash.
+    fn leaf_stamp_at(&self, world: &World, x: i32, y: i32, sub: (i32, i32)) -> Option<Cell> {
+        let zoom = self.zoom.max(1) as f32;
+        // Position in continuous cell space. At 1:1 `sub` is `(0, 0)` and this
+        // is the cell centre, which is what makes one code path serve every
+        // zoom -- the stamp is simply sampled more coarsely when there are
+        // fewer pixels to sample it with.
+        let fx = x as f32 + (sub.0 as f32 + 0.5) / zoom;
+        let fy = y as f32 + (sub.1 as f32 + 0.5) / zoom;
+        let mut found = None;
+        // **The chunk is cached across the neighbourhood, and that is what
+        // makes this affordable.** `World::get` is a `HashMap` fetch, so a
+        // naive 5x5 scan is 25 SipHashes per pixel -- measured against
+        // `render_cost`'s 11.8 ns per hashed read, about 295 ns/px, which
+        // would be some 48 ms a frame on its own. A 5-cell neighbourhood is
+        // 64x64 chunks wide only at a chunk boundary, so in the ordinary case
+        // this is **one** hash per pixel and 25 array indexes. Same trick
+        // `ChunkRun` applies to the draw loop and `build_sky_light` to its
+        // block scan.
+        let mut at: Option<ChunkCoord> = None;
+        let mut chunk: Option<&Chunk> = None;
+        for ny in (y - LEAF_STAMP_REACH)..=(y + LEAF_STAMP_REACH) {
+            for nx in (x - LEAF_STAMP_REACH)..=(x + LEAF_STAMP_REACH) {
+                if !world.in_bounds(nx, ny) {
+                    continue;
+                }
+                let coord = ChunkCoord::containing(nx, ny);
+                if at != Some(coord) {
+                    at = Some(coord);
+                    chunk = world.chunk(coord);
+                }
+                let Some(c) = chunk else { continue };
+                let neighbour = c.get_world(nx, ny);
+                // Cheapest test first: most cells in any neighbourhood are not
+                // organism cells at all, and `aux` is a tagged union whose
+                // decode is only meaningful once the id says so.
+                if neighbour.organism_id() == 0
+                    || !matches!(organism::cell_type(neighbour.aux()), Some(organism::CellType::Leaf))
+                {
+                    continue;
+                }
+                // Three independent draws off the hashes this module already
+                // uses for grain, rather than a fourth hash of its own: which
+                // clump, and how far it is nudged off its own cell.
+                let pick = (rng::jitter(nx, ny) * LEAF_STAMPS.len() as f32) as usize;
+                let stamp = &LEAF_STAMPS[pick.min(LEAF_STAMPS.len() - 1)];
+                // Jitter the placement, or a run of leaf cells lays its clumps
+                // on a visible lattice and the crown reads as wallpaper.
+                let jx = rng::jitter3(nx, ny, 1) - 0.5;
+                let jy = rng::jitter3(nx, ny, 2) - 0.5;
+                let u = (fx - (nx as f32 + 0.5 + jx * 0.6)) / LEAF_STAMP_SPREAD + 0.5;
+                let v = (fy - (ny as f32 + 0.5 + jy * 0.6)) / LEAF_STAMP_SPREAD + 0.5;
+                if !(0.0..1.0).contains(&u) || !(0.0..1.0).contains(&v) {
+                    continue;
+                }
+                let (sx, sy) = ((u * 7.0) as usize, (v * 7.0) as usize);
+                if stamp[sy.min(6)] & (0b1000000 >> sx.min(6)) != 0 {
+                    found = Some(neighbour);
+                }
+            }
+        }
+        found
+    }
+
     fn cell_colour(&self, world: &World, x: i32, y: i32, sub: (i32, i32), cell: Cell) -> [u8; 4] {
         // **One `Materials::get` for the cell, not six.** The palette, the
         // kind (three separate liquid tests), `water_capacity` and
@@ -4216,6 +4381,25 @@ impl Renderer {
         // like"). Using `is_empty()` here would draw a container cell with
         // grain jitter/heat-glow instead of flat background -- a visible,
         // static artifact along the outline of every heightfield body.
+        // **A stamped leaf can cover empty space, and that is the point.** A
+        // crown fills out because a leaf cell paints past its own square, so
+        // the test has to come *before* the empty-cell early return below --
+        // put after it, the mode would only ever repaint cells that were
+        // already foliage and would look like a dead key.
+        if self.foliage == FoliageMode::Stamps {
+            if let Some(leaf) = self.leaf_stamp_at(world, x, y, sub) {
+                if leaf != cell {
+                    // Recurse once, on the covering cell, so a stamped pixel
+                    // goes through every ordinary path -- palette band, sky
+                    // light, depth grade, overlays -- and is the exact colour
+                    // that cell would have drawn. The guard is what bounds it:
+                    // `leaf` is a `Leaf` cell, and drawing *it* finds itself
+                    // covering its own pixel, so the second call returns here
+                    // with `leaf == cell` and falls through.
+                    return self.cell_colour(world, x, y, sub, leaf);
+                }
+            }
+        }
         if cell.material == material::EMPTY {
             // Sky, not a flat background. Empty space inside the world is
             // *air*, and drawing it black made every world read as a cutaway
@@ -7574,6 +7758,62 @@ mod tests {
         let mut reference = vec![0u8; (uw * uh * 4) as usize];
         fresh.draw(&world, &particles, &HashSet::new(), &mut reference, (uw, uh), true);
         assert_eq!(frame, reference, "the skipped repaint left a stale pose behind");
+    }
+
+    #[test]
+    fn foliage_stamps_repaint_foliage_and_leave_a_plantless_world_alone() {
+        // **Both halves, because they fail for different faults.** The first
+        // is sensitivity -- a mode that quietly does nothing draws exactly
+        // what `Cells` draws, and that is what a dead key looks like from the
+        // outside. The second is specificity: `leaf_stamp_at` runs on *every*
+        // pixel in `Stamps` mode, so a bug in its neighbourhood scan would
+        // repaint rock and sky too, and a test that only ever looked at
+        // foliage could not see it.
+        fn frame_of(foliage: FoliageMode, plant: bool) -> Vec<u8> {
+            let (w, h) = (48i32, 32i32);
+            let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
+            for y in (h / 2)..h {
+                for x in 0..w {
+                    world.set(x, y, Cell::new(material::STONE, (x * 7 + y * 13) as u8));
+                }
+            }
+            if plant {
+                let leaf = world.materials.id_of("leaf").expect("leaf is compiled in");
+                let aux = organism::pack_cell_type(organism::CellType::Leaf);
+                for y in (h / 2 - 6)..(h / 2) {
+                    for x in 18..26 {
+                        // An organism id is what `leaf_stamp_at` tests first,
+                        // so a cell without one is invisible to it however
+                        // right its material is.
+                        world.set(x, y, Cell::new(leaf, (x + y) as u8).with_organism_id(1).with_aux(aux));
+                    }
+                }
+            }
+            world.end_step();
+            let mut r = Renderer::new();
+            r.foliage = foliage;
+            let mut frame = vec![0u8; (w * h * 4) as usize];
+            r.draw(
+                &world,
+                &ParticleSystem::default(),
+                &HashSet::new(),
+                &mut frame,
+                (w as u32, h as u32),
+                true,
+            );
+            frame
+        }
+
+        assert_ne!(
+            frame_of(FoliageMode::Cells, true),
+            frame_of(FoliageMode::Stamps, true),
+            "Stamps must actually repaint a stand -- an unchanged frame is what a dead key looks like"
+        );
+        assert_eq!(
+            frame_of(FoliageMode::Cells, false),
+            frame_of(FoliageMode::Stamps, false),
+            "with no foliage anywhere the two modes must be pixel-identical: the scan may not touch rock or sky"
+        );
     }
 
     #[test]

@@ -499,3 +499,97 @@ tuple return, two eight-argument functions, a range loop), and fixing them
 touched every drawing path. A behaviour-preserving refactor that silently is
 not one would have invalidated the posted card. Re-rendered and compared: **all
 four arms byte-identical to the frames the owner is looking at.**
+
+
+## 14. What shipped: `Shift+G`, foliage stamps
+
+The four-arm card came back:
+
+> *"Your timelapse is too fast. Deciding between shipped and stamps. Can you
+> make it a toggleable option in the game. Dont use the a/b test button
+> though"*
+
+So `stamps` is the contender and it is now in the shipped renderer as
+`FoliageMode`, default `Cells`, cycled with **`Shift+G`** — beside `G`'s
+grain, because both answer *what does the texture of this material look like
+when one cell is one pixel*. Not on `K`: that key cycles `plant::StemMode`,
+which changes how plants **grow**, and this changes only how they are drawn.
+
+This is `CLAUDE.md`'s own convention rather than a shortcut: *for "does this
+look right", ship a runtime selector rather than choosing.* Five grain modes
+behind one key settled in minutes what argument and stills could not, and four
+review rounds here say the same is needed.
+
+### 14a. One code path at every zoom
+
+`cell_colour` already receives the pixel's sub-cell offset. The stamp is
+evaluated at `x + (sub.0 + 0.5)/zoom` — so at 1:1 that is the cell centre and
+the clump is sampled coarsely, and zoomed in the same clump resolves finely,
+with no second implementation and no framebuffer change. The §2 supersampling
+would make it finer still at 1:1, but it is **not required** for this and the
+two are independent.
+
+The stamp test sits **before** the empty-cell early return, deliberately: a
+crown fills out because a leaf cell paints past its own square, so a test
+placed after it would only ever repaint cells that were already foliage and
+would read as a dead key.
+
+### 14b. It costs 2.7x on a full redraw, and that is the honest number
+
+Paired and alternating on `scene=grove`, which is dense foliage across the
+whole viewport and so the worst case rather than the typical one:
+
+| | worst full-screen draw |
+|---|---|
+| `cells` | 4.32 ms, 4.18 ms |
+| `stamps` | 11.30 ms, 11.21 ms |
+
+**+7 ms, about 2.7x.** It reproduces across alternating runs, so it is not the
+box moving. Only full redraws pay it — the dirty-rect skip is untouched — but
+a camera move forces a full redraw every frame, so walking through a wood is
+exactly when it lands.
+
+Most of that is the neighbourhood scan, and it is already much cheaper than
+the naive version: `World::get` is a `HashMap` fetch, so a 5x5 scan is 25
+SipHashes per pixel (~295 ns/px against `render_cost`'s 11.8 ns per hashed
+read, some 48 ms a frame). Caching the chunk across the neighbourhood makes it
+**one** hash per pixel in the ordinary case, since a 5-cell neighbourhood
+crosses a 64-cell chunk boundary only at the edge.
+
+The obvious next step is the gate §11 measured for the reconstruction — a
+per-draw "foliage within reach" mask, so pixels that cannot be covered are not
+scanned at all. It is **not built and not measured**, and default-off is what
+makes that acceptable for now.
+
+### 14c. What it does *not* change, and the one real consequence
+
+**It cannot touch the simulation.** This module resolves colours at draw time
+from a material id and a shade index and the simulation never writes a colour,
+so a mode here cannot reach growth, collision, fire or foraging. The guard
+proves the containment from the other side too: with no foliage anywhere,
+`Cells` and `Stamps` must be **pixel-identical**.
+
+What it *does* change is that a leaf cell paints outside its own square, so
+the **drawn** crown is wider than the **physical** one — and everything
+physical still reads cells. `MaterialDef::climbable`, `fall_drag`, fire spread
+and an ant's footing all stop at a boundary the picture no longer shows, so
+the gnome can fall through a painted edge. At `LEAF_STAMP_SPREAD` 2.2 that
+overhang is about half a cell on each side. It is a real design consequence
+rather than a bug, and it is the argument for a selector over a silent
+default; the spread is the knob to pull down if it starts reading as one.
+
+### 14d. The guard was watched going red, twice
+
+Written after the code, so `CLAUDE.md`'s exemption does not apply and the
+control was run. Both halves fail for their own fault and pass when it is
+removed:
+
+| fault put back | which half fired |
+|---|---|
+| `Stamps` made a no-op | *"an unchanged frame is what a dead key looks like"* |
+| the scan no longer restricted to leaves | *"the scan may not touch rock or sky"* |
+
+The second half is the one that would not have existed on instinct:
+`leaf_stamp_at` runs on **every** pixel in `Stamps` mode, so a bug in its
+neighbourhood scan repaints rock and sky as well, and a test that only looked
+at foliage could not see it.

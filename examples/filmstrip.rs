@@ -2286,6 +2286,7 @@ struct Args {
     genome: String,
     out: String,
     grain: GrainMode,
+    foliage: pixel_physics::render::FoliageMode,
     /// `bubbles=` -- which of `render.rs`'s `BubbleMode` looks to draw
     /// boiling liquid with. `off` is the default and today's behaviour;
     /// the point of the argument is `scene=boil` side by side.
@@ -2842,6 +2843,7 @@ fn parse() -> Args {
         parallel_driver: true,
         out: std::env::temp_dir().join("filmstrip.png").display().to_string(),
         grain: GrainMode::Position,
+        foliage: pixel_physics::render::FoliageMode::default(),
         bubbles: BubbleMode::default(),
         gas: GasMode::default(),
         tree_depth: TreeDepth::default(),
@@ -2952,6 +2954,15 @@ fn parse() -> Args {
                     "2" => SkyLight::Coarse2,
                     "1" | "exact" => SkyLight::Exact,
                     other => panic!("unknown skylight {other:?} (off|4|2|1)"),
+                }
+            }
+            // `Shift+G` in the app; here so a contact sheet can show the
+            // mode the key selects.
+            "foliage" => {
+                a.foliage = match v {
+                    "cells" => pixel_physics::render::FoliageMode::Cells,
+                    "stamps" => pixel_physics::render::FoliageMode::Stamps,
+                    other => panic!("unknown foliage {other:?} (cells|stamps)"),
                 }
             }
             "grain" => {
@@ -4774,6 +4785,7 @@ impl PanelSheet {
         }
         let mut renderer = Renderer::new();
         renderer.grain = args.grain;
+        renderer.foliage = args.foliage;
         renderer.organism_overlay = args.organism_overlay;
         renderer.field_overlay = args.field_overlay;
         renderer.pinned_light = args.daylight.map(pixel_physics::sky::frame_for_daylight);
@@ -4893,6 +4905,7 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, (usize, usize), (i
     let materials_before: Vec<material::MaterialId> = (0..HEIGHT).flat_map(|y| (0..WIDTH).map(move |x| (x, y))).map(|(x, y)| world.get(x, y).material).collect();
     let mut renderer = Renderer::new();
     renderer.grain = args.grain;
+    renderer.foliage = args.foliage;
     renderer.bubbles = args.bubbles;
     renderer.gas = args.gas;
     renderer.tree_depth = args.tree_depth;
