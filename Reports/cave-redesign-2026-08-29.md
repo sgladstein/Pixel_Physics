@@ -95,9 +95,9 @@ mouth is not a place, it is a buried cavity. §3.4.
 
 ### 2.2 The verdict that arrived while this was being written
 
-The three cards in §1 were posted mid-session and two were answered inside ten
-minutes. **They settle the design, so they are quoted in full and everything
-after this section is written to them.**
+The three cards in §1 were posted mid-session and all three were answered
+inside ten minutes. **They settle the design, so they are quoted in full and
+everything after this section is written to them.**
 
 On the room (`20260829T170543996Z-3d6418`), verbatim:
 
@@ -110,6 +110,12 @@ On the room (`20260829T170543996Z-3d6418`), verbatim:
 > ovals, not realistic at all. **The voroni worly patter around the cave
 > should be removed. I know I said that I liked it before but no.**"*
 
+And on the void topology (`20260829T170504038Z-cd73e9`), asked whether the
+honeycomb should stay as background rock you dig through or go entirely, the
+whole answer:
+
+> ***"Remove the web"***
+
 On the formations (`20260829T170546697Z-715c0f`), verbatim:
 
 > *"Yes they should be wider and they usually are. not sure why they are one
@@ -119,10 +125,12 @@ On the formations (`20260829T170546697Z-715c0f`), verbatim:
 Four things change because of this, and three of them reverse what an earlier
 draft of this document proposed:
 
-1. **The Worley web is deleted, not demoted.** The earlier draft kept the
-   honeycomb as background scenery on the strength of *"The honey comb is
-   interesting background sometimes"*. That verdict is now withdrawn by name.
-   There is no cave texture; there are rooms and there are passages.
+1. **The Worley web is deleted, not demoted** — said twice, once
+   unprompted. The earlier draft kept the honeycomb as background scenery on
+   the strength of *"The honey comb is interesting background sometimes"*;
+   that verdict is now withdrawn by name, and the card that asked whether to
+   keep it came back as three words. There is no cave texture; there are
+   rooms and there are passages.
 2. **Rooms are the primary object, not a swelling of a passage.** *"rooms 3-7x
    bigger and multiple of them chained together"* makes the room the thing the
    generator places and the passage the thing that joins two of them.
@@ -131,9 +139,8 @@ draft of this document proposed:
    all the main issue."* §7 stays because the hairline is a live defect with a
    named cause, but it moves to the back of the staging.
 
-The third card (`20260829T170504038Z-cd73e9`, whether to keep the honeycomb as
-background) is still open and is **superseded** by the answer above; it needs
-no reply.
+All three cards are answered and they agree. Nothing in the design below reads
+the Worley field for anything.
 
 ---
 
