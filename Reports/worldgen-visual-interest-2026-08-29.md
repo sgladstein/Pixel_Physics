@@ -20,6 +20,17 @@ palette all multiply a quantity that is currently near zero. Content is a clear
 second and is the cheapest item on the list. Render is third, with one genuine
 exception called out in §1.5.
 
+**The owner has since confirmed this from the other side, and his sentence is
+better than mine** (§6a, on a blind A/B of the lighting work):
+
+> *"Still you are focusing on lighting which is not the issue. **it is the
+> build**"*
+
+and, asked directly whether what is missing is colour variety or shape:
+
+> *"**Shape**, large rock formation (not just tall pillars), cave openings,
+> mountains."*
+
 ---
 
 ## 0. The reframing that makes the rest of it make sense
@@ -517,22 +528,35 @@ that turns a palette change into a geometry change.
 
 ## 5. What I would do, in order
 
-1. **The palette (§1.4).** Half a day of `.ron` editing, no code. Best ratio on
-   the list, and it makes everything else easier to judge.
-2. **Sow a grown world (§1.2).** Small, and it is the only item that puts a
-   colour on screen that does not currently exist.
-3. **Differential relief on the wall and at the skyline (§1.1).** The revamp.
-   Couple bed hardness to how far a bed stands proud; that alone lifts
-   `cliff_edges` above its threshold and switches `brows`, `talus` and boulders
-   back on for free.
-4. **Rebuild the cave passages (§1.3).** Replace the Voronoi edge set with
-   something sinuous; put flowstone on walls and rimstone on floors — both
-   materials already exist.
-5. **`ink` plus a cave-void falloff (§1.5, §2.4).** Cheap render work, and it
-   should follow 3 and 4 rather than lead them, because both make it worth more.
+**Revised after the owner answered — see §6a.** The first version of this list
+led with the palette on a cost/payoff argument; he answered *"shape"* when
+asked directly whether the problem was colour or shape, and *"you are focusing
+on lighting which is not the issue, it is the build"*. Shape leads.
+
+1. **Relief, on the wall and at the skyline (§1.1).** The revamp, and the only
+   item that unlocks others. Couple bed hardness to how far a bed stands proud
+   of the face, so the cross-section becomes a cliff/ledge/bench stair rather
+   than a plane; that alone lifts terrain past `cliff_edges`' threshold and
+   switches `brows`, `talus` and the boulder pass back on for free. **Massive
+   forms, not spindles** — the owner named *"large rock formation (not just
+   tall pillars)"*, so the thin vertical columns already in every strip are the
+   failure mode to avoid, not the goal.
+2. **Rebuild the caves (§1.3), Lane E's design.** *"Remove the web"*, and
+   bigger: he asked for rooms 3–7x the current chamber, chained so you can walk
+   from one to the next. **And open some of them to the sky** — *"cave
+   openings"* was in his answer and nothing in worldgen produces one today.
+3. **Sow a grown world (§1.2).** Cheap, and the only item that adds a colour
+   the ground does not otherwise carry. It also triples what any later lighting
+   work can reach (§2.4).
+4. **The palette (§1.4).** Still the best cost/payoff ratio in isolation — half
+   a day of `.ron` editing, no code — but demoted, because the owner has twice
+   said colour is not the issue. Do it, do not lead with it.
+5. **`ink` plus a cave-void falloff (§1.5, §2.4).** Cheap render work. It
+   should follow 1 and 2, because both make it worth several times more.
 
 **Do not start with lighting.** That is the finding this lane was asked to
-test, and it is the one thing on the list whose value is set by another item.
+test; it is now confirmed both by measurement (§2.2) and by the owner directly
+(§6a).
 
 ---
 
@@ -557,20 +581,67 @@ test, and it is the one thing on the list whose value is set by another item.
   quantity it would still be reading is boundary density, but it is an untested
   variant rather than a rejected one.
 
+## 6a. The owner answered, and he settled it
+
+All three cards came back within four minutes of posting, and between them they
+confirm §2 and **overturn my §5 ordering**. Recording that here rather than
+quietly editing the recommendation, because the correction is the useful part.
+
+**On the underground lighting A/B** (blind; he picked the **lit** pane, so he
+could tell them apart):
+
+> *"A is interesting, but but not convinced yet. Still you are focusing on
+> lighting which is not the issue. **it is the build**"*
+
+That is §2.5 in the owner's own words, and it arrived independently of the
+measurement. The hypothesis this lane was asked to try to kill is dead, and it
+is dead for the reason the boundary census gave: *the build* — the shape of the
+thing being lit — is the binding constraint.
+
+**On the surface lighting A/B** (blind, asked *"can you tell which pane has it
+on at all?"*): he chose **`shipped (flat)`**. He did not pick out the lit pane.
+The surface null is confirmed by eye as well as at 4.7%.
+
+**On the five presets**, asked *"is what's missing colour variety, or is it
+that the ground has no shape?"*:
+
+> *"**Shape**, large rock formation (not just tall pillars), cave openings,
+> mountains."*
+
+Four concrete nouns, and none of them is a colour. Two of them are things this
+report did not have on its list at all:
+
+- **"cave openings"** — our vaults sit 200+ rows down and are sealed; nothing
+  in worldgen opens a cave to the sky. A cave you can *see* from the surface is
+  both a landform and an invitation, and it is currently impossible.
+- **"not just tall pillars"** — the thin vertical stone columns visible in
+  every strip in §1.1 are being read as the *failure mode* of adding relief.
+  Whatever produces relief must produce **massive** forms, not spindles.
+
+**What this changes.** §5 led with the palette on a cost/payoff argument. The
+owner has now twice said colour is not the issue — here, and on a separate
+destruction card (*"color is not the issue"*). The palette work is still cheap
+and still worth doing, but it is **not the thing to lead with**, and a session
+that reads only §5 would have started in the wrong place. The revised order is
+below.
+
 ## 7. Review cards posted
 
 Board `worldgen`, all fire-and-forget:
 
-| card | question |
-|---|---|
-| `20260829T171510934Z-d57fca` | All five presets, same seed, same place — is what's missing colour, or shape? |
-| `20260829T171528452Z-31aa76` | Lighting the rock underground (blind A/B) — better, or wrongly 3D? |
-| `20260829T171542736Z-ce8024` | Lighting the rock at the surface (blind A/B) — can you tell which pane has it on at all? |
-| `20260829T173854008Z-e538d5` | The same world grown (before/after, daylight pinned) — should it arrive like this? |
+| card | question | answer |
+|---|---|---|
+| `20260829T171510934Z-d57fca` | All five presets — colour, or shape? | **"Shape, large rock formation (not just tall pillars), cave openings, mountains."** |
+| `20260829T171528452Z-31aa76` | Lighting the rock underground (blind A/B) | picked **lit**; *"not convinced yet. Still you are focusing on lighting which is not the issue. it is the build"* |
+| `20260829T171542736Z-ce8024` | Lighting at the surface (blind A/B) — can you tell it is on? | picked **`shipped (flat)`** — did not pick out the lit pane |
+| `20260829T173854008Z-e538d5` | The same world grown (before/after, daylight pinned) | not yet answered |
 
-The pair of shading cards is the experiment: the same knob at 22% boundary
-density and at 5%. If the surface pair is indistinguishable to the owner and
-the cave pair is not, §2 is confirmed by eye as well as by measurement.
+The pair of shading cards was the experiment: the same knob at 22% boundary
+density and at 5%. The prediction was that he would pick the lit pane
+underground and fail to pick it at the surface, and that is what happened — so
+§2 is confirmed by eye as well as by measurement. He also volunteered the
+reason unprompted (*"it is the build"*), which is the finding rather than the
+verdict.
 
 ## 8. Instruments
 
