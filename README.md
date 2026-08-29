@@ -45,15 +45,15 @@ whole, then run `python3 scripts/readmetoc.py`.
 | [Rendering performance — overnight run, section 11](#rendering-performance--overnight-run-section-11) | 2353 |
 | [M8 status — started, not complete](#m8-status--started-not-complete) | 2373 |
 | [M9 status — the gnome](#m9-status--the-gnome) | 2486 |
-| [M10 status — the worldgen half](#m10-status--the-worldgen-half) | 2623 |
-| [Weather status](#weather-status) | 2738 |
-| [The ant colony — status](#the-ant-colony--status) | 2755 |
-| [M19 status — started](#m19-status--started) | 2784 |
-| [Felling status — the verb works, and what it produces is pieces](#felling-status--the-verb-works-and-what-it-produces-is-pieces) | 2820 |
-| [Performance](#performance) | 2901 |
-| [World speed — five independent time axes](#world-speed--five-independent-time-axes) | 3075 |
-| [Status](#status) | 3158 |
-| [License](#license) | 3269 |
+| [M10 status — the worldgen half](#m10-status--the-worldgen-half) | 2638 |
+| [Weather status](#weather-status) | 2753 |
+| [The ant colony — status](#the-ant-colony--status) | 2770 |
+| [M19 status — started](#m19-status--started) | 2799 |
+| [Felling status — the verb works, and what it produces is pieces](#felling-status--the-verb-works-and-what-it-produces-is-pieces) | 2835 |
+| [Performance](#performance) | 2916 |
+| [World speed — five independent time axes](#world-speed--five-independent-time-axes) | 3090 |
+| [Status](#status) | 3173 |
+| [License](#license) | 3284 |
 
 ### Milestones, in numeric order
 
@@ -67,14 +67,14 @@ order they were written.
 | 7 | [M7 status](#m7-status) | 915 |
 | 8 | [M8 status — started, not complete](#m8-status--started-not-complete) | 2373 |
 | 9 | [M9 status — the gnome](#m9-status--the-gnome) | 2486 |
-| 10 | [M10 status — the worldgen half](#m10-status--the-worldgen-half) | 2623 |
+| 10 | [M10 status — the worldgen half](#m10-status--the-worldgen-half) | 2638 |
 | 12 | [M12/M13 status](#m12m13-status) | 714 |
 | 14 | [M14 status](#m14-status) | 767 |
 | 15 | [M15 status](#m15-status) | 944 |
 | 16 | [M16 status](#m16-status) | 1493 |
 | 17 | [M17 status](#m17-status) | 1679 |
 | 18 | [M18 status](#m18-status) | 1906 |
-| 19 | [M19 status — started](#m19-status--started) | 2784 |
+| 19 | [M19 status — started](#m19-status--started) | 2799 |
 
 ### By topic
 
@@ -87,24 +87,24 @@ them is named "plants". A section can appear twice; felling is honestly both
 plant work and structural work.
 
 **Known limitations for every topic are collected in one place**:
-[Status](#status), line 3158 — the *last* section in the
+[Status](#status), line 3173 — the *last* section in the
 file, not the first. Read it before concluding something is broken.
 
 | Topic | Sections, primary first |
 |---|---|
-| **plants, trees and moss** | [M16 status](#m16-status) 1493, [Plant lines merged](#plant-lines-merged-the-genome-and-the-ecology) 1121, [The economy re-derived](#the-economy-re-derived-standing-tissue-costs-something) 1243, [Plants that stop](#plants-that-stop-organs-determinacy-and-a-price-on-both) 1425, [The generation loop](#the-generation-loop-plants-die-seeds-expire-slots-come-back) 1191, [Stems draw a line](#stems-draw-a-line-the-growth-walk-renders-its-heading) 1343, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 2820 |
-| **creatures — worms and the ant colony** | [M18 status](#m18-status) 1906, [The ant colony](#the-ant-colony--status) 2755 |
-| **structural collapse, felling and rigid bodies** | [M17 status](#m17-status) 1679, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 2820, [M8 status](#m8-status--started-not-complete) 2373 |
+| **plants, trees and moss** | [M16 status](#m16-status) 1493, [Plant lines merged](#plant-lines-merged-the-genome-and-the-ecology) 1121, [The economy re-derived](#the-economy-re-derived-standing-tissue-costs-something) 1243, [Plants that stop](#plants-that-stop-organs-determinacy-and-a-price-on-both) 1425, [The generation loop](#the-generation-loop-plants-die-seeds-expire-slots-come-back) 1191, [Stems draw a line](#stems-draw-a-line-the-growth-walk-renders-its-heading) 1343, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 2835 |
+| **creatures — worms and the ant colony** | [M18 status](#m18-status) 1906, [The ant colony](#the-ant-colony--status) 2770 |
+| **structural collapse, felling and rigid bodies** | [M17 status](#m17-status) 1679, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 2835, [M8 status](#m8-status--started-not-complete) 2373 |
 | **fire, heat and phase change** | [M14 status](#m14-status) 767, [Materials](#materials) 221 |
 | **explosions, particles and debris** | [M15 status](#m15-status) 944, [M7 status](#m7-status) 915 |
 | **liquids and gases** | [Liquid physics](#liquid-physics-compressible-volume-not-discrete-occupied-cells) 741, [The coarse field grid](#the-coarse-field-grid) 452 |
 | **powders and granular flow** | [Materials](#materials) 221, [Architecture](#architecture) 295 |
 | **the coarse field grid — pressure, heat, light** | [The coarse field grid](#the-coarse-field-grid) 452, [M12/M13 status](#m12m13-status) 714 |
-| **worldgen and world structure** | [M10 status](#m10-status--the-worldgen-half) 2623, [Architecture](#architecture) 295 |
+| **worldgen and world structure** | [M10 status](#m10-status--the-worldgen-half) 2638, [Architecture](#architecture) 295 |
 | **the gnome (player character)** | [M9 status](#m9-status--the-gnome) 2486, [Controls](#controls) 156 |
-| **weather, sky and the clock** | [Weather status](#weather-status) 2738, [M19 status](#m19-status--started) 2784, [World speed](#world-speed--five-independent-time-axes) 3075 |
+| **weather, sky and the clock** | [Weather status](#weather-status) 2753, [M19 status](#m19-status--started) 2799, [World speed](#world-speed--five-independent-time-axes) 3090 |
 | **rendering, UI and tunables** | [UI improvements](#ui-improvements--overnight-run-section-9) 2240, [Live tunables panel](#live-tunables-panel--overnight-run-section-10) 2285, [Rendering performance](#rendering-performance--overnight-run-section-11) 2353, [M6 deferral](#m6-deferral) 1016 |
-| **performance and the parallel sweep** | [Performance](#performance) 2901, [M5 status](#m5-status) 1026, [Architecture](#architecture) 295, [Rendering performance](#rendering-performance--overnight-run-section-11) 2353 |
+| **performance and the parallel sweep** | [Performance](#performance) 2916, [M5 status](#m5-status) 1026, [Architecture](#architecture) 295, [Rendering performance](#rendering-performance--overnight-run-section-11) 2353 |
 | **materials and the data schema** | [Materials](#materials) 221, [M12/M13 status](#m12m13-status) 714 |
 
 <!-- END GENERATED TOC -->
@@ -2552,6 +2552,21 @@ which unregisters each cell from its organism, and `plant::anchor_support`
 finds the crown unreached on its next tick. What was missing was a verb
 aimed at the trunk. Play-facing:
 [`wiki/the-gnome.md`](wiki/the-gnome.md#what-he-carries).
+
+**What the axe does not yet do, measured rather than assumed.** "Chop a
+bole through and it falls" is true of the *mechanism* — `acceptance.sh`'s
+`fell` case severs 2,136 cells and puts 2,122 of them down as pieces — and
+it overstates what the axe achieves on the trees this world actually grows.
+`filmstrip scene=chop` puts a gnome on the felling bed and reports the
+subject's own thinnest bole row as **25 to 55 cells wide**, against a chop
+`2 * chop_radius + 1 = 7` cells across. Severing one is therefore many
+accurate strokes on a single row, and **it is not demonstrated**: over 154
+strokes the run lands 14 on living tissue for 122 cells chipped, and the
+gnome spends most of it `BURIED` in the debris he is making — the axe has
+no dig-out (that is the pick's, and the HUD says so). What is shown is that
+the verb fires, cuts living wood, and produces timber. Whether felling
+should be within one gnome's reach at all, or wants a wider bite, a
+felling-specific cut, or simply patience, is an open design question.
 
 **Known limitations.** The axe kills a creature it lands on
 (`creature::slay`, on the engine's own death path) but does not damage one

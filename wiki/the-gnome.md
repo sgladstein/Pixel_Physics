@@ -316,9 +316,17 @@ arm swinging it reads as a cursor effect.
 
 Living wood is the one thing the other two are bad at. The axe chops it:
 point at a trunk, or a branch, or a shrub, and each stroke takes a notch
-out of it. Chop a bole all the way through and the crown loses what was
-holding it and comes down as pieces — logs where the mass was heavy
-enough, grit where it wasn't, and litter out of the foliage.
+out of it. Cut all the way through what's holding a limb or a crown up and
+it comes down as pieces — logs where the mass was heavy enough, grit where
+it wasn't, and litter out of the foliage.
+
+**Felling a grown tree is a long job, and may be more than one gnome's
+reach.** A stroke is seven cells across; the trunk of a mature tree here is
+tens of cells through at its narrowest, so you are cutting a notch, then
+another beside it, then another, all on the same row. Small stems and
+branches come off readily. And the chips pile up: chop long enough at the
+base of something big and you can bury yourself in your own timber, at
+which point the axe is no help and you want the pick.
 
 Most of what an axe cuts stays as timber where it fell rather than going
 as dust. That's the opposite of the pick's balance and for the opposite

@@ -1342,11 +1342,7 @@ fn build_scene(args: &Args) -> World {
         // nothing and a shake that never fired are the same picture, and
         // `shake_shed` is graded by shade, so a healthy stand is *supposed*
         // to drop very little.
-        // One walk, one stand of trees, two verbs. `scene=chop` shares the
-        // bed with `scene=shake` deliberately: the belt is the only
-        // difference between the two runs, so a pair of sheets says exactly
-        // what choosing the axe buys and costs.
-        "shake" | "chop" => {
+        "shake" => {
             let mut world = gnome_stand(args);
             world.player = Some(pixel_physics::sim::player::Player::at(12, 190));
             return world;
@@ -2125,7 +2121,18 @@ fn build_scene(args: &Args) -> World {
         // The bed itself is built by `common::PlantScene`, not here: the
         // two plant harnesses may not build their own worlds (see that
         // module for the drift this ended).
-        "fell" => {
+        // **`scene=chop` is the felling bed with a gnome in it**, not the
+        // shake bed, and the first version got that wrong in a way the
+        // counters caught. On `gnome_stand` he chopped twice, his own chips
+        // buried him at tick 6107, and 212 further strokes swung at a pile
+        // he was entombed in — `4 strokes (2 on living tissue)` climbing to
+        // `214 strokes (2 on living tissue)` while `BURIED` never cleared.
+        // A cutting verb wants firm ground and something with a bole; the
+        // shake bed is soft forest floor and creeper stems.
+        //
+        // Sharing `fell`'s bed also makes the pair worth having: the same
+        // tree, cut by hand there and cut by the gnome here.
+        "fell" | "chop" => {
             let w = common::PlantScene {
                 species: args.species.clone(),
                 trees: 1,
@@ -2144,10 +2151,21 @@ fn build_scene(args: &Args) -> World {
                 (0..HEIGHT).any(|y| w.get(FELL_TRUNK_X, y).organism_id() != 0),
                 "scene=fell expects its seed at x={FELL_TRUNK_X}; PlantScene's spacing has moved"
             );
+            let mut w = w;
+            if args.scene == "chop" {
+                // Beside the bole, not in it, and on the ground the tree is
+                // rooted in. `Script::Chop` walks him the last few cells and
+                // aims ahead of himself, so where he starts only has to be
+                // near enough and clear.
+                let ground = (0..HEIGHT)
+                    .find(|&y| !w.is_empty(FELL_TRUNK_X - 20, y))
+                    .unwrap_or(HEIGHT - 1);
+                w.player = Some(pixel_physics::sim::player::Player::at(FELL_TRUNK_X - 20, ground - 8));
+            }
             return w;
         }
         other => panic!(
-            "unknown scene {other:?}; known: pour, fall, shelf, blob, sand, boom, boom_stone, sandbed, waterbed, tree, forest, grove, terrain, worldgen, mine, snap, undercut, strike, worked, capped, ligament, built, room, refroom, worldcrack, gnome, tunnel, smash, bury, swim, ride, cavern, wood, climb, shake, chop, fell"
+            "unknown scene {other:?}; known: pour, fall, shelf, blob, sand, boom, boom_stone, sandbed, waterbed, tree, forest, grove, terrain, worldgen, mine, snap, undercut, strike, worked, capped, ligament, built, room, refroom, worldcrack, gnome, tunnel, smash, bury, swim, ride, cavern, wood, climb, shake, fell, chop"
         ),
     }
     w
@@ -3798,12 +3816,22 @@ impl Gnome {
                 right: step_no >= WOOD_WALK_FROM && (step_no < WOOD_WALK_FROM + CLIMB_WALK_TICKS || !self.grabbed),
                 ..Default::default()
             },
-            // Walk into the face, then stand still and swing. Same shape
-            // as `Tunnel`'s alternation and for a different reason: a
-            // hammer has recoil, so holding `right` would walk him back
-            // into every blow and hide the one piece of feedback the tool
-            // has that the pick does not.
-            Script::Smash => PlayerInput { right: step_no < 120, ..Default::default() },
+            // Walk in, then **alternate** blows and steps, exactly as
+            // `Tunnel` does and for a related reason.
+            //
+            // Standing still was the first version and it stopped after two
+            // blows: a hammer does not excavate, so the rock it breaks
+            // stays as rubble at his feet, and `hammer_point`'s ray then
+            // finds no `Hard` cell inside `hammer_reach` (12, deliberately
+            // short -- a swung hammer is not a extended pick). The counter
+            // is what said so, frozen at `2 blows landed` across all four
+            // tiles while the picture showed a perfectly good fissure star.
+            //
+            // That is the scene being wrong rather than the tool: a player
+            // hammering a cliff walks into the hole they are making. See
+            // `CLAUDE.md`'s "a scene that contradicts the code will look
+            // like a bug in the code".
+            Script::Smash => PlayerInput { right: step_no < 120 || step_no % 90 >= 60, ..Default::default() },
             Script::Chop => PlayerInput {
                 right: step_no >= WOOD_WALK_FROM && (step_no < WOOD_WALK_FROM + CLIMB_WALK_TICKS || !self.grabbed),
                 ..Default::default()
@@ -3852,38 +3880,73 @@ impl Gnome {
         // ahead at his own height, which `hammer_point` then clamps onto
         // the near face — the same shape `Script::Tunnel` uses for the
         // pick, and for the same reason its own comment gives.
+        // **Hammer to break, pick to clear** — and the alternation is the
+        // scene rather than a workaround, because it is the loop the belt
+        // exists for.
+        //
+        // Hammering alone stalls, and the counter is what said so: frozen
+        // at **3 blows landed** across four tiles, with the gnome pinned at
+        // x=173. A blow does not excavate — `rigid::strike` breaks rock to
+        // rubble in place — so after two or three the face has retreated
+        // past `hammer_reach` and the rubble it made is a drift several
+        // cells abreast, which `wade_rows`/`shoulder_grains` correctly
+        // treat as a wall. He cannot reach the rock and cannot walk to it.
+        //
+        // That is not the hammer being broken; it is the hammer being a
+        // *breaking* tool with no spoil model, which is the pick's job.
+        // Alternating them is what a player does and what this scene has to
+        // show, or the sheet measures a tool used wrongly.
         if self.script == Script::Smash && step_no >= 120 {
+            let hammering = (step_no / 240) % 2 == 0;
             if let Some(p) = world.player.as_mut() {
-                p.tool = player::Tool::Hammer;
+                p.tool = if hammering { player::Tool::Hammer } else { player::Tool::Pick };
             }
             let (cx, cy) = world.player.as_ref().expect("scene summoned one").center();
-            if let Some(hit) = player::smash(world, (cx + 60, cy), &tuning) {
-                if hit.broken > 0 {
-                    self.blows += 1;
-                    self.broken += hit.broken;
+            if hammering {
+                if let Some(hit) = player::smash(world, (cx + 60, cy), &tuning) {
+                    if hit.broken > 0 {
+                        self.blows += 1;
+                        self.broken += hit.broken;
+                    }
                 }
+            } else if let Some(bite) = player::dig(world, (cx + 60, cy), &tuning) {
+                self.bites += 1;
+                self.displaced += bite.displaced;
+                self.dusted += bite.dusted;
             }
         }
         // The axe, on `scene=shake`'s walk. `chop_point` snaps to the
         // tissue under the cursor, so aiming at his own centre is aiming at
         // whatever he is standing in — exactly the argument the shake makes
         // for the same aim.
+        // **Aimed ahead of him, not at his own centre, and swung
+        // unconditionally.**
+        //
+        // `scene=shake` aims at the gnome's centre, and that is right for
+        // the shake, which leaves the tissue where it is. It is wrong for a
+        // *cutting* verb, and the counter said so: **1 stroke** across four
+        // tiles. The first chop takes a `chop_radius` hole out of the cells
+        // at his centre, so the "is there living tissue at the cursor" test
+        // that gated the swing stops being true — the aim ate itself.
+        //
+        // A player keeps the cursor on the trunk, not on their own belly.
+        // Aiming a few cells ahead at chest height does that, and dropping
+        // the gate lets `chop_point` answer the question it exists to
+        // answer: living tissue first, then a creature, then whatever the
+        // ray reaches. A swing that finds nothing is a swing at nothing,
+        // which `Chop::living` reports and the tile prints.
         if self.script == Script::Chop && step_no >= WOOD_WALK_FROM + CLIMB_WALK_TICKS {
             if let Some(p) = world.player.as_mut() {
                 p.tool = player::Tool::Axe;
             }
-            let standing_in = world
-                .player
-                .as_ref()
-                .and_then(|p| player::shake_target(world, p, p.center(), &tuning));
-            if standing_in.is_some() {
-                self.grabbed = true;
-                let (cx, cy) = world.player.as_ref().expect("summoned").center();
-                if let Some(cut) = player::chop(world, (cx, cy), &tuning) {
-                    self.strokes += 1;
-                    self.chips += cut.chips;
-                    self.living_strokes += usize::from(cut.living);
-                }
+            let p = world.player.as_ref().expect("summoned");
+            let (cx, cy) = p.center();
+            let ahead = (cx + if p.facing_left { -4 } else { 4 }, cy - 3);
+            self.grabbed = player::shake_target(world, p, ahead, &tuning).is_some();
+            if let Some(cut) = player::chop(world, ahead, &tuning) {
+                self.strokes += 1;
+                self.chips += cut.chips;
+                self.living_strokes += usize::from(cut.living);
             }
         }
         if self.script == Script::Climb {
