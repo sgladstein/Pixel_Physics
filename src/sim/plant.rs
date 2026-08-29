@@ -868,6 +868,17 @@ fn builtin_fate(cell_type: CellType, when: organism::FateWhen) -> Option<organis
 /// render — `CLAUDE.md`'s "for *does this look right*, ship a runtime
 /// selector rather than choosing".
 ///
+/// **Measured 2026-08-29: the middle position is nearly inert, so the fork
+/// is binary in practice.** `herb`, 20,000 frames, `genome_drift`: at a 10x
+/// mutation rate `NoSpecies` and `Full` came out **byte-identical** — same
+/// 2,029 live, same 337 drifted, same slot means to three decimals — and at
+/// a **50x** rate they differ by well under 1% (1,568 against 1,580 live).
+/// `GenomeOnly` separates from both at 10x. So the species table is not what
+/// absorbs a mutation on this base; `builtin_fate` underneath it is, and
+/// removing only the species layer buys almost nothing. Anyone weighing the
+/// fork should weigh `Full` against `GenomeOnly` and treat `NoSpecies` as a
+/// control rather than an option.
+///
 /// **There are three positions here and the report only named two.** The
 /// gate's §3 measured that `tree delete` is 40-of-40 silent because *both*
 /// layers beneath the genome answer the vacated slot — the species table
