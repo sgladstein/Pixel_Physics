@@ -1,0 +1,56 @@
+{
+  "id": "20260829T204941423Z-880e13",
+  "created": "2026-08-29T20:49:41Z",
+  "board": "plants",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/plant-inheritance-audit-k3m9qz",
+    "commit": "f74b929",
+    "agent": null,
+    "session_id": "c136f95c-2821-5b9a-ac53-dea9edfab049",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Should a plant be able to inherit a body plan that doesn't work?",
+  "question": "Two questions, and the second is the one I need. (1) Do these two swards look meaningfully different to you, and is either better? (2) A plant's growth program is now inherited and mutates, but there is a safety net: when a mutation removes a rule, the plant silently falls back on its species' original rule and grows exactly as before. Taking that net away is what B is. It makes mutation able to reach new forms — and able to hand a lineage a plant that cannot grow. Do you want the net or not?",
+  "context_md": "**The mutation rate is turned up 50x in both panes.** At the shipped rate these two are indistinguishable — that is measured, not assumed, and it is half the answer: the fork changes nothing until the rate rises too. They are one seed and one pair, and spread here is enormous, so treat the picture as evidence and not as a result.\n\n**A — the net (what ships).** A mutation that removes a rule is absorbed and the plant grows as before.\n\n**B — no net.** The genome answers, full stop.\n\n**What is measured, separately, by census:**\n\n| | |\n|---|---|\n| removing a rule changes the plant today (tree) | **0%** — 0 of 40, at three world seeds |\n| the *middle* option (drop the species table, keep the engine default) | **inert** — byte-identical to A at 10x rate |\n| plants killed outright by B in these runs | **none seen** |\n\nThe thing I expected to see in B was a graveyard. It is not one. That is why this is worth your eye rather than my judgement.",
+  "kind": "ab",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A — the safety net (ships today)",
+      "files": [
+        "20260829T204941423Z-880e13/000-fk_full.png"
+      ],
+      "caption": "a removed rule falls back on the species' original",
+      "meta": {
+        "mutation rate": "50x shipped",
+        "frames": 20000,
+        "founders": 16,
+        "fallback": "genome -> species -> builtin"
+      },
+      "focus": null
+    },
+    {
+      "label": "B — no safety net",
+      "files": [
+        "20260829T204941423Z-880e13/001-fk_genome.png"
+      ],
+      "caption": "the genome answers, full stop",
+      "meta": {
+        "mutation rate": "50x shipped",
+        "frames": 20000,
+        "founders": 16,
+        "fallback": "genome only"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
