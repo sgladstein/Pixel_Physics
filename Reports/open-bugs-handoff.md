@@ -108,28 +108,28 @@ point.
 | S2 | **OPEN** | 7060 | The brush's anchor rule destroys structures the other two rules leave standing |
 | S4 | **OPEN** | 7248 | Rock still crushes itself on an idle world |
 | S5 | **OPEN** | 7320 | A fully-cracked chunk stays welded to the hillside because the load model never finishes ... |
-| T | **OPEN** | 7461 | A starving plant strands a cell: growth races dieback |
-| S3 | closed | 7505 | A world nobody has touched pulls its own ground apart |
-| -- | closed | 7554 | The plant model bounds height and does not bound width FIXED |
-| 1 | note | 7645 | MAX_ROOT_FRACTION feeds the staleness counter, permanently retiring roots |
-| 2 | note | 7659 | Grow into soil destroys the soil's stored water |
-| 3 | note | 7671 | Capillary exchange can push a neighbour above its own capacity |
-| W1a | note | 7689 | creeper.ron's root tips still run the superseded in-tick branch path |
-| W1b | note | 7710 | A material-counting guard cannot see a species |
-| W1c | note | 7723 | generated_terrain_is_already_at_rest went red on main |
-| T1a | note | 7857 | load::grain_is_footing reads *attachment* where it means *supported* |
-| T1b | note | 7935 | The structural opt-out did not hold against bearing |
-| T1d | note | 7946 | acceptance.sh's lavadrop sits close enough to its frame budget to flake, and is over it o... |
-| T1e | note | 7980 | "The pieces hit the ground and turn to dust" was not settle, and the measurement says so |
-| T1f | note | 8034 | The felled pile is 74% powder because the tree is 56% leaves. The piece ladder cannot fix... |
-| T1g | note | 8088 | A "refixed" claim went out over a settled state that had barely moved |
-| T1c | note | 8117 | §1c's settle loss is now a counter |
-| -- | note | 8134 | What landed |
-| -- | note | 8157 | Do not re-derive these |
-| -- | note | 8185 | Measurements that contradict something written |
-| -- | note | 8205 | Open |
-| -- | note | 8240 | Unmerged at close, and one of it is a fix main needs anyway |
-| 1n | note | 8258 | grass sets zero seeds on main |
+| T | **OPEN** | 7498 | A starving plant strands a cell: growth races dieback |
+| S3 | closed | 7542 | A world nobody has touched pulls its own ground apart |
+| -- | closed | 7591 | The plant model bounds height and does not bound width FIXED |
+| 1 | note | 7682 | MAX_ROOT_FRACTION feeds the staleness counter, permanently retiring roots |
+| 2 | note | 7696 | Grow into soil destroys the soil's stored water |
+| 3 | note | 7708 | Capillary exchange can push a neighbour above its own capacity |
+| W1a | note | 7726 | creeper.ron's root tips still run the superseded in-tick branch path |
+| W1b | note | 7747 | A material-counting guard cannot see a species |
+| W1c | note | 7760 | generated_terrain_is_already_at_rest went red on main |
+| T1a | note | 7894 | load::grain_is_footing reads *attachment* where it means *supported* |
+| T1b | note | 7972 | The structural opt-out did not hold against bearing |
+| T1d | note | 7983 | acceptance.sh's lavadrop sits close enough to its frame budget to flake, and is over it o... |
+| T1e | note | 8017 | "The pieces hit the ground and turn to dust" was not settle, and the measurement says so |
+| T1f | note | 8071 | The felled pile is 74% powder because the tree is 56% leaves. The piece ladder cannot fix... |
+| T1g | note | 8125 | A "refixed" claim went out over a settled state that had barely moved |
+| T1c | note | 8154 | §1c's settle loss is now a counter |
+| -- | note | 8171 | What landed |
+| -- | note | 8194 | Do not re-derive these |
+| -- | note | 8222 | Measurements that contradict something written |
+| -- | note | 8242 | Open |
+| -- | note | 8277 | Unmerged at close, and one of it is a fix main needs anyway |
+| 1n | note | 8295 | grass sets zero seeds on main |
 
 <!-- END GENERATED INDEX -->
 
@@ -7416,6 +7416,43 @@ problem is **throughput**, not reporting.
 (`severed_islands` walks `edge_is_cracked`, the same predicate `load.rs` and
 `rigid::take_fragment` use), none are wedged, none exceed the body-size cap,
 and smoke is not holding them (§17e fixed that and it is not this).
+
+**Update from the gnome-mining lane, 2026-08-29 — it is wired to the blast
+too, and here is the honest measurement, which is a partial fix.**
+
+`Blast::calve` now calls `rigid::calve_free_blocks` after its two collars.
+Paired against that call switched off, five presets x four seeds
+(`worldcrack strike=0 blast=300,8,20,180,60`, read at frame 900), by cells
+promoted:
+
+| | tight bound (`radius + calve_depth`) | halo (`joint_reach * radius`) |
+|---|---|---|
+| median ratio | **1.00x** | **1.00x** |
+| p10 / p90 | 0.84x / 1.80x | 0.83x / 1.80x |
+| better / worse / unchanged | 8 / 5 / 7 | 9 / 5 / 6 |
+| pooled cells | 20,639 vs 16,805 | 19,631 vs 16,805 |
+| worst frame seen | within budget | **70.6 ms**, against acceptance's 60 |
+
+**Read the median, not the pooled total.** The pooled 1.23x is one run:
+`arid 7` at 2.21x, +2,746 cells. Half the worlds are unchanged, a quarter
+are *worse* (releasing a block early changes what the cascade later finds).
+`rolling 7` — the case §S5's own retraction identified as the
+supported-while-severed one — goes **1,382 -> 2,191 cells, 1.59x**, so the
+mechanism does answer that case.
+
+**The bound is not the constraint, and that is the finding worth keeping.**
+Widening the search ~3x further out and ~10x in area moved the median by
+nothing. What limits it is how often a blast *encloses* a block at all: a
+hammer completes an outline because the second blow reopens the boundaries
+the first declined (`structural::JOINT_REPEAT_BONUS`), and **a blast is one
+event**, so it gets one draw per boundary and `default_joint_density`'s
+deliberate one-in-ten holdout leaves most blocks a joint short. So the
+remaining half of *"every single rock"* is a calibration question inside
+`JointSeams` — whether a blast's front should get the same
+already-damaged bonus, and what that does to the near field the density
+holdout exists to keep from reading as a drawn tessellation. That is the
+explosion lane's file and its judgement; this lane has taken it as far as
+the release mechanism goes.
 
 **From the gnome-mining lane, 2026-08-29 — the third option above exists now,
 on the hammer path, and it is one call.** Written after that lane's own

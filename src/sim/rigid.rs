@@ -2023,6 +2023,57 @@ fn burst_bodies_at(world: &mut World, cx: i32, cy: i32, radius: i32) -> usize {
     dusted
 }
 
+/// **Take out every joint-bounded block within `reach` whose outline the
+/// damage has parted all the way round**, thrown from `origin` at `force`.
+/// Returns the cells released.
+///
+/// Shared by the two events that open joints — `strike` (the hammer and the
+/// sandbox blow) and `explosion::Blast::calve` — because the alternative is
+/// two copies of "and now promote what the cracks cut free" that drift the
+/// first time either changes, which is the mistake `loosen_shell`'s own doc
+/// records this file having made before.
+///
+/// # Why this is not the load model's job
+///
+/// Because the load model is *right* and the answer is still wrong. Measured
+/// by the explosion lane on `worldcrack rolling 7`: a 108-cell slab, cut free
+/// on every side by the fissures, reports **104 of 108 cells holding** at a
+/// budget nothing can exhaust — because five of its cells rest on rubble, and
+/// a boulder resting on gravel genuinely does not fall. Waiting for
+/// "unsupported" to fire is waiting for something that should not fire. The
+/// trigger is **severance**, not unsupportedness: a piece the cracks have cut
+/// out has stopped being terrain, whether or not it then moves.
+///
+/// So expect several released pieces to barely travel — their own seam grit
+/// fills the gap they would drop into. **Count promotions, not
+/// displacement.** What the release buys even when nothing moves is that the
+/// piece is now a body: it can be struck, shoved, ridden and settled.
+///
+/// # The bound is the event's own reach, deliberately
+///
+/// `dead-ends.md` records a complete lattice with no ligaments being tried
+/// and rejected: every block became an island, 2,400 confined failures per
+/// 400 frames, the world dead still. Releasing *every* enclosed domain in
+/// the world is that failure's cousin. `reach` keeps it to the rock this
+/// event actually damaged, and `MIN_BODY_CELLS` keeps a released block a
+/// piece rather than grit.
+pub(crate) fn calve_free_blocks(world: &mut World, origin: (i32, i32), reach: f32, force: f32) -> usize {
+    let blocks = super::structural::free_blocks_around(world, origin, reach);
+    let mut freed = 0;
+    for block in &blocks {
+        if block.len() < MIN_BODY_CELLS {
+            continue; // below a piece; leave it for the cascade to grit
+        }
+        freed += block.len();
+        // `promote` directly, never `fracture_with_impulse`: that ladder is
+        // joint-blind and is exactly what was re-cutting a bounded block
+        // into fragments, so the outline and the piece were different
+        // shapes.
+        promote(world, block, Some(((origin.0 as f32, origin.1 as f32), force)), Some(origin));
+    }
+    freed
+}
+
 pub fn strike(world: &mut World, cx: i32, cy: i32, radius: i32, force: f32) -> usize {
     // A blow has a floor, and the brush does not.
     //
@@ -2193,15 +2244,7 @@ pub fn strike(world: &mut World, cx: i32, cy: i32, radius: i32, force: f32) -> u
     //
     // Each block goes through `promote` directly rather than through
     // `fracture_with_impulse`: the ladder is what would break it up again.
-    let blocks = super::structural::free_blocks_around(world, (cx, cy), (radius * BLOW_JOINT_REACH) as f32);
-    let mut freed = 0;
-    for block in &blocks {
-        if block.len() < MIN_BODY_CELLS {
-            continue; // below a piece; leave it for the cascade to grit
-        }
-        freed += block.len();
-        promote(world, block, Some(((cx as f32, cy as f32), force)), Some((cx, cy)));
-    }
+    let freed = calve_free_blocks(world, (cx, cy), (radius * BLOW_JOINT_REACH) as f32, force);
     // Loosen first, so the fracture below sees rock that is no longer
     // claiming to be braced by the massif.
     for &(x, y) in &loosened {

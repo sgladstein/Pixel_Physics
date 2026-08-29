@@ -3469,6 +3469,29 @@ fiat, on the swing frame, where a piece has to wait for its outline to
 close. `scene=strike` calves 18 bodies carrying 937 cells on the blow
 frame against 11 / 553 before.
 
+**The seed sweep, which a change to a destruction model owes and which I
+had not run.** `seedsweep.sh strike=12`, six presets x four seeds, at
+`every=900 count=5` because the default budget stops mid-cascade, paired
+against the same binary with both hammer changes off: rock destroyed
+**median +63 cells, p90 +165, max +210, min -157**, pooled 1.22x. No seed
+runs away, which is what the sweep is for -- the failure it was built
+after was 26x on one seed with every acceptance case green. The largest
+*failing region* falls hard on several seeds (canyon 7 112 -> 2, flat 1
+60 -> 1), which is the same mechanism from the other side: a block
+released as a body on the blow is not found later as a region to re-cut.
+
+**And the blast half, which the owner ruled into this lane** after the
+explosion lane's measurement landed on the same conclusion from the other
+complaint. `Blast::calve` calls the same `calve_free_blocks`. **It is a
+partial fix and the median is the honest number**: paired over five
+presets x four seeds, median **1.00x**, better on 8 of 20, worse on 5,
+unchanged on 7 -- with `rolling 7`, the case §S5 named, at 1,382 -> 2,191
+cells. Widening the search from the calved shell to the fissure halo
+moves the median by nothing and costs a 70.6 ms frame, so the reach was
+never the constraint: a hammer completes an outline because its *second*
+blow reopens what the first declined, and a blast is one event. The rest
+is `JointSeams` calibration, written up on §S5 for that lane.
+
 Measured on `scene=smash`: cells broken 98 -> 406, cells off as chunks
 44 -> 313, fastest piece 1.07 -> 4.12 cells/frame, pieces in flight at
 once 2 -> 4, worst frame 13.47 -> 14.27 ms. Blows that landed went 3 -> 5 for a reason
