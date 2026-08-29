@@ -34,7 +34,7 @@ use pixel_physics::app::{HEIGHT, WIDTH};
 use pixel_physics::render::Renderer;
 use pixel_physics::sim::cell::Cell;
 use pixel_physics::sim::chunk::Rect;
-use pixel_physics::sim::material::{MaterialId, MaterialKind};
+use pixel_physics::sim::material::MaterialId;
 use pixel_physics::sim::particle::ParticleSystem;
 use pixel_physics::sim::world::World;
 use pixel_physics::sim::{creature, parallel, rng};
@@ -70,22 +70,20 @@ fn render(world: &World, frame: &mut [u8]) {
     r.draw(world, &particles, &HashSet::new(), frame, (WIDTH, HEIGHT), true);
 }
 
-/// Topmost **ground** row in a column -- `None` where the column is open
-/// water or has none.
+/// Where a body can stand in this column, or `None`.
 ///
-/// **Written first as "topmost cell that is not air", and that was wrong on
-/// a vegetated world**: the topmost non-air cell under a tree is a `Plant`,
-/// so the test rejected the column and **9 of 24 probes placed**. Ground is
-/// what a body stands on, so ground is what this looks for, and foliage
-/// overhead is not an objection to standing under it.
-///
-/// The liquid check is the other half and it is `open-bugs-handoff.md` R2's
-/// failure written as a guard: a column whose ground has water on top of it
-/// is a column a creature cannot stand in, and putting one there produces a
-/// picture of a lake with animals drowning in it.
+/// **This is `creature::colony_ant_site`, not a local copy**, and that is
+/// deliberate: this harness had grown its own and it was wrong in exactly
+/// the way `open-bugs-handoff.md` R records the colony scene's own version
+/// being wrong. Written first as "topmost cell that is not air", it found
+/// the *canopy* on a vegetated world -- the topmost non-air cell under a
+/// tree is a `Plant` -- and placed **9 of 24 probes**. That is the same
+/// root cause PR #103 fixed for `found_colony`, hit independently here, so
+/// the predicate is now called rather than reproduced. `cursor_y = 0` scans
+/// from the top of the world, which is what a harness wants and what the
+/// key press does not.
 fn surface(world: &World, x: i32) -> Option<i32> {
-    let y = (0..HEIGHT as i32).find(|&y| matches!(world.materials.kind(world.get(x, y).material), MaterialKind::Solid | MaterialKind::Powder))?;
-    (!(0..y).any(|yy| world.materials.kind(world.get(x, yy).material) == MaterialKind::Liquid)).then_some(y)
+    creature::colony_ant_site(world, x, 0)
 }
 
 /// What a body of `cells` cells is worth on screen, paired against the same
