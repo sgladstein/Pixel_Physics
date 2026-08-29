@@ -483,7 +483,24 @@ drift that two of these documents still reflect.**
   tidiness, two seeds at exactly 0.00%. Leaves one open discrepancy: observed
   drift runs **2.6x below** a per-birth model, with the settling measurement
   named (a mutation counter at `bear_seed_at`, whose return value is currently
-  discarded).
+  discarded). **That discrepancy is now closed — see the entry directly
+  below, which finds the model at fault rather than the mechanism.**
+- [plant-mutation-counted-at-source-2026-08-29.md](plant-mutation-counted-at-source-2026-08-29.md)
+  — **§4 closed: the 2.6x was the model, not a loss.** Counts fate mutations
+  where they happen (`World::fate_mutation_rolls` / `_fired` / `_applied`) and
+  rules out both candidate causes by measurement: the draw fires at **0.982%**
+  pooled against a nominal 1.000%, and **96%** of draws change the genome. The
+  gap is the comparison itself — the per-birth model needs **58%** of every
+  mutation ever applied to be standing at the census, where an ordinary birth
+  survives at **23%**; scaled by that mortality it predicts 62 against 77
+  observed, missing in the *opposite* direction. Carries an **exact** control
+  on the instrument: the new counter differs from `plant_probe`'s independently
+  measured birth count by 16 on all three seeds, which is the founder count.
+  Flags one thing to go and look at — seed 2 carries 2.3x more standing drift
+  than its mutation count and mortality allow, the first sign in this programme
+  of a mutation doing better than average rather than merely surviving. Also
+  lands `FateLookup`, the runtime selector that makes the fallback fork
+  renderable.
 - [plant-throughput-herb-2026-08-29.md](plant-throughput-herb-2026-08-29.md)
   — **which species the evolution programme should actually run on, and the
   answer is `herb`.** Three seeds: deepest *established* generation 5, 7 and 3,

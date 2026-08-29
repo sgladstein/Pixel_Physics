@@ -103,6 +103,16 @@ the gap. §3 rules out establishment selection as the explanation at the power
 available. So something between "a birth happens" and "a genome differs" is not
 what the model assumes, and this run does not say what.
 
+**Settled 2026-08-29 by `plant-mutation-counted-at-source-2026-08-29.md`, and
+the answer is that this section's model was wrong rather than the mechanism.**
+The draw fires at 0.982% pooled against a nominal 1.000% and 96% of draws
+change the genome, so neither candidate below is the cause. The per-birth model
+above needs 58% of every mutation ever applied to still be standing, where an
+ordinary birth survives to the census at 23% — scaled by that mortality it
+predicts 62 against 77 observed. The remainder of this section is left as
+written, because the discrepancy was real and the reasoning that chased it is
+the reason the counter exists.
+
 **The measurement that would settle it is cheap and named.** `FateGenome::mutate`
 now returns `Option<FateMutation>` carrying which operator ran and whether it
 applied; the call site in `plant::bear_seed_at` discards it. A world-level
@@ -116,7 +126,9 @@ exists, the 2.6x is a discrepancy and not a finding.
 - **Three seeds, one scene.** Enough for *does it drift at all*; not for a rate.
 - **Drift is not fitness, and this measures neither.** That twenty tables
   coexist says the space is being explored, not that anything in it is good.
-- **The plateau is unexplained** — §4.
+- ~~**The plateau is unexplained** — §4.~~ **Explained 2026-08-29**: it is a
+  birth-death balance, the same arithmetic that closed §4. See
+  `plant-mutation-counted-at-source-2026-08-29.md` §3a.
 - **No lineage was followed individually.** This censuses a population; it does
   not trace one plant's descendants, so it cannot say whether a drifted table
   is inherited intact or re-mutated.
