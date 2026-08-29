@@ -1,0 +1,42 @@
+{
+  "id": "20260829T170543996Z-3d6418",
+  "created": "2026-08-29T17:05:43Z",
+  "board": "caves",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/worldgen-revamp-plan-dot67g",
+    "commit": "077b142",
+    "agent": null,
+    "session_id": "2cb39797-d076-5699-b8bf-4494224deffe",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "How big the big room is",
+  "question": "Is a room six gnomes tall and thirty wide the right size for the biggest space in a cave, or should the biggest one be much larger still?",
+  "context_md": "You said twice that you could not judge cave scale without context, so the gnome is standing in frame — he is 7 cells wide and 14 tall.\n\nThis is the largest room a full-size world produces (terraced, seed 1). The dark corridors leading off it to the right are typical: half of them are shorter than he is, so he cannot walk them without digging.\n\nThe room's outline is a circle, which is the shape you called a perfect oval. I am replacing how caves are made and want the size target settled first — the shape is being fixed regardless.",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "the largest room in a full-size world",
+      "files": [
+        "20260829T170543996Z-3d6418/000-terraced_detail.png"
+      ],
+      "caption": "",
+      "meta": {
+        "room height, in gnomes": 6.6,
+        "typical corridor height, in gnomes": 1.0,
+        "share of this cave he can walk to": "43%",
+        "rooms this big per world": 1.4
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
