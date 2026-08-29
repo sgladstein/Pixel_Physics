@@ -1,0 +1,38 @@
+{
+  "id": "20260829T092822776Z-660f99",
+  "created": "2026-08-29T09:28:22Z",
+  "board": "creatures",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics/.claude/worktrees/agent-ab9f41e7948a10fc2",
+    "branch": "worktree-agent-ab9f41e7948a10fc2",
+    "commit": "9c8b8b0",
+    "agent": null,
+    "session_id": "8decc404-1166-54ad-9ca6-a460991ec93f",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics/.claude/worktrees/agent-ab9f41e7948a10fc2"
+  },
+  "title": "An ant's intended walking pace",
+  "question": "This plays at the speed ants are MEANT to move: 2 seconds of world time at the target 60 ticks per second, on the nest strip. Is what you are seeing on your machine about this fast, or clearly slower -- and if slower, roughly how much? Half? A fifth?",
+  "context_md": "Measured, the creature code is doing everything on time: over 6,000 frames on the shipped 8192x2560 world with a colony in it, **not one creature tick ran a single frame late** (late mean 0.0, max 0), and the scheduler had 331 sites due against a budget of 2,000. So the ants are being asked to act exactly as often as their tick_interval says, and they move on 28% of those asks -- which is normal.\n\nWhat that leaves is the **world clock**, not the ants. A simulation tick at the shipped world size costs several times its 16.6 ms budget, and main.rs discards the overflow rather than catching up, so the whole world runs slower than real time. Sand, water and fire are continuous and just look a bit lazier; an ant takes visible discrete steps, so it is the only thing on screen that shows it.\n\nThis clip is what the gait looks like when the clock keeps up. Your answer tells me whether that is the whole story.",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "",
+      "files": [
+        "20260829T092822776Z-660f99/000-ant-gait-60hz.gif"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null,
+      "gif_frames": 40
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
