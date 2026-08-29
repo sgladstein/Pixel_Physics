@@ -1,9 +1,9 @@
 # Structural Collapse
 
 *Current as of: 2026-08-29. Changed on 2026-08-29: a piece that breaks off a
-**plant** now turns as it falls, and one that comes to rest overhanging its
-own footing goes over instead of standing on end — broken rock is unchanged;
-see **What a collapse looks like**. Changed on 2026-08-28: ground that is standing
+**plant** turns as it falls, and one that comes to rest
+overhanging its own footing goes over instead of standing on end — broken
+rock is unchanged; see **What a collapse looks like**. Changed on 2026-08-28: ground that is standing
 on scree is held by the scree, and no longer also leans on the rock beside
 it — which is what stopped hillsides taking themselves apart while nobody
 was playing; see **What rubble does**. Changed on 2026-08-27: debris that comes to
