@@ -230,6 +230,97 @@ pub fn genome_manifest() -> u32 {
 /// vestigial links that each cost a multiply and a metabolic charge forever.
 pub const W_EPS: f32 = 0.01;
 
+/// **How far one point mutation can move a weight, at the bottom of the
+/// scale.** The absolute half of `width = MUT_ABS_FLOOR + MUT_REL * |w|`
+/// (`Reports/creature-evolution-plan.md` §2.6, decision E6).
+///
+/// **This is the term that lets a zero weight become a connection.**
+/// Proportional-only mutation of zero is zero forever, so a purely
+/// relative operator can prune a brain and can never grow one — every
+/// lineage's wiring would then be a subset of its ancestor's, which is
+/// not evolution, it is decay. Sized against `W_EPS` (0.01) rather than
+/// against any authored weight: a single mutation of a dead slot has to
+/// be able to clear the "is this a connection at all" threshold, or the
+/// floor is decorative.
+pub const MUT_ABS_FLOOR: f32 = 0.04;
+
+/// The proportional half of the same width.
+///
+/// **This is the term that lets the ±30 homing gate move at a sensible
+/// rate.** `ant.ron` authors weights spanning 0.2 to 30, and §13l measured
+/// both ends of the single-step-size failure: one global step either never
+/// shifts the gate or shreds everything else. At 0.10 the gate moves by
+/// about 3 per mutation and a 0.3 crowding weight moves by about 0.07 —
+/// the same *fraction* of each, which is the only sense in which one rate
+/// can be fair across two orders of magnitude.
+pub const MUT_REL: f32 = 0.10;
+
+/// The magnitude no weight may exceed, in either direction.
+///
+/// **40, not §7a's 4.0, and the difference is the whole of E6.** The ant's
+/// homing gate lives at ±30 in a genome whose other authored weights are
+/// 0.2–2.5; a ±4 clamp destroys that gate on the first birth, so the
+/// design that specified it predates the gate it would have deleted. 40
+/// leaves the authored gate a third of a decade of headroom without
+/// letting a runaway weight saturate every downstream unit permanently.
+pub const MUT_CLAMP: f32 = 40.0;
+
+/// **Point-mutate a genome in place**, one live slot at a time.
+///
+/// `rate` is the per-slot probability that a slot is touched at all, and
+/// it is a knob rather than 1.0 for a reason the width formula alone does
+/// not cover: with 268 live slots and an absolute floor large enough to
+/// cross `W_EPS`, mutating *every* slot every birth turns a sparse
+/// authored brain (11 connections) into a dense one (268) inside a
+/// generation or two. Density is not free here — `CreatureDef::
+/// synapse_fraction` charges per active synapse per tick — so an operator
+/// with no rate would select hard for whatever survives a metabolic bill
+/// nobody authored, and the sparsity pressure this module exists to
+/// create would be measuring the operator instead of the world.
+///
+/// **`live_slots` rather than `0..GENOME_LEN`**, as that function's own
+/// doc requires: a perturbed reserved slot is invisible for exactly as
+/// long as its slot is unnamed and then springs to life as a connection
+/// nobody authored, in every individual descended from the one that was
+/// perturbed.
+///
+/// **Uniform in ±width, not Gaussian.** There is no libm in anything
+/// determinism-relevant (see the module doc), and a Box-Muller pair would
+/// buy tail shape this operator has no use for: what matters is that the
+/// step scales with the weight and that zero is reachable from either
+/// side, both of which a symmetric uniform gives.
+///
+/// **The caller owns the stream.** This draws from the `Rng` it is handed
+/// and takes a variable number of draws, so handing it a generator the
+/// caller goes on using would shift every subsequent draw by an amount
+/// that depends on how many slots mutated — `CLAUDE.md`'s shared-`Rng`
+/// gotcha, which stayed green through both of its guards. Every caller
+/// here builds a dedicated `rng::stream`.
+///
+/// Returns how many slots actually moved, so a caller can print "did it
+/// fire at all" beside the picture rather than inferring it.
+pub fn mutate(genome: &mut [f32], rate: f32, rng: &mut crate::sim::rng::Rng) -> u32 {
+    assert_eq!(genome.len(), GENOME_LEN, "a genome is always exactly GENOME_LEN; a short one means a slot layout changed");
+    if rate <= 0.0 {
+        return 0;
+    }
+    let mut moved = 0;
+    for i in live_slots() {
+        if rng.unit_f32() >= rate {
+            continue;
+        }
+        let w = genome[i];
+        let width = MUT_ABS_FLOOR + MUT_REL * w.abs();
+        let step = (rng.unit_f32() * 2.0 - 1.0) * width;
+        let next = (w + step).clamp(-MUT_CLAMP, MUT_CLAMP);
+        if next != w {
+            moved += 1;
+        }
+        genome[i] = next;
+    }
+    moved
+}
+
 /// Map an output in `(-1, 1)` onto `(0, scale)` — for the outputs that are
 /// *magnitudes* rather than signed drives (`Persist`, `Tumble`,
 /// `Caution`). A silent connection reads 0 and lands at half scale, so a
@@ -1019,5 +1110,116 @@ mod tests {
         assert_eq!(g[io_slot(BrainInput::AtNest, BrainOutput::Drop)], 0.9);
         assert_eq!(g.iter().filter(|w| **w != 0.0).count(), 1, "an authored list must write exactly the connections it names");
         assert!(g[IO_END..].iter().all(|w| *w == 0.0), "hidden blocks must start silent");
+    }
+
+    // --- the mutation operator (S6, decision E6) ------------------------
+
+    /// **A mutation never touches a reserved slot.**
+    ///
+    /// `live_slots`' own doc states the failure: a perturbed reserve is
+    /// invisible for exactly as long as its slot is unnamed, and then
+    /// springs to life as a connection nobody authored, in every
+    /// individual descended from the one that was perturbed. Put the fault
+    /// back by iterating `0..GENOME_LEN` and this goes red immediately —
+    /// at rate 1.0 essentially every reserved slot moves.
+    #[test]
+    fn mutation_leaves_every_reserved_slot_at_zero() {
+        let mut g = vec![0.0f32; GENOME_LEN];
+        let mut rng = crate::sim::rng::Rng::new(0xA17);
+        let moved = mutate(&mut g, 1.0, &mut rng);
+        assert!(moved > 0, "a rate of 1.0 moved nothing at all; the operator did not run");
+        assert!(reserve_is_zero(&g), "mutation wrote into a reserved slot");
+        assert_eq!(g.iter().filter(|w| **w != 0.0).count() as u32, moved, "`moved` must count the slots that actually changed");
+    }
+
+    /// **The width is `MUT_ABS_FLOOR + MUT_REL * |w|`, and the clamp is
+    /// ±`MUT_CLAMP`.**
+    ///
+    /// A tight assertion on a deterministic function, so it is exempt from
+    /// the put-the-fault-back rule by `CLAUDE.md`'s own second exemption —
+    /// but it is the one that would catch §7a's retired ±4.0 clamp coming
+    /// back, which would delete the ant's ±30 homing gate on the first
+    /// birth.
+    #[test]
+    fn one_mutation_moves_a_weight_by_at_most_its_own_width() {
+        let big = live_slots().next().expect("a genome has live slots");
+        let small = live_slots().nth(1).expect("a genome has at least two live slots");
+        for seed in 1..200u64 {
+            let mut g = vec![0.0f32; GENOME_LEN];
+            g[big] = 30.0;
+            g[small] = 0.3;
+            let mut rng = crate::sim::rng::Rng::new(seed);
+            mutate(&mut g, 1.0, &mut rng);
+            let width_big = MUT_ABS_FLOOR + MUT_REL * 30.0;
+            let width_small = MUT_ABS_FLOOR + MUT_REL * 0.3;
+            assert!((g[big] - 30.0).abs() <= width_big + 1e-4, "the ±30 gate moved {} on seed {seed}, wider than {width_big}", g[big] - 30.0);
+            assert!((g[small] - 0.3).abs() <= width_small + 1e-4, "a 0.3 weight moved {} on seed {seed}, wider than {width_small}", g[small] - 0.3);
+            assert!(g.iter().all(|w| w.abs() <= MUT_CLAMP + 1e-4), "a weight escaped the clamp on seed {seed}");
+        }
+    }
+
+    /// **A zero weight can become a connection, and that is what the
+    /// absolute floor is for** (P-18).
+    ///
+    /// Proportional-only mutation of zero is zero for ever, so without
+    /// this a lineage's wiring could only ever be a subset of its
+    /// ancestor's. The bar is `W_EPS`, because below it `eval_brain` skips
+    /// the slot entirely — a weight that never crosses it is not a
+    /// connection however non-zero it is.
+    #[test]
+    fn a_dead_slot_can_be_woken_by_one_mutation() {
+        let slot = live_slots().next().expect("a genome has live slots");
+        let mut woken = 0;
+        for seed in 1..500u64 {
+            let mut g = vec![0.0f32; GENOME_LEN];
+            let mut rng = crate::sim::rng::Rng::new(seed);
+            mutate(&mut g, 1.0, &mut rng);
+            if g[slot].abs() >= W_EPS {
+                woken += 1;
+            }
+        }
+        assert!(woken > 100, "only {woken} of 499 single mutations of a dead slot cleared W_EPS; the absolute floor is decorative");
+    }
+
+    /// **The rate changes how many draws this takes, which is why the
+    /// caller must never share its generator.**
+    ///
+    /// `mutate` rolls once per live slot to decide whether to touch it and
+    /// once more for each slot it does, so the generator it is handed ends
+    /// in a rate-dependent state. A caller that passed in the generator it
+    /// goes on using would therefore have every subsequent decision
+    /// shifted by an amount depending on how many slots happened to
+    /// mutate — `CLAUDE.md`'s shared-`Rng` gotcha, whose last instance in
+    /// this repo stayed green through *both* of its guards. Nothing can
+    /// stop a future caller doing that; what this test does is make the
+    /// property it would violate explicit and checked, so the comment at
+    /// `creature::RNG_SLOT_BIRTH` is standing on a measurement.
+    #[test]
+    fn the_mutation_rate_changes_how_many_draws_it_takes() {
+        let state_after = |rate: f32| {
+            let mut g = vec![0.0f32; GENOME_LEN];
+            let mut rng = crate::sim::rng::Rng::new(0x5EED);
+            mutate(&mut g, rate, &mut rng);
+            rng.next_u64()
+        };
+        assert_ne!(
+            state_after(0.0),
+            state_after(0.5),
+            "mutate left the caller's generator in the same state at two rates; either it takes no draws or this test is not exercising it"
+        );
+    }
+
+    /// **A rate of zero is a clone, exactly.**
+    ///
+    /// This is the clonal control the whole lineage-share measurement is
+    /// read against, so "no mutation" has to mean bit-identical rather
+    /// than approximately unchanged.
+    #[test]
+    fn a_zero_rate_returns_the_genome_untouched() {
+        let mut g = genome_from_instincts(&[Instinct(BrainInput::AtNest, BrainOutput::Drop, 0.9)]);
+        let before = g.clone();
+        let mut rng = crate::sim::rng::Rng::new(7);
+        assert_eq!(mutate(&mut g, 0.0, &mut rng), 0);
+        assert_eq!(g, before, "a zero mutation rate changed the genome");
     }
 }

@@ -2,8 +2,10 @@
 
 *Current as of: 2026-08-29, when creatures learned to jump — though the ants
 you place still cannot, and the section below says why that is not a
-contradiction. Also 2026-08-29: the title bar learned to say how fast the
-ants are actually moving, and founding a colony learned to see past a
+contradiction — and when an ant that has eaten enough learned to make
+another ant, passing on what it is so that a colony's descendants can differ
+from their ancestors. Also 2026-08-29: the title bar learned to say how fast
+the ants are actually moving, and founding a colony learned to see past a
 tree canopy and to refuse open water. Before that: 2026-08-23, when ants
 learned to climb over each other. The
 colony forages, digs, builds and carries food home; food is worth what it is
@@ -217,8 +219,43 @@ trail until it lands — so it is a bargain for something small and a bad deal
 for something heavy, and neither answer should be written into the game.
 Which creatures end up jumping is meant to be settled by which ones do
 better for it, and that needs animals that have offspring. Until then it is
-a thing a creature *can* have rather than a thing any of them do.
+a thing a creature *can* have rather than a thing any of them do. Ants can
+now have offspring — see below — but not yet in a world that feeds them
+enough to afford one, so the wait is on the food economy rather than on the
+machinery.
 
 Digging, building, eating, burning and trail-laying all work as described.
-Colonies do not yet have queens, eggs or new ants — the ants you place are
-the ants you get.
+
+## New ants, and why you will not see any yet
+
+An ant that has eaten far more than it needs makes another ant beside it.
+There is no queen and no egg: the ant simply buds, the way a plant sets a
+seed, and it pays for the whole thing out of its own body — the newcomer's
+whole starting store, plus the meat its body is made of. Nothing appears out
+of nothing, so a colony cannot make ants faster than it can find food.
+
+The newcomer is its parent's child rather than a fresh copy of the species.
+It inherits the parent's instincts and its gut, both nudged very slightly, so
+over many generations a line of ants can drift into something that behaves a
+little differently from the ants you first placed. That is the whole point of
+it: everything the ants have that could be inherited was, until now, the same
+in every ant that ever existed.
+
+**In the world as it currently stands, this does not happen, and the reason
+is worth understanding rather than treating as a bug.** An ant only eats when
+it is genuinely hungry — otherwise it carries what it finds home, which is
+what makes it a forager rather than a grazer. That rule means an ant's store
+can never climb much above the point where it stops feeling hungry, and the
+cost of making another ant is well above that. So the richest ant in a
+colony sits at a few hundred units of store against a birth costing nearly
+two thousand, and no ant ever gets close.
+
+Making it happen needs a change to how the food economy is priced rather than
+to anything about breeding — either ants' bodies have to be cheaper to build,
+or an ant has to keep eating past the point where it stops being hungry. The
+second one is measurably a bad trade on its own: an ant that eats whenever it
+sees food stops taking anything home, and the colony's food deliveries fall
+away almost entirely. So this is a decision about what kind of animal an ant
+is, not a number to nudge.
+
+Colonies still have no queens and no eggs.
