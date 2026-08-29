@@ -1,0 +1,52 @@
+{
+  "id": "20260829T043203114Z-4f9ba9",
+  "created": "2026-08-29T04:32:03Z",
+  "board": "plants",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/plant-visuals-smoothing-vrlrmk",
+    "commit": "dbad251",
+    "agent": null,
+    "session_id": "c27dad0b-e743-590f-a990-252a904eb452",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Conifer: does a leader appear?",
+  "question": "Which stand reads as firs with a trunk, rather than as green mass?",
+  "context_md": "Same change as the broadleaf card, on the species that should show it hardest: **a fir is its leader.** The single ramrod trunk with tiers hung off it is most of what makes a conifer read as a conifer, and it is exactly what a random walk cannot draw.\n\nThe scoring is untouched — same weights, same weighted sample, same one dice roll per step. What changed is that the sampled direction now steers a heading and the *heading* is drawn onto the grid, instead of the sample being the step itself.\n\n**Ignore the colour difference between the two** if you see one; that is the day/night light and the individual colour draw, not this change.\n\n**The thing I actually want judged:** in one of these the trunks are legible and the branches leave as tiers. Is that better, or has it gone stiff and diagrammatic?",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A - sampled step (current)",
+      "files": [
+        "20260829T043203114Z-4f9ba9/000-ab-conifer-off.png"
+      ],
+      "caption": "the step the tip sampled is the step it takes",
+      "meta": {
+        "how far a stem strays from its own line (cells)": 0.88,
+        "trunk straightness setting, trunk to outer twig": "off"
+      },
+      "focus": null
+    },
+    {
+      "label": "B - drawn heading (proposed)",
+      "files": [
+        "20260829T043203114Z-4f9ba9/001-ab-conifer-on.png"
+      ],
+      "caption": "the sample steers a heading; the heading is drawn onto the grid",
+      "meta": {
+        "how far a stem strays from its own line (cells)": 0.41,
+        "trunk straightness setting, trunk to outer twig": "1.0, 0.85, 0.7, 0.6"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
