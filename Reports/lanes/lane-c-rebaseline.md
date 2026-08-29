@@ -206,14 +206,16 @@ with the instruction to read it first.
 `PR-BODY-lane-c.md`; report at `Reports/creature-rebaseline-2026-08-29.md`,
 indexed in `Reports/README.md`.
 
-**Head SHA: `979c3e84bda4bbc08c50a5b46584889d1366ed31`** — the work commit.
-The branch tip is one commit later (this note recording the SHA; a note
-cannot contain its own hash). `git log --oneline origin/claude/creature-rebaseline-lane-c`
-shows both.
+**Head SHA: `3e2bf8bb88ecc8608c8913bd1001bd51a09a9669`** — the last work
+commit, which carries the post-`d007c156` re-verification. The branch tip is
+one commit later (this note recording the SHA; a note cannot contain its own
+hash). `git log --oneline origin/claude/creature-rebaseline-lane-c` shows
+both.
 
-Merged `origin/main` at `f96c08d` in. Gates on that tree: clippy clean on
-1.94.1 **and on CI's 1.98.0**, `cargo test --lib` 986 passed / 0 failed / 54
-ignored, `docscheck` clean, `examples/ascii` exit 0 with the new bars.
+Merged `origin/main` through **`d007c156`** (your colony fix). Gates on that
+tree: clippy clean on 1.94.1 **and on CI's 1.98.0**, `cargo test --lib`
+**1005 passed / 0 failed / 54 ignored**, `docscheck` clean, `examples/ascii`
+exit 0 with the new bars.
 
 Files touched, none of them a shared append-only record: `examples/ascii.rs`,
 `ant_ablation.rs`, `gnome_depth.rs`, the new report, `Reports/README.md`,
