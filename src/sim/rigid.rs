@@ -201,6 +201,35 @@ const TIPPING_KERN: f32 = 1.0 / 3.0;
 /// switch holding the semantic rule fixed and changing nothing else is
 /// `CLAUDE.md`'s own remedy, and it also keeps these runs reproducible after
 /// the mechanism has been tuned past them.
+/// Whether this piece is organism tissue — a limb, rather than rock someone
+/// blew up.
+///
+/// **The fall is scoped to tissue, and that is a budget decision rather than
+/// a claim about physics.** `angular_acceleration` is as true of a slab of
+/// stone as of a branch, and the rock line has the same defect on record:
+/// `Reports/open-bugs-handoff.md` §Q's `scene=worked` needles are rubble
+/// standing on end. But rock destruction's constants and its gates are
+/// calibrated against how debris tumbles *now*, and `CLAUDE.md` is explicit
+/// that a change reallocating a budget you have not costed is not scoped,
+/// merely started.
+///
+/// It is costed enough to say what it would take. Under
+/// `a_disturbance_extent_licenses_the_wound_but_not_the_chain` — a radius-20
+/// charge in a massif at TIGHT, paired against the same blast with the
+/// disturbance's extent forced to zero — seeding rock leaves the *licensed*
+/// arm almost unchanged (promoted 701 -> 723, stone left 29,577 -> 29,490)
+/// and roughly doubles the **leashed** one (promoted 506 -> **1,217**,
+/// shattered 276 -> 365, stone left 29,555 -> 29,356). Everything it
+/// destroys is still inside the leash — `max_damage_reach` holds at 16 — so
+/// the chain rule is intact; what changes is that landed debris in more
+/// poses gets re-judged and more of it comes away, which is §Z3's shape on
+/// rock. That is a real question about the destruction line and it wants its
+/// own measurement, which §Q already says has to be run on `scene=worked`
+/// before anything there is tuned.
+fn is_tissue(cells: &[BodyCell]) -> bool {
+    cells.iter().any(|c| c.organism_id != 0)
+}
+
 fn fall_enabled() -> bool {
     use std::sync::OnceLock;
     static ON: OnceLock<bool> = OnceLock::new();
@@ -1282,7 +1311,9 @@ fn promote(world: &mut World, cells: &[(i32, i32)], impulse: Option<((f32, f32),
     // origin -- so this arm is the shape of the argument rather than a live
     // case, and it is the door a genuinely origin-less event would come in
     // through.
-    let spin_accel = broke_at.filter(|_| fall_enabled()).map_or(0.0, |at| angular_acceleration(world, cells, at));
+    let spin_accel = broke_at
+        .filter(|_| fall_enabled() && is_tissue(&body_cells))
+        .map_or(0.0, |at| angular_acceleration(world, cells, at));
     let heading = Turn::of(spin_accel);
     for &(cx, cy) in cells {
         world.set(cx, cy, Cell::EMPTY);
@@ -2336,7 +2367,7 @@ fn apply_turn(world: &mut World, body: &mut ChunkBody, turn: Turn) {
 /// remainder: two poses can each read as unbalanced in the other's
 /// favour, and there is no argument from geometry that says they cannot.
 fn topple(world: &mut World, body: &mut ChunkBody) -> bool {
-    if !fall_enabled() || body.topples >= MAX_TOPPLE_TURNS {
+    if !fall_enabled() || !is_tissue(&body.cells) || body.topples >= MAX_TOPPLE_TURNS {
         return false;
     }
     let Some(turn) = tipping_turn(world, body) else {
@@ -5798,9 +5829,9 @@ mod tests {
         // with a lump hung off the top right. The footing is the two-cell
         // base; the mass is three cells to the right of it.
         let mut cells: Vec<BodyCell> = (0..12)
-            .flat_map(|dy| (0..2).map(move |dx| BodyCell { dx, dy, material: material::STONE, shade: 0, organism_id: 0 }))
+            .flat_map(|dy| (0..2).map(move |dx| BodyCell { dx, dy, material: material::STONE, shade: 0, organism_id: 1 }))
             .collect();
-        cells.extend((2..6).map(|dx| BodyCell { dx, dy: 0, material: material::STONE, shade: 0, organism_id: 0 }));
+        cells.extend((2..6).map(|dx| BodyCell { dx, dy: 0, material: material::STONE, shade: 0, organism_id: 1 }));
         let top_heavy = ChunkBody::at(cells, 30.0, 28.0);
         assert_eq!(tipping_turn(&w, &top_heavy), Some(Turn::Cw), "a column with its mass overhanging to the right must go over to the right");
 
@@ -5833,10 +5864,15 @@ mod tests {
                 w.set(x, y, Cell::new(material::BEDROCK, 0).with_attached(true));
             }
         }
+        // **Carrying an organism id, and that is not incidental**: the fall
+        // is scoped to tissue (`is_tissue`), so a body of anonymous rock
+        // would exercise the gate rather than the rule and pass this test
+        // for the wrong reason. `stone` has no `severs_into`, so it still
+        // lands as stone and the census below is unchanged.
         let mut cells: Vec<BodyCell> = (0..12)
-            .flat_map(|dy| (0..2).map(move |dx| BodyCell { dx, dy, material: material::STONE, shade: 0, organism_id: 0 }))
+            .flat_map(|dy| (0..2).map(move |dx| BodyCell { dx, dy, material: material::STONE, shade: 0, organism_id: 1 }))
             .collect();
-        cells.extend((2..6).map(|dx| BodyCell { dx, dy: 0, material: material::STONE, shade: 0, organism_id: 0 }));
+        cells.extend((2..6).map(|dx| BodyCell { dx, dy: 0, material: material::STONE, shade: 0, organism_id: 1 }));
         w.chunk_bodies.push(ChunkBody::at(cells, 30.0, 28.0));
         for _ in 0..200 {
             step_chunk_bodies(&mut w);

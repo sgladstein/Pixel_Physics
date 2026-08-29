@@ -50,10 +50,10 @@ whole, then run `python3 scripts/readmetoc.py`.
 | [The ant colony — status](#the-ant-colony--status) | 2677 |
 | [M19 status — started](#m19-status--started) | 2706 |
 | [Felling status — the verb works, and what it produces is pieces](#felling-status--the-verb-works-and-what-it-produces-is-pieces) | 2762 |
-| [Performance](#performance) | 2893 |
-| [World speed — five independent time axes](#world-speed--five-independent-time-axes) | 3067 |
-| [Status](#status) | 3150 |
-| [License](#license) | 3261 |
+| [Performance](#performance) | 2900 |
+| [World speed — five independent time axes](#world-speed--five-independent-time-axes) | 3074 |
+| [Status](#status) | 3157 |
+| [License](#license) | 3268 |
 
 ### Milestones, in numeric order
 
@@ -87,7 +87,7 @@ them is named "plants". A section can appear twice; felling is honestly both
 plant work and structural work.
 
 **Known limitations for every topic are collected in one place**:
-[Status](#status), line 3150 — the *last* section in the
+[Status](#status), line 3157 — the *last* section in the
 file, not the first. Read it before concluding something is broken.
 
 | Topic | Sections, primary first |
@@ -102,9 +102,9 @@ file, not the first. Read it before concluding something is broken.
 | **the coarse field grid — pressure, heat, light** | [The coarse field grid](#the-coarse-field-grid) 450, [M12/M13 status](#m12m13-status) 712 |
 | **worldgen and world structure** | [M10 status](#m10-status--the-worldgen-half) 2545, [Architecture](#architecture) 293 |
 | **the gnome (player character)** | [M9 status](#m9-status--the-gnome) 2484, [Controls](#controls) 156 |
-| **weather, sky and the clock** | [Weather status](#weather-status) 2660, [M19 status](#m19-status--started) 2706, [World speed](#world-speed--five-independent-time-axes) 3067 |
+| **weather, sky and the clock** | [Weather status](#weather-status) 2660, [M19 status](#m19-status--started) 2706, [World speed](#world-speed--five-independent-time-axes) 3074 |
 | **rendering, UI and tunables** | [UI improvements](#ui-improvements--overnight-run-section-9) 2238, [Live tunables panel](#live-tunables-panel--overnight-run-section-10) 2283, [Rendering performance](#rendering-performance--overnight-run-section-11) 2351, [M6 deferral](#m6-deferral) 1014 |
-| **performance and the parallel sweep** | [Performance](#performance) 2893, [M5 status](#m5-status) 1024, [Architecture](#architecture) 293, [Rendering performance](#rendering-performance--overnight-run-section-11) 2351 |
+| **performance and the parallel sweep** | [Performance](#performance) 2900, [M5 status](#m5-status) 1024, [Architecture](#architecture) 293, [Rendering performance](#rendering-performance--overnight-run-section-11) 2351 |
 | **materials and the data schema** | [Materials](#materials) 219, [M12/M13 status](#m12m13-status) 712 |
 
 <!-- END GENERATED TOC -->
@@ -2866,6 +2866,13 @@ collapsing was foliage running downhill.
 - `FALL=off` reverts all three, so a paired run holds the semantics fixed
   instead of comparing two binaries. Verified identical to the pre-change
   build on `scene=fell`.
+- **Scoped to organism tissue** (`rigid::is_tissue`), so broken rock tumbles
+  exactly as it did. Not because the physics differs — §Q's `scene=worked`
+  needles are the same defect in rubble — but because rock destruction's
+  constants are calibrated against how debris tumbles now, and the cost is
+  measured rather than assumed: seeding rock leaves a licensed blast almost
+  unchanged (promoted 701 → 723) and roughly **doubles a leashed one** (506 →
+  1,217), inside the leash throughout. The report's §4c has the table.
 
 On that cut: quarter turns 0 → 22, topples 0 → 16, and the largest settled
 piece 25x35 (on end) → 40x28 (lying down). Swept over eight uncontaminated
