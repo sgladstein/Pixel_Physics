@@ -600,6 +600,13 @@ drift that two of these documents still reflect.**
   material rather than on the eater, corpse worth in `Cell::aux`, and the
   edible forest floor. Its "As built" notes carry the measurements; every
   S4 number in them predates the litter merge and is superseded by it.
+- [creature-export-design.md](creature-export-design.md) — **built and
+  landed 2026-08-29.** The dev-tool exit decision **E8** asks for and nothing
+  implemented: an evolved individual written back out as a species `.ron` the
+  existing loader reads to the same animal. Why it is a species file rather
+  than a genome sidecar, the genome block (hidden self-recurrence) that
+  **24% of sampled genomes carry and no species file could describe**, and
+  what the manifest stamp does and does not catch.
 - [creature-review-2026-08.md](creature-review-2026-08.md) — **review +
   proposed plan, written the day S1–S4 merged.** Where the creature line
   stands, the decisions never posted to the queue (E5, the abundance dial),
