@@ -93,39 +93,39 @@ point.
 | I | closed | 4753 | The disturbance-extent guard inverts once rubble stops anchoring |
 | J | **OPEN** | 4818 | A blocked substep still vents the smoke it was only *probing* |
 | Q | **OPEN** | 4848 | Settled debris stands in one-cell vertical needles that never topple |
-| P | **OPEN** | 4903 | scene=worldcrack is not deterministic, so seedsweep.sh cannot compare two models on a cha... |
-| K | closed | 5050 | try_step's rotation-fit probe compares every cell against itself |
-| N | **OPEN** | 5132 | Decayed litter makes soil that does not match the soil around it, and roots will not ente... |
-| O | **OPEN** | 5200 | Litter rots into soil that never leaves, so the floor rises all run |
-| M | closed | 5257 | Two gating worldgen tests are red, and both are the same thing: generated water never com... |
-| R | closed | 5467 | filmstrip scene=colony panics at its own default seed, and degrades badly at others |
-| -- | historic | 5527 | R (original). filmstrip scene=colony panics at its own default seed, and degrades badly a... |
-| L | closed | 5606 | The colony has gone sessile: 98 round trips became 2 |
-| R2 | **OPEN** | 5738 | An ant put down on open water stands on the surface for ever, and found_colony puts them ... |
-| -- | historic | 5794 | R2 (original). An ant put down on open water stands on the surface for ever, and found_co... |
-| S | closed | 5856 | Every destructive verb but the brush leaves the structural scheduler pinned at its cap fo... |
-| S2 | **OPEN** | 6853 | The brush's anchor rule destroys structures the other two rules leave standing |
-| S4 | **OPEN** | 7041 | Rock still crushes itself on an idle world |
-| S3 | closed | 7113 | A world nobody has touched pulls its own ground apart |
-| -- | closed | 7162 | The plant model bounds height and does not bound width FIXED |
-| 1 | note | 7253 | MAX_ROOT_FRACTION feeds the staleness counter, permanently retiring roots |
-| 2 | note | 7267 | Grow into soil destroys the soil's stored water |
-| 3 | note | 7279 | Capillary exchange can push a neighbour above its own capacity |
-| W1a | note | 7297 | creeper.ron's root tips still run the superseded in-tick branch path |
-| W1b | note | 7318 | A material-counting guard cannot see a species |
-| W1c | note | 7331 | generated_terrain_is_already_at_rest went red on main |
-| T1a | note | 7465 | load::grain_is_footing reads *attachment* where it means *supported* |
-| T1b | note | 7543 | The structural opt-out did not hold against bearing |
-| T1d | note | 7554 | acceptance.sh's lavadrop sits close enough to its frame budget to flake, and is over it o... |
-| T1e | note | 7588 | "The pieces hit the ground and turn to dust" was not settle, and the measurement says so |
-| T1f | note | 7642 | The felled pile is 74% powder because the tree is 56% leaves. The piece ladder cannot fix... |
-| T1g | note | 7696 | A "refixed" claim went out over a settled state that had barely moved |
-| T1c | note | 7725 | §1c's settle loss is now a counter |
-| -- | note | 7742 | What landed |
-| -- | note | 7765 | Do not re-derive these |
-| -- | note | 7793 | Measurements that contradict something written |
-| -- | note | 7813 | Open |
-| -- | note | 7848 | Unmerged at close, and one of it is a fix main needs anyway |
+| P | **OPEN** | 4993 | scene=worldcrack is not deterministic, so seedsweep.sh cannot compare two models on a cha... |
+| K | closed | 5140 | try_step's rotation-fit probe compares every cell against itself |
+| N | **OPEN** | 5222 | Decayed litter makes soil that does not match the soil around it, and roots will not ente... |
+| O | **OPEN** | 5290 | Litter rots into soil that never leaves, so the floor rises all run |
+| M | closed | 5347 | Two gating worldgen tests are red, and both are the same thing: generated water never com... |
+| R | closed | 5557 | filmstrip scene=colony panics at its own default seed, and degrades badly at others |
+| -- | historic | 5617 | R (original). filmstrip scene=colony panics at its own default seed, and degrades badly a... |
+| L | closed | 5696 | The colony has gone sessile: 98 round trips became 2 |
+| R2 | **OPEN** | 5828 | An ant put down on open water stands on the surface for ever, and found_colony puts them ... |
+| -- | historic | 5884 | R2 (original). An ant put down on open water stands on the surface for ever, and found_co... |
+| S | closed | 5946 | Every destructive verb but the brush leaves the structural scheduler pinned at its cap fo... |
+| S2 | **OPEN** | 6943 | The brush's anchor rule destroys structures the other two rules leave standing |
+| S4 | **OPEN** | 7131 | Rock still crushes itself on an idle world |
+| S3 | closed | 7203 | A world nobody has touched pulls its own ground apart |
+| -- | closed | 7252 | The plant model bounds height and does not bound width FIXED |
+| 1 | note | 7343 | MAX_ROOT_FRACTION feeds the staleness counter, permanently retiring roots |
+| 2 | note | 7357 | Grow into soil destroys the soil's stored water |
+| 3 | note | 7369 | Capillary exchange can push a neighbour above its own capacity |
+| W1a | note | 7387 | creeper.ron's root tips still run the superseded in-tick branch path |
+| W1b | note | 7408 | A material-counting guard cannot see a species |
+| W1c | note | 7421 | generated_terrain_is_already_at_rest went red on main |
+| T1a | note | 7555 | load::grain_is_footing reads *attachment* where it means *supported* |
+| T1b | note | 7633 | The structural opt-out did not hold against bearing |
+| T1d | note | 7644 | acceptance.sh's lavadrop sits close enough to its frame budget to flake, and is over it o... |
+| T1e | note | 7678 | "The pieces hit the ground and turn to dust" was not settle, and the measurement says so |
+| T1f | note | 7732 | The felled pile is 74% powder because the tree is 56% leaves. The piece ladder cannot fix... |
+| T1g | note | 7786 | A "refixed" claim went out over a settled state that had barely moved |
+| T1c | note | 7815 | §1c's settle loss is now a counter |
+| -- | note | 7832 | What landed |
+| -- | note | 7855 | Do not re-derive these |
+| -- | note | 7883 | Measurements that contradict something written |
+| -- | note | 7903 | Open |
+| -- | note | 7938 | Unmerged at close, and one of it is a fix main needs anyway |
 
 <!-- END GENERATED INDEX -->
 
@@ -4899,6 +4899,96 @@ moment, and neither is defined for a single cell. That is the same defect
 recorded there as "a slab lying on its own rubble was judged as many
 separate knife-edge footings", pointing the other way: here the knife edge
 is what stands.
+
+**Answered for the *felled tree* case, 2026-08-29, and not for `scene=worked`
+— the distinction matters and is kept.** §Q asks for one measurement first:
+*what material is a standing needle made of?* On `scene=fell fell=7150` it is
+`log`, and the harness already reports it — `filmstrip`'s `log_pieces` census
+reads **13-15 settled pieces of 8+ cells, 8 to 10 of them upright**, run after
+run, holding that pose for hundreds of frames. So for this scene it is
+candidate **(1), settled rigid bodies**, and candidate (2) is not in play.
+
+**And the cause is exact.** §Q says *"there is no slenderness ratio, no
+tipping moment and no bearing width anywhere in the load model"*. That
+sentence was true when it was written and is now **stale**: `load::
+bearing_moment` is precisely a tipping test — a no-tension Winkler bed
+reducing to *"is the centre of mass within a sixth of the contact width"*,
+which is mass-independent and would topple a knife edge at any weight.
+
+It does not run on a log, and the line that stops it is
+`load.rs`'s
+
+```rust
+if capacity != i64::MAX && parent.is_none() && rests_on_ground(..) && !floats_on_liquid(..) {
+    capacity = capacity.min(bearing_moment(world, x, y, mass));
+}
+```
+
+`capacity_within` returns `i64::MAX` for `max_unsupported_span == u16::MAX`,
+which is `log`'s opt-out, so the `capacity != i64::MAX` guard skips the
+bearing clamp for exactly the material this bug is about.
+
+**That guard was added deliberately and for a good reason, which is what
+makes this worth writing down rather than just fixing.** It is T1b's fix:
+without it, `i64::MAX.min(bearing_moment(..))` is `bearing_moment`, so the
+opt-out held against bending and silently did not hold against bearing —
+and half of every felled tree's landed pieces were crushed back into
+`deadwood` (1,191 cells of log delivered, **431 standing** at frame 8,750).
+So the fix that closed one dust route removed the only mechanism that would
+have made the pieces lie down. Both behaviours came from one number.
+
+**The shape of the repair is the question `CLAUDE.md` already names**, and it
+is *not* "reinstate the clamp": `capacity` is being asked to answer two
+different questions with one value. *Can this piece carry a bending load?* —
+no, it is debris, and that is what the opt-out correctly says. *Is this piece
+standing on a footing too narrow to hold it upright?* — a separate question,
+with a separate answer, and one the opt-out was never meant to cover. Stating
+them as two quantities is the "when a rule must tell apart two things that can
+look identical, state the difference as data" rule; conflating them is what
+produced a material that is either crushed or unfallable and nothing between.
+
+**CORRECTION, same day, from the control — and the corrected finding is the
+useful one.** Everything above is a source reading, so it was put under the
+positive control `CLAUDE.md` demands: the opt-out guard was removed so the
+bearing clamp *does* reach `log`, and the identical cut re-run.
+
+| `scene=fell fell=7150`, settled | baseline | clamp reaching `log` |
+|---|---|---|
+| pieces >= 8 cells | 13 | 13 |
+| **lying / upright / square** | **3 / 8 / 2** | **1 / 11 / 1** |
+| `log` cells | 833 | 716 |
+| `deadwood` cells | 553 | 645 |
+
+**Giving logs the tipping test does not make them lie down. It crushes
+them**, and leaves *more* of the rest standing than before. The prediction
+above — that the guard is what stops a knife-edge log toppling — is wrong,
+and the reason it is wrong is the thing worth keeping:
+
+**The load model has no `topple` outcome.** Its two verdicts are *holds* and
+*fails*, and failing means `breaks_into` — convert where you stand. So a
+bearing test that correctly identifies an over-eccentric piece can only
+express that finding by turning it into grit. That is the T1b regression
+arriving by the front door (`log` 833 -> 716, `deadwood` 553 -> 645 is
+exactly the crushing T1b's guard was added to stop), and it is *also* why
+the upright count went the wrong way: the pieces the clamp condemned were
+the ones with a footing, and what survived were the needles.
+
+**So the missing mechanism is not a test, it is an outcome.** A piece that
+is out of balance has to be **re-promoted as a body and allowed to rotate**,
+not converted. Which means the repair is not in `capacity` at all, and the
+"state the two questions as two quantities" proposal above, while still true
+about the conflation, would not have fixed anything on its own: splitting
+the number gives the second question an answer that the system has no way to
+act on.
+
+It also settles a scheduling question for `Reports/tree-mechanics-plan-
+2026-08-29.md` §7 stage 4: **rotation and the tipping test are one change,
+not two, and the tipping test is worthless before the rotation exists.**
+
+**Still open for `scene=worked`.** Its needles are in rock and rubble, not
+`log`, so nothing above transfers — `rubble` is a `Powder` and takes no part
+in `structural.rs` at all, which is §Q's candidate (2) and is untouched by
+this. The decisive census §Q asks for still has to be run on that scene.
 
 ### P. `scene=worldcrack` is not deterministic, so `seedsweep.sh` cannot compare two models on a chaotic seed
 
