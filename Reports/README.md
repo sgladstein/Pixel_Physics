@@ -794,13 +794,27 @@ drift that two of these documents still reflect.**
   section before quoting any field timing; both earlier versions of this
   file were wrong because they did not.
 - [frame-cost-audit-2026-08.md](frame-cost-audit-2026-08.md) —
-  **measurement of record for whole-frame cost.** The first attribution of
-  `App::update` as a whole, at the shipped 8192x2560 size: 30.1 ms amortised
-  with nobody playing, 79% of frames over the 16.6 ms budget. Reranked the
-  performance backlog — issue #2 down (the sweep is a tenth of the frame),
-  `plant::step_organisms` up (a quarter of it, and in no plan). Read it
-  before quoting any per-phase cost; `field-settling-2026-08.md` remains the
-  record for the field's *internal* split and is not contradicted here.
+  **measurement of record for how `App::update` divides.** The first
+  attribution of `App::update` as a whole, at the shipped 8192x2560 size:
+  30.1 ms amortised with nobody playing, 79% of frames over the 16.6 ms
+  budget. Reranked the performance backlog — issue #2 down (the sweep is a
+  tenth of the frame), `plant::step_organisms` up (a quarter of it, and in no
+  plan). Read it before quoting any per-phase cost; `field-settling-2026-08.md`
+  remains the record for the field's *internal* split and is not contradicted
+  here. **Its headline is no longer the frame** — see the next entry, which
+  extends rather than supersedes it.
+- [frame-cost-the-render-half-2026-08-29.md](frame-cost-the-render-half-2026-08-29.md)
+  — **measurement of record for the whole frame, simulation *and* render.**
+  `App::update` has fallen to 18.9 ms (±1%, measured on this job), so the
+  simulation did not regress — but `Renderer::draw` is not in `App::update`
+  and nothing had ever counted it: it is **~40 ms**, the larger half of the
+  frame by 2:1. Bisects the owner's "the game feels slow" to `39e6f36`
+  (PR #94) and to the **sky** half of it, worth ~29 ms a redraw and ~2 ms of
+  simulation, with the soil half worth nothing. The cost is a *cliff* between
+  `sky_rows` 115 and 120 and a fixed per-draw charge rather than a price per
+  sky pixel, so the sky and the frame are not in competition. Carries a
+  separate ~8 ms finding for rain, and the four things ruled out by
+  measurement.
 - [world-review-2026-08.md](world-review-2026-08.md) — **review.** A
   multi-lens pass over the generated world.
 - [cave-beauty-review-2026-08.md](cave-beauty-review-2026-08.md) —
