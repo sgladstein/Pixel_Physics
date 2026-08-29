@@ -421,7 +421,7 @@ impl Default for WorldgenParams {
             mask_wavelength: 150.0,
             terrace_slope_lo: 0.6,
             terrace_slope_hi: 2.0,
-            soil_depth: 42.0,
+            soil_depth: 105.0,
             soil_slope_cutoff: 0.8,
             bedrock_band: 4.0,
             strata_thickness: 9.0,

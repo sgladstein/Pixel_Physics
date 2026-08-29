@@ -64,18 +64,18 @@ const REGION: i32 = 256;
 /// pathologically deep or whose walk has wandered into something that is
 /// never going to be bare stone.
 ///
-/// **The margin is thinner than it was, and was checked rather than
-/// assumed.** Exhausting this is a `break 'site` -- it abandons the residual
-/// rather than merely doing less work -- so it is the shape `CLAUDE.md` warns
-/// about, and deepening `soil_depth` 1.6x (2026-08-28) took the measured max
-/// cover from 43 cells to 68 against this 80. Measured over six seeds of
-/// `rolling`, raising this to 160 leaves the residual cell count
-/// **byte-identical** (12996 / 5659 / 3246 / 4131 / 5589 / 15489), so it
-/// still does not bite. That null is load-bearing, so it has a positive
-/// control: at 20 the same six seeds collapse to 2849 / 1616 / 1980, which is
-/// what proves the probe could have moved. Re-run both if `soil_depth` is
-/// deepened again.
-const MAX_SOCKET_DEPTH: i32 = 80;
+/// **It scales with `soil_depth`, and was re-derived when that moved.**
+/// Exhausting this is a `break 'site` -- it abandons the residual rather than
+/// merely doing less work -- so it is the shape `CLAUDE.md` warns about: a cap
+/// that produces an *answer*. At 80 it survived the 2026-08-28 deepening
+/// (max cover 43 -> 68) untouched: over six seeds of `rolling`, raising it to
+/// 160 left the residual cell count byte-identical, against a positive control
+/// at 20 that collapsed those seeds to 2849 / 1616 / 1980. The 2026-08-29
+/// deepening is the one that broke it -- max cover 163 (wetland, `plan_all`,
+/// erosion deposits included), i.e. the bound had fallen *below* ordinary
+/// ground rather than sitting above pathological ground. 300 restores the same
+/// 1.86x headroom over the deepest legitimate cover that 80 had over 43.
+const MAX_SOCKET_DEPTH: i32 = 300;
 
 /// Smallest and largest a residual's *visible standing height* can draw, in
 /// cells. The owner's directive, converted from feet via `PLAYER_HEIGHT`

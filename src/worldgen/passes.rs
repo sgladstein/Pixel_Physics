@@ -3844,17 +3844,51 @@ pub struct Site {
 /// p90 with headroom, not against the maximum: a bar set on the extreme
 /// makes every ordinary column read as thin.
 ///
-/// **Re-derived when `soil_depth` was deepened (2026-08-28).** This is a
-/// normalisation of a quantity the presets set, so it is not independent of
-/// them: raising `soil_depth` 1.6x without moving this would have saturated
-/// `blanket` across most of the world and silently re-cut every niche band
-/// that reads the woody sum -- measured, the sum's p50 went 1.60 -> 1.47 and
-/// its p90 2.08 -> 1.84 before this constant followed, which shifts grass
-/// (whose band is cut at 1.0 -> 2.0 through that spread) across the whole
-/// world. Held at the same 1.11x headroom over the measured p90 that the
-/// original 30 had over its p90 of 27: `flora_census -- terrain=1 seeds=8`
-/// now reports p90 48, max 68.
-const DEEP_BLANKET: f32 = 53.0;
+/// **It is a rooting depth, and it deliberately does NOT track `soil_depth`.**
+/// This was originally derived from the measured p90, and following that
+/// recipe when the presets deepen is a **treadmill**: scale this with the
+/// soil and `blanket` lands on the same number it always did, so every plant
+/// in the world sees the same ground no matter how much soil there is. The
+/// world can then never get loamier, which is the opposite of what deepening
+/// it is for.
+///
+/// **Measured 2026-08-29, and the treadmill is not theoretical -- it costs
+/// trees.** Following p90 for the owner's 2.5x deepening put this at 133, and
+/// over 8 worlds of `rolling` at 2048x640 that took tree plantings from the
+/// baseline's 107 down to **65**, with `tree` missing from 3 of 16 worlds --
+/// a guard failure. The aggregate woody sum was *perfectly* restored at 133
+/// (p10/p50/p90 1.05/1.66/2.13 against the pre-change 1.00/1.60/2.08), which
+/// is why this is worth writing down: the sum being right is not evidence the
+/// mix is, and only a per-species census sees it. The species do not rescale
+/// with it because `plan_from` adds jitter and erosion deposits as *absolute*
+/// cell counts after the scaled term, so marginal ground gets diluted by a
+/// larger divisor rather than moving with it.
+///
+/// **Set to preserve the species mix across a terrain change, which is the
+/// only criterion that constrains all four species at once.** The owner asked
+/// for deeper soil, not for a different world of plants, so the bar is that
+/// the mix comes back where it was. Swept over 8 worlds of `rolling` at
+/// 2048x640 against the pre-deepening baseline
+/// `conifer 72 / creeper 162 / grass 280 / moss 154 / shrub 58 / tree 107`:
+///
+/// | this | conifer | creeper | grass | moss | shrub | tree |
+/// |---|---|---|---|---|---|---|
+/// | 133 (tracks p90) | 66 | 213 | 279 | 152 | 59 | **65** |
+/// | 95 | 71 | 182 | 282 | 152 | 58 | 87 |
+/// | **70** | **73** | **154** | **299** | **154** | **55** | **111** |
+/// | 53 (absolute) | 73 | 122 | 327 | 154 | 57 | 137 |
+///
+/// Both ends fail, in opposite directions, and neither is visible in the
+/// aggregate. Tracking p90 starves trees. Holding it absolute saturates
+/// `blanket` at 1.0 across the world, which zeroes **creeper** outright --
+/// its weight is `1 - ramp(blanket, ...)`, so it wants a *thin* blanket -- and
+/// halves shrub, shrinking the woody sum and letting grass in (+17%). 70
+/// lands every species within a few per cent.
+///
+/// **Do not re-derive this from p90 when the presets deepen again.** That
+/// recipe is a treadmill: scale it with the soil and `blanket` returns the
+/// same number it always did, so no amount of soil ever reads as loamier.
+const DEEP_BLANKET: f32 = 70.0;
 
 impl Site {
     /// The three facts, read off the generator's own plan for a column.
@@ -4636,8 +4670,17 @@ pub fn pockets(ctx: &Ctx, world: &mut World) -> usize {
 /// How far a boulder's socket is allowed to dig through loose cover
 /// looking for the real massif before giving up on the whole boulder. A
 /// safety bound on the walk, not a behaviour knob -- see `residual.rs`'s
-/// constant of the same name and purpose, added for the identical reason.
-const MAX_SOCKET_DEPTH: i32 = 80;
+/// constant of the same name and purpose, added for the identical reason,
+/// and carrying the measurement that sizes both.
+///
+/// **Scales with `soil_depth`, and must be re-derived whenever that moves.**
+/// Exhausting it abandons the boulder rather than merely doing less work, so
+/// it is the shape `CLAUDE.md` warns about: a cap that produces an *answer*.
+/// 80 was set against a 43-cell maximum cover; the 2026-08-29 deepening took
+/// the measured max to 163 (wetland, `plan_all`, erosion deposits included),
+/// which would have put the bound *below* ordinary ground. 300 restores the
+/// same 1.86x headroom over the deepest legitimate cover that 80 had over 43.
+const MAX_SOCKET_DEPTH: i32 = 300;
 
 /// Rounded attached-stone clusters seated where a hard band shed enough to
 /// leave a boulder socket (`erosion::Deposits::boulder`).
