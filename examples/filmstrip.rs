@@ -3897,7 +3897,7 @@ impl Gnome {
         // Alternating them is what a player does and what this scene has to
         // show, or the sheet measures a tool used wrongly.
         if self.script == Script::Smash && step_no >= 120 {
-            let hammering = (step_no / 240) % 2 == 0;
+            let hammering = (step_no / 240).is_multiple_of(2);
             if let Some(p) = world.player.as_mut() {
                 p.tool = if hammering { player::Tool::Hammer } else { player::Tool::Pick };
             }
