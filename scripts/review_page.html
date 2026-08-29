@@ -27,9 +27,32 @@
 
   #shell { display: grid; grid-template-columns: 230px 1fr; min-height: 100vh; }
   /* dvh, not vh: on a phone the URL bar is inside 100vh, so a vh-sized
-     sticky column runs off the bottom of the screen by its height. */
+     sticky column runs off the bottom of the screen by its height.
+
+     Two parts, and the split is load-bearing. The lists grow without bound --
+     the owner's queue reached 14 boards -- and when the whole rail was one
+     scroller the Send-verdicts button and the sync status were pushed 428px
+     past its bottom edge, reachable only by hovering the sidebar and scrolling
+     it. Nobody found them; the button was reported missing. So the lists
+     scroll and the actions are pinned. */
   #rail { background: var(--panel); border-right: 1px solid var(--line); padding: 16px 12px;
-          position: sticky; top: 0; height: 100dvh; overflow-y: auto; z-index: 20; }
+          position: sticky; top: 0; height: 100dvh; overflow: hidden; z-index: 20;
+          display: flex; flex-direction: column; }
+  /* min-height:0 is not decoration: a flex item defaults to min-height:auto and
+     refuses to shrink below its content, so without it this grows to fit every
+     board and pushes the actions off-screen again -- the same defect as the
+     grid track's min-width:auto. */
+  #rail-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto;
+                 /* Fade the cut rather than slicing a board row in half against
+                    the divider, which reads as a rendering fault instead of as
+                    'there is more below'. */
+                 -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 16px), transparent);
+                 mask-image: linear-gradient(to bottom, #000 calc(100% - 16px), transparent); }
+  /* The rule marks where the scrolling stops. Without it a half-scrolled
+     board list butts straight up against the queue path and reads as a
+     rendering fault rather than two regions. */
+  #rail-actions { flex: 0 0 auto; border-top: 1px solid var(--line);
+                  margin-top: 8px; padding-top: 4px; }
   #rail h1 { font-size: 13px; letter-spacing: .08em; text-transform: uppercase;
              color: var(--dim); margin: 0 0 12px; }
   /* After `#rail h1`, not before: that rule sets the `margin` shorthand at the
@@ -196,11 +219,10 @@
     /* Sync state, the queue path and Send verdicts sit one tap deep. Send
        verdicts pings every agent that is waiting, so it should not be a
        thing a thumb brushes while scrolling the filters. */
-    #rail-more { display: none; padding-top: 6px; border-top: 1px solid var(--line);
-                 margin-top: 4px; }
-    #rail.open #rail-more { display: block; }
-    #rail-more h1 { display: none; }
-    #rail-more > .hint:first-of-type { display: none; }   /* the key legend */
+    #rail-scroll { overflow-y: visible; -webkit-mask-image: none; mask-image: none; }
+    #rail-actions { display: none; padding-top: 6px; margin-top: 4px; }
+    #rail.open #rail-actions { display: block; }
+    .keys-h, #keyhint { display: none; }    /* there is no keyboard */
 
     #feed { padding: 12px 12px 88px; }
     .card { padding: 12px 12px; border-radius: 8px; margin-bottom: 12px; }
@@ -229,6 +251,7 @@
 
 <div id="shell">
   <div id="rail">
+    <div id="rail-scroll">
     <div id="rail-top">
       <h1>Queue</h1>
       <button id="rail-toggle" aria-expanded="false" aria-label="more">☰</button>
@@ -236,9 +259,8 @@
     <div class="rail-group" id="statuses"></div>
     <h1 class="boards-h">Boards</h1>
     <div class="rail-group" id="boards"></div>
-    <div id="rail-more">
-    <h1>Keys</h1>
-    <div class="hint">
+    <h1 class="keys-h">Keys</h1>
+    <div class="hint" id="keyhint">
       <kbd>j</kbd>/<kbd>k</kbd> move<br>
       <kbd>1</kbd>…<kbd>4</kbd> pick pane<br>
       <kbd>r</kbd> then <kbd>1</kbd>–<kbd>5</kbd> rate<br>
@@ -248,6 +270,8 @@
       <kbd>Ctrl+Enter</kbd> submit<br>
       <kbd>e</kbd> archive
     </div>
+    </div>
+    <div id="rail-actions">
     <div class="hint" id="rootpath" style="margin-top:18px; word-break:break-all"></div>
     <button id="notify" disabled>Send verdicts</button>
     <div id="notify-note"></div>

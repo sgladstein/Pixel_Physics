@@ -150,6 +150,19 @@ fn report(label: &str, world: &World, ants: usize) {
     let fpm = if st.moves > 0 { st.falls as f64 / st.moves as f64 } else { 0.0 };
     let tpm = if st.moves > 0 { st.tumbles as f64 / st.moves as f64 } else { 0.0 };
     println!("  falls {} ({fpm:.3} of moves) | tumbles {} ({tpm:.3} of moves)", st.falls, st.tumbles);
+    // **The scheduling cadence, and this scene is its positive control.**
+    // Nothing else is on the active-site queue here -- a hand-built floor,
+    // no worldgen, no forest, no destruction -- so `late mean` must read
+    // 0.0 and `asked` must reach its ideal. An instrument that cannot
+    // report "on time" in the one case built to be on time cannot report
+    // "late" anywhere else either (`CLAUDE.md`: run the positive control).
+    println!(
+        "  ticks {} | late mean {:.2} frames, max {} | moves/tick {:.3}",
+        st.ticks,
+        if st.ticks > 0 { st.tick_lag_sum as f64 / st.ticks as f64 } else { 0.0 },
+        st.tick_lag_max,
+        if st.ticks > 0 { st.moves as f64 / st.ticks as f64 } else { 0.0 },
+    );
     // **The verb's own "did it fire at all" line.** `CLAUDE.md`'s house
     // rule, and the case it was paid for with: a collapse read as "chunks
     // are working" off a picture whose event count was zero for the whole
@@ -157,6 +170,12 @@ fn report(label: &str, world: &World, ants: usize) {
     // (a launch the body could not make), and `frames/impulse` is the mean
     // time aloft -- the quantity a body is supposed to change, since the
     // same launch keeps a slab up 2.3x as long as a block.
+    //
+    // **Kept beside the cadence line rather than folded into it**, because
+    // the two disagree about what a tick is: a creature in the air is
+    // rescheduled every frame and does not think, so its frames land in
+    // `airborne frames` and never in `ticks`. Summing them would produce a
+    // cadence figure belonging to neither.
     //
     // Printed unconditionally, including the zeros. A species with no
     // `Impulse` weight must read `impulses 0` here, and a line that

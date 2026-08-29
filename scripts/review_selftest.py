@@ -802,6 +802,62 @@ def test_page_works_on_a_phone() -> None:
           str(missing))
 
 
+def test_notify_is_on_by_default(root: Path, art: Path) -> None:
+    """The default decides whether the owner's button wakes anyone at all.
+
+    Opt-in shipped first and was silently inert: the owner pressed Send
+    verdicts, two cards were released, and zero agents woke, because no agent
+    ever passed the flag. So the default itself is the behaviour under test --
+    and it must stay off where a watcher could not work, or every `post` from a
+    plain shell would spawn a process that can only fail.
+    """
+    print("\nnotify default")
+    root.mkdir(parents=True, exist_ok=True)
+    sys.path.insert(0, str(HERE))
+    import importlib
+    mod = importlib.import_module("review")
+
+    class Args:
+        def __init__(self, notify=None):
+            self.notify = notify
+
+    keep = {k: os.environ.get(k) for k in (rl.SOCKET_ENV, rl.SESSION_ENV)}
+    try:
+        os.environ[rl.SOCKET_ENV] = "/tmp/not-a-real-socket.sock"
+        os.environ[rl.SESSION_ENV] = "sess-default-test"
+        check(mod.should_notify(Args()) is True,
+              "inside a Claude Code session, notify is ON without asking")
+        check(mod.should_notify(Args(notify=False)) is False,
+              "--no-notify still wins over the default")
+        check(mod.should_notify(Args(notify=True)) is True,
+              "--notify remains valid, so existing invocations do not break")
+
+        os.environ.pop(rl.SOCKET_ENV)
+        check(mod.should_notify(Args()) is False,
+              "with no inbox socket the default is OFF -- no watcher that could "
+              "only report that it cannot work")
+        os.environ[rl.SOCKET_ENV] = "/tmp/not-a-real-socket.sock"
+        os.environ.pop(rl.SESSION_ENV)
+        check(mod.should_notify(Args()) is False,
+              "with no session id the default is OFF")
+        check(mod.should_notify(Args(notify=True)) is True,
+              "...but an explicit --notify is still honoured, and says why it "
+              "cannot deliver")
+        note = mod.ensure_watcher(root)
+        check("%s" % rl.SESSION_ENV in note,
+              "and that reason names the missing variable", note)
+    finally:
+        for k, v in keep.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+
+    # No watcher was started by any of the above -- the lock file is the record.
+    check(not mod.watcher_lock(root).exists(),
+          "no watcher was spawned while only deciding")
+
+
 def main() -> int:
     # Isolate from any real remote, globally, before a single check runs.
     #
@@ -813,6 +869,12 @@ def main() -> int:
     # pulled every previous run's fixtures back down. A test harness must not
     # be able to reach production, and here that is one environment variable.
     os.environ[rl.NO_SYNC_ENV] = "1"
+    # Notify is on by default now, and this suite posts ~30 cards under invented
+    # session ids. Left alone it would spawn that many detached watchers, each
+    # polling a temp queue for six hours after the suite deleted it. Dropping
+    # the socket puts the default back to off; the one test that cares about
+    # the decision sets it back explicitly.
+    os.environ.pop(rl.SOCKET_ENV, None)
 
     base = Path(tempfile.mkdtemp(prefix="review-selftest-"))
     art_a, art_b = png(base / "a.png"), png(base / "b.png", fill=(60, 90, 120))
@@ -827,6 +889,7 @@ def main() -> int:
         test_focus_is_validated_at_post_time(base / "q6", art_a)
         test_single_frame_gif_is_refused(base / "q7", base)
         test_verdicts_batch_per_agent(base / "q8", art_a)
+        test_notify_is_on_by_default(base / "q12", art_a)
         test_unnotifiable_cards_are_reported(base / "q9", art_a)
         test_socket_frame_shape()
         test_every_page_button_traces_to_a_card()

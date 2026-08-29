@@ -2,7 +2,8 @@
 
 *Current as of: 2026-08-29, when creatures learned to jump — though the ants
 you place still cannot, and the section below says why that is not a
-contradiction. Also 2026-08-29: founding a colony learned to see past a
+contradiction. Also 2026-08-29: the title bar learned to say how fast the
+ants are actually moving, and founding a colony learned to see past a
 tree canopy and to refuse open water. Before that: 2026-08-23, when ants
 learned to climb over each other. The
 colony forages, digs, builds and carries food home; food is worth what it is
@@ -12,6 +13,15 @@ Ants now range a good deal further than they used to, because a nestmate is
 something to walk over rather than a wall to wait behind. They are still not
 especially good at finding food far away, and a well-fed floor gives them less
 reason to try: see "What is not finished" at the bottom.*
+
+**How fast they are moving is now on the title bar**, once there is a colony
+in the world: how many steps the ants are taking per second, how far behind
+their own schedule they are running, and how much work the world has queued
+up behind them. All three read as small, steady numbers in a healthy world.
+They are there because ants are the one thing on screen whose speed a person
+can judge by eye but not put a number on — an ant only moves on one frame in
+six even at full speed, so it looks stuttery by nature, and "the creatures
+seem slow" was a report nobody could check. Now it comes with figures.
 
 An ant is a small dark creature, one or two cells long, that walks on
 surfaces. Ants come in colonies: fifty of them looks like a colony, five

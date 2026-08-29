@@ -82,6 +82,62 @@ def fixtures(root: Path, art: Path) -> None:
                    env=env, check=True, capture_output=True)
 
 
+RAIL_BOARDS = 40   # headroom: the owner's real queue carries 14 today
+
+
+def board_fixture(root: Path, n: int) -> None:
+    """A queue whose only job is to make the sidebar long.
+
+    Seeded well past the real board count rather than at it. A fixture pinned
+    to today's number is a bar set from the current state, and the check that
+    signed this button off used *two* boards -- which cannot produce an
+    overflowing sidebar at any viewport, so it could never have failed.
+    """
+    for i in range(n):
+        rl.save_card(root, {
+            "id": "board%03d" % i, "board": "board-%02d" % i, "kind": "single",
+            "title": "card on board-%02d" % i, "question": "?", "items": [],
+            "created_at": rl.utc_now(), "origin": {"branch": "main"}})
+
+
+# Undo the fix in CSS only: `#rail` back to one scroller, the actions back to
+# flowing after the board list. This is what the sidebar was when the owner
+# reported the button missing.
+SABOTAGE = """
+<style id="sabotage">
+  #rail { display: block; overflow-y: auto; }
+  #rail-scroll { overflow: visible; min-height: auto; }
+  #rail-actions { border-top: 0; margin-top: 0; }
+</style>
+"""
+
+
+def sabotage_page(src: Path, dst: Path) -> Path:
+    """A copy of the current page with the rail fix disabled.
+
+    The "can this check fail" assertion used to render `git HEAD`'s page, which
+    works exactly until the fix lands -- then the baseline IS the fix, the
+    assertion goes green for the wrong reason, and one commit later nobody
+    remembers why. Breaking the mechanism on purpose keeps the question
+    answerable forever, and it is the repo's own rule: break the replacement
+    and confirm the guard notices.
+    """
+    dst.write_text(src.read_text(encoding="utf-8") + SABOTAGE, encoding="utf-8")
+    return dst
+
+
+def real_board_count() -> int:
+    """What the owner's queue actually holds, for headroom reporting only.
+
+    Read before the fixture root is installed in the environment, or this
+    reports on the fixture and always says the headroom is fine.
+    """
+    try:
+        return len(rl.load_boards(rl.load_cards(rl.review_root(create=False))))
+    except Exception:
+        return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--baseline", default="HEAD",
@@ -97,6 +153,10 @@ def main() -> int:
         return 0
 
     os.environ[rl.NO_SYNC_ENV] = "1"
+    # Same reason as the selftest: notify defaults on, and the fixtures
+    # would each leave a detached watcher polling a deleted temp queue.
+    os.environ.pop(rl.SOCKET_ENV, None)
+    real = real_board_count()
     base = Path(tempfile.mkdtemp(prefix="review-mobile-"))
     out = Path(args.out) if args.out else base / "shots"
     out.mkdir(parents=True, exist_ok=True)
@@ -114,17 +174,29 @@ def main() -> int:
     else:
         old_page.write_bytes(got.stdout)
 
+    rail = base / "rail"
+    rail.mkdir()
+
     try:
         fixtures(root, base / "art.png")
-        a = serve(root, HERE / "review_page.html", 7471)
-        b = serve(root, old_page, 7472)
+        board_fixture(rail, RAIL_BOARDS)
+        print("rail fixture: %d boards (the live queue has %s)"
+              % (RAIL_BOARDS, real or "unknown"))
+        if real >= RAIL_BOARDS:
+            print("  raise RAIL_BOARDS -- the fixture no longer has headroom "
+                  "over the real queue")
+        servers = [serve(root, HERE / "review_page.html", 7471),
+                   serve(root, old_page, 7472),
+                   serve(rail, HERE / "review_page.html", 7473),
+                   serve(rail, sabotage_page(HERE / "review_page.html",
+                                             base / "sabotaged.html"), 7474)]
         try:
             rc = subprocess.run(["node", str(HERE / "review_mobile.js"),
-                                 "7471", "7472", str(out)]).returncode
+                                 "7471", "7472", "7473", "7474", str(out)]).returncode
         finally:
-            for s in (a, b):
-                s.shutdown()
-                s.server_close()
+            for srv in servers:
+                srv.shutdown()
+                srv.server_close()
         answered = len(list(rl.responses_dir(root).glob("*.json")))
         print("\nverdicts written by the phone run: %d" % answered)
         if answered < 1:

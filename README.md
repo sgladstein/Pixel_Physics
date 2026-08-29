@@ -22,38 +22,38 @@ whole, then run `python3 scripts/readmetoc.py`.
 | [Running](#running) | 112 |
 | [Finding things](#finding-things) | 120 |
 | [Controls](#controls) | 156 |
-| [Materials](#materials) | 219 |
-| [Architecture](#architecture) | 293 |
-| [The coarse field grid](#the-coarse-field-grid) | 450 |
-| [M12/M13 status](#m12m13-status) | 712 |
-| [Liquid physics: compressible volume, not discrete occupied cells](#liquid-physics-compressible-volume-not-discrete-occupied-cells) | 739 |
-| [M14 status](#m14-status) | 765 |
-| [M7 status](#m7-status) | 913 |
-| [M15 status](#m15-status) | 942 |
-| [M6 deferral](#m6-deferral) | 1014 |
-| [M5 status](#m5-status) | 1024 |
-| [Plant lines merged: the genome, and the ecology](#plant-lines-merged-the-genome-and-the-ecology) | 1119 |
-| [The generation loop: plants die, seeds expire, slots come back](#the-generation-loop-plants-die-seeds-expire-slots-come-back) | 1189 |
-| [The economy re-derived: standing tissue costs something](#the-economy-re-derived-standing-tissue-costs-something) | 1241 |
-| [Stems draw a line: the growth walk renders its heading](#stems-draw-a-line-the-growth-walk-renders-its-heading) | 1341 |
-| [Plants that stop: organs, determinacy, and a price on both](#plants-that-stop-organs-determinacy-and-a-price-on-both) | 1423 |
-| [M16 status](#m16-status) | 1491 |
-| [M17 status](#m17-status) | 1677 |
-| [M18 status](#m18-status) | 1904 |
-| [UI improvements — overnight run, section 9](#ui-improvements--overnight-run-section-9) | 2238 |
-| [Live tunables panel — overnight run, section 10](#live-tunables-panel--overnight-run-section-10) | 2283 |
-| [Rendering performance — overnight run, section 11](#rendering-performance--overnight-run-section-11) | 2351 |
-| [M8 status — started, not complete](#m8-status--started-not-complete) | 2371 |
-| [M9 status — the gnome](#m9-status--the-gnome) | 2484 |
-| [M10 status — the worldgen half](#m10-status--the-worldgen-half) | 2545 |
-| [Weather status](#weather-status) | 2660 |
-| [The ant colony — status](#the-ant-colony--status) | 2677 |
-| [M19 status — started](#m19-status--started) | 2706 |
-| [Felling status — the verb works, and what it produces is pieces](#felling-status--the-verb-works-and-what-it-produces-is-pieces) | 2762 |
-| [Performance](#performance) | 2911 |
-| [World speed — five independent time axes](#world-speed--five-independent-time-axes) | 3085 |
-| [Status](#status) | 3168 |
-| [License](#license) | 3279 |
+| [Materials](#materials) | 221 |
+| [Architecture](#architecture) | 295 |
+| [The coarse field grid](#the-coarse-field-grid) | 452 |
+| [M12/M13 status](#m12m13-status) | 714 |
+| [Liquid physics: compressible volume, not discrete occupied cells](#liquid-physics-compressible-volume-not-discrete-occupied-cells) | 741 |
+| [M14 status](#m14-status) | 767 |
+| [M7 status](#m7-status) | 915 |
+| [M15 status](#m15-status) | 944 |
+| [M6 deferral](#m6-deferral) | 1016 |
+| [M5 status](#m5-status) | 1026 |
+| [Plant lines merged: the genome, and the ecology](#plant-lines-merged-the-genome-and-the-ecology) | 1121 |
+| [The generation loop: plants die, seeds expire, slots come back](#the-generation-loop-plants-die-seeds-expire-slots-come-back) | 1191 |
+| [The economy re-derived: standing tissue costs something](#the-economy-re-derived-standing-tissue-costs-something) | 1243 |
+| [Stems draw a line: the growth walk renders its heading](#stems-draw-a-line-the-growth-walk-renders-its-heading) | 1343 |
+| [Plants that stop: organs, determinacy, and a price on both](#plants-that-stop-organs-determinacy-and-a-price-on-both) | 1425 |
+| [M16 status](#m16-status) | 1493 |
+| [M17 status](#m17-status) | 1679 |
+| [M18 status](#m18-status) | 1906 |
+| [UI improvements — overnight run, section 9](#ui-improvements--overnight-run-section-9) | 2240 |
+| [Live tunables panel — overnight run, section 10](#live-tunables-panel--overnight-run-section-10) | 2285 |
+| [Rendering performance — overnight run, section 11](#rendering-performance--overnight-run-section-11) | 2353 |
+| [M8 status — started, not complete](#m8-status--started-not-complete) | 2373 |
+| [M9 status — the gnome](#m9-status--the-gnome) | 2486 |
+| [M10 status — the worldgen half](#m10-status--the-worldgen-half) | 2638 |
+| [Weather status](#weather-status) | 2753 |
+| [The ant colony — status](#the-ant-colony--status) | 2770 |
+| [M19 status — started](#m19-status--started) | 2799 |
+| [Felling status — the verb works, and what it produces is pieces](#felling-status--the-verb-works-and-what-it-produces-is-pieces) | 2855 |
+| [Performance](#performance) | 3004 |
+| [World speed — five independent time axes](#world-speed--five-independent-time-axes) | 3178 |
+| [Status](#status) | 3261 |
+| [License](#license) | 3372 |
 
 ### Milestones, in numeric order
 
@@ -62,19 +62,19 @@ order they were written.
 
 | M | Section | Line |
 |---|---|---|
-| 5 | [M5 status](#m5-status) | 1024 |
-| 6 | [M6 deferral](#m6-deferral) | 1014 |
-| 7 | [M7 status](#m7-status) | 913 |
-| 8 | [M8 status — started, not complete](#m8-status--started-not-complete) | 2371 |
-| 9 | [M9 status — the gnome](#m9-status--the-gnome) | 2484 |
-| 10 | [M10 status — the worldgen half](#m10-status--the-worldgen-half) | 2545 |
-| 12 | [M12/M13 status](#m12m13-status) | 712 |
-| 14 | [M14 status](#m14-status) | 765 |
-| 15 | [M15 status](#m15-status) | 942 |
-| 16 | [M16 status](#m16-status) | 1491 |
-| 17 | [M17 status](#m17-status) | 1677 |
-| 18 | [M18 status](#m18-status) | 1904 |
-| 19 | [M19 status — started](#m19-status--started) | 2706 |
+| 5 | [M5 status](#m5-status) | 1026 |
+| 6 | [M6 deferral](#m6-deferral) | 1016 |
+| 7 | [M7 status](#m7-status) | 915 |
+| 8 | [M8 status — started, not complete](#m8-status--started-not-complete) | 2373 |
+| 9 | [M9 status — the gnome](#m9-status--the-gnome) | 2486 |
+| 10 | [M10 status — the worldgen half](#m10-status--the-worldgen-half) | 2638 |
+| 12 | [M12/M13 status](#m12m13-status) | 714 |
+| 14 | [M14 status](#m14-status) | 767 |
+| 15 | [M15 status](#m15-status) | 944 |
+| 16 | [M16 status](#m16-status) | 1493 |
+| 17 | [M17 status](#m17-status) | 1679 |
+| 18 | [M18 status](#m18-status) | 1906 |
+| 19 | [M19 status — started](#m19-status--started) | 2799 |
 
 ### By topic
 
@@ -87,25 +87,25 @@ them is named "plants". A section can appear twice; felling is honestly both
 plant work and structural work.
 
 **Known limitations for every topic are collected in one place**:
-[Status](#status), line 3168 — the *last* section in the
+[Status](#status), line 3261 — the *last* section in the
 file, not the first. Read it before concluding something is broken.
 
 | Topic | Sections, primary first |
 |---|---|
-| **plants, trees and moss** | [M16 status](#m16-status) 1491, [Plant lines merged](#plant-lines-merged-the-genome-and-the-ecology) 1119, [The economy re-derived](#the-economy-re-derived-standing-tissue-costs-something) 1241, [Plants that stop](#plants-that-stop-organs-determinacy-and-a-price-on-both) 1423, [The generation loop](#the-generation-loop-plants-die-seeds-expire-slots-come-back) 1189, [Stems draw a line](#stems-draw-a-line-the-growth-walk-renders-its-heading) 1341, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 2762 |
-| **creatures — worms and the ant colony** | [M18 status](#m18-status) 1904, [The ant colony](#the-ant-colony--status) 2677 |
-| **structural collapse, felling and rigid bodies** | [M17 status](#m17-status) 1677, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 2762, [M8 status](#m8-status--started-not-complete) 2371 |
-| **fire, heat and phase change** | [M14 status](#m14-status) 765, [Materials](#materials) 219 |
-| **explosions, particles and debris** | [M15 status](#m15-status) 942, [M7 status](#m7-status) 913 |
-| **liquids and gases** | [Liquid physics](#liquid-physics-compressible-volume-not-discrete-occupied-cells) 739, [The coarse field grid](#the-coarse-field-grid) 450 |
-| **powders and granular flow** | [Materials](#materials) 219, [Architecture](#architecture) 293 |
-| **the coarse field grid — pressure, heat, light** | [The coarse field grid](#the-coarse-field-grid) 450, [M12/M13 status](#m12m13-status) 712 |
-| **worldgen and world structure** | [M10 status](#m10-status--the-worldgen-half) 2545, [Architecture](#architecture) 293 |
-| **the gnome (player character)** | [M9 status](#m9-status--the-gnome) 2484, [Controls](#controls) 156 |
-| **weather, sky and the clock** | [Weather status](#weather-status) 2660, [M19 status](#m19-status--started) 2706, [World speed](#world-speed--five-independent-time-axes) 3085 |
-| **rendering, UI and tunables** | [UI improvements](#ui-improvements--overnight-run-section-9) 2238, [Live tunables panel](#live-tunables-panel--overnight-run-section-10) 2283, [Rendering performance](#rendering-performance--overnight-run-section-11) 2351, [M6 deferral](#m6-deferral) 1014 |
-| **performance and the parallel sweep** | [Performance](#performance) 2911, [M5 status](#m5-status) 1024, [Architecture](#architecture) 293, [Rendering performance](#rendering-performance--overnight-run-section-11) 2351 |
-| **materials and the data schema** | [Materials](#materials) 219, [M12/M13 status](#m12m13-status) 712 |
+| **plants, trees and moss** | [M16 status](#m16-status) 1493, [Plant lines merged](#plant-lines-merged-the-genome-and-the-ecology) 1121, [The economy re-derived](#the-economy-re-derived-standing-tissue-costs-something) 1243, [Plants that stop](#plants-that-stop-organs-determinacy-and-a-price-on-both) 1425, [The generation loop](#the-generation-loop-plants-die-seeds-expire-slots-come-back) 1191, [Stems draw a line](#stems-draw-a-line-the-growth-walk-renders-its-heading) 1343, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 2855 |
+| **creatures — worms and the ant colony** | [M18 status](#m18-status) 1906, [The ant colony](#the-ant-colony--status) 2770 |
+| **structural collapse, felling and rigid bodies** | [M17 status](#m17-status) 1679, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 2855, [M8 status](#m8-status--started-not-complete) 2373 |
+| **fire, heat and phase change** | [M14 status](#m14-status) 767, [Materials](#materials) 221 |
+| **explosions, particles and debris** | [M15 status](#m15-status) 944, [M7 status](#m7-status) 915 |
+| **liquids and gases** | [Liquid physics](#liquid-physics-compressible-volume-not-discrete-occupied-cells) 741, [The coarse field grid](#the-coarse-field-grid) 452 |
+| **powders and granular flow** | [Materials](#materials) 221, [Architecture](#architecture) 295 |
+| **the coarse field grid — pressure, heat, light** | [The coarse field grid](#the-coarse-field-grid) 452, [M12/M13 status](#m12m13-status) 714 |
+| **worldgen and world structure** | [M10 status](#m10-status--the-worldgen-half) 2638, [Architecture](#architecture) 295 |
+| **the gnome (player character)** | [M9 status](#m9-status--the-gnome) 2486, [Controls](#controls) 156 |
+| **weather, sky and the clock** | [Weather status](#weather-status) 2753, [M19 status](#m19-status--started) 2799, [World speed](#world-speed--five-independent-time-axes) 3178 |
+| **rendering, UI and tunables** | [UI improvements](#ui-improvements--overnight-run-section-9) 2240, [Live tunables panel](#live-tunables-panel--overnight-run-section-10) 2285, [Rendering performance](#rendering-performance--overnight-run-section-11) 2353, [M6 deferral](#m6-deferral) 1016 |
+| **performance and the parallel sweep** | [Performance](#performance) 3004, [M5 status](#m5-status) 1026, [Architecture](#architecture) 295, [Rendering performance](#rendering-performance--overnight-run-section-11) 2353 |
+| **materials and the data schema** | [Materials](#materials) 221, [M12/M13 status](#m12m13-status) 714 |
 
 <!-- END GENERATED TOC -->
 
@@ -160,6 +160,8 @@ here is a cross-repo edit, not a cosmetic one.
 | Left mouse | Paint the selected material |
 | Right mouse | Erase |
 | `1`–`9` | Select material by number |
+| `1` `2` `3` `4` (gnome tool) | **The gnome's belt**, while `Tool::Dig` is up and one is summoned: pick, hammer, axe, and `4` swaps the pick between a **bore** (a passage his own size, driven up/down/left/right, drawn before it is cut) and the old free-hand round bite. Shared with the material row rather than taking keys from it, and mutually exclusive by construction for the reason `pan_camera` records for `WASD`: under `Tool::Dig` the left button is his swing and the brush lays nothing down, so which material is selected cannot affect anything a click does. `Z` leaves the tool and the palette has its keys back |
+| `MMB` | Step the gnome's belt on — the one mouse button this sandbox never bound, and the one already under the hand doing the aiming. A no-op with nobody summoned |
 | `Q` / `E` | Cycle material |
 | `[` / `]` or scroll | Brush size |
 | `=` / `-` | Zoom in / out (§9: one continuous scale — zooming out past 1x uses a sample stride instead of shrinking pixels) |
@@ -172,7 +174,7 @@ here is a cross-repo edit, not a cosmetic one.
 | `T` | Plant a tree seed under the brush (M16 debug tool) |
 | `M` | Plant a moss seed under the brush (M16 debug tool) |
 | `J` | Plant a worm under the brush (M18 debug tool; was `W` before the gnome claimed WASD) |
-| `U` | Summon the gnome at the cursor, or dismiss him (M9). Arrives in `Tool::Dig`, where left-click cuts the near rock face along the aim (the yellow ring shows where the bite lands and how big it is) and right-click still erases; `Z` cycles back to the brush. `A`/`D` run, `W` jump (tap for a hop, hold for full height), and a lip a little above a jump's apex is caught and mantled — the same four keys scroll the map while nobody is summoned, see the row below. He wades knee-deep in powder — slowed in proportion to how deep — swims in liquid (`W` strokes up, `S` down, and holding `W` through the surface hops him onto the bank), and rides a falling chunk body rather than being left behind by it. **A living plant is scenery he walks through, not a wall**: hold `Shift` to take hold of one, then `W`/`S` climb it and no vertical input hangs him there; releasing `Shift` lets go. Climbing has its own key because riding on `W` meant jump-walking through a wood grabbed every trunk it touched and let you hover — and falling through a crown is broken by the foliage. Left-clicking **a plant you are pointing at** shakes it rather than cutting it, and the pick sees straight through living tissue to the rock behind, so a tree merely in the way never swallows a cut: loose material comes off the branches, the shaded leaves that were already dying come down as litter, and a grown tree yields seed |
+| `U` | Summon the gnome at the cursor, or dismiss him (M9). Arrives in `Tool::Dig`, where left-click **swings whatever is on his belt** (see the `1`-`4` row above — pick, hammer or axe, named in the top-left HUD and carried in his hand) and right-click still erases; `Z` cycles back to the brush. The pick's default cut is a **passage his own size** in one of four directions, with the box drawn before it is committed to; `4` swaps it for the free-hand bite, which is also the only shape a buried gnome cuts. `A`/`D` run, `W` jump (tap for a hop, hold for full height), and a lip a little above a jump's apex is caught and mantled — the same four keys scroll the map while nobody is summoned, see the row below. He wades knee-deep in powder — slowed in proportion to how deep — swims in liquid (`W` strokes up, `S` down, and holding `W` through the surface hops him onto the bank), and rides a falling chunk body rather than being left behind by it. **A living plant is scenery he walks through, not a wall**: hold `Shift` to take hold of one, then `W`/`S` climb it and no vertical input hangs him there; releasing `Shift` lets go. Climbing has its own key because riding on `W` meant jump-walking through a wood grabbed every trunk it touched and let you hover — and falling through a crown is broken by the foliage. Left-clicking **a plant you are pointing at** shakes it rather than cutting it, and the pick sees straight through living tissue to the rock behind, so a tree merely in the way never swallows a cut: loose material comes off the branches, the shaded leaves that were already dying come down as litter, and a grown tree yields seed |
 | `A` `D` `W` `S` (with no gnome) | **Scroll the map.** With nobody summoned the view is yours: the same keys that run him pan the camera instead, and the moment one is summoned it goes back to being his. No mode to toggle — the two readings can never both be live, because `App::draw` re-centres on a gnome every frame, so a camera the player set would simply be pulled back on the next one. The rate is *screens per second*, not cells, so the picture slides at one speed however far in or out you are zoomed; the step is quantised to the zoom-out sample stride, without which a zoomed-out view re-samples rather than translating. It **opens at about the gnome's own running pace and accelerates over ~0.8 s** to 0.5 screens/s, crossing the world's pannable width (7680 cells) in about 30 seconds — a tap nudges, a hold travels, and reversing restarts the ramp so correcting an overshoot does not fling the view back. It shipped as a flat 1.5 screens/s and was rejected by playtest as "way too fast"; see `render::PAN_SCREENS_PER_SECOND`. The world is sixteen screens wide and eight deep, so there is a good deal to see — the bottom-left readout shows where the view is |
 | `,` | Cycle **tree depth** — whether the gnome draws over a stand of trees, weaves through it (the default: half of them draw over him, chosen per tree and stable for its life), or passes behind all of it. Purely graphical; a living plant is walk-through in every mode. On a comma rather than the `F10` this row named until now: two branches independently claimed `F10`, the terrain-depth light kept it, and this row was left behind pointing at a key that does something else |
 | `F3` `F4` `F2` | Cycle the gnome's **movement feel**, **water feel** and **spoil mode**, in that order — named runtime selectors for the three things only play can settle. (An earlier version of this row had the keys scrambled; the binding is F3 = movement, F4 = water, F2 = spoil.) The active one is shown in the title bar once it differs from the default. Every underlying number is also sweepable under `O` -> PLAYER |
@@ -2482,6 +2484,97 @@ coupling and §5's buoyancy both remain unbuilt, so a body currently sits on
 sand as though it were stone.
 
 ## M9 status — the gnome
+
+### The belt, and a dig that cuts passages — 2026-08-29
+
+**He carries three tools now, and the pick's default cut is a passage his
+own size rather than a free-hand bite.** `1`/`2`/`3` or the middle mouse
+button choose between them, a two-line HUD in the top-left names all three
+with the held one lit, and the sprite carries the implement in the same
+colour the cursor is wearing.
+
+The split between the three is what each is *for*, and it is a real split
+rather than three sizes of the same swing:
+
+| tool | verb | what it is for |
+|---|---|---|
+| `Pick` | `rigid::mine_rect` / `mine_swept` | getting through the world |
+| `Hammer` | `rigid::strike` | breaking it — and cracking far more than it breaks |
+| `Axe` | `mine_swept` at a third the radius, half the yield | cutting what is alive |
+
+**The bore.** `player::bore_rect` sizes a box off `PLAYER_WIDTH`/`HEIGHT`
+plus a cell of clearance (9x16 today), sites it in one of four cardinal
+directions from the cursor, and draws it before it is cut; each stroke
+takes a `bore_bite` slice off the working face. Three things about it were
+built the obvious way first and were wrong:
+
+- **the slice was anchored on the box's near edge**, so the first stroke
+  cleared it and every later one cut air — holding the button drove the
+  passage exactly one stroke. It advances to the first slab with something
+  breakable in it now;
+- **the box was anchored flush against his body**, so a wall twelve cells
+  off got twelve cells of air cut at it. That is `Tool::Dig`'s own rule
+  broken from the inside — a reach may bound where a verb lands and never
+  whether it happens — so the box slides to the first rock within
+  `dig_reach`;
+- **and loose material sited the box**, which is the free bite's recorded
+  spoil-shielding failure in a second costume: a cut leaves a `dig_yield`
+  fraction behind, so the next stroke lands on the muck a cell in front of
+  the rock and **the bore grinds on its own spoil for ever**. Caught by
+  `app::a_click_on_a_tree_shakes_it_rather_than_cutting_or_painting` on a
+  single shaken-loose grain of sand, which sited a whole passage five cells
+  short of the wall it was aimed at. `footing`'s `Hard | Scenery` sites it
+  now — the same three-way split `face_toward` uses — with a fallback to
+  anything at all so a dune or a lone tree is still diggable.
+
+`DigStyle::Free` (`4`) is the old round bite, unchanged, and is the only
+shape a **buried** gnome cuts: the bore is sited outside his rectangle, so
+under a pile it would clear a room next door and leave him exactly as
+entombed. `player::dig` sends a buried gnome down the free path whatever
+style is selected, and
+`a_buried_gnome_digs_out_in_bore_mode_too` fails if that dispatch goes.
+
+**One recovery timer for all three tools** (`Player::swing_cooldown`,
+charged to whichever struck), because two would have made the belt an
+exploit: strike, switch, strike again at the sum of both rates. The HUD's
+swing bar draws it.
+
+**Counters, per `CLAUDE.md`'s "did it fire at all" rule.** `rigid::strike`
+returns the cells it acted on — pulverized plus loosened — so a swing at
+air, a swing at bedrock and a swing that calves a slab stop being the same
+picture; `Chop` reports whether the stroke landed on living tissue.
+`filmstrip scene=smash` and `scene=chop` print both beside the tile, and
+share their beds with `scene=tunnel` and `scene=shake` so each pair is a
+controlled comparison with the belt as the only variable.
+
+Felling needed no new physics: the cut goes through `shatter_to_rubble`,
+which unregisters each cell from its organism, and `plant::anchor_support`
+finds the crown unreached on its next tick. What was missing was a verb
+aimed at the trunk. Play-facing:
+[`wiki/the-gnome.md`](wiki/the-gnome.md#what-he-carries).
+
+**What the axe does not yet do, measured rather than assumed.** "Chop a
+bole through and it falls" is true of the *mechanism* — `acceptance.sh`'s
+`fell` case severs 2,136 cells and puts 2,122 of them down as pieces — and
+it overstates what the axe achieves on the trees this world actually grows.
+`filmstrip scene=chop` puts a gnome on the felling bed and reports the
+subject's own thinnest bole row as **25 to 55 cells wide**, against a chop
+`2 * chop_radius + 1 = 7` cells across. Severing one is therefore many
+accurate strokes on a single row, and **it is not demonstrated**: over 154
+strokes the run lands 14 on living tissue for 122 cells chipped, and the
+gnome spends most of it `BURIED` in the debris he is making — the axe has
+no dig-out (that is the pick's, and the HUD says so). What is shown is that
+the verb fires, cuts living wood, and produces timber. Whether felling
+should be within one gnome's reach at all, or wants a wider bite, a
+felling-specific cut, or simply patience, is an open design question.
+
+**Known limitations.** The axe kills a creature it lands on
+(`creature::slay`, on the engine's own death path) but does not damage one
+— there is no partial creature in this engine to leave behind. The hammer's
+recoil is horizontal-dominant by construction (the vertical share is
+halved, or a downward blow launches him off his own floor). And the belt
+rides shared keys: `1`-`4` are the gnome's only while `Tool::Dig` is up,
+because every letter on the keyboard was already bound.
 
 Built: a summonable character (`U`), in `src/sim/player.rs` — a kinematic
 body over the cell grid, not a rigid-body import. He runs (`A`/`D`), jumps
