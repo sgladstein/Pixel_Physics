@@ -544,6 +544,9 @@ fn update_powder<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: Cell, ri
     if try_move(surface, x, y, x + first, y + 1) || try_move(surface, x, y, x + second, y + 1) {
         return true;
     }
+    if fall_through_organism(surface, x, y, cell, below) {
+        return true;
+    }
     if roll_along_slope(surface, x, y, rightward) {
         return true;
     }
@@ -613,6 +616,100 @@ fn update_powder<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: Cell, ri
     // false, so a settled damp bed sleeps exactly like a dry one. That is
     // the property to check if soil ever starts keeping chunks awake.
     wet_changed
+}
+
+/// How far a leaf will tunnel through living tissue in one frame.
+///
+/// **A bound on work, never a gate on whether the fall happens** — the
+/// distinction `CLAUDE.md` names, and the reason this is not a
+/// `LITTER_FALL_REACH`-style 512. Exhausting it leaves the cell exactly
+/// where it was, to try again next frame from one cell lower once whatever
+/// is beneath it has moved; it never resolves to "so it rests here". A run
+/// of branch thicker than this simply takes more than one frame to fall
+/// through, which is what a longer fall should look like anyway.
+///
+/// Capped at `MAX_REACH` because that is the hard per-frame movement cap
+/// `parallel.rs`'s cross-chunk write-disjointness proof is keyed on: a
+/// downward write of at most 32 can only ever land in the chunk row
+/// immediately below, which is a different `cy` and therefore never active
+/// in the same pass. 16 rather than 32 because no crown in this engine has
+/// a 16-cell-thick branch and halving it halves the worst-case scan.
+const ORGANISM_TUNNEL_REACH: i32 = 16;
+// The bound above is an invariant, so state it where a future edit trips
+// over it rather than leaving it to the prose — `parallel.rs` does the same
+// for `MAX_REACH == CHUNK_SIZE / 2`.
+const _: () = assert!(
+    ORGANISM_TUNNEL_REACH <= MAX_REACH,
+    "a per-frame move beyond MAX_REACH breaks parallel.rs's cross-chunk write-disjointness proof"
+);
+
+/// A shed leaf does not sit on the branch below it — it goes past.
+///
+/// **The 2D-slice rule, applied where a cell comes to rest rather than only
+/// where it is created.** `plant::shed_to_litter` already walks a leaf down
+/// through its own crown at the moment of abscission, on exactly this
+/// reasoning: the world is one vertical slice of a 3D wood, a branch one
+/// cell wide is not a shelf spanning the tree's whole depth, and a leaf
+/// falling past it is the common outcome. That covered the shedding event
+/// and nothing else, so litter that reached mid-canopy by *any* other route
+/// stopped on the first branch and stayed — and because `shed_to_litter`'s
+/// walk halts at the first cell that is not organism-owned, every leaf shed
+/// in that column then stacked on top of it. Measured paired on
+/// `litter_probe frames=12000 trees=8`, one build each: standing litter more
+/// than 32 rows above the ground **23% → 0%**, resting on plant tissue
+/// **57.6% → 44.1%**, and the four cells still airborne at frame 12,000 gone.
+///
+/// Only cells whose material opts in (`Material::falls_through_organisms`,
+/// litter alone today) pass through; `deadwood` — a snapped branch — is
+/// chunky enough to hang up in a crown and deliberately still does.
+///
+/// **Through organism cells only, and it must find real air on the far
+/// side.** The scan stops dead at the first cell that is neither air nor
+/// organism-owned, which is what preserves the drift piled against a trunk
+/// that `litter.ron`'s 42-degree friction angle exists to build: under a
+/// root collar's shoulder is packed ground, not air, so that pile finds
+/// nothing to fall into and stays exactly where it is. The two cases look
+/// identical to a one-cell test and are opposite verdicts — see
+/// `litter_probe`'s module doc, which spells out why its `against-plant`
+/// column counts both.
+///
+/// Never displaces anything: the landing cell must be empty, so this can no
+/// more overwrite a plant cell than `shed_to_litter` can.
+///
+/// Called only after the straight-down and both diagonal moves have already
+/// failed, so ordinary falling and ordinary sliding-off-a-branch are
+/// untouched and this runs on a cell that is genuinely wedged. `below` is
+/// passed in rather than re-fetched — the caller has it, and this is the
+/// hottest path in the engine.
+fn fall_through_organism<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: Cell, below: Cell) -> bool {
+    // Cheapest discriminator first, and it is a flag read on a `Cell` the
+    // caller already holds: nothing that is not sitting on living tissue
+    // pays even the material lookup. A pile of sand answers in one branch.
+    if below.organism_id() == 0 {
+        return false;
+    }
+    if !surface.materials().get(cell.material).falls_through_organisms {
+        return false;
+    }
+    // A range rather than a counter incremented in the body: clippy's
+    // `explicit_counter_loop` rejects the latter, and it is right that this
+    // reads better -- but note the versions disagree, so a green local
+    // clippy is not evidence here. 1.94.1 accepted the counter form and CI's
+    // 1.98.0 refused it.
+    for probe in (y + 1)..(y + 1 + ORGANISM_TUNNEL_REACH) {
+        let here = surface.get(x, probe);
+        // Raw `material == EMPTY`, not `is_empty()`, for the reason
+        // `shed_to_litter` gives: the managed-aware helper reads a promoted
+        // liquid body's container cells as not-empty, and the question here
+        // is "can a leaf pass through".
+        if here.material == material::EMPTY {
+            return try_move(surface, x, y, x, probe);
+        }
+        if here.organism_id() == 0 {
+            return false;
+        }
+    }
+    false
 }
 
 /// Creep one cell along a slope, toward the nearest place the grain could fall.
@@ -1825,6 +1922,147 @@ mod tests {
         for _ in 0..frames {
             step(w);
         }
+    }
+
+    /// **A leaf does not sit on the branch it just let go of.**
+    ///
+    /// `plant::shed_to_litter` already walked a shed leaf down through its
+    /// own crown, so this is not about the abscission event -- it is about
+    /// every other way a litter cell reaches mid-canopy (landing on a
+    /// raindrop's cell, on other debris, on a branch that grew under it).
+    /// Before `Material::falls_through_organisms` those cells stopped on the
+    /// first branch for ever, and `shed_to_litter`'s own walk then stacked
+    /// every subsequent leaf in that column on top of them: `litter_probe
+    /// frames=12000 trees=8` read 57.6% of standing litter resting on plant
+    /// tissue, with 23% of it more than 32 rows above the ground; after,
+    /// 44.1% and none at all above 32 rows.
+    ///
+    /// **Three arms rather than one assertion, because two of them are the
+    /// controls `CLAUDE.md` asks for** and neither is free to add later.
+    /// All three were confirmed to go red for their own fault before this
+    /// was committed:
+    ///
+    /// - `sand`, in the identical scene, must *not* pass through -- the
+    ///   specificity control. Deleting the material test makes it land on
+    ///   the floor at row 126 instead of resting at 59.
+    /// - litter over a branch with *packed ground* under it must not move.
+    ///   That is the drift piled against a trunk that `litter.ron`'s
+    ///   42-degree friction angle exists to build, and `litter_probe`'s
+    ///   module doc records that reading it as the failure case cost a whole
+    ///   detour. Deleting the "stop at the first non-organism cell" clause
+    ///   sends it through the collar and the ground both, to row 126.
+    /// - and the positive arm itself: turning the flag off in `litter.ron`
+    ///   leaves the leaf sitting at row 59, on the branch.
+    ///
+    /// The branch is three cells wide and three thick, and its cells carry a
+    /// real `organism_id`, because that -- not `MaterialKind::Plant` -- is
+    /// what the rule tests, for the same reason `shed_to_litter` gives: a
+    /// leaf should fall past an ant standing under the tree too.
+    #[test]
+    fn litter_falls_through_a_branch_but_sand_and_a_trunk_side_drift_do_not() {
+        let mut w = world_with_floor();
+        let litter = w.materials.id_of("litter").expect("litter is compiled in");
+        // `wood`, not `material::WOOD` -- wood was appended to `EMBEDDED` and
+        // has no `material::` constant, exactly as `shed_to_litter` says of
+        // litter itself.
+        let wood = w.materials.id_of("wood").expect("wood is compiled in");
+        // **Three cells wide, and that is load-bearing rather than
+        // decorative.** On a one-cell branch both diagonal moves are into
+        // clear air, so *every* powder slides off within a frame and all
+        // three arms pass whatever this rule does -- the scene would not
+        // contain the situation it claims to measure, which `CLAUDE.md`
+        // names as the way four conclusions in this project went wrong.
+        let branch = |w: &mut World, x: i32, y0: i32, y1: i32, id: u16| {
+            for y in y0..=y1 {
+                for dx in -1..=1 {
+                    w.set(x + dx, y, Cell::new(wood, 0).with_organism_id(id));
+                }
+            }
+        };
+
+        // Arm 1: litter wedged on a branch with clear air all the way down.
+        branch(&mut w, 20, 60, 62, 1);
+        w.set(20, 59, Cell::new(litter, 0));
+        // Arm 2: sand in the identical situation -- the specificity control.
+        branch(&mut w, 40, 60, 62, 2);
+        w.set(40, 59, Cell::new(material::SAND, 0));
+        // Arm 3: a collar of trunk sitting on ground, litter resting on the
+        // collar. It must stay: the scan stops at the first cell that is not
+        // organism-owned, so a leaf never eats its way through the floor.
+        // This is the drift piled against a trunk that `litter.ron`'s
+        // 42-degree friction angle exists to build, and `litter_probe`'s
+        // module doc records that reading it as the failure case cost a
+        // whole detour.
+        //
+        // **The ground is a two-row ledge with clear air beneath it, and
+        // that is what makes this arm able to fail at all.** Written first
+        // as a solid 67-row column, it stayed green for the fault it is
+        // named for -- the scan simply ran out of its 16-cell budget inside
+        // the stone and returned "no" for the wrong reason, so deleting the
+        // stop-at-non-organism clause changed nothing. Two rows leave real
+        // air inside the budget, so a version that tunnelled through
+        // anything would put this cell on the floor at row 126.
+        //
+        // **Stone, not soil**: a tall soil column is a *powder* and slumps
+        // to its own angle of repose within a few hundred frames, leaving
+        // air under the collar and quietly turning this arm into a second
+        // copy of arm 1 -- which is how an earlier draft failed.
+        //
+        // Eleven wide rather than three, for the same reason arm 1's branch
+        // is three: on a narrow plinth `roll_along_slope` walks the grain to
+        // the edge and it falls off the *side*, which is ordinary repose and
+        // would fail this arm for a reason that has nothing to do with
+        // tunnelling. Litter's 42-degree friction angle puts its roll reach
+        // at one to two cells, so five either side is well clear.
+        for y in 60..=61 {
+            for dx in -5..=5 {
+                w.set(60 + dx, y, Cell::new(material::STONE, 0));
+            }
+        }
+        for y in 57..=59 {
+            for dx in -5..=5 {
+                w.set(60 + dx, y, Cell::new(wood, 0).with_organism_id(3));
+            }
+        }
+        w.set(60, 56, Cell::new(litter, 0));
+
+        // Long enough for a 67-row fall at one cell a frame, with room to
+        // spare; every assertion is on where something came to *rest*, so a
+        // budget that is merely generous cannot make an arm pass.
+        run(&mut w, 300);
+
+        // Searched over a band of columns, not down one: a cell that reaches
+        // the floor rolls off at its own angle of repose, so pinning the
+        // column would make this a test of where it rolled to. The bands are
+        // wide apart, so no arm can see another's cell.
+        let find = |w: &World, m: material::MaterialId, x0: i32, x1: i32| {
+            (0..128).flat_map(move |y| (x0..=x1).map(move |x| (x, y))).find(|&(x, y)| w.get(x, y).material == m)
+        };
+
+        let (_, landed) = find(&w, litter, 0, 30).expect("the litter cell vanished entirely");
+        assert!(
+            landed >= 126,
+            "litter must fall past a branch to the floor: it stopped at row {landed}, with the branch at rows 60-62"
+        );
+        // The branch itself is untouched: tunnelling only ever moves into
+        // air, so it can no more overwrite a plant cell than `shed_to_litter`
+        // can.
+        for y in 60..=62 {
+            assert_eq!(w.get(20, y).material, wood, "the branch at row {y} was displaced by the leaf falling past it");
+        }
+
+        let (_, sand) = find(&w, material::SAND, 31, 50).expect("the sand cell vanished entirely");
+        assert_eq!(
+            sand, 59,
+            "sand must still rest on a branch -- this rule is a material opt-in, not a change to how every powder falls"
+        );
+
+        let drift = find(&w, litter, 51, 80).expect("the drift cell vanished entirely");
+        assert_eq!(
+            drift,
+            (60, 56),
+            "a drift resting on a trunk must not eat through the ground under it: the scan stops at the first cell that is not organism-owned"
+        );
     }
 
     #[test]
