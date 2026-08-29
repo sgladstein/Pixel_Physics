@@ -797,6 +797,24 @@ drift that two of these documents still reflect.**
   fallen log anchoring the tree it fell off — and, in §4c–§4g, three rounds
   of owner review including two framing failures of the session's own.
 
+- [tree-mechanics-plan-2026-08-29.md](tree-mechanics-plan-2026-08-29.md) —
+  **plan; one change landed** (`3bdf674`). Structure and physics for *all*
+  plants, from the owner's five asks — a top-heavy tree falling, a rock
+  breaking a limb, chopping, wind-throw, and a lateral that bends before it
+  breaks. **One stress number, two material properties**: stiffness decides
+  how far a thing bends, strength decides when it snaps, and bending
+  *relieves* the moment — which is why grass bends and never breaks, from
+  the same arithmetic that fells a tree. Carries the measurement that the
+  base of a balanced stem reads ~0 bending stress, so **ask 1 is buckling,
+  not bending**, and the shipped `max_cantilever_reach` rule is a
+  slenderness rule with its width term missing. §9 states what
+  `examples/beam_probe.rs` can and cannot carry (52% of cells disagree
+  between three section definitions), and **§10 tabulates twelve corrections
+  the three reviews and the owner made to the first draft** — read that
+  before trusting anything the draft said. Owner rulings recorded in the
+  header: growth and the carbon economy are out of scope, every plant
+  participates, and leaves must never become a powder.
+
 ## Licensing and distribution
 
 - [dependency-license-audit.md](dependency-license-audit.md) — **settled

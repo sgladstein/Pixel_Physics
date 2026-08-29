@@ -151,16 +151,29 @@
     // that nothing wrote it yet), so this is the switch-over that note is
     // waiting for as much as it is a felling change.
     breaks_into: "litter",
-    // **A leaf that rides down on its branch lets go when the branch
-    // lands.** `severs_into` is consulted only for a cell that left the
-    // grid as organism tissue, so this is the landing half of foliage
-    // riding with the piece it hangs on -- see `rigid::fell_severed_tissue`
-    // for why it rides at all. Same target as `breaks_into` deliberately:
-    // where the leaf ends up is the forest floor either way, and the whole
-    // difference the ride buys is that it gets there *with the branch*
-    // rather than as a cloud of powder created the instant the branch was
-    // cut.
-    severs_into: "litter",
+    // **A leaf that rides down on its branch stays a leaf when it lands.**
+    // `severs_into` is consulted only for a cell that left the grid as
+    // organism tissue, so this is the landing half of foliage riding with
+    // the piece it hangs on -- see `rigid::fell_severed_tissue` for why it
+    // rides at all.
+    //
+    // **Deliberately *not* the same target as `breaks_into` any more**, and
+    // that split is the point. Owner ruling, watching a fell (card
+    // `20260829T034016675Z-5a9b07`): *"The leaves shouldn't turn to powder
+    // ever. They can stay on the branch if that is easier (but if they do
+    // fall off, i feel like they should stay as larger leaf pieces)."*
+    // Sending both paths to `litter` meant a limb came down whole and then
+    // dissolved into grain the instant it stopped -- measured at `litter`
+    // 992 cells against `log` 868 on the settled pile, i.e. the foliage
+    // outweighing the wood it arrived attached to.
+    //
+    // So the ride now ends in `deadleaf`, the foliage piece tier, which
+    // lies where it fell and reaches `litter` by *decaying* instead of by
+    // being pulverised. `breaks_into` below is unchanged and still goes
+    // straight to `litter`: that path is a leaf no piece ever reached,
+    // scattering in mid-air, and a `Solid` created in mid-air would hang
+    // there.
+    severs_into: "deadleaf",
 
     // Foliage: what a herbivore is for. 120 is what `ant.ron`'s
     // `eat_energy` paid for any mouthful, so the ant's economy is unchanged
