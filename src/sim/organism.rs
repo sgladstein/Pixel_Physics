@@ -1089,6 +1089,379 @@ pub struct Fate {
     pub after_metamers: Option<u8>,
 }
 
+/// **How many production rules one organism's genome can hold.**
+///
+/// A hard capacity rather than a `Vec`, and the bound is the design rather
+/// than an optimisation. A rule table that can grow without limit under
+/// mutation is a genome with no upper bound on its own size, which is a
+/// runaway this engine has no counterweight for — and it would put one heap
+/// allocation on every plant in the world, where `OrganismState`'s existing
+/// `Vec`s are creature-only.
+///
+/// 16 against the widest shipped species at 9 (`herb.ron`: four shoot rules,
+/// two root, one bud, two organ), so there is room for mutation to *add* a
+/// rule later without the cap being the thing that stops it. Sized from the
+/// assets rather than guessed, and `a_species_table_fits_the_genome` fails
+/// loudly if a species file ever outgrows it — silently truncating a table
+/// would drop rules off the end of the developmental program, which reads as
+/// a plant that inexplicably stops.
+pub const MAX_FATES: usize = 16;
+
+/// One production rule packed into a `u32`, together with the cell type it
+/// belongs to.
+///
+/// **Packed because this is genome, not configuration.** Every plant in the
+/// world carries its own copy from the moment it exists, so the whole table
+/// is 64 bytes and no allocation; a `Vec<(CellType, Vec<Fate>)>` per organism
+/// would be two levels of indirection per lookup on a structure read at every
+/// fate decision.
+///
+/// ```text
+///   bits  0..4   the cell type this rule belongs to
+///         4..7   `FateWhen`
+///        7..11   `becomes`
+///       11..15   `child`, and bit 15 whether it is present
+///       16..20   `lateral`, and bit 20 whether it is present
+///       21..29   `after_metamers`, with 0 meaning None
+/// ```
+///
+/// **`after_metamers: Some(0)` and `None` collapse to the same value, and
+/// that is lossless rather than a compromise**: the field gates a rule on
+/// *`metamers >= n`*, so `Some(0)` is satisfied by every lineage at every
+/// step, which is exactly what `None` means. Nothing can distinguish them.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct PackedFate(u32);
+
+impl PackedFate {
+    pub fn pack(owner: CellType, f: Fate) -> Self {
+        let opt = |c: Option<CellType>| c.map_or(0u32, |t| (t as u32) | 0b1_0000);
+        Self(
+            (owner as u32)
+                | (f.when as u32) << 4
+                | (f.becomes as u32) << 7
+                | opt(f.child) << 11
+                | opt(f.lateral) << 16
+                | (f.after_metamers.unwrap_or(0) as u32) << 21,
+        )
+    }
+
+    pub fn owner(self) -> Option<CellType> {
+        cell_type(self.0 as u16)
+    }
+
+    /// The rule itself, or `None` if any packed field does not decode — a
+    /// mutated genome is the one place a bit pattern can be nonsense, and it
+    /// must read as "no rule here" rather than aliasing onto whichever
+    /// variant happens to sit at that pattern.
+    pub fn unpack(self) -> Option<Fate> {
+        let when = match (self.0 >> 4) & 0b111 {
+            0 => FateWhen::Grew,
+            1 => FateWhen::Node,
+            2 => FateWhen::Stale,
+            3 => FateWhen::Flush,
+            4 => FateWhen::Ripe,
+            _ => return None,
+        };
+        let opt = |shift: u32, present: u32| -> Option<Option<CellType>> {
+            if self.0 & (1 << present) == 0 {
+                return Some(None);
+            }
+            cell_type(((self.0 >> shift) & 0b1111) as u16).map(Some)
+        };
+        Some(Fate {
+            when,
+            becomes: cell_type(((self.0 >> 7) & 0b1111) as u16)?,
+            child: opt(11, 15)?,
+            lateral: opt(16, 20)?,
+            after_metamers: match ((self.0 >> 21) & 0xFF) as u8 {
+                0 => None,
+                n => Some(n),
+            },
+        })
+    }
+
+    /// Rewrite one cell-type field in place, leaving everything else alone —
+    /// the mutation operator's only write. `slot` is 0 `becomes`, 1 `child`,
+    /// 2 `lateral`; a slot whose field is absent is left untouched, because
+    /// inventing a `child` on a rule that creates no cell would be mutating a
+    /// field the engine never reads.
+    pub fn retarget(self, slot: u8, to: CellType) -> Self {
+        let (shift, present) = match slot {
+            0 => (7, None),
+            1 => (11, Some(15)),
+            _ => (16, Some(20)),
+        };
+        if present.is_some_and(|b| self.0 & (1 << b) == 0) {
+            return self;
+        }
+        Self((self.0 & !(0b1111 << shift)) | (to as u32) << shift)
+    }
+
+    /// Which of the three cell-type slots this rule actually carries — the
+    /// set a mutation may draw from.
+    pub fn live_slots(self) -> Vec<u8> {
+        let mut v = vec![0u8];
+        if self.0 & (1 << 15) != 0 {
+            v.push(1);
+        }
+        if self.0 & (1 << 20) != 0 {
+            v.push(2);
+        }
+        v
+    }
+}
+
+/// **An organism's own production rule — the developmental program as
+/// heritable material rather than as a property of its species.**
+///
+/// Until this existed, `fates` lived on `Species` in the registry and a seed
+/// inherited its parent's species id unchanged, so *nothing a genome carried
+/// could reach the production rule*. A plant could not mutate into a
+/// determinate one, or into one that bears an organ, at any rate whatsoever;
+/// the only channel to that vocabulary was a human writing a species file.
+/// That is the layer `Reports/plant-morphology-evolvability-2026-08-26.md` §6
+/// marks as the one to replace — *"Species as an outcome, not an input"* —
+/// and this is the replacement.
+///
+/// **Founded from the species file and varied only by breeding.** Every
+/// founder of a species gets that species' table exactly; drift enters at
+/// `plant::bear_seed_at`, one point mutation at a time. Deliberately no
+/// founder variance, unlike the discrete loci: an allele is a dial the
+/// species centres, while a rule table *is* the species, and a founding stand
+/// with polymorphic rule tables would not be a population of one plant.
+///
+/// **Empty means "use the species table, then the built-in rule"**, which is
+/// what a creature and any pre-genome organism gets, and which keeps
+/// `plant::builtin_fate`'s role as the control unchanged.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct FateGenome {
+    rules: [PackedFate; MAX_FATES],
+    len: u8,
+}
+
+impl Default for FateGenome {
+    fn default() -> Self {
+        Self { rules: [PackedFate(0); MAX_FATES], len: 0 }
+    }
+}
+
+impl FateGenome {
+    /// Flatten a species' authored table into a genome, in order.
+    ///
+    /// **Order is preserved and it is load-bearing**: lookup is first-match
+    /// wins, so a species listing a determinate rule above its ordinary one
+    /// depends on the flattening keeping them that way.
+    ///
+    /// Truncates at `MAX_FATES` rather than panicking — a `.ron` is data and
+    /// a bad one should not take the process down — and
+    /// `a_species_table_fits_the_genome` is the guard that stops it happening
+    /// silently.
+    pub fn from_table(table: &[(CellType, Vec<Fate>)]) -> Self {
+        let mut g = Self::default();
+        for (ct, rules) in table {
+            for &f in rules {
+                if (g.len as usize) < MAX_FATES {
+                    g.rules[g.len as usize] = PackedFate::pack(*ct, f);
+                    g.len += 1;
+                }
+            }
+        }
+        g
+    }
+
+    pub fn is_empty(self) -> bool {
+        self.len == 0
+    }
+
+    pub fn len(self) -> usize {
+        self.len as usize
+    }
+
+    /// The rule in force for this cell type at this moment, under the same
+    /// first-match-wins search and the same `after_metamers` filter
+    /// `Species::fate` runs — the two must agree, or a founder and its own
+    /// species file would develop differently.
+    pub fn fate(self, cell_type: CellType, when: FateWhen, metamers: u8) -> Option<Fate> {
+        self.rules[..self.len as usize].iter().find_map(|p| {
+            if p.owner() != Some(cell_type) {
+                return None;
+            }
+            let f = p.unpack()?;
+            (f.when == when && f.after_metamers.is_none_or(|n| metamers >= n)).then_some(f)
+        })
+    }
+
+    /// Every rule, for a probe or a census. Order is the genome's own.
+    pub fn rules(self) -> impl Iterator<Item = (Option<CellType>, Option<Fate>)> {
+        (0..self.len as usize).map(move |i| (self.rules[i].owner(), self.rules[i].unpack()))
+    }
+
+    /// **Apply one mutation.** Four operators: retarget a cell-type field,
+    /// change a rule's condition, insert a rule, delete a rule.
+    ///
+    /// **Owner's call, 2026-08-29: the most flexible operator available**, on
+    /// the reasoning that it can be narrowed later. The consequence is worth
+    /// stating because it is the whole point — with retargeting alone a
+    /// lineage can only ever move the rules it already has, so a `tree`
+    /// lineage could *never* acquire a flower: `tree.ron` has no
+    /// `FateWhen::Ripe` rule to retarget, and nothing could create one. Insert
+    /// is what makes a growth form reachable rather than only adjustable.
+    ///
+    /// **Weighted toward the one operator whose viability is measured.**
+    /// Retargeting is `examples/fate_viability.rs`'s operator exactly — 92% of
+    /// effective mutations still produce a living plant on the woody base, 97%
+    /// on the determinate one, both with controls. The other three are
+    /// **unmeasured**, and the weighting says so rather than pretending
+    /// otherwise: 60% retarget, and 40% split across the three that no gate
+    /// has yet been run on. Measuring them is the obvious next use of that
+    /// harness.
+    ///
+    /// **Delete stops at one rule, and the floor is load-bearing.** An empty
+    /// genome means *fall back to the species table* (see `plant::fate_for`),
+    /// so a lineage that deleted its way to zero would silently revert to
+    /// being non-heritable — which reads as "evolution stopped" with nothing
+    /// broken anywhere.
+    ///
+    /// Every draw that picks a value redraws until the value actually moves,
+    /// for the reason the gate records: a draw landing on the value already
+    /// held is a no-op, and a no-op counted as a mutation makes a rate that is
+    /// a dilution rather than a rate.
+    pub fn mutate(&mut self, rng: &mut super::rng::Rng) {
+        if self.len == 0 {
+            return;
+        }
+        match rng.below(100) {
+            0..=59 => self.retarget_one(rng),
+            60..=74 => self.recondition_one(rng),
+            75..=89 => self.insert_one(rng),
+            _ => self.delete_one(rng),
+        }
+    }
+
+    /// Point one cell-type field of one rule somewhere else — the measured
+    /// operator.
+    fn retarget_one(&mut self, rng: &mut super::rng::Rng) {
+        let i = rng.below(self.len as u32) as usize;
+        let slots = self.rules[i].live_slots();
+        let slot = slots[rng.below(slots.len() as u32) as usize];
+        let Some(f) = self.rules[i].unpack() else { return };
+        // `live_slots` offers a slot only when that field is present, so both
+        // of these hold by construction.
+        let current = match slot {
+            0 => f.becomes,
+            1 => f.child.expect("slot 1 is offered only when child is present"),
+            _ => f.lateral.expect("slot 2 is offered only when lateral is present"),
+        };
+        // Bounded rather than `while`: a degenerate draw set would spin here,
+        // and declining to move is a silent no-op rather than a hang.
+        for _ in 0..8 {
+            let pick = PLANT_CELL_TYPES[rng.below(PLANT_CELL_TYPES.len() as u32) as usize];
+            if pick != current {
+                self.rules[i] = self.rules[i].retarget(slot, pick);
+                return;
+            }
+        }
+    }
+
+    /// Change *when* a rule applies — its `FateWhen`, or its determinacy
+    /// count.
+    ///
+    /// `after_metamers` is the determinacy knob, so this is the operator that
+    /// lets a lineage turn an indeterminate axis into one that stops, and move
+    /// where it stops. It draws from a small ladder rather than the full 0-255
+    /// range: a count above what any axis reaches is indistinguishable from
+    /// never firing, so a uniform draw would spend most of its mass on rules
+    /// that do nothing.
+    fn recondition_one(&mut self, rng: &mut super::rng::Rng) {
+        let i = rng.below(self.len as u32) as usize;
+        let Some(owner) = self.rules[i].owner() else { return };
+        let Some(mut f) = self.rules[i].unpack() else { return };
+        if rng.chance(0.5) {
+            let pick = ALL_FATE_WHENS[rng.below(ALL_FATE_WHENS.len() as u32) as usize];
+            if pick == f.when {
+                return;
+            }
+            f.when = pick;
+        } else {
+            const LADDER: [Option<u8>; 6] = [None, Some(2), Some(4), Some(8), Some(16), Some(32)];
+            let pick = LADDER[rng.below(LADDER.len() as u32) as usize];
+            if pick == f.after_metamers {
+                return;
+            }
+            f.after_metamers = pick;
+        }
+        self.rules[i] = PackedFate::pack(owner, f);
+    }
+
+    /// Insert a freshly drawn rule at a random position.
+    ///
+    /// **Position is drawn, not appended**, and that is the difference between
+    /// a rule that can take effect and one that mostly cannot: lookup is
+    /// first-match-wins, so a rule inserted ahead of an existing one for the
+    /// same `(cell type, when)` shadows it, and one appended after it is dead
+    /// unless the earlier rule's `after_metamers` declines. A determinate rule
+    /// only works listed *above* the ordinary one — which is exactly how the
+    /// authored species write it.
+    fn insert_one(&mut self, rng: &mut super::rng::Rng) {
+        if self.len as usize >= MAX_FATES {
+            return;
+        }
+        let pick = |r: &mut super::rng::Rng| PLANT_CELL_TYPES[r.below(PLANT_CELL_TYPES.len() as u32) as usize];
+        let owner = pick(rng);
+        let f = Fate {
+            when: ALL_FATE_WHENS[rng.below(ALL_FATE_WHENS.len() as u32) as usize],
+            becomes: pick(rng),
+            child: rng.chance(0.5).then(|| pick(rng)),
+            lateral: rng.chance(0.5).then(|| pick(rng)),
+            after_metamers: rng.chance(0.25).then(|| [2u8, 4, 8, 16][rng.below(4) as usize]),
+        };
+        let at = rng.below(self.len as u32 + 1) as usize;
+        for j in (at..self.len as usize).rev() {
+            self.rules[j + 1] = self.rules[j];
+        }
+        self.rules[at] = PackedFate::pack(owner, f);
+        self.len += 1;
+    }
+
+    /// Drop one rule, never the last — see `mutate`'s note on why zero is not
+    /// an allowed length.
+    fn delete_one(&mut self, rng: &mut super::rng::Rng) {
+        if self.len <= 1 {
+            return;
+        }
+        let i = rng.below(self.len as u32) as usize;
+        for j in i..(self.len as usize - 1) {
+            self.rules[j] = self.rules[j + 1];
+        }
+        self.len -= 1;
+        self.rules[self.len as usize] = PackedFate(0);
+    }
+}
+
+/// The cell types a fate mutation may point at.
+///
+/// **The creature types are excluded** — `Head` and `Segment` are not part of
+/// a plant's vocabulary, and a mutation reaching one would measure the
+/// operator's carelessness rather than the substrate's tolerance. The organ
+/// types *are* included: they are what the organ package added to the space,
+/// and a genome that cannot reach them leaves that space authored-only.
+/// Every condition a drawn rule may carry. Kept beside `PLANT_CELL_TYPES` so
+/// that adding a `FateWhen` variant and forgetting to make it reachable by
+/// mutation is one grep rather than a silent gap.
+pub const ALL_FATE_WHENS: [FateWhen; 5] =
+    [FateWhen::Grew, FateWhen::Node, FateWhen::Stale, FateWhen::Flush, FateWhen::Ripe];
+
+pub const PLANT_CELL_TYPES: [CellType; 8] = [
+    CellType::Seed,
+    CellType::GrowingTip,
+    CellType::MatureBody,
+    CellType::Leaf,
+    CellType::RootTip,
+    CellType::DormantBud,
+    CellType::Flower,
+    CellType::Fruit,
+];
+
 #[derive(Deserialize)]
 pub struct SpeciesDef {
     pub name: String,
@@ -1551,6 +1924,13 @@ impl Species {
     /// answers in the meantime. Pass 0 where the count is meaningless (a bud
     /// flushing, an organ ripening) — a rule with no `after_metamers` is
     /// unaffected by it, which is every rule that existed before determinacy.
+    /// **This is now the *founding* table rather than the one in force.**
+    /// `plant::fate_for` reads the organism's own `FateGenome` first and only
+    /// falls through to here for an organism that has none — a creature, or
+    /// anything created before the genome existed. `World::push_organism`
+    /// copies this into every new organism, so for a founder the two agree by
+    /// construction and `a_founders_genome_matches_its_species_file` asserts
+    /// it.
     pub fn fate(&self, cell_type: CellType, when: FateWhen, metamers: u8) -> Option<Fate> {
         self.fates
             .iter()
@@ -1567,6 +1947,12 @@ impl Species {
     /// nothing.
     pub fn has_fates(&self) -> bool {
         !self.fates.is_empty()
+    }
+
+    /// The authored table, for `World::push_organism` to flatten into a new
+    /// organism's genome.
+    pub fn fate_table(&self) -> &[(CellType, Vec<Fate>)] {
+        &self.fates
     }
 
     /// Whether this species grows a separate `Leaf` stage at all.
@@ -2276,6 +2662,14 @@ pub struct OrganismState {
     /// authored species is the *starting point* a population diverges from
     /// rather than a fixed identity it is stuck with.
     pub alleles: [u8; DISCRETE_LOCI],
+    /// **This individual's production rule** — see [`FateGenome`].
+    ///
+    /// Founded from the species file at `World::push_organism` and mutated
+    /// one rule at a time when a seed is borne, so a lineage's developmental
+    /// program drifts the way its continuous traits and discrete alleles
+    /// already do. Empty on a creature and on anything founded before this
+    /// existed, which falls back to the species table exactly as before.
+    pub fates: FateGenome,
     /// **This seed was told "not yet" at least once.** Set on the
     /// germination path's not-ready branch and read in `germinate`, so
     /// `World::seeds_germinated_after_waiting` counts only the seeds that

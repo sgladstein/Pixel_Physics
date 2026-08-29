@@ -2072,7 +2072,15 @@ impl World {
             return None;
         }
         self.organisms_born += 1;
+        // **The founding genome, read before the state is built** because
+        // `self.species` and `self.organisms` cannot both be borrowed. Every
+        // organism carries its own production rule from the instant it
+        // exists, so nothing downstream has to ask whether it has one yet;
+        // `plant::bear_seed_at` overwrites it with the parent's mutated copy
+        // for a bred seed, which is later in the same call.
+        let fates = super::organism::FateGenome::from_table(self.species.get(species).fate_table());
         let state = OrganismState {
+            fates,
             water: 0.0,
             water_status: 1.0,
             water_uptake: 0.0,

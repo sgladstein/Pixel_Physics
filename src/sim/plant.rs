@@ -744,14 +744,34 @@ fn builtin_fate(cell_type: CellType, when: organism::FateWhen) -> Option<organis
 /// the count is meaningless (a bud flushing, an organ ripening): the built-in
 /// rule never sets the field, so 0 changes nothing for any species that has
 /// not authored a determinate axis.
+///
+/// **Read from the individual, not the species**, which is the whole of the
+/// heritable-fates change at this end. The order is the individual's own
+/// genome, then its species' authored table, then the built-in rule:
+///
+/// - the **genome** is what a lineage carries and mutates, founded from the
+///   species file at `World::push_organism` so a founder and its species
+///   agree by construction;
+/// - the **species table** still answers for anything with no genome — a
+///   creature, or an organism from a save predating this — so nothing that
+///   worked before stops working;
+/// - **`builtin_fate`** is unchanged and is still the control every authored
+///   table is proved against.
 fn fate_for(
     world: &World,
+    organism_id: u16,
     species_id: organism::SpeciesId,
     cell_type: CellType,
     when: organism::FateWhen,
     metamers: u8,
 ) -> Option<organism::Fate> {
-    world.species.get(species_id).fate(cell_type, when, metamers).or_else(|| builtin_fate(cell_type, when))
+    world
+        .organism(organism_id)
+        .map(|s| s.fates)
+        .filter(|g| !g.is_empty())
+        .and_then(|g| g.fate(cell_type, when, metamers))
+        .or_else(|| world.species.get(species_id).fate(cell_type, when, metamers))
+        .or_else(|| builtin_fate(cell_type, when))
 }
 
 /// **What a cell of this type is made of**, for the species that owns it.
@@ -1102,6 +1122,34 @@ fn draw_band(bands: organism::PaletteBands, rng: &mut Rng) -> u8 {
 /// genome to grow by an order of magnitude first.
 const ORGAN_BAND_STREAM: u64 = 200;
 
+/// The substream slot the fate mutation draws from — see `ORGAN_BAND_STREAM`
+/// for why these sit well above `GENOTYPE_TRAITS`.
+const FATE_MUTATION_STREAM: u64 = 201;
+
+/// **How often a seed's production rule takes a point mutation.**
+///
+/// **Unmeasured, and deliberately below `DISCRETE_MUTATION_CHANCE` (0.03)
+/// rather than equal to it.** Gate 1 measured what *one* mutation does to a
+/// fresh table — 92% of effective ones still produce a living plant on the
+/// woody base, 97% on the determinate one — and that is not the same quantity
+/// as a rate compounding over generations, which nobody has measured. Two
+/// things say to start low rather than high:
+///
+/// - the failures are concentrated: `child` on a frontier type killed 5 of 6,
+///   because it decides what carries growth forward, so roughly a third of
+///   mutations land on the field that is ~83% lethal;
+/// - a rule table is a *program*. An allele that jumps is one of three values
+///   on a designed axis; a retargeted rule can make a lineage that never
+///   grows, and there is no counterweight pulling it back.
+///
+/// 0.01 is one plant in a hundred per birth. **The number to replace this
+/// with comes from a run, not from an argument** — the measurement is a
+/// lineage census over generations at several rates, and it cannot be taken
+/// until turnover exists to take it on: measured, a tree reaches generation 1
+/// in 8 of 8 seeds and never more, so on the woody species this rate has
+/// almost nothing to act on yet.
+const FATE_MUTATION_CHANCE: f32 = 0.01;
+
 /// **How many genome slots `set_seed` mutates before it rolls the discrete
 /// loci** — the frozen prefix of the inherited-mutation draw order.
 ///
@@ -1175,9 +1223,9 @@ fn set_seed(world: &mut World, x: i32, y: i32, parent_id: u16, seed_cost: f32, r
 /// sequence *choose a spot, draw a shade, mutate the genome* exactly where it
 /// was. The drop path has no spot draw at all: a fruit lets go where it hangs.
 fn bear_seed_at(world: &mut World, sx: i32, sy: i32, parent_id: u16, seed_cost: f32, seed_material: material::MaterialId, rng: &mut Rng) -> bool {
-    let Some((species, draws, generation, parent_alleles)) = world
+    let Some((species, draws, generation, parent_alleles, parent_fates)) = world
         .organism(parent_id)
-        .map(|s| (s.species, s.genotype_draws, s.generation, s.alleles))
+        .map(|s| (s.species, s.genotype_draws, s.generation, s.alleles, s.fates))
     else {
         return false;
     };
@@ -1229,6 +1277,19 @@ fn bear_seed_at(world: &mut World, sx: i32, sy: i32, parent_id: u16, seed_cost: 
         // and the population would smear back into one cloud; jumping is
         // what lets a morph hold together between rare excursions.
         state.alleles = parent_alleles;
+        // **The production rule is inherited too, and this is the line that
+        // makes a growth form evolvable at all.** Before it, `fates` lived on
+        // `Species` and a seed took its parent's species id unchanged, so a
+        // lineage could not move its developmental program by any rate
+        // whatsoever -- the only channel to a different program was a human
+        // writing a species file.
+        //
+        // Copied whole and then point-mutated, which is the discrete loci's
+        // shape rather than the continuous traits': a rule table is not an
+        // axis to drift along, it is a program, and a version that jittered
+        // every rule a little would smear a population into one cloud instead
+        // of letting a morph hold together between excursions.
+        state.fates = parent_fates;
         for (locus, allele) in state.alleles.iter_mut().enumerate() {
             if rng.chance(organism::DISCRETE_MUTATION_CHANCE) {
                 let n = organism::LOCUS_ALLELES[locus].max(1);
@@ -1303,6 +1364,19 @@ fn bear_seed_at(world: &mut World, sx: i32, sy: i32, parent_id: u16, seed_cost: 
         let mut band_rng = rng::stream(world_seed ^ APPENDED_JITTER_SALT, sx as u64, sy as u64, (generation as u64) << 8 | ORGAN_BAND_STREAM);
         state.flower_band = draw_band(flower_bands, &mut band_rng);
         state.fruit_band = draw_band(fruit_bands, &mut band_rng);
+        // **From its own keyed substream, never from `rng`.** The caller's
+        // stream position on return is a measured property with a guard over
+        // it (`set_seed_leaves_the_callers_rng_position_alone`): `rng` is
+        // `&mut` and outlives this call, so one extra draw here shifts every
+        // draw the caller makes afterwards, and whether that is observable
+        // depends on the order behaviours happen to sit in a `.ron`. A keyed
+        // stream keeps the shared stream's consumption identical to
+        // pre-heritability, unconditionally.
+        let mut fate_rng =
+            rng::stream(world_seed ^ APPENDED_JITTER_SALT, sx as u64, sy as u64, (generation as u64) << 8 | FATE_MUTATION_STREAM);
+        if fate_rng.chance(FATE_MUTATION_CHANCE) {
+            state.fates.mutate(&mut fate_rng);
+        }
         // The provisioning: what the parent paid rides with the child and
         // becomes its first stake at germination -- see
         // `OrganismState::endowment` for why this is species plumbing
@@ -2033,7 +2107,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 // landed in 1.98 and took the guarded form as a finding.
                 let metamers = lineage_step.checked_div(plastochron_interval).unwrap_or(0);
                 let when = if leaf_due { organism::FateWhen::Node } else { organism::FateWhen::Grew };
-                let fate = fate_for(world, species_id, cell_type, when, metamers);
+                let fate = fate_for(world, organism_id, species_id, cell_type, when, metamers);
 
                 // **The determinate terminal.** The apex is *consumed* by
                 // the organ -- a floral meristem is not a vegetative one
@@ -3325,7 +3399,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 // it keeps its label, `found_candidate` stays false, and the
                 // cell leaves the schedule as an inert flower. That is the
                 // honest reading of an absent rule.
-                let Some(ripe) = fate_for(world, species_id, cell_type, organism::FateWhen::Ripe, 0) else {
+                let Some(ripe) = fate_for(world, organism_id, species_id, cell_type, organism::FateWhen::Ripe, 0) else {
                     continue;
                 };
                 // **The seed path, and it does not convert in place.** Owner
@@ -3489,7 +3563,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
             // authors its `Stale` rule unconditionally (the axis stops), and
             // its determinate rule on the `Grew`/`Node` path where the count
             // is known.
-            fate_for(world, species_id, cell_type, organism::FateWhen::Stale, 0).map_or(CellType::MatureBody, |f| f.becomes);
+            fate_for(world, organism_id, species_id, cell_type, organism::FateWhen::Stale, 0).map_or(CellType::MatureBody, |f| f.becomes);
         world.set(x, y, cell.with_aux(organism::pack_cell_type(stale_becomes)));
         write_carbon(world, x, y, resource);
         // `MatureBody` still needs its own periodic upkeep if the species
@@ -5038,7 +5112,7 @@ fn break_buds(world: &mut World, organism_id: u16) {
     // Read from the production rule so the whole automaton lives in one
     // table -- wiring only `Grow` would leave half of it hardcoded and make
     // the heritable half arbitrary.
-    let flush_becomes = fate_for(world, species_id, CellType::DormantBud, organism::FateWhen::Flush, 0)
+    let flush_becomes = fate_for(world, organism_id, species_id, CellType::DormantBud, organism::FateWhen::Flush, 0)
         .map_or(CellType::GrowingTip, |f| f.becomes);
     world.set(bx, by, cell.with_aux(organism::pack_cell_type(flush_becomes)));
     // The richest cell pays the flush price; the bud keeps its own stake.
@@ -8674,6 +8748,13 @@ The night factor belongs on income only -- see NIGHT_INCOME_FLOOR"
             CellType::DormantBud,
         ];
 
+        // **Organism 0, deliberately.** This guard is about the *species*
+        // tables agreeing with the built-in rule, and organism 0 is no
+        // organism at all -- so `fate_for` finds no genome, falls through to
+        // the species table, and asks exactly the question this test is named
+        // for. Passing a real organism would test the genome instead, which
+        // has its own guard.
+        const NO_ORGANISM: u16 = 0;
         let w = test_world();
         let mut authored_species = 0usize;
         let mut authored_answers = 0usize;
@@ -8702,19 +8783,19 @@ The night factor belongs on income only -- see NIGHT_INCOME_FLOOR"
                         authored_answers += 1;
                     }
                     assert_eq!(
-                        fate_for(&w, id, ct, when, 0).map(|f| f.becomes),
+                        fate_for(&w, NO_ORGANISM, id, ct, when, 0).map(|f| f.becomes),
                         builtin_fate(ct, when).map(|f| f.becomes),
                         "{name}: the authored fate for {ct:?} at {when:?} disagrees with the \
                          built-in rule. This refactor's whole claim is that moving the production \
                          rule into data changed no behaviour -- see `builtin_fate`."
                     );
                     assert_eq!(
-                        fate_for(&w, id, ct, when, 0).and_then(|f| f.child),
+                        fate_for(&w, NO_ORGANISM, id, ct, when, 0).and_then(|f| f.child),
                         builtin_fate(ct, when).and_then(|f| f.child),
                         "{name}: authored child fate for {ct:?} at {when:?} disagrees"
                     );
                     assert_eq!(
-                        fate_for(&w, id, ct, when, 0).and_then(|f| f.lateral),
+                        fate_for(&w, NO_ORGANISM, id, ct, when, 0).and_then(|f| f.lateral),
                         builtin_fate(ct, when).and_then(|f| f.lateral),
                         "{name}: authored lateral fate for {ct:?} at {when:?} disagrees"
                     );
@@ -8731,6 +8812,279 @@ The night factor belongs on income only -- see NIGHT_INCOME_FLOOR"
             authored_answers >= 20,
             "the authored tables answered only {authored_answers} lookups -- the species branch of \
              `fate_for` is not the one being exercised, so this test is blind"
+        );
+    }
+
+    /// **Every shipped species' table fits the genome's capacity**, and none
+    /// of it is lost in the flattening.
+    ///
+    /// `FateGenome::from_table` truncates at `MAX_FATES` rather than
+    /// panicking, because a `.ron` is data and a bad one should not take the
+    /// process down. This is what stops that being silent: a truncated table
+    /// drops rules off the end of a developmental program, which on screen is
+    /// a plant that inexplicably stops rather than an error anyone can find.
+    #[test]
+    fn every_species_table_fits_the_fate_genome() {
+        let w = test_world();
+        let mut checked = 0usize;
+        for name in ["tree", "conifer", "shrub", "creeper", "grass", "moss", "herb", "bramble"] {
+            let Some(id) = w.species.id_of(name) else { continue };
+            let table = w.species.get(id).fate_table();
+            let authored: usize = table.iter().map(|(_, r)| r.len()).sum();
+            if authored == 0 {
+                continue;
+            }
+            checked += 1;
+            let genome = organism::FateGenome::from_table(table);
+            assert_eq!(
+                genome.len(),
+                authored,
+                "{name} authors {authored} rules and the genome kept {} -- raise organism::MAX_FATES",
+                genome.len()
+            );
+        }
+        assert!(checked >= 5, "only {checked} species declared a table, so this guard compared almost nothing");
+    }
+
+    /// **A founder's genome answers exactly what its species file answers.**
+    ///
+    /// The heritable table is founded by copying the species table, so the
+    /// two must agree rule for rule and moment for moment -- otherwise the
+    /// change silently redeveloped every plant in the world while every other
+    /// gate stayed green.
+    ///
+    /// Asserted over the *whole* lookup surface rather than by comparing the
+    /// structures: what has to match is the answer `fate_for` gives, which is
+    /// what growth actually reads.
+    #[test]
+    fn a_founders_genome_answers_as_its_species_file_does() {
+        use organism::FateWhen::{Flush, Grew, Node, Ripe, Stale};
+        let mut w = test_world();
+        let mut compared = 0usize;
+        for name in ["tree", "conifer", "shrub", "creeper", "grass", "herb", "bramble"] {
+            let Some(id) = w.species.id_of(name) else { continue };
+            if !w.species.get(id).has_fates() {
+                continue;
+            }
+            let organism = w.push_organism(id).expect("an organism slot is free");
+            let genome = w.organism(organism).expect("just created").fates;
+            assert!(!genome.is_empty(), "{name}: a founder was created with an empty genome -- push_organism did not seed it");
+            for ct in [CellType::Seed, CellType::GrowingTip, CellType::MatureBody, CellType::Leaf, CellType::RootTip, CellType::DormantBud, CellType::Flower, CellType::Fruit] {
+                for when in [Grew, Node, Stale, Flush, Ripe] {
+                    // Several metamer counts, because `after_metamers` makes
+                    // the answer a function of it: a determinate species
+                    // answers differently below and above its own count, and
+                    // comparing at one value would miss a genome that had
+                    // dropped the conditional rule.
+                    for metamers in [0u8, 4, 8, 40] {
+                        compared += 1;
+                        assert_eq!(
+                            genome.fate(ct, when, metamers),
+                            w.species.get(id).fate(ct, when, metamers),
+                            "{name}: the founding genome and the species file disagree for {ct:?} at {when:?} \
+                             after {metamers} metamers -- every founder in the world would develop differently \
+                             from what its own `.ron` says"
+                        );
+                    }
+                }
+            }
+        }
+        assert!(compared > 500, "only {compared} lookups compared -- this guard is not covering the surface it claims to");
+    }
+
+    /// **A packed rule survives the round trip**, including the fields whose
+    /// absence is meaningful.
+    ///
+    /// Tight assertions on a deterministic function, which `CLAUDE.md`
+    /// exempts from the put-the-fault-back rule. What it is really guarding
+    /// is the bit layout: every field has a shift and a width, and two that
+    /// overlap would corrupt a neighbour rather than fail.
+    #[test]
+    fn a_packed_fate_survives_the_round_trip() {
+        let cases = [
+            organism::Fate { when: organism::FateWhen::Node, becomes: CellType::DormantBud, child: Some(CellType::GrowingTip), lateral: Some(CellType::GrowingTip), after_metamers: None },
+            organism::Fate { when: organism::FateWhen::Stale, becomes: CellType::MatureBody, child: None, lateral: None, after_metamers: None },
+            organism::Fate { when: organism::FateWhen::Node, becomes: CellType::Flower, child: None, lateral: None, after_metamers: Some(8) },
+            organism::Fate { when: organism::FateWhen::Ripe, becomes: CellType::Seed, child: None, lateral: None, after_metamers: Some(255) },
+            organism::Fate { when: organism::FateWhen::Flush, becomes: CellType::GrowingTip, child: Some(CellType::Fruit), lateral: Some(CellType::Flower), after_metamers: Some(1) },
+        ];
+        for owner in [CellType::GrowingTip, CellType::RootTip, CellType::Flower, CellType::Fruit] {
+            for f in cases {
+                let p = organism::PackedFate::pack(owner, f);
+                assert_eq!(p.owner(), Some(owner), "the owning cell type must survive packing");
+                assert_eq!(p.unpack(), Some(f), "{f:?} did not survive the round trip under owner {owner:?}");
+            }
+        }
+        // `Some(0)` and `None` are the same rule -- the field gates on
+        // `metamers >= n` and every lineage satisfies `>= 0` -- so collapsing
+        // them is lossless, and this pins that as intended rather than a bug.
+        let zero = organism::Fate { when: organism::FateWhen::Grew, becomes: CellType::MatureBody, child: None, lateral: None, after_metamers: Some(0) };
+        assert_eq!(
+            organism::PackedFate::pack(CellType::GrowingTip, zero).unpack().and_then(|f| f.after_metamers),
+            None,
+            "after_metamers: Some(0) must read back as None -- they gate identically and the encoding folds them"
+        );
+    }
+
+    /// **A mutation stays inside its bounds, and all four operators fire.**
+    ///
+    /// Two claims, and the second is the one that would fail silently. The
+    /// bounds are that a genome never exceeds `MAX_FATES`, never empties, and
+    /// never changes length by more than one — an unbounded table is a genome
+    /// with no upper bound on its own size, and an emptied one silently
+    /// reverts the lineage to reading its species table, which reads as
+    /// "evolution stopped" with nothing broken anywhere.
+    ///
+    /// **And every operator has to be reachable.** The owner asked for the
+    /// most flexible operator available; a weighting typo that made `insert`
+    /// unreachable would leave a lineage able only to adjust rules it already
+    /// has — the exact limitation the flexible operator was chosen to remove —
+    /// with every other assertion here still green.
+    #[test]
+    fn a_fate_mutation_stays_in_bounds_and_every_operator_fires() {
+        let w = test_world();
+        let id = w.species.id_of("tree").expect("tree is compiled in");
+        let base = organism::FateGenome::from_table(w.species.get(id).fate_table());
+        let (mut grew, mut shrank, mut changed, mut inert) = (0usize, 0usize, 0usize, 0usize);
+        for i in 0..600u64 {
+            let mut g = base;
+            let mut rng = rng::stream(11, 22, i, 33);
+            g.mutate(&mut rng);
+            assert!(g.len() <= organism::MAX_FATES, "a genome grew past MAX_FATES to {}", g.len());
+            assert!(!g.is_empty(), "a genome was emptied -- that silently reverts the lineage to its species table");
+            assert!(
+                g.len().abs_diff(base.len()) <= 1,
+                "one mutation changed the rule count by {} -- it must move by at most one",
+                g.len().abs_diff(base.len())
+            );
+            match g.len().cmp(&base.len()) {
+                std::cmp::Ordering::Greater => grew += 1,
+                std::cmp::Ordering::Less => shrank += 1,
+                std::cmp::Ordering::Equal if g != base => changed += 1,
+                std::cmp::Ordering::Equal => inert += 1,
+            }
+        }
+        assert!(grew > 0, "`insert` never fired in 600 draws -- a lineage could not acquire a rule it does not have");
+        assert!(shrank > 0, "`delete` never fired in 600 draws");
+        assert!(changed > 0, "no in-place mutation fired in 600 draws");
+        // Some draws legitimately decline -- a redraw that cannot find a
+        // different value, a `delete` at the floor. What must not happen is
+        // *most* of them declining, which would make the authored rate a
+        // fiction.
+        assert!(
+            inert * 4 < 600,
+            "{inert} of 600 mutations changed nothing; the effective rate is far below the authored one"
+        );
+    }
+
+    /// **The individual's genome shadows its species' table** — growth reads
+    /// the plant, not the plant's label.
+    ///
+    /// **This guard exists because the obvious ones are blind to it, which
+    /// was established by putting the fault back rather than by reasoning.**
+    /// With the genome lookup in `fate_for` disabled outright, both
+    /// `a_founders_genome_answers_as_its_species_file_does` and
+    /// `a_determinate_species_terminates_its_axes_in_organs_and_an_indeterminate_one_does_not`
+    /// stayed **green** — because `fate_for` falls through to the species
+    /// table and a founder's two tables agree by construction, so every
+    /// answer is identical whichever source produced it. The whole heritable
+    /// mechanism could have been dead code that looked alive.
+    ///
+    /// So the case has to be one where the two *disagree*: a `tree` organism
+    /// whose own genome says something `tree.ron` does not.
+    #[test]
+    fn an_individuals_genome_shadows_its_species_table() {
+        use organism::FateWhen::Node;
+        let mut w = test_world();
+        let id = w.species.id_of("tree").expect("tree is compiled in");
+        let organism = w.push_organism(id).expect("an organism slot is free");
+
+        let species_answer = w.species.get(id).fate(CellType::GrowingTip, Node, 0).expect("tree answers Node on a shoot");
+        assert_eq!(species_answer.becomes, CellType::DormantBud, "test setup: tree.ron's node rule is not what this assumes");
+
+        // Give this one individual a rule its species does not have: a shoot
+        // node that becomes a `Flower`. `tree.ron` has no organ rule
+        // anywhere, so an answer of `Flower` can only have come from the
+        // genome.
+        if let Some(state) = w.organism_mut(organism) {
+            let g = organism::FateGenome::from_table(&[(
+                CellType::GrowingTip,
+                vec![organism::Fate { when: Node, becomes: CellType::Flower, child: None, lateral: None, after_metamers: None }],
+            )]);
+            state.fates = g;
+        }
+
+        assert_eq!(
+            fate_for(&w, organism, id, CellType::GrowingTip, Node, 0).map(|f| f.becomes),
+            Some(CellType::Flower),
+            "the individual's own genome must win over its species table -- otherwise the heritable production \
+             rule is written, inherited, mutated and never read, which is the channel-with-no-reader failure \
+             this repo has shipped three times"
+        );
+
+        // And the fall-through still works for anything with no genome of its
+        // own: a creature, or an organism from before this existed. Organism
+        // 0 is no organism at all, so this is that path exactly.
+        assert_eq!(
+            fate_for(&w, 0, id, CellType::GrowingTip, Node, 0).map(|f| f.becomes),
+            Some(CellType::DormantBud),
+            "an organism with no genome must still get its species' answer"
+        );
+    }
+
+    /// **A seed inherits its parent's production rule.**
+    ///
+    /// The property the whole change exists for, and it is asserted against a
+    /// *mutated* parent rather than a founder: a child that matched a founder
+    /// could be matching the species file instead of its parent, which is the
+    /// pre-change behaviour wearing the new field's name.
+    #[test]
+    fn a_seed_inherits_its_parents_production_rule() {
+        let mut w = test_world();
+        w.seed = 909;
+        let id = w.species.id_of("tree").expect("tree is compiled in");
+        let stone = material::STONE;
+        for x in 40..60 {
+            w.set(x, 60, Cell::new(stone, 0));
+        }
+        let parent = w.push_organism(id).expect("an organism slot is free");
+        // Move the parent's genome away from its species, so "inherited" and
+        // "re-read from the species file" give different answers.
+        let mutated = {
+            let mut g = w.organism(parent).expect("live").fates;
+            let mut rng = rng::stream(1, 2, 3, 4);
+            g.mutate(&mut rng);
+            g
+        };
+        assert_ne!(
+            mutated,
+            organism::FateGenome::from_table(w.species.get(id).fate_table()),
+            "test setup: the parent's genome was not actually moved off its species table"
+        );
+        if let Some(state) = w.organism_mut(parent) {
+            state.fates = mutated;
+        }
+        let wood = w.materials.id_of("wood").expect("wood");
+        place(&mut w, (50, 59), wood, parent, CellType::MatureBody, (4.0, 0.0));
+
+        let mut rng = rng::stream(5, 6, 7, 8);
+        assert!(set_seed(&mut w, 50, 59, parent, 0.2, &mut rng), "the parent must manage to bear a seed");
+
+        let child = (40..70)
+            .flat_map(|x| (40..70).map(move |y| (x, y)))
+            .filter_map(|(x, y)| {
+                let c = w.get(x, y);
+                (c.organism_id() != 0 && c.organism_id() != parent).then(|| c.organism_id())
+            })
+            .next()
+            .expect("the seed created a child organism");
+        let inherited = w.organism(child).expect("the child is live").fates;
+        assert!(!inherited.is_empty(), "the child was born with no production rule at all");
+        assert_eq!(
+            inherited, mutated,
+            "a child must inherit its parent's production rule. At FATE_MUTATION_CHANCE this draw does not \
+             mutate, so any difference here is the table being re-read from the species rather than inherited \
+             -- which is exactly the pre-change behaviour wearing the new field's name"
         );
     }
 
