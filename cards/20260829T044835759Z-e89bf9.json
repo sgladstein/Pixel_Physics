@@ -1,0 +1,58 @@
+{
+  "id": "20260829T044835759Z-e89bf9",
+  "created": "2026-08-29T04:48:35Z",
+  "board": "felling",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/tree-physics-destruction-l6eocs",
+    "commit": "c4da09e",
+    "agent": null,
+    "session_id": "3ce830d2-1b4d-5fed-9af2-1e59f8344f7a",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Severed foliage: does it come down as leaves now, or still as dust?",
+  "question": "Same tree, same cut, same seed, same frames. Only what a leaf becomes when it lands is different. Does one of these read as a fallen leafy crown rather than a pile of sand -- and is the leaf colour right, or has it just traded gold dust for green dust?",
+  "context_md": "Your ruling on the last card: *\\\"The leaves shouldn't turn to powder ever... It should look like a bunch of branches are broken on the ground.\\\"*\n\nHalf of that is here. Severed foliage now lands as its own tier instead of turning into leaf litter, and rots down to litter over time rather than the instant it stops moving.\n\n**The other half is not, and I want to be straight about it: neither of these is branches lying on the ground.** It is still a mound, because nothing in the engine makes a severed piece travel sideways yet -- that is the next piece of work. Judge the *material*, not the shape.\n\nOne thing worth knowing, because it surprised me: I built this as a solid first, which is the obvious reading of what you asked for, and it left the tree **standing dead in the shape it grew in**. What has always looked like a crown collapsing was leaf powder running downhill, not a fall. Take the powder away and there is no fall left. So this is a powder that falls but cannot *flow* -- it holds a near-vertical face instead of running out into a cone.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "current",
+      "files": [
+        "20260829T044835759Z-e89bf9/000-leaf_before.png"
+      ],
+      "caption": "severed leaves become leaf litter on landing",
+      "meta": {
+        "litter cells": 437,
+        "deadwood cells": 571,
+        "log cells": 841,
+        "dead foliage cells": 0,
+        "coherent log pieces": 13
+      },
+      "focus": null
+    },
+    {
+      "label": "dead foliage tier",
+      "files": [
+        "20260829T044835759Z-e89bf9/001-leaf_powder.png"
+      ],
+      "caption": "severed leaves become their own tier, rotting to litter over time",
+      "meta": {
+        "litter cells": 155,
+        "deadwood cells": 553,
+        "log cells": 833,
+        "dead foliage cells": 999,
+        "coherent log pieces": 13
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
