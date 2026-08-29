@@ -1055,6 +1055,16 @@ when he counted all four. §Z is cards-only. Reports/open-bugs-handoff.md §Z ha
                 "  organ construction binds: {} of {} terminating apices could not pay ({organ_pct:.1}%)",
                 w.organ_charge_blocked, organ_ops
             );
+            // Paid *and* dropped, because a drop is paid too: the drop path
+            // debits the same account and increments `fruit_dropped`, not
+            // this, so the denominator has to carry both or a fruiting stand
+            // reads as permanently blocked.
+            let ripen_ops = w.organ_ripening_blocked + w.organ_ripening_paid + w.fruit_dropped;
+            let ripen_pct = if ripen_ops > 0 { 100.0 * w.organ_ripening_blocked as f64 / ripen_ops as f64 } else { 0.0 };
+            println!(
+                "  organ ripening binds: {} of {} ripe organs had no reproductive budget ({ripen_pct:.1}%)",
+                w.organ_ripening_blocked, ripen_ops
+            );
             let head_want = w.organs_built + w.organ_cells_unaffordable;
             let head_pct = if head_want > 0 { 100.0 * w.organ_cells_unaffordable as f64 / head_want as f64 } else { 0.0 };
             println!(

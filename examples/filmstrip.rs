@@ -5970,6 +5970,41 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, (usize, usize), (i
                 100.0 * leaf as f64 / total as f64,
             );
         }
+        // **The standing organ census, which is a different question from the
+        // organ counters and the one a picture can actually be checked
+        // against.** `CLAUDE.md`: when the complaint is visible and
+        // persistent, measure the standing state, not the event rate. A
+        // stand can build a thousand organs and show none, because each one
+        // ripened and let go inside the interval between two tiles -- which
+        // is exactly what a first pass at the fruiting habit did, and the
+        // sheet showed flowers and no fruit at all while `organs built` read
+        // 1,126. This line is what says whether there is anything on the
+        // plant to see.
+        //
+        // Windfall is on it too, and separately: a fallen fruit is on the
+        // *ground*, so counting it with the fruit would let a floor of them
+        // stand in for a crop.
+        {
+            let count = |name: &str| {
+                world.materials.id_of(name).map_or(0usize, |id| {
+                    (0..WIDTH).flat_map(|x| (0..HEIGHT).map(move |y| (x, y))).filter(|&(x, y)| world.get(x, y).material == id).count()
+                })
+            };
+            let (flower, fruit, windfall) = (count("flower"), count("fruit"), count("windfall"));
+            if flower + fruit + windfall + world.organs_built as usize > 0 {
+                println!("    organs standing: {flower} flower + {fruit} fruit on the plant, {windfall} windfall on the ground");
+                // The event counters beside the standing census, because they
+                // are different questions and a card needs both: *built* says
+                // the mechanism fired, *terminated* says determinacy fired
+                // (a truss builds four organs off one terminated axis), and
+                // *dropped* is the far side of the whole sequence -- organs
+                // can be built in quantity and never once let go.
+                println!(
+                    "    organ events: {} built, {} axes terminated, {} fruit dropped",
+                    world.organs_built, world.axes_terminated, world.fruit_dropped
+                );
+            }
+        }
         println!(
             "    shed: {} shade + {} drought + {} stranded = {} leaves",
             world.shed_shade,

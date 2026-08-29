@@ -3277,6 +3277,34 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
             // windfall sequence. See `Behavior::Ripen`.
             Behavior::Ripen { rate, cost } => {
                 let ripeness = world.organism_cell(x, y).map_or(0.0, |c| c.ripeness) + rate;
+                // **Ripening is paid from the reproductive budget, not from
+                // the organ's own carbon, and the split is principled rather
+                // than a workaround.**
+                //
+                // *Construction* is charged at the decision from the acting
+                // cell (the owner's 2026-08-27 ruling, and what the
+                // determinate terminal above does). *Provisioning a fruit* is
+                // not construction, it is reproduction, and
+                // `plant-equilibrium-costs-2026-08-27.md` §10b option C is
+                // explicit that reproduction should draw from the surplus
+                // pool the same way growth does. `reproductive_budget` is
+                // that pool and it already exists.
+                //
+                // **It also had to change, and the measurement is the
+                // reason.** `allocate_to_frontier` classifies every
+                // non-frontier, non-leaf cell as a *donor* -- carbon flows
+                // out of an organ toward the tips, and nothing puts any
+                // back. So a flower charged against its own cell could never
+                // pay: measured on six plants, **35 flowers standing against
+                // 2 fruit**, where the two authored clock rates predict
+                // about 58. The flowers were not waiting, they were stuck,
+                // and the picture showed a stand that flowers and does not
+                // fruit.
+                //
+                // Drawing from the same account as `Reproduce` also makes
+                // the two compete, which is right: a plant that fills fruit
+                // sets fewer loose seeds that season.
+                let budget = world.organism(organism_id).map_or(0.0, |s| s.reproductive_budget);
                 if ripeness < 1.0 {
                     if let Some(slot) = world.organism_cell_mut(x, y) {
                         slot.ripeness = ripeness;
@@ -3304,14 +3332,18 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 // rolls down a slope has left its parent's shade, which is
                 // the spatial half the evolution arc was missing.
                 if ripe.becomes == CellType::Seed {
-                    if resource < cost {
+                    if budget < cost {
                         // Not enough to provision the seed inside it. The
                         // fruit hangs, ripe, and tries again -- graded, not
                         // a refusal, exactly as the construction charge is.
+                        world.organ_ripening_blocked += 1;
                         found_candidate = true;
                         continue;
                     }
                     if drop_organ(world, x, y, organism_id, cost, &mut rng) {
+                        if let Some(state) = world.organism_mut(organism_id) {
+                            state.reproductive_budget -= cost;
+                        }
                         // The cell now belongs to the child. Nothing this
                         // tick may touch it again, and there is no site to
                         // reschedule -- `drop_organ` scheduled the child's.
@@ -3322,26 +3354,32 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                     continue;
                 }
                 // Fruit set: a relabel plus the material swap that makes it
-                // visible, charged at the decision like every other tissue.
-                if resource < cost {
+                // visible, charged to the same reproductive account.
+                if budget < cost {
+                    world.organ_ripening_blocked += 1;
                     found_candidate = true;
                     continue;
                 }
-                resource -= cost;
+                if let Some(state) = world.organism_mut(organism_id) {
+                    state.reproductive_budget -= cost;
+                }
+                world.organ_ripening_paid += 1;
                 let (organ_mat, organ_shade) =
                     tissue_appearance(world, organism_id, species_id, ripe.becomes, cell.material, Band::Bark, &mut rng);
                 let (keep_order, keep_path) =
                     world.organism_cell(x, y).map_or((order, 0), |c| (c.order, c.path_len));
                 world.set(x, y, Cell::new(organ_mat, organ_shade).with_organism_id(organism_id).with_aux(organism::pack_cell_type(ripe.becomes)));
-                // `World::set` hands a cell that changed material a fresh,
-                // zeroed sidecar, so everything the flower carried has to be
-                // restated -- and `ripeness` restarts at 0 deliberately: the
-                // fruit runs its own clock, which is what makes set and
-                // ripening two stages rather than one.
-                write_carbon(world, x, y, resource);
+                // The cell did not change hands, so its sidecar survives the
+                // write -- but `ripeness` must be put back to 0 deliberately:
+                // the fruit runs its own clock, which is what makes set and
+                // ripening two stages rather than one. Order and path length
+                // are restated defensively; they are cheap and a silent 0
+                // there would put a fruit at the collar for every rule that
+                // reads position.
                 write_order(world, x, y, keep_order);
                 if let Some(slot) = world.organism_cell_mut(x, y) {
                     slot.path_len = keep_path;
+                    slot.ripeness = 0.0;
                 }
                 if ripe.becomes.is_organ() {
                     world.organs_built += 1;
@@ -8690,6 +8728,268 @@ The night factor belongs on income only -- see NIGHT_INCOME_FLOOR"
             "the authored tables answered only {authored_answers} lookups -- the species branch of \
              `fate_for` is not the one being exercised, so this test is blind"
         );
+    }
+
+    /// **`after_metamers` gates a determinate rule and nothing else.**
+    ///
+    /// A tight assertion on a deterministic function, which `CLAUDE.md`
+    /// exempts from the put-the-fault-back rule: the lookup has one input it
+    /// can be wrong about and this test names both sides of the boundary.
+    ///
+    /// The property that matters is the *pair*: the determinate rule listed
+    /// first must be invisible below its count, and the ordinary rule under
+    /// it must answer in the meantime. A version checking only the "on"
+    /// side would pass on an implementation that ignored the field entirely.
+    #[test]
+    fn after_metamers_gates_a_determinate_rule_and_leaves_the_ordinary_one_answering() {
+        use organism::FateWhen::Node;
+        let w = test_world();
+        let id = w.species.id_of("herb").expect("herb is compiled in");
+        let sp = w.species.get(id);
+
+        let below = sp.fate(CellType::GrowingTip, Node, 7).expect("some Node rule always answers");
+        assert_eq!(
+            below.becomes,
+            CellType::DormantBud,
+            "below its metamer count a determinate axis must take the *ordinary* node rule -- \
+             an axis that flowers at metamer 7 when the species asked for 8 has no determinacy, \
+             it has a rule that fires on the first node"
+        );
+        assert_eq!(below.after_metamers, None, "the rule answering below the count is the unconditional one");
+
+        let at = sp.fate(CellType::GrowingTip, Node, 8).expect("the determinate rule answers at its count");
+        assert_eq!(at.becomes, CellType::Flower, "at its metamer count the axis must terminate in an organ");
+        assert_eq!(at.after_metamers, Some(8));
+
+        // Past the count too: `>=`, not `==`. A lineage whose plastochron is
+        // jittered can step over its own count without landing on it, and an
+        // equality test would make determinacy a coin flip on the jitter.
+        assert_eq!(
+            sp.fate(CellType::GrowingTip, Node, 40).map(|f| f.becomes),
+            Some(CellType::Flower),
+            "the determinate rule must stay in force past its count, not fire only exactly on it"
+        );
+    }
+
+    /// **An organ is made of the species' organ material, not its parent's.**
+    ///
+    /// This is the load-bearing half of the whole organ package and it is the
+    /// one that fails silently: a `Flower` built out of `wood` is a cell with
+    /// the right label, the right counter, the right everything except the
+    /// only property the phase exists for. Five morphology levers in a row
+    /// have fired, counted and read as nothing, and the one that ever read
+    /// changed material.
+    ///
+    /// Asserted through `tissue_appearance`, which is the single helper every
+    /// creation site goes through, rather than through a grown plant: whether
+    /// a *particular* stand happens to flower inside N frames is a different
+    /// question and mixing it in makes this a test of growth.
+    #[test]
+    fn an_organ_takes_the_species_organ_material_not_its_parents() {
+        let mut w = test_world();
+        let id = w.species.id_of("herb").expect("herb is compiled in");
+        let wood = w.materials.id_of("wood").expect("wood");
+        let flower = w.materials.id_of("flower").expect("flower");
+        let fruit = w.materials.id_of("fruit").expect("fruit");
+        let organism = w.push_organism(id).expect("an organism slot is free");
+        let mut rng = rng::stream(1, 2, 3, 4);
+
+        for (ty, expected, what) in
+            [(CellType::Flower, flower, "flower"), (CellType::Fruit, fruit, "fruit")]
+        {
+            let (m, _) = tissue_appearance(&w, organism, id, ty, wood, Band::Bark, &mut rng);
+            assert_eq!(m, expected, "a {what} grown off a wood stem must be {what} material, not the stem's");
+        }
+
+        // **The other half, and it is the half that would break every
+        // existing species.** Non-organ types must still propagate the
+        // parent's material -- that is what makes a whole root system
+        // rootwood from one seeded cell, and a helper that returned a
+        // species material for everything would silently repaint the engine.
+        for ty in [CellType::GrowingTip, CellType::MatureBody, CellType::Leaf, CellType::RootTip, CellType::DormantBud] {
+            let (m, _) = tissue_appearance(&w, organism, id, ty, wood, Band::Bark, &mut rng);
+            assert_eq!(m, wood, "{ty:?} must keep propagating its parent's material");
+        }
+    }
+
+    /// **A determinate species terminates its axes in organs, and an
+    /// indeterminate one never does.**
+    ///
+    /// The paired form, deliberately: the "does it fire" half alone would
+    /// pass on an implementation that turned *every* tip into a flower, which
+    /// is not determinacy but a relabel. `tree` is the control and it must
+    /// come back at exactly zero.
+    ///
+    /// **Read as a property over a grown stand rather than a fingerprint.**
+    /// Identical genomes here span 31 to 153 cells, so any assertion of the
+    /// form "this plant has N flowers" is a sample from a wide distribution;
+    /// what is asserted is that the count is non-zero for one species and
+    /// zero for the other.
+    #[test]
+    fn a_determinate_species_terminates_its_axes_in_organs_and_an_indeterminate_one_does_not() {
+        // **30,000 frames, and the budget is measured rather than chosen.**
+        // `plant_probe species=herb trees=8 frames=25000` terminates 27 axes,
+        // i.e. about 3.4 per plant per 25,000 frames — so three plants over
+        // 14,000 frames expects **0.6**, and the first version of this test
+        // asserted `> 0` on that and went red for exactly the arithmetic
+        // reason rather than for a fault. A termination claim's budget has to
+        // come from a measured curve (`CLAUDE.md`), and this one now does:
+        // three plants over 30,000 frames expects about 12.
+        // **The scene and the step loop are `common_scene`'s**, and copying
+        // them rather than inventing a bed is not tidiness. A first version
+        // of this test built its own 20-row soil bed and ran `parallel::step`
+        // alone -- no `step_active_sites`, no `field::step` -- and reported
+        // **4 cells of tissue standing**: four ungerminated seeds. That reads
+        // exactly like "the mechanism does nothing", and `CLAUDE.md` records
+        // two Phase-2 "root bugs" that were the identical mistake. When a
+        // mechanism appears inert, check the scene still contains the
+        // situation you think it does.
+        // **A narrower bed and a short control arm, because this is a
+        // whole-stand test in a suite of a thousand.** The first working
+        // version ran 30,000 frames of a 256-wide world twice and took
+        // **114 s**. The herb arm genuinely needs the length -- termination
+        // is a rare event and the budget above is measured -- but the control
+        // does not: a species with no organ fate cannot produce an organ at
+        // any length, so 8,000 frames is enough to establish that it *grew*,
+        // which is all the control has to show.
+        fn organs(species: &str, frames: usize, plants: i32) -> (u64, u64, usize, usize) {
+            const GROUND: i32 = 150;
+            const WIDTH: i32 = 176;
+            let mut w = World::new(Rect::new(0, 0, WIDTH - 1, GROUND + 60));
+            let soil = w.materials.id_of("soil").expect("soil is a compiled-in material");
+            for x in 0..WIDTH {
+                for y in (GROUND + 34)..(GROUND + 40) {
+                    w.set(x, y, Cell::new(material::STONE, 0));
+                }
+                for y in GROUND..(GROUND + 34) {
+                    w.set(x, y, Cell::new(soil, 0).with_aux(material::SOIL_FIELD_CAPACITY));
+                }
+            }
+            let spacing = WIDTH / (plants + 1);
+            for i in 1..=plants {
+                w.plant_tree_species(i * spacing, GROUND - 25, species);
+            }
+            for _ in 0..frames {
+                super::super::parallel::step(&mut w);
+                w.step_active_sites();
+                field::step(&mut w);
+            }
+            let cells: Vec<(i32, i32)> = (0..WIDTH).flat_map(|x| (0..(GROUND + 40)).map(move |y| (x, y))).collect();
+            let standing = cells
+                .iter()
+                .filter(|&&(x, y)| w.get(x, y).organism_id() != 0 && organism::cell_type(w.get(x, y).aux()).is_some_and(CellType::is_organ))
+                .count();
+            let tissue = cells.iter().filter(|&&(x, y)| w.get(x, y).organism_id() != 0).count();
+            (w.organs_built, w.axes_terminated, standing, tissue)
+        }
+
+        let (built, terminated, standing, tissue) = organs("herb", 30_000, 3);
+        // Printed in the message rather than asserted on: a stand that did
+        // not grow and a stand that grew and did not flower are different
+        // failures, and the second is the one this test is about.
+        assert!(
+            terminated > 0,
+            "a determinate species terminated no axis in 30,000 frames ({tissue} cells of tissue \
+             standing) -- the fate table's `after_metamers` rule never fired, and the symptom of \
+             that is a low counter with no visible cause (the turgor bound cutting the axis short \
+             of its count is the way this has already gone wrong once)"
+        );
+        assert!(built >= terminated, "every terminated axis builds at least its own apex as an organ");
+        assert!(standing > 0, "organs were built and none is standing -- a picture of this stand would show nothing");
+
+        let (base_built, base_terminated, base_standing, base_tissue) = organs("tree", 8_000, 3);
+        assert!(base_tissue > 0, "the control species did not grow, so its zero organ count proves nothing");
+        assert_eq!(
+            (base_built, base_terminated, base_standing),
+            (0, 0, 0),
+            "an indeterminate species produced organs -- determinacy is supposed to be something a \
+             species authors, not something the engine does to every tip"
+        );
+    }
+
+    /// **Organs are not shoot cells**, which is the sharpest single item in
+    /// the organ package.
+    ///
+    /// `shoot_cells` feeds `seed_maturity_met`, the juvenile check and the
+    /// per-bearer seed denominator at once, so counting organs in it would
+    /// advance the maturity fence and dilute the seed rate together — a
+    /// two-sided reallocation of an economy calibrated to bind at ~79%,
+    /// arriving as a side effect of a materials change nobody would connect
+    /// to it.
+    ///
+    /// Driven through `organism_upkeep` on a hand-placed plant rather than a
+    /// grown one, so it asserts the census rule rather than whether some
+    /// particular stand flowered.
+    #[test]
+    fn organs_are_counted_apart_from_shoot_cells() {
+        let mut w = test_world();
+        let id = w.species.id_of("herb").expect("herb is compiled in");
+        let wood = w.materials.id_of("wood").expect("wood");
+        let flower = w.materials.id_of("flower").expect("flower");
+        let fruit = w.materials.id_of("fruit").expect("fruit");
+        let organism = w.push_organism(id).expect("an organism slot is free");
+        for x in 40..60 {
+            w.set(x, 60, Cell::new(material::STONE, 0));
+        }
+        // Four cells of stem, one flower, one fruit.
+        for pos in [(50, 59), (50, 58), (50, 57), (50, 56)] {
+            place(&mut w, pos, wood, organism, CellType::MatureBody, (1.0, 0.0));
+        }
+        place(&mut w, (50, 55), flower, organism, CellType::Flower, (0.0, 0.0));
+        place(&mut w, (51, 55), fruit, organism, CellType::Fruit, (0.0, 0.0));
+
+        organism_upkeep(&mut w, organism);
+
+        let state = w.organism(organism).expect("still live");
+        assert_eq!(state.organ_cells, 2, "both organs must be counted, or the exclusion has no reader");
+        assert_eq!(
+            state.shoot_cells, 4,
+            "the shoot census must be the four stem cells alone -- with organs in it, building a \
+             flower advances `seed_maturity` and dilutes the per-bearer seed rate at the same time"
+        );
+    }
+
+    /// **A ripe fruit lets go, and what falls carries a live genome.**
+    ///
+    /// The far-side effect counter for the whole flower → fruit → windfall
+    /// sequence, as a property: `organs_built` can read in the thousands
+    /// while nothing is ever dispersed, and the two look identical in a
+    /// picture.
+    ///
+    /// Three things have to be true of the cell the drop leaves behind, and
+    /// each is a distinct way the mechanism could be broken while the counter
+    /// still moved: it must belong to a **different** organism (or it is a
+    /// relabel, not dispersal), it must be a `Seed` (or it never germinates),
+    /// and it must be a `Powder` (or it hangs in the air where the fruit was
+    /// and there is no fall at all).
+    #[test]
+    fn a_ripe_fruit_detaches_as_a_powder_carrying_a_new_organism() {
+        let mut w = test_world();
+        let id = w.species.id_of("herb").expect("herb is compiled in");
+        let fruit_m = w.materials.id_of("fruit").expect("fruit");
+        let parent = w.push_organism(id).expect("an organism slot is free");
+        if let Some(state) = w.organism_mut(parent) {
+            state.generation = 3;
+            state.genotype_draws = [0.25; organism::GENOTYPE_TRAITS];
+        }
+        place(&mut w, (50, 50), fruit_m, parent, CellType::Fruit, (0.0, 0.0));
+        let mut rng = rng::stream(9, 8, 7, 6);
+
+        assert!(drop_organ(&mut w, 50, 50, parent, 0.3, &mut rng), "the drop must succeed with a slot free and the material loaded");
+
+        let cell = w.get(50, 50);
+        assert_ne!(cell.organism_id(), parent, "a dropped fruit belongs to the child, not to the plant that bore it");
+        assert_ne!(cell.organism_id(), 0, "a dropped fruit carries an organism -- without one it is scenery, not a seed");
+        assert_eq!(organism::cell_type(cell.aux()), Some(CellType::Seed), "what falls must be a seed, or it never germinates");
+        assert_eq!(
+            w.materials.get(cell.material).kind,
+            material::MaterialKind::Powder,
+            "the dropped cell must be a powder, or the fruit hangs where it was and there is no dispersal at all"
+        );
+        let child = w.organism(cell.organism_id()).expect("the child organism exists");
+        assert!(child.inherited, "the child must be marked inherited or `seed_genotype` redraws over the genome it just received");
+        assert_eq!(child.generation, 4, "the child is one generation on from its parent");
+        assert_eq!(w.fruit_dropped, 1, "the effect counter must move with the mechanism");
     }
 
     /// **Every discrete locus varies between founders**, which four of the

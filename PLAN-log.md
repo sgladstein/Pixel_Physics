@@ -3046,3 +3046,56 @@ Corrected in the same change: `PLAN.md` and the report both said "nothing else
 in the repo notices — `docscheck.sh` does not know about it and CI does not run
 it", and `licensecheck.sh`'s header said it was deliberately not wired into CI.
 All three were true when written and false the moment the workflow landed.
+
+## 2026-08-29 — the organ package: flowers, fruit, determinacy, and a price
+
+Phase 4 of the plant-morphology programme, against
+`Reports/plant-organs-handoff-2026-08-28.md`. Two organ cell types with their
+own materials, a determinate axis that terminates in one, a carbon price on
+building them, and two authored habits (`herb`, `bramble`) that use all three.
+Full account in `Reports/plant-organs-2026-08-29.md`.
+
+**Three things worth carrying out of it, none of which is the mechanism.**
+
+**The materials were written before the machinery, and that ordering is a
+finding rather than a preference.** A label change has failed to read on this
+project five times — `weeping`, `prostrate`, sympody, tropism, acrotony,
+founder variance — every one of them firing with counters printed and moving
+nothing the owner could see. The one lever that ever read changed *material*.
+So `flower.ron`, `fruit.ron` and `windfall.ron` exist before a line of organ
+code does, and `Grow::organ_cluster` is the same argument's other half: one
+bright cell on a stalk is a material change with the size half missing.
+
+**A cost has to be charged to an account that can actually pay it, and this is
+the general form of the bug.** Ripening was first charged to the organ cell's
+own carbon, exactly as construction is. But `allocate_to_frontier` classifies
+every non-frontier, non-leaf cell as a **donor** — carbon flows out of it
+toward the tips and nothing puts any back — so an organ is permanently poor and
+a flower could never pay to set. Measured: **35 flowers standing against 2
+fruit** where the authored clock rates predict about 58. Every event counter
+read healthy; the picture showed a stand that flowers and does not fruit; and
+"a flower waiting" and "a flower stuck" are indistinguishable in both. Moving
+it to `reproductive_budget` is `plant-equilibrium-costs-2026-08-27.md` §10b
+option C applied to the one case where it is unambiguous. **Before charging a
+new cost, name the account and check the cells it will be charged to are on the
+receiving side of the allocation.**
+
+**Two knobs that read as one setting were really a coupled pair.** `herb`'s
+`after_metamers: 9` at `plastochron: 4` needs 36 cells of path length, and
+`turgor_source: 0.32` with `turgor_per_cell: 0.006` puts the height ceiling at
+exactly 36. The axis reached its ceiling as it reached its count and mostly
+starved short of it: 9 axes terminated across 32 plants, and a sheet of six
+showed one flower. That is the determinacy trap's own symptom — a low counter
+with no visible cause — with the cause outside the fate table entirely.
+
+Also recorded: `max_active_tips: 1` is **not** "one axis", it is *no growth* —
+the cap gate counts the asking tip, so a whole stand germinated, staled at one
+cell, went senescent and rotted inside 8,000 frames.
+
+**One naming correction.** The two species shipped for one draft as
+`sunflower.ron` and `tomato.ron`, from `plant-morphology-reach-2026-08-23.md`
+§6's sequencing note. That note is superseded by
+`plant-morphology-evolvability-2026-08-26.md` §6, whose heading is *"The
+acceptance artifact is not a sunflower … Twelve tomatoes = it does not
+[work]"*, and the register is habit words throughout. Renamed to `herb` and
+`bramble`; the mechanism did not change with the rename.

@@ -824,6 +824,20 @@ pub struct World {
     /// only the first would call a stand of pinhead flowers a success.
     pub organ_cells_unaffordable: u64,
 
+    /// **Times an organ's clock ran out and the reproductive budget could
+    /// not pay** — the effect counter for `Behavior::Ripen`'s cost, and the
+    /// one that separates *a flower waiting* from *a flower stuck*.
+    ///
+    /// It exists because those two are indistinguishable in a picture and
+    /// were confused once already: a stand read 35 flowers standing against
+    /// 2 fruit, where the authored clock rates predict about 58, and the
+    /// difference was an account that could never be paid from.
+    pub organ_ripening_blocked: u64,
+
+    /// Organ fates that did fire and were paid for — the denominator for
+    /// `organ_ripening_blocked`.
+    pub organ_ripening_paid: u64,
+
     /// **Ripe fruit that let go**, each one a seed carried to the ground
     /// inside a `windfall` powder. The far-side effect counter for the drop:
     /// `organs_built` says fruit were made, and only this says any of them
@@ -1608,6 +1622,8 @@ impl World {
             organ_charge_blocked: 0,
             organ_charge_available: 0,
             organ_cells_unaffordable: 0,
+            organ_ripening_blocked: 0,
+            organ_ripening_paid: 0,
             fruit_dropped: 0,
             decayed_damp: 0,
             decayed_dry: 0,

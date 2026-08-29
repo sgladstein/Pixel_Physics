@@ -424,6 +424,19 @@ drift that two of these documents still reflect.**
   axis and a truss need, so the organ work is aimed at the tolerant half.
   Records two instrument bugs caught by controls rather than by inspection,
   one of which would have published a decisive, false 0%.
+- [plant-organs-2026-08-29.md](plant-organs-2026-08-29.md)
+  — **built: Phase 4, the organ package.** Flowers and fruit as cell types with
+  their own materials, a determinate axis that terminates in one, and a carbon
+  price on building them, plus two authored habits (`herb`, `bramble`). The
+  materials came first, deliberately: a label change has failed to read five
+  times and the one lever that ever read changed material. Two accounts, and
+  the split is the useful finding — **construction** is charged at the decision
+  from the acting cell, while **ripening** had to move to the reproductive
+  budget because `allocate_to_frontier` makes an organ a permanent *donor*, so
+  a flower charged against its own carbon can never set: 35 flowers against 2
+  fruit, where the clocks predict 58. Records four failures caught by looking
+  rather than by a number, including a turgor bound that cut the axis short of
+  its own metamer count.
 - [plant-evolvability-handoff-2026-08-27.md](plant-evolvability-handoff-2026-08-27.md)
   — **handoff; read first when picking this line up.** Reading order for the
   six documents, what is actually established, and **§3: an owner-caught
