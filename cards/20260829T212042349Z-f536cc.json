@@ -1,0 +1,56 @@
+{
+  "id": "20260829T212042349Z-f536cc",
+  "created": "2026-08-29T21:20:42Z",
+  "board": "world-scale",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics/.claude/worktrees/agent-aaf90002fe101e5b3",
+    "branch": "claude/frame-cost-bisect",
+    "commit": "1c375f7",
+    "agent": null,
+    "session_id": "8decc404-1166-54ad-9ca6-a460991ec93f",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics/.claude/worktrees/agent-aaf90002fe101e5b3"
+  },
+  "title": "Two skies, and what the taller one costs a frame",
+  "question": "If that 29 ms could not be given back, would you still want the taller sky (left/A) over the older one (B)?",
+  "context_md": "You said the game feels slow. It does, and this is why.\n\nLast night's worldgen change doubled the sky, which drops the whole landscape 95 rows down the screen. **A is what ships now; B is the sky the world had the day before.** Same seed, same spot, same clear midday.\n\n**Painting A costs about three and a half times what painting B costs** — 29 ms a frame, against a 16.6 ms budget for everything. The simulation is fine: it is actually a third faster than the last time anyone measured it. It is the *drawing* that got expensive, and nothing has ever been counting that.\n\n**I do not think this is the price of the sky, and I am not asking you to give it up.** The cost jumps all at once between sky heights 115 and 120 and then stops climbing — it is flat from there to 190 — and it does not depend on how much sky is actually on screen or how big the window is. That is the shape of a bug, not of a bigger picture costing more to paint, and I am chasing it now.\n\nThis card is the fallback: **if I am wrong and it really is inherent, which world do you want?** Answer for the look alone — pretend the numbers are equal — and I will take the cost question from there.\n\nOne thing I would ignore: B shows more underground because the ground is higher, not because anything about the caves changed.",
+  "kind": "before_after",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A — the sky that ships now",
+      "files": [
+        "20260829T212042349Z-f536cc/000-card.now.png"
+      ],
+      "caption": "sky_rows 190 (PR #94, merged last night)",
+      "meta": {
+        "time to paint one frame": "39.7 ms",
+        "time to simulate one frame": "18.6 ms",
+        "budget for both, at 60 fps": "16.6 ms",
+        "share of the screen that is sky": "70%"
+      },
+      "focus": null
+    },
+    {
+      "label": "B — the sky of the day before",
+      "files": [
+        "20260829T212042349Z-f536cc/001-card.sky95.png"
+      ],
+      "caption": "sky_rows 95 (everything else identical)",
+      "meta": {
+        "time to paint one frame": "10.7 ms",
+        "time to simulate one frame": "16.6 ms",
+        "budget for both, at 60 fps": "16.6 ms",
+        "share of the screen that is sky": "40%"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
