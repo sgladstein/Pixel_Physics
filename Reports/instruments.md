@@ -197,15 +197,31 @@ the mechanism off and see whether the outcome notices. Before concluding a
 mechanism works, run the ablation — `CLAUDE.md`'s *a test can pass because the
 code under it is dead* has an instrument, and this is it.
 
-**`scale_probe phases=1` is the only thing that times a whole frame**, and it
-was built because nothing did. Every other cost figure in this repo measures
-*part* of a frame, and the three that existed were taken at three different
-world sizes — `ascii` times the CA sweep at 512x320, `field_cost` the field at
-8192x2560, `scale_probe`'s default mode the two together. So "the field is the
-problem" was a reading off two numbers that had never been placed beside the
-other nine phases. It runs `App::update`'s exact order, times each phase, and
-buckets whole frames by sky-step and gust the way `field_cost` does. Beyond
-the question it was built for it answers:
+**`scale_probe phases=1` times a whole `App::update`, and `App::update` is not
+a whole frame.** `Renderer::draw` is called from `main.rs`, not from
+`App::update`, so **it is in none of these instruments and in no frame-cost
+figure this repo has ever published** — including `frame-cost-audit-2026-08.md`,
+whose headline is titled "where one frame actually goes". Measured 2026-08-29
+on the shipped 8192x2560 world: `App::update` **18.9 ms** against a full
+redraw of **~42 ms**, so the row nobody was measuring was the larger half by
+2:1. (It is ~7.5 ms since, but the hole is structural and outlives the fix.)
+A full redraw is not a worst case either — a camera move invalidates every
+pixel, so it runs on ~100% of frames while the gnome walks.
+
+**So quote two numbers or none.** `examples/render_cost` gives the second one;
+`viewshot` prints its own redraw time per shot as a cheaper check. Anything
+calling a `scale_probe` total "the frame" is quoting half of it, and this
+index said so nowhere until now.
+
+That aside, `scale_probe phases=1` is the only thing that times a whole
+`App::update`, and it was built because nothing did. Every other cost figure
+in this repo measures *part* of it, and the three that existed were taken at
+three different world sizes — `ascii` times the CA sweep at 512x320,
+`field_cost` the field at 8192x2560, `scale_probe`'s default mode the two
+together. So "the field is the problem" was a reading off two numbers that had
+never been placed beside the other nine phases. It runs `App::update`'s exact
+order, times each phase, and buckets whole frames by sky-step and gust the way
+`field_cost` does. Beyond the question it was built for it answers:
 
 - **"Is this phase worth optimising?"** for any phase, since it prints each
   one's share. A phase at 2% cannot repay work whatever its internal cost.
@@ -213,6 +229,24 @@ the question it was built for it answers:
   share against the 16.6 ms budget before it ships.
 - **The idle cost of a loaded world**, which is what a player experiences most
   of the time and what M10's streaming has to hold down.
+
+**A worldgen A/B needs no rebuild between arms, and that is worth knowing
+before you build a bisect.** `assets/worldgen.ron` is read at runtime with
+`std::fs::read_to_string`, while `assets/materials/*.ron` and
+`assets/species/*.ron` are `include_str!`ed into the binary. So a sweep over
+worldgen parameters is **one binary and N data files** — swap the file, re-run
+the *same* executable — and the stale-example failure mode that
+`CLAUDE.md` devotes four bullets to cannot occur at all. A materials or
+species sweep is the exact opposite and has nothing *but* that hazard.
+
+Used 2026-08-29 to bisect the owner's "the game feels slow" onto PR #94's
+`sky_rows` in four arms with zero builds; the alternative was a
+rebuild-at-every-point commit bisect whose own failure mode (identical numbers
+across commits, read as "no regression") is silent. **Keep a positive control
+on the swap** — the harness must print something world-dependent that moves
+between arms, or the sweep is one world wearing N labels; `render_cost`'s
+"visible pixels are empty sky" and `scale_probe`'s worldgen census lines both
+serve.
 
 **`ORGANISM_PASS=<every N>` splits `step_organisms` seven ways** (in
 `plant.rs`, same shape as `FIELD_PASS`), and prints `live`/`ticked`/`cells`
