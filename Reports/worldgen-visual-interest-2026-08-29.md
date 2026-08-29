@@ -22,6 +22,39 @@ exception called out in §1.5.
 
 ---
 
+## 0. The reframing that makes the rest of it make sense
+
+**We are not drawing a landscape. We are drawing a cutaway, and half the screen
+is the inside of the ground.**
+
+Measured: on a normal above-ground screen, 50% of the pixels are ground, and
+`stone_massif` writes **18.9 million of the world's 21 million cells** — 90% of
+everything. The skyline, the part that has any counterpart in landscape
+photography, is a band across the top fifth. Everything below it is a section
+through rock that no photograph of a mountain has ever shown.
+
+This matters because *"look at beautiful nature photography"* silently supplies
+the wrong referent for most of the screen, and every improvement aimed at it
+lands on the top fifth. The right referent for the other four fifths exists and
+is just as beautiful: **a canyon wall, a road cut, a sea cliff, a quarry face**
+— geology seen from outside. Those are stunning for reasons that can be named
+and built:
+
+| what a real rock face has | what ours has |
+|---|---|
+| beds of different hardness standing proud by different amounts, making a cliff/ledge/bench/slope stair | every bed flush with every other — the face is a plane |
+| bedding that dips, folds and is cut by unconformities | horizontal banding |
+| dark vertical staining where water runs down it | nothing |
+| a talus fan at the foot of every drop | 580 cells in the whole world (§1.1) |
+| plants on every ledge and in every crack | 170 cells in the whole world (§1.2) |
+
+**So the single most useful sentence in this report is probably this one:** our
+cross-section currently reads as a *textbook diagram* and should read as a
+*photographed cliff*, and the difference between those two pictures is almost
+entirely relief and staining, not colour and not light.
+
+---
+
 ## 1. The ranked list
 
 Each item: what the eye sees, the mechanism that produces it, the category,
@@ -62,10 +95,31 @@ slope is 0.2–0.67 and the biggest step on a screen is 1–10 rows. So:
 - `erosion` reports `boulder-markers 3 boulders-seated **0**` on canyon seed 1,
   so the one pass that would put a standing rock in the view seats none.
 
-The machinery for relief exists and is starved of the input it keys on.
+**Measured rather than inferred** (`PASS_TIMING=1`, clean tree at HEAD, seed 1,
+cells written per pass over the whole 8192x2560 world):
 
-**Cost.** Large. This is the revamp. **Payoff.** Largest available, and it is
-the item that unlocks §1.5, §1.4 and most of §2.
+| preset | `stone_massif` | `brows` | `talus` | `life_scatter` |
+|---|---|---|---|---|
+| canyon | 18,894,054 | **2,352** | **580** | 170 |
+| terraced | 18,772,577 | **708** | **191** | 636 |
+| arid | 19,088,122 | **52** | **39** | **0** |
+
+**The overhang pass writes 0.012% of the world and the scree pass 0.003%.**
+Spread over 8192 columns that is 0.29 and 0.07 cells per column — about 147 and
+36 cells on a 512-column screen, against ~83,000 ground cells in view. They are
+not a small effect; they are not present. On `arid` they are 52 and 39 cells in
+the entire world, and `life_scatter` writes **zero** — arid worlds contain no
+plants at all.
+
+The machinery for relief exists and is starved of the input it keys on. Note
+which way round that is: this is not a case for writing new passes, it is a
+case for making the terrain rough enough that the passes we already have fire.
+
+**Cost.** Large. This is the revamp. **Payoff.** Largest available — and it is
+the only item that *unlocks* others: §1.5 and the whole of §2 are worth little
+until the ground has shape, and `brows`, `talus` and the boulder pass switch
+themselves back on for free the moment the terrain is rough enough to clear
+their thresholds.
 
 **The concrete target, from the reference (§3):** a canyon wall is not a plane,
 it is a *repeating cliff / ledge / bench / slope sequence* produced by
@@ -93,12 +147,21 @@ settle.**
 In player terms: 343 living cells in 20,971,520. One plant every 24 columns of
 skyline, each of them one cell.
 
+**And it varies by preset in a way the 343 figure hides.** Lane A's number is
+`rolling`; measured here on the clean tree with `PASS_TIMING=1`, `life_scatter`
+writes **170** cells on canyon, **636** on terraced, and **0** on arid. An arid
+world contains no plant of any kind, sown or grown.
+
 **Mechanism.** `life_scatter` sows seeds; five of six species need thousands of
 frames to germinate; nothing in worldgen produces a *grown* plant.
 
 **What a grown world looks like, since nobody had rendered one.** Canyon seed 1
-run forward to frame 30,000 puts **two large trees** in the same viewport that
-was bare at frame 600. They are the tallest thing in the picture, they fill the
+run forward to frame **29,400** — which is 600 + 8 x `DAY_NIGHT_PERIOD_FRAMES`,
+so the clock phase is identical to the bare render and the pair differs by the
+world's age and by nothing else — puts **two large trees** in the same viewport
+that was bare at frame 600. (The first attempt at this was rendered at frame
+30,000 and came out at night, which would have confounded the comparison with
+the time of day; the figure below is the daylight-pinned pair.) They are the tallest thing in the picture, they fill the
 sky half of the frame, and they are the only green on screen. The picture is
 transformed, and *nothing about the terrain changed* — this is the world we
 already ship, seen after it has had time to grow. It is the strongest single
@@ -336,10 +399,10 @@ So the surface result is a real null about the *world*, not a broken harness.
 - **Underground, shading earns its keep** — 22% boundary density against 5%.
   If the caves are rebuilt (§1.3) they get denser, and shading gets better still.
 - **Content raises the ceiling on render, and this is the one number that
-  surprised me.** Running canyon seed 1 forward to frame 30,000 — far enough
+  surprised me.** Running canyon seed 1 forward to frame 29,400 — far enough
   for the sown seeds to actually germinate — grows **two large trees** on the
   ridge in the same viewport, and the boundary census moves from **4.7% to
-  15.7%**: a light can suddenly reach three times as much of the screen. That
+  15.6%**: a light can suddenly reach three times as much of the screen. That
   figure is computed from occupancy rather than from the image, so it is not a
   statement about the hour it was sampled at. A canopy is exactly the kind of
   boundary-dense geometry §2.2 says our world lacks, and **plants supply it for
@@ -434,15 +497,21 @@ Items already ranked in §1 are marked. The rest are real and smaller.
 | 10 | The grain is uniform salt-and-pepper at every distance and on every material | one `JITTER_STRENGTH` for all non-liquids | render | very small | small |
 | 11 | Water is a flat blue line | (not investigated here; waterfalls postponed by the owner) | — | — | — |
 
-**On #6 and #8 together:** these are the two that would make the *cross-section*
-beautiful, and the cross-section is half the screen. Worth stating plainly,
-because it reframes the whole exercise: **the player is looking at a cutaway,
-and a cutaway has no referent in landscape photography.** It does have one in
-geology photography — a canyon wall, a road cut, a sea cliff, a quarry face —
-and those are stunning for reasons we can name: beds of different hardness
-standing proud by different amounts, bedding that dips and folds, staining down
-the face, talus fans at the foot, plants on every ledge. Our wall has the
-colour banding and none of the geometry.
+**#6, #7 and #8 are the cross-section items**, and between them they are what
+would turn our wall from a diagram into a photographed cliff — see §0, which is
+the same argument stated once properly.
+
+**Two of them are already being built by another lane, which is worth knowing
+before anyone picks them up.** While this lane was measuring, the
+rock-vocabulary prototype appeared in this checkout: new `sandstone.ron`,
+`limestone.ron`, `mudstone.ron`, `basalt.ron` and `ironstone.ron`, plus a
+*weathered* tone family in `stone.ron` applied to cells within a few cells of a
+free face, behind `PIXEL_PHYSICS_ROCK_VOCAB` (default on). That is #8 and part
+of #1.4 landing from a different direction, and it is the right shape — real
+rock types with real hardness differences are exactly the input §1.1 needs in
+order to make beds stand proud by different amounts. **The coupling from
+hardness to relief is the piece nobody is building yet**, and it is the one
+that turns a palette change into a geometry change.
 
 ---
 
@@ -497,6 +566,7 @@ Board `worldgen`, all fire-and-forget:
 | `20260829T171510934Z-d57fca` | All five presets, same seed, same place — is what's missing colour, or shape? |
 | `20260829T171528452Z-31aa76` | Lighting the rock underground (blind A/B) — better, or wrongly 3D? |
 | `20260829T171542736Z-ce8024` | Lighting the rock at the surface (blind A/B) — can you tell which pane has it on at all? |
+| `20260829T173854008Z-e538d5` | The same world grown (before/after, daylight pinned) — should it arrive like this? |
 
 The pair of shading cards is the experiment: the same knob at 22% boundary
 density and at 5%. If the surface pair is indistinguishable to the owner and
