@@ -1,0 +1,199 @@
+// **A sprawling fruiting habit: short determinate axes, repeated, each one
+// ending in a truss.** The organ package's second authored habit, and
+// deliberately unlike `herb.ron` on every axis that composes a silhouette --
+// two organ species that read as one plant in two sizes would fail this phase
+// exactly as the four woody species did.
+//
+// **Not a named real plant**, for the reason `herb.ron`'s header records at
+// length: the register is habit words -- `tree`, `conifer`, `shrub`,
+// `creeper`, `grass`, `moss` -- and
+// `Reports/plant-morphology-evolvability-2026-08-26.md` §6 rules directly
+// against portraits of named plants as the artifact.
+//
+// **Sympody is what carries it, and this engine has had sympody as a
+// heritable allele since Phase 2** (`plant-morphology-reach-2026-08-23.md`
+// §2). Each axis makes a few metamers, terminates, and a lateral already
+// deposited below it takes over as the new leader. Until organs existed it
+// terminated in *nothing*, so the mechanism fired, was counted, and looked
+// like an ordinary shrub -- the fourth of the five invisible levers. What it
+// terminates in now is a **truss**: a small cluster of flowers that sets
+// fruit.
+//
+//                    herb                   bramble
+//   habit            one erect leader       sympodial, sprawling
+//   determinacy      8 metamers, once       3 metamers, over and over
+//   organs           one big terminal head  many small trusses
+//   flower colour    yellow / orange        white / violet
+//   fruit colour     gold seed head         red and crimson
+//   leaves           8-cell sprays, sparse  6-cell sprays, dense
+(
+    name: "bramble",
+    // Mid green, like a tree's -- the *foliage* is deliberately not what
+    // separates these two, because a foliage-only difference is the
+    // colour-only distinction the owner has already rejected three times.
+    foliage_bands: (first: 2, count: 2),
+    // Pale herbaceous stem, as `herb`.
+    bark_bands: (first: 6, count: 2),
+    // **White and violet**, bands 6-7 -- and the range is deliberately as
+    // far as it goes from `herb`'s 0-1. Two organ species drawing
+    // neighbouring bands would be the "biggest differences are still size
+    // and colour" verdict arriving through the one channel this phase adds.
+    flower_bands: (first: 6, count: 2),
+    // Red and crimson: bands 0-1 of `fruit`, the loudest it has.
+    fruit_bands: (first: 0, count: 2),
+    windfall_material: "windfall",
+    stomatal_reserve: 0.15,
+    seed_half_life: 16000.0,
+    remains_half_life: 600.0,
+    fates: [
+        (GrowingTip, [
+            // **Three metamers and the axis stops in a truss.** The number
+            // is the whole difference in habit between this and `herb`: a
+            // short determinate unit, repeated, is a bush; one long one is a
+            // stalk. Nothing else in the growth model differs.
+            //
+            // **What carries the plant on is sympody**, not this rule: the
+            // apex is consumed by the flowers, and a lateral already
+            // deposited below it becomes the new leader. That relay is the
+            // mechanism `LOCUS_SYMPODIAL` has expressed since Phase 2 with
+            // nothing to relay *to*.
+            (when: Node,  becomes: Flower, after_metamers: Some(3)),
+            (when: Node,  becomes: DormantBud, child: Some(GrowingTip), lateral: Some(GrowingTip)),
+            (when: Grew,  becomes: MatureBody, child: Some(GrowingTip), lateral: Some(GrowingTip)),
+            // As `herb`: an axis that starved short of its count gets
+            // no truss. Otherwise the count would be decorative.
+            (when: Stale, becomes: MatureBody),
+        ]),
+        (RootTip, [
+            (when: Grew,  becomes: MatureBody, child: Some(RootTip), lateral: Some(RootTip)),
+            (when: Stale, becomes: MatureBody),
+        ]),
+        (DormantBud, [
+            (when: Flush, becomes: GrowingTip),
+        ]),
+        (Flower, [
+            (when: Ripe, becomes: Fruit),
+        ]),
+        (Fruit, [
+            (when: Ripe, becomes: Seed),
+        ]),
+    ],
+    cell_types: [
+        (Seed, [
+            Germinate(
+                light_threshold: 0.08,
+                soil_water_threshold: 0.18,
+                instant: false,
+            ),
+        ]),
+        (GrowingTip, [
+            Grow(
+                cost: 0.14,
+                // **Branches freely**, where `herb` has none at all. With
+                // a three-metamer determinate unit, the laterals *are* the
+                // plant: every one of them is the next relay.
+                branch_chance: [0.35, 0.4],
+                continuation_weight: 0.6,
+                light_weight: [0.3, 0.35],
+                wind_weight: 0.25,
+                // **Falls away sharply with order**, which is what arching
+                // means: the leader stands, the side axes lean out. This is
+                // the single number that most separates its outline from
+                // `herb`'s -- and the first pass had it at [0.4, 0.15],
+                // which was not a bush but a mat: measured on a six-plant
+                // sheet the stand merged into one continuous ground layer
+                // across the whole world, which is the owner's standing
+                // "everything has merged together into a big mass"
+                // complaint arriving through a new species.
+                upward_weight: [0.75, 0.4],
+                crowding_weight: 30.0,
+                max_active_tips: 14,
+                // A node every two cells, so a three-metamer axis is about
+                // six cells long -- short, which is what makes the habit
+                // bushy rather than open.
+                plastochron: [2, 2],
+                penetration_force: 0.0,
+                // A low ceiling. This plant sprawls at knee height.
+                turgor_source: 0.3,
+                turgor_yield: 0.1,
+                turgor_per_cell: 0.007,
+                turgor_taper: 0.4,
+                // Floppy, against `herb`'s 0.93.
+                heading_inertia: 0.55,
+                branch_angle: [65.0, 60.0],
+                internode: [2, 2],
+                leaf_cluster: 5,
+                // **A truss, not a head**: four cells, and there are many
+                // of them. Against `herb`'s one nine-cell head, this is the
+                // same organ machinery producing an entirely different
+                // distribution over the plant.
+                organ_cluster: 5,
+                juvenile_size: 10,
+                juvenile_plastochron: 0.7,
+                juvenile_branch: 1.2,
+                genotype_variance: (0.5, 0.0, 0.4, 0.18, 0.7, 0.0, 0.4, 0.5, 0.0, 0.7),
+                // **Sympodial**, which is the whole habit -- see the fate
+                // table above. The species value is the *centre* of the
+                // founding draw, so a stand carries a monopodial minority.
+                sympodial: [true],
+                tropism: [Orthotropic, Plagiotropic],
+            ),
+            Photosynthesize(rate: 0.5, shade_death: 0.0, drought_death: 0.0),
+        ]),
+        (RootTip, [
+            Absorb(rate: 1.5),
+            Grow(
+                cost: 0.16,
+                branch_chance: [0.4],
+                continuation_weight: 0.6,
+                light_weight: [0.0],
+                wind_weight: 0.0,
+                upward_weight: [0.3],
+                crowding_weight: 0.0,
+                max_active_tips: 10,
+                plastochron: [0],
+                heading_inertia: 0.45,
+                penetration_force: 1.0,
+                genotype_variance: (0.0, 0.5, 0.0, 0.0, 0.0, 0.4, 0.0, 0.0, 0.25, 0.0),
+            ),
+        ]),
+        (MatureBody, [
+            Reproduce(seed_cost: 0.16, reproductive_allocation: 0.30, seed_maturity: 50),
+            SecondaryThicken(pipe_ratio: 16.0),
+            StructuralAnchor,
+            Absorb(rate: 1.5),
+        ]),
+        (DormantBud, [
+            BudBreak(
+                cost: 0.14,
+                thickening_survival: 0.5,
+                // **Basitonous**, against `herb`'s +1.8. What breaks is
+                // low down, which is the other half of "bush, not stalk" --
+                // Barthelemy & Caraglio's two phenomena, and the shrub file
+                // already uses the negative arm for the same reason.
+                acrotony: -1.4,
+            ),
+            StructuralAnchor,
+            SecondaryThicken(pipe_ratio: 16.0),
+        ]),
+        (Leaf, [
+            Photosynthesize(rate: 0.4, shade_death: 0.001, drought_death: 0.001),
+        ]),
+        (Flower, [
+            // Faster to *set* than `herb`, slower to ripen. The set rate is
+            // what makes a bramble carry flowers and fruit at once; the ripen
+            // rate is how long the fruit is on the plant to be *seen*, and
+            // the first pass had it at 0.02 -- fruit that appeared and fell
+            // inside 50 ticks, so a contact sheet of a fruiting stand showed
+            // flowers and no fruit at all. What is on the plant is the half
+            // a picture can judge. This habit turns over
+            // trusses continuously where an erect determinate herb spends its
+            // whole season on one head, and that difference is visible on a
+            // sheet: a bramble carries flowers and fruit at once.
+            Ripen(rate: 0.035, cost: 0.22),
+        ]),
+        (Fruit, [
+            Ripen(rate: 0.011, cost: 0.28),
+        ]),
+    ],
+)

@@ -1028,6 +1028,40 @@ when he counted all four. §Z is cards-only. Reports/open-bugs-handoff.md §Z ha
             w.leaf_cells_unaffordable, leaf_want
         );
         println!("  wood cells laid (secondary thickening, now charged): {}", w.wood_cells_built);
+        // **The organ package's four, and each answers a question the
+        // others cannot.** `CLAUDE.md`'s "did it fire at all needs a counter,
+        // not a picture" applies here more than anywhere else in the plant
+        // line: a review card of a flowering stand is judged by eye, and two
+        // very different mechanisms -- a species that flowers, and a species
+        // whose apices all starved short of their metamer count -- produce
+        // pictures that differ only in a few pixels of colour.
+        //
+        // `organs built` says the mechanism ran. `axes terminated` says
+        // *determinacy* ran, which the first cannot: a truss bearing four
+        // flowers builds four organs off one terminated axis, and the ratio
+        // between the two is the shape of the plant. `fruit dropped` is the
+        // far-side effect counter for the whole sequence -- organs can be
+        // built in quantity and never once let go. And the two binds lines
+        // are the price's own effect counters, split because "could not
+        // flower at all" and "flowered small" are different failures and a
+        // phase reporting only the first would call a stand of pinhead
+        // flowers a success.
+        if w.organs_built > 0 || w.axes_terminated > 0 {
+            println!("  organs built: {}   axes terminated in one: {}", w.organs_built, w.axes_terminated);
+            println!("  fruit dropped (a seed carried to the ground inside a windfall): {}", w.fruit_dropped);
+            let organ_ops = w.organ_charge_blocked + w.organ_charge_available;
+            let organ_pct = if organ_ops > 0 { 100.0 * w.organ_charge_blocked as f64 / organ_ops as f64 } else { 0.0 };
+            println!(
+                "  organ construction binds: {} of {} terminating apices could not pay ({organ_pct:.1}%)",
+                w.organ_charge_blocked, organ_ops
+            );
+            let head_want = w.organs_built + w.organ_cells_unaffordable;
+            let head_pct = if head_want > 0 { 100.0 * w.organ_cells_unaffordable as f64 / head_want as f64 } else { 0.0 };
+            println!(
+                "  organ cluster binds: {} of {} wanted organ cells refused for want of carbon ({head_pct:.1}%)",
+                w.organ_cells_unaffordable, head_want
+            );
+        }
         let seed_ops = w.seed_budget_blocked + w.seed_budget_available;
         let seed_pct = if seed_ops > 0 { 100.0 * w.seed_budget_blocked as f64 / seed_ops as f64 } else { 0.0 };
         println!(

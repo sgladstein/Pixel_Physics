@@ -696,7 +696,13 @@ const FOUNDER_VARIANT_CHANCE: f32 = 0.25;
 fn builtin_fate(cell_type: CellType, when: organism::FateWhen) -> Option<organism::Fate> {
     use organism::FateWhen;
     let frontier = matches!(cell_type, CellType::GrowingTip | CellType::RootTip);
-    let rule = |becomes, child, lateral| Some(organism::Fate { when, becomes, child, lateral });
+    // **`after_metamers: None` throughout, and that is what makes this the
+    // control it is meant to be.** The built-in rule is indeterminate by
+    // construction -- every axis in the engine before this phase ran until
+    // it starved or aged out -- so a determinate rule is exactly the thing a
+    // species has to author, and the agreement guard below still compares
+    // like with like.
+    let rule = |becomes, child, lateral| Some(organism::Fate { when, becomes, child, lateral, after_metamers: None });
     match when {
         // The metamer boundary. The retiring parent becomes the axillary bud
         // its leaf subtends; the leaf itself is placed beside the stem, not
@@ -721,15 +727,103 @@ fn builtin_fate(cell_type: CellType, when: organism::FateWhen) -> Option<organis
         // engine that *creates* frontier.
         FateWhen::Flush if cell_type == CellType::DormantBud => rule(CellType::GrowingTip, None, None),
         // Any other cell type at any other moment keeps its label. Notably a
-        // `Divide` child (moss) is its parent's type, which this covers.
+        // `Divide` child (moss) is its parent's type, which this covers --
+        // and so is every `FateWhen::Ripe` lookup, since no built-in species
+        // has an organ to ripen. An organ with no authored `Ripe` rule keeps
+        // its label for ever, which is a flower that persists rather than an
+        // error.
         _ => None,
     }
 }
 
 /// The production rule in force for this species, cell type and moment:
 /// whatever the species authored, else the built-in rule above.
-fn fate_for(world: &World, species_id: organism::SpeciesId, cell_type: CellType, when: organism::FateWhen) -> Option<organism::Fate> {
-    world.species.get(species_id).fate(cell_type, when).or_else(|| builtin_fate(cell_type, when))
+///
+/// `metamers` is how many nodes the acting lineage has passed — the
+/// determinacy filter on [`organism::Fate::after_metamers`]. Pass 0 wherever
+/// the count is meaningless (a bud flushing, an organ ripening): the built-in
+/// rule never sets the field, so 0 changes nothing for any species that has
+/// not authored a determinate axis.
+fn fate_for(
+    world: &World,
+    species_id: organism::SpeciesId,
+    cell_type: CellType,
+    when: organism::FateWhen,
+    metamers: u8,
+) -> Option<organism::Fate> {
+    world.species.get(species_id).fate(cell_type, when, metamers).or_else(|| builtin_fate(cell_type, when))
+}
+
+/// **What a cell of this type is made of**, for the species that owns it.
+///
+/// Organs only. The three tissue materials a species declares
+/// (`shoot`/`root`/`leaf`) are *seeds* propagated by growth — a child takes
+/// its parent's material, which is what makes a whole root system rootwood
+/// from one seeded cell — and an organ cannot work that way, because it is
+/// created by a relabel or a lateral off tissue whose material is wood.
+/// Inheriting there is precisely how a flower ends up brown.
+///
+/// Returns `None` for anything that is not an organ, so the caller keeps the
+/// propagate-from-parent behaviour untouched for every existing cell type;
+/// and falls back to the parent's material if the species names one this
+/// world has not loaded, exactly as the three tissue lookups do for a
+/// stripped asset set.
+fn organ_material(world: &World, species_id: organism::SpeciesId, cell_type: CellType) -> Option<material::MaterialId> {
+    let sp = world.species.get(species_id);
+    let name = match cell_type {
+        CellType::Flower => &sp.flower_material,
+        CellType::Fruit => &sp.fruit_material,
+        _ => return None,
+    };
+    world.materials.id_of(name)
+}
+
+/// The `shade` byte for an organ cell, drawn from the species' declared band
+/// of its organ palette — the same `PALETTE_BAND` mechanism `banded_shade`
+/// runs for foliage and bark, and the reason a stand of poppies is a spread
+/// of related reds rather than sixteen draws of one.
+///
+/// **The band is the individual's, from its own genome-keyed draw.** A
+/// separate draw from `foliage_band`/`bark_band` deliberately: petal colour
+/// is the loudest single pixel a plant owns, and tying it to the leaf-economy
+/// allele would make it a readout of a trait it has nothing to do with.
+fn organ_shade(world: &World, organism_id: u16, material_id: material::MaterialId, cell_type: CellType, rng: &mut Rng) -> u8 {
+    let palette_len = world.materials.get(material_id).palette.len().max(1) as u32;
+    let declared = world.organism(organism_id).map(|s| {
+        let sp = world.species.get(s.species);
+        match cell_type {
+            CellType::Fruit => (sp.fruit_bands.count, s.fruit_band),
+            _ => (sp.flower_bands.count, s.flower_band),
+        }
+    });
+    match declared {
+        Some((count, index)) if count > 0 => index * organism::PALETTE_BAND + rng.below(organism::PALETTE_BAND as u32) as u8,
+        _ => rng.below(palette_len) as u8,
+    }
+}
+
+/// The material and shade a freshly created organism cell should carry:
+/// the species' organ material where the type is an organ, and the parent's
+/// own material and band otherwise.
+///
+/// One helper rather than the same three lines at the four creation sites
+/// (continuation child, lateral child, terminal relabel, organ relabel),
+/// because the failure it prevents is silent: a site that forgets it makes a
+/// flower out of wood, which looks like ordinary stem and reads as "the
+/// mechanism did nothing".
+fn tissue_appearance(
+    world: &World,
+    organism_id: u16,
+    species_id: organism::SpeciesId,
+    cell_type: CellType,
+    parent_material: material::MaterialId,
+    band: Band,
+    rng: &mut Rng,
+) -> (material::MaterialId, u8) {
+    match organ_material(world, species_id, cell_type) {
+        Some(m) => (m, organ_shade(world, organism_id, m, cell_type, rng)),
+        None => (parent_material, banded_shade(world, organism_id, parent_material, band, rng)),
+    }
 }
 
 /// Draw this individual's genotype, once, from **where it germinated**.
@@ -794,10 +888,10 @@ pub fn seed_genotype(world: &mut World, organism_id: u16, x: i32, y: i32) {
     // `SpeciesId` is `Copy`, so reading it out ends the organism borrow
     // before the registry one begins — `world` is `&mut` here.
     let species_id = world.organism(organism_id).map(|s| s.species);
-    let (foliage, bark) = match species_id {
+    let (foliage, bark, flower, fruit) = match species_id {
         Some(id) => {
             let sp = world.species.get(id);
-            (sp.foliage_bands, sp.bark_bands)
+            (sp.foliage_bands, sp.bark_bands, sp.flower_bands, sp.fruit_bands)
         }
         None => Default::default(),
     };
@@ -809,6 +903,13 @@ pub fn seed_genotype(world: &mut World, organism_id: u16, x: i32, y: i32) {
         bands.first + rng.below(bands.count as u32) as u8
     };
     let foliage_band = pick(foliage, 64);
+    // **Streams 70 and 71**, appended after the four `vary` streams below
+    // (66-69) rather than spliced among them. Each `pick`/`vary` builds its
+    // own keyed stream rather than sharing one, so appending here cannot
+    // shift any existing draw -- which is the property that made adding
+    // these two safe where widening `GENOTYPE_TRAITS` was not.
+    let flower_band = pick(flower, 70);
+    let fruit_band = pick(fruit, 71);
     let density_allele = {
         let mut rng = rng::stream(world_seed, x as u64, y as u64, 65);
         rng.below(organism::LOCUS_ALLELES[organism::LOCUS_WOOD_DENSITY] as u32) as u8
@@ -881,6 +982,8 @@ pub fn seed_genotype(world: &mut World, organism_id: u16, x: i32, y: i32) {
         state.genotype_draws = draws;
         state.foliage_band = foliage_band;
         state.bark_band = bark_band;
+        state.flower_band = flower_band;
+        state.fruit_band = fruit_band;
         state.alleles = alleles;
     }
 }
@@ -940,6 +1043,65 @@ fn banded_shade(world: &World, organism_id: u16, material: material::MaterialId,
 /// population runs long enough to measure allele spread per generation.
 const MUTATION_SIGMA: f32 = 0.08;
 
+/// **A ripe fruit lets go.**
+///
+/// The cell stops being the parent's and becomes a fresh child organism's
+/// `CellType::Seed`, wearing the species' `windfall_material` — a `Powder`,
+/// so from the instant this returns the fruit is falling, rolling, piling in
+/// hollows and coming to rest wherever the world takes it, entirely through
+/// CA rules that already exist. There is no dispersal code here and there
+/// does not need to be, which is the whole argument for the owner's *fruit
+/// carries the seed* call over converting in place.
+///
+/// **In place, not into a neighbour**, which is the one way this differs from
+/// `set_seed`. A fruit does not bear a seed beside itself; it *is* the thing
+/// that falls. Handing the cell over rather than writing a second one is also
+/// what keeps a fruiting crown from doubling in mass as it ripens.
+///
+/// Returns `false` — leaving the fruit hanging, ripe, to try again — when
+/// there is no organism slot free or the material is missing from this
+/// world's set. The caller has not been charged at that point, so a refusal
+/// costs the plant nothing, exactly as `set_seed`'s does.
+fn drop_organ(world: &mut World, x: i32, y: i32, parent_id: u16, cost: f32, rng: &mut Rng) -> bool {
+    let Some(species) = world.organism(parent_id).map(|s| s.species) else {
+        return false;
+    };
+    // Falls back to `seed` if the species names a material this world has
+    // not loaded, exactly as every other species material lookup does: a
+    // stripped asset set should degrade to a plain seed, not stop fruiting.
+    let name = world.species.get(species).windfall_material.clone();
+    let Some(material_id) = world.materials.id_of(&name).or_else(|| world.materials.id_of("seed")) else {
+        return false;
+    };
+    // The parent pays the provisioning here rather than at the call site, so
+    // that a refused drop is free -- `bear_seed_at` is what carries the cost
+    // into the child's `endowment`.
+    if !bear_seed_at(world, x, y, parent_id, cost, material_id, rng) {
+        return false;
+    }
+    world.fruit_dropped += 1;
+    true
+}
+
+/// One band index inside a declared `PaletteBands` range, or 0 where the
+/// species declares none — which is the first band of whatever palette the
+/// material has, i.e. the pre-band look.
+fn draw_band(bands: organism::PaletteBands, rng: &mut Rng) -> u8 {
+    if bands.count == 0 {
+        return 0;
+    }
+    bands.first + rng.below(bands.count as u32) as u8
+}
+
+/// The substream slot the organ-band draws take inside `bear_seed_at`'s
+/// `(generation, slot)` key.
+///
+/// **Well above `GENOTYPE_TRAITS`**, deliberately: that key's low byte is a
+/// genome slot index, and colliding with a slot the jitter loop uses would
+/// give one trait and one colour the same stream. 200 leaves room for the
+/// genome to grow by an order of magnitude first.
+const ORGAN_BAND_STREAM: u64 = 200;
+
 /// **How many genome slots `set_seed` mutates before it rolls the discrete
 /// loci** — the frozen prefix of the inherited-mutation draw order.
 ///
@@ -979,17 +1141,12 @@ const APPENDED_JITTER_SALT: u64 = 0x5361_6C74_4A69_7472;
 /// parent except `seed_genotype`, which must not redraw over the genome
 /// this copies in.
 fn set_seed(world: &mut World, x: i32, y: i32, parent_id: u16, seed_cost: f32, rng: &mut Rng) -> bool {
-    let Some((species, draws, generation, parent_alleles)) = world
-        .organism(parent_id)
-        .map(|s| (s.species, s.genotype_draws, s.generation, s.alleles))
-    else {
+    if world.organism(parent_id).is_none() {
         return false;
-    };
+    }
     let Some(seed_material) = world.materials.id_of("seed") else {
         return false;
     };
-    // Read before the `organism_mut` borrow below, which holds `world`.
-    let world_seed = world.seed;
     // Somewhere open beside the parent cell. Deliberately *any* free
     // neighbour rather than a chosen direction: a seed is a falling powder,
     // so where it ends up is the world's business, not the plant's.
@@ -998,9 +1155,37 @@ fn set_seed(world: &mut World, x: i32, y: i32, parent_id: u16, seed_cost: f32, r
         return false;
     }
     let (sx, sy) = spots[rng.below(spots.len() as u32) as usize];
-    let (foliage_first, foliage_count, bark_bands) = {
+    bear_seed_at(world, sx, sy, parent_id, seed_cost, seed_material, rng)
+}
+
+/// **Bear one seed at a named cell, in a named material.**
+///
+/// The whole of `set_seed` except choosing where — extracted so the fruit
+/// drop can reach it, because a windfall is a seed in every respect that
+/// matters (a child organism, a mutated genome, an endowment, a
+/// `CellType::Seed` that germinates where it comes to rest) and differs only
+/// in *where* it appears and *what it is made of*. Duplicating a hundred
+/// lines of genome plumbing for that would have been two lineages of
+/// inheritance drifting apart, which is the shape of bug this file already
+/// records under `set_seed_leaves_the_callers_rng_position_alone`.
+///
+/// **The split is above the spot draw and below nothing else**, deliberately.
+/// `set_seed`'s draw order is a measured record — the caller's `Rng` position
+/// on return is asserted by a guard — so the extraction had to leave the
+/// sequence *choose a spot, draw a shade, mutate the genome* exactly where it
+/// was. The drop path has no spot draw at all: a fruit lets go where it hangs.
+fn bear_seed_at(world: &mut World, sx: i32, sy: i32, parent_id: u16, seed_cost: f32, seed_material: material::MaterialId, rng: &mut Rng) -> bool {
+    let Some((species, draws, generation, parent_alleles)) = world
+        .organism(parent_id)
+        .map(|s| (s.species, s.genotype_draws, s.generation, s.alleles))
+    else {
+        return false;
+    };
+    // Read before the `organism_mut` borrow below, which holds `world`.
+    let world_seed = world.seed;
+    let (foliage_first, foliage_count, bark_bands, flower_bands, fruit_bands) = {
         let sp = world.species.get(species);
-        (sp.foliage_bands.first, sp.foliage_bands.count, sp.bark_bands)
+        (sp.foliage_bands.first, sp.foliage_bands.count, sp.bark_bands, sp.flower_bands, sp.fruit_bands)
     };
 
     // **A seed that cannot get a slot is not set**, and the refusal is
@@ -1102,6 +1287,22 @@ fn set_seed(world: &mut World, x: i32, y: i32, parent_id: u16, seed_cost: f32, r
         // change when the wood underneath it does.
         state.foliage_band = foliage_first + state.alleles[organism::LOCUS_LEAF_ECONOMY].min(foliage_count.saturating_sub(1));
         state.bark_band = organism::bark_band_for_density(bark_bands, state.alleles[organism::LOCUS_WOOD_DENSITY]);
+        // **Organ colour is redrawn per individual, not inherited**, and the
+        // gap is stated rather than papered over. There is no locus for
+        // petal or fruit colour yet, so there is nothing for `alleles` to
+        // carry and nothing for a mutation to move; copying the parent's
+        // byte would make it heritable-but-immutable, which is exactly the
+        // defect the bark band above was fixed *out* of ("heritable but
+        // immutable, a channel evolution could not move"). Giving it a real
+        // locus is a genome change and belongs with the heritability survey.
+        //
+        // From the appended-jitter substream keyed on the landing cell and
+        // the parent's generation, never from `rng`: this function's
+        // caller keeps using that stream, and its position on return is
+        // asserted by a guard.
+        let mut band_rng = rng::stream(world_seed ^ APPENDED_JITTER_SALT, sx as u64, sy as u64, (generation as u64) << 8 | ORGAN_BAND_STREAM);
+        state.flower_band = draw_band(flower_bands, &mut band_rng);
+        state.fruit_band = draw_band(fruit_bands, &mut band_rng);
         // The provisioning: what the parent paid rides with the child and
         // becomes its first stake at germination -- see
         // `OrganismState::endowment` for why this is species plumbing
@@ -1647,6 +1848,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 turgor_taper,
                 heading_inertia,
                 leaf_cluster,
+                organ_cluster,
                 juvenile_size,
                 juvenile_plastochron,
                 juvenile_branch,
@@ -1804,6 +2006,127 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 // What the ageing-out must *not* do is drop a cell on the
                 // floor, which is the bug this pass fixed a few lines
                 // below: see the stale-limit retirement.
+                // **The metamer clock, hoisted above every growth gate** --
+                // and the hoist is what makes determinacy work rather than
+                // a tidy-up. A determinate axis has finished; whether it
+                // could have afforded another step, or had room for one, or
+                // was under its turgor bound, is no longer the question. The
+                // three gates below all `continue`, so leaving this after
+                // them would have made "the axis terminates in a flower"
+                // conditional on the axis being able to grow, which is
+                // exactly backwards.
+                //
+                // Both values are pure functions of the `plastochron` the
+                // active site already carries, so this costs no state and
+                // reads identically where the child-creation code below uses
+                // them again.
+                let lineage_step = plastochron.saturating_add(1);
+                let leaf_due = plastochron_interval > 0 && lineage_step.is_multiple_of(plastochron_interval);
+                // Nodes passed, not cells laid -- the unit `after_metamers`
+                // is authored in. Zero where the species has no plastochron
+                // at all (a root), which is right: an axis with no metamers
+                // can never satisfy a metamer count, so a root cannot flower
+                // by accident.
+                let metamers = if plastochron_interval > 0 { lineage_step / plastochron_interval } else { 0 };
+                let when = if leaf_due { organism::FateWhen::Node } else { organism::FateWhen::Grew };
+                let fate = fate_for(world, species_id, cell_type, when, metamers);
+
+                // **The determinate terminal.** The apex is *consumed* by
+                // the organ -- a floral meristem is not a vegetative one
+                // wearing a hat -- so this creates no child and the lineage
+                // ends here. That is what determinate means, and it is why
+                // no `child`/`lateral` value is read on this path: the field
+                // the viability gate found lethal in 5 of 6 mutations is the
+                // one field an organ never has to touch
+                // (`Reports/plant-fate-viability-2026-08-28.md` §2).
+                if let Some(organ) = fate.filter(|f| f.becomes.is_organ()) {
+                    // **Charged at the decision, per tissue** -- the owner's
+                    // 2026-08-27 ruling, denominated against
+                    // `LEAF_CONSTRUCTION_MULTIPLE` like every other price in
+                    // this economy. Against `tissue_cost` rather than the
+                    // density-scaled `cost` for the reason the leaf charge
+                    // gives: wood density is a property of *wood*, and a
+                    // dense-wood individual paying more for a petal would be
+                    // an arm of `WOOD_DENSITY_ALLELES` nobody designed.
+                    let organ_cost = tissue_cost * ORGAN_CONSTRUCTION_MULTIPLE;
+                    if resource < organ_cost {
+                        // **A graded outcome, not a refusal.** The tip keeps
+                        // its label and tries again next tick; if it never
+                        // affords one it ages out through `FateWhen::Stale`
+                        // and the axis simply stops, which on screen is a
+                        // stalk with no head. `CLAUDE.md`'s first ethos law:
+                        // a plant that is either flowering or gone has the
+                        // same defect the uniform rubble did.
+                        world.organ_charge_blocked += 1;
+                        continue;
+                    }
+                    world.organ_charge_available += 1;
+                    resource -= organ_cost;
+                    let (organ_mat, organ_shade) =
+                        tissue_appearance(world, organism_id, species_id, organ.becomes, cell.material, Band::Bark, &mut rng);
+                    world.set(
+                        x,
+                        y,
+                        Cell::new(organ_mat, organ_shade).with_organism_id(organism_id).with_aux(organism::pack_cell_type(organ.becomes)),
+                    );
+                    // The cell did not change hands, so `World::set`'s
+                    // `was == now` fast path leaves the sidecar alone and
+                    // order/path length ride through untouched. Only the
+                    // carbon has actually moved.
+                    write_carbon(world, x, y, resource);
+                    world.organs_built += 1;
+                    world.axes_terminated += 1;
+                    // **The head.** One cell of a new colour on a stalk is a
+                    // material change with the size half missing, and size
+                    // plus material is the only lever that has ever read
+                    // here -- see `Behavior::Grow::organ_cluster`. Charged
+                    // per cell and truncated by what is left, so the head is
+                    // as big as the plant can pay for.
+                    let mut head = vec![(x, y)];
+                    let mut frontier_i = 0;
+                    while head.len() < organ_cluster as usize && resource >= organ_cost {
+                        let Some(&(fx, fy)) = head.get(frontier_i) else { break };
+                        frontier_i += 1;
+                        let open: Vec<(i32, i32)> =
+                            NEIGHBOURS_8.iter().map(|&(dx, dy)| (fx + dx, fy + dy)).filter(|&(nx, ny)| world.is_empty(nx, ny)).collect();
+                        if open.is_empty() {
+                            // Nothing free off this cell; try the next one
+                            // already in the head before giving up, which is
+                            // what makes a head boxed in on one side grow
+                            // out of the other rather than stopping at one.
+                            if frontier_i >= head.len() {
+                                break;
+                            }
+                            continue;
+                        }
+                        let (hx, hy) = open[rng.below(open.len() as u32) as usize];
+                        resource -= organ_cost;
+                        let (m, sh) = tissue_appearance(world, organism_id, species_id, organ.becomes, cell.material, Band::Bark, &mut rng);
+                        world.set(hx, hy, Cell::new(m, sh).with_organism_id(organism_id).with_aux(organism::pack_cell_type(organ.becomes)));
+                        write_order(world, hx, hy, order);
+                        write_path_len(world, hx, hy, own_path);
+                        world.organs_built += 1;
+                        // Each cell of the head runs its own ripening clock,
+                        // so a head sets and drops as a scatter of fruit
+                        // over several ticks rather than all at once --
+                        // graded, which is what the fall should look like.
+                        next.push(reschedule_organism(hx, hy, organism_id, 0, 0, world.organism_due(ORGANISM_TICK_INTERVAL)));
+                        head.push((hx, hy));
+                    }
+                    world.organ_cells_unaffordable += (organ_cluster as usize - head.len()) as u64;
+                    write_carbon(world, x, y, resource);
+                    cell_type = organ.becomes;
+                    // The organ's own clock starts now, on the ordinary
+                    // organism cadence -- `Behavior::Ripen` runs from here.
+                    found_candidate = true;
+                    // Nothing else this cell was going to do this tick
+                    // applies to what it has just become: the remaining
+                    // behaviours in the buffer were fetched for a
+                    // `GrowingTip`, and `cell` is now stale. A tip that has
+                    // flowered does not also photosynthesise as a tip.
+                    break;
+                }
+
                 if resource < cost {
                     continue;
                 }
@@ -2185,8 +2508,9 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 // never fired on anything. Persistent `Leaf` cells make the
                 // count grow with the canopy, which is the signal
                 // Shinozaki's pipe model actually specifies.
-                let lineage_step = plastochron.saturating_add(1);
-                let leaf_due = plastochron_interval > 0 && lineage_step.is_multiple_of(plastochron_interval);
+                // `lineage_step`/`leaf_due` are computed once above the
+                // growth gates, where the metamer clock needs them -- see
+                // the determinate terminal there.
                 // **The branching oscillator.** Slot 1 multiplies the
                 // priming *rate*, so the interval divides by the draw: a
                 // high draw primes more densely, which is the direction
@@ -2276,8 +2600,9 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 // reach one. `builtin_fate` holds the exact expression this
                 // replaced, and a guard proves any authored table agrees with
                 // it -- see `an_authored_fate_table_agrees_with_the_builtin_rule`.
-                let when = if leaf_due { organism::FateWhen::Node } else { organism::FateWhen::Grew };
-                let fate = fate_for(world, species_id, cell_type, when);
+                // `when`/`fate` likewise: looked up once above, where the
+                // determinate terminal reads it, and reused here rather than
+                // asked twice per grow tick.
                 let self_type_after_grow = fate.map_or(cell_type, |f| f.becomes);
                 // What the continuation and the lateral are *created* as.
                 // Both are the growing cell's own type under the built-in
@@ -2303,14 +2628,25 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 // material being entered is what carries the resistance.
                 let step_cost = cost * penetration_cost_mult(world, tx, ty);
 
-                let shade = banded_shade(world, organism_id, cell.material, Band::Bark, &mut rng);
+                // **The child's material follows its *type*, not its
+                // parent** -- for an organ, and only for an organ. Every
+                // other cell type keeps the propagate-from-parent rule that
+                // makes a whole root system rootwood from one seeded cell;
+                // a `Fruit` created as a lateral off a wood stem would
+                // otherwise be a wood-coloured cell called a fruit, which is
+                // the fifth invisible label change wearing a sixth costume.
+                let (child_material, shade) =
+                    tissue_appearance(world, organism_id, species_id, child_type, cell.material, Band::Bark, &mut rng);
                 // Canopy density deposited once, here, at creation --
                 // `organism::diffuse_resource`'s own doc explains why this
                 // lives at the moment of growth rather than a continuous
                 // per-tick re-deposit: it lets decay actually fade the
                 // signal over time instead of fighting a refill every
                 // single sweep visit.
-                let new_cell = Cell::new(cell.material, shade).with_organism_id(organism_id).with_aux(organism::pack_cell_type(child_type));
+                let new_cell = Cell::new(child_material, shade).with_organism_id(organism_id).with_aux(organism::pack_cell_type(child_type));
+                if child_type.is_organ() {
+                    world.organs_built += 1;
+                }
                 displace_soil_water(world, tx, ty);
                 world.set(tx, ty, new_cell);
                 // Straight continuation of this shoot, so the child keeps
@@ -2512,9 +2848,20 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                         // just means no branch this tick.
                         let branch_step_cost = cost * penetration_cost_mult(world, bx, by);
                         if growable(world, bx, by, penetration_force) && resource >= branch_step_cost {
-                            let branch_shade = banded_shade(world, organism_id, cell.material, Band::Bark, &mut rng);
+                            // Same organ-material rule as the primary child
+                            // above. **This is the truss**: a lateral whose
+                            // label differs from its parent's is a fruiting
+                            // side-axis, and it is a `lateral`
+                            // mutation -- one of the two fields the viability
+                            // gate took 34 mutations on without a single
+                            // sterile plant.
+                            let (branch_material, branch_shade) =
+                                tissue_appearance(world, organism_id, species_id, lateral_type, cell.material, Band::Bark, &mut rng);
                             let branch_cell =
-                                Cell::new(cell.material, branch_shade).with_organism_id(organism_id).with_aux(organism::pack_cell_type(lateral_type));
+                                Cell::new(branch_material, branch_shade).with_organism_id(organism_id).with_aux(organism::pack_cell_type(lateral_type));
+                            if lateral_type.is_organ() {
+                                world.organs_built += 1;
+                            }
                             displace_soil_water(world, bx, by);
                             world.set(bx, by, branch_cell);
                             // **The only place order increases.** A lateral
@@ -2926,6 +3273,86 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 // hasn't germinated yet).
                 found_candidate = true;
             }
+            // **An organ's clock**, and the whole flower -> fruit ->
+            // windfall sequence. See `Behavior::Ripen`.
+            Behavior::Ripen { rate, cost } => {
+                let ripeness = world.organism_cell(x, y).map_or(0.0, |c| c.ripeness) + rate;
+                if ripeness < 1.0 {
+                    if let Some(slot) = world.organism_cell_mut(x, y) {
+                        slot.ripeness = ripeness;
+                    }
+                    // Still running: keep the site scheduled. This is the
+                    // "had somewhere to try" sense `found_candidate` already
+                    // carries everywhere else in this dispatch, not a claim
+                    // that anything grew.
+                    found_candidate = true;
+                    continue;
+                }
+                // Ripe. What happens next is the species' business, and an
+                // organ with no `Ripe` rule authored simply stops here --
+                // it keeps its label, `found_candidate` stays false, and the
+                // cell leaves the schedule as an inert flower. That is the
+                // honest reading of an absent rule.
+                let Some(ripe) = fate_for(world, species_id, cell_type, organism::FateWhen::Ripe, 0) else {
+                    continue;
+                };
+                // **The seed path, and it does not convert in place.** Owner
+                // call, 2026-08-23: fruit *carries* the seed. `drop_organ`
+                // hands the cell to a fresh child organism as a falling
+                // powder, so dispersal is the CA's existing powder rules
+                // rather than any code written here -- and a fruit that
+                // rolls down a slope has left its parent's shade, which is
+                // the spatial half the evolution arc was missing.
+                if ripe.becomes == CellType::Seed {
+                    if resource < cost {
+                        // Not enough to provision the seed inside it. The
+                        // fruit hangs, ripe, and tries again -- graded, not
+                        // a refusal, exactly as the construction charge is.
+                        found_candidate = true;
+                        continue;
+                    }
+                    if drop_organ(world, x, y, organism_id, cost, &mut rng) {
+                        // The cell now belongs to the child. Nothing this
+                        // tick may touch it again, and there is no site to
+                        // reschedule -- `drop_organ` scheduled the child's.
+                        return next;
+                    }
+                    // Refused (no slot, no material): stay ripe and retry.
+                    found_candidate = true;
+                    continue;
+                }
+                // Fruit set: a relabel plus the material swap that makes it
+                // visible, charged at the decision like every other tissue.
+                if resource < cost {
+                    found_candidate = true;
+                    continue;
+                }
+                resource -= cost;
+                let (organ_mat, organ_shade) =
+                    tissue_appearance(world, organism_id, species_id, ripe.becomes, cell.material, Band::Bark, &mut rng);
+                let (keep_order, keep_path) =
+                    world.organism_cell(x, y).map_or((order, 0), |c| (c.order, c.path_len));
+                world.set(x, y, Cell::new(organ_mat, organ_shade).with_organism_id(organism_id).with_aux(organism::pack_cell_type(ripe.becomes)));
+                // `World::set` hands a cell that changed material a fresh,
+                // zeroed sidecar, so everything the flower carried has to be
+                // restated -- and `ripeness` restarts at 0 deliberately: the
+                // fruit runs its own clock, which is what makes set and
+                // ripening two stages rather than one.
+                write_carbon(world, x, y, resource);
+                write_order(world, x, y, keep_order);
+                if let Some(slot) = world.organism_cell_mut(x, y) {
+                    slot.path_len = keep_path;
+                }
+                if ripe.becomes.is_organ() {
+                    world.organs_built += 1;
+                }
+                cell_type = ripe.becomes;
+                found_candidate = true;
+                // The behaviours in the buffer were fetched for a `Flower`
+                // and `cell` is now stale -- same reason the determinate
+                // terminal breaks rather than continuing.
+                break;
+            }
             // A tag other systems (`structural.rs`) read directly off
             // `CellType`/species data -- no per-tick behavior of its own.
             Behavior::StructuralAnchor => {}
@@ -2957,7 +3384,17 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
     // principle ("plants only change at their tips -- a trunk is inert"),
     // which the implementation inverted for as long as `SecondaryThicken`
     // reported work on every mature cell forever.
-    if !is_frontier(cell_type) && next.is_empty() {
+    // **An organ stays scheduled only while its clock is still running.**
+    // `Behavior::Ripen` sets `found_candidate` when it has work left and
+    // leaves it clear when it does not, so a flower that has set, a fruit
+    // that has dropped, or an organ whose species authored no `Ripe` rule
+    // falls out of the schedule here exactly like any other settled tissue.
+    // That is M16's own principle -- only actively changing cells stay
+    // scheduled -- and it is why organs cost the heap nothing once they are
+    // done. Without the exception an organ would leave the schedule on the
+    // very tick it was created and never ripen at all: the symptom would be
+    // fruit that never falls, with `organs_built` reading perfectly healthy.
+    if !is_frontier(cell_type) && next.is_empty() && !(cell_type.is_organ() && found_candidate) {
         return next;
     }
     if found_candidate || !next.is_empty() {
@@ -3002,7 +3439,15 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
         // would silently produce no terminal organ, and the only symptom
         // would be a counter reading low.
         let stale_becomes =
-            fate_for(world, species_id, cell_type, organism::FateWhen::Stale).map_or(CellType::MatureBody, |f| f.becomes);
+            // **Metamers 0 here, and it is the right answer rather than a
+            // convenience.** `organism_tick`'s tail has the site's raw
+            // `plastochron` but not the species' interval -- that is a
+            // `Behavior::Grow` field, and a tip aging out has by definition
+            // not reached one this tick. A determinate species therefore
+            // authors its `Stale` rule unconditionally (the axis stops), and
+            // its determinate rule on the `Grew`/`Node` path where the count
+            // is known.
+            fate_for(world, species_id, cell_type, organism::FateWhen::Stale, 0).map_or(CellType::MatureBody, |f| f.becomes);
         world.set(x, y, cell.with_aux(organism::pack_cell_type(stale_becomes)));
         write_carbon(world, x, y, resource);
         // `MatureBody` still needs its own periodic upkeep if the species
@@ -3554,6 +3999,35 @@ const REPRODUCTIVE_BUDGET_CAP: f32 = organism::RESOURCE_SCALE;
 /// a smaller one rather than none: see the truncation at the call site,
 /// which is what keeps this graded instead of a cliff.
 const LEAF_CONSTRUCTION_MULTIPLE: f32 = 1.2;
+
+/// **What an organ cell costs to build**, as a multiple of the species' own
+/// `Grow.cost` — the third and dearest tissue price, after
+/// `LEAF_CONSTRUCTION_MULTIPLE` (1.2) and `WOOD_CONSTRUCTION_MULTIPLE` (0.8).
+///
+/// **Denominated against the leaf rather than picked**, which is what the
+/// handoff asks for: the ordering is what carries meaning here, not the
+/// absolute number, and the ordering is the biology's. Construction cost
+/// runs ~1.2–1.4 g glucose/g for stem and ~1.4–1.6 for leaf (Penning de
+/// Vries et al. 1974; Poorter 1994) on protein and lipid content; a petal
+/// and a fruit are richer again in both, and a fruit additionally carries
+/// the provisioning of the seed inside it. 2.0 is that ordering taken as an
+/// ordering — twice a stem cell, well above a leaf — not as a measurement.
+///
+/// **What it must not be is small enough never to bind.** The whole audit
+/// this price joins (`Reports/plant-equilibrium-costs-2026-08-27.md`) exists
+/// because `seed_chance` was a rate fence standing where a price should be,
+/// and quadrupling the carbon allocation moved seed output by nothing. So
+/// this is paired with `World::organ_charge_blocked`/`organ_charge_available`
+/// from the far side of the call, and the ratio between them is the number
+/// that says whether it is a ceiling or a decoration.
+///
+/// **Affordable from one cell, which is the binding constraint on how large
+/// it may be.** Charge-at-the-decision means the acting cell pays out of its
+/// own carbon, and a cell holds at most `RESOURCE_SCALE` (4.0). At tree's
+/// `Grow.cost: 0.2` this is 0.4 — a fifth of a full cell — so an apex in
+/// reasonable light can pay and one in deep shade cannot, which is the
+/// gradient the price exists to create.
+const ORGAN_CONSTRUCTION_MULTIPLE: f32 = 2.0;
 
 /// **What any living cell costs to run, per organism tick** — the mass
 /// term of maintenance respiration, charged on root and shoot alike.
@@ -4522,7 +4996,7 @@ fn break_buds(world: &mut World, organism_id: u16) {
     // Read from the production rule so the whole automaton lives in one
     // table -- wiring only `Grow` would leave half of it hardcoded and make
     // the heritable half arbitrary.
-    let flush_becomes = fate_for(world, species_id, CellType::DormantBud, organism::FateWhen::Flush)
+    let flush_becomes = fate_for(world, species_id, CellType::DormantBud, organism::FateWhen::Flush, 0)
         .map_or(CellType::GrowingTip, |f| f.becomes);
     world.set(bx, by, cell.with_aux(organism::pack_cell_type(flush_becomes)));
     // The richest cell pays the flush price; the bud keeps its own stake.
@@ -4935,6 +5409,9 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
     // after the walk because the collar row is not known until it ends.
     let mut shoot_in_row: std::collections::HashMap<i32, u32> = std::collections::HashMap::new();
     let (mut root_cells, mut shoot_cells) = (0u32, 0u32);
+    // Organs, counted apart from the shoot for the reason spelled out at the
+    // branch below -- see also `OrganismState::organ_cells`.
+    let mut organ_cells = 0u32;
     // **The root system as an uptake surface rather than a mass** — see
     // `OrganismState::contact_root_cells`. Four-neighbour, because an
     // exchange crosses a face.
@@ -5094,6 +5571,30 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
                     write_primed(world, cx, cy, false);
                 }
             }
+        } else if ty.is_some_and(CellType::is_organ) {
+            // **An organ is not shoot tissue, and the exemption is the
+            // sharpest single item in the phase.**
+            // `Reports/plant-organs-handoff-2026-08-28.md` §6: `shoot_cells`
+            // feeds three consumers at once -- `seed_maturity_met`, the
+            // juvenile check, and the per-bearer denominator that spreads a
+            // tick's affordable seeds over the crown. Counting organs in it
+            // would therefore *advance* the maturity fence and *dilute* the
+            // seed rate simultaneously, a two-sided reallocation of an
+            // economy PR #84 calibrated to bind at ~79%, arriving as a side
+            // effect of a materials change nobody would connect it to.
+            //
+            // So they are counted separately. The number is not merely
+            // dropped: `organ_cells` is what a probe reads to answer "is
+            // this plant carrying anything", and a quantity with no reader
+            // is the failure this repo has shipped three times.
+            //
+            // **Nor are they in the crown moment or the collar/top span.**
+            // A flower has mass and does overturn a plant in reality, but
+            // `crown_moment` is calibrated against vegetative shoot mass and
+            // adding a second, differently-timed contributor to it would be
+            // a change to the anchorage economy wearing an organ's clothes.
+            // Stated here rather than left to be noticed.
+            organ_cells += 1;
         } else {
             shoot_cells += 1;
             shoot_y_sum += cy as i64;
@@ -5147,6 +5648,7 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
         state.root_cells = root_cells;
         state.contact_root_cells = contact_root_cells;
         state.shoot_cells = shoot_cells;
+        state.organ_cells = organ_cells;
         state.collar_y = collar_y;
         state.shoot_top_y = shoot_top_y;
         state.crown_moment = crown_moment;
@@ -5468,10 +5970,18 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
                 // demand scales with a canopy of over a thousand leaves.
                 // See `absorb_water`.
                 Behavior::Absorb { rate } => absorb_water(world, cx, cy, rate),
+                // **`Ripen` is not in the upkeep pass, deliberately.** An
+                // organ's clock runs from its own active site
+                // (`organism_tick`), which is where the fate lookup, the
+                // material swap and the drop all live. Running it here as
+                // well would tick every organ twice, and a fruit would ripen
+                // at double the authored rate for no reason a species author
+                // could see.
                 Behavior::Grow { .. }
                 | Behavior::Divide { .. }
                 | Behavior::Germinate { .. }
                 | Behavior::BudBreak { .. }
+                | Behavior::Ripen { .. }
                 | Behavior::StructuralAnchor => {}
             }
         }
@@ -8125,6 +8635,19 @@ The night factor belongs on income only -- see NIGHT_INCOME_FLOOR"
         let w = test_world();
         let mut authored_species = 0usize;
         let mut authored_answers = 0usize;
+        // **`herb` and `bramble` are deliberately not in this list**, and
+        // the omission is the point of the change that added them. Their
+        // whole purpose is to *disagree* with the built-in rule: a
+        // determinate axis terminating in a flower is exactly a production
+        // rule the built-in one cannot express. Adding them here would make
+        // this guard fail for the right reason, and dropping the guard to
+        // accommodate them would lose the proof that the five indeterminate
+        // species still behave as they did before the fate table existed.
+        //
+        // The guard that covers *them* is
+        // `a_determinate_species_terminates_its_axis_in_an_organ`, which
+        // checks the property they exist for rather than agreement with a
+        // rule they contradict.
         for name in ["tree", "conifer", "shrub", "creeper", "grass", "moss"] {
             let Some(id) = w.species.id_of(name) else { continue };
             if w.species.get(id).has_fates() {
@@ -8132,24 +8655,24 @@ The night factor belongs on income only -- see NIGHT_INCOME_FLOOR"
             }
             for ct in TYPES {
                 for when in WHENS {
-                    let authored = w.species.get(id).fate(ct, when);
+                    let authored = w.species.get(id).fate(ct, when, 0);
                     if authored.is_some() {
                         authored_answers += 1;
                     }
                     assert_eq!(
-                        fate_for(&w, id, ct, when).map(|f| f.becomes),
+                        fate_for(&w, id, ct, when, 0).map(|f| f.becomes),
                         builtin_fate(ct, when).map(|f| f.becomes),
                         "{name}: the authored fate for {ct:?} at {when:?} disagrees with the \
                          built-in rule. This refactor's whole claim is that moving the production \
                          rule into data changed no behaviour -- see `builtin_fate`."
                     );
                     assert_eq!(
-                        fate_for(&w, id, ct, when).and_then(|f| f.child),
+                        fate_for(&w, id, ct, when, 0).and_then(|f| f.child),
                         builtin_fate(ct, when).and_then(|f| f.child),
                         "{name}: authored child fate for {ct:?} at {when:?} disagrees"
                     );
                     assert_eq!(
-                        fate_for(&w, id, ct, when).and_then(|f| f.lateral),
+                        fate_for(&w, id, ct, when, 0).and_then(|f| f.lateral),
                         builtin_fate(ct, when).and_then(|f| f.lateral),
                         "{name}: authored lateral fate for {ct:?} at {when:?} disagrees"
                     );

@@ -51,6 +51,18 @@ const BASE_RON: &str = include_str!("../assets/species/tree.ron");
 /// The creature types (`Head`, `Segment`) are excluded — they are not part of
 /// a plant's vocabulary and a mutation reaching one would be measuring the
 /// harness's carelessness rather than the substrate's tolerance.
+///
+/// **The organ types (`Flower`, `Fruit`) are excluded too, and for a
+/// different reason worth stating.** They *are* part of a plant's vocabulary
+/// now, and pointing a `becomes` at one is exactly the mutation the organ
+/// package is built out of. But `tree.ron` — the base this harness mutates —
+/// authors no organ materials, no `Ripe` rule and no `Ripen` behaviour, so a
+/// mutant that produced one would be measuring a half-configured species
+/// rather than the substrate's tolerance: the organ would be built out of
+/// wood, never ripen, and read as a dead end that is really a missing three
+/// lines of `.ron`. Re-running this gate over `herb.ron` is the honest
+/// way to ask that question, and it is a different run from the one whose
+/// 92% is on record.
 const PLANT_TYPES: [CellType; 6] = [
     CellType::Seed,
     CellType::GrowingTip,
@@ -70,6 +82,8 @@ fn type_name(t: CellType) -> &'static str {
         CellType::DormantBud => "DormantBud",
         CellType::Head => "Head",
         CellType::Segment => "Segment",
+        CellType::Flower => "Flower",
+        CellType::Fruit => "Fruit",
     }
 }
 
@@ -79,6 +93,7 @@ fn when_name(w: FateWhen) -> &'static str {
         FateWhen::Node => "Node",
         FateWhen::Stale => "Stale",
         FateWhen::Flush => "Flush",
+        FateWhen::Ripe => "Ripe",
     }
 }
 
@@ -94,7 +109,11 @@ type Table = Vec<(CellType, Vec<Fate>)>;
 /// disagreement shows up as the control failing rather than as a silent shift
 /// in what "unmutated" means.
 fn base_table() -> Table {
-    let f = |when, becomes, child, lateral| Fate { when, becomes, child, lateral };
+    // `after_metamers: None` throughout: `tree.ron` is indeterminate, which
+    // is what the base control has to reproduce. A determinacy mutation is a
+    // *different* experiment from this one -- it varies a number, not a cell
+    // type -- and folding it in here would change what the 92% figure means.
+    let f = |when, becomes, child, lateral| Fate { when, becomes, child, lateral, after_metamers: None };
     vec![
         (
             CellType::GrowingTip,

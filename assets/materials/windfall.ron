@@ -1,0 +1,72 @@
+// A fallen fruit, lying on the ground. What a ripe `fruit` cell becomes the
+// moment it lets go of the plant -- and, per the owner's call of 2026-08-23,
+// **the seed rides down inside it**: a windfall cell is an organism-owned
+// `CellType::Seed` wearing this material instead of `seed`'s brown, so it
+// falls, rolls, piles in hollows and germinates where it comes to rest,
+// through the CA rules that already exist and with no fruit-specific
+// movement code anywhere.
+//
+// **Why not just reuse `seed`.** Two reasons, one physical and one that is
+// the point of the whole phase. Physically a fallen fruit is heavier and
+// far softer than a dry husk: it rots in days where a seed waits seasons,
+// it is worth a great deal more to eat, and it slumps to a flat drift where
+// seeds interlock and sit. And visually: a `seed`-brown cell dropping out of
+// a red crown is the fifth label change in a row that fires, counts, and
+// changes nothing anyone can see. The fall is meant to be the satisfying
+// object -- `Reports/plant-morphology-reach-2026-08-23.md` §7's own argument
+// for carrying the seed rather than converting in place.
+(
+    name: "windfall",
+    display: "Windfall",
+    kind: Powder,
+    // Heavier than `seed` (0.6) and than water: a dropped fruit sinks. It is
+    // the densest thing a plant sheds.
+    density: 1.05,
+    // **Shallow, unlike `seed`'s 55 and `litter`'s 42.** Fruit is round and
+    // slick and it rolls -- which is dispersal doing its job on a slope, and
+    // is why a windfall ends up somewhere its parent's shade does not reach.
+    friction_angle: 26.0,
+    // The ripe palette of `fruit.ron`, one shade darker and duller across
+    // the board: this is the same object bruised and off the plant.
+    colors: [
+        (160, 40, 34),
+        (120, 26, 36),
+        (84, 42, 94),
+        (40, 38, 64),
+        (182, 92, 30),
+        (176, 146, 48),
+    ],
+    // Wet flesh. Nearly as hard to light as the fruit it fell from.
+    flammability: 0.2,
+    burn_temperature: 470.0,
+    burn_duration: 40,
+    burns_into: "ash",
+    heat_conductivity: 0.2,
+    // **Rots fast and leaves almost nothing**, on `decay.rs`'s moisture-gated
+    // schedule -- the same channel litter uses. Faster than litter in both
+    // arms: soft wet flesh is the quickest thing on a forest floor to
+    // disappear, where a dry leaf can sit out a season.
+    //
+    // `decay_yield` matches `litter`'s 0.05 for the reason that file argues
+    // at length: the great majority of rotting mass leaves as gas this engine
+    // cannot represent, and a 1:1 conversion is a source with no sink.
+    decays_into: "soil",
+    decay_yield: 0.05,
+    decay_chance_damp: 0.7,
+    decay_chance_dry: 0.15,
+    // **The gnome walks through a drift of them**, like litter. Fallen fruit
+    // under a tree is ankle-deep at worst and should not read as quicksand.
+    insubstantial: true,
+    // **No `breaks_into`.** A windfall is already the broken-down form;
+    // pointing it at itself would make a fragment loop, which is the same
+    // call `litter.ron` makes for the same reason.
+
+    // Worth what it was worth on the branch: nothing about hitting the
+    // ground makes a fruit more or less nutritious. **`ant.ron`'s `food:`
+    // list is the other half of this** -- `adjacent_food` tests menu
+    // membership and nothing else, so a value here with no menu entry is a
+    // channel with a writer and no reader, which is the trap `litter.ron`
+    // records having shipped once already.
+    food_energy: 960.0,
+    food_class: -1.0,
+)

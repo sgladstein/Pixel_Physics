@@ -1,0 +1,250 @@
+// **A determinate herb: one erect axis that stops, and an organ that stops
+// it.** The organ package's first authored habit, and the plant this engine
+// could not express before it -- every axis here has been indeterminate since
+// the substrate was written, which is a large part of why every species is a
+// variation on one plant.
+//
+// **Not a named real plant, and the distinction is on the record.**
+// `Reports/plant-morphology-evolvability-2026-08-26.md` §6 says it as a
+// heading -- *"The acceptance artifact is not a sunflower ... Twelve tomatoes
+// = it does not [work]"* -- and the register this file joins is habit words
+// throughout: `tree`, `conifer`, `shrub`, `creeper`, `grass`, `moss`. A
+// species file is a *habit*, and what the organ package adds is two habits
+// nothing here could hold, not two portraits of named plants. The older
+// `plant-morphology-reach-2026-08-23.md` §6 does name one as the acceptance
+// artifact; the evolvability report supersedes it on that point, and this
+// comment is here because the first draft of this file followed the
+// superseded one.
+//
+// Everything structural here is data that already existed. What is new is
+// three values in the fate table (`becomes: Flower`, `after_metamers`, and
+// the two `Ripe` rules), three materials, and a price. There is no new growth
+// engine: `Reports/plant-morphology-reach-2026-08-23.md` §1's whole answer is
+// that the random walk is the *variation* mechanism and what a determinate
+// herb needs from it is **identity** -- an axis that knows when to stop and
+// an organ to stop in.
+//
+// **Why this shape, against the four woody species.** The owner's standing
+// complaint is that the species differ in size and colour and nothing else,
+// and the diagnosis (`Reports/plant-appearance-design.md`) is that every
+// architectural lever tried so far relabels a cell without moving a
+// silhouette that texture and composition set. So the levers here are the
+// ones that move composition outright:
+//
+//   - `max_active_tips: 2` with `branch_chance: 0`, so there is one leader
+//     and not a crown (the cap counts the asking tip, so 1 means no growth);
+//   - `plastochron: [5]` with `leaf_cluster: 8`, so the leaves are large,
+//     widely spaced, and leave bare stem between them;
+//   - `after_metamers: 8`, so the axis **stops** rather than filling the
+//     sky, which is the thing no species in this engine has ever done;
+//   - and a 9-cell flower head in a palette with no green in it.
+//
+// A stalk with a flower head on it is not a smaller tree.
+//
+// **The turgor bound and the metamer count have to be set together, and the
+// first pass got it wrong in a way worth recording.** `turgor_source: 0.32`
+// with `turgor_per_cell: 0.006` puts the height ceiling at
+// `(0.32 - 0.1) / 0.006 = 36` cells of path length, and 9 metamers at a
+// plastochron of 4 needs 36 -- so the axis reached its ceiling exactly as it
+// reached its count, and the taper had been slowing it for a long way before
+// that. Measured: **9 axes terminated across 32 established plants**, and a
+// contact sheet of six showed one flower. The symptom is the one the
+// determinacy trap warns about -- a low counter with no visible cause -- and
+// the cause was not the fate table at all. 0.46 puts the ceiling at 60
+// against a terminal at 40, which is the margin this needs.
+(
+    name: "herb",
+    // Yellow-green foliage, noticeably lighter than a tree's -- which
+    // separates this from `tree` (bands 2-3) and `shrub` (4-5) at the same
+    // time as the flower does.
+    foliage_bands: (first: 3, count: 2),
+    // Pale green stem, not bark: a herbaceous axis is not a trunk. Bands
+    // 6-7 of `wood` are the lightest it has.
+    bark_bands: (first: 6, count: 2),
+    // **Yellow and orange, bands 0-1 of `flower`.** Deliberately the two
+    // furthest from anything foliage can be.
+    flower_bands: (first: 0, count: 2),
+    // Gold and orange fruit — a ripe seed head, not a berry.
+    fruit_bands: (first: 4, count: 2),
+    windfall_material: "windfall",
+    stomatal_reserve: 0.2,
+    // A ruderal's bank: short-lived seed, fast-rotting remains. Both an
+    // order of magnitude below `tree`'s, which is what a herb *is* on the
+    // r/K axis -- see `SpeciesDef::seed_half_life`.
+    seed_half_life: 14000.0,
+    remains_half_life: 700.0,
+    fates: [
+        (GrowingTip, [
+            // **The determinate terminal, and it is listed first because
+            // first match wins.** Nine metamers up, the apex is consumed by
+            // a flower: no `child`, no `lateral`, no continuation of any
+            // kind. That is what determinate means, and it is a `becomes`
+            // mutation -- the field the viability gate took 34 mutations on
+            // without producing one sterile plant, while `child` killed 5
+            // of 6 (`Reports/plant-fate-viability-2026-08-28.md` §2).
+            (when: Node,  becomes: Flower, after_metamers: Some(8)),
+            // Until then, an ordinary shoot. Identical to `tree`'s rules --
+            // an axis is an axis; the only thing this species changes is
+            // when it ends.
+            (when: Node,  becomes: DormantBud, child: Some(GrowingTip), lateral: Some(GrowingTip)),
+            (when: Grew,  becomes: MatureBody, child: Some(GrowingTip), lateral: Some(GrowingTip)),
+            // **Aged out with nowhere to go, and it does NOT flower here.**
+            // A tip that starved short of nine metamers has not earned a
+            // head, and giving it one would make the metamer count
+            // decorative: every axis would flower eventually, whatever its
+            // `after_metamers` said. A stalk with no head is what this
+            // plant in deep shade should look like.
+            (when: Stale, becomes: MatureBody),
+        ]),
+        (RootTip, [
+            (when: Grew,  becomes: MatureBody, child: Some(RootTip), lateral: Some(RootTip)),
+            (when: Stale, becomes: MatureBody),
+        ]),
+        (DormantBud, [
+            (when: Flush, becomes: GrowingTip),
+        ]),
+        // **The organ sequence, as two rules.** A flower that has been open
+        // long enough sets; a fruit that has finished ripening lets go and
+        // falls carrying the seed. Both fire from `Behavior::Ripen`'s clock.
+        (Flower, [
+            (when: Ripe, becomes: Fruit),
+        ]),
+        (Fruit, [
+            // `becomes: Seed` is the one fate the engine resolves by
+            // *detaching* rather than relabelling -- see `plant::drop_organ`.
+            (when: Ripe, becomes: Seed),
+        ]),
+    ],
+    cell_types: [
+        (Seed, [
+            Germinate(
+                light_threshold: 0.1,
+                // An annual germinates readily -- it is betting on one
+                // season, not funding a trunk.
+                soil_water_threshold: 0.15,
+                instant: false,
+            ),
+        ]),
+        (GrowingTip, [
+            Grow(
+                cost: 0.15,
+                // **Near zero: one stalk.** Not literally zero, because a
+                // plant that cannot branch at all has no way to recover
+                // from losing its apex, and because a rare basal side-shoot
+                // is what a real erect herb does under damage.
+                branch_chance: [0.0, 0.0],
+                continuation_weight: 0.95,
+                light_weight: [0.06, 0.06],
+                // Almost no wind lean: a stalk stands up.
+                wind_weight: 0.03,
+                // Hard up. This is a leader, not a crown.
+                upward_weight: [0.98, 0.9],
+                crowding_weight: 30.0,
+                // **2, and it may not be 1.** `plant.rs`'s cap gate reads
+                // `active_tip_count >= max_active_tips` and the tip asking
+                // is itself counted, so 1 means *no growth at all*: measured,
+                // a whole stand germinated, staled at one cell, went
+                // senescent for want of a vital cell and rotted away inside
+                // 8,000 frames -- population 0, which reads exactly like a
+                // broken species file. With `branch_chance: 0` beside it, 2
+                // is one leader and nothing else.
+                max_active_tips: 2,
+                // A node every four cells, so nine metamers is a stalk of
+                // roughly 36 cells before the head.
+                plastochron: [5, 5],
+                penetration_force: 0.0,
+                // Herbaceous turgor: a shorter reach than a tree's, which is
+                // the height half of "not a tree".
+                turgor_source: 0.46,
+                turgor_yield: 0.1,
+                turgor_per_cell: 0.006,
+                turgor_taper: 0.35,
+                // Very stiff: the stalk barely wanders.
+                heading_inertia: 0.93,
+                branch_angle: [40.0, 35.0],
+                internode: [3, 3],
+                // **Big leaves, widely spaced.** The composition lever:
+                // this is a few large blades on a bare stem, where a tree is
+                // a continuous canopy of small ones.
+                leaf_cluster: 8,
+                // **The head.** Nine cells is roughly three times the
+                // width of the stalk bearing it, which is the size half of
+                // the only lever that has ever read here -- see
+                // `Behavior::Grow::organ_cluster`.
+                organ_cluster: 9,
+                juvenile_size: 8,
+                juvenile_plastochron: 0.6,
+                juvenile_branch: 1.0,
+                genotype_variance: (0.4, 0.0, 0.35, 0.18, 0.6, 0.0, 0.4, 0.5, 0.0, 0.7),
+                sympodial: [false],
+                tropism: [Orthotropic],
+            ),
+            Photosynthesize(rate: 0.55, shade_death: 0.0, drought_death: 0.0),
+        ]),
+        (RootTip, [
+            Absorb(rate: 1.6),
+            Grow(
+                cost: 0.18,
+                branch_chance: [0.35],
+                continuation_weight: 0.65,
+                light_weight: [0.0],
+                wind_weight: 0.0,
+                upward_weight: [0.35],
+                crowding_weight: 0.0,
+                max_active_tips: 10,
+                plastochron: [0],
+                heading_inertia: 0.5,
+                penetration_force: 1.0,
+                genotype_variance: (0.0, 0.5, 0.0, 0.0, 0.0, 0.4, 0.0, 0.0, 0.25, 0.0),
+            ),
+        ]),
+        (MatureBody, [
+            // **The mature-cell seed path stays**, per the owner's call of
+            // 2026-08-28: organs are an *additional* route to a seed, not a
+            // replacement. A plant that never manages a head can still
+            // reproduce, slowly, the way every other plant here does.
+            //
+            // `seed_maturity: 60` against `shrub`'s 250: a herb breeds small.
+            // And organs do not count toward it -- see
+            // `OrganismState::organ_cells`.
+            Reproduce(seed_cost: 0.18, reproductive_allocation: 0.28, seed_maturity: 60),
+            // A stalk thickens a little; it is not a trunk. High
+            // `pipe_ratio` means many nodes of foliage per cell of width.
+            SecondaryThicken(pipe_ratio: 14.0),
+            StructuralAnchor,
+            Absorb(rate: 1.6),
+        ]),
+        (DormantBud, [
+            BudBreak(
+                cost: 0.15,
+                thickening_survival: 0.5,
+                // Strongly acrotonous: what breaks is near the top, which
+                // keeps the plant a leader rather than a bush.
+                acrotony: 1.8,
+            ),
+            StructuralAnchor,
+            SecondaryThicken(pipe_ratio: 14.0),
+        ]),
+        (Leaf, [
+            Photosynthesize(rate: 0.45, shade_death: 0.0008, drought_death: 0.0008),
+        ]),
+        // **The organ cell types, and both are inert but for the clock.**
+        // No `Photosynthesize`, no `Grow`, no `StructuralAnchor`: an organ
+        // holds up nothing and earns nothing, which is exactly what makes
+        // building one a real cost rather than an investment that pays for
+        // itself.
+        (Flower, [
+            // ~50 organism ticks open before it sets. Slow enough that a
+            // stand is visibly *in flower* for a long stretch rather than
+            // flickering through it, which matters when the artifact is a
+            // contact sheet.
+            Ripen(rate: 0.02, cost: 0.3),
+        ]),
+        (Fruit, [
+            // Slower again: a seed head takes longer to fill than a flower
+            // takes to set. `cost` is the provisioning that rides down with
+            // the seed as its `endowment`.
+            Ripen(rate: 0.012, cost: 0.35),
+        ]),
+    ],
+)

@@ -157,6 +157,68 @@ pub enum CellType {
     /// variant between them afterwards would be the renumbering that
     /// encoding forbids.
     Segment = 7,
+    /// **A flower** — the organ a determinate axis terminates in, and the
+    /// first cell type in this engine whose point is that it is *seen*.
+    ///
+    /// Inert: it carries no `Grow`, deposits no canopy density and creates
+    /// nothing, so it costs the sweep one scheduled site and no per-frame
+    /// work. What it does carry is `Behavior::Ripen`, which is a clock —
+    /// after enough ticks the flower's fate table decides whether it sets a
+    /// `Fruit` or simply falls.
+    ///
+    /// **The material is not a detail of this cell type, it is the cell
+    /// type.** A label change has failed to read on this project five
+    /// times — `weeping`, `prostrate`, sympody, tropism, acrotony, founder
+    /// variance — every one of them firing, counted, and invisible. The one
+    /// lever that ever read changed *material*. So a `Flower` drawing from
+    /// `leaf`'s foliage palette would be the sixth, and `flower.ron` exists
+    /// for exactly that reason (`Reports/plant-organs-handoff-2026-08-28.md`
+    /// §4b).
+    ///
+    /// **8, not a reuse of `Segment`.** `aux`'s low four bits are a
+    /// positional, never-renumbered encoding with room to 15, and the reach
+    /// report's suggestion that `Segment` "sits unused" is a trap: it is the
+    /// creature body cell, unused only because the worm is a one-cell chain,
+    /// and renumbering around it is precisely what that encoding forbids.
+    Flower = 8,
+    /// **A fruit**, ripening on the plant. A `Flower` that set rather than
+    /// fell, and the cell that carries a genome to the ground.
+    ///
+    /// Ripeness lives in the `OrganismCell` sidecar
+    /// ([`OrganismCell::ripeness`]), never in `aux` — `render.rs` reads
+    /// `palette[cell.shade]` and `shade` is already spent on band identity
+    /// plus grain, so there is no free colour readout there whatever
+    /// `Reports/plant-morphology-reach-2026-08-23.md` §2a says.
+    ///
+    /// Ripe, it does not convert in place: it **detaches**, becoming a
+    /// `windfall` powder cell owned by a fresh child organism as a
+    /// `CellType::Seed`, which then falls, rolls and germinates where it
+    /// comes to rest. That is the owner's 2026-08-23 call — fruit carries
+    /// the seed — and it needs no dispersal code at all, because a powder
+    /// already does every part of it.
+    Fruit = 9,
+}
+
+impl CellType {
+    /// **Is this a reproductive organ** — a flower or a fruit?
+    ///
+    /// Three rules key on this rather than on the two variants by name, and
+    /// each is a place where an organ is genuinely not shoot tissue:
+    ///
+    /// - it is not counted in `OrganismState::shoot_cells`, so building
+    ///   organs neither advances the `seed_maturity` fence nor dilutes the
+    ///   per-bearer seed rate (`Reports/plant-organs-handoff-2026-08-28.md`
+    ///   §6 names that two-sided reallocation as the sharpest one in the
+    ///   phase);
+    /// - it takes its material from the species' organ materials rather than
+    ///   inheriting its parent's, which is what stops a flower being a
+    ///   green cell in a leaf palette;
+    /// - and an apex that becomes one creates no continuation, because a
+    ///   floral meristem *is* the end of the axis. That is what determinate
+    ///   means.
+    pub fn is_organ(self) -> bool {
+        matches!(self, CellType::Flower | CellType::Fruit)
+    }
 }
 
 /// One behavior a cell type can carry, composed freely by species data —
@@ -401,6 +463,35 @@ pub enum Behavior {
         /// than its branches to the extent that the foliage is above it.
         #[serde(default = "one_u8")]
         leaf_cluster: u8,
+        /// **How many cells a terminal organ is made of** — the flower head,
+        /// as against the single cell a bare `becomes: Flower` would give.
+        ///
+        /// **This is the field that decides whether the phase reads**, and
+        /// the reason it exists is measured rather than aesthetic. Five
+        /// consecutive morphology levers on this project fired, printed
+        /// their counters and changed nothing the owner could see; the one
+        /// that read changed material *and* size. A one-cell flower on a
+        /// stalk is a single pixel of a new colour — it is a material change
+        /// with the size half missing, which is half of the only lever that
+        /// has ever worked here.
+        ///
+        /// The same argument `leaf_cluster` makes above applies with more
+        /// force: at this cell size a real flower head is many times the
+        /// width of the stalk bearing it, so one cell per head is
+        /// **under**-scaled, not over-scaled.
+        ///
+        /// Built by the same flood outward from the apex the leaf spray uses,
+        /// with one difference: the leaf walk refuses cells adjacent to or
+        /// ahead of the node, because a spray that rings an apex walls its
+        /// own tip in and growth stops dead. A terminal organ has no tip
+        /// left to wall in — that is what determinate means — so the head
+        /// sits *on* the apex, which is also where a real one is.
+        ///
+        /// Truncated by carbon like the leaf spray, so a poor plant makes a
+        /// small head rather than none: `CLAUDE.md`'s first ethos law, an
+        /// outcome is a distribution.
+        #[serde(default = "one_u8")]
+        organ_cluster: u8,
         /// Shoot cells below which this plant is **juvenile**. `0` disables
         /// the whole juvenile stage.
         ///
@@ -803,6 +894,41 @@ pub enum Behavior {
         seed_maturity: u32,
     },
     SecondaryThicken { pipe_ratio: f32 },
+    /// **An organ's clock.** The only behaviour a `Flower` or `Fruit`
+    /// carries, and the mechanism behind flower → fruit → windfall.
+    ///
+    /// Each organism tick it adds `rate` to [`OrganismCell::ripeness`]; when
+    /// that reaches 1 it consults the species' `FateWhen::Ripe` rule and
+    /// does one of three things:
+    ///
+    /// - **`becomes` another organ** (`Flower` → `Fruit`): a relabel plus a
+    ///   material swap, charged `cost`, ripeness reset to 0 so the new organ
+    ///   runs its own clock. This is fruit *set*, and charging it is what
+    ///   makes a poor plant flower without fruiting — which is a graded
+    ///   outcome where "fruits or does not" would be a binary.
+    /// - **`becomes: Seed`**: the organ lets go. `plant::drop_organ` writes
+    ///   a `windfall` powder cell owned by a fresh child organism carrying
+    ///   the parent's mutated genome, which then falls, rolls and germinates
+    ///   where it lands. This is the owner's *fruit carries the seed* call
+    ///   of 2026-08-23, and it needs no dispersal code because a powder
+    ///   already does all of it.
+    /// - **no rule at all**: the organ keeps its label for ever and leaves
+    ///   the active-site schedule. A flower that persists, which is the
+    ///   honest reading of an absent rule rather than an error.
+    ///
+    /// **`rate` is per organism tick, not per frame** — organisms tick on
+    /// `ORGANISM_TICK_INTERVAL`, so 0.02 is roughly fifty ticks from set to
+    /// ripe. Authored rather than derived because ripening time is a real
+    /// species axis (a strawberry against a sloe) and there is nothing in
+    /// the engine to derive it from.
+    Ripen {
+        rate: f32,
+        /// Carbon charged to the organ's own cell when its fate fires.
+        /// Filling a fruit is the expensive half of reproduction in a real
+        /// plant, and this is where that lands; the seed the windfall
+        /// carries is provisioned from it (`OrganismState::endowment`).
+        cost: f32,
+    },
     /// A `Seed` cell's transition to `GrowingTip`/`RootTip`, checked on a
     /// schedule against local field readings. `instant: true` is a
     /// test-only escape hatch that fires unconditionally next tick,
@@ -875,6 +1001,30 @@ pub enum FateWhen {
     Stale,
     /// A dormant bud being flushed into a tip by `Behavior::BudBreak`.
     Flush,
+    /// An organ whose `Behavior::Ripen` clock has run out — a flower that has
+    /// been open long enough to set, or a fruit that has finished ripening.
+    ///
+    /// **Added with the species that needs it, not ahead of it.** The handoff
+    /// is explicit that a condition no species uses is a channel with a
+    /// writer and no reader, which this project has shipped three times;
+    /// `herb.ron` and `bramble.ron` are its readers and they land in the
+    /// same change.
+    ///
+    /// The two rules it expresses are the whole flower→fruit→seed sequence,
+    /// as data rather than as code:
+    ///
+    /// ```text
+    /// (Flower, [(when: Ripe, becomes: Fruit)])   // it set
+    /// (Fruit,  [(when: Ripe, becomes: Seed)])    // it let go
+    /// ```
+    ///
+    /// A `becomes: Seed` on an organ is the one fate the engine does not
+    /// resolve by relabelling: `plant::drop_organ` detaches the cell into a
+    /// falling `windfall` powder owned by a fresh child organism. And an
+    /// organ with **no** `Ripe` rule keeps its label for ever, which is the
+    /// honest reading of an absent rule and gives a species a flower that
+    /// simply persists.
+    Ripe,
 }
 
 /// One production rule: **what this cell becomes, and what it creates.**
@@ -891,7 +1041,7 @@ pub enum FateWhen {
 ///   (a tip's child is a tip), which is exactly why every species is a
 ///   variation on one plant.
 /// - `lateral` labels a branch child, so a species can put something other
-///   than more shoot on its side axes — the tomato truss is a lateral whose
+///   than more shoot on its side axes — a fruiting truss is a lateral whose
 ///   label differs from its parent's.
 ///
 /// `child` and `lateral` are `None` on `Stale` and `Flush`, which create no
@@ -911,6 +1061,32 @@ pub struct Fate {
     /// creates no lateral.
     #[serde(default)]
     pub lateral: Option<CellType>,
+    /// **Determinacy: how many metamers this axis makes before the rule
+    /// applies.** `None` (the default) is every existing rule — it applies
+    /// from the axis's first step, which is what indeterminate means.
+    ///
+    /// A metamer is internode + leaf + axillary bud, so the count is the
+    /// lineage's step number divided by its own plastochron — the number of
+    /// *nodes* this lineage has passed, not cells laid. `plant.rs`'s `Grow`
+    /// arm computes both from the `plastochron` the active site already
+    /// carries, so this costs no state and no traversal.
+    ///
+    /// **A field on `Fate` rather than a `FateWhen` variant, and that is not
+    /// a style call.** `FateWhen` is the lookup *key* and is fieldless by
+    /// construction; a condition carrying a number cannot be one without
+    /// making the key a compound. Ordering does the rest: rules are searched
+    /// first-match-wins, so a species lists its determinate rule above its
+    /// ordinary one and the ordinary one — `after_metamers: None` — catches
+    /// every step before the count is met.
+    ///
+    /// This is the field the viability gate says is safe to mutate. Of 40
+    /// effective mutations to a production rule, `becomes` and `lateral`
+    /// took 34 without a single sterile plant while `child` killed 5 of 6
+    /// (`Reports/plant-fate-viability-2026-08-28.md` §2) — and a determinate
+    /// axis ending in an organ is a `becomes` rule that never touches
+    /// `child`.
+    #[serde(default)]
+    pub after_metamers: Option<u8>,
 }
 
 #[derive(Deserialize)]
@@ -950,6 +1126,38 @@ pub struct SpeciesDef {
     pub root_material: String,
     #[serde(default = "default_leaf_material")]
     pub leaf_material: String,
+    /// **What this species' organs are made of.** The same three-line
+    /// mechanism as `shoot`/`root`/`leaf` above, pointed at the organ cell
+    /// types — and the reason the organ package is a materials change first
+    /// and a cell-type change second.
+    ///
+    /// Unlike the three above these are *not* seeds propagated by growth: an
+    /// organ creates nothing, so its material is looked up at the moment the
+    /// cell is made and goes no further. `plant::organ_material` is the one
+    /// reader.
+    ///
+    /// The defaults are the organ materials rather than the leaf, so a
+    /// species that authors an organ fate and forgets the material line
+    /// still gets a flower that looks like a flower. An unknown name falls
+    /// back to the parent cell's own material, exactly as the three above do.
+    #[serde(default = "default_flower_material")]
+    pub flower_material: String,
+    #[serde(default = "default_fruit_material")]
+    pub fruit_material: String,
+    /// **What a ripe fruit becomes on the way down** — the powder that
+    /// carries the seed. Defaults to `seed`, which is what a species with no
+    /// fruit would produce and is the pre-organ behaviour exactly; the two
+    /// authored fruiting species name `windfall`.
+    #[serde(default = "default_windfall_material")]
+    pub windfall_material: String,
+    /// Which bands of `flower`'s palette this species' petals draw from, and
+    /// of `fruit`'s for its fruit. Same `PaletteBands` scheme as
+    /// `foliage_bands`/`bark_bands`: the range is the species' colour, the
+    /// draw inside it is the individual's.
+    #[serde(default)]
+    pub flower_bands: PaletteBands,
+    #[serde(default)]
+    pub fruit_bands: PaletteBands,
     /// **How long this species' seeds stay viable**, as a half-life in
     /// frames: the number of frames over which half a dormant seed bank
     /// disappears. `0.0` means immortal, which is what every seed was
@@ -1251,6 +1459,18 @@ fn default_root_material() -> String {
 fn default_leaf_material() -> String {
     "leaf".to_string()
 }
+fn default_flower_material() -> String {
+    "flower".to_string()
+}
+fn default_fruit_material() -> String {
+    "fruit".to_string()
+}
+/// **`seed`, not `windfall`** — a species that never fruits still reads this
+/// field, and defaulting it to the fallen-fruit powder would put windfalls
+/// under a tree that has no fruit to drop.
+fn default_windfall_material() -> String {
+    "seed".to_string()
+}
 
 /// Set against the measured bank rather than from a target. On the
 /// eight-tree stand the bank stood at **160 seeds at 60,000 frames and was
@@ -1283,6 +1503,14 @@ pub struct Species {
     pub shoot_material: String,
     pub root_material: String,
     pub leaf_material: String,
+    /// See `SpeciesDef::flower_material` — and note these are looked up at
+    /// the moment an organ cell is made, not propagated by growth the way
+    /// the three above are.
+    pub flower_material: String,
+    pub fruit_material: String,
+    pub windfall_material: String,
+    pub flower_bands: PaletteBands,
+    pub fruit_bands: PaletteBands,
     /// See `SpeciesDef::seed_half_life`.
     pub seed_half_life: f32,
     /// See `SpeciesDef::remains_half_life`.
@@ -1316,11 +1544,18 @@ impl Species {
     /// only at a fate decision — a tip retiring, a bud flushing — never per
     /// cell per frame, so it costs the sweep nothing. Same shape and same
     /// reasoning as `behaviors` above.
-    pub fn fate(&self, cell_type: CellType, when: FateWhen) -> Option<Fate> {
+    ///
+    /// `metamers` is how many nodes the acting lineage has passed, and it
+    /// filters on [`Fate::after_metamers`]: a determinate rule listed first
+    /// is skipped until its count is met, and the ordinary rule below it
+    /// answers in the meantime. Pass 0 where the count is meaningless (a bud
+    /// flushing, an organ ripening) — a rule with no `after_metamers` is
+    /// unaffected by it, which is every rule that existed before determinacy.
+    pub fn fate(&self, cell_type: CellType, when: FateWhen, metamers: u8) -> Option<Fate> {
         self.fates
             .iter()
             .find(|(ct, _)| *ct == cell_type)
-            .and_then(|(_, rules)| rules.iter().find(|f| f.when == when))
+            .and_then(|(_, rules)| rules.iter().find(|f| f.when == when && f.after_metamers.is_none_or(|n| metamers >= n)))
             .copied()
     }
 
@@ -1418,6 +1653,11 @@ impl From<SpeciesDef> for Species {
             shoot_material: def.shoot_material,
             root_material: def.root_material,
             leaf_material: def.leaf_material,
+            flower_material: def.flower_material,
+            fruit_material: def.fruit_material,
+            windfall_material: def.windfall_material,
+            flower_bands: def.flower_bands,
+            fruit_bands: def.fruit_bands,
             seed_half_life: def.seed_half_life,
             remains_half_life: def.remains_half_life,
             cell_types: def.cell_types,
@@ -1656,6 +1896,19 @@ pub struct OrganismState {
     /// crosses a shared face, and a diagonal cell shares only a corner.
     pub contact_root_cells: u32,
     pub shoot_cells: u32,
+    /// **Flower and fruit cells**, counted apart from `shoot_cells` above.
+    ///
+    /// Apart, because `shoot_cells` has three consumers that would each be
+    /// moved the wrong way by organs joining it — the `seed_maturity` fence,
+    /// the juvenile check, and the per-bearer denominator that spreads a
+    /// tick's affordable seeds over the crown. See `plant::organism_upkeep`'s
+    /// own note at the branch that fills this, and
+    /// `Reports/plant-organs-handoff-2026-08-28.md` §6.
+    ///
+    /// Counted rather than merely excluded so that the exclusion has a
+    /// reader: this is the number a probe asks "is this plant carrying
+    /// anything" and the one a review card prints beside the picture.
+    pub organ_cells: u32,
     /// **How many of this plant's cells are structural anchors** — the
     /// `is_structural_anchor` set, tallied in `anchor_support`'s seeding
     /// loop rather than in a walk of its own.
@@ -1977,6 +2230,25 @@ pub struct OrganismState {
     /// palette the material has — the pre-band look.
     pub foliage_band: u8,
     pub bark_band: u8,
+    /// **This individual's organ colours**, the same absolute-index scheme as
+    /// the two above, into the `flower` and `fruit` palettes.
+    ///
+    /// Drawn from their own streams (70/71) rather than derived from an
+    /// existing allele, deliberately. Petal colour is the loudest single
+    /// pixel a plant owns, and hanging it off the leaf-economy locus would
+    /// make it a *readout* of leaf strategy — so a stand could never show a
+    /// yellow flower on a cheap leaf, which is a correlation nobody
+    /// designed. Free-drawn, it is exactly what it looks like: variety.
+    ///
+    /// **Not heritable yet, and that is a stated gap rather than an
+    /// oversight.** `set_seed` copies the parent's alleles and derives
+    /// foliage and bark from them; these two have no locus to derive from,
+    /// so a bred child re-draws them from where it germinated like a founder
+    /// does. Giving petal colour a locus is a genome change and belongs with
+    /// the heritability survey (`Reports/plant-equilibrium-costs-2026-08-27.md`
+    /// §9 step 6), not smuggled in beside a materials change.
+    pub flower_band: u8,
+    pub fruit_band: u8,
     /// **This individual's genome came from a parent, not from where it
     /// landed.** `plant::seed_genotype` redraws a genotype from
     /// `(world seed, germination coordinate)` — which is right for a seed
@@ -2308,6 +2580,28 @@ const EMBEDDED: &[&str] = &[
     // the species the plant programme is for, and the one that differs from
     // a tree on all four of the axes in `plant-evolution-design.md` §4a.
     include_str!("../../assets/species/grass.ron"),
+    // **The organ package's two**, appended for the same reason every block
+    // above is: a species not in this list does not exist to any headless
+    // harness, because only the app's F5 reload reads the directory.
+    //
+    // Two rather than one, deliberately. The acceptance question is *"are
+    // these different plants, or one plant in several sizes?"*, and a single
+    // organ species can only be judged against the woody set -- which would
+    // let "it has flowers" stand in for "it is a different plant". Two that
+    // share all three new primitives and differ on habit, determinacy,
+    // organ distribution and organ colour is the comparison that can
+    // actually fail.
+    //
+    // **Habit names, not named real plants.** Everything in this list is a
+    // habit -- `tree`, `conifer`, `shrub`, `creeper`, `grass`, `moss` -- and
+    // `Reports/plant-morphology-evolvability-2026-08-26.md` §6 rules directly
+    // against portraits: *"The acceptance artifact is not a sunflower ...
+    // Twelve tomatoes = it does not [work]."* These two shipped for one draft
+    // under real-plant names, taken from the older reach report's superseded
+    // sequencing note; the mechanism was never the problem and did not
+    // change with the rename.
+    include_str!("../../assets/species/herb.ron"),
+    include_str!("../../assets/species/bramble.ron"),
 ];
 
 /// Where the loader looks for species files, relative to the working
@@ -2693,6 +2987,8 @@ pub fn cell_type(aux: u16) -> Option<CellType> {
         5 => Some(CellType::DormantBud),
         6 => Some(CellType::Head),
         7 => Some(CellType::Segment),
+        8 => Some(CellType::Flower),
+        9 => Some(CellType::Fruit),
         _ => None,
     }
 }
@@ -2930,6 +3226,24 @@ pub struct OrganismCell {
     ///
     /// Sidecar, not a `Cell` bit: all sixteen aux bits are spoken for.
     pub primed: bool,
+    /// **How far along an organ is**, 0 at set and 1 when its clock runs out
+    /// — `Behavior::Ripen`'s only state, and the reason organs have a
+    /// sidecar field at all.
+    ///
+    /// **In the sidecar rather than in `aux`, and that is a correction to a
+    /// design note rather than a preference.**
+    /// `Reports/plant-morphology-reach-2026-08-23.md` §2a proposes staging
+    /// ripening in `aux` as "a colour readout for free". It is not free and
+    /// it is not a readout: `render.rs` draws a cell as
+    /// `palette[cell.shade % len]`, and `shade` is already carrying band
+    /// identity plus grain (`plant::banded_shade`), so a value in `aux`
+    /// reaches no pixel at all. Colour comes from the ripe fruit being its
+    /// own material, which is the whole design of the organ package.
+    ///
+    /// Zero on every non-organ cell in the world, and read by exactly one
+    /// behaviour, so it costs four bytes on a struct that already holds
+    /// eleven fields and no work anywhere else.
+    pub ripeness: f32,
 }
 
 impl Default for OrganismCell {
@@ -2972,6 +3286,7 @@ impl Default for OrganismCell {
             heading: (0.0, 0.0),
             path_len: 0,
             primed: false,
+            ripeness: 0.0,
         }
     }
 }
@@ -3765,14 +4080,23 @@ mod tests {
 
     #[test]
     fn an_unrecognized_type_bit_pattern_is_none() {
-        // 0-7 are Seed/GrowingTip/MatureBody/Leaf/RootTip/DormantBud/Head/
-        // Segment, so the first unassigned pattern is 8. Deliberately the
-        // *next* one rather than a far-away value: what this guards is that
-        // adding a variant does not silently start aliasing a stale bit
-        // pattern onto it, and the pattern that has just become valid is
-        // the one that proves the boundary moved with the enum.
+        // 0-9 are Seed/GrowingTip/MatureBody/Leaf/RootTip/DormantBud/Head/
+        // Segment/Flower/Fruit, so the first unassigned pattern is 10.
+        // Deliberately the *next* one rather than a far-away value: what
+        // this guards is that adding a variant does not silently start
+        // aliasing a stale bit pattern onto it, and the pattern that has
+        // just become valid is the one that proves the boundary moved with
+        // the enum.
+        //
+        // **It has now done its job once.** The organ package added `Flower`
+        // and `Fruit` at 8 and 9, and this test went red on the `8 => None`
+        // line -- which is exactly the boundary check working, not a
+        // breakage. Updating the numbers is the intended maintenance; what
+        // would be wrong is widening the assertion so it stops noticing.
         assert_eq!(cell_type(7), Some(CellType::Segment));
-        assert_eq!(cell_type(8), None);
+        assert_eq!(cell_type(8), Some(CellType::Flower));
+        assert_eq!(cell_type(9), Some(CellType::Fruit));
+        assert_eq!(cell_type(10), None);
         assert_eq!(cell_type(15), None);
     }
 
