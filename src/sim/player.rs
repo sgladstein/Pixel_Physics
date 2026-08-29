@@ -73,7 +73,16 @@ const PLATFORM_STICK: i32 = 6;
 /// short version is that roots are climbable, he wades four rows into soft
 /// ground, and a wood is full of roots — so "any overlap" would have turned
 /// every jump near a tree into a grab at boot height.
-const GRIP_ROWS: i32 = PLAYER_HEIGHT / 2;
+/// How far up his body a handhold still counts, in cells.
+///
+/// **A function of his height, not a constant**, because he is not always
+/// `PLAYER_HEIGHT` tall: a world generated at a finer `cell_scale` builds
+/// him proportionally bigger, and a grip that stayed at 7 rows would be
+/// waist-high on the authored gnome and knee-high on a doubled one. See
+/// `Player::at_scaled`.
+fn grip_rows(h: i32) -> i32 {
+    h / 2
+}
 
 /// How long the swing pose stays up after a blow, **at the defaults**.
 ///
@@ -262,6 +271,72 @@ pub struct Tuning {
     /// and strokes, and folding this in would make `F4` stomp a value
     /// someone had just swept in the panel.
     pub surface_hop: f32,
+    /// How deep a slice one bore stroke takes off the working face, in
+    /// cells.
+    ///
+    /// **The bore is a box; this is the bite out of it.** `bore_rect` sizes
+    /// a passage to the gnome and shows it before you cut, and cutting the
+    /// whole box in one press would be a room appearing rather than a hole
+    /// being dug — the binary outcome `CLAUDE.md`'s first law rejects. Three
+    /// cells against a 9-wide box is three strokes to advance one body
+    /// width, which at `dig_cooldown` 8 is about half a second of visible
+    /// work per step forward.
+    pub bore_bite: u8,
+    /// How far from his centre a hammer blow can land, in cells.
+    ///
+    /// Much shorter than `dig_reach` and shorter than `shake_reach`: a
+    /// pick is a tool you extend and a hammer is one you swing, and the
+    /// reach is what makes the difference legible without a second cursor.
+    pub hammer_reach: u8,
+    /// Radius of one hammer blow, handed to `rigid::strike` — which floors
+    /// it at `rigid::MIN_STRIKE_RADIUS` (6), so settings under that are
+    /// the same blow.
+    ///
+    /// A blow is not a bite: `strike` pulverizes a core, chips a shell and
+    /// **scores cracks well past both**, which is the damage that
+    /// accumulates and eventually drops a ceiling. That reach is
+    /// `radius * rigid::CRACK_REACH`, so this number sizes the fissuring
+    /// far more than it sizes the hole.
+    pub hammer_radius: u8,
+    /// How hard the blow throws what it breaks, handed to `rigid::strike`
+    /// as its fragment impulse and scaled into the pressure it shoves into
+    /// the air.
+    pub hammer_force: f32,
+    /// Ticks between hammer blows. Long — three times `dig_cooldown` at
+    /// the defaults — because a heavy swing that repeats at pick speed
+    /// reads as a drill, and because the recoil below wants room to be
+    /// seen.
+    pub hammer_cooldown: u8,
+    /// How hard a landed blow shoves the gnome back, in cells per tick.
+    ///
+    /// The half of "smashing" that the rock cannot supply: a blow that
+    /// moves the world and not the arm swinging it reads as a cursor
+    /// effect. Small — a fifth of `run_max` — so it is felt on the ground
+    /// and can be walked straight back through, and it only fires on a
+    /// blow that actually broke something.
+    pub hammer_recoil: f32,
+    /// How far he can reach to chop, in cells. Between the hammer's reach
+    /// and the pick's: an axe is longer than a hammer and shorter than a
+    /// pick swung at a rock face.
+    pub chop_reach: u8,
+    /// Radius of one chop. Small on purpose — a notch, not a bite. Felling
+    /// a bole is several chops into the same face, which is what makes the
+    /// moment it goes over readable as *your* last stroke rather than as
+    /// the tree deciding.
+    pub chop_radius: u8,
+    /// Ticks between chops.
+    pub chop_cooldown: u8,
+    /// What fraction of chopped tissue stays as timber where it fell; the
+    /// rest goes as chips.
+    ///
+    /// `dig_yield`'s sibling and deliberately far higher (half against a
+    /// tenth). The two numbers answer different questions: mining has to
+    /// *remove volume* or a bore cannot open at all (see `dig_yield`),
+    /// while chopping is meant to leave you the wood. Some still has to
+    /// go, or the notch fills with its own chips and the axe stops
+    /// reaching timber — exactly the failure `face_toward`'s loose-material
+    /// note records for the pick.
+    pub chop_yield: f32,
     /// What fraction of freshly mined rock stays behind as rubble. The
     /// rest leaves the world as dust.
     ///
@@ -322,9 +397,11 @@ impl Tuning {
     /// - **durations divide by `s`**, so a forgiveness window covers the
     ///   same amount of *motion*;
     /// - **distances, sizes and dimensionless ratios do not move at all** —
-    ///   `dig_reach`, `dig_radius`, `step_up`, `wade_rows`, `mantle_reach`,
-    ///   `shake_reach`, `air_control`, `buoyancy`, `wade_slowdown`,
-    ///   `surface_hop`, `dig_yield`, and the two shake probabilities.
+    ///   `dig_reach`, `dig_radius`, `bore_bite`, `step_up`, `wade_rows`,
+    ///   `mantle_reach`, `shake_reach`, `hammer_reach`, `hammer_radius`,
+    ///   `hammer_force`, `chop_reach`, `chop_radius`, `air_control`,
+    ///   `buoyancy`, `wade_slowdown`, `surface_hop`, `dig_yield`,
+    ///   `chop_yield`, and the two shake probabilities.
     ///
     /// # Derived, never written back
     ///
@@ -374,7 +451,13 @@ impl Tuning {
             coyote_frames: dur(self.coyote_frames),
             jump_buffer_frames: dur(self.jump_buffer_frames),
             dig_cooldown: dur(self.dig_cooldown),
+            hammer_cooldown: dur(self.hammer_cooldown),
+            chop_cooldown: dur(self.chop_cooldown),
             stroke_cooldown: dur(self.stroke_cooldown),
+            // A velocity, so one factor -- the recoil has to carry him the
+            // same *distance* however slowly time is running, or a dilated
+            // hammer would shove him across the screen.
+            hammer_recoil: self.hammer_recoil * scale,
             // Everything else is a distance, a size or a ratio.
             ..*self
         }
@@ -413,6 +496,18 @@ impl Default for Tuning {
             mantle_reach: 4,
             climb_speed: 0.9,
             surface_hop: 0.75,
+            bore_bite: 3,
+            // Well inside `PLAYER_WIDTH`/2 + a swing: the blow lands on the
+            // face he is standing at, never across a gap.
+            hammer_reach: 12,
+            hammer_radius: 7,
+            hammer_force: 3.0,
+            hammer_cooldown: 24,
+            hammer_recoil: 0.3,
+            chop_reach: 16,
+            chop_radius: 3,
+            chop_cooldown: 10,
+            chop_yield: 0.5,
             // Mirrors SPOIL_MODES[0] (TRACE), chosen by playtest.
             dig_yield: 0.10,
         }
@@ -462,6 +557,170 @@ pub const SPOIL_MODES: [SpoilMode; 5] = [
     SpoilMode { name: "SPOIL", note: "half stays - tunnels silt up behind you", dig_yield: 0.55 },
     SpoilMode { name: "HOARD", note: "nothing is lost - you cannot dig far", dig_yield: 1.0 },
 ];
+
+/// What the gnome has in his hands. One left button, three verbs, and the
+/// belt is what picks between them.
+///
+/// **Three tools rather than three keys**, and that is the same rule
+/// `Tool::Dig` records for the dig itself: a verb the player cannot see is
+/// a verb that does not exist. Every letter on the keyboard was already
+/// bound when this landed (`main.rs`'s `Y` comment: "the last free
+/// letter"), so a fourth and fifth binding for smashing and chopping would
+/// have gone somewhere nobody would find. A belt is one selector, named on
+/// screen in the gnome HUD, and the sprite carries the implement so the
+/// answer to "what will this click do" is on the character rather than in
+/// a corner.
+///
+/// The split between them is what each one is *for*, not how hard it hits:
+///
+/// - `Pick` **moves you through the world**. It opens passages, and its
+///   default cut is sized to the body that has to walk down them.
+/// - `Hammer` **breaks the world**. It removes less rock than the pick and
+///   damages far more of it — the cracks reach `rigid::CRACK_REACH` times
+///   the swing — so it is what brings a ceiling down rather than what digs
+///   a corridor.
+/// - `Axe` **cuts what is alive**. Living tissue is the one thing the
+///   other two are bad at: the pick's yield is set for opening rock and
+///   would turn a tree into chips, and a hammer swung at a trunk scores
+///   cracks into wood that does not carry load the way stone does.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum Tool {
+    /// The pick. Digging, and the default a fresh gnome arrives with.
+    #[default]
+    Pick,
+    /// The hammer. `rigid::strike` — a blow, with the crack reach and the
+    /// failure licence a blow carries.
+    Hammer,
+    /// The axe. Chops living tissue, and fells what it cuts through.
+    Axe,
+}
+
+impl Tool {
+    pub const ALL: [Tool; 3] = [Tool::Pick, Tool::Hammer, Tool::Axe];
+
+    pub fn next(self) -> Self {
+        match self {
+            Tool::Pick => Tool::Hammer,
+            Tool::Hammer => Tool::Axe,
+            Tool::Axe => Tool::Pick,
+        }
+    }
+
+    /// Short enough for a HUD row of three.
+    pub fn label(self) -> &'static str {
+        match self {
+            Tool::Pick => "PICK",
+            Tool::Hammer => "HAMMER",
+            Tool::Axe => "AXE",
+        }
+    }
+
+    /// What it is for, in the player's words — the toast, and the help page.
+    pub fn note(self) -> &'static str {
+        match self {
+            Tool::Pick => "cuts passages you can walk down",
+            Tool::Hammer => "smashes rock and cracks what it does not break",
+            Tool::Axe => "chops living wood - cut a bole through and it falls",
+        }
+    }
+}
+
+/// The shape the pick cuts.
+///
+/// **`Bore` is the default and `Free` is the option**, which is the
+/// reverse of what shipped first and is the owner's call. Free-hand cutting
+/// puts a round bite wherever the cursor is, and what it produces is a
+/// wandering worm-hole whose clearance you discover by walking into it —
+/// the failure `rigid::mine_swept`'s own doc records from the other end
+/// ("why are you digging tunnels a row of circles instead of a tunnel"),
+/// fixed there for the *pinch* between bites and not for the shape.
+///
+/// A bore asks a much smaller question of the player — which of four ways
+/// — and answers a much bigger one for them: the passage is the size of
+/// the thing that has to walk down it, its floor is flush with the ground
+/// under his feet, and the box is drawn before it is cut. `Free` stays
+/// because sculpting a chamber, undercutting a slab, or reaching a seam
+/// two cells wide are all things a rectangle cannot do.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum DigStyle {
+    /// A passage the gnome's own size, driven up, down, left or right.
+    #[default]
+    Bore,
+    /// The cursor-aimed round bite: `rigid::mine_swept` at `dig_radius`,
+    /// swept from the last bite. What the pick did before the bore existed.
+    Free,
+}
+
+impl DigStyle {
+    pub fn next(self) -> Self {
+        match self {
+            DigStyle::Bore => DigStyle::Free,
+            DigStyle::Free => DigStyle::Bore,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            DigStyle::Bore => "BORE",
+            DigStyle::Free => "FREE",
+        }
+    }
+
+    pub fn note(self) -> &'static str {
+        match self {
+            DigStyle::Bore => "a passage his own size, up down left or right",
+            DigStyle::Free => "a round bite wherever you point",
+        }
+    }
+}
+
+/// Which of the four ways a bore is driven.
+///
+/// Cardinal and not continuous, deliberately. The cursor picks a
+/// *direction* rather than a point, so the same gesture always produces
+/// the same box — which is what makes the preview a promise instead of an
+/// estimate, and what makes a corridor come out straight without the
+/// player steering it cell by cell.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Dir {
+    Up,
+    Down,
+    Left,
+    Right,
+}
+
+impl Dir {
+    /// The cardinal direction from `from` toward `aim`, by dominant axis.
+    ///
+    /// Ties go to the horizontal, which is not arbitrary: a gnome standing
+    /// on the ground wants to dig *along* it far more often than through
+    /// the floor, and a diagonal aim that is ambiguous by one cell should
+    /// not flip the box between two very different cuts as the mouse
+    /// jitters.
+    pub fn toward(from: (i32, i32), aim: (i32, i32)) -> Self {
+        let (dx, dy) = (aim.0 - from.0, aim.1 - from.1);
+        if dx.abs() >= dy.abs() {
+            if dx < 0 {
+                Dir::Left
+            } else {
+                Dir::Right
+            }
+        } else if dy < 0 {
+            Dir::Up
+        } else {
+            Dir::Down
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Dir::Up => "UP",
+            Dir::Down => "DOWN",
+            Dir::Left => "LEFT",
+            Dir::Right => "RIGHT",
+        }
+    }
+}
 
 /// A named set of movement numbers, cycled live with `F3`.
 ///
@@ -702,9 +961,23 @@ pub struct Player {
     /// Last tick's `jump_held`, for the release edge that halves an
     /// ascending `vy` — the variable-height jump.
     jump_was_held: bool,
-    /// Ticks until the next dig bite may land. Sim state rather than UI
-    /// state, so a replayed input sequence digs on the same ticks.
-    dig_cooldown: u8,
+    /// Ticks until the next blow of any kind may land. Sim state rather
+    /// than UI state, so a replayed input sequence digs on the same ticks.
+    ///
+    /// **One timer for all three tools**, charged to whichever tool struck
+    /// — so switching mid-swing cannot be used to hit at the sum of two
+    /// rates, which is what a per-tool timer would have allowed the moment
+    /// the belt landed.
+    swing_cooldown: u8,
+    /// What `swing_cooldown` was charged to, so the HUD can draw how far
+    /// through the recovery he is. Zero before the first blow.
+    swing_span: u8,
+    /// What he is holding. Sim state for the reason `facing_left` is: the
+    /// renderer draws the implement, and the renderer must stay a pure
+    /// function of the world.
+    pub tool: Tool,
+    /// Whether the pick cuts a passage or a free-hand bite.
+    pub dig_style: DigStyle,
     /// His head is in liquid: swimming rather than falling. Public
     /// because it is the difference between two entirely different
     /// control schemes and a harness reporting "he is in the water"
@@ -746,14 +1019,208 @@ pub struct Player {
     /// Where the last bite landed, so the next one can be *swept* from it
     /// rather than stamped as a fresh disc. See `rigid::mine_swept`.
     last_bite: Option<(i32, i32)>,
+    /// His body, in cells — `PLAYER_WIDTH`x`PLAYER_HEIGHT` times the world's
+    /// `cell_scale`. See `Player::at_scaled`.
+    pub w: i32,
+    pub h: i32,
+}
+
+impl Tuning {
+    /// This same feel in a world built at `k` times the cell resolution.
+    ///
+    /// **The gnome's body is not the only thing about him measured in
+    /// cells.** Scaling him without this makes him the right size and half
+    /// the character: at `k=2` he would accelerate at the same cells per
+    /// tick squared, which is *half* the physical acceleration, cap out at
+    /// half the physical speed, jump half as high off the ground and step
+    /// over ledges half as tall. He would look right and play wrong.
+    ///
+    /// **The same four classes as `WorldgenParams::scaled`**, which is not a
+    /// coincidence — it is what a tuning struct is:
+    ///
+    /// | | factor | |
+    /// |---|---|---|
+    /// | a length in cells | `k` | `step_up`, `dig_radius`, `wade_rows` |
+    /// | a speed or acceleration, cells per tick | `k` | `run_max`, `gravity`, `jump_impulse` |
+    /// | dimensionless — a ratio, a probability, a multiple of another field | `1` | `air_control`, `dig_yield`, `buoyancy` |
+    /// | a time in ticks | `1` | `coyote_frames`, `dig_cooldown` |
+    ///
+    /// **The arithmetic is checkable rather than a matter of taste**, and
+    /// checking it is what says the two speed rows belong together. Jump
+    /// height is `v²/2g`; scaling both `jump_impulse` and `gravity` by `k`
+    /// gives `(kv)²/(2kg) = k·v²/2g` — `k` times as many cells, which is the
+    /// *same physical height*. Time to apex is `v/g = kv/kg`, unchanged. So
+    /// he jumps the same height in the same time, which is the only answer
+    /// that means anything.
+    ///
+    /// **`buoyancy` is the trap of the set** and the same shape as
+    /// `strata_tilt` in the worldgen struct: it reads like an acceleration
+    /// and its doc says "vertical acceleration in water" — but it is stated
+    /// *as a multiple of `gravity`*, so `gravity` scaling carries it and
+    /// scaling it again would double-count. `surface_hop` (a fraction of a
+    /// standing jump) and `air_control` (a multiplier on `run_accel`) are
+    /// the same case.
+    pub fn scaled(&self, k: f32) -> Self {
+        // Exhaustive, no `..`, for the reason `WorldgenParams::scaled` gives:
+        // a field added later stops compiling here until somebody says which
+        // class it is, and nothing else would catch getting it wrong.
+        let Self {
+            gravity,
+            run_accel,
+            run_max,
+            ground_decel,
+            air_control,
+            jump_impulse,
+            fall_clamp,
+            coyote_frames,
+            jump_buffer_frames,
+            step_up,
+            dig_reach,
+            dig_radius,
+            dig_cooldown,
+            wade_rows,
+            wade_slowdown,
+            shoulder_grains,
+            buoyancy,
+            swim_damp,
+            stroke_impulse,
+            stroke_cooldown,
+            shake_reach,
+            shake_shed,
+            shake_seed,
+            mantle_reach,
+            climb_speed,
+            surface_hop,
+            dig_yield,
+            bore_bite,
+            hammer_reach,
+            hammer_radius,
+            hammer_force,
+            hammer_cooldown,
+            hammer_recoil,
+            chop_reach,
+            chop_radius,
+            chop_cooldown,
+            chop_yield,
+        } = *self;
+        // A count of cells held as a `u8`.
+        //
+        // **Zero is passed through, and that is not a rounding detail.** In
+        // this struct a zero means *off* -- `shoulder_grains: 0` is the old
+        // hard veto, which `a_stray_grain_at_chest_height_is_not_a_wall`
+        // uses as its control precisely because it is a different rule and
+        // not a smaller number. A blanket floor of 1 switched that control
+        // on at every scale including 1.0, so `scaled(1.0)` stopped being
+        // the identity and the guard stopped guarding. Caught by that test,
+        // which is the argument for keeping a zero-valued control in one.
+        //
+        // Above zero the floor stands: a scale below 1 must not round a
+        // reach away to nothing and silently disable a rule that was on.
+        let cells = |v: u8| {
+            if v == 0 {
+                return 0;
+            }
+            ((v as f32 * k).round() as i32).clamp(1, u8::MAX as i32) as u8
+        };
+        Self {
+            // ---- accelerations and speeds, cells per tick ----
+            gravity: gravity * k,
+            run_accel: run_accel * k,
+            run_max: run_max * k,
+            ground_decel: ground_decel * k,
+            jump_impulse: jump_impulse * k,
+            fall_clamp: fall_clamp * k,
+            stroke_impulse: stroke_impulse * k,
+            climb_speed: climb_speed * k,
+            // A blow's impulse becomes the speed its fragments leave at
+            // (`rigid::fracture_with_impulse`), and the recoil is a velocity
+            // straight onto `Player::vx`. Both are cells per tick, so both
+            // take one factor -- a `k`-times-bigger gnome must throw rock
+            // `k` times as many cells to throw it the same distance.
+            hammer_force: hammer_force * k,
+            hammer_recoil: hammer_recoil * k,
+
+            // ---- lengths, cells ----
+            step_up: cells(step_up),
+            dig_reach: cells(dig_reach),
+            dig_radius: cells(dig_radius),
+            wade_rows: cells(wade_rows),
+            shake_reach: cells(shake_reach),
+            mantle_reach: cells(mantle_reach),
+            // Powder cells tolerated **in one row**, and the row is his
+            // width, which scaled -- so this scales once, not twice.
+            shoulder_grains: cells(shoulder_grains),
+            // The belt's lengths, all plainly cells: how deep a bore stroke
+            // cuts, how far each blow reaches, how wide it lands.
+            bore_bite: cells(bore_bite),
+            hammer_reach: cells(hammer_reach),
+            hammer_radius: cells(hammer_radius),
+            chop_reach: cells(chop_reach),
+            chop_radius: cells(chop_radius),
+
+            // ---- dimensionless ----
+            // Each of these is stated as a fraction *of something that
+            // scales*, so scaling them again would count `k` twice:
+            // `air_control` multiplies `run_accel`, `buoyancy` multiplies
+            // `gravity`, `surface_hop` is a fraction of a standing jump,
+            // `wade_slowdown` and `swim_damp` are velocity multipliers.
+            air_control,
+            wade_slowdown,
+            buoyancy,
+            swim_damp,
+            surface_hop,
+            // Plain probabilities and fractions of a material yield.
+            shake_shed,
+            shake_seed,
+            dig_yield,
+            // The same kind of number as `dig_yield`: what fraction of what
+            // a stroke cuts stays as timber. A fraction is a fraction at any
+            // size.
+            chop_yield,
+
+            // ---- times, ticks ----
+            // The clock does not change when the ruler does.
+            coyote_frames,
+            jump_buffer_frames,
+            dig_cooldown,
+            stroke_cooldown,
+            hammer_cooldown,
+            chop_cooldown,
+        }
+    }
 }
 
 impl Player {
-    /// Spawn with the rectangle centred on `(x, y)`.
+    /// Spawn with the rectangle centred on `(x, y)`, at the authored size.
+    ///
+    /// **`at_scaled` is the one the app uses.** This is the size everything
+    /// in this file was tuned against, so tests and harnesses that build a
+    /// world by hand want it; a generated world may be finer.
     pub fn at(x: i32, y: i32) -> Self {
+        Self::at_scaled(x, y, 1.0)
+    }
+
+    /// Spawn into a world built at `cell_scale` cells per unit of ground.
+    ///
+    /// **He has to be scaled or he is not the same character.** At half the
+    /// cell size a 7x14 body is half as tall in the world, walks over steps
+    /// twice as big relative to him, wades to a different depth and draws
+    /// half the size on screen. The owner caught exactly this by eye on the
+    /// first rescaled render: *"our gnome shouldn't have shrunk"*.
+    ///
+    /// So the size is carried on the instance rather than read from the
+    /// constants, and every rule in this file that measures him -- his grip
+    /// rows, his wade line, his shoulder, his reach -- goes through it. The
+    /// constants stay as what he was *authored* at, which is what `at` and
+    /// the tests below want.
+    pub fn at_scaled(x: i32, y: i32, cell_scale: f32) -> Self {
+        let w = ((PLAYER_WIDTH as f32 * cell_scale).round() as i32).max(1);
+        let h = ((PLAYER_HEIGHT as f32 * cell_scale).round() as i32).max(1);
         Self {
-            x: (x - PLAYER_WIDTH / 2) as f32,
-            y: (y - PLAYER_HEIGHT / 2) as f32,
+            w,
+            h,
+            x: (x - w / 2) as f32,
+            y: (y - h / 2) as f32,
             vx: 0.0,
             vy: 0.0,
             grounded: false,
@@ -761,7 +1228,10 @@ impl Player {
             coyote: 0,
             jump_buffer: 0,
             jump_was_held: false,
-            dig_cooldown: 0,
+            swing_cooldown: 0,
+            swing_span: 0,
+            tool: Tool::Pick,
+            dig_style: DigStyle::Bore,
             swimming: false,
             was_swimming: false,
             was_climbing: false,
@@ -782,13 +1252,53 @@ impl Player {
     /// Inclusive world-space bounds, for the renderer's dirty rect.
     pub fn bounds(&self) -> (i32, i32, i32, i32) {
         let (x, y) = self.rect_origin();
-        (x, y, x + PLAYER_WIDTH - 1, y + PLAYER_HEIGHT - 1)
+        (x, y, x + self.w - 1, y + self.h - 1)
     }
 
     /// Centre of the occupied rectangle — where reach is measured from.
     pub fn center(&self) -> (i32, i32) {
         let (x, y) = self.rect_origin();
-        (x + PLAYER_WIDTH / 2, y + PLAYER_HEIGHT / 2)
+        (x + self.w / 2, y + self.h / 2)
+    }
+
+    /// Whether the next click will land a blow, rather than being eaten by
+    /// the recovery from the last one.
+    pub fn swing_ready(&self) -> bool {
+        self.swing_cooldown == 0
+    }
+
+    /// How far through the recovery from the last blow, 0 (just struck) to
+    /// 1 (ready). Drawn as the HUD's swing bar.
+    ///
+    /// **A bar and not a number**, and it is the one readout here that is
+    /// about rhythm rather than state: held digging is a sequence of blows
+    /// at a fixed rate, and a player who cannot see the rate reads a
+    /// cooldown as the tool being unresponsive. Reports 1 before the first
+    /// blow, which is true — he is ready.
+    pub fn swing_progress(&self) -> f32 {
+        if self.swing_span == 0 {
+            return 1.0;
+        }
+        1.0 - self.swing_cooldown as f32 / self.swing_span as f32
+    }
+
+    /// Charge the shared recovery timer and put the swing pose up.
+    ///
+    /// The pose is **half the (possibly dilated) cooldown, computed rather
+    /// than named** — see `SWING_FRAMES`. Held striking then alternates
+    /// swing and stance rather than sticking in one or flickering between
+    /// them, at every tool's rate and at every dilation.
+    fn strike_landed(&mut self, cooldown: u8) {
+        self.swing_cooldown = cooldown;
+        self.swing_span = cooldown;
+        self.action = (cooldown / 2).max(1);
+    }
+
+    /// Make him ready to strike again this instant. Tests and harnesses
+    /// only: it is how a probe lands N blows without simulating the
+    /// recovery between them.
+    pub fn clear_swing_cooldown(&mut self) {
+        self.swing_cooldown = 0;
     }
 }
 
@@ -864,9 +1374,9 @@ impl Bodies {
     /// Body cells within `margin` of the rectangle at `(x, y)` — a window
     /// wide enough to cover this tick's whole sweep, including step-up
     /// and depenetration.
-    fn near(world: &World, x: i32, y: i32, margin: i32) -> Self {
+    fn near(world: &World, x: i32, y: i32, (w, h): (i32, i32), margin: i32) -> Self {
         let (lo_x, lo_y) = (x - margin, y - margin);
-        let (hi_x, hi_y) = (x + PLAYER_WIDTH + margin, y + PLAYER_HEIGHT + margin);
+        let (hi_x, hi_y) = (x + w + margin, y + h + margin);
         let mut cells = Vec::new();
         for (i, body) in world.chunk_bodies.iter().enumerate() {
             for cell in &body.cells {
@@ -1001,11 +1511,11 @@ fn footing(world: &World, bodies: &Bodies, x: i32, y: i32) -> Footing {
 /// whole courses across his width and still stops him at any setting of
 /// the allowance; see `Tuning::shoulder_grains` for why the row is the
 /// right unit and the rect is not.
-fn rect_free(world: &World, bodies: &Bodies, x: i32, y: i32, wade: i32, shoulder: i32) -> bool {
-    let chest = PLAYER_HEIGHT - wade;
-    for dy in 0..PLAYER_HEIGHT {
+fn rect_free(world: &World, bodies: &Bodies, x: i32, y: i32, (w, h): (i32, i32), wade: i32, shoulder: i32) -> bool {
+    let chest = h - wade;
+    for dy in 0..h {
         let mut grains = 0;
-        for dx in 0..PLAYER_WIDTH {
+        for dx in 0..w {
             match footing(world, bodies, x + dx, y + dy) {
                 Footing::Hard => return false,
                 Footing::Soft if dy < chest => {
@@ -1027,6 +1537,17 @@ pub fn step(world: &mut World, input: PlayerInput, tuning: &Tuning) {
     let Some(mut p) = world.player.take() else {
         return;
     };
+    // **The panel edits the authored feel; the physics runs the scaled
+    // one.** Every length and speed in `Tuning` is in cells, so a world
+    // generated at a finer `cell_scale` needs them all multiplied or the
+    // gnome is the right size and moves at a fraction of the right speed
+    // (`Tuning::scaled` has the arithmetic and why it is the same four
+    // classes as the worldgen struct). Done here rather than at the call
+    // site so the tunables panel keeps showing the numbers a human authored
+    // -- 27 float multiplies once a tick, against a sweep that walks
+    // thousands of cells.
+    let scaled = tuning.scaled(world.cell_scale);
+    let tuning = &scaled;
     let wade = tuning.wade_rows as i32;
     let shoulder = tuning.shoulder_grains as i32;
     // Body cells near him, once. The margin covers this tick's whole
@@ -1042,7 +1563,7 @@ pub fn step(world: &mut World, input: PlayerInput, tuning: &Tuning) {
     // costs a handful of cells of scan.
     let (xi, yi) = p.rect_origin();
     let reach = tuning.fall_clamp.max(tuning.run_max).ceil() as i32 + DEPENETRATE_REACH + 1;
-    let bodies = Bodies::near(world, xi, yi, reach);
+    let bodies = Bodies::near(world, xi, yi, (p.w, p.h), reach);
 
     // Everything from here reads the *dilated* character (`Tuning::dilated`,
     // `clock::Clock::gnome_slowdown`). Identical to `tuning` at the default,
@@ -1067,13 +1588,13 @@ pub fn step(world: &mut World, input: PlayerInput, tuning: &Tuning) {
         p.climbing = false;
         p.coyote = p.coyote.saturating_sub(1);
         p.jump_buffer = p.jump_buffer.saturating_sub(1);
-        p.dig_cooldown = p.dig_cooldown.saturating_sub(1);
+        p.swing_cooldown = p.swing_cooldown.saturating_sub(1);
         p.stroke_cooldown = p.stroke_cooldown.saturating_sub(1);
         p.jump_was_held = input.jump_held;
         world.player = Some(p);
         return;
     }
-    p.dig_cooldown = p.dig_cooldown.saturating_sub(1);
+    p.swing_cooldown = p.swing_cooldown.saturating_sub(1);
     p.stroke_cooldown = p.stroke_cooldown.saturating_sub(1);
     p.action = p.action.saturating_sub(1);
     // Held direction, and nothing else. Unchanged when neither or both are
@@ -1095,7 +1616,7 @@ pub fn step(world: &mut World, input: PlayerInput, tuning: &Tuning) {
     // already be slowing him.
     let (xi, yi) = p.rect_origin();
     p.was_swimming = p.swimming;
-    p.swimming = (0..PLAYER_WIDTH)
+    p.swimming = (0..p.w)
         .any(|dx| world.in_bounds(xi + dx, yi) && world.materials.kind(world.get(xi + dx, yi).material) == MaterialKind::Liquid);
     // In the water *at all*, which is a different question from `swimming`
     // and is the one the haul-out below asks.
@@ -1105,8 +1626,8 @@ pub fn step(world: &mut World, input: PlayerInput, tuning: &Tuning) {
     // with nothing under his feet, which is precisely when he wants to
     // pull himself onto the bank. Keying the haul-out on `swimming` would
     // have switched it off exactly where it is needed.
-    let floating = (0..PLAYER_HEIGHT).any(|dy| {
-        (0..PLAYER_WIDTH).any(|dx| {
+    let floating = (0..p.h).any(|dy| {
+        (0..p.w).any(|dx| {
             world.in_bounds(xi + dx, yi + dy) && world.materials.kind(world.get(xi + dx, yi + dy).material) == MaterialKind::Liquid
         })
     });
@@ -1118,8 +1639,8 @@ pub fn step(world: &mut World, input: PlayerInput, tuning: &Tuning) {
     // slowdown by that gives the graded outcome the ethos asks for: a
     // scuff through the top of a drift barely registers, ankle-deep drags
     // a little, knee-deep is a slog.
-    let soaked = (0..PLAYER_HEIGHT)
-        .filter(|&dy| (0..PLAYER_WIDTH).any(|dx| footing(world, &bodies, xi + dx, yi + dy) == Footing::Soft))
+    let soaked = (0..p.h)
+        .filter(|&dy| (0..p.w).any(|dx| footing(world, &bodies, xi + dx, yi + dy) == Footing::Soft))
         .count() as f32;
     p.wading = !p.swimming && soaked > 0.0;
     let wade_drag = if p.wading {
@@ -1141,7 +1662,7 @@ pub fn step(world: &mut World, input: PlayerInput, tuning: &Tuning) {
     // overlap would mean holding `W` to jump anywhere near a tree grabbed a
     // root at boot height and stuck him at knee level. Reaching for it is
     // also simply what climbing is.
-    let grip = (0..GRIP_ROWS).any(|dy| (0..PLAYER_WIDTH).any(|dx| footing(world, &bodies, xi + dx, yi + dy) == Footing::Climb));
+    let grip = (0..grip_rows(p.h)).any(|dy| (0..p.w).any(|dx| footing(world, &bodies, xi + dx, yi + dy) == Footing::Climb));
     // How much foliage he is falling through, graded by how much of him is
     // in it — the same shape as the wade above, and for the reason recorded
     // there: a flag reads as a debuff, a depth reads as a canopy.
@@ -1150,9 +1671,9 @@ pub fn step(world: &mut World, input: PlayerInput, tuning: &Tuning) {
     // barely registers and going through the middle of one arrests him.
     // Read off the material (`fall_drag`), not off `Footing::Climb`, so a
     // bare trunk catches nothing while the leaves on it do.
-    let foliage: f32 = (0..PLAYER_HEIGHT)
+    let foliage: f32 = (0..p.h)
         .map(|dy| {
-            (0..PLAYER_WIDTH)
+            (0..p.w)
                 .map(|dx| {
                     let c = world.get(xi + dx, yi + dy);
                     if c.organism_id() == 0 {
@@ -1163,7 +1684,7 @@ pub fn step(world: &mut World, input: PlayerInput, tuning: &Tuning) {
                 .fold(0.0f32, f32::max)
         })
         .sum::<f32>()
-        / PLAYER_HEIGHT as f32;
+        / p.h as f32;
 
     // **You are on the tree only while you are holding on.** Shift grabs,
     // `W`/`S` climb, no vertical input hangs, releasing lets go.
@@ -1363,7 +1884,7 @@ pub fn step(world: &mut World, input: PlayerInput, tuning: &Tuning) {
         if step_x != 0.0 {
             let next_x = p.x + step_x;
             let (nxi, nyi) = (next_x.round() as i32, p.y.round() as i32);
-            if rect_free(world, &bodies, nxi, nyi, wade, shoulder) {
+            if rect_free(world, &bodies, nxi, nyi, (p.w, p.h), wade, shoulder) {
                 p.x = next_x;
             } else {
                 // Lift the same horizontal move over whatever blocked it,
@@ -1405,12 +1926,12 @@ pub fn step(world: &mut World, input: PlayerInput, tuning: &Tuning) {
                 };
                 let mut climbed = false;
                 for lift in 1..=lift_limit {
-                    if !rect_free(world, &bodies, nxi, nyi - lift, wade, shoulder) {
+                    if !rect_free(world, &bodies, nxi, nyi - lift, (p.w, p.h), wade, shoulder) {
                         continue;
                     }
                     if mantling {
-                        let lands_on_something = (0..PLAYER_WIDTH)
-                            .any(|dx| matches!(footing(world, &bodies, nxi + dx, nyi - lift + PLAYER_HEIGHT), Footing::Hard | Footing::Soft));
+                        let lands_on_something = (0..p.w)
+                            .any(|dx| matches!(footing(world, &bodies, nxi + dx, nyi - lift + p.h), Footing::Hard | Footing::Soft));
                         if !lands_on_something {
                             continue;
                         }
@@ -1434,7 +1955,7 @@ pub fn step(world: &mut World, input: PlayerInput, tuning: &Tuning) {
         if step_y != 0.0 {
             let next_y = p.y + step_y;
             let (nxi, nyi) = (p.x.round() as i32, next_y.round() as i32);
-            if rect_free(world, &bodies, nxi, nyi, wade, shoulder) {
+            if rect_free(world, &bodies, nxi, nyi, (p.w, p.h), wade, shoulder) {
                 p.y = next_y;
             } else {
                 // Landing or head bonk: the vertical axis dies, the
@@ -1458,7 +1979,7 @@ pub fn step(world: &mut World, input: PlayerInput, tuning: &Tuning) {
     // him up the side of a trunk one bump at a time. A tree holds you
     // because you are gripping it, never because you are standing on it.
     p.grounded = !p.swimming
-        && (0..PLAYER_WIDTH).any(|dx| matches!(footing(world, &bodies, xi + dx, yi + PLAYER_HEIGHT), Footing::Hard | Footing::Soft));
+        && (0..p.w).any(|dx| matches!(footing(world, &bodies, xi + dx, yi + p.h), Footing::Hard | Footing::Soft));
 
     // Riding a body, which needs two rules rather than the one the plan
     // expected. Both are recorded because both were found by measurement.
@@ -1482,14 +2003,14 @@ pub fn step(world: &mut World, input: PlayerInput, tuning: &Tuning) {
     //    `depenetrate` already makes, and only ever downward onto a
     //    surface that is genuinely there.
     let mut carrier = if p.grounded {
-        (0..PLAYER_WIDTH).find_map(|dx| bodies.at(xi + dx, yi + PLAYER_HEIGHT))
+        (0..p.w).find_map(|dx| bodies.at(xi + dx, yi + p.h))
     } else {
         None
     };
     if carrier.is_none() && !p.swimming && !p.grounded && p.vy >= 0.0 {
         for drop in 1..=PLATFORM_STICK {
-            let row = yi + PLAYER_HEIGHT + drop;
-            let Some(i) = (0..PLAYER_WIDTH).find_map(|dx| bodies.at(xi + dx, row)) else {
+            let row = yi + p.h + drop;
+            let Some(i) = (0..p.w).find_map(|dx| bodies.at(xi + dx, row)) else {
                 continue;
             };
             // Any body that is not itself rising, rather than only one
@@ -1500,8 +2021,8 @@ pub fn step(world: &mut World, input: PlayerInput, tuning: &Tuning) {
             // ahead it was already further than this window reaches. He
             // then spent the whole collapse in free fall beside it.
             let catchable = world.chunk_bodies.get(i).is_some_and(|b| b.vy >= 0.0);
-            if catchable && rect_free(world, &bodies, xi, row - PLAYER_HEIGHT, wade, shoulder) {
-                p.y = (row - PLAYER_HEIGHT) as f32;
+            if catchable && rect_free(world, &bodies, xi, row - p.h, (p.w, p.h), wade, shoulder) {
+                p.y = (row - p.h) as f32;
                 p.grounded = true;
                 carrier = Some(i);
             }
@@ -1554,79 +2075,308 @@ pub fn dig(world: &mut World, aim: (i32, i32), tuning: &Tuning) -> Option<Bite> 
     let dilated = tuning.dilated(world.clock.gnome_scale());
     let tuning = &dilated;
     let mut p = world.player.take()?;
-    let bite = if p.dig_cooldown == 0 {
-        p.dig_cooldown = tuning.dig_cooldown;
-        // **Half the (possibly dilated) cooldown, computed rather than named.**
-        // `SWING_FRAMES` is documented as "half the default `dig_cooldown`",
-        // which was true by coincidence and stopped being true the moment the
-        // cooldown could be tuned or dilated -- the swing pose would have run
-        // at real-time speed over a slowed dig rhythm. Deriving it makes the
-        // documented relationship hold by construction, and at the defaults
-        // it is still exactly `SWING_FRAMES`.
-        p.action = (tuning.dig_cooldown / 2).max(1);
-        // Buried, the bite auto-aims *above his head* rather than at his
-        // own centre, and the difference is the whole escape. Centred on
-        // himself, the disc reaches as far below his feet as above his
-        // hat: on `scene=bury` that mined the stone floor he was standing
-        // on into rubble, threw it clear, and dropped him into the hole —
-        // he ended eight cells *lower* than he started, sealed inside the
-        // floor, with the pile still on top. Aiming high puts the bore
-        // between him and the surface, which is both the direction a
-        // buried digger actually works and the direction `depenetrate`
-        // already prefers, so the two pull the same way and he climbs out
-        // a few cells per bite.
-        let at = bite_point(world, &p, aim, tuning);
-        let radius = tuning.dig_radius as i32;
-        // The thinning used to live here, over a `fresh` set this function
-        // collected before the cut. It is inside `rigid::mine` now, over
-        // the cells `mine` itself broke, so the `D` key and the creatures
-        // dig the same hole the gnome does -- see `rigid::mine`'s
-        // `spoil_yield`. The distinction that set existed for is kept
-        // there: only *freshly* broken cells are thinned, never sand that
-        // was already lying in the bore, which would delete material the
-        // player poured in themselves.
-        // Swept from the previous bite, which is what makes a run of
-        // bites a corridor instead of a row of circles -- and what stops
-        // the gnome wedging in the pinch between two of them, since he is
-        // 14 cells tall and that pinch measured 13. See `rigid::mine_swept`.
-        //
-        // Only when the last bite was near enough to be *this* bore.
-        // Without the cap, walking away and digging again would carve a
-        // trench across everything in between: the sweep is meant to join
-        // consecutive bites at a working face, not to connect two places
-        // the digger happens to have visited.
-        let from = match p.last_bite {
-            Some(last) if (last.0 - at.0).abs().max((last.1 - at.1).abs()) <= radius * SWEEP_REACH => last,
-            _ => at,
+    let bite = if p.swing_cooldown == 0 {
+        p.strike_landed(tuning.dig_cooldown);
+        // **A buried gnome always digs free-hand, whatever style is
+        // selected**, and this is not a fallback -- it is the only reading
+        // that keeps the escape working. The bore box is anchored on his
+        // rectangle and cut *outside* it, so under a pile it clears a
+        // gnome-sized room next door and leaves him exactly as entombed as
+        // he was. The free bite aims at his own rectangle and, more to the
+        // point, `displace_disc` throws the burying material as far as
+        // `BURIED_THROW` -- which is what actually frees him. See
+        // `bite_point`.
+        let bite = match p.dig_style {
+            DigStyle::Bore if !p.buried => bore_bite(world, &mut p, aim, tuning),
+            _ => free_bite(world, &mut p, aim, tuning),
         };
-        p.last_bite = Some(at);
-        let dusted = crate::sim::rigid::mine_swept(world, from, at, radius, tuning.dig_yield);
-        // How far spoil may be thrown, and the two cases genuinely differ.
-        //
-        // A bite at a rock face only ever needs to shove material a cell or
-        // two: it is standing in the open space it came in through, so the
-        // near ring is free and a long search would never be reached
-        // anyway. Digging *out of a burial* is the opposite problem. The
-        // rectangle is full, every one of its cells has to find a home
-        // before `depenetrate` can stand him up, and under a dumped pile
-        // the nearest free cell is the pile's own surface. Measured on
-        // `scene=bury`: at the short reach a buried gnome dug 34 bites and
-        // moved zero cells — the pile had no opening within four cells of
-        // the bore, so the escape simply did not exist, which is not what
-        // M9 asks for ("buried by a sand dump and dig out"). The long
-        // reach is the case where throwing material to the surface is
-        // *also* what a digger actually does, so it costs nothing in
-        // plausibility. It is still bounded: bury him deep enough and the
-        // surface is out of range and he stays under, which is the right
-        // answer rather than a missing feature.
-        let search = if p.buried { radius + BURIED_THROW } else { radius + SPOIL_THROW };
-        let displaced = displace_disc(world, &p, at.0, at.1, radius, search);
-        Some(Bite { at, displaced, dusted })
+        Some(bite)
     } else {
         None
     };
     world.player = Some(p);
     bite
+}
+
+/// The passage a bore aimed at `aim` would open: which way it is driven,
+/// and the inclusive box it will eventually clear.
+///
+/// **Public and shared with the renderer**, for the reason `bite_point`
+/// records: a second copy of this arithmetic would let the preview and the
+/// cut disagree, and a preview that lies is worse than none. The preview is
+/// most of what makes the bore feel different from the free bite — you can
+/// see the corridor before you commit to it.
+///
+/// # The size, and why it is this size
+///
+/// One cell of clearance on every side of the gnome: `PLAYER_WIDTH + 2` by
+/// `PLAYER_HEIGHT + 2`, which at the current 7x14 is 9x16. That is the
+/// literal statement of "a passage he fits down" — and it is derived from
+/// his extent rather than written as a constant, because he has already
+/// been grown twice on playtest notes and a hardcoded box would have
+/// quietly stopped fitting him both times.
+///
+/// # Where it is put: against the face, not against him
+///
+/// Flush against his rectangle when there is something there to cut, and
+/// otherwise **slid forward along the chosen direction to the first thing
+/// in reach**, bounded by `dig_reach`.
+///
+/// Anchored on his body alone — which is how this was built first — a bore
+/// swung at a wall twelve cells away carves twelve cells of air and reports
+/// a hole it never made. That is `Tool::Dig`'s own standing rule broken
+/// from the inside: a reach may bound *where* a verb lands and must never
+/// decide *whether* it happens. It is also the free-hand bite's rule,
+/// already: `face_toward` walks the ray to the first thing it can cut. So
+/// both styles now answer the same question, and differ only in the shape
+/// of what comes out.
+///
+/// The slide is bounded by reach and **not by where the cursor is**, which
+/// is the whole difference from the free bite. The cursor picks a
+/// direction; nothing else about it should change the cut, or the bore is
+/// free-hand again with extra steps.
+///
+/// # The one asymmetry
+///
+/// Horizontally the box's **floor is level with his feet**, not centred on
+/// him — so the whole two cells of vertical clearance go over his hat,
+/// where headroom is, and the corridor floor runs continuously out of the
+/// ground he is standing on. Centring it instead cuts two rows out from
+/// under the floor, and every bite forward becomes a step down: a corridor
+/// driven across flat rock would descend two cells per stroke for no reason
+/// anyone could see.
+pub fn bore_rect(world: &World, p: &Player, aim: (i32, i32), tuning: &Tuning) -> (Dir, (i32, i32, i32, i32)) {
+    let dir = Dir::toward(p.center(), aim);
+    let flush = bore_rect_at(p, dir, 0);
+    // How far forward the box may slide before the swing gives up and
+    // lands where he stands.
+    let reach = tuning.dig_reach as i32;
+    let face_at = |d: i32, want: &dyn Fn(&World, i32, i32) -> bool| {
+        let slab = bore_slab(dir, bore_rect_at(p, dir, d), 0, 1);
+        (slab.1..=slab.3).any(|y| (slab.0..=slab.2).any(|x| world.in_bounds(x, y) && want(world, x, y)))
+    };
+    // **Rock sites the box. A tree does not, and neither does loose
+    // material.** This is `face_toward`'s rule for the free bite, arrived
+    // at here by the same two failures it records:
+    //
+    // - a trunk between the two reaches used to swallow the click
+    //   entirely, so living tissue is passed over. It is still *cut* — the
+    //   box is a passage and a tree in it comes down — it just does not
+    //   get to decide where the passage is;
+    // - and the digger's own spoil shielded the face he was cutting. A cut
+    //   leaves a `dig_yield` fraction behind, so with powder siting the box
+    //   the next stroke lands on the muck a cell in front of the rock, and
+    //   **the bore grinds on its own spoil for ever**. Caught by
+    //   `app::a_click_on_a_tree_shakes_it_rather_than_cutting_or_painting`
+    //   on a single shaken-loose grain of sand, which sited a whole
+    //   passage five cells short of the wall it was aimed at.
+    //
+    // The fallback is what keeps a dune or a lone tree diggable rather
+    // than a swing at nothing: with no hard face in reach, anything at all
+    // will do.
+    let bodies = Bodies::none();
+    let slide = (0..=reach)
+        .find(|&d| face_at(d, &|w: &World, x, y| matches!(footing(w, &bodies, x, y), Footing::Hard | Footing::Scenery)))
+        .or_else(|| (0..=reach).find(|&d| face_at(d, &|w: &World, x, y| !w.is_empty(x, y))));
+    (dir, slide.map_or(flush, |d| bore_rect_at(p, dir, d)))
+}
+
+/// The bore box `offset` cells forward of his rectangle in `dir`.
+fn bore_rect_at(p: &Player, dir: Dir, offset: i32) -> (i32, i32, i32, i32) {
+    let (x0, y0, x1, y1) = p.bounds();
+    // **Off `p.w`/`p.h`, not off the constants.** The gnome scales with the
+    // world now (`Player::at_scaled`), so `PLAYER_WIDTH`/`PLAYER_HEIGHT` are
+    // his size at `cell_scale` 1.0 and nothing else -- a box built from them
+    // is the wrong size for him at every other scale. That is the failure
+    // this function's own doc warns about ("he has already been grown twice
+    // on playtest notes and a hardcoded box would have quietly stopped
+    // fitting him both times"), and it arrived through a **clean** merge:
+    // `main` made the extent per-instance while this branch was reading the
+    // constants, with no textual conflict anywhere near it. The margin is a
+    // cell of clearance at *his* scale for the same reason.
+    let margin = (BORE_MARGIN as f32 * (p.w as f32 / PLAYER_WIDTH as f32)).round().max(1.0) as i32;
+    let (w, h) = (p.w + 2 * margin, p.h + 2 * margin);
+    // Centred on him for a shaft, which has no floor to line up with.
+    let sx = p.center().0 - w / 2;
+    let d = offset;
+    match dir {
+        Dir::Left => (x0 - w - d, y1 - h + 1, x0 - 1 - d, y1),
+        Dir::Right => (x1 + 1 + d, y1 - h + 1, x1 + w + d, y1),
+        Dir::Up => (sx, y0 - h - d, sx + w - 1, y0 - 1 - d),
+        Dir::Down => (sx, y1 + 1 + d, sx + w - 1, y1 + h + d),
+    }
+}
+
+/// One stroke's worth of the bore box: `depth` cells thick, starting at the
+/// **working face** — the nearest slab that still has anything in it.
+///
+/// # Why the working face and not the box's own near edge
+///
+/// This is `face_toward`'s lesson in a second costume, and it was built the
+/// wrong way first. Anchored on the box edge, the slice is always the same
+/// three cells: the first stroke clears them and every stroke after it cuts
+/// air, so **holding the button drives the bore exactly one stroke and then
+/// stops**. The passage advances only if the player walks forward between
+/// presses, which is a rule nothing on screen states and which reads
+/// precisely as the tool having broken.
+///
+/// Advancing to the first slab with something in it makes a held button
+/// drive the passage through the whole box, then stop when the box is
+/// clear — at which point he walks in and the box re-anchors ahead of him.
+/// That loop is the verb.
+///
+/// # What counts as the face, and why it is two questions
+///
+/// **Rock first, then anything at all.** The obvious rule — the nearest
+/// slab that is not empty — was built and is wrong in the case the bore
+/// exists for. A cut leaves a `dig_yield` fraction of itself behind as
+/// spoil, and deep inside a massif that spoil has nowhere to be thrown:
+/// `displace_rect`'s reach is four cells and every one of them is rock or
+/// more bore. So the near slab never empties, the face never advances, and
+/// **a passage driven into solid rock stalls three cells in** — measured,
+/// with 80 of the box's 144 cells still standing after sixteen strokes
+/// that should have cleared it twice over.
+///
+/// Rubble in the bore is not the working face; it is spoil, and the stroke
+/// shoves whatever of it lies inside its own slice. So the face is the
+/// nearest slab with something the cut can *break* in it.
+///
+/// The fallback is what keeps a bore into a dune working, and it is not a
+/// safety net — most of this world's surface is soil and sand, which
+/// `rigid::is_tool_target` refuses. With no breakable cell anywhere in the
+/// box the face becomes the nearest slab that is not empty, and the stroke
+/// advances by displacement alone.
+pub fn bore_slice(world: &World, dir: Dir, rect: (i32, i32, i32, i32), depth: i32) -> (i32, i32, i32, i32) {
+    let span = bore_span(dir, rect);
+    let slab_holds = |i: i32, want: &dyn Fn(&World, i32, i32) -> bool| {
+        let slab = bore_slab(dir, rect, i, 1);
+        (slab.1..=slab.3).any(|y| (slab.0..=slab.2).any(|x| world.in_bounds(x, y) && want(world, x, y)))
+    };
+    let face = (0..span)
+        .find(|&i| slab_holds(i, &|w, x, y| crate::sim::rigid::is_tool_target(w, x, y)))
+        .or_else(|| (0..span).find(|&i| slab_holds(i, &|w: &World, x, y| !w.is_empty(x, y))))
+        // A box with nothing in it at all: the stroke lands on the near
+        // edge and reports zero, which is what a swing at nothing is.
+        .unwrap_or(0);
+    bore_slab(dir, rect, face, depth.max(1))
+}
+
+/// How many cells deep the box is, along the direction it is driven.
+fn bore_span(dir: Dir, (x0, y0, x1, y1): (i32, i32, i32, i32)) -> i32 {
+    match dir {
+        Dir::Left | Dir::Right => x1 - x0 + 1,
+        Dir::Up | Dir::Down => y1 - y0 + 1,
+    }
+}
+
+/// The `thick`-deep slab of the box starting `offset` cells in from the
+/// near face, clamped to the box.
+fn bore_slab(dir: Dir, (x0, y0, x1, y1): (i32, i32, i32, i32), offset: i32, thick: i32) -> (i32, i32, i32, i32) {
+    let span = bore_span(dir, (x0, y0, x1, y1));
+    let near = offset.clamp(0, (span - 1).max(0));
+    let far = (near + thick - 1).min(span - 1);
+    match dir {
+        Dir::Left => (x1 - far, y0, x1 - near, y1),
+        Dir::Right => (x0 + near, y0, x0 + far, y1),
+        Dir::Up => (x0, y1 - far, x1, y1 - near),
+        Dir::Down => (x0, y0 + near, x1, y0 + far),
+    }
+}
+
+/// One cell of clearance on each side. A constant rather than a tunable
+/// because it is not a feel knob: below 1 the passage is exactly his own
+/// silhouette and every piece of spoil in it is a wall, and above 2 it
+/// stops reading as a passage cut *for him*.
+const BORE_MARGIN: i32 = 1;
+
+/// One stroke of the bore: cut the near slice of the box, then shove
+/// whatever loose material the cut leaves out of it.
+fn bore_bite(world: &mut World, p: &mut Player, aim: (i32, i32), tuning: &Tuning) -> Bite {
+    let (dir, boxr) = bore_rect(world, p, aim, tuning);
+    let slice = bore_slice(world, dir, boxr, tuning.bore_bite as i32);
+    let at = ((slice.0 + slice.2) / 2, (slice.1 + slice.3) / 2);
+    // **No sweep join here, and none is needed.** The capsule needs one
+    // because consecutive discs pinch between their centre lines
+    // (`rigid::mine_swept`); a slice is the full cross-section of the
+    // passage by construction, so two consecutive strokes abut with no
+    // scallop at all whatever the digger did in between. `last_bite` is
+    // still updated so switching to `Free` mid-tunnel joins onto the face
+    // rather than starting a fresh bore behind it.
+    p.last_bite = Some(at);
+    let dusted = crate::sim::rigid::mine_rect(world, (slice.0, slice.1), (slice.2, slice.3), tuning.dig_yield);
+    // **Displacement is not optional for the bore, and the reason is not
+    // spoil.** `mine_rect` only breaks `rigid::is_tool_target` cells —
+    // solid and plant — so a slice cut into sand, soil or water breaks
+    // nothing at all. Without this shove, driving a passage through the
+    // ground the world is mostly made of would do literally nothing, which
+    // is the "a mechanism appears inert, check the scene" failure with the
+    // scene being correct.
+    let displaced = displace_rect(world, p, slice, SPOIL_THROW);
+    Bite { at, displaced, dusted }
+}
+
+/// The free-hand bite: a round cut at the near face along the aim ray,
+/// swept from the last one. `DigStyle::Free`, and the only shape a buried
+/// gnome ever cuts.
+fn free_bite(world: &mut World, p: &mut Player, aim: (i32, i32), tuning: &Tuning) -> Bite {
+    // Buried, the bite auto-aims *above his head* rather than at his
+    // own centre, and the difference is the whole escape. Centred on
+    // himself, the disc reaches as far below his feet as above his
+    // hat: on `scene=bury` that mined the stone floor he was standing
+    // on into rubble, threw it clear, and dropped him into the hole —
+    // he ended eight cells *lower* than he started, sealed inside the
+    // floor, with the pile still on top. Aiming high puts the bore
+    // between him and the surface, which is both the direction a
+    // buried digger actually works and the direction `depenetrate`
+    // already prefers, so the two pull the same way and he climbs out
+    // a few cells per bite.
+    let at = bite_point(world, p, aim, tuning);
+    let radius = tuning.dig_radius as i32;
+    // The thinning used to live here, over a `fresh` set this function
+    // collected before the cut. It is inside `rigid::mine` now, over
+    // the cells `mine` itself broke, so the `D` key and the creatures
+    // dig the same hole the gnome does -- see `rigid::mine`'s
+    // `spoil_yield`. The distinction that set existed for is kept
+    // there: only *freshly* broken cells are thinned, never sand that
+    // was already lying in the bore, which would delete material the
+    // player poured in themselves.
+    // Swept from the previous bite, which is what makes a run of
+    // bites a corridor instead of a row of circles -- and what stops
+    // the gnome wedging in the pinch between two of them, since he is
+    // 14 cells tall and that pinch measured 13. See `rigid::mine_swept`.
+    //
+    // Only when the last bite was near enough to be *this* bore.
+    // Without the cap, walking away and digging again would carve a
+    // trench across everything in between: the sweep is meant to join
+    // consecutive bites at a working face, not to connect two places
+    // the digger happens to have visited.
+    let from = match p.last_bite {
+        Some(last) if (last.0 - at.0).abs().max((last.1 - at.1).abs()) <= radius * SWEEP_REACH => last,
+        _ => at,
+    };
+    p.last_bite = Some(at);
+    let dusted = crate::sim::rigid::mine_swept(world, from, at, radius, tuning.dig_yield);
+    // How far spoil may be thrown, and the two cases genuinely differ.
+    //
+    // A bite at a rock face only ever needs to shove material a cell or
+    // two: it is standing in the open space it came in through, so the
+    // near ring is free and a long search would never be reached
+    // anyway. Digging *out of a burial* is the opposite problem. The
+    // rectangle is full, every one of its cells has to find a home
+    // before `depenetrate` can stand him up, and under a dumped pile
+    // the nearest free cell is the pile's own surface. Measured on
+    // `scene=bury`: at the short reach a buried gnome dug 34 bites and
+    // moved zero cells — the pile had no opening within four cells of
+    // the bore, so the escape simply did not exist, which is not what
+    // M9 asks for ("buried by a sand dump and dig out"). The long
+    // reach is the case where throwing material to the surface is
+    // *also* what a digger actually does, so it costs nothing in
+    // plausibility. It is still bounded: bury him deep enough and the
+    // surface is out of range and he stays under, which is the right
+    // answer rather than a missing feature.
+    let search = if p.buried { radius + BURIED_THROW } else { radius + SPOIL_THROW };
+    let displaced = displace_disc(world, p, at.0, at.1, radius, search);
+    Bite { at, displaced, dusted }
 }
 
 // `solid_cells_in_disc` stood here: the set of cells a bite was about to
@@ -1681,23 +2431,15 @@ pub fn shake_target(world: &World, p: &Player, aim: (i32, i32), tuning: &Tuning)
     if p.buried {
         return None; // buried digs upward, whatever is out there
     }
-    let (cx, cy) = p.center();
-    let (dx, dy) = (aim.0 - cx, aim.1 - cy);
-    if dx * dx + dy * dy > (tuning.shake_reach as i32).pow(2) {
-        return None; // out of arm's reach: whatever it is, this is not it
-    }
-    let living = |(x, y): (i32, i32)| {
-        let cell = world.get(x, y);
-        cell.organism_id() != 0 && world.materials.get(cell.material).climbable
-    };
     // The cursor, plus a cell or two of forgiveness — a twig is one pixel
     // at zoom 1 and a trunk is a few, and neither should need pixel-perfect
     // pointing. Nearest first, so a cursor between a branch and the ground
     // takes the branch it is closest to rather than whichever the scan
-    // reached first.
-    (0..=SHAKE_SNAP)
-        .flat_map(|r| ring_offsets(r).map(move |(ox, oy)| (aim.0 + ox, aim.1 + oy)))
-        .find(|&at| world.in_bounds(at.0, at.1) && living(at))
+    // reached first. `snap_to` is that walk, shared with the axe.
+    snap_to(world, p.center(), aim, tuning.shake_reach as i32, |w, x, y| {
+        let cell = w.get(x, y);
+        cell.organism_id() != 0 && w.materials.get(cell.material).climbable
+    })
 }
 
 /// How far from the cursor a shake will look for something to take hold
@@ -1760,12 +2502,11 @@ pub fn shake(world: &mut World, at: (i32, i32), tuning: &Tuning) -> Option<Shake
     let dilated = tuning.dilated(world.clock.gnome_scale());
     let tuning = &dilated;
     let mut p = world.player.take()?;
-    if p.dig_cooldown != 0 {
+    if p.swing_cooldown != 0 {
         world.player = Some(p);
         return None;
     }
-    p.dig_cooldown = tuning.dig_cooldown;
-    p.action = (tuning.dig_cooldown / 2).max(1); // see `dig`
+    p.strike_landed(tuning.dig_cooldown);
     world.player = Some(p);
 
     let organism_id = world.get(at.0, at.1).organism_id();
@@ -2138,6 +2879,288 @@ fn displace_disc(world: &mut World, p: &Player, cx: i32, cy: i32, radius: i32, s
     moved
 }
 
+/// `displace_disc` for a rectangle: shove every loose cell inside `rect`
+/// to the nearest resting place outside it, and report how many moved.
+///
+/// **The landing rule is the disc's, and must stay so** — nearest empty
+/// cell that has something under it. Nearest-empty alone laid bars of sand
+/// along a ring in open sky, which lived exactly one frame and read as fake
+/// (the full account is on `displace_disc`); a spoil rule that differed
+/// between the two dig styles would put that back on one of them.
+///
+/// **The search is around each cell rather than around the region's
+/// centre**, which is where this genuinely differs from the disc. A bore
+/// slice is 16 cells long, so a ring walk from its middle would throw spoil
+/// from one end of the passage to the other before trying the wall it is
+/// lying against.
+fn displace_rect(world: &mut World, p: &Player, (x0, y0, x1, y1): (i32, i32, i32, i32), search: i32) -> usize {
+    let mut moved = 0;
+    // His own cells first, then everything else -- see `displace_disc` for
+    // why the order is load-bearing rather than cosmetic. A bore is cut
+    // outside his rectangle so the first pass is normally empty; it costs
+    // one comparison per cell and keeps the two paths honest if a future
+    // bore ever overlaps him.
+    for pass in [true, false] {
+        for y in y0..=y1 {
+            for x in x0..=x1 {
+                if inside_player(p, x, y) != pass || !world.in_bounds(x, y) {
+                    continue;
+                }
+                let kind = world.materials.kind(world.get(x, y).material);
+                if !matches!(kind, MaterialKind::Powder | MaterialKind::Liquid) {
+                    continue;
+                }
+                'rings: for ring in 1..=search {
+                    for (rx, ry) in ring_offsets(ring) {
+                        let (nx, ny) = (x + rx, y + ry);
+                        let in_rect = (x0..=x1).contains(&nx) && (y0..=y1).contains(&ny);
+                        if in_rect || inside_player(p, nx, ny) {
+                            continue; // not back into the cut, nor into the gnome
+                        }
+                        if !world.in_bounds(nx, ny) || !world.is_empty(nx, ny) {
+                            continue;
+                        }
+                        if footing(world, &Bodies::none(), nx, ny + 1) == Footing::Free {
+                            continue; // nothing under it: that is a floating cell
+                        }
+                        move_cell(world, (x, y), (nx, ny));
+                        moved += 1;
+                        break 'rings;
+                    }
+                }
+            }
+        }
+    }
+    moved
+}
+
+/// Where a hammer blow aimed at `aim` would land.
+///
+/// Public and shared with the renderer for the reason `bite_point` records:
+/// the marker and the blow must not be able to disagree.
+pub fn hammer_point(world: &World, p: &Player, aim: (i32, i32), tuning: &Tuning) -> (i32, i32) {
+    face_toward(world, p.center(), aim, tuning.hammer_reach as i32)
+}
+
+/// Where an axe stroke aimed at `aim` would land — living tissue first,
+/// then a creature, then whatever the ray reaches. See `chop` for why the
+/// order is that, and for why the third case exists at all.
+pub fn chop_point(world: &World, p: &Player, aim: (i32, i32), tuning: &Tuning) -> (i32, i32) {
+    let from = p.center();
+    let reach = tuning.chop_reach as i32;
+    snap_to(world, from, aim, reach, is_living_tissue)
+        .or_else(|| snap_to(world, from, aim, reach, is_creature))
+        .unwrap_or_else(|| face_toward(world, from, aim, reach))
+}
+
+fn is_living_tissue(w: &World, x: i32, y: i32) -> bool {
+    let cell = w.get(x, y);
+    cell.organism_id() != 0 && matches!(w.materials.kind(cell.material), MaterialKind::Plant)
+}
+
+fn is_creature(w: &World, x: i32, y: i32) -> bool {
+    matches!(w.materials.kind(w.get(x, y).material), MaterialKind::Creature)
+}
+
+/// What one hammer blow did.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Smash {
+    pub at: (i32, i32),
+    /// Cells the blow acted on — pulverized plus loosened, straight out of
+    /// `rigid::strike`. **Zero is the interesting value**: a swing at open
+    /// air, a swing that lands on bedrock and a swing that calves a slab
+    /// are three different events and the picture cannot tell them apart.
+    pub broken: usize,
+}
+
+/// One hammer blow toward `aim`. `None` without a player or while the
+/// recovery is running.
+///
+/// # What a blow is, against what a bite is
+///
+/// The pick removes rock. The hammer *damages* it: `rigid::strike`
+/// pulverizes a small core, chips a shell off it, and scores cracks out to
+/// `radius * rigid::CRACK_REACH` — damage that shows, accumulates, and
+/// licences structural failure nearby (`World::record_disturbance`). So the
+/// hammer is how you bring a ceiling down, undercut a slab or start a
+/// collapse, and it is a poor way to dig a hole. That is the split the belt
+/// exists to make choosable.
+///
+/// # The recoil
+///
+/// A blow that moves the world and not the arm swinging it reads as a
+/// cursor effect. `hammer_recoil` shoves him back along the line of the
+/// swing, and **only on a blow that broke something** — swinging at air
+/// costs the cooldown and nothing else, which is the honest outcome and
+/// also stops the recoil from being usable as a jetpack over open ground.
+pub fn smash(world: &mut World, aim: (i32, i32), tuning: &Tuning) -> Option<Smash> {
+    // Dilated for the reason `dig` records: this is called off the render
+    // frame, not the tick.
+    let dilated = tuning.dilated(world.clock.gnome_scale());
+    let tuning = &dilated;
+    let mut p = world.player.take()?;
+    let smash = if p.swing_cooldown == 0 {
+        p.strike_landed(tuning.hammer_cooldown);
+        let (cx, cy) = p.center();
+        // The same near-face ray the pick aims down, at the hammer's own
+        // shorter reach. Shared rather than reimplemented so "what am I
+        // pointing at" has one answer per tool and not two.
+        let at = face_toward(world, (cx, cy), aim, tuning.hammer_reach as i32);
+        let broken = crate::sim::rigid::strike(world, at.0, at.1, tuning.hammer_radius as i32, tuning.hammer_force);
+        if broken > 0 {
+            let (dx, dy) = ((at.0 - cx) as f32, (at.1 - cy) as f32);
+            let len = (dx * dx + dy * dy).sqrt();
+            if len > 0.0 {
+                p.vx -= dx / len * tuning.hammer_recoil;
+                // Half weight on the vertical. A full share of the recoil
+                // on a downward blow launches him off his own floor, which
+                // reads as a bug rather than as force -- and the ground he
+                // is standing on is the thing a hammer is most often swung
+                // at.
+                p.vy -= dy / len * tuning.hammer_recoil * 0.5;
+            }
+        }
+        Some(Smash { at, broken })
+    } else {
+        None
+    };
+    world.player = Some(p);
+    smash
+}
+
+/// What one chop did.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Chop {
+    pub at: (i32, i32),
+    /// Cells that left the world as chips. The rest of the notch is lying
+    /// there as timber.
+    pub chips: usize,
+    /// Whether the blow landed on something alive. A chop into rock is a
+    /// legal, poor swing (see `chop`), and only this separates the two.
+    pub living: bool,
+    /// Creature cells killed outright.
+    pub slain: usize,
+}
+
+/// One axe stroke toward `aim`. `None` without a player or while the
+/// recovery is running.
+///
+/// # Aiming, and why there is no dead click
+///
+/// Three questions in order, and the first that answers wins:
+///
+/// 1. **living tissue near the cursor**, within `chop_reach` — the same
+///    cursor-snap `shake_target` uses, and for the same reason its own doc
+///    gives: a twig is one pixel at zoom 1 and should not need pixel-perfect
+///    pointing;
+/// 2. **a creature near the cursor** — the sword half of the tool. A blow
+///    that lands on an animal kills it through `creature::slay`, which is
+///    the engine's ordinary death (a corpse, the energy ledger closed, the
+///    slot freed) rather than an erase;
+/// 3. **whatever the ray reaches**, so an axe swung at a rock face still
+///    chips it. Badly — `chop_radius` is a third of `dig_radius` and
+///    `chop_yield` keeps half the chips — which is the right answer for
+///    using the wrong tool, and a much better one than nothing happening.
+///
+/// # Felling comes for free, and that is the point
+///
+/// Nothing here knows what a tree is. The cut goes through
+/// `rigid::mine_swept`, whose `shatter_to_rubble` unregisters each cell
+/// from its organism as it lands, and `plant::anchor_support` re-walks the
+/// plant from its anchors on its next tick and finds whatever the cut
+/// severed unreached. Chop a bole through and the crown comes down as
+/// pieces, by the machinery README's *Felling status* describes. What was
+/// missing was never the physics — it was a verb aimed at the trunk.
+pub fn chop(world: &mut World, aim: (i32, i32), tuning: &Tuning) -> Option<Chop> {
+    let dilated = tuning.dilated(world.clock.gnome_scale());
+    let tuning = &dilated;
+    let mut p = world.player.take()?;
+    let chop = if p.swing_cooldown == 0 {
+        p.strike_landed(tuning.chop_cooldown);
+        let (cx, cy) = p.center();
+        let reach = tuning.chop_reach as i32;
+        let living_at = snap_to(world, (cx, cy), aim, reach, is_living_tissue);
+        let creature_at = match living_at {
+            Some(_) => None,
+            None => snap_to(world, (cx, cy), aim, reach, is_creature),
+        };
+        let at = living_at.or(creature_at).unwrap_or_else(|| face_toward(world, (cx, cy), aim, reach));
+        let slain = match creature_at {
+            Some((x, y)) => usize::from(crate::sim::creature::slay(world, x, y)),
+            None => 0,
+        };
+        let radius = (tuning.chop_radius as i32).max(1);
+        let chips = crate::sim::rigid::mine_swept(world, at, at, radius, tuning.chop_yield);
+        Some(Chop { at, chips, living: living_at.is_some(), slain })
+    } else {
+        None
+    };
+    world.player = Some(p);
+    chop
+}
+
+/// The cell at or nearest to `aim` that satisfies `want`, within `reach` of
+/// `from` and within `SHAKE_SNAP` of the cursor. `None` if there is none.
+///
+/// Factored out of `shake_target` rather than written beside it: the shake
+/// and the chop ask the same *question* of the cursor and differ only in
+/// what they are looking for, and two copies of a snap radius is how a
+/// verb starts aiming a cell away from its own marker.
+fn snap_to(
+    world: &World,
+    from: (i32, i32),
+    aim: (i32, i32),
+    reach: i32,
+    want: impl Fn(&World, i32, i32) -> bool,
+) -> Option<(i32, i32)> {
+    let (dx, dy) = (aim.0 - from.0, aim.1 - from.1);
+    if dx * dx + dy * dy > reach * reach {
+        return None; // out of arm's reach: whatever it is, this is not it
+    }
+    (0..=SHAKE_SNAP)
+        .flat_map(|r| ring_offsets(r).map(move |(ox, oy)| (aim.0 + ox, aim.1 + oy)))
+        .find(|&(x, y)| world.in_bounds(x, y) && want(world, x, y))
+}
+
+/// What one left-click did, whichever tool was in his hand.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Blow {
+    Bite(Bite),
+    Smash(Smash),
+    Chop(Chop),
+    Shake(Shake),
+}
+
+/// **The one entry point for the left button**, dispatching on the belt.
+///
+/// Callers must not reach past this to `dig`/`smash`/`chop` — that is the
+/// same "one gate on the operation, not one per call site" rule `App::
+/// paint_stroke` already records for the tool gate itself, and the reason
+/// is the same: a second call site added later would silently ignore the
+/// belt.
+///
+/// The pick keeps its two verbs. Pointing at a plant with a pick in hand
+/// still *shakes* it rather than cutting it, which stops being a
+/// compromise now that the axe exists and becomes the distinction: shaking
+/// is what you do to a tree you want to keep.
+pub fn swing(world: &mut World, aim: (i32, i32), tuning: &Tuning) -> Option<Blow> {
+    let tool = world.player.as_ref()?.tool;
+    match tool {
+        Tool::Hammer => smash(world, aim, tuning).map(Blow::Smash),
+        Tool::Axe => chop(world, aim, tuning).map(Blow::Chop),
+        Tool::Pick => {
+            let shake_at = world
+                .player
+                .as_ref()
+                .and_then(|p| shake_target(world, p, aim, tuning));
+            match shake_at {
+                Some(at) => shake(world, at, tuning).map(Blow::Shake),
+                None => dig(world, aim, tuning).map(Blow::Bite),
+            }
+        }
+    }
+}
+
 /// Move one cell wholesale, preserving everything it carries — `aux`
 /// (liquid fill), shade, temperature. Written as a helper because getting
 /// this wrong in one of two copies is how a dig starts manufacturing full
@@ -2177,13 +3200,13 @@ fn inside_player(p: &Player, x: i32, y: i32) -> bool {
 /// is the least expected outcome of being landed on.
 fn depenetrate(world: &World, bodies: &Bodies, p: &mut Player, wade: i32, shoulder: i32) {
     let (xi, yi) = p.rect_origin();
-    if rect_free(world, bodies, xi, yi, wade, shoulder) {
+    if rect_free(world, bodies, xi, yi, (p.w, p.h), wade, shoulder) {
         p.buried = false;
         return;
     }
     for d in 1..=DEPENETRATE_REACH {
         for (dx, dy) in [(0, -d), (-d, 0), (d, 0), (0, d)] {
-            if rect_free(world, bodies, xi + dx, yi + dy, wade, shoulder) {
+            if rect_free(world, bodies, xi + dx, yi + dy, (p.w, p.h), wade, shoulder) {
                 p.x += dx as f32;
                 p.y += dy as f32;
                 p.buried = false;
@@ -2248,6 +3271,168 @@ mod tests {
         let p = world.player.as_ref().unwrap();
         assert_eq!(p.vx, 0.0, "ground friction should stop him within a few ticks");
         assert!(p.x - moved_to < 8.0, "he should not coast far after release");
+    }
+
+    /// **The same physical scene at twice the cell resolution plays the
+    /// same.** He is twice as many cells, moves twice as many cells a tick,
+    /// and ends up in the same *place*.
+    ///
+    /// **This replaced a guard that was blind, and the way it was blind is
+    /// the point.** The first version dropped him onto flat stone and
+    /// checked where he landed. It passed — and it went on passing with
+    /// `rect_free`'s wade line, the grip rows and `Bodies::near`'s window
+    /// each put back to the unscaled constant in turn, because a plain fall
+    /// onto hard rock never asks about any of them. `CLAUDE.md`: a guard
+    /// that does not go red for the fault it is named for is not weak, it is
+    /// blind, and the remedy is to replace it rather than widen it.
+    ///
+    /// So this one makes him *travel*: run him across a floor, over a ledge
+    /// he has to step up, and through a drift of powder he has to wade and
+    /// shoulder. That reaches his collision rectangle, his step-up, his wade
+    /// line, his shoulder allowance, the body window, and every speed and
+    /// acceleration in `Tuning` — in one trajectory.
+    ///
+    /// Compared in **physical** units (cells divided by `cell_scale`),
+    /// because that is the quantity that must not change; the cell counts
+    /// are expected to double.
+    ///
+    /// **What it catches, measured rather than asserted.** Twelve faults
+    /// were injected one at a time — each a length or speed put back to the
+    /// unscaled constant — and this went red for nine:
+    ///
+    /// | caught | `Player`'s width and height, `rect_free`'s box width and its wade line, `shoulder_grains`, `gravity`, `fall_clamp`, `run_max`, `step_up` |
+    /// |---|---|
+    /// | **blind** | `grip_rows`, `Bodies::near`'s window, `wade_rows` |
+    ///
+    /// **The three gaps are missing scene, not weak assertions**, and are
+    /// written down so the next person adding coverage knows exactly what to
+    /// add rather than rediscovering it:
+    ///
+    /// - **`grip_rows`** needs a climbable in the scene. Nothing here is
+    ///   `Footing::Climb`, so the grip test never runs at all.
+    /// - **`Bodies::near`** needs a chunk body. There are none, so the
+    ///   window it gathers is always empty and its size cannot matter.
+    /// - **`wade_rows`** saturates: he is past the wade line in both drifts
+    ///   at both scales, so the exact row count stops changing the outcome.
+    ///   A drift tuned to sit right at the line would catch it; two depths
+    ///   were tried and neither does.
+    #[test]
+    fn a_finer_world_plays_the_same_as_the_authored_one() {
+        /// The same scene at `k` cells per unit of ground: floor at 88,
+        /// a 3-high ledge at 80, and a drift of sand in front of it.
+        fn scene(k: i32) -> World {
+            let (w, h) = (256 * k, 96 * k);
+            let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
+            for y in (88 * k)..h {
+                for x in 0..w {
+                    world.set(x, y, Cell::new(material::STONE, 0));
+                }
+            }
+            for y in (85 * k)..(88 * k) {
+                for x in (80 * k)..w {
+                    world.set(x, y, Cell::new(material::STONE, 0));
+                }
+            }
+            // Deep enough that he is buried well above the wade line, so
+            // `rect_free`'s chest row and the shoulder allowance are both
+            // under test rather than merely present.
+            for y in (75 * k)..(85 * k) {
+                for x in (100 * k)..(120 * k) {
+                    world.set(x, y, Cell::new(material::SAND, 0));
+                }
+            }
+            // **And a shallow one, which is not redundant.** Deep burial
+            // saturates the wade line -- he is over it either way, so the
+            // exact row count stops changing the outcome and a `wade_rows`
+            // that failed to scale goes unnoticed. Measured: with only the
+            // deep drift this guard was blind to exactly that fault, and
+            // catches it again with a drift he wades rather than swims.
+            for y in (82 * k)..(85 * k) {
+                for x in (140 * k)..(160 * k) {
+                    world.set(x, y, Cell::new(material::SAND, 0));
+                }
+            }
+            world.cell_scale = k as f32;
+            world.end_step();
+            world
+        }
+
+        let run = |k: i32| -> Vec<(f32, f32)> {
+            let mut world = scene(k);
+            world.player = Some(Player::at_scaled(20 * k, 40 * k, k as f32));
+            let mut path = Vec::new();
+            for _ in 0..400 {
+                tick(&mut world, PlayerInput { right: true, ..Default::default() });
+                let p = world.player.as_ref().unwrap();
+                path.push((p.x / k as f32, p.y / k as f32));
+            }
+            path
+        };
+
+        let (one, two, four) = (run(1), run(2), run(4));
+        let p1 = { let mut w = scene(1); w.player = Some(Player::at_scaled(20, 40, 1.0)); w.player.unwrap() };
+        let p2 = { let mut w = scene(2); w.player = Some(Player::at_scaled(40, 80, 2.0)); w.player.unwrap() };
+        assert_eq!((p1.w, p1.h), (PLAYER_WIDTH, PLAYER_HEIGHT));
+        assert_eq!((p2.w, p2.h), (PLAYER_WIDTH * 2, PLAYER_HEIGHT * 2), "he should be twice the cells at 2x");
+
+        // He has to actually go somewhere, or the comparison is vacuous --
+        // two gnomes stuck against the same wall agree perfectly.
+        let travelled = one.last().unwrap().0 - one[0].0;
+        assert!(travelled > 40.0, "the 1x run only covered {travelled:.1} units; it is not exercising anything");
+
+        let diverge = |a: &Vec<(f32, f32)>, b: &Vec<(f32, f32)>| {
+            a.iter().zip(b).map(|(p, q)| (p.0 - q.0).abs().max((p.1 - q.1).abs())).fold(0.0f32, f32::max)
+        };
+        let (one_two, two_four) = (diverge(&one, &two), diverge(&two, &four));
+
+        // **The assertion is convergence, not an absolute distance, and that
+        // is the whole design of this test.**
+        //
+        // The runs do not agree exactly and should not be expected to: he
+        // moves on floats but collides on whole cells, so a finer world
+        // snaps him at finer intervals and the two paths quantise
+        // differently. Measured here, 1x against 2x is **2.80** cells of
+        // ground over a 232-unit run -- which read as a scaling bug until it
+        // was checked against a third resolution.
+        //
+        // It is not one. 2x against 4x is **0.25**, eleven times smaller,
+        // and 1x against 4x is 2.68 -- so the coarse run is the outlier and
+        // the fine ones agree with each other. That is convergence to a
+        // continuum limit, and it is the signature that distinguishes
+        // "correctly scaled, coarsely sampled" from "a length that is not
+        // scaling at all". A missed length does not converge: it stays
+        // proportionally wrong at every resolution, so refining the grid
+        // buys nothing and `two_four` comes out no better than `one_two`.
+        //
+        // Bars set from those measurements with headroom, per `CLAUDE.md`:
+        // 1.0 against a measured 0.25, and a ratio of 0.5 against a measured
+        // 0.089.
+        // **The coarse-against-fine bound, which catches what convergence
+        // alone cannot.** A quantity that does not scale at all often makes
+        // 2x and 4x agree *with each other* while both differ from 1x --
+        // measured: with `step_up` left unscaled, the ledge is 6 cells at 2x
+        // and 12 at 4x against an unchanged 4-cell step, so he is stuck at
+        // both and the convergence check below sails through. Only the 1x
+        // arm, where he still climbs, shows it.
+        //
+        // 6.0 against a measured 2.80, which is deterministic here (no RNG
+        // in this scene), so the headroom is for legitimate retunes rather
+        // than for noise.
+        assert!(
+            one_two < 6.0,
+            "the authored world and the doubled one part company by {one_two:.2} cells of ground \
+             over a {travelled:.1}-unit run -- a length or a speed is not scaling with the world"
+        );
+        assert!(
+            two_four < 1.0,
+            "2x and 4x disagree by {two_four:.2} cells of ground -- at that refinement they should \
+             nearly coincide, so a length or a speed is not scaling with the world"
+        );
+        assert!(
+            two_four < one_two * 0.5,
+            "refining the grid did not make the runs agree: 1v2 {one_two:.2}, 2v4 {two_four:.2}. \
+             Quantisation shrinks when the grid refines; a quantity that is not scaling does not"
+        );
     }
 
     #[test]
@@ -2349,7 +3534,7 @@ mod tests {
         let (nx, ny) = p.rect_origin();
         let t = Tuning::default();
         assert!(
-            rect_free(&world, &Bodies::none(), nx, ny, t.wade_rows as i32, t.shoulder_grains as i32),
+            rect_free(&world, &Bodies::none(), nx, ny, (PLAYER_WIDTH, PLAYER_HEIGHT), t.wade_rows as i32, t.shoulder_grains as i32),
             "the rect should be clear after depenetration"
         );
 
@@ -2416,6 +3601,12 @@ mod tests {
     fn a_bite_opens_a_bore_and_removes_only_what_it_broke() {
         let mut world = world_with_cliff();
         world.player = Some(Player::at(66, 84));
+        // **Pinned to the free-hand style, which is what this test is
+        // about.** `DigStyle::Bore` is the default now and cuts a
+        // rectangle, so without this line the test would silently start
+        // measuring a mechanism it was not written for -- and pass, which
+        // is worse.
+        world.player.as_mut().unwrap().dig_style = DigStyle::Free;
         // **Pinned to `DUST`, not the default.** Both halves of this test
         // need spoil to exist: `displaced > 0` is about the shove, and the
         // `1 - dig_yield` ratio needs a denominator that is not the whole
@@ -2458,6 +3649,12 @@ mod tests {
     fn at_clean_a_bite_leaves_no_spoil_in_its_bore() {
         let mut world = world_with_cliff();
         world.player = Some(Player::at(66, 84));
+        // **Pinned to the free-hand style, which is what this test is
+        // about.** `DigStyle::Bore` is the default now and cuts a
+        // rectangle, so without this line the test would silently start
+        // measuring a mechanism it was not written for -- and pass, which
+        // is worse.
+        world.player.as_mut().unwrap().dig_style = DigStyle::Free;
         // **Pinned to CLEAN by name, not to the default.** This was
         // `at_the_default_yield_...` and asserted `dig_yield == 0.0`, which
         // was true for one playtest and stopped being true at the next:
@@ -2489,6 +3686,12 @@ mod tests {
         // is back to the shove-don't-delete contract exactly.
         let mut world = world_with_cliff();
         world.player = Some(Player::at(66, 78));
+        // **Pinned to the free-hand style, which is what this test is
+        // about.** `DigStyle::Bore` is the default now and cuts a
+        // rectangle, so without this line the test would silently start
+        // measuring a mechanism it was not written for -- and pass, which
+        // is worse.
+        world.player.as_mut().unwrap().dig_style = DigStyle::Free;
         let tuning = Tuning { dig_yield: 1.0, ..Tuning::default() };
         let before = occupied_cells(&world);
         dig(&mut world, (76, 78), &tuning).expect("digs");
@@ -2499,6 +3702,12 @@ mod tests {
     fn a_bite_stops_at_the_first_face_rather_than_carving_a_sealed_pocket() {
         let mut world = world_with_cliff();
         world.player = Some(Player::at(66, 84));
+        // **Pinned to the free-hand style, which is what this test is
+        // about.** `DigStyle::Bore` is the default now and cuts a
+        // rectangle, so without this line the test would silently start
+        // measuring a mechanism it was not written for -- and pass, which
+        // is worse.
+        world.player.as_mut().unwrap().dig_style = DigStyle::Free;
         // Aimed at the far side of the massif, well past the face and
         // still inside reach. The old clamp-to-reach rule bit here and
         // left a pocket of rubble buried in the rock.
@@ -2515,6 +3724,12 @@ mod tests {
     fn the_cooldown_rate_limits_held_digging() {
         let mut world = world_with_cliff();
         world.player = Some(Player::at(66, 84));
+        // **Pinned to the free-hand style, which is what this test is
+        // about.** `DigStyle::Bore` is the default now and cuts a
+        // rectangle, so without this line the test would silently start
+        // measuring a mechanism it was not written for -- and pass, which
+        // is worse.
+        world.player.as_mut().unwrap().dig_style = DigStyle::Free;
         let tuning = Tuning::default();
         assert!(dig(&mut world, (76, 84), &tuning).is_some(), "first bite fires");
         assert!(dig(&mut world, (76, 84), &tuning).is_none(), "a held button must not bite every frame");
@@ -2528,6 +3743,12 @@ mod tests {
     fn a_cursor_across_the_map_still_digs_the_near_face() {
         let mut world = world_with_cliff();
         world.player = Some(Player::at(66, 84));
+        // **Pinned to the free-hand style, which is what this test is
+        // about.** `DigStyle::Bore` is the default now and cuts a
+        // rectangle, so without this line the test would silently start
+        // measuring a mechanism it was not written for -- and pass, which
+        // is worse.
+        world.player.as_mut().unwrap().dig_style = DigStyle::Free;
         let bite = dig(&mut world, (127, 84), &Tuning::default()).expect("a far click still digs");
         assert_eq!(bite.at.0, 70, "a click across the map digs the wall in front of him");
     }
@@ -2536,6 +3757,12 @@ mod tests {
     fn aimed_at_open_sky_the_bite_stops_at_reach() {
         let mut world = world_with_floor();
         world.player = Some(Player::at(64, 84));
+        // **Pinned to the free-hand style, which is what this test is
+        // about.** `DigStyle::Bore` is the default now and cuts a
+        // rectangle, so without this line the test would silently start
+        // measuring a mechanism it was not written for -- and pass, which
+        // is worse.
+        world.player.as_mut().unwrap().dig_style = DigStyle::Free;
         let tuning = Tuning::default();
         // Straight up into empty sky: nothing blocks, so the ray runs out
         // at reach rather than following the cursor to the top of the world.
@@ -2592,6 +3819,12 @@ mod tests {
     fn a_dig_never_buries_the_digger() {
         let mut world = world_with_cliff();
         world.player = Some(Player::at(66, 84));
+        // **Pinned to the free-hand style, which is what this test is
+        // about.** `DigStyle::Bore` is the default now and cuts a
+        // rectangle, so without this line the test would silently start
+        // measuring a mechanism it was not written for -- and pass, which
+        // is worse.
+        world.player.as_mut().unwrap().dig_style = DigStyle::Free;
         let tuning = Tuning::default();
         let wade = tuning.wade_rows as i32;
         let shoulder = tuning.shoulder_grains as i32;
@@ -2599,13 +3832,13 @@ mod tests {
             // Legal *before* the bite, so the assertion after it is about
             // the bite and not about where he had already walked.
             let (bx, by) = world.player.as_ref().unwrap().rect_origin();
-            if !rect_free(&world, &Bodies::none(), bx, by, wade, shoulder) {
+            if !rect_free(&world, &Bodies::none(), bx, by, (PLAYER_WIDTH, PLAYER_HEIGHT), wade, shoulder) {
                 continue;
             }
             dig(&mut world, (74, 84), &tuning);
             let (ax, ay) = world.player.as_ref().unwrap().rect_origin();
             assert!(
-                rect_free(&world, &Bodies::none(), ax, ay, wade, shoulder),
+                rect_free(&world, &Bodies::none(), ax, ay, (PLAYER_WIDTH, PLAYER_HEIGHT), wade, shoulder),
                 "bite {i} shoved spoil into a position the gnome was standing in"
             );
             tick(&mut world, PlayerInput::default());
@@ -3118,7 +4351,7 @@ mod tests {
                 break;
             };
             shake(&mut world, target, &tuning);
-            world.player.as_mut().unwrap().dig_cooldown = 0;
+            world.player.as_mut().unwrap().clear_swing_cooldown();
         }
         assert_eq!(before, count(&world), "a shake took wood out of the tree");
     }
@@ -3248,6 +4481,12 @@ mod tests {
             }
         }
         world.player = Some(Player::at(60, 80));
+        // **Pinned to the free-hand style, which is what this test is
+        // about.** `DigStyle::Bore` is the default now and cuts a
+        // rectangle, so without this line the test would silently start
+        // measuring a mechanism it was not written for -- and pass, which
+        // is worse.
+        world.player.as_mut().unwrap().dig_style = DigStyle::Free;
         let p = world.player.take().expect("just placed");
         let at = bite_point(&world, &p, (127, 87), &Tuning::default());
         world.player = Some(p);
@@ -3267,6 +4506,12 @@ mod tests {
         // pointed at, and you could not dig at all in a wood.
         let mut world = world_with_tree(60, 12, 40);
         world.player = Some(Player::at(64, 80));
+        // **Pinned to the free-hand style, which is what this test is
+        // about.** `DigStyle::Bore` is the default now and cuts a
+        // rectangle, so without this line the test would silently start
+        // measuring a mechanism it was not written for -- and pass, which
+        // is worse.
+        world.player.as_mut().unwrap().dig_style = DigStyle::Free;
         let p = world.player.as_ref().expect("just placed");
         assert!(
             shake_target(&world, p, (78, 92), &Tuning::default()).is_none(),
@@ -3327,6 +4572,44 @@ mod tests {
         }
         world.player = Some(Player::at(10, 81));
         world
+    }
+
+    /// `Tuning::scaled(1.0)` is the identity, so every world that is not
+    /// rescaled plays exactly as it did.
+    ///
+    /// **Written after this was false.** `cells()` floored counts at 1,
+    /// which turned `shoulder_grains: 0` -- an *off* switch, not a small
+    /// number -- into 1 at every scale, `1.0` included. The neighbouring
+    /// `a_stray_grain_at_chest_height_is_not_a_wall` caught it through its
+    /// zero-valued control; nothing else in the suite would have, because
+    /// nothing else sets a knob here to zero. This asserts it directly
+    /// rather than relying on that coincidence, and it covers the whole
+    /// struct rather than the one field that happened to be zero.
+    #[test]
+    fn scaling_the_tuning_by_one_changes_nothing() {
+        let base = Tuning::default();
+        assert_eq!(base, base.scaled(1.0), "the default tuning moved under scaled(1.0)");
+        // And with every `u8` knob switched off, since zero is the value the
+        // floor got wrong and the defaults contain none.
+        let off = Tuning {
+            coyote_frames: 0,
+            jump_buffer_frames: 0,
+            step_up: 0,
+            dig_reach: 0,
+            dig_radius: 0,
+            dig_cooldown: 0,
+            wade_rows: 0,
+            shoulder_grains: 0,
+            stroke_cooldown: 0,
+            shake_reach: 0,
+            mantle_reach: 0,
+            ..Default::default()
+        };
+        assert_eq!(off, off.scaled(1.0), "a tuning with its switches off moved under scaled(1.0)");
+        // A real rescale must leave `off` off: scaling is not a way to turn
+        // a rule on that the author turned off.
+        assert_eq!(off.scaled(2.0).shoulder_grains, 0, "scaling switched the shoulder veto back on");
+        assert_eq!(off.scaled(2.0).step_up, 0, "scaling gave him a step-up he was not meant to have");
     }
 
     #[test]
@@ -3776,4 +5059,358 @@ mod tests {
         }
         panic!("a jump 3 ticks after walking off the ledge should still fire (coyote)");
     }
+
+    // ---- The belt, the bore, the hammer and the axe -------------------
+    //
+    // Every test below that cites a *count* was watched failing for the
+    // fault it is named for before it was kept — `CLAUDE.md`'s standing
+    // check on citing a guard's green. The three that would otherwise be
+    // green by default (the bore's shape, the hammer's air swing, the axe
+    // against a shake) say inline what was broken to make them red.
+
+    /// A world made of solid rock with a pocket cut for the gnome to stand
+    /// in, so a bore in any of the four directions has something to cut.
+    fn world_of_rock() -> World {
+        let mut world = World::new(Rect::new(0, 0, 255, 199));
+        for y in 40..160 {
+            for x in 20..230 {
+                world.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+            }
+        }
+        // The pocket: exactly his rectangle plus a cell of air all round.
+        for y in 99..=115 {
+            for x in 99..=107 {
+                world.set(x, y, Cell::EMPTY);
+            }
+        }
+        world.player = Some(Player::at(103, 107));
+        world
+    }
+
+    fn stone_cells(world: &World, (x0, y0, x1, y1): (i32, i32, i32, i32)) -> usize {
+        let mut n = 0;
+        for y in y0..=y1 {
+            for x in x0..=x1 {
+                if world.get(x, y).material == material::STONE {
+                    n += 1;
+                }
+            }
+        }
+        n
+    }
+
+    #[test]
+    fn the_bore_goes_the_way_you_point() {
+        let world = world_of_rock();
+        let p = world.player.as_ref().unwrap();
+        let (cx, cy) = p.center();
+        for (aim, want) in [
+            ((cx + 40, cy), Dir::Right),
+            ((cx - 40, cy), Dir::Left),
+            ((cx, cy - 40), Dir::Up),
+            ((cx, cy + 40), Dir::Down),
+            // Dominant axis, not the quadrant: a shallow diagonal is still
+            // the horizontal it is mostly pointing along.
+            ((cx + 40, cy + 12), Dir::Right),
+            ((cx - 12, cy + 40), Dir::Down),
+        ] {
+            assert_eq!(bore_rect(&world, p, aim, &Tuning::default()).0, want, "aiming at {aim:?} from {:?}", (cx, cy));
+        }
+    }
+
+    #[test]
+    fn the_bore_box_scales_with_the_gnome() {
+        // **The guard for a clean merge that was still wrong.** `main` made
+        // the gnome's extent per-instance (`Player::at_scaled`) while this
+        // branch sized the bore box off `PLAYER_WIDTH`/`PLAYER_HEIGHT`, and
+        // nothing conflicted textually: at `cell_scale` 2 the passage came
+        // out his 1x size and he could not walk down it. Read the box off
+        // the constants again and this goes red.
+        let mut world = world_of_rock();
+        for k in [1.0_f32, 2.0, 3.0] {
+            world.player = Some(Player::at_scaled(103, 107, k));
+            let p = world.player.as_ref().unwrap();
+            let (_, (x0, y0, x1, y1)) = bore_rect(&world, p, (p.center().0 + 60, p.center().1), &Tuning::default());
+            let (bw, bh) = (x1 - x0 + 1, y1 - y0 + 1);
+            assert!(bw > p.w && bh > p.h, "at {k}x the box {bw}x{bh} does not clear a {}x{} gnome", p.w, p.h);
+            // "Just bigger": clearance stays proportionate rather than
+            // becoming a rounding error at 3x or a cavern at 1x.
+            assert!(bh - p.h <= 2 * (k.ceil() as i32 + 1), "at {k}x the box is {} taller than he is", bh - p.h);
+        }
+    }
+
+    #[test]
+    fn a_horizontal_bore_stands_on_the_floor_he_is_standing_on() {
+        // The asymmetry `bore_rect` documents, and the one thing about the
+        // box that is not derivable from "his size plus a margin": centring
+        // it on him instead cuts two rows out from under the floor and
+        // every bite forward becomes a step down.
+        let world = world_of_rock();
+        let p = world.player.as_ref().unwrap();
+        let (_, _, _, feet) = p.bounds();
+        let (cx, cy) = p.center();
+        for aim in [(cx + 40, cy), (cx - 40, cy)] {
+            let (_, (x0, y0, x1, y1)) = bore_rect(&world, p, aim, &Tuning::default());
+            assert_eq!(y1, feet, "the passage floor must run out of the ground under his feet");
+            assert_eq!(y1 - y0 + 1, p.h + 2, "a passage two cells taller than he is");
+            assert_eq!(x1 - x0 + 1, p.w + 2, "and two cells deeper than he is wide");
+        }
+    }
+
+    #[test]
+    fn a_bore_opens_a_passage_he_actually_fits_down() {
+        // The claim the whole default rests on. Cut until the box is clear,
+        // then put him in it and ask the movement code — not the geometry —
+        // whether he fits, which is the question a player asks by walking.
+        let mut world = world_of_rock();
+        let tuning = Tuning::default();
+        let (dir, boxr) = {
+            let p = world.player.as_ref().unwrap();
+            bore_rect(&world, p, (p.center().0 + 60, p.center().1), &tuning)
+        };
+        assert_eq!(dir, Dir::Right);
+        for _ in 0..16 {
+            dig(&mut world, (200, 107), &tuning);
+            world.player.as_mut().unwrap().clear_swing_cooldown();
+        }
+        assert_eq!(stone_cells(&world, boxr), 0, "the box is what the strokes clear, all of it");
+        let (x0, y0, _, y1) = boxr;
+        // His rectangle placed against the far wall of the passage, sitting
+        // on its floor — asked of the movement code with the *tuning's* own
+        // wade and shoulder allowances, which is what `step` passes. Asking
+        // at zero would be asking whether the passage is surgically clean,
+        // and it is not meant to be: a tenth of what was cut is lying in
+        // there as spoil by design (`Tuning::dig_yield`), and walking over
+        // your own spoil is the thing those two allowances are for.
+        // His own extent, read off him rather than off the constants: the
+        // gnome scales with the world (`Player::at_scaled`).
+        let extent = world.player.as_ref().map(|p| (p.w, p.h)).expect("summoned");
+        let stand = (x0 + 1, y1 - extent.1 + 1);
+        assert!(
+            rect_free(
+                &world,
+                &Bodies::none(),
+                stand.0,
+                stand.1,
+                extent,
+                tuning.wade_rows as i32,
+                tuning.shoulder_grains as i32
+            ),
+            "he must fit inside the passage he just cut: box rows {y0}..={y1}"
+        );
+    }
+
+    #[test]
+    fn one_stroke_is_a_slice_and_not_the_whole_box() {
+        // The first law: an outcome is a distribution, not a binary. A
+        // press that opened the whole box would be a room appearing.
+        let mut world = world_of_rock();
+        let tuning = Tuning::default();
+        let (dir, boxr) = {
+            let p = world.player.as_ref().unwrap();
+            bore_rect(&world, p, (p.center().0 + 60, p.center().1), &tuning)
+        };
+        let before = stone_cells(&world, boxr);
+        // Read before the cut: afterwards the working face has moved on,
+        // which is the whole behaviour under test.
+        let slice = bore_slice(&world, dir, boxr, tuning.bore_bite as i32);
+        dig(&mut world, (200, 107), &tuning);
+        let after = stone_cells(&world, boxr);
+        assert!(after > 0, "one stroke took the whole box: {before} -> {after}");
+        assert!(after < before, "one stroke took nothing at all: {before} -> {after}");
+        // And it took it off the working face, which is what makes a run of
+        // strokes advance rather than swiss-cheese the box.
+        assert_eq!(stone_cells(&world, slice), 0, "the working slice is the part that goes");
+        // The face has moved: the next stroke is deeper in, not the same
+        // three cells again. Anchor the slice on the box edge instead and
+        // this is the assertion that goes red.
+        let next = bore_slice(&world, dir, boxr, tuning.bore_bite as i32);
+        assert_ne!(next, slice, "a held button must drive the passage, not re-cut air");
+    }
+
+    #[test]
+    fn a_shaft_drops_him_through_the_floor_he_was_standing_on() {
+        // Digging down is the direction with no precedent in the free-hand
+        // bite, and the one a player reaches for to sink a mineshaft.
+        let mut world = world_of_rock();
+        let tuning = Tuning::default();
+        let start = world.player.as_ref().unwrap().y;
+        // Real pacing: one stroke, then the cooldown's worth of ticks, so
+        // he has time to fall into what he cut. Digging without stepping
+        // measures the geometry and not the mechanic.
+        for _ in 0..30 {
+            dig(&mut world, (103, 190), &tuning);
+            for _ in 0..tuning.dig_cooldown {
+                step(&mut world, PlayerInput::default(), &tuning);
+            }
+        }
+        let end = world.player.as_ref().unwrap().y;
+        assert!(end > start + PLAYER_HEIGHT as f32, "a shaft must sink him: {start} -> {end}");
+    }
+
+    #[test]
+    fn a_buried_gnome_digs_out_in_bore_mode_too() {
+        // The bore is anchored *outside* his rectangle, so under a pile it
+        // would clear a room next door and leave him exactly as entombed.
+        // `dig` sends a buried gnome down the free path whatever style is
+        // selected; break that dispatch and this goes red.
+        let mut world = world_with_floor();
+        for y in 60..96 {
+            for x in 56..76 {
+                world.set(x, y, Cell::new(material::SAND, 0));
+            }
+        }
+        world.player = Some(Player::at(66, 88));
+        let tuning = Tuning::default();
+        assert_eq!(world.player.as_ref().unwrap().dig_style, DigStyle::Bore, "the default is the case under test");
+        step(&mut world, PlayerInput::default(), &tuning);
+        assert!(world.player.as_ref().unwrap().buried, "the scene must actually bury him");
+        for _ in 0..200 {
+            dig(&mut world, (66, 88), &tuning);
+            step(&mut world, PlayerInput::default(), &tuning);
+            if !world.player.as_ref().unwrap().buried {
+                return;
+            }
+        }
+        panic!("a buried gnome never got out with the bore selected");
+    }
+
+    #[test]
+    fn a_hammer_blow_reports_what_it_broke_and_a_swing_at_nothing_reports_nothing() {
+        // The positive control and the null, in one test, because a count
+        // that cannot move is indistinguishable from a mechanism that did
+        // not fire — and a null is where that hides.
+        let mut world = world_with_cliff();
+        world.player = Some(Player::at(66, 84));
+        world.player.as_mut().unwrap().tool = Tool::Hammer;
+        let tuning = Tuning::default();
+        let hit = smash(&mut world, (90, 84), &tuning).expect("the first blow is off cooldown");
+        assert!(hit.broken > 0, "a blow into a cliff face broke nothing");
+
+        // Same gnome, same tool, swung out over open ground.
+        let mut empty = world_with_floor();
+        empty.player = Some(Player::at(20, 84));
+        empty.player.as_mut().unwrap().tool = Tool::Hammer;
+        let air = smash(&mut empty, (20, 40), &tuning).expect("the swing still costs the cooldown");
+        assert_eq!(air.broken, 0, "a swing at open sky broke something");
+    }
+
+    #[test]
+    fn the_hammer_shoves_him_back_only_when_it_lands() {
+        let tuning = Tuning::default();
+        let mut world = world_with_cliff();
+        world.player = Some(Player::at(66, 84));
+        world.player.as_mut().unwrap().tool = Tool::Hammer;
+        let hit = smash(&mut world, (90, 84), &tuning).expect("off cooldown");
+        assert!(hit.broken > 0, "this scene has to land a blow for the recoil to be about anything");
+        assert!(world.player.as_ref().unwrap().vx < 0.0, "a landed blow to his right must push him left");
+
+        let mut empty = world_with_floor();
+        empty.player = Some(Player::at(20, 84));
+        empty.player.as_mut().unwrap().tool = Tool::Hammer;
+        // Aimed at open sky, where the strike's chip zone cannot reach
+        // the floor: a blow that clips the ground is a landed blow.
+        smash(&mut empty, (20, 40), &tuning);
+        assert_eq!(empty.player.as_ref().unwrap().vx, 0.0, "a swing at air is not a shove off");
+    }
+
+    #[test]
+    fn an_axe_cuts_living_wood_where_a_shake_leaves_it_alone() {
+        // Paired against `a_shake_never_removes_a_wood_cell`, which is the
+        // other half of the same rule: the pick's plant verb keeps the
+        // tree, the axe's takes it down.
+        fn wood_cells(world: &World) -> usize {
+            let wood = world.materials.id_of("wood").unwrap();
+            let mut n = 0;
+            for y in 60..96 {
+                for x in 60..80 {
+                    if world.get(x, y).material == wood {
+                        n += 1;
+                    }
+                }
+            }
+            n
+        }
+        let mut world = world_with_leafy_tree();
+        world.player.as_mut().unwrap().tool = Tool::Axe;
+        let tuning = Tuning::default();
+        let before = wood_cells(&world);
+        let cut = chop(&mut world, (71, 80), &tuning).expect("off cooldown");
+        assert!(cut.living, "the stroke landed on the trunk, so it is a living cut");
+        assert!(wood_cells(&world) < before, "an axe stroke into a bole took no wood: {before}");
+    }
+
+    #[test]
+    fn an_axe_swung_at_rock_still_chips_it() {
+        // No dead click, which is `Tool::Dig`'s own standing rule: a reach
+        // may bound where a verb lands and must never decide whether it
+        // happens. The axe is *bad* at rock, not inert.
+        let mut world = world_with_cliff();
+        world.player = Some(Player::at(66, 84));
+        world.player.as_mut().unwrap().tool = Tool::Axe;
+        let tuning = Tuning::default();
+        let before = stone_cells(&world, (70, 78, 80, 90));
+        let cut = chop(&mut world, (72, 84), &tuning).expect("off cooldown");
+        assert!(!cut.living, "there is nothing alive in this scene");
+        assert!(stone_cells(&world, (70, 78, 80, 90)) < before, "the stroke did nothing at all");
+    }
+
+    #[test]
+    fn the_belt_shares_one_recovery_so_switching_is_not_a_second_swing() {
+        // Two timers would have made the belt an exploit: strike, switch,
+        // strike again at the sum of both rates. Give `Player` a second
+        // cooldown field and this goes red.
+        let mut world = world_with_cliff();
+        world.player = Some(Player::at(66, 84));
+        let tuning = Tuning::default();
+        assert!(dig(&mut world, (90, 84), &tuning).is_some(), "the first blow lands");
+        world.player.as_mut().unwrap().tool = Tool::Hammer;
+        assert!(smash(&mut world, (90, 84), &tuning).is_none(), "switching tools re-armed the swing");
+        world.player.as_mut().unwrap().tool = Tool::Axe;
+        assert!(chop(&mut world, (90, 84), &tuning).is_none(), "switching tools re-armed the swing");
+    }
+
+    #[test]
+    fn swing_dispatches_on_what_he_is_holding() {
+        let tuning = Tuning::default();
+        for (tool, want) in [(Tool::Pick, "bite"), (Tool::Hammer, "smash"), (Tool::Axe, "chop")] {
+            let mut world = world_with_cliff();
+            world.player = Some(Player::at(66, 84));
+            world.player.as_mut().unwrap().tool = tool;
+            let got = match swing(&mut world, (90, 84), &tuning) {
+                Some(Blow::Bite(_)) => "bite",
+                Some(Blow::Smash(_)) => "smash",
+                Some(Blow::Chop(_)) => "chop",
+                Some(Blow::Shake(_)) => "shake",
+                None => "nothing",
+            };
+            assert_eq!(got, want, "{} produced the wrong verb", tool.label());
+        }
+    }
+
+    #[test]
+    fn a_pick_pointed_at_a_plant_still_shakes_it_rather_than_cutting() {
+        // The pick's two verbs survive the belt. This is what makes the axe
+        // a *choice*: shaking is what you do to a tree you want to keep.
+        let mut world = world_with_leafy_tree();
+        let tuning = Tuning::default();
+        assert_eq!(world.player.as_ref().unwrap().tool, Tool::Pick);
+        assert!(matches!(swing(&mut world, (71, 80), &tuning), Some(Blow::Shake(_))));
+    }
+
+    #[test]
+    fn the_swing_bar_empties_on_a_blow_and_fills_back_to_ready() {
+        let mut world = world_with_cliff();
+        world.player = Some(Player::at(66, 84));
+        let tuning = Tuning::default();
+        assert_eq!(world.player.as_ref().unwrap().swing_progress(), 1.0, "he starts ready");
+        dig(&mut world, (90, 84), &tuning);
+        assert_eq!(world.player.as_ref().unwrap().swing_progress(), 0.0, "a blow empties the bar");
+        for _ in 0..tuning.dig_cooldown {
+            step(&mut world, PlayerInput::default(), &tuning);
+        }
+        let p = world.player.as_ref().unwrap();
+        assert!(p.swing_ready() && p.swing_progress() == 1.0, "the bar must reach full exactly when he is ready");
+    }
+
 }

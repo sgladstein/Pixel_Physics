@@ -139,6 +139,12 @@
                 // survives this it is not accumulated drift.
                 branch_angle: [85.0, 60.0, 45.0, 45.0],
                 internode: [0, 10, 5, 3],
+                // **A fir is its leader.** The single ramrod trunk with
+                // tiers hung off it is the whole of what makes a conifer
+                // read as a conifer, and order 0 is the axis that carries
+                // it -- so this is the species that wants the most of it.
+                // See Behavior::Grow::stem_stiffness.
+                stem_stiffness: [1.0, 0.85, 0.7, 0.6],
                 // Needle sprays read smaller than broadleaf clusters -- the
                 // ratio against `tree`'s is what carries that, so both moved
                 // together when foliage volume was raised (see tree.ron's

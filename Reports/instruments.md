@@ -41,9 +41,12 @@ Not an `examples/` binary — these read what an agent run already wrote down.
 |---|---|---|
 | `filmstrip` | A contact sheet of several frames, or `gif=1` for an animation | The acceptance harness *and* the review-card generator. `channel=` draws per-cell scalars. Reach for `gif=1` whenever the question is whether something *moves* right — a grid of stills cannot answer that, and a GIF has twice got a diagnosis where stills got a rejection. Its per-tile lines carry the **standing organ census** beside the organ event counters, which is the pair a flowering card needs: built says the mechanism fired, standing says there is anything in the picture to see, and a stand once read 1,126 organs built with no fruit on any plant |
 | `ascii` | Headless behaviour plus **worst-frame timing** | The number to quote for frame cost. CI runs it |
-| `viewshot` | What the *player's viewport* shows of a world larger than itself | The scale question a full-world render cannot answer |
+| `viewshot` | What the *player's viewport* shows of a world larger than itself | The scale question a full-world render cannot answer. `quarry=WxD` cuts an open-cast pit into the skyline **on the shot after the one it names**, so `shots=2` is the minimum or the cut is never drawn; `aim=` puts it on high ground, without which it fills with sea |
 | `uishot` | **What the app's own HUD and panels look like**, and what a held sky or a pinned weather actually does | The only thing here that calls `App::draw` — every other renderer builds frames from `Renderer::draw` and never sees a panel. Drives `App::update`/`App::draw` as `main.rs` does, then sets the state a keypress would have. `sheet=menus\|sky\|weather`; a fresh deterministic world per tile, and per-tile counters (sun, water, gusts and delivered force, freezes, bolts, ice **in the drawn window**) printed under each. That last column exists because FROST measured 3,844 freezes against a picture identical to CLEAR's — the world is 8192x2560 and the frame shows 1/128th of it |
+| `scale_covariance` | **Is the same seed at `k` times the cell resolution the same landscape, `k` times as large?** | The question the resolution step's whole content half rests on, and it was worth asking before hand-editing 46 parameters. Reports the rescaled elevation residual against **two controls in the same run** -- an unrelated seed, which is what "no relationship" looks like, and a `region_variation=0` arm, which names the cause when it fails. It did fail: 39.1 rows against a 42.5-row control, diagnosed in one run to `region::COMPOSITION_WINDOW` being a hardcoded 512 |
 | `pixel_stat` | How noisy a rendered region is, as a number | Compares two strips without squinting |
+| `subpixel` | **What the picture looks like when the renderer has more pixels than the simulation has cells** — the same world drawn at `scale` pixels per cell with each cell's shape reconstructed at sub-cell resolution, against `arm=baseline`, the shipped 1:1 render magnified by the same factor | Not plant-specific and not really a renderer: it is **a testbed for any question of the form "what if a cell were not a square"**, because the colour source is the shipped `Renderer` at 1:1 and the background is a second pass of the same renderer over the same world with the class under test emptied — so no arm can invent a colour the engine would not have drawn, which is what makes an A/B off it admissible. `arm=plants|all` decides whether terrain goes through it too, and that is the comparison worth running before believing any smoothing proposal: with colour blending on, **the soil grain is destroyed**, and the grain is why soil reads as soil. The `ao`/`shade` knobs are the general finding rather than a plant feature — a kernel field over *any* occupancy channel yields a thickness (`cov`) and a surface normal (`grad cov`) at sub-cell resolution, which is volume shading for anything the lattice draws flat. **Set both to 0 first when an interior looks quilted**: two separate lattice-noise bugs came out that way and nothing else caught either (`Reports/subpixel-rendering-2026-08-29.md` §5d). Echoes its own parameters, and prints the plant-cell count beside the image |
+| `subpixel_cost` | **What drawing the same world region at more pixels per cell costs**, as a paired comparison over one camera | Distinct from `render_cost`'s `viewport_scaling`, which grows the *viewport* at `zoom == 1` and so shows **more world** — its own note says the extra is cheap underground stone. This holds the visible region fixed (asserted, not assumed) and varies only the output lattice, so it answers the resolution question rather than a content question. Reads 1.13x at four times the pixels and 1.32x at nine, because the per-pixel work is under 10% of a full draw and a finer lattice repeats none of the per-draw setup. Generalises to any "is this cost per-pixel or per-draw" question about `Renderer::draw` |
 | `render_cost` | **Where a full-screen redraw spends its time**, broken down, **and what a bigger viewport costs** | The full branch measured 12.07 ms mean on the shipped 2048x640 world -- 54% of a frame -- and runs on ~100% of frames while the gnome walks, because a camera move invalidates every pixel. Its `viewport_scaling` section draws one world at 512x320, 768x480 and 1024x640 -- the resolution question -- and carries **two uniform-world controls beside it**, because the camera is clamped at the world origin and everything a taller viewport adds is cheap underground stone: on the generated world the scaling reads 2.41x at 4x the pixels, and on the all-stone control it reads 3.68x. The control is the number |
 | `frame_profile` | **Which phase a frame's time went to**, timed separately with a distribution | The thing `ascii` cannot answer: it reports a worst frame, which says "does this fit in 16.6 ms" and nothing about *where* it went. Runs the exact phase list `App::update` runs |
 | `camera_snap` | Whether the camera moves discontinuously through the path the **app** actually uses | Drives `App::update`/`App::draw` as `main.rs` does, rather than calling `Renderer::follow` directly -- so it catches what a harness calling the API itself cannot |
@@ -312,6 +315,25 @@ particle=…`) as of 2026-08-27, because `SETTLE_AUX` and `PARTICLE_AUX` decide
 where §S's false anchors come from and a log that does not name them cannot be
 told from one written before they existed. Each takes `zero|max|seed`. A run
 whose header lacks that line came out of an older binary.
+
+**`FALL=off` reverts the 2026-08-29 fall — the rate seeded from the break,
+the tipping test on landing, and the centroid pivot — leaving everything else
+alone**, so a paired run can hold the semantics fixed instead of comparing
+two *binaries*. That distinction is what the switch exists for: every
+instrument added alongside a mechanism is missing from the arm it is being
+measured against, and the first reading of this change fell back on a
+cluster-level statistic for exactly that reason. Verified against the
+pre-change binary on `scene=fell`: every physics line identical.
+
+**Two orientation censuses on `scene=fell`, and they answer different
+questions.** `settled log pieces` folds settled `log` into 8-connected
+clusters, so two logs that land touching are one "piece" whose orientation is
+the *pile's*; its own doc records the largest "piece" going from 49x48 to
+99x71 purely because the pile packed tighter. `how pieces came to rest`
+(2026-08-29) is asked of each body as it lands, once, at the only moment its
+extent is unambiguous. Reach for the second whenever the question is about
+the pieces and the first when it is about the pile — and note that a change
+which packs the pile tighter moves the first one *against* itself.
 
 **The `[struct]` census is a *per-frame sample*, not a total, and that makes
 `grounded` a one-way instrument.** `scheduler::step` drains

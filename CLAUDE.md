@@ -1382,11 +1382,18 @@ consider it at all.
   fix is one command and needs no toolchain switch:
   `rustup toolchain install 1.98.0 --component clippy --profile minimal`, then
   `cargo +1.98.0 clippy --all-targets -- -D warnings`. It leaves the default
-  toolchain alone, so nothing else in the tree changes. Worth reaching for
-  before pushing anything that adds a loop, an iterator chain or a `match` --
-  the lints that move between releases are the ones about *shape*. `rustup
-  check` prints the two versions if you want to know whether they have drifted
-  at all.
+  toolchain alone, so nothing else in the tree changes. `rustup check` prints
+  the two versions if you want to know whether they have drifted at all.
+  **Run it before every push, not when the diff looks lint-prone** -- this
+  bullet said "worth reaching for before pushing anything that adds a loop,
+  an iterator chain or a `match`", and that scoping is what failed. Measured
+  2026-08-29 on one branch: **three separate red CI clippy runs**, and only
+  one of the three was a loop, a chain or a `match`. The others were
+  `needless_borrows_for_generic_args` on a `&format!(..)` argument and
+  `manual_is_multiple_of` on `(n / 240) % 2 == 0` -- neither of which reads
+  as lint-prone while you are writing it, which is the whole point. A
+  conditional check is one you talk yourself out of; the command is 40
+  seconds against a CI cycle each time.
 - **`cargo fmt` is all-or-nothing.** `cargo fmt -- some/file.rs` formats the
   whole project, not that file — 28 files and ~3,000 lines in one go. The
   full-format pass is deliberately deferred work (`PLAN.md` issue #10) and

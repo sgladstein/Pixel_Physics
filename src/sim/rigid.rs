@@ -153,6 +153,89 @@ const DISPLACE_SEARCH: i32 = 4;
 /// a blender.
 const SPIN_PER_SPEED: f32 = 0.012;
 
+/// The fastest a body may be allowed to turn, in quarter-turns per frame.
+///
+/// **A legibility bound, not a physical one.** At 1.0 a body snaps through
+/// ninety degrees every frame, which reads as a flicker rather than as a
+/// tumble, and every one of those turns has to clear `rotation_fits` in a
+/// pose it occupies for a sixtieth of a second. Half of that is a full turn
+/// in eight frames, which is as fast as anything here needs to look.
+const MAX_SPIN_RATE: f32 = 0.5;
+
+/// How many quarter turns a body may take because it landed out of balance.
+///
+/// Four, so a piece may come the whole way round once and then stop. This
+/// is `topple`'s termination argument and it is deliberately a hard count
+/// rather than a convergence test: two poses can each read as unbalanced in
+/// the other's favour, and a body trading turns with itself for ever is a
+/// chunk that never sleeps — which `CLAUDE.md` prices at ~8 ms/frame,
+/// because what it defeats is the dirty-rect render skip.
+const MAX_TOPPLE_TURNS: u8 = 4;
+
+/// How far outside the middle of its footing a settled piece's centre of
+/// mass has to sit before it goes over, as a fraction of the footing's own
+/// half-width.
+///
+/// The middle-third rule — the same kern `load::bearing_moment` is built on
+/// (`KERN_DENOMINATOR`), read here as a question about *a piece* rather than
+/// about a cell. That distinction is the finding this constant exists to
+/// act on: `Reports/plant-mechanics-handoff-2026-08-29.md` §3.2 measured
+/// what happens when the load model's clamp is simply let through to `log`,
+/// and the answer is that it **crushes** the pieces rather than laying them
+/// down (settled lying/upright went 3/8 to 1/11, `log` 833 cells to 716)
+/// — because the load model's only verdict for a thing that fails is
+/// `breaks_into`. The test was never the missing part. The outcome was.
+const TIPPING_KERN: f32 = 1.0 / 3.0;
+
+/// `FALL=off` puts a body back on the pre-2026-08-29 rule: no rate seeded
+/// from the break, no tipping test on landing, and the speed term turning
+/// one way as it always did.
+///
+/// **The control, and it is here because the alternative is not one.**
+/// Comparing this build against the last one compares two *binaries*, so
+/// every instrument added alongside the mechanism is missing from the arm it
+/// is being measured against -- which is exactly how the first reading of
+/// this change went wrong: the census that could see per-piece orientation
+/// existed only in the new build, so the comparison fell back on a
+/// cluster-level statistic that provably cannot answer the question. One env
+/// switch holding the semantic rule fixed and changing nothing else is
+/// `CLAUDE.md`'s own remedy, and it also keeps these runs reproducible after
+/// the mechanism has been tuned past them.
+/// Whether this piece is organism tissue — a limb, rather than rock someone
+/// blew up.
+///
+/// **The fall is scoped to tissue, and that is a budget decision rather than
+/// a claim about physics.** `angular_acceleration` is as true of a slab of
+/// stone as of a branch, and the rock line has the same defect on record:
+/// `Reports/open-bugs-handoff.md` §Q's `scene=worked` needles are rubble
+/// standing on end. But rock destruction's constants and its gates are
+/// calibrated against how debris tumbles *now*, and `CLAUDE.md` is explicit
+/// that a change reallocating a budget you have not costed is not scoped,
+/// merely started.
+///
+/// It is costed enough to say what it would take. Under
+/// `a_disturbance_extent_licenses_the_wound_but_not_the_chain` — a radius-20
+/// charge in a massif at TIGHT, paired against the same blast with the
+/// disturbance's extent forced to zero — seeding rock leaves the *licensed*
+/// arm almost unchanged (promoted 701 -> 723, stone left 29,577 -> 29,490)
+/// and roughly doubles the **leashed** one (promoted 506 -> **1,217**,
+/// shattered 276 -> 365, stone left 29,555 -> 29,356). Everything it
+/// destroys is still inside the leash — `max_damage_reach` holds at 16 — so
+/// the chain rule is intact; what changes is that landed debris in more
+/// poses gets re-judged and more of it comes away, which is §Z3's shape on
+/// rock. That is a real question about the destruction line and it wants its
+/// own measurement, which §Q already says has to be run on `scene=worked`
+/// before anything there is tuned.
+fn is_tissue(cells: &[BodyCell]) -> bool {
+    cells.iter().any(|c| c.organism_id != 0)
+}
+
+fn fall_enabled() -> bool {
+    use std::sync::OnceLock;
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| !matches!(std::env::var("FALL").as_deref(), Ok("off")))
+}
+
 /// Pressure written into the field per unit of strike force.
 const STRIKE_PRESSURE: f32 = 6.0;
 
@@ -183,7 +266,7 @@ const MIN_STRIKE_RADIUS: i32 = 6;
 /// How far past a blow's own radius its fractures run. Cracks reaching
 /// further than the damage is what lets a player work a fissure across a
 /// span rather than having to chew through it.
-const CRACK_REACH: i32 = 3;
+pub const CRACK_REACH: i32 = 3;
 
 /// Fractures scored per blow. Few enough to read as distinct fissures
 /// rather than a shatter pattern.
@@ -305,7 +388,12 @@ fn is_body_material(world: &World, x: i32, y: i32) -> bool {
 /// Plant` since architecture item 9 -- is the one this now agrees with, and
 /// that agreement is the point: a trunk is exactly as capable of being cut
 /// as a stone span is of being undercut.
-fn is_tool_target(world: &World, x: i32, y: i32) -> bool {
+///
+/// **Public since `player::bore_slice` needs it.** The bore's working face
+/// is "the nearest slab with something breakable in it", and asking that
+/// question with a second, separately-written predicate is how a preview
+/// starts disagreeing with the cut it previews.
+pub fn is_tool_target(world: &World, x: i32, y: i32) -> bool {
     let material = world.get(x, y).material;
     matches!(world.materials.kind(material), MaterialKind::Solid | MaterialKind::Plant) && material != material::BEDROCK
 }
@@ -425,15 +513,60 @@ pub struct BodyCell {
     pub organism_id: u16,
 }
 
-impl BodyCell {
-    /// This cell's offset after a quarter turn: `(dx, dy) -> (-dy, dx)`.
+/// Which way a body goes through a quarter turn.
+///
+/// **A signed direction, and it was not free.** The transform below had one
+/// handedness, so every body in the engine could only ever turn one way.
+/// That is invisible while nothing turns at all — measured on `scene=fell`
+/// before this, a whole felled tree asked for **zero** quarter turns — and
+/// it becomes wrong the moment rotation is seeded from physics, because a
+/// limb whose mass hangs to the left of the break falls to the left.
+///
+/// `Reports/plant-mechanics-handoff-2026-08-29.md` §3.5 costed the reverse
+/// as "three forward turns and a fit probe on each intermediate pose".
+/// `Ccw` is the exact inverse permutation instead: one turn, still exact on
+/// a grid, and no intermediate pose to check or to leak material through.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Turn {
+    /// Clockwise on screen. `y` points down, so this is the direction mass
+    /// hanging to the **right** of a pivot swings.
+    Cw,
+    /// Anticlockwise on screen.
+    Ccw,
+}
+
+impl Turn {
+    /// The offset `(dx, dy)` turned a quarter about the origin:
+    /// `Cw` is `(-dy, dx)` and `Ccw` its exact inverse, `(dy, -dx)`.
     ///
-    /// The single definition of the transform. `ChunkBody::rotate_quarter`
-    /// applies it and `ChunkBody::turned_cell_position` predicts it, and
-    /// the two must not be able to drift apart — see `rotation_fits` for
-    /// what a probe that disagrees with the move it guards is worth.
-    fn rotated(&self) -> (i32, i32) {
-        (-self.dy, self.dx)
+    /// **The single definition of the transform.** `ChunkBody::rotate_quarter`
+    /// applies it and `ChunkBody::turned_offset` predicts it, and the two
+    /// must not be able to drift apart — see `rotation_fits` for what a probe
+    /// that disagrees with the move it guards is worth.
+    fn applied(self, dx: i32, dy: i32) -> (i32, i32) {
+        match self {
+            Turn::Cw => (-dy, dx),
+            Turn::Ccw => (dy, -dx),
+        }
+    }
+
+    /// The turn a signed angular quantity implies, with positive clockwise
+    /// to match the screen's `y`-down handedness.
+    fn of(signed: f32) -> Self {
+        if signed < 0.0 {
+            Turn::Ccw
+        } else {
+            Turn::Cw
+        }
+    }
+
+    /// `+1` clockwise, `-1` anticlockwise — the factor that puts a scalar
+    /// spin budget on the same axis as the direction it is turning in.
+    fn sign(self) -> f32 {
+        match self {
+            Turn::Cw => 1.0,
+            Turn::Ccw => -1.0,
+        }
     }
 }
 
@@ -485,6 +618,36 @@ pub struct ChunkBody {
     /// offset maps to another offset with no interpolation at all — so a
     /// tumbling chunk can never gain or lose a cell.
     spin: f32,
+    /// How fast it is turning, in quarter-turns per frame, **signed**.
+    ///
+    /// `spin` above is an *angle* and this is its rate, which is the
+    /// distinction the mechanism was missing: everything a body knew about
+    /// turning came from how fast it was travelling, and travelling fast is
+    /// not the same as having been swung. A trunk cut through at the base
+    /// has no speed at all in the frame it comes free and every reason to
+    /// go over.
+    spin_rate: f32,
+    /// How fast that rate is changing, in quarter-turns per frame squared —
+    /// the angular acceleration `promote` read off the break.
+    ///
+    /// Held rather than applied once, because a piece that breaks off is
+    /// still being turned by its own weight about the joint that gave way;
+    /// that is what a felled trunk pivoting on its stump *is*. It is what
+    /// makes the outcome graded with nothing to tune: for a limb of length
+    /// `L` breaking at one end the acceleration goes as `3g/(2L)`, so a
+    /// bole comes over about once across a fifty-cell drop and a twig
+    /// tumbles several times in the same fall. See `angular_acceleration`.
+    spin_accel: f32,
+    /// Quarter turns this body has taken because it was out of balance
+    /// where it landed, rather than because it was turning in the air.
+    ///
+    /// Capped by `MAX_TOPPLE_TURNS`, and the cap is the whole termination
+    /// argument for `topple`: two poses that each read as unbalanced in the
+    /// other's favour would otherwise trade turns for ever, and a body that
+    /// never settles is a chunk that never sleeps.
+    topples: u8,
+    /// The offset this body turns about. See `ChunkBody::centre_of`.
+    pivot: (i32, i32),
     stalled: u8,
     /// Fastest this body has ever travelled, in cells per frame.
     ///
@@ -523,7 +686,8 @@ impl ChunkBody {
     /// way to create debris that never broke off anything.
     #[cfg(test)]
     pub fn at(cells: Vec<BodyCell>, x: f32, y: f32) -> Self {
-        Self { cells, x, y, vx: 0.0, vy: 0.0, spin: 0.0, stalled: 0, peak_speed: 0.0, reserved: false }
+        let pivot = Self::centre_of(&cells);
+        Self { cells, x, y, vx: 0.0, vy: 0.0, spin: 0.0, spin_rate: 0.0, spin_accel: 0.0, topples: 0, pivot, stalled: 0, peak_speed: 0.0, reserved: false }
     }
 
     /// The same, already falling. Test-only for the same reason.
@@ -532,20 +696,67 @@ impl ChunkBody {
         Self { vy, ..Self::at(cells, x, y) }
     }
 
-    /// Turn the whole body a quarter turn about its origin.
+    /// The cell a body turns **about**: the centre of the offsets it was
+    /// promoted with, rounded down to a whole cell.
     ///
-    /// `(dx, dy) -> (-dy, dx)`, which is exact on a grid: every cell lands
-    /// on exactly one other cell, so this cannot leak or duplicate material
-    /// however many times it is applied.
-    fn rotate_quarter(&mut self) {
+    /// **Not the origin, and that was a real defect rather than a
+    /// refinement.** `promote` puts the origin at `cells[0]`, which after
+    /// the sort is a corner of the piece, so turning about it swings the
+    /// whole body round that corner: for the 25x35 bole `scene=fell`
+    /// produces, the far end travels some fifty cells in the one frame the
+    /// turn takes. `rotation_fits` checks the final footprint and not the
+    /// swept path, so what that buys is a body teleporting across whatever
+    /// stands between the two poses — and, far more often, a turn that is
+    /// simply refused, because a pose fifty cells sideways is a pose inside
+    /// the hillside. Turning about the centre keeps the piece where it is
+    /// and asks only whether it fits *there*, which is the question the
+    /// probe was written to answer.
+    ///
+    /// **Fixed at promotion and never recomputed**, which is what makes
+    /// four turns the identity. Deriving it from the current offsets each
+    /// time looks tidier and drifts: the mean is floored, so a body whose
+    /// true centre sits at a half-cell comes out of a turn with its floored
+    /// centre a cell away, the next turn pivots about *that*, and the piece
+    /// walks. Measured on a six-cell L, a clockwise turn followed by an
+    /// anticlockwise one left it a cell from where it started -- a position
+    /// leak with no ledger to catch it, and the kind of thing that surfaces
+    /// months later as "debris drifts". The stored pivot cannot drift, and
+    /// it stays the centre of the shape because the shape stays congruent
+    /// to the one it was measured on.
+    ///
+    /// Geometric, not mass-weighted: it needs no `World`, so it cannot go
+    /// stale against a borrow, and at this resolution the two differ by a
+    /// cell or so even on a limb that is half foliage. What it gives up is
+    /// that a leafy limb turns about its middle rather than about its
+    /// heavier woody end.
+    fn centre_of(cells: &[BodyCell]) -> (i32, i32) {
+        // `(0, 0)` under `FALL=off` is the origin, which is the pre-change
+        // rule -- the control has to hold *all* of the semantics fixed, not
+        // just the two new mechanisms, or it is measuring a third thing.
+        if cells.is_empty() || !fall_enabled() {
+            return (0, 0);
+        }
+        let n = cells.len() as i32;
+        let (sx, sy) = cells.iter().fold((0i32, 0i32), |(sx, sy), c| (sx + c.dx, sy + c.dy));
+        (sx.div_euclid(n), sy.div_euclid(n))
+    }
+
+    /// Turn the whole body a quarter turn about `pivot`.
+    ///
+    /// Exact on a grid twice over: a quarter turn maps every cell onto
+    /// exactly one other cell, so it cannot leak or duplicate material, and
+    /// the pivot is a whole cell that never moves, so four turns put every
+    /// offset back bit for bit.
+    fn rotate_quarter(&mut self, turn: Turn) {
+        let (px, py) = self.pivot;
         for cell in &mut self.cells {
-            let (dx, dy) = cell.rotated();
-            cell.dx = dx;
-            cell.dy = dy;
+            let (rx, ry) = turn.applied(cell.dx - px, cell.dy - py);
+            cell.dx = px + rx;
+            cell.dy = py + ry;
         }
     }
 
-    /// Where `cell` would sit after `rotate_quarter`, without turning
+    /// Where `cell` would sit after `rotate_quarter(turn)`, without turning
     /// anything.
     ///
     /// Exists so `rotation_fits` can ask about the turned footprint without
@@ -554,9 +765,10 @@ impl ChunkBody {
     /// probe that predicted a different turn from the one that then
     /// happened would be worse than no probe at all, which is close to what
     /// the previous version managed; see `rotation_fits`.
-    fn turned_cell_position(&self, cell: &BodyCell) -> (i32, i32) {
-        let (dx, dy) = cell.rotated();
-        (self.x.round() as i32 + dx, self.y.round() as i32 + dy)
+    fn turned_cell_position(&self, cell: &BodyCell, turn: Turn) -> (i32, i32) {
+        let (px, py) = self.pivot;
+        let (rx, ry) = turn.applied(cell.dx - px, cell.dy - py);
+        (self.x.round() as i32 + px + rx, self.y.round() as i32 + py + ry)
     }
 
     /// The body's current extent in world space, as
@@ -802,7 +1014,7 @@ fn fracture_with_impulse(
         // fed from `record` and measures the failing *region*, not the
         // fragment, so it is a different quantity and both are kept.
         if fragment.len() >= MIN_BODY_CELLS {
-            promote(world, &fragment, impulse);
+            promote(world, &fragment, impulse, broke_at);
             promoted_cells += fragment.len();
         } else {
             for &(fx, fy) in &fragment {
@@ -1026,8 +1238,62 @@ fn take_fragment(world: &World, left: &mut HashSet<(i32, i32)>, seed: (i32, i32)
     out
 }
 
+/// One quarter turn, in radians. `ChunkBody::spin` counts quarter turns
+/// because that is the only rotation a cell grid can hold exactly, so every
+/// angular quantity arriving from physics has to be divided by this on the
+/// way in.
+const QUARTER_TURN: f32 = std::f32::consts::FRAC_PI_2;
+
+/// How hard the piece `cells` is being turned about the joint that gave
+/// way, in quarter-turns per frame squared and signed — positive clockwise,
+/// which on a `y`-down screen means mass hanging to the right of the break.
+///
+/// `alpha = g * sum(m*d) / sum(m*r^2)`, with `d` the **horizontal** lever
+/// arm from the break (a vertical force has no moment about a vertical
+/// arm) and `r` the full distance. Nothing here is tuned.
+///
+/// # Why this and not the breaking torque
+///
+/// Seeding from torque alone gives `spin` proportional to `m*d`, so the
+/// heaviest piece spins hardest — backwards, and the thing `SPIN_PER_SPEED`
+/// records being tuned away from. Dividing by the second moment is what
+/// turns it around: for a uniform limb of `L` cells breaking at one end the
+/// sums are `L(L+1)/2` over `L(L+1)(2L+1)/6`, so `alpha = 3g/(2L+1)` —
+/// **inversely proportional to length**, converging on the textbook
+/// `3g/2L`. A bole comes over about once across a fifty-cell drop and a twig
+/// tumbles several times in the same fall, with no constant in between.
+///
+/// # It self-limits, and that is the parallel-axis theorem doing it
+///
+/// `sum(m*r^2)` about the break is `I_com + M*D^2` for a piece whose centre
+/// is `D` away, so a small fragment far from the break gets `g/D` (it is on
+/// the end of a long lever and swings slowly) and one *at* the break gets
+/// `g*M*D/I_com`, which goes to zero as `D` does. The maximum over `D` is
+/// `g/2k` for a piece of gyration radius `k` — so the smaller the fragment
+/// the faster it can tumble, and nothing can be seeded into a spin its own
+/// size cannot express. `MAX_SPIN_RATE` bounds what is left.
+///
+/// Accumulated in `f64`: a 400-cell body 300 cells from the break sums
+/// terms of order 90,000, and `f32` has 24 bits of mantissa.
+fn angular_acceleration(world: &World, cells: &[(i32, i32)], broke_at: (i32, i32)) -> f32 {
+    let (bx, by) = broke_at;
+    let (mut torque, mut inertia) = (0.0f64, 0.0f64);
+    for &(cx, cy) in cells {
+        let mass = world.materials.density(world.get(cx, cy).material) as f64;
+        let (dx, dy) = ((cx - bx) as f64, (cy - by) as f64);
+        torque += mass * dx;
+        inertia += mass * (dx * dx + dy * dy);
+    }
+    if inertia <= 0.0 {
+        // Every cell of the piece is the break cell itself. There is no
+        // lever, so there is no turn -- and no division either.
+        return 0.0;
+    }
+    (GRAVITY as f64 * torque / inertia) as f32 / QUARTER_TURN
+}
+
 /// Lift `cells` out of the grid as one coherent falling body.
-fn promote(world: &mut World, cells: &[(i32, i32)], impulse: Option<((f32, f32), f32)>) {
+fn promote(world: &mut World, cells: &[(i32, i32)], impulse: Option<((f32, f32), f32)>, broke_at: Option<(i32, i32)>) {
     let (ox, oy) = cells[0];
     let body_cells: Vec<BodyCell> = cells
         .iter()
@@ -1039,6 +1305,21 @@ fn promote(world: &mut World, cells: &[(i32, i32)], impulse: Option<((f32, f32),
     // Read before the grid is emptied, since that write is what clears the
     // organism id.
     let organism_cells: Vec<bool> = cells.iter().map(|&(cx, cy)| world.get(cx, cy).organism_id() != 0).collect();
+    // **The seed for the fall**, and read here for the same reason: it
+    // weighs each cell by its own material, and the write below empties
+    // them.
+    //
+    // `None` is "there is no single joint that gave way", and it leaves the
+    // body turning exactly as it did before this existed. Every production
+    // caller has a joint today -- the collapse path passes `Failure::at`,
+    // and `strike`, `calve_collar` and `fracture_shell` each pass their own
+    // origin -- so this arm is the shape of the argument rather than a live
+    // case, and it is the door a genuinely origin-less event would come in
+    // through.
+    let spin_accel = broke_at
+        .filter(|_| fall_enabled() && is_tissue(&body_cells))
+        .map_or(0.0, |at| angular_acceleration(world, cells, at));
+    let heading = Turn::of(spin_accel);
     for &(cx, cy) in cells {
         world.set(cx, cy, Cell::EMPTY);
     }
@@ -1082,12 +1363,19 @@ fn promote(world: &mut World, cells: &[(i32, i32)], impulse: Option<((f32, f32),
         None => (spread, 0.0),
     };
     world.chunk_bodies.push(ChunkBody {
+        pivot: ChunkBody::centre_of(&body_cells),
         cells: body_cells,
         x: ox as f32,
         y: oy as f32,
         vx,
         vy,
-        spin: ((ox + oy) % 3) as f32 * 0.3,
+        // The starting tilt, now pointed the way the piece is going to
+        // turn: a body seeded anticlockwise that began at +0.6 would have
+        // to unwind six-tenths of a quarter turn before its first one.
+        spin: heading.sign() * ((ox + oy) % 3) as f32 * 0.3,
+        spin_rate: 0.0,
+        spin_accel,
+        topples: 0,
         stalled: 0,
         peak_speed: 0.0,
         reserved: false,
@@ -1482,6 +1770,59 @@ pub fn mine_swept(world: &mut World, from: (i32, i32), to: (i32, i32), radius: i
             loosened.push((x, y));
         }
     }
+    finish_cut(world, &loosened, (cx, cy), radius, spoil_yield)
+}
+
+/// `mine`, cutting an axis-aligned **rectangle** rather than a disc or a
+/// capsule. Bounds are inclusive and may be given in either order.
+///
+/// # Why a rectangle exists beside the capsule
+///
+/// The capsule is the free-hand cut: point anywhere, take a round bite out
+/// of the near face. It makes tunnels of a sort, and the sort is a
+/// *worm-hole* -- the bore wanders wherever the cursor was, its walls are
+/// round, and how much clearance it leaves is something you find out by
+/// walking into it. The gnome's default dig is a rectangle for the reason
+/// `player::bore_rect` sets its size from `PLAYER_HEIGHT`: a passage cut to
+/// the shape of the thing that has to walk down it is a passage you can
+/// *see* is walkable before you cut it, and a corridor with flat walls and
+/// a flat floor reads as hewn rather than as gnawed.
+///
+/// The crack, pressure and disturbance feedback below is the capsule's,
+/// keyed on the rectangle's half-diagonal so a big square shakes more air
+/// than a small one -- the same relationship the capsule has to its radius.
+pub fn mine_rect(world: &mut World, a: (i32, i32), b: (i32, i32), spoil_yield: f32) -> usize {
+    let (lo_x, hi_x) = (a.0.min(b.0), a.0.max(b.0));
+    let (lo_y, hi_y) = (a.1.min(b.1), a.1.max(b.1));
+    let centre = ((lo_x + hi_x) / 2, (lo_y + hi_y) / 2);
+    // Half the shorter side, which is the largest disc the rectangle
+    // contains -- so a long corridor does not claim the crack reach of a
+    // blast just for being long.
+    let radius = (((hi_x - lo_x) / 2).min((hi_y - lo_y) / 2)).max(1);
+    let mut loosened = Vec::new();
+    for y in lo_y..=hi_y {
+        for x in lo_x..=hi_x {
+            // Same three questions the capsule asks, in the same order --
+            // see `mine_swept` for why living tissue is cut like anything
+            // else and why bedrock is not.
+            if !world.in_bounds(x, y) || !is_tool_target(world, x, y) {
+                continue;
+            }
+            shatter_to_rubble(world, x, y);
+            loosened.push((x, y));
+        }
+    }
+    finish_cut(world, &loosened, centre, radius, spoil_yield)
+}
+
+/// Everything a cut owes the world once its cells are rubble: cracks past
+/// the cut, the bracing the removed rock was providing, a shove of air, the
+/// failure licence, and the spoil thinning.
+///
+/// Shared by every shape of cut rather than copied per shape. The ordering
+/// is load-bearing and is documented inline; `thin_to_spoil` is last so
+/// everything above it sees the full bite as rubble.
+fn finish_cut(world: &mut World, loosened: &[(i32, i32)], (cx, cy): (i32, i32), radius: i32, spoil_yield: f32) -> usize {
     if loosened.is_empty() {
         return 0;
     }
@@ -1492,7 +1833,7 @@ pub fn mine_swept(world: &mut World, from: (i32, i32), to: (i32, i32), radius: i
     score_cracks(world, cx, cy, radius, radius + MINE_CRACK_REACH, MINE_CRACK_RAYS);
     // The rock around the cut stops being braced, which is what makes a
     // doorway's lintel notice the doorway.
-    for &(x, y) in &loosened {
+    for &(x, y) in loosened {
         super::structural::detach_exposed_neighbours(world, x, y);
         world.schedule_structural_check_around(x, y);
     }
@@ -1508,7 +1849,7 @@ pub fn mine_swept(world: &mut World, from: (i32, i32), to: (i32, i32), radius: i
     // when the thinning lived there, so moving it in here changes the
     // gnome's behaviour by nothing at all while giving the `D` key the
     // model it never had.
-    thin_to_spoil(world, &loosened, spoil_yield)
+    thin_to_spoil(world, loosened, spoil_yield)
 }
 
 /// Keep a `spoil_yield` fraction of the freshly broken cells and let the
@@ -1580,7 +1921,14 @@ const MINE_CRACK_RAYS: u32 = 3;
 /// react, far below a blow.
 const MINE_PRESSURE: f32 = 0.4;
 
-pub fn strike(world: &mut World, cx: i32, cy: i32, radius: i32, force: f32) {
+/// Returns **how many cells the blow actually acted on** — pulverized plus
+/// loosened. Not decorative: a swing at open air, a swing that lands on
+/// bedrock and a swing that calves a slab are three different events that
+/// look identical from the call site, and `CLAUDE.md`'s rule about pairing
+/// an "it fired" counter with an effect counter from the far side of the
+/// call is what this return value is. `player::smash` prints it; `App::
+/// strike` ignores it.
+pub fn strike(world: &mut World, cx: i32, cy: i32, radius: i32, force: f32) -> usize {
     // A blow has a floor, and the brush does not.
     //
     // Reported from play as "striking a cliff does nothing", with the
@@ -1618,6 +1966,7 @@ pub fn strike(world: &mut World, cx: i32, cy: i32, radius: i32, force: f32) {
     let core = (radius / 3).max(1);
     let chip = (radius * 2 / 3).max(core + 1);
     let mut loosened = Vec::new();
+    let mut pulverized = 0;
     for dy in -chip..=chip {
         for dx in -chip..=chip {
             let (x, y) = (cx + dx, cy + dy);
@@ -1634,7 +1983,14 @@ pub fn strike(world: &mut World, cx: i32, cy: i32, radius: i32, force: f32) {
                 continue;
             }
             if d2 <= core * core {
+                // Counted by **what changed**, not by what was attempted:
+                // `shatter_to_rubble` declines a material with no
+                // `breaks_into` and leaves the cell exactly as it was, and
+                // a count that included the declines would report a blow
+                // on unbreakable rock as a hit.
+                let was = world.get(x, y).material;
                 shatter_to_rubble(world, x, y); // the bite
+                pulverized += usize::from(world.get(x, y).material != was);
             } else {
                 loosened.push((x, y));
             }
@@ -1670,6 +2026,7 @@ pub fn strike(world: &mut World, cx: i32, cy: i32, radius: i32, force: f32) {
     for &(x, y) in &loosened {
         world.schedule_structural_check_around(x, y);
     }
+    pulverized + loosened.len()
 }
 
 /// Break the loosened rock around a blast into chunks and throw them.
@@ -1859,14 +2216,40 @@ pub fn step_chunk_bodies(world: &mut World) {
 fn advance(world: &mut World, body: &mut ChunkBody) -> bool {
     body.vy += GRAVITY;
 
-    // Tip while falling. Spin accumulates with speed, so a piece that has
-    // barely come loose turns slowly and one in a long drop tumbles -- and a
-    // body that is already at rest does not rotate at all, which matters
-    // because a settled chunk snapping through 90 degrees would look like a
-    // glitch rather than physics.
-    body.spin += (body.vx.abs() + body.vy.abs()) * SPIN_PER_SPEED;
-    if body.spin >= 1.0 {
-        body.spin -= 1.0;
+    // Tip while falling. Two terms, and they answer different questions.
+    //
+    // **The rate is the physics** -- `spin_accel` is what the break is
+    // doing to this piece, read off its own mass distribution about the
+    // joint that gave way (`angular_acceleration`), and integrated here
+    // because a piece that has come loose is still being turned by its own
+    // weight about that joint. A felled trunk pivoting on its stump is
+    // exactly this and nothing else.
+    //
+    // **The speed term is the texture**, and it is left alone. It
+    // accumulates with speed, so a piece that has barely come loose turns
+    // slowly and one in a long drop tumbles; a body already at rest does
+    // not rotate at all, which matters because a settled chunk snapping
+    // through 90 degrees reads as a glitch rather than as physics. What is
+    // new is only that it now carries the *sign* of the rate, so the two
+    // terms cannot fight: a body seeded to go anticlockwise is not dragged
+    // back the other way by how fast it is falling. With no seed at all --
+    // a blast, which has no single failing cell to break about --
+    // `Turn::of(0.0)` is `Cw` and this line is byte-for-byte what it was.
+    body.spin_rate = (body.spin_rate + body.spin_accel).clamp(-MAX_SPIN_RATE, MAX_SPIN_RATE);
+    let heading = Turn::of(body.spin_rate);
+    body.spin += body.spin_rate + heading.sign() * (body.vx.abs() + body.vy.abs()) * SPIN_PER_SPEED;
+    // Read off the accumulated *angle*, never off the rate: `spin` is what
+    // has actually been banked, and a body whose rate has just changed sign
+    // still owes the turn it was part-way through.
+    let due = if body.spin >= 1.0 {
+        Some(Turn::Cw)
+    } else if body.spin <= -1.0 {
+        Some(Turn::Ccw)
+    } else {
+        None
+    };
+    if let Some(turn) = due {
+        body.spin -= turn.sign();
         // Only turn if the turned shape actually fits. Otherwise a body
         // wedged in a gap would rotate straight through the wall beside it,
         // which is the one way this transform can cheat.
@@ -1878,18 +2261,14 @@ fn advance(world: &mut World, body: &mut ChunkBody) -> bool {
         // version this replaces built a rotated clone purely to compute a
         // shape identical to this one, and then asked the wrong question
         // with it; see `rotation_fits` for both halves of that.
-        let turned = rotation_fits(world, body, shape_of(world, body));
+        let turned = rotation_fits(world, body, turn, shape_of(world, body));
         // Counted, because a probe that always answers "clear" looks
         // exactly like a probe that works — which is how this went unnoticed
         // for the life of the mechanism. `CLAUDE.md`: "did it fire at all"
         // needs a counter, not a picture.
         world.structural_failures.record_rotation(turned);
         if turned {
-            if body.reserved {
-                rotate_reserved(world, body);
-            } else {
-                body.rotate_quarter();
-            }
+            apply_turn(world, body, turn);
         }
     }
 
@@ -1961,10 +2340,14 @@ fn advance(world: &mut World, body: &mut ChunkBody) -> bool {
                 // stopping dead in mid-air.
                 match axis {
                     Axis::Horizontal => body.vx *= -COLLISION_RETENTION,
-                    Axis::Vertical => body.vy *= COLLISION_RETENTION,
+                    Axis::Vertical => {
+                        body.vy *= COLLISION_RETENTION;
+                        landed(body);
+                    }
                     Axis::Both => {
                         body.vx *= -COLLISION_RETENTION;
                         body.vy *= COLLISION_RETENTION;
+                        landed(body);
                     }
                 }
                 break;
@@ -1976,7 +2359,174 @@ fn advance(world: &mut World, body: &mut ChunkBody) -> bool {
         report_entry_splash(world, body, entry_speed);
     }
     body.stalled = if moved { 0 } else { body.stalled.saturating_add(1) };
-    body.stalled < STALL_FRAMES_BEFORE_SETTLING
+    if body.stalled < STALL_FRAMES_BEFORE_SETTLING {
+        return true;
+    }
+    // It has stopped moving. Before it becomes terrain, ask whether it is
+    // standing on anything it could actually stand on.
+    topple(world, body)
+}
+
+/// **The hinge does not survive the landing**, and a collision takes the turn
+/// off a piece the same way it takes the speed off it.
+///
+/// Called where `vy` is already being damped by `COLLISION_RETENTION`, and
+/// the pair is the whole point: the linear half was there from the start and
+/// the angular half was not, because until 2026-08-29 nothing seeded a turn
+/// worth damping.
+///
+/// **What it cost to leave out is a body that never lands.** `spin_accel` is
+/// held for the whole flight (`angular_acceleration`), so a piece sitting on
+/// the ground kept winding up; every couple of frames it took a quarter
+/// turn, each turn let it drop or shift a cell, and dropping a cell resets
+/// `stalled`, so it ratcheted along and never reached
+/// `STALL_FRAMES_BEFORE_SETTLING`. Measured on `scene=fell species=tree
+/// frame0=10800`: **238 bodies promoted against the control's 45**, one still
+/// in flight 1,050 frames after the cut, and the harness reporting that
+/// nothing ever came to rest. Caught by the negative control the handoff
+/// asked for -- a settled pile that never stops moving is a chunk that never
+/// sleeps, which `CLAUDE.md` prices at ~8 ms/frame because what it defeats is
+/// the dirty-rect render skip.
+///
+/// The rate is damped rather than zeroed, matching `vy`: a rock that lands
+/// tumbling keeps a little of it. The *acceleration* is zeroed outright,
+/// because the joint it was turning about is behind it.
+fn landed(body: &mut ChunkBody) {
+    body.spin_rate *= COLLISION_RETENTION;
+    body.spin_accel = 0.0;
+}
+
+/// Turn the body, taking its footprint reservation with it if it holds one.
+///
+/// One door, so the reserved case cannot be forgotten at a new call site --
+/// which is the shape of the leak `rotate_reserved`'s own doc records: a
+/// turn that moved the body and not its reservation grew permanent
+/// wedge-shaped air pockets inside a pond, with the ledger perfectly
+/// balanced throughout.
+fn apply_turn(world: &mut World, body: &mut ChunkBody, turn: Turn) {
+    if body.reserved {
+        rotate_reserved(world, body, turn);
+    } else {
+        body.rotate_quarter(turn);
+    }
+}
+
+/// A piece that has come to rest out of balance goes over instead of
+/// becoming terrain. Returns whether it did, in which case it stays in
+/// flight for another frame.
+///
+/// # The outcome the load model does not have
+///
+/// `load::bearing_moment` **is** a tipping test — a no-tension bed that
+/// reduces to "is the centre of mass inside the middle third of the contact
+/// width" — and it is not what was missing. Measured
+/// (`Reports/plant-mechanics-handoff-2026-08-29.md` §3.2): letting that
+/// clamp reach `log` at all does not lay a single piece down, it **crushes**
+/// them, because the load model's two verdicts are *holds* and *fails* and
+/// failing means `breaks_into` — convert where you stand. Settled
+/// lying/upright/square went 3/8/2 to 1/11/1 and `log` lost 117 cells to
+/// `deadwood`. The pieces it condemned were the ones that had a footing.
+///
+/// So the kern test lives here instead, on the far side of the flight,
+/// where the piece is still a *body* and going over is something it can
+/// actually do. Nothing about the load model changes.
+///
+/// # Why it terminates
+///
+/// Three ways, and the first two are the ones that matter in a pile. A turn
+/// that does not fit is refused and the body settles as it stands, wedged,
+/// which is a legitimate resting state. A turn that fits usually lays the
+/// piece flatter, and a flat piece's centre of mass is inside its own
+/// footing, so it does not ask again. `MAX_TOPPLE_TURNS` catches the
+/// remainder: two poses can each read as unbalanced in the other's
+/// favour, and there is no argument from geometry that says they cannot.
+fn topple(world: &mut World, body: &mut ChunkBody) -> bool {
+    if !fall_enabled() || !is_tissue(&body.cells) || body.topples >= MAX_TOPPLE_TURNS {
+        return false;
+    }
+    let Some(turn) = tipping_turn(world, body) else {
+        return false;
+    };
+    let fits = rotation_fits(world, body, turn, shape_of(world, body));
+    // Its **own** counter, not the in-flight one -- see
+    // `FailureCounts::topples_asked`. The two fire for different reasons at
+    // different moments, and a single number that moved could not say which
+    // of them did it.
+    world.structural_failures.record_topple(fits);
+    if !fits {
+        return false;
+    }
+    apply_turn(world, body, turn);
+    body.topples += 1;
+    body.stalled = 0;
+    // The tip **is** this body's quarter turn, and the flight is over.
+    // Leaving the accumulator standing would spend it again a frame later,
+    // and leaving the acceleration standing would keep winding up a piece
+    // that is now lying on the ground -- the hinge it was turning about is
+    // behind it.
+    body.spin = 0.0;
+    body.spin_rate = 0.0;
+    body.spin_accel = 0.0;
+    true
+}
+
+/// Which way a settled body is out of balance, or `None` if it is seated.
+///
+/// The footing is every cell of the body with something under it that is
+/// not this same body and not a fluid — `load::bearing_moment`'s reading of
+/// a contact, which its own doc argues for at length: a pile is lumpy and
+/// conforms, so the run of material the piece *stands on* is the width it
+/// will have once the grain beneath has settled, not the patchy contact of
+/// this instant. Judging the instant dismantles a slab lying on its own
+/// rubble one cell at a time.
+///
+/// Mass-weighted, because a limb that came down with its foliage on is
+/// half leaf by count and a fifth of it by weight (`leaf` is 0.25 against
+/// `wood`'s 0.8), and it is the weight that decides which way it goes.
+fn tipping_turn(world: &World, body: &ChunkBody) -> Option<Turn> {
+    if body.cells.is_empty() {
+        return None;
+    }
+    let own: HashSet<(i32, i32)> = body.cells.iter().map(|c| body.cell_position(c)).collect();
+    let (mut mass, mut moment) = (0.0f32, 0.0f32);
+    let (mut lo, mut hi) = (i32::MAX, i32::MIN);
+    for cell in &body.cells {
+        let (x, y) = body.cell_position(cell);
+        let m = world.materials.density(cell.material).max(f32::MIN_POSITIVE);
+        mass += m;
+        moment += m * x as f32;
+        if own.contains(&(x, y + 1)) {
+            continue;
+        }
+        if stands_on(world, x, y + 1) {
+            lo = lo.min(x);
+            hi = hi.max(x);
+        }
+    }
+    if hi < lo {
+        // Nothing under any of it. The body is not resting, it is wedged or
+        // hung up on its sides, and there is no footing to be eccentric to.
+        return None;
+    }
+    let centre_of_mass = moment / mass;
+    let centre_of_footing = (lo + hi) as f32 / 2.0;
+    let half_width = (hi - lo + 1) as f32 / 2.0;
+    let eccentricity = centre_of_mass - centre_of_footing;
+    (eccentricity.abs() > half_width * TIPPING_KERN).then(|| Turn::of(eccentricity))
+}
+
+/// Whether `(x, y)` is something a piece can bear on.
+///
+/// Out of bounds counts: the world's own floor and walls hold a body up as
+/// surely as rock does. Powder counts too — a slab lying on scree is
+/// standing on the scree, which is the same reading `load::bearing_moment`
+/// takes. Liquid and gas do not: nothing here stands on water.
+fn stands_on(world: &World, x: i32, y: i32) -> bool {
+    if !world.in_bounds(x, y) {
+        return true;
+    }
+    let there = world.get(x, y).material;
+    there != material::EMPTY && !matches!(world.materials.kind(there), MaterialKind::Liquid | MaterialKind::Gas)
 }
 
 /// Turn the body a quarter, taking its footprint reservation with it.
@@ -1990,9 +2540,9 @@ fn advance(world: &mut World, body: &mut ChunkBody) -> bool {
 /// `is_empty` and no water would close over it. The ledger was perfectly
 /// balanced throughout — nothing was lost, so no conservation guard could
 /// have caught it, and only the picture showed it.
-fn rotate_reserved(world: &mut World, body: &mut ChunkBody) {
+fn rotate_reserved(world: &mut World, body: &mut ChunkBody, turn: Turn) {
     let before: HashSet<(i32, i32)> = body.cells.iter().map(|c| body.cell_position(c)).collect();
-    body.rotate_quarter();
+    body.rotate_quarter(turn);
     let after: HashSet<(i32, i32)> = body.cells.iter().map(|c| body.cell_position(c)).collect();
     for &(x, y) in before.difference(&after) {
         let cell = world.get(x, y);
@@ -2043,10 +2593,10 @@ fn rotate_reserved(world: &mut World, body: &mut ChunkBody) {
 /// materially-empty, so today they would pass the raw-`EMPTY` test anyway —
 /// but a rotation that a body could not perform *into its own cells* would
 /// be absurd, and saying so here keeps it true if that ever changes.
-fn rotation_fits(world: &World, body: &ChunkBody, shape: BodyShape) -> bool {
+fn rotation_fits(world: &World, body: &ChunkBody, turn: Turn, shape: BodyShape) -> bool {
     let before: HashSet<(i32, i32)> = body.cells.iter().map(|c| body.cell_position(c)).collect();
     body.cells.iter().all(|cell| {
-        let (x, y) = body.turned_cell_position(cell);
+        let (x, y) = body.turned_cell_position(cell, turn);
         if before.contains(&(x, y)) {
             return true; // the body is already standing here
         }
@@ -2154,6 +2704,22 @@ fn drag_through_liquid(body: &mut ChunkBody, shape: BodyShape, fluid_density: f3
         (2.0 * GRAVITY * size * excess / SINK_DRAG_COEFFICIENT).sqrt().max(NEUTRAL_SINK_SPEED);
     body.vy = body.vy.min(terminal);
     body.vx = body.vx.clamp(-terminal, terminal);
+    // **And water takes the same share of the turn that it takes of the
+    // weight**, which is `carried` above and so costs no new constant: a
+    // piece barely denser than water barely sinks and barely turns, and a
+    // stone one keeps about three-fifths of its rate per frame and has
+    // stopped turning inside ten.
+    //
+    // This is not tidiness. `spin_accel` is held for the whole flight (see
+    // `angular_acceleration`), which is right for a piece falling through
+    // air for a few dozen frames and wrong for one that never lands: a
+    // raft breaking up mid-pond wound itself to `MAX_SPIN_RATE` and
+    // **stayed on the surface**, 34 of 80 cells still standing at rows
+    // 84..100 after 600 frames and identically after 3,000 -- wedged, not
+    // slow. That is `an_unsupported_raft_sinks_through_a_deep_pond`'s own
+    // bug coming back by a new route, and the test caught it.
+    body.spin_accel *= 1.0 - carried;
+    body.spin_rate *= 1.0 - carried;
 }
 
 /// The drag coefficient a sinking body is given, which with `GRAVITY` and
@@ -2802,6 +3368,16 @@ fn place_settled(world: &mut World, x: i32, y: i32, fresh: Cell) {
 ///   landing on uneven ground does not quietly delete the overlapping part
 ///   of the body.
 fn settle(world: &mut World, body: &ChunkBody) {
+    // **How it came to rest**, taken here because this is the only moment a
+    // piece's own extent is unambiguous: a frame later it is grid cells,
+    // touching whatever else landed beside it, and no census downstream can
+    // tell one log from two. See `FailureCounts::settled_lying` for the
+    // measurement that made this necessary. Gated at `MIN_BODY_CELLS` to
+    // match what "a piece" means everywhere else in this pipeline.
+    if body.cells.len() >= MIN_BODY_CELLS {
+        let (x0, y0, x1, y1) = body.bounds();
+        world.structural_failures.record_settled_pose(x1 - x0, y1 - y0);
+    }
     // **Where each cell actually landed, not where it was aimed.**
     // The checks below used to be scheduled around `cell_position`, which
     // is only the same place when the cell went in unmoved. A cell that had
@@ -4863,7 +5439,7 @@ mod tests {
         w.begin_step();
         w.take_touched_chunks();
         let before = w.active_site_count();
-        promote(&mut w, &piece, None);
+        promote(&mut w, &piece, None, None);
         assert_eq!(
             w.active_site_count(),
             before,
@@ -4878,7 +5454,7 @@ mod tests {
         }
         inert.begin_step();
         let before = inert.active_site_count();
-        promote(&mut inert, &slab, None);
+        promote(&mut inert, &slab, None, None);
         assert!(
             inert.active_site_count() > before,
             "rock that lost what was resting on it must still be re-asked -- the decline is about tissue, not about promotion"
@@ -5144,7 +5720,7 @@ mod tests {
         // The setup check first: if the turned bar does not actually land in
         // rock, a passing assertion below proves nothing.
         for cell in &body.cells {
-            let (px, py) = body.turned_cell_position(cell);
+            let (px, py) = body.turned_cell_position(cell, Turn::Cw);
             if (px, py) != (15, 32) {
                 assert_eq!(
                     w.get(px, py).material,
@@ -5154,7 +5730,7 @@ mod tests {
             }
         }
         assert!(
-            !rotation_fits(&w, &body, shape_of(&w, &body)),
+            !rotation_fits(&w, &body, Turn::Cw, shape_of(&w, &body)),
             "the turned bar overlaps rock above and below it, and the fit probe reported no obstruction at all"
         );
 
@@ -5165,10 +5741,228 @@ mod tests {
         w.set(15, 31, Cell::EMPTY);
         w.set(15, 33, Cell::EMPTY);
         assert!(
-            rotation_fits(&w, &body, shape_of(&w, &body)),
+            rotation_fits(&w, &body, Turn::Cw, shape_of(&w, &body)),
             "with the slot opened above and below, the turned bar fits and the probe should say so"
         );
     }
+
+    /// **The positive control for the fall, run against the closed form.**
+    ///
+    /// A uniform limb of `L` cells breaking at one end is the one case
+    /// `angular_acceleration` can be checked against arithmetic rather than
+    /// against itself: the sums are `L(L+1)/2` over `L(L+1)(2L+1)/6`, so the
+    /// answer is exactly `3g/(2L+1)` radians per frame squared, converging
+    /// from below on the textbook `3g/2L` for a rod about its end.
+    ///
+    /// Tight, on a pure function over a hand-built region, which per
+    /// `CLAUDE.md` cannot be blind in an interesting way — and it pins the
+    /// property the whole mechanism rests on, which is that the answer is
+    /// **inversely proportional to length**. A model seeded from the
+    /// breaking torque instead would grow with `L` here, so this test tells
+    /// the two apart.
+    #[test]
+    fn a_limb_breaking_at_one_end_accelerates_as_three_g_over_two_l() {
+        let mut w = test_world();
+        let mut previous = f32::INFINITY;
+        for l in [2i32, 4, 12, 40] {
+            let cells: Vec<(i32, i32)> = (1..=l).map(|i| (10 + i, 20)).collect();
+            for &(x, y) in &cells {
+                w.set(x, y, Cell::new(material::STONE, 0));
+            }
+            let radians = angular_acceleration(&w, &cells, (10, 20)) * QUARTER_TURN;
+            let closed_form = 3.0 * GRAVITY / (2.0 * l as f32 + 1.0);
+            assert!((radians - closed_form).abs() < 1e-6, "L={l}: {radians} rad/frame^2 against the closed form {closed_form}");
+            assert!(radians < 3.0 * GRAVITY / (2.0 * l as f32), "L={l}: should converge on 3g/2L from below");
+            assert!(radians < previous, "L={l}: a longer limb must turn more slowly, not less");
+            previous = radians;
+        }
+    }
+
+    /// It is a ratio of two mass sums, so a uniform limb gives the same
+    /// answer whatever it is made of — and a limb that is *not* uniform
+    /// does not.
+    ///
+    /// Worth pinning because the density lookup is the one part of the sum
+    /// that could silently become a constant (a wrong `MaterialId`, a
+    /// default), and a mechanism that ignored mass would pass every other
+    /// test here.
+    #[test]
+    fn the_break_weighs_the_piece_rather_than_counting_it() {
+        let mut w = test_world();
+        let cells: Vec<(i32, i32)> = (1..=8).map(|i| (10 + i, 20)).collect();
+        for &(x, y) in &cells {
+            w.set(x, y, Cell::new(material::STONE, 0));
+        }
+        let stone = angular_acceleration(&w, &cells, (10, 20));
+        for &(x, y) in &cells {
+            w.set(x, y, Cell::new(material::SAND, 0));
+        }
+        let sand = angular_acceleration(&w, &cells, (10, 20));
+        assert!((stone - sand).abs() < 1e-7, "a uniform limb's acceleration must not depend on the material: {stone} vs {sand}");
+
+        // Now load the far half and leave the near half light. The mass has
+        // moved outward, so both sums grow -- but the second moment grows
+        // with the square of the arm and the torque only linearly, so this
+        // must come out *slower*, not faster.
+        for &(x, y) in cells.iter().skip(4) {
+            w.set(x, y, Cell::new(material::STONE, 0));
+        }
+        let tip_heavy = angular_acceleration(&w, &cells, (10, 20));
+        assert!(tip_heavy < sand, "mass moved out along the arm must slow the turn: {tip_heavy} against {sand}");
+    }
+
+    /// Which way it goes, and the case that must not go anywhere.
+    ///
+    /// The balanced arm is the one that matters for scheduling: a trunk cut
+    /// through at its base has its whole crown directly overhead, so this
+    /// is what `scene=fell`'s biggest piece actually reads, and it is why
+    /// `topple` exists at all. If a standing bole came off the break
+    /// already spinning, the tipping test on landing would be decoration.
+    #[test]
+    fn the_break_turns_the_way_the_mass_hangs() {
+        let mut w = test_world();
+        let right: Vec<(i32, i32)> = (1..=8).map(|i| (30 + i, 20)).collect();
+        let left: Vec<(i32, i32)> = (1..=8).map(|i| (30 - i, 20)).collect();
+        let overhead: Vec<(i32, i32)> = (1..=8).map(|i| (30, 20 - i)).collect();
+        for group in [&right, &left, &overhead] {
+            for &(x, y) in group.iter() {
+                w.set(x, y, Cell::new(material::STONE, 0));
+            }
+        }
+        assert!(angular_acceleration(&w, &right, (30, 20)) > 0.0, "mass hanging right of the break turns clockwise");
+        assert!(angular_acceleration(&w, &left, (30, 20)) < 0.0, "mass hanging left of the break turns anticlockwise");
+        assert_eq!(angular_acceleration(&w, &overhead, (30, 20)), 0.0, "a balanced column has no reason to prefer either way");
+        assert_eq!(Turn::of(angular_acceleration(&w, &left, (30, 20))), Turn::Ccw);
+    }
+
+    /// **Four quarter turns are the identity, on the body and on the
+    /// grid.** Put the fault back and it fails: turning about the origin
+    /// instead of the centre walks a 3x21 bar clear across the world.
+    ///
+    /// The second assertion is the one the mechanism needed. A body whose
+    /// far end teleports fifty cells in one frame is a body that fails
+    /// `rotation_fits` everywhere except open sky, because the pose it is
+    /// asking about is fifty cells inside the hillside.
+    #[test]
+    fn a_quarter_turn_pivots_about_the_piece_and_four_of_them_come_home() {
+        let cells: Vec<BodyCell> = (0..21)
+            .flat_map(|dy| (0..3).map(move |dx| BodyCell { dx, dy, material: material::STONE, shade: 0, organism_id: 0 }))
+            .collect();
+        let mut body = ChunkBody::at(cells, 30.0, 30.0);
+        let before: Vec<(i32, i32)> = body.cells.iter().map(|c| body.cell_position(c)).collect();
+        let (bx0, by0, bx1, by1) = body.bounds();
+
+        body.rotate_quarter(Turn::Cw);
+        let (ax0, ay0, ax1, ay1) = body.bounds();
+        assert_eq!((ax1 - ax0, ay1 - ay0), (by1 - by0, bx1 - bx0), "a quarter turn swaps the extents");
+        let centre_moved = (((ax0 + ax1) - (bx0 + bx1)).abs()).max(((ay0 + ay1) - (by0 + by1)).abs());
+        assert!(centre_moved <= 2, "the piece must turn in place, not swing about a corner: its centre moved {} half-cells", centre_moved);
+
+        for _ in 0..3 {
+            body.rotate_quarter(Turn::Cw);
+        }
+        let after: Vec<(i32, i32)> = body.cells.iter().map(|c| body.cell_position(c)).collect();
+        let (mut a, mut b) = (before.clone(), after);
+        a.sort_unstable();
+        b.sort_unstable();
+        assert_eq!(a, b, "four quarter turns must put every cell back exactly where it started");
+    }
+
+    /// Anticlockwise is the exact inverse permutation, not three more
+    /// clockwise turns -- which is what `Reports/plant-mechanics-handoff-
+    /// 2026-08-29.md` §3.5 costed it at, and what would have needed a fit
+    /// probe on each of two intermediate poses.
+    #[test]
+    fn the_two_turns_undo_each_other() {
+        let cells: Vec<BodyCell> = [(0, 0), (1, 0), (2, 0), (2, 1), (2, 2), (5, 7)]
+            .into_iter()
+            .map(|(dx, dy)| BodyCell { dx, dy, material: material::STONE, shade: 0, organism_id: 0 })
+            .collect();
+        let mut body = ChunkBody::at(cells, 12.0, 40.0);
+        let before: Vec<(i32, i32)> = body.cells.iter().map(|c| body.cell_position(c)).collect();
+        body.rotate_quarter(Turn::Cw);
+        body.rotate_quarter(Turn::Ccw);
+        let after: Vec<(i32, i32)> = body.cells.iter().map(|c| body.cell_position(c)).collect();
+        assert_eq!(before, after, "Ccw must undo Cw exactly, cell for cell and in order");
+    }
+
+    /// **The tipping test, both ways round.** The negative control is the
+    /// load-bearing half: a piece that is well seated must not be
+    /// re-promoted, or a settled pile never stops moving and chunks never
+    /// sleep -- which `CLAUDE.md` prices at ~8 ms/frame, because what it
+    /// defeats is the dirty-rect render skip.
+    #[test]
+    fn a_piece_standing_on_its_end_tips_and_one_lying_flat_does_not() {
+        let mut w = test_world();
+        for x in 0..64 {
+            for y in 40..64 {
+                w.set(x, y, Cell::new(material::BEDROCK, 0).with_attached(true));
+            }
+        }
+        // A column two cells wide and twelve tall, resting on the floor,
+        // with a lump hung off the top right. The footing is the two-cell
+        // base; the mass is three cells to the right of it.
+        let mut cells: Vec<BodyCell> = (0..12)
+            .flat_map(|dy| (0..2).map(move |dx| BodyCell { dx, dy, material: material::STONE, shade: 0, organism_id: 1 }))
+            .collect();
+        cells.extend((2..6).map(|dx| BodyCell { dx, dy: 0, material: material::STONE, shade: 0, organism_id: 1 }));
+        let top_heavy = ChunkBody::at(cells, 30.0, 28.0);
+        assert_eq!(tipping_turn(&w, &top_heavy), Some(Turn::Cw), "a column with its mass overhanging to the right must go over to the right");
+
+        // The same body laid down: a twelve-cell footing, mass inside it.
+        let flat: Vec<BodyCell> = (0..12)
+            .flat_map(|dx| (0..2).map(move |dy| BodyCell { dx, dy, material: material::STONE, shade: 0, organism_id: 0 }))
+            .collect();
+        let lying = ChunkBody::at(flat, 30.0, 38.0);
+        assert_eq!(tipping_turn(&w, &lying), None, "a slab lying flat on the floor is seated and must be left alone");
+
+        // And a body with nothing under it at all is not resting on
+        // anything, so there is no footing to be eccentric to.
+        let hung: Vec<BodyCell> = (0..4).map(|dx| BodyCell { dx, dy: 0, material: material::STONE, shade: 0, organism_id: 0 }).collect();
+        let in_the_air = ChunkBody::at(hung, 30.0, 10.0);
+        assert_eq!(tipping_turn(&w, &in_the_air), None, "a body in open air has no footing and must not be judged against one");
+    }
+
+    /// End to end, through `step_chunk_bodies`: the column above actually
+    /// goes over rather than becoming a standing pillar of terrain.
+    ///
+    /// The bar is the orientation of what is left on the grid, which is the
+    /// quantity `filmstrip`'s `log_pieces` census reads and the one the
+    /// owner's complaint is about -- *"the long skinny vertical pieces
+    /// should fall over, instead of all standing upright"*.
+    #[test]
+    fn a_top_heavy_piece_ends_up_lying_down_rather_than_standing_as_terrain() {
+        let mut w = test_world();
+        for x in 0..64 {
+            for y in 40..64 {
+                w.set(x, y, Cell::new(material::BEDROCK, 0).with_attached(true));
+            }
+        }
+        // **Carrying an organism id, and that is not incidental**: the fall
+        // is scoped to tissue (`is_tissue`), so a body of anonymous rock
+        // would exercise the gate rather than the rule and pass this test
+        // for the wrong reason. `stone` has no `severs_into`, so it still
+        // lands as stone and the census below is unchanged.
+        let mut cells: Vec<BodyCell> = (0..12)
+            .flat_map(|dy| (0..2).map(move |dx| BodyCell { dx, dy, material: material::STONE, shade: 0, organism_id: 1 }))
+            .collect();
+        cells.extend((2..6).map(|dx| BodyCell { dx, dy: 0, material: material::STONE, shade: 0, organism_id: 1 }));
+        w.chunk_bodies.push(ChunkBody::at(cells, 30.0, 28.0));
+        for _ in 0..200 {
+            step_chunk_bodies(&mut w);
+            if w.chunk_bodies.is_empty() {
+                break;
+            }
+        }
+        assert!(w.chunk_bodies.is_empty(), "the body must come to rest inside the budget rather than tipping for ever");
+        let stone: Vec<(i32, i32)> = (0..64).flat_map(|x| (0..40).map(move |y| (x, y))).filter(|&(x, y)| w.get(x, y).material == material::STONE).collect();
+        assert!(!stone.is_empty(), "the piece has to still be there");
+        let width = stone.iter().map(|c| c.0).max().unwrap() - stone.iter().map(|c| c.0).min().unwrap() + 1;
+        let height = stone.iter().map(|c| c.1).max().unwrap() - stone.iter().map(|c| c.1).min().unwrap() + 1;
+        assert!(width > height, "it settled {width} wide by {height} tall -- a piece that overhangs its own footing must not become a standing pillar");
+        assert!(w.structural_failures.topples_asked > 0, "the tipping test never ran, so whatever laid this down was not it");
+    }
+
 }
 
 /// Guards for `is_tool_target` — that a hand tool reaches living tissue,
@@ -5291,6 +6085,7 @@ mod tool_target_tests {
         w.paint_capsule((10, 50), (10, 50), 2, material::STONE, 1.0);
         assert!(w.within_disturbance(10, 50), "painting stone recorded no disturbance");
     }
+
 
     /// A stroke over open air is not a disturbance and must not evict a
     /// real one from the sixteen-entry ring.

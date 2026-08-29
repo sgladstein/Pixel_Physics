@@ -3,7 +3,10 @@
 *What plants do, and what it looks like when they are working. No code, no
 file names — see `Reports/` for why any of it is built the way it is.*
 
-*Current as of: 2026-08-29 (plants flower and fruit: two new kinds of plant
+*Current as of: 2026-08-29 (what breaks off a plant now turns as it falls and
+goes over where it lands, instead of dropping in the pose it grew in -- see
+**Cutting a plant down**; stems draw a line instead of wandering into one --
+see **How a stem is shaped**; plants flower and fruit: two new kinds of plant
 stop growing on purpose and put an organ where the shoot tip used to be, the
 ripe fruit falls carrying the seed inside it, and building either costs the
 plant carbon it might not have; and a shed leaf no longer lodges in the
@@ -167,6 +170,60 @@ saying so: seed is set per mature cell, so size buys offspring.
 
 Growth is fastest when young and tails off — a plant stops when its income
 can no longer cover another cell, not because it hit a size limit.
+
+## How a stem is shaped
+
+A stem is not drawn along a planned course. A growing tip looks at the cells
+around it, weighs each one on how well it continues the direction it is
+already going, how much light lies that way, which way the wind is pushing and
+which way the plant's own sense of up points — and then *picks one at random*,
+with the better-scoring directions likelier to come up. That is the whole of
+it, and everything a plant's outline does comes out of repeating it a few
+thousand times.
+
+The catch is that a cell has only eight neighbours, and eight directions
+cannot express a lean. A shoot growing dead upright has one neighbour straight
+above it and two more at the diagonals, and even at its most single-minded it
+takes one of the diagonals more often than not — so it wanders off its own
+line and then wanders back, and a stem came out as a wobble rather than a
+stem.
+
+**So a shoot can draw its heading rather than groping for it — and whether it
+does is yours to choose.** `K` cycles it: off (what plants have always done),
+each species' own setting, or forced to the maximum on everything. It changes
+how plants *grow*, not how they are drawn, so pressing it does nothing to a
+tree that has already grown — press `F6` for a fresh world to see it, and the
+status line names whichever mode is on.
+
+Off is the default, because asked three times whether the straighter version
+looked better, the answer was "neither". It is here to be tried, not because
+it won.
+
+When it is on, it still
+weighs its neighbours and still picks one at random exactly as before, but
+that pick now steers where the shoot is *aimed*; the cell it actually enters
+is whichever one keeps it closest to the line it is aiming along, with the
+fraction of a cell it could not spend carried over to the next step. A shoot
+leaning slightly off vertical comes out as a run of upright cells with a
+regular step sideways every few rows — the way a drawn line is spelled on a
+grid — instead of a coin toss at every row.
+
+Two things about this are worth knowing when you look at a plant:
+
+- **It changes how a stem is spelled, not where it wants to go.** A shoot
+  leaning fifteen degrees still leans fifteen degrees, still turns toward
+  light, still bends away from a crowd, still gives up and goes round
+  something in its way. The plant is exactly as responsive as it was.
+- **It is part of what tells the species apart.** How straight a shoot draws
+  is set per species and per tier, so a fir holds a hard, legible leader with
+  its branches leaving in tiers, a broadleaf's trunk is firm but its outer
+  twigs keep some wander, and a shrub stays deliberately gnarled. **A creeper
+  is left to wander completely** — a vine that ran in clean lines would stop
+  reading as a vine.
+
+Roots are not drawn this way and should still look gnarled and searching.
+They are feeling their way through soil rather than reaching for anything, and
+that is what a root looks like when it is right.
 
 ## What trouble looks like
 
@@ -460,10 +517,25 @@ piece it belonged to was, not on a switch, so a heavy bole and a thin twig
 genuinely come apart differently. Expect a few big pieces, a good deal of
 loose wood, and a lot of leaf litter over the top of both.
 
-**What it does not do yet is topple.** The tree lets go and comes straight
-down rather than leaning over and falling across the ground, so what you are
-left with is a heap with logs in it rather than a trunk lying full length.
-That is the next piece of work and it is the honest half of this section.
+**New on 2026-08-29: what comes down now turns on the way, and goes over
+where it lands.** Before this, nothing that broke off a tree ever rotated —
+not once, on any fall — so the pieces dropped in whatever pose they had been
+growing in and a good half of them ended up standing on end in the heap. Now
+a piece turns as it falls, at a rate set by where its weight sits relative to
+the point it broke from: a twig tumbles several times on the way down, a bole
+comes over about once, and a limb hanging out to one side goes over that way
+rather than the other. And a piece that comes to rest with its weight
+overhanging its footing tips instead of standing there, until it is seated or
+until there is no room to turn into.
+
+**What it still does not do is hinge on its stump.** A real tree pivots on
+the cut and sweeps across the ground; here the crown lets go as separate
+pieces and each of those falls and turns on its own. So expect limbs lying
+across each other rather than a trunk lying full length in one line, and
+expect a crowded pile to hold on to more of its awkward poses than an open
+floor does — a piece with nothing to turn into stays as it is, which is a
+real outcome and not a failure. Whether the settled pile now reads as a
+felled tree is the open question on this section.
 
 **Burning a trunk out from under a crown** now brings the crown down too,
 which it did not before at the tighter `F9` settings — the fire licenses

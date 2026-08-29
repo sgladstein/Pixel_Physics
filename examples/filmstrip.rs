@@ -1589,7 +1589,12 @@ fn build_scene(args: &Args) -> World {
         // over what he has thrown behind him. The massif is deep enough
         // that the tunnel never breaks through, so the whole run is the
         // confined case rather than the easy one.
-        "tunnel" => {
+        // `scene=smash` shares the bed for the same reason `chop` shares
+        // `shake`'s: the tool is the only variable, so the two sheets are
+        // a controlled pair. What differs is what the sheet is read for --
+        // the tunnel asks whether a bore opens, this asks whether the face
+        // *fails*, which is a thing the pick cannot cause at all.
+        "tunnel" | "smash" => {
             stone_floor(&mut w);
             for x in 180..WIDTH {
                 for y in (floor_y - 90)..floor_y {
@@ -2116,7 +2121,18 @@ fn build_scene(args: &Args) -> World {
         // The bed itself is built by `common::PlantScene`, not here: the
         // two plant harnesses may not build their own worlds (see that
         // module for the drift this ended).
-        "fell" => {
+        // **`scene=chop` is the felling bed with a gnome in it**, not the
+        // shake bed, and the first version got that wrong in a way the
+        // counters caught. On `gnome_stand` he chopped twice, his own chips
+        // buried him at tick 6107, and 212 further strokes swung at a pile
+        // he was entombed in — `4 strokes (2 on living tissue)` climbing to
+        // `214 strokes (2 on living tissue)` while `BURIED` never cleared.
+        // A cutting verb wants firm ground and something with a bole; the
+        // shake bed is soft forest floor and creeper stems.
+        //
+        // Sharing `fell`'s bed also makes the pair worth having: the same
+        // tree, cut by hand there and cut by the gnome here.
+        "fell" | "chop" => {
             let w = common::PlantScene {
                 species: args.species.clone(),
                 trees: 1,
@@ -2135,10 +2151,21 @@ fn build_scene(args: &Args) -> World {
                 (0..HEIGHT).any(|y| w.get(FELL_TRUNK_X, y).organism_id() != 0),
                 "scene=fell expects its seed at x={FELL_TRUNK_X}; PlantScene's spacing has moved"
             );
+            let mut w = w;
+            if args.scene == "chop" {
+                // Beside the bole, not in it, and on the ground the tree is
+                // rooted in. `Script::Chop` walks him the last few cells and
+                // aims ahead of himself, so where he starts only has to be
+                // near enough and clear.
+                let ground = (0..HEIGHT)
+                    .find(|&y| !w.is_empty(FELL_TRUNK_X - 20, y))
+                    .unwrap_or(HEIGHT - 1);
+                w.player = Some(pixel_physics::sim::player::Player::at(FELL_TRUNK_X - 20, ground - 8));
+            }
             return w;
         }
         other => panic!(
-            "unknown scene {other:?}; known: pour, fall, shelf, blob, sand, boom, boom_stone, sandbed, waterbed, tree, forest, grove, terrain, worldgen, mine, snap, undercut, strike, worked, capped, ligament, built, room, refroom, worldcrack, gnome, tunnel, bury, swim, ride, cavern, wood, climb, shake, fell"
+            "unknown scene {other:?}; known: pour, fall, shelf, blob, sand, boom, boom_stone, sandbed, waterbed, tree, forest, grove, terrain, worldgen, mine, snap, undercut, strike, worked, capped, ligament, built, room, refroom, worldcrack, gnome, tunnel, smash, bury, swim, ride, cavern, wood, climb, shake, fell, chop"
         ),
     }
     w
@@ -2170,6 +2197,15 @@ struct Args {
     /// loose grains above the wade line he pushes past. 0 is the old veto,
     /// under which one stray soil cell in a canopy was an impassable wall.
     shoulder_grains: u8,
+    /// `digstyle=bore|free` -- which cut shape the pick uses, so the two can
+    /// be rendered as a controlled pair on one scene. The app's own default is
+    /// `bore`; `free` is what the pick did before it existed, and is still
+    /// reachable in play on `4`.
+    ///
+    /// **Not `dig=` or `cut=`**, which `scene=room`'s cut radius and the
+    /// crop rectangle have held all along -- see the parse arm for what
+    /// claiming one of them twice cost.
+    dig_style: pixel_physics::sim::player::DigStyle,
     /// `species=` -- which species `scene=grove` plants (tree, conifer,
     /// shrub). The grove is the shape harness, and Phase 2's whole point
     /// is that different species are different *shapes*.
@@ -2822,6 +2858,7 @@ fn parse() -> Args {
         scene: "pour".into(),
         dig_yield: pixel_physics::sim::player::Tuning::default().dig_yield,
         shoulder_grains: pixel_physics::sim::player::Tuning::default().shoulder_grains,
+        dig_style: pixel_physics::sim::player::DigStyle::default(),
         seed: 1,
         species: "tree".into(),
         soil_moisture: pixel_physics::sim::material::SOIL_FIELD_CAPACITY,
@@ -2913,6 +2950,24 @@ fn parse() -> Args {
             "seed" => a.seed = v.parse().expect("seed"),
             "yield" => a.dig_yield = v.parse().expect("yield"),
             "shoulder" => a.shoulder_grains = v.parse().expect("shoulder"),
+            // `digstyle=`, because **both shorter names were already
+            // taken**: `dig=` is `scene=room`'s cut radius and `cut=` is a
+            // crop rectangle. `dig=` was tried first, and
+            // `scene=room`'s cut radius, and adding a second arm for it
+            // shadowed that one: `acceptance.sh` passes `dig=0` and `dig=4`,
+            // which then panicked with "known: bore, free" and took **ten
+            // acceptance cases** down with it. The compiler said so —
+            // `unreachable_patterns` on the older arm — and a background
+            // `--release --examples` whose tail was grepped rather than read
+            // is how the warning went by. `cut=` also matches the HUD's own
+            // wording for the key that swaps it.
+            "digstyle" => {
+                a.dig_style = match v {
+                    "bore" => pixel_physics::sim::player::DigStyle::Bore,
+                    "free" => pixel_physics::sim::player::DigStyle::Free,
+                    other => panic!("digstyle={other:?}; known: bore, free"),
+                }
+            }
             "species" => a.species = v.into(),
             "moisture" => a.soil_moisture = v.parse().expect("moisture"),
             "frame0" => a.frame0 = v.parse().expect("frame0"),
@@ -3604,6 +3659,18 @@ struct Gnome {
     /// again after that — the two numbers `scene=bury` exists to produce.
     went_under: Option<usize>,
     came_back: Option<usize>,
+    /// Hammer blows that broke something, and how many cells they acted
+    /// on. Counted separately from the swings that landed on air, which is
+    /// the distinction `Smash::broken` exists to make: a blow at a face and
+    /// a blow at nothing are the same picture.
+    blows: usize,
+    broken: usize,
+    /// Axe strokes, the cells they chipped out of the world, and how many
+    /// of them landed on something *living* — the last is what separates a
+    /// tree being felled from an axe hitting the rock behind it.
+    strokes: usize,
+    chips: usize,
+    living_strokes: usize,
 }
 
 #[derive(Default, Clone, Copy, PartialEq)]
@@ -3627,6 +3694,16 @@ enum Script {
     Climb,
     /// `scene=shake`: walk until a tree is in reach, then keep shaking it.
     Shake,
+    /// `scene=smash`: stand at a cliff face and hammer it. The scene the
+    /// pick cannot answer — what a blow *damages* reaches well past what
+    /// it removes, so what this is read for is whether the face fails
+    /// rather than whether a hole appears.
+    Smash,
+    /// `scene=chop`: walk until a tree is in reach, then take the axe to
+    /// it. Paired with `scene=shake` on purpose: same walk, same tree,
+    /// same button, and the belt is the whole difference between a shower
+    /// of leaves and a felled trunk.
+    Chop,
 }
 
 /// How long `Script::Wood` waits before setting off.
@@ -3651,6 +3728,8 @@ impl Gnome {
             "wood" => Script::Wood,
             "climb" => Script::Climb,
             "shake" => Script::Shake,
+            "smash" => Script::Smash,
+            "chop" => Script::Chop,
             _ => Script::Course,
         };
         Self {
@@ -3671,6 +3750,11 @@ impl Gnome {
             dusted: 0,
             went_under: None,
             came_back: None,
+            blows: 0,
+            broken: 0,
+            strokes: 0,
+            chips: 0,
+            living_strokes: 0,
         }
     }
 
@@ -3732,6 +3816,26 @@ impl Gnome {
                 right: step_no >= WOOD_WALK_FROM && (step_no < WOOD_WALK_FROM + CLIMB_WALK_TICKS || !self.grabbed),
                 ..Default::default()
             },
+            // Walk in, then **alternate** blows and steps, exactly as
+            // `Tunnel` does and for a related reason.
+            //
+            // Standing still was the first version and it stopped after two
+            // blows: a hammer does not excavate, so the rock it breaks
+            // stays as rubble at his feet, and `hammer_point`'s ray then
+            // finds no `Hard` cell inside `hammer_reach` (12, deliberately
+            // short -- a swung hammer is not a extended pick). The counter
+            // is what said so, frozen at `2 blows landed` across all four
+            // tiles while the picture showed a perfectly good fissure star.
+            //
+            // That is the scene being wrong rather than the tool: a player
+            // hammering a cliff walks into the hole they are making. See
+            // `CLAUDE.md`'s "a scene that contradicts the code will look
+            // like a bug in the code".
+            Script::Smash => PlayerInput { right: step_no < 120 || step_no % 90 >= 60, ..Default::default() },
+            Script::Chop => PlayerInput {
+                right: step_no >= WOOD_WALK_FROM && (step_no < WOOD_WALK_FROM + CLIMB_WALK_TICKS || !self.grabbed),
+                ..Default::default()
+            },
             Script::Climb => PlayerInput {
                 right: step_no >= WOOD_WALK_FROM,
                 // Reaching only starts once he is clear of the twig — walk
@@ -3772,6 +3876,79 @@ impl Gnome {
                 }
             }
         }
+        // The hammer, once he has walked up to the face. Aimed straight
+        // ahead at his own height, which `hammer_point` then clamps onto
+        // the near face — the same shape `Script::Tunnel` uses for the
+        // pick, and for the same reason its own comment gives.
+        // **Hammer to break, pick to clear** — and the alternation is the
+        // scene rather than a workaround, because it is the loop the belt
+        // exists for.
+        //
+        // Hammering alone stalls, and the counter is what said so: frozen
+        // at **3 blows landed** across four tiles, with the gnome pinned at
+        // x=173. A blow does not excavate — `rigid::strike` breaks rock to
+        // rubble in place — so after two or three the face has retreated
+        // past `hammer_reach` and the rubble it made is a drift several
+        // cells abreast, which `wade_rows`/`shoulder_grains` correctly
+        // treat as a wall. He cannot reach the rock and cannot walk to it.
+        //
+        // That is not the hammer being broken; it is the hammer being a
+        // *breaking* tool with no spoil model, which is the pick's job.
+        // Alternating them is what a player does and what this scene has to
+        // show, or the sheet measures a tool used wrongly.
+        if self.script == Script::Smash && step_no >= 120 {
+            let hammering = (step_no / 240).is_multiple_of(2);
+            if let Some(p) = world.player.as_mut() {
+                p.tool = if hammering { player::Tool::Hammer } else { player::Tool::Pick };
+            }
+            let (cx, cy) = world.player.as_ref().expect("scene summoned one").center();
+            if hammering {
+                if let Some(hit) = player::smash(world, (cx + 60, cy), &tuning) {
+                    if hit.broken > 0 {
+                        self.blows += 1;
+                        self.broken += hit.broken;
+                    }
+                }
+            } else if let Some(bite) = player::dig(world, (cx + 60, cy), &tuning) {
+                self.bites += 1;
+                self.displaced += bite.displaced;
+                self.dusted += bite.dusted;
+            }
+        }
+        // The axe, on `scene=shake`'s walk. `chop_point` snaps to the
+        // tissue under the cursor, so aiming at his own centre is aiming at
+        // whatever he is standing in — exactly the argument the shake makes
+        // for the same aim.
+        // **Aimed ahead of him, not at his own centre, and swung
+        // unconditionally.**
+        //
+        // `scene=shake` aims at the gnome's centre, and that is right for
+        // the shake, which leaves the tissue where it is. It is wrong for a
+        // *cutting* verb, and the counter said so: **1 stroke** across four
+        // tiles. The first chop takes a `chop_radius` hole out of the cells
+        // at his centre, so the "is there living tissue at the cursor" test
+        // that gated the swing stops being true — the aim ate itself.
+        //
+        // A player keeps the cursor on the trunk, not on their own belly.
+        // Aiming a few cells ahead at chest height does that, and dropping
+        // the gate lets `chop_point` answer the question it exists to
+        // answer: living tissue first, then a creature, then whatever the
+        // ray reaches. A swing that finds nothing is a swing at nothing,
+        // which `Chop::living` reports and the tile prints.
+        if self.script == Script::Chop && step_no >= WOOD_WALK_FROM + CLIMB_WALK_TICKS {
+            if let Some(p) = world.player.as_mut() {
+                p.tool = player::Tool::Axe;
+            }
+            let p = world.player.as_ref().expect("summoned");
+            let (cx, cy) = p.center();
+            let ahead = (cx + if p.facing_left { -4 } else { 4 }, cy - 3);
+            self.grabbed = player::shake_target(world, p, ahead, &tuning).is_some();
+            if let Some(cut) = player::chop(world, ahead, &tuning) {
+                self.strokes += 1;
+                self.chips += cut.chips;
+                self.living_strokes += usize::from(cut.living);
+            }
+        }
         if self.script == Script::Climb {
             if let Some(p) = world.player.as_ref() {
                 if p.climbing && !self.grabbed {
@@ -3788,7 +3965,7 @@ impl Gnome {
             Script::Course | Script::Swim | Script::Ride | Script::Wood | Script::Climb => false,
             // Handled below rather than through the dig path: the same
             // left button, a different verb.
-            Script::Shake => false,
+            Script::Shake | Script::Smash | Script::Chop => false,
             Script::Tunnel => true,
             Script::Bury => step_no > 90,
         };
@@ -3849,6 +4026,20 @@ impl Gnome {
             self.displaced
         );
         s.push_str(&format!(", {} dusted", self.dusted));
+        // **Only when the tool that produces them is in his hands.** A row
+        // of zeroes on every gnome sheet is a row nobody reads, and these
+        // are exactly the "did it fire at all" counters the picture cannot
+        // supply — a hammered cliff face and an untouched one differ by a
+        // shade of grey, and an axe notch is three pixels.
+        if self.script == Script::Smash {
+            s.push_str(&format!(", {} blows landed ({} cells broken)", self.blows, self.broken));
+        }
+        if self.script == Script::Chop {
+            s.push_str(&format!(
+                ", {} strokes ({} on living tissue, {} cells chipped)",
+                self.strokes, self.living_strokes, self.chips
+            ));
+        }
         // How much material is left in the world at all. The one number
         // that says whether a bore can exist: `mine` conserves cells, so
         // without thinning this never moves and no cave is possible
@@ -4945,6 +5136,12 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, (usize, usize), (i
         blasts.tuning.smoke_fraction = v;
     }
     let mut gnome = Gnome::for_scene(&args.scene, args.dig_yield, args.shoulder_grains);
+    // Set on the character rather than passed to `dig`: the style is his
+    // state, exactly as it is in the app, so the harness and the game reach
+    // the mechanism through the same door.
+    if let Some(p) = world.player.as_mut() {
+        p.dig_style = args.dig_style;
+    }
     let mut frame = vec![0u8; (WIDTH * HEIGHT * 4) as usize];
 
     let (cw, ch) = (args.crop.width(), args.crop.height());
@@ -5419,6 +5616,28 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, (usize, usize), (i
             f.rotations_asked,
             f.rotations_refused,
             (f.rotations_refused * 100).checked_div(f.rotations_asked).unwrap_or(0)
+        );
+        // The tipping test, on its own line for the reason
+        // `FailureCounts::topples_asked` gives: it fires on the floor and
+        // the line above fires in the air, and a reader who sees one number
+        // move cannot tell which mechanism moved it. Read beside the
+        // lying/upright split below -- a settled pile that is still standing
+        // on end with `asked` at zero is a wiring question, and one with
+        // `refused` high is a pile with no room in it.
+        println!(
+            "    of which landed out of balance and went over: {} asked, {} refused ({}%)",
+            f.topples_asked,
+            f.topples_refused,
+            (f.topples_refused * 100).checked_div(f.topples_asked).unwrap_or(0)
+        );
+        // And how the pieces themselves came down, which is **not** the same
+        // question as the `settled log pieces` line further down: that one
+        // folds touching logs into one cluster and reports the *pile's*
+        // shape. Asked of each body as it lands, so two logs that come to
+        // rest against each other are still two readings.
+        println!(
+            "    how pieces came to rest: {} lying, {} upright, {} square (each body's own box, at the frame it landed)",
+            f.settled_lying, f.settled_upright, f.settled_square
         );
         // The phase-change "did it fire at all" counters, cumulative --
         // same reasoning as the failure counts above: whether the plume on
