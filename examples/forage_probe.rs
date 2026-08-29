@@ -121,6 +121,19 @@ fn report(label: &str, world: &World, ants: usize) {
         "  moves {} | blocked {} | pickups {} | drops {} | deliveries {} | deaths {}",
         st.moves, st.moves_blocked, st.pickups, st.drops, st.deliveries, st.deaths
     );
+    // **The scheduling cadence, and this scene is its positive control.**
+    // Nothing else is on the active-site queue here -- a hand-built floor,
+    // no worldgen, no forest, no destruction -- so `late mean` must read
+    // 0.0 and `asked` must reach its ideal. An instrument that cannot
+    // report "on time" in the one case built to be on time cannot report
+    // "late" anywhere else either (`CLAUDE.md`: run the positive control).
+    println!(
+        "  ticks {} | late mean {:.2} frames, max {} | moves/tick {:.3}",
+        st.ticks,
+        if st.ticks > 0 { st.tick_lag_sum as f64 / st.ticks as f64 } else { 0.0 },
+        st.tick_lag_max,
+        if st.ticks > 0 { st.moves as f64 / st.ticks as f64 } else { 0.0 },
+    );
     // **The old counter and the new one on the same line, on the same run.**
     // Two mechanisms that look identical in a summary are exactly what this
     // pair exists to separate, so they are never printed apart.

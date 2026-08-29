@@ -1,8 +1,9 @@
 # Day, Night, and Decay
 
-*Current as of: 2026-08-29. New since the last pass: you can now stop the
-sun at a chosen time of day and leave it there, and the options menu that
-holds that setting has been rebuilt.*
+*Current as of: 2026-08-29. New since the last pass: a world whose pace
+knobs are not at normal now says so on screen when it starts, instead of
+only on the title bar; and you can stop the sun at a chosen time of day and
+leave it there, in an options menu that has been rebuilt.*
 
 *Before that pass: rotting leaf litter mostly disappears now instead of all
 becoming soil, so a wood no longer buries itself; and how long a day lasts
@@ -21,6 +22,13 @@ others: how long a **day** lasts, how fast **plants grow**, how fast the
 panel's menus), and each one is a whole multiple of its normal speed — 8
 means eight times slower. The day is named on the title bar at every
 setting.
+
+**And if any of the other four has been moved off normal, the game says so
+on screen when it starts.** A world running its creatures at a quarter speed
+looks exactly like a world whose creatures are broken, and the title bar is
+not where anyone looks when the thing they are watching is on the canvas.
+The setting is saved, so it outlives the session that made it; the notice is
+what stops a knob somebody set last week from being mistaken for a fault.
 
 **Slowing the world does not slow the world's physics.** Sand falls at the
 same rate, water flows at the same rate, a collapse comes down at the same

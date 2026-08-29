@@ -965,6 +965,47 @@ fn phase_probe(args: ProbeArgs) {
             if gnome { "on" } else { "off" },
             particles.len(),
         );
+        // **The creature cadence, which no phase timing can show.** A
+        // millisecond column says what the scheduler *cost*; it cannot say
+        // whether the creatures in the world were served on time. `asked`
+        // against `ideal` is the starvation readout -- an ant reschedules
+        // itself to an exact future frame, so a scheduler keeping up
+        // dispatches `planted * frames / tick_interval` sites and is late
+        // by zero. `moves` beside `asked` is the far side of the same call
+        // (`CreatureStats::ticks`): being asked and declining is the brain,
+        // never being asked is the queue, and only both numbers separate
+        // them.
+        if planted > 0 {
+            let cs = world.creature_stats;
+            // **`spawned`, never `planted`.** `planted` counts calls to
+            // `World::plant_ant`, which returns nothing and silently does
+            // nothing when `plant_creature_seed` refuses the site -- so the
+            // two disagree, and on `rolling seed 1` they disagree by more
+            // than half: 64 asked, **27 actually created**. Sizing the
+            // ideal off the call count reported a perfectly-scheduled
+            // colony as "42% of ideal", which reads exactly like
+            // starvation and is not. `CLAUDE.md`'s counter rule, arriving
+            // on its own author: pair every "it fired" count with an
+            // effect count from the far side of the call.
+            let ants = cs.spawned.max(1);
+            let interval = world
+                .species
+                .get(world.species.id_of("ant").expect("ant species"))
+                .creature
+                .as_ref()
+                .map_or(1, |d| d.tick_interval);
+            let ideal = ants * frames as u64 / interval.max(1);
+            println!(
+                "creature cadence: {ants} spawned of {planted} asked | asked {} of {ideal} ideal ({:.0}%)  moves {} ({:.2}/tick)  late mean {:.1} frames, max {}  deaths {}  [tick_interval {interval}]",
+                cs.ticks,
+                if ideal > 0 { 100.0 * cs.ticks as f64 / ideal as f64 } else { 0.0 },
+                cs.moves,
+                if cs.ticks > 0 { cs.moves as f64 / cs.ticks as f64 } else { 0.0 },
+                if cs.ticks > 0 { cs.tick_lag_sum as f64 / cs.ticks as f64 } else { 0.0 },
+                cs.tick_lag_max,
+                cs.deaths,
+            );
+        }
     }
     println!(
         "live organisms: {}   chunks: {}   awake chunks: {}\n",
