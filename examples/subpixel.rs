@@ -184,6 +184,14 @@ struct Args {
     /// nearest-cell-centre partition, which on a lattice is squares — the
     /// mosaic §5b is about.
     snap: bool,
+    /// Whether the "can this pixel possibly change" gate is on.
+    ///
+    /// A switch rather than a constant, because the gate's whole claim is that
+    /// it is **lossless** — and `CLAUDE.md`'s rule is that a cost which
+    /// vanishes may be work that vanished. Held against `gate=false` on the
+    /// same command, the two must be byte-identical or the speedup is a
+    /// missing feature.
+    gate: bool,
     crop: Option<(i32, i32, i32, i32)>,
     daylight: Option<f32>,
     out: String,
@@ -210,6 +218,7 @@ impl Default for Args {
             rough: 0.0,
             rough_freq: 1.4,
             snap: false,
+            gate: true,
             crop: None,
             daylight: Some(1.0),
             out: "/tmp/subpixel.png".into(),
@@ -410,6 +419,7 @@ fn main() {
             "rough_freq" => a.rough_freq = v.parse().expect("rough_freq"),
             "snap" => a.snap = v != "false" && v != "0",
             "daylight" => a.daylight = Some(v.parse().expect("daylight")),
+            "gate" => a.gate = v != "false" && v != "0",
             "crop" => {
                 let n: Vec<i32> = v.split(',').map(|s| s.parse().expect("crop")).collect();
                 a.crop = Some((n[0], n[1], n[2], n[3]));
@@ -429,7 +439,7 @@ fn main() {
         "          ao={} shade={} sun={:?} outline={} outline_width={}",
         a.ao, a.shade, a.sun, a.outline, a.outline_width
     );
-    println!("          rough={} rough_freq={} snap={}", a.rough, a.rough_freq, a.snap);
+    println!("          rough={} rough_freq={} snap={} gate={}", a.rough, a.rough_freq, a.snap, a.gate);
 
     let base = common::PlantScene::default();
     let mut world = common::PlantScene {
@@ -529,6 +539,49 @@ fn main() {
     let wood_part = partition_table(s, a.wood_r);
     let leaf_part = partition_table(s, a.leaf_r);
 
+    // **Which cells can the reconstruction possibly change?** Only those with
+    // tissue inside the kernel's reach, which is the 5x5 the scan walks. Every
+    // other pixel is background and its answer is already known.
+    //
+    // This is the difference between a prototype and a cost, and it is why the
+    // 139 ns/px this used to report was quotable only as an upper bound. Plants
+    // are a few percent of a world; dilating them by two cells still leaves the
+    // overwhelming majority of the frame provably untouched, and a mass of rock
+    // or soil is nearly all interior, so the same gate is what keeps `arm=all`
+    // from costing anything over its own silhouette.
+    //
+    // A conservative gate, deliberately: it may admit a cell the scan then
+    // finds nothing in, and must never exclude one it would have found
+    // something in. `near` is asserted against the unfiltered answer below
+    // rather than trusted -- a gate that quietly excludes real work is a
+    // speedup that is really a missing feature, and it would look exactly like
+    // a result.
+    let mut near = vec![false; (W * H) as usize];
+    let mut near_cells = 0usize;
+    for y in 0..H {
+        for x in 0..W {
+            let hit = (-2..=2).any(|dy| {
+                (-2..=2).any(|dx| {
+                    let (nx, ny) = (x + dx, y + dy);
+                    nx >= 0
+                        && ny >= 0
+                        && nx < W
+                        && ny < H
+                        && match class[(ny * W + nx) as usize] {
+                            Class::Foliage | Class::Wood => true,
+                            Class::Other => a.arm == "all",
+                            Class::Empty => false,
+                        }
+                })
+            });
+            let hit = hit || !a.gate;
+            near[(y * W + x) as usize] = hit;
+            if hit {
+                near_cells += 1;
+            }
+        }
+    }
+
     for oy in 0..oh {
         for ox in 0..ow {
             // Position in continuous cell space, at the centre of this output
@@ -542,7 +595,7 @@ fn main() {
 
             let mut rgb = px(&back_frame, bx, by);
 
-            if reconstruct {
+            if reconstruct && near[(by.clamp(0, H - 1) * W + bx.clamp(0, W - 1)) as usize] {
                 // **Two layers, foliage over wood, not one field over both.**
                 // A single field mixes the two palettes at every contact and
                 // the nearest-colour rule then renders their boundary as a
@@ -679,10 +732,16 @@ fn main() {
     // rock and soil mass in the world. Quote it as "no worse than", and
     // measure the real one in the renderer.
     println!(
-        "reconstruction: {recon_ms:.2} ms serial over {} output pixels ({:.1} ns/px, unoptimised upper bound)",
+        "reconstruction: {recon_ms:.2} ms serial over {} output pixels ({:.1} ns/px over the whole frame)",
         ow * oh,
         recon_ms * 1e6 / (ow * oh) as f64
     );
+    println!(
+        "  the kernel scan ran on {near_cells} of {} cells ({:.1}% of the frame); the rest is background and was gated out",
+        W * H,
+        near_cells as f64 * 100.0 / (W * H) as f64
+    );
+    println!("  still serial, and still rescanning the 5x5 per output pixel of each layer -- the draw it would live in is parallel over rows");
     // The discrete counts beside the image, per `CLAUDE.md`: a picture cannot
     // say whether the mechanism reached any cells.
     println!("cells: {foliage} foliage + {wood} wood = {} plant tissue", foliage + wood);

@@ -214,14 +214,8 @@ coincidence.
 
 ## 7. What is not established
 
-- **The reconstruction's own cost is not shippable as prototyped**: 205 ms
-  serial for a full 1536x960 frame, 139 ns/px. That is an unoptimised upper
-  bound — the loop is serial, rescans the full 5x5 for every output pixel of
-  both layers, and re-derives the partition index per pixel, where the draw it
-  would live inside is already parallel over rows and the scan collapses to
-  nothing for any cell whose neighbourhood is uniform (which is every interior
-  cell of every mass in the world). The optimisations are standard and large,
-  and **none of them is measured**. Quote the 139 ns/px, not a projection.
+- **The reconstruction's own cost is still not shippable**, though one of the
+  three optimisations is now measured rather than asserted — see §11.
 - **The look is under revision, not settled.** See §9 — the first tuning was
   rejected and the direction it was rejected *toward* is recorded there.
   Nothing should reach the shipped renderer before that lands.
@@ -344,3 +338,48 @@ edge is a thousand leaf tips, and neither is an arc.
 Posted as card `20260829T090127…` (blind, board `plants`) against the shipped
 1:1 render, which is the comparison the second sentence of the verdict asked
 for.
+
+
+## 11. One optimisation measured, two still asserted
+
+The first draft of §7 said the 139 ns/px figure was "an unoptimised upper
+bound" and named three optimisations, **none of them measured** — which is a
+promissory note, and this repo's own rule is that a projection is not a
+measurement.
+
+The first of the three is now real. **Only cells with tissue inside the
+kernel's reach can change**, and everything else is background whose answer is
+already known. Dilating the plant classes by the scan's own two cells and
+gating on that:
+
+| | ms (serial, 1536x960) | ns/px | cells scanned |
+|---|---|---|---|
+| gate off | 254.87 | 172.8 | 163,840 (100%) |
+| **gate on** | **121.65** | **82.5** | 29,944 (**18.3%**) |
+
+**2.1x, and the two frames are byte-identical** (`md5 0e37cb30…` both ways).
+That control is the point, not a formality: `CLAUDE.md`'s §*A cost that
+vanishes may be work that vanished* is exactly the failure available here — a
+gate that quietly excludes real work is a missing feature that times like a
+speedup. `gate=false` is a switch on the harness rather than a constant, so
+the pairing can be re-run on one command whenever the parameters move.
+
+Note the speedup is 2.1x where the cell count falls 5.5x, because a gated-out
+pixel still pays its loop iteration and its background sample, and building the
+mask costs a 5x5 scan per cell. That gap is the honest shape of the result and
+is why it was worth measuring rather than deriving.
+
+**The two that remain are still unmeasured, and should not be quoted as
+numbers**: the draw this would live inside is already parallel over rows, and
+the per-cell 5x5 class scan is currently redone by every sub-pixel of every
+layer — at `scale` 3 that is nine sub-pixels x two layers x 25 cells = 450 cell
+tests per cell, where hoisting the contributing list would make it 25 once plus
+a handful of kernel evaluations each. Both are standard and both look large.
+Neither has been run.
+
+For scale: `render_cost` puts the renderer's own per-pixel colour work at
+~14 ns/px on this box, so at 82.5 ns/px the reconstruction is still about six
+times the cost of drawing the pixel it decorates. That is the number the
+remaining work has to move, and **it is a reason to get the verdict on the
+look first** — optimising a picture nobody has approved is the mistake
+`CLAUDE.md` calls "check that a planned step can demonstrate itself".
