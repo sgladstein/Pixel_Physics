@@ -1,0 +1,46 @@
+{
+  "id": "20260829T080553450Z-675375",
+  "created": "2026-08-29T08:05:53Z",
+  "board": "plants",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/plant-visual-improvements-q1mked",
+    "commit": "4c95233",
+    "agent": null,
+    "session_id": "a72d6728-5352-5912-9975-53b6a7accdc8",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Plants drawn at 3 pixels per cell instead of 1",
+  "question": "Same stand, same simulation, same screen area. One is the shipped 1:1 render magnified; the other reconstructs each cell's shape at sub-cell resolution. Which reads as trees? And does the smooth one look better to you, or does it just look blurry / washed out?",
+  "context_md": "14,857 plant cells (7,470 foliage + 7,387 wood) — identical world, identical frame, no simulation change of any kind. The window already gives every cell a 2x2 block of physical pixels and paints all four the same colour; this spends them instead. Cost is not free and is being measured separately.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "shipped 1:1, magnified 3x",
+      "files": [
+        "20260829T080553450Z-675375/000-ab-A.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "sub-cell reconstruction at 3px/cell",
+      "files": [
+        "20260829T080553450Z-675375/001-ab-B.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
