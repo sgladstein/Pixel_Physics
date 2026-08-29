@@ -2235,10 +2235,14 @@ fn advance(world: &mut World, body: &mut ChunkBody) -> bool {
                 // stopping dead in mid-air.
                 match axis {
                     Axis::Horizontal => body.vx *= -COLLISION_RETENTION,
-                    Axis::Vertical => body.vy *= COLLISION_RETENTION,
+                    Axis::Vertical => {
+                        body.vy *= COLLISION_RETENTION;
+                        landed(body);
+                    }
                     Axis::Both => {
                         body.vx *= -COLLISION_RETENTION;
                         body.vy *= COLLISION_RETENTION;
+                        landed(body);
                     }
                 }
                 break;
@@ -2256,6 +2260,35 @@ fn advance(world: &mut World, body: &mut ChunkBody) -> bool {
     // It has stopped moving. Before it becomes terrain, ask whether it is
     // standing on anything it could actually stand on.
     topple(world, body)
+}
+
+/// **The hinge does not survive the landing**, and a collision takes the turn
+/// off a piece the same way it takes the speed off it.
+///
+/// Called where `vy` is already being damped by `COLLISION_RETENTION`, and
+/// the pair is the whole point: the linear half was there from the start and
+/// the angular half was not, because until 2026-08-29 nothing seeded a turn
+/// worth damping.
+///
+/// **What it cost to leave out is a body that never lands.** `spin_accel` is
+/// held for the whole flight (`angular_acceleration`), so a piece sitting on
+/// the ground kept winding up; every couple of frames it took a quarter
+/// turn, each turn let it drop or shift a cell, and dropping a cell resets
+/// `stalled`, so it ratcheted along and never reached
+/// `STALL_FRAMES_BEFORE_SETTLING`. Measured on `scene=fell species=tree
+/// frame0=10800`: **238 bodies promoted against the control's 45**, one still
+/// in flight 1,050 frames after the cut, and the harness reporting that
+/// nothing ever came to rest. Caught by the negative control the handoff
+/// asked for -- a settled pile that never stops moving is a chunk that never
+/// sleeps, which `CLAUDE.md` prices at ~8 ms/frame because what it defeats is
+/// the dirty-rect render skip.
+///
+/// The rate is damped rather than zeroed, matching `vy`: a rock that lands
+/// tumbling keeps a little of it. The *acceleration* is zeroed outright,
+/// because the joint it was turning about is behind it.
+fn landed(body: &mut ChunkBody) {
+    body.spin_rate *= COLLISION_RETENTION;
+    body.spin_accel = 0.0;
 }
 
 /// Turn the body, taking its footprint reservation with it if it holds one.
