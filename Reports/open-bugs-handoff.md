@@ -104,26 +104,26 @@ point.
 | S | closed | 5738 | Every destructive verb but the brush leaves the structural scheduler pinned at its cap fo... |
 | S2 | **OPEN** | 6735 | The brush's anchor rule destroys structures the other two rules leave standing |
 | S4 | **OPEN** | 6923 | Rock still crushes itself on an idle world |
-| S3 | closed | 6956 | A world nobody has touched pulls its own ground apart |
-| -- | closed | 7005 | The plant model bounds height and does not bound width FIXED |
-| 1 | note | 7096 | MAX_ROOT_FRACTION feeds the staleness counter, permanently retiring roots |
-| 2 | note | 7110 | Grow into soil destroys the soil's stored water |
-| 3 | note | 7122 | Capillary exchange can push a neighbour above its own capacity |
-| W1a | note | 7140 | creeper.ron's root tips still run the superseded in-tick branch path |
-| W1b | note | 7161 | A material-counting guard cannot see a species |
-| W1c | note | 7174 | generated_terrain_is_already_at_rest went red on main |
-| T1a | note | 7308 | load::grain_is_footing reads *attachment* where it means *supported* |
-| T1b | note | 7386 | The structural opt-out did not hold against bearing |
-| T1d | note | 7397 | acceptance.sh's lavadrop sits close enough to its frame budget to flake, and is over it o... |
-| T1e | note | 7431 | "The pieces hit the ground and turn to dust" was not settle, and the measurement says so |
-| T1f | note | 7485 | The felled pile is 74% powder because the tree is 56% leaves. The piece ladder cannot fix... |
-| T1g | note | 7539 | A "refixed" claim went out over a settled state that had barely moved |
-| T1c | note | 7568 | §1c's settle loss is now a counter |
-| -- | note | 7585 | What landed |
-| -- | note | 7608 | Do not re-derive these |
-| -- | note | 7636 | Measurements that contradict something written |
-| -- | note | 7656 | Open |
-| -- | note | 7691 | Unmerged at close, and one of it is a fix main needs anyway |
+| S3 | closed | 6995 | A world nobody has touched pulls its own ground apart |
+| -- | closed | 7044 | The plant model bounds height and does not bound width FIXED |
+| 1 | note | 7135 | MAX_ROOT_FRACTION feeds the staleness counter, permanently retiring roots |
+| 2 | note | 7149 | Grow into soil destroys the soil's stored water |
+| 3 | note | 7161 | Capillary exchange can push a neighbour above its own capacity |
+| W1a | note | 7179 | creeper.ron's root tips still run the superseded in-tick branch path |
+| W1b | note | 7200 | A material-counting guard cannot see a species |
+| W1c | note | 7213 | generated_terrain_is_already_at_rest went red on main |
+| T1a | note | 7347 | load::grain_is_footing reads *attachment* where it means *supported* |
+| T1b | note | 7425 | The structural opt-out did not hold against bearing |
+| T1d | note | 7436 | acceptance.sh's lavadrop sits close enough to its frame budget to flake, and is over it o... |
+| T1e | note | 7470 | "The pieces hit the ground and turn to dust" was not settle, and the measurement says so |
+| T1f | note | 7524 | The felled pile is 74% powder because the tree is 56% leaves. The piece ladder cannot fix... |
+| T1g | note | 7578 | A "refixed" claim went out over a settled state that had barely moved |
+| T1c | note | 7607 | §1c's settle loss is now a counter |
+| -- | note | 7624 | What landed |
+| -- | note | 7647 | Do not re-derive these |
+| -- | note | 7675 | Measurements that contradict something written |
+| -- | note | 7695 | Open |
+| -- | note | 7730 | Unmerged at close, and one of it is a fix main needs anyway |
 
 <!-- END GENERATED INDEX -->
 
@@ -6944,14 +6944,53 @@ same frames, `scene=worldcrack strike=0 preset=rolling seed=7`, frame 3,302:
 So the idle crush is ~3x quieter than it was a week *before* the regression,
 and still not zero. Nothing licenses it: no verb is ever applied.
 
-**Not yet diagnosed.** The obvious first question is the one `CLAUDE.md` keeps
-asking — *which object does this rule evaluate?* A tall thin sea-stack is a
-genuinely marginal shape, so some of this may be the load model correctly
-finding it marginal; what argues against that being the whole story is that it
-is **progressive**, appearing between frames 122 and 902 on a world that has
-not changed. `FailureCounts::crumbled` and the `strike=0` control are the
-instruments; `BEARING=off` taking idle failures to zero (§6.5f) says the
-bearing clamp is where to look first.
+**Diagnosed 2026-08-29, and the obvious fix is measured and rejected.** It is
+the kern/footing test, and the defect is an origin: `bearing_moment`'s own doc
+states the criterion as *"is the centre of mass within a sixth of the contact
+width"*, and it takes that eccentricity **about the cell being evaluated**
+rather than about the middle of the contact patch. The sweep evaluates every
+cell of a run in turn, so the edge cells are judged as though the footing were
+entirely to one side of them.
+
+The first failure of the idle run is the cleanest case there is: the cell at
+x=327 stands on a footing spanning **327..332, centre 329.5**, carrying a load
+whose centre of mass is at **329.3** — two tenths of a cell off dead centre —
+and is crushed for an eccentricity of **2.3 against an allowance of 1**. All
+**57** failures of that run are the footing term binding, and by four orders of
+magnitude: rock whose own section could carry **165,888** given way at **4**.
+
+**And every correction measured makes the world worse**, settled at frame
+7,202 with two repeats, on `rolling 7` (deterministic in all three arms):
+
+| arm | rock | overload / unsupported |
+|---|---|---|
+| shipped | **−76, −76** | 57 / 25 |
+| origin corrected | −106, −106 | 41 / 14 |
+| origin + the footing's own weight in the resultant | **−653, −644** | 25 / **902** |
+
+Both corrections are textbook-right and together they cost **8.5x the rock**,
+turning damage-free confined fissures into unsupported detachments that do
+remove material. The origin-only arm is roughly neutral on damage and its
+stack is *more* visibly fissured, not less. `scripts/acceptance.sh` is green on
+every arm, so the suite cannot referee this.
+
+**What is actually blocking, and it is not a better formula.** The load and
+the footing describe **different objects**: `torque` is the moment of *this
+cell's subtree*, `base` is the run of rock at this row. Moving the origin makes
+them more inconsistent, not less — an edge cell's subtree is a sub-part while
+the run is the whole. Nor is a per-piece footing available: since ground-resting
+cells stopped being dependants (§6.5f) each such subtree touches ground only at
+its own cell, which is the knife-edge reading the run-based width exists to
+replace. This needs a piece-level object carrying both its load and its contact
+patch. Full account and the three arms: `Reports/structural-support-model.md`
+§6.5g; the rejection with its numbers is in `Reports/dead-ends.md`.
+
+**One fact that reframes the symptom.** A confined crush writes **only a crack
+bit** (`structural::sever_joint`) — it removes no material at all. So the
+fissures the owner is looking at cost no rock; what they do is sever joints,
+which `edge_is_cracked` and `uncracked_faces` then read as weakened rock. The
+visible complaint and the material damage are two different quantities here,
+and conflating them is what makes the shipped arm look worse than it is.
 
 ### S3. ~~A world nobody has touched pulls its own ground apart~~ — **FIXED 2026-08-28. §S's own fix, read by one function that was never updated with it.**
 
