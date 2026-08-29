@@ -34,7 +34,7 @@ use serde::{Deserialize, Serialize};
 
 pub const BRAIN_INPUTS: usize = 16;
 pub const BRAIN_HIDDEN: usize = 4;
-pub const BRAIN_OUTPUTS: usize = 10;
+pub const BRAIN_OUTPUTS: usize = 11;
 
 /// **Reserved storage dimensions.** The live counts above say how much of
 /// the scaffold is wired; these say how much room the layout leaves it to
@@ -191,7 +191,7 @@ pub const INPUT_NAMES: [&str; BRAIN_INPUTS] = [
     "PheroAAlong",
     "PheroBAlong",
 ];
-pub const OUTPUT_NAMES: [&str; BRAIN_OUTPUTS] = ["Turn", "Move", "EmitA", "EmitB", "Dig", "Drop", "Persist", "Tumble", "Caution", "Feed"];
+pub const OUTPUT_NAMES: [&str; BRAIN_OUTPUTS] = ["Turn", "Move", "EmitA", "EmitB", "Dig", "Drop", "Persist", "Tumble", "Caution", "Feed", "Impulse"];
 
 fn fnv(h: u32, b: u8) -> u32 {
     (h ^ b as u32).wrapping_mul(0x0100_0193)
@@ -465,6 +465,45 @@ pub enum BrainOutput {
     /// behaviour is unchanged and evolution starts from where the hand
     /// tuning left off rather than from a hole.
     Feed = 9,
+    /// **Leave the ground.** P(launch this tick), read raw and gated on
+    /// strictly positive — never through `unit_scale`, and that is the
+    /// difference between a verb and a default.
+    ///
+    /// `squash(0.0)` is exactly 0.0, so a species that has never authored a
+    /// weight into this row reads 0.0, takes no RNG draw, and is
+    /// bit-identical to the tree before the slot existed. `unit_scale` would
+    /// have read 0.5 for the same silent row and every ant in the world
+    /// would have started jumping — which is `Persist`'s mid-scale default
+    /// being right for a *modulator* and wrong for an *action*. `Move`,
+    /// `Dig`, `Drop` and `Feed` are all read the same raw way for the same
+    /// reason.
+    ///
+    /// **The verb says only "go"; the body says what that means.** There is
+    /// no jump height here and no per-species table: the launch speed is one
+    /// impulse divided by the body's mass, and the descent is a drag law
+    /// over the body's own bounding box. A 2-cell chain hops; a 9-cell slab
+    /// barely leaves the ground and then glides; a 9-cell block of the same
+    /// mass drops at 2.3x the slab's speed. See `creature::launch` and
+    /// `creature::step_flight` — `Reports/creature-motion-design.md` §5 is
+    /// the argument, and §2d is why this ships with a falls-per-move guard.
+    ///
+    /// **The second lawful output append.** Like `Feed` it lights up a row
+    /// of the reserve that already existed and was already zero: not one
+    /// weight of any other slot moves, `GENOME_LEN` does not change, and
+    /// every stored species file still means what it meant. What it does
+    /// change is `live_slots()` — 268 -> 288 — so `random_genome` draws 20
+    /// more values and a sampled genome at a given seed is a *different*
+    /// animal than it was. That is the real, unavoidable cost of a live
+    /// verb (`creature-motion-design.md` §3): the reserve is free, the wiring
+    /// is not.
+    ///
+    /// **The slot after this one stays unnamed on purpose** — §4d and the
+    /// owner's call 2. The condition for spending it is written down in §4b:
+    /// the day something in the world moves a creature against its will, a
+    /// grip verb has a benefit to point at. Naming it now and changing it
+    /// later renumbers nothing but does mislead every species file that
+    /// authored the name.
+    Impulse = 10,
 }
 
 /// One authored connection, as a species file writes it:
@@ -594,6 +633,7 @@ pub const OUTPUTS: [BrainOutput; BRAIN_OUTPUTS] = [
     BrainOutput::Tumble,
     BrainOutput::Caution,
     BrainOutput::Feed,
+    BrainOutput::Impulse,
 ];
 
 /// A genome written back out as the four sparse lists a species file
@@ -933,7 +973,14 @@ mod tests {
         // reinterpretation of every stored individual. If this assertion
         // fires, either put the slot back or accept that every genome in
         // flight now means something else -- and say which in the commit.
-        assert_eq!(genome_manifest(), 1_235_247_055);
+        // **Moved 2026-08-29 by the `Impulse` append, and this is the
+        // lawful kind of move.** The manifest hashes the dimensions and the
+        // ordered slot names, so *adding* a name at the end changes it while
+        // renumbering nothing: every weight of every stored genome still
+        // means what it meant, because `BRAIN_OUTPUTS` indexes into a
+        // reserve of 64 that has not moved. A change here that came with a
+        // changed `GENOME_LEN` or a reordered name would be the other kind.
+        assert_eq!(genome_manifest(), 717_235_691);
     }
 
     #[test]
