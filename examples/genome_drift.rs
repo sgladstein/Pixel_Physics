@@ -77,13 +77,6 @@ struct Sample {
     /// a generation-0 organism whose table differs means the census is reading
     /// the wrong thing, not that the lineage drifted.
     fate_gen0_drifted: usize,
-    /// **Drift among *established* plants, against drift in the whole
-    /// population** — the in-vivo form of the viability question
-    /// `fate_viability` asks in a harness. A drifted genome that establishes
-    /// less often than an undrifted one is being selected against; equal rates
-    /// are the null. Counted as (drifted & established, established).
-    fate_est_drifted: usize,
-    fate_established: usize,
     /// An empty genome falls back to the species table, so a population of
     /// them would read as *no drift* while meaning *no genomes*. Distinct
     /// state, distinct column.
@@ -189,6 +182,18 @@ fn main() {
     let base_fates = organism::FateGenome::from_table(w.species.get(table_species).fate_table());
     println!("founding production rule: {} rules", base_fates.len());
 
+    // **Distinct individuals, not organism-samples.** The first version of
+    // this pooled `fate_established` across samples and divided -- which
+    // counts the same plant once per sample it survived, so a single drifted
+    // plant that persists reads as nine, and a run where none established
+    // reads as a rate over ~1,000 trials rather than as "none, ever". Two
+    // seeds came back at *exactly* 0.00% and that tidiness was the tell: at a
+    // 1% rate, P(0 of 989) is about 4e-5. `CLAUDE.md`'s "ask what your number
+    // counts" -- the percentage was right and the denominator was a different
+    // quantity from the one the question needs.
+    let mut ever_established: std::collections::BTreeSet<u16> = std::collections::BTreeSet::new();
+    let mut ever_established_drifted: std::collections::BTreeSet<u16> = std::collections::BTreeSet::new();
+
     let mut samples: Vec<Sample> = Vec::new();
     println!("\npopulation mean of each slot's unit draw (-1..=1), one row per sample:");
     print!("  {:>8} {:>5} {:>5} {:>9}  ", "frame", "n", "seeds", "gen m/max");
@@ -228,7 +233,6 @@ fn main() {
         let mut n = 0.0f32;
         let (mut fd, mut fl, mut fs, mut fc, mut f0, mut fe) = (0usize, 0usize, 0usize, 0usize, 0usize, 0usize);
         let mut fate_keys: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
-        let (mut fed, mut fest) = (0usize, 0usize);
         let mut sum = [0.0f64; organism::GENOTYPE_TRAITS];
         let mut sumsq = [0.0f64; organism::GENOTYPE_TRAITS];
         let (mut gen_sum, mut gen_max) = (0u64, 0u16);
@@ -250,7 +254,7 @@ fn main() {
             // are answering about the same object.
             let established = s.cells.len() >= 20;
             if established {
-                fest += 1;
+                ever_established.insert(*id);
             }
             let g = s.fates;
             if g.is_empty() {
@@ -263,7 +267,7 @@ fn main() {
                         f0 += 1;
                     }
                     if established {
-                        fed += 1;
+                        ever_established_drifted.insert(*id);
                     }
                     match g.len().cmp(&base_fates.len()) {
                         std::cmp::Ordering::Greater => fl += 1,
@@ -301,8 +305,6 @@ fn main() {
             fate_changed: fc,
             fate_distinct: fate_keys.len(),
             fate_gen0_drifted: f0,
-            fate_est_drifted: fed,
-            fate_established: fest,
             fate_empty: fe,
         };
         print!(
@@ -377,14 +379,17 @@ fn main() {
     // different and weaker question -- it cannot separate "the mutation is bad"
     // from "this individual was unlucky" -- but it is the only in-vivo form
     // available, and the two rates being equal is a real null.
-    let tot_d: usize = samples.iter().map(|s| s.fate_drifted).sum();
-    let tot_n: usize = samples.iter().map(|s| s.live).sum();
-    let tot_ed: usize = samples.iter().map(|s| s.fate_est_drifted).sum();
-    let tot_e: usize = samples.iter().map(|s| s.fate_established).sum();
-    println!("\ndoes a drifted table cost establishment? (pooled over samples)");
+    let last_d = last.fate_drifted;
+    let last_n = last.live;
+    let e = ever_established.len();
+    let ed = ever_established_drifted.len();
+    println!("\ndoes a drifted table cost establishment?");
     let pc = |a: usize, b: usize| if b == 0 { f32::NAN } else { 100.0 * a as f32 / b as f32 };
-    println!("  drifted among ALL organisms          {tot_d} of {tot_n}  ({:.2}%)", pc(tot_d, tot_n));
-    println!("  drifted among ESTABLISHED plants     {tot_ed} of {tot_e}  ({:.2}%)", pc(tot_ed, tot_e));
+    println!("  drifted among all organisms, final sample   {last_d} of {last_n}  ({:.2}%)", pc(last_d, last_n));
+    println!("  DISTINCT plants that ever established       {e}");
+    println!("  ...of which ever carried a drifted table    {ed}  ({:.2}%)", pc(ed, e));
+    println!("  (distinct individuals, counted once each -- a plant that persists across samples");
+    println!("   is one plant. The per-sample columns above are snapshots and do repeat it.)");
     println!("  Equal rates are the null. A lower established rate is viability selection against");
     println!("  the drifted; a higher one would mean drift is reaching establishment preferentially,");
     println!("  which nothing in the model provides for and would point at this census instead.");
