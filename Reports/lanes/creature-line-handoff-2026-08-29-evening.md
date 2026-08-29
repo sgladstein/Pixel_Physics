@@ -99,7 +99,15 @@ is not a working tree.
   cell** (~615 cells x ~6,900 discs, every full redraw) — not the sky. Control:
   with vaults off **both** worlds cost 5.2 ms and place the same number of
   glowing cells, so it was chunk *spread*, not crystal count. Fixed
-  chunk-major: **~42 ms → ~7.5 ms, and PR #94 stays.**
+  chunk-major: ~42 ms → ~7.5 ms, **and PR #94 stays.**
+- **The render session found the other half and the two fixes compose.** The
+  rebuild's condition contained `force_full`, which means "an overlay is on
+  screen with no tracked footprint" — **true whenever the cursor is over the
+  window**. That is the "on every forced full redraw" above: it was never a
+  property of the world. Removing it takes the redraw to **2.4 ms**, so the
+  honest frame is ~18.9 + 2.4 rather than ~59 ms. Their work and mine are
+  merged in **PR #133**; my report is the measurement record, with their §7–§8
+  added rather than replacing it.
 - **The horizon change works and does not fix breeding.** `deaths` 0 → 25,
   `eats` 16 → 58; but cutting `start_energy` lowers the bank ceiling faster
   than the birth bar.
@@ -119,8 +127,11 @@ is not a working tree.
 **Judge this against the sources in §0 and your own read of what the project
 needs. I am one subsystem deep and may be over-weighting it.**
 
-1. **Merge the render fix.** Biggest player-visible win available (~17 → ~38
-   fps) and it is already measured and built.
+1. **Nothing to do on the render — it is landing in PR #133**, owned by the
+   render session, with my branch merged into it at their request. Do **not**
+   open a second PR for `claude/frame-cost-bisect`: two PRs on one function
+   would conflict, which is why they took the union. Biggest player-visible win
+   of the day (~17 fps → ~45), and it is not ours to land.
 2. **Run §1's control.** Cheap, and it either unblocks the reproduction build
    or voids a report.
 3. **Then the reproduction build** if the control passes.
