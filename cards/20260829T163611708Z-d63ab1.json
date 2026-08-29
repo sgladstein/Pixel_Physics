@@ -1,0 +1,43 @@
+{
+  "id": "20260829T163611708Z-d63ab1",
+  "created": "2026-08-29T16:36:11Z",
+  "board": "worldgen",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/worldgen-revamp-plan-dot67g",
+    "commit": "1b66548",
+    "agent": null,
+    "session_id": "2cb39797-d076-5699-b8bf-4494224deffe",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "All five presets, one seed, one camera",
+  "question": "Top to bottom: arid, canyon, rolling, terraced, wetland — every generated preset the engine ships, same seed, same camera, same hour. How many distinguishable kinds of country do you count?",
+  "context_md": "The control card for 'Two different presets, one country'. Measured over the same renders: **arid and wetland sit 0.711 apart, rolling and terraced 0.149** — so if the numbers match your eye, the top and bottom should read as different places and the middle three should collapse into one.\n\nWhat I am after is a count, not a preference. If the answer is 'two or three', that sizes the revamp: five presets are shipping as two or three places.\n\nNote what is *not* in any of these: a green pixel. Vegetation is 0.02% of the visible cells at generation, and switching the whole planting pass off changes 343 pixels out of 2.6 million.",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "arid / canyon / rolling / terraced / wetland, seed 1",
+      "files": [
+        "20260829T163611708Z-d63ab1/000-five-presets.png"
+      ],
+      "caption": "top to bottom, in that order",
+      "meta": {
+        "arid vs wetland": 0.711,
+        "rolling vs terraced": 0.149,
+        "same preset, different seed": 0.095,
+        "colours covering half the ground": "4-9",
+        "vegetation, share of visible cells": "0.02%"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
