@@ -1,7 +1,31 @@
 # Motion is the empty axis: how many verbs a creature should get
 
-**Status: design; §6 answered by the owner 2026-08-29, call 4 still open.**
-**§4c reverses this report's own first recommendation — see there.**
+**Status: built 2026-08-29 — `BrainOutput::Impulse`, §7's five guards
+green.** All four of §6's calls are answered; call 4 was the last, and is
+decision **E11**. §4c reverses this report's own first recommendation — see
+there.
+
+**What shipped, against what §5 promised.** One output, no per-species
+locomotion, and the four numbers below are read off the four *shipped* body
+plans with nothing authored per species:
+
+| body | cells | launch speed | terminal speed | §5's row |
+|---|---|---|---|---|
+| `ant` `Chain(2)` | 2 | 2.00 | 1.73 | hops far |
+| `ant_long` `Chain(6)` | 6 | 1.15 | 1.37 | shallower |
+| `ant_wide` 5x2 | 9 | 0.94 | 2.04 | barely leaves the ground, **glides** |
+| `ant_block` 3x3 | 9 | 0.94 | **4.74** | the same launch, drops like a stone |
+
+The last two rows are the design claim: **identical mass, identical launch,
+and 2.3x apart on the way down** — the whole difference being the bounding
+box. `src/sim/creature.rs`'s `body_drag` is where it is computed and there is
+no `match` on species anywhere in the path.
+
+**The float limit E9 asks for is in the same three lines and cost nothing**,
+exactly as §2c predicted: `buoyant_share` is `rigid::drag_through_liquid`'s
+own `carried`, so a body no denser than what it is in has zero effective
+weight and hangs. No creature material is buoyant today, so this is
+mechanism rather than behaviour — but authoring one now works.
 
 Written for the owner's question — *"I think motion could be a big
 differentiator. Can creatures hop, fly, only swim, different speeds,
@@ -418,10 +442,15 @@ a longer one on screen.**
    near future"*) was right and the argument against it was wrong: the
    reserve is inert, `live_slots()` stays at 268, and the cost is 2.1 MB at
    the population ceiling.
-4. **Is "creatures can cross gaps" wanted at all?** §2d records that the
-   current refusal is deliberate and hard-won — an impulse verb reverses a
-   decision that cost two attempts. **Still open**, and the guards in §7 are
-   what make it answerable rather than an argument.
+4. **Is "creatures can cross gaps" wanted at all? — YES.** Asked directly,
+   given that the refusal in §2d is deliberate and cost two attempts, the
+   owner chose *"Yes, they should cross"* over both *"No, refusing is fine"*
+   and an offer to render both readings first. Recorded as decision **E11**
+   in `Reports/creature-evolution-plan.md` §0; answered in session, so there
+   is no review card to cite, unlike E9 and E10.
+   **The condition travelled with the authorisation**: the verb ships with
+   §7's guards, and especially falls-per-move, or it does not ship. It has —
+   see the status line at the top of this report for the readings.
 
 ---
 

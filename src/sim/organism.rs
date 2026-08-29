@@ -2314,6 +2314,33 @@ pub struct Carried {
     pub shade: u8,
 }
 
+/// **A creature that has left the ground**, and the only state that says so.
+///
+/// Velocity in cells per *frame* plus a sub-cell accumulator, because a
+/// creature moves in whole cells and a hop that only ever moved whole cells
+/// per decision would teleport. `creature::step_flight` integrates it once
+/// per frame — not once per `tick_interval` — which is what makes an arc
+/// read as an arc.
+///
+/// **`None` is the normal state and costs one discriminant.** A creature is
+/// grounded unless something put it in the air, and only
+/// `creature::launch` ever does: nothing in the walking path can set this,
+/// which is the whole reason the two reverted airborne attempts
+/// (`Reports/creature-motion-design.md` §2d) cannot come back through it.
+/// The walk still refuses to step into unsupported air exactly as it did.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct Flight {
+    /// Cells per frame, +x east.
+    pub vx: f32,
+    /// Cells per frame, **+y down** — the grid's convention, so gravity
+    /// adds and a launch subtracts.
+    pub vy: f32,
+    /// Sub-cell remainder carried between frames, so a velocity below one
+    /// cell per frame still produces motion instead of rounding to nothing.
+    pub fx: f32,
+    pub fy: f32,
+}
+
 /// Per-organism state too large (or too semantically distinct) to fit in
 /// `Cell::aux` — mirrors `plant::TreeState`/`creature::CreatureState`'s
 /// existing reason to exist, generalized across every species rather than
@@ -2733,6 +2760,17 @@ pub struct OrganismState {
     /// Stamped but unread while the worm is the only creature — its move
     /// is a 4-neighbour choice with no facing. The ants read it.
     pub heading: u8,
+    /// **Airborne, or not.** `Some` only between a `BrainOutput::Impulse`
+    /// launch and the frame it lands; `None` for every plant, every worm,
+    /// and every creature standing on something.
+    ///
+    /// While it is `Some` the creature does not think: `creature_tick`
+    /// integrates one frame of ballistics and returns, skipping the brain,
+    /// the four verbs and the walk entirely. That is the verb's real cost —
+    /// mid-hop you cannot eat, dig, steer or turn away from anything — and
+    /// it is also why flight is cheap: no `eval_brain` on the frames it
+    /// adds to the schedule.
+    pub flight: Option<Flight>,
     /// Energy budget. `creature::CreatureState`'s scalar, relocated — the
     /// entire contents of the parallel per-creature storage this substrate
     /// replaced.

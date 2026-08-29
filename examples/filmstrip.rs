@@ -74,6 +74,32 @@ const WIDTH: i32 = 512;
 const HEIGHT: i32 = 320;
 const FLOOR_THICKNESS: i32 = 8;
 
+/// `scene=hop`'s shelf row, and the lanes on it.
+///
+/// The shelf sits high enough that the drop below it is longer than any of
+/// these bodies' own hops -- which is the whole point of the scene, since
+/// `ant_wide` and `ant_block` launch identically and are separated only by
+/// how they come down.
+const HOP_SHELF_Y: i32 = 110;
+const HOP_SHELF_WIDTH: i32 = 34;
+
+/// Where each lane starts, and which body stands on it.
+///
+/// **Spaced by expected range, not evenly**, because they do not travel the
+/// same distance: over the ~194-cell drop this scene gives them, the 2-cell
+/// chain carries about 160 cells downrange and the 3x3 block about 27. Even
+/// spacing would have put the lightest body through the next lane's shelf,
+/// which reads as a collision bug rather than as a glide.
+const HOP_LANES: [(i32, &str); 4] = [(6, "ant"), (190, "ant_long"), (310, "ant_wide"), (410, "ant_block")];
+
+/// How hard `scene=hop` wires the impulse verb on.
+///
+/// `Bias` is 1.0 and the gate is `squash(w) > 0` followed by a roll against
+/// that value, so 2.0 squashes to 0.67 -- a creature that hops about two
+/// times in three whenever its move roll succeeds. Not 1.0-and-always,
+/// because a body that never walks never reaches the edge of its shelf.
+const HOP_IMPULSE_WEIGHT: f32 = 2.0;
+
 /// Ground level for the plant scenes, in world rows from the top.
 ///
 /// Chosen against `field.rs`'s measured light profile, not by eye: at the
@@ -1544,6 +1570,96 @@ fn build_scene(args: &Args) -> World {
             );
             println!("  suggested crop: crop={},{},240,110", cx - 120, cy - 70);
         }
+        // **One verb, four bodies, four identical plinths.** The whole claim
+        // of `Reports/creature-motion-design.md` §5 is that the *body*
+        // decides what an impulse does, so a single hopping ant demonstrates
+        // nothing -- what has to be on screen is several bodies given the
+        // same verb and doing different things with it.
+        //
+        // Four lanes, each a shelf at the same height over the same drop,
+        // each carrying one of the shipped body plans:
+        //
+        //   ant        Chain(2)   2 cells   the cheap generalist
+        //   ant_long   Chain(6)   6 cells   shallower, and a plate when strung out
+        //   ant_wide   5x2 rigid  9 cells   barely leaves the ground, then glides
+        //   ant_block  3x3 rigid  9 cells   the same mass, and drops like a stone
+        //
+        // **The last two are the controlled pair and the reason the scene is
+        // a cliff rather than flat ground.** Nine cells each at density 1.0,
+        // so `LAUNCH_WORK` gives them the identical launch speed; everything
+        // that separates them is drag, and drag only separates them over a
+        // drop taller than their own 1.5-cell hop. On the flat they are
+        // indistinguishable, which is correct and is not a picture.
+        //
+        // **The impulse is wired here, not in the species files.** Those four
+        // are the appearance lane's candidates and their whole value is that
+        // each is `ant.ron` with exactly one line changed (`body:`); adding a
+        // second difference would make every appearance sheet ever taken
+        // uncomparable. So the scene appends `(Bias, Impulse, w)` to each
+        // one's authored wiring at build time, the same trick
+        // `scene=colony genome=` uses. Nothing shipped hops by default.
+        //
+        //   cargo run --release --example filmstrip -- scene=hop gif=1 out=hop.gif \
+        //     start=0 every=6 count=40 zoom=2 crop=0,180,512,140
+        "hop" => {
+            use pixel_physics::sim::brain::{BrainInput, BrainOutput, Instinct};
+            stone_floor(&mut w);
+            // One shelf per lane. `attached`, like `stone_floor`, or a shelf
+            // anchored only at its ends erodes inward from every free face
+            // and the animals fall before they ever decide anything.
+            let shelf_y = HOP_SHELF_Y;
+            for &(x0, name) in HOP_LANES.iter() {
+                if !args.hop_body.is_empty() && args.hop_body != name {
+                    continue;
+                }
+                for x in x0..(x0 + HOP_SHELF_WIDTH) {
+                    for y in shelf_y..(shelf_y + 5) {
+                        w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+                    }
+                }
+            }
+            for &(x0, name) in HOP_LANES.iter() {
+                if !args.hop_body.is_empty() && args.hop_body != name {
+                    continue;
+                }
+                let Some(species) = w.species.id_of(name) else {
+                    panic!("scene=hop: species {name:?} is not compiled in -- see organism.rs's SPECIES list");
+                };
+                let def = w.species.get(species).creature.as_ref().expect("a creature species").clone();
+                // The authored wiring plus one connection, so the animal is
+                // the shipped one in every other respect. `Bias` is always
+                // 1.0, so a positive weight here is a standing intent to
+                // jump whenever the move roll succeeds.
+                let mut wiring: Vec<Instinct> = def.instincts.clone();
+                // At weight 0 this is `ant.ron`'s wiring exactly: `squash(0)`
+                // is 0, the gate never opens, and the arm is the pre-verb
+                // engine rather than an approximation of it.
+                if args.impulse != 0.0 {
+                    wiring.push(Instinct(BrainInput::Bias, BrainOutput::Impulse, args.impulse));
+                }
+                let genome = pixel_physics::sim::brain::genome_from_wiring(&wiring, &def.hidden_wiring, &def.hidden_outputs, &def.recurrence);
+                w.species.set_genome(species, genome);
+                // At the right-hand end of its own shelf, facing east: a
+                // couple of steps and it is at the edge.
+                let x = x0 + HOP_SHELF_WIDTH - 4;
+                if let Some(site) = pixel_physics::sim::creature::plant_creature_seed(&mut w, x, shelf_y - 1, name) {
+                    w.schedule_active_site(site);
+                } else {
+                    panic!("scene=hop: {name:?} would not fit at ({x}, {})", shelf_y - 1);
+                }
+            }
+            // **The harness echoes its own parameters.** `CLAUDE.md`'s
+            // megastudy post-mortem: a knob nobody can see the value of is a
+            // knob nobody can tell is disconnected, and a 3.5-hour study
+            // shipped 24 logs of 3 populations because of exactly that.
+            println!(
+                "scene=hop: impulse={} body={} | one verb, shelf at y={shelf_y} over a {}-cell drop",
+                args.impulse,
+                if args.hop_body.is_empty() { "all four" } else { &args.hop_body },
+                HEIGHT - FLOOR_THICKNESS - shelf_y
+            );
+            println!("  suggested crop: crop=0,{},512,{}", shelf_y - 12, HEIGHT - FLOOR_THICKNESS - shelf_y + 20);
+        }
         "terrain" => {
             pixel_physics::app::build_terrain(&mut w);
         }
@@ -2284,6 +2400,23 @@ struct Args {
     /// `genome=` for `scene=colony`: `authored`, `zero`, or `rNNN` naming a
     /// genome from `creature_space`'s sweep by the label it printed.
     genome: String,
+    /// `scene=hop`'s impulse weight. **A knob rather than a constant so the
+    /// scene can run its own control**: at 0 nothing hops, and four bodies
+    /// milling on four shelves is what the engine did before this verb
+    /// existed. An A/B against that is the only way to say what the verb
+    /// bought, and `CLAUDE.md` asks for the paired comparison rather than
+    /// one run against a remembered impression.
+    impulse: f32,
+    /// `scene=hop`: run one lane only, by species name, or every lane when
+    /// empty.
+    ///
+    /// **This is how the blocked-movement half of
+    /// `creature-motion-design.md` §7 gets measured.** `report_colony`'s
+    /// `blocked` fraction is summed over the whole world, so a scene holding
+    /// a chain and three rigid bodies reports one number that belongs to
+    /// none of them — the mean-over-events trap `CLAUDE.md` names, one level
+    /// up. One lane at a time is what makes the figure attributable.
+    hop_body: String,
     out: String,
     grain: GrainMode,
     /// `bubbles=` -- which of `render.rs`'s `BubbleMode` looks to draw
@@ -2838,6 +2971,8 @@ fn parse() -> Args {
         cols: 3,
         zoom: 1,
         genome: String::from("authored"),
+        impulse: HOP_IMPULSE_WEIGHT,
+        hop_body: String::new(),
         crop: Rect::new(0, 0, WIDTH - 1, HEIGHT - 1),
         parallel_driver: true,
         out: std::env::temp_dir().join("filmstrip.png").display().to_string(),
@@ -2936,6 +3071,8 @@ fn parse() -> Args {
             "cols" => a.cols = v.parse().expect("cols"),
             "zoom" => a.zoom = v.parse().expect("zoom"),
             "genome" => a.genome = v.to_string(),
+            "impulse" => a.impulse = v.parse().expect("impulse=WEIGHT"),
+            "body" => a.hop_body = v.to_string(),
             "driver" => a.parallel_driver = v != "serial",
             "out" => {
                 named_gif = v.ends_with(".gif");
@@ -4845,7 +4982,13 @@ impl PanelSheet {
 /// colony scene that placed ants always moves, and one that placed none is
 /// caught by the scene's own assertion rather than by this line.
 fn report_colony(world: &World, render: bool) {
-    if !render || world.creature_stats.moves == 0 {
+    // **`moves` alone is the wrong gate now, and `scene=hop` is why.** A
+    // creature that only ever launches never walks, so a hop sheet with four
+    // animals in mid-air printed nothing at all -- the picture with no
+    // number beside it that `CLAUDE.md` opens by warning about. Any sign of
+    // creature activity will do; what must not happen is a scene full of
+    // animals reporting silence.
+    if !render || (world.creature_stats.moves == 0 && world.creature_stats.impulses == 0) {
         return;
     }
     let st = world.creature_stats;
@@ -4867,6 +5010,15 @@ fn report_colony(world: &World, render: bool) {
         pixel_physics::sim::creature::FORAGE_TRIP_MIN,
         st.forage_depth_max,
         st.forage_reach
+    );
+    // **The verb's own counters, printed under every creature sheet.** A
+    // creature arcing through the air and one falling off a ledge are the
+    // same photograph; `impulses` is the only thing that says which, and
+    // `refused` is its effect-side pair. Zero here under a hop sheet means
+    // the picture is of something else.
+    println!(
+        "  creatures: impulses {} (refused {}) | airborne frames {} | flight moves {}",
+        st.impulses, st.impulses_refused, st.flight_frames, st.flight_moves
     );
 }
 

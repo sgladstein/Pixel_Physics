@@ -150,6 +150,22 @@ fn report(label: &str, world: &World, ants: usize) {
     let fpm = if st.moves > 0 { st.falls as f64 / st.moves as f64 } else { 0.0 };
     let tpm = if st.moves > 0 { st.tumbles as f64 / st.moves as f64 } else { 0.0 };
     println!("  falls {} ({fpm:.3} of moves) | tumbles {} ({tpm:.3} of moves)", st.falls, st.tumbles);
+    // **The verb's own "did it fire at all" line.** `CLAUDE.md`'s house
+    // rule, and the case it was paid for with: a collapse read as "chunks
+    // are working" off a picture whose event count was zero for the whole
+    // run. `impulses` is the firing count, `refused` its effect-side pair
+    // (a launch the body could not make), and `frames/impulse` is the mean
+    // time aloft -- the quantity a body is supposed to change, since the
+    // same launch keeps a slab up 2.3x as long as a block.
+    //
+    // Printed unconditionally, including the zeros. A species with no
+    // `Impulse` weight must read `impulses 0` here, and a line that
+    // disappears when it is zero cannot make that claim.
+    let per = if st.impulses > 0 { st.flight_frames as f64 / st.impulses as f64 } else { 0.0 };
+    println!(
+        "  impulses {} (refused {}) | airborne frames {} ({per:.1} per launch) | flight moves {}",
+        st.impulses, st.impulses_refused, st.flight_frames, st.flight_moves
+    );
     // **The old counter and the new one on the same line, on the same run.**
     // Two mechanisms that look identical in a summary are exactly what this
     // pair exists to separate, so they are never printed apart.
