@@ -46,8 +46,13 @@ struct Args {
     mine: bool,
     /// `aim=N` — centre the shots on this world x instead of spreading them.
     aim: Option<i32>,
-    /// `quarry=W` — width of an open-cast pit cut into the skyline.
-    quarry: i32,
+    /// `quarry=W` or `quarry=WxD` — the width, and optionally the depth, of
+    /// an open-cast pit cut into the skyline. The depth is a parameter
+    /// because the case reported from play was **deeper than the 40 rows
+    /// this was fixed at**, and depth is the axis the old distance-only sky
+    /// light was most wrong along — a 40-deep pit still had a lit rim, and
+    /// the report was about a cut with no lit part left.
+    quarry: (i32, i32),
     vault: bool,
     boulder: bool,
     reveal: bool,
@@ -139,7 +144,7 @@ fn main() {
         rain: String::new(),
         mine: false,
         aim: None,
-        quarry: 0,
+        quarry: (0, 40),
         vault: false,
         boulder: false,
         reveal: false,
@@ -197,7 +202,12 @@ fn main() {
             // wider than the widest shaft the reach rules ever discriminated
             // (`Reports/underground-definition.md`), so no width threshold
             // can be mistaken for the cause.
-            "quarry" => a.quarry = v.parse().expect("quarry=WIDTH"),
+            "quarry" => {
+                a.quarry = match v.split_once('x') {
+                    Some((w, d)) => (w.parse().expect("quarry=WIDTHxDEPTH"), d.parse().expect("quarry=WIDTHxDEPTH")),
+                    None => (v.parse().expect("quarry=WIDTH"), 40),
+                }
+            }
             "view" => {
                 let (w, h) = v.split_once('x').expect("view=WxH");
                 a.view = (w.parse().expect("view=WxH"), h.parse().expect("view=WxH"));
@@ -872,7 +882,7 @@ fn main() {
                 .map(|(vx, _)| vx)
                 .unwrap_or(WORLD_WIDTH as i32 / 2),
             (_, true, _) => WORLD_WIDTH as i32 / 4,
-            _ if a.quarry > 0 => WORLD_WIDTH as i32 / 4,
+            _ if a.quarry.0 > 0 => WORLD_WIDTH as i32 / 4,
             (_, _, Some(sx)) => sx,
             _ => ((shot as f32 + 0.5) / a.shots as f32 * WORLD_WIDTH as f32) as i32,
         };
@@ -1045,7 +1055,7 @@ fn main() {
             // reason that has nothing to do with the skyline.
             pixel_physics::sim::parallel::step(&mut world);
         }
-        if a.quarry > 0 && shot == 0 {
+        if a.quarry.0 > 0 && shot == 0 {
             // An open pit, cut into the skyline itself rather than down
             // from it: the top 40 rows off a `quarry`-wide patch, with
             // nothing left overhead. Every cell of it is open to the sky by
@@ -1056,12 +1066,12 @@ fn main() {
             let top = (0..WORLD_HEIGHT as i32)
                 .find(|&y| world.get(cx, y).material != material::EMPTY)
                 .unwrap_or(0);
-            for x in cx - a.quarry / 2..=cx + a.quarry / 2 {
-                for y in top..top + 40 {
+            for x in cx - a.quarry.0 / 2..=cx + a.quarry.0 / 2 {
+                for y in top..top + a.quarry.1 {
                     world.set(x, y, pixel_physics::sim::cell::Cell::EMPTY);
                 }
             }
-            println!("  quarried a {}-wide open pit at x={cx}, 40 deep from y={top}", a.quarry);
+            println!("  quarried a {}-wide open pit at x={cx}, {} deep from y={top}", a.quarry.0, a.quarry.1);
             pixel_physics::sim::parallel::step(&mut world);
         }
 

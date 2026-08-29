@@ -1,8 +1,12 @@
 # Day, Night, and Decay
 
-*Current as of: 2026-08-29. New since the last pass: you can now stop the
-sun at a chosen time of day and leave it there, and the options menu that
-holds that setting has been rebuilt.*
+*Current as of: 2026-08-29. New since the last pass: break the top off a
+hill and you now see sky through the gap rather than a black slab — how dark
+a broken-open space is depends on how much sky it can actually see, not on
+how deep it is.*
+
+*Before that: you can now stop the sun at a chosen time of day and leave it
+there, and the options menu that holds that setting has been rebuilt.*
 
 *Before that pass: rotting leaf litter mostly disappears now instead of all
 becoming soil, so a wood no longer buries itself; and how long a day lasts
@@ -96,10 +100,14 @@ rock, dark at noon as much as at midnight. Anything else would mean daylight
 showing through the middle of a mountain.
 
 **Underground means below where the ground was when the world began**, and
-nothing you do afterwards moves it. Dig a shaft and it stays a dark shaft
-however wide you make it — carve out a whole cavern and it is still a
-cavern, not a courtyard. That is the point of fixing it once: a mine should
-not fill with daylight because you widened a tunnel by one more swing.
+nothing you do afterwards moves it. That much is fixed once and never
+argued with again: a mine does not become outdoors because you widened a
+tunnel by one more swing, and a cavern you hollow out under a mountain is a
+cavern rather than a courtyard however big it gets.
+
+What *can* change is how much light gets in — see further down. A space
+still counts as underground and can still be full of daylight, if the
+daylight can reach it; the two are separate questions and used to be one.
 
 The same rule from the other side: **nothing standing in the air makes it
 dark underneath**. A tree, a bridge, a roof, a stray block left floating —
@@ -117,16 +125,26 @@ cave whether or not it was one, so every overhang in the world hung a
 hard-edged dark rectangle in the sky beneath it, and a boulder standing over a
 pond drew a dark band straight down through the water to the bottom.
 
-**Ground you remove is still ground — but the light now finds its way in.**
-Dig an open pit into a hillside and it is bright at the rim and darkens toward
-the floor, the way a real quarry does; dig a shaft and it goes dark a room's
-depth down whatever width you make it; drive a tunnel in from a cliff face and
-the daylight reaches a little way past the mouth and no further. None of that
-is a rule about shape. The sky simply has to *get there*, falling off as it
-goes, and a shaft is a bad path where a pit is a wide open one.
+**Ground you remove is still ground — but the light now finds its way in,
+and what decides how much is how much sky the place can actually see.** Break
+the top off a hill and the hollow you leave reads as sky, because from down
+in it most of the sky is still overhead; the shaded side, where a taller
+slope stands over it, goes dimmer, the way the far wall of a real cutting
+does in the afternoon. Drive a shaft down instead and it goes dark within a
+room's depth however wide you make it, because a slot admits a sliver of sky
+and nothing more. A tunnel in from a cliff face keeps its soft wedge of
+daylight a little way past the mouth and no further.
 
-So the old trade is gone: a mine no longer fills with daylight as you widen
-it, and a quarry no longer reads as a black rectangle cut into a sunlit hill.
+None of that is a rule about shape or about width — the same question is
+asked everywhere, and a quarry and a mine answer it differently because
+standing in one you can see the sky and standing in the other you cannot.
+Depth on its own decides nothing: what matters is what is over your head.
+
+So the old trade is gone in both directions. A mine does not fill with
+daylight as you widen it, and a hilltop you have broken open no longer draws
+as a black slab beside the sky it is level with — which it did until this
+pass, however wide the cut, because the only thing being asked was how far
+the light had travelled from the last place that was open.
 
 **Rock is lit evenly at every depth.** A cliff face, the wall of your shaft,
 the cutaway the screen always is — the stone reads the same near the surface

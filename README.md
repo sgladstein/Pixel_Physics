@@ -48,11 +48,11 @@ whole, then run `python3 scripts/readmetoc.py`.
 | [Weather status](#weather-status) | 2577 |
 | [The ant colony — status](#the-ant-colony--status) | 2594 |
 | [M19 status — started](#m19-status--started) | 2623 |
-| [Felling status — the verb works, and what it produces is pieces](#felling-status--the-verb-works-and-what-it-produces-is-pieces) | 2659 |
-| [Performance](#performance) | 2740 |
-| [World speed — five independent time axes](#world-speed--five-independent-time-axes) | 2914 |
-| [Status](#status) | 2997 |
-| [License](#license) | 3108 |
+| [Felling status — the verb works, and what it produces is pieces](#felling-status--the-verb-works-and-what-it-produces-is-pieces) | 2679 |
+| [Performance](#performance) | 2760 |
+| [World speed — five independent time axes](#world-speed--five-independent-time-axes) | 2934 |
+| [Status](#status) | 3017 |
+| [License](#license) | 3128 |
 
 ### Milestones, in numeric order
 
@@ -86,14 +86,14 @@ them is named "plants". A section can appear twice; felling is honestly both
 plant work and structural work.
 
 **Known limitations for every topic are collected in one place**:
-[Status](#status), line 2997 — the *last* section in the
+[Status](#status), line 3017 — the *last* section in the
 file, not the first. Read it before concluding something is broken.
 
 | Topic | Sections, primary first |
 |---|---|
-| **plants, trees and moss** | [M16 status](#m16-status) 1408, [Plant lines merged](#plant-lines-merged-the-genome-and-the-ecology) 1118, [The economy re-derived](#the-economy-re-derived-standing-tissue-costs-something) 1240, [Plants that stop](#plants-that-stop-organs-determinacy-and-a-price-on-both) 1340, [The generation loop](#the-generation-loop-plants-die-seeds-expire-slots-come-back) 1188, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 2659 |
+| **plants, trees and moss** | [M16 status](#m16-status) 1408, [Plant lines merged](#plant-lines-merged-the-genome-and-the-ecology) 1118, [The economy re-derived](#the-economy-re-derived-standing-tissue-costs-something) 1240, [Plants that stop](#plants-that-stop-organs-determinacy-and-a-price-on-both) 1340, [The generation loop](#the-generation-loop-plants-die-seeds-expire-slots-come-back) 1188, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 2679 |
 | **creatures — worms and the ant colony** | [M18 status](#m18-status) 1821, [The ant colony](#the-ant-colony--status) 2594 |
-| **structural collapse, felling and rigid bodies** | [M17 status](#m17-status) 1594, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 2659, [M8 status](#m8-status--started-not-complete) 2288 |
+| **structural collapse, felling and rigid bodies** | [M17 status](#m17-status) 1594, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 2679, [M8 status](#m8-status--started-not-complete) 2288 |
 | **fire, heat and phase change** | [M14 status](#m14-status) 764, [Materials](#materials) 218 |
 | **explosions, particles and debris** | [M15 status](#m15-status) 941, [M7 status](#m7-status) 912 |
 | **liquids and gases** | [Liquid physics](#liquid-physics-compressible-volume-not-discrete-occupied-cells) 738, [The coarse field grid](#the-coarse-field-grid) 449 |
@@ -101,9 +101,9 @@ file, not the first. Read it before concluding something is broken.
 | **the coarse field grid — pressure, heat, light** | [The coarse field grid](#the-coarse-field-grid) 449, [M12/M13 status](#m12m13-status) 711 |
 | **worldgen and world structure** | [M10 status](#m10-status--the-worldgen-half) 2462, [Architecture](#architecture) 292 |
 | **the gnome (player character)** | [M9 status](#m9-status--the-gnome) 2401, [Controls](#controls) 155 |
-| **weather, sky and the clock** | [Weather status](#weather-status) 2577, [M19 status](#m19-status--started) 2623, [World speed](#world-speed--five-independent-time-axes) 2914 |
+| **weather, sky and the clock** | [Weather status](#weather-status) 2577, [M19 status](#m19-status--started) 2623, [World speed](#world-speed--five-independent-time-axes) 2934 |
 | **rendering, UI and tunables** | [UI improvements](#ui-improvements--overnight-run-section-9) 2155, [Live tunables panel](#live-tunables-panel--overnight-run-section-10) 2200, [Rendering performance](#rendering-performance--overnight-run-section-11) 2268, [M6 deferral](#m6-deferral) 1013 |
-| **performance and the parallel sweep** | [Performance](#performance) 2740, [M5 status](#m5-status) 1023, [Architecture](#architecture) 292, [Rendering performance](#rendering-performance--overnight-run-section-11) 2268 |
+| **performance and the parallel sweep** | [Performance](#performance) 2760, [M5 status](#m5-status) 1023, [Architecture](#architecture) 292, [Rendering performance](#rendering-performance--overnight-run-section-11) 2268 |
 | **materials and the data schema** | [Materials](#materials) 218, [M12/M13 status](#m12m13-status) 711 |
 
 <!-- END GENERATED TOC -->
@@ -2647,14 +2647,34 @@ It costs ~0.44 ms of a 15.3 ms full redraw, and that is not why it is off.
 
 That darkness is now **propagated rather than assumed**: sky light is seeded
 only where a cell was outdoors at genesis and spreads at Terraria's
-0.91-per-air-cell, 0.56-per-solid over a 4-cell block grid, so an open pit is
-bright at its rim and dark at the floor while a dug shaft still goes dark at
-any width — which is the property no rule based on shape could hold.
+0.91-per-air-cell, 0.56-per-solid over a 4-cell block grid, so a dug shaft
+goes dark at any width — the property no rule based on shape could hold.
 `F12` cycles it against the old depth-based fade for comparison. Costs +2.3 ms
 on a frame where the world or camera changed, and nothing at all on a settled
 one. Design, prior art and the measurements in
 [`Reports/sky-light-design.md`](Reports/sky-light-design.md) and
 [`Reports/prior-art-underground-lighting.md`](Reports/prior-art-underground-lighting.md).
+
+**Beside it, and landed 2026-08-29, sky *visibility*: how much of the sky a
+place can actually see.** Distance from a lit cell cannot tell a hole from a
+hollow — the design round's own table has a 64-wide open pit at **0.023** at
+its floor and a 1-wide shaft at **0.010**, which is the same number for two
+places with nothing in common. Played, that drew a broken-open hilltop as a
+black slab beside the sky it was level with, reported as *"the background
+remains black … looks bad when I break up the ground near the surface"*. So
+each block also traces back along a fan of eight rays carrying equal shares of
+the sky, attenuating through **material only** — clear air does not dim
+sunlight, and pretending it does is what flattened the pit and the shaft onto
+one value — and the two terms are combined with `max`. One bounce off the
+walls (`SKY_VIEW_ALBEDO`) turns visible sky into how bright it is down there.
+A 40-wide pit's floor goes **0.045 → 0.504** while a shaft at the same depth
+stays at 0, and no ray is exactly vertical, so a block-aligned shaft gets no
+free daylight — the defect that disqualified `field.rs`'s channel from driving
+this at all. Costs **0.45 ms** of the ~2.5 ms that rebuild already pays, after
+running the shallow rays on the transpose rather than striding the grid
+(2.2–3.4 ms before that). Guarded by
+`a_dug_shaft_goes_dark_while_a_wide_pit_keeps_its_rim_lit`, which now asserts
+both halves of the pair from one run.
 
 ## Felling status — the verb works, and what it produces is pieces
 
