@@ -691,8 +691,12 @@ fn fall_through_organism<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: 
     if !surface.materials().get(cell.material).falls_through_organisms {
         return false;
     }
-    let mut probe = y + 1;
-    for _ in 0..ORGANISM_TUNNEL_REACH {
+    // A range rather than a counter incremented in the body: clippy's
+    // `explicit_counter_loop` rejects the latter, and it is right that this
+    // reads better -- but note the versions disagree, so a green local
+    // clippy is not evidence here. 1.94.1 accepted the counter form and CI's
+    // 1.98.0 refused it.
+    for probe in (y + 1)..(y + 1 + ORGANISM_TUNNEL_REACH) {
         let here = surface.get(x, probe);
         // Raw `material == EMPTY`, not `is_empty()`, for the reason
         // `shed_to_litter` gives: the managed-aware helper reads a promoted
@@ -704,7 +708,6 @@ fn fall_through_organism<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: 
         if here.organism_id() == 0 {
             return false;
         }
-        probe += 1;
     }
     false
 }
