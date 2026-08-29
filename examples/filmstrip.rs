@@ -2179,6 +2179,11 @@ struct Args {
     /// loose grains above the wade line he pushes past. 0 is the old veto,
     /// under which one stray soil cell in a canopy was an impassable wall.
     shoulder_grains: u8,
+    /// `dig=bore|free` -- which cut shape the pick uses, so the two can be
+    /// rendered as a controlled pair on one scene. The app's own default is
+    /// `bore`; `free` is what the pick did before it existed, and is still
+    /// reachable in play on `4`.
+    dig_style: pixel_physics::sim::player::DigStyle,
     /// `species=` -- which species `scene=grove` plants (tree, conifer,
     /// shrub). The grove is the shape harness, and Phase 2's whole point
     /// is that different species are different *shapes*.
@@ -2831,6 +2836,7 @@ fn parse() -> Args {
         scene: "pour".into(),
         dig_yield: pixel_physics::sim::player::Tuning::default().dig_yield,
         shoulder_grains: pixel_physics::sim::player::Tuning::default().shoulder_grains,
+        dig_style: pixel_physics::sim::player::DigStyle::default(),
         seed: 1,
         species: "tree".into(),
         soil_moisture: pixel_physics::sim::material::SOIL_FIELD_CAPACITY,
@@ -2922,6 +2928,13 @@ fn parse() -> Args {
             "seed" => a.seed = v.parse().expect("seed"),
             "yield" => a.dig_yield = v.parse().expect("yield"),
             "shoulder" => a.shoulder_grains = v.parse().expect("shoulder"),
+            "dig" => {
+                a.dig_style = match v {
+                    "bore" => pixel_physics::sim::player::DigStyle::Bore,
+                    "free" => pixel_physics::sim::player::DigStyle::Free,
+                    other => panic!("dig={other:?}; known: bore, free"),
+                }
+            }
             "species" => a.species = v.into(),
             "moisture" => a.soil_moisture = v.parse().expect("moisture"),
             "frame0" => a.frame0 = v.parse().expect("frame0"),
@@ -5045,6 +5058,12 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, (usize, usize), (i
         blasts.tuning.smoke_fraction = v;
     }
     let mut gnome = Gnome::for_scene(&args.scene, args.dig_yield, args.shoulder_grains);
+    // Set on the character rather than passed to `dig`: the style is his
+    // state, exactly as it is in the app, so the harness and the game reach
+    // the mechanism through the same door.
+    if let Some(p) = world.player.as_mut() {
+        p.dig_style = args.dig_style;
+    }
     let mut frame = vec![0u8; (WIDTH * HEIGHT * 4) as usize];
 
     let (cw, ch) = (args.crop.width(), args.crop.height());
