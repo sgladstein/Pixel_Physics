@@ -245,6 +245,15 @@ region of interest, not the world.
   at. An image says *what* and *where*; only the number says *whether it fired*.
 - **Ask one answerable question.** "Thoughts?" wastes a round trip. "Does the
   rubble read as a distribution, or all one size?" gets an answer.
+- **Name the number for what it says about the world, not for the instrument
+  that produced it.** The `meta` labels are read at a glance under the image,
+  by someone who does not have your harness in their head: `luma MAD (deep
+  rock crop)` is *speckle vs before (0 = identical)*, `crystal
+  Material::glow` is *how brightly crystal glows (1 = normal)*. Measured
+  2026-08-29 over the 158 cards posted so far, 11% carry at least one label
+  naming a constant or a genome field instead. `python3
+  scripts/plaincheck.py --card <spec.json>` finds them; `CLAUDE.md`
+  §"Writing to the owner" is the general rule.
 - **Say what you already measured**, in `context_md`, and what you want ignored.
   The owner's playtest reports have overturned three models that looked correct
   in tests — give them the reading you are unsure of, not a summary of your

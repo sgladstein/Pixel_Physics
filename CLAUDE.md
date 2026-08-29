@@ -225,6 +225,59 @@ owner views it with the `serve` command above; it does not need to be running
 for you to post. Full protocol, including the JSON card spec, in
 `.claude/skills/review/SKILL.md`.
 
+## Writing to the owner
+
+**The owner runs several sessions at once and reads your messages cold.**
+Stated 2026-08-29: they "are often not helpful... sometimes I don't actually
+know what they're doing because they're being too specific and not giving me
+any bigger picture." This is about *chat* — the running commentary as much as
+the end-of-turn summary. Reports, lane notes and PR bodies are read
+deliberately and are exempt; their register is fine as it is.
+
+**Open every message with four things, in this order:**
+
+1. **What changed in the world** — one sentence naming something a player
+   could see. No code symbols, no bare register code (`§S`, `WP-3`, `P2`);
+   those are fine in parentheses after a plain clause, never as the subject.
+2. **Why it matters** — the consequence, in the same vocabulary.
+3. **Where it sits** — the arc you are on, this step's place in it, what is
+   behind it. **A position in a queue is not a direction**: *"follow-up to
+   #85, closing the third of §S's verbs"* says nothing; *"making broken rock
+   carry weight — last of three places it was wrong"* is the direction. This
+   is the part the owner ranked first, and the part no message had at all.
+4. **Status** — landed / needs your eye / blocked, and what you would do next.
+
+**Then the mechanism, below a marked fold, as technical as it needs to be.**
+Nothing is deleted and no number is dropped; the order changes, not the
+content. The property to check a draft against: **it must be abandonable at
+any line** — stop after line one and you know what happened, stop after part 3
+and you know whether to intervene.
+
+**The vocabulary is already written down: `wiki/*.md`**, which describes every
+material and mechanic in plain language, with no code and no file names. Use
+its words; the file table above maps each source file to its page. Needing a
+word the wiki does not have is itself a finding — that page is stale.
+
+**Numbers stay; labels change.** Name a number for what it says about the
+world rather than for the instrument that produced it: `wrong cells 35,102 ->
+1,337` is *ground that collapsed when it should have held: 35,102 cells ->
+1,337*. Same number, still the evidence. This applies to a review card's
+`meta` under the image too, where the labels are read at a glance: 11% of
+cards carry one naming the harness rather than what it measures (`luma MAD`,
+`Material::glow`, `FIELD_SCALE`).
+
+**Measured 2026-08-29** over 158 review cards, 347 image panes and 283 commit
+subjects: 56% of PR subjects need a document opened before they parse, **no
+message in any corpus states a direction**, and the one clean channel is the
+review card title — 1% jargon, because the review skill gives it a required
+shape. Every channel with a shape is clean; every channel without one is not.
+Census, worked rewrites, and the channels deliberately left alone:
+`Reports/agent-communication.md`.
+
+**`python3 scripts/plaincheck.py` scores a draft** and names the failing
+lines. It cannot gate anything — chat is not an artifact the repo can check —
+so it is a mirror, not a fence.
+
 ## Working alongside another session
 
 **This tree is worked in concurrently, and often by more than one agent at
