@@ -1,0 +1,54 @@
+{
+  "id": "20260829T170504038Z-cd73e9",
+  "created": "2026-08-29T17:05:04Z",
+  "board": "caves",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/worldgen-revamp-plan-dot67g",
+    "commit": "077b142",
+    "agent": null,
+    "session_id": "2cb39797-d076-5699-b8bf-4494224deffe",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The caves, with the rock taken away",
+  "question": "The honeycomb web and the round room are two different things sharing one cave. Should the web stay at all — as background rock you dig through, never as passage — or go entirely, leaving caves as passages and rooms only?",
+  "context_md": "One cave system in a full-size world (terraced, seed 1), photographed from inside. Left is what you would see; right is the same frame with every open cell painted magenta, so the cave's own shape is visible through the rock.\n\nWhat the second picture shows is that the cave **is** the honeycomb — the passages are the straight boundary lines of a Voronoi diagram, meeting three at a time — with a single circle grown on top of it as the one room. That circle is the 'perfect oval' you named. Nothing else in the picture is a room.\n\nMeasured today, same build: the web's corridors are too narrow for the gnome over more than half their length, so most of what looks like cave is not walkable. I am redesigning this from scratch and the answer to the question above decides whether the web is kept as scenery or removed.",
+  "kind": "gallery",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "as drawn",
+      "files": [
+        "20260829T170504038Z-cd73e9/000-terraced_vault.png"
+      ],
+      "caption": "what the player sees",
+      "meta": {
+        "cave systems in this world": 2,
+        "rooms in them": 2,
+        "passage cells carved": 23167,
+        "share of a cave the gnome can walk to, median": "43%"
+      },
+      "focus": null
+    },
+    {
+      "label": "void revealed",
+      "files": [
+        "20260829T170504038Z-cd73e9/001-terraced_reveal.png"
+      ],
+      "caption": "every open cell in magenta",
+      "meta": {
+        "separate walkable pockets in one cave, worst seed": 95,
+        "cave as a share of the deep rock": "0.37%"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
