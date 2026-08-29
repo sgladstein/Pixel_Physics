@@ -445,6 +445,19 @@ drift that two of these documents still reflect.**
   fruit, where the clocks predict 58. Records four failures caught by looking
   rather than by a number, including a turgor bound that cut the axis short of
   its own metamer count.
+- [plant-heritable-fates-handoff-2026-08-29.md](plant-heritable-fates-handoff-2026-08-29.md)
+  — **handoff; read first if you are continuing the plant-evolution line.**
+  The production rule is heritable now: every organism carries its own
+  `FateGenome`, founded from its species file, read ahead of it, and
+  copied-then-mutated when a seed is borne — so a lineage can move its
+  developmental program, which nothing could do before. The operator is the
+  flexible one by owner's call (retarget / recondition / insert / delete), and
+  **only retarget has a viability gate**; the rate is a guess; and throughput
+  is still the blocker, since a tree reaches generation 1 in 8 of 8 seeds and
+  never more. Its §4a is the one to read before writing any guard here: with
+  the mechanism disabled outright the two obvious tests stayed **green**,
+  because a founder and its species agree by construction whichever table was
+  read.
 - [plant-evolvability-handoff-2026-08-27.md](plant-evolvability-handoff-2026-08-27.md)
   — **handoff; read first when picking this line up.** Reading order for the
   six documents, what is actually established, and **§3: an owner-caught
