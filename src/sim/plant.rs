@@ -1469,9 +1469,9 @@ fn set_seed(world: &mut World, x: i32, y: i32, parent_id: u16, seed_cost: f32, r
 /// sequence *choose a spot, draw a shade, mutate the genome* exactly where it
 /// was. The drop path has no spot draw at all: a fruit lets go where it hangs.
 fn bear_seed_at(world: &mut World, sx: i32, sy: i32, parent_id: u16, seed_cost: f32, seed_material: material::MaterialId, rng: &mut Rng) -> bool {
-    let Some((species, draws, generation, parent_alleles, parent_fates)) = world
+    let Some((species, draws, generation, parent_alleles, parent_fates, parent_lineage)) = world
         .organism(parent_id)
-        .map(|s| (s.species, s.genotype_draws, s.generation, s.alleles, s.fates))
+        .map(|s| (s.species, s.genotype_draws, s.generation, s.alleles, s.fates, s.lineage))
     else {
         return false;
     };
@@ -1546,6 +1546,12 @@ fn bear_seed_at(world: &mut World, sx: i32, sy: i32, parent_id: u16, seed_cost: 
         // every rule a little would smear a population into one cloud instead
         // of letting a morph hold together between excursions.
         state.fates = parent_fates;
+        // **The lineage label rides with the genome and is never mutated.**
+        // It names the founder this descent came from, which is what makes a
+        // descendant attributable to an arm in `examples/selection_arena.rs`
+        // and what `plant-rule-drift-observed-2026-08-29.md` §5 records as
+        // missing outright: "No lineage was followed individually."
+        state.lineage = parent_lineage;
         for (locus, allele) in state.alleles.iter_mut().enumerate() {
             if rng.chance(organism::DISCRETE_MUTATION_CHANCE) {
                 let n = organism::LOCUS_ALLELES[locus].max(1);
@@ -7517,9 +7523,21 @@ impl World {
         // At the slot ceiling nothing is planted -- see `push_organism`.
         // After the emptiness check above, so a refusal and an occupied
         // cell are the same silent no-op from the caller's side.
+        // **A founder claims a lineage label**, exactly as `plant_creature_
+        // seed` does for animals. Until 2026-08-29 only creatures did, so
+        // every plant in every world carried `lineage == 0` and the field's
+        // own promise -- "copied unchanged from parent to child at every
+        // birth, so a whole clonal line shares one number" -- was true for
+        // half the kingdom. Nothing was wrong with the mechanism; plants
+        // simply never entered it, which is the channel-with-no-writer shape
+        // `CLAUDE.md` names.
+        let lineage = self.claim_lineage();
         let Some(organism_id) = self.push_organism(moss_species) else {
             return;
         };
+        if let Some(state) = self.organism_mut(organism_id) {
+            state.lineage = lineage;
+        }
         let aux = organism::pack_cell_type(CellType::GrowingTip);
         self.set(x, y, Cell::new(moss_material, shade).with_organism_id(organism_id).with_aux(aux));
         // Moss skips the `Seed` stage entirely, so it has no germination to
@@ -7569,9 +7587,15 @@ impl World {
         // At the slot ceiling nothing is planted -- see `push_organism`.
         // `false` is the same answer this already gives for an occupied
         // cell, so every caller's existing handling covers it.
+        // A founder claims a lineage label -- see `plant_moss_seed`.
+        // Claimed before `push_organism` because it borrows `self`.
+        let lineage = self.claim_lineage();
         let Some(organism_id) = self.push_organism(tree_species) else {
             return false;
         };
+        if let Some(state) = self.organism_mut(organism_id) {
+            state.lineage = lineage;
+        }
         let aux = organism::pack_cell_type(CellType::Seed);
         self.set(x, y, Cell::new(seed_material, shade).with_organism_id(organism_id).with_aux(aux));
         // Checked often while it is still falling -- see SEED_TICK_INTERVAL.
@@ -9675,6 +9699,64 @@ The night factor belongs on income only -- see NIGHT_INCOME_FLOOR"
             "a child must inherit its parent's production rule. At FATE_MUTATION_CHANCE this draw does not \
              mutate, so any difference here is the table being re-read from the species rather than inherited \
              -- which is exactly the pre-change behaviour wearing the new field's name"
+        );
+    }
+
+    /// **A plant founder gets a lineage label, and its seed inherits it.**
+    ///
+    /// The writer-and-reader check for a channel that had a reader and no
+    /// writer on the plant side: `OrganismState::lineage` has existed and
+    /// been documented as *"copied unchanged from parent to child at every
+    /// birth"* since the creature line landed it, and until 2026-08-29 no
+    /// plant ever claimed one, so every plant in every world read 0 — the
+    /// value the field's own doc reserves for "not descended from any
+    /// founder". A census built on it would have reported one giant lineage
+    /// containing the entire flora and been arithmetically correct.
+    ///
+    /// Asserts all three properties, because any two of them can hold while
+    /// the channel is still useless: founders are non-zero, two founders
+    /// differ, and a bred seed carries its parent's label rather than a
+    /// fresh one.
+    #[test]
+    fn a_plant_founder_claims_a_lineage_and_its_seed_inherits_it() {
+        let mut w = test_world();
+        w.seed = 909;
+        let stone = material::STONE;
+        for x in 40..60 {
+            w.set(x, 60, Cell::new(stone, 0));
+        }
+        assert!(w.plant_tree_species(45, 59, "herb"), "test setup: the first founder must plant");
+        assert!(w.plant_tree_species(55, 59, "herb"), "test setup: the second founder must plant");
+        let founders: Vec<u16> = (40..60).filter_map(|x| Some(w.get(x, 59).organism_id()).filter(|&id| id != 0)).collect();
+        assert_eq!(founders.len(), 2, "test setup: expected exactly two founder organisms on the shelf");
+
+        let a = w.organism(founders[0]).expect("live").lineage;
+        let b = w.organism(founders[1]).expect("live").lineage;
+        assert_ne!(a, 0, "a founder must claim a lineage label; 0 means it never entered the mechanism");
+        assert_ne!(b, 0, "a founder must claim a lineage label; 0 means it never entered the mechanism");
+        assert_ne!(a, b, "two founders must get different labels, or every plant is one lineage");
+
+        // The parent needs a body to bear from, as in the test above.
+        let parent = founders[0];
+        let wood = w.materials.id_of("wood").expect("wood");
+        place(&mut w, (45, 58), wood, parent, CellType::MatureBody, (4.0, 0.0));
+        let mut rng = rng::stream(5, 6, 7, 8);
+        assert!(set_seed(&mut w, 45, 58, parent, 0.2, &mut rng), "the parent must manage to bear a seed");
+
+        let child = (35..70)
+            .flat_map(|x| (40..70).map(move |y| (x, y)))
+            .filter_map(|(x, y)| {
+                let c = w.get(x, y);
+                (c.organism_id() != 0 && c.organism_id() != parent && c.organism_id() != founders[1])
+                    .then(|| c.organism_id())
+            })
+            .next()
+            .expect("the seed created a child organism");
+        assert_eq!(
+            w.organism(child).expect("live").lineage,
+            a,
+            "a seed must carry its parent's lineage label. A fresh label here would make every birth its own \
+             lineage and the share statistic meaningless; 0 would mean the copy never happens for plants"
         );
     }
 

@@ -2708,6 +2708,29 @@ impl World {
     /// Called once per *founder*, at the seam a creature appears out of
     /// nothing; a bud copies its parent's instead, which is what makes a
     /// clonal line one label rather than N.
+    /// **Set one organism's production rule.** A harness seam, and
+    /// deliberately narrower than making `organism_mut` public.
+    ///
+    /// It exists for `examples/selection_arena.rs`, which has to stand two
+    /// genomes in **one** bed to ask whether the world discriminates between
+    /// them. The alternative route -- the one `fate_viability` takes, of
+    /// registering each variant as its own species and planting that -- is
+    /// right for a viability gate and wrong here: it would make the two arms
+    /// different *species*, so they would differ in their species table as
+    /// well as in their genome, and `plant::fate_for` consults both.
+    ///
+    /// Returns whether the organism was live. `false` for a stale or
+    /// recycled handle rather than a panic, matching `organism`.
+    pub fn set_organism_fates(&mut self, organism_id: u16, fates: super::organism::FateGenome) -> bool {
+        match self.organism_mut(organism_id) {
+            Some(state) => {
+                state.fates = fates;
+                true
+            }
+            None => false,
+        }
+    }
+
     pub(crate) fn claim_lineage(&mut self) -> u32 {
         let id = self.next_lineage;
         self.next_lineage = self.next_lineage.saturating_add(1);
