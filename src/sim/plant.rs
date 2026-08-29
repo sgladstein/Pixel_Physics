@@ -11644,6 +11644,21 @@ where the soil arm's exchange makes that {expected:.0} (before the fix: 1,000 of
             })
             .collect();
         assert!(!leaves.is_empty(), "test setup: the tree should have grown leaves to shed");
+
+        // The baseline the assertion below is taken against: which cells were
+        // one piece *before* anything was shed.
+        let is_plant_before =
+            |c: Cell| c.organism_id() == organism_id && w.materials.kind(c.material) == MaterialKind::Plant;
+        let all_before: Vec<(i32, i32)> = (b.min_y..=b.max_y)
+            .flat_map(|y| (b.min_x..=b.max_x).map(move |x| (x, y)))
+            .filter(|&(x, y)| w.get(x, y).organism_id() == organism_id)
+            .collect();
+        let base = all_before
+            .iter()
+            .find(|&&(x, y)| organism::cell_type(w.get(x, y).aux()) != Some(CellType::Leaf))
+            .expect("test setup: the tree should have at least one non-leaf cell");
+        let connected_before = organism::reachable_from_anchors(&w, [*base], is_plant_before, 100_000);
+
         for &(x, y) in &leaves {
             w.set(x, y, Cell::EMPTY);
         }
@@ -11654,16 +11669,41 @@ where the soil arm's exchange makes that {expected:.0} (before the fix: 1,000 of
             .collect();
         assert!(!wood.is_empty(), "test setup: shedding leaves should not have removed the whole tree");
 
-        // One flood fill from any surviving cell must reach all of them.
+        // **Compare connectivity across the shedding, rather than asserting
+        // the survivors form one piece.** What is under test is whether a
+        // *leaf* was carrying the stem, so the question is whether shedding
+        // disconnected something that had been connected -- not whether the
+        // plant was in one piece to begin with.
+        //
+        // Those are not the same claim, and the difference is not academic.
+        // A plant can already arrive here in two pieces for reasons that have
+        // nothing to do with leaves: a starving individual can grow a root
+        // cell in the same window that dieback removes the tissue behind it,
+        // stranding it with all eight neighbours empty. Measured over 24
+        // individuals, that happens to **1 of 24 -- and to 1 of 24 with the
+        // growth walk's `stem_stiffness` forced off as well**, so it is a
+        // standing condition and not any one change's doing
+        // (`Reports/open-bugs-handoff.md` §T).
+        //
+        // The total-connectivity form pinned on whichever individual the
+        // search happened to land on, so *any* legitimate change that
+        // reshuffles the stand could move that 1-in-24 onto individual 0 and
+        // fail a test about leaves for a reason involving no leaf at all.
+        // That is `CLAUDE.md`'s "check that a guard's inputs actually vary
+        // what it guards" -- the assertion below varies with leaves and with
+        // nothing else.
         let is_plant = |c: Cell| c.organism_id() == organism_id && w.materials.kind(c.material) == MaterialKind::Plant;
-        let reached = organism::reachable_from_anchors(&w, [wood[0]], is_plant, 100_000);
-        assert_eq!(
-            reached.len(),
-            wood.len(),
-            "shedding every leaf left the stem in more than one piece: {} of {} cells reachable from the base. \
+        let after = organism::reachable_from_anchors(&w, [*base], is_plant, 100_000);
+        let broken_off: Vec<_> = connected_before
+            .iter()
+            .filter(|p| w.get(p.0, p.1).organism_id() == organism_id && !after.contains(p))
+            .collect();
+        assert!(
+            broken_off.is_empty(),
+            "shedding the leaves cut {} cell(s) off a stem they had been connected through, e.g. {:?}. \
 Leaves must hang off the stem, not be segments of it",
-            reached.len(),
-            wood.len()
+            broken_off.len(),
+            &broken_off[..broken_off.len().min(4)]
         );
     }
 
