@@ -21,6 +21,7 @@
 //! cargo run --release --example viewshot -- seed=7 preset=arid shots=6
 //! cargo run --release --example viewshot -- frame=1800   # night, for stars and moon
 //! cargo run --release --example viewshot -- vault=1 crop=180,90,160,140 zoom=4
+//! cargo run --release --example viewshot -- vault=1 gnome=1 zoom=2   # scale, inside a cave
 //! ```
 //!
 //! Written for the world-size step, kept for weather: a rain or snow sky is
@@ -418,6 +419,10 @@ fn main() {
         rescaled = params.scaled(a.cellscale);
         &rescaled
     };
+    // Captured before `params` is moved into the spec: the vault search below
+    // needs the same depth band the pass places into, and reading it from the
+    // preset is the only way that stays true when the preset changes it.
+    let vault_min_depth = params.vault_min_depth;
     let build = std::time::Instant::now();
     pixel_physics::worldgen::generate(&mut world, pixel_physics::worldgen::Spec::Generated { params, seed: a.seed as u64 });
     let build_ms = build.elapsed().as_secs_f64() * 1000.0;
@@ -761,11 +766,25 @@ fn main() {
     };
 
     let vault_at = if a.vault {
-        let deep = world_h / 2;
+        // **The floor of the search is the depth band `vaults` places into,
+        // measured from each column's own surface — not a fixed fraction of
+        // the world.** It was `world_h / 2`, which was below the surface and
+        // above the caves while the world was 2048x640; at the shipped
+        // 8192x2560 a cave sits at `surface + 200` and the massif below 1280
+        // is solid, so the search reported **NO VAULT in this world** on a
+        // seed whose own `vaults detail` line said `systems 1`. That is a
+        // ruler that cannot see the thing it is pointed at (CLAUDE.md's
+        // positive control: the pass's own counter said the cave was there).
+        // Starting from `surface + vault_min_depth` also excludes brow and
+        // overhang air by construction, which a flat depth cannot.
         let mut found: Option<(i32, i32)> = None;
         let mut best = 0;
         let mut air = 0usize;
         for x in 0..world_w {
+            let surface = (0..world_h)
+                .find(|&y| world.get(x, y).material != material::EMPTY)
+                .unwrap_or(world_h);
+            let deep = (surface + vault_min_depth).min(world_h);
             let mut run = 0;
             for y in deep..world_h {
                 if world.get(x, y).material == material::EMPTY {
@@ -1005,13 +1024,68 @@ fn main() {
                 .map(ground_at)
                 .min()
                 .unwrap_or_else(|| ground_at(gx));
-            world.player = Some(pixel_physics::sim::player::Player::at(gx, surface - PLAYER_HEIGHT / 2));
-            let (x0, y0, x1, y1) = world.player.as_ref().expect("just placed").bounds();
-            let clear = (y0..=y1).all(|y| (x0..=x1).all(|x| world.get(x, y).material == material::EMPTY));
-            let footing = (x0..=x1).any(|x| world.get(x, y1 + 1).material != material::EMPTY);
-            println!("    gnome at ({gx}, {surface}): {} rows x {} cols, standing on rock: {footing}, not buried: {clear}", y1 - y0 + 1, x1 - x0 + 1);
-            assert!(clear, "the gnome is buried at ({gx}, {surface}) -- he is a ruler, and a buried ruler is a bug report");
-            assert!(footing, "the gnome is floating at ({gx}, {surface}) -- nothing solid under his feet");
+            // **Underground, the skyline is the wrong ground.** `vault=1`
+            // aims the camera hundreds of rows below the surface, so a gnome
+            // stood on the skyline is not in the picture at all -- and the
+            // owner asked twice for a scale reference *inside* a cave
+            // ("It hard to tell the scale of the caves zoomed in and without
+            // other context"). So for a vault shot, stand him on the nearest
+            // cave floor that can actually hold him: the standing position
+            // closest to the view centre where the whole `PLAYER_WIDTH x
+            // PLAYER_HEIGHT` box is open and something solid is under his
+            // feet.
+            //
+            // That search is also the answer to *"it doesn't look like I
+            // could even enter it"*, stated as a fact rather than an
+            // impression: if it finds nothing anywhere in frame, no gnome
+            // fits in this cave, and the line printed below says so instead
+            // of an assertion firing.
+            let mut stand = Some((gx, surface));
+            if a.vault {
+                let (vw, vh) = renderer.visible_span((view_w, view_h));
+                let (cx0, cy0) = (cam_x, cam_y);
+                let fits = |x: i32, feet: i32| {
+                    let (x0, x1) = (x - half, x + half);
+                    let (y0, y1) = (feet - PLAYER_HEIGHT, feet - 1);
+                    x0 >= 0
+                        && x1 < world_w
+                        && y0 >= 0
+                        && feet < world_h
+                        && (y0..=y1).all(|y| {
+                            (x0..=x1).all(|x| world.get(x, y).material == material::EMPTY)
+                        })
+                        && (x0..=x1).any(|x| world.get(x, feet).material != material::EMPTY)
+                };
+                let (mid_x, mid_y) = (cx0 + vw / 2, cy0 + vh / 2);
+                let mut best: Option<(i64, i32, i32)> = None;
+                for x in cx0.max(0)..(cx0 + vw).min(world_w) {
+                    for feet in cy0.max(0)..(cy0 + vh).min(world_h) {
+                        if !fits(x, feet) {
+                            continue;
+                        }
+                        let d = ((x - mid_x) as i64).pow(2) + ((feet - mid_y) as i64).pow(2);
+                        if best.is_none_or(|(bd, _, _)| d < bd) {
+                            best = Some((d, x, feet));
+                        }
+                    }
+                }
+                stand = best.map(|(_, x, feet)| (x, feet));
+                if stand.is_none() {
+                    println!(
+                        "    NO STANDING ROOM: no {PLAYER_WIDTH}x{PLAYER_HEIGHT} open box with \
+                         footing anywhere in this frame -- the gnome cannot enter this cave"
+                    );
+                }
+            }
+            if let Some((gx, surface)) = stand {
+                world.player = Some(pixel_physics::sim::player::Player::at(gx, surface - PLAYER_HEIGHT / 2));
+                let (x0, y0, x1, y1) = world.player.as_ref().expect("just placed").bounds();
+                let clear = (y0..=y1).all(|y| (x0..=x1).all(|x| world.get(x, y).material == material::EMPTY));
+                let footing = (x0..=x1).any(|x| world.get(x, y1 + 1).material != material::EMPTY);
+                println!("    gnome at ({gx}, {surface}): {} rows x {} cols, standing on rock: {footing}, not buried: {clear}", y1 - y0 + 1, x1 - x0 + 1);
+                assert!(clear, "the gnome is buried at ({gx}, {surface}) -- he is a ruler, and a buried ruler is a bug report");
+                assert!(footing, "the gnome is floating at ({gx}, {surface}) -- nothing solid under his feet");
+            }
         }
         // Clamped hard against an edge is legitimate at the ends of the
         // world and a bug in the middle, so print the camera rather than
