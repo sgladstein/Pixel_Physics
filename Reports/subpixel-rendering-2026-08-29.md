@@ -281,3 +281,66 @@ overturned the part of this work that no test, no counter and no amount of
 reasoning here would have questioned — the shading fired, the numbers were
 right, and it was wrong anyway. That is the fourth entry in this repo's tally
 of models overturned only by the owner's eye.
+
+
+## 10. Second round: flat is right, and the metaball's own tell
+
+Card `20260829T085116684Z-232cd7` — the flat arm against the rejected rounded
+one, **not blinded**, so the prose reads directly and `choice_label` agrees
+with it:
+
+> *"2 is better than 1. Not saying it is better than the current
+> implementation. Continue working on 2. Even flatter, there are still 3dish
+> looking shading. Also could the edges look more rough, the smooth circular
+> shape/edges look fake"*
+
+Three things in that, and the middle sentence is the one to keep in view:
+**the bar is the shipped 1:1 render, not the previous attempt.** A/B against
+your own last iteration measures progress and can run for ever without
+clearing the thing it started from.
+
+### 10a. What was still shading, after the shading was removed
+
+`ao` and `shade` were already off, so the remaining gradient was the
+**kernel-weighted colour mean** — smooth wherever the contributing cells
+differ, and a smooth gradient across a shape is exactly what reads as a lit
+curved surface. It was not modelled as shading and it looked like shading,
+which is the whole of the note.
+
+**Quantising the RGB channels independently was the first fix and it wrecks
+hue**: at five steps per channel the browns went maroon and the darker tones
+went to flat black, because a uniform ladder in RGB does not respect where a
+palette's colours actually sit. Recorded in `dead-ends.md`.
+
+What works is snapping each fill to the nearest colour **that actually occurs
+in the cells under it**. It can only ever emit a colour the engine already
+drew, so the palette is exact by construction, and — the part that matters —
+the region boundaries follow the *smooth field* rather than the cell grid.
+That is what separates it from `colour_blend: 0.0`, which also emits exact
+palette colours but lays them out in a nearest-cell-centre partition, and on a
+lattice that partition is squares. Same colours, same flatness, and one of them
+is the mosaic of §5b.
+
+### 10b. "The smooth circular shape/edges look fake" is a correct reading of
+the mechanism
+
+This is the sharpest note of the three, because it names an artifact of the
+method rather than a tuning error. **A sum of radial kernels thresholded at a
+constant level can only produce circular arcs and smooth joins between them.**
+An isolated cell is a disc; a clump is a run of fused discs. It is legible, it
+is organic-ish, and it is unmistakably synthetic once seen — soap bubbles.
+
+The fix is not more geometry. **The threshold does not have to be a constant.**
+Perturbing it with coherent value noise makes the same field cut a ragged
+outline at no extra kernel work — one noise sample per pixel, shared by every
+layer so a branch and the leaf in front of it are cut by the same wander and
+their seam does not read as a third object. Keyed to **world** position, never
+screen position, for the reason `rng::jitter` is: a threshold keyed to the
+screen crawls over the terrain whenever the camera moves.
+
+Foliage is the case that wants it most — a leaf edge is serrated and a canopy
+edge is a thousand leaf tips, and neither is an arc.
+
+Posted as card `20260829T090127…` (blind, board `plants`) against the shipped
+1:1 render, which is the comparison the second sentence of the verdict asked
+for.

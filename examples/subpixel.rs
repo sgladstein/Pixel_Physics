@@ -139,6 +139,51 @@ struct Args {
     outline: f32,
     /// How thick that shell is, in occupancy fraction above `level`.
     outline_width: f32,
+    /// **How far the silhouette threshold wanders with position** — what
+    /// stops a kernel field looking like soap bubbles.
+    ///
+    /// Asked for directly, 2026-08-29: *"could the edges look more rough, the
+    /// smooth circular shape/edges look fake"*. That is the metaball's own
+    /// tell. A sum of radial kernels thresholded at a **constant** level can
+    /// only ever produce circular arcs and smooth joins between them, so an
+    /// isolated cell is a disc and a clump is a run of fused discs — legible,
+    /// organic-ish, and unmistakably synthetic once you have seen it.
+    ///
+    /// The fix is not more geometry. The threshold does not have to be a
+    /// constant: perturbing it with coherent noise makes the *same* field cut
+    /// a ragged outline, at no extra kernel work. Foliage is the whole reason
+    /// — a leaf edge is serrated and a canopy edge is a thousand leaf tips,
+    /// and neither is an arc.
+    ///
+    /// A pure function of **world** position, never of screen position, for
+    /// the same reason `rng::jitter` is: a threshold keyed to the screen
+    /// would crawl over the terrain every time the camera moved.
+    rough: f32,
+    /// Spatial frequency of `rough`, in cycles per cell. Above about 2 the
+    /// wobble is finer than the reconstruction can resolve and reads as fizz.
+    rough_freq: f32,
+    /// **Snap each fill to a colour that actually occurs in the cells under
+    /// it**, instead of leaving it on the kernel-weighted mean.
+    ///
+    /// The second half of *"even flatter, there are still 3dish looking
+    /// shading"*. With the ambient-occlusion and normal terms already gone,
+    /// what remains is that mean, which makes a smooth gradient wherever the
+    /// contributing cells differ — and a smooth gradient across a shape is
+    /// exactly what reads as a lit curved surface.
+    ///
+    /// **Quantising the RGB channels independently was tried first and wrecks
+    /// hue**: at 5 steps per channel the browns went maroon and the darker
+    /// tones went to flat black, because a uniform ladder in RGB does not
+    /// respect where a palette's colours actually sit. Snapping to the
+    /// nearest *contributing* colour instead can only ever emit a colour the
+    /// engine already drew, so the palette is exact by construction.
+    ///
+    /// The region boundaries then follow the **smooth field** rather than the
+    /// cell grid, which is what separates this from `colour_blend: 0.0`: that
+    /// one also emits exact palette colours and lays them out in a
+    /// nearest-cell-centre partition, which on a lattice is squares — the
+    /// mosaic §5b is about.
+    snap: bool,
     crop: Option<(i32, i32, i32, i32)>,
     daylight: Option<f32>,
     out: String,
@@ -162,6 +207,9 @@ impl Default for Args {
             sun: (-0.55, -0.84),
             outline: 0.0,
             outline_width: 0.22,
+            rough: 0.0,
+            rough_freq: 1.4,
+            snap: false,
             crop: None,
             daylight: Some(1.0),
             out: "/tmp/subpixel.png".into(),
@@ -169,6 +217,35 @@ impl Default for Args {
     }
 }
 
+
+/// A cheap, well-mixed 2D integer hash. Same role as `rng::jitter`'s — a
+/// deterministic value per world position, with no carried state, so a
+/// parallel draw and a serial one cannot disagree.
+fn hash2(x: i32, y: i32) -> f32 {
+    let mut h = (x as u32).wrapping_mul(0x27d4_eb2d) ^ (y as u32).wrapping_mul(0x1656_67b1);
+    h ^= h >> 15;
+    h = h.wrapping_mul(0x2c1b_3c6d);
+    h ^= h >> 12;
+    h = h.wrapping_mul(0x297a_2d39);
+    h ^= h >> 15;
+    (h & 0xffff) as f32 / 65535.0
+}
+
+/// Smoothed value noise on the unit lattice, in `0..=1`.
+///
+/// Coherent rather than per-pixel white noise, deliberately: white noise on
+/// the threshold makes the outline *fizz* — every pixel independently in or
+/// out — where what is wanted is an edge that **wanders**. The smoothstep
+/// weights are what make neighbouring pixels agree.
+fn value_noise(x: f32, y: f32) -> f32 {
+    let (fx, fy) = (x.floor(), y.floor());
+    let (u, v) = (x - fx, y - fy);
+    let (su, sv) = (u * u * (3.0 - 2.0 * u), v * v * (3.0 - 2.0 * v));
+    let (ix, iy) = (fx as i32, fy as i32);
+    let top = hash2(ix, iy) + (hash2(ix + 1, iy) - hash2(ix, iy)) * su;
+    let bot = hash2(ix, iy + 1) + (hash2(ix + 1, iy + 1) - hash2(ix, iy + 1)) * su;
+    top + (bot - top) * sv
+}
 
 /// Kernel value at a lattice offset. `(1 - d^2/r^2)^2` is the standard
 /// smooth compact kernel: exactly zero past `r`, so a 5x5 bound is a real
@@ -226,6 +303,13 @@ struct Layer {
     raw: f32,
     nearest: [f32; 3],
     grad: [f32; 2],
+    /// The distinct colours of the cells contributing here, for `snap`.
+    /// Bounded at eight because a 5x5 window of one material draws from a
+    /// four-entry palette band; overflow simply stops collecting, which
+    /// degrades to "snap to one of the first eight" and never to a colour
+    /// that is not in the picture.
+    palette: [[f32; 3]; 8],
+    used: usize,
 }
 
 /// Kernel sum over the 5x5 neighbourhood, restricted to one class, divided by
@@ -250,6 +334,8 @@ fn field(
     let mut grad = [0.0f32; 2];
     let mut best = f32::NEG_INFINITY;
     let mut nearest = [0.0f32; 3];
+    let mut palette = [[0.0f32; 3]; 8];
+    let mut used = 0usize;
     for ny in (by - 2)..=(by + 2) {
         for nx in (bx - 2)..=(bx + 2) {
             if nx < 0 || ny < 0 || nx >= w || ny >= h || class[(ny * w + nx) as usize] != want {
@@ -275,6 +361,10 @@ fn field(
                 best = k;
                 nearest = c;
             }
+            if used < palette.len() && !palette[..used].contains(&c) {
+                palette[used] = c;
+                used += 1;
+            }
             // d(k)/d(p) for k = t^2, t = 1 - |p-c|^2/r^2. Points *into* the
             // mass, because `k` grows toward the cell centre; the outward
             // normal is its negation.
@@ -292,6 +382,8 @@ fn field(
         nearest,
         // Same normalisation as `cov`: the gradient of a normalised field.
         grad: [grad[0] / partition, grad[1] / partition],
+        palette,
+        used,
     })
 }
 
@@ -314,6 +406,9 @@ fn main() {
             "shade" => a.shade = v.parse().expect("shade"),
             "outline" => a.outline = v.parse().expect("outline"),
             "outline_width" => a.outline_width = v.parse().expect("outline_width"),
+            "rough" => a.rough = v.parse().expect("rough"),
+            "rough_freq" => a.rough_freq = v.parse().expect("rough_freq"),
+            "snap" => a.snap = v != "false" && v != "0",
             "daylight" => a.daylight = Some(v.parse().expect("daylight")),
             "crop" => {
                 let n: Vec<i32> = v.split(',').map(|s| s.parse().expect("crop")).collect();
@@ -334,6 +429,7 @@ fn main() {
         "          ao={} shade={} sun={:?} outline={} outline_width={}",
         a.ao, a.shade, a.sun, a.outline, a.outline_width
     );
+    println!("          rough={} rough_freq={} snap={}", a.rough, a.rough_freq, a.snap);
 
     let base = common::PlantScene::default();
     let mut world = common::PlantScene {
@@ -468,10 +564,19 @@ fn main() {
                     field(&class, &plant_frame, W, H, bx, by, fx, fy, a.wood_r, Class::Wood, wood_part[pi]);
                 let leaf =
                     field(&class, &plant_frame, W, H, bx, by, fx, fy, a.leaf_r, Class::Foliage, leaf_part[pi]);
+                // One noise sample per pixel, shared by every layer: the
+                // threshold wanders with *place*, so a branch and the leaf in
+                // front of it must be cut by the same wander or their edges
+                // disagree and the seam between them reads as a third object.
+                let level = if a.rough > 0.0 {
+                    a.level + a.rough * (value_noise(fx * a.rough_freq, fy * a.rough_freq) - 0.5)
+                } else {
+                    a.level
+                };
                 for layer in [ground, wood, leaf] {
                     let Some(l) = layer else { continue };
-                    let lo = a.level * (1.0 - a.band);
-                    let hi = a.level * (1.0 + a.band);
+                    let lo = level * (1.0 - a.band);
+                    let hi = level * (1.0 + a.band);
                     let t = ((l.cov - lo) / (hi - lo)).clamp(0.0, 1.0);
                     // Smoothstep, so the outline has a soft shoulder rather
                     // than a one-pixel hard step -- which is the whole
@@ -496,7 +601,7 @@ fn main() {
                         // `cov` is a fraction now, so this is literally "how
                         // enclosed is this point", 0 on the outline and 1
                         // where every neighbour is tissue too.
-                        let depth = ((l.cov - a.level) / (1.0 - a.level)).clamp(0.0, 1.0);
+                        let depth = ((l.cov - level) / (1.0 - level)).clamp(0.0, 1.0);
                         lift *= 1.0 - a.ao * depth;
                     }
                     if a.shade > 0.0 {
@@ -524,8 +629,26 @@ fn main() {
                         // gone by `outline_width` into the mass. Linear
                         // rather than smoothstepped, because a cartoon line
                         // wants a defined inner edge, not a vignette.
-                        let into = ((l.cov - a.level) / a.outline_width).clamp(0.0, 1.0);
+                        let into = ((l.cov - level) / a.outline_width).clamp(0.0, 1.0);
                         lift *= 1.0 - a.outline * (1.0 - into);
+                    }
+                    if a.snap && l.used > 0 {
+                        // Nearest contributing colour to the blended one.
+                        // **Before** the outline is applied below, so the ink
+                        // line is not snapped away into the fill it exists to
+                        // separate.
+                        let mut pick = l.palette[0];
+                        let mut d2 = f32::INFINITY;
+                        for c in &l.palette[..l.used] {
+                            let d = (c[0] - plant[0]).powi(2)
+                                + (c[1] - plant[1]).powi(2)
+                                + (c[2] - plant[2]).powi(2);
+                            if d < d2 {
+                                d2 = d;
+                                pick = *c;
+                            }
+                        }
+                        plant = pick;
                     }
                     for i in 0..3 {
                         plant[i] *= lift;
