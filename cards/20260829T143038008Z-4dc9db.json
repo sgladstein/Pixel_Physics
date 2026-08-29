@@ -1,0 +1,46 @@
+{
+  "id": "20260829T143038008Z-4dc9db",
+  "created": "2026-08-29T14:30:38Z",
+  "board": "plants",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/plant-visual-improvements-q1mked",
+    "commit": "492428d",
+    "agent": null,
+    "session_id": "a72d6728-5352-5912-9975-53b6a7accdc8",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Same tuning, but foliage sets the silhouette — and the question underneath it",
+  "question": "A is what ships. B is the flat/rough version you last saw, with one thing changed: each leaf cell paints more than its own square, so the crown rather than the twig sets the outline. If B still isn't clearly better, that tells us something more useful than the tuning — say so and I'll stop tuning: it would mean the problem is that these trees ARE mostly bare twig, not that we draw them badly. Is it the drawing, or the tree?",
+  "context_md": "Every arm you have seen so far held one thing constant that I should have varied: foliage painted roughly its own cell area, so all three were the same brown-twig-dominated tree with differently-drawn twigs. Same 7,470 leaf cells and 7,387 wood cells here as in every previous card — no simulation change, no economy change. Only how much silhouette a leaf cell is allowed to cover. Three rounds have now come back 'not better', and the repo's own rule is that repeated failure the same way means the approach is wrong rather than the tuning; this is the control that isolates the one rider before I accept that.",
+  "kind": "ab",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "shipped 1:1, magnified 3x",
+      "files": [
+        "20260829T143038008Z-4dc9db/000-ab-A.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "flat + rough + foliage-dominant crown",
+      "files": [
+        "20260829T143038008Z-4dc9db/001-v4-crown.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
