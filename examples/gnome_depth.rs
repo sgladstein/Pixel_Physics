@@ -51,12 +51,26 @@ fn main() {
                     "front" => TreeDepth::Front,
                     "behind" => TreeDepth::Behind,
                     "haze" => TreeDepth::Haze,
-                    _ => TreeDepth::Weave,
+                    "weave" => TreeDepth::Weave,
+                    // **A typo in the *value* is the sharper half of the
+                    // megastudy failure, and this arm used to swallow it.**
+                    // An unknown key at least left a stderr line; `depth=fron`
+                    // fell through to `Weave` and produced a sheet that looks
+                    // exactly like a `front` run nobody asked for.
+                    other => panic!("unknown depth {other:?}; known: front, behind, haze, weave"),
                 }
             }
-            _ => eprintln!("ignoring unknown argument {arg}"),
+            // `CLAUDE.md`, the megastudy post-mortem: an unknown argument that
+            // is merely *warned* about is one a redirect loses, and the study
+            // it invalidates still looks exactly like a study. Refuse it.
+            other => panic!("unknown arg {other:?}; known: zoom, depth"),
         }
     }
+
+    // **Line one names what this run actually was**, which no line of its
+    // output did -- the sheet is a PNG and the two knobs that decide what is
+    // on it did not appear anywhere beside it.
+    println!("gnome_depth: zoom={zoom} depth={depth:?} widths={WIDTHS:?} offsets={OFFSETS:?}");
 
     // One tile is a whole little world, rendered at 1:1 and then blown up, so
     // what lands on the sheet is the renderer's own pixels rather than a
