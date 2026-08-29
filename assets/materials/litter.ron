@@ -113,6 +113,18 @@
     // `MaterialDef::falls_through_organisms` for why this is a flag rather
     // than a rule read off `density`.
     falls_through_organisms: true,
+    // **It governs two rules, not one, and the second was the half still on
+    // screen.** `update_powder` reads this flag twice: `fall_through_organism`
+    // stops a leaf resting on a branch, and `slide_past_organism` lets a drift
+    // spill *round* a trunk instead of climbing it. The first landed alone and
+    // measured as working -- 4 of 497 standing cells left with any air under
+    // them -- and the owner still reported that the leaves did not look like
+    // they were on the floor. He was right: a pile wedged between trunks has
+    // nowhere to roll, so it climbed out of the floor into the lower crown as
+    // a narrow column, grounded the whole way. Measured: 24% of standing
+    // litter more than eight rows up, 68% of it with plant tissue immediately
+    // beside it, tallest column 28 rows -- against 4.9% and 10 rows with both
+    // rules on.
     decays_into: "soil",
     // **5% of rotting litter leaves a soil cell; the other 95% leaves
     // nothing.** Owner's call, 2026-08-27, after the forest floor was
