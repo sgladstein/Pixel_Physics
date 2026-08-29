@@ -1,0 +1,32 @@
+// **A probe material, not a shipped creature.** One of the two value steps
+// `examples/creature_look.rs` measures the findability of a small body
+// against -- see `Reports/creature-appearance-design.md`.
+//
+// The hue is the shipped ant's, to two decimal places on the R:G:B ratio,
+// and only the *value* moves. That is deliberate and it is the whole
+// design of the experiment: `render.rs`'s gut-tint note records a blind
+// A/B in which **hue** lost at one to two cells, and an arm that moved hue
+// and value together could not say which one carried the result.
+//
+// The palette is narrow (14 units end to end) for the reason
+// `dead-ends.md` records against `log.ron`: a wide spread makes a field of
+// cells draw randomly across a range, which is *speckle*, and speckle
+// destroys the one thing a small body has -- its shape.
+(
+    name: "chitin_pale",
+    display: "Chitin (pale)",
+    kind: Creature,
+    density: 1.0,
+    colors: [
+        (214, 202, 188),
+        (222, 210, 196),
+        (206, 194, 180),
+    ],
+    flammability: 0.6,
+    burn_temperature: 500.0,
+    burn_duration: 40,
+    burns_into: "corpse",
+    heat_conductivity: 0.1,
+    food_energy: 480.0,
+    food_class: 1.0,
+)

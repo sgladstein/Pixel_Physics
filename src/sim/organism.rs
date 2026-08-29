@@ -3192,6 +3192,17 @@ const EMBEDDED: &[&str] = &[
     // better one than the naming rule is.
     include_str!("../../assets/species/herb.ron"),
     include_str!("../../assets/species/scrambler.ron"),
+    // Appended after the organ package, by the same trunk-first tiebreak
+    // `material.rs`'s list states: those were on `main` while these were on
+    // a branch.
+    // The creature-appearance candidates (`Reports/creature-appearance-
+    // design.md`). Each is `ant.ron` with one line changed -- `body:` --
+    // so the sheet they produce differs in extent and in nothing else.
+    include_str!("../../assets/species/ant_long.ron"),
+    include_str!("../../assets/species/ant_block.ron"),
+    include_str!("../../assets/species/ant_wide.ron"),
+    // The palette arm: `ant_block`'s body in `chitin_pale`'s colours.
+    include_str!("../../assets/species/chitin_pale.ron"),
 ];
 
 /// Where the loader looks for species files, relative to the working
