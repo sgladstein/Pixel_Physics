@@ -1,6 +1,9 @@
 # Structural Collapse
 
-*Current as of: 2026-08-29. Changed on 2026-08-28: ground that is standing
+*Current as of: 2026-08-29. Changed on 2026-08-29: a piece that breaks off
+now **turns as it falls**, and a piece that comes to rest overhanging its own
+footing **goes over** instead of standing on end; see **What a collapse looks
+like**. Changed on 2026-08-28: ground that is standing
 on scree is held by the scree, and no longer also leans on the rock beside
 it — which is what stopped hillsides taking themselves apart while nobody
 was playing; see **What rubble does**. Changed on 2026-08-27: debris that comes to
@@ -110,6 +113,24 @@ half way and leaves rock hanging in the air — **except where you have
 asked it to.** At the default that "except" never fires. At the tighter
 `F9` settings below it can, and that is the price of them; see that
 section.
+
+**A piece turns as it comes down, and how fast depends on what broke.** A
+short limb or a small block spins several times on the way to the ground; a
+long one comes over about once across a long drop, which is the difference
+between something tumbling and something toppling. It is not a random
+flourish — it comes from where the piece's weight sits relative to the point
+it broke away from, so a limb hanging out to the left of the cut goes over to
+the left, and one balanced directly above the cut has no reason to prefer
+either way and comes straight down.
+
+**And a piece that lands out of balance falls over rather than standing
+there.** If what a piece is resting on is too narrow for where its weight
+is — a trunk on its end, a slab on one corner — it tips, and keeps tipping
+until it is seated or until there is no room to turn into. That last case is
+a real outcome and not a failure: a piece wedged among others stays wedged.
+Expect a felled tree to end up as limbs lying across each other rather than
+as stumps standing upright in a heap, and expect a crowded pile to keep more
+of its awkward poses than an open floor does.
 
 Falling rock shoves smoke aside rather than stopping dead on it, which
 matters because the one place in the world thick with smoke is the fresh

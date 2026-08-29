@@ -187,6 +187,26 @@ const MAX_TOPPLE_TURNS: u8 = 4;
 /// `breaks_into`. The test was never the missing part. The outcome was.
 const TIPPING_KERN: f32 = 1.0 / 3.0;
 
+/// `FALL=off` puts a body back on the pre-2026-08-29 rule: no rate seeded
+/// from the break, no tipping test on landing, and the speed term turning
+/// one way as it always did.
+///
+/// **The control, and it is here because the alternative is not one.**
+/// Comparing this build against the last one compares two *binaries*, so
+/// every instrument added alongside the mechanism is missing from the arm it
+/// is being measured against -- which is exactly how the first reading of
+/// this change went wrong: the census that could see per-piece orientation
+/// existed only in the new build, so the comparison fell back on a
+/// cluster-level statistic that provably cannot answer the question. One env
+/// switch holding the semantic rule fixed and changing nothing else is
+/// `CLAUDE.md`'s own remedy, and it also keeps these runs reproducible after
+/// the mechanism has been tuned past them.
+fn fall_enabled() -> bool {
+    use std::sync::OnceLock;
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| !matches!(std::env::var("FALL").as_deref(), Ok("off")))
+}
+
 /// Pressure written into the field per unit of strike force.
 const STRIKE_PRESSURE: f32 = 6.0;
 
@@ -676,7 +696,10 @@ impl ChunkBody {
     /// that a leafy limb turns about its middle rather than about its
     /// heavier woody end.
     fn centre_of(cells: &[BodyCell]) -> (i32, i32) {
-        if cells.is_empty() {
+        // `(0, 0)` under `FALL=off` is the origin, which is the pre-change
+        // rule -- the control has to hold *all* of the semantics fixed, not
+        // just the two new mechanisms, or it is measuring a third thing.
+        if cells.is_empty() || !fall_enabled() {
             return (0, 0);
         }
         let n = cells.len() as i32;
@@ -1259,7 +1282,7 @@ fn promote(world: &mut World, cells: &[(i32, i32)], impulse: Option<((f32, f32),
     // origin -- so this arm is the shape of the argument rather than a live
     // case, and it is the door a genuinely origin-less event would come in
     // through.
-    let spin_accel = broke_at.map_or(0.0, |at| angular_acceleration(world, cells, at));
+    let spin_accel = broke_at.filter(|_| fall_enabled()).map_or(0.0, |at| angular_acceleration(world, cells, at));
     let heading = Turn::of(spin_accel);
     for &(cx, cy) in cells {
         world.set(cx, cy, Cell::EMPTY);
@@ -2280,7 +2303,7 @@ fn apply_turn(world: &mut World, body: &mut ChunkBody, turn: Turn) {
 /// remainder: two poses can each read as unbalanced in the other's
 /// favour, and there is no argument from geometry that says they cannot.
 fn topple(world: &mut World, body: &mut ChunkBody) -> bool {
-    if body.topples >= MAX_TOPPLE_TURNS {
+    if !fall_enabled() || body.topples >= MAX_TOPPLE_TURNS {
         return false;
     }
     let Some(turn) = tipping_turn(world, body) else {
@@ -3207,6 +3230,16 @@ fn place_settled(world: &mut World, x: i32, y: i32, fresh: Cell) {
 ///   landing on uneven ground does not quietly delete the overlapping part
 ///   of the body.
 fn settle(world: &mut World, body: &ChunkBody) {
+    // **How it came to rest**, taken here because this is the only moment a
+    // piece's own extent is unambiguous: a frame later it is grid cells,
+    // touching whatever else landed beside it, and no census downstream can
+    // tell one log from two. See `FailureCounts::settled_lying` for the
+    // measurement that made this necessary. Gated at `MIN_BODY_CELLS` to
+    // match what "a piece" means everywhere else in this pipeline.
+    if body.cells.len() >= MIN_BODY_CELLS {
+        let (x0, y0, x1, y1) = body.bounds();
+        world.structural_failures.record_settled_pose(x1 - x0, y1 - y0);
+    }
     // **Where each cell actually landed, not where it was aimed.**
     // The checks below used to be scheduled around `cell_position`, which
     // is only the same place when the cell went in unmoved. A cell that had

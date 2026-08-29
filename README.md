@@ -49,10 +49,10 @@ whole, then run `python3 scripts/readmetoc.py`.
 | [The ant colony — status](#the-ant-colony--status) | 2594 |
 | [M19 status — started](#m19-status--started) | 2623 |
 | [Felling status — the verb works, and what it produces is pieces](#felling-status--the-verb-works-and-what-it-produces-is-pieces) | 2659 |
-| [Performance](#performance) | 2740 |
-| [World speed — five independent time axes](#world-speed--five-independent-time-axes) | 2914 |
-| [Status](#status) | 2997 |
-| [License](#license) | 3108 |
+| [Performance](#performance) | 2789 |
+| [World speed — five independent time axes](#world-speed--five-independent-time-axes) | 2963 |
+| [Status](#status) | 3046 |
+| [License](#license) | 3157 |
 
 ### Milestones, in numeric order
 
@@ -86,7 +86,7 @@ them is named "plants". A section can appear twice; felling is honestly both
 plant work and structural work.
 
 **Known limitations for every topic are collected in one place**:
-[Status](#status), line 2997 — the *last* section in the
+[Status](#status), line 3046 — the *last* section in the
 file, not the first. Read it before concluding something is broken.
 
 | Topic | Sections, primary first |
@@ -101,9 +101,9 @@ file, not the first. Read it before concluding something is broken.
 | **the coarse field grid — pressure, heat, light** | [The coarse field grid](#the-coarse-field-grid) 449, [M12/M13 status](#m12m13-status) 711 |
 | **worldgen and world structure** | [M10 status](#m10-status--the-worldgen-half) 2462, [Architecture](#architecture) 292 |
 | **the gnome (player character)** | [M9 status](#m9-status--the-gnome) 2401, [Controls](#controls) 155 |
-| **weather, sky and the clock** | [Weather status](#weather-status) 2577, [M19 status](#m19-status--started) 2623, [World speed](#world-speed--five-independent-time-axes) 2914 |
+| **weather, sky and the clock** | [Weather status](#weather-status) 2577, [M19 status](#m19-status--started) 2623, [World speed](#world-speed--five-independent-time-axes) 2963 |
 | **rendering, UI and tunables** | [UI improvements](#ui-improvements--overnight-run-section-9) 2155, [Live tunables panel](#live-tunables-panel--overnight-run-section-10) 2200, [Rendering performance](#rendering-performance--overnight-run-section-11) 2268, [M6 deferral](#m6-deferral) 1013 |
-| **performance and the parallel sweep** | [Performance](#performance) 2740, [M5 status](#m5-status) 1023, [Architecture](#architecture) 292, [Rendering performance](#rendering-performance--overnight-run-section-11) 2268 |
+| **performance and the parallel sweep** | [Performance](#performance) 2789, [M5 status](#m5-status) 1023, [Architecture](#architecture) 292, [Rendering performance](#rendering-performance--overnight-run-section-11) 2268 |
 | **materials and the data schema** | [Materials](#materials) 218, [M12/M13 status](#m12m13-status) 711 |
 
 <!-- END GENERATED TOC -->
@@ -2726,10 +2726,59 @@ capacity to `bearing_moment` even for a material `capacity_within` had
 already declared out of the structural system, which crushed half of every
 fall's landed pieces back into powder.
 
-**Known limitations.** The fall is straight down — segmenting and shear
-velocity are T2 — so a felled crown lands where it stood and the settled
-result reads as a lumpy pile with log-coloured masses in it rather than as a
-trunk lying on the ground. `rigid::settle` still drops a cell with nowhere
+**A severed piece turns as it falls, and goes over where it lands.** Landed
+2026-08-29; the write-up, with the sweep that qualifies it, is
+[`Reports/tree-fall-2026-08-29.md`](Reports/tree-fall-2026-08-29.md).
+
+The counter that reframed the whole package: `scene=fell fell=7150` reported
+**`quarter turns: 0 asked, 0 refused`**. The rotation mechanism has existed
+since M8 and had never once executed on a falling tree — `spin` accrues at
+`SPIN_PER_SPEED` (0.012) per unit of speed and turns at 1.0, and the same
+census puts the fastest piece at 3.30 cells/frame over a drop of about thirty
+cells, so a whole fall banks 0.36 of a turn. What looked like a crown
+collapsing was foliage running downhill.
+
+- `ChunkBody::spin_rate` and `spin_accel`, seeded at promotion from
+  `alpha = g*sum(m*d)/sum(m*r^2)` over the piece's own cells about
+  `Failure::at`. Nothing tuned: a uniform limb of `L` cells breaking at one
+  end reduces to `3g/(2L+1)`, so a bole comes over about once across a
+  fifty-cell drop and a twig tumbles. It self-limits through the
+  parallel-axis theorem, so nothing can be seeded into a spin its own size
+  cannot express.
+- `Turn::Ccw`, the exact inverse permutation, so a limb whose mass hangs left
+  goes left in one turn rather than three; and the turn pivots on the
+  piece's **centre**, fixed at promotion, rather than on `cells[0]` — a
+  corner, which for the 25x35 bole this scene produces swung the far end some
+  fifty cells in one frame past a probe that only checks the final footprint.
+- `rigid::topple` — a body that lands with its centre of mass outside the
+  middle third of its footing turns instead of settling. This is the
+  **outcome** `Reports/open-bugs-handoff.md` §Q found missing: §Q had already
+  measured that letting `load::bearing_moment`'s clamp reach `log` *crushes*
+  the pieces (lying/upright 3/8 → 1/11) because the load model's only verdict
+  for a thing that fails is `breaks_into`. Nothing in `load.rs` changed.
+- `FailureCounts::topples_asked`/`_refused`, and a per-piece
+  `settled_lying`/`_upright`/`_square` census taken in `settle` — separate
+  from `filmstrip`'s `settled log pieces`, which folds touching logs into one
+  cluster and therefore reports the *pile's* orientation.
+- `FALL=off` reverts all three, so a paired run holds the semantics fixed
+  instead of comparing two binaries. Verified identical to the pre-change
+  build on `scene=fell`.
+
+On that cut: quarter turns 0 → 55, topples 0 → 21, the largest settled piece
+25x35 (on end) → 40x29 (lying down), `log` 667 → 738 cells and `deadwood` 612
+→ 547 — more mass surviving as pieces, the opposite of what the clamp did.
+**Pooled over nine paired scenes the cluster orientation census does not
+move**, which is why the report's §4 exists and why the picture is still the
+gate.
+
+**Known limitations.** The tree does not hinge on its stump — the crown is
+severed into fragments at the cut and each falls on its own, so a felled
+trunk does not sweep across the ground in one arc, and segmenting and shear
+velocity are still T2. `rotation_fits` checks the final footprint and not the
+swept path; turning about the centre shrinks the sweep to the body's bounding
+circle rather than removing it. In-flight turns are refused 40% of the time
+and topples 52%, which may be a pile with no room in it or a probe that is
+too strict, and is not investigated. `rigid::settle` still drops a cell with nowhere
 to go, and a crown landing in its own grit is where that bites hardest: 188
 of 1,160 promoted cells on the measured cut, printed as
 `FailureCounts::settle_lost_cells` rather than fixed here

@@ -5433,6 +5433,15 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, (usize, usize), (i
             f.topples_refused,
             (f.topples_refused * 100).checked_div(f.topples_asked).unwrap_or(0)
         );
+        // And how the pieces themselves came down, which is **not** the same
+        // question as the `settled log pieces` line further down: that one
+        // folds touching logs into one cluster and reports the *pile's*
+        // shape. Asked of each body as it lands, so two logs that come to
+        // rest against each other are still two readings.
+        println!(
+            "    how pieces came to rest: {} lying, {} upright, {} square (each body's own box, at the frame it landed)",
+            f.settled_lying, f.settled_upright, f.settled_square
+        );
         // The phase-change "did it fire at all" counters, cumulative --
         // same reasoning as the failure counts above: whether the plume on
         // screen is boiled steam or painted smoke is a question the image

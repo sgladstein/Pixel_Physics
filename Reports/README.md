@@ -786,6 +786,21 @@ drift that two of these documents still reflect.**
   fallen log anchoring the tree it fell off — and, in §4c–§4g, three rounds
   of owner review including two framing failures of the session's own.
 
+- [tree-fall-2026-08-29.md](tree-fall-2026-08-29.md) — **shipped, and one of
+  its two claims is not established.** The fall: a severed piece now turns as
+  it comes down, at a rate read off its own mass about the joint that gave
+  way (`alpha = g*sum(m*d)/sum(m*r^2)`, reducing to `3g/(2L+1)` for a limb
+  breaking at one end, with nothing tuned), and a piece that lands
+  overhanging its footing goes over instead of standing there. Opens with the
+  counter that reframes it: `scene=fell` asked for **0 quarter turns** over a
+  whole felled tree, so the rotation mechanism had never once fired on a
+  falling tree. Closes the felled-tree half of `open-bugs-handoff.md` §Q by
+  supplying the *outcome* §Q found missing — the tipping test was never the
+  gap. **Read §4 before quoting §3**: the single-scene result is clean and
+  the nine-scene pooled one is not, and the cluster census that produced both
+  provably cannot see individual pieces. Also carries a raft regression the
+  suite caught, and why `FALL=off` had to exist for the control to be real.
+
 - [tree-mechanics-plan-2026-08-29.md](tree-mechanics-plan-2026-08-29.md) —
   **plan; one change landed** (`3bdf674`). Structure and physics for *all*
   plants, from the owner's five asks — a top-heavy tree falling, a rock
