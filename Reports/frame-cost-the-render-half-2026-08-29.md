@@ -259,6 +259,10 @@ halo stops hashing.** So the frame is now roughly 18.9 ms of simulation plus
 7.5 ms of render — still over the 16.6 ms budget, but the render is no
 longer the reason.
 
+**Re-verified after merging `main`**, which landed plant bending and touched
+`render.rs` itself: 8.85 / 8.61 / 7.23 ms on the merged tree. The bending
+work costs a little per pixel; the fix is unaffected.
+
 ### Every image-level check of this is blind, and that was measured
 
 **Do not verify a change to the glow splat by rendering the world.** A
