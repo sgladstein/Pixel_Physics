@@ -1,0 +1,46 @@
+{
+  "id": "20260829T005421244Z-e1d946",
+  "created": "2026-08-29T00:54:21Z",
+  "board": "plants",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/leaves-falling-through-branches-x5sbtt",
+    "commit": "8faa61b",
+    "agent": null,
+    "session_id": "2b1a1663-ed7a-57ee-a73a-db2e67efd103",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Leaves caught in the branches on the way down",
+  "question": "Which one reads as leaves falling to the forest floor rather than collecting in the tree? (magenta = litter resting on a branch, cyan = litter resting on the ground)",
+  "context_md": "Your report: leaves fall off trees, get stuck and build up in the branches; they\nshould just fall through to the ground, because the world is a 2D slice of a 3D\none.\n\nBoth panes are `litter_probe`'s own overlay, same scene, same seed, 12,000\nframes, one build each. The world is dimmed to a quarter so the two markers\nread: **magenta = a litter cell resting on living tissue, cyan = a litter cell\nresting on the ground.** Crop x110..400, y88..216, at 3x.\n\nDiscrete counts, same runs:\n\n|  | left/right as stored A | as stored B |\n|---|---|---|\n| standing litter cells | 573 | 497 |\n| ...resting on plant tissue | 330 (57.6%) | 219 (44.1%) |\n| ...more than 32 rows above the ground | 23% | **0%** |\n| ...more than 16 rows above the ground | 31% | 8% |\n| still airborne at frame 12,000 | 4 | 0 |\n\nAnd `crown_census frames=28800 trees=8`, the instrument the bug register's §V3\nuses, same seed both arms — this is the \"soil build-up in between the branches\"\nyou named on card `20260824T014630073Z-a10698`:\n\n| band | A | B |\n|---|---|---|\n| y120–160, litter | 283 | **25** |\n| y120–160, soil | 84 | **6** |\n| y80–120, litter + soil | 11 | **0** |\n| highest row holding any soil | y 115 | **y 145** |\n| total soil above the ground line | 508 | 498 |\n\nThe total soil is unchanged; it is no longer in the canopy.\n\nWhat is left in magenta in the better arm is the drift banked up against a\ntrunk at floor level — a litter cell is a grid cell and cannot sit *behind* a\ntree the way the gnome can, so a pile resting on a root collar scores as\n\"resting on plant\". That is `litter.ron`'s 42-degree friction angle working.\n",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "current main",
+      "files": [
+        "20260829T005421244Z-e1d946/000-ab_base.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "litter falls through living tissue",
+      "files": [
+        "20260829T005421244Z-e1d946/001-ab_fix.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
