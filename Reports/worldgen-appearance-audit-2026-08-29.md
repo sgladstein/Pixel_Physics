@@ -26,6 +26,11 @@ that soil is (up to 18%). **Every landform pass in the generator — cliff
 brows, talus aprons, tors and stacks, boulders, caves — sits at or under
 0.59%.**
 
+**And the owner's eye agrees with the instrument.** Asked how many
+distinguishable kinds of country he counts across all five presets, he answered
+**"2, maybe 3"** — which is exactly what the distance matrix predicts (§6.1) —
+and of the two presets the matrix calls one country he said **"identical"**.
+
 That is `plant-appearance-design.md`'s finding, transposed exactly. There it
 was *a lever that changes which cell gets a label cannot change a silhouette
 that texture and colour set*. Here it is: **the generator's landform work is
@@ -293,13 +298,26 @@ same preset at a different seed** — the bar each column has to clear.
   three of the fifteen between-preset cells, and all three of those are
   inside the `canyon`/`rolling`/`terraced` cluster.
 
-Two review cards are queued on this, `worldgen` board, posted 2026-08-29:
-*"Two different presets, one country"* (the `rolling`/`terraced` pair) and
-*"All five presets, one seed, one camera"* as its control. **The metric is not
-calibrated to a human eye and those cards are the calibration.** If the owner
-separates the second and not the first, the matrix can be trusted to scope the
-revamp; if he separates both, the colour histogram is finer than his eye and
-every distance in §2.1 is an upper bound.
+### 6.1 The owner's verdict: the matrix is calibrated
+
+Two review cards went out on this, `worldgen` board, 2026-08-29, posted before
+either verdict was known and phrased so the metric could be wrong. **Both came
+back inside ten minutes and both confirm it.**
+
+| card | metric's prediction | owner's answer |
+|---|---|---|
+| *"Two different presets, one country"* — the `rolling`/`terraced` pair | 0.149, under `rolling`'s own 0.173: **not two presets** | **"identical."** |
+| *"All five presets, one seed, one camera"* — how many kinds of country do you count? | `arid` and `wetland` separate, the other three collapse: **2 or 3** | **"2, maybe 3"** |
+
+The second card is the positive control for the first — the same measurement
+that calls `rolling`/`terraced` one country calls `arid`/`wetland` 4.8x further
+apart, and the owner's count is exactly the count that prediction implies.
+**The distance matrix can be used to scope the revamp.** Five shipped presets
+are two, maybe three places, and the engine's own numbers say which three
+collapse and why.
+
+He added one thing that was not asked for, and it belongs in §9: *"seems like
+you are doing minor tweaks and not a revamp as asked."*
 
 ---
 
@@ -359,11 +377,11 @@ midday. No number in this report is a statement about the hour.
 
 ## 8. What I could not establish
 
-- **Whether the distance metric matches the owner's eye.** It matches mine —
-  the `rolling`/`terraced` pair reads as one country in the render and the
-  `arid`/`wetland` pair as two — but that is one more agent's opinion. The two
-  queued cards are the only thing that settles it, and they are unanswered at
-  the time of writing.
+- ~~**Whether the distance metric matches the owner's eye.**~~ **Closed the
+  same day** — see §6.1. Both cards were answered and both agree with the
+  metric, including the count. What remains unestablished is the *shape* of the
+  agreement: two matched predictions do not calibrate the scale, so a TV of
+  0.4 cannot yet be translated into "he will see this".
 - **What a *grown* world looks like.** No world measured here contains a
   single `wood`, `leaf` or `grassblade` cell, at settle 0 or 60, because
   `life_scatter` sows seeds and five of six species need thousands of frames to
@@ -399,6 +417,13 @@ midday. No number in this report is a statement about the hour.
 ## 9. What this says to the revamp
 
 Stated as findings, not as a plan — the implementation lanes own that.
+
+**The owner's own framing, unprompted, on the `rolling`/`terraced` card:**
+*"identical. seems like you are doing minor tweaks and not a revamp as asked."*
+Read against §3 that is not a complaint about effort, it is an accurate reading
+of the measurement: six rounds of work went into passes that are between 0.000%
+and 0.6% of what he can see, which is what a minor tweak *is*, whatever it cost
+to build.
 
 1. **Stop spending on landform passes until something makes them visible.**
    Six rounds went into `vaults`, `residuals`, `brows`, `talus` and `boulders`.
