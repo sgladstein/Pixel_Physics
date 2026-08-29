@@ -1,0 +1,66 @@
+{
+  "id": "20260829T081327424Z-f0d0d0",
+  "created": "2026-08-29T08:13:27Z",
+  "board": "render",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/surface-background-rendering-zakk66",
+    "commit": "032120f",
+    "agent": null,
+    "session_id": "fa261441-3c53-5e3e-85b6-a94a25ae3986",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Breaking the top off a hill: what is behind the hole",
+  "question": "Does the opened ground now read as sky, and is the shading on its right-hand side — where the taller slope stands over it — right, too strong, or too weak?",
+  "context_md": "Your report: *\"the background remains black ... looks bad when I break up the ground near the surface\"*.\n\n**What was wrong.** The darkness behind a void was a function of **how far the light had travelled** from the last place that was open. Distance cannot tell a hole from a hollow, so a wide cut with most of the sky still overhead scored the same as a slot you can barely stand in — the design round's own table has them at 0.023 and 0.010.\n\n**What it does now.** Each place also asks *how much of the sky can I actually see*, along eight directions, dimmed only by rock it has to pass through. A mine still goes dark at any width, because a slot admits a sliver of sky and nothing more.\n\n**The left tile of each pane is the hill before it was cut** — the same shot, for reference. Zoom out (`z`) to see both.\n\n**What I am unsure about** is the second half of the question. The dimming down the right of the cut is the taller ground beside it genuinely blocking that side of the sky. I do not know whether it reads as shade or as smog. Ignore the plants and the water line; nothing here touched either.",
+  "kind": "ab",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "before",
+      "files": [
+        "20260829T081327424Z-f0d0d0/000-card_hill_before.png"
+      ],
+      "caption": "distance from the last lit place",
+      "meta": {
+        "sky the cut floor can see (1 = open sky)": 0.045,
+        "sky the rim can see": 0.765,
+        "sky a 1-wide shaft can see, same depth": 0.0,
+        "cost of a full redraw, ms": 8.1
+      },
+      "focus": [
+        966,
+        0,
+        960,
+        540
+      ]
+    },
+    {
+      "label": "after",
+      "files": [
+        "20260829T081327424Z-f0d0d0/001-card_hill_after.png"
+      ],
+      "caption": "how much sky it can actually see",
+      "meta": {
+        "sky the cut floor can see (1 = open sky)": 0.504,
+        "sky the rim can see": 1.0,
+        "sky a 1-wide shaft can see, same depth": 0.0,
+        "cost of a full redraw, ms": 8.5
+      },
+      "focus": [
+        966,
+        0,
+        960,
+        540
+      ]
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
