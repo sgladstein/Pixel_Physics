@@ -143,6 +143,14 @@ pub const PLAYER_CATEGORY: &str = "player";
 /// Likewise for [`TunableGroup::World`].
 pub const WORLD_CATEGORY: &str = "world";
 
+/// Category for entries that belong to the **renderer** rather than to any
+/// material or engine struct — how the world is drawn, not what it is.
+///
+/// A separate category because the save path keys `.ron` files off this
+/// string, and there is no file to write: a look selector is a session
+/// choice, the same as `time_of_day`. `save_tunable` refuses it by name.
+pub const LOOK_CATEGORY: &str = "look";
+
 /// One live-adjustable value. `value` is a live snapshot at the moment
 /// the registry was built, not a handle back into the registry it came
 /// from — `App` re-derives the list fresh whenever the panel is open
@@ -565,6 +573,32 @@ pub fn from_clock(c: &Clock) -> Vec<Tunable> {
 /// Takes the weather override rather than a `&World` so that the whole
 /// registry stays buildable from plain values — `from_clock`'s own reason for
 /// taking a `&Clock`.
+/// The renderer's own look selectors.
+///
+/// **Here rather than on a key, because there are no keys left** — every
+/// letter and every punctuation key in `main.rs`'s dispatch is already bound,
+/// which is the same reason `TunableGroup::World`'s own doc gives for the
+/// clock living in this panel. The first attempt hung this off `Shift+G`
+/// beside the grain, and that was wrong twice over: `G` is specifically the
+/// *liquid* grain, so foliage is not a variant of it; and **`Shift` is the
+/// gnome's grab** (`main.rs`'s `held.grab`, the key that takes hold of a
+/// plant to climb it), so the chord would have grabbed a trunk every time it
+/// changed the look.
+///
+/// `Visual` is the right group by that group's own definition — *how it is
+/// drawn, changing nothing in the simulation* — and this is inert in exactly
+/// that sense: `render.rs` resolves colours at draw time and the simulation
+/// never writes one.
+pub fn from_renderer(foliage: usize) -> Vec<Tunable> {
+    vec![Tunable::choice(
+        TunableGroup::Visual,
+        LOOK_CATEGORY,
+        "foliage",
+        foliage,
+        vec!["cells", "stamps"],
+    )]
+}
+
 pub fn from_pins(clock: &Clock, weather_override: Option<Weather>) -> Vec<Tunable> {
     let g = TunableGroup::World;
     let c = WORLD_CATEGORY;
@@ -583,6 +617,18 @@ pub fn from_pins(clock: &Clock, weather_override: Option<Weather>) -> Vec<Tunabl
         Tunable::choice(g, c, "time_of_day", sky, sky_labels),
         Tunable::choice(g, c, "weather", weather, weather_labels),
     ]
+}
+
+/// Which [`FoliageMode`] a `foliage` row's value selects.
+///
+/// Clamped rather than wrapped past the end: unlike the pin rows there is no
+/// "held at something unnamed" state here, because the mode *is* the value --
+/// every reachable index names a real one.
+pub fn select_foliage(value: f32) -> crate::render::FoliageMode {
+    match value.round() as i32 {
+        1 => crate::render::FoliageMode::Stamps,
+        _ => crate::render::FoliageMode::Cells,
+    }
 }
 
 /// Which [`SkyPin`] a `time_of_day` row's value selects, and which
@@ -896,8 +942,43 @@ mod tests {
         // The split is only worth having if `Visual` really is inert, so
         // that is asserted rather than left as an intention: adding a field
         // here forces a decision about which side it belongs on.
+        // Both of these are inert in the sense the group is named for:
+        // `fill_dimming` is a material colour field, `foliage` is a renderer
+        // look selector, and neither can reach the simulation. The list is
+        // exhaustive on purpose -- adding a row here forces the same decision
+        // about which side it belongs on.
         for t in all.iter().filter(|t| t.group == TunableGroup::Visual) {
-            assert_eq!(t.name, "fill_dimming", "unexpected entry {} in the VISUAL menu", t.name);
+            assert!(
+                matches!(t.name.as_str(), "fill_dimming" | "foliage"),
+                "unexpected entry {} in the VISUAL menu",
+                t.name
+            );
+        }
+    }
+
+    #[test]
+    fn the_foliage_row_round_trips_through_its_own_index() {
+        // The failure this is named for is silent: `from_renderer` casts the
+        // enum to an index and `select_foliage` maps an index back, and the
+        // two are written apart. If they ever disagree the row still draws,
+        // still adjusts, and selects the wrong mode -- or worse, reads as a
+        // dead row because it always resolves to the one it is already on.
+        for mode in [crate::render::FoliageMode::Cells, crate::render::FoliageMode::Stamps] {
+            let rows = from_renderer(mode as usize);
+            let row = rows.first().expect("from_renderer registers the foliage row");
+            assert_eq!(
+                select_foliage(row.value),
+                mode,
+                "the row's own value must select the mode it was built from"
+            );
+            // And stepping it must actually land on the *other* mode rather
+            // than clamping in place -- a choice wraps, which is what makes
+            // a two-state row usable from one direction.
+            assert_ne!(
+                select_foliage(row.stepped(1)),
+                mode,
+                "stepping the row must leave the mode it is on"
+            );
         }
     }
 

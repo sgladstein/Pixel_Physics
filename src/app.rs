@@ -892,6 +892,7 @@ impl App {
         out.extend(tunables::from_player(&self.player_tuning));
         out.extend(tunables::from_pins(&self.world.clock, self.world.weather_override));
         out.extend(tunables::from_clock(&self.world.clock));
+        out.extend(tunables::from_renderer(self.renderer.foliage as usize));
         out
     }
 
@@ -1058,6 +1059,14 @@ impl App {
             self.message = Some(format!("weather: {}", pin.label()));
             return;
         }
+        // A renderer look selector, not a field write: there is no struct to
+        // write through, only the mode itself. Same shape as the two pin rows
+        // above and for the same reason.
+        if t.category == tunables::LOOK_CATEGORY && t.name == "foliage" {
+            self.renderer.foliage = tunables::select_foliage(new_value);
+            self.message = Some(format!("foliage: {}", self.renderer.foliage.label()));
+            return;
+        }
         if t.group == TunableGroup::Explosion {
             tunables::apply_explosion(&mut self.blasts.tuning, &t.name, new_value);
             self.message = Some(format!("{}.{} = {new_value:.3}", t.category, t.name));
@@ -1198,6 +1207,14 @@ impl App {
                 Err(e) => format!("{}: {e}", crate::sim::clock::Clock::ASSET_PATH),
             });
             self.assets_dirty = dirty_asset_count();
+            return;
+        }
+        // **Nothing to save.** A look selector is a session choice with no
+        // `.ron` behind it, so falling through to the material path below
+        // would look for `look.ron` and report a file error at a row that is
+        // working perfectly.
+        if t.category == tunables::LOOK_CATEGORY {
+            self.message = Some(format!("{} is a look, not a saved setting", t.name));
             return;
         }
         let path = tunables::material_file_path(material::ASSET_DIR, &t.category);

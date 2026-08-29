@@ -589,18 +589,6 @@ impl Handler {
             // held that key -- the compiler's unreachable-pattern warning is
             // what caught the collision, not a runtime symptom.
             KeyCode::KeyL => self.app.renderer.cycle_organism_overlay(),
-            // **`Shift+G` must sit above the bare `G` arm** or the guard
-            // never fires -- the same ordering the `Tab` arms above document.
-            // `held.grab` is the shift key; it is named for the gnome, who is
-            // the other thing it drives.
-            //
-            // Beside grain deliberately: both answer "what does the texture of
-            // this material look like when one cell is one pixel". Asked for
-            // as a toggle rather than a replacement, and explicitly *not* on
-            // the `K` experiment key -- that one cycles `plant::StemMode`,
-            // which changes how plants **grow**, and this changes only how
-            // they are drawn.
-            KeyCode::KeyG if self.held.grab => self.app.renderer.cycle_foliage(),
             KeyCode::KeyG => self.app.renderer.cycle_grain(),
             // `` ` `` for the boiling looks. **It wanted `,` and lost it in
             // the master merge**, to the same tiebreak the tree-depth note

@@ -510,15 +510,33 @@ The four-arm card came back:
 > though"*
 
 So `stamps` is the contender and it is now in the shipped renderer as
-`FoliageMode`, default `Cells`, cycled with **`Shift+G`** — beside `G`'s
-grain, because both answer *what does the texture of this material look like
-when one cell is one pixel*. Not on `K`: that key cycles `plant::StemMode`,
-which changes how plants **grow**, and this changes only how they are drawn.
+`FoliageMode`, default `Cells`, selectable in the options menu at
+**`O` → VISUAL → LOOK → FOLIAGE**.
 
 This is `CLAUDE.md`'s own convention rather than a shortcut: *for "does this
 look right", ship a runtime selector rather than choosing.* Five grain modes
 behind one key settled in minutes what argument and stills could not, and four
 review rounds here say the same is needed.
+
+**It went on `Shift+G` first, and that was wrong twice.** Caught by the owner
+in one line — *"isn't g the water grain?"* — and both halves matter:
+
+- `G` is specifically the **liquid** grain (`GrainMode`, README's own row says
+  "how a liquid's brightness grain is generated"). Foliage is not a variant of
+  it, so the chord implied a relationship that does not exist.
+- Worse, **`Shift` is the gnome's grab** — `main.rs`'s `held.grab`, the key
+  that takes hold of a plant to climb it. So the chord would have seized a
+  trunk every time it changed the look. A modifier that is already a *game
+  verb* is not a free modifier, and nothing about the binding's own code would
+  have shown that.
+
+Every letter and punctuation key in `main.rs`'s dispatch is already bound, so
+there was no third key to move to — which is the same situation
+`TunableGroup::World`'s doc records for the clock, and it has the same answer:
+the options panel. `Visual` is the right group by that group's own definition
+(*how it is drawn, changing nothing in the simulation*), and its test
+deliberately enumerates its rows so that adding one forces the decision rather
+than letting it slide.
 
 ### 14a. One code path at every zoom
 
