@@ -3361,3 +3361,90 @@ calves a slab stop being the same picture; `filmstrip scene=smash` and
 `scene=chop` print that beside the tile and share their beds with
 `scene=tunnel` and `scene=shake`, so each pair is a controlled comparison
 with the belt as the only variable.
+
+## 2026-08-29 — one verb, and the body decides what it does
+
+**Creatures can leave the ground.** `brain::BrainOutput::Impulse` is a
+creature's first way to do it, and until today the engine refused on purpose:
+`step_chain` declines any step with no footing, a rule arrived at after **two**
+attempts at airborne creatures that each put falls at 59-80% of all moves
+(`Reports/creature-motion-design.md` §2d). Reversing that was the owner's call,
+decision **E11** — asked directly whether crossing a gap is wanted at all,
+given what the refusal cost, and answered *"Yes, they should cross"*. §6 call 4
+of that report is updated to record it; it was the last of its four open.
+
+**The reversal is narrow by construction, and that is the whole safety
+argument.** §2d's two failures both changed *candidate scoring*, so every ant
+in the world became airborne whether it wanted to or not. This adds a separate
+opt-in path instead: the walk is untouched and still refuses open air, a
+creature is airborne only while `OrganismState::flight` is `Some`, and only
+`creature::launch` ever sets it. `ant.ron` authors no weight into the new row,
+`squash(0.0)` is **exactly** 0.0, and the gate `impulse > 0.0 && draw...`
+short-circuits before the RNG — so the shipped ant takes the same draws in the
+same order.
+
+**There is no jump height anywhere.** One verb delivers a fixed amount of
+*work*, so launch speed is `sqrt(2W/m)` off the body's own summed cell density,
+and the descent is a drag law over its own bounding box. Work rather than
+impulse is the choice that makes §5's table fall out instead of being written
+down: it is the same `1/sqrt(m)` a muscle's force scaling with cross-section
+gives, and the reason small animals out-jump large ones by far less than `1/m`
+would predict. At `1/m` the four shipped bodies span 4.5x in launch speed and
+the 6-cell chain is already immobile, which leaves nothing between "shallower
+hop" and "almost nothing".
+
+| body | cells | launch speed | terminal speed |
+|---|---|---|---|
+| `ant` `Chain(2)` | 2 | 2.00 | 1.73 |
+| `ant_long` `Chain(6)` | 6 | 1.15 | 1.37 |
+| `ant_wide` 5x2 | 9 | 0.94 | 2.04 |
+| `ant_block` 3x3 | 9 | 0.94 | **4.74** |
+
+The last two are the design claim: **identical mass, identical launch, and
+2.3x apart on the way down**, the whole difference being width against height.
+Played out through the integrator on one plinth over one drop, with the same
+seed and the same organism id so both take identical draws: the slab stays up
+**113 frames** to the block's **69**. `match species` appears nowhere in the
+path, and `Cd`'s two ends — 0.5 blunt, 2.0 plate — are taken from
+`rigid::SINK_DRAG_COEFFICIENT`'s own recorded regime check rather than
+invented.
+
+**Drag is read off the cells every flight frame, not cached on the species,
+and that is the point rather than an inefficiency.** A `Chain` has no fixed
+shape: six cells strung out along a ledge are a 6x1 plate and the same six
+coiled at a corner are a 3x3 block, and they get `Cd` 2.0 and 0.5 respectively
+from a species file that never mentions drag.
+
+**Decision E9's float limit came free**, exactly as §2c predicted it would:
+`creature::buoyant_share` *is* `rigid::drag_through_liquid`'s own `carried`, so
+there is one buoyancy model in the engine rather than two, and a body no denser
+than what it is in has zero effective weight and hangs. No creature material is
+buoyant today, so this is mechanism rather than behaviour — but authoring one
+now works, and it cannot be evolved around, because the only way to get it is
+to be made of something light and being light is what makes a body easy to
+shift.
+
+**What the verb costs**, because §1's whole argument is that a free trait makes
+every lineage converge on it: a flat four walking steps' worth of energy, and
+the creature's entire turn. Airborne it does not think, eat, dig, steer or
+deposit — `creature_tick` returns before `sense` — which also makes the extra
+frames cheap, since there is no `eval_brain` on any of them. One flat price and
+a body-dependent benefit is what makes hopping a bargain at 2 cells and worse
+than walking at 9, with nothing anywhere saying "heavy creatures should not
+jump".
+
+**The genome append was lawful and the manifest says so.** `GENOME_LEN` does
+not change and no weight of any other slot moves — the second such append,
+into the reserve S2 built. `live_slots()` goes **268 -> 288**, so
+`random_genome` draws 20 more values and a sampled genome at a given seed is a
+*different animal*: the real, unavoidable cost of a live verb, recorded rather
+than absorbed. The manifest pin moves 1,235,247,055 -> **717,235,691**. Slot 12
+stays unnamed per §6 call 2, with §4b's condition for spending it unchanged.
+
+**One asymmetry this deliberately leaves standing.** There are now two ways to
+be in the air and they do not agree: a launched creature descends under the
+drag law at 1.7-4.7 cells/frame, and one that *walks off a ledge* still falls
+through `step_chain`'s own branch at one cell per tick — 0.167 cells/frame at
+`tick_interval` 6. Unifying them means editing the walk, which is precisely
+what got the two earlier attempts reverted, so it is a decision rather than a
+drive-by fix.

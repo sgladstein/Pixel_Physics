@@ -13,6 +13,7 @@
 
 use std::cmp::Reverse;
 use std::collections::{BinaryHeap, HashMap};
+use std::sync::OnceLock;
 
 use super::cell::Cell;
 use super::chunk::{Chunk, ChunkCoord, Rect, CHUNK_SIZE, MAX_REACH};
@@ -89,6 +90,25 @@ struct BodySlot {
     state: Option<LiquidBody>,
 }
 
+/// Whether creature ticks get their own per-frame budget rather than
+/// competing with world-scale background work for
+/// `scheduler::MAX_SITES_PER_FRAME`. On by default; `CREATURE_PRIORITY=0`
+/// restores the pooled behaviour.
+///
+/// **Read once per process**, so a site cannot be routed one way at
+/// schedule time and looked for the other way at pop time — the switch has
+/// to be constant for the lifetime of a heap or the two halves disagree
+/// and sites are silently stranded.
+///
+/// The `0` spelling rather than a presence test: this is a control that
+/// wants to be *turned off* in an A/B, and `CREATURE_PRIORITY=1` reading
+/// as "off" because the variable merely exists is exactly the kind of
+/// harness knob `CLAUDE.md`'s echo rule was written about.
+pub(crate) fn creature_priority() -> bool {
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| std::env::var("CREATURE_PRIORITY").map_or(true, |v| v != "0"))
+}
+
 /// Per-verb creature counters. Printed beside every scene.
 ///
 /// `trips_completed` is the one that proves the *loop* rather than its
@@ -97,6 +117,41 @@ struct BodySlot {
 #[derive(Default, Clone, Copy, Debug)]
 pub struct CreatureStats {
     pub spawned: u64,
+    /// **Creature sites the scheduler actually dispatched to a live
+    /// creature** — the "was it asked at all" counter, and the one thing
+    /// `moves` cannot say on its own.
+    ///
+    /// A creature that is never popped off the active-site heap and one
+    /// that is popped and declines to move both read `moves 0`, and those
+    /// want opposite fixes: the first is scheduler starvation, the second
+    /// is the brain. `CLAUDE.md`'s standing rule is to pair every "it
+    /// fired" counter with an effect counter from the far side of the
+    /// call; this is the near side, `moves` is the far side, and the ratio
+    /// between them is the readout.
+    ///
+    /// Counted after the organism handle resolves, so a site outliving its
+    /// creature does not inflate it — every tick counted here is a live
+    /// creature that was handed a decision.
+    pub ticks: u64,
+    /// Summed **scheduling lateness**, in frames: how far past its own
+    /// `next_frame` each dispatched creature site actually ran.
+    ///
+    /// Zero is the healthy value and it is not an aspiration — a creature
+    /// reschedules itself to an exact future frame
+    /// (`World::creature_due`), so if the scheduler keeps up, every site
+    /// runs on the frame it asked for. Anything above zero is the shared
+    /// `scheduler::MAX_SITES_PER_FRAME` budget being spent on other kinds
+    /// of site before this one, which is invisible in every other readout:
+    /// the creature still ticks, still moves on the ticks it gets, and
+    /// only the *rate* changes. `/ ticks` is the mean lateness, and it is
+    /// the number that converts an owner's "long pause, move a pixel" into
+    /// something checkable.
+    pub tick_lag_sum: u64,
+    /// Worst single lateness in frames, bounding the mean above. A colony
+    /// whose mean is small and whose max is huge was starved in a burst
+    /// (one blast, one settling forest) rather than continuously, and
+    /// those are different bugs.
+    pub tick_lag_max: u64,
     pub moves: u64,
     pub moves_blocked: u64,
     /// Heading re-rolls — the tumble half of run-and-tumble. High is not a
@@ -105,6 +160,43 @@ pub struct CreatureStats {
     /// the colony is searching or commuting.
     pub tumbles: u64,
     pub falls: u64,
+    /// **Launches — the `BrainOutput::Impulse` verb firing.** The "did it
+    /// happen at all" counter `CLAUDE.md` demands beside any picture of a
+    /// hop: a creature arcing through the air and a creature falling off a
+    /// ledge are the same photograph, and only this says which. Zero for
+    /// every species that has not authored the weight, which is the guard
+    /// `creature-motion-design.md` §7 names third.
+    pub impulses: u64,
+    /// Frames spent airborne, summed over the colony. Paired with
+    /// `impulses` because the ratio is the mean hop *duration*, which is
+    /// the quantity the body is supposed to change: same launch, a slab
+    /// glides and a block drops.
+    ///
+    /// It is also the frame-cost readout. An airborne creature is
+    /// rescheduled every frame instead of every `tick_interval`, so this is
+    /// exactly the extra scheduler traffic the verb buys — in the units the
+    /// scheduler charges.
+    pub flight_frames: u64,
+    /// Cell relocations made while airborne.
+    ///
+    /// **Deliberately not folded into `moves`.** `falls / moves` is the
+    /// §7 guard and it was baselined before this verb existed; adding
+    /// ballistic steps to the denominator would make that ratio fall for a
+    /// hopping species and the guard would report an improvement it had
+    /// manufactured. `moves` still counts exactly what it counted — one
+    /// walking step, decided and paid for — and this counts the other kind.
+    pub flight_moves: u64,
+    /// Launches the brain asked for and the body could not make — the
+    /// creature was already off the ground.
+    ///
+    /// **The effect-side pair `impulses` needs, and `CLAUDE.md` asks for by
+    /// name**: a counter that says a call happened is only as good as the
+    /// claim that the call did something, and the worked case there is a
+    /// mining harness that reported 200 cuts having removed 0 cells. These
+    /// two split the verb's firings into the ones that produced an arc and
+    /// the ones that produced nothing, so a rise in `impulses` with a flat
+    /// `flight_frames` cannot be read as the verb working.
+    pub impulses_refused: u64,
     pub eats: u64,
     pub pickups: u64,
     pub digs: u64,
@@ -161,6 +253,34 @@ pub struct CreatureStats {
     pub deaths: u64,
     /// Creatures that lost a body cell and survived it.
     pub injuries: u64,
+    /// **Children born to a living parent** — S6's "did it fire at all"
+    /// counter, and the only thing that separates a population that is
+    /// breeding from one that is merely still standing
+    /// (`Reports/creature-evolution-plan.md` §2.6; `CLAUDE.md`, *"did it
+    /// fire at all" needs a counter, not a picture*).
+    ///
+    /// Distinct from `spawned`, which counts every creature that appeared
+    /// out of nothing at the `plant_creature_seed` seam — founders placed
+    /// by a scene, the `Y` key, a harness. A world with `spawned 52 births
+    /// 0` is the authored colony with heredity switched off, and that is
+    /// exactly what this counter has to be able to say.
+    pub births: u64,
+    /// Births refused because the child's body had nowhere to go.
+    ///
+    /// **A "no space, so it does not happen" gate is a silent selection
+    /// pressure the day body size becomes heritable** (§2.8's second
+    /// pre-check, and `CLAUDE.md`'s "a size cap must bound work, never
+    /// gate whether something happens" in a new costume). It is that gate
+    /// today, deliberately and with one body plan; this counter is what
+    /// stops it being invisible while it is, so S8 can read how often it
+    /// actually bites before it decides what to replace it with.
+    ///
+    /// **Not the slot ceiling** — a birth refused because all 4,095
+    /// organism slots are live books to `World::organisms_refused`
+    /// instead, and the two must stay separate: one is a property of the
+    /// terrain around the parent and the other is a property of the
+    /// engine's address space.
+    pub births_denied_no_space: u64,
 }
 
 /// Where every joule went. See `World::energy_ledger`.
@@ -408,6 +528,43 @@ pub struct World {
     /// thing every frame regardless, and a `HashMap`'s randomized iteration
     /// order was the engine's one documented source of non-determinism).
     active_sites: BinaryHeap<Reverse<ActiveSite>>,
+    /// **Creature ticks, on their own heap, so world-scale background work
+    /// cannot starve them.** Same shape and same ordering as
+    /// `active_sites`; the only thing that separates them is who competes
+    /// with whom for `scheduler::MAX_SITES_PER_FRAME`.
+    ///
+    /// # Why a second heap rather than a priority
+    ///
+    /// The two queues have different *growth laws*, which is the whole
+    /// argument. Structural checks, decay, evaporation and dissipation
+    /// scale with the size of the world and with how much of it has been
+    /// disturbed — a forest settling or one charge can put tens of
+    /// thousands of sites in front of the scheduler. Creature ticks scale
+    /// with the **population**: 52 ants at `tick_interval` 6 is nine sites
+    /// a frame, for ever. Pooling an O(world) queue and an O(population)
+    /// queue under one per-frame budget does not share it, it hands the
+    /// whole thing to the first one.
+    ///
+    /// And the min-heap makes that total rather than proportional. A
+    /// backlogged site sits at a `next_frame` in the *past* and a creature
+    /// reschedules itself to `world.frame + interval`, in the future, so
+    /// every backlogged site sorts ahead of every creature: while the
+    /// backlog is deeper than the budget, the creature is not merely
+    /// behind in the queue, it cannot be reached at all. That is the
+    /// owner's "long pause, move a pixel, long pause" — the creature is
+    /// not declining to move, it is not being asked.
+    ///
+    /// Reordering the comparator instead (kind before `next_frame`) would
+    /// invert the same unfairness rather than remove it: creatures would
+    /// then be able to starve the structural queue, and the ordering would
+    /// stop meaning "soonest due" for everything else in it.
+    ///
+    /// `CREATURE_PRIORITY=0` routes creature sites back into
+    /// `active_sites`, restoring the pooled behaviour exactly — the
+    /// control for any measurement of this, and the reason it is an env
+    /// switch and not a deleted branch (`CLAUDE.md`: hold the semantic
+    /// rule fixed, do not measure around the confound).
+    creature_sites: BinaryHeap<Reverse<ActiveSite>>,
     /// Positions with an `ActiveKind::StructuralCheck` currently somewhere
     /// in `active_sites` — a dedup index the heap itself can't answer
     /// cheaply (a `BinaryHeap` has no membership test). Exists because
@@ -727,6 +884,13 @@ pub struct World {
     /// allocating on their own schedule this is the number that says
     /// whether the assumption still holds at play rates.
     pub organism_generation_wraps: u32,
+    /// The next unused founder label — see `OrganismState::lineage`.
+    ///
+    /// Starts at 1 so that 0 stays available as "no lineage", and only
+    /// ever goes up. It is not an index into anything and nothing looks a
+    /// lineage up, so exhausting a `u32` would take 4 billion founders in
+    /// one world and cost a label collision rather than a corruption.
+    next_lineage: u32,
     /// **Seeds that waited for water and then germinated** — the counter
     /// for the dormancy mechanic, because a picture cannot show it and no
     /// existing readout separates the cases.
@@ -1671,6 +1835,7 @@ impl World {
             drains: Vec::new(),
             spring_ledger: crate::sim::spring::SpringLedger::default(),
             active_sites: BinaryHeap::new(),
+            creature_sites: BinaryHeap::new(),
             pending_structural_checks: std::collections::HashSet::new(),
             damage_seeds: Vec::new(),
             pending_evaporation: std::collections::HashSet::new(),
@@ -1693,6 +1858,7 @@ impl World {
             organisms_died: 0,
             organisms_refused: 0,
             organism_generation_wraps: 0,
+            next_lineage: 1,
             seeds_germinated_after_waiting: 0,
             germinations: 0,
             leaf_cells_unaffordable: 0,
@@ -1818,6 +1984,24 @@ impl World {
     /// missing release shows up here as a count that only ever climbs.
     pub fn live_organism_count(&self) -> usize {
         self.organisms.iter().filter(|slot| slot.state.is_some()).count()
+    }
+
+    /// **How many animals are alive** — `live_organism_count` restricted to
+    /// species that carry a `CreatureDef`.
+    ///
+    /// The population readout S6 asks for, and it has to be its own number
+    /// rather than the organism count: a colony scene grows trees, so
+    /// `live_organism_count` moves when the *flora* changes and a reader
+    /// cannot tell a colony that bred from a stand that germinated. It is
+    /// also the quantity the frame-cost re-run is indexed on — creature
+    /// work was measured free at 55 ants and a breeding population is not
+    /// 55 (`Reports/creature-evolution-plan.md` §2.6).
+    pub fn live_creature_count(&self) -> usize {
+        self.organisms
+            .iter()
+            .filter_map(|slot| slot.state.as_ref())
+            .filter(|state| self.species.get(state.species).creature.is_some())
+            .count()
     }
 
     /// Total energy held by every live organism — the left-hand side of
@@ -1986,6 +2170,13 @@ impl World {
         if matches!(site.kind, scheduler::ActiveKind::Decay) && !self.pending_decay_sites.insert((site.x, site.y)) {
             return;
         }
+        // **The routing that makes the reserve real.** Everything above is
+        // per-kind dedup; this is the one line that decides which budget a
+        // site competes for. See `creature_sites`.
+        if creature_priority() && matches!(site.kind, scheduler::ActiveKind::Creature { .. }) {
+            self.creature_sites.push(Reverse(site));
+            return;
+        }
         self.active_sites.push(Reverse(site));
     }
 
@@ -1996,14 +2187,21 @@ impl World {
     /// no meaning; every caller filters.
     #[cfg(test)]
     pub(crate) fn active_sites_for_test(&self) -> Vec<ActiveSite> {
-        self.active_sites.iter().map(|&Reverse(site)| site).collect()
+        // Both heaps, because every caller is asking "what is scheduled",
+        // and a guard that could not see a creature site would go quietly
+        // blind the moment the reserve was switched on.
+        self.active_sites
+            .iter()
+            .chain(self.creature_sites.iter())
+            .map(|&Reverse(site)| site)
+            .collect()
     }
 
     /// Total pending active sites. The headline number for whether the
     /// scheduler's cost is actually proportional to "interesting cells"
     /// rather than world size — see the debug overlay.
     pub fn active_site_count(&self) -> usize {
-        self.active_sites.len()
+        self.active_sites.len() + self.creature_sites.len()
     }
 
     /// How many of `organism_id`'s cells currently read as `cell_type` —
@@ -2070,6 +2268,26 @@ impl World {
     /// tick, so `schedule_active_site` — and anything that reads the heap,
     /// like `organism_active_tip_count` — works correctly no matter where in
     /// the call stack it's invoked from.
+    /// Pop the next due creature tick off the reserved heap, or `None`.
+    /// The twin of [`World::pop_due_active_site`] over `creature_sites`,
+    /// and deliberately much simpler: none of the per-kind dedup indices
+    /// that function clears can hold a `Creature` site, because a creature
+    /// is scheduled by exactly one thing — itself.
+    ///
+    /// Always `None` under `CREATURE_PRIORITY=0`, since routing then puts
+    /// creature sites in the main heap and this one stays empty. That is
+    /// what makes the switch a true control rather than a second code
+    /// path: `scheduler::step`'s loop below it is unchanged and simply
+    /// finds nothing reserved.
+    pub(crate) fn pop_due_creature_site(&mut self, due: u64) -> Option<ActiveSite> {
+        let &Reverse(site) = self.creature_sites.peek()?;
+        if site.next_frame > due {
+            return None;
+        }
+        self.creature_sites.pop();
+        Some(site)
+    }
+
     pub(crate) fn pop_due_active_site(&mut self, due: u64) -> Option<ActiveSite> {
         let &Reverse(site) = self.active_sites.peek()?;
         if site.next_frame > due {
@@ -2215,6 +2433,8 @@ impl World {
             traits: [0.0; organism::CREATURE_TRAITS],
             chain: Vec::new(),
             heading: 0,
+            // Nothing is born in the air. Only `creature::launch` sets this.
+            flight: None,
             energy: 0.0,
             carrying: None,
             since_nest: 0,
@@ -2231,6 +2451,10 @@ impl World {
             fruit_band: 0,
             inherited: false,
             generation: 0,
+            // Founders claim theirs at the `plant_creature_seed` seam;
+            // `push_organism` cannot, because it does not know whether it
+            // is allocating a plant (same reasoning as `traits` above).
+            lineage: 0,
             seeds_set: 0,
             alleles: [0; organism::DISCRETE_LOCI],
             deferred_germination: false,
@@ -2423,6 +2647,17 @@ impl World {
     /// index's own bound.
     pub fn organism_slot_high_water(&self) -> (usize, usize) {
         (self.organisms.len(), ORGANISM_INDEX_MASK as usize)
+    }
+
+    /// Hand out the next founder label — see `OrganismState::lineage`.
+    ///
+    /// Called once per *founder*, at the seam a creature appears out of
+    /// nothing; a bud copies its parent's instead, which is what makes a
+    /// clonal line one label rather than N.
+    pub(crate) fn claim_lineage(&mut self) -> u32 {
+        let id = self.next_lineage;
+        self.next_lineage = self.next_lineage.saturating_add(1);
+        id
     }
 
     /// Births refused at the slot ceiling — see `organisms_refused`. Zero

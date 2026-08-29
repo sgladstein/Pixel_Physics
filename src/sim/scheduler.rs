@@ -369,13 +369,75 @@ pub fn step(world: &mut World) {
     world.load_budget = if std::env::var("PROBE_NO_LOAD").is_ok() { 0 } else { crate::sim::load::MAX_LOAD_CELLS_PER_FRAME };
     world.load_cache.clear();
     let due = world.frame;
-    let mut due_sites = Vec::new();
-    while due_sites.len() < MAX_SITES_PER_FRAME {
-        match world.pop_due_active_site(due) {
-            Some(site) => due_sites.push(site),
+    // **Creature ticks get their own budget, and are then merged back into
+    // their natural place.** Not a priority — see below, and see
+    // `World::creature_sites` for why they get a separate budget at all.
+    // In one line: background sites sit at a `next_frame` in the past and
+    // a creature reschedules itself into the future, so while the backlog
+    // is deeper than `MAX_SITES_PER_FRAME` a creature is not merely behind
+    // in the queue, it is unreachable.
+    //
+    // Empty, and therefore a no-op, under `CREATURE_PRIORITY=0`.
+    //
+    // **A bound on work, never a gate on whether a creature ticks**, which
+    // is the distinction `CLAUDE.md` insists on for every cap in this
+    // engine: exhausting this produces *less work this frame*, not an
+    // answer. Whatever is left stays in `creature_sites` at its own
+    // `next_frame` and is the very first thing popped next frame, so the
+    // worst case degrades to the pooled behaviour rather than to silence.
+    //
+    // Sized so it cannot bind in play and can still stop a pathological
+    // population from owning a frame: at `ant.ron`'s `tick_interval` 6 it
+    // is ~1,500 simultaneous creatures, against a `found_colony` of 52.
+    let mut creature_due = Vec::new();
+    while creature_due.len() < MAX_CREATURE_SITES_PER_FRAME {
+        match world.pop_due_creature_site(due) {
+            Some(site) => creature_due.push(site),
             None => break,
         }
     }
+    let mut other_due = Vec::new();
+    while other_due.len() < MAX_SITES_PER_FRAME {
+        match world.pop_due_active_site(due) {
+            Some(site) => other_due.push(site),
+            None => break,
+        }
+    }
+    // **Merged, not concatenated, and this is the whole safety argument.**
+    // Both lists come off min-heaps, so both are already ascending in
+    // `ActiveSite`'s own `Ord`; merging them reproduces exactly the order
+    // a single heap would have popped. So whenever the budget is *not*
+    // binding — which is every frame of ordinary play, measured at 331
+    // due sites against a cap of 2,000 on a 8192x2560 world with a colony
+    // in it — this dispatches the identical set in the identical order and
+    // the world is bit-identical to the pooled version. The reserve can
+    // only change anything in the one case it exists for.
+    //
+    // That matters more than it looks. Dispatch order is a behaviour
+    // input here: ticks write cells, and two sites due on the same frame
+    // racing for the same neighbour resolve by this order — it is the
+    // engine's one documented determinism surface (`ActiveSite`'s `Ord`).
+    // A version that simply ran creatures first would have changed every
+    // emergent outcome in the engine to fix a condition that, measured,
+    // is not currently occurring.
+    //
+    // A merge rather than a `sort_unstable` deliberately, and not only for
+    // the linear cost: `CLAUDE.md`'s tie-order gotcha says an unstable
+    // sort's treatment of equal elements depends on the *element type*,
+    // not just the comparator. There is nothing to reason about here.
+    let mut due_sites = Vec::with_capacity(creature_due.len() + other_due.len());
+    let (mut i, mut j) = (0, 0);
+    while i < creature_due.len() && j < other_due.len() {
+        if creature_due[i] <= other_due[j] {
+            due_sites.push(creature_due[i]);
+            i += 1;
+        } else {
+            due_sites.push(other_due[j]);
+            j += 1;
+        }
+    }
+    due_sites.extend_from_slice(&creature_due[i..]);
+    due_sites.extend_from_slice(&other_due[j..]);
 
     let mut timing = SchedTiming::new();
     // What is still waiting when the frame's site budget runs out. A phase
@@ -453,6 +515,19 @@ pub fn step(world: &mut World) {
 /// (visibly slows legitimate settling) or too high (still spikes a frame).
 const MAX_SITES_PER_FRAME: usize = 2000;
 
+/// The reserved per-frame budget for creature ticks — see
+/// `World::creature_sites` for why they get one at all.
+///
+/// **This is a ceiling on a queue that is not supposed to reach it.** A
+/// colony of 52 ants at `tick_interval` 6 offers ~9 sites a frame, so the
+/// steady state is two orders of magnitude under this and the number is
+/// doing nothing in ordinary play. What it is for is the pathological
+/// case — a world someone has filled with creatures — where an unbounded
+/// reserve would let the population own the frame outright, which is the
+/// same failure the shared budget above exists to prevent, arriving from
+/// the other side.
+const MAX_CREATURE_SITES_PER_FRAME: usize = 256;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -493,6 +568,135 @@ mod tests {
         // drain exactly what the first one deferred, not lose or re-cap it.
         step(&mut w);
         assert_eq!(w.active_site_count(), 0, "a second step call should finish draining what the budget deferred");
+    }
+
+    /// **A creature keeps its own cadence while world-scale work is
+    /// backlogged past the per-frame budget.**
+    ///
+    /// This is the guard for the owner's playtest report of 2026-08-29 —
+    /// *"creatures seem to be moving slowly right now. Long pause, move a
+    /// pixel, long pause, move one more pixel"* — and it fails without
+    /// `World::creature_sites`, which is the point.
+    ///
+    /// # Why the flood is shaped the way it is
+    ///
+    /// Three properties, and dropping any one makes the test green for the
+    /// wrong reason:
+    ///
+    /// - **More than the budget, every frame.** One over-budget frame
+    ///   drains the next; only a source that keeps producing holds the
+    ///   frontier behind the present, which is the state the whole bug
+    ///   lives in. This is not contrived — `open-bugs-handoff.md` §S
+    ///   measured exactly it in play, ~7,600 sites produced against 2,000
+    ///   drained, for eleven thousand frames after a single charge.
+    /// - **Distinct positions**, or `schedule_active_site`'s per-position
+    ///   dedup collapses the flood and there is no backlog at all.
+    /// - **Positions that sort ahead of the ant.** `ActiveSite`'s `Ord` is
+    ///   `next_frame` then `x`, so a flood to the ant's *west* is what puts
+    ///   it last among sites due on the same frame. A flood to the east
+    ///   would let the ant through on the tiebreak and the test would pass
+    ///   against the pooled queue as well — green, and evidence of nothing.
+    ///
+    /// # What it asserts, and why not `moves`
+    ///
+    /// `ticks`, not `moves`: whether the ant is *asked*. Whether it then
+    /// moves is the brain's business and depends on a roll, so an
+    /// assertion on `moves` would be a loose bound on emergent behaviour —
+    /// exactly the kind `CLAUDE.md` says goes blind. Being scheduled is
+    /// not emergent: a creature reschedules itself to an exact frame, so
+    /// the expected count is arithmetic and the honest bar is close to it.
+    #[test]
+    fn a_creature_keeps_its_cadence_under_a_background_site_backlog() {
+        // Wide enough that the flood has thousands of distinct positions
+        // west of the ant, which is what the tiebreak argument above needs.
+        let mut w = World::new(Rect::new(0, 0, 511, 255));
+        for cx in 0..512 {
+            w.set(cx, 101, crate::sim::Cell::new(crate::sim::material::STONE, 0));
+        }
+        let ant_x = 500;
+        w.plant_ant(ant_x, 100);
+        assert_eq!(w.creature_stats.spawned, 1, "no ant was planted -- the scene does not contain the subject");
+        let interval = w
+            .species
+            .get(w.species.id_of("ant").expect("ant species"))
+            .creature
+            .as_ref()
+            .expect("ant is a chain creature")
+            .tick_interval;
+
+        // **Six times the budget, and the multiplier is the whole design of
+        // this test.** The flood has to leave far more than
+        // `MAX_SITES_PER_FRAME` still *due* after the frame's pop, or the
+        // frontier catches up and there is nothing to be starved by.
+        //
+        // How far behind a creature falls is `backlog / budget` frames,
+        // because the heap drains oldest-first and the creature's own site
+        // becomes the oldest once the frontier passes it — it is starved
+        // *while* the backlog is deeper than the budget, not for ever. So
+        // the multiplier chooses the severity, and it was measured rather
+        // than guessed: at `* 2 + 500` the pooled arm reads 37 asks of 50
+        // and a worst lateness of 2 frames, which is red but only just, and
+        // an 8-ask margin over the bar is not a margin. At `* 6` it is
+        // unambiguous. Both are conservative against what play produces —
+        // `scale_probe load=ants:64,mine:20` on the shipped world measured
+        // **late mean 5.8 frames, max 36** with the census showing zero
+        // creature sites dispatched on whole frames.
+        const FLOOD: usize = MAX_SITES_PER_FRAME * 6;
+        const FRAMES: u64 = 300;
+        for _ in 0..FRAMES {
+            w.begin_step();
+            // Re-flooded every frame, all due now, all west of the ant.
+            // `y` is swept as well as `x` so the positions stay distinct
+            // without ever reaching the ant's column.
+            let due = w.frame;
+            for i in 0..FLOOD {
+                w.schedule_active_site(ActiveSite {
+                    x: (i % 400) as i32,
+                    y: 102 + (i / 400) as i32,
+                    kind: ActiveKind::StructuralCheck,
+                    next_frame: due,
+                });
+            }
+            step(&mut w);
+        }
+
+        // The backlog has to be real, or this test proves nothing about
+        // starvation -- it would merely be a slow way of running an ant.
+        // `CLAUDE.md`: check that a guard's inputs actually vary what it
+        // guards.
+        assert!(
+            w.active_site_count() > MAX_SITES_PER_FRAME,
+            "the flood did not build a backlog ({} pending) -- the test is not exercising the condition it is named for",
+            w.active_site_count()
+        );
+
+        let ideal = FRAMES / interval;
+        let cs = w.creature_stats;
+        assert!(
+            cs.ticks * 10 >= ideal * 9,
+            "the ant was asked {} times in {FRAMES} frames against the {ideal} its own tick_interval asks for -- \
+             a backlog of background sites is starving the creature queue (late mean {:.1} frames, max {})",
+            cs.ticks,
+            if cs.ticks > 0 { cs.tick_lag_sum as f64 / cs.ticks as f64 } else { 0.0 },
+            cs.tick_lag_max,
+        );
+        // Lateness is the same claim in the axis the complaint was made
+        // in, and it is the one that reads as the owner's sentence: a
+        // creature that is late by tens of frames is a creature that
+        // pauses and then moves a pixel.
+        //
+        // **Zero is a proved property here, not a measured bar.** One ant
+        // can never offer more than one due site a frame, so the reserve
+        // cannot bind, so `pop_due_creature_site` takes it on the frame it
+        // asked for. Asserting the property rather than a threshold is
+        // what stops this drifting into a rubber stamp — `CLAUDE.md`,
+        // assert the property, not two instants fitted to one trajectory.
+        assert_eq!(
+            cs.tick_lag_max, 0,
+            "a creature site ran {} frames past its own next_frame with only one creature in the world -- \
+             at tick_interval {interval} that is the pause the owner reported",
+            cs.tick_lag_max
+        );
     }
 
     #[test]
