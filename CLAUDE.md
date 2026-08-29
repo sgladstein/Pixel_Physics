@@ -225,6 +225,35 @@ owner views it with the `serve` command above; it does not need to be running
 for you to post. Full protocol, including the JSON card spec, in
 `.claude/skills/review/SKILL.md`.
 
+## Writing to the owner
+
+**The owner runs several sessions at once and reads your messages cold.**
+Stated 2026-08-29: they "are often not helpful... sometimes I don't actually
+know what they're doing because they're being too specific and not giving me
+any bigger picture." This is about *chat*; reports, PR bodies and lane notes
+are read deliberately and are exempt.
+
+**Lead with what the change does and where it is going. Put the mechanism
+after that, not instead of it.**
+
+- **What it does**, in the vocabulary of the world or of the work rather
+  than of the code — `wiki/*.md` has those words. Not every change shows on
+  screen; when it doesn't, say what it is *for*.
+- **Where it sits** — the arc, and this step's place in it. **A position in a
+  queue is not a direction**: *"third of §S's verbs"* says nothing; *"making
+  broken rock carry weight — last of three places it was wrong"* does.
+  Measured over 158 review cards and 283 commit subjects, **no message in any
+  corpus stated one**, and the owner ranks this first.
+- **Then the mechanism, as technical as it needs to be.** Nothing is deleted
+  and no number dropped; the order changes. Name a number for what it says
+  rather than for its instrument: `wrong cells 35,102 -> 1,337` is *ground
+  that collapsed when it should have held: 35,102 cells -> 1,337*.
+
+**Scale it to the message.** A one-line update is one plain line, not four
+headings; a long one carries the whole shape. Either way it must be
+**abandonable at any line**. `python3 scripts/plaincheck.py` scores a draft
+and cannot gate anything; `Reports/agent-communication.md` holds the census.
+
 ## Working alongside another session
 
 **This tree is worked in concurrently, and often by more than one agent at

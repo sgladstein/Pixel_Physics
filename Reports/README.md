@@ -26,6 +26,14 @@ tried?"*.
   systematically rejects the changes worth making, ratcheting toward a local
   optimum the owner has already rejected), and proposes a `CLAUDE.md` rule
   rather than making one.
+- [agent-communication.md](agent-communication.md) — **rule landed
+  2026-08-29.** How sessions write to the owner, censused over 158 review
+  cards, 347 image panes and 283 commit subjects: 56% of PR subjects need a
+  document opened before they parse, no message in any corpus states a
+  direction, and the one clean channel is the one with a required shape.
+  Commissioned by the owner, who runs several sessions at once; produced
+  `CLAUDE.md` §"Writing to the owner" and `scripts/plaincheck.py`. Records
+  which channels were deliberately left alone, and why.
 - [design-philosophy.md](design-philosophy.md) — **settled.** The short,
   opinionated statement the other reports imply: constants, hardcoding,
   scope boundaries, outcome-vs-mechanism. Read before arguing about any of

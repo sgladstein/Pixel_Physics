@@ -3849,6 +3849,61 @@ impl World {
         self.clock.weather_frame(self.frame)
     }
 
+    /// **Pin the sky to a named time of day, or let it run again.**
+    ///
+    /// The one supported way to write `Clock::sky_hold`, and it does two
+    /// things the field write on its own does not.
+    ///
+    /// **It goes through `Clock::set_rates`**, so releasing a hold resumes
+    /// the sun from where it stopped instead of teleporting it to wherever
+    /// the unstopped clock would have reached — that is the whole reason the
+    /// anchors exist, and "stop and start" is exactly the case they were
+    /// written for.
+    ///
+    /// **It wakes the field.** `field::step` early-outs on a world with no
+    /// awake chunks whose field has converged *and* whose sky has not moved
+    /// between this frame and last — and a hold is a change to the *mapping*
+    /// rather than to the frame, so both sides of that comparison move
+    /// together and the jump is invisible to it. A settled world would then
+    /// keep midnight's light with a noon sky painted over it, for as long as
+    /// nothing else happened to wake anything. Clearing the flag costs one
+    /// solve, and only on the frame the pin changes; from there the per-tile
+    /// `FieldTile::sky_drifted` check does the rest, which is why this does
+    /// not need to touch the tiles itself.
+    pub fn set_sky_hold(&mut self, hold: Option<u64>) {
+        if self.clock.sky_hold == hold {
+            return;
+        }
+        let frame = self.frame;
+        self.clock.set_rates(frame, |c| c.sky_hold = hold);
+        self.fields_settled = false;
+    }
+
+    /// **Pin the weather to a named sky, or let it run again** — the
+    /// [`World::set_sky_hold`] twin, over [`Self::weather_override`].
+    ///
+    /// Wakes the field for the same reason and by the same means: a pinned
+    /// downpour that arrives on a settled world has to be able to unsettle
+    /// it, and `weather::step`'s own writes are gated behind chunks that a
+    /// quiet world does not have awake. Wakes the *chunks* too, which the
+    /// sky pin does not need to: rain lands on the grid, and a sleeping
+    /// chunk is not swept.
+    pub fn set_weather_pin(&mut self, pin: crate::sim::weather::Pin) {
+        let held = pin.weather();
+        if self.weather_override == held {
+            return;
+        }
+        self.weather_override = held;
+        self.fields_settled = false;
+        self.wake_all();
+    }
+
+    /// Which named sky the weather is currently pinned to, or `None` for a
+    /// hold that is not one of the presets — see `weather::Pin::of`.
+    pub fn weather_pin(&self) -> Option<crate::sim::weather::Pin> {
+        crate::sim::weather::Pin::of(self.weather_override)
+    }
+
     /// A creature-schedule interval scaled by `clock.creature_slowdown`, as an
     /// absolute frame to be due on — the creature twin of
     /// [`World::organism_due`].
@@ -3860,8 +3915,24 @@ impl World {
     /// clocks supplied — `weather::strike` needs both, and its doc says why.
     /// `frame` is a *real* frame, so a caller wanting last frame's still-lit
     /// flash passes `world.frame.wrapping_sub(1)` exactly as it always did.
+    ///
+    /// **Honours [`Self::weather_override`]**, and did not until the options
+    /// menu could pin a storm. `weather::strike` re-derives the sky at the
+    /// window's start from `(seed, frame)` directly, so an override was
+    /// invisible to it in both directions: a pinned thunderstorm flashed only
+    /// when the *seed's* own weather happened to be storming under it, and a
+    /// world pinned clear still lit up. That is `CLAUDE.md`'s writer/reader
+    /// check failing on the read side — the override had a writer and one
+    /// consumer that quietly did not read it — and the symptom is a menu
+    /// entry that half works, which is worse than one that does not.
     pub fn lightning_at(&self, frame: u64) -> Option<crate::sim::weather::Strike> {
-        crate::sim::weather::strike(self.seed, frame, |f| self.clock.weather_frame(f), self.bounds())
+        crate::sim::weather::strike(
+            self.seed,
+            frame,
+            |f| self.clock.weather_frame(f),
+            self.weather_override,
+            self.bounds(),
+        )
     }
 
     /// An organism-schedule interval scaled by `clock.growth_slowdown`, as

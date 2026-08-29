@@ -358,6 +358,18 @@ fn reload_assets(world: &mut World) -> Option<String> {
 /// installed, not a repository, subprocess failure — all silently fine,
 /// this is an affordance, not a dependency).
 ///
+/// One drawn line of the options panel: either an entry, or the subheader
+/// naming the category the entries under it belong to.
+///
+/// **Scrolling measures these, not entries.** A window sized in drawn rows
+/// against a list counted in entries drifts by one row for every category on
+/// screen, which is how a selection walks off the bottom of a panel that
+/// still has room. The two counts are only equal in a menu with one category.
+enum PanelRow {
+    Header(String),
+    Entry(usize),
+}
+
 /// Exists because the tunables panel saves straight back into the `.ron`
 /// files — right for iteration, and it quietly accumulates unrecorded
 /// balance changes: a `smoke_fraction` saved mid-playtest sat invisible in
@@ -502,7 +514,12 @@ impl App {
             show_help: false,
             show_tunables: false,
             tunables_selected: 0,
-            tunables_group: TunableGroup::Physics,
+            // **The menu the panel opens on**, and it is `World` because
+            // the two things anybody opens this panel *to use* rather than
+            // to sweep -- what time of day it is, and what the weather is
+            // doing -- are its first two rows. `TunableGroup::next`'s doc
+            // has the rest of that argument.
+            tunables_group: TunableGroup::World,
             pinned: None,
             experiment: false,
             tool: Tool::Brush,
@@ -876,18 +893,98 @@ impl App {
         let mut out = tunables::from_materials(&self.world.materials);
         out.extend(tunables::from_explosion(&self.blasts.tuning));
         out.extend(tunables::from_player(&self.player_tuning));
+        out.extend(tunables::from_pins(&self.world.clock, self.world.weather_override));
         out.extend(tunables::from_clock(&self.world.clock));
         out
     }
 
-    /// `Tab` — switch which menu the panel shows. `PageUp`/`PageDown` do
-    /// the same and came first, but they are missing from 60% and many
-    /// laptop keyboards, which left the `WORLD` menu unreachable there.
-    /// Resets the
-    /// selection, since an index into one group means nothing in another.
+    /// The options panel's row geometry, in pixels. Associated constants
+    /// rather than locals in the draw because `tunables_page` needs the same
+    /// visible-row count and has no frame to measure one from — two
+    /// independent copies is exactly how a page key comes to move a
+    /// screenful plus or minus two rows.
+    const TUNABLES_ROW_HEIGHT: i32 = 10;
+    /// Title, tab strip and the rule under them.
+    const TUNABLES_HEADER_HEIGHT: i32 = 34;
+    /// Two lines of key hints and one of message, at `TUNABLES_ROW_HEIGHT`
+    /// apart plus a gap before the message.
+    ///
+    /// **Sized from a render, not from the arithmetic.** At 34 the three
+    /// lines were 7px glyphs on a 7px pitch — mathematically non-overlapping
+    /// and, in the picture, one solid block of unreadable text with the
+    /// message sitting directly on the hint above it. The gap is the thing
+    /// being reserved, and only a rendered panel shows whether there is one.
+    const TUNABLES_FOOTER_HEIGHT: i32 = 40;
+    /// How many rows fit between the two. Drawn rows, which include category
+    /// subheaders, so paging by this lands within a row or two of a
+    /// screenful rather than exactly on one in a menu that has them — the
+    /// alternative is making the key's meaning depend on where you started,
+    /// which is worse.
+    const TUNABLES_VISIBLE_ROWS: usize = {
+        let top = 20 + Self::TUNABLES_HEADER_HEIGHT;
+        let bottom = HEIGHT as i32 - 20 - Self::TUNABLES_FOOTER_HEIGHT;
+        let rows = (bottom - top) / Self::TUNABLES_ROW_HEIGHT;
+        if rows < 1 { 1 } else { rows as usize }
+    };
+
+    /// `Tab` — switch which menu the panel shows, `Shift+Tab` the other way.
+    /// `PageUp`/`PageDown` used to do the same and now page the list
+    /// instead, which is what they mean everywhere else and what a
+    /// hundred-row PHYSICS menu needs. Resets the selection, since an index
+    /// into one group means nothing in another.
+    /// Which menu the panel is showing. Read-only, for `examples/uishot.rs`,
+    /// which cycles to a named menu through the real key handler rather than
+    /// writing the field -- so a sheet's PHYSICS tab is the one `Tab` would
+    /// have reached.
+    pub fn tunables_group(&self) -> TunableGroup {
+        self.tunables_group
+    }
+
     pub fn tunables_cycle_group(&mut self) {
         self.tunables_group = self.tunables_group.next();
         self.tunables_selected = 0;
+    }
+
+    /// `Shift+Tab` — the other way round the same cycle.
+    ///
+    /// `TunableGroup::prev` existed for a year with no caller (its own doc
+    /// records the bug that hid in it as a result); this is that caller. One
+    /// menu back matters more than it sounds with five tabs: overshooting
+    /// `WORLD` by one press otherwise costs four more.
+    pub fn tunables_cycle_group_back(&mut self) {
+        self.tunables_group = self.tunables_group.prev();
+        self.tunables_selected = 0;
+    }
+
+    /// `PageUp`/`PageDown` — a screenful at a time, clamped at the ends
+    /// rather than wrapped.
+    ///
+    /// **Clamped where `tunables_move` wraps**, and the difference is what
+    /// each is for. Wrapping a single step is convenient — one press from the
+    /// first row reaches the last. Wrapping a *page* is disorienting: in
+    /// PHYSICS the same keypress moves you twenty rows sometimes and a
+    /// hundred others, depending only on where you started.
+    ///
+    /// The page size is the panel's own visible row count, recomputed here
+    /// from the same constants the draw uses rather than passed in, since
+    /// the key handler has no frame to measure against.
+    pub fn tunables_page(&mut self, direction: i32) {
+        let len = self.tunables_list().len();
+        if len == 0 {
+            return;
+        }
+        let page = Self::TUNABLES_VISIBLE_ROWS as i32;
+        let next = (self.tunables_selected as i32 + direction * page).clamp(0, len as i32 - 1);
+        self.tunables_selected = next as usize;
+    }
+
+    /// `Home`/`End` — first and last entry of the current menu.
+    pub fn tunables_jump(&mut self, to_end: bool) {
+        let len = self.tunables_list().len();
+        if len == 0 {
+            return;
+        }
+        self.tunables_selected = if to_end { len - 1 } else { 0 };
     }
 
     /// `K` — flip whatever is being evaluated right now between its baseline
@@ -940,7 +1037,25 @@ impl App {
     /// the pinned path (`adjust_pinned`) drives exactly the same code rather
     /// than a parallel copy of it.
     fn apply_adjust(&mut self, t: &Tunable, sign: i32) {
-        let new_value = (t.value + sign as f32 * t.step).clamp(t.min, t.max);
+        // Wraps for a choice, clamps for a number -- see `Tunable::stepped`
+        // for why those are different and both right.
+        let new_value = t.stepped(sign);
+        // **The two pin rows are not field writes** and cannot go through
+        // `apply_clock`: both have to wake the field as well as set the
+        // value, and one of them does not live on the clock at all. See
+        // `World::set_sky_hold`.
+        if t.group == TunableGroup::World && t.name == "time_of_day" {
+            let pin = tunables::select_sky_pin(new_value);
+            self.world.set_sky_hold(pin.hold());
+            self.message = Some(format!("time of day: {}", pin.label()));
+            return;
+        }
+        if t.group == TunableGroup::World && t.name == "weather" {
+            let pin = tunables::select_weather_pin(new_value);
+            self.world.set_weather_pin(pin);
+            self.message = Some(format!("weather: {}", pin.label()));
+            return;
+        }
         if t.group == TunableGroup::Explosion {
             tunables::apply_explosion(&mut self.blasts.tuning, &t.name, new_value);
             self.message = Some(format!("{}.{} = {new_value:.3}", t.category, t.name));
@@ -1063,6 +1178,16 @@ impl App {
                 Err(e) => format!("{}: {e}", player::Tuning::ASSET_PATH),
             });
             self.assets_dirty = dirty_asset_count();
+            return;
+        }
+        if t.group == TunableGroup::World && t.name == "weather" {
+            // Honest rather than silent. The weather pin lives on `World`
+            // (`weather_override`), which is running state with no asset file
+            // behind it -- unlike the sky hold, which is a `Clock` field and
+            // rides along in the save below. Reporting "saved" here would
+            // claim a persistence that does not exist, and the next session
+            // starting clear would look like the file had been ignored.
+            self.message = Some("weather pin is session-only -- not saved".into());
             return;
         }
         if t.group == TunableGroup::World {
@@ -1282,6 +1407,7 @@ impl App {
             None => format!("{label}   VIEW {},{}", self.renderer.camera_x, self.renderer.camera_y),
         };
         hud::draw_text(frame, WIDTH, HEIGHT, 4, HEIGHT as i32 - 10, &label, WHITE);
+        self.draw_pin_badge(frame);
         // Directly above the persistent brush label, so a mode change reads
         // as a line about the brush rather than as an unrelated notice
         // somewhere else on screen.
@@ -1411,24 +1537,29 @@ impl App {
         }
     }
 
-    /// A scrollable list of every registered `Tunable`, grouped by
-    /// category (material name) in the order `tunables_list` produces
-    /// them, current selection highlighted and shown with its live value
-    /// plus a `[SAVED]`/error tag via `self.message` (the same feedback
-    /// channel a material reload already uses, reused rather than adding
-    /// a second one). Scrolls to keep the selection on screen once the
-    /// list is taller than the panel — a fixed window of rows centred
-    /// around `tunables_selected` rather than a real scrollbar.
-    /// The live-tunables panel (`O`).
+    /// **The options panel (`O`).** One menu at a time out of
+    /// `TunableGroup::all()`, drawn as a tab strip so what else exists is
+    /// visible rather than discoverable only by pressing `Tab` five times;
+    /// under it the current menu's entries, split by category with a
+    /// subheader whenever a menu holds more than one (which is PHYSICS, at
+    /// a hundred-odd rows across a dozen materials, and VISUAL).
     ///
     /// Translucent rather than opaque, by request: the panel covers most of
     /// the screen, and a solid fill meant nothing being tuned could be seen
     /// while tuning it. The world still shows through at `PANEL_ALPHA`, the
     /// selected row gets a brighter bar behind it so it stays readable
-    /// against whatever happens to be underneath, and a value bar shows each
-    /// entry's position within its own min..max range — which is the one
-    /// piece of information a bare number never gave: whether there is any
-    /// headroom left in the direction you are pushing.
+    /// against whatever happens to be underneath, and a gauge shows each
+    /// entry's position within its own range — which is the one piece of
+    /// information a bare number never gave: whether there is any headroom
+    /// left in the direction you are pushing. A choice draws that gauge as
+    /// one segment per option instead of a fill, because "3 of 9" is what
+    /// position means for a mode and a partial bar would imply values
+    /// between two states that do not exist.
+    ///
+    /// Scrolls to keep the selection on screen once the list is taller than
+    /// the panel, with a thumb down the right edge saying how far in you
+    /// are — the previous version scrolled silently, so a hundred-row menu
+    /// gave no clue whether there were three more entries or eighty.
     fn draw_tunables_panel(&self, frame: &mut [u8]) {
         const PANEL: [u8; 4] = [10, 10, 16, 255];
         const PANEL_ALPHA: f32 = 0.78;
@@ -1440,9 +1571,15 @@ impl App {
         const ROW_ALPHA: f32 = 0.85;
         const WHITE: [u8; 4] = [225, 228, 235, 255];
         const DIM: [u8; 4] = [140, 146, 158, 255];
+        const FAINT: [u8; 4] = [96, 102, 116, 255];
         const SELECTED: [u8; 4] = [255, 220, 100, 255];
         const ACCENT: [u8; 4] = [90, 170, 240, 255];
         const BAR: [u8; 4] = [70, 96, 130, 255];
+        /// The subheader that names a category inside a menu, and the tab
+        /// strip's inactive labels: a green that is clearly not the blue
+        /// chrome and clearly not the yellow selection, so three levels of
+        /// "this is structure, not a value" stay apart at 5x7 pixels.
+        const HEADING: [u8; 4] = [150, 200, 160, 255];
 
         let (left, top, right, bottom) = (20, 20, WIDTH as i32 - 20, HEIGHT as i32 - 20);
         for y in top..bottom {
@@ -1461,84 +1598,301 @@ impl App {
             render::put(frame, WIDTH, HEIGHT, right - 1, y, ACCENT);
         }
 
+        hud::draw_text(frame, WIDTH, HEIGHT, left + 8, top + 6, "OPTIONS", SELECTED);
+
+        // **The tab strip.** Every menu, in `TunableGroup::all()`'s order,
+        // which is `next()`'s order -- so the strip reads left to right in
+        // the direction `Tab` walks. The active tab gets a filled plate
+        // rather than only a brighter colour: at this glyph size a colour
+        // difference alone was legible in a screenshot and not at a glance.
+        let mut tab_x = left + 8;
+        for group in TunableGroup::all() {
+            let label = group.label();
+            let w = hud::text_width(label) + 8;
+            if group == self.tunables_group {
+                for y in top + 16..top + 26 {
+                    for x in tab_x..tab_x + w {
+                        render::blend(frame, WIDTH, HEIGHT, x, y, ACCENT, 0.85);
+                    }
+                }
+            }
+            let colour = if group == self.tunables_group { [12, 16, 24, 255] } else { HEADING };
+            hud::draw_text(frame, WIDTH, HEIGHT, tab_x + 4, top + 18, label, colour);
+            tab_x += w + 4;
+        }
+        for x in left + 1..right - 1 {
+            render::put(frame, WIDTH, HEIGHT, x, top + 28, [40, 52, 72, 255]);
+        }
+
         let list = self.tunables_list();
-        hud::draw_text(frame, WIDTH, HEIGHT, left + 8, top + 6, &format!("TUNABLES  [{}]", self.tunables_group.label()), SELECTED);
+        // Row geometry from the associated constants, so `tunables_page`
+        // pages by exactly what is on screen. The footer is reserved
+        // unconditionally, not only when `self.message` is currently `Some`
+        // -- a live PNG check caught the list running rows straight through
+        // this space when the reservation was message-dependent: a save's
+        // resulting message would land on the same pixels as the list's own
+        // last row, both unreadable. It must stay put whether or not there
+        // is a message to put in it, so the two can never collide.
+        let row_height = Self::TUNABLES_ROW_HEIGHT;
+        let rows_top = top + Self::TUNABLES_HEADER_HEIGHT;
+        let rows_bottom = bottom - Self::TUNABLES_FOOTER_HEIGHT;
+
+        // The footer, drawn whatever the list holds -- an empty menu still
+        // needs to say how to leave it.
+        for x in left + 1..right - 1 {
+            render::put(frame, WIDTH, HEIGHT, x, rows_bottom + 2, [40, 52, 72, 255]);
+        }
         hud::draw_text(
             frame,
             WIDTH,
             HEIGHT,
             left + 8,
-            top + 16,
-            "TAB MENU   UP/DOWN SELECT   LEFT/RIGHT ADJUST   ENTER PIN+CLOSE   S SAVE",
+            rows_bottom + 6,
+            "TAB / SHIFT+TAB  MENU     UP/DOWN  SELECT     PGUP/PGDN  PAGE",
             DIM,
         );
+        hud::draw_text(
+            frame,
+            WIDTH,
+            HEIGHT,
+            left + 8,
+            rows_bottom + 16,
+            "LEFT/RIGHT  CHANGE     ENTER  PIN + CLOSE     S  SAVE     ESC  CLOSE",
+            DIM,
+        );
+        // A clear gap under the hints rather than the next 10px slot: the
+        // message is a different kind of thing (what just happened, not what
+        // the keys do) and has to read as one.
+        if let Some(message) = &self.message {
+            hud::draw_text(frame, WIDTH, HEIGHT, left + 8, rows_bottom + 29, message, SELECTED);
+        }
+
         if list.is_empty() {
-            hud::draw_text(frame, WIDTH, HEIGHT, left + 8, top + 30, "NOTHING REGISTERED", WHITE);
+            hud::draw_text(frame, WIDTH, HEIGHT, left + 8, rows_top + 4, "NOTHING REGISTERED", WHITE);
             return;
         }
 
-        const ROW_HEIGHT: i32 = 10;
-        const HEADER_HEIGHT: i32 = 30;
-        // Reserved unconditionally, not only when `self.message` is
-        // currently `Some` -- a live PNG check caught the list running
-        // rows straight through this space when the reservation was
-        // message-dependent: a save's resulting message would land on the
-        // same pixels as the list's own last row, both unreadable. The
-        // footer must stay put whether or not there's a message to put in
-        // it, so the two can never collide.
-        const FOOTER_HEIGHT: i32 = 16;
-        let rows_top = top + HEADER_HEIGHT;
-        let rows_bottom = bottom - FOOTER_HEIGHT;
-        let visible_rows = ((rows_bottom - rows_top) / ROW_HEIGHT).max(1) as usize;
-        // Centre the window on the selection, clamped so it never scrolls
-        // past either end of the list.
+        // **Rows, including the subheaders.** Built once so that scrolling,
+        // the selection and the scrollbar all measure the same thing: a
+        // window sized in *drawn* rows against a list whose length is
+        // entries-only would drift by one row per category on screen.
+        //
+        // Subheaders only where a menu actually holds more than one
+        // category. WORLD, EXPLOSION and PLAYER are one category each, and a
+        // header repeating the tab immediately above it is a wasted row in a
+        // panel whose scarcest resource is rows.
+        let multi_category = list.iter().any(|t| t.category != list[0].category);
+        let mut rows: Vec<PanelRow> = Vec::with_capacity(list.len() + 16);
+        let mut last_category: Option<&str> = None;
+        for (i, t) in list.iter().enumerate() {
+            if multi_category && last_category != Some(t.category.as_str()) {
+                rows.push(PanelRow::Header(t.category.clone()));
+                last_category = Some(t.category.as_str());
+            }
+            rows.push(PanelRow::Entry(i));
+        }
+        let visible_rows = Self::TUNABLES_VISIBLE_ROWS;
+        // Where the selected *entry* sits among the drawn rows, so the
+        // window can be centred on the thing the arrows are moving.
+        let selected_row = rows
+            .iter()
+            .position(|r| matches!(r, PanelRow::Entry(i) if *i == self.tunables_selected))
+            .unwrap_or(0);
         let half = visible_rows / 2;
-        let first = self.tunables_selected.saturating_sub(half).min(list.len().saturating_sub(visible_rows));
+        let first = selected_row.saturating_sub(half).min(rows.len().saturating_sub(visible_rows));
 
-        // Where the value bar lives, right-aligned inside the panel.
-        let bar_w = 60;
-        let bar_x = right - 8 - bar_w;
+        // Column geometry. The value sits in its own column rather than
+        // trailing the name, so a scan down the panel reads as a table --
+        // with names of wildly different lengths (`density` against
+        // `confined_cavity_fraction`) a trailing value zig-zags across the
+        // panel and cannot be compared at all.
+        let bar_w = 66;
+        let bar_x = right - 12 - bar_w;
 
-        for (row, (i, t)) in list.iter().enumerate().skip(first).take(visible_rows).enumerate() {
+        for (row, entry) in rows.iter().enumerate().skip(first).take(visible_rows) {
+            let y = rows_top + (row - first) as i32 * row_height;
+            let i = match entry {
+                PanelRow::Header(category) => {
+                    // Indented less than its rows, upper-cased by the glyph
+                    // set anyway, and in the structural colour: it has to
+                    // read as a divider at a glance rather than as another
+                    // entry with a blank value.
+                    hud::draw_text(frame, WIDTH, HEIGHT, left + 6, y, category, HEADING);
+                    let underline_x = left + 8 + hud::text_width(category) + 6;
+                    for x in underline_x..bar_x + bar_w {
+                        render::put(frame, WIDTH, HEIGHT, x, y + 3, [40, 52, 72, 255]);
+                    }
+                    continue;
+                }
+                PanelRow::Entry(i) => *i,
+            };
+            let t = &list[i];
             let selected = i == self.tunables_selected;
-            let y = rows_top + row as i32 * ROW_HEIGHT;
             if selected {
-                for by in y - 1..y + ROW_HEIGHT - 1 {
+                for by in y - 1..y + row_height - 1 {
                     for bx in left + 1..right - 1 {
                         render::blend(frame, WIDTH, HEIGHT, bx, by, ROW_LIFT, ROW_ALPHA);
                     }
                 }
             }
             let colour = if selected { SELECTED } else { WHITE };
+            // **Always the bare field name.** The category is the
+            // subheader's job in a menu that has more than one, and in a
+            // menu that does not the category *is* the menu — `WORLD.` on
+            // all seven rows of the WORLD tab, `EXPLOSION.` on all
+            // twenty-five of EXPLOSION, is a prefix that repeats the
+            // highlighted tab directly above it and pushes every name a
+            // column and a half to the right for nothing.
+            let name = &t.name;
             let marker = if selected { ">" } else { " " };
-            let line = format!("{marker} {}.{}", t.category, t.name);
-            hud::draw_text(frame, WIDTH, HEIGHT, left + 8, y, &line, colour);
-            hud::draw_text(frame, WIDTH, HEIGHT, bar_x - 52, y, &format!("{:>8.3}", t.value), colour);
+            hud::draw_text(frame, WIDTH, HEIGHT, left + 8, y, &format!("{marker} {name}"), colour);
+            let value = t.display();
+            // Right-aligned in its column: numbers line up on their units
+            // digit, which is what makes a column of them scannable.
+            let value_w = hud::text_width(&value);
+            hud::draw_text(frame, WIDTH, HEIGHT, bar_x - 8 - value_w, y, &value, colour);
 
-            // Fill fraction within min..max. Guards a degenerate range
-            // rather than dividing by zero -- nothing registers one today,
-            // but a future entry with min == max would otherwise produce NaN
-            // and a bar of unpredictable width.
-            let span = t.max - t.min;
-            let frac = if span > 0.0 { ((t.value - t.min) / span).clamp(0.0, 1.0) } else { 0.0 };
-            let filled = (bar_w as f32 * frac).round() as i32;
-            for bx in 0..bar_w {
-                let c = if bx < filled {
-                    if selected { SELECTED } else { ACCENT }
-                } else {
-                    BAR
-                };
-                // Three rows tall: a one-pixel bar was drawn first and read
-                // as a dashed hairline at this resolution rather than as a
-                // gauge -- caught by looking at the rendered panel.
-                for by in 2..5 {
-                    render::put(frame, WIDTH, HEIGHT, bar_x + bx, y + by, c);
+            match &t.options {
+                // **One segment per named option, with the live one lit.**
+                // A choice has no headroom to report, so the gauge answers
+                // the other question a mode selector raises: how many other
+                // states there are and whereabouts in them this one sits.
+                // An unnamed held state (index past the end) lights nothing,
+                // which is the honest drawing of "none of these".
+                Some(options) if !options.is_empty() => {
+                    let index = t.value.round().max(0.0) as usize;
+                    let n = options.len() as i32;
+                    let seg = ((bar_w - (n - 1) * 2) / n).max(1);
+                    for k in 0..n {
+                        let sx = bar_x + k * (seg + 2);
+                        let lit = k as usize == index;
+                        let c = if !lit {
+                            BAR
+                        } else if selected {
+                            SELECTED
+                        } else {
+                            ACCENT
+                        };
+                        for bx in sx..sx + seg {
+                            for by in 1..6 {
+                                render::put(frame, WIDTH, HEIGHT, bx, y + by, c);
+                            }
+                        }
+                    }
+                }
+                _ => {
+                    // Fill fraction within min..max. Guards a degenerate
+                    // range rather than dividing by zero -- nothing
+                    // registers one today, but a future entry with
+                    // min == max would otherwise produce NaN and a bar of
+                    // unpredictable width.
+                    let span = t.max - t.min;
+                    let frac = if span > 0.0 { ((t.value - t.min) / span).clamp(0.0, 1.0) } else { 0.0 };
+                    let filled = (bar_w as f32 * frac).round() as i32;
+                    for bx in 0..bar_w {
+                        let c = if bx < filled {
+                            if selected { SELECTED } else { ACCENT }
+                        } else {
+                            BAR
+                        };
+                        // Three rows tall: a one-pixel bar was drawn first
+                        // and read as a dashed hairline at this resolution
+                        // rather than as a gauge -- caught by looking at the
+                        // rendered panel.
+                        for by in 2..5 {
+                            render::put(frame, WIDTH, HEIGHT, bar_x + bx, y + by, c);
+                        }
+                    }
                 }
             }
         }
 
-        if let Some(message) = &self.message {
-            hud::draw_text(frame, WIDTH, HEIGHT, left + 8, bottom - 12, message, DIM);
+        // **The scrollbar**, drawn only when there is something off screen.
+        // Position in a long menu was previously unknowable: the window
+        // scrolled, and nothing said whether it was near the top of a dozen
+        // rows or the middle of a hundred and twenty.
+        if rows.len() > visible_rows {
+            let track_top = rows_top - 1;
+            let track_h = rows_bottom - track_top;
+            let x = right - 5;
+            for y in track_top..track_top + track_h {
+                render::put(frame, WIDTH, HEIGHT, x, y, [34, 44, 62, 255]);
+            }
+            let thumb_h = (track_h * visible_rows as i32 / rows.len() as i32).max(6);
+            let span = (rows.len() - visible_rows) as i32;
+            let thumb_y = track_top + (track_h - thumb_h) * first as i32 / span.max(1);
+            for y in thumb_y..thumb_y + thumb_h {
+                render::put(frame, WIDTH, HEIGHT, x, y, ACCENT);
+            }
+            // How far in, in entries, since that is what the arrows move.
+            let counter = format!("{}/{}", self.tunables_selected + 1, list.len());
+            hud::draw_text(
+                frame,
+                WIDTH,
+                HEIGHT,
+                right - 10 - hud::text_width(&counter),
+                top + 6,
+                &counter,
+                FAINT,
+            );
+        }
+    }
+
+    /// **What the options menu is currently holding**, top right, drawn only
+    /// while something is held.
+    ///
+    /// A pinned sky is invisible by construction: a world stuck at midnight
+    /// looks exactly like a world that happens to be at midnight, and a world
+    /// pinned clear looks exactly like a world whose seed is having a quiet
+    /// week. That is `CLAUDE.md`'s "a knob whose value you cannot see is a
+    /// knob you cannot tell is disconnected" in its purest form — of every
+    /// control in this app these two are the ones whose effect cannot be
+    /// attributed by looking, so they say so.
+    ///
+    /// Silent at the running default, like every other mode readout here:
+    /// the ordinary screen is untouched until somebody actually holds
+    /// something. The frame a hold is *released* is repainted because the
+    /// pin state is part of the renderer's look tuple — this text has no
+    /// tracked footprint and would otherwise stay burned in over a settled
+    /// world.
+    fn draw_pin_badge(&self, frame: &mut [u8]) {
+        const BG: [u8; 4] = [10, 10, 16, 255];
+        const HELD: [u8; 4] = [255, 220, 100, 255];
+
+        let mut lines: Vec<String> = Vec::new();
+        // `None` from `of` is a hold that is not one of the named ones, which
+        // is reachable from a hand-edited asset -- reported as held rather
+        // than silently omitted, since "something is holding the sun" is the
+        // part the reader needs.
+        match crate::sim::clock::SkyPin::of(self.world.clock.sky_hold) {
+            Some(crate::sim::clock::SkyPin::Live) => {}
+            Some(pin) => lines.push(format!("SKY HELD  {}", pin.label())),
+            None => lines.push("SKY HELD".into()),
+        }
+        match self.world.weather_pin() {
+            Some(crate::sim::weather::Pin::Live) => {}
+            Some(pin) => lines.push(format!("WEATHER HELD  {}", pin.label())),
+            None => lines.push("WEATHER HELD".into()),
+        }
+        if lines.is_empty() {
+            return;
+        }
+
+        // One plate behind both lines, sized to the wider -- two plates of
+        // different widths read as two unrelated notices rather than as one
+        // readout.
+        let text_w = lines.iter().map(|l| hud::text_width(l)).max().unwrap_or(0);
+        let x = WIDTH as i32 - 6 - text_w;
+        let height = lines.len() as i32 * 10;
+        for by in 1..height + 5 {
+            for bx in x - 4..WIDTH as i32 - 1 {
+                render::blend(frame, WIDTH, HEIGHT, bx, by, BG, 0.72);
+            }
+        }
+        for (i, line) in lines.iter().enumerate() {
+            // Right-aligned to each other rather than to the plate, so the
+            // two labels start on the same column.
+            hud::draw_text(frame, WIDTH, HEIGHT, x, 4 + i as i32 * 10, line, HELD);
         }
     }
 
@@ -1779,8 +2133,11 @@ impl App {
                 Key("F6 F7 F8", "NEW WORLD / PRESET / SEED"),
                 Key("F5", "RELOAD ASSETS"),
                 Blank,
-                Head("TUNING"),
-                Key("O", "TUNABLES PANEL (TAB: MENU)"),
+                Head("OPTIONS"),
+                // Named for the two rows it opens on, because that is what
+                // anybody scanning this list is looking for -- "tunables
+                // panel" told a reader who already knew what it was.
+                Key("O", "OPTIONS: DAY/NIGHT, WEATHER"),
                 Key("K", "A/B EXPERIMENT"),
                 Key("/ ESC", "THIS HELP / CLOSE"),
             ],
@@ -2250,6 +2607,20 @@ impl App {
                     if n != 1 {
                         out.push_str(&format!(" {label} {n}x"));
                     }
+                }
+                // **A held sky or weather is named here as well as on
+                // screen**, for the reason the day length is named
+                // unconditionally: a screenshot that does not say what was
+                // holding the world cannot be reproduced, and these two are
+                // the settings whose effect is least attributable by looking
+                // at the picture. Silent when nothing is held.
+                if let Some(hold) = c.sky_hold {
+                    let name = crate::sim::clock::SkyPin::of(Some(hold)).map_or("custom", |p| p.label());
+                    out.push_str(&format!(" — sky held {name}"));
+                }
+                if self.world.weather_override.is_some() {
+                    let name = self.world.weather_pin().map_or("custom", |p| p.label());
+                    out.push_str(&format!(" — weather held {name}"));
                 }
                 out
             },
