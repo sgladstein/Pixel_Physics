@@ -3520,6 +3520,51 @@ fn advance(
     if world.player.is_some() {
         gnome.act(world, step_no);
     }
+    // **`SCHED_BACKLOG=N` -- put N background sites in front of the
+    // scheduler every frame, so a scene can be looked at in the state a
+    // player who has been digging is actually in.**
+    //
+    // This is a *reproduction*, not a fabrication. Measured on the shipped
+    // 8192x2560 world with the pick swung every 20 frames (`scale_probe
+    // load=ants:64,mine:20`), the structural queue produces 5,558-9,080
+    // sites a frame against the 2,000 `scheduler::MAX_SITES_PER_FRAME`
+    // drains, pending climbs past 62,000, and the creature census goes 27
+    // sites a frame -> 11 -> **0**. Nothing in `filmstrip` can reach that
+    // state on its own: its worlds are 512x320 and none of its scenes digs
+    // for two minutes. This knob supplies the backlog directly so the
+    // *consequence* -- what a colony looks like when the queue is full --
+    // can be judged by eye, which is the only way this project judges
+    // anything.
+    //
+    // An env var rather than an argument because `advance` has three
+    // callers and this is a debug knob, matching `SCHED_PASS`,
+    // `PROBE_NO_LOAD` and `RECONVERGE_AT` in the engine.
+    //
+    // `StructuralCheck` on an empty cell returns immediately
+    // (`structural::tick`'s first branch), so the sites cost queue depth
+    // and almost no time -- which is the point: what is being demonstrated
+    // is *contention for the budget*, not the cost of the work.
+    {
+        use std::sync::OnceLock;
+        static BACKLOG: OnceLock<usize> = OnceLock::new();
+        let n = *BACKLOG.get_or_init(|| std::env::var("SCHED_BACKLOG").ok().and_then(|v| v.parse().ok()).unwrap_or(0));
+        if n > 0 {
+            let due = world.frame;
+            // Swept over the left of the world, and that is load-bearing:
+            // `ActiveSite`'s `Ord` is `next_frame` then `x`, so a flood to
+            // the *west* of whatever is being watched is what puts the
+            // watched thing last. A flood to its east would be served
+            // after it and demonstrate nothing.
+            for i in 0..n {
+                world.schedule_active_site(pixel_physics::sim::scheduler::ActiveSite {
+                    x: (i % 300) as i32,
+                    y: 8 + (i / 300) as i32,
+                    kind: pixel_physics::sim::scheduler::ActiveKind::StructuralCheck,
+                    next_frame: due,
+                });
+            }
+        }
+    }
     world.step_active_sites();
     // R5's report line: printed the frame a blast's last stage finishes,
     // not at the trigger frame (`fire_due_explosions`'s own `boom:` line is

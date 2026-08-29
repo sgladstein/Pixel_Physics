@@ -264,9 +264,23 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
     // A stale handle: this creature's slot was freed and may since have
     // been handed to something else. Drop the site silently -- the whole
     // point of the generational scheme.
-    let Some(state) = world.organism(organism) else {
+    if world.organism(organism).is_none() {
         return Vec::new();
-    };
+    }
+    // **The near half of the "did it fire" pair** — see
+    // `CreatureStats::ticks`. Counted here rather than in `scheduler::step`
+    // because this is the point at which the site is known to belong to a
+    // live creature; a stale handle above has already returned, and
+    // counting those would make the ratio against `moves` mean nothing.
+    //
+    // `tick_lag_*` is the same reading in the time axis. `pop_due_active_
+    // site` only yields sites with `next_frame <= world.frame`, so the
+    // subtraction never wraps and zero is the on-time case.
+    world.creature_stats.ticks += 1;
+    let lag = world.frame.saturating_sub(site.next_frame);
+    world.creature_stats.tick_lag_sum += lag;
+    world.creature_stats.tick_lag_max = world.creature_stats.tick_lag_max.max(lag);
+    let state = world.organism(organism).expect("resolved live above");
     // **Species data is the dispatch, not a name check.** A species with a
     // `creature:` block is a chain creature with a brain; one without is
     // the worm, which keeps its own researched burrowing economics. See

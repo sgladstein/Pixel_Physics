@@ -469,7 +469,49 @@ impl App {
         // baseline clock is indistinguishable from a working one until
         // somebody wonders why the day is still a minute long.
         match crate::sim::clock::Clock::load() {
-            Ok(Some(clock)) => world.clock = clock,
+            Ok(Some(clock)) => {
+                // **Say out loud that the world is running slowed.**
+                // `Clock::is_baseline` existed with no caller anywhere in
+                // the tree -- a reader-less channel, the failure
+                // `CLAUDE.md` names as worse than a dead writer, because
+                // every consumer of it is dead code that looks alive. This
+                // is its reader.
+                //
+                // The status line already names a non-1 knob, and that was
+                // not enough: it lives in the *window title*, which is not
+                // in a screenshot of the framebuffer, is truncated by some
+                // window managers, and is the last place anyone looks
+                // when the thing they are watching is on the canvas. A
+                // creature slowdown is the worst of the four for exactly
+                // this reason -- slowed ants look like broken ants, and
+                // the owner's playtest report of "creatures seem to be
+                // moving slowly" cost a lane a day of measurement partly
+                // because nothing on screen could rule this out in a
+                // glance. The toast is one line, once, at startup.
+                //
+                // Built from the same knob list the status line uses, and
+                // gated on `is_baseline` so a stock clock stays silent.
+                if !clock.is_baseline() {
+                    let named: Vec<String> = [
+                        ("growth", clock.growth_slowdown),
+                        ("weather", clock.weather_slowdown),
+                        ("creatures", clock.creature_slowdown),
+                        ("gnome", clock.gnome_slowdown),
+                    ]
+                    .iter()
+                    .filter(|(_, n)| *n != 1)
+                    .map(|(label, n)| format!("{label} {n}x slower"))
+                    .collect();
+                    if !named.is_empty() {
+                        let note = format!("{}: {}", crate::sim::clock::Clock::ASSET_PATH, named.join(", "));
+                        message = Some(match message {
+                            Some(m) => format!("{m}; {note}"),
+                            None => note,
+                        });
+                    }
+                }
+                world.clock = clock;
+            }
             Ok(None) => {}
             Err(e) => {
                 let e = format!("{}: {e}", crate::sim::clock::Clock::ASSET_PATH);
