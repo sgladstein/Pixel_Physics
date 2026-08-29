@@ -1364,6 +1364,21 @@ pub struct FailureCounts {
     /// question, but a zero is a wiring one.
     pub rotations_asked: u32,
     pub rotations_refused: u32,
+    /// Quarter turns a body asked for because it had come to rest **out of
+    /// balance**, and how many the fit probe refused. See `rigid::topple`.
+    ///
+    /// Counted apart from `rotations_asked` rather than folded into it, and
+    /// the reason is the one `rotations_asked`'s own doc gives: a counter is
+    /// worth exactly as much as the claim that what it counts is what you
+    /// care about. These two fire for different reasons at different moments
+    /// — one in the air, from the break; one on the floor, from the footing
+    /// — and a single number that moved could not say which mechanism did
+    /// it. `asked` at zero over a scene that felled a tree means the tipping
+    /// test never ran; `refused` high means pieces are trying to go over
+    /// inside a pile with no room for them, which is a different problem
+    /// with a different fix.
+    pub topples_asked: u32,
+    pub topples_refused: u32,
     /// Organism cells the plant-support check broke free — a limb that lost
     /// its anchor becoming deadwood.
     ///
@@ -1496,6 +1511,15 @@ impl FailureCounts {
         self.rotations_asked = self.rotations_asked.saturating_add(1);
         if !fits {
             self.rotations_refused = self.rotations_refused.saturating_add(1);
+        }
+    }
+
+    /// One quarter turn offered by a body that landed out of balance, and
+    /// whether it fitted. See `topples_asked`.
+    pub fn record_topple(&mut self, fits: bool) {
+        self.topples_asked = self.topples_asked.saturating_add(1);
+        if !fits {
+            self.topples_refused = self.topples_refused.saturating_add(1);
         }
     }
 
