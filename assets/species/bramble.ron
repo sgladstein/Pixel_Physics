@@ -4,11 +4,21 @@
 // two organ species that read as one plant in two sizes would fail this phase
 // exactly as the four woody species did.
 //
-// **Not a named real plant**, for the reason `herb.ron`'s header records at
-// length: the register is habit words -- `tree`, `conifer`, `shrub`,
-// `creeper`, `grass`, `moss` -- and
+// **A category rather than a particular plant**, for the reason `herb.ron`'s
+// header sets out: everything already in the set names a *kind* of plant, at
+// whatever level of specificity was convenient, and never one real organism.
 // `Reports/plant-morphology-evolvability-2026-08-26.md` §6 rules directly
 // against portraits of named plants as the artifact.
+//
+// **This name is the weaker of the two and it is worth saying so.** A bramble
+// is *Rubus*, which is a genus -- so it sits at `conifer`'s level of
+// specificity rather than `shrub`'s, and it is closer to a named plant than
+// `herb` is. It is kept because the vernacular is genuinely used for any
+// sprawling thorny fruiting thicket-former rather than for one species, and
+// because renaming a file twice costs more than it buys. The strict
+// growth-form word for this habit is *scrambler* -- a plant that clambers
+// over its neighbours without true climbing organs -- and that is the name to
+// take if the distinction is ever tightened.
 //
 // **Sympody is what carries it, and this engine has had sympody as a
 // heritable allele since Phase 2** (`plant-morphology-reach-2026-08-23.md`

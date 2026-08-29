@@ -3092,10 +3092,20 @@ Also recorded: `max_active_tips: 1` is **not** "one axis", it is *no growth* —
 the cap gate counts the asking tip, so a whole stand germinated, staled at one
 cell, went senescent and rotted inside 8,000 frames.
 
-**One naming correction.** The two species shipped for one draft as
-`sunflower.ron` and `tomato.ron`, from `plant-morphology-reach-2026-08-23.md`
-§6's sequencing note. That note is superseded by
-`plant-morphology-evolvability-2026-08-26.md` §6, whose heading is *"The
-acceptance artifact is not a sunflower … Twelve tomatoes = it does not
-[work]"*, and the register is habit words throughout. Renamed to `herb` and
-`bramble`; the mechanism did not change with the rename.
+**One naming correction, and then a correction to the correction.** The two
+species shipped for one draft as `sunflower.ron` and `tomato.ron`, from
+`plant-morphology-reach-2026-08-23.md` §6's sequencing note. That note is
+superseded by `plant-morphology-evolvability-2026-08-26.md` §6, whose heading
+is *"The acceptance artifact is not a sunflower … Twelve tomatoes = it does not
+[work]"*. Renamed to `herb` and `bramble`; the mechanism did not change.
+
+**The justification given for the rename was wrong and is now fixed in place.**
+It claimed the existing names are "habit words throughout", which the owner
+challenged and which does not survive one minute's inspection: `shrub` and
+`creeper` are growth forms, `conifer`, `grass` and `moss` are vernacular clade
+names, and a conifer *is* a tree, so the categories overlap and partition
+nothing. The rule that actually holds is narrower — every entry names a
+**category** of plant rather than one real organism — and it is enough to rule
+out a species-level name and no more. **The better argument was available and
+was missed: a sunflower or a tomato fits nowhere in the existing set, because
+it has no herbaceous non-grass category at all.**

@@ -241,10 +241,30 @@ taken from `plant-morphology-reach-2026-08-23.md` §6's sequencing note
 
 **That note is superseded**, and the superseding text is a heading:
 `plant-morphology-evolvability-2026-08-26.md` §6, *"The acceptance artifact is
-not a sunflower … Twelve tomatoes = it does not [work]."* The register is habit
-words throughout — `tree`, `conifer`, `shrub`, `creeper`, `grass`, `moss` — and
-a species file is a habit, not a portrait. Renamed to `herb` and `bramble`; the
-mechanism was never the problem and did not change.
+not a sunflower … Twelve tomatoes = it does not [work]."* Renamed to `herb`
+and `bramble`; the mechanism was never the problem and did not change.
+
+**The rule the rename appeals to is weaker than the first draft of this
+section claimed**, and the correction is owed. That draft said the existing
+names are "habit words throughout", which is false: `shrub` and `creeper` are
+growth forms, `conifer`, `grass` and `moss` are vernacular clade names, and
+`tree` is a growth form that a conifer also satisfies — so the set is neither
+one level of specificity nor mutually exclusive. What every entry does have in
+common is that it names a **category** of plant rather than one real organism,
+and that is the whole of the rule. It is enough to disqualify a species-level
+name, which commits a file to matching a particular plant this engine cannot
+produce, and it is not enough to support the tidier claim that was made.
+
+`bramble` is the weaker of the two names by that rule — *Rubus* is a genus, so
+it sits at `conifer`'s level rather than `shrub`'s. Kept because the
+vernacular covers any sprawling thorny fruiting thicket-former rather than one
+species, and because a second rename costs more than it buys; the strict
+growth-form word for the habit is *scrambler*.
+
+**And the sharper observation, which is a better argument than the naming rule
+and was missed entirely at the time: a sunflower or a tomato fits nowhere in
+the existing set.** There is no herbaceous non-grass category in it. That gap
+is why the phase needed new files rather than knobs on old ones.
 
 ## 10. What this does not do
 

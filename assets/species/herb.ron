@@ -7,14 +7,25 @@
 // **Not a named real plant, and the distinction is on the record.**
 // `Reports/plant-morphology-evolvability-2026-08-26.md` §6 says it as a
 // heading -- *"The acceptance artifact is not a sunflower ... Twelve tomatoes
-// = it does not [work]"* -- and the register this file joins is habit words
-// throughout: `tree`, `conifer`, `shrub`, `creeper`, `grass`, `moss`. A
-// species file is a *habit*, and what the organ package adds is two habits
-// nothing here could hold, not two portraits of named plants. The older
-// `plant-morphology-reach-2026-08-23.md` §6 does name one as the acceptance
-// artifact; the evolvability report supersedes it on that point, and this
-// comment is here because the first draft of this file followed the
-// superseded one.
+// = it does not [work]"*. The older `plant-morphology-reach-2026-08-23.md` §6
+// does name one as the acceptance artifact; the evolvability report supersedes
+// it on that point, and this comment is here because the first draft of this
+// file followed the superseded one.
+//
+// **What the existing set has in common is one thing only, and it is not a
+// taxonomy.** `tree`, `conifer`, `shrub`, `creeper`, `grass`, `moss` are a
+// mixture: two are growth forms (`shrub`, `creeper`), three are vernacular
+// clade names (`conifer`, `grass`, `moss`), and `tree` is a growth form that
+// half the others also satisfy -- a conifer *is* a tree, so the set is not
+// even mutually exclusive. What every one of them is, is a **category** of
+// plant rather than a particular plant. That is the whole of the rule, and
+// it is the reason a species-level name is wrong here: it commits the file
+// to matching one real organism, which this engine cannot do and should not
+// try to.
+//
+// **And note where a sunflower or a tomato would have fitted: nowhere.**
+// There is no herbaceous non-grass slot in that list at all. The gap is the
+// honest argument for a new file, and a better one than the naming rule.
 //
 // Everything structural here is data that already existed. What is new is
 // three values in the fate table (`becomes: Flower`, `after_metamers`, and

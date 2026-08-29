@@ -2592,14 +2592,26 @@ const EMBEDDED: &[&str] = &[
     // organ distribution and organ colour is the comparison that can
     // actually fail.
     //
-    // **Habit names, not named real plants.** Everything in this list is a
-    // habit -- `tree`, `conifer`, `shrub`, `creeper`, `grass`, `moss` -- and
-    // `Reports/plant-morphology-evolvability-2026-08-26.md` §6 rules directly
-    // against portraits: *"The acceptance artifact is not a sunflower ...
-    // Twelve tomatoes = it does not [work]."* These two shipped for one draft
-    // under real-plant names, taken from the older reach report's superseded
-    // sequencing note; the mechanism was never the problem and did not
-    // change with the rename.
+    // **A category of plant, never a particular one -- and that is the whole
+    // of the naming rule, which is weaker than it may look.** This list is
+    // *not* a taxonomy and not one level of specificity: `shrub` and
+    // `creeper` are growth forms, `conifer`, `grass` and `moss` are
+    // vernacular clade names, and `tree` is a growth form that a conifer also
+    // satisfies -- so the categories overlap and do not partition anything.
+    // What they share is only that each names a *kind* of plant rather than
+    // one real organism, which is what a species file can honestly be.
+    //
+    // These two shipped for one draft as `sunflower.ron`/`tomato.ron`, taken
+    // from the older reach report's superseded sequencing note, against
+    // `Reports/plant-morphology-evolvability-2026-08-26.md` §6: *"The
+    // acceptance artifact is not a sunflower ... Twelve tomatoes = it does not
+    // [work]."* The mechanism was never the problem and did not change with
+    // the rename.
+    //
+    // **Worth noticing where those two would have fitted in the list above:
+    // nowhere.** There is no herbaceous non-grass category in it at all,
+    // which is the real argument for adding files rather than knobs, and a
+    // better one than the naming rule is.
     include_str!("../../assets/species/herb.ron"),
     include_str!("../../assets/species/bramble.ron"),
 ];
