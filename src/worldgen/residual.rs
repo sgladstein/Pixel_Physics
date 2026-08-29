@@ -60,10 +60,22 @@ const REGION: i32 = 256;
 /// How far a column's seat is allowed to dig through loose cover looking
 /// for the real massif before giving up on the whole site. A safety bound
 /// on the walk, not a behaviour knob: ordinary `soil_depth` presets top out
-/// well under this, so it only ever bites on a column whose cover is
+/// under this, so it only ever bites on a column whose cover is
 /// pathologically deep or whose walk has wandered into something that is
 /// never going to be bare stone.
-const MAX_SOCKET_DEPTH: i32 = 80;
+///
+/// **It scales with `soil_depth`, and was re-derived when that moved.**
+/// Exhausting this is a `break 'site` -- it abandons the residual rather than
+/// merely doing less work -- so it is the shape `CLAUDE.md` warns about: a cap
+/// that produces an *answer*. At 80 it survived the 2026-08-28 deepening
+/// (max cover 43 -> 68) untouched: over six seeds of `rolling`, raising it to
+/// 160 left the residual cell count byte-identical, against a positive control
+/// at 20 that collapsed those seeds to 2849 / 1616 / 1980. The 2026-08-29
+/// deepening is the one that broke it -- max cover 163 (wetland, `plan_all`,
+/// erosion deposits included), i.e. the bound had fallen *below* ordinary
+/// ground rather than sitting above pathological ground. 300 restores the same
+/// 1.86x headroom over the deepest legitimate cover that 80 had over 43.
+const MAX_SOCKET_DEPTH: i32 = 300;
 
 /// Smallest and largest a residual's *visible standing height* can draw, in
 /// cells. The owner's directive, converted from feet via `PLAYER_HEIGHT`

@@ -407,7 +407,7 @@ pub struct WorldgenParams {
 impl Default for WorldgenParams {
     fn default() -> Self {
         Self {
-            sky_rows: 95.0,
+            sky_rows: 190.0,
             relief_amplitude: 46.0,
             hill_amplitude: 30.0,
             hill_wavelength: 150.0,
@@ -421,7 +421,7 @@ impl Default for WorldgenParams {
             mask_wavelength: 150.0,
             terrace_slope_lo: 0.6,
             terrace_slope_hi: 2.0,
-            soil_depth: 26.0,
+            soil_depth: 105.0,
             soil_slope_cutoff: 0.8,
             bedrock_band: 4.0,
             strata_thickness: 9.0,

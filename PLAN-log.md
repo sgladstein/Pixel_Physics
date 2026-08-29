@@ -3047,6 +3047,69 @@ in the repo notices — `docscheck.sh` does not know about it and CI does not ru
 it", and `licensecheck.sh`'s header said it was deliberately not wired into CI.
 All three were true when written and false the moment the workflow landed.
 
+## 2026-08-29 — the organ package: flowers, fruit, determinacy, and a price
+
+Phase 4 of the plant-morphology programme, against
+`Reports/plant-organs-handoff-2026-08-28.md`. Two organ cell types with their
+own materials, a determinate axis that terminates in one, a carbon price on
+building them, and two authored habits (`herb`, `scrambler`) that use all three.
+Full account in `Reports/plant-organs-2026-08-29.md`.
+
+**Three things worth carrying out of it, none of which is the mechanism.**
+
+**The materials were written before the machinery, and that ordering is a
+finding rather than a preference.** A label change has failed to read on this
+project five times — `weeping`, `prostrate`, sympody, tropism, acrotony,
+founder variance — every one of them firing with counters printed and moving
+nothing the owner could see. The one lever that ever read changed *material*.
+So `flower.ron`, `fruit.ron` and `windfall.ron` exist before a line of organ
+code does, and `Grow::organ_cluster` is the same argument's other half: one
+bright cell on a stalk is a material change with the size half missing.
+
+**A cost has to be charged to an account that can actually pay it, and this is
+the general form of the bug.** Ripening was first charged to the organ cell's
+own carbon, exactly as construction is. But `allocate_to_frontier` classifies
+every non-frontier, non-leaf cell as a **donor** — carbon flows out of it
+toward the tips and nothing puts any back — so an organ is permanently poor and
+a flower could never pay to set. Measured: **35 flowers standing against 2
+fruit** where the authored clock rates predict about 58. Every event counter
+read healthy; the picture showed a stand that flowers and does not fruit; and
+"a flower waiting" and "a flower stuck" are indistinguishable in both. Moving
+it to `reproductive_budget` is `plant-equilibrium-costs-2026-08-27.md` §10b
+option C applied to the one case where it is unambiguous. **Before charging a
+new cost, name the account and check the cells it will be charged to are on the
+receiving side of the allocation.**
+
+**Two knobs that read as one setting were really a coupled pair.** `herb`'s
+`after_metamers: 9` at `plastochron: 4` needs 36 cells of path length, and
+`turgor_source: 0.32` with `turgor_per_cell: 0.006` puts the height ceiling at
+exactly 36. The axis reached its ceiling as it reached its count and mostly
+starved short of it: 9 axes terminated across 32 plants, and a sheet of six
+showed one flower. That is the determinacy trap's own symptom — a low counter
+with no visible cause — with the cause outside the fate table entirely.
+
+Also recorded: `max_active_tips: 1` is **not** "one axis", it is *no growth* —
+the cap gate counts the asking tip, so a whole stand germinated, staled at one
+cell, went senescent and rotted inside 8,000 frames.
+
+**One naming correction, and then a correction to the correction.** The two
+species shipped for one draft as `sunflower.ron` and `tomato.ron`, from
+`plant-morphology-reach-2026-08-23.md` §6's sequencing note. That note is
+superseded by `plant-morphology-evolvability-2026-08-26.md` §6, whose heading
+is *"The acceptance artifact is not a sunflower … Twelve tomatoes = it does not
+[work]"*. Renamed to `herb` and `bramble`, and the second was renamed again to
+`scrambler` a few hours later; the mechanism did not change through either.
+
+**The justification given for the rename was wrong and is now fixed in place.**
+It claimed the existing names are "habit words throughout", which the owner
+challenged and which does not survive one minute's inspection: `shrub` and
+`creeper` are growth forms, `conifer`, `grass` and `moss` are vernacular clade
+names, and a conifer *is* a tree, so the categories overlap and partition
+nothing. The rule that actually holds is narrower — every entry names a
+**category** of plant rather than one real organism — and it is enough to rule
+out a species-level name and no more. **The better argument was available and
+was missed: a sunflower or a tomato fits nowhere in the existing set, because
+it has no herbaceous non-grass category at all.**
 ## 2026-08-29 — a shed leaf keeps falling: litter passes through living tissue
 
 Owner report: *"when leaves fall off trees they often get stuck and built up in
@@ -3141,3 +3204,104 @@ was committed, per the standing rule; arm 3 was **blind** on its first passing
 version and is the reason that rule exists.
 
 Posted to the review queue as a blind A/B, card `20260829T005421244Z-e1d946`.
+
+## 2026-08-29 — the leaves were on the floor and it still looked wrong: a drift that climbed the trunk
+
+Owner's verdict on the previous card: *"looks better, but still didn't look
+like the leaves were all on the floor."* He was right twice, and the two
+things were different.
+
+**The picture was misleading, and that is the first finding.**
+`litter_probe`'s overlay coloured litter by `rest_of` — what the cell is
+standing on — so a leaf stuck forty rows up a tree and a drift lying on the
+floor banked against a trunk were **the same magenta**. The harness's own
+module doc has warned since it was written that this column scores two
+opposite verdicts identically and must never be read alone; the card carried
+that warning as prose beside the image, and prose does not beat a picture.
+Repainted on **air underneath** (`air_below`), which is the one
+classification that is not confounded: a leaf held up by a branch has a gap
+below it, a leaf on a pile does not, whatever the pile rests on and however
+deep it is. On that measure the vertical rule had already worked — **4 of 497
+standing cells held off the ground, worst gap one cell.**
+
+**Both existing measures were confounded, by two different routes**, which is
+why nothing in the repo could see the real defect:
+
+- `against-plant` counts the drift-against-a-trunk case with the
+  stuck-up-a-tree case;
+- the height bands measure against `terrain_top`, which **excludes litter on
+  purpose**, so a leaf on top of a twenty-deep mat reads as twenty rows up
+  while being the top of the floor.
+
+Neither is wrong. Both make a pile that climbs indistinguishable from a leaf
+that never fell.
+
+**The real defect: a drift with nowhere to spread goes up.** A litter cell
+rolls downhill only into open space, so a pile wedged between two trunks
+cannot widen and grows vertically instead, climbing out of the forest floor
+into the lower crown as a narrow column — **grounded the whole way**. Asked
+properly for the first time: **24% of standing litter more than eight rows
+up, 68% of that with plant tissue immediately left or right, tallest column 28
+rows.** At play zoom that is a mass of leaves in the branches, which is
+exactly the complaint, and it was invisible to every number then in the repo.
+
+**`slide_past_organism` is the mirror of the fall rule**, on the same material
+flag, because it is the same claim about the material pointed sideways: a
+litter cell walled in steps past a run of organism cells to the first open
+cell beyond. In three dimensions a drift banks round a trunk for the same
+reason a falling leaf passes a branch.
+
+**The termination clause is the whole design.** The destination must be a cell
+it can *fall* from. Requiring merely an empty cell on the far side lets a leaf
+shuffle left and right across a trunk for ever: no physics changes and the
+chunk never sleeps, which is the frame-cost failure this file already names.
+Requiring open air beneath means every slip is immediately followed by a
+descent, so the row strictly increases and the cell can never return to the
+row it left. It may zig-zag down past a trunk; it cannot oscillate on one.
+
+Measured with **one binary and one environment variable**, so the arms differ
+by exactly this rule:
+
+| | slip off | slip on |
+|---|---|---|
+| grounded but >8 rows up | 119 (23.9%) | **10 (4.9%)** |
+| tallest litter column above terrain | 28 rows | **10 rows** |
+| within 3 rows of the terrain | 43.1% | **73.4%** |
+| held off the ground | 0.8% | 0.5% |
+
+Every counter in `examples/ascii` is unchanged except the ant-colony scene's,
+which moves because litter is ant food and it genuinely relocated (forage
+trips 68 -> 67 against a bar of 8, deliveries 806 -> 711, nest-visits
+1842 -> 2184).
+
+**The guard test's third arm was blind on its first passing version, and this
+is the second time in two days.** Arm 3 puts level ground on both sides of the
+trunk and asserts the leaf does not move — the control for the termination
+clause. Deleting that clause left it **green**, because the oscillation has
+period two and the run length was even, so the leaf was back on its starting
+square when the assertion looked. The arm now also asserts
+`active_chunk_count() == 0`: an oscillating cell writes every frame and its
+chunk can never settle, which is the cost the clause exists to avoid and is
+not a coordinate that can happen to match. Red for the fault, confirmed.
+
+**Recorded because a green run of that guard will otherwise be over-read**:
+deleting the "neighbour must be living tissue" clause leaves all three arms
+green, since every arm has a trunk in that position. The clause is still
+load-bearing — without it the rule becomes "a settled grain drops into any
+adjacent hole", bypassing `roll_along_slope`'s two-angle repose hysteresis
+whenever `stability_reach_at` returns 0. A scene that discriminates it is not
+built.
+
+**`litter_probe` gained `plain=1`** — the scene in its own colours, no markers,
+no dimming. The marked overlay says which cells are held off the ground; this
+says whether a person would call it a forest floor, and the two are different
+questions. A card carrying only the first was read, reasonably, as showing
+litter still in the canopy.
+
+**The clippy-version gotcha added yesterday paid for itself immediately**: the
+new `soil_id` parameter pushed `write_overlay` to 8 arguments and tripped
+`too_many_arguments` on 1.98.0 while 1.94.1 was silent. Caught locally with
+`cargo +1.98.0 clippy` instead of by a red PR; the arguments are grouped into
+a `View` now.
+
+Posted as a blind A/B in true colour, board `plants`.

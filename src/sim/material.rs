@@ -640,10 +640,24 @@ pub struct MaterialDef {
     /// folding them together would make either one impossible to change
     /// without moving the other.
     ///
-    /// Read by `update::update_powder` only, and only after an ordinary
-    /// downward move has already failed **and** the cell below is
-    /// organism-owned, so nothing that is not caught on a plant ever pays
-    /// for it. See that call site for the bound on the drop.
+    /// Read by `update::update_powder`, and by **two** rules there rather than
+    /// one: `fall_through_organism` (a leaf goes past a branch instead of
+    /// resting on it) and `slide_past_organism` (a drift spills round a trunk
+    /// instead of climbing it). One flag because they are one claim about the
+    /// material -- light and thin enough that the slice should be read
+    /// generously -- pointed down and sideways.
+    ///
+    /// **The second was needed, and only the owner's eye said so.** With just
+    /// the vertical rule, litter measured as being on the floor by every
+    /// available number (4 of 497 standing cells with any air beneath them)
+    /// and still looked wrong, because a pile that cannot spread sideways
+    /// climbs into the lower crown while staying connected to the ground the
+    /// whole way. Every measure that asks *what is under this cell* calls
+    /// that floor.
+    ///
+    /// Both are reached only after the ordinary moves have already failed, so
+    /// nothing that is not wedged against a plant ever pays for either. See
+    /// the two call sites for their bounds.
     #[serde(default)]
     pub falls_through_organisms: bool,
     /// Whether the character walks *through* this material without climbing
@@ -2041,6 +2055,20 @@ const EMBEDDED: &[&str] = &[
     // `id_of("log")` and by the resolved `Material::severs_into`, never by
     // number.
     include_str!("../../assets/materials/log.ron"),
+    // Appended, per the rule stated five times above. The organ package's
+    // three: petals, the ripening fruit they set, and the fallen fruit that
+    // carries a genome to the ground. All three are addressed by name
+    // through the species file's `flower_material`/`fruit_material`/
+    // `windfall_material`, never by number.
+    //
+    // **In this list rather than only on disk, and that is load-bearing.**
+    // Only the app's F5 reload reads `assets/materials`; every headless
+    // harness gets exactly what `include_str!` compiled in. A material left
+    // out here exists in the editor and not in any measurement -- the P-7
+    // lesson `litter.ron`'s entry above records.
+    include_str!("../../assets/materials/flower.ron"),
+    include_str!("../../assets/materials/fruit.ron"),
+    include_str!("../../assets/materials/windfall.ron"),
 ];
 
 /// Where the loader looks for material files, relative to the working directory.

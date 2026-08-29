@@ -4,8 +4,12 @@
 file names — see `Reports/` for why any of it is built the way it is.*
 
 *Current as of: 2026-08-29 (stems draw a line instead of wandering into one --
-see **How a stem is shaped**; a shed leaf no longer lodges in the branches on
-its way down -- see **The forest floor**).
+see **How a stem is shaped**; plants flower and fruit: two new kinds of plant
+stop growing on purpose and put an organ where the shoot tip used to be, the
+ripe fruit falls carrying the seed inside it, and building either costs the
+plant carbon it might not have; and a shed leaf no longer lodges in the
+branches on its way down, nor does a drift of them climb a trunk -- see
+**The forest floor**).
 2026-08-27 (a plant kept dry long enough now dies of it,
 and dies gradually; standing tissue costs something to keep, and a
 plant that cannot pay sheds it; grass is sown into generated worlds; a dry
@@ -308,6 +312,55 @@ Individuals of one species differ too. Every plant carries a genome drawn when
 it germinates and inherited by its seed, so a population drifts and can be
 selected on.
 
+## Plants that stop, and what they stop in
+
+**Every plant described above grows until something stops it** — it runs out
+of carbon, or water, or room, or it simply cannot lift water any higher. None
+of them ever *finishes*. That is why they all read as versions of one thing:
+a shoot that only ever ends by failing has nowhere else to go.
+
+**Two kinds of plant now finish on purpose.** An axis counts the leaf-and-bud
+units it has made, and at its own number it stops making shoot and makes a
+**flower** instead. The growing tip is used up doing it — there is no
+continuation, because the flower *is* what the tip became. That is the whole
+of it, and it is what the two look like:
+
+- an **erect herb** puts everything into one stem that goes straight up on a
+  bare stalk with a few large leaves widely spaced along it, and finishes in a
+  single flower head several cells across at the top;
+- a **scrambler** makes a short run, stops, throws a side shoot that takes over
+  and does the same, over and over — so it sprawls into a low thicket studded
+  with small clusters of flowers and fruit at every place an axis ended.
+
+**A flower is not a green cell with a label on it.** Petals are their own
+material, in colours nothing else in the world has: yellows, oranges, reds,
+pinks, magentas, violets, blues and whites. Fruit is its own material again,
+darker and heavier — reds, crimsons, purples, blue-blacks, oranges and golds.
+Each species draws from a band of that range and each individual takes one
+colour inside its species' band, so a stand of one plant is a spread of
+related colours rather than one repeated swatch.
+
+**Flowers set fruit, and ripe fruit falls.** A flower that has been open long
+enough becomes a fruit; a fruit that has finished ripening lets go of the
+plant. What drops is not scenery — the seed is *inside* it. A fallen fruit is
+a soft, heavy, round thing: it rolls further than a seed does, piles in
+hollows, rots quickly, and is worth twice as much to eat as a leaf. So a plant
+that fruits scatters its offspring away from its own shade instead of dropping
+them at its feet, and a fruiting thicket puts real food on the ground beneath
+it.
+
+**None of it is free, and that is what makes it look like a plant rather than
+a decoration.** Building a flower costs carbon at the moment the plant commits
+to it, and filling a fruit costs again out of the same account seeds are paid
+from. So the outcome is graded rather than all-or-nothing: a plant in good
+light makes a full head, one in poorer light makes a small one, and one that
+never gets ahead makes a bare stalk with nothing on top. A plant that fills
+fruit sets fewer loose seeds that season, because both come out of the same
+pocket.
+
+The older plants are unchanged: a tree, a conifer, a shrub, a creeper and
+grass all still grow until something stops them, and none of them flowers.
+
 ## Colour is a readout, not decoration
 
 **Where a plant sits inside its species' colour range tells you what kind of
@@ -364,6 +417,18 @@ that never came down; now the only litter you see off the ground is a drift
 banked up against a trunk, which is a pile resting on the floor and reads
 as one. A snapped *branch* is a different matter — that is a solid thing,
 and it can still come to rest across the limbs below it.
+
+**And the pile spreads round a trunk rather than up it.** This is the same
+argument again, pointed sideways, and it is the half that was harder to see.
+Leaves that have landed still have to go somewhere as more arrive; a drift
+wedged between two trunks has nowhere to spread, so it used to grow *upward*,
+climbing out of the forest floor into the low branches as a narrow column.
+Every way of asking "is this on the ground" said yes — it was touching the
+ground the whole way up — and it still looked exactly like leaves collecting
+in the tree, because that is what it was. Now a drift banks round the trunk
+instead, so the floor stays a floor and only thickens. It spills only where
+there is somewhere lower to spill to, so a drift still piles against a trunk
+rather than running out into a flat sheet.
 
 Rain goes **through** it. A litter blanket is loose stuff lying on the
 ground, not a roof, so the soil beneath a deep forest floor still takes the

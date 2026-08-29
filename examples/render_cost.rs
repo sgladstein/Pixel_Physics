@@ -152,6 +152,7 @@ fn main() {
     println!("  reads alone are {:.0}% of the redraw; the other {:.0}% is colour work", get_ms * 100.0 / draw_ms, (draw_ms - get_ms) * 100.0 / draw_ms);
 
     sky_share(&mut app.renderer, &app.world, x0, y0);
+    viewport_scaling(&mut app);
     branch_split();
 }
 
@@ -169,4 +170,95 @@ fn sky_share(renderer: &mut Renderer, world: &World, x0: i32, y0: i32) {
     }
     let _ = renderer;
     println!("  {empty} of {PIXELS} visible pixels are empty sky ({:.0}%) — the branch with the gradient, moon and star hash", empty as f64 * 100.0 / PIXELS as f64);
+}
+
+/// **What doubling the framebuffer actually costs**, measured rather than
+/// assumed to be 4x.
+///
+/// `Renderer::draw` takes its viewport as a runtime argument, so this needs
+/// no rebuild at a different `WIDTH`/`HEIGHT` — the same renderer over the
+/// same world, drawn at three sizes, is a paired comparison in the sense
+/// `CLAUDE.md` asks for. The question it exists for: the resolution step
+/// (`Reports/world-scale-handoff.md`'s "higher resolution later") makes the
+/// viewport 1024x640 cells, and every pixel is still one cell at 1:1 zoom,
+/// so there is no reuse to be had — the cost should be linear in pixels.
+/// Whether it is *exactly* linear is the thing worth checking, since a
+/// bigger frame buffer also falls out of L2.
+fn viewport_scaling(app: &mut App) {
+    let particles = pixel_physics::sim::particle::ParticleSystem::default();
+    let touched = std::collections::HashSet::new();
+    let (x0, y0) = app.renderer.screen_to_world(0, 0);
+
+    // **The generated world is not a valid control for this question**, and
+    // the first version of this section was wrong because of it. The camera
+    // is clamped at the world origin, so a taller viewport does not show the
+    // same scene bigger -- it shows *further down*, and everything it adds is
+    // underground stone, which is `cell_colour`'s cheapest branch (48.8 ns/px
+    // against sky's 70.3). Per-pixel cost then falls as the viewport grows and
+    // the scaling reads sublinear, which is a statement about the content mix
+    // and not about the renderer. So the sky share is printed per size, and
+    // the uniform-world control below is the number to actually read.
+    println!("\n  full redraw at increasing viewport size, GENERATED world (content mix varies -- see note):");
+    println!("  {:>12}  {:>10}  {:>9}  {:>9}  {:>8}  {:>8}", "viewport", "pixels", "ms", "ns/pixel", "vs 1x", "sky");
+    let mut base = f64::NAN;
+    for (w, h) in [(WIDTH, HEIGHT), (WIDTH * 3 / 2, HEIGHT * 3 / 2), (WIDTH * 2, HEIGHT * 2)] {
+        let px = (w * h) as usize;
+        let mut frame = vec![0u8; px * 4];
+        let (ms, _) = best_of(10, || {
+            app.renderer.draw(&app.world, &particles, &touched, &mut frame, (w, h), true) as u64
+        });
+        if base.is_nan() {
+            base = ms;
+        }
+        let mut empty = 0usize;
+        for sy in 0..h as i32 {
+            for sx in 0..w as i32 {
+                if app.world.get(x0 + sx, y0 + sy).material == pixel_physics::sim::material::EMPTY {
+                    empty += 1;
+                }
+            }
+        }
+        println!(
+            "  {:>12}  {px:>10}  {ms:>7.3}ms  {:>7.1}  {:>7.2}x  {:>7.0}%",
+            format!("{w}x{h}"),
+            ms * 1e6 / px as f64,
+            ms / base,
+            empty as f64 * 100.0 / px as f64,
+        );
+    }
+
+    // The control: one material everywhere, so every pixel takes the same
+    // branch at every size and the only thing varying is how many there are.
+    // Anything other than 4.00x at 2x linear is the renderer, not the scene.
+    use pixel_physics::sim::chunk::Rect;
+    for (label, fill) in [("all stone", Some(pixel_physics::sim::material::STONE)), ("all empty sky", None)] {
+        let big = Rect::new(0, 0, (WIDTH * 2) as i32 - 1, (HEIGHT * 2) as i32 - 1);
+        let mut world = World::new(big);
+        if let Some(m) = fill {
+            for y in 0..(HEIGHT * 2) as i32 {
+                for x in 0..(WIDTH * 2) as i32 {
+                    world.set(x, y, Cell::new(m, (x * 7 + y * 13) as u8));
+                }
+            }
+        }
+        world.end_step();
+        println!("\n  CONTROL -- uniform world, {label} (identical branch at every size):");
+        println!("  {:>12}  {:>10}  {:>9}  {:>9}  {:>8}", "viewport", "pixels", "ms", "ns/pixel", "vs 1x");
+        let mut base = f64::NAN;
+        for (w, h) in [(WIDTH, HEIGHT), (WIDTH * 3 / 2, HEIGHT * 3 / 2), (WIDTH * 2, HEIGHT * 2)] {
+            let px = (w * h) as usize;
+            let mut frame = vec![0u8; px * 4];
+            let mut r = Renderer::new();
+            let (ms, _) = best_of(10, || r.draw(&world, &particles, &touched, &mut frame, (w, h), true) as u64);
+            if base.is_nan() {
+                base = ms;
+            }
+            println!(
+                "  {:>12}  {px:>10}  {ms:>7.3}ms  {:>7.1}  {:>7.2}x",
+                format!("{w}x{h}"),
+                ms * 1e6 / px as f64,
+                ms / base
+            );
+        }
+    }
 }

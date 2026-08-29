@@ -80,6 +80,7 @@ TOPICS = {
         "M16 status",
         "Plant lines merged: the genome, and the ecology",
         "The economy re-derived: standing tissue costs something",
+        "Plants that stop: organs, determinacy, and a price on both",
         "The generation loop: plants die, seeds expire, slots come back",
         "Stems draw a line: the growth walk renders its heading",
         "Felling status — the verb works, and what it produces is pieces",
