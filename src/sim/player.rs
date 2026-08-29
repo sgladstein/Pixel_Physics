@@ -293,14 +293,26 @@ pub struct Tuning {
     /// the same blow.
     ///
     /// A blow is not a bite: `strike` pulverizes a core, chips a shell and
-    /// **scores cracks well past both**, which is the damage that
-    /// accumulates and eventually drops a ceiling. That reach is
-    /// `radius * rigid::CRACK_REACH`, so this number sizes the fissuring
-    /// far more than it sizes the hole.
+    /// **opens the rock's own joints well past both**, which is the
+    /// damage that accumulates and eventually drops a ceiling. That reach
+    /// is `radius * rigid::CRACK_REACH`, so this number sizes the
+    /// fissuring far more than it sizes the hole.
     pub hammer_radius: u8,
     /// How hard the blow throws what it breaks, handed to `rigid::strike`
     /// as its fragment impulse and scaled into the pressure it shoves into
     /// the air.
+    ///
+    /// **12, up from 3, and the reason is that a piece that does not
+    /// travel does not read as a piece.** `promote` turns this into a
+    /// fragment's launch speed as `force / distance_from_the_blow`, so at
+    /// 3 a chunk five cells out left the wound at 0.6 cells a frame —
+    /// slower than it then fell. Measured on `scene=smash`, fastest piece
+    /// 1.07 -> 4.02 cells per frame. Reported from playtest as *"I don't
+    /// see pieces coming off in chunks"*, against a census that said 226
+    /// cells had come off as chunks on the same run: they were coming off
+    /// and going nowhere. The recoil is its own number
+    /// (`hammer_recoil`), so this does not touch how far the swing
+    /// shoves *him*.
     pub hammer_force: f32,
     /// Ticks between hammer blows. Long — three times `dig_cooldown` at
     /// the defaults — because a heavy swing that repeats at pick speed
@@ -501,7 +513,7 @@ impl Default for Tuning {
             // face he is standing at, never across a gap.
             hammer_reach: 12,
             hammer_radius: 7,
-            hammer_force: 3.0,
+            hammer_force: 12.0,
             hammer_cooldown: 24,
             hammer_recoil: 0.3,
             chop_reach: 16,
@@ -709,6 +721,51 @@ impl Dir {
             Dir::Up
         } else {
             Dir::Down
+        }
+    }
+
+    /// `toward`, but **the cursor decides, not the geometry**.
+    ///
+    /// Reported from the first playtest of the bore: *"the direction
+    /// switches too easy as the gnome moves, he changes position relative to
+    /// the mouse and then changes how he is digging. It needs to be a more
+    /// intentional mouse movement."*
+    ///
+    /// Nothing was wrong with the arithmetic. The bug is that direction was
+    /// a pure function of the *current* offset, and the player never touched
+    /// the mouse — **the gnome walked**, the vector from him to a stationary
+    /// cursor swept through the diagonal, and a corridor became a shaft
+    /// under a hand that had done nothing.
+    ///
+    /// **Hysteresis on the offset was tried first and cannot fix it**, which
+    /// is worth recording because it is the obvious repair: keep the held
+    /// direction unless the other axis wins by a margin. Walk far enough and
+    /// the other axis wins by any margin you care to name — measured, a
+    /// gnome who walks level with a fixed cursor ends at dx 2, dy 11, and no
+    /// ratio-and-floor rule keeps that pointing sideways without also
+    /// refusing a genuine re-point. The quantity being tested was the wrong
+    /// one.
+    ///
+    /// So this asks the question the complaint actually asks: **has the
+    /// player moved the mouse since they chose this direction?** Inside
+    /// `REAIM_DEADZONE` of the cursor position the direction was last set
+    /// at, the held direction stands however far the gnome has walked.
+    /// Outside it, the cursor is somewhere new and the raw aim decides.
+    ///
+    /// **`aim` is a world position, and the camera moves — which is fine,
+    /// and worth writing down so nobody re-derives it.** `Renderer::follow`
+    /// holds the camera still while the gnome is inside a `span / 6` dead
+    /// zone and then *re-centres*, so a cursor held still on screen is a
+    /// world-fixed cursor for the whole of that zone. That is precisely the
+    /// reported case, and the latch covers it. The re-centring jump does
+    /// move the world aim far enough to release the latch — but it moves it
+    /// by the same distance the walk just took off the offset, so
+    /// `Dir::toward` hands back the direction the latch was holding. The
+    /// latch lets go exactly where letting go costs nothing.
+    pub fn sticky(from: (i32, i32), aim: (i32, i32), held: Option<(Dir, (i32, i32))>) -> Self {
+        match held {
+            Some((dir, set_at)) if (aim.0 - set_at.0).abs().max((aim.1 - set_at.1).abs()) < REAIM_DEADZONE => dir,
+            _ => Dir::toward(from, aim),
         }
     }
 
@@ -978,6 +1035,11 @@ pub struct Player {
     pub tool: Tool,
     /// Whether the pick cuts a passage or a free-hand bite.
     pub dig_style: DigStyle,
+    /// Which way the bore is being driven, **and the cursor position that
+    /// chose it** — held across frames so that walking cannot change it and
+    /// only moving the mouse can. See `Dir::sticky`. `None` until the first
+    /// bore, when the raw aim decides.
+    pub bore_dir: Option<(Dir, (i32, i32))>,
     /// His head is in liquid: swimming rather than falling. Public
     /// because it is the difference between two entirely different
     /// control schemes and a harness reporting "he is in the water"
@@ -1232,6 +1294,7 @@ impl Player {
             swing_span: 0,
             tool: Tool::Pick,
             dig_style: DigStyle::Bore,
+            bore_dir: None,
             swimming: false,
             was_swimming: false,
             was_climbing: false,
@@ -2146,7 +2209,12 @@ pub fn dig(world: &mut World, aim: (i32, i32), tuning: &Tuning) -> Option<Bite> 
 /// driven across flat rock would descend two cells per stroke for no reason
 /// anyone could see.
 pub fn bore_rect(world: &World, p: &Player, aim: (i32, i32), tuning: &Tuning) -> (Dir, (i32, i32, i32, i32)) {
-    let dir = Dir::toward(p.center(), aim);
+    // **Sticky, so the preview and the cut agree and neither flips under a
+    // walking gnome.** `bore_rect` is called every frame by the renderer
+    // with `&Player` and once per stroke by `dig`; both read the same held
+    // direction, and only `dig` writes it back. That ordering is what makes
+    // the drawn box a promise about the next stroke rather than a guess.
+    let dir = Dir::sticky(p.center(), aim, p.bore_dir);
     let flush = bore_rect_at(p, dir, 0);
     // How far forward the box may slide before the swing gives up and
     // lands where he stands.
@@ -2283,6 +2351,15 @@ fn bore_slab(dir: Dir, (x0, y0, x1, y1): (i32, i32, i32, i32), offset: i32, thic
     }
 }
 
+/// How far the cursor must move before the bore will change direction. See
+/// `Dir::sticky`.
+///
+/// A constant rather than a tunable: this is not a feel knob to sweep, it
+/// is the difference between a control that obeys the hand and one that
+/// obeys the legs. 12 cells is just under the gnome's own height, so a
+/// re-point anywhere off his body counts and hand jitter never does.
+const REAIM_DEADZONE: i32 = 12;
+
 /// One cell of clearance on each side. A constant rather than a tunable
 /// because it is not a feel knob: below 1 the passage is exactly his own
 /// silhouette and every piece of spoil in it is a wall, and above 2 it
@@ -2293,6 +2370,9 @@ const BORE_MARGIN: i32 = 1;
 /// whatever loose material the cut leaves out of it.
 fn bore_bite(world: &mut World, p: &mut Player, aim: (i32, i32), tuning: &Tuning) -> Bite {
     let (dir, boxr) = bore_rect(world, p, aim, tuning);
+    // Latched on the stroke, not on the hover: the direction a player is
+    // "digging" is the one they last committed to with a click.
+    p.bore_dir = Some((dir, aim));
     let slice = bore_slice(world, dir, boxr, tuning.bore_bite as i32);
     let at = ((slice.0 + slice.2) / 2, (slice.1 + slice.3) / 2);
     // **No sweep join here, and none is needed.** The capsule needs one
@@ -5140,6 +5220,69 @@ mod tests {
     }
 
     #[test]
+    fn walking_does_not_change_which_way_he_is_boring() {
+        // **The playtest complaint, as a test.** Reported of the first bore:
+        // "the direction switches too easy as the gnome moves, he changes
+        // position relative to the mouse and then changes how he is
+        // digging." The mouse never moved — he walked past it, the vector
+        // swept through the diagonal, and the box flipped from a corridor to
+        // a shaft on its own.
+        //
+        // Take `Dir::sticky` back to `Dir::toward` and this goes red.
+        // **Open floor, not `world_of_rock`.** The rock scene's pocket is
+        // nine cells wide, so ninety ticks of walking moved him three cells
+        // and the walk never crossed the diagonal at all -- the assertion
+        // below caught that, which is the whole reason it is there.
+        let mut world = world_with_floor();
+        world.player = Some(Player::at(20, 80));
+        let tuning = Tuning::default();
+        // A cursor out to his right and below: mostly horizontal, so a
+        // corridor -- and near enough that a short walk carries him past it.
+        let aim = (44, 92);
+        let (dir, _) = bore_rect(&world, world.player.as_ref().unwrap(), aim, &tuning);
+        assert_eq!(dir, Dir::Right, "he starts by driving a corridor");
+        dig(&mut world, aim, &tuning);
+
+        // Now he walks past the cursor without touching the mouse. The raw
+        // offset now points mostly *down*, which is what used to flip it.
+        // Walk until he is level with the cursor, not for a fixed time: at
+        // `run_max` a fixed ninety ticks carried him 135 cells and clean
+        // past it (d=(-80,11)), which the assertion below caught.
+        for _ in 0..200 {
+            if world.player.as_ref().unwrap().center().0 >= aim.0 - 2 {
+                break;
+            }
+            step(&mut world, PlayerInput { right: true, ..Default::default() }, &tuning);
+        }
+        let p = world.player.as_ref().unwrap();
+        let (dx, dy) = (aim.0 - p.center().0, aim.1 - p.center().1);
+        assert!(dy.abs() > dx.abs(), "the walk has to actually cross the diagonal, or this proves nothing: d=({dx},{dy})");
+        assert_eq!(Dir::toward(p.center(), aim), Dir::Down, "and the raw rule would now say Down");
+
+        let (dir, _) = bore_rect(&world, p, aim, &tuning);
+        assert_eq!(dir, Dir::Right, "walking past the cursor turned his corridor into a shaft");
+    }
+
+    #[test]
+    fn pointing_somewhere_new_still_changes_the_bore() {
+        // The other half: hysteresis must not become a control that ignores
+        // the player. A cursor clearly on the other axis switches at once.
+        let mut world = world_of_rock();
+        let tuning = Tuning::default();
+        let (cx, cy) = world.player.as_ref().unwrap().center();
+        dig(&mut world, (cx + 40, cy), &tuning);
+        assert_eq!(world.player.as_ref().unwrap().bore_dir.map(|(d, _)| d), Some(Dir::Right));
+        for aim in [(cx, cy + 40), (cx - 40, cy), (cx, cy - 40)] {
+            let want = Dir::toward((cx, cy), aim);
+            let p = world.player.as_ref().unwrap();
+            let (dir, _) = bore_rect(&world, p, aim, &tuning);
+            assert_eq!(dir, want, "a deliberate move to {aim:?} was ignored");
+            dig(&mut world, aim, &tuning);
+            world.player.as_mut().unwrap().clear_swing_cooldown();
+        }
+    }
+
+    #[test]
     fn a_horizontal_bore_stands_on_the_floor_he_is_standing_on() {
         // The asymmetry `bore_rect` documents, and the one thing about the
         // box that is not derivable from "his size plus a margin": centring
@@ -5338,6 +5481,63 @@ mod tests {
         let cut = chop(&mut world, (71, 80), &tuning).expect("off cooldown");
         assert!(cut.living, "the stroke landed on the trunk, so it is a living cut");
         assert!(wood_cells(&world) < before, "an axe stroke into a bole took no wood: {before}");
+    }
+
+    #[test]
+    fn an_axe_cut_through_a_stem_breaks_the_organism_connection() {
+        // **The interface between the axe and the felling line, pinned from
+        // this side.** `chop` contains no plant-specific code and calls no
+        // sever API: it relies on `shatter_to_rubble` -> `World::set`
+        // unregistering each cut cell from its organism, after which the
+        // tissue above has no organism path to the ground and
+        // `plant::anchor_support` finds it unreached.
+        //
+        // This asserts **that disconnection**, which is what the axe owes
+        // the felling line, and deliberately not the fall itself. Turning a
+        // disconnected crown into pieces belongs to `structural::tick` and
+        // is gated end-to-end by `scripts/acceptance.sh`'s `fell` case on a
+        // *grown* tree; a hand-built organism here is not wired for anchor
+        // support, so asserting severance in a unit test would be asserting
+        // something the scene cannot produce.
+        //
+        // `an_axe_cuts_living_wood_where_a_shake_leaves_it_alone` asserts
+        // wood *left*. This asserts the crown *came away*, which is a
+        // different claim and the one another session can break.
+        let mut world = world_with_leafy_tree();
+        world.player.as_mut().unwrap().tool = Tool::Axe;
+        let tuning = Tuning::default();
+        let wood = world.materials.id_of("wood").unwrap();
+
+        // 8-connected flood from the stump, over organism cells only --
+        // `Grow` places tissue at 8 neighbours, so a reader must traverse 8
+        // or it sees fragments that are not there (`CLAUDE.md`).
+        let reaches_stump = |w: &World| {
+            let mut seen = std::collections::HashSet::new();
+            let mut queue: Vec<(i32, i32)> = (70..74).map(|x| (x, 87)).filter(|&(x, y)| w.get(x, y).organism_id() != 0).collect();
+            seen.extend(queue.iter().copied());
+            while let Some((x, y)) = queue.pop() {
+                for (dx, dy) in [(-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1)] {
+                    let n = (x + dx, y + dy);
+                    if w.in_bounds(n.0, n.1) && w.get(n.0, n.1).organism_id() != 0 && seen.insert(n) {
+                        queue.push(n);
+                    }
+                }
+            }
+            // Does any crown tissue, well above the cut, still reach it?
+            (62..77).any(|y| (66..79).any(|x| w.get(x, y).material == wood && seen.contains(&(x, y))))
+        };
+        assert!(reaches_stump(&world), "the crown starts connected to the stump, or this proves nothing");
+
+        for _ in 0..6 {
+            chop(&mut world, (71, 80), &tuning);
+            world.player.as_mut().unwrap().clear_swing_cooldown();
+        }
+        assert!(
+            !reaches_stump(&world),
+            "chopping through the bole left the crown still connected: `shatter_to_rubble` is no \
+             longer unregistering cut cells from their organism, so nothing downstream will ever \
+             see a severed crown"
+        );
     }
 
     #[test]

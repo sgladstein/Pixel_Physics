@@ -160,6 +160,43 @@ pub struct CreatureStats {
     /// the colony is searching or commuting.
     pub tumbles: u64,
     pub falls: u64,
+    /// **Launches — the `BrainOutput::Impulse` verb firing.** The "did it
+    /// happen at all" counter `CLAUDE.md` demands beside any picture of a
+    /// hop: a creature arcing through the air and a creature falling off a
+    /// ledge are the same photograph, and only this says which. Zero for
+    /// every species that has not authored the weight, which is the guard
+    /// `creature-motion-design.md` §7 names third.
+    pub impulses: u64,
+    /// Frames spent airborne, summed over the colony. Paired with
+    /// `impulses` because the ratio is the mean hop *duration*, which is
+    /// the quantity the body is supposed to change: same launch, a slab
+    /// glides and a block drops.
+    ///
+    /// It is also the frame-cost readout. An airborne creature is
+    /// rescheduled every frame instead of every `tick_interval`, so this is
+    /// exactly the extra scheduler traffic the verb buys — in the units the
+    /// scheduler charges.
+    pub flight_frames: u64,
+    /// Cell relocations made while airborne.
+    ///
+    /// **Deliberately not folded into `moves`.** `falls / moves` is the
+    /// §7 guard and it was baselined before this verb existed; adding
+    /// ballistic steps to the denominator would make that ratio fall for a
+    /// hopping species and the guard would report an improvement it had
+    /// manufactured. `moves` still counts exactly what it counted — one
+    /// walking step, decided and paid for — and this counts the other kind.
+    pub flight_moves: u64,
+    /// Launches the brain asked for and the body could not make — the
+    /// creature was already off the ground.
+    ///
+    /// **The effect-side pair `impulses` needs, and `CLAUDE.md` asks for by
+    /// name**: a counter that says a call happened is only as good as the
+    /// claim that the call did something, and the worked case there is a
+    /// mining harness that reported 200 cuts having removed 0 cells. These
+    /// two split the verb's firings into the ones that produced an arc and
+    /// the ones that produced nothing, so a rise in `impulses` with a flat
+    /// `flight_frames` cannot be read as the verb working.
+    pub impulses_refused: u64,
     pub eats: u64,
     pub pickups: u64,
     pub digs: u64,
@@ -216,6 +253,34 @@ pub struct CreatureStats {
     pub deaths: u64,
     /// Creatures that lost a body cell and survived it.
     pub injuries: u64,
+    /// **Children born to a living parent** — S6's "did it fire at all"
+    /// counter, and the only thing that separates a population that is
+    /// breeding from one that is merely still standing
+    /// (`Reports/creature-evolution-plan.md` §2.6; `CLAUDE.md`, *"did it
+    /// fire at all" needs a counter, not a picture*).
+    ///
+    /// Distinct from `spawned`, which counts every creature that appeared
+    /// out of nothing at the `plant_creature_seed` seam — founders placed
+    /// by a scene, the `Y` key, a harness. A world with `spawned 52 births
+    /// 0` is the authored colony with heredity switched off, and that is
+    /// exactly what this counter has to be able to say.
+    pub births: u64,
+    /// Births refused because the child's body had nowhere to go.
+    ///
+    /// **A "no space, so it does not happen" gate is a silent selection
+    /// pressure the day body size becomes heritable** (§2.8's second
+    /// pre-check, and `CLAUDE.md`'s "a size cap must bound work, never
+    /// gate whether something happens" in a new costume). It is that gate
+    /// today, deliberately and with one body plan; this counter is what
+    /// stops it being invisible while it is, so S8 can read how often it
+    /// actually bites before it decides what to replace it with.
+    ///
+    /// **Not the slot ceiling** — a birth refused because all 4,095
+    /// organism slots are live books to `World::organisms_refused`
+    /// instead, and the two must stay separate: one is a property of the
+    /// terrain around the parent and the other is a property of the
+    /// engine's address space.
+    pub births_denied_no_space: u64,
 }
 
 /// Where every joule went. See `World::energy_ledger`.
@@ -819,6 +884,13 @@ pub struct World {
     /// allocating on their own schedule this is the number that says
     /// whether the assumption still holds at play rates.
     pub organism_generation_wraps: u32,
+    /// The next unused founder label — see `OrganismState::lineage`.
+    ///
+    /// Starts at 1 so that 0 stays available as "no lineage", and only
+    /// ever goes up. It is not an index into anything and nothing looks a
+    /// lineage up, so exhausting a `u32` would take 4 billion founders in
+    /// one world and cost a label collision rather than a corruption.
+    next_lineage: u32,
     /// **Seeds that waited for water and then germinated** — the counter
     /// for the dormancy mechanic, because a picture cannot show it and no
     /// existing readout separates the cases.
@@ -851,6 +923,57 @@ pub struct World {
     /// Incremented in `plant::germinate`, which every germination passes
     /// through, so it cannot drift from the thing it counts.
     pub germinations: u64,
+
+    /// **Every birth that reached the fate-mutation gate** — the denominator
+    /// for the two counters below.
+    ///
+    /// Incremented in `plant::bear_seed_at` immediately before the
+    /// `FATE_MUTATION_CHANCE` draw, so it counts seeds that got an organism
+    /// slot and had a parent to inherit from. A birth refused at the slot
+    /// ceiling never reaches it and is counted in `organisms_refused`
+    /// instead.
+    ///
+    /// **This exists because the drift census and the mutation model
+    /// disagreed by 2.6x and nothing could say which end was wrong.**
+    /// `Reports/plant-rule-drift-observed-2026-08-29.md` §4 measured 0.88%
+    /// of a herb population carrying a drifted rule table against 2.33%
+    /// predicted from the run's own generation histogram at
+    /// `FATE_MUTATION_CHANCE = 0.01`, and could not attribute the gap: a
+    /// standing census sees genomes, not the draws that made them. These
+    /// three counters split it into segments that can each be read on their
+    /// own — `CLAUDE.md`'s "pair every *it fired* counter with an effect
+    /// counter from the far side of the call".
+    pub fate_mutation_rolls: u64,
+
+    /// **Draws where `FATE_MUTATION_CHANCE` came up** — the mutation
+    /// attempts, before any operator has run.
+    ///
+    /// Against `fate_mutation_rolls` this is the realised rate of the draw
+    /// itself, which is *not* guaranteed to be `FATE_MUTATION_CHANCE`: the
+    /// draw comes from a substream keyed on `(world seed, landing cell,
+    /// parent generation)` rather than from a per-birth roll, so every seed
+    /// landing on one cell from same-generation parents gets the **same**
+    /// answer. The rate over births is therefore a ratio whose denominator
+    /// is how births distribute over keys, and it has far more spread than a
+    /// binomial at the same n. Reading it against 1% is the only way to tell
+    /// a keying artifact from a real loss downstream.
+    pub fate_mutations_fired: u64,
+
+    /// **Mutations that actually changed the genome.**
+    ///
+    /// The effect counter on the far side of `FateGenome::mutate`.
+    /// `fate_mutations_fired - fate_mutations_applied` is the *declined*
+    /// count: an operator that drew a value it already held, a `delete` at
+    /// the one-rule floor, an `insert` at `MAX_FATES`, or the empty-genome
+    /// early return. `Reports/plant-fate-operator-gate-2026-08-29.md` §2
+    /// measured declines at about 1% of draws on `herb` in the harness;
+    /// this is the live figure.
+    ///
+    /// Note what this still does **not** say: an applied mutation changes
+    /// the genome, so it is drift by the census's definition, but it may
+    /// leave the plant identical (the gate's *silent* class) and it may be
+    /// carried by a seed that never establishes.
+    pub fate_mutations_applied: u64,
 
     /// **Leaf cells a node wanted and could not pay for** — the effect
     /// counter for `plant::LEAF_CONSTRUCTION_MULTIPLE`.
@@ -1516,6 +1639,28 @@ pub struct FailureCounts {
     /// extent is unambiguous. It says nothing about how the pile *reads* —
     /// that is the owner's to judge — but it can say whether the pieces are
     /// lying down.
+    /// Plant cells that **actually moved** because they were bending, and
+    /// the cells that wanted to and could not.
+    ///
+    /// Two counters and not one, because `CLAUDE.md`'s recurring trap is
+    /// exactly this shape: a counter of cells whose deflection reached a
+    /// whole cell counts *intent*, and a blade that wants to lean but is
+    /// blocked at every cell looks identical to one that is leaning. The
+    /// mover reports what it did; `refused` is the far side of the same
+    /// call. See `plant::bend_under_load`.
+    pub bends_applied: u32,
+    pub bends_refused: u32,
+    /// **Why a lean was refused, because "refused" alone cannot be acted on.**
+    ///
+    /// A grass stand once reported 0 leans against 302 refusals -- the
+    /// mechanism inert in a real world while every guard over it was green --
+    /// and the two causes want opposite fixes. `bends_blocked` is a limb with
+    /// something in the way, which is a crowded stand doing its job.
+    /// `bends_would_tear` is the one-piece rule turning a swing down because
+    /// no cross-section of the limb could move without stranding a cell,
+    /// which is the mechanism refusing itself.
+    pub bends_blocked: u32,
+    pub bends_would_tear: u32,
     pub settled_lying: u32,
     pub settled_upright: u32,
     pub settled_square: u32,
@@ -1663,6 +1808,21 @@ impl FailureCounts {
         }
     }
 
+    /// One cell offered a lean, and whether it took it. See `bends_applied`.
+    pub fn record_bend(&mut self, moved: bool) {
+        if moved {
+            self.bends_applied = self.bends_applied.saturating_add(1);
+        } else {
+            self.bends_refused = self.bends_refused.saturating_add(1);
+        }
+    }
+
+    /// Why the last hinge could not swing. See `bends_blocked`.
+    pub fn record_bend_refusal(&mut self, blocked: u32, would_tear: u32) {
+        self.bends_blocked = self.bends_blocked.saturating_add(blocked);
+        self.bends_would_tear = self.bends_would_tear.saturating_add(would_tear);
+    }
+
     /// One piece coming to rest, `width` by `height`. See `settled_lying`.
     pub fn record_settled_pose(&mut self, width: i32, height: i32) {
         let counter = match width.cmp(&height) {
@@ -1786,8 +1946,12 @@ impl World {
             organisms_died: 0,
             organisms_refused: 0,
             organism_generation_wraps: 0,
+            next_lineage: 1,
             seeds_germinated_after_waiting: 0,
             germinations: 0,
+            fate_mutation_rolls: 0,
+            fate_mutations_fired: 0,
+            fate_mutations_applied: 0,
             leaf_cells_unaffordable: 0,
             leaf_cells_built: 0,
             wood_cells_built: 0,
@@ -1911,6 +2075,24 @@ impl World {
     /// missing release shows up here as a count that only ever climbs.
     pub fn live_organism_count(&self) -> usize {
         self.organisms.iter().filter(|slot| slot.state.is_some()).count()
+    }
+
+    /// **How many animals are alive** — `live_organism_count` restricted to
+    /// species that carry a `CreatureDef`.
+    ///
+    /// The population readout S6 asks for, and it has to be its own number
+    /// rather than the organism count: a colony scene grows trees, so
+    /// `live_organism_count` moves when the *flora* changes and a reader
+    /// cannot tell a colony that bred from a stand that germinated. It is
+    /// also the quantity the frame-cost re-run is indexed on — creature
+    /// work was measured free at 55 ants and a breeding population is not
+    /// 55 (`Reports/creature-evolution-plan.md` §2.6).
+    pub fn live_creature_count(&self) -> usize {
+        self.organisms
+            .iter()
+            .filter_map(|slot| slot.state.as_ref())
+            .filter(|state| self.species.get(state.species).creature.is_some())
+            .count()
     }
 
     /// Total energy held by every live organism — the left-hand side of
@@ -2342,6 +2524,8 @@ impl World {
             traits: [0.0; organism::CREATURE_TRAITS],
             chain: Vec::new(),
             heading: 0,
+            // Nothing is born in the air. Only `creature::launch` sets this.
+            flight: None,
             energy: 0.0,
             carrying: None,
             since_nest: 0,
@@ -2358,6 +2542,10 @@ impl World {
             fruit_band: 0,
             inherited: false,
             generation: 0,
+            // Founders claim theirs at the `plant_creature_seed` seam;
+            // `push_organism` cannot, because it does not know whether it
+            // is allocating a plant (same reasoning as `traits` above).
+            lineage: 0,
             seeds_set: 0,
             alleles: [0; organism::DISCRETE_LOCI],
             deferred_germination: false,
@@ -2550,6 +2738,17 @@ impl World {
     /// index's own bound.
     pub fn organism_slot_high_water(&self) -> (usize, usize) {
         (self.organisms.len(), ORGANISM_INDEX_MASK as usize)
+    }
+
+    /// Hand out the next founder label — see `OrganismState::lineage`.
+    ///
+    /// Called once per *founder*, at the seam a creature appears out of
+    /// nothing; a bud copies its parent's instead, which is what makes a
+    /// clonal line one label rather than N.
+    pub(crate) fn claim_lineage(&mut self) -> u32 {
+        let id = self.next_lineage;
+        self.next_lineage = self.next_lineage.saturating_add(1);
+        id
     }
 
     /// Births refused at the slot ceiling — see `organisms_refused`. Zero

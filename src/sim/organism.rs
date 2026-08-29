@@ -1914,6 +1914,42 @@ pub struct CreatureDef {
     /// stage to be worth shipping (`creature-evolution-plan.md` §2.5).
     #[serde(default)]
     pub traits: [f32; CREATURE_TRAITS],
+    /// **The bank an individual must reach before it buds**, in the same
+    /// units as `start_energy`. Zero — the default — means this species
+    /// does not reproduce, which is what every authored showcase animal
+    /// stays at until someone opts it in.
+    ///
+    /// **It must exceed `start_energy`, and that is the single best idea
+    /// the S6 review produced** (`Reports/creature-evolution-plan.md`
+    /// §2.6). Reproduction is then unreachable without feeding: doing
+    /// nothing stops being a strategy and becomes an extinction, and it
+    /// retires §13o's horizon artifact structurally rather than by picking
+    /// a nicer point on the same curve. A threshold *below* the grant
+    /// would make every founder breed on its first tick having done
+    /// nothing, and the population would then be measuring the spawn
+    /// schedule.
+    ///
+    /// **In practice it has to clear the whole birth cost, not just the
+    /// grant** — the parent also pays the child's structural stamp
+    /// (`body_energy` per body cell), so `creature::birth_cost` is the
+    /// real floor and a threshold under it would be a suicide pact rather
+    /// than a reproductive strategy. `creature::can_reproduce` enforces
+    /// that floor whatever this says, so a mis-authored species refuses to
+    /// breed instead of killing its own parents.
+    #[serde(default)]
+    pub reproduce_threshold: f32,
+    /// **Per-slot probability that one live genome slot is point-mutated
+    /// at a birth.** Zero — the default — means children are byte-clones
+    /// of their parent, which is not a disabled feature but the *control*:
+    /// lineage share under clonal reproduction with no mutation is the
+    /// null the selected runs are read against (§2.6's second pre-flight).
+    ///
+    /// Per-slot rather than per-genome so it does not have to be re-derived
+    /// when the genome grows: `brain::live_slots` is 268 today and S2
+    /// reserved room for it to change, and a per-genome rate would silently
+    /// mean something different the day it does.
+    #[serde(default)]
+    pub mutation_rate: f32,
     /// Per-trait mutation width, same indexing as `traits`.
     ///
     /// **Read by nothing until S6**, exactly as `MaterialDef::food_class`
@@ -2312,6 +2348,33 @@ pub struct Carried {
     /// and a leaf put down holding 120 would be a leaf holding water.
     pub worth: u16,
     pub shade: u8,
+}
+
+/// **A creature that has left the ground**, and the only state that says so.
+///
+/// Velocity in cells per *frame* plus a sub-cell accumulator, because a
+/// creature moves in whole cells and a hop that only ever moved whole cells
+/// per decision would teleport. `creature::step_flight` integrates it once
+/// per frame — not once per `tick_interval` — which is what makes an arc
+/// read as an arc.
+///
+/// **`None` is the normal state and costs one discriminant.** A creature is
+/// grounded unless something put it in the air, and only
+/// `creature::launch` ever does: nothing in the walking path can set this,
+/// which is the whole reason the two reverted airborne attempts
+/// (`Reports/creature-motion-design.md` §2d) cannot come back through it.
+/// The walk still refuses to step into unsupported air exactly as it did.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct Flight {
+    /// Cells per frame, +x east.
+    pub vx: f32,
+    /// Cells per frame, **+y down** — the grid's convention, so gravity
+    /// adds and a launch subtracts.
+    pub vy: f32,
+    /// Sub-cell remainder carried between frames, so a velocity below one
+    /// cell per frame still produces motion instead of rounding to nothing.
+    pub fx: f32,
+    pub fy: f32,
 }
 
 /// Per-organism state too large (or too semantically distinct) to fit in
@@ -2733,6 +2796,17 @@ pub struct OrganismState {
     /// Stamped but unread while the worm is the only creature — its move
     /// is a 4-neighbour choice with no facing. The ants read it.
     pub heading: u8,
+    /// **Airborne, or not.** `Some` only between a `BrainOutput::Impulse`
+    /// launch and the frame it lands; `None` for every plant, every worm,
+    /// and every creature standing on something.
+    ///
+    /// While it is `Some` the creature does not think: `creature_tick`
+    /// integrates one frame of ballistics and returns, skipping the brain,
+    /// the four verbs and the walk entirely. That is the verb's real cost —
+    /// mid-hop you cannot eat, dig, steer or turn away from anything — and
+    /// it is also why flight is cheap: no `eval_brain` on the frames it
+    /// adds to the schedule.
+    pub flight: Option<Flight>,
     /// Energy budget. `creature::CreatureState`'s scalar, relocated — the
     /// entire contents of the parallel per-creature storage this substrate
     /// replaced.
@@ -2874,6 +2948,29 @@ pub struct OrganismState {
     /// and a stand that looks lush while every plant reads generation 0 is
     /// a stand where nothing has bred.
     pub generation: u16,
+    /// **Which founding individual this one descends from.**
+    ///
+    /// Copied unchanged from parent to child at every birth, so a whole
+    /// clonal line shares one number; a founder is handed the next unused
+    /// one by `World::claim_lineage`. Zero means "not descended from any
+    /// founder this world handed out" — a plant, or anything created
+    /// before lineages existed.
+    ///
+    /// **Not the organism handle, and this is the point.** A handle is a
+    /// slot index plus a 4-bit generation, so it is reused: an animal that
+    /// dies hands its identity back, and after sixteen reuses the *same*
+    /// encoded id comes round again (`World::push_organism`). A lineage
+    /// label built on that would silently merge two unrelated lines part
+    /// way through a long run, and lineage share — the one number S6's
+    /// measurement turns on — would then be reading the allocator.
+    /// `claim_lineage` counts monotonically and never reissues.
+    ///
+    /// It exists because *"is this population diverging"* cannot be
+    /// answered from a genome scatter: a slot under selection and a slot
+    /// nothing reads produce the same end-of-run spread, and only who
+    /// descends from whom separates them (the same argument
+    /// `examples/genome_drift.rs` opens with, one level up).
+    pub lineage: u32,
     /// Seeds this organism has set. The other half of the same question.
     pub seeds_set: u32,
     /// **This individual's discrete genes** — see [`DISCRETE_LOCI`]. One

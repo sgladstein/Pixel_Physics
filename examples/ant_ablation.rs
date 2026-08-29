@@ -217,7 +217,29 @@ fn main() {
     // direction* changes anything. If these read identical to `authored`,
     // the genome still has no authority over locomotion and evolution
     // would have nothing to select on.
-    for (out, label) in [(BrainOutput::Persist, "Persist"), (BrainOutput::Tumble, "Tumble"), (BrainOutput::Caution, "Caution")] {
+    //
+    // **`Impulse` is in this list and not in the ablation list below, and
+    // the difference matters.** An ablation removes an authored connection;
+    // `ant.ron` authors nothing into `Impulse`, so there is nothing to
+    // remove and the ablation arm would be `authored` by construction --
+    // green, and evidence of nothing. The sweep asks the question that can
+    // actually fail: *wire the verb up, and does the ant behave
+    // differently?* If `Impulse=hi` returns `authored`'s row unchanged, the
+    // verb is a channel with a writer and no consequence, which is
+    // `creature-motion-design.md` §3's cost 3 arriving and the failure
+    // `CLAUDE.md` records this project hitting three times.
+    //
+    // `lo` is the negative control for it: at -4.0 the output saturates
+    // negative, the `> 0.0` gate never opens, and the row must reproduce
+    // `authored` to every digit. Two arms, and between them they say
+    // whether the gate is where it claims to be *and* whether opening it
+    // does anything.
+    for (out, label) in [
+        (BrainOutput::Persist, "Persist"),
+        (BrainOutput::Tumble, "Tumble"),
+        (BrainOutput::Caution, "Caution"),
+        (BrainOutput::Impulse, "Impulse"),
+    ] {
         for (w, sign) in [(-4.0f32, "lo"), (4.0, "hi")] {
             let mut v: Vec<Instinct> = AUTHORED.iter().map(|&(i, o, w)| Instinct(i, o, w)).collect();
             v.push(Instinct(BrainInput::Bias, out, w));

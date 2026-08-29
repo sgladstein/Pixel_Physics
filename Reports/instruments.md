@@ -60,7 +60,7 @@ Not an `examples/` binary — these read what an agent run already wrote down.
 | `divergence` | **Does one environmental difference produce two different-shaped plants?** | See below — the most reusable thing here |
 | `fate_viability` | **What fraction of mutations to a species' production rule still produce a plant that lives and breeds?** | Gate 1 of the evolvability programme, and it is allowed to answer *no*. Generalises past plants and past fates: it is really *"register N variants of a species at runtime, grow each, and classify the outcome"*, so any question of the form **how much does this substrate tolerate being changed** can be asked by swapping what `mutate` perturbs — a creature genome, a material table. Its real contribution is the **three-way** classification: viable / lethal / **silent**, where silent means the stand came out identical to the base and the mutated field is therefore never read in that scene. A two-way rate counts silent mutations as tolerance and overstates robustness by however many of them there are (measured: 7 of 48 were no-ops from drawing the value already held, and a further set were unread fields). Both controls are mandatory and print on every run — the unmutated table must live, and a shoot-child-to-`Seed` table must die — because a viability rate with neither is exactly the arithmetically-correct-and-about-the-wrong-thing shape. The positive control has already earned its keep once: it reported the *unmutated* table as 0/3 and caught a harness bug that would have published a decisive, entirely false 0%. **It calls the shipped operator rather than imitating it**, which it did not until 2026-08-29: it mutated its own copy of the table with its own code, drawing from six cell types on the woody base where `FateGenome`'s operators draw from eight on every base — so its number was about a mutation nothing in the engine performs. Route is now genome -> `FateGenome::mutate` -> `to_table` -> RON -> founder genome. **`op=all` (default) or `op=retarget|recondition|insert|delete`**: `all` reproduces the shipped 60/15/15/10 mixture, and forcing one operator is what makes the rare ones measurable — 40 mutants of the mixture spend about four draws on `delete`. **Four outcome classes, not two**, and the two extra are where a naive rate leaks: *declined* means the operator itself changed nothing (a redraw that never found a different value, `delete` at the one-rule floor, `insert` at `MAX_FATES`), *silent* means the genome changed and the stand came out identical anyway. Declined is a subset of silent; both are excluded from the denominator, because a mutant that establishes only because it *is* the base is the positive control quoted back as a result. **`base=tree` (default) or `base=herb`**: `tree.ron` declares no organ material, no `Ripen` behaviour and no `Ripe` rule, so a mutant reaching `Flower`/`Fruit` there measures that gap as well as the substrate — the harness no longer prevents it (that was the divergence above) but counts it in its own column. Note the negative control finds its rule by `when == Grew` rather than by index, because a determinate base carries an extra rule ahead of it and a control that poisons the wrong rule fails *open* |
 | `plant_probe` | Every organism-owned cell's per-cell channels for a grown tree | The quantitative pair for any `channel=` overlay. Echoes its own parameters. Also carries the four **organ** effect counters (built / axes terminated / fruit dropped, plus three separate *binds* ratios), which appear only for a species that has organs |
-| `genome_drift` | **Per-slot population mean over generations** — whether a slot ever moves | Warns below generation 2, because a drift study on a population that never turns over cannot answer its question |
+| `genome_drift` | **Per-slot population mean over generations** — whether a slot ever moves — **and, since 2026-08-29, whether the *production rule* moves** | Warns below generation 2, because a drift study on a population that never turns over cannot answer its question. The continuous slots and the fate table need different treatments and get them: a population mean is meaningful for a draw and meaningless for a *program*, so the rule table is censused instead as *how many individuals carry a table that is no longer their species'*, split by whether it grew (`insert`), shrank (`delete`) or changed in place (`retarget`/`recondition`), plus the count of distinct tables alive. **Two free controls, and read them first**: `gen0` must be 0, because founders take the species table verbatim, so anything else means the census is reading the wrong object and every other column is void; and `empty` must be 0, because an empty genome falls back to the species table and a population of them reports *no drift* while meaning *no genomes* — the channel-with-no-writer failure wearing a plausible number |
 | `root_contact` | How much of a root system is actually touching soil | |
 | `flora_census` | Which species a generated world actually contains, per seed | `where=1 focus=NAME at=X` audits one *window*. Built after a card came back "I don't see a difference" and the window held 125 grass cells against 7,853 woody |
 | `litter_probe` | Where shed litter comes to rest, and whether it rots. **Read the `SUSPENDED (air underneath)` line, not the on-terrain/against-plant split** | `out=` writes a classification overlay — magenta on a branch, cyan on the ground — and **`crop=x,y,w,h zoom=N` on top of it, which is what makes that overlay judgeable**: the answer is read by eye and a 512x320 sheet with the interesting part 180 px wide is not. `plain=1` drops the markers and the dimming and draws the scene in its own colours -- the marked overlay says which cells are held off the ground, `plain=1` says whether a person would call it a forest floor, and those are different questions. **Two of its columns are confounded and the third is not**: `against-plant` scores a drift banked against a trunk and a leaf stuck up a tree identically, and the height bands measure against a `terrain_top` that excludes litter, so the top of a deep mat reads as high up. `SUSPENDED (air underneath)` is the unconfounded one and is what to quote |
@@ -328,6 +328,61 @@ instrument added alongside a mechanism is missing from the arm it is being
 measured against, and the first reading of this change fell back on a
 cluster-level statistic for exactly that reason. Verified against the
 pre-change binary on `scene=fell`: every physics line identical.
+
+**`filmstrip channel=bend` draws the plant bending stress**, and its
+quantitative pair is the `bending stress over N cells` line in the felling
+census — median, peak, **where the peak is**, and how many cells read exactly
+zero. Read them together: a ramp can only say "brighter", and whether the
+hottest cell is at a trunk's base or out on a twig is the entire claim of the
+model. **Not `channel=stress`**, which is `load::evaluate`'s rock stress and
+a different quantity.
+
+**The bend census is four lines and none of them substitutes for another.**
+`cells leaning this tick` counts what *wants* to move (`|deflection| >= 1`);
+`cells moved / refused` counts what did; `cross-sections blocked` and `would
+have torn` split the refusals by *reason*, and that split is the one that can
+be acted on. A grass stand once read **0 moved against 302 refused** — a
+mechanism inert in a real world with every guard over it green — and the two
+causes want opposite fixes. Blocked is a crowded stand doing its job; torn is
+the one-piece rule turning a swing down because no cross-section could move
+without stranding a cell. **Read them against `wind on that tissue`**, which
+names the gust and the exposure range the moments were measured under: half
+the moment now comes from the weather, so a lean count with no wind figure
+beside it is that frame's phase plus the mechanism, inseparable.
+
+**And the moment line is split per material**, because `stiffness` is a
+per-material constant and one pooled distribution cannot fit two of them.
+Trunks dominate a stand's pooled quantiles and foliage sits two orders of
+magnitude below — leaf p90 260-348 under a stand p90 of 455-636 — so a
+stiffness read off the pooled line is fitted to the wrong tissue. Each row
+prints its own material's stiffness and how many of its cells want to lean,
+which is the "did this constant connect to anything" reading.
+
+**`BEND=off` holds every plant rigid** and is the control for all of the
+above. It exists because both errors in this mechanism were found by holding
+the semantics fixed and changing nothing else. Comparing two *binaries*
+cannot do it: the counters that catch the error are added alongside the
+mechanism, so the arm being measured against does not have them. Note the two
+arms diverge — the sim differs — so a difference read thousands of frames
+apart is two different worlds, not a measurement of the mechanism.
+
+**`HINGE_PROBE=1` prints the felling hinge's own arithmetic** — the region's
+size and mass, the stump it pivots about, `broke_at` beside it, the centre of
+mass **as a vector from the pivot**, the second moment and `alpha`. Read the
+vector, not `alpha`: a hinge whose centre of mass is level with its pivot
+swings straight *down*, which on a contact sheet is indistinguishable from
+the piece simply falling. That is not hypothetical — it is what the first
+build did, for a whole render and a wrong reading, and no image could have
+told anyone.
+
+**`filmstrip`'s "foliage by steps to the nearest wood"** is a multi-source
+BFS out of every woody cell, crossing only foliage, so bucket 1 is exactly
+the set `update::on_a_branch` holds. It exists because "the leaves fall off
+the branch" and "the rule that holds them is one cell too shallow" produce
+the identical picture; the histogram separates them, and it is what set the
+clinging depth (36% at one step, 53% at two). `no path` is foliage with no
+route to wood through its own kind — already run clear, and no depth
+recovers it.
 
 **Two orientation censuses on `scene=fell`, and they answer different
 questions.** `settled log pieces` folds settled `log` into 8-connected

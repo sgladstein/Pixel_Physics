@@ -924,6 +924,27 @@ pub struct MaterialDef {
     /// an aspiration, and never sitting on the measured value.
     #[serde(default = "default_never_u16")]
     pub max_cantilever_reach: u16,
+    /// **How much bending stress this tissue takes to lean one cell over** —
+    /// the stiffness of `Reports/tree-mechanics-plan-2026-08-29.md` §3, and
+    /// the whole of what separates grass from wood.
+    ///
+    /// `plant::stress_field` gives every plant cell a bending stress;
+    /// dividing it by this gives a deflection in cells. Grass is low, so a
+    /// blade lies right over; wood is high, so a limb barely moves until it
+    /// is in real trouble and then sags visibly before it goes.
+    ///
+    /// **Bending relieves the stress that caused it**, because a leaning
+    /// stem's lever arm shortens — which is why grass bends and never breaks
+    /// from the same arithmetic that fells a tree, and why these are one
+    /// mechanism and not two.
+    ///
+    /// Infinite by default, so **every material in the world is rigid until
+    /// it opts in** and nothing that has not been measured changes. That is
+    /// the same shape as `max_cantilever_reach`'s `u16::MAX` above and for
+    /// the same reason: a per-cell rule that arrives switched on for
+    /// everything is a rule nobody can attribute a regression to.
+    #[serde(default = "default_rigid")]
+    pub stiffness: f32,
     /// What an unsupported cell becomes once it breaks free, or empty to
     /// leave it Solid regardless of `max_unsupported_span` (the same
     /// unset-name-is-a-no-op pattern `melts_into`/`burns_into` use). Loose
@@ -1329,6 +1350,13 @@ fn default_fragment_floor() -> u32 {
     1
 }
 
+/// Infinite — see `MaterialDef::stiffness`. A material that has not been
+/// given a stiffness does not bend at all, which is what every material in
+/// the world did before the property existed.
+fn default_rigid() -> f32 {
+    f32::INFINITY
+}
+
 /// `true` — see `MaterialDef::anchors_organisms`. Every material was ground
 /// for a plant before the flag existed, so the default is what preserves
 /// that.
@@ -1574,6 +1602,8 @@ pub struct Material {
     pub anchors_organisms: bool,
     /// See `MaterialDef::rock`.
     pub rock: bool,
+    /// See `MaterialDef::stiffness`.
+    pub stiffness: f32,
     /// See `MaterialDef::joint_spacing`. `0.0` means not jointed; never
     /// negative, and never small enough to divide the world into slivers.
     pub joint_spacing: f32,
@@ -1920,6 +1950,7 @@ impl From<MaterialDef> for Material {
             clings_to_wood: def.clings_to_wood,
             anchors_organisms: def.anchors_organisms,
             rock: def.rock,
+            stiffness: def.stiffness,
             // Clamped rather than asserted: this is content, and a
             // hand-edited `.ron` must not be able to panic the simulation.
             // A negative or sub-cell pitch is meaningless, so both read as
@@ -2272,6 +2303,7 @@ impl MaterialRegistry {
             severs_into: String::new(),
             anchors_organisms: true,
             rock: false,
+            stiffness: f32::INFINITY,
             joint_spacing: 0.0,
             joint_band_contrast: 0.0,
             support_cost_below: 1,
@@ -2349,6 +2381,7 @@ impl MaterialRegistry {
             severs_into: String::new(),
             anchors_organisms: true,
             rock: false,
+            stiffness: f32::INFINITY,
             joint_spacing: 0.0,
             joint_band_contrast: 0.0,
             support_cost_below: 1,

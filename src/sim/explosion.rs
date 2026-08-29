@@ -362,6 +362,33 @@ pub struct Tuning {
     /// when it reads as too complete.
     #[serde(default = "default_joint_density")]
     pub joint_density: f32,
+    /// The widest an **opened** seam is allowed to get, in cells — the bold
+    /// end of the aperture ladder in [`JointSeams::wake`].
+    ///
+    /// Every seam used to be exactly one cell across, everywhere, and
+    /// `open_seam`'s own doc argued for it: *"the reference's thickness
+    /// comes from the lines being void rather than from their being fat"*.
+    /// That is still true of a *single* line and was the wrong thing to hold
+    /// fixed, because it made the whole web one weight — reported from play,
+    /// *"the cracks should be thicker near the explosion and thinner far
+    /// away with variation between cracks"*. A uniform hairline is a binary
+    /// outcome wearing a pattern, which is the first of `CLAUDE.md`'s two
+    /// laws.
+    ///
+    /// So a seam is now as wide as its own boundary is prominent, tapering
+    /// to a score and then to nothing along its own length — see
+    /// `seam_width`. This is the cap on that ladder, and it is the *only*
+    /// number the widening adds: how many rungs there are, how far apart
+    /// they sit and where the ladder starts are all derived from
+    /// `joint_open_fraction`, which keeps the meaning it always had.
+    ///
+    /// `1` reproduces the old uniform one-cell seam **exactly**, which is
+    /// both the A/B control and the way back if the wider seams read as too
+    /// bold. `2` is the default and costs about a quarter more opened cells
+    /// than `1`; `3` costs about half as much again (`seam_width`'s own doc
+    /// carries the arithmetic). Past 4 a seam is a corridor, not a crack.
+    #[serde(default = "default_joint_seam_width")]
+    pub joint_seam_width: u32,
 }
 
 /// `2.4` — a radius-20 charge wakes joints out to about 48 cells, a little
@@ -408,6 +435,28 @@ fn default_joint_density() -> f32 {
     0.9
 }
 
+/// `3` — a bold crack leaves the crater three cells across, holds that for
+/// about half its run, and steps down to a hairline and then a score.
+///
+/// **Set from a playtest verdict, not from the material bill.** It was `2`,
+/// under a linear ladder, and that shipped to the owner as *"better but too
+/// subtle. Both effects need to be much stronger."* Two things went up
+/// together in answer: the cap by one rung, and — the half that actually did
+/// the work — the ladder's shape, which is now concave so the top rung covers
+/// a *length* of crack rather than a point on it (`seam_width`).
+///
+/// The bill is real and is the reason this is not `4`. `seedsweep.sh` over 3
+/// presets x 4 seeds on `blast=300,8,20,180,60`, run to rest, reading `rock
+/// destroyed`: the linear ladder measured 4,980 / 6,025 / 6,318 total and
+/// 1,022 / 1,102 / **1,465** max at caps 1 / 2 / 3, so the *worst case* is
+/// what climbs first. Anyone who finds the web too heavy should drop this
+/// before touching `joint_open_fraction`: it is one integer, it changes only
+/// the weight of seams that were opening anyway, and `1` restores the uniform
+/// one-cell seam exactly.
+fn default_joint_seam_width() -> u32 {
+    3
+}
+
 impl Default for Tuning {
     fn default() -> Self {
         Self {
@@ -446,7 +495,208 @@ impl Default for Tuning {
             joint_reach: default_joint_reach(),
             joint_open_fraction: default_joint_open_fraction(),
             joint_density: default_joint_density(),
+            joint_seam_width: default_joint_seam_width(),
         }
+    }
+}
+
+/// **The charge types.** Five whole tunings, each a different kind of thing
+/// going off, selectable from one row of the options panel.
+///
+/// # Why this exists
+///
+/// Reported from play: *"in the menu there are so many different options for
+/// changing explosions and I don't really know what each does and it is too
+/// complicated."* The panel had grown to twenty-six numbers with no ordering
+/// and no way to move more than one at a time, so the only way to find out
+/// what a blast could be was to sweep a knob you had to guess the meaning of
+/// first.
+///
+/// A preset answers that directly: it is a *destination*, not a knob. Pick
+/// one, set it off, see what that kind of charge does. The individual numbers
+/// stay exactly where they were for whoever wants them — this is
+/// `CLAUDE.md`'s "for 'does this look right', ship a runtime selector rather
+/// than choosing", one level up from a single value.
+///
+/// # What they span, and why these five
+///
+/// Not five points on one axis. Real explosives differ in *how* they deliver
+/// their energy, and each of these picks a different trade the engine can
+/// already express:
+///
+/// | | crater | crack web | thrown rubble | reads as |
+/// |---|---|---|---|---|
+/// | `Cap` | tiny | tight, near | almost none | a detonator, a test shot |
+/// | `Powder` | wide, shallow | sparse | **the whole event** | a slow heave |
+/// | `Dynamite` | medium | medium | medium | the general-purpose bang |
+/// | `Mining` | small | **the whole event** | little | a confined shot-hole |
+/// | `Demolition` | **large** | medium | large | the spectacle |
+///
+/// `Powder` and `Mining` are the two ends of the real distinction and the
+/// reason a single "size" slider was never enough: a low explosive *pushes*
+/// (long `duration`, big `debris_fraction`, little jointing) and a high
+/// explosive confined in rock *shatters* (short, small cavity, a halo of
+/// joints reaching three blast-radii out). They are as far apart in the hand
+/// as any two settings of this struct get.
+///
+/// # Keeping the panel honest
+///
+/// `Dynamite` **is** [`Tuning::default`], byte for byte, rather than a copy
+/// of it — so the shipped calibration (every table on `default_joint_reach`,
+/// `default_joint_open_fraction` and their neighbours) is still the thing
+/// that runs by default, and a preset list cannot silently fork it.
+///
+/// Every other preset is written as a delta *from* that base, so a change to
+/// a field nobody varies reaches all five. Only the fields a charge type
+/// actually differs in are named, which is also what makes the list readable
+/// as a description of the five things rather than as five copies of one
+/// struct.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Preset {
+    /// A detonator on its own: barely a crater, a tight web, no throw.
+    Cap,
+    /// Black powder — a low explosive. It heaves rather than shatters: a slow
+    /// push, most of the event is flying rubble and smoke, and the rock is
+    /// left comparatively uncracked.
+    Powder,
+    /// The general-purpose stick, and [`Tuning::default`] exactly.
+    Dynamite,
+    /// A confined shot-hole charge. Small cavity, and everything else goes
+    /// into the grain: the widest, densest, boldest joint halo of the five.
+    Mining,
+    /// A demolition shot. Big crater, big throw, big fireball.
+    Demolition,
+}
+
+impl Preset {
+    /// In the order the panel lists them: quietest first, loudest last, so
+    /// walking the row with the arrow keys is a ramp rather than a shuffle.
+    pub const ALL: [Preset; 5] = [Preset::Cap, Preset::Powder, Preset::Dynamite, Preset::Mining, Preset::Demolition];
+
+    /// What the row reads as. Short enough for the panel's 5x7 text at the
+    /// width a value column gets.
+    pub fn label(self) -> &'static str {
+        match self {
+            Preset::Cap => "CAP",
+            Preset::Powder => "POWDER",
+            Preset::Dynamite => "DYNAMITE",
+            Preset::Mining => "MINING",
+            Preset::Demolition => "DEMOLITION",
+        }
+    }
+
+    /// The whole tuning this charge type is.
+    pub fn tuning(self) -> Tuning {
+        let base = Tuning::default();
+        match self {
+            // Small enough that the crater is a pockmark, so what there is to
+            // see is the web. `joint_reach` goes *up* rather than down: it is
+            // a multiple of `radius`, and at radius 9 a halo of 2.4x is 22
+            // cells, which is a few polygons across at stone's 13-cell pitch
+            // -- fewer than the pattern needs to read as a pattern at all.
+            // The seam cap drops to 1 for the same reason in reverse: at this
+            // size a two-cell seam is a third of a polygon.
+            Preset::Cap => Tuning {
+                radius: 9.0,
+                strength: 70.0,
+                duration: 4.0,
+                vaporize_fraction: 0.06,
+                debris_fraction: 0.3,
+                fireball_fraction: 0.2,
+                smoke_fraction: 0.10,
+                calve_depth: 3,
+                joint_reach: 3.2,
+                joint_open_fraction: 0.24,
+                joint_density: 0.85,
+                joint_seam_width: 1,
+                ..base
+            },
+            // A low explosive: the energy arrives slowly, so it moves
+            // material instead of shattering it. `duration` more than doubles
+            // -- which is also what lets the debris actually *leave*, per
+            // that field's own doc -- `debris_fraction` and `smoke_fraction`
+            // carry the event, and the jointing is deliberately thin: powder
+            // does not run a fracture halo three radii into a mountain.
+            Preset::Powder => Tuning {
+                radius: 24.0,
+                strength: 150.0,
+                duration: 24.0,
+                vaporize_fraction: 0.04,
+                debris_fraction: 0.7,
+                smoke_fraction: 0.34,
+                fireball_fraction: 0.45,
+                flash_temperature: 210.0,
+                confined_cavity_fraction: 0.5,
+                speed_per_strength: 0.06,
+                calve_depth: 5,
+                joint_reach: 1.4,
+                joint_open_fraction: 0.16,
+                joint_density: 0.5,
+                joint_seam_width: 1,
+                ..base
+            },
+            // Not `..base` with no fields: literally the base. See the type
+            // doc -- the shipped calibration must keep running by default.
+            Preset::Dynamite => base,
+            // The confined shot. `confined_cavity_fraction` down to a crush
+            // pocket and everything else into the grain, which is what a
+            // charge with nowhere to vent actually does. This is the preset
+            // the seam ladder was built for: `joint_seam_width` 3 and
+            // `joint_open_fraction` 0.42 make the near joints frankly wide,
+            // and they still taper to a score by the halo's edge because the
+            // width is read off each boundary's own headroom.
+            Preset::Mining => Tuning {
+                radius: 16.0,
+                strength: 210.0,
+                duration: 8.0,
+                vaporize_fraction: 0.05,
+                debris_fraction: 0.3,
+                smoke_fraction: 0.12,
+                fireball_fraction: 0.2,
+                confined_cavity_fraction: 0.2,
+                calve_depth: 12,
+                crack_stagger: 14.0,
+                crack_glow_temperature: 360.0,
+                joint_reach: 3.6,
+                joint_open_fraction: 0.42,
+                joint_density: 1.0,
+                joint_seam_width: 3,
+                ..base
+            },
+            // The spectacle. Everything scales with the crater except the
+            // halo, which is a *multiple* of radius and so is already half as
+            // big again in cells at 2.0 as `Mining`'s 3.6 is at 16.
+            Preset::Demolition => Tuning {
+                radius: 34.0,
+                strength: 380.0,
+                duration: 14.0,
+                vaporize_fraction: 0.18,
+                debris_fraction: 0.5,
+                shockwave_multiplier: 2.4,
+                fireball_fraction: 0.4,
+                flash_temperature: 300.0,
+                smoke_fraction: 0.28,
+                pierce_divisor: 9.0,
+                calve_depth: 14,
+                joint_reach: 2.0,
+                joint_open_fraction: 0.34,
+                joint_density: 0.85,
+                joint_seam_width: 2,
+                ..base
+            },
+        }
+    }
+
+    /// Which preset `t` currently *is*, or `None` when it is something no
+    /// preset names.
+    ///
+    /// `None` is a real, reachable, and useful state rather than a failure:
+    /// the moment anyone nudges one number the tuning stops being a named
+    /// charge, and the panel says so (`HELD`) instead of claiming a preset
+    /// it no longer matches. That contract is `Tunable::options`' own, and
+    /// getting it wrong would be a readout that disagrees with the world.
+    pub fn of(t: &Tuning) -> Option<Preset> {
+        Preset::ALL.into_iter().find(|p| p.tuning() == *t)
     }
 }
 
@@ -894,13 +1144,31 @@ pub struct BlastReport {
     /// to this once the front has finished, and the *gap* between them
     /// mid-flight is the growth beat being visible.
     pub joints_activated: u32,
+    /// Joints the front arrived at to find **no rock left to part** — the
+    /// cell had been carried off, buried or shattered between the scan and
+    /// the front reaching it.
+    ///
+    /// This is what closes the arithmetic: `opened + scored + overtaken ==
+    /// activated` once the front has finished. It used to hold as a two-way
+    /// identity, and it did so by luck rather than by construction — the
+    /// opened zone was a disc around the crater and every queued joint was
+    /// out in rock nothing had touched. With seams that open along each
+    /// boundary's own run, the damage and the queue overlap, and a handful of
+    /// joints a run are genuinely overtaken by the collapse they helped
+    /// cause. Counting them keeps the identity checkable instead of widening
+    /// the assertion until it stops being one.
+    ///
+    /// It is also worth reading on its own: a large value means the halo is
+    /// being eaten by its own crater, which is the tell for `joint_reach`
+    /// being set short against `radius`.
+    pub joints_overtaken: u32,
 }
 
 impl std::fmt::Display for BlastReport {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "cleared {} cells, {} held by containment, {} fissured, {} calved, joints {} activated ({} opened, {} scored), sectors open {}/{} contained {}/{}",
+            "cleared {} cells, {} held by containment, {} fissured, {} calved, joints {} activated ({} opened, {} scored, {} overtaken), sectors open {}/{} contained {}/{}",
             self.cells_cleared,
             self.cells_held_by_containment,
             self.cells_fissured,
@@ -908,6 +1176,7 @@ impl std::fmt::Display for BlastReport {
             self.joints_activated,
             self.joints_opened,
             self.joints_scored,
+            self.joints_overtaken,
             self.open_sectors,
             CONFINEMENT_SECTORS,
             self.contained_sectors,
@@ -1319,6 +1588,7 @@ impl Blast {
                 joints_opened,
                 joints_scored: 0,
                 joints_activated,
+                joints_overtaken: 0,
             },
             calved: false,
             afterglow_frames: 0,
@@ -1371,7 +1641,9 @@ impl Blast {
         // the same two knobs (`crack_growth` sets the front's speed in
         // cells per frame, `crack_stagger` how ragged its arrival is).
         let spreading = if let Some(seams) = self.seams.as_mut() {
-            self.report.joints_scored += seams.advance(world, tuning);
+            let (scored, overtaken) = seams.advance(world, tuning);
+            self.report.joints_scored += scored;
+            self.report.joints_overtaken += overtaken;
             !seams.is_done()
         } else {
             false
@@ -1457,6 +1729,58 @@ impl Blast {
                 confinement,
                 super::rigid::ShellSectors::Contained,
             );
+        }
+        // **And every block the star cut out, not just the two collars.**
+        //
+        // Reported from play: *"when the cracks have fully surrounded a
+        // chunk of rock it should detach from the background and fall.
+        // Every single rock. That doesn't happen consistently."* The two
+        // collars above are *annuli* — they release the rim and the pocket
+        // wall, which is where a blast's own clearing left free faces. A
+        // block out in the near field that the fissures happened to
+        // enclose is in neither annulus, so nothing released it, and it
+        // stood there fully cracked until something else disturbed it.
+        //
+        // `rigid::calve_free_blocks` is the same call the hammer makes, and
+        // its doc carries the measurement that says why this cannot be left
+        // to the load model: a severed slab resting on rubble reports
+        // *supported*, correctly, so waiting for "unsupported" is waiting
+        // for something that should not fire.
+        //
+        // **Bounded to the calved shell**, and the wider bound was tried
+        // and measured rather than assumed. `dead-ends.md`'s no-ligament
+        // lattice is the failure of releasing every enclosed domain in the
+        // *world*, so this is bounded on principle; the question was where.
+        //
+        // Widening it to `joint_reach * radius` -- the halo `JointSeams`
+        // actually scores, which is ~3x further out and about ten times
+        // the area -- **does not move the result**. Paired over five
+        // presets x four seeds against this release switched off: the
+        // tight bound is better on 8 runs of 20, the halo on 9, and
+        // **both have a median cells-promoted ratio of exactly 1.00x**.
+        // The halo's worst frame reached 70.6 ms against an acceptance
+        // budget of 60. So the search radius was never the constraint.
+        //
+        // **What is:** how often a blast encloses a block at all. A
+        // hammer completes an outline because the *second* blow reopens
+        // the boundaries the first declined
+        // (`structural::JOINT_REPEAT_BONUS`); a blast is one event, so it
+        // gets one draw per boundary and `default_joint_density`'s
+        // deliberate one-in-ten holdout leaves most blocks a joint short.
+        // That is a calibration question in `JointSeams`, not a reach
+        // question here -- filed under `open-bugs-handoff.md` S5.
+        // **Open sectors only, and two guards caught the omission.** A
+        // fully contained blast has nowhere to put anything -- that is
+        // what containment *is* -- and releasing the blocks its own crush
+        // enclosed inside the pocket cleared 648 of 1,257 disc cells,
+        // taking `a_fully_buried_stone_blast_crushes_a_pocket_and_scores_a_
+        // crack_star` red on exactly the claim it exists to make. The two
+        // collars above already ask this question per sector
+        // (`ShellSectors::Open` / `Contained`); this asks the coarse
+        // version of it, because a block is not a sector and the release
+        // is bounded by a disc rather than by a sector fan.
+        if self.report.open_sectors > 0 {
+            cells += super::rigid::calve_free_blocks(world, (self.cx, self.cy), (self.radius + depth) as f32, force) as u32;
         }
         cells
     }
@@ -2046,16 +2370,16 @@ impl JointSeams {
         // same thing to both: the inner part of whatever rock is left
         // standing comes apart, and the rest is scored.
         let open_fraction = tuning.joint_open_fraction.clamp(0.0, 1.0);
-        // `0.0` is a **hard off**, not the bottom of the ramp, and the
-        // difference is not cosmetic: the zone is measured from the crater
-        // wall *outward*, so the smallest positive setting still opens every
-        // joint inside the nominal radius -- which for a contained charge is
-        // rock that is standing there and would be removed. Its doc says
-        // "scores everything and removes nothing", and this is what makes
-        // that true. Caught by `debris_is_thrown_away_from_the_epicentre`,
-        // which sets it to zero to take the fabric's removals out of a scene
-        // whose pressure gradient it is reading, and still saw them.
-        let open_to = if open_fraction <= 0.0 { f32::NEG_INFINITY } else { flat + (reach - flat) * open_fraction };
+        // How much headroom a boundary needs before it opens rather than
+        // merely scores. `0.0` is still a **hard off**, and the difference is
+        // not cosmetic: `seam_open_threshold` returns 1.0 there, which no
+        // headroom can reach, so nothing is removed. Its doc says "scores
+        // everything and removes nothing", and this is what makes that true.
+        // Caught by `debris_is_thrown_away_from_the_epicentre`, which sets it
+        // to zero to take the fabric's removals out of a scene whose pressure
+        // gradient it is reading, and still saw them.
+        let open_threshold = seam_open_threshold(open_fraction);
+        let max_width = tuning.joint_seam_width;
         // Scaled by the coupling for the same reason the reach is: what a
         // standoff charge leaves has to be a sparse craquelure, not the
         // same diced near field a contact charge leaves in a smaller patch.
@@ -2122,7 +2446,13 @@ impl JointSeams {
         let mut seams = Self { pending: Vec::new(), cursor: 0, front: 0.0, revealed: Vec::new(), glow };
         let mut opened = 0;
         let mut activated = 0;
+        // The cells the seams remove, and -- separately -- the owning cell of
+        // every edge that opened. They were one list while a seam was always
+        // one cell; a widened seam removes several cells per edge, and
+        // conflating them would inflate `opened` by however wide the seams
+        // happen to be set.
         let mut to_open: Vec<(i32, i32)> = Vec::new();
+        let mut open_edges: Vec<(i32, i32)> = Vec::new();
 
         for y in y0..(y0 + h as i32 - 1) {
             for x in x0..(x0 + w as i32 - 1) {
@@ -2158,12 +2488,33 @@ impl JointSeams {
                     // boundary is fully severed is enclosed by construction
                     // -- which is the entire reason to prefer this to more
                     // walker work. See `fracture_field`'s module doc.
-                    if super::fracture_field::joint_draw(world.seed, home, other) >= ramp {
+                    let draw = super::fracture_field::joint_draw(world.seed, home, other);
+                    if draw >= ramp {
                         continue;
                     }
                     activated += 1;
-                    if d <= open_to {
-                        to_open.push((x, y));
+                    // **The boundary's own reach, read back out of the draw
+                    // that woke it.** Activation is `draw < density * (1 -
+                    // t)`, so a boundary survives out to exactly `t <
+                    // 1 - draw/density` -- that value *is* how far along the
+                    // halo this particular joint runs, and it is free: no
+                    // second hash, and the correlation the whole change is
+                    // for ("cracks that start thicker should extend farther")
+                    // is an identity rather than a tuning.
+                    let prominence = 1.0 - draw / density;
+                    // Distance from this boundary's own tip, in ramp units:
+                    // `prominence` at the crater wall, falling to 0 where the
+                    // joint dies. One number carries the taper along a crack,
+                    // the spread of weights between cracks, and the ragged
+                    // ends -- see `seam_width`.
+                    let headroom = prominence - t;
+                    let width = seam_width(headroom, open_threshold, max_width);
+                    if width > 0 {
+                        // Counted in edges, and by the cell that owns the
+                        // edge, so `opened` keeps meaning what its doc says
+                        // however many cells the seam is across.
+                        open_edges.push((x, y));
+                        seam_cells(x, y, down, width, &mut to_open);
                     } else {
                         // `distance + delay` order, one slice per frame.
                         // The delay is per *boundary*, not per edge, so a
@@ -2196,7 +2547,22 @@ impl JointSeams {
         // activated joints is removed once and counts twice, which is right:
         // two joints did open there. How much material went is the census's
         // question, and the census answers it.
-        opened += to_open.iter().filter(|c| done.contains(c)).count() as u32;
+        opened += open_edges.iter().filter(|c| done.contains(c)).count() as u32;
+
+        // **A joint whose rock is already gone was opened, not scored, and
+        // the front must not be sent to look for it.** A seam wider than one
+        // cell reaches sideways into cells that own *other* activated joints,
+        // and a cell can now own one bold edge and one faint one -- neither
+        // was possible while every seam was a single cell and both of a
+        // cell's edges shared one distance test. Left alone, `sever` would
+        // arrive frames later, find no rock, and decline: the joint would be
+        // counted as activated and as neither of the two things that can
+        // happen to it, which is exactly the arithmetic
+        // `a_blast_wakes_the_joint_fabric_and_the_counters_add_up` pins. The
+        // rock did part along that boundary; it parted at the bang.
+        let swallowed = seams.pending.iter().filter(|j| done.contains(&(j.x, j.y))).count() as u32;
+        seams.pending.retain(|j| !done.contains(&(j.x, j.y)));
+        opened += swallowed;
 
         // A total order, with the position as the tiebreak: determinism is
         // required (`PLAN.md`), and two joints at the same key would
@@ -2208,10 +2574,11 @@ impl JointSeams {
     }
 
     /// Advance the front by one frame and sever everything it has reached.
-    /// Returns how many joints were newly scored.
-    fn advance(&mut self, world: &mut World, tuning: &Tuning) -> u32 {
+    /// Returns `(newly scored, overtaken)` — see `BlastReport::joints_overtaken`
+    /// for why the second number has to be carried rather than dropped.
+    fn advance(&mut self, world: &mut World, tuning: &Tuning) -> (u32, u32) {
         if self.is_done() {
-            return 0;
+            return (0, 0);
         }
         // `crack_growth` is "steps per frame" for a walker; here it is the
         // same thing measured in cells of front travel, so the two halves of
@@ -2221,14 +2588,21 @@ impl JointSeams {
         // pattern half-drawn and keep the blast alive forever.
         self.front += tuning.crack_growth.max(1) as f32;
         let mut scored = 0;
+        let mut overtaken = 0;
         while self.cursor < self.pending.len() && self.pending[self.cursor].key <= self.front {
             let j = self.pending[self.cursor];
             self.cursor += 1;
             if sever(world, j.x, j.y, j.down, self.glow, &mut self.revealed) {
                 scored += 1;
+            } else {
+                // Either the rock has moved on (`sever`'s own early return)
+                // or the bit was already set by an earlier charge on the same
+                // ground. Both are "the front found nothing to do here", and
+                // both have to be counted or the three totals stop adding up.
+                overtaken += 1;
             }
         }
-        scored
+        (scored, overtaken)
     }
 
     fn is_done(&self) -> bool {
@@ -2281,13 +2655,151 @@ fn sever(world: &mut World, x: i32, y: i32, down: bool, glow: i16, revealed: &mu
     fresh
 }
 
+/// The headroom an activated joint needs before it **opens** rather than
+/// merely scores, given `joint_open_fraction`.
+///
+/// # Why this is a curve and not the fraction itself
+///
+/// The old rule opened every activated joint inside one radius:
+/// `t <= open_fraction`, a circle. That circle is the complaint — *"they
+/// shouldn't just all stop at the same radius away from the center"* — so the
+/// test is now against each boundary's own `headroom` instead, which puts the
+/// open/scored transition wherever that particular joint is running out of
+/// steam.
+///
+/// Changing the *shape* of the opened zone must not quietly change its
+/// *size*, or every number `joint_open_fraction` was swept against (the
+/// nine-blast, four-seed table on `default_joint_open_fraction`) is void and
+/// the knob means something new. So the threshold is chosen to hold the
+/// expected opened run **equal** to the old rule's, boundary for boundary.
+///
+/// A boundary of prominence `p` (uniform on `[0, 1]`, by construction — see
+/// `prominence` at the call site) is activated over `t` in `[0, p)`.
+///
+/// - Old: it opens over `min(f, p)`, so the mean run is `f - f^2/2`.
+/// - New: it opens where `p - t >= theta`, so the mean run is `(1-theta)^2/2`.
+///
+/// Equate them and `theta = 1 - sqrt(f * (2 - f))`, which is exact at the top
+/// end as well as in the middle: `f = 1` gives `0.0`, every activated joint
+/// opens, and at the shipped `0.30` it is `0.286` — the two rules differ by
+/// 4% in total opened length while differing completely in where that length
+/// is.
+///
+/// **`f = 0` returns infinity rather than the formula's `1.0`, and that is
+/// not tidying.** `joint_open_fraction`'s doc promises a *hard* off, and a
+/// headroom of exactly `1.0` is reachable — a boundary whose `joint_draw`
+/// comes back `0.0`, evaluated at the crater wall — so a threshold of `1.0`
+/// leaks a seam on that draw. It is the same sentinel the old rule used from
+/// the other end (`open_to = NEG_INFINITY`) and for the same reason: an off
+/// switch has to be unreachable, not merely at the end of the range.
+fn seam_open_threshold(open_fraction: f32) -> f32 {
+    let f = open_fraction.clamp(0.0, 1.0);
+    if f <= 0.0 {
+        return f32::INFINITY;
+    }
+    1.0 - (f * (2.0 - f)).sqrt()
+}
+
+/// How many cells wide this joint opens, `0` meaning "score it, don't open
+/// it" — the aperture ladder.
+///
+/// `headroom` is the boundary's distance from its own tip in ramp units
+/// (`prominence - t` at the call site), so it is largest at the crater for
+/// the boundaries that run furthest and falls to zero at every crack's own
+/// end. Reading the width off it gives all three properties at once, from one
+/// number and with no extra draw:
+///
+/// - **thicker near the blast, thinner far away** — `headroom` falls with
+///   distance along any one joint, so a seam narrows as it runs and finishes
+///   as a score;
+/// - **variation between cracks** — at the same distance, boundaries differ
+///   in `prominence`, so the near field is a mix of weights rather than one;
+/// - **the thick ones reach further** — `prominence` sets both the starting
+///   width and the tip, so the two cannot disagree.
+///
+/// # The ladder is concave, and that is the whole difference between a
+/// mechanism and a visible one
+///
+/// It was linear in the headroom first — `1 + floor(u * cap)` — and the owner's
+/// verdict on the result was *"better but too subtle. Both effects need to be
+/// much stronger."* He was right, and raising the cap does not fix it: at a
+/// cap of 4 the top rung needs `u >= 0.75`, which is a sliver of the
+/// `(prominence, distance)` space, so the widest seams appear at a *point* on
+/// a crack rather than along a length of it. Rendered at 1, 2, 3 and 4 the
+/// four sheets are nearly the same picture, and the reason is legibility
+/// rather than magnitude: **a seam three cells wide for twenty cells reads as
+/// a bold crack; one four cells wide for three cells reads as a chip.**
+///
+/// So the rung is chosen on `sqrt(u)`. A boundary that leaves the crater at
+/// the cap now holds the cap for roughly the first half of its own run before
+/// stepping down, which is what makes the taper something you can follow with
+/// your eye instead of something a census can find.
+///
+/// Widening never cuts anything new loose — the same set of boundaries opens
+/// either way, and what a blast mostly removes is the blocks the seams free
+/// rather than the seam cells themselves (`default_joint_open_fraction`) — so
+/// the bill is the extra seam cells alone. Under `sqrt` at a cap of 3 the
+/// opened length divides roughly 11% / 33% / 56% between one, two and three
+/// cells, for a mean seam of ~2.4 cells against the flat 1 it replaced.
+fn seam_width(headroom: f32, threshold: f32, max_width: u32) -> u32 {
+    if max_width == 0 || headroom < threshold {
+        return 0;
+    }
+    // The widest headroom any boundary can have is 1.0 (prominence 1 at the
+    // crater wall), so this is the fraction of the way up the available
+    // range. Floored span: `threshold` reaches 1.0 only when nothing opens
+    // at all, which the test above has already returned on.
+    let span = (1.0 - threshold).max(f32::EPSILON);
+    let u = ((headroom - threshold) / span).clamp(0.0, 1.0);
+    (1 + (u.sqrt() * max_width as f32) as u32).min(max_width)
+}
+
+/// The cells one seam of the given width removes, growing **symmetrically
+/// about the edge** rather than into one side of it.
+///
+/// The edge `(x, y)` owns is perpendicular to the direction the crack opens
+/// in: a `down` edge is horizontal, so it parts vertically. Widening along
+/// the edge instead of across it is the same mistake both crack writers
+/// record at the top of their walk — it cuts the rock into rings instead of
+/// parting it — and it is worth restating here because the widening is new
+/// and the axis is easy to take from the wrong end.
+///
+/// Alternating far side, near side, far side keeps the seam centred on the
+/// boundary: a seam that always grew one way would shave every polygon on
+/// the same side and drift the whole web off the fabric it is drawn from.
+fn seam_cells(x: i32, y: i32, down: bool, width: u32, out: &mut Vec<(i32, i32)>) {
+    let (ax, ay) = if down { (0, 1) } else { (1, 0) };
+    for k in 0..width as i32 {
+        // 0, +1, -1, +2, ... — the owning cell first, so a width of 1 is
+        // byte-for-byte the seam that shipped.
+        let step = if k % 2 == 0 { -(k / 2) } else { (k + 1) / 2 };
+        out.push((x + ax * step, y + ay * step));
+    }
+}
+
 /// Open one joint into a seam: the boundary cell becomes void, or grit.
 ///
-/// **One cell wide, always.** The seam follows the boundary on the side of
-/// the cell that *owns* the edge, so a run of boundary edges removes a run
-/// of single cells. The reference's thickness comes from the lines being
-/// void rather than from their being fat, and a two-cell seam eats the world
-/// for no extra legibility.
+/// **One cell at a time, and the caller decides how many.** This used to read
+/// *"one cell wide, always -- the reference's thickness comes from the lines
+/// being void rather than from their being fat, and a two-cell seam eats the
+/// world for no extra legibility"*. The first half is still true and the
+/// conclusion was wrong, on a distinction that paragraph did not draw: a
+/// *uniformly* two-cell seam buys nothing, because what it changes is the
+/// weight of the whole web at once. A seam whose width varies buys the thing
+/// the uniform one cannot, which is a pattern with a middle — reported from
+/// play as *"thicker near the explosion and thinner far away with variation
+/// between cracks"*. `seam_width` sizes the run, `seam_cells` picks it, and
+/// this opens one cell of it.
+///
+/// The world-eating half of that warning was real and is answered by
+/// arithmetic rather than by refusing: the widening rides on boundaries that
+/// were opening anyway, so it frees no extra blocks and its whole bill is the
+/// extra seam cells — +25% of opened cells at the default cap of 2.
+///
+/// Only jointed rock is removed. That gate is a no-op for the seam cell
+/// itself, which by construction came off a lattice with a positive pitch;
+/// it exists for the *widening* cells, which are one step off the scan and
+/// could otherwise put a crack through bedrock or out of the world.
 ///
 /// Mostly void, some rubble. The void is what reads: a seam that is merely
 /// darker is the crack bit again, which is the thing this exists to get past.
@@ -2297,8 +2809,14 @@ fn sever(world: &mut World, x: i32, y: i32, down: bool, glow: i16, revealed: &mu
 /// census as every other kind, and so it falls, trickles down the seam and
 /// piles up the way loose material in an open joint does.
 fn open_seam(world: &mut World, x: i32, y: i32) -> bool {
+    if !world.in_bounds(x, y) {
+        return false;
+    }
     let cell = world.get(x, y);
     if !structural::is_body_material(world, cell.material) {
+        return false;
+    }
+    if world.materials.get(cell.material).joint_spacing <= 0.0 {
         return false;
     }
     // Position-keyed, never `world.rng`: geometry that drew from the world
@@ -3129,6 +3647,13 @@ mod tests {
         w
     }
 
+    /// How much stone is standing in the whole world — the census half of
+    /// "what did this cost", as distinct from any counter of events. See
+    /// `CLAUDE.md`: a failure count is not a damage count.
+    fn stone_cells(w: &World) -> usize {
+        (0..128).flat_map(|y| (0..128).map(move |x| (x, y))).filter(|&(x, y)| w.get(x, y).material == material::STONE).count()
+    }
+
     /// Run a staged blast to its own end, and report `(frames, peak bodies,
     /// report)`. Bounded so a blast that never dies fails the bound instead
     /// of hanging the suite.
@@ -3337,6 +3862,99 @@ mod tests {
 
     // ---- The joint fabric (F) --------------------------------------------
 
+    /// **The calibration promise, checked by integration rather than by
+    /// argument.** `seam_open_threshold`'s whole justification is that
+    /// swapping a circular opened zone for a per-boundary one leaves the
+    /// *amount* opened alone, so every number `joint_open_fraction` was swept
+    /// against still means what it meant. That is a closed-form claim and it
+    /// is cheap to check against the two rules directly.
+    #[test]
+    fn the_new_open_rule_opens_as_much_as_the_circle_it_replaced() {
+        const STEPS: usize = 2000;
+        for f in [0.1_f32, 0.2, 0.3, 0.45, 0.6, 0.8] {
+            let theta = seam_open_threshold(f);
+            let (mut old, mut new) = (0.0_f64, 0.0_f64);
+            // A boundary of prominence `p`, uniform in [0, 1], is activated
+            // over t in [0, p). The old rule opened it for t <= f; the new
+            // one opens it while p - t >= theta.
+            for i in 0..STEPS {
+                let p = (i as f32 + 0.5) / STEPS as f32;
+                old += f.min(p) as f64;
+                new += (p - theta).max(0.0) as f64;
+            }
+            let (old, new) = (old / STEPS as f64, new / STEPS as f64);
+            assert!(
+                (new - old).abs() < 0.05 * old,
+                "at joint_open_fraction {f} the circle opened {old:.4} and the ladder opens {new:.4} -- \
+                 the knob no longer means what it was swept to mean"
+            );
+        }
+        // The two ends are exact rather than close, and they are the two that
+        // other code depends on: `0.0` is the documented hard off.
+        assert_eq!(seam_width(1.0, seam_open_threshold(0.0), 4), 0, "joint_open_fraction 0 opened a seam");
+        assert!(seam_width(0.001, seam_open_threshold(1.0), 4) > 0, "joint_open_fraction 1 left a joint unopened");
+    }
+
+    /// **One crack, along its own length.** The complaint this answers is
+    /// that every fissure was the same weight from end to end, so what a
+    /// single boundary does as it runs out of energy is the property to pin:
+    /// widest where it leaves the crater, narrowing, then a score, then
+    /// nothing.
+    #[test]
+    fn a_seam_narrows_along_its_run_and_finishes_as_a_score() {
+        let theta = seam_open_threshold(default_joint_open_fraction());
+        let prominence = 1.0_f32; // a boundary that reaches the halo's edge
+        let widths: Vec<u32> = (0..=20).map(|i| seam_width(prominence - i as f32 / 20.0, theta, 3)).collect();
+        assert!(widths.windows(2).all(|w| w[0] >= w[1]), "a seam widened as it ran outward: {widths:?}");
+        assert_eq!(widths[0], 3, "the boldest boundary did not start at the cap: {widths:?}");
+        assert_eq!(*widths.last().unwrap(), 0, "the seam never gave out: {widths:?}");
+        // A middle, not a step: the whole point of the ladder is that there
+        // is something between "wide open" and "gone".
+        assert!(widths.contains(&2) && widths.contains(&1), "the seam jumped straight from bold to nothing: {widths:?}");
+    }
+
+    /// **Between cracks, at one distance.** The other half of the report —
+    /// *"with variation between cracks"*, and *"cracks that start thicker
+    /// should extend farther"*. Both fall out of `prominence` driving the
+    /// width and the tip together, so the test is that the two orderings
+    /// agree rather than that either is present on its own.
+    #[test]
+    fn a_bolder_seam_also_reaches_further() {
+        let theta = seam_open_threshold(default_joint_open_fraction());
+        let at_the_wall: Vec<u32> = [0.25_f32, 0.5, 0.75, 1.0].iter().map(|&p| seam_width(p, theta, 3)).collect();
+        assert!(at_the_wall.windows(2).all(|w| w[0] <= w[1]), "a fainter boundary opened wider: {at_the_wall:?}");
+        assert!(at_the_wall[0] < at_the_wall[3], "every boundary is the same weight at the crater: {at_the_wall:?}");
+        // How far each of those still opens, walking outward until it stops.
+        let run = |p: f32| (0..1000).take_while(|i| seam_width(p - *i as f32 / 1000.0, theta, 3) > 0).count();
+        let runs: Vec<usize> = [0.25_f32, 0.5, 0.75, 1.0].iter().map(|&p| run(p)).collect();
+        assert!(runs.windows(2).all(|w| w[0] <= w[1]), "a bolder boundary gave out sooner: {runs:?}");
+        assert!(runs[3] > runs[1], "the boldest boundary does not outreach the middling one: {runs:?}");
+    }
+
+    /// **The cap changes the weight of the web and nothing else about it.**
+    /// The sensitivity half and the specificity half in one run: `activated`
+    /// must be identical across every setting (the ladder must not move which
+    /// boundaries wake, or a "bolder cracks" knob is quietly also a "more
+    /// cracks" knob), while the cells actually removed must *rise* with it,
+    /// or the knob is not connected — `CLAUDE.md`'s zero-delta rule.
+    #[test]
+    fn the_seam_cap_changes_the_weight_of_the_web_but_not_its_shape() {
+        let census = |width: u32| {
+            let mut w = buried_stone();
+            let before = stone_cells(&w);
+            let tuning = Tuning { joint_seam_width: width, ..Tuning::default() };
+            let (_frames, _peak, report) = run_staged(&mut w, tuning, 64, 64, 20, 600);
+            (report.joints_activated, before - stone_cells(&w))
+        };
+        let (act1, gone1) = census(1);
+        let (act2, gone2) = census(2);
+        let (act3, gone3) = census(3);
+        assert_eq!(act1, act2, "widening the seams changed which joints woke");
+        assert_eq!(act1, act3, "widening the seams changed which joints woke");
+        assert!(gone1 < gone2, "seam width 2 removed no more stone than 1 ({gone1} -> {gone2}) -- the cap is not wired");
+        assert!(gone2 < gone3, "seam width 3 removed no more stone than 2 ({gone2} -> {gone3}) -- the ladder has only one rung");
+    }
+
     /// **Did it fire at all.** Not a look at a sheet: a walked crack star
     /// and a Worley boundary web draw the same grey scratches at the zoom a
     /// contact sheet is read at, and `CLAUDE.md` records a whole feature
@@ -3353,9 +3971,19 @@ mod tests {
         assert!(report.joints_opened > 0, "no joint opened -- the seams are the half that reads as void");
         assert!(report.joints_scored > 0, "no joint was scored -- the halo never spread past the opened zone");
         assert_eq!(
-            report.joints_opened + report.joints_scored,
+            report.joints_opened + report.joints_scored + report.joints_overtaken,
             report.joints_activated,
-            "the fabric's three counters disagree once the front has finished"
+            "the fabric's counters disagree once the front has finished"
+        );
+        // The identity above is only worth asserting if the third term is
+        // small: `overtaken` closing a gap of *most* of the halo would mean
+        // the front is chasing rock that is no longer there, and the sum
+        // would go on adding up while the pattern vanished.
+        assert!(
+            report.joints_overtaken * 10 < report.joints_activated,
+            "{} of {} joints were overtaken -- the halo is being eaten by its own crater",
+            report.joints_overtaken,
+            report.joints_activated
         );
     }
 

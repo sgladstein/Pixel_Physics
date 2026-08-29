@@ -256,12 +256,29 @@ pub struct TickCensus {
     /// tell a root that derived a real distance from one that wrote the old
     /// bedrock claim anyway, and those are the two halves §6.5d is about.
     pub grounded_flat: u32,
+    /// **The four ways a size cap can answer "supported" without having
+    /// looked** — §S5's instrument. Each is a place `CLAUDE.md`'s rule about
+    /// caps ("does exhausting the cap produce an *answer*, or merely *less
+    /// work*? An answer is the bug") applies, and none of them was counted,
+    /// so which one actually fires on a real blast was a guess between three
+    /// plausible candidates. Now it is a reading.
+    ///
+    /// `walk_capped` is `load::chain_reaches_anchor` running past
+    /// `MAX_SUPPORT_WALK` and calling it supported; `region_capped` and
+    /// `supported_budget0` are `load::is_supported`'s two arms; and
+    /// `rootward_capped` is `load::failing_along_support_chain` running out
+    /// of `ROOTWARD_CHECK_STEPS` and falling through to `Holds`.
+    pub walk_capped: u32,
+    pub region_capped: u32,
+    pub supported_budget0: u32,
+    pub rootward_capped: u32,
 }
 
 thread_local! {
     static CENSUS: std::cell::Cell<TickCensus> = const { std::cell::Cell::new(TickCensus {
         worsened: 0, improved: 0, unmoved: 0, budget0: 0, chain_deferred: 0, uninteresting: 0, max_aux: 0,
         grounded: 0, grounded_flat: 0,
+        walk_capped: 0, region_capped: 0, supported_budget0: 0, rootward_capped: 0,
     }) };
 }
 
@@ -271,7 +288,7 @@ fn census_enabled() -> bool {
     *ON.get_or_init(|| std::env::var("SCHED_PASS").is_ok())
 }
 
-fn census(f: impl FnOnce(&mut TickCensus)) {
+pub(crate) fn census(f: impl FnOnce(&mut TickCensus)) {
     if !census_enabled() {
         return;
     }
@@ -2000,7 +2017,17 @@ fn reveal_joints(world: &mut World, region: &[(i32, i32)], at: (i32, i32), objec
                 }
                 reach = reach.min(headroom as f32);
             }
-            Crush { fresh: reveal_in_disc(world, at, reach), leashed }
+            // **No repeat bonus for a crush, and that is load-bearing.**
+            // `Crush { fresh: 0 }` is the treadmill guard -- a crush over
+            // rock it has already cracked must write nothing, or `tick`
+            // re-queues it for ever (measured once at 1,120 confined
+            // failures per 400 frames on dead-still material). A blow
+            // wants the opposite: `JOINT_REPEAT_BONUS` exists so hitting a
+            // spot twice closes the outline the first hit left open.
+            // Caught by `crushing_the_same_rock_twice_writes_nothing_the_
+            // second_time`, which went red at 2 fresh edges when the bonus
+            // was unconditional.
+            Crush { fresh: reveal_in_disc(world, at, reach, 0.0, 0.0, None), leashed }
         }
         // A **severed piece** has no claim on the rock outside it. Its
         // damage has to scale from zero, and with a fabric it does so
@@ -2102,8 +2129,8 @@ fn sever_joint(world: &mut World, x: i32, y: i32, down: bool) -> bool {
 /// boundary means a joint is either a full straight segment or absent,
 /// where a per-edge draw activates them in a dashed scatter -- which is the
 /// scribble complaint wearing a different hat.
-fn reveal_in_disc(world: &mut World, at: (i32, i32), reach: f32) -> u32 {
-    if reach < 1.0 {
+fn reveal_in_disc(world: &mut World, at: (i32, i32), reach: f32, flat_to: f32, repeat_bonus: f32, mut fresh_cells: Option<&mut Vec<(i32, i32)>>) -> u32 {
+    if reach < 1.0 || flat_to >= reach {
         return 0;
     }
     let r = reach.ceil() as i32;
@@ -2117,6 +2144,19 @@ fn reveal_in_disc(world: &mut World, at: (i32, i32), reach: f32) -> u32 {
     // work outright -- and this runs on a structural failure, tens to
     // hundreds of times in a run, never per cell per frame.
     let mut map: Vec<Option<((i32, i32), f32)>> = vec![None; w * h];
+    // **Which domains were already damaged when the blow arrived** —
+    // snapshotted in the first pass, because the edge loop below writes
+    // crack bits as it goes and would otherwise read its own. See
+    // `JOINT_REPEAT_BONUS`.
+    //
+    // Per *domain*, and the per-*cell* version was written first and does
+    // not work: a domain with five of its six boundaries open has cracked
+    // cells along those five, and none at all in the middle of the sixth,
+    // which is precisely the edge that has to be persuaded. Measured by
+    // `a_second_blow_completes_what_the_first_one_left_open`, which read
+    // **36 fresh edges -> 36** on a second blow at the same spot. The unit
+    // that has "been hit before" is the block of rock, not the pixel.
+    let mut damaged: std::collections::HashSet<(i32, i32)> = std::collections::HashSet::new();
     for y in y0..(y0 + h as i32) {
         for x in x0..(x0 + w as i32) {
             let (dx, dy) = (x - at.0, y - at.1);
@@ -2126,7 +2166,13 @@ fn reveal_in_disc(world: &mut World, at: (i32, i32), reach: f32) -> u32 {
             if ((dx * dx + dy * dy) as f32) > (reach + 1.0) * (reach + 1.0) {
                 continue;
             }
-            map[idx(x, y)] = joint_domain(world, x, y);
+            let found = joint_domain(world, x, y);
+            if let Some((d, _)) = found {
+                if world.get(x, y).cracked() {
+                    damaged.insert(d);
+                }
+            }
+            map[idx(x, y)] = found;
         }
     }
     let mut fresh = 0;
@@ -2138,7 +2184,23 @@ fn reveal_in_disc(world: &mut World, at: (i32, i32), reach: f32) -> u32 {
             if d > reach {
                 continue;
             }
-            let ramp = CRUSH_JOINT_DENSITY * (1.0 - d / reach);
+            // `flat_to` holds the ramp at full height out to that
+            // radius before it starts falling. `0.0` is the crush's
+            // original `CRUSH_JOINT_DENSITY * (1.0 - d / reach)` exactly,
+            // which is what `crush_in_place` passes and why its pinned
+            // PNG hash on `scene=strike` is unmoved.
+            //
+            // A blow needs the inner zone because a *ramped* density is
+            // the wrong shape for it: the rock inside the chip radius is
+            // already gone, so every joint a blow can reach sits at
+            // `d >= chip` where the pure ramp is well under 1 -- and a
+            // domain whose boundary only partly parts is not enclosed, so
+            // nothing falls out of it. It draws dashes instead of pieces.
+            let ramp = if d <= flat_to {
+                CRUSH_JOINT_DENSITY
+            } else {
+                CRUSH_JOINT_DENSITY * (1.0 - (d - flat_to) / (reach - flat_to))
+            };
             for down in [false, true] {
                 let (nx, ny) = if down { (x, y + 1) } else { (x + 1, y) };
                 let Some((other, other_pitch)) = map[idx(nx, ny)] else { continue };
@@ -2149,15 +2211,261 @@ fn reveal_in_disc(world: &mut World, at: (i32, i32), reach: f32) -> u32 {
                 if other_pitch != pitch || other == home {
                     continue;
                 }
+                // **A boundary beside damage the last blow left parts
+                // more readily**, which is the whole of "work a spot and
+                // the crack goes all the way round". Without it a repeat
+                // blow is a no-op on the same rock: `joint_draw` is a pure
+                // function of the domain pair, so the boundaries a first
+                // blow declined are declined identically for ever, and a
+                // domain missing one edge of its outline is never
+                // enclosed and never falls out. Reported after the joint
+                // fabric landed: *"none of the cracks fully complete to
+                // break a chunk off... multiple hammer hits should result
+                // in those cracks completely surrounding the chunk and
+                // then the whole chunk falls out as one piece."*
+                //
+                // Keyed on damage that was there *before* this call
+                // (snapshotted in `map`), for the reason `score_cracks`'
+                // crack-tip bonus records having got wrong first: strokes
+                // from one event cross each other, so counting this
+                // event's own writes has every blow max out its own bonus
+                // immediately and leaves nothing for the next to build on.
+                let ramp = ramp + if damaged.contains(&home) || damaged.contains(&other) { repeat_bonus } else { 0.0 };
                 if super::fracture_field::joint_draw(world.seed, home, other) >= ramp {
                     continue;
                 }
-                fresh += u32::from(sever_joint(world, x, y, down));
+                if sever_joint(world, x, y, down) {
+                    fresh += 1;
+                    // **Only what *this* blow severed**, and the
+                    // distinction is a gate, not a nicety. The caller
+                    // unbraces and schedules what comes back here; a
+                    // second blow beside the first re-scans a disc that
+                    // already holds the first one's fissures, so keying
+                    // off `Cell::cracked()` instead re-schedules the whole
+                    // accumulated crack field every time. Measured on
+                    // `scene=strike`: 2,284 sites pending at the end of
+                    // the run against a bar of 1,500 -- `acceptance.sh`'s
+                    // §S backlog case, caught by it and by nothing else.
+                    if let Some(out) = fresh_cells.as_deref_mut() {
+                        out.push((x, y));
+                    }
+                }
             }
         }
     }
     fresh
 }
+
+/// **What a blow does to the rock's grain**, and the entry point
+/// `rigid::strike` uses instead of drawing rays.
+///
+/// Owner's verdict on the hammer, 2026-08-29, on a blind A/B of two ray
+/// tunings: *"neither, fully get rid of the lines that it makes — it
+/// should just make cracks similar to an explosion and have the pieces
+/// fall off in chunks."* The blast stopped drawing walker rays at
+/// `d5cb19a` and reads the joint fabric instead
+/// (`fracture_field`'s module doc has the three rejections that led
+/// there); `rigid::score_cracks` was the last production caller of a
+/// radial-ray pattern on the destruction path, and this is what replaces
+/// it for a blow.
+///
+/// Three things `reveal_in_disc` alone does not do, all of which a blow
+/// owes and a crush does elsewhere:
+///
+/// - **unbrace what the joints cut off**, so a domain the reveal enclosed
+///   stops claiming to be braced by the massif — that is `score_cracks`'
+///   `detach_around_crack` call, kept for the identical reason its own
+///   comment gives (*"the cracks were visible damage that changed nothing
+///   about what the rock could carry"*);
+/// - **schedule the checks** that let the cascade find it, which is what
+///   turns a severed domain into a piece that falls;
+/// - **and do both only where something was actually severed.** The disc
+///   at a hammer's reach is ~1,400 cells and the joints in it are a few
+///   hundred; unbracing the whole disc would loosen intact rock between
+///   the joints and hand the scheduler ten times the sites for nothing.
+///
+/// Returns newly severed edges — a "did it fire at all" counter, since a
+/// blow into rock whose joints are already open must write nothing rather
+/// than re-cracking it.
+pub(crate) fn shatter_joints_around(world: &mut World, at: (i32, i32), reach: f32, flat_to: f32) -> u32 {
+    let mut opened = Vec::new();
+    let fresh = reveal_in_disc(world, at, reach, flat_to, JOINT_REPEAT_BONUS, Some(&mut opened));
+    // **Unbraced and checked only in the flat zone**, not across the whole
+    // disc, and this is a measured bound rather than a tidy-up.
+    //
+    // `acceptance.sh`'s `strike` case gates the §S backlog at 1,500
+    // pending scheduler sites; scheduling every edge the reveal opened put
+    // it at **2,284, flat, with every chunk asleep** -- a queue that
+    // climbs and never drains, which is the exact pathology that case
+    // exists for. The old rays scored ~85 cells and paid for 85; a disc at
+    // `radius * CRACK_REACH` holds nine times the area of the flat zone
+    // and several hundred severed edges.
+    //
+    // The flat zone is also the only part that can *do* anything with the
+    // work: it is where the joints part completely, so it is where a
+    // domain is enclosed and can come away. Past it the boundaries are
+    // partial. Nothing is lost by leaving them alone — a crack bit blocks
+    // support wherever it is written, so the far fissures still weaken the
+    // rock, and `World::record_disturbance` already licenses failures over
+    // the whole reach for whenever the cascade next looks there. What they
+    // do not get is a check scheduled *now*, on rock that is still braced
+    // by the massif behind it and would answer "supported".
+    // Deduplicated because a cell owns two edges and both may open on the
+    // same blow -- `detach_around_crack` walks a 3-cell band, so paying it
+    // twice for one cell is the expensive half of this loop doubled.
+    opened.sort_unstable();
+    opened.dedup();
+    // **The two cells the joint separates, not a band around each.**
+    //
+    // `score_cracks` called `detach_around_crack` per scored cell, which
+    // unbraces a 3x3 block, and that is right for a *ray*: a line drawn
+    // through cells leaves each visited cell still joined to the rock on
+    // the far side of the line, so the band is what carries the parting
+    // across. A domain boundary is not a line drawn through cells -- it
+    // **is** the edge set, exactly as `sever_joint`'s "no mirror write"
+    // note argues for the crack bit -- so the two cells either side are
+    // precisely and completely what stopped bracing each other.
+    //
+    // It is also nine times less work, and that is not incidental. The
+    // reveal opens several hundred edges where a ray star scored ~85
+    // cells, and `detach_around` schedules a check for every cell it
+    // unbraces: at a 3x3 band `acceptance.sh`'s `strike` case (one
+    // radius-14 blow into a solid massif) finished with **2,284 pending
+    // scheduler sites, flat, every chunk asleep** against its bar of 1,500
+    // -- `open-bugs-handoff.md` §S's backlog that climbs instead of
+    // draining, caught by that case and by nothing else in the tree.
+    // **And only within twice the flat zone**, which is where a boundary
+    // still parts densely enough to enclose anything. Past that the ramp
+    // has thinned the joints to a scatter: the rock is fissured -- a crack
+    // bit blocks support wherever it is written, and
+    // `World::record_disturbance` licenses failures over the blow's whole
+    // reach -- but nothing out there is *cut off*, so unbracing it only
+    // queues checks that answer "supported". Measured on the same
+    // `strike` case: 1,741 sites unbounded against a bar of 1,500, and 5
+    // bounded. `scene=worked`'s shelf still gives way at 7 overload
+    // failures, which is what says the bound is outside the rock a blow
+    // can actually free.
+    // Every cell the blow's joints parted, with no distance bound of its
+    // own -- the reach the caller passes is the bound. Bounding it here
+    // separately was tried and does not work: the cascade is chaotic in
+    // that parameter (measured on `scene=strike`, 1,553 pending sites at
+    // 2.0x the flat zone, **3,109 at 1.75x**, 1,277 at 1.5x), so any value
+    // that clears one acceptance case is landing there by luck. See
+    // `Reports/dead-ends.md`.
+    for (x, y) in opened {
+        detach_around_crack(world, x, y);
+    }
+    fresh
+}
+
+/// Every **joint-bounded block within `reach` of `at` whose outline is
+/// completely open** — the pieces a blow has actually cut free, as whole
+/// domains rather than as ladder-sized fragments of a disc.
+///
+/// Owner's verdict on the hammer, 2026-08-29, after the joint fabric and
+/// the repeat bonus landed: *"The chunks should break off along the crack
+/// pattern that is already there. this mostly looks like small dust
+/// breaking first. maybe as a first step just no dust, it forms cracks and
+/// then large pieces fall specifically from the existing crack line when
+/// they completely surround a chunk."*
+///
+/// **This is the piece the pipeline was missing, and the reason is worth
+/// stating.** The joints were already being opened, and a fully enclosed
+/// domain *is* unsupported — a crack is a place support cannot cross — so
+/// the ordinary cascade did eventually find one. But it finds it as a
+/// `failing region` and hands it to `rigid::fracture`, which re-cuts it on
+/// the power-of-two ladder: a 170-cell block comes apart into ladder-sized
+/// fragments and grit, so what the player sees is the crack pattern being
+/// *ignored* by the thing that breaks. Reading the enclosure directly is
+/// what makes the outline and the piece the same shape.
+///
+/// A block counts as free when every 4-neighbour of every one of its cells
+/// is one of: another cell of the same block; a cell across a **severed**
+/// edge; or not body material at all (open air, powder, the world edge —
+/// a free face, which is not holding anything). One unsevered joint
+/// anywhere on the outline and the block stays put, which is precisely the
+/// "hit it again" the repeat bonus exists for.
+///
+/// Returns the blocks, each as its own cell list, largest first so a
+/// caller that budgets takes the pieces that read.
+pub(crate) fn free_blocks_around(world: &World, at: (i32, i32), reach: f32) -> Vec<Vec<(i32, i32)>> {
+    let r = reach.ceil() as i32;
+    let mut seen: std::collections::HashSet<(i32, i32)> = std::collections::HashSet::new();
+    let mut out: Vec<Vec<(i32, i32)>> = Vec::new();
+    for y in (at.1 - r)..=(at.1 + r) {
+        for x in (at.0 - r)..=(at.0 + r) {
+            let (dx, dy) = (x - at.0, y - at.1);
+            if dx * dx + dy * dy > r * r || seen.contains(&(x, y)) {
+                continue;
+            }
+            let Some((home, pitch)) = joint_domain(world, x, y) else { continue };
+            // Flood the block: same domain, same lattice. Bounded by
+            // `MAX_BLOCK_CELLS` for `CLAUDE.md`'s cap rule -- exhausting
+            // it must bound *work*, never decide the answer, so a flood
+            // that overruns is abandoned as "not a block" rather than
+            // promoted as a partial one. At stone's 13-cell grain a
+            // domain is ~170 cells, so the cap is never the deciding
+            // factor on real rock; it is there so a material authored with
+            // an enormous `joint_spacing` cannot walk the world.
+            let mut block = Vec::new();
+            let mut stack = vec![(x, y)];
+            let mut inside: std::collections::HashSet<(i32, i32)> = std::collections::HashSet::new();
+            inside.insert((x, y));
+            let mut overran = false;
+            while let Some((cx, cy)) = stack.pop() {
+                if block.len() >= MAX_BLOCK_CELLS {
+                    overran = true;
+                    break;
+                }
+                block.push((cx, cy));
+                for (nx, ny) in NEIGHBOURS_4.iter().map(|(ox, oy)| (cx + ox, cy + oy)) {
+                    if inside.contains(&(nx, ny)) {
+                        continue;
+                    }
+                    if joint_domain(world, nx, ny) == Some((home, pitch)) {
+                        inside.insert((nx, ny));
+                        stack.push((nx, ny));
+                    }
+                }
+            }
+            for &c in &block {
+                seen.insert(c);
+            }
+            if overran || block.is_empty() {
+                continue;
+            }
+            // The outline test. Every face of every cell that leaves the
+            // block has to be either severed or not rock at all.
+            let free = block.iter().all(|&(cx, cy)| {
+                NEIGHBOURS_4.iter().all(|&(ox, oy)| {
+                    let (nx, ny) = (cx + ox, cy + oy);
+                    if inside.contains(&(nx, ny)) {
+                        return true;
+                    }
+                    if !world.in_bounds(nx, ny) || joint_domain(world, nx, ny).is_none() {
+                        return true; // a free face holds nothing
+                    }
+                    // The crack bit for an edge lives on the cell with the
+                    // lower coordinate along that axis, which is what
+                    // `sever_joint` writes -- so which of the two cells to
+                    // ask depends on the direction.
+                    let cell = if ox > 0 || oy > 0 { world.get(cx, cy) } else { world.get(nx, ny) };
+                    if ox != 0 { cell.crack_right() } else { cell.crack_down() }
+                })
+            });
+            if free {
+                out.push(block);
+            }
+        }
+    }
+    out.sort_by_key(|b| std::cmp::Reverse(b.len()));
+    out
+}
+
+/// The largest joint-bounded block `free_blocks_around` will flood before
+/// abandoning it. See that function for why exhausting it must not promote
+/// a partial block.
+const MAX_BLOCK_CELLS: usize = 512;
 
 /// Reveal only the joints **inside** a severed piece -- both cells of the
 /// edge in `region` -- and return how many were newly severed.
@@ -2206,6 +2514,26 @@ fn reveal_inside_region(world: &mut World, region: &[(i32, i32)]) -> u32 {
 /// reported the noise. Not `1.0` for the reason that knob is not either --
 /// a handful of missing edges is what stops the near field reading as a
 /// drawn tessellation.
+/// How much readier a joint is to part when the rock either side of it is
+/// **already damaged**.
+///
+/// Sized to take the flat zone over the line rather than nudge it:
+/// `CRUSH_JOINT_DENSITY` is 0.9 and `joint_draw` is uniform on [0, 1), so
+/// at full density one boundary in ten holds — and a domain has six or so
+/// neighbours, so barely half of them are ever enclosed by a single blow.
+/// 0.15 puts the flat zone past 1.0, which means **a second blow on rock
+/// the first one cracked completes every outline it reaches**, and the
+/// piece comes away whole. Further out the ramp is lower, so the bonus
+/// merely deepens rather than completing — which is the graded version of
+/// the same promise and what makes working a spot progress.
+///
+/// Not a tunable, for `BORE_MARGIN`'s reason: it is not a feel knob but
+/// the difference between a mechanic that accumulates and one that
+/// repeats. `CRUSH_JOINT_DENSITY` deliberately leaves holes so the near
+/// field does not read as a drawn tessellation; this says that a *second*
+/// hit closes them.
+const JOINT_REPEAT_BONUS: f32 = 0.15;
+
 const CRUSH_JOINT_DENSITY: f32 = 0.9;
 
 /// Walk one star of wandering, forking fissures out of `start`, and return

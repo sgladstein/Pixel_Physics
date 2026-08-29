@@ -259,8 +259,10 @@ const LANDING_MIN_SPEED: f32 = 1.5;
 
 /// Smallest swing a strike can be, whatever the brush is set to. Sized so
 /// the smallest possible blow still takes a visible bite out of a cliff
-/// and throws something: at 6 the core is 2 and the chip is 4, which is
-/// ~50 cells loosened against `MIN_FRACTURE_CELLS`, and cracks run 18.
+/// and throws something: at 6 the core is 2 and the chip is 6, which is
+/// ~100 cells loosened against `MIN_FRACTURE_CELLS`, and cracks run 18.
+/// (The chip figure was 4 until the chip zone went to the full radius --
+/// see `strike`.)
 const MIN_STRIKE_RADIUS: i32 = 6;
 
 /// How far past a blow's own radius its fractures run. Cracks reaching
@@ -268,8 +270,36 @@ const MIN_STRIKE_RADIUS: i32 = 6;
 /// span rather than having to chew through it.
 pub const CRACK_REACH: i32 = 3;
 
-/// Fractures scored per blow. Few enough to read as distinct fissures
-/// rather than a shatter pattern.
+/// How far past its own radius a blow opens the rock's joints.
+///
+/// **2, where the rays ran to `CRACK_REACH` (3), and the difference is
+/// cost rather than looks.** A ray star is sparse -- five lines, ~85
+/// cells -- so unbracing every cell it scored over the full three-times
+/// reach was cheap. The joint fabric is *dense*: it opens several hundred
+/// edges over the same disc, and `structural::detach_around_crack`
+/// schedules a check for every cell it unbraces. At 3x, one radius-14 blow
+/// into a solid massif left `acceptance.sh`'s `strike` case with 2,284
+/// pending scheduler sites against its bar of 1,500 -- `open-bugs-
+/// handoff.md` §S's backlog that climbs instead of draining.
+///
+/// **Bounding the unbracing by distance instead was tried and abandoned**,
+/// because the cascade is chaotic in that parameter rather than monotone:
+/// measured on the same case, 1,553 sites at twice the chip radius, 3,109
+/// at 1.75x, 1,277 at 1.5x, while `scene=worked`'s shelf needed the wide
+/// one to give way at all. A value that clears both cases there is landing
+/// on luck. Cutting the reach cuts the number of joints rather than
+/// filtering them afterwards, which is the honest version of the same
+/// saving.
+const BLOW_JOINT_REACH: i32 = 2;
+
+/// Fractures scored per blow, when a blow drew rays.
+///
+/// **Nothing reads this any more** — `strike` reveals the rock's joints
+/// instead (`structural::shatter_joints_around`), on the owner's verdict
+/// that the rays read as lines drawn on stone. Kept, with its number, so
+/// the tuning that shipped is on the record beside the reason it went;
+/// `MINE_CRACK_RAYS` is the live one.
+#[allow(dead_code)]
 const CRACK_RAYS: u32 = 5;
 
 /// Extra reach a ray gains from running into existing damage. Stress
@@ -570,6 +600,57 @@ impl Turn {
     }
 }
 
+/// The stump a severed crown is still swinging on.
+///
+/// # Why the pieces need to share one of these
+///
+/// **A felled tree came apart before it fell.** `fell_severed_tissue` runs
+/// the fragment ladder over the whole severed region at the *instant of the
+/// cut*, so on `scene=fell` **56 separate bodies exist before a cell has
+/// moved**, each falling on its own. The owner's verdict on the animation
+/// (card `20260829T141251798Z-6040b0`) named it exactly: *"because the whole
+/// thing just comes apart and falls directly downward, it looks unrealistic
+/// ... it should hinge at the trunk, hit the ground, and the bottom branches
+/// break off from the impact ... not just unzip and fall to the ground"*.
+///
+/// **The fragments are not the problem and are not being taken away** —
+/// they are what stopped a crown reading as sawdust, and `deadleaf.ron` and
+/// `fracture`'s own doc record what happens without them. What was missing
+/// is that they had no shared motion. So every fragment off one cut carries
+/// the same hinge, and while it does, its velocity is the rigid-body
+/// `omega x r` about that stump rather than its own ballistic fall. A piece
+/// forty cells up the trunk travels four times as fast as one ten cells up,
+/// which is what makes the assembly *sweep* instead of dropping, and what
+/// puts the base on the ground while the crown is still in the air.
+///
+/// # Gravity is replaced, not added
+///
+/// `alpha` is computed **from** gravity (`angular_acceleration`), so a
+/// hinged body that also took `GRAVITY` on its `vy` would be counting the
+/// same force twice and would sag out of its own arc. `advance` skips the
+/// gravity line while a hinge is held. The stump supplies the reaction; that
+/// is what a hinge *is*.
+///
+/// # It is released by the first thing it hits
+///
+/// A real tree stops being hinged when it lands, and so does this: `landed`
+/// clears it on the first vertical collision, and the piece keeps the
+/// velocity it had. That is where "the bottom branches break off from the
+/// impact" comes from — the low pieces arrive first, at low speed, and the
+/// crown is still swinging above them.
+#[derive(Clone, Copy, Debug)]
+struct Hinge {
+    /// The cut, in world cells — `load::Failure::at`.
+    pivot: (i32, i32),
+    /// Angular acceleration about it, radians per frame squared, signed.
+    /// One value shared by every fragment of one severance, which is what
+    /// makes them one tree rather than fifty-six.
+    alpha: f32,
+    /// Angular velocity so far. Starts at zero, because a tree that has just
+    /// been cut is not yet moving.
+    omega: f32,
+}
+
 /// A coherent piece of broken structure, in flight.
 ///
 /// This is the pipeline's first *gameplay* wiring: `label_component` and
@@ -648,6 +729,9 @@ pub struct ChunkBody {
     topples: u8,
     /// The offset this body turns about. See `ChunkBody::centre_of`.
     pivot: (i32, i32),
+    /// The stump this piece is still swinging on, while it still is. See
+    /// `Hinge`.
+    hinge: Option<Hinge>,
     stalled: u8,
     /// Fastest this body has ever travelled, in cells per frame.
     ///
@@ -687,7 +771,7 @@ impl ChunkBody {
     #[cfg(test)]
     pub fn at(cells: Vec<BodyCell>, x: f32, y: f32) -> Self {
         let pivot = Self::centre_of(&cells);
-        Self { cells, x, y, vx: 0.0, vy: 0.0, spin: 0.0, spin_rate: 0.0, spin_accel: 0.0, topples: 0, pivot, stalled: 0, peak_speed: 0.0, reserved: false }
+        Self { cells, x, y, vx: 0.0, vy: 0.0, spin: 0.0, spin_rate: 0.0, spin_accel: 0.0, topples: 0, pivot, hinge: None, stalled: 0, peak_speed: 0.0, reserved: false }
     }
 
     /// The same, already falling. Test-only for the same reason.
@@ -888,7 +972,7 @@ fn fracture(world: &mut World, region: &[(i32, i32)], broke_at: (i32, i32)) {
         .iter()
         .fold((i32::MAX, i32::MIN, i32::MAX, i32::MIN), |(x0, x1, y0, y1), &(x, y)| (x0.min(x), x1.max(x), y0.min(y), y1.max(y)));
     let extent = ((half.1 - half.0) / 2).max((half.3 - half.2) / 2);
-    fracture_with_impulse(world, region, None, size_bias(extent), Some(broke_at), false);
+    fracture_with_impulse(world, region, None, size_bias(extent), Some(broke_at), false, None);
 }
 
 /// As `fracture`, but every fragment is thrown away from `origin` at
@@ -902,6 +986,7 @@ fn fracture_with_impulse(
     size_bias: u32,
     broke_at: Option<(i32, i32)>,
     tissue: bool,
+    hinge: Option<Hinge>,
 ) -> (usize, usize) {
     // Every destructive event owes feedback (`Reports/design-philosophy.md`
     // §0a), and a collapse is one. `break_free` has always written this for
@@ -1014,7 +1099,7 @@ fn fracture_with_impulse(
         // fed from `record` and measures the failing *region*, not the
         // fragment, so it is a different quantity and both are kept.
         if fragment.len() >= MIN_BODY_CELLS {
-            promote(world, &fragment, impulse, broke_at);
+            promote(world, &fragment, impulse, broke_at, hinge);
             promoted_cells += fragment.len();
         } else {
             for &(fx, fy) in &fragment {
@@ -1110,6 +1195,45 @@ fn fracture_with_impulse(
 /// -- written twice in `CLAUDE.md` and recorded three times in
 /// `dead-ends.md`, and it is exactly the failure this function exists to
 /// undo.
+/// Where the severed piece was **standing**, which is what it swings about.
+///
+/// **Not `broke_at`, and the difference is the whole mechanism.**
+/// `load::Failure::at` is the one cell the support check happened to
+/// evaluate, and for a whole crown that is an arbitrary point on it.
+/// Measured on `scene=fell`: the region spans x 201..320, `broke_at` is
+/// `(201, 170)` — its far *left* edge, halfway up — and the region's centre
+/// of mass sits 58.5 cells to the right of it and 2.0 cells below. `r` is
+/// therefore very nearly horizontal, so `omega x r` points almost straight
+/// **down**, and a hinge built on it is indistinguishable from dropping. The
+/// arithmetic was right and the pivot was not.
+///
+/// The cut face is the region's own **lowest row**, at that row's horizontal
+/// centre of mass: for a felled tree that is the stump's cross-section, and
+/// `r` then points up the trunk, so the swing is horizontal — a fall.
+///
+/// **What it gives up**, named rather than discovered later: a limb that
+/// breaks off *sideways* has its lowest row at its own drooping tip rather
+/// than at the shoulder it tore from, so it swings about the wrong end.
+/// `broke_at` is the better answer for that case and the worse one for this,
+/// and telling them apart wants the attachment face — the region cells still
+/// touching standing tissue — which is a bigger change than this. The scene
+/// the owner is judging is a felled trunk.
+fn cut_face(world: &World, region: &[(i32, i32)], broke_at: (i32, i32)) -> (i32, i32) {
+    let Some(&lowest) = region.iter().map(|(_, y)| y).max() else {
+        return broke_at;
+    };
+    let (mut mass, mut moment) = (0.0f64, 0.0f64);
+    for &(x, y) in region.iter().filter(|&&(_, y)| y == lowest) {
+        let m = world.materials.density(world.get(x, y).material) as f64;
+        mass += m;
+        moment += m * x as f64;
+    }
+    if mass <= 0.0 {
+        return broke_at;
+    }
+    ((moment / mass).round() as i32, lowest)
+}
+
 pub(crate) fn fell_severed_tissue(world: &mut World, region: &[(i32, i32)], broke_at: (i32, i32)) -> (u32, u32) {
     if region.is_empty() {
         return (0, 0);
@@ -1147,7 +1271,46 @@ pub(crate) fn fell_severed_tissue(world: &mut World, region: &[(i32, i32)], brok
             .fold((i32::MAX, i32::MIN, i32::MAX, i32::MIN), |(x0, x1, y0, y1), &(x, y)| (x0.min(x), x1.max(x), y0.min(y), y1.max(y)));
         ((half.1 - half.0) / 2).max((half.3 - half.2) / 2)
     };
-    let (promoted, grit) = fracture_with_impulse(world, region, None, size_bias(extent), Some(broke_at), true);
+    // **One hinge for the whole severance, computed before anything is
+    // lifted**, and this is what makes the fragments a falling tree rather
+    // than fifty-six independent drops. `angular_acceleration` over the
+    // *entire* severed region about the cut is the tree's own — the same
+    // arithmetic a single fragment gets, asked of the thing that is actually
+    // pivoting. See `Hinge` for why they must share it and why gravity is
+    // then replaced rather than added.
+    //
+    // Read here rather than inside `fracture_with_impulse` because the
+    // ladder empties the grid as it goes: by the second fragment the cells
+    // the sum needs are gone.
+    let stump = cut_face(world, region, broke_at);
+    let alpha = angular_acceleration(world, region, stump);
+    // **`HINGE_PROBE=1` prints the hinge's own arithmetic**, which is the
+    // only way to tell a hinge that is working from one that is pivoting
+    // about the wrong point -- the two are indistinguishable on a contact
+    // sheet, and that cost a render and a wrong reading here. Read `r` : if
+    // the centre of mass is level with the pivot rather than above it, the
+    // swing is a fall whatever `alpha` says.
+    if std::env::var("HINGE_PROBE").is_ok() {
+        let (mut mass, mut torque, mut inertia, mut lift) = (0.0f64, 0.0f64, 0.0f64, 0.0f64);
+        for &(cx, cy) in region {
+            let m = world.materials.density(world.get(cx, cy).material) as f64;
+            let (dx, dy) = ((cx - stump.0) as f64, (cy - stump.1) as f64);
+            mass += m;
+            torque += m * dx;
+            inertia += m * (dx * dx + dy * dy);
+            lift += m * dy;
+        }
+        let mass = mass.max(1.0);
+        println!(
+            "  HINGE: {} cells, mass {mass:.0}, stump {stump:?} (broke_at {broke_at:?}), \
+             centre of mass r = ({:.1}, {:.1}), sum(m*r2) {inertia:.0}, alpha {alpha:.3e} rad/f2",
+            region.len(),
+            torque / mass,
+            lift / mass,
+        );
+    }
+    let hinge = (alpha != 0.0).then_some(Hinge { pivot: stump, alpha, omega: 0.0 });
+    let (promoted, grit) = fracture_with_impulse(world, region, None, size_bias(extent), Some(broke_at), true, hinge);
     ((promoted + grit) as u32, promoted as u32)
 }
 
@@ -1289,11 +1452,11 @@ fn angular_acceleration(world: &World, cells: &[(i32, i32)], broke_at: (i32, i32
         // lever, so there is no turn -- and no division either.
         return 0.0;
     }
-    (GRAVITY as f64 * torque / inertia) as f32 / QUARTER_TURN
+    (GRAVITY as f64 * torque / inertia) as f32
 }
 
 /// Lift `cells` out of the grid as one coherent falling body.
-fn promote(world: &mut World, cells: &[(i32, i32)], impulse: Option<((f32, f32), f32)>, broke_at: Option<(i32, i32)>) {
+fn promote(world: &mut World, cells: &[(i32, i32)], impulse: Option<((f32, f32), f32)>, broke_at: Option<(i32, i32)>, hinge: Option<Hinge>) {
     let (ox, oy) = cells[0];
     let body_cells: Vec<BodyCell> = cells
         .iter()
@@ -1316,9 +1479,13 @@ fn promote(world: &mut World, cells: &[(i32, i32)], impulse: Option<((f32, f32),
     // origin -- so this arm is the shape of the argument rather than a live
     // case, and it is the door a genuinely origin-less event would come in
     // through.
-    let spin_accel = broke_at
-        .filter(|_| fall_enabled() && is_tissue(&body_cells))
-        .map_or(0.0, |at| angular_acceleration(world, cells, at));
+    // Read once: the struct literal below moves `body_cells`, and both the
+    // spin seed and the hinge are gated on the same question.
+    let falls = fall_enabled() && is_tissue(&body_cells);
+    // Divided into quarter turns here, because `spin` is the only thing in
+    // the engine that counts them -- `angular_acceleration` is radians, and
+    // so is `Hinge::alpha`, which takes it unconverted.
+    let spin_accel = broke_at.filter(|_| falls).map_or(0.0, |at| angular_acceleration(world, cells, at) / QUARTER_TURN);
     let heading = Turn::of(spin_accel);
     for &(cx, cy) in cells {
         world.set(cx, cy, Cell::EMPTY);
@@ -1376,6 +1543,10 @@ fn promote(world: &mut World, cells: &[(i32, i32)], impulse: Option<((f32, f32),
         spin_rate: 0.0,
         spin_accel,
         topples: 0,
+        // **Every fragment of one severance carries the same hinge**, which
+        // is the whole of what makes them one falling tree rather than
+        // fifty-six independent drops. See `Hinge`.
+        hinge: hinge.filter(|_| falls),
         stalled: 0,
         peak_speed: 0.0,
         reserved: false,
@@ -1625,7 +1796,7 @@ pub(crate) fn score_cracks(world: &mut World, cx: i32, cy: i32, from: i32, lengt
             // A fissure is where the rock has parted company with the mass
             // behind the slice, so it stops claiming to be braced by it.
             // This is what carries a blow's *reach* into the structural
-            // model: the bite is 4 cells wide and the cracks run 21, and
+            // model: the bite is 7 cells wide and the cracks run 21, and
             // before this only the bite loosened anything -- so the cracks
             // were visible damage that changed nothing about what the rock
             // could carry. See `structural::detach_around_crack`.
@@ -1928,6 +2099,127 @@ const MINE_PRESSURE: f32 = 0.4;
 /// an "it fired" counter with an effect counter from the far side of the
 /// call is what this return value is. `player::smash` prints it; `App::
 /// strike` ignores it.
+/// **A blow that lands on a piece already broken off bursts it into
+/// grit**, and returns how many cells that took.
+///
+/// Owner's verdict on the hammer, 2026-08-29: *"have the pieces fall off
+/// in chunks. if the chunks are hit, they break into stone dust."* The
+/// second half could not happen at all before this, and the reason is not
+/// obvious from `strike`: `promote` writes `Cell::EMPTY` into the grid and
+/// holds a flying body's footprint as a **managed-empty reservation**, so
+/// `world.get` at a chunk's position reports empty, `is_tool_target` says
+/// no, and a swing passes clean through the rock it just knocked loose.
+/// The one thing in the world a hammer most obviously ought to hit was the
+/// one thing it could not.
+///
+/// **The whole body goes, not the cells the disc covers.** Taking a bite
+/// out of a body means re-deriving its shape, mass distribution and spin
+/// about a hole, and the felt result would be worse anyway: a piece you
+/// hit should *burst*, which is what the complaint describes. So a body
+/// with any cell inside the blow is settled back into the grid where it
+/// is and every cell of it shattered — stone to rubble, a log to
+/// deadwood, by each cell's own `breaks_into`, since `shatter_to_rubble`
+/// reads the material and not a constant.
+///
+/// `settle` is reused rather than reimplemented: it already gives the
+/// footprint back before writing into it, relocates a cell whose square is
+/// occupied, and schedules the checks. A relocated cell keeps its own
+/// material rather than becoming grit — the position `shatter_to_rubble`
+/// is then aimed at is not where it ended up — which is a handful of cells
+/// on a large body and not worth a second index to fix.
+fn burst_bodies_at(world: &mut World, cx: i32, cy: i32, radius: i32) -> usize {
+    // Taken out and put back for the borrow shape `step_chunk_bodies`
+    // records: settling a body needs `&mut World` while the loop holds the
+    // collection.
+    let taken = std::mem::take(&mut world.chunk_bodies);
+    let mut kept = Vec::with_capacity(taken.len());
+    let mut burst = Vec::new();
+    for body in taken {
+        let hit = body.cells.iter().any(|c| {
+            let (x, y) = body.cell_position(c);
+            let (dx, dy) = (x - cx, y - cy);
+            dx * dx + dy * dy <= radius * radius
+        });
+        if hit {
+            burst.push(body);
+        } else {
+            kept.push(body);
+        }
+    }
+    // Put the survivors back *before* settling, so a body that settling
+    // brings down lands in a live collection rather than being discarded
+    // — the same trap `step_chunk_bodies`' `extend`-not-assign guards.
+    world.chunk_bodies = kept;
+    let mut dusted = 0;
+    for body in &burst {
+        settle(world, body);
+        for cell in &body.cells {
+            let (x, y) = body.cell_position(cell);
+            if world.in_bounds(x, y) {
+                shatter_to_rubble(world, x, y);
+            }
+        }
+        dusted += body.cells.len();
+    }
+    dusted
+}
+
+/// **Take out every joint-bounded block within `reach` whose outline the
+/// damage has parted all the way round**, thrown from `origin` at `force`.
+/// Returns the cells released.
+///
+/// Shared by the two events that open joints — `strike` (the hammer and the
+/// sandbox blow) and `explosion::Blast::calve` — because the alternative is
+/// two copies of "and now promote what the cracks cut free" that drift the
+/// first time either changes, which is the mistake `loosen_shell`'s own doc
+/// records this file having made before.
+///
+/// # Why this is not the load model's job
+///
+/// Because the load model is *right* and the answer is still wrong. Measured
+/// by the explosion lane on `worldcrack rolling 7`: a 108-cell slab, cut free
+/// on every side by the fissures, reports **104 of 108 cells holding** at a
+/// budget nothing can exhaust — because five of its cells rest on rubble, and
+/// a boulder resting on gravel genuinely does not fall. Waiting for
+/// "unsupported" to fire is waiting for something that should not fire. The
+/// trigger is **severance**, not unsupportedness: a piece the cracks have cut
+/// out has stopped being terrain, whether or not it then moves.
+///
+/// So expect several released pieces to barely travel — their own seam grit
+/// fills the gap they would drop into. **Count promotions, not
+/// displacement.** What the release buys even when nothing moves is that the
+/// piece is now a body: it can be struck, shoved, ridden and settled.
+///
+/// # The bound is the event's own reach, deliberately
+///
+/// `dead-ends.md` records a complete lattice with no ligaments being tried
+/// and rejected: every block became an island, 2,400 confined failures per
+/// 400 frames, the world dead still. Releasing *every* enclosed domain in
+/// the world is that failure's cousin. `reach` keeps it to the rock this
+/// event actually damaged, and `MIN_BODY_CELLS` keeps a released block a
+/// piece rather than grit.
+pub(crate) fn calve_free_blocks(world: &mut World, origin: (i32, i32), reach: f32, force: f32) -> usize {
+    let blocks = super::structural::free_blocks_around(world, origin, reach);
+    let mut freed = 0;
+    for block in &blocks {
+        if block.len() < MIN_BODY_CELLS {
+            continue; // below a piece; leave it for the cascade to grit
+        }
+        freed += block.len();
+        // `promote` directly, never `fracture_with_impulse`: that ladder is
+        // joint-blind and is exactly what was re-cutting a bounded block
+        // into fragments, so the outline and the piece were different
+        // shapes.
+        // **No hinge.** A `Hinge` is for a piece still pivoting on what it
+        // broke off (`fell_severed_tissue`'s crown on its stump); a block
+        // the joints have cut out is free on *every* side by definition —
+        // that is what `free_blocks_around` tests — so there is nothing
+        // for it to swing about. It leaves on the blow's impulse alone.
+        promote(world, block, Some(((origin.0 as f32, origin.1 as f32), force)), Some(origin), None);
+    }
+    freed
+}
+
 pub fn strike(world: &mut World, cx: i32, cy: i32, radius: i32, force: f32) -> usize {
     // A blow has a floor, and the brush does not.
     //
@@ -1956,15 +2248,65 @@ pub fn strike(world: &mut World, cx: i32, cy: i32, radius: i32, force: f32) -> u
     // line up, and a licence taken from the unfloored brush radius would be
     // narrower than the swing that actually lands -- which is the same
     // mistake as recording a point for a volume, one argument along.
-    world.record_disturbance(cx, cy, radius * CRACK_REACH);
+    // `BLOW_JOINT_REACH`, matching what the joints below actually reach --
+    // the licence covers exactly the rock this blow damaged, which is the
+    // same argument as recording it after the radius floor rather than
+    // before. It was `CRACK_REACH` while a blow drew rays to that reach.
+    world.record_disturbance(cx, cy, radius * BLOW_JOINT_REACH);
     // Three zones, and the split is what makes a blow read as a blow rather
     // than as a hole appearing. The core is pulverized -- that is the bite.
     // A thin shell around it chips off immediately, so every hit produces
     // visible flying rock whether or not anything structural gives way. Past
     // that the rock is *scored*: damage that shows and accumulates without
     // detaching, which is the state the whole mechanic was missing.
-    let core = (radius / 3).max(1);
-    let chip = (radius * 2 / 3).max(core + 1);
+    // **Pieces already in flight, first.** A chunk the blow overlaps is
+    // burst into grit where it is (`burst_bodies_at`), and it runs before
+    // the grid loop below so those cells are back in the world in time to
+    // be counted and to be seen. Without this a swing at the rock you just
+    // knocked loose does literally nothing — see that function's doc for
+    // why the grid says the cell is empty.
+    let dusted_bodies = burst_bodies_at(world, cx, cy, radius);
+    // **No pulverized core.** Owner's instruction, 2026-08-29: *"maybe as
+    // a first step just no dust, it forms cracks and then large pieces
+    // fall specifically from the existing crack line."* A blow used to
+    // `shatter_to_rubble` a `radius / 3` disc outright, which is grit made
+    // by fiat rather than by anything breaking, and it is the first thing
+    // the eye sees -- it appears on the swing frame, where a piece has to
+    // wait for its outline to close. What is left is the honest ladder:
+    // the whole disc is *loosened*, and whatever comes off it below
+    // `MIN_BODY_CELLS` is grit as a **consequence** of the draw, which is
+    // the distinction `fracture`'s own doc draws.
+    //
+    // Zero rather than deleted, so the three zones are still legible and
+    // putting a core back is one number.
+    let core = 0;
+    // **The chip zone is the blow's whole radius**, and it used to be two
+    // thirds of it. Reported from playtest of the gnome's hammer: *"it
+    // mostly makes big strike lines instead of breaking rock into
+    // pieces"*, and the sheet said exactly that -- a starburst of five
+    // thin black rays across a couple of dozen cells of untouched grey
+    // rock, with no visible wound at the middle of it.
+    //
+    // The arithmetic is the whole complaint. At the gnome's `hammer_
+    // radius: 7` the old split gave a chip of 4 against cracks running
+    // `radius * CRACK_REACH` = 21, so the *visible line* was 17 cells long
+    // and the *visible damage* was 4 -- a bit over four to one, in favour
+    // of the thing that is only a mark. Taking the chip to the full radius
+    // makes it 14 against 7, and it does it by growing the half that is
+    // rock coming apart rather than by shortening the half that reads as
+    // force reaching past the wound (`CRACK_REACH`'s own doc, and the
+    // reason it was left alone).
+    //
+    // It also fixes the *count* of pieces, which is the other half of
+    // "into pieces". The loosened ring was ~37 cells at r7, against a
+    // fragment ladder that draws 4..64 at `size_bias(7) == 1` -- so one
+    // seed routinely swallowed the lot and a blow calved a single lump.
+    // Measured on `scene=smash`: 20 cells as chunks over 2 bodies at two
+    // blows. The full-radius ring is ~140 cells, which is several draws
+    // off the same ladder: a few blocks, more cobbles, a lot of grit,
+    // which is `CLAUDE.md`'s first law and was the one thing the old
+    // split could not produce.
+    let chip = radius.max(core + 1);
     let mut loosened = Vec::new();
     let mut pulverized = 0;
     for dy in -chip..=chip {
@@ -1982,7 +2324,7 @@ pub fn strike(world: &mut World, cx: i32, cy: i32, radius: i32, force: f32) -> u
             if !is_tool_target(world, x, y) {
                 continue;
             }
-            if d2 <= core * core {
+            if core > 0 && d2 <= core * core {
                 // Counted by **what changed**, not by what was attempted:
                 // `shatter_to_rubble` declines a material with no
                 // `breaks_into` and leaves the cell exactly as it was, and
@@ -1996,11 +2338,59 @@ pub fn strike(world: &mut World, cx: i32, cy: i32, radius: i32, force: f32) -> u
             }
         }
     }
-    // Cracks reach well past the rock the blow actually removes -- that
-    // reach is the whole point of striking rather than erasing. Return
-    // value (cells scored) ignored here -- only the blast report in
-    // `explosion.rs` needs a count.
-    score_cracks(world, cx, cy, chip, radius * CRACK_REACH, CRACK_RAYS);
+    // **The rock's own joints, not a star of rays.** Owner's verdict on
+    // the hammer, 2026-08-29: *"fully get rid of the lines that it makes
+    // -- it should just make cracks similar to an explosion and have the
+    // pieces fall off in chunks."* `score_cracks` drew five straight
+    // radial rays out to `radius * CRACK_REACH`, keyed on the site so
+    // repeats deepened them, and at the gnome's `hammer_radius: 7` that
+    // was a 17-cell line against 4 cells of visible damage -- a starburst
+    // stamped on untouched grey rock, which is exactly the reading the
+    // blast's own three rejections produced before it stopped drawing
+    // walkers at `d5cb19a` (`fracture_field`'s module doc). The blast
+    // reads the joint fabric now; so does a blow.
+    //
+    // The reach is unchanged, and so is the ramp's shape: joints part
+    // densely at the impact and thin out to nothing, so the damaged patch
+    // is graded and ragged-edged rather than a disc with a rim.
+    // `structural::shatter_joints_around` also unbraces and schedules what
+    // it severed, which is what turns an enclosed domain into a piece that
+    // falls -- the half `score_cracks` carried in its own loop.
+    //
+    // `score_cracks` itself stays: `mine` still uses it at `radius +
+    // MINE_CRACK_REACH`, a short enough reach that it reads as a cut
+    // fraying its edges rather than as lines drawn on rock.
+    // Flat at full density out to the chip radius, then ramping to
+    // nothing at `radius * CRACK_REACH`. The flat zone is the half that
+    // makes pieces rather than dashes: everything inside `chip` is already
+    // gone, so the first joints a blow can reach are at exactly that
+    // radius, and under a pure ramp they part at well under 1 and enclose
+    // nothing. Held at full density, the ring of domains around the wound
+    // closes and falls out.
+    super::structural::shatter_joints_around(world, (cx, cy), (radius * BLOW_JOINT_REACH) as f32, chip as f32);
+    // **And now take out whatever the cracks have completely surrounded,
+    // as whole blocks along the outline the player can see.**
+    //
+    // Owner's verdict, 2026-08-29, on the sheet of the reveal plus the
+    // repeat bonus: *"The chunks should break off along the crack pattern
+    // that is already there. this mostly looks like small dust breaking
+    // first... it forms cracks and then large pieces fall specifically
+    // from the existing crack line when they completely surround a
+    // chunk."*
+    //
+    // The enclosure was already real -- a crack is a place support cannot
+    // cross, so a fully bounded block is genuinely unsupported and the
+    // cascade did find it. What it did with it is the problem:
+    // `structural::tick` hands a failing region to `fracture`, which
+    // re-cuts it on the power-of-two ladder, so a 170-cell block bounded
+    // by four visible joints came apart into ladder-sized fragments and
+    // grit. The outline and the piece were different shapes, which is
+    // exactly what "the chunks should break off along the crack pattern"
+    // says is wrong. Promoting the block whole makes them the same shape.
+    //
+    // Each block goes through `promote` directly rather than through
+    // `fracture_with_impulse`: the ladder is what would break it up again.
+    let freed = calve_free_blocks(world, (cx, cy), (radius * BLOW_JOINT_REACH) as f32, force);
     // Loosen first, so the fracture below sees rock that is no longer
     // claiming to be braced by the massif.
     for &(x, y) in &loosened {
@@ -2016,7 +2406,7 @@ pub fn strike(world: &mut World, cx: i32, cy: i32, radius: i32, force: f32) -> u
     // and then threw nothing at all -- the larger the swing, the less
     // happened, which is exactly backwards.
     if loosened.len() >= MIN_FRACTURE_CELLS {
-        fracture_with_impulse(world, &loosened, Some(((cx as f32, cy as f32), force)), size_bias(radius), Some((cx, cy)), false);
+        fracture_with_impulse(world, &loosened, Some(((cx as f32, cy as f32), force)), size_bias(radius), Some((cx, cy)), false, None);
     }
     // Every destructive event owes feedback (`Reports/design-philosophy.md`
     // §0a). A blow shoves the air as well as the rock, which is what makes
@@ -2026,7 +2416,7 @@ pub fn strike(world: &mut World, cx: i32, cy: i32, radius: i32, force: f32) -> u
     for &(x, y) in &loosened {
         world.schedule_structural_check_around(x, y);
     }
-    pulverized + loosened.len()
+    pulverized + loosened.len() + dusted_bodies + freed
 }
 
 /// Break the loosened rock around a blast into chunks and throw them.
@@ -2053,7 +2443,7 @@ pub fn strike(world: &mut World, cx: i32, cy: i32, radius: i32, force: f32) -> u
 pub fn fracture_shell(world: &mut World, origin: (i32, i32), inner: i32, outer: i32, force: f32, size_bias: u32, confinement: super::explosion::Confinement) {
     let loosened = loosen_shell(world, origin, inner, outer, confinement, ShellSectors::Open);
     if loosened.len() >= MIN_FRACTURE_CELLS {
-        fracture_with_impulse(world, &loosened, Some(((origin.0 as f32, origin.1 as f32), force)), size_bias, Some(origin), false);
+        fracture_with_impulse(world, &loosened, Some(((origin.0 as f32, origin.1 as f32), force)), size_bias, Some(origin), false, None);
     }
 }
 
@@ -2106,7 +2496,7 @@ pub fn calve_collar(
         // with almost no rim to give eat a little of it anyway, every time.
         return 0;
     }
-    fracture_with_impulse(world, &loosened, Some(((origin.0 as f32, origin.1 as f32), force)), size_bias, Some(origin), false);
+    fracture_with_impulse(world, &loosened, Some(((origin.0 as f32, origin.1 as f32), force)), size_bias, Some(origin), false, None);
     loosened.len() as u32
 }
 
@@ -2214,7 +2604,12 @@ pub fn step_chunk_bodies(world: &mut World) {
 /// Returns whether the body is still in flight; `false` means it has come
 /// to rest and should be re-rasterized.
 fn advance(world: &mut World, body: &mut ChunkBody) -> bool {
-    body.vy += GRAVITY;
+    // **Swinging on the stump, or falling.** Never both: `alpha` is computed
+    // from gravity, so a hinged body that also took `GRAVITY` here would
+    // count the same force twice and sag out of its own arc. See `Hinge`.
+    if !swing_on_hinge(body) {
+        body.vy += GRAVITY;
+    }
 
     // Tip while falling. Two terms, and they answer different questions.
     //
@@ -2367,6 +2762,31 @@ fn advance(world: &mut World, body: &mut ChunkBody) -> bool {
     topple(world, body)
 }
 
+/// Advance the body's swing about its stump by one frame, returning whether
+/// it is on one at all.
+///
+/// The velocity is **set**, not accumulated: a point on a rigid body turning
+/// about a fixed pivot has `v = omega x r` exactly, and integrating an
+/// acceleration towards that instead lets the pieces drift off the arc and
+/// out of formation, which is the unzip this exists to remove.
+///
+/// `r` is measured from the pivot to the body's own centre, once per frame.
+/// Screen `y` points down, so the clockwise tangent at `r` is `(-r.y, r.x)` —
+/// the same handedness as `Turn::Cw`, and it has to be, or a crown would
+/// lean one way and its pieces spin the other.
+fn swing_on_hinge(body: &mut ChunkBody) -> bool {
+    let Some(hinge) = body.hinge.as_mut() else {
+        return false;
+    };
+    hinge.omega += hinge.alpha;
+    let (px, py) = (hinge.pivot.0 as f32, hinge.pivot.1 as f32);
+    let (cx, cy) = (body.x + body.pivot.0 as f32, body.y + body.pivot.1 as f32);
+    let (rx, ry) = (cx - px, cy - py);
+    body.vx = -hinge.omega * ry;
+    body.vy = hinge.omega * rx;
+    true
+}
+
 /// **The hinge does not survive the landing**, and a collision takes the turn
 /// off a piece the same way it takes the speed off it.
 ///
@@ -2394,6 +2814,10 @@ fn advance(world: &mut World, body: &mut ChunkBody) -> bool {
 fn landed(body: &mut ChunkBody) {
     body.spin_rate *= COLLISION_RETENTION;
     body.spin_accel = 0.0;
+    // **And the stump lets go.** The piece keeps whatever velocity the swing
+    // gave it and is ballistic from here, which is what makes the low
+    // fragments arrive first and stop while the crown is still coming over.
+    body.hinge = None;
 }
 
 /// Turn the body, taking its footprint reservation with it if it holds one.
@@ -3731,6 +4155,222 @@ mod tests {
     /// off and the game does not.
     fn test_world() -> World {
         World::new(Rect::new(0, 0, 63, 63)).without_chain_limit()
+    }
+
+    #[test]
+    fn a_blow_bursts_a_chunk_that_is_still_in_the_air() {
+        // **The owner's third ask, and the positive control it needed.**
+        // 2026-08-29: *"have the pieces fall off in chunks. if the chunks
+        // are hit, they break into stone dust."* A *landed* chunk is grid
+        // stone again and a blow already turned it to rubble; a chunk in
+        // flight is a `ChunkBody`, and `promote` writes `Cell::EMPTY` into
+        // its footprint — so `is_tool_target` said no and a swing passed
+        // straight through it.
+        //
+        // **This test exists because the sheet could not see the fix.**
+        // `filmstrip scene=smash` came back byte-identical for cells
+        // broken, cracked, chunks and dust across the change, which is
+        // `CLAUDE.md`'s tell for a mechanism that never ran: the gnome
+        // swings every 90 frames and every piece has settled long before
+        // the next blow. Identical output is not evidence of a small
+        // effect, it is evidence of no execution — so the control is
+        // constructed rather than observed.
+        let mut w = test_world();
+        let cells: Vec<BodyCell> = (0..4)
+            .flat_map(|dx| (0..4).map(move |dy| BodyCell { dx, dy, material: material::STONE, shade: 0, organism_id: 0 }))
+            .collect();
+        w.chunk_bodies.push(ChunkBody::falling(cells, 30.0, 30.0, 0.0));
+        assert_eq!(w.chunk_bodies.len(), 1, "test setup: one body in flight");
+        let rubble = w.materials.id_of("rubble").expect("stone breaks into rubble");
+
+        let acted = strike(&mut w, 31, 31, 6, 3.0);
+
+        assert!(w.chunk_bodies.is_empty(), "the blow must burst the body it landed on, not pass through it");
+        let grit = (28..36).flat_map(|y| (28..36).map(move |x| (x, y))).filter(|&(x, y)| w.get(x, y).material == rubble).count();
+        assert!(grit >= 12, "the burst body must be lying there as grit; found {grit} of 16 cells");
+        assert!(acted >= 16, "the return value must count the body it dusted, or the counter cannot say this fired: {acted}");
+    }
+
+    #[test]
+    fn a_blow_cracks_along_the_rocks_own_joints_and_not_in_rays() {
+        // **The owner's first ask, as a property rather than a picture.**
+        // 2026-08-29, on a blind A/B of two ray tunings: *"neither, fully
+        // get rid of the lines that it makes -- it should just make cracks
+        // similar to an explosion."* `score_cracks` drew five straight
+        // radial rays, which cross domain interiors freely; the joint
+        // fabric can only ever mark an edge whose two cells are in
+        // *different* Worley domains (`fracture_field`'s module doc: the
+        // rule is an identity comparison, so it has no width to leak
+        // through). That difference is checkable without looking at
+        // anything.
+        //
+        // Put `score_cracks(world, cx, cy, chip, radius * CRACK_REACH,
+        // CRACK_RAYS)` back in `strike` and this goes red: rays run
+        // through the middle of domains, which is what made them read as
+        // lines drawn on stone.
+        let mut w = World::new(Rect::new(0, 0, 127, 127)).without_chain_limit();
+        for y in 0..128 {
+            for x in 0..128 {
+                w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+            }
+        }
+        strike(&mut w, 64, 64, 7, 3.0);
+
+        let pitch_at = |x: i32, y: i32| {
+            let m = w.materials.get(w.get(x, y).material);
+            super::super::fracture_field::pitch_at(w.seed, x, y, m.joint_spacing, m.joint_band_contrast)
+        };
+        let (mut on_joint, mut off_joint) = (0usize, 0usize);
+        for y in 0..127 {
+            for x in 0..127 {
+                let cell = w.get(x, y);
+                for (down, marked) in [(false, cell.crack_right()), (true, cell.crack_down())] {
+                    if !marked {
+                        continue;
+                    }
+                    let (nx, ny) = if down { (x, y + 1) } else { (x + 1, y) };
+                    let (p, q) = (pitch_at(x, y), pitch_at(nx, ny));
+                    // **Only edges whose two cells are still comparable
+                    // jointed rock.** A cracked cell the blow then
+                    // shattered is rubble, which has no lattice at all, so
+                    // its edge cannot be classified either way -- measured,
+                    // 5 of 105 edges here. That is bookkeeping, not a line:
+                    // `score_cracks` marks `is_body_material` cells only, so
+                    // the ray pattern this guards against never lands on
+                    // rubble either and is fully visible in what is left.
+                    if p <= 0.0 || p != q {
+                        continue;
+                    }
+                    if super::super::fracture_field::domain(w.seed, x, y, p) != super::super::fracture_field::domain(w.seed, nx, ny, q) {
+                        on_joint += 1;
+                    } else {
+                        off_joint += 1;
+                    }
+                }
+            }
+        }
+        // The positive control first: a blow into solid stone has to have
+        // written *something*, or the ratio below is 0/0 and passes for
+        // the worst possible reason.
+        assert!(on_joint + off_joint > 20, "the blow scored almost nothing in rock it could classify: {on_joint} on joints, {off_joint} off");
+        assert_eq!(off_joint, 0, "{off_joint} crack edges do not lie on a joint -- something is drawing lines again");
+    }
+
+    #[test]
+    fn a_blow_calves_a_whole_block_in_the_shape_the_cracks_drew() {
+        // **The owner's ask, as the property it actually is.** 2026-08-29:
+        // *"The chunks should break off along the crack pattern that is
+        // already there... large pieces fall specifically from the
+        // existing crack line when they completely surround a chunk."*
+        //
+        // The enclosure was already real and the cascade already found it;
+        // what it did with it was hand the region to `fracture`, whose
+        // power-of-two ladder is joint-blind, so the piece that came out
+        // was not the polygon that was drawn. This asserts the two are the
+        // same shape: at least one body a blow promotes lies **entirely
+        // inside one joint domain**, which a ladder-cut fragment of a disc
+        // essentially never does.
+        //
+        // Delete the `free_blocks_around` loop from `strike` and this goes
+        // red -- what is left promotes fragments of the loosened annulus,
+        // which straddle domains by construction.
+        let mut w = World::new(Rect::new(0, 0, 191, 191)).without_chain_limit();
+        for y in 4..188 {
+            for x in 4..188 {
+                w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+            }
+        }
+        // Two blows: the first opens the fabric, the second closes the
+        // outlines it declined (`structural::JOINT_REPEAT_BONUS`). One is
+        // not reliably enough on a given seed, which is the mechanic
+        // working rather than a flaky test.
+        strike(&mut w, 96, 96, 10, 3.0);
+        strike(&mut w, 96, 96, 10, 3.0);
+
+        assert!(!w.chunk_bodies.is_empty(), "the blows promoted nothing at all");
+        let pitch_at = |x: i32, y: i32, m: &crate::sim::material::Material| {
+            crate::sim::fracture_field::pitch_at(w.seed, x, y, m.joint_spacing, m.joint_band_contrast)
+        };
+        let whole = w.chunk_bodies.iter().any(|b| {
+            if b.cells.len() < MIN_BODY_CELLS {
+                return false;
+            }
+            let mut one: Option<(i32, i32)> = None;
+            b.cells.iter().all(|c| {
+                let (x, y) = b.cell_position(c);
+                let m = w.materials.get(c.material);
+                let p = pitch_at(x, y, m);
+                if p <= 0.0 {
+                    return false;
+                }
+                let d = crate::sim::fracture_field::domain(w.seed, x, y, p);
+                *one.get_or_insert(d) == d
+            })
+        });
+        let sizes: Vec<usize> = w.chunk_bodies.iter().map(|b| b.cells.len()).collect();
+        assert!(whole, "no promoted body is a single joint block -- the piece is not the shape the cracks drew; body sizes {sizes:?}");
+    }
+
+    #[test]
+    fn a_second_blow_completes_what_the_first_one_left_open() {
+        // **The owner's ask after the joint fabric landed**, 2026-08-29:
+        // *"none of the cracks fully complete to break a chunk off...
+        // multiple hammer hits should result in those cracks completely
+        // surrounding the chunk and then the whole chunk falls out as one
+        // piece."*
+        //
+        // `fracture_field::joint_draw` is a pure function of the domain
+        // pair, so without `structural::JOINT_REPEAT_BONUS` the boundaries
+        // a first blow declines are declined identically for ever: hitting
+        // the same rock again writes **nothing**, and a domain missing one
+        // edge of its outline is never enclosed and never comes away. That
+        // is the mechanism this asserts, and it is asserted as a *count of
+        // fresh edges* rather than by eye, because a picture cannot show
+        // that a boundary is complete.
+        //
+        // Set `JOINT_REPEAT_BONUS` to 0.0 and this goes red.
+        let slab = |w: &mut World| {
+            for y in 4..124 {
+                for x in 4..124 {
+                    w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+                }
+            }
+        };
+        let cracked_edges = |w: &World| -> usize {
+            (4..124)
+                .flat_map(|y| (4..124).map(move |x| (x, y)))
+                .map(|(x, y)| usize::from(w.get(x, y).crack_right()) + usize::from(w.get(x, y).crack_down()))
+                .sum()
+        };
+        let mut w = World::new(Rect::new(0, 0, 127, 127)).without_chain_limit();
+        slab(&mut w);
+        // Away from the rock the first blow removes, so the count is about
+        // joints opening and not about cells disappearing.
+        strike(&mut w, 64, 64, 7, 3.0);
+        let after_one = cracked_edges(&w);
+        strike(&mut w, 64, 64, 7, 3.0);
+        let after_two = cracked_edges(&w);
+
+        assert!(after_one > 20, "the first blow opened almost nothing: {after_one} edges");
+        assert!(
+            after_two > after_one,
+            "a second blow on rock the first one cracked must open the boundaries it declined ({after_one} -> {after_two}); \
+             without that a domain missing one edge is never enclosed and no chunk ever comes away"
+        );
+    }
+
+    #[test]
+    fn a_blow_that_misses_a_chunk_leaves_it_flying() {
+        // The other half, and the reason the one above is not enough: a
+        // rule that bursts every body in the world would pass it. The
+        // disc is the blow's own radius and nothing wider.
+        let mut w = test_world();
+        let cells: Vec<BodyCell> = (0..4)
+            .flat_map(|dx| (0..4).map(move |dy| BodyCell { dx, dy, material: material::STONE, shade: 0, organism_id: 0 }))
+            .collect();
+        w.chunk_bodies.push(ChunkBody::falling(cells, 50.0, 50.0, 0.0));
+        strike(&mut w, 10, 10, 6, 3.0);
+        assert_eq!(w.chunk_bodies.len(), 1, "a blow twenty cells away must not touch a body in flight");
     }
 
     /// A world with a pond deep enough that no empty cell is within
@@ -5178,30 +5818,28 @@ mod tests {
         assert_ne!(w.get(30, 30).material, material::STONE, "the strike did not pulverize the cells it landed on");
     }
 
-    /// How far the furthest fracture reaches from `(cx, cy)`.
-    fn crack_reach(w: &World, cx: i32, cy: i32) -> i32 {
-        let mut furthest = 0;
-        for x in 0..64 {
-            for y in 0..64 {
-                if w.get(x, y).cracked() {
-                    let d2 = (x - cx) * (x - cx) + (y - cy) * (y - cy);
-                    furthest = furthest.max((d2 as f32).sqrt() as i32);
-                }
-            }
-        }
-        furthest
-    }
-
     #[test]
-    fn working_the_same_spot_drives_a_crack_deeper() {
-        // Stress concentrates at a crack tip, so a second blow on damaged
-        // rock should *extend* the fissure rather than scribble a fresh one
-        // beside it. This is what makes damage accumulate instead of merely
-        // repeat, and what lets a player work a crack along deliberately
-        // rather than chewing through a span.
-        // Two independently built worlds rather than a clone: `World` is not
-        // `Clone`, and building twice also proves the difference comes from
-        // the second blow rather than from any state the first left behind.
+    fn working_a_face_eats_into_it_along_one_pattern() {
+        // **This replaces `working_the_same_spot_drives_a_crack_deeper`,
+        // and it failed rather than quietly passing** -- which is the
+        // whole reason it is being rewritten instead of deleted. That test
+        // measured `crack_reach` -- the furthest cracked cell from the
+        // impact, a helper deleted with it -- and asserted a second blow
+        // pushed it further out. That
+        // was `CRACK_TIP_BONUS`, a property of the ray walker, and the
+        // rays are gone (`strike`'s crack call; `Reports/dead-ends.md`).
+        //
+        // The player-facing promise underneath it survives and is what is
+        // asserted here, in the two halves it actually has:
+        //
+        // 1. **the pattern belongs to the rock, not to the swing** -- so
+        //    repeats deepen one set of fissures instead of scribbling
+        //    fresh ones beside them, which is the complaint the fabric
+        //    exists to answer;
+        // 2. **and working the face gets you through it** -- the wound
+        //    advances, which is what `face_toward` does for a real swing
+        //    and what "a span you cannot chew through can still be worked"
+        //    means now.
         let slab = |w: &mut World| {
             for y in 4..60 {
                 for x in 4..60 {
@@ -5209,23 +5847,32 @@ mod tests {
                 }
             }
         };
+        // Two independently built worlds rather than a clone: `World` is
+        // not `Clone`, and building twice also proves the sameness below
+        // comes from the fabric rather than from state the first left.
         let mut once = test_world();
         slab(&mut once);
-        let mut twice = test_world();
-        slab(&mut twice);
-
+        let mut again = test_world();
+        slab(&mut again);
         strike(&mut once, 32, 32, 5, 3.0);
-        let after_one = crack_reach(&once, 32, 32);
+        strike(&mut again, 32, 32, 5, 3.0);
+        let cracks = |w: &World| -> Vec<(i32, i32, bool, bool)> {
+            (4..60)
+                .flat_map(|y| (4..60).map(move |x| (x, y)))
+                .filter(|&(x, y)| w.get(x, y).cracked())
+                .map(|(x, y)| (x, y, w.get(x, y).crack_right(), w.get(x, y).crack_down()))
+                .collect()
+        };
+        assert!(!cracks(&once).is_empty(), "a single blow scored no fissures at all");
+        assert_eq!(cracks(&once), cracks(&again), "the same blow on the same rock must open the same joints, or repeats scribble");
 
-        strike(&mut twice, 32, 32, 5, 3.0);
-        strike(&mut twice, 32, 32, 5, 3.0);
-        let after_two = crack_reach(&twice, 32, 32);
-
-        assert!(after_one > 0, "a single blow scored no fractures at all");
-        assert!(
-            after_two > after_one,
-            "a second blow on the same spot should drive the fissure further out ({after_one} -> {after_two}), not just re-score the same rock"
-        );
+        // And the face advances. The second blow is aimed where the first
+        // one's near face ended up, which is what `player::face_toward`
+        // hands `strike` for a real swing.
+        let stone_left = |w: &World| (4..60).flat_map(|y| (4..60).map(move |x| (x, y))).filter(|&(x, y)| w.get(x, y).material == material::STONE).count();
+        let after_one = stone_left(&once);
+        strike(&mut once, 32 + 5, 32, 5, 3.0);
+        assert!(stone_left(&once) < after_one, "working the face has to keep taking rock off it: {after_one} -> {}", stone_left(&once));
     }
 
     // --- T1: the fragment ladder's floor, the flood's neighbourhood, and
@@ -5439,7 +6086,7 @@ mod tests {
         w.begin_step();
         w.take_touched_chunks();
         let before = w.active_site_count();
-        promote(&mut w, &piece, None, None);
+        promote(&mut w, &piece, None, None, None);
         assert_eq!(
             w.active_site_count(),
             before,
@@ -5454,7 +6101,7 @@ mod tests {
         }
         inert.begin_step();
         let before = inert.active_site_count();
-        promote(&mut inert, &slab, None, None);
+        promote(&mut inert, &slab, None, None, None);
         assert!(
             inert.active_site_count() > before,
             "rock that lost what was resting on it must still be re-asked -- the decline is about tissue, not about promotion"
@@ -5746,6 +6393,107 @@ mod tests {
         );
     }
 
+
+    /// **The stump, not the cell that happened to fail.**
+    ///
+    /// `load::Failure::at` is one arbitrary cell of a severed region, and on
+    /// `scene=fell` it is the crown's far *left* edge — 58 cells from the
+    /// trunk. A hinge built on it has an almost horizontal `r`, so `omega x
+    /// r` points straight down and the swing is indistinguishable from
+    /// dropping. This pins the thing that fixed it.
+    #[test]
+    fn the_cut_face_is_the_stump_rather_than_the_cell_that_failed() {
+        let mut w = test_world();
+        // A crown 20 wide sitting on a 4-wide stump, and a `broke_at` off at
+        // the crown's left edge -- the shape the real scene produced.
+        let mut region: Vec<(i32, i32)> = Vec::new();
+        for y in 10..20 {
+            for x in 10..30 {
+                region.push((x, y));
+            }
+        }
+        // Odd width, so the stump's centre is a whole cell and this test
+        // does not quietly depend on which way `round` breaks a half.
+        for y in 20..24 {
+            for x in 18..21 {
+                region.push((x, y));
+            }
+        }
+        for &(x, y) in &region {
+            w.set(x, y, Cell::new(material::STONE, 0));
+        }
+        let broke_at = (10, 12);
+        let stump = cut_face(&w, &region, broke_at);
+        assert_eq!(stump, (19, 23), "the hinge must sit on the bottom of the stump, not at {broke_at:?}");
+
+        // ...and the difference is not cosmetic: about the stump the centre
+        // of mass is overhead, about `broke_at` it is off to one side.
+        let mass_centre_x = region.iter().map(|c| c.0).sum::<i32>() as f32 / region.len() as f32;
+        let mass_centre_y = region.iter().map(|c| c.1).sum::<i32>() as f32 / region.len() as f32;
+        let (up_dx, up_dy) = (mass_centre_x - stump.0 as f32, mass_centre_y - stump.1 as f32);
+        let (side_dx, side_dy) = (mass_centre_x - broke_at.0 as f32, mass_centre_y - broke_at.1 as f32);
+        assert!(up_dy.abs() > up_dx.abs(), "about the stump the mass must be overhead: ({up_dx:.1}, {up_dy:.1})");
+        assert!(side_dx.abs() > side_dy.abs(), "about the failing cell it is off to the side: ({side_dx:.1}, {side_dy:.1})");
+    }
+
+    /// **The whole mechanism, as a ratio.** A piece high on the trunk travels
+    /// several times faster than one near the base, and that is what makes
+    /// the assembly sweep rather than drop: it is one rigid tree expressed
+    /// through fifty-odd independent bodies.
+    ///
+    /// The fault put back is the third assertion — with no hinge the same
+    /// body's velocity is untouched here and it simply falls.
+    #[test]
+    fn a_hinged_piece_sweeps_and_one_at_the_stump_barely_moves() {
+        let block = |ox: i32, oy: i32| {
+            let cells: Vec<BodyCell> = (0..3)
+                .flat_map(|dy| (0..3).map(move |dx| BodyCell { dx, dy, material: material::STONE, shade: 0, organism_id: 1 }))
+                .collect();
+            let mut b = ChunkBody::at(cells, ox as f32, oy as f32);
+            b.hinge = Some(Hinge { pivot: (30, 40), alpha: 0.01, omega: 0.0 });
+            b
+        };
+
+        // High up the trunk: 19 cells above the stump.
+        let mut high = block(30, 20);
+        assert!(swing_on_hinge(&mut high));
+        assert!(high.vx.abs() > 10.0 * high.vy.abs(), "a piece up the trunk must swing sideways, not fall: ({}, {})", high.vx, high.vy);
+
+        // Down at the stump: 1 cell above it.
+        let mut low = block(30, 38);
+        assert!(swing_on_hinge(&mut low));
+        assert!(
+            high.vx.abs() > 8.0 * low.vx.abs(),
+            "the top must outrun the base -- that ratio is the sweep: {} against {}",
+            high.vx,
+            low.vx
+        );
+
+        // And with the stump gone it is an ordinary falling body: `advance`
+        // gives it gravity and this gives it nothing.
+        let mut free = block(30, 20);
+        free.hinge = None;
+        let (vx, vy) = (free.vx, free.vy);
+        assert!(!swing_on_hinge(&mut free), "a body with no hinge is not on one");
+        assert_eq!((free.vx, free.vy), (vx, vy), "and its velocity must be left entirely alone");
+    }
+
+    /// The stump lets go the moment the piece hits something, which is where
+    /// "the bottom branches break off from the impact" comes from: the low
+    /// pieces arrive first and stop, while the crown is still coming over.
+    #[test]
+    fn the_stump_lets_go_on_impact() {
+        let cells: Vec<BodyCell> =
+            (0..4).map(|dx| BodyCell { dx, dy: 0, material: material::STONE, shade: 0, organism_id: 1 }).collect();
+        let mut body = ChunkBody::at(cells, 30.0, 20.0);
+        body.hinge = Some(Hinge { pivot: (30, 40), alpha: 0.01, omega: 0.5 });
+        body.spin_accel = 0.02;
+        assert!(body.hinge.is_some(), "test setup");
+        landed(&mut body);
+        assert!(body.hinge.is_none(), "a landing must release the stump, or the piece keeps being driven along the arc");
+        assert_eq!(body.spin_accel, 0.0, "and the break's own wind-up goes with it");
+    }
+
     /// **The positive control for the fall, run against the closed form.**
     ///
     /// A uniform limb of `L` cells breaking at one end is the one case
@@ -5769,7 +6517,7 @@ mod tests {
             for &(x, y) in &cells {
                 w.set(x, y, Cell::new(material::STONE, 0));
             }
-            let radians = angular_acceleration(&w, &cells, (10, 20)) * QUARTER_TURN;
+            let radians = angular_acceleration(&w, &cells, (10, 20));
             let closed_form = 3.0 * GRAVITY / (2.0 * l as f32 + 1.0);
             assert!((radians - closed_form).abs() < 1e-6, "L={l}: {radians} rad/frame^2 against the closed form {closed_form}");
             assert!(radians < 3.0 * GRAVITY / (2.0 * l as f32), "L={l}: should converge on 3g/2L from below");

@@ -3361,3 +3361,257 @@ calves a slab stop being the same picture; `filmstrip scene=smash` and
 `scene=chop` print that beside the tile and share their beds with
 `scene=tunnel` and `scene=shake`, so each pair is a controlled comparison
 with the belt as the only variable.
+
+## 2026-08-29 — the belt's first playtest, and the two things it sent back
+
+**Where this sits:** making the gnome's tools *deliver* — the second pass
+over the belt, driven by play rather than by tests. Both complaints were
+the ethos's two laws, and both were right.
+
+**"The direction switches too easy as the gnome moves."** The bore read
+its direction off the vector `gnome -> cursor` every stroke, so walking
+down your own corridor carried you past a stationary cursor, the vector
+swept through the diagonal, and the box flipped from a corridor to a
+shaft with the player's hand still. `Dir::sticky` latches the direction
+with the cursor position that chose it, and holds it until the cursor
+moves 12 cells from there — the hand re-points the dig, never the legs.
+
+**The first attempt at that was on the wrong end of the vector**, and it
+is in `dead-ends.md` because the failure is structural rather than
+tuned: a ratio-and-floor rule over the *current* offset. After the walk
+that offset is `dx=2, dy=11`, a genuine 5.5:1 vertical — which is
+exactly what a player who deliberately points down produces. No
+threshold on the offset can separate the two, because they are the same
+offset. Damp the end the player controls.
+
+**"The hammer mostly makes big strike lines instead of breaking rock
+into pieces."** Also arithmetic before it was a picture. `strike`'s chip
+zone was `radius * 2 / 3` against five straight rays running
+`radius * CRACK_REACH`, so at the gnome's `hammer_radius: 7` the *line*
+was 17 cells and the *damage* 4.
+
+**Widening the chip zone went to the queue as a blind A/B and he
+declined both arms**, which is the verdict that set the shape of the
+change: *"neither, fully get rid of the lines that it makes — it should
+just make cracks similar to an explosion and have the pieces fall off in
+chunks. if the chunks are hit, they break into stone dust."* Three
+changes, one per clause.
+
+**The lines are gone.** A blow reveals the rock's **joint fabric** now
+— the Worley grain in `fracture_field`, which is what a blast has read
+since `d5cb19a` and carries the owner's own three earlier rejections of
+walker rays. `score_cracks` was the last production caller of a radial
+pattern on the destruction path; it survives on `mine` at a reach short
+enough to read as a cut fraying its edges.
+
+**The pieces come off** — and the work is bounded to where they can. The
+reveal is flat at full density out to the chip radius before it ramps away — a `flat_to` argument the crush passes
+as `0.0`, so its pinned hash is unmoved. Without it a blow drew *dashes*:
+everything inside the chip radius is already gone, so every joint a blow
+can reach sits where a pure ramp parts only part of a boundary, and a
+domain that is not fully enclosed does not fall out.
+
+**And the reach comes in from 3x the radius to 2x**, which is cost and
+not looks. `acceptance.sh` is what said so: a ray star is sparse, so
+unbracing all ~85 cells of it over three times the radius was cheap, while
+the fabric opens several hundred edges over the same disc and
+`detach_around_crack` schedules a check per cell it unbraces. At 3x the
+`strike` case finished with **2,284 pending scheduler sites, flat, every
+chunk asleep** against a bar of 1,500 — §S's backlog that climbs instead
+of draining, caught by that case and by nothing else in the tree.
+Filtering the severed set by distance was tried first and abandoned: the
+cascade is **chaotic** in that parameter, 1,553 sites at twice the chip
+radius, 3,109 at 1.75x, 1,277 at 1.5x, while `scene=worked` needed the
+wide one to give way at all. Cutting the reach opens fewer joints rather
+than filtering them afterwards — `strike` 1,163 with 22% headroom,
+`worked` 6 overloads against a bar of 3.
+
+**And a chunk in the air can be hit.** It could not be before, for a
+reason invisible from `strike`: a promoted body's footprint is
+managed-empty in the grid, so `is_tool_target` said no and a swing passed
+straight through the rock it had just knocked loose.
+
+**And a fourth, from his reply to the sheet of those three:** *"Yes this
+is what I am asking, but I don't see pieces coming off in chunks. Do
+you?"* No — while the census on that same run said 226 cells had come off
+as chunks, which is the contradiction that named the cause. A blow's
+`force` becomes a fragment's launch speed as `force / distance`, so at
+3.0 a chunk five cells out left the wound at 0.6 cells a frame, slower
+than it then fell. The pieces were coming off and going nowhere. At 12.0
+the fastest piece goes 1.07 -> 4.02 cells/frame; `hammer_recoil` is a
+separate number so the swing shoves him no harder.
+
+**And a fifth, from the reply to that:** *"none of the cracks fully
+complete to break a chunk off... multiple hammer hits should result in
+those cracks completely surrounding the chunk and then the whole chunk
+falls out as one piece."* Structural, not tuned: `joint_draw` is a pure
+function of the domain pair, so the boundaries a first blow declines are
+declined identically for ever, and a domain missing one edge of its
+outline is never enclosed. `JOINT_REPEAT_BONUS` raises the activation ramp
+where the rock is already damaged, past 1.0 in the flat zone, so a second
+blow closes what the first left open. Keyed per **domain**: the per-cell
+version was written first and is vacuous, because a domain with five of
+six boundaries open has no cracked cell in the middle of the sixth --
+caught by a positive control reading 36 fresh edges -> 36, which is the
+tell for a mechanism that never ran. `scene=worked` overloads 6 -> 14.
+
+**And a sixth, which made the outline and the piece the same shape:**
+*"The chunks should break off along the crack pattern that is already
+there... just no dust, it forms cracks and then large pieces fall
+specifically from the existing crack line when they completely surround a
+chunk."* The enclosure was already real and the cascade already found it;
+what it *did* with it was the problem — `tick` hands a failing region to
+`fracture`, which re-cuts it on the power-of-two ladder, so a 170-cell
+block bounded by four visible joints came apart into fragments and grit.
+`free_blocks_around` promotes the block whole, so the hole is the polygon
+the cracks drew. And the pulverized core is gone: it was grit made by
+fiat, on the swing frame, where a piece has to wait for its outline to
+close. `scene=strike` calves 18 bodies carrying 937 cells on the blow
+frame against 11 / 553 before.
+
+**The seed sweep, which a change to a destruction model owes and which I
+had not run.** `seedsweep.sh strike=12`, six presets x four seeds, at
+`every=900 count=5` because the default budget stops mid-cascade, paired
+against the same binary with both hammer changes off: rock destroyed
+**median +63 cells, p90 +165, max +210, min -157**, pooled 1.22x. No seed
+runs away, which is what the sweep is for -- the failure it was built
+after was 26x on one seed with every acceptance case green. The largest
+*failing region* falls hard on several seeds (canyon 7 112 -> 2, flat 1
+60 -> 1), which is the same mechanism from the other side: a block
+released as a body on the blow is not found later as a region to re-cut.
+
+**And the blast half, which the owner ruled into this lane** after the
+explosion lane's measurement landed on the same conclusion from the other
+complaint. `Blast::calve` calls the same `calve_free_blocks`. **It is a
+partial fix and the median is the honest number**: paired over five
+presets x four seeds, median **1.00x**, better on 8 of 20, worse on 5,
+unchanged on 7 -- with `rolling 7`, the case §S5 named, at 1,382 -> 2,191
+cells. Widening the search from the calved shell to the fissure halo
+moves the median by nothing and costs a 70.6 ms frame, so the reach was
+never the constraint: a hammer completes an outline because its *second*
+blow reopens what the first declined, and a blast is one event. The rest
+is `JointSeams` calibration, written up on §S5 for that lane.
+
+Measured on `scene=smash`: cells broken 98 -> 406, cells off as chunks
+44 -> 313, fastest piece 1.07 -> 4.12 cells/frame, pieces in flight at
+once 2 -> 4, worst frame 13.47 -> 14.27 ms. Blows that landed went 3 -> 5 for a reason
+worth keeping: a blow that throws its pieces clear keeps the face inside
+`hammer_reach`, where one that leaves rubble in place walls him off —
+`scene=smash`'s own recorded stall, and it turns out to have been a
+symptom rather than a property of hammers.
+
+**The third change is guarded rather than shown, and the sheet is why.**
+It came back byte-identical across it: the gnome swings every 90 frames
+and every piece has settled long before the next blow, so no body was
+ever airborne when one landed. Identical output is the tell for a
+mechanism that never ran, not for a small effect, so the control is
+constructed — `a_blow_bursts_a_chunk_that_is_still_in_the_air`, with
+`a_blow_that_misses_a_chunk_leaves_it_flying` as the half that stops
+"burst every body in the world" passing. The first change has a property
+guard needing no picture at all: every crack edge in comparable jointed
+rock separates two domains, which goes red at 64 off-joint edges with the
+rays put back.
+
+**The other half of that complaint was not the hammer at all.** "It
+sometimes randomly makes a hole at the mouse, which is not near the
+gnome" cannot come from `player::smash` — `face_toward` clamps every blow
+to `hammer_reach` of his own centre. `C` is the sandbox strike **at the
+cursor**, calling the identical `rigid::strike`, and it sits directly
+under `D`, the key running the gnome right; `X` (blast) sits under `S`.
+Neither said anything when it fired, and `strike` carried a comment
+saying the count was discarded because there was nowhere to put it.
+They name themselves in the toast now. Left live rather than gated on
+"no gnome": a blast beside the gnome is something this repo tests with
+on purpose.
+
+**Both fixes are guarded and both guards were watched going red**, per
+the standing check — `walking_does_not_change_which_way_he_is_boring`
+fails on `Dir::toward`, and its sibling
+`pointing_somewhere_new_still_changes_the_bore` stops the fix becoming a
+control that ignores the hand.
+## 2026-08-29 — one verb, and the body decides what it does
+
+**Creatures can leave the ground.** `brain::BrainOutput::Impulse` is a
+creature's first way to do it, and until today the engine refused on purpose:
+`step_chain` declines any step with no footing, a rule arrived at after **two**
+attempts at airborne creatures that each put falls at 59-80% of all moves
+(`Reports/creature-motion-design.md` §2d). Reversing that was the owner's call,
+decision **E11** — asked directly whether crossing a gap is wanted at all,
+given what the refusal cost, and answered *"Yes, they should cross"*. §6 call 4
+of that report is updated to record it; it was the last of its four open.
+
+**The reversal is narrow by construction, and that is the whole safety
+argument.** §2d's two failures both changed *candidate scoring*, so every ant
+in the world became airborne whether it wanted to or not. This adds a separate
+opt-in path instead: the walk is untouched and still refuses open air, a
+creature is airborne only while `OrganismState::flight` is `Some`, and only
+`creature::launch` ever sets it. `ant.ron` authors no weight into the new row,
+`squash(0.0)` is **exactly** 0.0, and the gate `impulse > 0.0 && draw...`
+short-circuits before the RNG — so the shipped ant takes the same draws in the
+same order.
+
+**There is no jump height anywhere.** One verb delivers a fixed amount of
+*work*, so launch speed is `sqrt(2W/m)` off the body's own summed cell density,
+and the descent is a drag law over its own bounding box. Work rather than
+impulse is the choice that makes §5's table fall out instead of being written
+down: it is the same `1/sqrt(m)` a muscle's force scaling with cross-section
+gives, and the reason small animals out-jump large ones by far less than `1/m`
+would predict. At `1/m` the four shipped bodies span 4.5x in launch speed and
+the 6-cell chain is already immobile, which leaves nothing between "shallower
+hop" and "almost nothing".
+
+| body | cells | launch speed | terminal speed |
+|---|---|---|---|
+| `ant` `Chain(2)` | 2 | 2.00 | 1.73 |
+| `ant_long` `Chain(6)` | 6 | 1.15 | 1.37 |
+| `ant_wide` 5x2 | 9 | 0.94 | 2.04 |
+| `ant_block` 3x3 | 9 | 0.94 | **4.74** |
+
+The last two are the design claim: **identical mass, identical launch, and
+2.3x apart on the way down**, the whole difference being width against height.
+Played out through the integrator on one plinth over one drop, with the same
+seed and the same organism id so both take identical draws: the slab stays up
+**113 frames** to the block's **69**. `match species` appears nowhere in the
+path, and `Cd`'s two ends — 0.5 blunt, 2.0 plate — are taken from
+`rigid::SINK_DRAG_COEFFICIENT`'s own recorded regime check rather than
+invented.
+
+**Drag is read off the cells every flight frame, not cached on the species,
+and that is the point rather than an inefficiency.** A `Chain` has no fixed
+shape: six cells strung out along a ledge are a 6x1 plate and the same six
+coiled at a corner are a 3x3 block, and they get `Cd` 2.0 and 0.5 respectively
+from a species file that never mentions drag.
+
+**Decision E9's float limit came free**, exactly as §2c predicted it would:
+`creature::buoyant_share` *is* `rigid::drag_through_liquid`'s own `carried`, so
+there is one buoyancy model in the engine rather than two, and a body no denser
+than what it is in has zero effective weight and hangs. No creature material is
+buoyant today, so this is mechanism rather than behaviour — but authoring one
+now works, and it cannot be evolved around, because the only way to get it is
+to be made of something light and being light is what makes a body easy to
+shift.
+
+**What the verb costs**, because §1's whole argument is that a free trait makes
+every lineage converge on it: a flat four walking steps' worth of energy, and
+the creature's entire turn. Airborne it does not think, eat, dig, steer or
+deposit — `creature_tick` returns before `sense` — which also makes the extra
+frames cheap, since there is no `eval_brain` on any of them. One flat price and
+a body-dependent benefit is what makes hopping a bargain at 2 cells and worse
+than walking at 9, with nothing anywhere saying "heavy creatures should not
+jump".
+
+**The genome append was lawful and the manifest says so.** `GENOME_LEN` does
+not change and no weight of any other slot moves — the second such append,
+into the reserve S2 built. `live_slots()` goes **268 -> 288**, so
+`random_genome` draws 20 more values and a sampled genome at a given seed is a
+*different animal*: the real, unavoidable cost of a live verb, recorded rather
+than absorbed. The manifest pin moves 1,235,247,055 -> **717,235,691**. Slot 12
+stays unnamed per §6 call 2, with §4b's condition for spending it unchanged.
+
+**One asymmetry this deliberately leaves standing.** There are now two ways to
+be in the air and they do not agree: a launched creature descends under the
+drag law at 1.7-4.7 cells/frame, and one that *walks off a ledge* still falls
+through `step_chain`'s own branch at one cell per tick — 0.167 cells/frame at
+`tick_interval` 6. Unifying them means editing the walk, which is precisely
+what got the two earlier attempts reverted, so it is a decision rather than a
+drive-by fix.
