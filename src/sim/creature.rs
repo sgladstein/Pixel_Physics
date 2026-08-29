@@ -814,20 +814,9 @@ impl World {
         let Some(nest) = self.materials.id_of("nest") else {
             return 0;
         };
-        // The surface height in each column, searched downward from the
-        // cursor: whatever the first non-empty cell is, that is the ground.
-        //
-        // **To the bottom of the world, not 96 rows.** The old bound was
-        // shorter than the sky on several presets (the flat preset alone has
-        // 200 rows of it), so pressing the key with the cursor high up found
-        // no ground in any column and placed nothing at all, silently.
-        // Bounded by `bounds()` rather than unbounded because `get` returns
-        // `Cell::OUT_OF_BOUNDS` past the edge, which is not `Empty` and
-        // would otherwise read as a floor one row below the world.
-        let bottom = self.bounds().map_or(y + 96, |b| b.max_y);
-        let surface = |world: &World, cx: i32| -> Option<i32> {
-            (y.max(0)..=bottom).find(|&cy| !matches!(world.materials.kind(world.get(cx, cy).material), MaterialKind::Empty | MaterialKind::Gas))
-        };
+        // The per-column rules live in `colony_surface` and
+        // `colony_ant_site`, so that nothing can hold a second copy of
+        // them -- a second copy is what `open-bugs-handoff.md` §R2 is.
         // **Centred on the cursor, both of them.** The ants used to run from
         // 26 cells left of the cursor to 178 cells *right* of it, because
         // the loop started at the nest's left edge and then stepped forward
@@ -842,7 +831,7 @@ impl World {
         let span = (COLONY_ANTS - 1) * COLONY_ANT_SPACING;
         let left = x - span / 2;
         for cx in (x - COLONY_HALF_WIDTH)..=(x + COLONY_HALF_WIDTH) {
-            if let Some(sy) = surface(self, cx) {
+            if let Some(sy) = colony_surface(self, cx, y) {
                 let cell = self.get(cx, sy);
                 // Only ground gets converted -- painting over water or a
                 // creature would be a surprise.
@@ -854,7 +843,7 @@ impl World {
         let mut placed = 0;
         for i in 0..COLONY_ANTS {
             let cx = left + i * COLONY_ANT_SPACING;
-            if let Some(sy) = surface(self, cx) {
+            if let Some(sy) = colony_ant_site(self, cx, y) {
                 let before = self.get(cx, sy - 1).organism_id();
                 self.plant_ant(cx, sy - 1);
                 if self.get(cx, sy - 1).organism_id() != before {
@@ -864,6 +853,90 @@ impl World {
         }
         placed
     }
+}
+
+/// Where the ground is in one column, for a colony founded at cursor row
+/// `cursor_y`.
+///
+/// **This and `colony_ant_site` exist so that the rule has exactly one
+/// definition.** `open-bugs-handoff.md` §R2 is what a second copy costs:
+/// `filmstrip`'s colony scene scored candidate ground with its own
+/// predicate while `found_colony` placed with a different one, and the two
+/// disagreed in both directions -- the scene believed it had chosen dry
+/// land while placement dropped ants in a lake, and later (once the scene
+/// was fixed first) reported *fewer* viable sites than were actually
+/// filled. Anything that wants to know where a colony can go calls these.
+///
+/// Two rules, both learned from measurement:
+///
+/// - **Living tissue is not a floor.** `Plant` is passed through with
+///   `Empty`/`Gas`, because the colony scene grows trees for 2,400 frames
+///   before founding anything, so the first non-empty cell from above is a
+///   leaf. Censused over that scene's 308 candidate columns: seed 1 read
+///   **Plant 217 / Liquid 91 / ground 0**, which is why it panicked at its
+///   own default seed rather than degrading.
+/// - **Rise out of the ground before searching down it.** One cursor row
+///   cannot describe 204 cells of terrain, and searching downward from it
+///   in every column meant every column standing *higher* than the cursor
+///   began inside the hill and found its interior. That cost 18, 33 and 20
+///   of 52 sites on seeds 1, 2 and 7 -- the largest single term. Rising
+///   only as far as the air directly above this column is what keeps the
+///   `Y` key's documented behaviour intact: a cursor in open air scans
+///   down exactly as before, so founding a colony inside a cave still
+///   lands it on the cave floor rather than on the mountain overhead.
+///
+/// Returns wherever the downward scan stopped, which **may be `Liquid`** --
+/// the caller decides what to do about water. `colony_ant_site` refuses it;
+/// the nest-painting loop refuses it separately, and always did.
+pub fn colony_surface(world: &World, cx: i32, cursor_y: i32) -> Option<i32> {
+    // Bounded by `bounds()` rather than unbounded because `get` returns
+    // `Cell::OUT_OF_BOUNDS` past the edge, which is not `Empty` and would
+    // otherwise read as a floor one row below the world. The `+ 96`
+    // fallback is only reached in a world with no bounds at all.
+    //
+    // **To the bottom of the world, not 96 rows.** The old bound was
+    // shorter than the sky on several presets (the flat preset alone has
+    // 200 rows of it), so pressing the key with the cursor high up found no
+    // ground in any column and placed nothing at all, silently.
+    let bottom = world.bounds().map_or(cursor_y + 96, |b| b.max_y);
+    let passable = |cy: i32| matches!(world.materials.kind(world.get(cx, cy).material), MaterialKind::Empty | MaterialKind::Gas | MaterialKind::Plant);
+    let mut start = cursor_y.max(0);
+    while start > 0 && !passable(start) {
+        start -= 1;
+    }
+    (start..=bottom).find(|&cy| !passable(cy))
+}
+
+/// The row an ant would stand on in this column, or `None` if the column is
+/// not a site.
+///
+/// A site needs ground that is `Solid` or `Powder` -- **not `Liquid`**,
+/// which is the placement half of `open-bugs-handoff.md` §R2: the
+/// nest-painting loop had refused water since it was written, and said why
+/// ("painting over water or a creature would be a surprise"), while the ant
+/// loop six lines below it never got the same guard. An ant put on water
+/// then stayed there for ever, because `step_chain` correctly judges it
+/// unsupported but the fall it attempts needs every cell to land somewhere
+/// `World::is_empty` calls free, and water is not free -- so the fall is
+/// refused and nothing ever moves it.
+///
+/// **This fixes placement only.** What an ant should do when it walks onto
+/// water under its own power -- drown, float, or swim -- is a design
+/// question for the owner, and an ant that wanders onto a pond still stands
+/// on it.
+///
+/// The cell above the ground must also be free. That is not a formality: in
+/// a wood it is the term that decides most refusals, because a column
+/// holding a trunk finds ground *under* the trunk and an ant cannot stand
+/// where the trunk is. A colony founded in a forest is therefore genuinely
+/// sparser than one founded on a beach, and that is the world being
+/// reported rather than a bug.
+pub fn colony_ant_site(world: &World, cx: i32, cursor_y: i32) -> Option<i32> {
+    let sy = colony_surface(world, cx, cursor_y)?;
+    if !matches!(world.materials.kind(world.get(cx, sy).material), MaterialKind::Solid | MaterialKind::Powder) {
+        return None;
+    }
+    world.is_empty(cx, sy - 1).then_some(sy)
 }
 
 /// One decision by one chain creature.
@@ -2171,6 +2244,145 @@ mod tests {
         World::new(Rect::new(0, 0, 199, 199))
     }
 
+    /// A bed with the three obstructions that broke colony founding, laid
+    /// out left to right: a plateau standing **above** the cursor row, a
+    /// stretch of open **water**, and flat ground under a **plant canopy**.
+    /// Ground is `SOIL` throughout; the cursor row sits at the low ground's
+    /// surface, which is what `filmstrip`'s colony scene passes.
+    ///
+    /// Written to fail against the old rules, and checked doing so: with
+    /// `colony_surface` searching downward from the cursor and
+    /// `colony_ant_site` not refusing `Liquid`, the water band places ants
+    /// on the lake and the plateau places none at all.
+    fn colony_bed() -> (World, i32) {
+        let mut w = World::new(Rect::new(0, 0, 255, 199));
+        const LOW: i32 = 120;
+        const HIGH: i32 = 110;
+        let leaf = w.materials.id_of("leaf").expect("leaf material");
+        let soil = w.materials.id_of("soil").expect("soil material");
+        for x in 0..=255 {
+            let top = if (10..70).contains(&x) { HIGH } else { LOW };
+            for y in top..=140 {
+                w.set(x, y, Cell::new(soil, 0));
+            }
+        }
+        // Open water, its surface level with the low ground.
+        for x in 90..150 {
+            for y in LOW..=140 {
+                w.set(x, y, Cell::EMPTY);
+            }
+            for y in LOW..=140 {
+                w.set(x, y, Cell::new(material::WATER, 0));
+            }
+        }
+        // A canopy floating over the right-hand ground: the cells a
+        // downward scan from the sky would stop on.
+        for x in 170..240 {
+            for y in (LOW - 30)..(LOW - 26) {
+                w.set(x, y, Cell::new(leaf, 0));
+            }
+        }
+        (w, LOW)
+    }
+
+    /// `open-bugs-handoff.md` §R2's placement half. The nest-painting loop
+    /// refused water from the day it was written; the ant loop six lines
+    /// below it did not, and an ant put on water never falls off.
+    #[test]
+    fn found_colony_never_puts_an_ant_on_water() {
+        let (mut w, low) = colony_bed();
+        let placed = w.found_colony(128, low - 2);
+        assert!(placed > 0, "the bed placed nothing at all -- the scene is wrong, not the rule");
+        // **The property is "no ant stands on nothing", not "no creature
+        // cell is ever over water".** An ant is a two-cell chain, so one
+        // founded on the bank may legitimately overhang the shore by its
+        // tail -- asserting against that would fail for a correct ant and
+        // tell us nothing about the bug. What §R2 is actually about is an
+        // ant with *no* footing at all, strung out across open water at
+        // exactly `COLONY_ANT_SPACING`, which is what this checks: every
+        // organism must have at least one of its own cells resting on
+        // ground.
+        let mut footing: std::collections::BTreeMap<u16, (bool, (i32, i32))> = std::collections::BTreeMap::new();
+        for x in 0..=255 {
+            for y in 0..=199 {
+                let c = w.get(x, y);
+                if !matches!(w.materials.kind(c.material), MaterialKind::Creature) {
+                    continue;
+                }
+                let id = c.organism_id();
+                let grounded = matches!(w.materials.kind(w.get(x, y + 1).material), MaterialKind::Solid | MaterialKind::Powder);
+                let e = footing.entry(id).or_insert((false, (x, y)));
+                e.0 |= grounded;
+            }
+        }
+        let afloat: Vec<_> = footing.iter().filter(|(_, (g, _))| !g).map(|(id, (_, at))| (*id, *at)).collect();
+        assert!(afloat.is_empty(), "{} ants with no cell resting on ground: {:?}", afloat.len(), &afloat[..afloat.len().min(8)]);
+    }
+
+    /// The canopy half of `open-bugs-handoff.md` §R. A downward scan from
+    /// the sky stops on a leaf, so a column with a tree over it read as
+    /// having no ground -- 217 of 308 columns on the colony scene's own
+    /// default seed, which is why it panicked instead of degrading.
+    #[test]
+    fn colony_surface_looks_through_a_canopy_to_the_ground() {
+        let (w, low) = colony_bed();
+        let under_canopy = 200;
+        assert!(
+            matches!(w.materials.kind(w.get(under_canopy, low - 30).material), MaterialKind::Plant),
+            "the bed does not actually have a canopy over x={under_canopy}"
+        );
+        // **From row 0, which is the call the scene actually makes.** An
+        // earlier version of this guard asked from `low - 2` -- *below* the
+        // canopy -- so the scan never met a leaf and the test passed with
+        // the fault put back. It was blind, not weak. `filmstrip`'s colony
+        // scene chooses its site with `colony_ant_site(w, x, 0)`, scanning
+        // from the sky, and that is the path the canopy breaks.
+        assert_eq!(
+            colony_ant_site(&w, under_canopy, 0),
+            Some(low),
+            "scanning from above, a column under a canopy must still offer the ground beneath it as a site"
+        );
+    }
+
+    /// One cursor row cannot describe 204 cells of terrain. Searching
+    /// downward from it meant any column standing higher than the cursor
+    /// began the search already inside the hill and found its interior --
+    /// 18, 33 and 20 of 52 sites on the colony scene's seeds 1, 2 and 7.
+    #[test]
+    fn colony_surface_rises_out_of_ground_that_stands_above_the_cursor() {
+        let (w, low) = colony_bed();
+        let on_plateau = 40;
+        assert_eq!(
+            colony_ant_site(&w, on_plateau, low - 2),
+            Some(110),
+            "a column whose ground stands above the cursor must be found at its own surface, not inside the hill"
+        );
+    }
+
+    /// The `Y` key's documented behaviour, which the rule above must not
+    /// break: founding a colony from inside a cave lands it on the cave
+    /// floor, never on the ground overhead.
+    #[test]
+    fn colony_surface_in_a_cave_still_finds_the_cave_floor() {
+        let mut w = World::new(Rect::new(0, 0, 255, 199));
+        let soil = w.materials.id_of("soil").expect("soil material");
+        for x in 0..=255 {
+            for y in 100..=180 {
+                w.set(x, y, Cell::new(soil, 0));
+            }
+        }
+        for x in 40..80 {
+            for y in 130..=150 {
+                w.set(x, y, Cell::EMPTY);
+            }
+        }
+        assert_eq!(
+            colony_ant_site(&w, 60, 135),
+            Some(151),
+            "a cursor inside a cave must found on the cave floor, not on the surface above it"
+        );
+    }
+
     fn run(w: &mut World, frames: usize) {
         for _ in 0..frames {
             w.begin_step();
@@ -2957,6 +3169,7 @@ mod tests {
                 ],
                 &def.hidden_wiring,
                 &def.hidden_outputs,
+                &def.recurrence,
             ),
         );
 
@@ -3409,7 +3622,7 @@ mod tests {
             // re-orientation drive, not about removing that one.
             let mut instincts = def.instincts.clone();
             instincts.push(brain::Instinct(brain::BrainInput::Crowding, brain::BrainOutput::Tumble, w_gain));
-            w.species.set_genome(species, brain::genome_from_wiring(&instincts, &def.hidden_wiring, &def.hidden_outputs));
+            w.species.set_genome(species, brain::genome_from_wiring(&instincts, &def.hidden_wiring, &def.hidden_outputs, &def.recurrence));
 
             // Shoulder to shoulder on purpose: the crowd is the input.
             for x in (70..150).step_by(2) {

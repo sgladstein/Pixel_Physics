@@ -583,19 +583,27 @@ drift that two of these documents still reflect.**
   material rather than on the eater, corpse worth in `Cell::aux`, and the
   edible forest floor. Its "As built" notes carry the measurements; every
   S4 number in them predates the litter merge and is superseded by it.
+- [creature-export-design.md](creature-export-design.md) — **built and
+  landed 2026-08-29.** The dev-tool exit decision **E8** asks for and nothing
+  implemented: an evolved individual written back out as a species `.ron` the
+  existing loader reads to the same animal. Why it is a species file rather
+  than a genome sidecar, the genome block (hidden self-recurrence) that
+  **24% of sampled genomes carry and no species file could describe**, and
+  what the manifest stamp does and does not catch.
 - [creature-rebaseline-2026-08-29.md](creature-rebaseline-2026-08-29.md) —
-  **measured re-baseline on `main` at `ba6fc98`, 2026-08-29.** Every creature
-  figure in the record predates this week's worldgen work, so none of it was
-  checkable. Re-measures the §4 frame-cost and determinism guards
-  (2.906/2.943 ms, identical), re-sets `ascii.rs`'s `forage_reach` trip bar
-  (98 trips → 24 measured, bar 14 → 6, and the trade stated), prices
-  `ant_ablation` (~15 min at its defaults, and its defaults cannot answer the
-  feeding question), and **overturns the reading of `eats 6 / deaths 0`** —
-  the energy ledger shows food supplied 2.9% of the colony's energy and the
-  scene stops at 45% depletion against a 50% hunger threshold, so the cause is
-  the horizon, not free food. Supersedes the `Reads today` column of
-  `creature-evolution-plan.md` §4 and the `98`/`18` figures quoted in
-  `examples/ascii.rs`.
+  **measured re-baseline, 2026-08-29, across `ba6fc98` and `f96c08d`.** Every
+  creature figure in the record predates this week's worldgen work, so none of
+  it was checkable. Re-measures the §4 guards (foraging pays +0.427/+0.459,
+  ants fed 0.68/0.75, reference genomes 0.696/0.299, determinism identical,
+  frame cost a bigger scene rather than a slower one), re-sets `ascii.rs`'s
+  `forage_reach` trip bar (comment said 98, measured 23, bar 14 → 6 with the
+  trade stated), prices `ant_ablation` (868 s at its defaults, which cannot
+  answer the feeding question), and **overturns the reading of
+  `eats 6 / deaths 0`** — the energy ledger shows food supplied 2.9% of the
+  colony's energy and the scene stops at 45% depletion against a 50% hunger
+  threshold, so the cause is the horizon, not free food. Supersedes the
+  `Reads today` column of `creature-evolution-plan.md` §4 and the `98`/`18`
+  figures quoted in `examples/ascii.rs`.
 - [creature-review-2026-08.md](creature-review-2026-08.md) — **review +
   proposed plan, written the day S1–S4 merged.** Where the creature line
   stands, the decisions never posted to the queue (E5, the abundance dial),
