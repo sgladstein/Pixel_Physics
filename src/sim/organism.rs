@@ -37,7 +37,7 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::Path;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use super::cell::Cell;
 use super::material::MaterialKind;
@@ -62,7 +62,7 @@ const NEIGHBOURS_8: [(i32, i32); 8] = [(-1, -1), (0, -1), (1, -1), (-1, 0), (1, 
 /// species it's looking at. Explicit discriminants, matching `pack_aux`'s
 /// own bit layout directly rather than relying on declaration order — room
 /// for 11 more variants than are named yet.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Deserialize)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Deserialize, Serialize)]
 pub enum CellType {
     /// A dormant organism-owned cell waiting on `Germinate`'s field-reading
     /// check (light/moisture thresholds) to transition to `GrowingTip`/
@@ -227,7 +227,7 @@ impl CellType {
 /// enum) rather than a separate named struct wrapped in a newtype variant,
 /// matching `ActiveKind`'s own existing shape (e.g. `Moss { stale_ticks:
 /// u8 }`) and RON's more direct syntax for it.
-#[derive(Clone, Copy, Deserialize)]
+#[derive(Clone, Copy, Deserialize, Serialize)]
 pub enum Behavior {
     Divide {
         /// Resource spent from the dividing cell on a successful division.
@@ -1005,7 +1005,7 @@ pub const PALETTE_BAND: u8 = 4;
 /// drawn uniformly from the whole palette. That is what every species
 /// without a declared range gets (moss, and any asset set that predates
 /// this), so adding bands cost no existing species its look.
-#[derive(Clone, Copy, Deserialize, Default, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Deserialize, Serialize, Default, Debug, PartialEq, Eq)]
 pub struct PaletteBands {
     pub first: u8,
     pub count: u8,
@@ -1021,7 +1021,7 @@ pub struct PaletteBands {
 /// **Ordering matters at lookup**: the first rule whose `when` matches wins,
 /// so a species lists `Node` before `Grew` if it wants nodes handled
 /// specially. `plant::species_fate` documents the search.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Deserialize)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Deserialize, Serialize)]
 pub enum FateWhen {
     /// A tip that grew this tick and this step is **not** a node.
     Grew,
@@ -1087,7 +1087,7 @@ pub enum FateWhen {
 /// cell. That is an honest absence rather than a default: a value there would
 /// be a field with a writer and no reader, which this project has shipped
 /// three times and paid for each time.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Deserialize)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Deserialize, Serialize)]
 pub struct Fate {
     pub when: FateWhen,
     /// What the acting cell becomes.
@@ -1335,6 +1335,36 @@ impl FateGenome {
         (0..self.len as usize).map(move |i| (self.rules[i].owner(), self.rules[i].unpack()))
     }
 
+    /// **Regroup this genome back into a species-style table** — the inverse
+    /// of [`FateGenome::from_table`], and the route by which a mutated genome
+    /// can be handed back to the world as a species file.
+    ///
+    /// **Grouping by owner is semantics-preserving, and that is worth stating
+    /// because the shape suggests otherwise.** The genome is a flat
+    /// first-match-wins list, so a rule's *absolute* position looks
+    /// load-bearing. It is not: [`FateGenome::fate`] filters by owner before
+    /// it examines anything else, so only a rule's position *among its own
+    /// owner's rules* can change an answer — which is exactly what grouping
+    /// preserves. `a_genome_survives_the_round_trip_through_a_table` is the
+    /// guard, and it compares answers rather than layouts for this reason.
+    ///
+    /// Rules that do not decode are dropped rather than carried across:
+    /// `fate` already skips them, so the genome and its table agree either
+    /// way.
+    pub fn to_table(self) -> Vec<(CellType, Vec<Fate>)> {
+        let mut out: Vec<(CellType, Vec<Fate>)> = Vec::new();
+        for i in 0..self.len as usize {
+            let (Some(owner), Some(f)) = (self.rules[i].owner(), self.rules[i].unpack()) else {
+                continue;
+            };
+            match out.iter_mut().find(|(ct, _)| *ct == owner) {
+                Some((_, rules)) => rules.push(f),
+                None => out.push((owner, vec![f])),
+            }
+        }
+        out
+    }
+
     /// **Apply one mutation.** Four operators: retarget a cell-type field,
     /// change a rule's condition, insert a rule, delete a rule.
     ///
@@ -1365,25 +1395,51 @@ impl FateGenome {
     /// for the reason the gate records: a draw landing on the value already
     /// held is a no-op, and a no-op counted as a mutation makes a rate that is
     /// a dilution rather than a rate.
-    pub fn mutate(&mut self, rng: &mut super::rng::Rng) {
+    pub fn mutate(&mut self, rng: &mut super::rng::Rng) -> Option<FateMutation> {
         if self.len == 0 {
-            return;
+            return None;
         }
-        match rng.below(100) {
-            0..=59 => self.retarget_one(rng),
-            60..=74 => self.recondition_one(rng),
-            75..=89 => self.insert_one(rng),
-            _ => self.delete_one(rng),
+        let op = match rng.below(100) {
+            0..=59 => FateOp::Retarget,
+            60..=74 => FateOp::Recondition,
+            75..=89 => FateOp::Insert,
+            _ => FateOp::Delete,
+        };
+        Some(FateMutation { op, applied: self.apply(op, rng) })
+    }
+
+    /// Apply one *named* operator, reporting whether it changed the genome.
+    ///
+    /// **This exists for the gate, and the weighting above is what makes it
+    /// necessary.** `mutate` picks an operator 60/15/15/10, so a 40-mutant
+    /// run spends about four draws on delete — far too few to gate on. Forcing
+    /// the operator measures each at its own N, and the shipped mixture is
+    /// then arithmetic over those four rates rather than a fifth experiment.
+    ///
+    /// **`applied` is a different question from "was it viable", and merging
+    /// the two inflates a rate.** Every one of the four can decline: retarget
+    /// after eight draws that all land on the value already held, recondition
+    /// when its own single draw equals the current value, insert at
+    /// `MAX_FATES`, delete at one rule. A declined operator leaves the genome
+    /// untouched, so what grows is the *base* plant — counting that as a
+    /// mutation the substrate tolerated is counting the positive control as
+    /// evidence about mutation.
+    pub fn apply(&mut self, op: FateOp, rng: &mut super::rng::Rng) -> bool {
+        match op {
+            FateOp::Retarget => self.retarget_one(rng),
+            FateOp::Recondition => self.recondition_one(rng),
+            FateOp::Insert => self.insert_one(rng),
+            FateOp::Delete => self.delete_one(rng),
         }
     }
 
     /// Point one cell-type field of one rule somewhere else — the measured
     /// operator.
-    fn retarget_one(&mut self, rng: &mut super::rng::Rng) {
+    fn retarget_one(&mut self, rng: &mut super::rng::Rng) -> bool {
         let i = rng.below(self.len as u32) as usize;
         let slots = self.rules[i].live_slots();
         let slot = slots[rng.below(slots.len() as u32) as usize];
-        let Some(f) = self.rules[i].unpack() else { return };
+        let Some(f) = self.rules[i].unpack() else { return false };
         // `live_slots` offers a slot only when that field is present, so both
         // of these hold by construction.
         let current = match slot {
@@ -1397,9 +1453,10 @@ impl FateGenome {
             let pick = PLANT_CELL_TYPES[rng.below(PLANT_CELL_TYPES.len() as u32) as usize];
             if pick != current {
                 self.rules[i] = self.rules[i].retarget(slot, pick);
-                return;
+                return true;
             }
         }
+        false
     }
 
     /// Change *when* a rule applies — its `FateWhen`, or its determinacy
@@ -1411,25 +1468,26 @@ impl FateGenome {
     /// range: a count above what any axis reaches is indistinguishable from
     /// never firing, so a uniform draw would spend most of its mass on rules
     /// that do nothing.
-    fn recondition_one(&mut self, rng: &mut super::rng::Rng) {
+    fn recondition_one(&mut self, rng: &mut super::rng::Rng) -> bool {
         let i = rng.below(self.len as u32) as usize;
-        let Some(owner) = self.rules[i].owner() else { return };
-        let Some(mut f) = self.rules[i].unpack() else { return };
+        let Some(owner) = self.rules[i].owner() else { return false };
+        let Some(mut f) = self.rules[i].unpack() else { return false };
         if rng.chance(0.5) {
             let pick = ALL_FATE_WHENS[rng.below(ALL_FATE_WHENS.len() as u32) as usize];
             if pick == f.when {
-                return;
+                return false;
             }
             f.when = pick;
         } else {
             const LADDER: [Option<u8>; 6] = [None, Some(2), Some(4), Some(8), Some(16), Some(32)];
             let pick = LADDER[rng.below(LADDER.len() as u32) as usize];
             if pick == f.after_metamers {
-                return;
+                return false;
             }
             f.after_metamers = pick;
         }
         self.rules[i] = PackedFate::pack(owner, f);
+        true
     }
 
     /// Insert a freshly drawn rule at a random position.
@@ -1441,9 +1499,9 @@ impl FateGenome {
     /// unless the earlier rule's `after_metamers` declines. A determinate rule
     /// only works listed *above* the ordinary one — which is exactly how the
     /// authored species write it.
-    fn insert_one(&mut self, rng: &mut super::rng::Rng) {
+    fn insert_one(&mut self, rng: &mut super::rng::Rng) -> bool {
         if self.len as usize >= MAX_FATES {
-            return;
+            return false;
         }
         let pick = |r: &mut super::rng::Rng| PLANT_CELL_TYPES[r.below(PLANT_CELL_TYPES.len() as u32) as usize];
         let owner = pick(rng);
@@ -1460,13 +1518,14 @@ impl FateGenome {
         }
         self.rules[at] = PackedFate::pack(owner, f);
         self.len += 1;
+        true
     }
 
     /// Drop one rule, never the last — see `mutate`'s note on why zero is not
     /// an allowed length.
-    fn delete_one(&mut self, rng: &mut super::rng::Rng) {
+    fn delete_one(&mut self, rng: &mut super::rng::Rng) -> bool {
         if self.len <= 1 {
-            return;
+            return false;
         }
         let i = rng.below(self.len as u32) as usize;
         for j in i..(self.len as usize - 1) {
@@ -1474,7 +1533,49 @@ impl FateGenome {
         }
         self.len -= 1;
         self.rules[self.len as usize] = PackedFate(0);
+        true
     }
+}
+
+/// Which of the four operators [`FateGenome::mutate`] chose.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum FateOp {
+    /// Point one cell-type field of an existing rule somewhere else.
+    Retarget,
+    /// Change *when* an existing rule applies — its `FateWhen`, or its
+    /// determinacy count.
+    Recondition,
+    /// Insert a freshly drawn rule at a drawn position.
+    Insert,
+    /// Drop one rule, never the last.
+    Delete,
+}
+
+impl FateOp {
+    pub const ALL: [FateOp; 4] = [FateOp::Retarget, FateOp::Recondition, FateOp::Insert, FateOp::Delete];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            FateOp::Retarget => "retarget",
+            FateOp::Recondition => "recondition",
+            FateOp::Insert => "insert",
+            FateOp::Delete => "delete",
+        }
+    }
+}
+
+/// What one call to [`FateGenome::mutate`] actually did.
+///
+/// **`applied` is here because a declined operator is invisible from the
+/// outside and is not a mutation.** All four can decline — see
+/// [`FateGenome::apply`] — and a declined draw leaves the genome byte for byte
+/// as it was, so the lineage carries on unmutated. A gate that counts those
+/// as mutations the substrate tolerated is quoting its own positive control
+/// back at itself.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct FateMutation {
+    pub op: FateOp,
+    pub applied: bool,
 }
 
 /// The cell types a fate mutation may point at.
@@ -1501,9 +1602,42 @@ pub const PLANT_CELL_TYPES: [CellType; 8] = [
     CellType::Fruit,
 ];
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 pub struct SpeciesDef {
     pub name: String,
+    /// **The brain scaffold this file's wiring was written against**, as
+    /// `brain::genome_manifest()` — present on a file an *export* wrote,
+    /// absent on one a human authored.
+    ///
+    /// Checked at load by `check_genome_manifest`, which fails loudly on a
+    /// mismatch rather than letting the file load as a fresh animal. That
+    /// asymmetry is the design and it is worth stating, because "why do
+    /// the shipped species not carry one" is the obvious question:
+    ///
+    /// - An **authored** file is a claim about *meanings*. It names
+    ///   `Crowding` and `Turn`, so a lawful append renumbers nothing it
+    ///   refers to, and an unlawful rename fails to parse. It needs no
+    ///   stamp, and giving it one would only add a literal that goes stale
+    ///   on every legitimate scaffold change.
+    /// - An **exported** file is a claim about one individual that existed
+    ///   under one scaffold. Most of it is still name-addressed and
+    ///   survives the same appends — but `hidden_wiring`, `hidden_outputs`
+    ///   and `recurrence` address hidden units by **index**, and a hidden
+    ///   unit has no name to be checked against. The manifest hashes
+    ///   `BRAIN_HIDDEN` and `HIDDEN_SLOTS` among its six dimensions, so a
+    ///   change on that axis turns a silent reinterpretation into a
+    ///   refusal to load.
+    ///
+    /// **Stated honestly: this is a provenance stamp with one load-bearing
+    /// axis, not a migration.** It cannot see a slot whose *meaning* was
+    /// redefined under an unchanged name, and it does not attempt a
+    /// conversion — there is nothing here that rewrites an old file into a
+    /// new scaffold. What it buys is that the day the reserve fills and
+    /// `brain.rs`'s own doc says "a real migration is needed", every
+    /// exported creature in `assets/species/` says so out loud instead of
+    /// loading as a subtly different animal.
+    #[serde(default)]
+    pub genome_manifest: Option<u32>,
     /// Which bands of `leaf`'s palette this species' foliage draws from.
     #[serde(default)]
     pub foliage_bands: PaletteBands,
@@ -1651,7 +1785,7 @@ pub struct SpeciesDef {
 /// badly — often no legal position at all — where a chain flows over
 /// anything. That cost is also what makes a wide predator unable to follow
 /// a one-cell-wide ant into its tunnel, with no "hiding" code anywhere.
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Deserialize, Serialize)]
 pub enum BodyPlan {
     /// `n` cells in a following chain, head first. 1 is the worm, 2-3 an
     /// ant. Owner open question #1 lives here: how many cells does a
@@ -1707,7 +1841,7 @@ impl BodyPlan {
 /// Separate from `cell_types` because these are properties of the
 /// *individual*, not of a cell type: a chain has one length however many
 /// cell types it uses, and one genome however many cells it has.
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Deserialize, Serialize)]
 pub struct CreatureDef {
     /// What this creature is made of, and how it moves.
     pub body: BodyPlan,
@@ -1860,6 +1994,40 @@ pub struct CreatureDef {
     pub hidden_wiring: Vec<super::brain::HiddenWire>,
     #[serde(default)]
     pub hidden_outputs: Vec<super::brain::OutputWire>,
+    /// Authored **self-recurrence** on the hidden units — the fourth
+    /// wiring list, and the one no species file could write until the
+    /// export needed it.
+    ///
+    /// Empty for every shipped species, which is exactly the behaviour
+    /// they already had: the recurrence block defaults to zero, so a
+    /// hidden unit reads none of its own previous activation. See
+    /// `brain::Recurrence` for why the gap mattered — `eval_brain` has
+    /// always read these four slots and `random_genome` has always filled
+    /// them, so an evolved brain can carry memory that a species file was
+    /// unable to describe.
+    #[serde(default)]
+    pub recurrence: Vec<super::brain::Recurrence>,
+}
+
+impl SpeciesDef {
+    /// Refuse a file whose stored genome manifest is not this build's.
+    ///
+    /// `Ok(())` when the field is absent — see `genome_manifest` for why an
+    /// authored file legitimately carries none.
+    pub fn check_genome_manifest(&self) -> Result<(), String> {
+        let Some(stamped) = self.genome_manifest else { return Ok(()) };
+        let current = super::brain::genome_manifest();
+        if stamped == current {
+            return Ok(());
+        }
+        Err(format!(
+            "species '{}' was exported against brain manifest {stamped}, this build is {current}. \
+             The brain scaffold has changed since this creature was saved, so its hidden-unit \
+             indices no longer mean what they meant when it was written. Re-export it from a \
+             build that can still load it, or migrate the file by hand.",
+            self.name
+        ))
+    }
 }
 
 fn default_shoot_material() -> String {
@@ -1937,6 +2105,22 @@ pub struct Species {
 }
 
 impl Species {
+    /// The cell-type table as the species file declared it — **for writing
+    /// a species back out**, and there is no other caller.
+    ///
+    /// Everything in the engine asks `behaviors()` about one cell type;
+    /// only `species_export` needs the whole list, because a file it writes
+    /// has to declare the same cell types the file it came from did.
+    pub fn cell_types(&self) -> &[(CellType, Vec<Behavior>)] {
+        &self.cell_types
+    }
+
+    /// The fate table as the species file declared it — same reason as
+    /// `cell_types` above, and the same single caller.
+    pub fn fates(&self) -> &[(CellType, Vec<Fate>)] {
+        &self.fates
+    }
+
     /// Behaviors registered for `cell_type`, or an empty slice if this
     /// species doesn't use it — not an error, since a species is free to
     /// only define the cell types it actually has (moss has exactly one).
@@ -2069,7 +2253,7 @@ impl Species {
 
 impl From<SpeciesDef> for Species {
     fn from(def: SpeciesDef) -> Self {
-        let genome = def.creature.as_ref().map(|c| super::brain::genome_from_wiring(&c.instincts, &c.hidden_wiring, &c.hidden_outputs)).unwrap_or_default();
+        let genome = def.creature.as_ref().map(|c| super::brain::genome_from_wiring(&c.instincts, &c.hidden_wiring, &c.hidden_outputs, &c.recurrence)).unwrap_or_default();
         Self {
             name: def.name,
             foliage_bands: def.foliage_bands,
@@ -3047,6 +3231,17 @@ const EMBEDDED: &[&str] = &[
     // better one than the naming rule is.
     include_str!("../../assets/species/herb.ron"),
     include_str!("../../assets/species/scrambler.ron"),
+    // Appended after the organ package, by the same trunk-first tiebreak
+    // `material.rs`'s list states: those were on `main` while these were on
+    // a branch.
+    // The creature-appearance candidates (`Reports/creature-appearance-
+    // design.md`). Each is `ant.ron` with one line changed -- `body:` --
+    // so the sheet they produce differs in extent and in nothing else.
+    include_str!("../../assets/species/ant_long.ron"),
+    include_str!("../../assets/species/ant_block.ron"),
+    include_str!("../../assets/species/ant_wide.ron"),
+    // The palette arm: `ant_block`'s body in `chitin_pale`'s colours.
+    include_str!("../../assets/species/chitin_pale.ron"),
 ];
 
 /// Where the loader looks for species files, relative to the working
@@ -3082,7 +3277,15 @@ impl SpeciesRegistry {
         let mut reg = Self::empty();
         for (i, source) in EMBEDDED.iter().enumerate() {
             match ron::from_str::<SpeciesDef>(source) {
-                Ok(def) => reg.upsert(def),
+                Ok(def) => {
+                    // An embedded species is compiled in, so a manifest
+                    // mismatch here is a build that shipped a creature it
+                    // cannot read -- a panic is the right loudness.
+                    if let Err(e) = def.check_genome_manifest() {
+                        panic!("embedded species {i}: {e}");
+                    }
+                    reg.upsert(def);
+                }
                 Err(e) => panic!("embedded species {i} is malformed: {e}"),
             }
         }
@@ -3106,10 +3309,9 @@ impl SpeciesRegistry {
         for path in &paths {
             let source = std::fs::read_to_string(path).map_err(SpeciesError::Io)?;
             let source = source.strip_prefix('\u{feff}').unwrap_or(&source);
-            let def = ron::from_str::<SpeciesDef>(source).map_err(|e| SpeciesError::Parse {
-                file: path.file_name().unwrap_or_default().to_string_lossy().into(),
-                error: e.to_string(),
-            })?;
+            let name = || -> String { path.file_name().unwrap_or_default().to_string_lossy().into() };
+            let def = ron::from_str::<SpeciesDef>(source).map_err(|e| SpeciesError::Parse { file: name(), error: e.to_string() })?;
+            def.check_genome_manifest().map_err(|error| SpeciesError::Parse { file: name(), error })?;
             defs.push(def);
         }
 
@@ -3284,7 +3486,7 @@ fn one_u8() -> u8 {
 /// selects — for a plagiotropic tier it is an *outward* weight, the name
 /// notwithstanding; renaming a field every genome salt table references
 /// was judged worse than one doc line here.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, serde::Deserialize)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, serde::Deserialize, serde::Serialize)]
 pub enum Tropism {
     Orthotropic,
     Plagiotropic,
@@ -3350,6 +3552,33 @@ impl<T: Copy> ByOrder<T> {
 impl<T: Copy + Default> Default for ByOrder<T> {
     fn default() -> Self {
         Self::uniform(T::default())
+    }
+}
+
+/// The mirror of the `Deserialize` below, and it writes the **full**
+/// `BRANCH_ORDERS` list rather than the shortest one that would pad back to
+/// the same values.
+///
+/// The short form is an *authoring* convenience — "and so on" — and
+/// re-deriving it on the way out is a compression pass that can only ever
+/// be wrong: `[0.05, 0.05, 0.05, 0.05]` and `[0.05]` load identically
+/// today, and would stop doing so the moment `BRANCH_ORDERS` grows, at
+/// which point every file written in the short form would silently gain a
+/// tier. A generated file states every tier it means.
+impl<T> Serialize for ByOrder<T>
+where
+    T: Serialize + Copy,
+{
+    fn serialize<S: serde::Serializer>(&self, ser: S) -> Result<S::Ok, S::Error> {
+        // **`as_slice()`, and it is load-bearing.** `self.values` is a
+        // `[T; BRANCH_ORDERS]`, and serde serializes a fixed-size array as
+        // a *tuple* -- which RON writes as `(0.03, 0.12, 0.2, 0.25)` while
+        // the `Deserialize` below reads a `Vec<T>` and demands a list. The
+        // whole plant half of the export produced files that would not
+        // parse, and nothing noticed, because `species_export` refuses a
+        // plant so this impl had no caller. A slice serializes as a
+        // sequence, which is the list the loader wants.
+        self.values.as_slice().serialize(ser)
     }
 }
 

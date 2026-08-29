@@ -9098,6 +9098,78 @@ The night factor belongs on income only -- see NIGHT_INCOME_FLOOR"
         );
     }
 
+    /// **A genome survives the round trip through a species table.**
+    ///
+    /// `to_table` regroups a flat first-match-wins list by owner, which looks
+    /// as though it must reorder something load-bearing and does not:
+    /// `FateGenome::fate` filters by owner before it examines anything else,
+    /// so only a rule's position among its *own* owner's rules can change an
+    /// answer. This asserts that as behaviour rather than as layout — every
+    /// `(cell type, when, metamers)` question must get the same answer from a
+    /// genome and from a genome rebuilt out of that genome's table.
+    ///
+    /// **Mutated genomes, not authored ones, and that is the whole point.**
+    /// An authored table is already grouped by owner, so it survives the round
+    /// trip trivially and would prove nothing. `insert` is what interleaves
+    /// two owners' rules and so creates the only case where grouping actually
+    /// moves anything — hence the interleaving count at the end, which is this
+    /// test's own positive control: without it a run in which nothing
+    /// interleaved would pass while asserting nothing, and would keep passing
+    /// with `to_table` reordering arbitrarily.
+    ///
+    /// The determinate `herb` base is in here because its `after_metamers`
+    /// rule sits deliberately *above* the ordinary one for the same cell type,
+    /// so it is the species a careless regroup would break first.
+    #[test]
+    fn a_genome_survives_the_round_trip_through_a_table() {
+        let w = test_world();
+        let mut interleaved = 0usize;
+        let mut checked = 0usize;
+        for species in ["tree", "herb"] {
+            let id = w.species.id_of(species).unwrap_or_else(|| panic!("{species} is compiled in"));
+            let base = organism::FateGenome::from_table(w.species.get(id).fate_table());
+            for i in 0..150u64 {
+                let mut g = base;
+                let mut rng = rng::stream(5, 9, i, 0);
+                // Several, so that owners interleave and rules shadow -- one
+                // mutation of an authored table usually leaves it grouped.
+                for _ in 0..4 {
+                    g.mutate(&mut rng);
+                }
+                let round = organism::FateGenome::from_table(&g.to_table());
+                let owners: Vec<_> = g.rules().map(|(o, _)| o).collect();
+                let mut runs: Vec<Option<organism::CellType>> = Vec::new();
+                for o in &owners {
+                    if runs.last() != Some(o) {
+                        runs.push(*o);
+                    }
+                }
+                if runs.iter().enumerate().any(|(k, o)| runs[..k].contains(o)) {
+                    interleaved += 1;
+                }
+                for &ct in &organism::PLANT_CELL_TYPES {
+                    for &when in &organism::ALL_FATE_WHENS {
+                        for metamers in [0u8, 1, 2, 4, 8, 16, 32, 255] {
+                            assert_eq!(
+                                g.fate(ct, when, metamers),
+                                round.fate(ct, when, metamers),
+                                "{species} mutant {i}: the table round trip changed the rule for \
+                                 {ct:?}/{when:?} at {metamers} metamers"
+                            );
+                            checked += 1;
+                        }
+                    }
+                }
+            }
+        }
+        assert!(checked > 0, "the sweep asked nothing");
+        assert!(
+            interleaved > 0,
+            "no mutant interleaved two owners' rules, so grouping never had to move one -- \
+             this test would pass with `to_table` emitting rules in any order at all"
+        );
+    }
+
     /// **The individual's genome shadows its species' table** — growth reads
     /// the plant, not the plant's label.
     ///
@@ -9150,6 +9222,127 @@ The night factor belongs on income only -- see NIGHT_INCOME_FLOOR"
             fate_for(&w, 0, id, CellType::GrowingTip, Node, 0).map(|f| f.becomes),
             Some(CellType::DormantBud),
             "an organism with no genome must still get its species' answer"
+        );
+    }
+
+    /// **A slot a genome vacates is refilled by its species table** — an
+    /// individual can override a behaviour or add one, and cannot take one
+    /// away.
+    ///
+    /// `fate_for` falls back **per query**, not per genome: it asks the
+    /// individual, and if the individual has no rule for *that* `(cell type,
+    /// when, metamers)` it asks the species, and then the built-in rule. So a
+    /// slot the genome leaves empty is answered by the species' original rule
+    /// rather than by nothing.
+    ///
+    /// **This is measured, and it is what two of the four mutation operators
+    /// run into.** `fate_viability base=tree op=recondition` scores **39 of 40
+    /// mutants silent**, and `base=herb op=delete` **21 of 40** — among them
+    /// every deletion of `GrowingTip.Grew`, the rule the whole plant grows by.
+    ///
+    /// **Which layer absorbs the loss differs between the harness and the
+    /// engine, and the distinction matters.** `fate_viability` registers each
+    /// mutated table as its own species and plants that, so there the genome
+    /// and the species table are the *same* mutated table and the layer that
+    /// refills is `builtin_fate` — which is why herb's effective deletions are
+    /// exactly its two `Ripe` rules, the slots `builtin_fate` answers `None`
+    /// for. In the live engine a seed's genome is mutated and its species file
+    /// is not, so the species table refills first, with the original rule.
+    ///
+    /// **So the harness's silence figures are a lower bound on the engine's.**
+    /// A live lineage has both layers behind it where a harness variant has
+    /// only one, and the deletions the harness scores as effective — the organ
+    /// clock — are exactly the ones a real species table would still answer.
+    /// The consequence for the programme is the same either way, and stronger
+    /// in the engine: a lineage gains and adjusts behaviours but never loses
+    /// one.
+    ///
+    /// **It asserts on `herb`, not `tree`, and that is the whole design of
+    /// it.** The first version of this guard used `tree` and was **blind**:
+    /// it claimed the species table answered a vacated `(GrowingTip, Grew)`,
+    /// but `builtin_fate` returns the identical rule for that slot, so making
+    /// the lookup genome-authoritative left every assertion green. The
+    /// discriminating case has to be a rule **only a species file can
+    /// author** — and `builtin_fate`'s doc names one: it is `after_metamers:
+    /// None` throughout, by construction, so a *determinate* rule cannot come
+    /// from it. `herb.ron`'s `Node -> Flower @8` is therefore an answer only
+    /// the species layer can give.
+    ///
+    /// Whether the fallback *should* be per query or per genome is a design
+    /// question with costs either way — a genome-authoritative lookup makes
+    /// `delete` a real operator and also lets a lineage delete its way to a
+    /// plant that cannot grow. This pins today's behaviour so that changing it
+    /// is deliberate.
+    #[test]
+    fn a_slot_a_genome_vacates_is_refilled_by_its_species_table() {
+        use organism::FateWhen::{Node, Stale};
+        let mut w = test_world();
+        let id = w.species.id_of("herb").expect("herb is compiled in");
+        let organism = w.push_organism(id).expect("an organism slot is free");
+
+        // The discriminating fact: at 8 metamers herb's own table says
+        // `Flower`, and the built-in rule cannot -- it is indeterminate by
+        // construction, so it answers `DormantBud` here whatever the metamer
+        // count. An answer of `Flower` can only have come from the species.
+        assert_eq!(
+            w.species.get(id).fate(CellType::GrowingTip, Node, 8).map(|f| f.becomes),
+            Some(CellType::Flower),
+            "test setup: herb.ron's determinate node rule is not what this assumes"
+        );
+        assert_eq!(
+            builtin_fate(CellType::GrowingTip, Node).map(|f| f.becomes),
+            Some(CellType::DormantBud),
+            "test setup: the built-in rule must differ from herb's, or this guard cannot tell the layers apart"
+        );
+
+        // A genome holding one rule, for an unrelated slot. `(GrowingTip,
+        // Node)` -- the determinate rule that makes this species what it is --
+        // is now vacant in this individual's genome.
+        if let Some(state) = w.organism_mut(organism) {
+            state.fates = organism::FateGenome::from_table(&[(
+                CellType::RootTip,
+                vec![organism::Fate {
+                    when: Stale,
+                    becomes: CellType::MatureBody,
+                    child: None,
+                    lateral: None,
+                    after_metamers: None,
+                }],
+            )]);
+        }
+        assert_eq!(
+            fate_for(&w, organism, id, CellType::GrowingTip, Node, 8).map(|f| f.becomes),
+            Some(CellType::Flower),
+            "a slot the genome does not declare falls through to the species table -- so dropping a rule \
+             does not remove the behaviour, which is why `delete` and `recondition` are mostly silent"
+        );
+
+        // **The determinacy case, which is the one that matters most.** A
+        // genome rule gated on `after_metamers` does not answer *below* its
+        // threshold, so the species' rule answers there instead: the lineage
+        // is not what its own table says, it is its own table above N and its
+        // species below.
+        if let Some(state) = w.organism_mut(organism) {
+            state.fates = organism::FateGenome::from_table(&[(
+                CellType::GrowingTip,
+                vec![organism::Fate {
+                    when: Node,
+                    becomes: CellType::Leaf,
+                    child: None,
+                    lateral: None,
+                    after_metamers: Some(30),
+                }],
+            )]);
+        }
+        assert_eq!(
+            fate_for(&w, organism, id, CellType::GrowingTip, Node, 8).map(|f| f.becomes),
+            Some(CellType::Flower),
+            "below its own threshold the genome's gated rule does not answer, so the species' rule does"
+        );
+        assert_eq!(
+            fate_for(&w, organism, id, CellType::GrowingTip, Node, 30).map(|f| f.becomes),
+            Some(CellType::Leaf),
+            "at and above the threshold the genome's gated rule must win"
         );
     }
 

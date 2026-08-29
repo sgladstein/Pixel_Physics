@@ -1,0 +1,483 @@
+// The first colony creature (Reports/creature-direction.md D2). A chain of
+// cells on the organism substrate, deciding with the fixed-scaffold brain
+// in `brain.rs`, whose weights are this file's `instincts` list and nothing
+// else -- there is no ant-specific behaviour code branching on species.
+//
+// **Generation zero must already forage.** That is the entire point of
+// authored instincts: the colony works on day one exactly as a brainless
+// taxis design would have, and evolution (stage 4) refines rather than
+// bootstraps. If the ant below mills instead of foraging, the thing to fix
+// is these weights, not the mutation rate.
+//
+// Both cell types carry no `Behavior`s, same as worm.ron: movement,
+// sensing and the four verbs are creature.rs's code. A `Behavior` is
+// something a species composes onto a cell type from data, and none of
+// this is that.
+(
+    name: "ant_block",
+    cell_types: [
+        (Head, []),
+        (Segment, []),
+    ],
+    creature: Some((
+        // **A candidate body plan for the appearance question, not a
+        // shipped species.** A filled 3x3, head at the bottom-front corner (the same place `beetle.ron` puts it, and for the same reason -- the head is what senses and it belongs against the ground). Nine cells in the most compact arrangement nine cells have.
+        //
+        // Everything else in this file is `ant.ron` unchanged, including
+        // the palette: the arms of this comparison differ in extent and in
+        // nothing else, because `examples/creature_look.rs` measured the
+        // palette lever separately and found nothing in it. See
+        // `Reports/creature-appearance-design.md`.
+        body: Rigid([(-1, 0), (-2, 0), (0, -1), (-1, -1), (-2, -1), (0, -2), (-1, -2), (-2, -2)]),
+        tick_interval: 6,
+
+        // Scaled from the worm's researched numbers (creature.rs's WORM_*
+        // block): idle 0.3, open-ground move 1.0. An ant is smaller and
+        // cheaper to run than a worm and has to complete round trips, so
+        // it gets a longer budget against a lighter idle cost. These are
+        // the knobs a colony that starves too fast is tuned with.
+        start_energy: 900.0,
+        idle_cost: 0.10,
+        move_cost: 0.25,
+
+        // Per active synapse per tick, **as a fraction of start_energy**:
+        // 2.2222222e-6 * 900 is the 0.002 this was authored as, exactly, in
+        // f32 at both this budget and the 90 the sweep harness cuts it to.
+        // Against idle_cost 0.10, a fully-dense brain (~168 connections)
+        // costs about a third of standing still and the authored sparse
+        // brain below (11 connections) costs about 2%. The magnitude is not
+        // the point -- the *sign* is: a connection that does not pay for
+        // itself gets pruned, which is both the sparsity pressure that
+        // keeps evolved brains legible and a real energetic trade-off.
+        //
+        // Absolute was wrong for a reason worth keeping: §13j measured the
+        // sweep cutting the budget to 90 and leaving this at 0.002, which
+        // spent 80% of a life on thinking and invalidated the sweep. The
+        // harness then carried a hand-applied correction; a ratio needs no
+        // correction to remember.
+        synapse_fraction: 0.0000022222222,
+        // **120, which is exactly what a corpse cell was worth before.**
+        // Under `eat_energy` any mouthful paid the eater 120, so pricing an
+        // ant's own meat at 120 a cell leaves scavenging worth precisely
+        // what it was worth yesterday -- the pump closes because the value
+        // is now finite and booked at spawn, not because meat got cheaper.
+        body_energy: 480.0,
+        // Eat only when genuinely low; otherwise carry it home. See
+        // CreatureDef::hunger_fraction -- getting this wrong deletes the
+        // foraging loop while leaving a colony that looks right.
+        hunger_fraction: 0.5,
+
+        // **Detritus only, for now.** Owner open question #2: herbivory on
+        // live plants from day one, or corpse/seed only until the plant
+        // damage interaction has been watched once? This is the
+        // conservative default and the difference is literally adding
+        // "leaf" to this list -- herbivory needs no new code, because a
+        // Leaf cell is just a cell and the plant discovers the loss
+        // through its own connectivity check.
+        // **"leaf" is the renewable half, and it is the whole food web.**
+        // Trees do not reproduce yet -- seeds are only ever hand-planted --
+        // but a living tree *regrows leaves* continuously, so a stand of
+        // trees is a food source that replenishes while a corpse pile is
+        // not. Without something that regrows, every run is a death march
+        // and selection is on who starves last, which is degenerate.
+        //
+        // This was owner open question #2 (herbivory from day one, or
+        // detritus only until plant damage has been watched once). Answered
+        // herbivory, and it needed no new code at all: a Leaf cell is just
+        // a cell, and the plant finds out it has lost one through its own
+        // connectivity check. That is the interaction nobody had to write.
+        // **"moss" is the ground-level half, and it is the one an ant can
+        // actually reach.** Leaves are renewable but they grow in the
+        // canopy: a census of four worldgen presets found thousands of
+        // leaves per run and between 0 and 11 of them within three cells of
+        // the ground. Moss lives exactly where ants walk, and it spreads by
+        // division rather than being placed once, so it replenishes.
+        //
+        // It only replenishes on *damp* ground -- moss is poikilohydric and
+        // wants shade and water, so on dry sunlit terrain it sits there and
+        // never divides (10 cells on "rolling" at warmup, 10 after 6,000
+        // frames; 86 -> 1,194 on "wetland"). So this earns its place on
+        // wet maps and is inert on arid ones, which is the right shape for
+        // an ecology rather than a supply drop.
+        //
+        // Measured, at a horizon where doing nothing is genuinely fatal:
+        // the forager's advantage over an immobile genome goes +0.187 ->
+        // +0.247 with moss on the menu, and the fraction of ants that ever
+        // feed themselves goes 0.42 -> 0.55.
+        // **"litter" is why S4 exists, and leaving it off this list made the
+        // whole stage inert.** `adjacent_food` tests membership of this list
+        // and nothing else -- a material's `food_energy` says what a mouthful
+        // is *worth*, never whether an animal will take it. Litter shipped
+        // with `food_energy: 120.0` and a comment reading "Food, and this is
+        // the point of the material", and no ant could eat a cell of it.
+        //
+        // It went unseen because the census built to judge S4 counts
+        // `creature::food_value` over the ground, which is keyed on the
+        // material and not on any menu: it reported a forest floor rich in
+        // food that no animal in the world would touch. The delivery rise
+        // S4 measured was terrain, not feeding -- litter smooths the ground,
+        // and `blocked` fell from 7,342 to 3,292 over the same run.
+        // **The list this comment was attached to is gone (S5).** What is
+        // nutritious is now `gut_bias` against `MaterialDef::food_class`
+        // through `creature::diet_yield`, and whom it is acceptable to bite
+        // is `eats_kin` -- two claims the one list was making at once. The
+        // account above is kept because the *failure* it records outlives
+        // the field: a material can be rich food that no animal will touch,
+        // and the census that judged S4 could not see the difference.
+        //
+        // Under the filter, this ant's old five-item menu survives intact
+        // at a neutral gut: corpse (class +1.0) and seed/leaf/moss/litter
+        // (class -1.0) all clear `EAT_YIELD_THRESHOLD` at 30 against a bar
+        // of 12. What it will *not* do is bite a living nestmate, which the
+        // list was doing by omitting "ant" -- see `eats_kin` below.
+
+        // **The heritable gut, slot 0 of `organism::CREATURE_TRAITS`.**
+        // An omnivore, in the middle of the axis: this ant eats litter and
+        // leaves and will also take carrion, which is the five-item menu
+        // the deleted `food:` list described.
+        //
+        // **It was authored -1.0 for one commit, and the owner overturned
+        // that.** The sweep below (`print_grazer_viability_against_gut_bias`)
+        // measured a neutral gut starving -- one animal, an inexhaustible
+        // wall of leaf, nothing to do but eat:
+        //
+        //     gut    leaf yield   intake/cost   survived
+        //    -1.0         120.0         0.946   yes
+        //    -0.9         108.3         0.993   yes
+        //    -0.8          97.2         0.781   no
+        //    -0.5          67.5         0.793   no
+        //     0.0          30.0         0.706   no
+        //
+        // A perfectly matched grazer already ran at 0.946, *below* the 1.0
+        // that pays for its own existence, so every point of digestive
+        // mismatch came out of a deficit and the viable band was one tenth
+        // of the axis wide. The conclusion drawn from that was to narrow
+        // the animal to fit the economy. Review card
+        // 20260823T104411499Z-963f8d put it to the owner, whose answer was
+        // in full: **"An omnivore should be viable."**
+        //
+        // So the economy widened instead, and the factor is measured
+        // rather than chosen (`print_omnivore_viability_against_food_scale`):
+        //
+        //     food scale   gut 0.0 yield   intake/cost   survived
+        //            1.0            30.0         0.706   no
+        //            2.0            60.0         0.783   no
+        //            3.0            90.0         0.796   no
+        //            4.0           120.0         0.946   yes
+        //
+        // **4x, and it is a restoration rather than a bar.** The filter
+        // reads 0.25 at neutral against either end of the axis, so 4x face
+        // value hands a neutral gut exactly the 120 every ant got before S5
+        // existed -- 0.946 is the identical ratio the matched gut had at
+        // the old scale. `ascii` confirms it: the colony is bit-identical
+        // to `main` at 12,000 frames (76 organisms, moves 5040, pickups
+        // 1340, deliveries 143, reach [689, 22, 8, 2, 0, 0, 0, 0]). The
+        // only line that moves is the `food stock` census, which reads face
+        // values and so reads 4x -- no animal extracts any more than it did.
+        //
+        // Not chosen higher, deliberately: above 4x the shipped ant would
+        // be *richer* than it is today, and a richer floor is the sit-still
+        // attractor the owner's "I don't want ants sitting in one spot
+        // eating fallen leaves" is about. Specialising is what pays now --
+        // a gut at -1.0 draws 480 from a leaf against this ant's 120 --
+        // which is the trade S5 exists to create.
+        traits: (0.0,),
+        // Read by nothing until S6. Authored here so the width and the
+        // ancestral value it widens cannot drift apart in separate
+        // commits -- see `CreatureDef::trait_variance`.
+        trait_variance: (0.15,),
+
+        // **A living nestmate counts as ground.** Footing only, never
+        // passability -- two ants still cannot walk through each other --
+        // so an ant walks *over* a nestmate the way it walks over terrain.
+        //
+        // This is the deliberate re-test dead ends 775/829 asked for.
+        // `forage_probe seeds=8 frames=24000`, both arms from **one** binary
+        // (`climb=`, so no rebuild sits between them), medians over 8 seeds:
+        //
+        //                     spacing 2          spacing 4 (COLONY_ANT_SPACING)
+        //                    off      on         off       on
+        //     round trips   18.5    272.5        50.0    161.0
+        //     deepest       23.5     82.5        46.0     84.0
+        //     >=32 bucket      0     25.0         4.5     17.5
+        //     >=64 bucket      0      6.5           0      4.5
+        //     blocked/moves 0.538    0.060       0.311    0.033
+        //     deliveries     3.0     10.5         6.5      6.0
+        //
+        // **Read the right column.** The left one is the historical probe
+        // scene, which plants 55 ants **2 cells apart** -- shoulder to
+        // shoulder for a two-cell body, which is precisely the arrangement
+        // dead ends 775/829 record as gridlock, and the reason
+        // `COLONY_ANT_SPACING` is 4. Nobody chose it as a jam; it simply
+        // was one, so that scene overstates the rule by crediting it with
+        // undoing a jam no founded colony is in. Spacing alone, with this
+        // flag off, already takes deepest 23.5 -> 46 and the >=32 bucket
+        // 0 -> 4.5, which is most of what the first measurement of this
+        // flag was credited with.
+        //
+        // It earns its place anyway, on the right column: at the spacing a
+        // real colony is founded at, reach still roughly doubles and the
+        // >=32 bucket still nearly quadruples, while **deliveries hold** --
+        // 6.5 against 6.0 on a per-seed spread of 0-49, which is the work
+        // package's stated success condition. Blocked moves fall from about
+        // one in three to one in thirty.
+        //
+        // **The one number that does not fit, stated rather than argued
+        // away:** on `ascii`'s foraging scene -- one seed, 12,000 frames --
+        // deliveries fall 643 -> 270 while range does not move at all
+        // (deepest 19 -> 19, >=32 stays 0) and falls run 968 -> 1,783. That
+        // is a single sample from a distribution this repo knows is wide,
+        // and every multi-seed instrument disagrees with it; but it is the
+        // gated scene, and the leading hypothesis for it -- that climbing
+        // on uneven ground costs carried food to falls -- is untested.
+        //
+        // **It is that scene, though, and not `ascii`.** Its sibling, the
+        // double-bridge scene, is real terrain at the same spacing and gains
+        // enormously on the same paired run: forage trips 22 -> 233, deepest
+        // 16 -> 74, the >=32 bucket 0 -> 21 and >=64 0 -> 5, blocked moves
+        // 24,764 -> 4,264 of a similar total, and **pickups 41 -> 218** --
+        // food actually found, not merely walked past. So the foraging
+        // loop is the outlier among colony scenes rather than the rule, and
+        // whatever is happening there is specific to it.
+        //
+        // Two more costs from the same sweep, neither hidden. The excavation
+        // scene digs **less**: 1,064 -> 726 cells of soil, on *fewer* blocked
+        // moves (13,965 -> 5,137) -- an ant that can climb a nestmate has an
+        // alternative to digging past one. And the double bridge's summed
+        // channel B on the short route falls 28.42 -> 2.00: a colony spread
+        // over a much wider area lays a thinner trail per cell. That scene
+        // already carries a note that route selection is not demonstrated,
+        // so nothing gates on it, but a trail model that wants concentration
+        // should know this rule dilutes it.
+        //
+        // The reach gain was checked for the obvious way it could be fake:
+        // ants climbing *each other* into the sky would move the depth
+        // metric without ranging anywhere.
+        // `a_climbing_ant_is_never_its_own_foothold` is the guard that keeps
+        // it honest -- an animal's own tail is permanently in its head's
+        // neighbourhood, so `self` must be excluded or every ant becomes its
+        // own ladder.
+        //
+        // The look is the owner's, not this comment's: on a blind A/B of the
+        // jammed crowd the owner picked this arm (card
+        // 20260823T164147144Z-e1ef72).
+        //
+        // **The founded colony has since been put to him twice more, and he
+        // cannot tell the arms apart.** Both showed the colony at
+        // COLONY_ANT_SPACING, where there is no jam to dissolve, and both
+        // came back indifferent rather than against: "Pretty similar"
+        // (20260823T180052569Z-c73d21, 24-frame sequences) and "No major
+        // difference" (20260823T233741804Z-31974a, 20 frames on seed=12, a
+        // colony dug into a hilltop, arms differing by ~140 cells a frame so
+        // the knob demonstrably fired). Indifference is not a vote to flip
+        // this line -- the multi-seed numbers decide it and they land it on
+        // -- but it does close the question by eye, so **do not post a
+        // fourth card asking it**. The third was posted only because its
+        // author had read the owner's "need an animation to tell" on an
+        // earlier card without checking whether anyone had already answered
+        // it: a verdict is not a standing instruction, and the queue is
+        // shared.
+        climbs_over_kin: true,
+
+        nest: "nest",
+
+        // Against Material::penetration_resistance, the pattern roots
+        // already use rather than a material-name whitelist. 1.0 chews
+        // soil (0.8) and nothing harder -- not sand (1.4), not gravel
+        // (3.5), not stone. So a colony excavates its chamber out of soil
+        // and is stopped by rock, which is the behaviour worth having and
+        // it comes from two numbers rather than from a rule.
+        dig_force: 1.0,
+
+        // Ticks over which nest scent fades to nothing.
+        //
+        // **3000, not 600, and the short value silently deleted homing.**
+        // The gradient only extends as far as an ant with nest memory
+        // left can walk, so at 600 ticks channel A stopped well short of
+        // the food -- measured at exactly 0 in the food third of the
+        // scene, while channel B piled up to 4,293 there. Carriers were
+        // arriving, picking food up and then milling on the spot, because
+        // at the one place they needed a signal pointing home there was
+        // none. 31 pickups, 0 deliveries.
+        //
+        // It has to exceed the *travel* time to the far side of the
+        // foraging range, not the round trip: an ant lays this outbound.
+        nest_memory: 3000,
+
+        // Measured, not assumed: pheromone.rs's trail_following_sweep puts
+        // on-trail tracking at 0.817 for 6, against 0.755 at 4, 0.743 at 8
+        // and 0.727 at 10.
+        sensor_offset: 6,
+
+        // The authored brain. Everything not listed here is 0.0, which
+        // under brain::W_EPS means "no connection", and the hidden layer
+        // starts entirely silent.
+        instincts: [
+            // -- steering --------------------------------------------
+            // Follow the food trail, and follow the nest scent. A single
+            // layer cannot express "B when empty-handed, A when laden" as
+            // a product -- that conditionality is exactly what the hidden
+            // layer is for, and it is fine for generation zero to
+            // approximate it additively: food trails exist where food is
+            // and nest scent where the nest is, so in practice the two
+            // gains rarely compete for the same ant in the same place. If
+            // playtesting shows this milling, the honest fallback is one
+            // *authored* hidden unit implementing the gate, written here
+            // like any other weights -- not a special case in code.
+            // **Both direct channel-to-turn gains are gone**, replaced by
+            // the gated pairs in `hidden_wiring` below. Additively, a laden
+            // ant still smelled the food trail it was itself laying and
+            // walked away from home: 28 pickups, 28 ants still carrying at
+            // the end, mean position x=208 against a nest at x<120. The
+            // report predicted this exactly and named the fix.
+            // (PheroBLateral, Turn, ...) -- now via hidden units 2 and 3
+            // (PheroALateral, Turn, ...) -- now via hidden units 0 and 1
+            // Flee heat. The worm's thermotaxis, kept, because it is the
+            // same animal problem and it costs one connection.
+            (TempAboveAmb, Turn, -0.8),
+
+            // -- going anywhere at all -------------------------------
+            // 2.0, not 0.7. squash() is what makes this a measurement
+            // rather than a taste: a gain of 0.7 becomes P(move) = 0.35,
+            // so an ant steps about once every 17 frames and a colony
+            // takes thousands of frames to cross its own scene. Measured
+            // at 0.7: 3634 moves and *zero* food found in 2000 frames.
+            // 2.0 gives P(move) = 0.67.
+            // Baseline restlessness. Dropping this to 1.0 to leave the
+            // gradient more room was tried and cost more than it bought:
+            // an empty ant with no trail to read runs at P = 0.50 instead
+            // of 0.67, and food discovery -- which is a *search*, and
+            // depends on covering ground -- fell to a single pickup in
+            // 12,000 frames. The gradient gets its authority from the
+            // hidden gain below instead, which only applies when there is
+            // actually a gradient to read.
+            (Bias, Move, 2.0),
+            // Stop when there is food to deal with.
+            // -1.5, not -0.8: against the Bias of 2.0 this leaves P(move)
+            // at 0.33 beside food rather than 0.55, so an ant lingers long
+            // enough to actually pick something up instead of wandering
+            // off. Not lower -- at -2.0 and beyond it stops dead and cannot
+            // leave with its cargo.
+            (FoodAdjacent, Move, -1.5),
+            // **Negative feedback, and the colony ossifies without it**
+            // (P-12): more evaporation does not substitute. A nonzero gain
+            // here is load-bearing, and it is the first thing to check if
+            // trails ever stop adapting.
+            (Crowding, Move, -0.3),
+
+            // -- what gets laid down ---------------------------------
+            // Laden ants lay the food trail; that is what makes a
+            // discovered patch recruit.
+            // 2.5 and 2.0, not 0.9 and 0.3. squash() again: a gain of 0.3
+            // deposits 11 of 255 per move, which evaporates inside 25
+            // passes, so a trail only exists where many ants happen to
+            // cross the same cell within a couple of seconds. Measured at
+            // the old values: total channel A over the *whole world* was
+            // 164 after 22,138 ant-moves -- a trail that was, for every
+            // practical purpose, not there.
+            (Carrying, EmitB, 2.5),
+            // Everyone leaks nest scent. Scaled in code by how recently
+            // this ant touched the nest, which is what turns a uniform
+            // emission into a gradient that points home.
+            (Bias, EmitA, 2.0),
+
+            // -- the verbs -------------------------------------------
+            // **A standing drive to dig, and its absence was a hole in the
+            // authored brain rather than in the code.** With `FoodAdjacent`
+            // as the only route to this output, an ant facing a bank of
+            // soil computed a dig urge of exactly zero: the verb was
+            // implemented, reachable, tested -- and never once fired,
+            // measured at 0 digs against 19,114 moves and 27,928 blocked
+            // ticks, a colony standing at a soil face doing nothing at all.
+            // The picture of it looked like ants milling by a wall, which
+            // is also what a broken dig would look like.
+            //
+            // Ants dig. It does not need a reason in the world; it needs a
+            // reason in the animal.
+            (Bias, Dig, 0.4),
+            (FoodAdjacent, Dig, 0.8),
+            // **Feeding, authored at the weights it inherited from Dig.**
+            // Until the split these two lines *were* the dig lines: one
+            // gene decided both excavating and eating, so §13d's
+            // `(Bias, Dig, 0.4)` -- added because ants never dug -- also
+            // raised the baseline eating probability, and nothing could
+            // tell a burrower from a grazer because there was no gene that
+            // distinguished them. Same numbers on purpose: generation zero
+            // behaves exactly as it did, and evolution starts from the hand
+            // tuning rather than from a hole.
+            (Bias, Feed, 0.4),
+            (FoodAdjacent, Feed, 0.8),
+            (AtNest, Drop, 0.9),
+            // Drop what you are carrying only when you have arrived; an
+            // ant that drops at random is an ant that builds walls in the
+            // middle of nowhere. Carrying alone must not be enough.
+            (Carrying, Drop, 0.2),
+        ],
+
+        // **The gate a single layer cannot express**, authored as weights
+        // rather than special-cased in code (report §4c's stated fallback).
+        //
+        // These four units were first wired to gate *steering* -- follow B
+        // empty-handed, A when laden -- and gating worked while the signal
+        // did not: on flat ground both lateral sensors sit in open air, so
+        // the thing being gated was identically zero (report §13b). They
+        // now gate the **run** instead, on the along-heading gradient,
+        // which is what a surface-dweller can actually read.
+        //
+        // A single sigmoid cannot AND a *signed* signal with a gate --
+        // saturate it and it fires on the signal alone. What works is a
+        // **symmetric pair** per channel: two units sharing a gate, with
+        // opposite polarity on the signal, wired to the output with
+        // opposite signs. Ungated, both saturate to the same value and
+        // cancel exactly; gated, they swing apart and reinforce. Worked
+        // through for pair 0/1, with squash(x) = x/(1+|x|):
+        //
+        //   not carrying, A_along  0   : both squash(-5) = -0.833 ->  0.000
+        //   carrying,     A_along  0   : both squash( 0) =  0.000 ->  0.000
+        //   carrying,     A_along +0.5 : +0.750 and -0.750         -> +1.500
+        //   carrying,     A_along -0.5 : -0.750 and +0.750         -> -1.500
+        //
+        // So a laden ant runs while the nest scent is strengthening ahead
+        // of it and tumbles when it is not. Pair 2/3 is the same with the
+        // gate inverted, so an empty ant runs up the food trail.
+        // **Gate offsets of 30, and the size is the whole point.** A
+        // symmetric pair cancels *exactly* only when both units sit at the
+        // same point on the curve, so an ungated pair always leaks a
+        // little of the signal it is supposed to be ignoring -- and a
+        // little, applied every tick for thousands of ticks, is not
+        // little. At an offset of 5 the leak was 0.27 and empty ants
+        // clustered on the nest immediately; at 12 it was 0.09 and the
+        // colony still collapsed back onto the nest over 12,000 frames,
+        // visible as channel A in the middle third falling from 8,667 to
+        // 798 as the ants retreated. At 30 both units sit at -0.967 and
+        // -0.971 and the leak is 0.004, while the *gated* swing is
+        // unchanged at 1.5 -- deep saturation costs the gate nothing and
+        // buys the cancellation.
+        hidden_wiring: [
+            // units 0,1 -- channel A along the heading, gated ON carrying
+            (Bias,        0, -30.0),
+            (Carrying,    0,  30.0),
+            (PheroAAlong, 0,   6.0),
+            (Bias,        1, -30.0),
+            (Carrying,    1,  30.0),
+            (PheroAAlong, 1,  -6.0),
+            // units 2,3 -- channel B along the heading, gated OFF carrying
+            (Carrying,    2, -30.0),
+            (PheroBAlong, 2,   6.0),
+            (Carrying,    3, -30.0),
+            (PheroBAlong, 3,  -6.0),
+        ],
+        // 2.5 against a baseline of 2.0, so the gated pair can drive the
+        // run probability the whole way to zero rather than merely dent
+        // it: a laden ant heading away from the nest computes
+        // squash(2.0 - 3.75) < 0, clamps to P(move) = 0 and does nothing
+        // but tumble until it is pointed somewhere better, while one
+        // heading home runs at 0.84. That ratio is the homing mechanism.
+        hidden_outputs: [
+            (0, Move,  2.5),
+            (1, Move, -2.5),
+            (2, Move,  2.5),
+            (3, Move, -2.5),
+        ],
+    )),
+)

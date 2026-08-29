@@ -2069,6 +2069,30 @@ const EMBEDDED: &[&str] = &[
     include_str!("../../assets/materials/flower.ron"),
     include_str!("../../assets/materials/fruit.ron"),
     include_str!("../../assets/materials/windfall.ron"),
+    // **Appended after the organ package above**, by the trunk-first
+    // tiebreak this list already states twice: those were on `main` while
+    // these were on a branch, so they keep the lower ids and these take the
+    // ones after. Nothing in either group is addressed by number.
+    // **Probe materials for the creature-appearance measurement**, appended
+    // at the end for the reason stated four times above: an entry's id is
+    // its position in this list, so inserting anywhere else renumbers every
+    // material after it at runtime rather than in a test.
+    //
+    // Nothing in the world is made of these. They exist so
+    // `examples/creature_look.rs` can put the *same* body shape on screen at
+    // three luminances and measure which of extent and palette actually
+    // moves a small body's readability -- see
+    // `Reports/creature-appearance-design.md`. Both are addressed by name.
+    include_str!("../../assets/materials/chitin_mid.ron"),
+    include_str!("../../assets/materials/chitin_pale.ron"),
+    // The candidate body plans' materials. Each is `ant.ron` with its name
+    // changed and **nothing else** -- `plant_creature_seed` looks a
+    // species' material up by the species' own name, so a candidate body
+    // needs a material of that name even when the point of the comparison
+    // is that the palette does not move.
+    include_str!("../../assets/materials/ant_long.ron"),
+    include_str!("../../assets/materials/ant_block.ron"),
+    include_str!("../../assets/materials/ant_wide.ron"),
 ];
 
 /// Where the loader looks for material files, relative to the working directory.
