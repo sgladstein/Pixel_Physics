@@ -212,7 +212,10 @@ Suggested order, and the reason for it:
    the ≤4 ms amortised target `world-scale-handoff.md` records as the one it
    missed. Do not do this without the content scaling: at unchanged content
    it coarsens the shade.
-3. **The gnome**, because he is the ruler everything else is judged against.
+3. **The gnome — DONE**, and doing him first was right for a reason that
+   was not the stated one. He was picked because he is the ruler everything
+   else is judged against; what he actually settled is the *mechanism*. See
+   the section below.
 4. **Plants and creatures.** **The owner has settled the hard half of this:
    *"growth rate can be slower that is fine"* (2026-08-29).** That is a real
    simplification — a tree twice as tall in cells, built at the same cells
@@ -305,6 +308,86 @@ The residual does not reach zero and should not: column `x` maps to column
 `round(kx)`, and `column::strata_offset` folds its bands on a hardcoded
 130-cell wavelength `scaled` cannot reach. 1-2 rows against 17-62 is the
 floor, not a defect.
+
+
+## The gnome, done: and a tuning struct is the unit of this work
+
+**A subsystem's cell-scale problem is not a list of sites. It is one
+classified `scaled()` per tuning struct, plus a handful of true one-offs.**
+That is the useful shape, and the gnome is where it became visible.
+
+`World::cell_scale` now carries the factor, set once at generation from
+`WorldgenParams::cell_scale`. It is on the world rather than on the worldgen
+params because most of what needs it is not worldgen — the gnome's body, a
+blast radius, an internode — and those files hold a `&World` and have no
+reason to know what a `WorldgenParams` is.
+
+**His body was the half that was expected.** `Player` carries its own `w`/`h`
+and the twenty-odd rules that read `PLAYER_WIDTH`/`PLAYER_HEIGHT` go through
+it. The sprite walks the cells he occupies and samples the 7x14 table
+nearest-neighbour, so he is the right size at any scale with no new art.
+
+**His motion was the half that was not.** `Tuning` holds `gravity`,
+`run_max`, `jump_impulse`, `step_up`, `dig_radius`, `wade_rows` — every one a
+length or a speed in cells. Scaled in body alone he would have been the right
+size moving at half the physical speed and jumping half as high: right in a
+screenshot, wrong in the hand, which is the failure this project's ethos
+section is about. `Tuning::scaled(k)` sorts its 27 fields into **the same
+four classes** as `WorldgenParams::scaled` sorts its 46.
+
+That repetition is the finding. The "261 cell-valued sites" figure counted
+*mentions*; the work is structured far better than that number suggests, and
+the next subsystems should be approached by finding their tuning struct
+rather than by grepping for lengths.
+
+**The arithmetic is checkable, which is what makes the classification more
+than taste.** Jump height is `v²/2g`; scaling `jump_impulse` and `gravity`
+both by `k` gives `(kv)²/(2kg) = k·v²/2g` — `k` times the cells, the *same
+physical height*, reached in `v/g = kv/kg`, the same number of ticks. The
+trap of the set is `buoyancy`: it reads like an acceleration and its own doc
+calls it one, but it is stated *as a multiple of `gravity`*, so `gravity`
+scaling already carries it and scaling it again double-counts. Same shape as
+`strata_tilt` in the worldgen struct.
+
+### Two guards were blind before one bit
+
+Worth recording in full, because both blindnesses are ones this repo will
+meet again.
+
+- **A drop onto flat stone passed** with `rect_free`'s wade line, the grip
+  rows and `Bodies::near`'s window each put back to the unscaled constant. A
+  plain fall never asks about any of them.
+- **A convergence assertion between 2x and 4x passed** with `step_up`
+  unscaled — because the ledge is 6 cells at 2x and 12 at 4x against an
+  unchanged 4-cell step, so he is stuck at *both* and the two fine runs agree
+  beautifully with each other while diverging from 1x. **A quantity that does
+  not scale at all can make the fine arms agree**, which is the specific way
+  a convergence test lies.
+
+What ships makes him travel — fall, run, step a ledge, wade two drifts — and
+asserts a coarse-vs-fine bound *and* convergence. Twelve faults injected one
+at a time, it catches nine; the three it misses (grip rows, the body window,
+`wade_rows`) are **missing scene rather than weak assertions**, and the test
+says which scene element each would need.
+
+The 1x-2x divergence is 2.80 cells of ground over a 232-unit run and 2x-4x is
+0.25. The first number read as a scaling bug until the third resolution was
+measured: the disagreement collapses as the grid refines, which is
+convergence to a continuum limit and not a quantity left behind.
+
+### The suite caught a real bug, through somebody else's control
+
+`Tuning::scaled`'s `cells()` helper floored counts at 1 — so
+`shoulder_grains: 0` became 1 at every scale **including 1.0**. In that struct
+a zero means *off*: it is the old hard veto, a different rule rather than a
+smaller number. A world nobody had rescaled quietly started letting the gnome
+shoulder past a grain that should have stopped him.
+
+`a_stray_grain_at_chest_height_is_not_a_wall` failed — and specifically on
+its *control* arm, the one an earlier author added so the test could not pass
+for the wrong reason. Nothing else in 1,011 tests sets a knob here to zero.
+**`scaled(1.0)` must be the identity**, asserted for `WorldgenParams` and not,
+until now, for `Tuning`.
 
 
 ## Instruments
