@@ -9115,12 +9115,26 @@ The night factor belongs on income only -- see NIGHT_INCOME_FLOOR"
     /// rather than by nothing.
     ///
     /// **This is measured, and it is what two of the four mutation operators
-    /// run into.** `fate_viability base=tree op=recondition` scored **39 of 40
-    /// mutants silent**: changing a rule's `when` vacates its old slot, the
-    /// species table refills it with the original, and the stand comes out
-    /// identical. `delete` has the same shape by construction. The consequence
-    /// for the programme is that a lineage gains and adjusts behaviours but
-    /// never loses one.
+    /// run into.** `fate_viability base=tree op=recondition` scores **39 of 40
+    /// mutants silent**, and `base=herb op=delete` **21 of 40** — among them
+    /// every deletion of `GrowingTip.Grew`, the rule the whole plant grows by.
+    ///
+    /// **Which layer absorbs the loss differs between the harness and the
+    /// engine, and the distinction matters.** `fate_viability` registers each
+    /// mutated table as its own species and plants that, so there the genome
+    /// and the species table are the *same* mutated table and the layer that
+    /// refills is `builtin_fate` — which is why herb's effective deletions are
+    /// exactly its two `Ripe` rules, the slots `builtin_fate` answers `None`
+    /// for. In the live engine a seed's genome is mutated and its species file
+    /// is not, so the species table refills first, with the original rule.
+    ///
+    /// **So the harness's silence figures are a lower bound on the engine's.**
+    /// A live lineage has both layers behind it where a harness variant has
+    /// only one, and the deletions the harness scores as effective — the organ
+    /// clock — are exactly the ones a real species table would still answer.
+    /// The consequence for the programme is the same either way, and stronger
+    /// in the engine: a lineage gains and adjusts behaviours but never loses
+    /// one.
     ///
     /// **It asserts on `herb`, not `tree`, and that is the whole design of
     /// it.** The first version of this guard used `tree` and was **blind**:
