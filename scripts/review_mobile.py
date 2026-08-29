@@ -100,6 +100,32 @@ def board_fixture(root: Path, n: int) -> None:
             "created_at": rl.utc_now(), "origin": {"branch": "main"}})
 
 
+# Undo the fix in CSS only: `#rail` back to one scroller, the actions back to
+# flowing after the board list. This is what the sidebar was when the owner
+# reported the button missing.
+SABOTAGE = """
+<style id="sabotage">
+  #rail { display: block; overflow-y: auto; }
+  #rail-scroll { overflow: visible; min-height: auto; }
+  #rail-actions { border-top: 0; margin-top: 0; }
+</style>
+"""
+
+
+def sabotage_page(src: Path, dst: Path) -> Path:
+    """A copy of the current page with the rail fix disabled.
+
+    The "can this check fail" assertion used to render `git HEAD`'s page, which
+    works exactly until the fix lands -- then the baseline IS the fix, the
+    assertion goes green for the wrong reason, and one commit later nobody
+    remembers why. Breaking the mechanism on purpose keeps the question
+    answerable forever, and it is the repo's own rule: break the replacement
+    and confirm the guard notices.
+    """
+    dst.write_text(src.read_text(encoding="utf-8") + SABOTAGE, encoding="utf-8")
+    return dst
+
+
 def real_board_count() -> int:
     """What the owner's queue actually holds, for headroom reporting only.
 
@@ -127,6 +153,9 @@ def main() -> int:
         return 0
 
     os.environ[rl.NO_SYNC_ENV] = "1"
+    # Same reason as the selftest: notify defaults on, and the fixtures
+    # would each leave a detached watcher polling a deleted temp queue.
+    os.environ.pop(rl.SOCKET_ENV, None)
     real = real_board_count()
     base = Path(tempfile.mkdtemp(prefix="review-mobile-"))
     out = Path(args.out) if args.out else base / "shots"
@@ -159,7 +188,8 @@ def main() -> int:
         servers = [serve(root, HERE / "review_page.html", 7471),
                    serve(root, old_page, 7472),
                    serve(rail, HERE / "review_page.html", 7473),
-                   serve(rail, old_page, 7474)]
+                   serve(rail, sabotage_page(HERE / "review_page.html",
+                                             base / "sabotaged.html"), 7474)]
         try:
             rc = subprocess.run(["node", str(HERE / "review_mobile.js"),
                                  "7471", "7472", "7473", "7474", str(out)]).returncode

@@ -266,7 +266,7 @@ const MIN_STRIKE_RADIUS: i32 = 6;
 /// How far past a blow's own radius its fractures run. Cracks reaching
 /// further than the damage is what lets a player work a fissure across a
 /// span rather than having to chew through it.
-const CRACK_REACH: i32 = 3;
+pub const CRACK_REACH: i32 = 3;
 
 /// Fractures scored per blow. Few enough to read as distinct fissures
 /// rather than a shatter pattern.
@@ -388,7 +388,12 @@ fn is_body_material(world: &World, x: i32, y: i32) -> bool {
 /// Plant` since architecture item 9 -- is the one this now agrees with, and
 /// that agreement is the point: a trunk is exactly as capable of being cut
 /// as a stone span is of being undercut.
-fn is_tool_target(world: &World, x: i32, y: i32) -> bool {
+///
+/// **Public since `player::bore_slice` needs it.** The bore's working face
+/// is "the nearest slab with something breakable in it", and asking that
+/// question with a second, separately-written predicate is how a preview
+/// starts disagreeing with the cut it previews.
+pub fn is_tool_target(world: &World, x: i32, y: i32) -> bool {
     let material = world.get(x, y).material;
     matches!(world.materials.kind(material), MaterialKind::Solid | MaterialKind::Plant) && material != material::BEDROCK
 }
@@ -1906,6 +1911,59 @@ pub fn mine_swept(world: &mut World, from: (i32, i32), to: (i32, i32), radius: i
             loosened.push((x, y));
         }
     }
+    finish_cut(world, &loosened, (cx, cy), radius, spoil_yield)
+}
+
+/// `mine`, cutting an axis-aligned **rectangle** rather than a disc or a
+/// capsule. Bounds are inclusive and may be given in either order.
+///
+/// # Why a rectangle exists beside the capsule
+///
+/// The capsule is the free-hand cut: point anywhere, take a round bite out
+/// of the near face. It makes tunnels of a sort, and the sort is a
+/// *worm-hole* -- the bore wanders wherever the cursor was, its walls are
+/// round, and how much clearance it leaves is something you find out by
+/// walking into it. The gnome's default dig is a rectangle for the reason
+/// `player::bore_rect` sets its size from `PLAYER_HEIGHT`: a passage cut to
+/// the shape of the thing that has to walk down it is a passage you can
+/// *see* is walkable before you cut it, and a corridor with flat walls and
+/// a flat floor reads as hewn rather than as gnawed.
+///
+/// The crack, pressure and disturbance feedback below is the capsule's,
+/// keyed on the rectangle's half-diagonal so a big square shakes more air
+/// than a small one -- the same relationship the capsule has to its radius.
+pub fn mine_rect(world: &mut World, a: (i32, i32), b: (i32, i32), spoil_yield: f32) -> usize {
+    let (lo_x, hi_x) = (a.0.min(b.0), a.0.max(b.0));
+    let (lo_y, hi_y) = (a.1.min(b.1), a.1.max(b.1));
+    let centre = ((lo_x + hi_x) / 2, (lo_y + hi_y) / 2);
+    // Half the shorter side, which is the largest disc the rectangle
+    // contains -- so a long corridor does not claim the crack reach of a
+    // blast just for being long.
+    let radius = (((hi_x - lo_x) / 2).min((hi_y - lo_y) / 2)).max(1);
+    let mut loosened = Vec::new();
+    for y in lo_y..=hi_y {
+        for x in lo_x..=hi_x {
+            // Same three questions the capsule asks, in the same order --
+            // see `mine_swept` for why living tissue is cut like anything
+            // else and why bedrock is not.
+            if !world.in_bounds(x, y) || !is_tool_target(world, x, y) {
+                continue;
+            }
+            shatter_to_rubble(world, x, y);
+            loosened.push((x, y));
+        }
+    }
+    finish_cut(world, &loosened, centre, radius, spoil_yield)
+}
+
+/// Everything a cut owes the world once its cells are rubble: cracks past
+/// the cut, the bracing the removed rock was providing, a shove of air, the
+/// failure licence, and the spoil thinning.
+///
+/// Shared by every shape of cut rather than copied per shape. The ordering
+/// is load-bearing and is documented inline; `thin_to_spoil` is last so
+/// everything above it sees the full bite as rubble.
+fn finish_cut(world: &mut World, loosened: &[(i32, i32)], (cx, cy): (i32, i32), radius: i32, spoil_yield: f32) -> usize {
     if loosened.is_empty() {
         return 0;
     }
@@ -1916,7 +1974,7 @@ pub fn mine_swept(world: &mut World, from: (i32, i32), to: (i32, i32), radius: i
     score_cracks(world, cx, cy, radius, radius + MINE_CRACK_REACH, MINE_CRACK_RAYS);
     // The rock around the cut stops being braced, which is what makes a
     // doorway's lintel notice the doorway.
-    for &(x, y) in &loosened {
+    for &(x, y) in loosened {
         super::structural::detach_exposed_neighbours(world, x, y);
         world.schedule_structural_check_around(x, y);
     }
@@ -1932,7 +1990,7 @@ pub fn mine_swept(world: &mut World, from: (i32, i32), to: (i32, i32), radius: i
     // when the thinning lived there, so moving it in here changes the
     // gnome's behaviour by nothing at all while giving the `D` key the
     // model it never had.
-    thin_to_spoil(world, &loosened, spoil_yield)
+    thin_to_spoil(world, loosened, spoil_yield)
 }
 
 /// Keep a `spoil_yield` fraction of the freshly broken cells and let the
@@ -2004,7 +2062,14 @@ const MINE_CRACK_RAYS: u32 = 3;
 /// react, far below a blow.
 const MINE_PRESSURE: f32 = 0.4;
 
-pub fn strike(world: &mut World, cx: i32, cy: i32, radius: i32, force: f32) {
+/// Returns **how many cells the blow actually acted on** — pulverized plus
+/// loosened. Not decorative: a swing at open air, a swing that lands on
+/// bedrock and a swing that calves a slab are three different events that
+/// look identical from the call site, and `CLAUDE.md`'s rule about pairing
+/// an "it fired" counter with an effect counter from the far side of the
+/// call is what this return value is. `player::smash` prints it; `App::
+/// strike` ignores it.
+pub fn strike(world: &mut World, cx: i32, cy: i32, radius: i32, force: f32) -> usize {
     // A blow has a floor, and the brush does not.
     //
     // Reported from play as "striking a cliff does nothing", with the
@@ -2042,6 +2107,7 @@ pub fn strike(world: &mut World, cx: i32, cy: i32, radius: i32, force: f32) {
     let core = (radius / 3).max(1);
     let chip = (radius * 2 / 3).max(core + 1);
     let mut loosened = Vec::new();
+    let mut pulverized = 0;
     for dy in -chip..=chip {
         for dx in -chip..=chip {
             let (x, y) = (cx + dx, cy + dy);
@@ -2058,7 +2124,14 @@ pub fn strike(world: &mut World, cx: i32, cy: i32, radius: i32, force: f32) {
                 continue;
             }
             if d2 <= core * core {
+                // Counted by **what changed**, not by what was attempted:
+                // `shatter_to_rubble` declines a material with no
+                // `breaks_into` and leaves the cell exactly as it was, and
+                // a count that included the declines would report a blow
+                // on unbreakable rock as a hit.
+                let was = world.get(x, y).material;
                 shatter_to_rubble(world, x, y); // the bite
+                pulverized += usize::from(world.get(x, y).material != was);
             } else {
                 loosened.push((x, y));
             }
@@ -2094,6 +2167,7 @@ pub fn strike(world: &mut World, cx: i32, cy: i32, radius: i32, force: f32) {
     for &(x, y) in &loosened {
         world.schedule_structural_check_around(x, y);
     }
+    pulverized + loosened.len()
 }
 
 /// Break the loosened rock around a blast into chunks and throw them.
