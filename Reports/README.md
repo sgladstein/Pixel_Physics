@@ -465,7 +465,11 @@ drift that two of these documents still reflect.**
   mechanism explains it: `fate_for` falls back **per query**, so a slot a
   mutation vacates is refilled by the species table or the built-in rule, and
   first-match-wins shadows an insert that lands below an existing rule.
-  `retarget` is the only operator that changes a rule *in place*. Also: the
+  `retarget` is the only operator that changes a rule *in place*. **Its §6 is
+  the control that makes that a finding rather than a scene report**: the two
+  extreme cells re-run at another world seed and 2.5x the frame budget, with
+  the base stand moving 79 -> 206 seeds and `delete` not shifting by one
+  mutant. Also: the
   harness had been measuring a **lookalike** of the operator, not
   `FateGenome`'s own — six replacement cell types on the woody base where the
   engine draws from eight — so the recorded 92% was about a mutation nothing
