@@ -1,0 +1,52 @@
+{
+  "id": "20260829T181457314Z-e8ae41",
+  "created": "2026-08-29T18:14:57Z",
+  "board": "worldgen",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/worldgen-revamp-plan-dot67g",
+    "commit": "41f0597",
+    "agent": null,
+    "session_id": "2cb39797-d076-5699-b8bf-4494224deffe",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Is the bedding too regular?",
+  "question": "The rock now reads as beds. Is the banding right, or does it read as stripes on an awning? Say which way you would push it -- thicker units, fewer rocks per screen, less contrast between them.",
+  "context_md": "The one thing I could not settle by measurement. Giving the rock real contrast **exposed a defect the old flat palette was hiding**: every bedding plane in this world is exactly `strata_thickness` apart -- 8 to 12 cells, dead parallel, no exceptions -- so six distinct rocks came out as a layer cake on the first render.\n\nWhat is in these frames already softens that: a rock **unit** spans a couple of beds on average and how many is drawn per unit, so unit thickness varies while the bedding inside stays regular. The beds inside one unit still change tone, which is the fine banding you can see inside a thick pale band.\n\nThe two marker beds -- the rust ironstone rib and the black basalt sill -- are drawn per *bed* rather than per unit, on purpose: a marker you can follow is only worth anything if it is thin. About 3% and 1.5% of beds.\n\nFrames: arid, canyon, rolling, terraced, wetland, then the same five from a second camera.",
+  "kind": "frames",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "rock vocabulary, as it stands",
+      "files": [
+        "20260829T181457314Z-e8ae41/000-x2-on-arid-v4.png",
+        "20260829T181457314Z-e8ae41/001-x2-on-canyon-v4.png",
+        "20260829T181457314Z-e8ae41/002-x2-on-rolling-v4.png",
+        "20260829T181457314Z-e8ae41/003-x2-on-terraced-v4.png",
+        "20260829T181457314Z-e8ae41/004-x2-on-wetland-v4.png",
+        "20260829T181457314Z-e8ae41/005-x2-on-arid-v9.png",
+        "20260829T181457314Z-e8ae41/006-x2-on-canyon-v9.png",
+        "20260829T181457314Z-e8ae41/007-x2-on-rolling-v9.png",
+        "20260829T181457314Z-e8ae41/008-x2-on-terraced-v9.png",
+        "20260829T181457314Z-e8ae41/009-x2-on-wetland-v9.png"
+      ],
+      "caption": "a rock unit averages ~1.8 beds; markers are one bed",
+      "meta": {
+        "rocks in the set": 6,
+        "beds that are an ironstone rib": "3.0%",
+        "beds that are a basalt sill": "1.5%",
+        "bed thickness (cells)": "8-12 by preset",
+        "unit thickness (beds)": "0.6 to 3.1, warped"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
