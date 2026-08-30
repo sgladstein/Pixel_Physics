@@ -845,6 +845,18 @@ revamp rather than another round:
   camouflage), and that `pockets` and `boulders` both tested for grey stone by
   identity and so silently did nothing. Overturns the revamp plan's own
   demotion of rock: the case is strength, not colour.
+- [worldgen-drains-2026-08-29.md](worldgen-drains-2026-08-29.md) —
+  **Phase 0; shipped.** The pass conflicts that were deleting other passes'
+  output. Fixes R4-1 (`brows` taking the air `boulders` needed, recorded
+  2026-08-20 and live for nine days) — **boulders exist for the first time**,
+  3 cells across all presets to 777, median over 6 seeds at the shipped size —
+  and makes `talus` realise 2.5–3.5x more. Adds `scripts/worldgencheck.sh`, a
+  CI gate that fails when a pass writes nothing or appears only when another
+  is switched off, with a selftest that restores R4-1 and requires the gate to
+  *name* it. Withdraws its own `pockets`→`vaults` fix with a control, because
+  it makes overlapping cave systems' independent waterlines fire — that goes
+  to the cave lane. Corrects two errors in the revamp plan: `springs` was
+  never at zero, and the shipped world is 128x the small one, not 256x.
 
 - [worldgen-design.md](worldgen-design.md) — **direction agreed,
   implemented** (`src/worldgen/`). The M10 redesign: 2D play through 3D

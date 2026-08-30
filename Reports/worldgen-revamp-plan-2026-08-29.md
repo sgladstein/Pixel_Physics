@@ -150,7 +150,14 @@ This one is cheap to fix and is pure loss:
 |---|---|---|
 | talus | median volume **244.5** | **3 cells** |
 | boulders | **179** markers over 80 worlds | **3 seated** |
-| springs | a causal source, built | **0** across 4 presets x 6 seeds |
+
+**Correction, 2026-08-30.** This table originally carried a third row saying
+`springs` writes 0 cells. That was wrong: the quoted comment describes a
+*rejected* mechanism, not the shipped one, and this document's own ablation
+data contradicted it on the same page — canyon 177, terraced 94, rolling 43.
+Measured on the shipped world, springs runs at canyon 129, terraced 119,
+rolling 80, wetland 15. Springs are thin, not absent. The talus and boulder
+rows stand and have since been fixed (see below).
 
 `boulders` writes **0 cells on all six presets**. `wiki/the-world.md` gives
 boulders a paragraph — *"an event, not a decoration"*. The ablation names a
@@ -347,7 +354,8 @@ than a wider palette. That is the second case for W0, and it is a better case th
 
 1. **Judge at the shipped world size.** `examples/filmstrip.rs` builds
    **512x320** (lines 73–74) and its own source calls `scene=worldgen` *"the
-   thing worldgen is judged on"*. The app ships **8192x2560** — 256x the area.
+   thing worldgen is judged on"*. The app ships **8192x2560** — **128x** the area (16 wider by 8 deeper; an
+   earlier draft of this plan said 256x, which was arithmetic error).
    Features that fire at world scale read as dead there, and the reverse.
 2. **Measure a pass in pixels, not cells.** The gap is up to **100x**.
 3. **Gate the interference matrix.** `pass_ablation` already finds the eaters;
