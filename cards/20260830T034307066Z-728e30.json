@@ -1,0 +1,37 @@
+{
+  "id": "20260830T034307066Z-728e30",
+  "created": "2026-08-30T03:43:07Z",
+  "board": "fracture",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/gnome-mining-mechanic-obm7j4",
+    "commit": "e635078",
+    "agent": null,
+    "session_id": "7e6d7527-9f19-5475-bb25-535b32238ac6",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Eight hammer swings: the counts under the picture",
+  "question": "placeholder",
+  "context_md": "",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "",
+      "files": [
+        "20260830T034307066Z-728e30/000-hammer8.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
