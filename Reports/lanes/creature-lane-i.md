@@ -86,3 +86,28 @@ not, the reproduction economy is invisible whichever route is built.
 A note cannot name its own commit, so this deliberately names its parent
 rather than a SHA that goes stale the moment the note is amended (which is
 how it went wrong the first time here).
+
+## Correction, after landing
+
+**§5's recommendation was measured by another lane and it does not work.**
+`evolution-lab-gate-1-2026-08-30.md` §4.3 fitted the matched gut in a box
+that does flower and fruit: margin **−820 → +500**, births **zero** over
+48,000 frames, because every flower and attached fruit stands **22 to 40
+rows up a stem** and `windfall` — the ground form — never exceeds **1 cell**
+in 90,000 frames.
+
+That is the failure case §5 names in as many words, and it was named as a
+foraging problem rather than an economy one, which is what it turned out to
+be. But the report still *read* as "do this first", so the recommendation
+now carries the correction at its head, at the point of action, and in the
+"does not measure" list.
+
+**The instrument's share of it, which is the transferable part.**
+`stamp_probe` was built to correct `creature_probe`'s trap — pricing the
+best mouthful over the whole material table when the flower it quotes is in
+no world. It fixes that half and **inherits the other**: "standing in this
+world" is still not "reachable by an animal on the ground", and it counts a
+flower up a stem exactly as it counts a leaf on the floor. The margin model
+in §4.1 is unaffected — every arm it was fitted on ate off the floor — but
+the model does not contain reachability, and nothing in the harness said so
+until this. Recorded on the instrument's line and on its dead-ends entry.
