@@ -944,8 +944,10 @@ drift that two of these documents still reflect.**
   which is the blocker between "more cells" and "looks like an animal"; §6 is
   a `Ribbon` design for it, with the self-overlap problem that decides it.
   And the birth economy is **measured on `main` rather than inherited** — PR
-  #174 is open, not merged, so births are still 0 — with the resolution
-  interaction the lane owns: the stamp `body_energy * cells` multiplies by
+  #174 had not landed when this branch was cut (births 0) and **merged
+  mid-lane**, so §5b re-measures against it: births 0 -> **1**, richest bank
+  203 -> **500**, birth cost **1,040 unchanged** — it moves the ceiling and
+  not the bar — with the resolution interaction the lane owns: the stamp `body_energy * cells` multiplies by
   the cell ratio, taking a 36-cell body's birth cost to 17,360 against a bank
   ceiling of ~460. **Both verdicts are in and §5a carries them**: the size
   proof rates **5, "Yes"**, and the silhouette A/B comes back *"Both are

@@ -152,10 +152,14 @@ is not solved here.** §6 is the design.
 ## 5. The birth economy, measured on `main` rather than inherited
 
 The lane brief said *"PR #174 has since landed — ants now reach generation
-13"*. **It has not landed.** #174 is **open, not merged**, at the time of
-writing; `main` is at #173. So the standing economy is unchanged, and
-measured rather than quoted — `creature_probe frames=24000 ants=24
-terrain=world` on this branch's `main`:
+13"*. **It had not**, when this branch was cut: #174 was open, `main` was at
+#173, and the economy below is what was actually there. **It merged while
+this lane was running** (`0eaa125f`), and §5b re-measures against it rather
+than leaving the inherited claim standing either way — which is the point of
+measuring instead of quoting.
+
+`creature_probe frames=24000 ants=24 terrain=world`, on the `main` this
+branch was cut from:
 
 ```text
 economy: start_energy 200 body_energy 480 hunger_fraction 0.50
@@ -167,6 +171,31 @@ reproduction: births 0 ... deepest generation 0 ...
 **Zero births**, exactly as `creature-birth-grant-2026-08-30.md` and
 `creature-stamp-routes-2026-08-30.md` describe.
 
+## 5b. Re-measured after #174 landed, and the point survives
+
+`main` merged #174 at `0eaa125f` mid-lane, so this branch now carries it.
+Same command, same seed, on the merged tree:
+
+| | `main` at #173 | `main` with #174 |
+|---|---|---|
+| births | 0 | **1** |
+| richest bank | 203 | **500** |
+| birth cost | 1,040 | **1,040** |
+
+Which is exactly what #174's own account predicts for the outdoor world — *"0
+births to 1 against `origin/main` in a paired A/B"* — and it moves the
+**ceiling**, by keeping an animal eating at the nest while it is short of a
+child's price. **The bar does not move, and the bar is what resolution
+multiplies.** So §5's conclusion is unchanged by the merge: at `k=2` the same
+36-cell body still prices a child at 17,360 against a ceiling that has gone
+from 203 to 500.
+
+The mobility table in §4 was re-measured on the merged tree too, because
+`creature.rs` gained 345 lines in it and a number quoted from before a merge
+is a number about a tree nobody else has: `ant` 5.2% -> **4.9%**, `ant_long`
+4.6% -> **3.9%**, and `ant_wide` (47.7% / 50.5%) and `ant_block` (62.1% /
+72.8%) **identical to the digit**. The finding does not move.
+
 **What resolution does to that arithmetic is the part this lane owns.** The
 bar is `grant + body_energy * cells`, and `body_energy` is not scaled (§2),
 so the bar multiplies by the cell ratio:
@@ -176,11 +205,10 @@ so the bar multiplies by the cell ratio:
 | `ant` | 4 | 2,000 | 4.3x |
 | `ant_block` | 36 | 17,360 | 37.7x |
 
-Against 1,040 and 2.3x today. **#174 raises the ceiling and does not touch
-the bar**, so landing it does not change this: its mechanism is that an
-animal short of a child's price keeps eating at the nest, which moves the
-left-hand side. The right-hand side is the stamp, and at 2x density the stamp
-is the whole problem rather than half of it.
+Against 1,040 and 2.1x on the merged tree. **#174 raised the ceiling and did
+not touch the bar** — measured, in §5b — so its landing does not change this.
+The right-hand side is the stamp, and at 2x density the stamp is the whole
+problem rather than half of it.
 
 **The fix is the `1/R` on `body_energy` that §2 declines, taken *with* the
 materials.** `stamp_probe`'s `body_energy=` knob already moves
