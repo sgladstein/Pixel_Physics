@@ -1078,7 +1078,26 @@ fn fracture_with_impulse(
         // in debug and nonsense in release. `MAX_BODY_CELLS` caps the result
         // anyway, so anything at or above its exponent is the same draw.
         let exponent = (floor as usize + world.rng.below(rungs) as usize + size_bias as usize).min(usize::BITS as usize - 1);
-        let target = (1usize << exponent).min(MAX_BODY_CELLS);
+        // **Severed tissue is not drawn from the ladder at all: it comes off
+        // whole, and whatever breaks it breaks it later.**
+        //
+        // The ladder is a *fragmentation* model — it answers "this rock has
+        // shattered, into what sizes" — and running it at the instant of a
+        // cut answers a question nobody asked. A tree cut through its trunk
+        // came apart into seventy-odd pieces before it had moved a cell, and
+        // the owner read exactly that off a sheet of it: *"this is too much
+        // damage looks like it is being sliced all over instead of removed at
+        // the trunk... All of this should be physics based, not animation, so
+        // what is causing this effect that I am seeing."* Nothing was. The
+        // distribution was authored at the cut and no force in the world had
+        // produced it.
+        //
+        // So a severance takes the **whole connected component** and lets it
+        // fall as one thing. The pieces are still a distribution, but they
+        // now come from `impact_break` on the far side of the flight, sized
+        // and aimed by the collision that actually made them — which is the
+        // difference between a graded outcome and a pre-shattered one.
+        let target = if tissue { usize::MAX } else { (1usize << exponent).min(MAX_BODY_CELLS) };
         let fragment = take_fragment(world, &mut left, seed, target, diagonal);
         // The `world` argument is this branch's size-biased ladder: a wide
         // blow calves slabs where a tap chips.
