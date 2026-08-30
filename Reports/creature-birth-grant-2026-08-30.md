@@ -339,10 +339,38 @@ legibly.
 
 `render.rs` is not this lane's file and this is not a bug in it; it is an
 interaction nobody could have seen before there were any starvation deaths to
-look at. Posted to the owner's review queue
-(`20260830T031945607Z-7e0999`, board `creatures`) as a question rather than
-guessed at, because "make starved corpses lighter" trades directly against
-the worth ramp meaning what it says, and that is the owner's call.
+look at. It went to the owner's review queue
+(`20260830T031945607Z-7e0999`, board `creatures`) as a question rather than a
+guess, because "make starved corpses lighter" trades directly against the
+worth ramp meaning what it says.
+
+**The owner answered, and the answer is sharper than the question.** In full:
+
+> *"visually, I cannot tell anything from these. ants are mostly visible with
+> there motion"*
+
+So the finding is confirmed — and the **mechanism** is not the one this
+section first proposed. The problem is not primarily that a starved corpse is
+dark against dark soil. It is that **an ant is legible by moving, and dying is
+exactly the thing that stops it moving.** A corpse is invisible *because* it
+has stopped being the thing that made an ant findable in the first place.
+
+Two consequences, and the second is the one that changes what a fix has to be:
+
+* **A still contact sheet cannot answer any creature-legibility question**,
+  and this report's first card was the wrong instrument rather than a
+  well-posed question with a bad answer. Motion is the channel a creature is
+  read on, so a GIF is the minimum, and even that cannot help *here* —
+  see below. Recorded in `Reports/instruments.md`, because it generalises
+  past this lane to anything that renders creatures for judgement.
+* **A corpse cannot be made findable by motion, by definition**, so no
+  camera, horizon or sampling rate fixes this — it can only be fixed by
+  making a corpse differ in *colour* from a live ant. That is a real
+  argument for a render change and it is not this lane's to make: it
+  trades against the worth ramp, which is `render.rs`'s and the owner's.
+  **What is settled is that the ramp alone cannot carry it**, because the
+  poorest corpse in the world is the one this feature produces and the ramp
+  draws it at the end nearest the animal it came from.
 
 ---
 

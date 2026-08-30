@@ -41,14 +41,22 @@ the three routes that would close it:
    `examples/creature_probe.rs`, `wiki/ants.md`, and three `Reports/` files.
    I did **not** touch `brain.rs`, `examples/vision_probe.rs`,
    `examples/larder_probe.rs` or `examples/common/mod.rs`.
-4. **One thing needs the owner and is with them.** Starved corpses render at
-   the darkest end of the worth ramp — correctly, they are worth least — which
-   makes them invisible against dark ants on dark soil. So the one death the
-   world can now produce for itself is the one it draws least legibly, which
-   fails the ethos bar. Posted as review card `20260830T031945607Z-7e0999`
-   (board `creatures`) rather than guessed at, since the fix trades against
-   the worth ramp meaning what it says. **Collect that verdict** —
-   `python3 scripts/review.py inbox`.
+4. **The starvation death is not visible, and the owner has confirmed it.**
+   Card `20260830T031945607Z-7e0999` (board `creatures`), answered: *"visually,
+   I cannot tell anything from these. ants are mostly visible with there
+   motion"*. **The mechanism is not the one I first proposed.** It is not
+   mainly that a starved corpse is dark against dark soil — it is that **an ant
+   is legible by moving, and dying is exactly what stops it moving.** A corpse
+   is invisible because it stopped being the thing that made an ant findable.
+   Two consequences: a still contact sheet cannot answer *any*
+   creature-legibility question (now recorded in `Reports/instruments.md`, as
+   it generalises past this lane), and **a corpse cannot be made findable by
+   motion by definition** — so no camera, crop or sampling rate fixes it, and
+   it can only be fixed on colour. That is a `render.rs` call and a trade
+   against the worth ramp, so it is named here and not taken. What is settled
+   is that the ramp alone cannot carry it: the poorest corpse in the world is
+   the one this feature produces, and the ramp draws it nearest the animal it
+   came from.
 
 ## Interface changes another lane may trip over
 
