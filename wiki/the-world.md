@@ -1,6 +1,9 @@
 # The World
 
-*Current as of: 2026-08-29. Updated when worldgen started sowing four
+*Current as of: 2026-08-30. Updated when boulders started appearing in
+worlds at all — the paragraph below described them for weeks while every
+world had none, because an overhanging lip was being hung over the ground
+each one wanted. Previously updated when worldgen started sowing four
 woody species instead of one, again when grass joined them as a ground
 layer, again when the sky was doubled and the soil blanket deepened, and
 again when the world stopped being made of one rock.*
@@ -114,10 +117,13 @@ evenly; what it leaves behind is the hard parts. So some rock does not wear
 away: **tors, stacks and pinnacles** stand where the band they were cut
 from resisted while everything around them retreated. They run from
 knee-height lumps to monuments several times the gnome's height, with the
-small ones far commoner than the large — you will pass a dozen boulders for
-every spire. Their shape is inherited from the rock that made them: a
-resistant band gives blocky, square-shouldered stone, a softer one gives
-rounded whalebacks.
+small ones far commoner than the large. Their shape is inherited from the
+rock that made them: a resistant band gives blocky, square-shouldered stone,
+a softer one gives rounded whalebacks.
+
+Boulders are far rarer than tors, and rarer than this page used to say: a
+world sheds at most a handful of them, and a good many worlds shed none.
+Where one has come to rest it is worth walking over to.
 
 **But standing rock is a place you travel to, not a texture on the whole
 world.** Most country has none of it at all — mesas, benches and boulders,
