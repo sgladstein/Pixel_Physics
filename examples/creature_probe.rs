@@ -61,6 +61,27 @@ fn main() {
     // the fraction is the quantity the arithmetic is written in. Negative
     // means "leave the species file alone".
     let mut grant = -1.0f32;
+    // **Chain length, and the reason it is a knob rather than a species
+    // file.** Extent is the only measured lever on whether a creature can
+    // be found in the picture (`creature-appearance-design.md` §2: decoys
+    // fall 127 -> 15 -> 0 across 2, 9 and 16 cells), and since 2026-08-30 it
+    // is also the thing `idle_cost_per_cell` and `move_cost_per_cell` are
+    // charged against. Nothing could vary it in-process before, so the
+    // economics of a bigger body had never been measured at all -- the
+    // `ant_long` species file exists but is `include_str!`ed, which is the
+    // gotcha that has produced whole invalid sweeps here. 0 means "leave
+    // the species file alone".
+    let mut body = 0usize;
+    // **The two prices, per cell, so `body=` can be run against the bill it
+    // used to pay.** Without these a `body=6` run confounds two changes at
+    // once -- the body got bigger *and* it started paying for itself -- and
+    // `CLAUDE.md`'s rule about a sweep whose settings all fail the same way
+    // is precisely that a rider travelling with the mechanism is part of
+    // every data point. Setting `idle=0.016667` at `body=6` reproduces the
+    // pre-2026-08-30 total of 0.10 per tick, which is the control.
+    // Negative means "leave the species file alone".
+    let mut idle = -1.0f32;
+    let mut mv = -1.0f32;
     for arg in std::env::args().skip(1) {
         let Some((k, v)) = arg.split_once('=') else { continue };
         match k {
@@ -75,8 +96,11 @@ fn main() {
             "hunger" => hunger = v.parse().expect("hunger"),
             "mutation_rate" => mutation_rate = v.parse().expect("mutation_rate"),
             "grant" => grant = v.parse().expect("grant"),
+            "body" => body = v.parse().expect("body"),
+            "idle" => idle = v.parse().expect("idle"),
+            "move" => mv = v.parse().expect("move"),
             other => panic!(
-                "unknown arg {other:?}; known: frames, every, ants, terrain, seed, start_energy, body_energy, threshold, hunger, mutation_rate, grant"
+                "unknown arg {other:?}; known: frames, every, ants, terrain, seed, start_energy, body_energy, threshold, hunger, mutation_rate, grant, body, idle, move"
             ),
         }
     }
@@ -127,6 +151,15 @@ fn main() {
         if mutation_rate >= 0.0 {
             def.mutation_rate = mutation_rate;
         }
+        if body > 0 {
+            def.body = pixel_physics::sim::organism::BodyPlan::Chain(body as u8);
+        }
+        if idle >= 0.0 {
+            def.idle_cost_per_cell = idle;
+        }
+        if mv >= 0.0 {
+            def.move_cost_per_cell = mv;
+        }
         world.species.set_creature(species, def);
     }
     let def = world.species.get(species).creature.clone().expect("ant is a creature");
@@ -161,8 +194,17 @@ fn main() {
         .fold(0.0f32, f32::max);
     let ceiling = def.hunger_fraction * def.start_energy + best_mouthful;
     println!(
-        "creature probe: {frames} frames, reporting {ants} ants every {every} | terrain={} seed={seed:#x}",
-        if world_terrain { "world" } else { "slab" }
+        "creature probe: {frames} frames, reporting {ants} ants every {every} | terrain={} seed={seed:#x} body={} cells",
+        if world_terrain { "world" } else { "slab" },
+        def.body.len()
+    );
+    println!(
+        "  metabolism: idle {:.4}/cell x {} cells = {:.4} per tick, move {:.4}/cell = {:.4} per step",
+        def.idle_cost_per_cell,
+        def.body.len(),
+        def.idle_cost_per_cell * def.body.len() as f32,
+        def.move_cost_per_cell,
+        def.move_cost_per_cell * def.body.len() as f32
     );
     println!(
         "  economy: start_energy {:.0} body_energy {:.0} hunger_fraction {:.2} reproduce_threshold {:.0} mutation_rate {:.3} birth_grant {:.2} (= {:.0} energy)",

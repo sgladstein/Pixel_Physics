@@ -757,6 +757,19 @@ drift that two of these documents still reflect.**
   run-down into an early cull that settles (§4a). Sharpens
   `creature-reproduction-economics.md` §3.6 and corrects the direction
   `ant.ron`'s own comment stated.
+- [creature-body-extent-2026-08-30.md](creature-body-extent-2026-08-30.md) —
+  **built and landed 2026-08-30.** The body is priced per cell at last:
+  nothing in the cost path read `chain.len()`, so **E10's premise that
+  "per-cell metabolic cost already prices a longer body" was false** and a
+  longer body was strictly free — measured at a difference of *exactly zero*
+  by injecting the old behaviour back into this change's own guard. Also
+  ships `ShadeRule::Countershade`, the appearance report's §7 seam, off by
+  default. **The finding that reframes the extent lever**: at the shipped
+  seed and horizon **no chain above two cells leaves a living colony**, at
+  the old flat bill as much as the new one and on a flat slab as much as on
+  the world — so the collapse is upstream of both the pricing and the
+  palette, and the blind A/B `creature-appearance-design.md` §6 asks for is
+  held until it is understood. Prices the arms that report measured.
 - [creature-direction.md](creature-direction.md) — **direction agreed
   (2026-08-17).** Cell-chain ants, the caged brain, the heritable genome;
   decision record plus implementation plan.
