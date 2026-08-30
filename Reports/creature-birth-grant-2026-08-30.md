@@ -5,6 +5,17 @@
 the shipped ant still does not breed — **which is arithmetic rather than a
 shortfall, and is the finding this report exists for.**
 
+> **§6 is superseded, and §2's arithmetic is not.** Later on 2026-08-30 the
+> shipped ant bred, and none of the three routes §6 lists was needed:
+> `Reports/creature-gate0-births-2026-08-30.md`. Everything §2 derives is
+> confirmed exactly — the roof really is `hunger_fraction * start_energy` plus
+> **one** mouthful — but the "one" turned out to be a property of the *feeding
+> rule* rather than of the animal. An ant short of a child's price now keeps
+> eating, out on the route when the mouthful pays for the child alone and at
+> the nest for as long as the larder lasts, so the roof is the colony's stores
+> instead. Read §2 as the measurement it is and §6 as the conclusion that was
+> drawn from it before anyone questioned the rule underneath.
+
 Lane A of the 2026-08-30 creature program. Files:
 `src/sim/organism.rs`, `src/sim/creature.rs`, `assets/species/*.ron`,
 `examples/creature_probe.rs`, `wiki/ants.md`.

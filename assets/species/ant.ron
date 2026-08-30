@@ -248,6 +248,18 @@
         // for "the threshold must exceed what a newborn is *given*", and
         // the two were the same number only because a bud was handed a
         // full species budget. They are not the same number now.
+        //
+        // **Slot 0 stays at 0.0, and a session that works out it "should" be
+        // -1.0 has worked out something already tried.** A full plant
+        // specialist does clear Gate 0 outright -- generation 2 on two seeds
+        // where neutral gives generation 0 -- and it was built, measured and
+        // reverted the same day, because at -1.0 the matched filter pays a
+        // `food_class: +1` corpse exactly 0 and the ant stops seeing carrion
+        // at all. `a_starved_nestmates_corpse_is_still_dinner` is written to
+        // go red for precisely that, and carries the owner's verdict on
+        // review card 20260823T104411499Z-963f8d in as many words: *"An
+        // omnivore should be viable"*. Numbers, and the two conditions that
+        // would make it re-testable, in `Reports/dead-ends.md`.
         traits: (0.0, -0.2),
         // The width one birth may move the gut, and the grant. Authored so it and
         // the ancestral value it widens cannot drift apart in separate
@@ -280,17 +292,29 @@
         // matched filter. Measured 2026-08-30: **richest bank 567 at a
         // budget of 900, 219 at 200**, against a floor of 1,041.
         //
-        // **So the shipped ant does not breed, at any grant and at any
-        // budget, and this line cannot fix that** -- the earlier note here
-        // had it backwards when it said cutting the grant "does not also
-        // make breeding harder". Cutting `start_energy` lowers the ceiling
-        // (0.5 * S) faster than it lowers the cost, because the 960 stamp
-        // is invariant to it: bank-over-bar goes 0.30 at 900 to 0.21 at
-        // 200 to 0.16 at 90. Closing it needs the *stamp* term, not this
-        // one -- a child born at one cell that grows into its plan, or a
-        // gut specialised enough to draw 480 from a leaf. Full arithmetic,
-        // and why tuning this line is the trap rather than the fix, in
-        // `Reports/creature-birth-grant-2026-08-30.md`.
+        // **The ceiling paragraph above is history now, and this is what
+        // replaced it.** It said the most an ant can hold is "the hunger
+        // line plus one mouthful", and that was true of a rule rather than
+        // of an animal: `creature::act` stopped eating the instant it was
+        // over the satiety line and ferried everything after that to the
+        // nest. Since 2026-08-30 an animal that is short of a child's price
+        // keeps eating -- out on the route only when the mouthful in front
+        // of it finishes the job by itself, and **at the nest for as long as
+        // the larder lasts**. So the bank's roof is the colony's stores
+        // rather than one bite, which is what a colony's stores were always
+        // supposed to be for.
+        //
+        // **1100 survives that change unaltered, and it was checked rather
+        // than assumed.** The floor is still 1,041 and the larder ladder
+        // still clears 1,100 at this authored value and at the authored
+        // neutral gut: measured on the lab bed, 24,000 frames, with food
+        // lying on the ground for the colony to find, the peak bank reaches
+        // **1,601** and the colony reaches **generation 13**. So this line
+        // is not what Gate 0 was ever waiting on, and lowering it is not the
+        // fix -- see the entry above it, which is.
+        //
+        // Full arithmetic in `Reports/creature-birth-grant-2026-08-30.md`
+        // and `Reports/creature-gate0-births-2026-08-30.md`.
         reproduce_threshold: 1100.0,
         // Per live genome slot, per birth. 268 slots are live, so this is
         // about 2.7 point mutations per child -- enough that a lineage
