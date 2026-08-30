@@ -190,7 +190,7 @@ fn draw_help(frame: &mut [u8]) {
             // Dim what is behind rather than covering it, so the box stays
             // visible under the page and the page reads as an overlay.
             for c in 0..3 {
-                frame[i + c] = frame[i + c] / 4;
+                frame[i + c] /= 4;
             }
         }
     }
