@@ -135,7 +135,8 @@ fn main() {
         "control" => control(plant),
         "render" => render(frames, every),
         "pair" => pair(frames),
-        other => panic!("unknown mode {other:?}; known: census, control, render, pair"),
+        "turnover" => turnover(frames, every),
+        other => panic!("unknown mode {other:?}; known: census, control, render, pair, turnover"),
     }
 }
 
@@ -442,6 +443,80 @@ fn control(plant: usize) {
             println!("{:>18} {:>7} {:>7} {:>7} {:>8} {:>8}", r.arm, s.frame, s.free_cells[0], s.free_cells[2], s.world_free_cells, s.eats);
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// is it a store, or is it a flow?
+// ---------------------------------------------------------------------------
+
+/// **A standing count of ten cannot tell a granary of ten from ten cells
+/// permanently in transit**, and those are different answers to the gene
+/// question: the first is a store `store_in_body` could trade against, the
+/// second is a queue. So the tight band is tracked as a *set* of occupied
+/// positions and the entries and exits between samples are counted.
+///
+/// The pairing is deliberate (`CLAUDE.md`: pair every "it fired" counter
+/// with an effect counter from the far side of the call). `deliveries` is
+/// the near side — the verb ran. `entries` is the far side — a cell that
+/// was not in the larder now is. `exits` says what happened to it after.
+fn turnover(frames: usize, every: usize) {
+    let mut world = build_scene(SEED_BASE, true, Plant::None);
+    let dist = nest_distance(&world);
+    let bias = world
+        .species
+        .id_of("ant")
+        .and_then(|id| world.species.get(id).creature.as_ref().map(|d| d.traits[TRAIT_GUT_BIAS]))
+        .expect("ant species");
+
+    let occupied = |w: &World| -> std::collections::HashSet<(i32, i32)> {
+        let mut set = std::collections::HashSet::new();
+        for y in 0..H {
+            for x in 0..W {
+                if dist[(y * W + x) as usize] > BANDS[0] {
+                    continue;
+                }
+                let c = w.get(x, y);
+                if c.material != material::EMPTY && c.organism_id() == 0 && creature::diet_yield(w, c, bias) > creature::EAT_YIELD_THRESHOLD {
+                    set.insert((x, y));
+                }
+            }
+        }
+        set
+    };
+
+    println!("the tight band (<=2 of a nest cell) as a set, sampled every {every} frames.\n\
+              entries/exits are cumulative; `resident` is the cells present at BOTH this sample and the first nonempty one.\n");
+    println!("{:>7} {:>7} {:>9} {:>8} {:>9} {:>10} {:>9}", "frame", "cells", "entries", "exits", "resident", "deliveries", "eats");
+
+    let mut prev = occupied(&world);
+    let mut first: Option<std::collections::HashSet<(i32, i32)>> = None;
+    let (mut entries, mut exits) = (0u64, 0u64);
+    for f in 0..=frames {
+        if f > 0 && f % every == 0 {
+            let now = occupied(&world);
+            entries += now.difference(&prev).count() as u64;
+            exits += prev.difference(&now).count() as u64;
+            if first.is_none() && !now.is_empty() {
+                first = Some(now.clone());
+            }
+            let resident = first.as_ref().map_or(0, |f0| f0.intersection(&now).count());
+            println!("{:>7} {:>7} {:>9} {:>8} {:>9} {:>10} {:>9}",
+                f, now.len(), entries, exits, resident, world.creature_stats.deliveries, world.creature_stats.eats);
+            prev = now;
+        }
+        if f == frames {
+            break;
+        }
+        parallel::step(&mut world);
+        world.step_active_sites();
+        world.step_fields();
+        world.step_pheromones();
+    }
+    println!(
+        "\n{entries} entries and {exits} exits against {} deliveries: a delivery that stays is one entry, and a cell\n\
+         picked back up and put down again is an exit and an entry. Read the standing count against both.",
+        world.creature_stats.deliveries
+    );
 }
 
 // ---------------------------------------------------------------------------
