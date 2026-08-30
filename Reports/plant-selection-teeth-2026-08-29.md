@@ -160,6 +160,57 @@ A and B *exactly* equal integer tallies, so it reports **"arm B changed the
 genome and did NOT change the plant"** instead of a clean 50/50, and it
 refuses to start if the arm edit matched no rule at all.
 
+## 5a. The trajectory readout, and the axis that is not a clock
+
+§3 says the fix for the resolution floor is a different design: fit the slope
+of `logit(share)` against generation, since detection then needs
+`g * Ne > 4/s^2` and improves with **run length** rather than seed count. That
+readout is implemented. **It does not work, and the reason is worth more than
+the readout was.**
+
+**First: a 20,000-frame run is all transient.** `dump=1` prints the raw curve,
+and looking at it settles in one run what three layers of inference had not:
+
+```
+gen 0.00  55.1%   gen 0.81  62.4%   <- rises
+gen 1.09  52.1%   gen 1.55  47.6%   <- then falls
+gen 2.00  50.0%
+```
+
+A hump, not a line. Every sample sits inside establishment, so a fitted slope
+measures the transient — which is exactly what its **+0.446** intercept was
+saying, since both arms start equal and the honest intercept is 0.
+
+**Second, and fatal: the generation axis saturates.** A 150,000-frame run —
+7.5x longer — does not reach 7.5x the generations. It reaches **2.9** and then
+stops:
+
+| frame | ~1.5k | ~15k | ~45k | ~75k | ~110k | ~150k |
+|---|---|---|---|---|---|---|
+| mean generation | 1.04 | 1.79 | 2.88 | 2.84 | 2.75 | 2.60 |
+
+Mean generation is taken over **living** organisms, so at steady state the
+deaths of old plants balance the births of new ones and it **equilibrates**.
+It is a property of the population's age structure, not elapsed time.
+
+So `s * g` cannot grow however long the run, the `g * Ne > 4/s^2` argument is
+unreachable on this axis, and **a longer run buys nothing** — which is the
+opposite of what §3 promised. The harness now detects a span under 3
+generations and says so rather than fitting a slope against an axis that does
+not move.
+
+**The design is not dead; its clock is wrong.** What is needed is a
+*cumulative* generation count — deepest generation reached, or cumulative
+births over standing population — both of which do keep rising
+(`plant-throughput-herb-2026-08-29.md` measured deepest established generation
+5, 7 and 3 across seeds). That is the next build, and it is not validated
+here.
+
+**What survives from the calibration attempt:** the control half, `s = +0.054`
+(z=0.00, p=1.0000) — there is no transient or saturation to confuse when there
+is no effect. The positive half does not survive and `nobranch`'s `-0.34` must
+not be quoted as a selection coefficient.
+
 ## 6. What is not established
 
 - **One species, one bed geometry, one frame budget.** Everything here is

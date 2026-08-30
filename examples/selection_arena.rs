@@ -582,6 +582,8 @@ fn main() {
     let mut slopes: Vec<f64> = Vec::new();
     let mut gens_final: Vec<f64> = Vec::new();
     let mut intercepts: Vec<f64> = Vec::new();
+    // Every sample's generation, pooled, so the axis's own span can be read.
+    let mut traj_span: Vec<f64> = Vec::new();
     for s in 0..seeds {
         // The mirror pair: same world, arm assignment inverted, pooled.
         let mut a = Tally::default();
@@ -609,6 +611,7 @@ fn main() {
                 }
                 println!();
             }
+            traj_span.extend(o.traj.iter().map(|&(g, _)| g));
             if let Some((sl, ic)) = logit_slope(&o.traj) {
                 pair_slopes.push(sl);
                 pair_intercepts.push(ic);
@@ -688,6 +691,40 @@ fn main() {
              50/50 above as an absence of selection; fix the arm and re-run.\n  \
              (Confirm with: `arm={handicap_name} mirror=off` against `arm=same mirror=off` at the same\n  \
              seeds -- byte-identical output is the proof.)"
+        );
+    }
+
+    // **Is the generation axis actually a clock?** Measured 2026-08-30 and it
+    // is not: over a 150,000-frame run the population's mean generation rose
+    // to ~2.9 by frame ~50,000 and then FLATTENED and drifted back down
+    // (2.88, 2.85, 2.77, 2.73, 2.63, 2.60). Mean generation is taken over
+    // *living* organisms, and at steady state deaths of old plants balance
+    // births of new ones, so it equilibrates rather than accumulating.
+    //
+    // That breaks this readout's premise outright. The power argument
+    // (`g*Ne > 4/s^2`, ~80 generations for s=0.01) needs `g` to grow without
+    // bound; against a saturated axis `s*g` cannot grow however long the run,
+    // and a longer run buys nothing at all. The fix is a **cumulative**
+    // generation clock -- deepest generation reached, or cumulative births
+    // over standing population -- not a longer run.
+    //
+    // Detected rather than left for a reader to notice, because a slope
+    // fitted against a saturated axis is a real number about nothing.
+    let gen_span = {
+        let xs: Vec<f64> = traj_span.clone();
+        match (xs.iter().cloned().fold(f64::INFINITY, f64::min), xs.iter().cloned().fold(f64::NEG_INFINITY, f64::max)) {
+            (lo, hi) if lo.is_finite() && hi.is_finite() => hi - lo,
+            _ => f64::NAN,
+        }
+    };
+    if gen_span.is_finite() && gen_span < 3.0 {
+        println!(
+            "\n  *** THE GENERATION AXIS IS SATURATED: it spans only {gen_span:.2} generations. ***\n  \
+             Mean generation is taken over LIVING organisms, so at steady state it equilibrates\n  \
+             instead of accumulating -- it is not a clock, and a longer run does not lengthen it.\n  \
+             Any slope below is fitted against an axis that does not move, and the g*Ne > 4/s^2\n  \
+             power argument is unreachable on it. Needs a CUMULATIVE generation clock (deepest\n  \
+             generation reached, or cumulative births over standing population), not more frames."
         );
     }
 
