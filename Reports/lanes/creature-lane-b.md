@@ -1,8 +1,19 @@
 # Lane B — sizing the sense before anyone builds it (E15)
 
 **Branch `claude/creature-lane-b-vision-sizing`, cut from `origin/main` at
-`e7b72e7`. Complete.** The work is one commit, **`18f79c6`**; this note is
-the commit after it, so the branch head is one ahead of that. Cost fork: **built the probe and answered the
+`e7b72e7`. Complete, pushed, PR open.**
+
+| | |
+|---|---|
+| head SHA at hand-off | **`790af73`** (this note adds one commit on top) |
+| the work | `18f79c6` — probe, report, index, instruments row |
+| this note | `cf80c08` |
+| `main` merged in | `00856c8` — the branch is **0 behind** |
+| re-measurement after that merge | `790af73` |
+| PR | **#146**, https://github.com/sgladstein/Pixel_Physics/pull/146 |
+
+I had GitHub tools (`mcp__github__get_me` resolved), so I opened the PR
+myself. The coordinator owns the merge. Cost fork: **built the probe and answered the
 question** — the geometry needed no engine work, so nothing was blocked.
 
 ## What landed
@@ -101,6 +112,14 @@ labelled A/B of the sight lines at eye=0 against eye=1, asking which reads
 right for an insect on a forest floor. Fire-and-forget; the verdict bears on
 the occlusion recommendation, not on the radius one. Collect with
 `python3 scripts/review.py inbox`.
+
+## Gates, on the merged tree
+
+`cargo test --lib` **1,086 passed / 0 failed / 54 ignored** ·
+`cargo +1.98.0 clippy --all-targets -- -D warnings` clean ·
+`cargo build --release --examples` clean (all 41) ·
+`scripts/docscheck.sh` clean · `scripts/contextbudget.py --gate` 9,748 B
+under the ceiling.
 
 ## Reproducing every number in the report
 
