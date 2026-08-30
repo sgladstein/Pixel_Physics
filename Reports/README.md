@@ -542,15 +542,43 @@ drift that two of these documents still reflect.**
   measured against. **Its §0 is the part to quote**: at the shipped mutation
   rate this is a **no-op** — 88,909 fate queries over 60,000 frames of `herb`
   with the net catching **0** of them, and `genome_drift` byte-identical
-  between the old and new depths at both 0 and 10x. The net first bites at
-  **90x**. Generation turnover (mean depth 2.04 at 60,000 frames), not the
-  fallback depth, is the bottleneck. **Withdraws one standing claim**:
+  between the old and new depths at both 0 and 10x. **Mutation volume**, not
+  generation turnover and not the fallback depth, is the bottleneck — this
+  line said "generation turnover (mean depth 2.04)" until 2026-08-30 and that
+  attribution was withdrawn by the report itself in `ba3f723`, which corrected
+  every other document and missed this one. The net's first bite is bracketed
+  to `(0.1, 0.3]` by `plant-mutation-rate-2026-08-30.md`, below.
+  **Withdraws one standing claim**:
   `builtin_fate` is *not* the absorber — at 90x all 1,305 saves went to the
   **species** layer and `builtin_fate` took 0; the two layers agree, which is
   why dropping the middle one measured identical. Also records why `moss`
   (empty fate table, 0 calls — it only `Divide`s) and `(RootTip, Node)`
   (unreachable at `plastochron: 0`) are safe, and that an emptied `Grow` slot
   makes a tip that **never retires** rather than one that cannot grow.
+- [plant-mutation-rate-2026-08-30.md](plant-mutation-rate-2026-08-30.md)
+  — **`FATE_MUTATION_CHANCE` re-derived, 0.01 → 0.30**, closing the item the
+  fork report above leaves open. The old value was not low, it was **inert**:
+  at 60,000 frames of `herb` the *whole log* is identical to the same world
+  with mutation switched off — 873 live, 74 established, 5,858 births, same
+  body sizes and slot means — while 45 mutations fired and **none of the 28
+  individuals that carried one ever reached 20 cells**. The genome moved and
+  no plant did. **The trade it was supposed to balance is nearly empty**:
+  across 3 seeds and 7 rates, establishment, throughput and body size never
+  consistently decline, *including at rate 1.0 where every birth mutates*
+  (establishment there runs −13%, +13%, +28% — no sign). So the four-way
+  trade collapses to "how much variation should a species carry", and 0.30 is
+  the smallest rate that both puts variation in plants (29–40% of *bodied*
+  plants, against **0%** at 0.01 on every seed and both budgets) and makes the
+  owner's no-safety-net ruling non-vacuous — `GenomeOnly` and `Full` are
+  byte-identical at 0.10 and differ at 0.30, bracketing the net's first bite
+  to `(0.1, 0.3]`. **Its §5 is the method value**: a plausible 2x2 reported a
+  **3x establishment penalty for drifted plants in a run whose stand was
+  bit-identical to no-mutation at all** — confounded by age, kept in the
+  harness with the caption rewritten, because the next reader would derive the
+  same wrong number. Also records that `tree` is invariant to the entire
+  ladder (generation 1, every mutant a seed that never germinates), so the two
+  species do not want different rates, and corrects the stale attribution in
+  the entry above.
 - [plant-fate-operator-gate-2026-08-29.md](plant-fate-operator-gate-2026-08-29.md)
   — **all four mutation operators now have a viability gate**, closing §3a of
   the handoff below, and the answer is not the one its weighting hedged
