@@ -1,0 +1,46 @@
+{
+  "id": "20260830T204942304Z-a6b871",
+  "created": "2026-08-30T20:49:42Z",
+  "board": "creatures",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/creature-scale-and-shape",
+    "commit": "76f7096e",
+    "agent": null,
+    "session_id": "414eca57-1caf-509f-a056-1b37e01751e9",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Same 36-cell block, two body colours: is the smudge the shape or the colour?",
+  "question": "Which of these is closer to reading as a creature? If neither, say which of the two is the bigger problem - the outline or the colour.",
+  "context_md": "You said of the last pair: *\"Both are smudges but A is closer.\"* That could mean two things and they call for opposite work, so here is the other one isolated.\n\n**Identical body**, cell for cell -- the same 3x3 plan at double density, 36 cells, 6x6 on the grid. The **only** difference is the material the flesh is made of, and both already exist in the repo.\n\nZoomed to 28 px per physical unit, so this is much closer than play scale: at play scale each of these is a 6-pixel-wide object.\n\nThe previous pair varied the *outline* at fixed colour and you picked the waisted one. This pair varies the *colour* at fixed outline. Between the two answers I can tell whether the next work is a better silhouette or a better palette -- and `plant-appearance-design.md` is the warning that it is usually the palette, since a lever that relabels a cell cannot move a silhouette that texture and colour set.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "ant (38,30,28 - near black)",
+      "files": [
+        "20260830T204942304Z-a6b871/000-dark.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "chitin_pale (214,202,188)",
+      "files": [
+        "20260830T204942304Z-a6b871/001-pale.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
