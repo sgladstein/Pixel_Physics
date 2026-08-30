@@ -48,11 +48,11 @@ litter.**
 
 | decision | build it as | the number |
 |---|---|---|
-| reach | **64 cells** | the **p10** seed's beetle sees prey 0.108–0.280 of the time at r32 and **0.240–0.389** at r64, over three presets × 18 seeds. 32 → 64 is the largest single step at every preset |
-| shape | **all-round** | a ±60° cone costs a third of every sighting (r64 median 0.572 → 0.400) and saves nothing measurable |
-| occlusion | rock and soil, **never floor litter** | 28.0% of beetle-ant pairs blocked at head height, **8.4%** one cell up. The blockers are seed, litter, corpse, soil — clutter, not landscape |
-| foliage | **not a binary blocker** | `dense` costs half the sense (0.667 → 0.350) and no eye height buys it back |
-| cost | **free at this scale** | 485 cells read per beetle per cast; **~0.005 ms/frame**, 0.15–0.22% of `ascii`'s 2.94 ms mean, below the wall clock's floor. Under 10% of a frame only past a few hundred predators |
+| reach | **64 cells** | the **p10** seed's beetle sees prey **0.08–0.28** of the time at r32 and **0.26–0.39** at r64, over three presets × 18 seeds. 32 → 64 is the largest single step **in that p10** at every preset — no longer true of the median, see below |
+| shape | **all-round** | a ±60° cone costs a third of every sighting (r64 median 0.622 → 0.394) and saves nothing measurable |
+| occlusion | rock and soil, **never floor litter** | 24% of beetle-ant pairs blocked at head height, **6.4%** one cell up — which recovers the whole transparent-world ceiling, on **every** tree measured. The blockers are seed, corpse, soil, litter — clutter, not landscape |
+| foliage | **not a binary blocker** | `dense` costs half the sense (0.667 → 0.340) and no eye height buys it back |
+| cost | **free at this scale** | 521 cells read per beetle per cast; **0.005–0.007 ms/frame**, 0.15–0.24% of `ascii`'s 3.06 ms mean, below the wall clock's floor. Under 10% of a frame only past a few hundred predators |
 
 ## Three things worth carrying past this lane
 
@@ -149,30 +149,50 @@ cargo build --release --examples                 # NOT --release alone
 cargo run --release --example ascii                                          # the whole-frame baseline
 ```
 
-**Everything here was measured on four different trees**, because `main`
-landed underneath this lane three times and each landing could plausibly have
-moved it: the worldgen revamp (716 lines of `passes.rs`, five new rock
-materials), tree-breaking (355 lines of `plant.rs` — which changes what lies
-on the floor, and floor debris is exactly what blocks a sight line), and the
-creature-economy rework (`ant.ron`, `beetle.ron`, `creature.rs`,
-`organism.rs` — which changes where the animals stand). The whole study was
-re-taken after each.
+**Everything here was re-measured on every tree `main` landed underneath —
+five in all.** Each landing could plausibly have moved the result, so each
+got a full re-take rather than a wave-through: the worldgen revamp (716 lines
+of `passes.rs`, five new rock materials), tree-breaking (355 lines of
+`plant.rs`), the creature-economy rework (`ant.ron`, `beetle.ron`,
+`creature.rs`, `organism.rs` — which changes where the animals stand), and a
+further plant landing which changed what lies on the floor.
 
-**The first three came back byte-identical. The fourth moved, in the third
-decimal only** — and that is the useful one, because it shows the instrument
-responds when the world does rather than being insensitive. **Every median and
-every p10 the recommendation rests on held**, on all three presets, as did
-every median in the occlusion table. What moved: `arid`'s r64 median 0.440 →
-0.420 and its r32 p10 0.260 → 0.280, some p90s and maxima, blocking
-percentages by a tenth of a point, `cells read` by 1.2%, and the frame
-timing. That is a far stronger staleness check than a repeat on one tree.
+| tree | what it moved |
+|---|---|
+| 1 → 2 | nothing; byte-identical (only the base rock's *name*, `stone` → `basalt`) |
+| 2 → 3 | nothing; byte-identical |
+| 3 → 4 | third decimal only — `arid` r64 median 0.440 → 0.420, some p90s, blocking by a tenth of a point |
+| **4 → 5** | **materially** — `wetland` r8 median 0.383 → 0.283, r64 0.572 → 0.622, blocking 28% → 24%, litter 21% → 11% of blockers, a new `gravel` appears |
 
-**The per-read cost is the loosest number in the report and is now quoted as
-a range.** Four readings: 15.6, 13.8, 14.9 and 22.1 ns. The 22.1 came from a
-run whose own control spread was twice any other's, on the same tree where
-`ascii`'s worst frame read 78 ms against a usual 28 — a loud box, not slow
-code. The conclusion is unchanged at either end of the range (0.15% vs 0.22%
-of a frame), which is why the range is quoted rather than a pick.
+**The early identity is what makes the later movement informative.** Three
+byte-identical runs could equally have meant the instrument was insensitive
+to the world. It is not — it moves when the population and the floor move,
+which is exactly what it is measuring.
+
+**One supporting claim was wrong on tree 5 and is corrected rather than
+quietly dropped.** The report said *"32 → 64 is the largest single step at
+every preset"*. On tree 5 that is false of the **median** on `wetland`, where
+8 → 16 is larger. It remains true of the **p10** at all three presets
+(+0.233, +0.177, +0.067) — and the p10 is the statistic the house rule says
+to gate on, so the radius argument is unaffected and now states which
+statistic it rests on.
+
+**The most stable finding is the eye height.** The absolute blocking
+percentages drifted on every tree; that `opaque eye=1` recovers the entire
+transparent-world ceiling on `wetland` has not moved once.
+
+**The per-read cost is the loosest number and is quoted as a range.** Five
+readings: 15.6, 13.8, 14.9, 22.1 and 16.4 ns. The 22.1 came from a run whose
+own control spread was twice any other's, on the tree where `ascii`'s worst
+frame read 78 ms against a usual 27 — a loud box, not slow code. The
+conclusion is identical at either end (0.15% vs 0.24% of a frame), which is
+why the range is quoted rather than a pick.
+
+**And the cost moved in a way that confirms the mechanism.** `cells read` at
+r64 went 909,763 → 898,619 → 977,415. The last jump is the same landing that
+dropped blocking from 28% to 24%: less litter means rays travel further
+before dying, so **less occlusion makes the sense more expensive**. That is
+the cost side of the occlusion finding, arriving independently.
 
 `mode=cost`'s wall clock does not and cannot reproduce — which is the point
 of the `cells read` column beside it.

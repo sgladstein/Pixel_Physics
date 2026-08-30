@@ -852,19 +852,22 @@ drift that two of these documents still reflect.**
   — **measured pre-flight, 2026-08-30; instrument `examples/vision_probe.rs`,
   no behaviour changed.** Sizes **E15**'s sight sense before anyone builds it,
   by tracing the geometry that already exists: **build it at radius 64,
-  all-round, seeing over the floor litter**, and it costs **~0.005 ms of a
-  frame** — 0.15–0.22% of `ascii`'s 2.94 ms mean, below what a wall clock
+  all-round, seeing over the floor litter**, and it costs **0.005–0.007 ms of
+  a frame** — 0.15–0.24% of `ascii`'s 3.06 ms mean, below what a wall clock
   resolves, and under 10% of a frame only past a few hundred predators. Every
-  geometry number in it was measured on **four different trees** as `main`
-  landed underneath — worldgen, tree-breaking, the creature economy. The first
-  three were byte-identical; the fourth moved only in the third decimal and
-  **every median and p10 the recommendation rests on held**. The radius argument is
-  the **p10 seed** rather than the median: the stranded beetle sees prey
-  0.108–0.260 of the time at r32 and 0.240–0.389 at r64, over three presets
-  and 18 seeds each. Two findings the design has to carry: what blocks a
+  number was re-taken on **each of the five trees `main` landed underneath** —
+  worldgen, tree-breaking, the creature economy, a further plant landing. The
+  first three were byte-identical, the fourth moved in the third decimal, the
+  fifth materially; **the recommendation held throughout and one supporting
+  claim was corrected** (32 → 64 is the largest step in the p10, not in the
+  median). The radius argument is the **p10 seed** rather than the median:
+  the stranded beetle sees prey
+  0.08–0.28 of the time at r32 and 0.26–0.39 at r64, over three presets and
+  18 seeds each. Two findings the design has to carry: what blocks a
   sight line is **floor clutter, not landscape** (seed, litter, corpse, soil
-  — 28.1% of pairs on `wetland`, 8.6% with the eye one cell up), and making
-  **foliage a binary blocker costs half the sense** (0.667 → 0.350) with no
+  — 24% of pairs on `wetland`, 6.4% with the eye one cell up, which recovers
+  the whole transparent-world ceiling on every tree measured), and making
+  **foliage a binary blocker costs half the sense** (0.667 → 0.340) with no
   eye height buying it back, which is `CLAUDE.md`'s *an outcome is a
   distribution, not a binary* arriving on the creature line. Does not answer
   whether a beetle acts on a sighting; `predation_probe`'s control already
