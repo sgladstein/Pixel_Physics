@@ -48,11 +48,11 @@ litter.**
 
 | decision | build it as | the number |
 |---|---|---|
-| reach | **64 cells** | the **p10** seed's beetle sees prey 0.108–0.260 of the time at r32 and **0.240–0.389** at r64, over three presets × 18 seeds. 32 → 64 is the largest single step at every preset |
+| reach | **64 cells** | the **p10** seed's beetle sees prey 0.108–0.280 of the time at r32 and **0.240–0.389** at r64, over three presets × 18 seeds. 32 → 64 is the largest single step at every preset |
 | shape | **all-round** | a ±60° cone costs a third of every sighting (r64 median 0.572 → 0.400) and saves nothing measurable |
-| occlusion | rock and soil, **never floor litter** | 28.1% of beetle-ant pairs blocked at head height, **8.5%** one cell up. The blockers are seed, litter, corpse, soil — clutter, not landscape |
+| occlusion | rock and soil, **never floor litter** | 28.0% of beetle-ant pairs blocked at head height, **8.4%** one cell up. The blockers are seed, litter, corpse, soil — clutter, not landscape |
 | foliage | **not a binary blocker** | `dense` costs half the sense (0.667 → 0.350) and no eye height buys it back |
-| cost | **free at this scale** | 485 cells read per beetle per cast; **~0.005 ms/frame**, 0.16% of `ascii`'s 2.82 ms mean, below the wall clock's floor. Under 10% of a frame only past ~310 predators |
+| cost | **free at this scale** | 485 cells read per beetle per cast; **~0.005 ms/frame**, 0.15–0.22% of `ascii`'s 2.94 ms mean, below the wall clock's floor. Under 10% of a frame only past a few hundred predators |
 
 ## Three things worth carrying past this lane
 
@@ -149,18 +149,30 @@ cargo build --release --examples                 # NOT --release alone
 cargo run --release --example ascii                                          # the whole-frame baseline
 ```
 
-**Everything here was measured on three different trees**, because `main`
-landed underneath this lane twice and both landings could plausibly have
+**Everything here was measured on four different trees**, because `main`
+landed underneath this lane three times and each landing could plausibly have
 moved it: the worldgen revamp (716 lines of `passes.rs`, five new rock
-materials), then tree-breaking (355 lines of `plant.rs` — which changes what
-lies on the floor, and floor debris is exactly what blocks a sight line).
-The whole study was re-taken after each. **Every order statistic came back
-byte-identical all three times**, as did `mode=cost`'s `cells read` column.
-The only changes anywhere: the base rock is now `basalt` rather than `stone`
-in the blocker census (same percentages), one blocking figure 8.6 → 8.5, pair
-counts by a handful out of ~20,000, and the frame timing drifting 2.98 → 2.82
-ms, which moved the derived cost figures slightly. That is a far stronger
-staleness check than a repeat on one tree.
+materials), tree-breaking (355 lines of `plant.rs` — which changes what lies
+on the floor, and floor debris is exactly what blocks a sight line), and the
+creature-economy rework (`ant.ron`, `beetle.ron`, `creature.rs`,
+`organism.rs` — which changes where the animals stand). The whole study was
+re-taken after each.
+
+**The first three came back byte-identical. The fourth moved, in the third
+decimal only** — and that is the useful one, because it shows the instrument
+responds when the world does rather than being insensitive. **Every median and
+every p10 the recommendation rests on held**, on all three presets, as did
+every median in the occlusion table. What moved: `arid`'s r64 median 0.440 →
+0.420 and its r32 p10 0.260 → 0.280, some p90s and maxima, blocking
+percentages by a tenth of a point, `cells read` by 1.2%, and the frame
+timing. That is a far stronger staleness check than a repeat on one tree.
+
+**The per-read cost is the loosest number in the report and is now quoted as
+a range.** Four readings: 15.6, 13.8, 14.9 and 22.1 ns. The 22.1 came from a
+run whose own control spread was twice any other's, on the same tree where
+`ascii`'s worst frame read 78 ms against a usual 28 — a loud box, not slow
+code. The conclusion is unchanged at either end of the range (0.15% vs 0.22%
+of a frame), which is why the range is quoted rather than a pick.
 
 `mode=cost`'s wall clock does not and cannot reproduce — which is the point
 of the `cells read` column beside it.
