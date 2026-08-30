@@ -362,8 +362,30 @@ this box, which `Reports/measurement-under-contention.md` says makes any clock
 here untrustworthy. If it is wanted, it wants a quiet machine and
 `examples/ascii`.
 
+### 9a. What this leaves of the three stamp routes
+
+`Reports/creature-stamp-routes-2026-08-30.md` landed on `main` while this was
+being measured, and the two agree about the world and disagree about what to
+build. Its finding is that **none of the three routes past the body stamp
+removes the stamp — they only defer it**: the cell you do not buy at birth
+you must buy at growth, 480 against a bank that capped at 220. Its own
+correction header then says the reach problem is what actually blocks the
+fruiting route.
+
+Both of those survive. What neither document could see is that **the 220 was
+the rule and not the animal**. Lift the satiety roof and the shipped
+two-cell ant pays the full 960 stamp out of the nest's stores without any of
+the three routes, at the authored gut and the authored threshold. So the
+routes are not refuted — they are simply not needed for Gate 0, and the one
+that is still worth having is route 1 for a *different* reason: a smaller
+stamp buys margin back where the larder is thin, which is exactly the case
+§5 of this report leaves open.
+
+---
+
 Reads on: `Reports/creature-birth-grant-2026-08-30.md` (whose §2 arithmetic is
 confirmed exactly and whose §6 conclusion — that closing the gap needs the
 stamp term — is superseded: it needs the satiety rule instead);
+`Reports/creature-stamp-routes-2026-08-30.md` (§9a);
 `Reports/evolution-lab-gate-1-2026-08-30.md`;
 `Reports/lanes/evolution-lab-coordinator.md`.
