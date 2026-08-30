@@ -1,0 +1,64 @@
+{
+  "id": "20260830T102106955Z-327527",
+  "created": "2026-08-30T10:21:06Z",
+  "board": "lab",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics/.claude/worktrees/agent-a159e01ffed06c9a2",
+    "branch": "worktree-agent-a159e01ffed06c9a2",
+    "commit": "7bb1480",
+    "agent": null,
+    "session_id": "6546762f-3714-56a2-a0a4-47f13872ea63",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics/.claude/worktrees/agent-a159e01ffed06c9a2"
+  },
+  "title": "The lab box, 45,000 frames: the colony grazes the bed down and then starves",
+  "question": "Gate 1 is met -- the box lives. But the ant colony is the biggest single thing acting on it: with the shipped colony, 3 of the 8 founders are eaten and the stand ends at 19 plants; with no colony at all, all 8 stand and it ends at 55. Meanwhile the ants themselves go 52 -> 4 with ZERO births ever. Is a colony that eats the bed down and then dies out the opening you want, or should the lab start with a smaller or weaker colony so the stand establishes first?",
+  "context_md": "Same bed, same seed, same 8 herb founders, 45,000 frames. `lab::scene::LabBox` default, called rather than copied.\n\n- **A** is the shipped default (1 colony, 52 ants)\n- **B** is the identical bed with `colonies=0`\n\nEach panel is frame 0 / 5,000 / 20,000 / 45,000, top to bottom. Ant births are **zero** in every run at every setting measured -- including with the matched gut the design guide asks for, whose bank tops out at 575 against a 1,040 birth bar.",
+  "kind": "ab",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A -- shipped: 8 founders + 1 colony",
+      "files": [
+        "20260830T102106955Z-327527/000-A_ants.png"
+      ],
+      "caption": "frames 0 / 5,000 / 20,000 / 45,000",
+      "meta": {
+        "plants at 45k": 19,
+        "plant cells at 45k": 941,
+        "seeds set": 181,
+        "founders alive of 8": 5,
+        "ants at 45k": 4,
+        "ant births": 0,
+        "ant deaths": 48,
+        "organism slots used of 4095": 66
+      },
+      "focus": null
+    },
+    {
+      "label": "B -- control: 8 founders, no colony",
+      "files": [
+        "20260830T102106955Z-327527/001-B_noants.png"
+      ],
+      "caption": "frames 0 / 5,000 / 20,000 / 45,000",
+      "meta": {
+        "plants at 45k": 55,
+        "plant cells at 45k": 1369,
+        "seeds set": 441,
+        "founders alive of 8": 8,
+        "ants at 45k": 0,
+        "ant births": 0,
+        "ant deaths": 0,
+        "organism slots used of 4095": 119
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
