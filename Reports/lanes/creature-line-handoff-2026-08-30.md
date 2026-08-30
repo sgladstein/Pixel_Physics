@@ -38,6 +38,14 @@ Two things stand between here and a breeding colony, and **neither is built**:
 The economics report calls `birth_grant` worthless without E14. They are one
 package, not two.
 
+**And that report is invisible, which is repo state rather than a
+suggestion.** `Reports/creature-reproduction-economics.md` lives on
+`claude/creature-reproduction-economics` with **no PR open and not on
+`main`** — so the document the whole reproduction package is reasoned from is
+reachable only by knowing that branch name, and `branchcheck.sh --prs` is what
+surfaces it. Land it before anyone builds against it, whatever else you
+decide. (§7 suggests an owner for this; the fact holds if you discard §7.)
+
 ## 2. E15 is new, and it re-points the predation line
 
 **Vision comes before predators** — owner, 2026-08-30. Recorded this session
