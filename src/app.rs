@@ -8,10 +8,10 @@ use crate::hud;
 use crate::render::{self, Renderer};
 use crate::sim::chunk::Rect;
 use crate::sim::explosion;
+use crate::sim::frame;
 use crate::sim::load;
 use crate::sim::material::{self, MaterialId, MaterialKind};
 use crate::sim::organism;
-use crate::sim::parallel;
 use crate::sim::particle::ParticleSystem;
 use crate::sim::player;
 use crate::sim::structural;
@@ -1244,74 +1244,29 @@ impl App {
         self.assets_dirty = dirty_asset_count();
     }
 
+    /// One simulated tick.
+    ///
+    /// **The phase order lives in `sim::frame::step`, not here.** It moved
+    /// out when the lab (`src/bin/lab.rs`) became a second binary against
+    /// this library: two copies of a frame sequence whose every line records
+    /// an ordering constraint is how a second *game* quietly becomes a second
+    /// *simulation*. `frame_step_matches_app_update` guards the move.
     pub fn update(&mut self) {
         if self.paused && !self.step_once {
             return;
         }
         self.step_once = false;
-        parallel::step(&mut self.world);
-        // Liquid heightfield bodies (`Reports/liquid-heightfield-design.md`
-        // §8a) after the sweep -- the sweep is what produces this frame's
-        // absorptions once a later step adds them -- and before active
-        // sites, so `plant::Absorb` reading an adjacent liquid cell sees
-        // this frame's settled body state, the same reasoning the comment
-        // below already gives for active sites running after the sweep.
-        // Its own serial phase, not inside `parallel::step`, for the reason
-        // that design doc section states: a body spanning two same-parity
-        // active chunks writing its own columns from both workers would
-        // violate the write-disjointness proof `parallel.rs`'s module doc
-        // rests on. A no-op today -- step 1 of that design's build order
-        // gives every promoted body no solver, so there is nothing yet for
-        // this phase to do; wired in now so later steps land here rather
-        // than needing frame-order surgery.
-        self.world.step_liquid_bodies();
-        // M8 chunk bodies in the same slot and for the same reason: a body
-        // spanning two same-parity chunks would write to both from separate
-        // workers and break `parallel.rs`'s write-disjointness proof
-        // (`Reports/coupling-research.md` §4 states this outright), so it
-        // gets its own serial phase. Before active sites, so a structural
-        // check this frame sees a landed chunk's cells already in the grid
-        // rather than a frame-old hole where they used to be.
-        crate::sim::rigid::step_chunk_bodies(&mut self.world);
-        // M9: the character in the same serial slot as the bodies, right
-        // after them — so standing on a body that settled this frame sees
-        // its cells already in the grid, not a frame-old gap. The
-        // edge-triggered press is consumed here so that when `main.rs`'s
-        // catch-up loop runs several ticks in one frame, one press means
-        // one jump.
-        player::step(&mut self.world, self.player_input, &self.player_tuning);
+        frame::step(
+            &mut self.world,
+            &mut self.particles,
+            &mut self.blasts,
+            self.player_input,
+            &self.player_tuning,
+        );
+        // Consumed here rather than inside `frame::step`, so that when
+        // `main.rs`'s catch-up loop runs several ticks in one frame, one
+        // press means one jump.
         self.player_input.jump_pressed = false;
-        // M16 active sites after the CA sweep too, for the same reason as
-        // particles below: a root deciding whether to drink an adjacent
-        // water cell needs this frame's settled position, not last frame's.
-        self.world.step_active_sites();
-        // Particles after the CA sweep, not before: a landing check needs
-        // this frame's fully-settled CA state, not last frame's, or a
-        // particle could land inside material that has since moved out from
-        // under it. Field after that — order between the two does not
-        // currently matter, since particles do not read or write the field,
-        // but keeping the CA-derived phases grouped together here is easier
-        // to reason about than interleaving them.
-        // Blasts before particles: a blast stage clears cells and spawns
-        // debris, and that debris should get its first `particle::step`
-        // against the cavity this stage just opened rather than waiting a
-        // frame for it -- which is the whole reason staging helps debris
-        // escape at all (`sim::explosion::Tuning::duration`).
-        self.blasts.step(&mut self.world, &mut self.particles);
-        // Splashes between the two, for the same reason blasts come before
-        // particles: the sweep reported these sites against this frame's
-        // state, so they should be taken and thrown before the step that
-        // moves everything, not left a frame stale. See
-        // `particle::throw_splashes` -- this is the only place a splash
-        // droplet's water is actually debited from the pool.
-        crate::sim::particle::throw_splashes(&mut self.world, &mut self.particles);
-        self.particles.step(&mut self.world);
-        self.world.step_fields();
-        // Beside the field step, and for the same reason: a coarse
-        // environmental channel with its own cadence, decoupled from the CA
-        // sweep. `step_pheromones` gates itself on `PHEROMONE_INTERVAL`, so
-        // this is called every frame like its neighbour above.
-        self.world.step_pheromones();
     }
 
     /// `cursor`, when present, is a screen position (framebuffer pixels,

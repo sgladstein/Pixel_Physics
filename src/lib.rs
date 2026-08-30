@@ -9,6 +9,7 @@
 //! * [`sky`] — what empty space looks like through a day
 //! * [`render`] — turning cells into pixels
 //! * [`app`] — sandbox state: brush, material picker, starting terrain
+//! * [`lab`] — the evolution lab: a sealed box of soil, run at speed
 //!
 //! `sim` depends on nothing above it, which is what keeps the simulation
 //! testable without a window or a GPU. `worldgen` sits above `sim` and below
@@ -17,6 +18,7 @@
 
 pub mod app;
 pub mod hud;
+pub mod lab;
 pub mod render;
 pub mod sky;
 pub mod sim;
