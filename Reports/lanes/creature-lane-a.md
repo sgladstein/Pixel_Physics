@@ -2,7 +2,10 @@
 
 **Branch:** `claude/creature-lane-a-birth-grant`, cut from `origin/main` at
 `e7b72e7`.
-**Head SHA:** *(see the last line of this file — updated at each push)*
+**Head SHA:** `5e368a64d76e` — the merge of `origin/main` (48 commits,
+zero conflicts) onto this lane. The two content commits are `afc41b1` (the
+package) and `247bc8b` (the `deaths` correction and the lane note); everything
+after is the merge.
 **Cost fork:** built the package **and** wrote the finding. Both, because the
 finding is that the package cannot reach the objective it was scoped against.
 
@@ -101,4 +104,9 @@ merge.**
 
 ---
 
-*Head SHA at last push: see `git rev-parse origin/claude/creature-lane-a-birth-grant`.*
+*All five gates were re-run **after** the merge, on `5e368a64d76e`, not
+only on the pre-merge head — `cargo test --lib` 1086 passed / 0 failed,
+clippy 1.98.0 clean, ascii 31 scenes 0 skipped, acceptance all cases,
+docscheck clean. Main had added `examples/selection_arena.rs`, a creature
+example, and `CREATURE_TRAITS` widened in this lane, so a zero-conflict merge
+was not evidence of anything on its own.*
