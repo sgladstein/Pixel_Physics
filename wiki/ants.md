@@ -1,6 +1,10 @@
 # Ants
 
-*Current as of: 2026-08-29, when creatures learned to jump — though the ants
+*Current as of: 2026-08-30, when the colony got a page of its own — how many
+ants there are, whether that number is climbing, what they are eating and
+carrying, and how far short of breeding they are, all on screen in the game
+rather than in a log nobody runs. Before that: 2026-08-29, when creatures
+learned to jump — though the ants
 you place still cannot, and the section below says why that is not a
 contradiction — and when an ant that has eaten enough learned to make
 another ant, passing on what it is so that a colony's descendants can differ
@@ -184,6 +188,54 @@ B** (the food trail, cyan). Trails are a single cell wide, so the overlay
 paints them at full strength rather than tinting — a trail that is there
 looks like a bright line, and a channel nobody has used looks like an even
 dark field rather than like nothing at all.
+
+## Reading the colony
+
+**Press SHIFT+Y and the colony gets a page.** `Y` founds one; shift-`Y` asks
+after it. The page opens down the left of the screen with the world still
+visible beside it, so you can watch the ants and their figures at the same
+time.
+
+It is arranged around two questions, and the detail comes after them rather
+than instead of them.
+
+**Is this colony doing well?** — the top of the page. How many ants are
+alive, and whether that number is *growing*, *steady* or *shrinking*, said in
+one word and in the colour of the headline. Under it a strip traces the
+population while you watch. Then the plain totals: how many were placed by
+hand, how many have been born, how many have died — and, because a total
+that only ever climbs says nothing about now, births and deaths again as a
+rate, per thousand frames.
+
+**What are they doing right now?** — the middle. How many are carrying
+something this instant, how many are in the air, and how far from home the
+colony is spread, as the nearest, the middle and the furthest ant rather than
+an average. Then the work, again as rates: steps taken, steps blocked, falls,
+mouthfuls eaten, things picked up, cells dug, food actually delivered home,
+and round trips completed. Deliveries turn green when any are happening,
+because that one is the whole loop closing rather than an activity level.
+
+**The larder** sits between them, and it is a histogram rather than an
+average on purpose: a colony half starving and half comfortable averages out
+to one that is neither, and those are not the same colony. The line where an
+ant starts feeling hungry is marked on the axis, and bars below it are drawn
+in a different colour — amber rather than red, because hungry is the normal
+state of a forager and a page that alarms at the ordinary teaches you to
+ignore it. Below the histogram, a gauge puts the richest ant's store against
+what an ant costs to make. That gauge is currently the shortest route to the
+thing this page explains at the bottom: nobody is close.
+
+**The line** is last. How many generations deep the colony has got, how many
+separate family lines are still going, how much of the colony the largest one
+is, and the spread of each inherited trait across the living animals. A
+freshly placed colony reads generation 0 with as many lines as there are
+ants, because every founder is its own ancestor.
+
+Two things worth knowing about the page itself. The population strip **starts
+empty and fills as you watch** — nothing counts the colony until you ask it
+to, which is what makes the page free when it is shut. And every rate on it
+is measured over a window a little longer than one day in the world, so a
+reading is the colony rather than the time of night.
 
 ## What is not finished
 

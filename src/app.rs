@@ -25,6 +25,143 @@ use crate::worldgen::{self, WorldgenPresets};
 /// These two were one pair of constants doing both jobs, which was fine only
 /// while the world happened to be exactly one screen. The camera
 /// (`Renderer::follow`) is what separates them.
+/// How many energy buckets the colony panel's histogram draws. Eight because
+/// that is what fits legibly across the panel at 5x7 and it is the same
+/// width `CreatureStats::forage_reach` chose for the same reason.
+const COLONY_ENERGY_BUCKETS: usize = 8;
+
+/// Frames between colony censuses while the panel is open. At 60 fps this is
+/// a refresh twice a second, which is faster than any population aggregate on
+/// the panel visibly moves and slow enough that the organism walk is noise.
+const COLONY_SAMPLE_INTERVAL: u64 = 30;
+
+/// Samples kept for the trend line and the rate window. 128 x 30 = 3,840
+/// frames, which is **just over one day** at `field::DAY_NIGHT_PERIOD_FRAMES`
+/// (3,600) — deliberately, because every rate on this panel is measured over
+/// this window and a window shorter than a day reports the hour rather than
+/// the colony. `CLAUDE.md`: a designed oscillator must be divided out of
+/// every number it reaches.
+const COLONY_HISTORY: usize = 128;
+
+/// One point on the colony trend line: the population, and the whole counter
+/// block, at a frame. Rates come from differencing the ends of the ring, so
+/// the counters have to be stored beside the population rather than
+/// differenced as they are taken.
+#[derive(Clone, Copy)]
+struct ColonySample {
+    frame: u64,
+    live: u32,
+    stats: crate::sim::world::CreatureStats,
+}
+
+/// A distribution reduced to the three numbers that fit on one row.
+///
+/// **Three, not a mean**, and that is the whole reason this type exists: a
+/// mean over a colony hides the shape that decides its fate. Fifty ants at
+/// half a bank and fifty ants split between starving and stuffed read the
+/// same as a mean and are different colonies.
+#[derive(Clone, Copy, Default)]
+struct Spread {
+    low: f32,
+    mid: f32,
+    high: f32,
+}
+
+impl Spread {
+    /// `values` is sorted in place; `mid` is the lower median, which is what
+    /// an integer-indexed order statistic gives and is honest for an even
+    /// population rather than inventing a value nobody holds.
+    fn of(values: &mut [f32]) -> Option<Self> {
+        if values.is_empty() {
+            return None;
+        }
+        values.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        Some(Self { low: values[0], mid: values[values.len() / 2], high: values[values.len() - 1] })
+    }
+}
+
+/// Everything the colony panel draws that has to be counted rather than read
+/// off a counter — one walk of the organism table, cached between censuses.
+///
+/// **Only creatures.** `World::live_organism_ids` hands back every plant in
+/// the world too, and a panel that counted a forest as population would be
+/// the "ask what your number counts" failure in its purest form.
+struct ColonyCensus {
+    /// The species the panel's economy numbers belong to: the creature
+    /// species with the most live individuals. One panel cannot show two
+    /// birth costs, and naming which one it is beats averaging them.
+    name: String,
+    live: usize,
+    /// Other creature species present, largest first — so a beetle eating the
+    /// colony is visible rather than silently excluded from every number.
+    others: Vec<(String, usize)>,
+    /// Energy of the dominant species' living individuals.
+    energy: Spread,
+    /// Bucketed over `0..=energy_axis`, with everything above the top of the
+    /// axis piled into the last bucket rather than dropped.
+    energy_buckets: [u32; COLONY_ENERGY_BUCKETS],
+    /// Top of the histogram axis: the species' `start_energy`, the store an
+    /// individual is created with and the scale its hunger rule is written
+    /// against.
+    energy_axis: f32,
+    /// `start_energy * hunger_fraction` — **the line the brain itself tests**
+    /// (`creature.rs`'s `hungry`), not a display threshold invented here.
+    hunger_line: f32,
+    hungry: usize,
+    /// What one child costs its parent, and the bank an individual has to
+    /// reach to bud (`None` for a species that does not reproduce).
+    birth_cost: f32,
+    breed_at: Option<f32>,
+    /// Individuals already at or over `breed_at`.
+    ready: usize,
+    richest: f32,
+    /// Carrying something right now — the standing count, not the cumulative
+    /// `pickups` counter, which climbs for ever and says nothing about now.
+    laden: usize,
+    airborne: usize,
+    /// Current excursion depth in cells (`OrganismState::forage_max`), as a
+    /// standing distribution: how far out the colony is spread this instant.
+    reach: Spread,
+    deepest_generation: u16,
+    lineages: usize,
+    /// Share of the population in the largest lineage, 0..1.
+    top_lineage: f32,
+    /// One entry per `organism::CREATURE_TRAITS` slot, in slot order.
+    /// **Length, never a hardcoded count** — the slot map grows, and a panel
+    /// that named two traits would silently stop showing the third.
+    traits: Vec<Spread>,
+}
+
+/// One drawn row of the colony panel.
+///
+/// The panel builds its whole list before it paints anything, so that it can
+/// size its own border to what it has to say — see `App::draw_colony_panel`.
+/// Each variant knows its own height and nothing else does.
+enum ColonyRow {
+    Text(String, [u8; 4]),
+    /// Breathing space between sections. Half a row, because a full one made
+    /// the panel taller than the world it is drawn over.
+    Gap,
+    /// The population trend strip.
+    Trend,
+    /// The energy histogram, with the hunger line marked.
+    Histogram,
+    /// A 0..1 gauge with a label to its right.
+    Gauge(f32, String),
+}
+
+impl ColonyRow {
+    fn height(&self) -> i32 {
+        match self {
+            ColonyRow::Text(..) => App::COLONY_LINE,
+            ColonyRow::Gap => 5,
+            ColonyRow::Trend => 24,
+            ColonyRow::Histogram => 22,
+            ColonyRow::Gauge(..) => App::COLONY_LINE + 3,
+        }
+    }
+}
+
 /// One row of the help overlay: a section heading, a key and what it does,
 /// or a full-width note. See `App::help_columns`.
 enum HelpRow {
@@ -219,6 +356,31 @@ pub struct App {
     /// `O` — the live-tunables panel (§10 of `PLAN.md`'s UI-improvement
     /// pass). Not `P` — already `spawn_burst`.
     pub show_tunables: bool,
+    /// `SHIFT+Y` — the colony panel. `Y` founds a colony, so shift-`Y` asks
+    /// how the one you founded is getting on; every plain letter was already
+    /// bound (`main.rs`'s `KeyY` arm calls `Y` "the last free letter").
+    ///
+    /// **Everything this panel costs is behind this flag, deliberately.**
+    /// The census walks the organism table and the panel forces a full
+    /// redraw, and both happen only while it is open — a settled world with
+    /// it closed keeps the dirty-rect skip untouched, which is the bargain
+    /// `Renderer::organism_overlay` already makes and the one the animated
+    /// water grain broke.
+    pub show_colony: bool,
+    /// The last census `draw` took, and the frame it was taken on. Recomputed
+    /// at `COLONY_SAMPLE_INTERVAL`, not per frame: every number on the panel
+    /// is a population aggregate, and re-counting fifty ants sixty times a
+    /// second buys nothing a reader can see while costing the walk each time.
+    ///
+    /// `None` until the panel has been open for one census.
+    colony_census: Option<ColonyCensus>,
+    /// Population and counter samples, oldest first, capped at
+    /// `COLONY_HISTORY`. **Filled only while the panel is open**, which is
+    /// the price of costing nothing closed: the trend line starts empty and
+    /// grows as you watch. The cumulative totals (`FOUNDED / BORN / DIED`)
+    /// need no history and are on screen immediately, so the panel still
+    /// says something useful in its first frame.
+    colony_history: Vec<ColonySample>,
     /// Index into a freshly-rebuilt `tunables::from_materials` list every
     /// time the panel draws or an adjustment/save is applied — there is no
     /// persistent `Vec<Tunable>` on `App` to keep in sync with material
@@ -540,6 +702,9 @@ impl App {
             show_palette: false,
             show_help: false,
             show_tunables: false,
+            show_colony: false,
+            colony_census: None,
+            colony_history: Vec::new(),
             tunables_selected: 0,
             // **The menu the panel opens on**, and it is `World` because
             // the two things anybody opens this panel *to use* rather than
@@ -898,6 +1063,171 @@ impl App {
     /// stale index from a previous session (materials since hot-reloaded,
     /// possibly with a different count) would otherwise point at a
     /// different entry than whatever it last pointed at, silently.
+    /// `SHIFT+Y` — open or close the colony panel.
+    ///
+    /// Closing drops the census and the trend history: keeping them would
+    /// mean the next open showed a line with a hole in it where the panel
+    /// was shut, which reads as a population crash that never happened.
+    pub fn toggle_colony(&mut self) {
+        self.show_colony = !self.show_colony;
+        if !self.show_colony {
+            self.colony_census = None;
+            self.colony_history.clear();
+        }
+    }
+
+    /// Re-census and take a trend sample if one is due.
+    ///
+    /// Called from `draw` and **only while the panel is open**, so a closed
+    /// panel costs exactly nothing — no walk, no allocation, no sample.
+    fn colony_sample(&mut self) {
+        let frame = self.world.frame;
+        let due = match self.colony_history.last() {
+            None => true,
+            Some(last) => frame >= last.frame + COLONY_SAMPLE_INTERVAL,
+        };
+        if !due && self.colony_census.is_some() {
+            return;
+        }
+        let census = self.take_colony_census();
+        let live = census.as_ref().map_or(0, |c| c.live) as u32;
+        self.colony_census = census;
+        if due {
+            if self.colony_history.len() == COLONY_HISTORY {
+                self.colony_history.remove(0);
+            }
+            self.colony_history.push(ColonySample { frame, live, stats: self.world.creature_stats });
+        }
+    }
+
+    /// One walk of the live organism table, reduced to what the panel draws.
+    ///
+    /// `None` when the world holds no creature at all — which the panel then
+    /// says out loud, rather than drawing a colony of zero ants with a full
+    /// set of plausible zeroes beside it.
+    fn take_colony_census(&self) -> Option<ColonyCensus> {
+        use crate::sim::creature;
+
+        // Group the live creatures by species first, because every economy
+        // number below (`birth_cost`, the hunger line, the histogram axis) is
+        // a property of a species rather than of the world.
+        let mut by_species: Vec<(organism::SpeciesId, Vec<&organism::OrganismState>)> = Vec::new();
+        for id in self.world.live_organism_ids() {
+            let Some(state) = self.world.organism(id) else { continue };
+            if self.world.species.get(state.species).creature.is_none() {
+                continue;
+            }
+            match by_species.iter_mut().find(|(sp, _)| *sp == state.species) {
+                Some((_, group)) => group.push(state),
+                None => by_species.push((state.species, vec![state])),
+            }
+        }
+        by_species.sort_by_key(|(_, group)| std::cmp::Reverse(group.len()));
+        let (species, group) = by_species.first()?;
+        let def = self.world.species.get(*species).creature.as_ref()?;
+
+        let mut energies: Vec<f32> = group.iter().map(|s| s.energy).collect();
+        let mut reaches: Vec<f32> = group.iter().map(|s| s.forage_max as f32).collect();
+        let hunger_line = def.start_energy * def.hunger_fraction;
+        let birth_cost = creature::birth_cost(def);
+        let breed_at = creature::reproduce_at(def);
+
+        // The axis is `start_energy` rather than the birth bar on purpose. An
+        // ant banks a few hundred against a birth costing nearly two thousand
+        // (`wiki/ants.md`), so a histogram drawn to the bar puts every animal
+        // in the first bucket and shows nothing at all. The bar still gets
+        // said — as its own gauge — but the shape of the population needs an
+        // axis the population actually occupies.
+        let energy_axis = def.start_energy.max(1.0);
+        let mut energy_buckets = [0u32; COLONY_ENERGY_BUCKETS];
+        for e in &energies {
+            let t = (e / energy_axis).clamp(0.0, 1.0);
+            let index = ((t * COLONY_ENERGY_BUCKETS as f32) as usize).min(COLONY_ENERGY_BUCKETS - 1);
+            energy_buckets[index] += 1;
+        }
+
+        // Explicitly, rather than reading the sorted `energies` back after
+        // `Spread::of` has sorted it in place: that works and depends on
+        // struct-literal field order to do so, which is exactly the kind of
+        // thing a later edit reorders without noticing.
+        let richest = energies.iter().copied().fold(0.0f32, f32::max);
+
+        let mut lineages: Vec<(u32, usize)> = Vec::new();
+        for state in group {
+            match lineages.iter_mut().find(|(l, _)| *l == state.lineage) {
+                Some((_, n)) => *n += 1,
+                None => lineages.push((state.lineage, 1)),
+            }
+        }
+        let top = lineages.iter().map(|(_, n)| *n).max().unwrap_or(0);
+
+        let traits = (0..organism::CREATURE_TRAITS)
+            .map(|slot| {
+                let mut values: Vec<f32> = group.iter().map(|s| s.traits[slot]).collect();
+                Spread::of(&mut values).unwrap_or_default()
+            })
+            .collect();
+
+        Some(ColonyCensus {
+            name: self.world.species.get(*species).name.to_uppercase(),
+            live: group.len(),
+            others: by_species
+                .iter()
+                .skip(1)
+                .map(|(sp, g)| (self.world.species.get(*sp).name.to_uppercase(), g.len()))
+                .collect(),
+            energy: Spread::of(&mut energies).unwrap_or_default(),
+            energy_buckets,
+            energy_axis,
+            hunger_line,
+            hungry: group.iter().filter(|s| s.energy < hunger_line).count(),
+            birth_cost,
+            breed_at,
+            ready: breed_at.map_or(0, |bar| group.iter().filter(|s| s.energy >= bar).count()),
+            richest,
+            laden: group.iter().filter(|s| s.carrying.is_some()).count(),
+            airborne: group.iter().filter(|s| s.flight.is_some()).count(),
+            reach: Spread::of(&mut reaches).unwrap_or_default(),
+            deepest_generation: group.iter().map(|s| s.generation).max().unwrap_or(0),
+            lineages: lineages.len(),
+            top_lineage: top as f32 / group.len().max(1) as f32,
+            traits,
+        })
+    }
+
+    /// The label for one `organism::CREATURE_TRAITS` slot.
+    ///
+    /// **A fallback rather than a table, and that is the point.** The slot
+    /// map grows — it is `1` today and the plan adds more — and a panel with
+    /// a fixed list of names would either stop showing new slots or fail to
+    /// compile against the lane that adds one. An unnamed slot draws as
+    /// `TRAIT n`, which is ugly and correct; name it here when it lands.
+    fn colony_trait_label(slot: usize) -> String {
+        match slot {
+            organism::TRAIT_GUT_BIAS => "GUT".to_string(),
+            other => format!("TRAIT {other}"),
+        }
+    }
+
+    /// Counter rates over the trend window, as *events per 1,000 frames*.
+    ///
+    /// `None` until the window spans something — a cumulative total divided
+    /// by no elapsed time is not a rate, and printing a zero for it would
+    /// read as a colony that has stopped.
+    ///
+    /// **Differenced across the whole ring rather than the last two samples**
+    /// so the window is about a day long: every rate a colony produces rides
+    /// the day/night cycle, and a short window reports the hour.
+    fn colony_rates(&self) -> Option<(f64, crate::sim::world::CreatureStats, crate::sim::world::CreatureStats)> {
+        let first = self.colony_history.first()?;
+        let last = self.colony_history.last()?;
+        let span = last.frame.checked_sub(first.frame)?;
+        if span == 0 {
+            return None;
+        }
+        Some((span as f64, first.stats, last.stats))
+    }
+
     pub fn toggle_tunables(&mut self) {
         self.show_tunables = !self.show_tunables;
         if self.show_tunables {
@@ -1337,6 +1667,7 @@ impl App {
             || self.show_palette
             || self.show_help
             || self.show_tunables
+            || self.show_colony
             || self.show_hover_inspector
             || self.pinned.is_some()
             // A toast paints over terrain and has no tracked footprint, so
@@ -1355,6 +1686,11 @@ impl App {
             let target = player.center();
             let bounds = self.world.bounds();
             self.renderer.follow(target, (WIDTH, HEIGHT), bounds);
+        }
+        // The census and the trend sample, both behind the same flag as the
+        // panel itself: closed, this whole line is one boolean test.
+        if self.show_colony {
+            self.colony_sample();
         }
         let touched = self.world.take_touched_chunks();
         self.renderer.draw(&self.world, &self.particles, &touched, frame, (WIDTH, HEIGHT), force_full);
@@ -1859,6 +2195,13 @@ impl App {
             self.draw_help(frame);
         }
 
+        // Under the help page and the options panel: both are modal reading
+        // surfaces and this is a readout you leave up, so it must not be the
+        // thing covering the page you just opened over it.
+        if self.show_colony && !self.show_help && !self.show_tunables {
+            self.draw_colony_panel(frame);
+        }
+
         if self.show_tunables {
             self.draw_tunables_panel(frame);
         } else {
@@ -2186,6 +2529,394 @@ impl App {
     /// pin state is part of the renderer's look tuple — this text has no
     /// tracked footprint and would otherwise stay burned in over a settled
     /// world.
+    /// The colony panel's left edge, top edge and width. **Its height is not
+    /// here**, because the panel is sized to whatever it has to say: the
+    /// trait section grows with `organism::CREATURE_TRAITS` and a second
+    /// creature species adds a row, so a fixed box would either have dead
+    /// space under a short panel or clip a grown one.
+    const COLONY_RECT: (i32, i32, i32) = (10, 10, 262);
+
+    /// Pixels between one drawn row's top and the next.
+    const COLONY_LINE: i32 = hud::GLYPH_HEIGHT + 2;
+    /// The strip between the title and the first row.
+    const COLONY_HEADER: i32 = 23;
+
+    const COLONY_WHITE: [u8; 4] = [225, 228, 235, 255];
+    const COLONY_DIM: [u8; 4] = [140, 146, 158, 255];
+    const COLONY_FAINT: [u8; 4] = [96, 102, 116, 255];
+    const COLONY_HEADING: [u8; 4] = [150, 200, 160, 255];
+    /// Well fed, and the trend line. Green because it is the one colour here
+    /// that has to read as "fine" at a glance.
+    const COLONY_GOOD: [u8; 4] = [120, 200, 130, 255];
+    /// Below the species' own hunger line. **Not red**: hungry is the normal
+    /// state of a forager, and a panel that alarms at the ordinary teaches
+    /// its reader to ignore it.
+    const COLONY_WANTING: [u8; 4] = [220, 170, 90, 255];
+    /// Separators and the empty half of a gauge.
+    const COLONY_RULE: [u8; 4] = [40, 52, 72, 255];
+
+    /// The box the panel will occupy, sized to what it currently has to say.
+    ///
+    /// One function so the border, the paint and
+    /// `the_colony_panel_stays_inside_its_own_border` all measure the same
+    /// rectangle — a test against a hand-copied literal is a test of the
+    /// literal.
+    fn colony_panel_rect(&self) -> (i32, i32, i32, i32) {
+        let (left, top, width) = Self::COLONY_RECT;
+        let content: i32 = self.colony_rows().iter().map(ColonyRow::height).sum();
+        (left, top, left + width, (top + Self::COLONY_HEADER + content + 6).min(HEIGHT as i32 - 10))
+    }
+
+    /// Every string the colony panel draws goes through here.
+    ///
+    /// The font is a partial set and renders anything it lacks as a **blank
+    /// gap**, not a visible box (`hud.rs`, which records that shipping three
+    /// times). The help page guards this with a test over its literals; this
+    /// panel cannot, because most of its text is composed at run time out of
+    /// species names and formatted numbers. A `debug_assert` here instead
+    /// checks whatever the panel actually built, in every test that draws it.
+    fn colony_text(frame: &mut [u8], x: i32, y: i32, text: &str, colour: [u8; 4]) {
+        debug_assert!(
+            text.chars().all(hud::has_glyph),
+            "the colony panel prints {text:?}, which the font would draw as a blank gap"
+        );
+        hud::draw_text(frame, WIDTH, HEIGHT, x, y, text, colour);
+    }
+
+    /// **The colony panel (`SHIFT+Y`).** What the ants are and how they are
+    /// getting on, in the world you are looking at rather than in a headless
+    /// probe's log.
+    ///
+    /// It is built to answer two questions from across the room — *is this
+    /// colony doing well* and *what is it doing right now* — and only then to
+    /// carry detail. Everything above the ENERGY heading is the first
+    /// question: how many there are, the line they have traced since you
+    /// opened the panel, and what has been born and died. Everything below is
+    /// the second.
+    ///
+    /// Three deliberate choices, each of which a plainer counter dump gets
+    /// wrong:
+    ///
+    /// - **Distributions, not means.** Energy and foraging range are drawn as
+    ///   low/middle/high, and energy also as a histogram split at the
+    ///   species' own hunger line. A colony half starving and half comfortable
+    ///   has the same mean as one uniformly mediocre, and they are not the
+    ///   same colony — `CLAUDE.md`'s ethos, an outcome is a distribution.
+    /// - **Rates, not totals**, for anything cumulative. `moves` climbs for
+    ///   ever and says nothing after the first minute; steps per thousand
+    ///   frames says whether they are walking *now*. The totals that are
+    ///   genuinely cumulative facts — placed, born, died — stay totals,
+    ///   because that is what they are.
+    /// - **The window is a day long.** Every rate is differenced across the
+    ///   whole `COLONY_HISTORY` ring, which spans 3,840 frames against a
+    ///   3,600-frame day, so a reading is the colony rather than the hour.
+    ///
+    /// Drawn on the left so the world stays visible on the right — the same
+    /// reasoning that made the tunables panel translucent.
+    ///
+    /// **Built as a list of rows and then painted**, rather than drawn with a
+    /// running cursor. The cursor version worked and had two faults the list
+    /// does not: the panel could not know its own height until it had already
+    /// drawn its border, so it stood at a fixed size with dead space under a
+    /// short colony; and every row needed a "is there still room" test, which
+    /// is a check that is only ever wrong once.
+    fn draw_colony_panel(&self, frame: &mut [u8]) {
+        const PANEL: [u8; 4] = [10, 10, 16, 255];
+        const PANEL_ALPHA: f32 = 0.82;
+        const TITLE: [u8; 4] = [255, 220, 100, 255];
+        const ACCENT: [u8; 4] = [90, 170, 240, 255];
+
+        let rows = self.colony_rows();
+        let (left, top, right, bottom) = self.colony_panel_rect();
+
+        for y in top..bottom {
+            for x in left..right {
+                render::blend(frame, WIDTH, HEIGHT, x, y, PANEL, PANEL_ALPHA);
+            }
+        }
+        for x in left..right {
+            render::put(frame, WIDTH, HEIGHT, x, top, ACCENT);
+            render::put(frame, WIDTH, HEIGHT, x, bottom - 1, ACCENT);
+        }
+        for y in top..bottom {
+            render::put(frame, WIDTH, HEIGHT, left, y, ACCENT);
+            render::put(frame, WIDTH, HEIGHT, right - 1, y, ACCENT);
+        }
+
+        let pad = left + 8;
+        Self::colony_text(frame, pad, top + 6, "COLONY", TITLE);
+        let close = "SHIFT+Y CLOSE";
+        Self::colony_text(frame, right - 8 - hud::text_width(close), top + 6, close, Self::COLONY_FAINT);
+        for x in left + 1..right - 1 {
+            render::put(frame, WIDTH, HEIGHT, x, top + 17, Self::COLONY_RULE);
+        }
+
+        let mut y = top + Self::COLONY_HEADER;
+        for row in &rows {
+            match row {
+                ColonyRow::Gap => {}
+                ColonyRow::Text(text, colour) => Self::colony_text(frame, pad, y, text, *colour),
+                ColonyRow::Trend => self.draw_colony_trend(frame, pad, y),
+                ColonyRow::Histogram => {
+                    if let Some(census) = &self.colony_census {
+                        Self::draw_colony_histogram(frame, census, pad, y);
+                    }
+                }
+                ColonyRow::Gauge(fill, label) => {
+                    Self::draw_colony_gauge(frame, pad, y + 4, 118, *fill, Self::COLONY_GOOD, Self::COLONY_RULE);
+                    Self::colony_text(frame, pad + 126, y + 3, label, Self::COLONY_FAINT);
+                }
+            }
+            y += row.height();
+        }
+    }
+
+    /// Everything the panel says, in order, before any of it is painted.
+    ///
+    /// Split out so the panel can measure itself, and so a test can read what
+    /// it would say without a framebuffer.
+    fn colony_rows(&self) -> Vec<ColonyRow> {
+        let (white, dim, faint) = (Self::COLONY_WHITE, Self::COLONY_DIM, Self::COLONY_FAINT);
+        let (heading, good, wanting) = (Self::COLONY_HEADING, Self::COLONY_GOOD, Self::COLONY_WANTING);
+        let mut rows = Vec::new();
+        let Some(census) = &self.colony_census else {
+            rows.push(ColonyRow::Text("NO CREATURES IN THIS WORLD".into(), white));
+            rows.push(ColonyRow::Gap);
+            rows.push(ColonyRow::Text("PRESS Y OVER GROUND TO FOUND".into(), dim));
+            rows.push(ColonyRow::Text("A COLONY OF ABOUT FIFTY ANTS".into(), dim));
+            return rows;
+        };
+        let st = self.world.creature_stats;
+
+        // --- is this colony doing well -------------------------------------
+        // **The one word on the panel that is a judgement**, and it is a
+        // judgement about the only thing this panel can see change: the
+        // number of animals, across the window the trend line draws. Not a
+        // health score — nothing here knows what healthy is — just the sign
+        // of the line, said in words for a reader who has not looked at it.
+        let trend = match (self.colony_history.first(), self.colony_history.last()) {
+            (Some(a), Some(b)) if a.frame < b.frame && b.live > a.live => ("  GROWING", good),
+            (Some(a), Some(b)) if a.frame < b.frame && b.live < a.live => ("  SHRINKING", wanting),
+            (Some(a), Some(b)) if a.frame < b.frame => ("  STEADY", white),
+            _ => ("", white),
+        };
+        // The whole headline takes the trend's colour, rather than the word
+        // alone: at 5x7 a single amber word inside a white line is not what
+        // the eye lands on, and the headline going amber is.
+        rows.push(ColonyRow::Text(format!("{} {} ALIVE{}", census.name, census.live, trend.0), trend.1));
+        rows.push(ColonyRow::Trend);
+        rows.push(ColonyRow::Text(format!("PLACED {}   BORN {}   DIED {}", st.spawned, st.births, st.deaths), dim));
+        // **Rates, and the reason the totals above are not enough**: a colony
+        // that lost forty ants an hour ago and is steady now reads exactly
+        // like one dying this minute, in `deaths` alone.
+        rows.push(match self.colony_rates() {
+            Some((span, first, last)) => {
+                let per_k = |a: u64, b: u64| (b.saturating_sub(a)) as f64 * 1000.0 / span;
+                ColonyRow::Text(
+                    format!("PER 1K FRAMES  BORN {:.1}  DIED {:.1}", per_k(first.births, last.births), per_k(first.deaths, last.deaths)),
+                    dim,
+                )
+            }
+            None => ColonyRow::Text("PER 1K FRAMES  MEASURING...".into(), faint),
+        });
+        // **The two silent refusals**, shown only when they have happened.
+        // A birth the terrain refused and a birth the engine's address space
+        // refused are both invisible in `births`, and both read as "nothing
+        // is breeding" — which is the same reading as a colony too poor to
+        // try, and wants the opposite fix.
+        if st.births_denied_no_space > 0 || self.world.organisms_refused() > 0 {
+            rows.push(ColonyRow::Text(
+                format!("BIRTHS REFUSED  NO ROOM {}  NO SLOT {}", st.births_denied_no_space, self.world.organisms_refused()),
+                wanting,
+            ));
+        }
+        rows.push(ColonyRow::Gap);
+
+        // --- the larder ------------------------------------------------------
+        rows.push(ColonyRow::Text("ENERGY".into(), heading));
+        rows.push(ColonyRow::Text(
+            format!("HUNGRY {} OF {}", census.hungry, census.live),
+            if census.hungry * 2 > census.live { wanting } else { dim },
+        ));
+        rows.push(ColonyRow::Histogram);
+        rows.push(ColonyRow::Text(
+            format!("LOW {:.0}  MID {:.0}  HIGH {:.0}  FULL {:.0}", census.energy.low, census.energy.mid, census.energy.high, census.energy_axis),
+            dim,
+        ));
+        match census.breed_at {
+            Some(bar) => {
+                rows.push(ColonyRow::Text(
+                    format!("{} CAN BUD   A CHILD COSTS {:.0}", census.ready, census.birth_cost),
+                    if census.ready > 0 { good } else { dim },
+                ));
+                // The gauge, not another number: the interesting fact about an
+                // ant's bank against the bar it has to reach is not what the
+                // bank is, it is *how far short* — measured at a few hundred
+                // against nearly two thousand, which a bar says at a glance
+                // and a pair of figures does not.
+                rows.push(ColonyRow::Gauge((census.richest / bar).clamp(0.0, 1.0), format!("{:.0} OF {:.0}", census.richest, bar)));
+            }
+            None => rows.push(ColonyRow::Text("THIS SPECIES DOES NOT BREED".into(), dim)),
+        }
+        rows.push(ColonyRow::Gap);
+
+        // --- what they are doing right now -----------------------------------
+        rows.push(ColonyRow::Text("OUT AND ABOUT".into(), heading));
+        rows.push(ColonyRow::Text(format!("CARRYING {}   IN THE AIR {}", census.laden, census.airborne), white));
+        rows.push(ColonyRow::Text(
+            format!("FROM HOME  {:.0} / {:.0} / {:.0} CELLS", census.reach.low, census.reach.mid, census.reach.high),
+            dim,
+        ));
+        if let Some((span, first, last)) = self.colony_rates() {
+            let per_k = |a: u64, b: u64| (b.saturating_sub(a)) as f64 * 1000.0 / span;
+            rows.push(ColonyRow::Text(
+                format!(
+                    "PER 1K  STEP {:.0}  BLOCKED {:.0}  FELL {:.0}",
+                    per_k(first.moves, last.moves),
+                    per_k(first.moves_blocked, last.moves_blocked),
+                    per_k(first.falls, last.falls)
+                ),
+                dim,
+            ));
+            rows.push(ColonyRow::Text(
+                format!(
+                    "        ATE {:.0}  PICKED {:.0}  DUG {:.0}",
+                    per_k(first.eats, last.eats),
+                    per_k(first.pickups, last.pickups),
+                    per_k(first.digs, last.digs)
+                ),
+                dim,
+            ));
+            rows.push(ColonyRow::Text(
+                format!("        FOOD HOME {:.1}  TRIPS {:.1}", per_k(first.deliveries, last.deliveries), per_k(first.forage_trips, last.forage_trips)),
+                // Deliveries are the loop closing — nest to food to nest with
+                // cargo — and the one figure here that is a verdict rather
+                // than an activity level.
+                if last.deliveries > first.deliveries { good } else { dim },
+            ));
+        }
+        rows.push(ColonyRow::Gap);
+
+        // --- the line ----------------------------------------------------------
+        rows.push(ColonyRow::Text("LINEAGE".into(), heading));
+        rows.push(ColonyRow::Text(
+            format!("GENERATION {}  LINES {}  TOP {:.0}%", census.deepest_generation, census.lineages, census.top_lineage * 100.0),
+            dim,
+        ));
+        for (slot, spread) in census.traits.iter().enumerate() {
+            rows.push(ColonyRow::Text(
+                format!("{:<7} {:+.2} / {:+.2} / {:+.2}", Self::colony_trait_label(slot), spread.low, spread.mid, spread.high),
+                dim,
+            ));
+        }
+        for (name, count) in &census.others {
+            rows.push(ColonyRow::Text(format!("ALSO HERE  {name} {count}"), faint));
+        }
+        // **Say what the rates count when there is more than one animal in
+        // the world.** Everything censused above is the named species';
+        // `CreatureStats` is world-wide and has no species dimension, so
+        // every PER 1K figure is every creature there is. With one species
+        // that distinction does not exist and the line would be noise.
+        if !census.others.is_empty() {
+            rows.push(ColonyRow::Text("RATES ABOVE COUNT EVERY CREATURE".into(), faint));
+        }
+        rows
+    }
+
+    /// The population trend line.
+    ///
+    /// **It starts empty and fills as you watch**, which is the visible price
+    /// of the panel doing no work at all while closed: nothing samples the
+    /// population until you ask to see it. Said in words on the strip rather
+    /// than left as a blank box, because an empty chart reads as a dead
+    /// colony and this one means the opposite.
+    ///
+    /// Drawn as a **line with a dim fill under it**, not a bar chart: a
+    /// steady population fills every column to the top and a solid green
+    /// block says nothing about its shape. The axis carries a quarter of
+    /// headroom above the peak for the same reason — a flat line has to sit
+    /// somewhere you can see it is flat.
+    fn draw_colony_trend(&self, frame: &mut [u8], x: i32, y: i32) {
+        let (line, faint) = (Self::COLONY_GOOD, Self::COLONY_FAINT);
+        const UNDER: [u8; 4] = [30, 52, 38, 255];
+        const BASE: [u8; 4] = [50, 62, 78, 255];
+        let height = 18;
+        let width = 170;
+        for px in x..x + width {
+            render::put(frame, WIDTH, HEIGHT, px, y + height, BASE);
+        }
+        if self.colony_history.len() < 2 {
+            Self::colony_text(frame, x, y + height - 12, "TRACKING FROM NOW", faint);
+            return;
+        }
+        let peak = self.colony_history.iter().map(|s| s.live).max().unwrap_or(1).max(1);
+        let axis = (peak * 5 / 4).max(peak + 1);
+        // One column per sample, right-aligned so the newest reading is
+        // always in the same place: a strip that grew rightward from the left
+        // edge would move under the eye as it filled.
+        let n = self.colony_history.len().min(width as usize);
+        let start = self.colony_history.len() - n;
+        for (i, sample) in self.colony_history[start..].iter().enumerate() {
+            let px = x + width - n as i32 + i as i32;
+            let h = (sample.live as i64 * height as i64 / axis as i64) as i32;
+            for dy in 0..h {
+                render::put(frame, WIDTH, HEIGHT, px, y + height - 1 - dy, UNDER);
+            }
+            render::put(frame, WIDTH, HEIGHT, px, y + height - 1 - h.min(height - 1), line);
+        }
+        Self::colony_text(frame, x + width + 6, y + height - 8, &format!("MAX {peak}"), faint);
+    }
+
+    /// The energy histogram.
+    ///
+    /// Bars below the species' own hunger line are drawn in the wanting
+    /// colour and the line itself is marked, so the split the brain actually
+    /// acts on is the split the picture shows — the threshold is
+    /// `creature.rs`'s `hungry`, not one invented for the display.
+    fn draw_colony_histogram(frame: &mut [u8], census: &ColonyCensus, x: i32, y: i32) {
+        let (good, wanting, faint) = (Self::COLONY_GOOD, Self::COLONY_WANTING, Self::COLONY_FAINT);
+        let height = 16;
+        let bar = 14;
+        let gap = 2;
+        let span = COLONY_ENERGY_BUCKETS as i32 * (bar + gap) - gap;
+        let tallest = census.energy_buckets.iter().copied().max().unwrap_or(0).max(1);
+        for (i, count) in census.energy_buckets.iter().enumerate() {
+            let bx = x + i as i32 * (bar + gap);
+            // The bucket's own *upper* edge against the hunger line, so a bar
+            // is coloured wanting only if every animal in it is.
+            let top_of_bucket = census.energy_axis * (i + 1) as f32 / COLONY_ENERGY_BUCKETS as f32;
+            let colour = if top_of_bucket <= census.hunger_line { wanting } else { good };
+            let h = if *count == 0 { 0 } else { ((*count as i64 * height as i64 / tallest as i64) as i32).max(1) };
+            for dy in 0..h {
+                for dx in 0..bar {
+                    render::put(frame, WIDTH, HEIGHT, bx + dx, y + height - 1 - dy, colour);
+                }
+            }
+            for dx in 0..bar {
+                render::put(frame, WIDTH, HEIGHT, bx + dx, y + height, faint);
+            }
+        }
+        // The hunger line itself, as a tick through the axis: without it the
+        // bar colours say *that* there is a split and not *where*.
+        let tick = x + (span as f32 * (census.hunger_line / census.energy_axis).clamp(0.0, 1.0)) as i32;
+        for dy in 0..4 {
+            render::put(frame, WIDTH, HEIGHT, tick, y + height + dy, wanting);
+        }
+    }
+
+    /// A filled bar, `fill` in 0..1. Used for the richest bank against the
+    /// bar it has to reach to bud, where the *gap* is the point and a
+    /// percentage buries it.
+    fn draw_colony_gauge(frame: &mut [u8], x: i32, y: i32, width: i32, fill: f32, on: [u8; 4], off: [u8; 4]) {
+        let filled = (width as f32 * fill).round() as i32;
+        for dx in 0..width {
+            for dy in 0..5 {
+                let colour = if dx < filled { on } else { off };
+                render::put(frame, WIDTH, HEIGHT, x + dx, y + dy, colour);
+            }
+        }
+    }
+
     fn draw_pin_badge(&self, frame: &mut [u8]) {
         const BG: [u8; 4] = [10, 10, 16, 255];
         const HELD: [u8; 4] = [255, 220, 100, 255];
@@ -2418,7 +3149,12 @@ impl App {
     /// Geometry of the help overlay. Named because the guard test reads the
     /// same numbers `draw_help` lays out with -- a test that re-derives them
     /// is testing a copy, and the copy is what goes stale.
-    const HELP_MARGIN: i32 = 20;
+    /// **14, not 20**, and the six pixels are load-bearing: at 20 the page
+    /// held exactly 30 rows a column and both columns were full, so the
+    /// colony panel's key had nowhere to be listed. `the_help_page_fits_
+    /// inside_its_own_panel` reads this constant, so it is the one place the
+    /// row budget is set.
+    const HELP_MARGIN: i32 = 14;
     const HELP_PAD: i32 = 8;
     /// 9 rather than 10: the glyphs are 7 tall, and the extra row per line
     /// was what pushed the old flat list three lines past its own panel.
@@ -2437,7 +3173,7 @@ impl App {
     /// thing it drew off-screen was the line telling you which key closes
     /// it. `the_help_page_fits_inside_its_own_panel` now fails if that
     /// recurs.
-    fn help_columns() -> ([HelpRow; 30], [HelpRow; 30]) {
+    fn help_columns() -> ([HelpRow; 31], [HelpRow; 31]) {
         use HelpRow::{Blank, Head, Key, Note};
         (
             [
@@ -2474,6 +3210,7 @@ impl App {
                 Key("O", "OPTIONS: DAY/NIGHT, WEATHER"),
                 Key("K", "STEM: OFF/AUTHORED/FULL"),
                 Key("/ ESC", "THIS HELP / CLOSE"),
+                Blank,
             ],
             [
                 Head("THE GNOME"),
@@ -2506,6 +3243,7 @@ impl App {
                 Key("0 F11", "REVEAL CAVES"),
                 Key("F12", "SKY LIGHT"),
                 Key("' QUOTE", "GLOW SHAPE"),
+                Key("SHIFT+Y", "COLONY PANEL"),
             ],
         )
     }
@@ -3287,6 +4025,308 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// **The panel must cost nothing while it is closed** — the standing
+    /// constraint on every overlay in this engine, because a panel that
+    /// repaints or re-censuses per frame defeats the dirty-rect skip on
+    /// exactly the settled worlds where that skip pays.
+    ///
+    /// Both halves, because a test that only checks the closed case passes
+    /// just as well for a panel that never works at all: closed, nothing is
+    /// censused and nothing is sampled; open, both happen on the same frame.
+    #[test]
+    fn a_closed_colony_panel_does_no_work_and_an_open_one_does() {
+        let mut app = test_app();
+        let mut frame = vec![0u8; (WIDTH * HEIGHT * 4) as usize];
+
+        app.draw(&mut frame, None);
+        assert!(app.colony_census.is_none(), "a closed panel took a census");
+        assert!(app.colony_history.is_empty(), "a closed panel took a trend sample");
+
+        app.toggle_colony();
+        app.draw(&mut frame, None);
+        assert_eq!(app.colony_history.len(), 1, "an open panel must sample on the frame it opens");
+
+        // ...and closing drops it again, so the next open does not draw a
+        // trend line with a hole in it where the panel was shut.
+        app.toggle_colony();
+        assert!(app.colony_history.is_empty());
+        assert!(app.colony_census.is_none());
+    }
+
+    /// The census must count **creatures**, and a world full of plants is the
+    /// case that proves it: every generated world has moss and trees in it,
+    /// each of which owns an `OrganismState` in the same table the census
+    /// walks. A panel reporting a forest as its population would be
+    /// `CLAUDE.md`'s "ask what your number counts" in its purest form.
+    ///
+    /// The negative half runs first and is the real content: with no colony
+    /// founded there must be no census *at all*, not a colony of zero.
+    #[test]
+    fn the_colony_census_counts_creatures_and_not_the_forest() {
+        let mut app = test_app();
+        assert!(
+            app.take_colony_census().is_none(),
+            "a world with plants in it and no creatures must census as no creatures"
+        );
+
+        let (x, y) = (app.world.bounds().expect("the app's world is bounded").width() / 2, 0);
+        let placed = app.world.found_colony(x, y);
+        assert!(placed > 0, "the test needs a colony; nothing was placed at ({x}, {y})");
+
+        let census = app.take_colony_census().expect("a founded colony censuses");
+        assert_eq!(census.live, placed, "every ant placed should be counted, and nothing else");
+        assert_eq!(census.name, "ANT");
+        assert!(census.birth_cost > 0.0, "the ant authors a body, so a child costs something");
+        // The hunger line is the species' own, not a display constant: an ant
+        // freshly placed sits at `start_energy`, which is above it.
+        assert!(census.hunger_line > 0.0 && census.hunger_line < census.energy_axis);
+        assert_eq!(census.hungry, 0, "ants are placed at full store, so none is hungry on frame one");
+    }
+
+    /// **The trait section is sized by `CREATURE_TRAITS`, never by a count
+    /// written here.** The slot map grows — it went from one slot to two in a
+    /// single evening — and a panel with a hand-written list of trait rows
+    /// silently stops showing the newest one.
+    #[test]
+    fn the_colony_census_reports_one_spread_per_trait_slot() {
+        let mut app = test_app();
+        let (x, y) = (app.world.bounds().expect("the app's world is bounded").width() / 2, 0);
+        assert!(app.world.found_colony(x, y) > 0);
+        let census = app.take_colony_census().expect("a founded colony censuses");
+        assert_eq!(census.traits.len(), organism::CREATURE_TRAITS);
+        for slot in 0..organism::CREATURE_TRAITS {
+            for ch in App::colony_trait_label(slot).chars() {
+                assert!(hud::has_glyph(ch), "trait slot {slot}'s label draws {ch:?} as a blank gap");
+            }
+        }
+    }
+
+    /// Nothing the panel draws may land outside its own border.
+    ///
+    /// The layout is a running cursor rather than a fixed table precisely so
+    /// that a grown `CREATURE_TRAITS` or a second creature species can add
+    /// rows; this is the guard that the cursor's own floor check stops them
+    /// running off the bottom. Drawn onto a zeroed frame, so any lit pixel is
+    /// one this panel put there.
+    #[test]
+    fn the_colony_panel_stays_inside_its_own_border() {
+        let mut app = test_app();
+        let (x, y) = (app.world.bounds().expect("the app's world is bounded").width() / 2, 0);
+        assert!(app.world.found_colony(x, y) > 0);
+        app.show_colony = true;
+        app.colony_sample();
+
+        let mut frame = vec![0u8; (WIDTH * HEIGHT * 4) as usize];
+        app.draw_colony_panel(&mut frame);
+
+        let (left, top, right, bottom) = app.colony_panel_rect();
+        let mut lit = 0usize;
+        for py in 0..HEIGHT as i32 {
+            for px in 0..WIDTH as i32 {
+                let i = ((py * WIDTH as i32 + px) * 4) as usize;
+                if frame[i..i + 4] == [0, 0, 0, 0] {
+                    continue;
+                }
+                lit += 1;
+                assert!(
+                    (left..right).contains(&px) && (top..bottom).contains(&py),
+                    "the colony panel lit ({px}, {py}), outside its own border {:?}",
+                    app.colony_panel_rect()
+                );
+            }
+        }
+        // A blind version of this test passes with a panel that draws
+        // nothing at all, which is exactly the shape `CLAUDE.md` says to put
+        // the fault back for. The border alone is over a thousand pixels.
+        assert!(lit > 2_000, "the panel drew only {lit} pixels; it is not drawing");
+
+        // **And it must be sized to its content**, which is the whole reason
+        // the rows are built before anything is painted. A panel that always
+        // ran to the bottom of the screen would pass the containment check
+        // above while carrying a hand of dead space under every short colony.
+        let content: i32 = app.colony_rows().iter().map(ColonyRow::height).sum();
+        assert_eq!(bottom - top, App::COLONY_HEADER + content + 6, "the border is not drawn around the rows");
+    }
+
+    /// Rates are `None` until the trend window spans something. A cumulative
+    /// total divided by no elapsed time is not a rate, and a zero printed for
+    /// it reads as a colony that has stopped rather than one just looked at.
+    #[test]
+    fn colony_rates_need_a_window_before_they_report_anything() {
+        let mut app = test_app();
+        let (x, y) = (app.world.bounds().expect("the app's world is bounded").width() / 2, 0);
+        assert!(app.world.found_colony(x, y) > 0);
+        app.show_colony = true;
+        app.colony_sample();
+        assert!(app.colony_rates().is_none(), "one sample is not a window");
+
+        for _ in 0..COLONY_SAMPLE_INTERVAL + 1 {
+            app.update();
+            app.colony_sample();
+        }
+        assert!(app.colony_rates().is_some(), "two samples a window apart must give a rate");
+    }
+
+    /// Found a colony somewhere it will actually live and forage, and return
+    /// the column.
+    ///
+    /// **Where there is something to eat**, not merely where there is ground.
+    /// The generated world's first screen is largely open water — a colony
+    /// refuses to be founded on a lake — and bare rock reads every foraging
+    /// rate as zero, which is a true picture of the terrain and a useless one
+    /// of the panel. So score the world's columns by how much plant matter
+    /// stands over them and found at the best.
+    fn found_a_demo_colony(app: &mut App) -> i32 {
+        let x: i32 = std::env::var("COLONY_AT").ok().and_then(|v| v.parse().ok()).unwrap_or_else(|| {
+            let bounds = app.world.bounds().expect("bounded");
+            let mut best = (0usize, bounds.width() / 2);
+            for cx in (bounds.min_x + 64..bounds.max_x - 64).step_by(32) {
+                let Some(sy) = crate::sim::creature::colony_surface(&app.world, cx, 0) else { continue };
+                if !matches!(app.world.materials.kind(app.world.get(cx, sy).material), MaterialKind::Solid | MaterialKind::Powder) {
+                    continue;
+                }
+                let food = (cx - 60..cx + 60)
+                    .flat_map(|px| (sy - 40..sy).map(move |py| (px, py)))
+                    .filter(|&(px, py)| app.world.materials.kind(app.world.get(px, py).material) == MaterialKind::Plant)
+                    .count();
+                if food > best.0 {
+                    best = (food, cx);
+                }
+            }
+            eprintln!("best foraging column x={} with {} plant cells over it", best.1, best.0);
+            best.1
+        });
+        let placed = app.world.found_colony(x, 0);
+        eprintln!("founded {placed} ants at x={x}");
+        assert!(placed > 0, "no colony was placed at x={x}; the picture would be of an empty panel");
+        x
+    }
+
+    /// **What the panel costs.** Not a guard — `CLAUDE.md` is explicit that a
+    /// wall-clock assertion is a flake generator — a measurement, run with
+    /// `COLONY_COST=1` and quoted in the lane note.
+    ///
+    /// Paired and alternating, on one binary in one process, because a
+    /// sibling lane measured the byte-identical control scene 14% apart
+    /// across two builds. The state it measures against is a **settled**
+    /// world, which is the state the dirty-rect skip exists for and
+    /// therefore the only one where an always-on overlay's cost shows up:
+    /// the animated water grain looked free in every moving scene and cost
+    /// ~10 ms/frame on a still one.
+    #[test]
+    fn report_the_colony_panel_frame_cost_when_asked() {
+        if std::env::var("COLONY_COST").is_err() {
+            return;
+        }
+        let mut app = test_app();
+        found_a_demo_colony(&mut app);
+        let mut frame = vec![0u8; (WIDTH * HEIGHT * 4) as usize];
+        // Settle first, then **stop stepping the world**. A world still
+        // settling redraws every pixel anyway, so the closed arm would not be
+        // measuring the skip at all and the delta would flatter the panel.
+        // Held still, the closed arm takes the skip and the open arm pays a
+        // full redraw, which is the worst case and the one worth quoting.
+        for _ in 0..3_000 {
+            app.update();
+            app.draw(&mut frame, None);
+        }
+
+        let median = |mut v: Vec<f64>| {
+            v.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            v[v.len() / 2]
+        };
+        let (mut closed, mut open, mut census) = (Vec::new(), Vec::new(), Vec::new());
+        for _ in 0..200 {
+            for want in [false, true] {
+                if app.show_colony != want {
+                    app.toggle_colony();
+                }
+                let t = std::time::Instant::now();
+                app.draw(&mut frame, None);
+                let ms = t.elapsed().as_secs_f64() * 1000.0;
+                if want { open.push(ms) } else { closed.push(ms) }
+            }
+            let t = std::time::Instant::now();
+            let c = app.take_colony_census();
+            census.push(t.elapsed().as_secs_f64() * 1000.0);
+            assert!(c.is_some(), "the cost run lost its colony");
+        }
+        println!(
+            "colony panel, settled world, 200 alternating pairs: closed {:.3} ms/frame, open {:.3} ms/frame, delta {:+.3} ms; one census {:.4} ms (taken every {COLONY_SAMPLE_INTERVAL} frames while open)",
+            median(closed.clone()),
+            median(open.clone()),
+            median(open) - median(closed),
+            median(census)
+        );
+    }
+
+    /// Not a guard -- a way to look at the panel, since it is judged by eye.
+    /// Writes only when `COLONY_PNG` names a path.
+    #[test]
+    fn dump_the_colony_panel_when_asked() {
+        let Ok(out) = std::env::var("COLONY_PNG") else { return };
+        let mut app = test_app();
+        // **Founded inside the viewport, to the right of the panel.** The
+        // guard tests above place their colony at the middle of the world,
+        // which on a world sixteen screens wide is nowhere near the camera --
+        // fine for a census, useless for a picture, since the point of a
+        // screenshot is the ants beside their own readout.
+        // **Founded where a colony actually survives, then the camera moved
+        // to it** — rather than founded wherever the camera happens to start.
+        // The shoreline the generated world puts in the first screen is open
+        // water for most of its width and a colony refuses to be founded on a
+        // lake, so a hard-coded x in view produced a picture of the empty
+        // panel over an empty beach.
+        let x = found_a_demo_colony(&mut app);
+        // Off-centre, so the colony sits in the strip of world the panel does
+        // not cover.
+        if let Some(sy) = crate::sim::creature::colony_surface(&app.world, x, 0) {
+            let bounds = app.world.bounds();
+            app.renderer.follow((x - 130, sy), (WIDTH, HEIGHT), bounds);
+        }
+        app.show_colony = true;
+        let mut frame = vec![0u8; (WIDTH * HEIGHT * 4) as usize];
+        // Drawn every frame, not once at the end: the trend line and every
+        // rate on the panel are built from samples taken at *draw* time, so a
+        // run that only draws its last frame photographs a panel that has
+        // been open for one frame and says "MEASURING..." for everything.
+        let frames: u64 = std::env::var("COLONY_FRAMES").ok().and_then(|v| v.parse().ok()).unwrap_or(4_000);
+        for _ in 0..frames {
+            app.update();
+            app.draw(&mut frame, None);
+        }
+        // Written at 2x by default. The review page scales client-side, but
+        // its own guidance records a 190x130 still the owner could see
+        // nothing in, and 512x320 on a phone is not far off that.
+        let zoom: u32 = std::env::var("COLONY_ZOOM").ok().and_then(|v| v.parse().ok()).unwrap_or(2);
+        let (zw, zh) = (WIDTH * zoom, HEIGHT * zoom);
+        let mut big = vec![0u8; (zw * zh * 4) as usize];
+        for y in 0..zh {
+            for x in 0..zw {
+                let src = (((y / zoom) * WIDTH + (x / zoom)) * 4) as usize;
+                let dst = ((y * zw + x) * 4) as usize;
+                big[dst..dst + 4].copy_from_slice(&frame[src..src + 4]);
+            }
+        }
+        image::save_buffer(&out, &big, zw, zh, image::ColorType::Rgba8).unwrap();
+        if let Some((span, a, b)) = app.colony_rates() {
+            eprintln!(
+                "window {span} frames: eats {}->{} pickups {}->{} digs {}->{} drops {}->{} deliveries {}->{} trips {}->{}",
+                a.eats, b.eats, a.pickups, b.pickups, a.digs, b.digs, a.drops, b.drops, a.deliveries, b.deliveries, a.forage_trips, b.forage_trips
+            );
+        }
+        // The rows as text as well as as pixels: a 5x7 glyph read off a
+        // downscaled screenshot is not evidence about what the panel said,
+        // and reading "PICKED 30" as "PICKED 0" off one is how this print
+        // came to exist.
+        for row in app.colony_rows() {
+            if let ColonyRow::Text(text, _) = row {
+                eprintln!("| {text}");
+            }
+        }
+        eprintln!("wrote {out}");
     }
 
     /// Not a guard -- a way to look at the page, since it is judged by eye.

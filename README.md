@@ -22,40 +22,40 @@ whole, then run `python3 scripts/readmetoc.py`.
 | [Running](#running) | 114 |
 | [Finding things](#finding-things) | 122 |
 | [Controls](#controls) | 158 |
-| [Materials](#materials) | 223 |
-| [Architecture](#architecture) | 297 |
-| [The coarse field grid](#the-coarse-field-grid) | 454 |
-| [M12/M13 status](#m12m13-status) | 716 |
-| [Liquid physics: compressible volume, not discrete occupied cells](#liquid-physics-compressible-volume-not-discrete-occupied-cells) | 743 |
-| [M14 status](#m14-status) | 769 |
-| [M7 status](#m7-status) | 917 |
-| [M15 status](#m15-status) | 946 |
-| [M6 deferral](#m6-deferral) | 1077 |
-| [M5 status](#m5-status) | 1087 |
-| [Plant lines merged: the genome, and the ecology](#plant-lines-merged-the-genome-and-the-ecology) | 1182 |
-| [The generation loop: plants die, seeds expire, slots come back](#the-generation-loop-plants-die-seeds-expire-slots-come-back) | 1252 |
-| [The economy re-derived: standing tissue costs something](#the-economy-re-derived-standing-tissue-costs-something) | 1304 |
-| [Stems draw a line: the growth walk renders its heading](#stems-draw-a-line-the-growth-walk-renders-its-heading) | 1404 |
-| [Plants that stop: organs, determinacy, and a price on both](#plants-that-stop-organs-determinacy-and-a-price-on-both) | 1486 |
-| [M16 status](#m16-status) | 1554 |
-| [M17 status](#m17-status) | 1740 |
-| [M18 status](#m18-status) | 1967 |
-| [UI improvements — overnight run, section 9](#ui-improvements--overnight-run-section-9) | 2301 |
-| [Live tunables panel — overnight run, section 10](#live-tunables-panel--overnight-run-section-10) | 2346 |
-| [Rendering performance — overnight run, section 11](#rendering-performance--overnight-run-section-11) | 2414 |
-| [M8 status — started, not complete](#m8-status--started-not-complete) | 2434 |
-| [M9 status — the gnome](#m9-status--the-gnome) | 2547 |
-| [M10 status — the worldgen half](#m10-status--the-worldgen-half) | 2932 |
-| [Weather status](#weather-status) | 3047 |
-| [The ant colony — status](#the-ant-colony--status) | 3064 |
-| [M19 status — started](#m19-status--started) | 3173 |
-| [Felling status — the verb works, and what it produces is pieces](#felling-status--the-verb-works-and-what-it-produces-is-pieces) | 3245 |
-| [Bending status — soft tissue lies over, and the wind is what pushes it](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) | 3482 |
-| [Breaking status — a badly grown tree comes down on its own](#breaking-status--a-badly-grown-tree-comes-down-on-its-own) | 3559 |
-| [Performance](#performance) | 3651 |
-| [World speed — five independent time axes](#world-speed--five-independent-time-axes) | 3848 |
-| [Status](#status) | 3931 |
-| [License](#license) | 4042 |
+| [Materials](#materials) | 224 |
+| [Architecture](#architecture) | 298 |
+| [The coarse field grid](#the-coarse-field-grid) | 455 |
+| [M12/M13 status](#m12m13-status) | 717 |
+| [Liquid physics: compressible volume, not discrete occupied cells](#liquid-physics-compressible-volume-not-discrete-occupied-cells) | 744 |
+| [M14 status](#m14-status) | 770 |
+| [M7 status](#m7-status) | 918 |
+| [M15 status](#m15-status) | 947 |
+| [M6 deferral](#m6-deferral) | 1078 |
+| [M5 status](#m5-status) | 1088 |
+| [Plant lines merged: the genome, and the ecology](#plant-lines-merged-the-genome-and-the-ecology) | 1183 |
+| [The generation loop: plants die, seeds expire, slots come back](#the-generation-loop-plants-die-seeds-expire-slots-come-back) | 1253 |
+| [The economy re-derived: standing tissue costs something](#the-economy-re-derived-standing-tissue-costs-something) | 1305 |
+| [Stems draw a line: the growth walk renders its heading](#stems-draw-a-line-the-growth-walk-renders-its-heading) | 1405 |
+| [Plants that stop: organs, determinacy, and a price on both](#plants-that-stop-organs-determinacy-and-a-price-on-both) | 1487 |
+| [M16 status](#m16-status) | 1555 |
+| [M17 status](#m17-status) | 1741 |
+| [M18 status](#m18-status) | 1968 |
+| [UI improvements — overnight run, section 9](#ui-improvements--overnight-run-section-9) | 2302 |
+| [Live tunables panel — overnight run, section 10](#live-tunables-panel--overnight-run-section-10) | 2347 |
+| [Rendering performance — overnight run, section 11](#rendering-performance--overnight-run-section-11) | 2415 |
+| [M8 status — started, not complete](#m8-status--started-not-complete) | 2435 |
+| [M9 status — the gnome](#m9-status--the-gnome) | 2548 |
+| [M10 status — the worldgen half](#m10-status--the-worldgen-half) | 2933 |
+| [Weather status](#weather-status) | 3048 |
+| [The ant colony — status](#the-ant-colony--status) | 3065 |
+| [M19 status — started](#m19-status--started) | 3200 |
+| [Felling status — the verb works, and what it produces is pieces](#felling-status--the-verb-works-and-what-it-produces-is-pieces) | 3272 |
+| [Bending status — soft tissue lies over, and the wind is what pushes it](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) | 3509 |
+| [Breaking status — a badly grown tree comes down on its own](#breaking-status--a-badly-grown-tree-comes-down-on-its-own) | 3586 |
+| [Performance](#performance) | 3678 |
+| [World speed — five independent time axes](#world-speed--five-independent-time-axes) | 3875 |
+| [Status](#status) | 3958 |
+| [License](#license) | 4069 |
 
 ### Milestones, in numeric order
 
@@ -64,19 +64,19 @@ order they were written.
 
 | M | Section | Line |
 |---|---|---|
-| 5 | [M5 status](#m5-status) | 1087 |
-| 6 | [M6 deferral](#m6-deferral) | 1077 |
-| 7 | [M7 status](#m7-status) | 917 |
-| 8 | [M8 status — started, not complete](#m8-status--started-not-complete) | 2434 |
-| 9 | [M9 status — the gnome](#m9-status--the-gnome) | 2547 |
-| 10 | [M10 status — the worldgen half](#m10-status--the-worldgen-half) | 2932 |
-| 12 | [M12/M13 status](#m12m13-status) | 716 |
-| 14 | [M14 status](#m14-status) | 769 |
-| 15 | [M15 status](#m15-status) | 946 |
-| 16 | [M16 status](#m16-status) | 1554 |
-| 17 | [M17 status](#m17-status) | 1740 |
-| 18 | [M18 status](#m18-status) | 1967 |
-| 19 | [M19 status — started](#m19-status--started) | 3173 |
+| 5 | [M5 status](#m5-status) | 1088 |
+| 6 | [M6 deferral](#m6-deferral) | 1078 |
+| 7 | [M7 status](#m7-status) | 918 |
+| 8 | [M8 status — started, not complete](#m8-status--started-not-complete) | 2435 |
+| 9 | [M9 status — the gnome](#m9-status--the-gnome) | 2548 |
+| 10 | [M10 status — the worldgen half](#m10-status--the-worldgen-half) | 2933 |
+| 12 | [M12/M13 status](#m12m13-status) | 717 |
+| 14 | [M14 status](#m14-status) | 770 |
+| 15 | [M15 status](#m15-status) | 947 |
+| 16 | [M16 status](#m16-status) | 1555 |
+| 17 | [M17 status](#m17-status) | 1741 |
+| 18 | [M18 status](#m18-status) | 1968 |
+| 19 | [M19 status — started](#m19-status--started) | 3200 |
 
 ### By topic
 
@@ -89,25 +89,25 @@ them is named "plants". A section can appear twice; felling is honestly both
 plant work and structural work.
 
 **Known limitations for every topic are collected in one place**:
-[Status](#status), line 3931 — the *last* section in the
+[Status](#status), line 3958 — the *last* section in the
 file, not the first. Read it before concluding something is broken.
 
 | Topic | Sections, primary first |
 |---|---|
-| **plants, trees and moss** | [M16 status](#m16-status) 1554, [Plant lines merged](#plant-lines-merged-the-genome-and-the-ecology) 1182, [The economy re-derived](#the-economy-re-derived-standing-tissue-costs-something) 1304, [Plants that stop](#plants-that-stop-organs-determinacy-and-a-price-on-both) 1486, [The generation loop](#the-generation-loop-plants-die-seeds-expire-slots-come-back) 1252, [Stems draw a line](#stems-draw-a-line-the-growth-walk-renders-its-heading) 1404, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 3245, [Bending status](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) 3482, [Breaking status](#breaking-status--a-badly-grown-tree-comes-down-on-its-own) 3559 |
-| **creatures — worms and the ant colony** | [M18 status](#m18-status) 1967, [The ant colony](#the-ant-colony--status) 3064 |
-| **structural collapse, felling and rigid bodies** | [M17 status](#m17-status) 1740, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 3245, [Bending status](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) 3482, [Breaking status](#breaking-status--a-badly-grown-tree-comes-down-on-its-own) 3559, [M8 status](#m8-status--started-not-complete) 2434 |
-| **fire, heat and phase change** | [M14 status](#m14-status) 769, [Materials](#materials) 223 |
-| **explosions, particles and debris** | [M15 status](#m15-status) 946, [M7 status](#m7-status) 917 |
-| **liquids and gases** | [Liquid physics](#liquid-physics-compressible-volume-not-discrete-occupied-cells) 743, [The coarse field grid](#the-coarse-field-grid) 454 |
-| **powders and granular flow** | [Materials](#materials) 223, [Architecture](#architecture) 297 |
-| **the coarse field grid — pressure, heat, light** | [The coarse field grid](#the-coarse-field-grid) 454, [M12/M13 status](#m12m13-status) 716 |
-| **worldgen and world structure** | [M10 status](#m10-status--the-worldgen-half) 2932, [Architecture](#architecture) 297 |
-| **the gnome (player character)** | [M9 status](#m9-status--the-gnome) 2547, [Controls](#controls) 158 |
-| **weather, sky and the clock** | [Weather status](#weather-status) 3047, [M19 status](#m19-status--started) 3173, [World speed](#world-speed--five-independent-time-axes) 3848 |
-| **rendering, UI and tunables** | [UI improvements](#ui-improvements--overnight-run-section-9) 2301, [Live tunables panel](#live-tunables-panel--overnight-run-section-10) 2346, [Rendering performance](#rendering-performance--overnight-run-section-11) 2414, [M6 deferral](#m6-deferral) 1077 |
-| **performance and the parallel sweep** | [Performance](#performance) 3651, [M5 status](#m5-status) 1087, [Architecture](#architecture) 297, [Rendering performance](#rendering-performance--overnight-run-section-11) 2414 |
-| **materials and the data schema** | [Materials](#materials) 223, [M12/M13 status](#m12m13-status) 716 |
+| **plants, trees and moss** | [M16 status](#m16-status) 1555, [Plant lines merged](#plant-lines-merged-the-genome-and-the-ecology) 1183, [The economy re-derived](#the-economy-re-derived-standing-tissue-costs-something) 1305, [Plants that stop](#plants-that-stop-organs-determinacy-and-a-price-on-both) 1487, [The generation loop](#the-generation-loop-plants-die-seeds-expire-slots-come-back) 1253, [Stems draw a line](#stems-draw-a-line-the-growth-walk-renders-its-heading) 1405, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 3272, [Bending status](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) 3509, [Breaking status](#breaking-status--a-badly-grown-tree-comes-down-on-its-own) 3586 |
+| **creatures — worms and the ant colony** | [M18 status](#m18-status) 1968, [The ant colony](#the-ant-colony--status) 3065 |
+| **structural collapse, felling and rigid bodies** | [M17 status](#m17-status) 1741, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 3272, [Bending status](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) 3509, [Breaking status](#breaking-status--a-badly-grown-tree-comes-down-on-its-own) 3586, [M8 status](#m8-status--started-not-complete) 2435 |
+| **fire, heat and phase change** | [M14 status](#m14-status) 770, [Materials](#materials) 224 |
+| **explosions, particles and debris** | [M15 status](#m15-status) 947, [M7 status](#m7-status) 918 |
+| **liquids and gases** | [Liquid physics](#liquid-physics-compressible-volume-not-discrete-occupied-cells) 744, [The coarse field grid](#the-coarse-field-grid) 455 |
+| **powders and granular flow** | [Materials](#materials) 224, [Architecture](#architecture) 298 |
+| **the coarse field grid — pressure, heat, light** | [The coarse field grid](#the-coarse-field-grid) 455, [M12/M13 status](#m12m13-status) 717 |
+| **worldgen and world structure** | [M10 status](#m10-status--the-worldgen-half) 2933, [Architecture](#architecture) 298 |
+| **the gnome (player character)** | [M9 status](#m9-status--the-gnome) 2548, [Controls](#controls) 158 |
+| **weather, sky and the clock** | [Weather status](#weather-status) 3048, [M19 status](#m19-status--started) 3200, [World speed](#world-speed--five-independent-time-axes) 3875 |
+| **rendering, UI and tunables** | [UI improvements](#ui-improvements--overnight-run-section-9) 2302, [Live tunables panel](#live-tunables-panel--overnight-run-section-10) 2347, [Rendering performance](#rendering-performance--overnight-run-section-11) 2415, [M6 deferral](#m6-deferral) 1078 |
+| **performance and the parallel sweep** | [Performance](#performance) 3678, [M5 status](#m5-status) 1088, [Architecture](#architecture) 298, [Rendering performance](#rendering-performance--overnight-run-section-11) 2415 |
+| **materials and the data schema** | [Materials](#materials) 224, [M12/M13 status](#m12m13-status) 717 |
 
 <!-- END GENERATED TOC -->
 
@@ -181,6 +181,7 @@ here is a cross-repo edit, not a cosmetic one.
 | `,` | Cycle **tree depth** — whether the gnome draws over a stand of trees, weaves through it (the default: half of them draw over him, chosen per tree and stable for its life), or passes behind all of it. Purely graphical; a living plant is walk-through in every mode. On a comma rather than the `F10` this row named until now: two branches independently claimed `F10`, the terrain-depth light kept it, and this row was left behind pointing at a key that does something else |
 | `F3` `F4` `F2` | Cycle the gnome's **movement feel**, **water feel** and **spoil mode**, in that order — named runtime selectors for the three things only play can settle. (An earlier version of this row had the keys scrambled; the binding is F3 = movement, F4 = water, F2 = spoil.) The active one is shown in the title bar once it differs from the default. Every underlying number is also sweepable under `O` -> PLAYER |
 | `Y` | Found an **ant colony** at the cursor — the whole colony feature hangs off this key; see [`wiki/ants.md`](wiki/ants.md) |
+| `SHIFT+Y` | Toggle the **colony panel** — population and its trend, the energy distribution against the species' own hunger line and the birth bar, what the colony is doing as rates per thousand frames, and the lineage. On the shift of the key that founds a colony because every plain letter is bound (`main.rs`'s `KeyY` arm calls `Y` "the last free letter"). Nothing is censused and nothing is sampled while it is shut, so a settled world keeps the dirty-rect skip; open, it forces a full redraw per frame like every other panel. See [`wiki/ants.md`](wiki/ants.md) |
 | `F6` / `F8` | New world from a fresh seed / back to the previous seed |
 | `F7` | Cycle the worldgen preset, keeping the seed — rolling → terraced → canyon → wetland → arid → legacy → flat (the structural test bed) |
 | `F9` | Cycle how far structural damage may travel from a blow: SPREAD (default) → LOCAL → TIGHT → NONE; named in the title bar off the default. TIGHT was tried as the default and backed out — it stops a room's ceiling coming down; see the M17 section. See [`wiki/structural-collapse.md`](wiki/structural-collapse.md) |
@@ -3074,6 +3075,32 @@ without ever being told to. Fire kills an ant the ordinary M14 way, into a
 corpse. No queens, eggs or new ants yet — the ants you place are the ants
 you get. A beetle species landed alongside as data
 (`assets/species/beetle.ron`). Play-facing: [`wiki/ants.md`](wiki/ants.md).
+
+**The colony is now readable in the game** (`SHIFT+Y`, `App::draw_colony_panel`).
+Everything this project measures about creatures lived in `examples/creature_probe.rs`
+and its siblings — headless logs nobody playing ever sees — so a colony on
+screen was fifty dots and no way to tell a thriving one from a dying one.
+The panel answers two questions before any detail: *is this colony doing
+well* (live count, growing/steady/shrinking, a population strip, placed/born/
+died, and births and deaths as a rate) and *what is it doing right now*
+(carrying, airborne, excursion depth, and steps/blocked/falls/eats/pickups/
+digs/deliveries/round trips as rates). Between them the energy **distribution**
+— a histogram split at `hunger_fraction * start_energy`, the line
+`creature::act`'s own `hungry` tests, with the richest bank gauged against
+`creature::reproduce_at` — and under them the lineage: deepest generation,
+lines surviving, top lineage share, and one spread row per
+`organism::CREATURE_TRAITS` slot, sized by the constant so a new slot appears
+without an edit here.
+
+Three constraints shaped it rather than the counter list. **Rates, not
+totals**, because `moves` climbs for ever and says nothing after the first
+minute. **The rate window is 3,840 frames** — 128 samples 30 apart, just over
+`field::DAY_NIGHT_PERIOD_FRAMES` — so a reading is the colony and not the
+hour, which is `CLAUDE.md`'s divide-out-the-oscillator rule applied to a
+readout. And **closed it costs nothing**: the census and the trend sample
+both sit behind `show_colony`, so a settled world keeps the dirty-rect skip
+the animated water grain once cost ~10 ms/frame. Open it forces a full
+redraw per frame, exactly as the help page and the options panel already do.
 
 **A creature can now be saved.** `src/sim/species_export.rs` writes one live
 individual back out as an `assets/species/*.ron` that the existing loader
