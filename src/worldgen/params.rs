@@ -66,6 +66,22 @@ pub struct WorldgenParams {
     /// guarantees a composition in every window. See `column::elev` for why
     /// its phase is deliberately *not* seeded.
     pub relief_amplitude: f32,
+    /// Amplitude of the **massif**: country-scale relief, three to six
+    /// screens between crest and crest.
+    ///
+    /// A different quantity from `relief_amplitude` rather than a bigger
+    /// setting of it, and the distinction is the whole reason it exists.
+    /// `relief_amplitude` is scaled by the region's `elev`, and a region is
+    /// 96-241 columns at the shipped world size against a hill wavelength of
+    /// 150-200 -- so it modulates the terrain **at the carrier frequency**,
+    /// which does not read as high country and low country, it reads as
+    /// noise (`Reports/worldgen-architecture-ceilings-2026-08-29.md` C4).
+    /// A mountain has to be bigger than the view or the player never sees one:
+    /// the same argument `region.rs`'s `ROCK_COUNTRY_SCALE` records for where
+    /// rock country is, applied to how high the ground is.
+    pub massif_amplitude: f32,
+    /// Wavelength of that massif, in columns. Sized in *screens*.
+    pub massif_wavelength: f32,
     /// Mid-frequency hills stacked on the base wave.
     pub hill_amplitude: f32,
     /// Wavelength of those hills.
@@ -486,6 +502,8 @@ impl WorldgenParams {
             cell_scale,
             sky_rows,
             relief_amplitude,
+            massif_amplitude,
+            massif_wavelength,
             hill_amplitude,
             hill_wavelength,
             detail_amplitude,
@@ -549,6 +567,8 @@ impl WorldgenParams {
             // ---- lengths and wavelengths: x k ----
             sky_rows: len(sky_rows),
             relief_amplitude: len(relief_amplitude),
+            massif_amplitude: len(massif_amplitude),
+            massif_wavelength: len(massif_wavelength),
             hill_amplitude: len(hill_amplitude),
             hill_wavelength: len(hill_wavelength),
             detail_amplitude: len(detail_amplitude),
@@ -637,6 +657,8 @@ impl Default for WorldgenParams {
             cell_scale: 1.0,
             sky_rows: 190.0,
             relief_amplitude: 46.0,
+            massif_amplitude: 260.0,
+            massif_wavelength: 2600.0,
             hill_amplitude: 30.0,
             hill_wavelength: 150.0,
             detail_amplitude: 2.5,

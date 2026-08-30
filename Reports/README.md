@@ -788,6 +788,24 @@ drift that two of these documents still reflect.**
   two-cell founder pitch: 28 bodies at `pitch=2`, **46** at `pitch=4`).
   **The extent lever is recoverable.** No fix attempted — `creature.rs` was
   another lane's.
+- [creature-stamp-routes-2026-08-30.md](creature-stamp-routes-2026-08-30.md) —
+  **priced, nothing built; a decision document.** The three routes past the
+  960-point body stamp, each with a number against it, over 12 pre-registered
+  seeds. **What decides a birth is one number — `ceiling - bar`** — and it
+  governs regardless of mechanism: every negative margin gave *exactly zero*
+  births and every positive one bred, with two arms sharing no mechanism but
+  the same +99 margin breeding at the same rate. Three corrections to the
+  standing account: economics §3 prices every route against a satiety line of
+  **450** that E14 has since cut to **100**, which reverses two verdicts;
+  **neither stamp route removes the stamp, both defer it** (480 against a
+  220 bank), so **route 3 is the precondition for routes 1 and 2 rather than
+  an alternative** — and **creatures cannot grow**, so both stamp routes need
+  a verb the engine does not have. The recommendation is **none of the
+  three first**: `fruit` (960) and `flower` (1,440) exist and no world
+  contains one, because worldgen sows `creeper`/`shrub`/`conifer`/`tree` and
+  the only fruiting species, `herb` and `scrambler`, **are never planted** —
+  which answers the experiment economics §7 calls its cheapest. Route 2 is
+  reported as **unpriced**, with the reason.
 - [creature-direction.md](creature-direction.md) — **direction agreed
   (2026-08-17).** Cell-chain ants, the caged brain, the heritable genome;
   decision record plus implementation plan.
@@ -887,6 +905,28 @@ drift that two of these documents still reflect.**
   distribution, not a binary* arriving on the creature line. Does not answer
   whether a beetle acts on a sighting; `predation_probe`'s control already
   says the kill works at contact.
+- [creature-sight-sense-2026-08-30.md](creature-sight-sense-2026-08-30.md)
+  — **the build of the report above, shipped 2026-08-30.** Two brain inputs,
+  `PreyNear` and `PreyBearing`, written by a 16-ray fan at radius 64 from one
+  cell above the head; the beetle authors `sight_range: 64` and one weight,
+  and **nothing else in the world has eyes**. The pre-flight transferred:
+  predicted 0.572 of samples with prey in sight, built sense reads **0.50**
+  over 8 generated seeds. Over that sweep pursuit moves two independent
+  far-side counters together — mean sighted range **15.2 → 12.5 cells** and
+  prey caught **302 → 323**. It costs about **twice** what the pre-flight
+  priced — 1,020–1,100 cells read per cast against 485, because prey must be
+  tested in the un-lifted frame and blockers in the lifted one — which is
+  still 0.3% of a frame and is an honest correction to §5 of the report
+  above. Three things to carry: the obvious
+  effect counter (**did it move closer this tick**) *cannot* fire on the
+  ticks the sense exists for and falls where catches rise — a number that is
+  arithmetically correct and about the wrong question; the stronger pursuit
+  lever, releasing straight-ahead persistence, is **measured, better on the
+  field, worse in a corridor and deliberately not shipped**, with the
+  question put to the owner; and **`BrainOutput::Turn` is nearly inert for a
+  surface walker on level ground** — both turning candidates fail, one on
+  passability and one on foothold — which is a movement finding filed as
+  `open-bugs-handoff.md` §R4, not a perception one.
 - [foraging-range-measurement.md](foraging-range-measurement.md) —
   **measured record, instrument landed via `da252dc`;** §0 and §5 corrected
   on landing, **§3 corrected 2026-08-23** by WP-9 arm 1's re-test. Why
@@ -1021,6 +1061,53 @@ revamp rather than another round:
   it makes overlapping cave systems' independent waterlines fire — that goes
   to the cave lane. Corrects two errors in the revamp plan: `springs` was
   never at zero, and the shipped world is 128x the small one, not 256x.
+- [worldgen-relief-2026-08-30.md](worldgen-relief-2026-08-30.md) — **W1;
+  shipped.** The centrepiece: the ground gets a surface. A slope-free lowering
+  term coupled to the *section* resistance under the surface, taken as a
+  contrast against a running mean over +/-200 columns, plus a `ridged_1d`
+  massif and a long fold with horst-and-graben faults in `strata_offset`.
+  **The formation-scale band roughly doubled** — local relief at reach 30,
+  p90 over 6 seeds: arid 21→46, canyon 54→83, rolling 27→50, terraced 30→47,
+  wetland 14→26 — and the starved passes switched on with it (brows 4.9–55x,
+  talus 3.2–66x, `boulders` writing at all on four of five presets).
+  Generation +290 ms on ~2.1 s; no per-frame code changed.
+  **Two traps recorded.** A mountain does not fit in a 320-row world, so
+  `filmstrip` and every 512x320 scene are **bit-identical to before** — do not
+  judge this from a filmstrip. And the obvious form of the erosion term
+  improved every number while rendering as the flattest world this generator
+  has made; looking at it is what caught that.
+  Also deletes a **blind guard** (`an_old_world_is_smoother_than_a_young_one`
+  was false at the median on both arms and passed on two hand-picked seeds),
+  replacing it with a paired eight-seed guard watched going red, and adds a
+  test three comments had cited by name without it existing.
+- [worldgen-caves-rebuilt-2026-08-29.md](worldgen-caves-rebuilt-2026-08-29.md)
+  — **W3; shipped** (`src/worldgen/cave.rs`, new). The cave generator replaced
+  rather than retuned: **nothing in it reads a noise field to decide where
+  rock is absent.** A room is a dissolution lens flooded through a removal
+  cost built from the strata, then a roof that falls in until it reaches a bed
+  strong enough to hold its span; conduits are paths through an anisotropic
+  cost field; systems are given a way in — **though not all of them get one:
+  6 of 11 over 8 `rolling` seeds, corrected 2026-08-30, pre-existing and not
+  moved by the guard work.** `bed_span` is read off the material —
+  42 cells in mudstone to 308 in basalt — so two rooms differ by a factor of
+  seven with no parameter moving.
+  Census over 16 seeds x 5 presets: worlds with **no cave 2–4 → 0**, largest
+  connected walkable region **36–39% → 98%**, median open column **13–16 → 60–72**
+  against a 14-cell gnome, and systems with a way in **0 → all of them**.
+  Margin came *down*, 802 → 780.
+  **Two corrections the programme needs.** `cave_probe`'s census window was
+  `WORLD_HEIGHT/2`, below most of the depth band — the earlier "8 or 9 of 16
+  worlds have no cave" is really **2 to 4**. And the pillar question the
+  revamp plan flagged as its largest open risk is **answered and the risk does
+  not exist**: `support_census` could not see it (it reads the field and never
+  cuts a hole), so `cave_probe` gained a `span=1` mode, and the roof does not
+  come down at any width up to 2,048 cells — `load::capacity` is quadratic in
+  section and multiplied by `attached_span_bonus`, so `max_unsupported_span:
+  16` never reaches the scale the plan assumed. Positive control (`lid=6`)
+  reads 0 → 207, so the instrument is not blind. Pillars stay as a design
+  choice, not a structural necessity.
+  Also: the owner's "sky is coming into the cave" was **the renderer, not
+  geometry**.
 
 - [worldgen-design.md](worldgen-design.md) — **direction agreed,
   implemented** (`src/worldgen/`). The M10 redesign: 2D play through 3D

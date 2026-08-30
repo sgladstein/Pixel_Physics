@@ -1,4 +1,5 @@
-// **The marker bed**, and the only red in the ground.
+// **The marker bed** -- the bed you can find again, and until 2026-08-30 the
+// only red in the ground.
 //
 // `Reports/worldgen-appearance-audit-2026-08-29.md` §5 measured four to nine
 // colours covering half of everything the player sees below the skyline, and
@@ -7,6 +8,13 @@
 // not on that list. It is deliberately **rare** -- roughly one bed in
 // twenty-five -- because a marker bed's whole value is that you can find it
 // again, and a rock you see everywhere marks nothing.
+//
+// **Its red is now a warm brown**, and that was the owner's call rather than
+// a drift: shown the six rocks he asked twice for a shared palette and less
+// contrast, so ironstone was pulled onto the same hue as everything else
+// along with the rest (see the note above `colors`). It is still the warmest
+// and one of the darker entries, and it is still rare, so it still marks --
+// but it no longer shouts.
 //
 // Set relative to `stone.ron`; see
 // `Reports/rock-vocabulary-design-2026-08-29.md` for the set.
@@ -22,17 +30,37 @@
     //      whose exposed skin gains saturation: it oxidises to a bloom. So
     //      an ironstone bed announces itself hardest exactly where the
     //      player can see it, on the open face, and is quieter in a cut.
+    // **These numbers are derived, not eyeballed, and the derivation is the
+    // only way to change them safely.** Shown the six-rock world the owner
+    // said twice, unprompted, *"the color changes between layers is too much.
+    // There is too much contrast. There should be more of a shared color
+    // palette"*, and on the first correction *"I would drop the contrast even
+    // more"*. So every colour here is the file's original pulled 86% onto one
+    // shared warm-grey hue -- the mean of the six rocks' fresh families,
+    // renormalised to unit brightness -- after the whole material has been
+    // shifted half way toward the global mean brightness.
+    //
+    // **The shift is per material, never per colour.** The four tones inside
+    // one rock are what make a bed legible, and `stone.ron`'s own comment
+    // records that squeezing *those* made the banding vanish from the render
+    // entirely. Shifting the material bodily leaves every internal spread at
+    // exactly its original value and compresses only the gap between rocks,
+    // which is what the complaint was about: measured, that gap went from 116
+    // brightness points to 57 while no rock's own spread moved at all.
+    //
+    // Full account and the b50 measurements either side:
+    // `Reports/worldgen-relief-2026-08-30.md` section 5.5.
     colors: [
         // 0: fresh
-        (128, 72, 48),
-        (112, 62, 41),
-        (146, 86, 58),
-        (96, 53, 35),
+        (121, 101, 88),
+        (108, 90, 79),
+        (138, 115, 101),
+        (96, 79, 70),
         // 1: weathered -- rust bloom
-        (156, 84, 46),
-        (138, 72, 38),
-        (176, 102, 60),
-        (120, 62, 32),
+        (140, 115, 99),
+        (125, 102, 88),
+        (159, 133, 115),
+        (111, 91, 78),
         // 2: **damp** -- rock below the water table, and rock a pond or a
         // stream is standing against.
         //
@@ -43,10 +71,10 @@
         // so a single multiplier per channel says the whole thing, and no
         // rock in the set needs its own artistic judgement about being wet.
         // It is one byte, written at genesis, exactly like the other two.
-        (100, 57, 40),
-        (87, 49, 34),
-        (114, 68, 48),
-        (75, 42, 29),
+        (100, 83, 74),
+        (90, 74, 66),
+        (113, 95, 84),
+        (80, 67, 59),
     ],
     base_colors: 4,
 

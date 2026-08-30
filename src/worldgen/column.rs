@@ -106,22 +106,165 @@ impl HardnessField {
     /// `0..=1`. Columns outside the world clamp to the nearest edge
     /// column's invariants — erosion only asks about in-world columns
     /// today, but a clamp beats a panic the day a margin read appears.
+    /// See [`Self::bed`] for the hardness floor, and [`Self::section`] for
+    /// the *package* resistance the differential-lowering term reads.
+    pub(crate) fn at(&self, x: i32, e: f32) -> f32 {
+        let i = (x.max(0) as usize).min(self.offset.len() - 1);
+        self.bed(i, (((self.datum - e) + self.offset[i]) / self.band_thickness).floor() as i32)
+    }
+
+    /// One bed's hardness, by column invariant index and band index.
+    ///
     /// The floor exists because a zero-hardness band erodes without limit
     /// in one pass, and the differential rates that make ledges stop
     /// being differential.
-    pub(crate) fn at(&self, x: i32, e: f32) -> f32 {
+    fn bed(&self, i: usize, band: i32) -> f32 {
         const FLOOR: f32 = 0.15;
-        let i = (x.max(0) as usize).min(self.offset.len() - 1);
-        let band = (((self.datum - e) + self.offset[i]) / self.band_thickness).floor() as i32;
         let raw = noise::unit(self.seed, Purpose::Hardness, band, 0);
         ((FLOOR + (1.0 - FLOOR) * raw) * self.regional[i]).clamp(0.0, 1.0)
     }
+
+    /// How resistant the **section** under the surface at `(x, e)` is: the
+    /// mean of the top [`SECTION_BEDS`] beds, the topmost weighted double.
+    ///
+    /// This is the quantity that decides whether ground stands proud, and it
+    /// is deliberately *not* [`Self::at`]. What holds a scarp up is a
+    /// resistant package several beds thick, not one 9-cell bed: read at one
+    /// bed, a column that strips through a soft bed immediately meets the
+    /// next draw, so the surface can never travel more than one bed before
+    /// stalling and the relief such a rule can build is capped at
+    /// `band_thickness`. Read over a package it travels until the *section*
+    /// resists, which is what puts a cuesta's dip slope on one formation and
+    /// a butte's cap on another.
+    ///
+    /// Kept separate from [`Self::at`] for a second reason, and it is the
+    /// one that would have cost a re-derivation: `residual.rs`'s
+    /// `CAP_CONTRAST` and `LOW_VARIANCE` are calibrated against `at`'s
+    /// variance (`Reports/worldgen-architecture-ceilings-2026-08-29.md` C7's
+    /// escapability note), so widening or narrowing that distribution is a
+    /// change to the residual shape classifier as well. This adds a sampler
+    /// and moves no existing number.
+    ///
+    /// The top bed counts twice because it is the one actually being
+    /// weathered; without the weighting a hard cap sitting on soft rock
+    /// reads as average and strips at the average rate, which is precisely
+    /// the case a cap rock exists to be an exception to.
+    ///
+    /// **And it carries a lateral facies term, which the bed draw does
+    /// not.** `at` keys on the band index alone, so a bed is equally
+    /// resistant along its whole 8192-column outcrop
+    /// (`Reports/worldgen-architecture-ceilings-2026-08-29.md` C7). Coupling
+    /// resistance to relief on top of that plans the terrain onto bedding
+    /// planes: every column in a neighbourhood shares the same beds, so they
+    /// all stall at the same one and the result is a dead-level table
+    /// hundreds of columns wide. That was built, rendered at the shipped size
+    /// and looked at, and it is the single worst-looking world this generator
+    /// has produced. A bed that dies out along strike gives the stall surface
+    /// somewhere to step down to, which is what turns a table into a bench,
+    /// a butte and a scarp.
+    pub(crate) fn section(&self, x: i32, e: f32) -> f32 {
+        const SECTION_BEDS: i32 = 3;
+        let i = (x.max(0) as usize).min(self.offset.len() - 1);
+        let top = (((self.datum - e) + self.offset[i]) / self.band_thickness).floor() as i32;
+        let mut sum = 2.0 * self.bed(i, top);
+        for k in 1..SECTION_BEDS {
+            sum += self.bed(i, top + k);
+        }
+        let base = sum / (SECTION_BEDS + 1) as f32;
+        // Beds a third of a lattice step apart in the second axis, so a
+        // facies change carries across two or three beds rather than
+        // reversing between one bed and the next: a resistant *package*
+        // wedging out is a scarp, and one bed doing it alone is speckle.
+        let facies = noise::fbm_2d(
+            self.seed,
+            Purpose::HardnessFacies,
+            x as f32 / FACIES_WAVELENGTH,
+            top as f32 * FACIES_BED_STEP,
+            3,
+        );
+        (base * (1.0 - FACIES_WEIGHT) + facies * self.regional[i] * FACIES_WEIGHT).clamp(0.0, 1.0)
+    }
 }
+
+/// Wavelength of the lateral facies field's first octave, in columns.
+///
+/// **This constant sets the width of a rock formation**, which is the whole
+/// reason it is here: with three octaves the field carries content at 320,
+/// 160 and 80 columns, and the surface stalls where the field is resistant,
+/// so a bench, a butte and a bounding scarp all come out at those widths. The
+/// owner's *"large rock formation (not just tall pillars)"* is a statement
+/// about this number and about `residual.rs`'s aspect draw, and nothing else
+/// in the generator was speaking to it — every other wavelength in the
+/// pipeline varies by at most 1.70x across all five presets and none of them
+/// is anywhere near this band.
+const FACIES_WAVELENGTH: f32 = 320.0;
+
+/// How far apart two beds sit in the facies field's second axis.
+///
+/// Below 1.0 on purpose: at 1.0 every bed draws an independent facies and a
+/// resistant patch is one bed thick, which weathers as speckle rather than as
+/// a cap. A third means a change carries across about three beds.
+const FACIES_BED_STEP: f32 = 0.34;
+
+/// How much of the section's resistance comes from where it is rather than
+/// from which bed it is.
+///
+/// Not 1.0: the bedding has to stay the thing that is being differentiated,
+/// or the mechanism stops being *differential erosion of strata* and becomes
+/// a 2-D erodibility blob painted over the rock — which is exactly the
+/// failure `Purpose::RockFacies`' own note records the palette hitting from
+/// the other direction, where a per-`(x, y)` dither made the rock read as
+/// camouflage rather than as geology.
+const FACIES_WEIGHT: f32 = 0.55;
 
 /// Half-width of the central difference the terrace attenuation measures its
 /// slope over, in columns. Escarpment reach, not neighbour reach — see
 /// [`Terrain::terrace_yield`].
 const SLOPE_REACH: i32 = 8;
+
+/// The mean of the massif field, subtracted so the term is centred and
+/// [`Terrain::datum`] stays an honest sky guarantee.
+///
+/// **Measured over the field, not derived**, and the difference is not
+/// academic: the closed form for a uniform draw says 1/3, and the first
+/// version of this term used a number reached that way. The field is
+/// `ridged_1d(..)^2` over three octaves of value noise, whose distribution is
+/// nothing like uniform. Over 2^22 samples: mean **0.364**, sd 0.198, and it
+/// does reach both ends (0.0002 to 0.9988). Getting it wrong shifts every
+/// world's ground line by `error * massif_amplitude` -- up to fifty cells --
+/// which is a change to how much sky the composition gets, in a term whose
+/// whole purpose is the composition.
+///
+/// The sd is the number to read when choosing an amplitude: the *typical*
+/// column moves `0.198 * massif_amplitude`, and the summits are the tail.
+const MASSIF_MEAN: f32 = 0.364;
+
+/// How much larger the long fold is than the short ripple `strata_fold`
+/// names, and how long its wavelength is in columns.
+///
+/// Sized against **one view**, which is the unit the complaint was made in:
+/// at 900 columns a bed climbs and falls about twice across a 512-column
+/// screen, and at 7x a `strata_fold` of 6-8 that is a swing of +-45 cells,
+/// five beds. Below about 3x it reads as the same level ribbons with a
+/// wobble; much above 10x the section folds faster than the surface does and
+/// the bedding stops agreeing with the benches cut into it, which is the one
+/// property `strata_offset` exists to keep.
+const LONG_FOLD_GAIN: f32 = 7.0;
+const LONG_FOLD_WAVELENGTH: f32 = 900.0;
+
+/// Mean columns between fault blocks, the largest throw a block can draw in
+/// beds, and how much of a block the boundary flexure occupies.
+///
+/// Spacing a little under a screen so a player sees one or two steps in a
+/// view; a fault the width of the world is a different rock on each side, not
+/// a fault. Three beds of throw because that is the smallest offset that is
+/// unmistakably an offset: at one bed the band opposite is the neighbouring
+/// band and the eye reads a thickness change, which is the artifact this is
+/// meant to remove rather than add to. The ramp is about ten columns at that
+/// spacing -- see [`Terrain::fault_throw`] for why it is a ramp at all.
+const FAULT_SPACING: f32 = 380.0;
+const FAULT_THROW_BEDS: f32 = 3.0;
+const FAULT_RAMP: f32 = 0.026;
 
 /// Wavelength of the riser-roughening noise, in columns.
 ///
@@ -163,7 +306,114 @@ impl Terrain<'_> {
     /// enforces a minimum spread between the highest and lowest region, so a
     /// flat draw is stretched rather than shipped.
     fn base_wave(&self, x: i32) -> f32 {
-        self.params.relief_amplitude * self.character(x).elev
+        self.params.relief_amplitude * self.character(x).elev + self.massif(x)
+    }
+
+    /// **The mountains.** Country-scale relief, three to six screens between
+    /// one crest and the next.
+    ///
+    /// The owner asked for *"Shape, large rock formation (not just tall
+    /// pillars), cave openings, mountains"* and the generator had nothing to
+    /// answer the last word with. Every term above this one is either shorter
+    /// than a screen (`hill_wavelength` 150-200, `detail_wavelength` 24-34) or
+    /// is [`Self::base_wave`]'s region draw, which changes every 96-241
+    /// columns — so the largest thing the terrain could express was about
+    /// half a screen wide, and a landform smaller than the view reads as a
+    /// bump rather than as a place. This is the one term in the file whose
+    /// wavelength is measured in screens.
+    ///
+    /// **Ridged rather than plain fBm**, which is what makes it read as
+    /// mountains instead of as very large hills -- see [`noise::ridged_1d`],
+    /// including why the fold has to happen per octave. Squared afterwards,
+    /// so the basins are wide and the high ground is a minority of the world:
+    /// a range you travel *to*. Measured over the finished field, the typical
+    /// column moves `0.198 * massif_amplitude` and the summits are the tail.
+    ///
+    /// Warped through [`Self::warped_x`] like the hills, so a massif's two
+    /// flanks are sampled at different rates and come out asymmetric.
+    fn massif(&self, x: i32) -> f32 {
+        let p = self.params;
+        let amplitude = self.massif_amplitude();
+        if amplitude <= 0.0 {
+            return 0.0;
+        }
+        let r = noise::ridged_1d(self.seed, Purpose::Massif, self.warped_x(x) / p.massif_wavelength.max(64.0), 3);
+        amplitude * (r * r - MASSIF_MEAN)
+    }
+
+    /// The massif amplitude this world has room for.
+    ///
+    /// **A mountain does not fit in a 320-row world, and the presets are
+    /// written for the shipped 2560-row one.** The same `WorldgenParams` build
+    /// the test-size and scene-size worlds that `filmstrip`, the foraging
+    /// scenes and most of `tests/` use, and there the preset's 120-380 cells
+    /// of massif is more than the whole world: `datum` runs past `h - 12`, the
+    /// clamp in `plan_from` catches every column at the same row, and the
+    /// world comes out **dead flat with zero cells of relief** -- which is
+    /// how this was found, by `every_seed_has_a_ridge_and_a_valley` going red.
+    ///
+    /// So the term is bounded by the room left after the sky guarantee and
+    /// every other elevation term has taken its full swing. This is **a bound
+    /// on a magnitude, not a gate on a decision** (`CLAUDE.md`'s size-cap
+    /// rule): exhausting it yields a smaller mountain, never a different
+    /// world. At the shipped size the room is 2,180 cells against the largest
+    /// preset's 380, so **no shipped world is clamped** and this is invisible
+    /// there; at 512x320 the room is negative and the massif is simply off,
+    /// which leaves every small-world scene and test bit-identical to before
+    /// this landed.
+    fn massif_amplitude(&self) -> f32 {
+        let p = self.params;
+        if p.massif_amplitude <= 0.0 || !super::relief_on() {
+            return 0.0;
+        }
+        p.massif_amplitude.min(self.relief_headroom())
+    }
+
+    /// Rows this world has left for relief, after the sky guarantee and every
+    /// existing elevation term have taken their full swing.
+    ///
+    /// **The one number both W1 terms are bounded by**, and the reason they
+    /// need one is the loop failure the worldgen audit puts first: *judge at
+    /// the shipped world size*. The presets are written for 8192x2560 and the
+    /// same `WorldgenParams` build the 512x320 worlds that `filmstrip`, the
+    /// foraging scenes and most of `tests/` use. A 320-row world has **no**
+    /// room for a 260-cell massif or for erosion that strips columns tens of
+    /// cells: measured on `canyon` seed 8 at 512x320, the differential term
+    /// drove **134 of 512 columns onto `plan_from`'s floor clamp**, which is a
+    /// dead-level 134-column pan that `ponds` then filled with a six-deep
+    /// sheet of water -- and a sheet that shallow is not a lake, it drains and
+    /// evaporates. `a_forced_residual_world_arrives_at_rest` is what found it,
+    /// and correctly: 93% of that world's water left in 120 frames.
+    ///
+    /// A **bound on a magnitude, never a gate on a decision** (`CLAUDE.md`):
+    /// less room gives smaller relief, continuously, and at zero it gives the
+    /// world this generator shipped before W1 -- bit-identical, which is what
+    /// keeps every small-world scene and test meaningful. At the shipped size
+    /// it is 2,180 rows against the largest preset's 380, so **nothing the
+    /// player ever sees is clamped by it**.
+    fn relief_headroom(&self) -> f32 {
+        let p = self.params;
+        let spent = p.sky_rows + 2.0 * p.relief_amplitude + 2.0 * p.hill_amplitude + p.dune_amplitude + 24.0;
+        (self.h as f32 - spent).max(0.0)
+    }
+
+    /// How much of `erosion::STRIP_RATE` this world has room to run, `0..=1`.
+    ///
+    /// See [`Self::relief_headroom`]. Ramped rather than switched, so a world
+    /// between the test size and the shipped size gets proportionate relief
+    /// instead of falling off a cliff at one particular height -- and so that
+    /// the quantity `erosion.rs` reads is a *fraction*, which is the only
+    /// shape that keeps its rate constant meaningful.
+    pub(crate) fn relief_room_fraction(&self) -> f32 {
+        /// Rows of headroom at which the differential term runs at full rate.
+        /// Sized at rather more than the excursion the term actually makes
+        /// (measured 30-60 cells at the shipped rate), because the room has to
+        /// hold the excursion *and* everything the surface was already doing.
+        const FULL: f32 = 400.0;
+        if !super::relief_on() {
+            return 0.0;
+        }
+        (self.relief_headroom() / FULL).clamp(0.0, 1.0)
     }
 
     /// Dune shaping for arid country: asymmetric waves, steep on the lee.
@@ -302,15 +552,129 @@ impl Terrain<'_> {
     }
 
     /// How far the sedimentary banding is displaced at this column: a steady
-    /// tilt plus a slow fold.
+    /// tilt, a short ripple, a long fold, and the throw of whichever fault
+    /// block the column stands in.
     ///
     /// Shared with the shade pass so that the bands drawn in the rock and the
     /// benches cut into the surface are the *same* bands. Having them
     /// disagree is what makes layered terrain look painted rather than
-    /// carved.
+    /// carved. It now has **six** consumers -- the shade pass, the rock
+    /// vocabulary, `HardnessField`, `terraced`, the cave shear and the sand
+    /// lens's dip -- so a change here is a change to every one of them, which
+    /// is the point: deform the coordinate and the whole section deforms
+    /// together.
+    ///
+    /// # Why the last two terms exist
+    ///
+    /// Shown the rock vocabulary, the owner approved the rocks and rejected
+    /// the geometry: *"the perfect stripped bands are too uniform and look
+    /// bad"*, and, asked directly whether the bedding is too regular,
+    /// *"very clearly reads as stripes and it looks not good"*. He is looking
+    /// at a **cut face** -- `stone_massif` is about 90% of the world's cells,
+    /// so most of the screen is a cross-section through rock rather than a
+    /// landscape -- and what a cut face made of this function looked like was
+    /// a stack of parallel level ribbons running the full width of the world.
+    ///
+    /// The tilt is 0.06 (31 cells across a 512-column screen, about 3.5
+    /// degrees, which reads as level) and the ripple is +-6 cells at a
+    /// 130-cell wavelength, which is a texture rather than a structure. So
+    /// the section had no dip a player could see and no discontinuity
+    /// anywhere in it. Two terms fix that, and both are ordinary structural
+    /// geology rather than decoration: **a long fold**, so a bed climbs or
+    /// falls across a view instead of running dead level, and **faults**, so
+    /// it steps.
+    ///
+    /// # What is still missing
+    ///
+    /// **Thickness variation and unconformities are not here.** A bed's
+    /// thickness is `strata_thickness` everywhere in the world, because every
+    /// consumer floors this coordinate by that constant itself; varying it
+    /// means warping the quantisation, which is a change in six places rather
+    /// than one. The rock *vocabulary* already warps its unit thickness
+    /// (`Purpose::RockUnit`), so the coloured bands vary while the bedding
+    /// planes under them do not. An unconformity -- a truncation surface with
+    /// a differently-oriented stack above it -- needs this coordinate to be
+    /// piecewise in elevation, which it is not.
+    ///
+    /// # `strata_fold` gates the deformation
+    ///
+    /// Both new terms scale off `strata_fold`, so a preset asking for zero
+    /// gets exactly the coordinate this function had before. That is not
+    /// tidiness: `flat` is the structural test bed and its own comments say
+    /// its control renders must stay byte-identical for the destruction
+    /// workstream, and it sets `strata_fold: 0.0`.
     pub fn strata_offset(&self, x: i32) -> f32 {
         let p = self.params;
-        p.strata_tilt * x as f32 + p.strata_fold * noise::fbm_1d_c(self.seed, Purpose::Strata, x as f32 / 130.0, 2)
+        let base = p.strata_tilt * x as f32
+            + p.strata_fold * noise::fbm_1d_c(self.seed, Purpose::Strata, x as f32 / 130.0, 2);
+        if p.strata_fold <= 0.0 || !super::relief_on() {
+            return base;
+        }
+        // The fold. Deliberately many times the ripple's amplitude at many
+        // times its wavelength: what has to change is the *dip a player sees
+        // across one view*, and an amplitude added at a 130-cell wavelength
+        // cannot do that however large it is -- it makes the bands wavier,
+        // not steeper, because the wave comes back inside the same screen.
+        let fold = p.strata_fold
+            * LONG_FOLD_GAIN
+            * noise::fbm_1d_c(self.seed, Purpose::Fold, x as f32 / LONG_FOLD_WAVELENGTH, 2);
+        base + fold + self.fault_throw(x)
+    }
+
+    /// How far the fault block this column stands in has moved, in cells.
+    ///
+    /// A **horst-and-graben** field rather than an accumulating offset: each
+    /// block draws its own throw about zero, so blocks step up and down
+    /// relative to their neighbours and the section stays inside the world.
+    /// A running sum of throws is the other way to model this and it cannot
+    /// be a pure function of `x` -- it would need every fault to the left of
+    /// the column -- which is the property this whole module is built on.
+    ///
+    /// The boundary is a **narrow ramp, not a jump**, and that is a
+    /// constraint from the consumers rather than from the geology. Two of the
+    /// six read a *difference* of this function across neighbouring columns:
+    /// the sand lens takes a central difference for its dip, and the cave
+    /// shear takes the offset relative to its own centre column. A true
+    /// discontinuity gives the first a bedding plane at 80 degrees and the
+    /// second a Worley coordinate that jumps three lattice cells mid-cave. A
+    /// ramp a few columns wide bounds the derivative and still reads as a
+    /// fault at the scale a fault is looked at -- and a flexure of a few
+    /// columns is what a fault in soft rock actually makes.
+    fn fault_throw(&self, x: i32) -> f32 {
+        let p = self.params;
+        // The block boundary, jittered so faults do not land on a grid.
+        //
+        // The jitter is bounded so that `u` stays **monotone** in `x` and
+        // blocks keep their order: `fbm_1d_c` over two octaves has
+        // `|d/dx| <= 4 / wavelength`, which at `3 * FAULT_SPACING` is 0.0035,
+        // and 0.4 of that is 0.0014 against the term's own 1/380 = 0.0026. If
+        // either constant moves, redo that arithmetic -- a non-monotone `u`
+        // hands a few columns back to the previous block and puts a sliver of
+        // one fault block inside another.
+        let u = x as f32 / FAULT_SPACING
+            + 0.4 * noise::fbm_1d_c(self.seed, Purpose::Fault, x as f32 / (FAULT_SPACING * 3.0), 2);
+        let i = u.floor();
+        let t = u - i;
+        let throw = |k: f32| {
+            (noise::unit(self.seed, Purpose::Fault, k as i32, 1) - 0.5) * 2.0
+                * FAULT_THROW_BEDS
+                * p.strata_thickness
+        };
+        // Each block draws its throw independently and uniformly, so the
+        // *step* between two of them is a triangular distribution about zero:
+        // most boundaries move the section a little and a few move it the
+        // full six beds. That is what stops a step every `FAULT_SPACING`
+        // columns from becoming its own wallpaper, and it is CLAUDE.md's
+        // first law -- an outcome is a distribution, not a binary -- applied
+        // to a fault.
+        // How sharp this particular boundary is, drawn per block. A narrow
+        // flexure reads as a fault and a wide one as a monocline, and a world
+        // wants both -- every boundary at one width is the wallpaper failure
+        // arriving through the *break* instead of through the bed. At the
+        // shipped spacing this runs about 4 to 22 columns.
+        let ramp = FAULT_RAMP * (0.4 + 1.8 * noise::unit(self.seed, Purpose::Fault, i as i32, 2));
+        let s = noise::smoothstep(1.0 - ramp, 1.0, t);
+        throw(i) * (1.0 - s) + throw(i + 1.0) * s
     }
 
     /// How resistant the strata bands of this world are, as a sampler:
@@ -484,7 +848,10 @@ impl Terrain<'_> {
     /// surface_y`) on the *eroded* surface, which only `ColumnPlan` carries
     /// -- round-4 task 4.
     pub(crate) fn datum(&self) -> f32 {
-        self.params.sky_rows + self.params.relief_amplitude
+        // The massif's own headroom is part of the sky guarantee: without it
+        // a world with mountains in it puts its highest crest above `y = 0`
+        // and the crest is simply not in the world.
+        self.params.sky_rows + self.params.relief_amplitude + self.massif_amplitude() * (1.0 - MASSIF_MEAN)
     }
 
     /// Local surface steepness, in cells of rise per cell of run.
