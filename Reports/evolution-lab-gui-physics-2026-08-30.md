@@ -269,7 +269,79 @@ Three outcomes where there was one. `CLAUDE.md`'s first law asks for a middle;
 this is the middle, and it arrives as a distribution over *who did the
 digging* rather than as a tuning constant.
 
-Full results in §2g.
+### 2g. Results — it works, and the middle exists
+
+`burrow_probe`, seed 1, gallery column. Every run carries both controls.
+
+| arm | f0 | f1 | f5 | f30 | f1,800 |
+|---|---|---|---|---|---|
+| **soil** — control | 100% | 67.2% | **0%** | 0% | 0% |
+| **sand** — control | 100% | 67.2% | **0%** | 0% | 0% |
+| **stone** — positive control | 100% | 100% | **100%** | 100% | 100% |
+| **lined** | 100% | 100% | **100%** | 100% | **100%** |
+| **flooded** — water in the shaft | 100% | 98.3% | 92.8% | 85.6% | **84.4%** |
+| **watertable** — bank saturated | 100% | 100% | **0%** | 0% | 0% |
+
+`soil` and `sand` are **identical to the digit** against the pre-change
+binary, so loose soil has not become more stable anywhere — which is the
+condition §2f says the change had to meet.
+
+**The middle is real and it is local.** Flooding caves the shaft **90.7%**,
+the gallery **15.6%** and the chamber **0%** — the tunnel comes down where
+the water reaches and nowhere else. Saturate the whole bank and it returns to
+93–100%, i.e. to the unlined baseline. That last arm doubles as the
+**in-binary ablation**: the same 367 lined cells, reverted by water, and the
+collapse reproduces `soil` to within a percentage point.
+
+**And real ants leave a standing tunnel.** One binary, one env switch
+(`PIXEL_PHYSICS_BURROW_LINING=off`), 55 ants, 8,000 frames:
+
+| seed | roofed void | digs | packed | | roofed | digs | packed |
+|---|---|---|---|---|---|---|---|
+| 1 | **130** | 278 | 384 | | 0 | 610 | 0 |
+| 2 | **146** | 283 | 439 | | 0 | 601 | 0 |
+| 3 | **151** | 272 | 388 | | 0 | 588 | 0 |
+
+**130 against 0**, three seeds. The verb fires in both arms — *harder* in the
+ablated one — and not one roofed cell survives it.
+
+### 2h. Five things in §2e's design that were wrong
+
+Recorded because they cost the lane real time and because four of the five
+are general.
+
+- **"Census standing void" reverses the result.** A colony quarries the open
+  face of a bank as well as tunnelling into it, and a pit *is* standing void:
+  ablated **788** against lined **472**. Read that way the change scores as a
+  regression. What a player calls a nest is **roofed** void — empty cells
+  with ground above them. Now in `CLAUDE.md`'s metric traps.
+- **A material flag was not enough.** Converting the ring needs
+  `Material::packs_into` on `soil`; §2e's `id_of("packedsoil")` at the dig
+  site is a name whitelist, and it would have packed **snow** — the other
+  diggable material — into packed *soil*.
+- **`decay.rs` was the wrong un-pack site**, for two concrete reasons: it
+  schedules on *awake -> settled* and a flooding tunnel is awake, and it reads
+  the **coarse field**, which is block-nearest and cannot see one cell. Done
+  instead in `update_powder` off the cell's own `aux`, one frame after the
+  water arrives.
+- **`0.95` has a second consumer.** Every species' root `penetration_force`
+  is 1.0–1.2, so roots still thread a nest wall at 1.19x the carbon. At the
+  1.0 §2e proposed it would have locked three species out of worked ground —
+  a constant read by two systems, which is the shape `CLAUDE.md` warns about.
+- **The palette call is probably backwards.** Darker packed soil against an
+  already-dark bank interior makes the tunnels *invisible*: from any distance
+  the two arms are the same picture. What does separate on sight is the
+  **face** — stepped and undercut against a clean repose ramp. Posted blind
+  to the owner rather than argued.
+
+### 2i. What is still not fixed
+
+**Spoil is still deleted rather than carried out.** The dig writes
+`Cell::EMPTY` and the material leaves the world. That was one of the two
+things making a nest impossible; only the other one is fixed. A colony that
+carried its spoil would build tailings, which is the visible half of
+excavation and is what makes a nest read as *built* rather than as *absent*.
+
 
 ---
 
