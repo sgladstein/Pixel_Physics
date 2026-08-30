@@ -1,0 +1,37 @@
+{
+  "id": "20260830T034258469Z-3babd5",
+  "created": "2026-08-30T03:42:58Z",
+  "board": "fracture",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/gnome-mining-mechanic-obm7j4",
+    "commit": "e635078",
+    "agent": null,
+    "session_id": "7e6d7527-9f19-5475-bb25-535b32238ac6",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Eight hammer swings, one spot — the cracks now keep spreading",
+  "question": "Read left to right, top to bottom: eight swings at the same place, one tile per swing. Swing 1 just cracks. Do the cracks visibly keep spreading, and by the last two tiles do you see a piece coming out along them as one lump (the pale polygon at his feet)? Is the pace right — should a block come away sooner, or later?",
+  "context_md": "Your playtest was right and my diagnosis was wrong: **three of every six blows were doing nothing at all.** The blow grew its cracked zone from a *count* of cracked cells — and a swing that works carries those cells out of the world as a piece, so the number fell exactly when the mechanic succeeded, and the front froze from swing 4 onward. It now reads how far the damage *reaches* instead, which calving cannot erase.\n\nHammer only in this strip — no pick, so nothing here is dug.",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "",
+      "files": [
+        "20260830T034258469Z-3babd5/000-hammer8.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
