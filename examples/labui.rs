@@ -36,9 +36,19 @@ fn main() {
 
     let mut lab = Lab::new(LabBox::default());
     lab.show_help = false;
+    // **Start it before warming it.** A fresh lab is paused and `advance`
+    // then runs no ticks at all, so warming a paused box grows nothing and
+    // every page draws the numbers of a bed that has been standing still —
+    // which is exactly what this sheet looked like the first time the phase
+    // model changed under it. Put back to paused afterwards, because paused is
+    // the state the bar is being photographed in.
+    lab.act(Action::TogglePhase);
     for _ in 0..frames {
         lab.advance(std::time::Duration::from_millis(16));
     }
+    let grown = lab.world.frame;
+    assert!(grown > 0, "the box never ticked -- the sheet would be of an empty bed");
+    lab.act(Action::TogglePhase);
     // One draw before anything is aimed: the layout is retained from the last
     // painted frame, so nothing can be clicked until a frame has been painted.
     let mut warm = blank();
@@ -144,12 +154,40 @@ fn main() {
         lab.ui.inspecting() != before
     ));
     lab.set_cursor(None);
-    tiles.push(("STATS TOGGLED OFF".into(), shot(&mut lab)));
+    // Named from the state the click produced, not from what it was expected
+    // to produce: the pages are mutually exclusive with the biosphere page, so
+    // whether this click turns it on or off depends on what was open before.
+    let stats_now = if lab.stats.showing() { "ON" } else { "OFF" };
+    tiles.push((format!("STATS TOGGLED {stats_now}"), shot(&mut lab)));
 
     for line in &fired {
         println!("{line}");
     }
-    println!("organisms {} creatures {}", lab.world.live_organism_count(), lab.world.live_creature_count());
+    // The bar's own coordinates, so a headless run of the *real* binary can be
+    // aimed with `PIXEL_PHYSICS_LAB_CLICK` at where a button actually is
+    // rather than at where it looks like it is in a screenshot.
+    for action in [
+        Action::TogglePhase,
+        Action::Slower,
+        Action::Faster,
+        Action::Preset(0),
+        Action::Preset(5),
+        Action::Panel(Panel::Plants),
+        Action::Panel(Panel::Ants),
+        Action::Panel(Panel::Box),
+        Action::Stats,
+        Action::Help,
+        Action::Reset,
+    ] {
+        if let Some(r) = lab.ui.widget_rect(action) {
+            println!("{action:?} at {},{} ({}x{})", r.x + r.w / 2, r.y + r.h / 2, r.w, r.h);
+        }
+    }
+    println!(
+        "warmed to frame {grown}: organisms {} creatures {}",
+        lab.world.live_organism_count(),
+        lab.world.live_creature_count()
+    );
 
     write_sheet(&tiles, &out);
     println!("wrote {out}");

@@ -19,7 +19,7 @@
 //!
 //! | | |
 //! |---|---|
-//! | `Space` | Tending ⇄ Running |
+//! | `Space` | pause ⇄ run — paused, nothing ticks at all |
 //! | `Up` / `Down` | the speed dial, through the presets |
 //! | `1`-`6` | jump straight to a preset |
 //! | `F1` / `F2` / `F3` | the plants, ants and box pages |
@@ -262,7 +262,7 @@ impl Handler {
                 window.set_title(&format!(
                     "Evolution Lab — {} — {:.0} fps",
                     match self.lab.time.phase {
-                        Phase::Tending => "tending".to_string(),
+                        Phase::Paused => "paused".to_string(),
                         Phase::Running => format!("running {:.1}x", self.lab.time.achieved.max(0.0)),
                     },
                     self.fps

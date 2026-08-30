@@ -336,6 +336,51 @@ fn draw_help(frame: &mut [u8]) {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
+    /// **`SPACE` stops the world, and this is the counter that says so.**
+    ///
+    /// Owner complaint, 2026-08-30: *"what does spacebar/tending mean. it
+    /// isn't pausing anything."* An image cannot answer this — a stopped box
+    /// and a settled one look identical in a still frame, which is exactly
+    /// `CLAUDE.md`'s *"did it fire at all" needs a counter, not a picture*.
+    /// `World::frame` is that counter.
+    ///
+    /// Both arms in one test, because the paused arm alone would be green for
+    /// a lab whose `advance` had stopped working altogether.
+    #[test]
+    fn a_paused_lab_does_not_advance_the_world_and_a_running_one_does() {
+        let mut lab = Lab::new(scene::LabBox {
+            founders: 0,
+            colonies: 0,
+            ..scene::LabBox::default()
+        });
+        assert_eq!(lab.time.phase, time::Phase::Paused, "a fresh lab starts stopped");
+        let at_rest = lab.world.frame;
+        for _ in 0..120 {
+            lab.advance(std::time::Duration::from_millis(16));
+        }
+        assert_eq!(lab.world.frame, at_rest, "a stopped box ran ticks");
+
+        lab.act(ui::Action::TogglePhase);
+        assert_eq!(lab.time.phase, time::Phase::Running);
+        for _ in 0..120 {
+            lab.advance(std::time::Duration::from_millis(16));
+        }
+        assert!(
+            lab.world.frame > at_rest,
+            "the positive control did not fire: the world stayed at frame {at_rest}"
+        );
+
+        // ...and `SPACE` again stops it where it stands.
+        lab.act(ui::Action::TogglePhase);
+        let stopped_at = lab.world.frame;
+        for _ in 0..120 {
+            lab.advance(std::time::Duration::from_millis(16));
+        }
+        assert_eq!(lab.world.frame, stopped_at, "stopping again did not stop it");
+    }
+
     /// **The font cannot draw everything, and what it cannot draw it draws as
     /// nothing.** `[`/`]`, then `_`/`<`/`>`, then `;`/`'` have each shipped
     /// blank in this engine's UI for as long as they were bound. This is the

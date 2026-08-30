@@ -377,6 +377,10 @@ const MIN_SEPARATOR: i32 = 6;
 pub fn layout(state: &BarState) -> Bar {
     for (pad, gap) in SPACINGS {
         let bar = lay_out(state, pad, gap);
+        if std::env::var("PIXEL_PHYSICS_BAR_TRACE").is_ok() {
+            let right = bar.widgets.last().map_or(0, |w| w.rect.right());
+            eprintln!("bar trace: pad={pad} gap={gap} right={right} of {} fits={}", W as i32 - MARGIN, bar.fits());
+        }
         if bar.fits() {
             return bar;
         }
@@ -394,11 +398,16 @@ fn lay_out(state: &BarState, pad: i32, gap: i32) -> Bar {
     // its two captions so that pressing it does not shove the rest of the bar
     // sideways; a control that moves when you use it is a control you miss on
     // the second press.
-    let phase_label = if state.running { "PAUSE" } else { "RUN" };
+    // `STOP` rather than `PAUSE`, and the four characters are not the reason
+    // — though they are why the bar still fits an eight-stop ladder. The rule
+    // this bar keeps is *verb on the button, state on the readout*, and `STOP`
+    // is the verb the press performs where `PAUSE` is halfway to being the
+    // state the readout beside it already owns.
+    let phase_label = if state.running { "STOP" } else { "RUN" };
     let phase_icon = if state.running { Icon::Pause } else { Icon::Play };
     let phase_px = ICON_W
         + ICON_GAP
-        + hud::text_width("PAUSE").max(hud::text_width("RUN"));
+        + hud::text_width("STOP").max(hud::text_width("RUN"));
     // **The caption says what the press will produce, not what is true now.**
     // This is the single easiest thing in the whole bar to get backwards: on a
     // stopped box the button reads `RUN` because clicking it starts the run,
@@ -414,11 +423,16 @@ fn lay_out(state: &BarState, pad: i32, gap: i32) -> Bar {
         ratio: None,
         note: "STOP THE BOX DEAD, OR START IT AGAIN. PAUSED, NOTHING TICKS AT ALL -- THAT IS WHEN YOU PLANT, CULL AND DIG. RUNNING GOES AT WHATEVER THE DIAL ASKS FOR, AND 1X IS REAL TIME.",
     };
-    let step_width = cell_width(hud::text_width("<<"), "DOWN", pad)
+    // `DN`/`UP` rather than `DOWN`/`UP`: the caption was the wider of the two
+    // lines and so set the face width, and two arrow buttons 27 pixels wide
+    // cost more of a 512-pixel bar than the extra two letters are worth. Side
+    // by side under `<<` and `>>` they read as the arrow keys, and the key
+    // page spells them out in full.
+    let step_width = cell_width(hud::text_width("<<"), "DN", pad)
         .max(cell_width(hud::text_width(">>"), "UP", pad));
     let slower = Spec {
         width: step_width,
-        ..button("<<", "DOWN", Action::Slower, false, "ONE STOP DOWN THE SPEED LADDER.", pad)
+        ..button("<<", "DN", Action::Slower, false, "ONE STOP DOWN THE SPEED LADDER.", pad)
     };
     let faster = Spec {
         width: step_width,
@@ -435,17 +449,24 @@ fn lay_out(state: &BarState, pad: i32, gap: i32) -> Bar {
     let (line1, line2, ratio) = if state.running {
         (
             format!("ASK {}X", state.requested),
-            format!("GOT {:.1}X", state.achieved.max(0.0)),
+            // One decimal below 100x and none above, so the line is never
+            // more than nine characters and the face never has to grow for a
+            // fast box.
+            if state.achieved < 100.0 {
+                format!("GOT {:.1}X", state.achieved.max(0.0))
+            } else {
+                format!("GOT {:.0}X", state.achieved)
+            },
             state.achieved.max(0.0) / state.requested.max(1) as f32,
         )
     } else {
-        ("PAUSED".to_string(), "NOT TICKING".to_string(), 0.0)
+        ("PAUSED".to_string(), "NO TICKS".to_string(), 0.0)
     };
     let readout = Spec {
         // Sized to the widest thing it can ever say, not to what it says now:
         // a readout that changes width as the number changes shoves the bar
         // sideways once a second.
-        width: hud::text_width("GOT 999.9X").max(hud::text_width("REAL TIME")) + pad * 2 + 2,
+        width: hud::text_width("GOT 99.9X").max(hud::text_width("REAL TIME")) + pad * 2 + 2,
         line1,
         line2,
         action: None,
@@ -522,7 +543,7 @@ fn lay_out(state: &BarState, pad: i32, gap: i32) -> Bar {
             pad,
         ),
         button(
-            "REBUILD",
+            "RESET",
             "R",
             Action::Reset,
             false,
@@ -1586,7 +1607,7 @@ mod tests {
                 .expect("the bar has a phase button")
         };
         assert_eq!(face(&tending), "RUN", "a stopped box must offer to run");
-        assert_eq!(face(&running), "PAUSE", "a running box must offer to stop");
+        assert_eq!(face(&running), "STOP", "a running box must offer to stop");
         // And the readout beside it names the state, so the two together are
         // unambiguous rather than each being half a sentence.
         let readout = |bar: &Bar| {
@@ -1611,7 +1632,7 @@ mod tests {
                 .unwrap()
         };
         assert_eq!(line2(true, 64), "GOT 6.4X");
-        assert_eq!(line2(false, 1), "NOT TICKING");
+        assert_eq!(line2(false, 1), "NO TICKS");
     }
 
     /// The latch is the only thing on the bar saying which preset is live, and
