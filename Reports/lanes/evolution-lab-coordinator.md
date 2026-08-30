@@ -100,26 +100,81 @@ hand-built herb bed, and the lab's own breeding-margin row says so:
 | ants only | **−880** | 120, the ant's own flesh — reproduces #162 exactly |
 | the lab bed | **−640** | **360**, which at a neutral gut implies a 1,440-worth flower standing |
 
-**A flower therefore stands in the lab bed, and that much holds.** What was
-inferred *from* it did not.
+**A flower therefore stands in the lab bed** — real, and unlike any
+worldgen world. **What was inferred from it was wrong**, and the round-two
+section below records what replaced it. Full account, with the arms and the
+controls, in [evolution-lab-gate-1-2026-08-30.md](../evolution-lab-gate-1-2026-08-30.md).
 
-**The "one mutation away" reading is withdrawn — the measurement lane ran
-it.** The inference was that `diet_yield` squares the gut mismatch, so a
-`gut_bias` drifted to −1 would draw the whole 1,440 from one mouthful and
-clear the bar outright. Measured rather than inferred, **with the matched
-gut the design guide asks for, an ant's bank tops out at 575 against a
-1,040 birth bar.** It does not clear. Ant births are **zero at every
-setting measured**, across a 45,000-frame run.
+## Round two of the program: what the four lanes settled, 2026-08-30
 
-So Gate 0 is *not* one heritable step away in this bed. The margin row is
-still a real and useful readout — it is how the flower was found at all —
-but a margin computed from the best *standing* mouthful is an upper bound
-on what an ant **could draw**, not a statement about what one **banks**,
-and the two differ by the hunger line. This is the repo's own recurring
-failure in miniature: a number that is arithmetically correct and answers a
-different question than the one asked looks exactly like a result. It was
-caught by a lane that *ran* the case instead of computing it, which is the
-whole argument for the positive control.
+All four landed. PR #170. What each one *overturned* matters more than what
+it built, so that is what is recorded here; the builds are in the lane notes
+and in `Reports/evolution-lab-gate-1-2026-08-30.md`.
+
+**Gate 0 is a reach problem, not an economy one — and this is the round's
+most important result.** The margin arithmetic above is right: a `-1.0` gut
+draws a whole 1,440 flower against a 1,040 bar. Run rather than computed, it
+gives margin **+500** and **zero births over 48,000 frames**, richest bank
+**568** — the *leaf* ceiling. Flowers and fruit stand **22-40 rows up a
+stem**, and `windfall`, the only ground-level form, never exceeds **one
+standing cell**. The ants walk the floor beneath food they cannot climb to.
+The gut buys survival (3 → 9 ants), never breeding. This is #162's own
+caveat coming true — *a fruit has to be found, and the failure case is
+foraging rather than economy* — and **the next measurement is a counter on
+fruit → windfall, which is small.**
+
+**The frame cost does not follow biomass.** Correlation **+0.03** against
+biomass, **+0.92** with the field's solve set, **+0.93** with awake chunks.
+The design guide's *"cost follows living biomass"* and its Gate 3 corollary
+*"a mature box is the expensive one"* are **backwards in this bed**: the
+multiplier **rises** through a session, **9.0x fresh to 17.8x settled**,
+because the box quiets as it fills.
+
+**The draw dominates the tick five to one** — 4.78 ms against 0.94 — and
+**2.8 ms of that is `sky_light`, running in a box that has a ceiling.**
+That is the largest single thing left for the speed dial and it is not in
+the simulation at all. **Next optimisation, and it is not where anyone was
+looking.**
+
+**Partitions: containment reproduces, the speed-up does not.** `solved/f`
+falls 39.4 → 25.1 (−36%) over 1 → 16 compartments, exactly §2c's mechanism,
+but the frame goes 1.69 → 1.41 → **1.92 ms**, non-monotone, because the
+field is only 54% of a 1.5 ms tick at 512 wide. §2c's 7.6x was measured on a
+**fanned 2048-wide** bed. Keep partitions for isolation and scoring; **do
+not budget a speed-up at lab scale.**
+
+**The founders were being eaten, and a ceiling was helping.** 8 of 8 plant
+and germinate. A colony takes the stand from 55 plants to 19 and then goes
+extinct itself (52 founded, 52 dead, 0 born, gone by frame 66,000). And
+separately, thickening the ceiling 4 → 7 rows to seat a lamp cost **45% of
+the light on the bench and half the stand** — 468 plant cells to 286, 12
+seeds to 0 — with **no gate going red**. `field.rs` passes light down a
+column as `0.2^(depth/8)`, so shell thickness is a light knob nobody knew
+they were turning.
+
+**The grow lamps are not what lights the crop.** `labshot lamps=0` replaces
+every fixture with stone and the stand is byte-identical. The glow decays
+over a handful of field blocks; the bench is nineteen below. The room
+*reads* the schedule, the shell *passes* the light. Recorded rather than
+brightened away.
+
+**The dial's crossover is 12 ticks per displayed frame**, so `M* = 12·D/60`:
+**12x at 60 Hz, 4x at 20 Hz**. The falling-grain arithmetic overstates it
+**~14x** because nothing in a sealed box is in free fall. Under **0.16%** of
+the box changes even at the top of the dial.
+
+### What to do next, in the order the evidence supports
+
+1. **The fruit → windfall counter.** Small, and it unblocks the whole
+   creature half of the game.
+2. **`sky_light` in an enclosed world.** 2.8 ms of a 4.78 ms draw, bought by
+   a check the room already knows how to answer.
+3. **Gate 2 — does selection have teeth in *this* bed.** Still never run,
+   and `selection_arena`'s whole finding is that a null there is a statement
+   about the world rather than the genome, so it invalidates every evolution
+   result measured in the bed until it is done.
+4. **Gate 4's two verbs**, cull and partition, which the premise most
+   depends on and which have no engine support.
 
 ## Deliberately not being built yet
 
