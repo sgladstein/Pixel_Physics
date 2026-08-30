@@ -1,0 +1,47 @@
+{
+  "id": "20260830T030641163Z-735c23",
+  "created": "2026-08-30T03:06:41Z",
+  "board": "caves",
+  "origin": {
+    "worktree": "/home/user/wg-caves",
+    "branch": "claude/worldgen-caves",
+    "commit": "47d6209",
+    "agent": null,
+    "session_id": "2cb39797-d076-5699-b8bf-4494224deffe",
+    "user": null,
+    "cwd": "/home/user/wg-caves"
+  },
+  "title": "Tunnels that wander, and the sky is out of the cave",
+  "question": "Three things since the last card. The tunnels were straight because a shortest path on a grid is a straight line -- so the roughness is now in the cost field itself and the route bends because going round is genuinely cheaper, and the bore's width rides a slow wobble instead of being one radius. The sky you saw leaking in was the renderer, not a hole: a shaft has no ground above it, so daylight was spending none of its budget coming down one and arriving in the chamber with the lot intact; it is now measured against the ground *around* the column. And there are two new smaller size bands, so a system has rooms a few gnome-heights across as well as halls. Do the passages read as natural now, and is there enough in the middle of the size range?",
+  "context_md": "",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "rolling seed 3",
+      "files": [
+        "20260830T030641163Z-735c23/000-ctx_s3.png"
+      ],
+      "caption": "",
+      "meta": {
+        "view": "1200 x 760 cells of world",
+        "rooms": 3,
+        "rooms by band (cell/chamber/hall/great/cathedral)": "2/0/1/0/0",
+        "biggest room": "447 x 273 cells",
+        "gnome": "7 x 14 cells",
+        "cells the roof lost": 67557,
+        "passages": 4,
+        "mouths": 1,
+        "separate walkable pieces": 1
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
