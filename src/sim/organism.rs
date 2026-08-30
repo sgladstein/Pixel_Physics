@@ -2097,6 +2097,32 @@ pub struct CreatureDef {
     /// Ticks over which nest-scent deposit falls to nothing. See
     /// `OrganismState::since_nest`.
     pub nest_memory: u16,
+    /// **How far this animal can see another animal, in cells. Zero — the
+    /// default — means it has no eyes at all**, which is every species in
+    /// the world except the beetle and is what keeps the sense off the
+    /// sweep for them entirely.
+    ///
+    /// **The opt-in is on the species rather than inside the sense**, which
+    /// is `CLAUDE.md`'s standing rule and not a preference: gating inside
+    /// `creature::sight` would still pay the call, and testing it here — at
+    /// a dispatch site that already holds the `CreatureDef` — is a `f32`
+    /// compare against a field that is already in cache. An eyeless species
+    /// pays one branch per tick, not one `World::get` per cell.
+    ///
+    /// **64, and it is measured rather than picked**
+    /// (`Reports/creature-vision-sizing-2026-08-30.md` §3). The p10 seed —
+    /// the beetle stranded away from the colony, which is precisely the
+    /// animal a distal sense exists for — sees prey 0.108–0.260 of the time
+    /// at radius 32 and 0.240–0.389 at 64, and 32 -> 64 is the largest
+    /// single step at every preset measured. The curve was still climbing
+    /// at 64; where 128 lands is not measured and is the honest gap.
+    ///
+    /// The cost is a function of this and of `SIGHT_RAYS`, **not** of how
+    /// many prey exist — which is what makes it shippable without a prey
+    /// index the engine does not have. §5 prices a radius-64 fan at 0.004
+    /// ms/frame at five beetles, 0.14% of a mean `ascii` frame.
+    #[serde(default)]
+    pub sight_range: i32,
     /// Sensor offset in cells for the forward/lateral sampling.
     ///
     /// 6, measured: `pheromone::tests::trail_following_sweep` puts on-trail
@@ -3466,6 +3492,11 @@ const EMBEDDED: &[&str] = &[
     include_str!("../../assets/species/ant_wide.ron"),
     // The palette arm: `ant_block`'s body in `chitin_pale`'s colours.
     include_str!("../../assets/species/chitin_pale.ron"),
+    // **Appended at the end so no existing species' position moves.**
+    // `ant_block` with `shade_rule: Countershade` and nothing else
+    // changed -- the blind A/B on the shade rule needs arms that differ
+    // in one thing, and its material is a byte-copy of `ant_block`'s.
+    include_str!("../../assets/species/ant_block_shaded.ron"),
 ];
 
 /// Where the loader looks for species files, relative to the working
