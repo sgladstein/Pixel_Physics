@@ -1,0 +1,38 @@
+{
+  "id": "20260830T015038172Z-fd4ca2",
+  "created": "2026-08-30T01:50:38Z",
+  "board": "plants",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/plant-mechanics-handoff-d4zo44",
+    "commit": "67c241b",
+    "agent": null,
+    "session_id": "0b681d5e-ee2b-50cf-b73a-d5a1dfcfbc79",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Trees break on their own now",
+  "question": "A badly grown tree — heavy top, not enough trunk under it — now comes down on its own. One place gives way, a splintered stub is left, and everything past that point falls as a piece. Snow piling on a crown does it too, with nobody touching anything.\n\n**Does a breaking tree read as a tree breaking?** Specifically:\n\n1. Is the break somewhere believable — where the limb leaves the trunk, rather than out at a twig or down at the roots?\n2. Does what comes off look like a limb falling, or like the tree dissolving?\n3. Is one limb every ~10,000 frames across a stand of nine too rare, too often, or about right? That is the p90 rate above, and it is one number to change.\n\nWind and self-weight both feed the same load, so this is also the thing that lets a gale bring a tree down.",
+  "context_md": "**3 limbs come down in this window** (snap counter 3 → 6 over 1,000 frames,\na stand of 9 trees). Nothing was cut — these broke on their own.\n\nWhat decides it is **proportion, not size**: `stress = moment / section²`, so\na heavy crown on a thin base reads high while a big well-built tree does not.\nGirth is in the denominator, *squared* — doubling a trunk quarters its stress.\n\nYour p75 setting turned out to kill the stand. Measured over 160,000 frames\nagainst a control with breaking off, same seed:\n\n| frames | breaking off | p90 (this) | p75 |\n|---|---|---|---|\n| 20,000 | 17,336 | 17,476 | 16,898 |\n| 100,000 | 18,583 | 15,858 | 7,763 |\n| 160,000 | **19,123** | **14,859** | **4,057** |\n| limbs lost | — | 16 | 278 |\n| trees left | 9 | 7 | 5 |\n\nAt p75 the wood loses 79% of itself. **A stand culled faster than it breeds\ncrashes before it can evolve anything** — so your own argument is a reason for\nthe gentler number, not against it. At p90 the stand persists and still loses\nsixteen limbs, and the per-plant stress does drift down over the run.\n",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "",
+      "files": [
+        "20260830T015038172Z-fd4ca2/000-snap.gif"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null,
+      "gif_frames": 26
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
