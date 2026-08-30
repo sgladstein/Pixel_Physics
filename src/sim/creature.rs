@@ -3973,7 +3973,15 @@ mod tests {
         let reading = |frame: u64| -> (f32, f32) {
             let mut w = test_world();
             w.frame = frame;
-            w.add_heat(100, 100, 8, WORM_HEAT_THRESHOLD_ABOVE_AMBIENT - 3.0);
+            // **`FIELD_SCALE`, not the literal 8 it equalled.**
+            // `paint_field` divides the radius by `FIELD_SCALE`, so this is
+            // what paints the 3x3 patch of blocks that keeps the centre at
+            // the authored temperature through one diffusion step. Written
+            // as 8 it painted a *single* block at `FIELD_SCALE` 16,
+            // diffusion pulled the centre down to 16.6, and the raw noon
+            // reading no longer crossed the threshold -- the scene stopped
+            // containing the situation, not the guard stopped working.
+            w.add_heat(100, 100, field::FIELD_SCALE, WORM_HEAT_THRESHOLD_ABOVE_AMBIENT - 3.0);
             field::step(&mut w);
             let cell = w.field_at(100, 100);
             (cell.temperature - AMBIENT_TEMPERATURE as f32, field::noon_equivalent_temperature(cell) - AMBIENT_TEMPERATURE as f32)
