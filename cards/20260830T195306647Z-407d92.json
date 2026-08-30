@@ -1,0 +1,56 @@
+{
+  "id": "20260830T195306647Z-407d92",
+  "created": "2026-08-30T19:53:06Z",
+  "board": "creatures",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/creature-nest-legible",
+    "commit": "a12fac22",
+    "agent": null,
+    "session_id": "558ad16d-5ac0-52b2-8f65-3d7a291bd57b",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The ants did dig tunnels — the question is why you cannot see them",
+  "question": "In which of these can you point at a tunnel? If neither, say neither — that is the useful answer and it tells me the fix is contrast, not light.",
+  "context_md": "You said of the earlier cards: *\\\"I don't see tunnels\\\"*, *\\\"These look identical\\\"*, *\\\"looks like the whole corner is going away\\\"*. You were reading the pictures correctly, and I can now say what is in them.\n\n**There is a real nest in this bank.** A connected-component pass over the standing hollow — the measurement that separates one gallery from a scatter of bites — says **91-96% of all enclosed void sits in ONE connected run of 134-165 cells**, with 0-2 isolated single cells, across three seeds. It is a gallery, not nibbling. Both pictures below contain the same one.\n\n**Why it does not show.** I measured what the renderer actually puts on screen for each thing in the bank. The tunnel interior is the only thing in the scene with no colour of its own: it ranges from near-black to nearly sky-bright (30 to 150 of 255) depending how far it is from the entrance, because a shallow tunnel with an open mouth genuinely gets daylight down it. Correct light, unreadable picture.\n\n**Two things I checked so you don't have to wonder.** Making the lighting finer does not help — I ran it at exact per-cell light and the tunnels got *brighter*, not darker. And I tried twice to make the ants dig differently (prefer buried ground; prefer ground with a roof on it), swept both across their whole range, and both made the nest *worse*. The digging behaviour is not the problem.\n\n**What I think is left**, and I would rather you told me than have me guess: the only thing in the whole scene that reads as separable from the bank is the packed wall the ants leave, and it clears the bank's own mottle by a hair (9 of 255 against a mottle of 8). Everything else overlaps. If neither picture below works for you, the answer is that the tunnel *wall* has to carry the whole signal and it needs real contrast, not a slightly darker brown.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A — shipped lighting",
+      "files": [
+        "20260830T195306647Z-407d92/000-light4.png"
+      ],
+      "caption": "the light model the game runs today",
+      "meta": {
+        "cells of hollow, all of it connected as one gallery": 148,
+        "isolated single-cell bites": 0,
+        "times an ant dug": 302,
+        "how far tunnel colour swings (of 255)": 119
+      },
+      "focus": null
+    },
+    {
+      "label": "B — the older, darker cave shading",
+      "files": [
+        "20260830T195306647Z-407d92/001-lightdepth.png"
+      ],
+      "caption": "hollows go dark by how deep they are, ignoring where the daylight can reach",
+      "meta": {
+        "cells of hollow, all of it connected as one gallery": 148,
+        "isolated single-cell bites": 0,
+        "times an ant dug": 302,
+        "how far tunnel colour swings (of 255)": 19
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
