@@ -905,6 +905,28 @@ drift that two of these documents still reflect.**
   distribution, not a binary* arriving on the creature line. Does not answer
   whether a beetle acts on a sighting; `predation_probe`'s control already
   says the kill works at contact.
+- [creature-sight-sense-2026-08-30.md](creature-sight-sense-2026-08-30.md)
+  — **the build of the report above, shipped 2026-08-30.** Two brain inputs,
+  `PreyNear` and `PreyBearing`, written by a 16-ray fan at radius 64 from one
+  cell above the head; the beetle authors `sight_range: 64` and one weight,
+  and **nothing else in the world has eyes**. The pre-flight transferred:
+  predicted 0.572 of samples with prey in sight, built sense reads **0.50**
+  over 8 generated seeds. Over that sweep pursuit moves two independent
+  far-side counters together — mean sighted range **15.2 → 12.5 cells** and
+  prey caught **302 → 323**. It costs about **twice** what the pre-flight
+  priced — 1,020–1,100 cells read per cast against 485, because prey must be
+  tested in the un-lifted frame and blockers in the lifted one — which is
+  still 0.3% of a frame and is an honest correction to §5 of the report
+  above. Three things to carry: the obvious
+  effect counter (**did it move closer this tick**) *cannot* fire on the
+  ticks the sense exists for and falls where catches rise — a number that is
+  arithmetically correct and about the wrong question; the stronger pursuit
+  lever, releasing straight-ahead persistence, is **measured, better on the
+  field, worse in a corridor and deliberately not shipped**, with the
+  question put to the owner; and **`BrainOutput::Turn` is nearly inert for a
+  surface walker on level ground** — both turning candidates fail, one on
+  passability and one on foothold — which is a movement finding filed as
+  `open-bugs-handoff.md` §R4, not a perception one.
 - [foraging-range-measurement.md](foraging-range-measurement.md) —
   **measured record, instrument landed via `da252dc`;** §0 and §5 corrected
   on landing, **§3 corrected 2026-08-23** by WP-9 arm 1's re-test. Why

@@ -71,6 +71,18 @@
         nest: "nest",
         dig_force: 0.3,
         nest_memory: 3000,
+        // **The eye, and it is the whole of what this animal was missing.**
+        // 64 cells, all-round, sized before it was built by
+        // `Reports/creature-vision-sizing-2026-08-30.md` -- see
+        // `organism.rs`'s `CreatureDef::sight_range`. The ant does not
+        // author this field and so has no eyes at all, which is what keeps
+        // the cost off every species but this one.
+        //
+        // A beetle could already kill: the pre-flight's own control put a
+        // hungry beetle beside an ant and the ant went 24 -> 22 -> 21 cells.
+        // What it could not do was *find* one, and the two lines below are
+        // what turn a sighting into a pursuit.
+        sight_range: 64,
         sensor_offset: 6,
         instincts: [
             (Bias, Move, 2.0),
@@ -81,6 +93,28 @@
             // world. Same weight, so it hunts exactly as it did.
             (FoodAdjacent, Feed, 2.0),
             (TempAboveAmb, Turn, -0.8),
+            // **Steer at what it can see.** `PreyBearing` is positive to
+            // the right and `Turn` biases *left* when positive, so pursuit
+            // is a negative weight -- the same sign `(PheroALateral, Turn,
+            // ..)` carries in `ant.ron` for the same reason.
+            (PreyBearing, Turn, -2.5),
+            // **`(PreyNear, Persist, w)` is measured, better on the
+            // field, worse in a corridor, and deliberately NOT shipped.**
+            // Releasing straight-ahead persistence in proportion to how
+            // near the prey is lets the turn win against a `Persist`
+            // default that otherwise matches it, and over 8 seeds it is
+            // the strongest lever in the sweep: mean sighted range 12.5 ->
+            // 12.2 -> 9.1 and prey caught 323 -> 345 -> 355 at w = 0, -3,
+            // -6. In a sealed 20-cell chamber it cost the head-bite 6/8 ->
+            // 4/8 at the same total of one catch per run, which is a
+            // chaotic tie-break rather than a worse predator -- and that
+            // is exactly the sort of disagreement this project settles by
+            // eye rather than by picking the number it likes.
+            //
+            // So the shipped animal turns and nothing else, the knob lives
+            // in `predation_probe`'s `release=`, and the question is with
+            // the owner. Full sweep in
+            // `Reports/creature-sight-sense-2026-08-30.md`.
         ],
     )),
 )
