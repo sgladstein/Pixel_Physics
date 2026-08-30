@@ -945,6 +945,29 @@ pub struct MaterialDef {
     /// everything is a rule nobody can attribute a regression to.
     #[serde(default = "default_rigid")]
     pub stiffness: f32,
+    /// **How much bending stress this tissue takes before it snaps** — the
+    /// strength of `Reports/tree-mechanics-plan-2026-08-29.md` §4, and the
+    /// sibling of `stiffness` above.
+    ///
+    /// The two read the *same* `plant::stress_field` and compare it against
+    /// different things, which is the distinction the plan turns on:
+    /// `stiffness` is compared against the **moment** (the torque on a cell)
+    /// and answers *does this lean*; `strength` is compared against the
+    /// **stress** (that torque over the square of the section carrying it)
+    /// and answers *does this let go*. A thick trunk and a twig can share a
+    /// moment and be nowhere near each other in stress, so a break rule
+    /// reading the moment would snap the trunk first every time.
+    ///
+    /// A material may have either, both or neither. Wood has strength and no
+    /// stiffness: it breaks without ever bending, because a bend relieves a
+    /// *horizontal* lever and a trunk's wind load is a vertical one — see
+    /// `assets/materials/leaf.ron`. Grass has the reverse.
+    ///
+    /// Infinite by default, so **every material in the world is unbreakable
+    /// by load until it opts in**, the same shape as `stiffness` and
+    /// `max_cantilever_reach` and for the same reason.
+    #[serde(default = "default_rigid")]
+    pub strength: f32,
     /// What an unsupported cell becomes once it breaks free, or empty to
     /// leave it Solid regardless of `max_unsupported_span` (the same
     /// unset-name-is-a-no-op pattern `melts_into`/`burns_into` use). Loose
@@ -1581,6 +1604,8 @@ pub struct Material {
     pub anchors_organisms: bool,
     /// See `MaterialDef::stiffness`.
     pub stiffness: f32,
+    /// See `MaterialDef::strength`.
+    pub strength: f32,
     /// See `MaterialDef::joint_spacing`. `0.0` means not jointed; never
     /// negative, and never small enough to divide the world into slivers.
     pub joint_spacing: f32,
@@ -1927,6 +1952,7 @@ impl From<MaterialDef> for Material {
             clings_to_wood: def.clings_to_wood,
             anchors_organisms: def.anchors_organisms,
             stiffness: def.stiffness,
+            strength: def.strength,
             // Clamped rather than asserted: this is content, and a
             // hand-edited `.ron` must not be able to panic the simulation.
             // A negative or sub-cell pitch is meaningless, so both read as
@@ -2263,6 +2289,7 @@ impl MaterialRegistry {
             severs_into: String::new(),
             anchors_organisms: true,
             stiffness: f32::INFINITY,
+            strength: f32::INFINITY,
             joint_spacing: 0.0,
             joint_band_contrast: 0.0,
             support_cost_below: 1,
@@ -2340,6 +2367,7 @@ impl MaterialRegistry {
             severs_into: String::new(),
             anchors_organisms: true,
             stiffness: f32::INFINITY,
+            strength: f32::INFINITY,
             joint_spacing: 0.0,
             joint_band_contrast: 0.0,
             support_cost_below: 1,
