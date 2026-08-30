@@ -248,6 +248,35 @@ ant it is arithmetically identical (0.125 x 2 = the old 0.25); above two cells
 a hop costs proportionally more, which is the intended direction — a heavier
 animal should pay more to leave the ground.
 
+### The falls-per-move gate, run because of that message
+
+`forage_probe gate=1 seeds=12 frames=12000 spacing=4` — the guard E11's
+authorisation was made conditional on, and **it was missing from this lane's
+gate list until the coordinator named it**. Filed as a process note as much as
+a result: the change touches the launch verb's cost, so the gate was in scope
+and I had not run it.
+
+```
+GATE PASS: worst seed falls/move 0.270 <= 0.40 over 12 seeds at 12000 frames
+             min   median   max
+falls/mv   0.207    0.214  0.270
+```
+
+Against the re-taken baseline the coordinator quotes — 0.208 / 0.225 / 0.334
+— this run sits at or just under it on all three order statistics. **No
+improvement is claimed from that**: `main` moved between the two readings
+(#142, #145, #149 all landed in between), so it is not a paired comparison,
+and the statistic is known not to settle across frame budgets. The claim is
+only the one the gate makes: the shipped ant is comfortably inside the bar.
+
+**Two limits on what this gate covers here.** It runs the *shipped* two-cell
+ant — `forage_probe` takes `frames`, `seeds`, `climb`, `spacing` and `gate`,
+and has **no body knob** — so it says nothing about falls at three, six or
+nine cells. Since §4b finds no multi-cell colony survives anyway, adding one
+would measure the fall rate of a population that is dying for other reasons;
+the honest order is §R3 first, then a body knob on this harness, then the
+gate per size. That is recorded in §6 rather than done.
+
 ### Motion removes the size axis, for the ants that are moving
 
 Lane H (`creature-motion-decoys-2026-08-30.md`, PR #150) measured whether
@@ -323,7 +352,12 @@ Three things are owed, in this order:
    time, which is a graded trade with a middle rather than a ratchet in
    either direction. Neither was measured here and neither should be adopted
    on this paragraph.
-3. **Then the selector and the card.** The keyboard is genuinely full —
+3. **A `body=` knob on `forage_probe`, then the gate per body size.** The
+   falls-per-move gate is the condition E11 travels with, and a bigger body
+   changes the fall law (launch off cell count, descent off bounding box). It
+   cannot usefully be read per size until §R3 is closed, because it would be
+   measuring the fall rate of a population dying for unrelated reasons.
+4. **Then the selector and the card.** The keyboard is genuinely full —
    `main.rs` says so at the `Comma` binding, *"every letter and digit is
    already bound and F9-F12 are owned by macOS"* — so the home for it is the
    tunables panel, which is where `TunableGroup::World` went for exactly this

@@ -103,7 +103,7 @@ Acted on three ways. (a) **The falls-per-move gate — `forage_probe gate=1`,
 bar 0.40 — was missing from my gate list and is now run**; it pins its own
 frame budget and *refuses* to run at any other, so the "a bar quoted without
 its budget is not reproducible" caveat is enforced by the harness rather than
-by me remembering. Result in the report's gate line. (b) The report now
+by me remembering. **Result: GATE PASS, worst seed 0.270 against the 0.40 bar** (min 0.207 / median 0.214 / max 0.270 over 12 seeds). At or just under the baseline the message quotes on all three statistics -- but `main` moved between the two readings, so no improvement is claimed from that. (b) The report now
 records that **§5's own cost column already claimed this change** — the long
 chain's entry reads *"what it pays: more metabolism per tick"*, which was not
 true when written. So that is a second document that was carrying E10's false
@@ -156,6 +156,8 @@ evolution can actually reach. It is named in §6 and stopped there, as asked.
 
 ## Gates
 
+`forage_probe gate=1 seeds=12 frames=12000 spacing=4` **GATE PASS, worst
+seed 0.270 <= 0.40** ·
 `cargo test --lib` **1098 passed / 0 failed / 54 ignored** ·
 `cargo +1.98.0 clippy --all-targets -- -D warnings` **clean** ·
 `ascii` **31 scenes, 0 skipped, zero non-timing differences against a
