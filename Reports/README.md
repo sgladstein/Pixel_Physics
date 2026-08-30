@@ -504,6 +504,30 @@ drift that two of these documents still reflect.**
   construction** (exactly 50.0%, an algebraic identity), and three arms were
   silent before they were real — `lateral: None` is not "no lateral", and a
   herb shoot never places a lateral at all while its root does.
+- [plant-water-scarcity-2026-08-30.md](plant-water-scarcity-2026-08-30.md)
+  — **the teeth report's one untested prediction, tested and refuted: a dry
+  bed does not bring root architecture under selection.** `norootbranch` reads
+  **50.8%, 8 of 18 seeds, p=0.49** in a bed with **5.5x less plant-available
+  water**, and 50.8%, 8 of 18, p=0.93 in a further bed where water genuinely
+  limits — against 49.7%, 10 of 18, p=0.86 in the wet one; paired over shared
+  seeds the beds differ by **+0.0 points**. Not an inert world — `nobranch`
+  loses 13 points on **12 of 12** seeds and 10 points on **18 of 18** in those
+  same dry beds. The three findings behind the null are the value. **A bed cannot be dried into
+  drought**: every species' `Germinate` floor (`soil_water_threshold`) sits
+  *above* the availability at which its own uptake becomes limiting — moisture
+  246 against 191 for `herb`, 290 against 234 for `tree` — so below the floor
+  you get an empty bed, and `tree` at 260 goes from 6 organisms to zero.
+  **The lever that does bite is rooting volume**: same moisture, `soil=4`
+  instead of 34, and water status falls **1.000 → 0.678** with uptake halved
+  and the stand losing plants — a plant in a deep dry bed escapes downward
+  into soil it has not drunk. And **root branching does not buy water here**:
+  income is `rate x available` per *wet neighbour*, so contact with wet soil
+  is what earns and in a drawn-down bed the bed sets it — the handicap costs
+  23% of root cells and **3%** of uptake surface. Lands `sky=` and `bed=1` on
+  `selection_arena`: a bed under live weather is rained on for **30% of the
+  run** and ponds 74,674 units of free water, so "dry" needed a pinned sky
+  before it meant anything. Its §5c names what would put roots under selection
+  and why "wetter or drier" is the axis this rules out.
 - [plant-mutation-counted-at-source-2026-08-29.md](plant-mutation-counted-at-source-2026-08-29.md)
   — **§4 closed: the 2.6x was the model, not a loss.** Counts fate mutations
   where they happen (`World::fate_mutation_rolls` / `_fired` / `_applied`) and
