@@ -550,7 +550,19 @@ pub struct World {
     /// out the world got finer. Constants that ignore it come out at the
     /// wrong physical size and read as slivers, which is the round-6
     /// "1-2 pixels wide" complaint arriving from the other direction.
-    pub cell_scale: f32,
+    ///
+    /// **Private, and written only through `set_cell_scale`, because a
+    /// second thing now has to move with it.** Until 2026-08-30 this was a
+    /// plain public field and *nothing alive read it* -- so a world at 2x
+    /// scaled the gnome and left every animal and plant at its authored
+    /// cell count, at half its physical size. That is the same "our gnome
+    /// shouldn't have shrunk" defect the resolution step already fixed
+    /// once, for the player and nothing else. The species registry now
+    /// carries its own copy (`organism::SpeciesRegistry::set_cell_scale`),
+    /// and the two going out of step is exactly the silent failure the
+    /// setter exists to make unrepresentable -- a direct assignment no
+    /// longer compiles.
+    cell_scale: f32,
     pub materials: MaterialRegistry,
     pub rng: Rng,
     /// M8: coherent pieces of broken structure currently in flight
@@ -2150,6 +2162,27 @@ impl World {
         // their upkeep runs here, once per organism. See
         // `plant::step_organisms`.
         super::plant::step_organisms(self);
+    }
+
+    /// **How many cells this world spends per unit of ground.** `1.0` is
+    /// the size every constant in the source is authored at.
+    #[inline]
+    pub fn cell_scale(&self) -> f32 {
+        self.cell_scale
+    }
+
+    /// **Build this world at `k` cells per authored cell** -- set once, at
+    /// generation, before anything is placed in it.
+    ///
+    /// Two things move together and that is the whole reason this is a
+    /// method: the scalar the source-side constants read, and the species
+    /// registry, whose creature defs are rebuilt at `k` so an animal comes
+    /// out the same *physical* size rather than the same cell count. See
+    /// `organism::CreatureDef::scaled` for which of its fields are lengths
+    /// and which are not.
+    pub fn set_cell_scale(&mut self, k: f32) {
+        self.cell_scale = k;
+        self.species.set_cell_scale(k);
     }
 
     /// How many organism slots are currently allocated.

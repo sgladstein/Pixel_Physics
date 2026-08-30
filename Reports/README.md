@@ -908,6 +908,27 @@ drift that two of these documents still reflect.**
   to 40 rows up a stem and `windfall` never exceeds 1. A *reach* problem, which
   is the failure case §5 names; the margin model holds, and what it does not
   contain is whether the mouthful can be got at.
+- [creature-cell-scale-2026-08-30.md](creature-cell-scale-2026-08-30.md) —
+  **landed, 2026-08-30.** `World::cell_scale` had **no reader anywhere in the
+  living half of the engine**, so a world at double density scaled the gnome
+  and left every animal at its authored cell count — at *half its physical
+  size*, which is the "our gnome shouldn't have shrunk" defect arriving for
+  everything that is not the gnome. `CreatureDef::scaled` closes it for
+  creatures, on `Tuning::scaled`'s four classes, and the report says which
+  constants were deliberately **not** scaled: `body_energy` (pinned to the
+  materials' `food_energy`, another lane's files) and the flight constants (a
+  named gap). Three findings beyond the fix. **A chain cannot scale in
+  width** — a path has no width — so "creatures should be more than chains of
+  pixels" and the resolution step are one problem. **Supersampling makes a
+  rigid body less mobile**, blocked 62.1% -> 72.8% against `Chain(2)`'s 5.2%,
+  which is the blocker between "more cells" and "looks like an animal"; §6 is
+  a `Ribbon` design for it, with the self-overlap problem that decides it.
+  And the birth economy is **measured on `main` rather than inherited** — PR
+  #174 is open, not merged, so births are still 0 — with the resolution
+  interaction the lane owns: the stamp `body_energy * cells` multiplies by
+  the cell ratio, taking a 36-cell body's birth cost to 17,360 against a bank
+  ceiling of ~460. Cards `20260830T203214131Z-d133c8` (the size proof) and
+  `20260830T203238476Z-08d795` (which 36-cell silhouette reads as an animal)
 - [creature-direction.md](creature-direction.md) — **direction agreed
   (2026-08-17).** Cell-chain ants, the caged brain, the heritable genome;
   decision record plus implementation plan.
