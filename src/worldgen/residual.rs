@@ -324,7 +324,10 @@ pub fn residuals(ctx: &Ctx, world: &mut World) -> usize {
                 let mut py = ground_y;
                 loop {
                     let mat = world.get(lx, py).material;
-                    if mat == ctx.stone {
+                    // Any intact rock, not specifically `stone`: with a rock
+                    // vocabulary a tor can be socketed into a sandstone bed
+                    // as readily as a grey one. See `Material::rock`.
+                    if world.materials.get(mat).rock {
                         break;
                     }
                     if mat != ctx.soil && mat != ctx.sand && mat != ctx.gravel {
@@ -348,7 +351,11 @@ pub fn residuals(ctx: &Ctx, world: &mut World) -> usize {
                 // (`stone_massif`'s doc comment). The 3x-aspect claim is
                 // measured, not merely assumed -- see
                 // `tests/worldgen.rs::a_residual_survives_its_base_being_dug_out`.
-                world.set(px, py, Cell::new(ctx.stone, strata_shade(ctx, px, py)).with_attached(true));
+                // The bed at this row, so a tor is banded in the rocks the
+                // country around it is made of rather than being a grey
+                // finger standing in sandstone.
+                let m = crate::worldgen::passes::strata_rock_at(ctx, px, py);
+                world.set(px, py, Cell::new(m, strata_shade(ctx, px, py)).with_attached(true));
                 n += 1;
             }
         }
