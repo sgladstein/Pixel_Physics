@@ -24,39 +24,39 @@ whole, then run `python3 scripts/readmetoc.py`.
 | [Controls](#controls) | 159 |
 | [Materials](#materials) | 225 |
 | [Architecture](#architecture) | 299 |
-| [The coarse field grid](#the-coarse-field-grid) | 462 |
-| [M12/M13 status](#m12m13-status) | 724 |
-| [Liquid physics: compressible volume, not discrete occupied cells](#liquid-physics-compressible-volume-not-discrete-occupied-cells) | 751 |
-| [M14 status](#m14-status) | 777 |
-| [M7 status](#m7-status) | 925 |
-| [M15 status](#m15-status) | 954 |
-| [M6 deferral](#m6-deferral) | 1085 |
-| [M5 status](#m5-status) | 1095 |
-| [Plant lines merged: the genome, and the ecology](#plant-lines-merged-the-genome-and-the-ecology) | 1190 |
-| [The generation loop: plants die, seeds expire, slots come back](#the-generation-loop-plants-die-seeds-expire-slots-come-back) | 1260 |
-| [The economy re-derived: standing tissue costs something](#the-economy-re-derived-standing-tissue-costs-something) | 1312 |
-| [Stems draw a line: the growth walk renders its heading](#stems-draw-a-line-the-growth-walk-renders-its-heading) | 1412 |
-| [Plants that stop: organs, determinacy, and a price on both](#plants-that-stop-organs-determinacy-and-a-price-on-both) | 1494 |
-| [M16 status](#m16-status) | 1562 |
-| [M17 status](#m17-status) | 1748 |
-| [M18 status](#m18-status) | 1975 |
-| [UI improvements — overnight run, section 9](#ui-improvements--overnight-run-section-9) | 2309 |
-| [Live tunables panel — overnight run, section 10](#live-tunables-panel--overnight-run-section-10) | 2354 |
-| [Rendering performance — overnight run, section 11](#rendering-performance--overnight-run-section-11) | 2422 |
-| [M8 status — started, not complete](#m8-status--started-not-complete) | 2442 |
-| [M9 status — the gnome](#m9-status--the-gnome) | 2555 |
-| [M10 status — the worldgen half](#m10-status--the-worldgen-half) | 2995 |
-| [Weather status](#weather-status) | 3110 |
-| [The ant colony — status](#the-ant-colony--status) | 3127 |
-| [Inheritance status — the growth program has no fallback under it](#inheritance-status--the-growth-program-has-no-fallback-under-it) | 3273 |
-| [M19 status — started](#m19-status--started) | 3352 |
-| [Felling status — the verb works, and what it produces is pieces](#felling-status--the-verb-works-and-what-it-produces-is-pieces) | 3424 |
-| [Bending status — soft tissue lies over, and the wind is what pushes it](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) | 3661 |
-| [Breaking status — a badly grown tree comes down on its own](#breaking-status--a-badly-grown-tree-comes-down-on-its-own) | 3738 |
-| [Performance](#performance) | 3864 |
-| [World speed — five independent time axes](#world-speed--five-independent-time-axes) | 4061 |
-| [Status](#status) | 4144 |
-| [License](#license) | 4255 |
+| [The coarse field grid](#the-coarse-field-grid) | 471 |
+| [M12/M13 status](#m12m13-status) | 733 |
+| [Liquid physics: compressible volume, not discrete occupied cells](#liquid-physics-compressible-volume-not-discrete-occupied-cells) | 760 |
+| [M14 status](#m14-status) | 786 |
+| [M7 status](#m7-status) | 934 |
+| [M15 status](#m15-status) | 963 |
+| [M6 deferral](#m6-deferral) | 1094 |
+| [M5 status](#m5-status) | 1104 |
+| [Plant lines merged: the genome, and the ecology](#plant-lines-merged-the-genome-and-the-ecology) | 1199 |
+| [The generation loop: plants die, seeds expire, slots come back](#the-generation-loop-plants-die-seeds-expire-slots-come-back) | 1269 |
+| [The economy re-derived: standing tissue costs something](#the-economy-re-derived-standing-tissue-costs-something) | 1321 |
+| [Stems draw a line: the growth walk renders its heading](#stems-draw-a-line-the-growth-walk-renders-its-heading) | 1421 |
+| [Plants that stop: organs, determinacy, and a price on both](#plants-that-stop-organs-determinacy-and-a-price-on-both) | 1503 |
+| [M16 status](#m16-status) | 1571 |
+| [M17 status](#m17-status) | 1757 |
+| [M18 status](#m18-status) | 1984 |
+| [UI improvements — overnight run, section 9](#ui-improvements--overnight-run-section-9) | 2318 |
+| [Live tunables panel — overnight run, section 10](#live-tunables-panel--overnight-run-section-10) | 2363 |
+| [Rendering performance — overnight run, section 11](#rendering-performance--overnight-run-section-11) | 2431 |
+| [M8 status — started, not complete](#m8-status--started-not-complete) | 2451 |
+| [M9 status — the gnome](#m9-status--the-gnome) | 2564 |
+| [M10 status — the worldgen half](#m10-status--the-worldgen-half) | 3004 |
+| [Weather status](#weather-status) | 3119 |
+| [The ant colony — status](#the-ant-colony--status) | 3136 |
+| [Inheritance status — the growth program has no fallback under it](#inheritance-status--the-growth-program-has-no-fallback-under-it) | 3282 |
+| [M19 status — started](#m19-status--started) | 3361 |
+| [Felling status — the verb works, and what it produces is pieces](#felling-status--the-verb-works-and-what-it-produces-is-pieces) | 3433 |
+| [Bending status — soft tissue lies over, and the wind is what pushes it](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) | 3670 |
+| [Breaking status — a badly grown tree comes down on its own](#breaking-status--a-badly-grown-tree-comes-down-on-its-own) | 3747 |
+| [Performance](#performance) | 3873 |
+| [World speed — five independent time axes](#world-speed--five-independent-time-axes) | 4070 |
+| [Status](#status) | 4153 |
+| [License](#license) | 4264 |
 
 ### Milestones, in numeric order
 
@@ -65,19 +65,19 @@ order they were written.
 
 | M | Section | Line |
 |---|---|---|
-| 5 | [M5 status](#m5-status) | 1095 |
-| 6 | [M6 deferral](#m6-deferral) | 1085 |
-| 7 | [M7 status](#m7-status) | 925 |
-| 8 | [M8 status — started, not complete](#m8-status--started-not-complete) | 2442 |
-| 9 | [M9 status — the gnome](#m9-status--the-gnome) | 2555 |
-| 10 | [M10 status — the worldgen half](#m10-status--the-worldgen-half) | 2995 |
-| 12 | [M12/M13 status](#m12m13-status) | 724 |
-| 14 | [M14 status](#m14-status) | 777 |
-| 15 | [M15 status](#m15-status) | 954 |
-| 16 | [M16 status](#m16-status) | 1562 |
-| 17 | [M17 status](#m17-status) | 1748 |
-| 18 | [M18 status](#m18-status) | 1975 |
-| 19 | [M19 status — started](#m19-status--started) | 3352 |
+| 5 | [M5 status](#m5-status) | 1104 |
+| 6 | [M6 deferral](#m6-deferral) | 1094 |
+| 7 | [M7 status](#m7-status) | 934 |
+| 8 | [M8 status — started, not complete](#m8-status--started-not-complete) | 2451 |
+| 9 | [M9 status — the gnome](#m9-status--the-gnome) | 2564 |
+| 10 | [M10 status — the worldgen half](#m10-status--the-worldgen-half) | 3004 |
+| 12 | [M12/M13 status](#m12m13-status) | 733 |
+| 14 | [M14 status](#m14-status) | 786 |
+| 15 | [M15 status](#m15-status) | 963 |
+| 16 | [M16 status](#m16-status) | 1571 |
+| 17 | [M17 status](#m17-status) | 1757 |
+| 18 | [M18 status](#m18-status) | 1984 |
+| 19 | [M19 status — started](#m19-status--started) | 3361 |
 
 ### By topic
 
@@ -90,25 +90,25 @@ them is named "plants". A section can appear twice; felling is honestly both
 plant work and structural work.
 
 **Known limitations for every topic are collected in one place**:
-[Status](#status), line 4144 — the *last* section in the
+[Status](#status), line 4153 — the *last* section in the
 file, not the first. Read it before concluding something is broken.
 
 | Topic | Sections, primary first |
 |---|---|
-| **plants, trees and moss** | [M16 status](#m16-status) 1562, [Plant lines merged](#plant-lines-merged-the-genome-and-the-ecology) 1190, [Inheritance status](#inheritance-status--the-growth-program-has-no-fallback-under-it) 3273, [The economy re-derived](#the-economy-re-derived-standing-tissue-costs-something) 1312, [Plants that stop](#plants-that-stop-organs-determinacy-and-a-price-on-both) 1494, [The generation loop](#the-generation-loop-plants-die-seeds-expire-slots-come-back) 1260, [Stems draw a line](#stems-draw-a-line-the-growth-walk-renders-its-heading) 1412, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 3424, [Bending status](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) 3661, [Breaking status](#breaking-status--a-badly-grown-tree-comes-down-on-its-own) 3738 |
-| **creatures — worms and the ant colony** | [M18 status](#m18-status) 1975, [The ant colony](#the-ant-colony--status) 3127 |
-| **structural collapse, felling and rigid bodies** | [M17 status](#m17-status) 1748, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 3424, [Bending status](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) 3661, [Breaking status](#breaking-status--a-badly-grown-tree-comes-down-on-its-own) 3738, [M8 status](#m8-status--started-not-complete) 2442 |
-| **fire, heat and phase change** | [M14 status](#m14-status) 777, [Materials](#materials) 225 |
-| **explosions, particles and debris** | [M15 status](#m15-status) 954, [M7 status](#m7-status) 925 |
-| **liquids and gases** | [Liquid physics](#liquid-physics-compressible-volume-not-discrete-occupied-cells) 751, [The coarse field grid](#the-coarse-field-grid) 462 |
+| **plants, trees and moss** | [M16 status](#m16-status) 1571, [Plant lines merged](#plant-lines-merged-the-genome-and-the-ecology) 1199, [Inheritance status](#inheritance-status--the-growth-program-has-no-fallback-under-it) 3282, [The economy re-derived](#the-economy-re-derived-standing-tissue-costs-something) 1321, [Plants that stop](#plants-that-stop-organs-determinacy-and-a-price-on-both) 1503, [The generation loop](#the-generation-loop-plants-die-seeds-expire-slots-come-back) 1269, [Stems draw a line](#stems-draw-a-line-the-growth-walk-renders-its-heading) 1421, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 3433, [Bending status](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) 3670, [Breaking status](#breaking-status--a-badly-grown-tree-comes-down-on-its-own) 3747 |
+| **creatures — worms and the ant colony** | [M18 status](#m18-status) 1984, [The ant colony](#the-ant-colony--status) 3136 |
+| **structural collapse, felling and rigid bodies** | [M17 status](#m17-status) 1757, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 3433, [Bending status](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) 3670, [Breaking status](#breaking-status--a-badly-grown-tree-comes-down-on-its-own) 3747, [M8 status](#m8-status--started-not-complete) 2451 |
+| **fire, heat and phase change** | [M14 status](#m14-status) 786, [Materials](#materials) 225 |
+| **explosions, particles and debris** | [M15 status](#m15-status) 963, [M7 status](#m7-status) 934 |
+| **liquids and gases** | [Liquid physics](#liquid-physics-compressible-volume-not-discrete-occupied-cells) 760, [The coarse field grid](#the-coarse-field-grid) 471 |
 | **powders and granular flow** | [Materials](#materials) 225, [Architecture](#architecture) 299 |
-| **the coarse field grid — pressure, heat, light** | [The coarse field grid](#the-coarse-field-grid) 462, [M12/M13 status](#m12m13-status) 724 |
-| **worldgen and world structure** | [M10 status](#m10-status--the-worldgen-half) 2995, [Architecture](#architecture) 299 |
-| **the gnome (player character)** | [M9 status](#m9-status--the-gnome) 2555, [Controls](#controls) 159 |
-| **weather, sky and the clock** | [Weather status](#weather-status) 3110, [M19 status](#m19-status--started) 3352, [World speed](#world-speed--five-independent-time-axes) 4061 |
-| **rendering, UI and tunables** | [UI improvements](#ui-improvements--overnight-run-section-9) 2309, [Live tunables panel](#live-tunables-panel--overnight-run-section-10) 2354, [Rendering performance](#rendering-performance--overnight-run-section-11) 2422, [M6 deferral](#m6-deferral) 1085 |
-| **performance and the parallel sweep** | [Performance](#performance) 3864, [M5 status](#m5-status) 1095, [Architecture](#architecture) 299, [Rendering performance](#rendering-performance--overnight-run-section-11) 2422 |
-| **materials and the data schema** | [Materials](#materials) 225, [M12/M13 status](#m12m13-status) 724 |
+| **the coarse field grid — pressure, heat, light** | [The coarse field grid](#the-coarse-field-grid) 471, [M12/M13 status](#m12m13-status) 733 |
+| **worldgen and world structure** | [M10 status](#m10-status--the-worldgen-half) 3004, [Architecture](#architecture) 299 |
+| **the gnome (player character)** | [M9 status](#m9-status--the-gnome) 2564, [Controls](#controls) 159 |
+| **weather, sky and the clock** | [Weather status](#weather-status) 3119, [M19 status](#m19-status--started) 3361, [World speed](#world-speed--five-independent-time-axes) 4070 |
+| **rendering, UI and tunables** | [UI improvements](#ui-improvements--overnight-run-section-9) 2318, [Live tunables panel](#live-tunables-panel--overnight-run-section-10) 2363, [Rendering performance](#rendering-performance--overnight-run-section-11) 2431, [M6 deferral](#m6-deferral) 1094 |
+| **performance and the parallel sweep** | [Performance](#performance) 3873, [M5 status](#m5-status) 1104, [Architecture](#architecture) 299, [Rendering performance](#rendering-performance--overnight-run-section-11) 2431 |
+| **materials and the data schema** | [Materials](#materials) 225, [M12/M13 status](#m12m13-status) 733 |
 
 <!-- END GENERATED TOC -->
 
@@ -347,6 +347,11 @@ src/sim/     the simulation — knows nothing about windows or GPUs
                and the gnome run, each on its own knob and none of them the
                physics clock -- a phase is slowed by a slower clock, a
                schedule by a longer interval, and neither reaches the sweep
+  enclosure.rs where a world's ceiling, bench and grow lights are, when it
+               is a room rather than open country. Geometry only, with no
+               colours in it: `sky.rs`'s `Interior` is what a room looks
+               like, and this split is what keeps `sim` off the renderer.
+               The lab's `scene.rs` is its only writer today
   structural.rs M17: anchor distance, confinement, the structural check --
                what decides a cell is no longer held up
   load.rs      the load/torque failure criterion on top of it: who carries
@@ -384,7 +389,11 @@ src/sim/spring.rs
                where the belief that worlds already had rivers came from.
 src/render.rs  cells to pixels; dirty-region skipping, overlays, grain
 src/sky.rs     the sky: day/night gradient, dawn and dusk, stars, the moon,
-               storm dimming -- and the ground lit by time of day
+               storm dimming -- and the ground lit by time of day. Also
+               `Interior`, which is what the air looks like in a world that
+               has declared itself a room: two small tables instead of a
+               gradient with a star hash, because in a sealed box the air is
+               most of the screen and sky is the priciest branch there is
 src/hud.rs     the 5x7 bitmap-text primitive every on-screen readout uses
 src/tunables.rs the live tunables registry behind the O panel
 src/app.rs     sandbox state: brush, picker, tools, terrain, experiments

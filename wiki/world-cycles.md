@@ -1,6 +1,11 @@
 # Day, Night, and Decay
 
-*Current as of: 2026-08-29. New since the last pass: a world whose pace knobs
+*Current as of: 2026-08-30. New since the last pass: a world can now be a
+room instead of a landscape — the air inside a sealed box is drawn as a lit
+interior, with grow lights you can see in the ceiling and pools of light on
+the wall beneath them, and it dims when the light schedule does.*
+
+*Before that: a world whose pace knobs
 are not at normal now says so on screen when it starts, instead of only on the
 title bar; and break the top off a hill and you now see sky through the gap
 rather than a black slab — how dark a broken-open space is depends on how much
@@ -121,8 +126,21 @@ The same rule from the other side: **nothing standing in the air makes it
 dark underneath**. A tree, a bridge, a roof, a stray block left floating —
 none of them turn the space below into a cave, because none of them are
 ground. So you see sky between the leaves of a tree, and the space under a
-platform you build reads as outdoors, because it is. Making a building read
-as *indoors* is a separate thing that does not exist yet.
+platform you build reads as outdoors, because it is.
+
+**A room, though, is now its own kind of place.** A world can say it is
+indoors rather than outdoors, and where it does, the air in it stops being
+sky altogether: you get a wall behind everything, panelled in bands down its
+height, dimmest right under the ceiling and again where it meets the bench,
+and dug space below the bench line reads as bare earth rather than as more
+wall. The **grow lights** are fixtures in the ceiling you can see, and each
+throws a pool of cold light down the wall beneath it that fades out before it
+reaches the floor, so where the lights are is something you read off the room
+rather than being told. Turn the light schedule down and the whole room dims
+with it — the pools go first and hardest, the walls keep enough to see by.
+This is what the sealed laboratory of the second game is made of; the
+outdoor world never declares itself a room and is drawn exactly as it always
+was.
 
 That now holds for the landscape too, and it used to be the loudest thing
 wrong with it. **Stand under a cliff's overhanging lip and you are outdoors.**

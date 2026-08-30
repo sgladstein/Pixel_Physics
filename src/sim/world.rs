@@ -1358,6 +1358,22 @@ pub struct World {
     /// "same world, same trees", which `PLAN.md`'s determinism requirement
     /// wants.
     pub seed: u64,
+    /// **`Some` when this world is a sealed room rather than open country.**
+    ///
+    /// Read by the renderer, which draws the air inside it as an interior —
+    /// walls, panel seams and the pools under the grow lights — instead of
+    /// as sky. Nothing in the simulation reads it: it is a fact *about* the
+    /// scene, declared by whatever built the shell, and the geometry it
+    /// carries (`sim::enclosure::Enclosure`) has no colours in it for the
+    /// same reason `Clock::sky_hold` has none.
+    ///
+    /// It lives on the world rather than on the `Renderer` because
+    /// `Renderer::draw` takes `&World` and nothing else, so a scene that
+    /// declares itself a room is drawn as one by every caller with no wiring
+    /// at any of them — the same route `sky_frame` already takes. A flag on
+    /// the renderer instead needs every call site changed, and draws a lab
+    /// as open country wherever one is missed.
+    enclosure: Option<crate::sim::enclosure::Enclosure>,
 }
 
 /// The seed a world has when nothing has given it one. Arbitrary, fixed,
@@ -2020,6 +2036,7 @@ impl World {
             splash_sites: Vec::new(),
             splashes_thrown: 0,
             seed: DEFAULT_WORLD_SEED,
+            enclosure: None,
         };
         world.ensure_chunks_for(bounds);
         world
@@ -4333,6 +4350,21 @@ impl World {
         let frame = self.frame;
         self.clock.set_rates(frame, |c| c.sky_hold = hold);
         self.fields_settled = false;
+    }
+
+    /// **Declare this world a sealed room**, or open country again.
+    ///
+    /// The renderer draws the air inside a room as an interior rather than
+    /// as sky — see [`World::enclosure`] and `sim::enclosure`. Purely a
+    /// statement about the scene: no simulation pass reads it, so setting it
+    /// changes not one cell.
+    pub fn set_enclosure(&mut self, enclosure: Option<crate::sim::enclosure::Enclosure>) {
+        self.enclosure = enclosure;
+    }
+
+    /// The room this world is inside, if it is inside one.
+    pub fn enclosure(&self) -> Option<&crate::sim::enclosure::Enclosure> {
+        self.enclosure.as_ref()
     }
 
     /// **Pin the weather to a named sky, or let it run again** — the

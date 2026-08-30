@@ -16,8 +16,54 @@ use pixel_physics::lab::scene::LabBox;
 use pixel_physics::render::Renderer;
 use pixel_physics::sim::explosion::Blasts;
 use pixel_physics::sim::frame;
+use pixel_physics::sim::organism::{self, CellType};
 use pixel_physics::sim::particle::ParticleSystem;
 use pixel_physics::sim::player;
+use pixel_physics::sim::world::World;
+
+/// Three numbers a contact sheet cannot give, in one pass over the grid.
+///
+/// - **still a seed** — organisms with a live `Seed` cell and nothing else.
+///   This is the half of "five founders of eight are visible" that means
+///   *germination failed*; the other half means *too small to see*, and only
+///   `biggest` against the stand can tell them apart.
+/// - **biggest** — cells in the largest organism, so "everything germinated
+///   and stayed at one cell" is distinguishable from "three never started".
+/// - **roots reach** — rows below the surface the deepest root cell sits at.
+///   §2a's standing obligation: soil costs 1.9x the frame at 240 rows, and a
+///   bed whose bottom third is never entered is paying it for nothing.
+fn census(world: &World, ground_y: i32) -> (usize, usize, i32) {
+    let ids = world.live_organism_ids();
+    let mut ungerminated = 0usize;
+    let mut biggest = 0usize;
+    for id in &ids {
+        let Some(state) = world.organism(*id) else { continue };
+        biggest = biggest.max(state.cells.len());
+        // A founder that has not germinated is still exactly its seed.
+        let seed_only = state.cells.len() <= 1
+            && state.cells.keys().all(|&(x, y)| {
+                organism::cell_type(world.get(x, y).aux()) == Some(CellType::Seed)
+            });
+        ungerminated += usize::from(seed_only);
+    }
+    // Material-keyed, not type-keyed: a root matures into `MatureBody` while
+    // keeping the species' root material, so cell type alone misses all but
+    // the growing ends (`root_contact`'s own note).
+    let mut deepest = 0;
+    for id in &ids {
+        let Some(state) = world.organism(*id) else { continue };
+        let root = world
+            .materials
+            .id_of(&world.species.get(state.species).root_material);
+        let Some(root) = root else { continue };
+        for &(x, y) in state.cells.keys() {
+            if world.get(x, y).material == root {
+                deepest = deepest.max(y - ground_y + 1);
+            }
+        }
+    }
+    (ungerminated, biggest, deepest)
+}
 
 fn arg<T: std::str::FromStr>(key: &str) -> Option<T> {
     std::env::args()
@@ -31,22 +77,56 @@ fn main() {
     let stops: Vec<u64> = stops.split(',').map(|s| s.parse().expect("a frame number")).collect();
     let zoom: i32 = arg("zoom").unwrap_or(1);
 
+    // **The before/after arm, and it is one binary.** `CLAUDE.md` asks for a
+    // paired comparison rather than one run against a remembered impression,
+    // and the stale-example gotcha says the surest way to compare two
+    // renderers is not to build two. `interior=0` simply declines to declare
+    // the box an enclosure, so the identical world draws through the sky
+    // path — same cells, same frame, same binary, one branch different.
+    let interior: i32 = arg("interior").unwrap_or(1);
     let spec = LabBox {
         width: arg("width").unwrap_or(512),
         height: arg("height").unwrap_or(320),
-        soil_depth: arg("soil").unwrap_or(80),
+        soil_depth: arg("soil").unwrap_or(LabBox::default().soil_depth),
         founders: arg("founders").unwrap_or(8),
         colonies: arg("colonies").unwrap_or(1),
         compartments: arg("walls").unwrap_or(1),
         ..LabBox::default()
     };
     println!(
-        "labshot: {}x{} soil={} founders={} colonies={} walls={} frames={:?}",
+        "labshot: {}x{} soil={} founders={} colonies={} walls={} interior={interior} light={} frames={:?}",
         spec.width, spec.height, spec.soil_depth, spec.founders, spec.colonies,
-        spec.compartments, stops
+        spec.compartments,
+        arg::<f32>("light").map_or("held at noon".to_string(), |f| format!("{f}")),
+        stops
     );
 
-    let mut world = spec.build();
+    let (mut world, placed) = spec.build_counted();
+    if interior == 0 {
+        world.set_enclosure(None);
+    }
+    // **The light schedule, as a knob, because it is the game's largest
+    // lever** — 2.4x reproduction at full amplitude against a day/night
+    // cycle (design guide §2). `LabBox` holds it at the measured-brightest
+    // frame; `light=` moves it anywhere on the day's curve, so "the lights
+    // are on" and "the lights are off" are two runs of one binary rather
+    // than an assertion. `frame_for_daylight` is the inverse of the same
+    // cosine the field reads, so the picture and the plants agree.
+    if let Some(fraction) = arg::<f32>("light") {
+        world.set_sky_hold(Some(pixel_physics::sky::frame_for_daylight(fraction)));
+    }
+    // The counter half of "five founders of eight are visible", printed
+    // before a single frame runs. A seed that was never planted and a plant
+    // too small to see look identical on a contact sheet and mean opposite
+    // things.
+    println!(
+        "  placed: {} of {} founders, {} ants; lamps at {:?}; partitions at {:?}",
+        placed.planted,
+        placed.asked,
+        placed.ants,
+        spec.lamp_columns().0,
+        spec.partition_columns()
+    );
     let mut particles = ParticleSystem::new();
     let mut blasts = Blasts::new();
     let tuning = player::Tuning::default();
@@ -70,7 +150,12 @@ fn main() {
                 ids.iter().filter_map(|id| world.organism(*id)).map(|s| s.cells.len()).sum();
             let seeds: u32 =
                 ids.iter().filter_map(|id| world.organism(*id)).map(|s| s.seeds_set).sum();
-            println!("  frame {f:>6}: cells {cells:>6}  orgs {:>5}  seeds {seeds:>5}", ids.len());
+            let (ungerminated, biggest, deepest) = census(&world, spec.ground_y);
+            println!(
+                "  frame {f:>6}: cells {cells:>6}  orgs {:>5}  seeds {seeds:>5}  \
+                 still a seed {ungerminated:>3}  biggest {biggest:>4}  roots reach {deepest:>3} rows",
+                ids.len()
+            );
             tiles.push(buf);
             next += 1;
         }
