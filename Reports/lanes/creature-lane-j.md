@@ -95,6 +95,24 @@ current, identifiers unique**.
 
 ## Head SHA
 
-See the line below, rewritten on each push.
+    a1e6e8f  Merge main into lane J: #154's per-cell metabolism landed, plus the colony page
+    b0df9bd  A beetle can see: E15's sight sense, built to its pre-flight
 
-    HEAD: (filled in at push)
+Merged `origin/main` at `c4bb564` (#157). Post-merge gates re-run on the
+merged tree: `cargo test --lib` **1,122 passed / 0 failed / 54 ignored**,
+clippy 1.98.0 clean, `ascii` 31 scenes 0 skipped (worst 40.930 ms / mean
+4.470 ms with 143 live organisms), acceptance all cases, `docscheck` clean,
+`bugindex --check` current and unique.
+
+The four merge conflicts were all in shared registers and generated blocks
+and none needed a judgement call: `dead-ends.md` keep-both, the bug
+register's *generated* index taken from `main` and regenerated with
+`bugindex.py`, `README.md`'s TOC and line-number tables taken from `main`
+and regenerated with `readmetoc.py` (which is what the block's own note
+says to do), and `wiki/ants.md`'s freshness paragraph written to carry both
+sides' entries.
+
+**One thing the merge changed that is worth knowing**: `main` re-titled §R3
+from *"No creature body above two cells leaves a living colony"* to *"A
+creature chain above two cells overwrites its own head"* — so the thing the
+brief warned me about has since been root-caused.
