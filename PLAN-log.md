@@ -3836,3 +3836,24 @@ timestep, and section 3c for the destruction correction.
 `Reports/frame-cost-the-render-half-2026-08-29.md` is another session's, not
 this one's; its glow-halo fix is already in this tree, so the render figures
 quoted here are post-fix.
+
+### ...and the headline claim was a splice, now closed
+
+The report's own headline — "5-7 herb generations in 4 min 17 s" — quoted this
+session's wall clock against the **earlier report's** generation counts. Same
+parameters, but a build 17 commits older, and determinism is same-build only,
+so the two were never entitled to be quoted together. Re-run with the
+population block captured:
+
+  population: 2477 organisms -- 154 established; 11314 seeds set
+  generations [gen 0: 14, gen 1: 496, gen 2: 939, gen 3: 699,
+               gen 4: 204, gen 5: 120, gen 6: 5]
+  established carrying an inherited genome: 140 of 154, deepest generation 5
+  real 4m1.886s
+
+Deepest established generation **5**, 91% of established plants carrying an
+inherited genome, in **4m02** -- on a busier machine than the first run's
+4m17. Two runs, +/-3% on the clock, and the biology matches the earlier
+report's seed 1 (10,926 seeds, 110 of 125 established, deepest 5). The claim
+survives; it is now this build's own measurement rather than two runs stapled
+together. Headline restated as ~1.2 generations per wall-clock minute.

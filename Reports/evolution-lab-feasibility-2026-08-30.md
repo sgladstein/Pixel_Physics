@@ -51,9 +51,11 @@ the biology: **plants breed and ants do not**, measured today.
    thirteen times what the life in it costs"** — which is good news for a
    game about populations, because adding organisms is the cheap direction.
 
-5. **Measured end to end: 5–7 herb generations in 4 minutes 17 seconds**,
-   headless, one 1024x320 bed, 45,000 frames, stand grown to 20,913 cells.
-   That is roughly **1.4 generations per wall-clock minute** with no
+5. **Measured end to end and verified on this build: herb reaches
+   generation 5 in 4 minutes 2 seconds**, headless, one 1024x320 bed, 45,000
+   frames, 11,314 seeds set, 140 of 154 established plants carrying an
+   inherited genome. Two runs at 4:02 and 4:17.
+   That is roughly **1.2 generations per wall-clock minute** with no
    optimisation at all, and the concept's own changes push it up rather than
    down. The "watchable evolution" premise is already met by the shipped
    engine.
@@ -487,10 +489,28 @@ generation 2: `[gen 0: 11, gen 1: 374, gen 2: 807, gen 3: 436, gen 4: 392,
 gen 5: 191, gen 6: 52, gen 7: 30]`. **88% of established plants carry an
 inherited genome.**
 
-**Measured here today, end to end:** that same 45,000-frame herb run took
-**4 minutes 17 seconds** of wall clock, headless, ending at 20,913 organism
-cells — about **1.4 generations per minute** at 175 ticks/s averaged over a
-stand that grew throughout. Nothing was optimised and nothing was stripped.
+**Measured here today, end to end, and re-run to close a splice.** The first
+timing quoted the 4 min 17 s wall clock of this session's own run against the
+*generation counts of the earlier report's* run — same parameters, but a
+build 17 commits older, and determinism is same-build only, so the two were
+not entitled to be quoted together. Re-run with the population block captured:
+
+```
+population: 2477 organisms -- 154 established, 2323 seeds or seedlings;
+            11314 seeds set in total
+generations [gen 0: 14, gen 1: 496, gen 2: 939, gen 3: 699,
+             gen 4: 204, gen 5: 120, gen 6: 5]
+established plants carrying an inherited genome: 140 of 154 (deepest
+            generation 5)
+real 4m1.886s
+```
+
+**Deepest established generation 5, 91% of established plants carrying an
+inherited genome, in 4 minutes 2 seconds** — on a *busier* machine than the
+first run, which took 4 min 17 s. Two runs, ±3% on the clock, and the biology
+matches the earlier report's seed 1 (10,926 seeds, 110 of 125 established,
+deepest 5) closely enough that the 5–7 range across its three seeds still
+stands. About **1.2 generations per minute**, unoptimised and unstripped.
 
 **And the grow light raises it.** `live` against `lab` over 6,000 identical
 frames:
