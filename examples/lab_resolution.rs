@@ -108,15 +108,20 @@ fn spec_from_args() -> LabBox {
         lamp_spacing: arg("lamps").unwrap_or(width / 4),
         species: arg("species").unwrap_or_else(|| "herb".to_string()),
         seed: arg("seed").unwrap_or(1),
-        // **Every field is listed on purpose, and that has a maintenance cost
-        // worth knowing about**: `LabBox` belongs to `src/lab/scene.rs` and
-        // grows a field whenever the lab's interface does, at which point this
-        // example stops compiling and takes `cargo build --examples`, `clippy
-        // --all-targets` and CI down with it -- which is exactly what
-        // `lamp_spacing` did when it landed with the grow-light work. The list
-        // stays exhaustive anyway, because the two fields above are
-        // deliberately *derived* rather than inherited and a `..default()`
-        // would quietly stop new ones getting that decision.
+        // **Exhaustive on purpose -- no `..LabBox::default()`.** Two lanes
+        // repaired the same red build here at once, one by adding
+        // `lamp_spacing` and one by adding a struct update, and together they
+        // tripped `needless_update`. The exhaustive form is the one to keep,
+        // and the house precedent is `WorldgenParams::scaled`, which
+        // destructures every field with no `..` for exactly this reason: a
+        // function whose job is to *scale a scene* must classify each new
+        // field as scaled or held, and a struct update answers that question
+        // silently and usually wrongly. `lamp_spacing` is the proof -- the
+        // shipped literal 128 inherited into a 2048-wide box lights it four
+        // times as densely, and the resolution ladder would have been
+        // measuring the lamps. So a new `LabBox` field should break this
+        // build; that is the compiler asking a question only a person can
+        // answer.
     }
 }
 
