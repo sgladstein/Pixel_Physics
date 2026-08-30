@@ -770,6 +770,24 @@ drift that two of these documents still reflect.**
   the world — so the collapse is upstream of both the pricing and the
   palette, and the blind A/B `creature-appearance-design.md` §6 asks for is
   held until it is understood. Prices the arms that report measured.
+- [creature-chain-head-loss-2026-08-30.md](creature-chain-head-loss-2026-08-30.md)
+  — **diagnosis, 2026-08-30. Closes `open-bugs-handoff.md` §R3, and the
+  answer is neither of the two effects that entry named.** The colony above
+  two cells never dies: `built - deaths = registry` exactly in every arm, so
+  nothing was ever unaccounted for. A `Chain(n >= 3)` loses its
+  `CellType::Head` marking — `body_after_step` can put one position in the
+  next body twice when a head steps into its own tail, and `relocate_chain`
+  writes a trailing Segment over the Head — so every instrument that finds
+  an ant by looking for a head reports an empty world over a living,
+  feeding, delivering population. **Cannibalism is ruled out with both
+  controls**: `kinfood=off` is byte-identical to shipped, while
+  `eatskin=on` moves `meat_lost` 0 -> 40,320, so the null is a real one and
+  not a blind instrument. The `food in reach: ant 480` dump §R3 rests on
+  never applied the kin gate, and three of its four entries are the
+  animal's own tail. Placement is real but is the harness on the slab (a
+  two-cell founder pitch: 28 bodies at `pitch=2`, **46** at `pitch=4`).
+  **The extent lever is recoverable.** No fix attempted — `creature.rs` was
+  another lane's.
 - [creature-stamp-routes-2026-08-30.md](creature-stamp-routes-2026-08-30.md) —
   **priced, nothing built; a decision document.** The three routes past the
   960-point body stamp, each with a number against it, over 12 pre-registered
