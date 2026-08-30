@@ -921,7 +921,13 @@ drift that two of these documents still reflect.**
   contains one, because worldgen sows `creeper`/`shrub`/`conifer`/`tree` and
   the only fruiting species, `herb` and `scrambler`, **are never planted** —
   which answers the experiment economics §7 calls its cheapest. Route 2 is
-  reported as **unpriced**, with the reason.
+  reported as **unpriced**, with the reason. **Corrected 2026-08-30 by
+  `evolution-lab-gate-1-2026-08-30.md` §4.3: the recommendation does not work
+  as written** — in a box that does flower and fruit the matched gut takes the
+  margin to **+500 and still gives zero births**, because the flower stands 22
+  to 40 rows up a stem and `windfall` never exceeds 1. A *reach* problem, which
+  is the failure case §5 names; the margin model holds, and what it does not
+  contain is whether the mouthful can be got at.
 - [creature-direction.md](creature-direction.md) — **direction agreed
   (2026-08-17).** Cell-chain ants, the caged brain, the heritable genome;
   decision record plus implementation plan.
