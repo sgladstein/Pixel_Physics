@@ -125,7 +125,7 @@ something that cost effort to find.
 
 ```
 cargo test                                       # unit + integration. The --skip this line carried until 2026-08-26 is vestigial: bug A's test is #[ignore]d, so it does not run. Measured: `cargo test --lib` with no flag gives 943 passed / 0 failed / 54 ignored
-cargo clippy --all-targets -- -D warnings        # CI gates this -- but CI pins 1.98 (ci.yml) and a container may ship an older rustc, in which case a local green proves nothing about lints newer than yours. Check `cargo clippy --version` before believing it
+cargo clippy --all-targets --release --locked -- -D warnings   # exactly what CI runs. `rust-toolchain.toml` pins 1.98 so this needs no `+1.98.0`
 cargo run --release --example ascii              # headless behaviour + worst-frame timing; CI runs it
 cargo run --release --example filmstrip -- scene=fall zoom=2 crop=0,140,256,110
 python3 scripts/review.py serve --open      # the owner's review queue; see below
@@ -1374,27 +1374,20 @@ consider it at all.
   shared checkout is the cause. Force-push, rebase, amend and `reset --hard`
   are on `ask` rather than `deny`: those are forbidden *on someone else's
   branch* and fine on your own, and a conditional rule can only be asked.
-- **A green local `cargo clippy` is not evidence that CI's clippy is green.**
-  Measured 2026-08-29: the container ships **1.94.1** and CI runs **1.98.0**,
-  and a lint's heuristic can widen between them. `clippy::explicit_counter_loop`
-  accepted a `for _ in 0..N` with a counter incremented in the body on 1.94.1
-  and rejected the identical code on 1.98.0 -- so the gate that is supposed to
-  catch this locally passed, and the failure arrived as a red PR instead. The
-  fix is one command and needs no toolchain switch:
-  `rustup toolchain install 1.98.0 --component clippy --profile minimal`, then
-  `cargo +1.98.0 clippy --all-targets -- -D warnings`. It leaves the default
-  toolchain alone, so nothing else in the tree changes. `rustup check` prints
-  the two versions if you want to know whether they have drifted at all.
-  **Run it before every push, not when the diff looks lint-prone** -- this
-  bullet said "worth reaching for before pushing anything that adds a loop,
-  an iterator chain or a `match`", and that scoping is what failed. Measured
-  2026-08-29 on one branch: **three separate red CI clippy runs**, and only
-  one of the three was a loop, a chain or a `match`. The others were
-  `needless_borrows_for_generic_args` on a `&format!(..)` argument and
-  `manual_is_multiple_of` on `(n / 240) % 2 == 0` -- neither of which reads
-  as lint-prone while you are writing it, which is the whole point. A
-  conditional check is one you talk yourself out of; the command is 40
-  seconds against a CI cycle each time.
+- **A green local `cargo clippy` was not evidence that CI's clippy is green,
+  and `rust-toolchain.toml` now makes it one.** The container shipped
+  **1.94.1** while CI ran **1.98.0**, and a lint's heuristic can widen between
+  them: `explicit_counter_loop` accepted a counter incremented in a
+  `for _ in 0..N` body on 1.94.1 and rejected the identical code on 1.98.0.
+  Measured 2026-08-29, three red CI clippy runs on one branch; two more on
+  2026-08-30 (`unused_imports`, `assign_op_pattern`), and **only one of the
+  five was a loop, a chain or a `match`** -- which is why the old advice here,
+  "reach for `cargo +1.98.0` before pushing anything lint-prone", failed: it
+  is a judgement you talk yourself out of. The pin is the command instead, so
+  plain `cargo clippy` is now the right one. Kept as a gotcha rather than
+  deleted because **the class survives the fix**: any tool whose local
+  version can drift from CI's has this shape, and `rustup check` prints the
+  two if you suspect it.
 - **`cargo fmt` is all-or-nothing.** `cargo fmt -- some/file.rs` formats the
   whole project, not that file — 28 files and ~3,000 lines in one go. The
   full-format pass is deliberately deferred work (`PLAN.md` issue #10) and
