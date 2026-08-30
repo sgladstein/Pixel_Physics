@@ -1,0 +1,60 @@
+{
+  "id": "20260830T014759506Z-618977",
+  "created": "2026-08-30T01:47:59Z",
+  "board": "creatures",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/creature-lane-c-larder-census",
+    "commit": "5628f9f",
+    "agent": null,
+    "session_id": "05dcf696-88bb-52d5-8241-78e1ff8f4ad9",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "One of these nests has taken 1,449 food deliveries. Which?",
+  "question": "Which nest belongs to a colony that has been carrying food home for 15,000 frames?",
+  "context_md": "Pre-flight for `store_in_body`, the granary-vs-replete gene (`creature-reproduction-economics.md` §5.3). A delivery writes the carried cell into the world beside the nest, and the claim under test is that this leaves a **standing larder** a birth could be paid from.\n\nOne of these worlds ran a 52-ant colony for 15,000 frames; the other never had a colony on it. Same seed, same terrain, same frame, daylight pinned so neither is at night. The ants themselves are visible in one of them - **please judge the ground, not the animals**: is there a pile of food on either nest?\n\nIf the two grounds read the same, that is the answer I am after and it is the more useful one.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "colony, 15,000 frames",
+      "files": [
+        "20260830T014759506Z-618977/000-larder_pair_0.png"
+      ],
+      "caption": "52 ants, 1,449 deliveries made to this nest",
+      "meta": {
+        "deliveries": 1449,
+        "larder cells within 2 of nest": 10,
+        "larder cells within 8": 18,
+        "digestible energy in larder": 1200,
+        "one birth costs": 1860,
+        "free food cells world-wide": 355
+      },
+      "focus": null
+    },
+    {
+      "label": "no colony",
+      "files": [
+        "20260830T014759506Z-618977/001-larder_pair_1.png"
+      ],
+      "caption": "same world, no ants ever placed",
+      "meta": {
+        "deliveries": 0,
+        "larder cells within 2 of nest": 1,
+        "larder cells within 8": 6,
+        "digestible energy in larder": 120,
+        "one birth costs": 1860,
+        "free food cells world-wide": 149
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
