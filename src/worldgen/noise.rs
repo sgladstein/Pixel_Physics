@@ -265,6 +265,16 @@ pub enum Purpose {
     /// first rendering of it and reads as a different world rather than as a
     /// bed you can follow.
     RockMarker = 38,
+    /// **Whether a column's fractional talus deposit realises as one more
+    /// cell of gravel**, in `soil_blanket`'s recolouring.
+    ///
+    /// Its own stream rather than sharing `Dither`, which decides the
+    /// soil/stone contact at the same column: sharing would tie whether a
+    /// column shows scree to how deep its contact happens to break, so scree
+    /// would appear exactly where the contact is shallowest. That is the
+    /// correlation every purpose tag here exists to prevent, and `Palette`'s
+    /// own note records the same argument against the same stream.
+    Talus = 39,
 }
 
 /// SplitMix64-style finalizer over `(seed, purpose, x, y)`.

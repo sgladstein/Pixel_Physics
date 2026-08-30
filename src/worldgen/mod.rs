@@ -132,6 +132,36 @@ const PASSES: &[Pass] = &[
     //          runs out at a slope of about a half
     Pass { name: "brows", margin: passes::BROWS_MARGIN, weight: 1, run: passes::brows },
     Pass { name: "talus", margin: passes::TALUS_MARGIN, weight: 1, run: passes::talus },
+    // **`vaults` runs *after* `pockets`, and a reordering that fixes a real
+    // defect was built, measured and withdrawn here.** Recorded because the
+    // next reader will have the same idea.
+    //
+    // The defect is real: a cave is carved out of stone and `erode_breaches`
+    // retracts its void away from anything in the envelope that is not intact
+    // rock, so a single sand lens `pockets` had already buried ate a whole
+    // cave system -- `Reports/pass-interference-2026-08.md`'s first row, and
+    // the reason `without pockets: vaults +112%` was ever measurable. Running
+    // `vaults` first fixes it with no new rule at all, because `pockets`'
+    // own collect-verify-write seal already demands intact rock at the lens
+    // *and* its rind and simply declines. Measured over 6 seeds at the
+    // shipped size: `vaults` +11.5% on `arid`, +6.3% on `canyon`, and the
+    // `without pockets: vaults` row drops below the matrix's reporting floor
+    // on every preset.
+    //
+    // It was withdrawn because it makes a **latent, unrelated** defect fire:
+    // `vault_density` places each system at an independent column with an
+    // independent waterline, and nothing stops two envelopes overlapping. Two
+    // pools at different levels touching is a head difference, which is
+    // exactly what `every_pool_has_a_level_surface` exists to catch for
+    // ponds. Reordering does not create that -- it re-rolls which seeds hit
+    // it, and `a_forced_vault_world_is_sealed_and_arrives_at_rest` (four
+    // systems crammed into a 2048-column world) then reports one water cell
+    // in motion on `canyon` seed 1. Isolated exactly: with this row moved
+    // back, the same binary and the same test pass.
+    //
+    // So the reorder belongs with whoever fixes overlapping systems, which is
+    // the cave rebuild. `Reports/worldgen-drains-2026-08-29.md` §3 and
+    // `Reports/dead-ends.md` carry the numbers and the re-test condition.
     Pass { name: "pockets", margin: 0, weight: 6, run: passes::pockets },
     // Residual landforms -- tors, stacks, pinnacles authored directly
     // (`residual.rs`; B1 measured plan-space erosion never offers one to
@@ -154,23 +184,23 @@ const PASSES: &[Pass] = &[
     // the marker itself is plan-space data already computed for the whole
     // world rather than something this pass has to look sideways for.
     Pass { name: "boulders", margin: 0, weight: 1, run: passes::boulders },
-    // Finite, and **now derived in the source rather than restated here**: a
-    // cave system is placed at a column and reaches at most
+    // The margin is finite and **derived in the source rather than restated
+    // here**: a cave system is placed at a column and reaches at most
     // `MAX_CAVE_HALF_W` either side of it, plus `VAULT_RIND` of stone that
     // must be checked. An understated margin is a promise to produce
     // different cells at a chunk edge.
     //
-    // **Was 96, derived from a fixed 90-cell half-width.** Round 6's A2
-    // made the envelope a per-system draw reaching `MAX_CAVE_HALF_W` = 200,
-    // so the true reach became 202 and this number was silently wrong --
-    // silently because nothing checks it at runtime: `pass_summary()`'s only
-    // consumer looks at the GLOBAL list, not at the numbers. It was then
-    // written as the literal 224, which is the same trap set again: the
-    // number was right on the day and had no way to stay right. Writing the
-    // *expression* is what removes the class, and
-    // `a_cave_cannot_reach_past_its_declared_margin` in `tests/worldgen.rs`
-    // still asserts it against the constants so a future reach that the
-    // expression fails to capture fails the test instead of the world.
+    // **Was 96, derived from a fixed 90-cell half-width.** Round 6's A2 made
+    // the envelope a per-system draw reaching `MAX_CAVE_HALF_W` = 200, so the
+    // true reach became 202 and this number was silently wrong -- silently
+    // because nothing checks it at runtime: `pass_summary()`'s only consumer
+    // looks at the GLOBAL list, not at the numbers. It was then written as
+    // the literal 224, which is the same trap set again: the number was right
+    // on the day and had no way to stay right. Writing the *expression* is
+    // what removes the class, and `a_cave_cannot_reach_past_its_declared_
+    // margin` in `tests/worldgen.rs` still asserts it against the constants
+    // so a future reach that the expression fails to capture fails the test
+    // instead of the world.
     Pass { name: "vaults", margin: passes::VAULTS_MARGIN, weight: 1, run: passes::vaults },
     // The two water passes read the whole world: where water stands depends
     // on the lowest rim enclosing a hollow, which can be any distance away.
@@ -261,6 +291,35 @@ pub struct Ctx<'a> {
     /// those) `boulders` actually seated, out of however many markers
     /// `erosion::Deposits::boulder` proposed.
     pub boulders_seated: std::cell::Cell<usize>,
+    /// Why the markers that did *not* seat were refused.
+    pub boulder_rejects: BoulderRejects,
+}
+
+/// Why a boulder marker run was refused, split by cause.
+///
+/// **`boulders_seated` alone cannot answer the question that matters here.**
+/// The pass reported `0` cells on every preset for nine days
+/// (`Reports/pass-interference-2026-08.md` R4-1) and the counter said only
+/// that: zero is the same output whether erosion proposed nothing, whether
+/// the massif was in the way, or whether an earlier pass had already taken
+/// the air the dome needed. `CLAUDE.md`'s rule for a counter — pair "it
+/// fired" with an effect counter from the far side of the call — applied to
+/// a pass whose whole failure mode is *not* firing.
+///
+/// `taken` is the interference term and the one to read: material standing
+/// **above the planned ground** at a boulder column was put there by another
+/// realise pass, because nothing in the plan puts anything there. It is the
+/// positive control for the R4-1 fix, and it must go to zero.
+#[derive(Default)]
+pub struct BoulderRejects {
+    /// Another pass had already written into the air above the planned
+    /// ground. `brows` is the one that does this (R4-1).
+    pub taken: std::cell::Cell<usize>,
+    /// Intact rock or bedrock reached where the dome wanted to rise: the
+    /// ordinary "no room here" refusal, and not a defect.
+    pub buried: std::cell::Cell<usize>,
+    /// Off the world, or the socket walk hit `MAX_SOCKET_DEPTH`.
+    pub edge: std::cell::Cell<usize>,
 }
 
 impl<'a> Ctx<'a> {
@@ -312,6 +371,7 @@ impl<'a> Ctx<'a> {
             rock_cells: std::array::from_fn(|_| std::cell::Cell::new(0)),
             weathered_cells: std::cell::Cell::new(0),
             boulders_seated: std::cell::Cell::new(0),
+            boulder_rejects: BoulderRejects::default(),
         }
     }
 }
@@ -451,13 +511,17 @@ fn generate_reported_with(
             if ctx.deposits.iterations > 0 {
                 println!(
                     "  erosion detail: moved {:.1} exported {:.1} talus {:.1} sediment {:.1} \
-                     boulder-markers {} boulders-seated {} talus-recoloured {} | {:.1}ms",
+                     boulder-markers {} boulders-seated {} (refused: {} air already taken, \
+                     {} buried, {} at an edge) talus-recoloured {} | {:.1}ms",
                     ctx.deposits.volume_moved,
                     ctx.deposits.exported,
                     ctx.deposits.talus.iter().sum::<f32>(),
                     ctx.deposits.sediment.iter().sum::<f32>(),
                     ctx.deposits.boulder.iter().filter(|&&b| b).count(),
                     ctx.boulders_seated.get(),
+                    ctx.boulder_rejects.taken.get(),
+                    ctx.boulder_rejects.buried.get(),
+                    ctx.boulder_rejects.edge.get(),
                     ctx.talus_recolored.get(),
                     ctx.deposits.wall_time_ms,
                 );

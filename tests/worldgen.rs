@@ -1596,7 +1596,26 @@ fn erosion_talus_draws_as_buried_gravel_at_the_top_of_the_cover() {
             if talus < 1.0 {
                 continue;
             }
-            let talus_cells = (talus.round() as i32).min(plan.soil_depth);
+            // **The realise side's own rule, recomputed, not an approximation
+            // of it.** This read `round(talus)` while `soil_blanket` floored
+            // at `>= 1.0`, which agreed closely enough to pass -- and stopped
+            // agreeing on 2026-08-30 when the recolouring began rounding
+            // stochastically so that a talus deposit spread thinner than one
+            // cell per column stops being discarded
+            // (`Reports/worldgen-drains-2026-08-29.md` §4). `round(1.6)` is 2
+            // and the world may hold 1, so the second cell this inspected was
+            // an ordinary stony-contact gravel in the scree family and the
+            // test reported it as a wrong-family talus cell: **1 of 25**, a
+            // real disagreement about a cell that is not talus at all.
+            //
+            // Recomputing the same draw keeps the guard exact rather than
+            // approximate. It costs a dependency on `Purpose::Talus`, and
+            // that is the right dependency to have: a test that models the
+            // rule loosely is a test that reports the model's error as the
+            // code's.
+            use pixel_physics::worldgen::noise::{self, Purpose};
+            let extra = i32::from(noise::unit(seed, Purpose::Talus, x as i32, 0) < talus.fract());
+            let talus_cells = (talus.floor() as i32 + extra).min(plan.soil_depth);
             let top = plan.surface_y.max(0);
             for depth in 0..talus_cells {
                 let (px, py) = (x as i32, top + depth);
@@ -2135,6 +2154,18 @@ fn a_forced_vault_world_is_sealed_and_arrives_at_rest() {
     // difference is anything else. Inferring which cells are vault cells from
     // *where they are* is the mistake that miscounted twice in round 1's
     // task 4.
+    //
+    // **"Nothing downstream reads a vault" is a premise, not a fact about
+    // the world, and one pass reordering falsifies it.** Moving `pockets`
+    // after `vaults` -- built and withdrawn 2026-08-30, see `mod.rs`'s
+    // `PASSES` -- makes `pockets` read the cave through its own all-rock seal
+    // and decline a lens that overlaps one, so a no-cave control grows lenses
+    // exactly where the cave is and this test fails with *"vault wrote
+    // (x, y), which was not intact rock before"* pointing at a cell `vaults`
+    // never touched. Classifying the diff by direction does not rescue it:
+    // `rolling` seed 1 has a cell that is *both* (gravel in the control, open
+    // cave in the world). Anyone landing that reorder has to switch `pockets`
+    // off in both arms here, and should read this paragraph first.
     let presets = presets();
     let mut checked = 0;
     for preset in ["rolling", "canyon", "wetland"] {
@@ -2198,6 +2229,17 @@ fn a_forced_vault_world_is_sealed_and_arrives_at_rest() {
             // curved bottom, and the chamber may hold standing water, so this
             // is the claim most likely to break if the floor stops being
             // filled flat.
+            //
+            // **It is also the one that caught the withdrawn `pockets`
+            // reorder**, and what it caught is a latent defect of the vault
+            // pass rather than of the reorder: `vault_density: 4.0` places
+            // four systems at independent columns in a 2048-wide world, each
+            // with its **own** waterline, and nothing stops two envelopes
+            // overlapping. Two pools at different levels touching is a head
+            // difference -- exactly what `every_pool_has_a_level_surface`
+            // exists to catch for ponds. Reordering does not create that; it
+            // re-rolls which seeds hit it, and `canyon` seed 1 then reports
+            // one water cell in motion at (1341, 560).
             let mut world = world;
             // **The sky is held still, for the same reason `spring_flow` is
             // zeroed elsewhere in this file: a live process is not a
