@@ -207,6 +207,23 @@ animals *walk* — the ant placed 4 cells away is inside r8 in a tenth of the
 samples. The claim the arm actually supports is `los == range`, which is
 tighter, not looser.
 
+### 2c. The probe drives the same frame order the game does
+
+Checked 2026-08-30, when `src/sim/frame.rs` landed as the single canonical
+copy of the tick sequence. This probe does not call `frame::step` — it drives
+the four phases it needs directly, as `predation_probe` does:
+
+```
+parallel::step  →  step_active_sites  →  step_fields  →  step_pheromones
+```
+
+which is `frame::step`'s relative order for those four. What it omits — rigid
+bodies, the player, particles — cannot act in a scene with no gnome, no
+detached body and no particle. **Worth re-checking whenever `frame.rs`
+changes**, because a probe running a different phase order from the game is
+measuring a world nobody plays, and now that the order has one canonical home
+that check is a two-minute read rather than an archaeology exercise.
+
 ### 2b. The trap that does not apply here, said out loud
 
 `CLAUDE.md` records the coarse-field degeneracy hit **four times on three
