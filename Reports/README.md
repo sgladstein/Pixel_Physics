@@ -862,23 +862,28 @@ drift that two of these documents still reflect.**
   scene plants at 2-cell spacing — the recorded gridlock — so its "`>=32` at
   zero" figure describes that scene rather than a founded colony.
 - [larder-reachability-2026-08-30.md](larder-reachability-2026-08-30.md) —
-  **measured pre-flight, 2026-08-30, on `56b6b97` (this lane merged with
-  `main`); no code changed.** Whether
+  **measured pre-flight, 2026-08-30, on this lane merged with `main` at
+  `99f16a7`, i.e. **including #142's economy**; no code changed.** Whether
   the *granary* end of `creature-reproduction-economics.md` §5.3's
   `store_in_body` gene is a reachable state of the world, which the owner's
   2026-08-30 ruling requires before the gene is written. **It is not**, and
   the blocking fact is in the birth path rather than in the pile:
   `creature::try_bud` charges `state.energy` and there is no second term, so
   a granary of any size funds zero births. The pile is real and small and
-  measured anyway — a median 11 cells within 2 of the nest against 3 with no
-  colony (paired +5, 14 seeds up / 3 down), worth 1.30 `birth_cost`s at peak
-  against a colony-free control's 0.76 — and `mode=turnover` shows it is a
-  **flow**, not a store: 174 entries, 163 exits, and no position occupied at
-  both frame 200 and frame 15,000. Persistence is *not* the blocker (a hand-planted 40-cell pile
+  measured anyway — a median 9 cells within 2 of the nest against 3 with no
+  colony (paired +3, 13 seeds up / 4 down), worth 2.07 `birth_cost`s at peak
+  against a colony-free control's 1.37 — and `mode=turnover` shows it is a
+  **flow**, not a store, categorically: **119 entries, 119 exits and a
+  standing count of 0** at frame 15,000, so everything that ever entered has
+  left. Persistence is *not* the blocker (a hand-planted 40-cell pile
   settles at 22-23 and holds for 18,000 frames on every seed; the litter
-  half rots, the leaf half does not). Records that merging 53 commits of
-  plant and worldgen work moved every figure, and that a line headed
-  "paired, per-seed" was differencing two medians until it was caught. Names the three things that would have to exist, and says
+  half rots, the leaf half does not) — **the colony is the sink**, taking a
+  paired 14 cells off a granary it did not build. Its §8 is the reusable
+  part: the same study run on three trees, where the plant/worldgen merge
+  moved every figure and #142's economy changed two *findings* (the pile now
+  has a consumer from frame 3,000 and is eaten to zero by 15,000). Also
+  records a line headed "paired, per-seed" that was differencing two medians
+  until it was caught. Names the three things that would have to exist, and says
   why writing the gene today would reproduce `light_weight`'s degenerate
   codomain. Its instrument is `examples/larder_probe.rs`, which generalises
   to any "is this concentrated at X or merely present in the world" question.
