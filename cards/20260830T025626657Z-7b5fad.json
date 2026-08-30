@@ -1,0 +1,53 @@
+{
+  "id": "20260830T025626657Z-7b5fad",
+  "created": "2026-08-30T02:56:26Z",
+  "board": "worldgen",
+  "origin": {
+    "worktree": "/home/user/wg-relief",
+    "branch": "claude/worldgen-relief",
+    "commit": "5da8b46",
+    "agent": null,
+    "session_id": "2cb39797-d076-5699-b8bf-4494224deffe",
+    "user": null,
+    "cwd": "/home/user/wg-relief"
+  },
+  "title": "Layers starting deeper: rock that stands proud goes quiet",
+  "question": "Is B what you meant by the layers starting deeper -- or were you asking for something stronger, where the standing rock has no visible bedding in it at all?",
+  "context_md": "*'Also the layers should only start deeper. Anything above the ground level should be more uniform no layers.'* Same seed, same ground, same palette -- the only change is which cells draw their bedding.\n\n**'Above the ground level' had two readings and I built the one that moves the picture.** Measured against the local column's own surface it changes **209 pixels of 491,520** -- 0.04%, nothing, because the top of a mesa is that column's surface. Measured against the **base level** -- the lowest ground within half a screen either side -- it moves **19.4%** of the frame: anything standing above the surrounding country goes quiet, and the bedding emerges as you look down into the cut.\n\nIt fades in over about forty cells rather than switching at a depth, so there is no ruled horizontal line across the faces.\n\n**The materials are untouched**, as you said they could be -- a bed is still its own rock with its own strength, which is what the new relief is built out of. Only the tone is unified.\n\n**Where I am unsure:** whether this is strong enough, or whether the mesas should have no bedding visible at all until you cut into them.",
+  "kind": "before_after",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A -- bedding everywhere",
+      "files": [
+        "20260830T025626657Z-7b5fad/000-canyon_pal.png"
+      ],
+      "caption": "canyon, seed 4",
+      "meta": {
+        "share of the frame the change touches": "0%",
+        "cells the bedding fades over": 0
+      },
+      "focus": null
+    },
+    {
+      "label": "B -- quiet above base level",
+      "files": [
+        "20260830T025626657Z-7b5fad/001-canyon_base.png"
+      ],
+      "caption": "canyon, seed 4",
+      "meta": {
+        "share of the frame the change touches": "19.4%",
+        "cells the bedding fades over": 44,
+        "how far it looks for the surrounding ground (columns)": 220
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
