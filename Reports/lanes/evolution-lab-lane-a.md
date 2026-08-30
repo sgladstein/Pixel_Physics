@@ -60,6 +60,43 @@ control rather than a constant somebody picks once.
 
 ---
 
+## 2026-08-30 — what the box actually achieves, and what the display rate buys
+
+**Wall clock, and therefore the only numbers in this note that move when the
+machine gets loud.** `labdial mode=rate`: a fresh lab bed per configuration
+warmed 6,000 plain ticks (53 organisms), then the real `Lab` frame loop driven
+for 3 s with the draw gate and the idle sleep in place. Taken twice on purpose,
+because three other agents were building on this box.
+
+| display rate | loud box (load 16) | quiet box (load 5) |
+|---|---|---|
+| 60 Hz | 1.7–2.0x | 3.4–4.0x |
+| 30 Hz | 3.2–3.7x | 4.8–5.3x |
+| 20 Hz | 4.5–5.0x | 5.2–5.7x |
+| 10 Hz | 5.3–5.5x | **5.6–6.2x** |
+
+**The display rate is worth most exactly when the machine is worst.** Loud, 60
+Hz → 20 Hz is **2.6x** the world per second; quiet it is **1.4x**. That is the
+render's share of a contended frame, and it means the control earns its keep on
+the machine that needs it.
+
+**Every row asked for 64x, 256x or 1024x and every row got the same answer**,
+which is the honest reading: this bed's throughput is ~350 ticks a second and
+the dial is entirely machine-limited above about 6x. On a box that is not
+shared four ways it will be far higher, and the readout will say so without
+anyone re-deriving anything. `orgs 53` in every row — population is the
+performance budget, exactly as §2 of the guide says.
+
+**One thing to watch, from the cross-check built into the harness.** `mode=rate`
+prints the readout's own `achieved` beside a count the harness took
+independently. They agree closely at 60 Hz (3.9 against 4.0) and the readout
+runs **10–25% low at 10 Hz** (4.6 against 6.0). It is a lag rather than a
+disagreement — the readout is the last completed 500 ms window and a 10 Hz
+window holds only about five passes — but if the gap ever widens or flips sign,
+that is the dial starting to lie and the two columns are there to catch it.
+
+---
+
 ## → coordinator: three changes I need in files I do not own
 
 `src/lab/time.rs` is written so that **a caller which ignores all of this

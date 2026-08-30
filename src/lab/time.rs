@@ -433,7 +433,11 @@ impl TimeControl {
             white,
         ));
         lines.push((format!("SIM {} PER REAL SECOND", sim_per_second(self.achieved)), grey));
-        lines.push((format!("{} TICKS PER FRAME", self.ticks_per_frame()), grey));
+        let n = self.ticks_per_frame();
+        // Singular at one, because Tending at a display rate the box can meet
+        // sits there permanently and "1 TICKS PER FRAME" is the line the
+        // player reads most.
+        lines.push((format!("{n} TICK{} PER FRAME", if n == 1 { "" } else { "S" }), grey));
         // The crossover, named on screen rather than left to be inferred.
         lines.push(if self.reads_as_motion() {
             (format!("MOTION - UP TO {MOTION_TICKS_PER_FRAME} PER FRAME"), [140, 210, 140, 255])
@@ -886,7 +890,8 @@ mod tests {
                 // Rates that reach every arm of `sim_per_second`.
                 for rate in [0.0f32, 0.4, 1.0, 41.2, 99.0, 100.0, 3599.0, 3600.0, 61234.0] {
                     t.achieved = rate;
-                    for ticks in [0u32, MOTION_TICKS_PER_FRAME, MOTION_TICKS_PER_FRAME + 1, 4096] {
+                    for ticks in [0u32, 1, MOTION_TICKS_PER_FRAME, MOTION_TICKS_PER_FRAME + 1, 4096]
+                    {
                         t.shown_ticks = ticks;
                         for (line, _) in t.readout(1_234_567) {
                             for c in line.chars() {
