@@ -1,0 +1,84 @@
+{
+  "id": "20260830T041716786Z-210d64",
+  "created": "2026-08-30T04:17:16Z",
+  "board": "gnome",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/gnome-water-splash-effects-exl4go",
+    "commit": "b828294",
+    "agent": null,
+    "session_id": "2741f63b-b6da-5267-b059-8b5079de3dda",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Swimming along the surface",
+  "question": "Does the trail behind him read as churned water, or as a dark smear that looks like dirt?",
+  "context_md": "Crossing a pool at the waterline. **A** is today — a razor-straight line he slides through like it is not there. **B** shoves whole cells of water out from under him onto his flanks, so a trough opens behind him and the sweep chases it back; each stroke also flicks spray.\n\n**The thing I want judged is the colour of the trail.** `Material::fill_dimming` draws a part-full liquid cell dark, so the water still settling behind him is navy against the blue. That is the engine's own way of drawing shallow water and it may read as agitation — or it may just look like he is dragging mud. If it is the second, the fix is to lift fuller cells and fewer of them.\n\nNothing is lost: he shoved 228 cells of water aside over this stretch and every one is still in the pool. Live knob is `splash_force` in the PLAYER panel; 0 gives you A.",
+  "kind": "frames",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A — today",
+      "files": [
+        "20260830T041716786Z-210d64/000-surf_0_00.png",
+        "20260830T041716786Z-210d64/001-surf_0_01.png",
+        "20260830T041716786Z-210d64/002-surf_0_02.png",
+        "20260830T041716786Z-210d64/003-surf_0_03.png",
+        "20260830T041716786Z-210d64/004-surf_0_04.png",
+        "20260830T041716786Z-210d64/005-surf_0_05.png",
+        "20260830T041716786Z-210d64/006-surf_0_06.png",
+        "20260830T041716786Z-210d64/007-surf_0_07.png",
+        "20260830T041716786Z-210d64/008-surf_0_08.png",
+        "20260830T041716786Z-210d64/009-surf_0_09.png",
+        "20260830T041716786Z-210d64/010-surf_0_10.png",
+        "20260830T041716786Z-210d64/011-surf_0_11.png",
+        "20260830T041716786Z-210d64/012-surf_0_12.png",
+        "20260830T041716786Z-210d64/013-surf_0_13.png",
+        "20260830T041716786Z-210d64/014-surf_0_14.png",
+        "20260830T041716786Z-210d64/015-surf_0_15.png"
+      ],
+      "caption": "flat line, no wake",
+      "meta": {
+        "cells of water shoved aside": 0,
+        "strokes that threw spray": 0
+      },
+      "focus": null
+    },
+    {
+      "label": "B — with the wake",
+      "files": [
+        "20260830T041716786Z-210d64/016-surf_1_00.png",
+        "20260830T041716786Z-210d64/017-surf_1_01.png",
+        "20260830T041716786Z-210d64/018-surf_1_02.png",
+        "20260830T041716786Z-210d64/019-surf_1_03.png",
+        "20260830T041716786Z-210d64/020-surf_1_04.png",
+        "20260830T041716786Z-210d64/021-surf_1_05.png",
+        "20260830T041716786Z-210d64/022-surf_1_06.png",
+        "20260830T041716786Z-210d64/023-surf_1_07.png",
+        "20260830T041716786Z-210d64/024-surf_1_08.png",
+        "20260830T041716786Z-210d64/025-surf_1_09.png",
+        "20260830T041716786Z-210d64/026-surf_1_10.png",
+        "20260830T041716786Z-210d64/027-surf_1_11.png",
+        "20260830T041716786Z-210d64/028-surf_1_12.png",
+        "20260830T041716786Z-210d64/029-surf_1_13.png",
+        "20260830T041716786Z-210d64/030-surf_1_14.png",
+        "20260830T041716786Z-210d64/031-surf_1_15.png"
+      ],
+      "caption": "trough behind, heap on the flanks, spray on each stroke",
+      "meta": {
+        "cells of water shoved aside": 228,
+        "strokes that threw spray": 7,
+        "times his head broke the surface": 4,
+        "water lost from the world": "none"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
