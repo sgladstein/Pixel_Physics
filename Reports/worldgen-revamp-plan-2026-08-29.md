@@ -294,15 +294,40 @@ fits on one screen; at 7x it is two screens wide and two deep, and stone's
 measurable today with `support_census`, and it should be measured before the
 room size is chosen, not after.
 
-**W4 — Put living things in it.** Germinate at genesis instead of sowing seeds
-that need thousands of frames. Today the entire flora of an 8192-column world
-is **343 one-cell seeds**, and no `wood`, `leaf` or `grassblade` cell exists in
-any world at settle. This is not only the cheapest large item — Lane D
-measured that growing a world forward to frame 29,400 takes boundary density
-from **4.7% to 15.6%**, so **content is a prerequisite for anything that
-shades or outlines the world**, not merely a decoration. Must be done together
-with plant draw-width (`subpixel-rendering-2026-08-29.md` §1) or it multiplies
-something that already looks wrong.
+**W4 — A world you can watch green up.** Owner ruling, 2026-08-30, and it
+**reverses this plan's first answer**: *"I want to watch the plants grow so the
+world starts at germination or seeding."* The plan had said germinate at
+genesis. It does not: the world starts sown, and **growing up is something the
+player sees happen.**
+
+That is a harder brief than pre-growing, and a better one, but it must not be
+read as "leave it as it is" — the measured problem is unchanged. The entire
+flora of an 8192-column world is **343 one-cell seeds**, one per 24 columns,
+each a single cell; **no `wood`, `leaf` or `grassblade` cell exists in any
+world at settle**, because five of six species need thousands of frames; and
+Lane D had to run to frame **29,400** to get *two trees* into one view. A world
+that starts sown and stays visually empty for eight minutes is not a world you
+can watch grow — it is the barren world with a longer wait in front of it.
+
+So the workstream is **the rate and the density, not the starting state**:
+
+- **Sowing density** — one seed per 24 columns cannot read as a landscape
+  becoming green, however long you wait.
+- **Germination and growth rate** — fast enough that change is visible over
+  minutes. This is the number that decides whether the brief is met.
+- **Spread.** The owner has asked for this twice before and it is still on the
+  list: *"patches of grass should spread over time and completely fill up an
+  area without trees and the correct environment"*. Watching the world green
+  up **is** spread; without it there is nothing to watch but individual plants
+  getting taller.
+- **Draw width**, together with the above (`subpixel-rendering-2026-08-29.md`
+  §1) — plants are drawn one cell wide, and sowing more of them multiplies
+  whatever a plant currently looks like.
+
+The success test is not a census, it is a **time-lapse**: from a fresh world,
+does the ground visibly green over a span someone would sit through? Judge it
+as a frame sequence, not a still — this is a *motion* question and a contact
+sheet cannot answer it.
 
 **W5 — Stop throwing away what is already computed.** The §3.4 losses, the
 `brows`→`boulders` pass-order defect, and the three other live eaters. Cheap,
