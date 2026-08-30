@@ -91,6 +91,19 @@ struct Formations {
     /// flattered it: it recorded the width the draw intended, not the width
     /// that reached the world.
     widths: Vec<i32>,
+    /// **Mean width -- body cells divided by height -- as a hundredth, so the
+    /// integer `stat` printer can carry it.** `widths` above is the *widest
+    /// single row*, and that is not the quantity the owner's *"they are all 1
+    /// pixel thick"* is about: a trunk one cell wide for ninety rows with a
+    /// twelve-cell foot in one row scores a base width of 12 and reads as a
+    /// wire. The eye integrates over the whole silhouette, so the ruler has
+    /// to as well.
+    ///
+    /// The failure is CLAUDE.md's *ask what your number counts when nothing
+    /// is wrong*, in its widest-row costume: `base width` is arithmetically
+    /// correct and cannot distinguish a cone from a wire with a lump on the
+    /// end, which is precisely the pair the complaint separates.
+    mean_widths: Vec<i32>,
     /// Bodies attached at both ceiling and floor -- true columns. Legal
     /// since Phase 0 made formations walk-through, so this is a feature
     /// count, not a defect count.
@@ -241,6 +254,63 @@ fn main() {
         if !forms.heights.is_empty() {
             stat("  formation height   ", forms.heights.clone());
             stat("  formation base width", forms.widths.clone());
+            // Printed next to the base width on purpose: the gap between the
+            // two *is* the finding. A cone has a mean width near half its
+            // base; a wire with a foot has a mean width near 100 (one cell)
+            // whatever its base says.
+            stat("  formation mean width x100", forms.mean_widths.clone());
+            let wires = forms.mean_widths.iter().filter(|&&m| m < 200).count();
+            println!(
+                "  wire-thin formations (mean width < 2 cells): {} of {} ({:.0}%)",
+                wires,
+                forms.mean_widths.len(),
+                100.0 * wires as f32 / forms.mean_widths.len().max(1) as f32
+            );
+            // **Split by height, because the aggregate hides the complaint.**
+            // A quarter of formations being hairlines is survivable if they
+            // are the small ones; it is the whole complaint if they are the
+            // tall ones, which are what a silhouette is made of. The two
+            // medians are printed side by side so the reader can see which
+            // case this is without taking it on trust.
+            let med_of = |mut v: Vec<i32>| {
+                if v.is_empty() {
+                    return -1;
+                }
+                v.sort_unstable();
+                v[v.len() / 2]
+            };
+            let (mut tall_w, mut short_w) = (Vec::new(), Vec::new());
+            let h_med = med_of(forms.heights.clone());
+            for (h, m) in forms.heights.iter().zip(forms.mean_widths.iter()) {
+                if *h > h_med { tall_w.push(*m) } else { short_w.push(*m) }
+            }
+            println!(
+                "  mean width x100 by height: taller-than-median {} (n={}), rest {} (n={})",
+                med_of(tall_w.clone()),
+                tall_w.len(),
+                med_of(short_w.clone()),
+                short_w.len()
+            );
+            // **Tall *and* thin, counted on its own**, because neither of the
+            // two lines above finds it. 25% hairlines is survivable if they
+            // are the soda-straw fringe; the taller half being wider on
+            // average says they mostly are. What ruins a photograph is the
+            // formation that crosses the whole frame at one cell -- more than
+            // three gnome-heights of hairline -- and that is a tail, so only
+            // a count of the tail can see it. Median and mean both hide it by
+            // construction.
+            let eyesores = forms
+                .heights
+                .iter()
+                .zip(forms.mean_widths.iter())
+                .filter(|(h, m)| **h >= 42 && **m < 200)
+                .count();
+            let tall = forms.heights.iter().filter(|&&h| h >= 42).count();
+            println!(
+                "  hairlines over 3 gnome-heights tall: {eyesores} \
+                 ({:.0}% of the {tall} formations that tall)",
+                100.0 * eyesores as f32 / tall.max(1) as f32
+            );
             println!("  true columns (floor to ceiling): {}", forms.columns);
         }
         println!(
@@ -588,6 +658,7 @@ fn measure_formations(world: &World, cells: &[(i32, i32)], forms: &mut Formation
             forms.cells += body.len();
             forms.heights.push(bot - top + 1);
             forms.widths.push(base_width);
+            forms.mean_widths.push((100 * body.len() as i32) / (bot - top + 1).max(1));
             if body.iter().any(|&(cx, cy)| Some(world.get(cx, cy).material) == spar) {
                 forms.crystal += 1;
             }

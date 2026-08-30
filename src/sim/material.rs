@@ -945,6 +945,29 @@ pub struct MaterialDef {
     /// everything is a rule nobody can attribute a regression to.
     #[serde(default = "default_rigid")]
     pub stiffness: f32,
+    /// **How much bending stress this tissue takes before it snaps** — the
+    /// strength of `Reports/tree-mechanics-plan-2026-08-29.md` §4, and the
+    /// sibling of `stiffness` above.
+    ///
+    /// The two read the *same* `plant::stress_field` and compare it against
+    /// different things, which is the distinction the plan turns on:
+    /// `stiffness` is compared against the **moment** (the torque on a cell)
+    /// and answers *does this lean*; `strength` is compared against the
+    /// **stress** (that torque over the square of the section carrying it)
+    /// and answers *does this let go*. A thick trunk and a twig can share a
+    /// moment and be nowhere near each other in stress, so a break rule
+    /// reading the moment would snap the trunk first every time.
+    ///
+    /// A material may have either, both or neither. Wood has strength and no
+    /// stiffness: it breaks without ever bending, because a bend relieves a
+    /// *horizontal* lever and a trunk's wind load is a vertical one — see
+    /// `assets/materials/leaf.ron`. Grass has the reverse.
+    ///
+    /// Infinite by default, so **every material in the world is unbreakable
+    /// by load until it opts in**, the same shape as `stiffness` and
+    /// `max_cantilever_reach` and for the same reason.
+    #[serde(default = "default_rigid")]
+    pub strength: f32,
     /// What an unsupported cell becomes once it breaks free, or empty to
     /// leave it Solid regardless of `max_unsupported_span` (the same
     /// unset-name-is-a-no-op pattern `melts_into`/`burns_into` use). Loose
@@ -1243,6 +1266,27 @@ pub struct MaterialDef {
     /// stacked, which nothing has asked for.
     #[serde(default = "default_true")]
     pub anchors_organisms: bool,
+
+    /// Whether this is **intact country rock** — the massif the world is cut
+    /// out of, as against soil lying on it, rubble that fell off it, or
+    /// anything a player built.
+    ///
+    /// Stated as data for the same reason `anchors_organisms` above is: the
+    /// generator's cave, vault and pocket passes need to ask *"is this the
+    /// massif"* and, until a rock vocabulary existed, asked
+    /// `material == ctx.stone` — a question with exactly one right answer
+    /// while there was exactly one rock. With six, that test silently means
+    /// "is this specifically the grey one", so a chamber sunk in sandstone
+    /// reads as breached and a cave refuses to erode through a limestone
+    /// bed. Neither failure is visible; both are wrong.
+    ///
+    /// A flag rather than a name lookup, per `CLAUDE.md`'s hot-path rule:
+    /// these tests run per cell over a chamber envelope, and
+    /// `id_of("sandstone")` in that loop is a string hash where a `Vec`
+    /// index will do. `bedrock` is deliberately **not** rock — it is the
+    /// world floor, and nothing may carve it.
+    #[serde(default)]
+    pub rock: bool,
 
     /// The pitch of this material's **joint fabric**, in world cells — the
     /// characteristic width of the block it comes apart into. `0.0` (the
@@ -1579,8 +1623,12 @@ pub struct Material {
     pub clings_to_wood: bool,
     /// See `MaterialDef::anchors_organisms`.
     pub anchors_organisms: bool,
+    /// See `MaterialDef::rock`.
+    pub rock: bool,
     /// See `MaterialDef::stiffness`.
     pub stiffness: f32,
+    /// See `MaterialDef::strength`.
+    pub strength: f32,
     /// See `MaterialDef::joint_spacing`. `0.0` means not jointed; never
     /// negative, and never small enough to divide the world into slivers.
     pub joint_spacing: f32,
@@ -1926,7 +1974,9 @@ impl From<MaterialDef> for Material {
             woody: def.woody,
             clings_to_wood: def.clings_to_wood,
             anchors_organisms: def.anchors_organisms,
+            rock: def.rock,
             stiffness: def.stiffness,
+            strength: def.strength,
             // Clamped rather than asserted: this is content, and a
             // hand-edited `.ron` must not be able to panic the simulation.
             // A negative or sub-cell pitch is meaningless, so both read as
@@ -2158,6 +2208,22 @@ const EMBEDDED: &[&str] = &[
     // shouldn't turn to powder ever." Addressed by name and through the
     // resolved `Material::severs_into`, never by number.
     include_str!("../../assets/materials/deadleaf.ron"),
+    // **The rock vocabulary**, appended per the rule stated four times
+    // above: never inserted among the others, because the well-known
+    // constants are positions in this array.
+    //
+    // `stone` was the entire geology of the world -- one material, four
+    // colour families, the family a region tint and the tone a bedding
+    // index. These five split the *rock* axis out of that byte and give it
+    // physics: hardness, how coarsely it calves, its joint fabric and how
+    // it weathers. `Reports/rock-vocabulary-design-2026-08-29.md` has the
+    // set and the numbers; `stone.ron` stays the reference rock and the
+    // brush's material, and every one of these is authored relative to it.
+    include_str!("../../assets/materials/mudstone.ron"),
+    include_str!("../../assets/materials/sandstone.ron"),
+    include_str!("../../assets/materials/limestone.ron"),
+    include_str!("../../assets/materials/ironstone.ron"),
+    include_str!("../../assets/materials/basalt.ron"),
 ];
 
 /// Where the loader looks for material files, relative to the working directory.
@@ -2262,7 +2328,9 @@ impl MaterialRegistry {
             clings_to_wood: false,
             severs_into: String::new(),
             anchors_organisms: true,
+            rock: false,
             stiffness: f32::INFINITY,
+            strength: f32::INFINITY,
             joint_spacing: 0.0,
             joint_band_contrast: 0.0,
             support_cost_below: 1,
@@ -2339,7 +2407,9 @@ impl MaterialRegistry {
             clings_to_wood: false,
             severs_into: String::new(),
             anchors_organisms: true,
+            rock: false,
             stiffness: f32::INFINITY,
+            strength: f32::INFINITY,
             joint_spacing: 0.0,
             joint_band_contrast: 0.0,
             support_cost_below: 1,

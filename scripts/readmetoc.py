@@ -85,6 +85,7 @@ TOPICS = {
         "Stems draw a line: the growth walk renders its heading",
         "Felling status — the verb works, and what it produces is pieces",
         "Bending status — soft tissue lies over, and the wind is what pushes it",
+        "Breaking status — a badly grown tree comes down on its own",
     ],
     "creatures — worms and the ant colony": [
         "M18 status",
@@ -94,6 +95,7 @@ TOPICS = {
         "M17 status",
         "Felling status — the verb works, and what it produces is pieces",
         "Bending status — soft tissue lies over, and the wind is what pushes it",
+        "Breaking status — a badly grown tree comes down on its own",
         "M8 status — started, not complete",
     ],
     "fire, heat and phase change": [

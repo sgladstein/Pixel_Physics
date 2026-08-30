@@ -1661,6 +1661,16 @@ pub struct FailureCounts {
     /// which is the mechanism refusing itself.
     pub bends_blocked: u32,
     pub bends_would_tear: u32,
+    /// **Cells that snapped because the load on them beat their strength**,
+    /// as distinct from every other way a plant cell comes apart.
+    ///
+    /// The "did it fire at all" counter for breaking, and it has to be its
+    /// own field: `severed_organism_cells` already counts a limb that lost
+    /// its anchor and a cell that over-reached its span, so a snap folded
+    /// into it is invisible. A crown that came down because the wind broke
+    /// its trunk and one that came down because someone cut it are the same
+    /// picture and a different mechanism.
+    pub snapped_under_load: u32,
     pub settled_lying: u32,
     pub settled_upright: u32,
     pub settled_square: u32,
@@ -1815,6 +1825,11 @@ impl FailureCounts {
         } else {
             self.bends_refused = self.bends_refused.saturating_add(1);
         }
+    }
+
+    /// One cell gave way under load. See `snapped_under_load`.
+    pub fn record_snapped_under_load(&mut self) {
+        self.snapped_under_load = self.snapped_under_load.saturating_add(1);
     }
 
     /// Why the last hinge could not swing. See `bends_blocked`.
@@ -2745,6 +2760,29 @@ impl World {
     /// Called once per *founder*, at the seam a creature appears out of
     /// nothing; a bud copies its parent's instead, which is what makes a
     /// clonal line one label rather than N.
+    /// **Set one organism's production rule.** A harness seam, and
+    /// deliberately narrower than making `organism_mut` public.
+    ///
+    /// It exists for `examples/selection_arena.rs`, which has to stand two
+    /// genomes in **one** bed to ask whether the world discriminates between
+    /// them. The alternative route -- the one `fate_viability` takes, of
+    /// registering each variant as its own species and planting that -- is
+    /// right for a viability gate and wrong here: it would make the two arms
+    /// different *species*, so they would differ in their species table as
+    /// well as in their genome, and `plant::fate_for` consults both.
+    ///
+    /// Returns whether the organism was live. `false` for a stale or
+    /// recycled handle rather than a panic, matching `organism`.
+    pub fn set_organism_fates(&mut self, organism_id: u16, fates: super::organism::FateGenome) -> bool {
+        match self.organism_mut(organism_id) {
+            Some(state) => {
+                state.fates = fates;
+                true
+            }
+            None => false,
+        }
+    }
+
     pub(crate) fn claim_lineage(&mut self) -> u32 {
         let id = self.next_lineage;
         self.next_lineage = self.next_lineage.saturating_add(1);
