@@ -54,7 +54,43 @@ Full write-up: **`Reports/creature-sight-sense-2026-08-30.md`**.
    Overriding a non-wiring field (`sight_range`, `idle_cost_per_cell`) needs
    only `set_creature`. In `dead-ends.md`.
 
+## File ownership — what I edited, and the collision check
+
+The coordinator's split arrived mid-session and names
+`examples/{creature_probe,vision_probe,motion_look,larder_probe,common}` as
+not mine. **I edited neither**, and `vision_probe.rs` was read-only exactly
+as intended — it is the instrument this specification came from.
+
+Beyond `creature.rs`, `brain.rs` and the species files, I touched five files
+the split does not assign: `src/sim/{world,organism,species_export}.rs`
+(a `CreatureStats` append, a `CreatureDef` field, and that field's line in
+the export round-trip — all appends), `examples/predation_probe.rs` and
+`examples/filmstrip.rs`.
+
+**`predation_probe.rs` is where E15's own test lives** — the sizing report
+§7.4 names re-running `mode=ab` as *the* test — so it was the harness to
+extend rather than a new file to write beside it. No other open branch
+touches it.
+
+**Checked rather than assumed**, `git merge-tree --write-tree HEAD
+origin/<branch>` over every open branch that overlaps my files:
+
+| branch | overlaps on | merges |
+|---|---|---|
+| `worldgen-revamp-plan-dot67g` | `src/sim/world.rs` | auto-merges; the only conflict is `README.md`'s generated block |
+| `explosion-effects-menu-isljo5` | `examples/filmstrip.rs` | auto-merges; the only conflict is `open-bugs-handoff.md`'s generated index |
+
+**Both conflicts are in append-only registers and generated blocks; neither
+is in code.** `filmstrip.rs` is the contested file (99 landings), so this
+landed quickly rather than being held.
+
 ## Filed against another lane's area
+
+**§R3 is not a confound here and I am not carrying it** — the coordinator's
+all-clear (a `Chain(n >= 3)` overwrites its own head in `relocate_chain`;
+the colony was never dying) checks out against `main`'s re-titled entry, and
+both animals in my measurements are `Rigid` or `Chain(2)`. Recorded in the
+report's §8 so the next reader does not re-derive it.
 
 **`open-bugs-handoff.md` §R4 — `BrainOutput::Turn` is nearly inert for a
 surface walker on level ground.** Both turning candidates fail on flat

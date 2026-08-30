@@ -295,7 +295,19 @@ line.
   left. The curve was climbing at 64.
 - **Foliage.** Still binary, still not shipped as a blocker, still the
   attenuation the ethos asks for and nobody has priced.
-- **Whether the pursuit weight should be stronger.** §3a.
-- **Whether a beetle population survives long enough for any of this to
-  matter.** `open-bugs-handoff.md` §R3: no creature body above two cells
-  leaves a living colony, and a beetle is 2x2.
+- **Whether the pursuit weight should be stronger** is §3a's question and
+  it is the owner's.
+
+**And one thing this deliberately no longer worries about.** The brief for
+this work flagged `open-bugs-handoff.md` §R3 — *no creature body above two
+cells leaves a living colony* — as a possible confound, since a beetle is
+2x2. It is not one, and the reason is worth carrying rather than re-deriving:
+§R3 was root-caused the same night as *a `Chain(n >= 3)` overwrites its own
+head cell in `relocate_chain`*, because `body_after_step` builds the next
+body as `[head, chain[0], .., chain[n-2]]` and a head stepping into its own
+body's cell puts one position in that list twice. **The colony was never
+dying — a head-cell counter was reading zero over a living population.**
+`beetle.ron` is `body: Rigid(..)` and not a chain at all, and the shipped ant
+is `Chain(2)`, whose two positions are always distinct. Neither animal in any
+measurement here goes near that path, so every population figure above is
+this change's to own.
