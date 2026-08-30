@@ -384,18 +384,37 @@ pub fn layout(state: &BarState) -> Bar {
         width: step_width,
         ..button(">>", "UP", Action::Faster, false, "ONE STOP UP THE SPEED LADDER. ASKING FOR SPEED FROM A STOPPED BOX ALSO STARTS THE RUN.")
     };
-    let asked = format!("ASK {}X", state.requested);
-    let got = format!("GOT {:.1}X", state.achieved.max(0.0));
-    let ratio = state.achieved.max(0.0) / state.requested.max(1) as f32;
+    // **The achieved figure is only shown while it means something.** In
+    // Running it is ticks-per-wall-second over the requested multiple, which
+    // is exactly the honesty mechanism the dial was built around. In Tending
+    // the loop asks for one tick and finishes it in microseconds, so the same
+    // arithmetic reports a large number that says nothing about whether the
+    // window is keeping up -- and printing `GOT 5.5X` beside `ASK 1X` reads as
+    // the box running five times faster than asked. `lab::time`'s own readout
+    // hides it in Tending for this reason; this one does the same rather than
+    // quietly disagreeing with it. Whether the *window* keeps up is the frames
+    // per second on the box page, which is a different measurement.
+    let (line1, line2, ratio) = if state.running {
+        (
+            format!("ASK {}X", state.requested),
+            format!("GOT {:.1}X", state.achieved.max(0.0)),
+            state.achieved.max(0.0) / state.requested.max(1) as f32,
+        )
+    } else {
+        ("TENDING".to_string(), "REAL TIME".to_string(), 1.0)
+    };
     let readout = Spec {
-        width: hud::text_width(&asked).max(hud::text_width(&got)) + PAD * 2 + 2,
-        line1: asked,
-        line2: got,
+        // Sized to the widest thing it can ever say, not to what it says now:
+        // a readout that changes width as the number changes shoves the bar
+        // sideways once a second.
+        width: hud::text_width("GOT 999.9X").max(hud::text_width("REAL TIME")) + PAD * 2 + 2,
+        line1,
+        line2,
         action: None,
         latched: false,
         icon: None,
         ratio: Some(ratio),
-        note: "WHAT THE DIAL WAS ASKED FOR, AGAINST WHAT THE BOX ACTUALLY MANAGED. THE STRIP UNDER THEM IS THE SECOND OVER THE FIRST. A BED THAT HAS GROWN COSTS WHAT IT COSTS, AND THE DIAL IS A REQUEST.",
+        note: "WHAT THE DIAL WAS ASKED FOR, AGAINST WHAT THE BOX ACTUALLY MANAGED, AND THE STRIP IS THE SECOND OVER THE FIRST. A BED THAT HAS GROWN COSTS WHAT IT COSTS AND THE DIAL IS ONLY A REQUEST. IN TENDING THERE IS NOTHING TO REPORT -- TENDING IS REAL TIME BY DEFINITION.",
     };
 
     // Group 2 — the speed ladder, one chip per stop.
@@ -845,6 +864,21 @@ impl Ui {
     pub fn observe(&mut self, world: &World) {
         self.history.observe(world);
     }
+
+    /// Where the button for `action` was drawn last frame.
+    ///
+    /// **Reads the retained layout, never a second copy of the arithmetic.**
+    /// This is the accessor a harness or a test aims a synthetic click with,
+    /// so a test that clicks "where `REBUILD` ought to be" is impossible to
+    /// write: it can only click where `REBUILD` actually is.
+    pub fn widget_rect(&self, action: Action) -> Option<Rect> {
+        self.bar.widgets.iter().find(|wid| wid.action == Some(action)).map(|wid| wid.rect)
+    }
+
+    /// The action under `(x, y)` on the bar as it was last drawn.
+    pub fn hit(&self, x: i32, y: i32) -> Option<Action> {
+        self.bar.hit(x, y)
+    }
 }
 
 // ------------------------------------------------------------ page content
@@ -1040,7 +1074,7 @@ impl Ui {
         vec![
             Row::value("AT", format!("{x},{y}"), FAINT, "THE CELL YOU CLICKED, IN WORLD COORDINATES. CLICK IT AGAIN TO PUT THE INSPECTOR AWAY."),
             Row::value("MATERIAL", material, VALUE, "WHAT IS IN THE CELL RIGHT NOW. RE-READ EVERY FRAME, SO IT CHANGES UNDER YOU WHILE THE BOX RUNS."),
-            Row::value("TEMPERATURE", format!("{}C", cell.temperature()), FAINT, "THE CELL'S OWN TEMPERATURE."),
+            Row::value("TEMPERATURE", format!("{}C", cell.temperature()), FAINT, "THIS CELL'S OWN TEMPERATURE IN DEGREES, NOT THE BOX AVERAGE. HEAT MOVES CELL TO CELL, SO TWO CELLS SIDE BY SIDE CAN DISAGREE AND THE DIFFERENCE IS WHAT DRIVES IT."),
             Row::value("ORGANISM", species, if organism.is_some() { GOOD } else { FAINT }, "THE SPECIES OF THE LIVING THING THIS CELL BELONGS TO, IF ANY. AN ANT IS TWO CELLS AND A TREE IS THOUSANDS; EITHER WAY THE CELL KNOWS WHICH ORGANISM OWNS IT."),
             Row::value("ENERGY", energy, VALUE, "THAT ORGANISM'S WHOLE-BODY ENERGY, NOT THIS CELL'S SHARE. WATCH IT WHILE THE BOX RUNS: A FORAGING ANT CLIMBS AND A STARVING ONE DOES NOT."),
         ]
@@ -1139,11 +1173,12 @@ fn draw_spark(frame: &mut [u8], area: Rect, series: &[u32], tint: [u8; 4]) {
         } else {
             ((*v as f32 / peak as f32) * (area.h - 1) as f32).round() as i32 + 1
         };
-        fill(
-            frame,
-            Rect { x, y: area.bottom() - h, w: bar_w.min(area.right() - x), h },
-            tint,
-        );
+        let w = bar_w.min(area.right() - x);
+        fill(frame, Rect { x, y: area.bottom() - h, w, h }, tint);
+        // The top of each bar, brighter. A series that barely varies fills the
+        // strip almost solid and reads as "no information"; the profile line
+        // is what makes a *flat* population look flat rather than look full.
+        fill(frame, Rect { x, y: area.bottom() - h, w, h: 1 }, [244, 248, 252, 255]);
     }
 }
 
@@ -1302,6 +1337,362 @@ impl Ui {
 
         if let Some((body, avoid, y, place)) = note {
             draw_note(frame, &body, avoid, y, place);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::sim::chunk::Rect as WorldRect;
+
+    fn state(running: bool, requested: u32) -> BarState {
+        BarState {
+            running,
+            requested,
+            achieved: 6.4,
+            presets: &super::super::time::PRESETS,
+            panel: None,
+            stats: true,
+            help: false,
+        }
+    }
+
+    fn world() -> World {
+        World::new(WorldRect::new(0, 0, 63, 63))
+    }
+
+    /// **The font cannot draw everything, and what it cannot draw it draws as
+    /// nothing.** `[`/`]`, then `_`/`<`/`>`, then `;`/`'` have each shipped
+    /// blank in this engine's UI for as long as they were bound — three
+    /// separate times, each found by looking at a rendered image rather than
+    /// by any test. This is `lab::every_help_line_is_drawable` extended over
+    /// every string this module can put on the screen: button faces, the keys
+    /// printed under them, every hover explanation, every page row and the
+    /// inspector.
+    #[test]
+    fn every_string_the_bar_can_draw_is_drawable() {
+        let mut checked = 0;
+        let mut check = |s: &str, whence: &str| {
+            for c in s.chars() {
+                assert!(crate::hud::has_glyph(c), "no glyph for {c:?} in {s:?} ({whence})");
+            }
+            checked += 1;
+        };
+        for running in [false, true] {
+            for requested in super::super::time::PRESETS {
+                let bar = layout(&state(running, requested));
+                for wid in &bar.widgets {
+                    check(&wid.line1, "button face");
+                    check(&wid.line2, "shortcut caption");
+                    check(&wid.note, "hover explanation");
+                }
+            }
+        }
+        let (world, spec, ui) = (world(), LabBox::default(), Ui::new());
+        for panel in [Panel::Plants, Panel::Ants, Panel::Box] {
+            check(panel.title(), "page title");
+            for row in ui.panel_rows(panel, &world, &spec, 60.0) {
+                match &row.body {
+                    Body::Value { label, value, .. } => {
+                        check(label, "page row");
+                        check(value, "page value");
+                    }
+                    Body::Spark { label, .. } => check(label, "strip caption"),
+                    Body::Gap => {}
+                }
+                check(&row.note, "row explanation");
+            }
+        }
+        for row in ui.inspect_rows(&world, (4, 4)) {
+            if let Body::Value { label, value, .. } = &row.body {
+                check(label, "inspector row");
+                check(value, "inspector value");
+            }
+            check(&row.note, "inspector explanation");
+        }
+        assert!(checked > 200, "the sweep only reached {checked} strings");
+    }
+
+    /// A bar wider than the screen loses its last button off the right edge,
+    /// and a screenshot is the only thing that would ever show it. Widths come
+    /// from `hud::text_width`, so renaming a button is exactly the change that
+    /// would do it.
+    #[test]
+    fn the_bar_fits_the_screen_and_no_two_widgets_overlap() {
+        for running in [false, true] {
+            for requested in super::super::time::PRESETS {
+                let bar = layout(&state(running, requested));
+                for wid in &bar.widgets {
+                    assert!(wid.rect.x >= 0, "{:?} starts off the left edge", wid.line1);
+                    assert!(
+                        wid.rect.right() <= W as i32,
+                        "{:?} runs off the right edge at {} of {W}",
+                        wid.line1,
+                        wid.rect.right()
+                    );
+                    assert!(
+                        wid.rect.bottom() <= H as i32 && wid.rect.y >= bar_top(),
+                        "{:?} is outside the bar",
+                        wid.line1
+                    );
+                    // A face narrower than its own caption clips the caption.
+                    assert!(
+                        wid.rect.w >= hud::text_width(&wid.line2),
+                        "{:?} is narrower than its own shortcut caption",
+                        wid.line1
+                    );
+                }
+                for (i, a) in bar.widgets.iter().enumerate() {
+                    for b in &bar.widgets[i + 1..] {
+                        assert!(
+                            a.rect.right() <= b.rect.x || b.rect.right() <= a.rect.x,
+                            "{:?} and {:?} overlap",
+                            a.line1,
+                            b.line1
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    /// **The positive control on the hit test.** Every button is clicked at
+    /// the middle of the rectangle it was *laid out* at, and must answer with
+    /// its own action. It cannot pass against a hand-written pixel table,
+    /// because the coordinates come from the layout itself — which is the only
+    /// way to guard "the button and the thing it activates agree" without
+    /// writing the second copy of the arithmetic that guard exists to catch.
+    #[test]
+    fn every_button_answers_where_it_was_drawn() {
+        let bar = layout(&state(false, 1));
+        let mut buttons = 0;
+        for wid in &bar.widgets {
+            let (cx, cy) = (wid.rect.x + wid.rect.w / 2, wid.rect.y + wid.rect.h / 2);
+            assert_eq!(bar.hit(cx, cy), wid.action, "{:?} answered for another widget", wid.line1);
+            // ...and every corner of it, since a rectangle off by one in
+            // either direction still passes a centre test.
+            for (x, y) in [
+                (wid.rect.x, wid.rect.y),
+                (wid.rect.right() - 1, wid.rect.y),
+                (wid.rect.x, wid.rect.bottom() - 1),
+                (wid.rect.right() - 1, wid.rect.bottom() - 1),
+            ] {
+                assert_eq!(bar.hit(x, y), wid.action, "{:?} missed its own corner", wid.line1);
+            }
+            buttons += usize::from(wid.action.is_some());
+        }
+        assert_eq!(buttons, 15, "the bar should carry 15 pressable buttons");
+        // Nothing above the bar is pressable — that belongs to the world.
+        assert_eq!(bar.hit(10, bar_top() - 1), None);
+    }
+
+    /// **The single easiest thing on this bar to get backwards.** The face
+    /// names the state the press will *produce*, not the state that is true —
+    /// so it reads `RUN` while the box is tending, beside a readout that says
+    /// `TENDING`. Verb on the button, state on the readout.
+    ///
+    /// Both directions are asserted, because a button stuck on one caption
+    /// would satisfy either half alone.
+    #[test]
+    fn the_phase_button_names_what_the_press_will_produce() {
+        let tending = layout(&state(false, 1));
+        let running = layout(&state(true, 64));
+        let face = |bar: &Bar| {
+            bar.widgets
+                .iter()
+                .find(|w| w.action == Some(Action::TogglePhase))
+                .map(|w| w.line1.clone())
+                .expect("the bar has a phase button")
+        };
+        assert_eq!(face(&tending), "RUN", "a stopped box must offer to run");
+        assert_eq!(face(&running), "TEND", "a running box must offer to stop");
+        // And the readout beside it names the state, so the two together are
+        // unambiguous rather than each being half a sentence.
+        let readout = |bar: &Bar| {
+            bar.widgets.iter().find(|w| w.action.is_none()).map(|w| w.line1.clone()).unwrap()
+        };
+        assert_eq!(readout(&tending), "TENDING");
+        assert!(readout(&running).starts_with("ASK"), "{}", readout(&running));
+    }
+
+    /// The achieved figure is the dial's honesty mechanism and it is also
+    /// meaningless in Tending, where one tick finishes in microseconds and the
+    /// same arithmetic reports a large multiple of real time. Shown in
+    /// Running, withheld in Tending — asserted both ways, since a readout that
+    /// never printed it at all would pass the first half.
+    #[test]
+    fn the_achieved_figure_is_shown_running_and_withheld_while_tending() {
+        let line2 = |running, requested| {
+            layout(&state(running, requested))
+                .widgets
+                .iter()
+                .find(|w| w.action.is_none())
+                .map(|w| w.line2.clone())
+                .unwrap()
+        };
+        assert_eq!(line2(true, 64), "GOT 6.4X");
+        assert_eq!(line2(false, 1), "REAL TIME");
+    }
+
+    /// The latch is the only thing on the bar saying which preset is live, and
+    /// exactly one of them must claim it.
+    #[test]
+    fn exactly_one_speed_chip_is_latched() {
+        for (i, requested) in super::super::time::PRESETS.iter().enumerate() {
+            let bar = layout(&state(*requested > 1, *requested));
+            let latched: Vec<usize> = bar
+                .widgets
+                .iter()
+                .enumerate()
+                .filter(|(_, w)| w.latched && matches!(w.action, Some(Action::Preset(_))))
+                .map(|(j, _)| j)
+                .collect();
+            assert_eq!(latched.len(), 1, "{requested}x latched {} chips", latched.len());
+            assert_eq!(bar.widgets[latched[0]].line1, format!("{requested}X"));
+            assert_eq!(bar.widgets[latched[0]].action, Some(Action::Preset(i)));
+        }
+    }
+
+    fn armed(state: &BarState) -> Ui {
+        Ui { bar: layout(state), ..Ui::default() }
+    }
+
+    /// A button fires on release **over itself**, so a press can be taken back
+    /// by sliding off it. `REBUILD` is the reason: a control that threw the box
+    /// away on the way past would be one mis-click from losing a run.
+    #[test]
+    fn a_press_slid_off_its_button_fires_nothing() {
+        let s = state(false, 1);
+        let mut ui = armed(&s);
+        let reset = ui.widget_rect(Action::Reset).expect("REBUILD is on the bar");
+        let elsewhere = ui.widget_rect(Action::Stats).expect("STATS is on the bar");
+        ui.press(reset.x + 2, reset.y + 2);
+        assert_eq!(ui.release(elsewhere.x + 2, elsewhere.y + 2), Release::Consumed);
+
+        // The positive control: the same press released where it started does
+        // fire, so the test above is about the slide and not about the bar
+        // being dead.
+        let mut ui = armed(&s);
+        ui.press(reset.x + 2, reset.y + 2);
+        assert_eq!(ui.release(reset.x + 2, reset.y + 2), Release::Fired(Action::Reset));
+    }
+
+    /// A click on the interface must not also reach the world behind it —
+    /// including a press that began on the bar and ended over the box, and one
+    /// that began on an open page.
+    #[test]
+    fn the_interface_does_not_leak_clicks_into_the_world() {
+        let s = state(false, 1);
+        let mut ui = armed(&s);
+        // Straight at the world.
+        ui.press(20, 20);
+        assert_eq!(ui.release(20, 20), Release::World);
+
+        // Begun on the bar's own background, between two buttons.
+        let mut ui = armed(&s);
+        ui.press(1, bar_top() + 1);
+        assert_eq!(ui.release(20, 20), Release::Consumed);
+
+        // Begun on an open page. The page's rectangle is retained from the
+        // last paint, which is what a real click is tested against.
+        let mut ui = armed(&s);
+        ui.panel_box = Some(Rect { x: 100, y: 100, w: 80, h: 40 });
+        ui.press(120, 120);
+        assert_eq!(ui.release(20, 20), Release::Consumed);
+        assert!(ui.covers(120, 120));
+        assert!(!ui.covers(20, 20));
+    }
+
+    /// The inspector is a toggle on the cell, not an accumulator: clicking the
+    /// same cell twice puts it away, and clicking a different one moves it.
+    #[test]
+    fn the_inspector_toggles_on_the_cell_it_is_pointed_at() {
+        let mut ui = Ui::new();
+        ui.inspect((10, 20));
+        assert_eq!(ui.inspecting(), Some((10, 20)));
+        ui.inspect((11, 20));
+        assert_eq!(ui.inspecting(), Some((11, 20)));
+        ui.inspect((11, 20));
+        assert_eq!(ui.inspecting(), None);
+    }
+
+    /// Every page row that names a quantity carries its own explanation. The
+    /// owner asked for this directly, and a row that quietly lost its note
+    /// would look identical on screen until somebody hovered it.
+    #[test]
+    fn every_page_row_explains_itself() {
+        let (world, spec, ui) = (world(), LabBox::default(), Ui::new());
+        for panel in [Panel::Plants, Panel::Ants, Panel::Box] {
+            for row in ui.panel_rows(panel, &world, &spec, 60.0) {
+                if matches!(row.body, Body::Gap) {
+                    continue;
+                }
+                assert!(row.note.len() > 30, "{panel:?} has a row with no real explanation");
+            }
+        }
+        for row in ui.inspect_rows(&world, (0, 0)) {
+            assert!(row.note.len() > 30, "an inspector row has no real explanation");
+        }
+        // ...and so does every button, since the bar is where a new player
+        // looks first.
+        for wid in layout(&state(false, 1)).widgets {
+            assert!(wid.note.len() > 30, "{:?} has no explanation", wid.line1);
+        }
+    }
+
+    /// A page is sized to what it has to say, and has to stay clear of the bar
+    /// it opens above.
+    #[test]
+    fn a_page_sits_above_the_bar_and_inside_the_screen() {
+        let (world, spec, ui) = (world(), LabBox::default(), Ui::new());
+        for panel in [Panel::Plants, Panel::Ants, Panel::Box] {
+            let rows = ui.panel_rows(panel, &world, &spec, 60.0);
+            for anchor in [0, 200, W as i32 - 10] {
+                let r = page_rect(&rows, anchor, bar_top() - 4);
+                assert!(r.x >= 0 && r.right() <= W as i32, "{panel:?} page runs off the screen");
+                assert!(r.bottom() <= bar_top(), "{panel:?} page overlaps the bar");
+                assert!(r.y >= 0, "{panel:?} page runs off the top");
+            }
+        }
+    }
+
+    /// The population series is sampled on simulated frames, never on drawn
+    /// ones: at the top of the ladder one drawn frame is 256 ticks, and a
+    /// per-call sample would make the strip's x-axis the speed dial.
+    #[test]
+    fn the_series_is_sampled_on_simulated_time_not_on_draws() {
+        let mut history = History::default();
+        let world = world();
+        for _ in 0..500 {
+            history.observe(&world);
+        }
+        assert_eq!(history.samples.len(), 1, "a still world sampled itself repeatedly");
+        assert!(history.delta(|s| s.plants as i64).is_none(), "one sample is not a delta");
+    }
+
+    /// A rebuild puts the frame counter back to zero, and a series carried
+    /// across it would draw a population crash that never happened.
+    #[test]
+    fn a_rebuild_clears_the_series() {
+        let mut history = History::default();
+        let mut world = world();
+        for _ in 0..4 {
+            history.observe(&world);
+            world.frame += SAMPLE_EVERY;
+        }
+        assert_eq!(history.samples.len(), 4);
+        world.frame = 0;
+        history.observe(&world);
+        assert_eq!(history.samples.len(), 1, "the old box survived the rebuild");
+    }
+
+    #[test]
+    fn a_note_wraps_rather_than_running_off_the_screen() {
+        let lines = wrap_words("THE FLORA HOW MANY ARE STANDING AND WHETHER IT IS CLIMBING", 12);
+        assert!(lines.len() > 3);
+        for line in &lines {
+            assert!(line.chars().count() <= 12, "{line:?} did not wrap");
         }
     }
 }

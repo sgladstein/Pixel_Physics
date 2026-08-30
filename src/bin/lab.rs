@@ -82,6 +82,10 @@ struct Handler {
     /// the key page and the stats panel**, which is most of what this binary
     /// is. Cleared once fired, so it never repeats.
     screenshot_countdown: Option<u32>,
+    /// `PIXEL_PHYSICS_LAB_CURSOR=x,y` — a pointer position held fixed, so a
+    /// headless screenshot can show the bar's hover state. Debug only; a real
+    /// pointer overwrites it the moment it moves.
+    forced_cursor: Option<(i32, i32)>,
     result: Result<(), Box<dyn std::error::Error>>,
 }
 
@@ -107,6 +111,14 @@ impl Handler {
             screenshot_countdown: std::env::var("PIXEL_PHYSICS_SCREENSHOT_AFTER_FRAMES")
                 .ok()
                 .and_then(|v| v.parse().ok()),
+            // A screenshot has no pointer in it, so a hover highlight and a
+            // hover explanation are invisible to the one instrument this
+            // binary can be checked with on a headless box. This puts the
+            // cursor somewhere without a hand.
+            forced_cursor: std::env::var("PIXEL_PHYSICS_LAB_CURSOR").ok().and_then(|v| {
+                let (x, y) = v.split_once(',')?;
+                Some((x.trim().parse().ok()?, y.trim().parse().ok()?))
+            }),
             result: Ok(()),
         }
     }
@@ -135,6 +147,10 @@ impl Handler {
         if dir != (0, 0) {
             let bounds = self.lab.world.bounds();
             self.lab.renderer.pan(dir, dt.min(0.1), (WIDTH, HEIGHT), bounds);
+        }
+
+        if let Some(at) = self.forced_cursor {
+            self.lab.set_cursor(Some(at));
         }
 
         self.lab.advance(elapsed);
