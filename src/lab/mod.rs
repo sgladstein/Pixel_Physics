@@ -21,7 +21,7 @@
 //! | file | owns |
 //! |---|---|
 //! | `scene` | the box: geometry, soil, light, partitions, founders |
-//! | `time`  | Tending vs Running, the speed dial, and what it actually achieved |
+//! | `time`  | paused vs running, the speed dial, and what it actually achieved |
 //! | `stats` | the census, and the page that draws it |
 //! | `ui`    | the control bar along the bottom, its pages, and the mouse |
 //! | this file | `Lab` — the state the four above are wired into, and the frame |
@@ -79,7 +79,8 @@ pub struct Lab {
 }
 
 impl Lab {
-    /// Build the box `spec` describes and start it in Tending at 1x.
+    /// Build the box `spec` describes and start it **stopped**. Nothing
+    /// ticks until the player presses `SPACE` or asks for a speed.
     pub fn new(spec: scene::LabBox) -> Self {
         let world = spec.build();
         Self {
@@ -129,8 +130,8 @@ impl Lab {
     ///
     /// `elapsed` is real time since the last call. Everything about how that
     /// becomes a tick count — the requested multiplier, the wall-clock
-    /// ceiling that keeps the window answering, whether the phase is Tending
-    /// or Running — is `time::TimeControl`'s, so that the readout on screen
+    /// ceiling that keeps the window answering, whether the box is paused
+    /// or running — is `time::TimeControl`'s, so that the readout on screen
     /// and the loop that produced it cannot disagree.
     pub fn advance(&mut self, elapsed: std::time::Duration) -> time::Advance {
         let plan = self.time.plan(elapsed);
@@ -260,8 +261,26 @@ impl Lab {
             ui::Action::Slower => self.time.slower(),
             ui::Action::Faster => self.time.faster(),
             ui::Action::Preset(i) => self.time.set_preset(i),
-            ui::Action::Panel(panel) => self.ui.toggle_panel(panel),
-            ui::Action::Stats => self.stats.toggle(),
+            // **One page at a time**, the rule this file already applies to
+            // the key list against the biosphere page, extended to the bar's
+            // three. The screen is 512x320, the biosphere page is a full-
+            // height right-hand column and these open above the bar's own
+            // right-hand group, so two of them drawn together interleave into
+            // something neither of them is. Made exclusive in *state* rather
+            // than only in the paint, so the latch on the bar tells the truth
+            // about what is on screen.
+            ui::Action::Panel(panel) => {
+                self.ui.toggle_panel(panel);
+                if self.ui.panel.is_some() && self.stats.showing() {
+                    self.stats.toggle();
+                }
+            }
+            ui::Action::Stats => {
+                self.stats.toggle();
+                if self.stats.showing() {
+                    self.ui.panel = None;
+                }
+            }
             ui::Action::Help => self.show_help = !self.show_help,
             ui::Action::Reset => self.reset(),
         }
@@ -281,7 +300,7 @@ const HELP: [&str; 14] = [
     "EVERY CONTROL IS ALSO A BUTTON",
     "ON THE BAR ALONG THE BOTTOM.",
     "",
-    "SPACE    TENDING / RUNNING",
+    "SPACE    PAUSE / RUN THE BOX",
     "UP DOWN  SPEED    1-7  PRESET",
     "F1 F2 F3 PLANTS / ANTS / BOX",
     "TAB      STATS",

@@ -359,10 +359,14 @@ fn button(
 /// (`1024X`) the same day, and `REBUILD` was immediately half off the screen.
 /// So the natural spacing is an attempt rather than an assumption, and a bar
 /// too wide for the screen tightens instead of overflowing.
-const SPACINGS: [(i32, i32); 2] = [(PAD, GAP), (1, 1)];
+/// The middle rung is not decoration: at seven stops the bar misses the
+/// natural spacing by four pixels, and closing the *gaps between buttons* to
+/// one pixel while keeping two pixels of padding inside each face is far more
+/// readable than the reverse.
+const SPACINGS: [(i32, i32); 3] = [(PAD, GAP), (PAD, 1), (1, 1)];
 /// The smallest gap between two groups that still reads as a gap. A bar packed
 /// tighter than this is one row of undifferentiated buttons.
-const MIN_SEPARATOR: i32 = 8;
+const MIN_SEPARATOR: i32 = 6;
 
 /// Lay the whole bar out. Pure: same state in, same rectangles out.
 ///
@@ -390,16 +394,16 @@ fn lay_out(state: &BarState, pad: i32, gap: i32) -> Bar {
     // its two captions so that pressing it does not shove the rest of the bar
     // sideways; a control that moves when you use it is a control you miss on
     // the second press.
-    let phase_label = if state.running { "TEND" } else { "RUN" };
+    let phase_label = if state.running { "PAUSE" } else { "RUN" };
     let phase_icon = if state.running { Icon::Pause } else { Icon::Play };
     let phase_px = ICON_W
         + ICON_GAP
-        + hud::text_width("TEND").max(hud::text_width("RUN"));
+        + hud::text_width("PAUSE").max(hud::text_width("RUN"));
     // **The caption says what the press will produce, not what is true now.**
-    // This is the single easiest thing in the whole bar to get backwards: in
-    // Tending the button reads `RUN` because clicking it starts the run, and
-    // the readout two cells to its right says `TENDING`, which is the state.
-    // Verb on the button, state on the readout.
+    // This is the single easiest thing in the whole bar to get backwards: on a
+    // stopped box the button reads `RUN` because clicking it starts the run,
+    // and the readout two cells to its right says `PAUSED`, which is the
+    // state. Verb on the button, state on the readout.
     let phase = Spec {
         width: cell_width(phase_px, "SPACE", pad),
         line1: phase_label.to_string(),
@@ -408,7 +412,7 @@ fn lay_out(state: &BarState, pad: i32, gap: i32) -> Bar {
         latched: state.running,
         icon: Some(phase_icon),
         ratio: None,
-        note: "START OR STOP THE EXPERIMENT. TENDING RUNS THE BOX AT REAL TIME SO YOU CAN WORK IN IT; RUNNING FAST-FORWARDS IT AT THE SPEED THE DIAL ASKS FOR.",
+        note: "STOP THE BOX DEAD, OR START IT AGAIN. PAUSED, NOTHING TICKS AT ALL -- THAT IS WHEN YOU PLANT, CULL AND DIG. RUNNING GOES AT WHATEVER THE DIAL ASKS FOR, AND 1X IS REAL TIME.",
     };
     let step_width = cell_width(hud::text_width("<<"), "DOWN", pad)
         .max(cell_width(hud::text_width(">>"), "UP", pad));
@@ -420,16 +424,14 @@ fn lay_out(state: &BarState, pad: i32, gap: i32) -> Bar {
         width: step_width,
         ..button(">>", "UP", Action::Faster, false, "ONE STOP UP THE SPEED LADDER. ASKING FOR SPEED FROM A STOPPED BOX ALSO STARTS THE RUN.", pad)
     };
-    // **The achieved figure is only shown while it means something.** In
-    // Running it is ticks-per-wall-second over the requested multiple, which
-    // is exactly the honesty mechanism the dial was built around. In Tending
-    // the loop asks for one tick and finishes it in microseconds, so the same
-    // arithmetic reports a large number that says nothing about whether the
-    // window is keeping up -- and printing `GOT 5.5X` beside `ASK 1X` reads as
-    // the box running five times faster than asked. `lab::time`'s own readout
-    // hides it in Tending for this reason; this one does the same rather than
-    // quietly disagreeing with it. Whether the *window* keeps up is the frames
-    // per second on the box page, which is a different measurement.
+    // **The achieved figure is only shown while it means something**, and
+    // stopped it means nothing at all: no tick runs, so the ratio is zero by
+    // construction rather than by measurement. What the cell says instead is
+    // the *state*, in the one word the owner's complaint asked for -- `PAUSED`
+    // over `NOT TICKING`, graded at 0.0 so it draws in the alarm colour with
+    // an empty strip under it. Three channels saying one thing, because
+    // "it isn't pausing anything" was a complaint about legibility as much as
+    // about behaviour.
     let (line1, line2, ratio) = if state.running {
         (
             format!("ASK {}X", state.requested),
@@ -437,7 +439,7 @@ fn lay_out(state: &BarState, pad: i32, gap: i32) -> Bar {
             state.achieved.max(0.0) / state.requested.max(1) as f32,
         )
     } else {
-        ("TENDING".to_string(), "REAL TIME".to_string(), 1.0)
+        ("PAUSED".to_string(), "NOT TICKING".to_string(), 0.0)
     };
     let readout = Spec {
         // Sized to the widest thing it can ever say, not to what it says now:
@@ -450,7 +452,7 @@ fn lay_out(state: &BarState, pad: i32, gap: i32) -> Bar {
         latched: false,
         icon: None,
         ratio: Some(ratio),
-        note: "WHAT THE DIAL WAS ASKED FOR, AGAINST WHAT THE BOX ACTUALLY MANAGED, AND THE STRIP IS THE SECOND OVER THE FIRST. A BED THAT HAS GROWN COSTS WHAT IT COSTS AND THE DIAL IS ONLY A REQUEST. IN TENDING THERE IS NOTHING TO REPORT -- TENDING IS REAL TIME BY DEFINITION.",
+        note: "WHAT THE DIAL WAS ASKED FOR, AGAINST WHAT THE BOX ACTUALLY MANAGED, AND THE STRIP IS THE SECOND OVER THE FIRST. A BED THAT HAS GROWN COSTS WHAT IT COSTS AND THE DIAL IS ONLY A REQUEST. STOPPED, IT SAYS PAUSED -- NO TICK RUNS, SO THERE IS NOTHING TO REPORT.",
     };
 
     // Group 2 — the speed ladder, one chip per stop.
@@ -472,7 +474,7 @@ fn lay_out(state: &BarState, pad: i32, gap: i32) -> Bar {
                 latched: state.requested == *mult,
                 icon: None,
                 ratio: None,
-                note: "JUMP STRAIGHT TO THIS MULTIPLE OF REAL TIME. THE TOP OF THE LADDER IS DELIBERATELY PAST WHAT ANY BOX CAN DO -- THAT IS HOW THE ACHIEVED READOUT EARNS ITS KEEP.",
+                note: "RUN AT THIS MULTIPLE OF REAL TIME, STARTING THE BOX IF IT IS STOPPED. 1X IS REAL TIME. THE TOP OF THE LADDER IS DELIBERATELY PAST WHAT ANY BOX CAN DO -- THAT IS HOW THE ACHIEVED READOUT EARNS ITS KEEP.",
             }
         })
         .collect();
@@ -1342,14 +1344,18 @@ impl Ui {
 
         if let Some(panel) = self.panel {
             let rows = self.panel_rows(panel, world, spec, fps);
-            // **Bottom-left, not under the button that opened it.** Anchoring
-            // a page to its own button is the better affordance and it is not
-            // available here: `lab::stats` draws its biosphere page down the
-            // whole right-hand column, the page buttons are the bar's
-            // right-hand group, and a page opening under its own button lands
-            // on top of it. Caught by looking at a contact sheet with both
-            // open, which is the only thing that would have shown it.
-            let rect = page_rect(&rows, MARGIN, bar_top() - 4);
+            // Anchored under the button that opened it, which is only
+            // available because `Lab::act` closes the biosphere page when one
+            // of these opens — see the note there. Both pages drawn at once
+            // interleave into something neither of them is, and a contact
+            // sheet with both open was the only thing that showed it.
+            let anchor = self
+                .bar
+                .widgets
+                .iter()
+                .find(|wid| wid.action == Some(Action::Panel(panel)))
+                .map_or(MARGIN, |wid| wid.rect.x);
+            let rect = page_rect(&rows, anchor, bar_top() - 4);
             self.panel_box = Some(rect);
             if let Some((text, y)) = paint_page(frame, rect, panel.title(), &rows, self.cursor) {
                 note = Some((text, rect, y, Note::BesidePage));
@@ -1485,6 +1491,11 @@ mod tests {
         for running in [false, true] {
             for requested in super::super::time::PRESETS {
                 let bar = layout(&state(running, requested));
+                assert!(
+                    bar.fits(),
+                    "the bar does not fit the screen at {} stops",
+                    super::super::time::PRESETS.len()
+                );
                 for wid in &bar.widgets {
                     assert!(wid.rect.x >= 0, "{:?} starts off the left edge", wid.line1);
                     assert!(
@@ -1544,15 +1555,22 @@ mod tests {
             }
             buttons += usize::from(wid.action.is_some());
         }
-        assert_eq!(buttons, 15, "the bar should carry 15 pressable buttons");
+        // Three transport buttons (the readout is not one), one chip per stop
+        // on the ladder, and six pages. Written as the sum rather than as a
+        // literal so that growing the ladder does not have to come here.
+        assert_eq!(
+            buttons,
+            3 + super::super::time::PRESETS.len() + 6,
+            "the bar carried {buttons} pressable buttons"
+        );
         // Nothing above the bar is pressable — that belongs to the world.
         assert_eq!(bar.hit(10, bar_top() - 1), None);
     }
 
     /// **The single easiest thing on this bar to get backwards.** The face
     /// names the state the press will *produce*, not the state that is true —
-    /// so it reads `RUN` while the box is tending, beside a readout that says
-    /// `TENDING`. Verb on the button, state on the readout.
+    /// so it reads `RUN` while the box is stopped, beside a readout that says
+    /// `PAUSED`. Verb on the button, state on the readout.
     ///
     /// Both directions are asserted, because a button stuck on one caption
     /// would satisfy either half alone.
@@ -1568,23 +1586,22 @@ mod tests {
                 .expect("the bar has a phase button")
         };
         assert_eq!(face(&tending), "RUN", "a stopped box must offer to run");
-        assert_eq!(face(&running), "TEND", "a running box must offer to stop");
+        assert_eq!(face(&running), "PAUSE", "a running box must offer to stop");
         // And the readout beside it names the state, so the two together are
         // unambiguous rather than each being half a sentence.
         let readout = |bar: &Bar| {
             bar.widgets.iter().find(|w| w.action.is_none()).map(|w| w.line1.clone()).unwrap()
         };
-        assert_eq!(readout(&tending), "TENDING");
+        assert_eq!(readout(&tending), "PAUSED");
         assert!(readout(&running).starts_with("ASK"), "{}", readout(&running));
     }
 
     /// The achieved figure is the dial's honesty mechanism and it is also
-    /// meaningless in Tending, where one tick finishes in microseconds and the
-    /// same arithmetic reports a large multiple of real time. Shown in
-    /// Running, withheld in Tending — asserted both ways, since a readout that
-    /// never printed it at all would pass the first half.
+    /// meaningless on a stopped box, where no tick runs at all. Shown while
+    /// running, replaced by the state while paused — asserted both ways, since
+    /// a readout that never printed it at all would pass the first half.
     #[test]
-    fn the_achieved_figure_is_shown_running_and_withheld_while_tending() {
+    fn the_achieved_figure_is_shown_running_and_withheld_while_paused() {
         let line2 = |running, requested| {
             layout(&state(running, requested))
                 .widgets
@@ -1594,7 +1611,7 @@ mod tests {
                 .unwrap()
         };
         assert_eq!(line2(true, 64), "GOT 6.4X");
-        assert_eq!(line2(false, 1), "REAL TIME");
+        assert_eq!(line2(false, 1), "NOT TICKING");
     }
 
     /// The latch is the only thing on the bar saying which preset is live, and
@@ -1747,6 +1764,40 @@ mod tests {
         world.frame = 0;
         history.observe(&world);
         assert_eq!(history.samples.len(), 1, "the old box survived the rebuild");
+    }
+
+    /// **The ladder grew a seventh stop the same day this bar was written and
+    /// pushed `REBUILD` off the right edge.** The bar now tightens rather than
+    /// overflowing, and this is the guard over that — asserted for a ladder
+    /// one stop longer than the real one, so the next stop is caught here
+    /// rather than in a screenshot.
+    #[test]
+    fn the_bar_still_fits_a_longer_speed_ladder() {
+        const LONGER: [u32; 8] = [1, 2, 4, 8, 16, 64, 256, 1024];
+        let mut s = state(true, 64);
+        s.presets = &LONGER;
+        let bar = layout(&s);
+        assert!(bar.fits(), "an eight-stop ladder does not fit");
+        // ...and the sensitivity half: a ladder long enough that no spacing
+        // can hold it must *report* that, rather than quietly dropping a
+        // control or silently overlapping two.
+        const ABSURD: [u32; 20] = [1; 20];
+        let mut s = state(true, 1);
+        s.presets = &ABSURD;
+        assert!(!layout(&s).fits(), "a twenty-stop ladder claimed to fit");
+    }
+
+    /// Every stop on the ladder has a key printed under it. The caption used
+    /// to come from a hand-written list of six; the seventh stop arrived and
+    /// that chip had no caption and no key at all.
+    #[test]
+    fn every_speed_chip_shows_a_key() {
+        let bar = layout(&state(false, 1));
+        for wid in &bar.widgets {
+            if let Some(Action::Preset(i)) = wid.action {
+                assert_eq!(wid.line2, (i + 1).to_string(), "{:?} names the wrong key", wid.line1);
+            }
+        }
     }
 
     #[test]

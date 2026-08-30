@@ -154,8 +154,9 @@ fn main() {
     let ants: i32 = arg("ants").unwrap_or(55);
     let colony_frames: u64 = arg("colonyframes").unwrap_or(8_000);
 
+    let png: Option<String> = arg("png");
     if want.split(',').any(|w| w == "colony") {
-        colony_arm(seeds, ants, colony_frames);
+        colony_arm(seeds, ants, colony_frames, png.as_deref());
     }
 
     println!(
@@ -407,9 +408,11 @@ fn main() {
 /// that removed 0 cells. A renamed `packedsoil`, a dropped `packs_into`, or a
 /// dig that only ever lands in stone all read as `packed 0` here and are
 /// invisible in `digs`.
-fn colony_arm(seeds: u64, ants: i32, frames: u64) {
+fn colony_arm(seeds: u64, ants: i32, frames: u64, png: Option<&str>) {
+    use pixel_physics::render::Renderer;
     use pixel_physics::sim::chunk::Rect;
     use pixel_physics::sim::parallel;
+    use pixel_physics::sim::particle::ParticleSystem;
 
     let lining_on = std::env::var("PIXEL_PHYSICS_BURROW_LINING").as_deref() != Ok("off");
     println!("\n=== arm colony ===  lining {}", if lining_on { "ON" } else { "OFF (ablated)" });
@@ -469,6 +472,17 @@ fn colony_arm(seeds: u64, ants: i32, frames: u64) {
             (void, soil, packed)
         };
 
+        // The sheet is written for the first seed only: it is there to show
+        // *what* and *where*, and the table above it is what says how much
+        // and whether it came back. Four pictures of four seeds would be
+        // four samples of a wide distribution presented as if they were a
+        // result.
+        let mut renderer = Renderer::new();
+        let particles = ParticleSystem::new();
+        let (vw, vh) = (w as u32, h as u32);
+        let mut tiles: Vec<Vec<u8>> = Vec::new();
+        let shoot = png.is_some() && seed == 1;
+
         let marks = [0u64, 500, 2_000, frames];
         for f in 0..=frames {
             if f > 0 {
@@ -484,7 +498,39 @@ fn colony_arm(seeds: u64, ants: i32, frames: u64) {
                     "{seed:>6}  {f:>7}  {void:>10}  {:>8}  {:>8}  {soil:>10}  {packed:>10}",
                     st.digs, st.packed
                 );
+                if shoot {
+                    let mut buf = vec![0u8; (vw * vh * 4) as usize];
+                    let touched = world.take_touched_chunks();
+                    renderer.draw(&world, &particles, &touched, &mut buf, (vw, vh), true);
+                    tiles.push(buf);
+                }
             }
+        }
+
+        if shoot {
+            // Nearest-neighbour magnification done here rather than through
+            // the renderer's own zoom, which moves the *camera* rather than
+            // the scale of the output: at zoom 3 a world-sized buffer would
+            // show a third of the bank and the sheet would silently be a
+            // crop. This keeps the whole bank in frame and each cell a 3x3
+            // block, which is what makes a one-cell gallery visible at all.
+            const Z: u32 = 3;
+            let (sw, sh) = (vw * Z, vh * Z * tiles.len() as u32);
+            let mut sheet = vec![0u8; (sw * sh * 4) as usize];
+            for (i, tile) in tiles.iter().enumerate() {
+                let y0 = i as u32 * vh * Z;
+                for y in 0..vh * Z {
+                    for x in 0..sw {
+                        let src = (((y / Z) * vw + x / Z) * 4) as usize;
+                        let dst = (((y0 + y) * sw + x) * 4) as usize;
+                        sheet[dst..dst + 4].copy_from_slice(&tile[src..src + 4]);
+                    }
+                }
+            }
+            let out = png.expect("checked above");
+            image::save_buffer(out, &sheet, sw, sh, image::ColorType::Rgba8)
+                .expect("writing the sheet");
+            println!("  wrote {out} ({sw}x{sh}) -- frames {marks:?} stacked top to bottom");
         }
     }
 }
