@@ -98,12 +98,14 @@ pub struct LabBox {
 /// "a lot of that should become the interface" taken literally rather than
 /// approximately.
 ///
-/// **Today's shipped bar is one row, 30 rows tall**, so until the second row
-/// lands there is a 34-row rim of stone between the floor and the bar
-/// instead of 8. That is the right way round to be wrong: a rim is stone
-/// the player can see and a *buried* floor is soil the box pays
+/// The two-row bar landed the same day and the floor is flush with it. It
+/// was **not** flush against the one-row bar this was written on — that left
+/// a 34-row rim of stone above the bar rather than 8 — and choosing 96
+/// anyway is the deliberate direction to be wrong in: a rim is stone the
+/// player can see, where a *buried* floor is soil the box pays
 /// `update_soil_water` for and nobody can look at, which is exactly the
-/// waste §2a names.
+/// waste §2a names. If the bar grows a third row, that is the direction it
+/// goes, and the guard below is what says so.
 ///
 /// It is deliberately **not** written as a call into `ui::bar_top()`. The
 /// bar is expected to keep growing, and a soil depth that moved when it did
