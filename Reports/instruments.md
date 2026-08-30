@@ -46,8 +46,8 @@ Not an `examples/` binary — these read what an agent run already wrote down.
 | `scale_covariance` | **Is the same seed at `k` times the cell resolution the same landscape, `k` times as large?** | The question the resolution step's whole content half rests on, and it was worth asking before hand-editing 46 parameters. Reports the rescaled elevation residual against **two controls in the same run** -- an unrelated seed, which is what "no relationship" looks like, and a `region_variation=0` arm, which names the cause when it fails. It did fail: 39.1 rows against a 42.5-row control, diagnosed in one run to `region::COMPOSITION_WINDOW` being a hardcoded 512 |
 | `pixel_stat` | How noisy a rendered region is, as a number | Compares two strips without squinting |
 | `subpixel` | **What the picture looks like when the renderer has more pixels than the simulation has cells** — the same world drawn at `scale` pixels per cell with each cell's shape reconstructed at sub-cell resolution, against `arm=baseline`, the shipped 1:1 render magnified by the same factor | Not plant-specific and not really a renderer: it is **a testbed for any question of the form "what if a cell were not a square"**, because the colour source is the shipped `Renderer` at 1:1 and the background is a second pass of the same renderer over the same world with the class under test emptied — so no arm can invent a colour the engine would not have drawn, which is what makes an A/B off it admissible. `arm=plants|all` decides whether terrain goes through it too, and that is the comparison worth running before believing any smoothing proposal: with colour blending on, **the soil grain is destroyed**, and the grain is why soil reads as soil. The `ao`/`shade` knobs are the general finding rather than a plant feature — a kernel field over *any* occupancy channel yields a thickness (`cov`) and a surface normal (`grad cov`) at sub-cell resolution, which is volume shading for anything the lattice draws flat. **Set both to 0 first when an interior looks quilted**: two separate lattice-noise bugs came out that way and nothing else caught either (`Reports/subpixel-rendering-2026-08-29.md` §5d). Echoes its own parameters, and prints the plant-cell count beside the image |
-| `subpixel_cost` | **What drawing the same world region at more pixels per cell costs**, as a paired comparison over one camera | Distinct from `render_cost`'s `viewport_scaling`, which grows the *viewport* at `zoom == 1` and so shows **more world** — its own note says the extra is cheap underground stone. This holds the visible region fixed (asserted, not assumed) and varies only the output lattice, so it answers the resolution question rather than a content question. Reads 1.13x at four times the pixels and 1.32x at nine, because the per-pixel work is under 10% of a full draw and a finer lattice repeats none of the per-draw setup. Generalises to any "is this cost per-pixel or per-draw" question about `Renderer::draw` |
-| `render_cost` | **Where a full-screen redraw spends its time**, broken down, **and what a bigger viewport costs** | The full branch measured 12.07 ms mean on the shipped 2048x640 world -- 54% of a frame -- and runs on ~100% of frames while the gnome walks, because a camera move invalidates every pixel. Its `viewport_scaling` section draws one world at 512x320, 768x480 and 1024x640 -- the resolution question -- and carries **two uniform-world controls beside it**, because the camera is clamped at the world origin and everything a taller viewport adds is cheap underground stone: on the generated world the scaling reads 2.41x at 4x the pixels, and on the all-stone control it reads 3.68x. The control is the number |
+| `subpixel_cost` | **What drawing the same world region at more pixels per cell costs**, as a paired comparison over one camera | Distinct from `render_cost`'s `viewport_scaling`, which grows the *viewport* at `zoom == 1` and so shows **more world** — its own note says the extra is cheap underground stone. This holds the visible region fixed (asserted, not assumed) and varies only the output lattice, so it answers the resolution question rather than a content question. Reads 1.13x at four times the pixels and 1.32x at nine, because the per-pixel work is under 10% of a full draw and a finer lattice repeats none of the per-draw setup. Generalises to any "is this cost per-pixel or per-draw" question about `Renderer::draw`. Its "under 10% of a full draw" was the fixed cost `frame-cost-the-render-half-2026-08-29.md` later named -- 94% of that draw was one call outside the pixel loop, so read this row's ratios against a redraw whose phase split you have seen |
+| `render_cost` | **Where a full-screen redraw spends its time**, broken down, **and what a bigger viewport costs** | The full branch measured 12.07 ms mean on the shipped 2048x640 world -- 54% of a frame -- and runs on ~100% of frames while the gnome walks, because a camera move invalidates every pixel. Its `viewport_scaling` section draws one world at 512x320, 768x480 and 1024x640 -- the resolution question -- and carries **two uniform-world controls beside it**, because the camera is clamped at the world origin and everything a taller viewport adds is cheap underground stone: on the generated world the scaling reads 2.41x at 4x the pixels, and on the all-stone control it reads 3.68x. The control is the number. **Set `PIXEL_PHYSICS_DRAW_TIMING=1` on this or any harness that draws** and `Renderer::draw` prints its own phase split -- preamble, horizon, sky light, glow splat, pixels, overlays. Nothing else in this table can attribute a redraw *internally*, and this row's own breakdown is reads-vs-colour-work rather than phases: it read 3% for the per-pixel chunk lookup while **94% of the frame sat in one uncounted call** (`Reports/frame-cost-the-render-half-2026-08-29.md`) |
 | `frame_profile` | **Which phase a frame's time went to**, timed separately with a distribution | The thing `ascii` cannot answer: it reports a worst frame, which says "does this fit in 16.6 ms" and nothing about *where* it went. Runs the exact phase list `App::update` runs |
 | `camera_snap` | Whether the camera moves discontinuously through the path the **app** actually uses | Drives `App::update`/`App::draw` as `main.rs` does, rather than calling `Renderer::follow` directly -- so it catches what a harness calling the API itself cannot |
 | `weather_duty` | How often it is raining, swept across seeds and a long window | Built because a single 1,200-frame run measured 89% and that was a sample from inside one wet epoch, not a duty cycle. Generalises to any "is this a duty cycle or one epoch" question |
@@ -197,15 +197,31 @@ the mechanism off and see whether the outcome notices. Before concluding a
 mechanism works, run the ablation — `CLAUDE.md`'s *a test can pass because the
 code under it is dead* has an instrument, and this is it.
 
-**`scale_probe phases=1` is the only thing that times a whole frame**, and it
-was built because nothing did. Every other cost figure in this repo measures
-*part* of a frame, and the three that existed were taken at three different
-world sizes — `ascii` times the CA sweep at 512x320, `field_cost` the field at
-8192x2560, `scale_probe`'s default mode the two together. So "the field is the
-problem" was a reading off two numbers that had never been placed beside the
-other nine phases. It runs `App::update`'s exact order, times each phase, and
-buckets whole frames by sky-step and gust the way `field_cost` does. Beyond
-the question it was built for it answers:
+**`scale_probe phases=1` times a whole `App::update`, and `App::update` is not
+a whole frame.** `Renderer::draw` is called from `main.rs`, not from
+`App::update`, so **it is in none of these instruments and in no frame-cost
+figure this repo has ever published** — including `frame-cost-audit-2026-08.md`,
+whose headline is titled "where one frame actually goes". Measured 2026-08-29
+on the shipped 8192x2560 world: `App::update` **18.9 ms** against a full
+redraw of **~42 ms**, so the row nobody was measuring was the larger half by
+2:1. (It is ~7.5 ms since, but the hole is structural and outlives the fix.)
+A full redraw is not a worst case either — a camera move invalidates every
+pixel, so it runs on ~100% of frames while the gnome walks.
+
+**So quote two numbers or none.** `examples/render_cost` gives the second one;
+`viewshot` prints its own redraw time per shot as a cheaper check. Anything
+calling a `scale_probe` total "the frame" is quoting half of it, and this
+index said so nowhere until now.
+
+That aside, `scale_probe phases=1` is the only thing that times a whole
+`App::update`, and it was built because nothing did. Every other cost figure
+in this repo measures *part* of it, and the three that existed were taken at
+three different world sizes — `ascii` times the CA sweep at 512x320,
+`field_cost` the field at 8192x2560, `scale_probe`'s default mode the two
+together. So "the field is the problem" was a reading off two numbers that had
+never been placed beside the other nine phases. It runs `App::update`'s exact
+order, times each phase, and buckets whole frames by sky-step and gust the way
+`field_cost` does. Beyond the question it was built for it answers:
 
 - **"Is this phase worth optimising?"** for any phase, since it prints each
   one's share. A phase at 2% cannot repay work whatever its internal cost.
@@ -213,6 +229,24 @@ the question it was built for it answers:
   share against the 16.6 ms budget before it ships.
 - **The idle cost of a loaded world**, which is what a player experiences most
   of the time and what M10's streaming has to hold down.
+
+**A worldgen A/B needs no rebuild between arms, and that is worth knowing
+before you build a bisect.** `assets/worldgen.ron` is read at runtime with
+`std::fs::read_to_string`, while `assets/materials/*.ron` and
+`assets/species/*.ron` are `include_str!`ed into the binary. So a sweep over
+worldgen parameters is **one binary and N data files** — swap the file, re-run
+the *same* executable — and the stale-example failure mode that
+`CLAUDE.md` devotes four bullets to cannot occur at all. A materials or
+species sweep is the exact opposite and has nothing *but* that hazard.
+
+Used 2026-08-29 to bisect the owner's "the game feels slow" onto PR #94's
+`sky_rows` in four arms with zero builds; the alternative was a
+rebuild-at-every-point commit bisect whose own failure mode (identical numbers
+across commits, read as "no regression") is silent. **Keep a positive control
+on the swap** — the harness must print something world-dependent that moves
+between arms, or the sweep is one world wearing N labels; `render_cost`'s
+"visible pixels are empty sky" and `scale_probe`'s worldgen census lines both
+serve.
 
 **`ORGANISM_PASS=<every N>` splits `step_organisms` seven ways** (in
 `plant.rs`, same shape as `FIELD_PASS`), and prints `live`/`ticked`/`cells`
