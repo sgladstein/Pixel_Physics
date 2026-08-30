@@ -223,6 +223,7 @@ fn main() {
         // long a player waits before the world stops costing what it costs
         // here.
         let (mut still, mut worst_sweep, mut worst_field) = (0usize, 0.0f64, 0.0f64);
+        let solved_at_start = world.field_stats.tiles_solved;
         let mut to_quiet: Option<usize> = None;
         for i in 0..frames {
             let t = Instant::now();
@@ -285,6 +286,18 @@ fn main() {
             sum_sf += d;
         }
         let awake = world.active_chunk_count();
+        // **What the field's cost is actually proportional to.** `field::step`
+        // rebuilds `Vec<ChunkCoord>` over *every resident chunk* each frame
+        // and does two `HashMap` fetches per entry just to decide which tiles
+        // need solving; only the awake ones, plus a halo, are then stepped.
+        // So a bigger world can cost more per frame while doing no more real
+        // work, and these two numbers are what tell the difference -- without
+        // them, "the field got cheaper when I shrank the world" cannot be
+        // told from "the field had less to solve because the world generated
+        // differently", which is the confound this whole probe exists inside
+        // (each size builds a *different* world, not a scaled one).
+        let chunks = world.chunk_count();
+        let solved_per_frame = (world.field_stats.tiles_solved - solved_at_start) as f64 / frames as f64;
         let quiet = match to_quiet {
             Some(f) => format!("{f}"),
             None => format!(">{frames}"),
@@ -292,7 +305,7 @@ fn main() {
 
         println!(
             "{:>11} {:>10} {:>8.0}ms {:>9.0}ms {:>8.0}ms {:>7.0}MiB {:>7.2}ms {:>7.2}ms | \
-             sweep {:>6.2}/{:<6.2} field {:>6.2}/{:<6.2} awake {} quiet@{}",
+             sweep {:>6.2}/{:<6.2} field {:>6.2}/{:<6.2} awake {} quiet@{} | chunks {} solved/frame {:.0}",
             format!("{w}x{h}"),
             w as i64 * h as i64,
             place_ms,
@@ -307,6 +320,8 @@ fn main() {
             worst_sf,
             awake,
             quiet,
+            chunks,
+            solved_per_frame,
         );
     }
 

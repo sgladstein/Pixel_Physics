@@ -860,53 +860,98 @@ fn builtin_fate(cell_type: CellType, when: organism::FateWhen) -> Option<organis
 
 /// **How far `fate_for` may fall back when the genome has no answer.**
 ///
-/// A measurement selector, not a shipped behaviour change: `Full` is the
-/// default and is what every build does unless
-/// `PIXEL_PHYSICS_FATE_LOOKUP` says otherwise. It exists because
-/// `Reports/plant-fate-operator-gate-2026-08-29.md` §4 ends on a fork the
-/// owner has not decided, and the queue cannot show a fork nobody can
-/// render — `CLAUDE.md`'s "for *does this look right*, ship a runtime
-/// selector rather than choosing".
+/// **`GenomeOnly` ships.** The owner's answer to review card
+/// `20260829T204941423Z-880e13` was *"No safety net"*: a lineage's genome is
+/// the whole of its production rule, a mutation that vacates a slot vacates
+/// it for real, and a lineage may delete its way to a plant that cannot grow.
+/// `Full` and `NoSpecies` survive behind `PIXEL_PHYSICS_FATE_LOOKUP` because
+/// the numbers below are only reproducible if the old depths still run.
 ///
-/// **Measured 2026-08-29: the middle position is nearly inert, so the fork
-/// is binary in practice.** `herb`, 20,000 frames, `genome_drift`: at a 10x
-/// mutation rate `NoSpecies` and `Full` came out **byte-identical** — same
-/// 2,029 live, same 337 drifted, same slot means to three decimals — and at
-/// a **50x** rate they differ by well under 1% (1,568 against 1,580 live).
-/// `GenomeOnly` separates from both at 10x. So the species table is not what
-/// absorbs a mutation on this base; `builtin_fate` underneath it is, and
-/// removing only the species layer buys almost nothing. Anyone weighing the
-/// fork should weigh `Full` against `GenomeOnly` and treat `NoSpecies` as a
-/// control rather than an option.
+/// **Measured 2026-08-30, before the flip: at the shipped mutation rate the
+/// net never fires at all.** Counting, inside `fate_for_under`, every query
+/// where the genome had no answer and a lower layer supplied one
+/// (`genome_drift`, `founders=8`, one world seed):
 ///
-/// **There are three positions here and the report only named two.** The
-/// gate's §3 measured that `tree delete` is 40-of-40 silent because *both*
-/// layers beneath the genome answer the vacated slot — the species table
-/// first and `builtin_fate` behind it. So dropping the species layer alone
-/// does **not** make `delete` a real operator on a woody base; it only
-/// un-shadows the slots `builtin_fate` returns `None` for, which is the
-/// organ clock. Only `GenomeOnly` makes every operator real, and it is the
-/// only one that can hand a lineage a plant that cannot grow.
+/// | species | rate | fate queries | net saves |
+/// |---|---|---|---|
+/// | `herb` | 0.01 (shipped), 60,000 frames | 88,909 | **0** |
+/// | `herb` | 0.01 (shipped), 20,000 frames | 26,006 | **0** |
+/// | `herb` | 0.1 (10x), 20,000 frames | 28,253 | **0** |
+/// | `herb` | 0.9 (90x), 20,000 frames | 39,340 | 1,305 |
+/// | `tree` | 0.01 and 0.1, 20,000 frames | 26,074 | **0** |
+/// | `moss` | any | **0 — never queries at all** | 0 |
+///
+/// So this flip is a **licence, not a behaviour change**: at 0.01 the shipped
+/// world is bit-identical either way, and `genome_drift` logs for `moss`,
+/// `tree` and `herb` came back byte-identical between `Full` and `GenomeOnly`
+/// at both 0 and 10x. What it buys is that `delete` and `recondition` become
+/// real operators *when generations turn over faster than they do today* —
+/// mean generation depth is 2.04 at 60,000 frames, which is the actual
+/// bottleneck. Do not quote this as "removing the net changed the stand".
+///
+/// **Two hazards it does not have, both checked rather than assumed.**
+/// `moss.ron` authors no fate table at all, so its genome is empty and under
+/// `GenomeOnly` every lookup would return `None` — but moss's only behaviour
+/// is `Divide`, which never consults a fate, and the call counter above is
+/// **0** across every rate. And the only slot any vascular species leaves to
+/// `builtin_fate` is `(RootTip, Node)`, which is unreachable: every species
+/// gives a root `plastochron: 0`, and `Grow` computes `leaf_due` as
+/// `plastochron_interval > 0 && ...`, so a root never reaches `Node`.
+/// `a_species_table_answers_every_slot_its_own_growth_can_reach` is the guard
+/// that keeps both true.
+///
+/// **`builtin_fate` is never the absorber, which corrects what this doc used
+/// to say.** It claimed "`builtin_fate` is the real absorber" on the strength
+/// of `NoSpecies` and `Full` coming out byte-identical. Both facts are true
+/// and the inference was not: at 90x, all 1,305 saves were taken by the
+/// **species** layer and `builtin_fate` took **0**. The two agree on those
+/// slots, which is why dropping the middle layer changed nothing — agreement,
+/// not absorption.
+///
+/// **The middle position is nearly inert, so the fork was binary in
+/// practice.** `herb`, 20,000 frames, `genome_drift`: at a 10x mutation rate
+/// `NoSpecies` and `Full` came out byte-identical — same 2,029 live, same 337
+/// drifted, same slot means to three decimals — and at a **50x** rate they
+/// differ by well under 1% (1,568 against 1,580 live). `GenomeOnly` was
+/// reported to separate from both at 10x; measured 2026-08-30 it does **not**
+/// (see the table above), and the earlier claim is withdrawn.
+///
+/// **There are three positions here and the original report only named two.**
+/// The gate's §3 measured that `tree delete` is 40-of-40 silent because
+/// *both* layers beneath the genome answer the vacated slot — the species
+/// table first and `builtin_fate` behind it. So dropping the species layer
+/// alone does **not** make `delete` a real operator on a woody base; it only
+/// un-shadows the slots `builtin_fate` returns `None` for, which is the organ
+/// clock. Only `GenomeOnly` makes every operator real, and it is the only one
+/// that can hand a lineage a plant that cannot grow.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum FateLookup {
-    /// `genome -> species -> builtin`. What ships.
+    /// `genome -> species -> builtin`. The pre-2026-08-30 behaviour, kept
+    /// reachable as `PIXEL_PHYSICS_FATE_LOOKUP=full` so the fork's
+    /// measurements stay reproducible.
     Full,
     /// `genome -> builtin`. Drops the layer that refills a slot with the
-    /// rule a mutation just removed, and keeps the engine floor.
+    /// rule a mutation just removed, and keeps the engine floor. A control
+    /// rather than an option: measured byte-identical to `Full`.
     NoSpecies,
-    /// `genome`, full stop. Every operator is real and a lineage can delete
-    /// its way to a plant with no growth rule at all.
+    /// `genome`, full stop. **What ships.** Every operator is real and a
+    /// lineage can delete its way to a plant with no growth rule at all.
     GenomeOnly,
 }
 
 /// Read once per process — an env read per `fate_for` call would be a
 /// syscall in the growth path, and the mode cannot change mid-run anyway.
+///
+/// **`GenomeOnly` is the default since 2026-08-30** — owner's answer to review
+/// card `20260829T204941423Z-880e13`, verbatim: *"No safety net"*. The other
+/// two remain reachable so the fork stays renderable and the measurements
+/// below stay reproducible; nothing in the engine sets them.
 fn fate_lookup() -> FateLookup {
     static MODE: std::sync::OnceLock<FateLookup> = std::sync::OnceLock::new();
     *MODE.get_or_init(|| match std::env::var("PIXEL_PHYSICS_FATE_LOOKUP").as_deref() {
+        Ok("full") => FateLookup::Full,
         Ok("nospecies") => FateLookup::NoSpecies,
-        Ok("genome") => FateLookup::GenomeOnly,
-        _ => FateLookup::Full,
+        _ => FateLookup::GenomeOnly,
     })
 }
 
@@ -919,22 +964,27 @@ fn fate_lookup() -> FateLookup {
 /// rule never sets the field, so 0 changes nothing for any species that has
 /// not authored a determinate axis.
 ///
-/// **Read from the individual, not the species**, which is the whole of the
-/// heritable-fates change at this end. The order is the individual's own
-/// genome, then its species' authored table, then the built-in rule:
+/// **Read from the individual, and since 2026-08-30 from nothing else.** The
+/// genome founded at `World::push_organism` is the whole of a plant's
+/// production rule:
 ///
 /// - the **genome** is what a lineage carries and mutates, founded from the
 ///   species file at `World::push_organism` so a founder and its species
-///   agree by construction;
-/// - the **species table** still answers for anything with no genome — a
-///   creature, or an organism from a save predating this — so nothing that
-///   worked before stops working;
-/// - **`builtin_fate`** is unchanged and is still the control every authored
-///   table is proved against.
+///   agree by construction — which is why flipping the default changed no
+///   founder's behaviour;
+/// - the **species table** is no longer consulted per query. It was the
+///   safety net: a mutation that vacated a slot was silently refilled with
+///   the rule it had just removed, which is what made `delete` inert and
+///   `recondition` half-inert;
+/// - **`builtin_fate`** is likewise no longer consulted, and is still the
+///   control every authored table is proved against
+///   (`an_authored_fate_table_agrees_with_the_builtin_rule`).
 ///
-/// **That three-layer order is [`FateLookup::Full`], which is what ships and
-/// what every build does unless the environment overrides it.** The other two
-/// depths exist to render the fork this leaves open; see [`FateLookup`].
+/// **An empty genome therefore means a cell that does nothing.** That is the
+/// honest reading of a genome-authoritative lookup and the owner's decision;
+/// `a_species_table_answers_every_slot_its_own_growth_can_reach` is what stops
+/// a *founder* reaching it by authorship. See [`FateLookup`] for the
+/// measurement and for the two depths kept behind the environment variable.
 fn fate_for(
     world: &World,
     organism_id: u16,
@@ -10468,13 +10518,23 @@ The night factor belongs on income only -- see NIGHT_INCOME_FLOOR"
             CellType::DormantBud,
         ];
 
-        // **Organism 0, deliberately.** This guard is about the *species*
-        // tables agreeing with the built-in rule, and organism 0 is no
-        // organism at all -- so `fate_for` finds no genome, falls through to
-        // the species table, and asks exactly the question this test is named
-        // for. Passing a real organism would test the genome instead, which
-        // has its own guard.
+        // **Organism 0 under `Full`, deliberately, and the depth is now
+        // explicit.** This guard is about the *species* tables agreeing with
+        // the built-in rule, and organism 0 is no organism at all -- so the
+        // lookup finds no genome, falls through to the species table, and asks
+        // exactly the question this test is named for. Passing a real organism
+        // would test the genome instead, which has its own guard.
+        //
+        // **It says `Full` rather than calling `fate_for` because the shipped
+        // depth is now `GenomeOnly`** (owner, 2026-08-30: "No safety net"),
+        // under which organism 0 answers `None` to everything and this guard
+        // would compare `None` against `builtin_fate` and fail for a reason
+        // that has nothing to do with what it is named for. The claim it
+        // makes -- that no authored table contradicts the built-in rule --
+        // outlives the fallback depth, because `builtin_fate` is still the
+        // control every species file is proved against.
         const NO_ORGANISM: u16 = 0;
+        let under_full = |w: &World, id, ct, when| fate_for_under(w, NO_ORGANISM, id, ct, when, 0, FateLookup::Full);
         let w = test_world();
         let mut authored_species = 0usize;
         let mut authored_answers = 0usize;
@@ -10503,19 +10563,19 @@ The night factor belongs on income only -- see NIGHT_INCOME_FLOOR"
                         authored_answers += 1;
                     }
                     assert_eq!(
-                        fate_for(&w, NO_ORGANISM, id, ct, when, 0).map(|f| f.becomes),
+                        under_full(&w, id, ct, when).map(|f| f.becomes),
                         builtin_fate(ct, when).map(|f| f.becomes),
                         "{name}: the authored fate for {ct:?} at {when:?} disagrees with the \
                          built-in rule. This refactor's whole claim is that moving the production \
                          rule into data changed no behaviour -- see `builtin_fate`."
                     );
                     assert_eq!(
-                        fate_for(&w, NO_ORGANISM, id, ct, when, 0).and_then(|f| f.child),
+                        under_full(&w, id, ct, when).and_then(|f| f.child),
                         builtin_fate(ct, when).and_then(|f| f.child),
                         "{name}: authored child fate for {ct:?} at {when:?} disagrees"
                     );
                     assert_eq!(
-                        fate_for(&w, NO_ORGANISM, id, ct, when, 0).and_then(|f| f.lateral),
+                        under_full(&w, id, ct, when).and_then(|f| f.lateral),
                         builtin_fate(ct, when).and_then(|f| f.lateral),
                         "{name}: authored lateral fate for {ct:?} at {when:?} disagrees"
                     );
@@ -10532,6 +10592,100 @@ The night factor belongs on income only -- see NIGHT_INCOME_FLOOR"
             authored_answers >= 20,
             "the authored tables answered only {authored_answers} lookups -- the species branch of \
              `fate_for` is not the one being exercised, so this test is blind"
+        );
+    }
+
+    /// **No shipped species leans on a layer that no longer exists.**
+    ///
+    /// The safety net came out on 2026-08-30 (owner: *"No safety net"*), so
+    /// `fate_for` reads the individual's genome and stops. That is only a
+    /// licence for mutation — rather than a silent change to how every
+    /// founder grows — if each species' *own* table already answers every
+    /// slot its own growth can reach. This is the guard for that, and it is
+    /// the permanent form of the probe that found the two exemptions below.
+    ///
+    /// **Reachability is computed, not listed**, because an allowlist would
+    /// rot the moment a species file changed. A slot is reachable when the
+    /// species declares the behaviour that asks for it:
+    ///
+    /// - `Grow` on a cell type reaches `(type, Grew)` and `(type, Stale)`;
+    /// - it reaches `(type, Node)` **only** if that type's `plastochron` is
+    ///   above zero — `Grow` computes `leaf_due` as `plastochron_interval > 0
+    ///   && ...`, so a root, which every species files at `plastochron: 0`,
+    ///   can never reach `Node`. That is why `(RootTip, Node)` is the one
+    ///   slot every vascular species leaves to `builtin_fate` and why leaving
+    ///   it there is safe;
+    /// - `BudBreak` reaches `(DormantBud, Flush)`.
+    ///
+    /// **`moss` is the case that makes this worth having.** It authors no
+    /// fate table at all, so its genome is empty and every lookup under the
+    /// shipped depth returns `None`. It is safe today only because its sole
+    /// behaviour is `Divide`, which never consults a fate — measured, with a
+    /// call counter inside `fate_for_under`: **0 calls** across 20,000 frames
+    /// at every mutation rate tried. Give moss a `Grow` and it would silently
+    /// stop growing; this guard fails first instead.
+    ///
+    /// **It asserts on the founding genome, not on the species table**, which
+    /// are the same content by construction (`World::push_organism` flattens
+    /// one into the other) but not the same object — and the genome is what
+    /// the engine actually reads.
+    #[test]
+    fn a_species_table_answers_every_slot_its_own_growth_can_reach() {
+        use organism::FateWhen::{Flush, Grew, Node, Stale};
+        let w = test_world();
+        let mut checked = 0usize;
+        let mut species_with_growth = 0usize;
+        for name in ["tree", "conifer", "shrub", "creeper", "grass", "moss", "herb", "scrambler"] {
+            let Some(id) = w.species.id_of(name) else { continue };
+            let genome = organism::FateGenome::from_table(w.species.get(id).fate_table());
+            let mut wanted: Vec<(CellType, organism::FateWhen, u8)> = Vec::new();
+            let mut grows = false;
+            for ct in organism::PLANT_CELL_TYPES {
+                for b in w.species.get(id).behaviors(ct) {
+                    match b {
+                        organism::Behavior::Grow { plastochron, .. } => {
+                            grows = true;
+                            wanted.push((ct, Grew, 0));
+                            wanted.push((ct, Stale, 0));
+                            // Order 0 is the trunk/taproot -- the tier every
+                            // axis starts at, so if any tier can reach `Node`
+                            // this one can.
+                            if plastochron.at(0) > 0 {
+                                wanted.push((ct, Node, 0));
+                            }
+                        }
+                        organism::Behavior::BudBreak { .. } => {
+                            wanted.push((CellType::DormantBud, Flush, 0));
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            if grows {
+                species_with_growth += 1;
+            }
+            for (ct, when, metamers) in wanted {
+                checked += 1;
+                assert!(
+                    genome.fate(ct, when, metamers).is_some(),
+                    "{name} declares a behaviour that asks for ({ct:?}, {when:?}) but its own table \
+                     does not answer it. Before 2026-08-30 the species table and `builtin_fate` sat \
+                     behind the genome and covered this; they no longer do, so this slot is now dead \
+                     for every founder of this species. Author the rule in the .ron."
+                );
+            }
+        }
+        // Anti-vacuity, both halves. A typo in a species name, or a
+        // reachability model that never adds anything to `wanted`, would make
+        // every assertion above unreachable and this test green.
+        assert!(
+            species_with_growth >= 5,
+            "only {species_with_growth} species were found to grow at all -- the reachability model \
+             is not finding `Behavior::Grow`, so this guard is blind"
+        );
+        assert!(
+            checked >= 20,
+            "only {checked} slots were checked -- this guard is not reaching the species tables"
         );
     }
 
@@ -10814,17 +10968,26 @@ The night factor belongs on income only -- see NIGHT_INCOME_FLOOR"
              this repo has shipped three times"
         );
 
-        // And the fall-through still works for anything with no genome of its
-        // own: a creature, or an organism from before this existed. Organism
-        // 0 is no organism at all, so this is that path exactly.
+        // **And there is no longer a fall-through.** Organism 0 is no organism
+        // at all, so it carries no genome, and under the shipped `GenomeOnly`
+        // depth that means no answer -- where before 2026-08-30 it took its
+        // species' `DormantBud`. The old expectation is kept one line down
+        // rather than deleted, because it is what `PIXEL_PHYSICS_FATE_LOOKUP=
+        // full` still does and it is the thing the owner decided against.
         assert_eq!(
             fate_for(&w, 0, id, CellType::GrowingTip, Node, 0).map(|f| f.becomes),
+            None,
+            "with no genome there is nothing to read: the species table is not consulted per query \
+             any more (owner, 2026-08-30: \"No safety net\")"
+        );
+        assert_eq!(
+            fate_for_under(&w, 0, id, CellType::GrowingTip, Node, 0, FateLookup::Full).map(|f| f.becomes),
             Some(CellType::DormantBud),
-            "an organism with no genome must still get its species' answer"
+            "...and the depth that was removed is still reachable, or the fork stops being renderable"
         );
     }
 
-    /// **A slot a genome vacates is refilled by its species table** — an
+    /// **A slot a genome vacates stays vacant** — an
     /// individual can override a behaviour or add one, and cannot take one
     /// away.
     ///
@@ -10834,10 +10997,12 @@ The night factor belongs on income only -- see NIGHT_INCOME_FLOOR"
     /// slot the genome leaves empty is answered by the species' original rule
     /// rather than by nothing.
     ///
-    /// **This is measured, and it is what two of the four mutation operators
-    /// run into.** `fate_viability base=tree op=recondition` scores **39 of 40
-    /// mutants silent**, and `base=herb op=delete` **21 of 40** — among them
-    /// every deletion of `GrowingTip.Grew`, the rule the whole plant grows by.
+    /// **This was measured, and it is what two of the four mutation operators
+    /// used to run into.** `fate_viability base=tree op=recondition` scores
+    /// **39 of 40 mutants silent**, and `base=herb op=delete` **21 of 40** —
+    /// among them every deletion of `GrowingTip.Grew`, the rule the whole
+    /// plant grows by. Those figures describe `FateLookup::Full` and are the
+    /// baseline the flip is against, not the shipped behaviour.
     ///
     /// **Which layer absorbs the loss differs between the harness and the
     /// engine, and the distinction matters.** `fate_viability` registers each
@@ -10846,15 +11011,18 @@ The night factor belongs on income only -- see NIGHT_INCOME_FLOOR"
     /// refills is `builtin_fate` — which is why herb's effective deletions are
     /// exactly its two `Ripe` rules, the slots `builtin_fate` answers `None`
     /// for. In the live engine a seed's genome is mutated and its species file
-    /// is not, so the species table refills first, with the original rule.
+    /// is not, so under `Full` the species table refilled first, with the
+    /// original rule.
     ///
-    /// **So the harness's silence figures are a lower bound on the engine's.**
-    /// A live lineage has both layers behind it where a harness variant has
+    /// **So the harness's silence figures were a lower bound on the engine's.**
+    /// A live lineage had both layers behind it where a harness variant has
     /// only one, and the deletions the harness scores as effective — the organ
     /// clock — are exactly the ones a real species table would still answer.
-    /// The consequence for the programme is the same either way, and stronger
-    /// in the engine: a lineage gains and adjusts behaviours but never loses
-    /// one.
+    /// The consequence was that a lineage gained and adjusted behaviours but
+    /// never lost one. **Under the shipped `GenomeOnly` the harness and the
+    /// engine agree**: neither has a layer behind the mutated table, so
+    /// `fate_viability`'s numbers now describe the engine directly rather
+    /// than bounding it.
     ///
     /// **It asserts on `herb`, not `tree`, and that is the whole design of
     /// it.** The first version of this guard used `tree` and was **blind**:
@@ -10867,13 +11035,16 @@ The night factor belongs on income only -- see NIGHT_INCOME_FLOOR"
     /// from it. `herb.ron`'s `Node -> Flower @8` is therefore an answer only
     /// the species layer can give.
     ///
-    /// Whether the fallback *should* be per query or per genome is a design
-    /// question with costs either way — a genome-authoritative lookup makes
-    /// `delete` a real operator and also lets a lineage delete its way to a
-    /// plant that cannot grow. This pins today's behaviour so that changing it
-    /// is deliberate.
+    /// **That fork is now decided.** The owner answered review card
+    /// `20260829T204941423Z-880e13` with *"No safety net"* on 2026-08-30, so
+    /// the lookup is genome-authoritative: `delete` is a real operator and a
+    /// lineage may delete its way to a plant that cannot grow. This test kept
+    /// its scaffolding and flipped its expectations, and each assertion is
+    /// paired with the `FateLookup::Full` answer it used to make — the
+    /// withdrawn behaviour stays runnable rather than being deleted, per
+    /// `CLAUDE.md`'s "a revert keeps the knowledge".
     #[test]
-    fn a_slot_a_genome_vacates_is_refilled_by_its_species_table() {
+    fn a_slot_a_genome_vacates_stays_vacant() {
         use organism::FateWhen::{Node, Stale};
         let mut w = test_world();
         let id = w.species.id_of("herb").expect("herb is compiled in");
@@ -10911,16 +11082,24 @@ The night factor belongs on income only -- see NIGHT_INCOME_FLOOR"
         }
         assert_eq!(
             fate_for(&w, organism, id, CellType::GrowingTip, Node, 8).map(|f| f.becomes),
+            None,
+            "a slot the genome does not declare is not answered by anything -- dropping a rule removes \
+             the behaviour, which is what makes `delete` and `recondition` real operators"
+        );
+        assert_eq!(
+            fate_for_under(&w, organism, id, CellType::GrowingTip, Node, 8, FateLookup::Full).map(|f| f.becomes),
             Some(CellType::Flower),
-            "a slot the genome does not declare falls through to the species table -- so dropping a rule \
-             does not remove the behaviour, which is why `delete` and `recondition` are mostly silent"
+            "the withdrawn behaviour, kept runnable: under `Full` the species table refilled the slot \
+             with the rule the mutation had just removed, and that is the net the owner declined"
         );
 
         // **The determinacy case, which is the one that matters most.** A
         // genome rule gated on `after_metamers` does not answer *below* its
-        // threshold, so the species' rule answers there instead: the lineage
-        // is not what its own table says, it is its own table above N and its
-        // species below.
+        // threshold. Before 2026-08-30 the species' rule answered there
+        // instead, so a lineage was its own table above N and its species
+        // below -- a chimera it never declared. Now the gap is a real gap:
+        // below its threshold the lineage has no rule for that slot, which is
+        // the whole meaning of "no safety net".
         if let Some(state) = w.organism_mut(organism) {
             state.fates = organism::FateGenome::from_table(&[(
                 CellType::GrowingTip,
@@ -10935,8 +11114,13 @@ The night factor belongs on income only -- see NIGHT_INCOME_FLOOR"
         }
         assert_eq!(
             fate_for(&w, organism, id, CellType::GrowingTip, Node, 8).map(|f| f.becomes),
+            None,
+            "below its own threshold the genome's gated rule does not answer, and nothing answers for it"
+        );
+        assert_eq!(
+            fate_for_under(&w, organism, id, CellType::GrowingTip, Node, 8, FateLookup::Full).map(|f| f.becomes),
             Some(CellType::Flower),
-            "below its own threshold the genome's gated rule does not answer, so the species' rule does"
+            "the withdrawn behaviour, kept runnable: the species' rule used to fill the sub-threshold gap"
         );
         assert_eq!(
             fate_for(&w, organism, id, CellType::GrowingTip, Node, 30).map(|f| f.becomes),
