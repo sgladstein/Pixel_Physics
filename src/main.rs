@@ -569,8 +569,17 @@ impl Handler {
             // `Y` — the last free letter, and it places a *colony* rather
             // than an ant: under about fifty they look broken however
             // correct the code is (P-15).
+            //
+            // **Shift reads the colony rather than placing one.** Every plain
+            // letter was bound by the time the colony panel wanted a key --
+            // this comment's own "last free letter" is what settled it -- and
+            // a modifier on the key that founds a colony is the one binding
+            // nobody has to be told twice. Shift is `held.grab`, the same
+            // single source of truth the gnome's tree-grip reads.
             KeyCode::KeyY => {
-                if let Some((x, y)) = self.cursor {
+                if self.held.grab {
+                    self.app.toggle_colony();
+                } else if let Some((x, y)) = self.cursor {
                     self.app.found_colony(x, y);
                 }
             }

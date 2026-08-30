@@ -32,7 +32,7 @@
 
 use serde::{Deserialize, Serialize};
 
-pub const BRAIN_INPUTS: usize = 16;
+pub const BRAIN_INPUTS: usize = 18;
 pub const BRAIN_HIDDEN: usize = 4;
 pub const BRAIN_OUTPUTS: usize = 11;
 
@@ -190,6 +190,8 @@ pub const INPUT_NAMES: [&str; BRAIN_INPUTS] = [
     "Crowding",
     "PheroAAlong",
     "PheroBAlong",
+    "PreyNear",
+    "PreyBearing",
 ];
 pub const OUTPUT_NAMES: [&str; BRAIN_OUTPUTS] = ["Turn", "Move", "EmitA", "EmitB", "Dig", "Drop", "Persist", "Tumble", "Caution", "Feed", "Impulse"];
 
@@ -404,6 +406,53 @@ pub enum BrainInput {
     /// removing a slot is the one thing the positional law forbids.
     PheroAAlong = 14,
     PheroBAlong = 15,
+    /// **How close the nearest prey animal this creature can actually see
+    /// is**, as `1 - distance / sight_range`: 1.0 in contact, 0.0 at the
+    /// limit of the eye, and exactly 0.0 when nothing is in sight.
+    ///
+    /// **The first input in this scaffold that reports another animal at a
+    /// distance at all**, and that absence is why E15 exists. Before it,
+    /// `FoodAdjacent` and `AtNest` were the head's 8-neighbourhood,
+    /// `Crowding` was r=2 and could not say *what* was near, and the two
+    /// pheromone planes were the only distal sense — measured unusable for
+    /// hunting: mean beetle-to-nearest-trail 46 cells against a 6-cell
+    /// sensor span, and the beetle's two sensor reads differing 1.3% of the
+    /// time. A predator with no way to find prey moved no counter at all:
+    /// `beetles=0` and `beetles=9` ran **bit-identical** over 6,000 frames.
+    ///
+    /// **Zero for every species that has not authored `sight_range`**, and
+    /// that is the opt-in rather than a default — see
+    /// `CreatureDef::sight_range`. Sized at 64 cells and cast all-round by
+    /// `Reports/creature-vision-sizing-2026-08-30.md`, which measured the
+    /// reach, the shape, what occludes it and what it costs before any of
+    /// it was built.
+    ///
+    /// **Paired with `PreyBearing` deliberately**, the same way
+    /// `PheroAFront` is paired with `PheroALateral`: a magnitude says
+    /// *there is something*, a direction says *that way*, and the pair
+    /// makes pursuit reachable by one connection from each. On its own this
+    /// input can only gate speed.
+    PreyNear = 16,
+    /// **Which way to turn to face that prey**, as the signed angle from
+    /// the current heading normalized to `-1..1`. **Positive = to the
+    /// right**, the same convention `PheroALateral` states, so an authored
+    /// pursuit instinct is a *negative* weight into `Turn` (which biases
+    /// left when positive — see `creature.rs`'s candidate scoring).
+    ///
+    /// `0.0` means dead ahead *and* means nothing in sight; `PreyNear` is
+    /// what separates those, which is the other half of why the pair is a
+    /// pair.
+    ///
+    /// **A full-circle bearing, not a lateral difference of two sensor
+    /// reads**, and that is not a style choice. `+-1` is prey directly
+    /// behind, so an animal that has walked past its target turns hard
+    /// rather than reading the 0 a left-minus-right sensor would give it at
+    /// exactly the moment the sense matters most. It also keeps this input
+    /// clear of `CLAUDE.md`'s coarse-field degeneracy — hit four times on
+    /// three lines and never once caught by a test — because it is not a
+    /// difference of two samples of a block-nearest field at all: it is one
+    /// bearing to one cell found by a ray traced at CA resolution.
+    PreyBearing = 17,
 }
 
 /// Which output slot. Positional and append-only, as above.
@@ -620,6 +669,8 @@ pub const INPUTS: [BrainInput; BRAIN_INPUTS] = [
     BrainInput::Crowding,
     BrainInput::PheroAAlong,
     BrainInput::PheroBAlong,
+    BrainInput::PreyNear,
+    BrainInput::PreyBearing,
 ];
 /// See [`INPUTS`].
 pub const OUTPUTS: [BrainOutput; BRAIN_OUTPUTS] = [
@@ -980,7 +1031,14 @@ mod tests {
         // means what it meant, because `BRAIN_OUTPUTS` indexes into a
         // reserve of 64 that has not moved. A change here that came with a
         // changed `GENOME_LEN` or a reordered name would be the other kind.
-        assert_eq!(genome_manifest(), 717_235_691);
+        //
+        // **Moved again 2026-08-30 by the `PreyNear`/`PreyBearing` append**
+        // (E15, the sight sense), and lawfully for the same reason one
+        // level up: `BRAIN_INPUTS` 16 -> 18 lights up two columns of a
+        // 64-wide reserve that already existed and were already zero,
+        // `GENOME_LEN` is unchanged at 12,352, and not one existing weight
+        // moves. This is exactly the append S2 reserved the dimensions for.
+        assert_eq!(genome_manifest(), 1_520_499_525);
     }
 
     #[test]
