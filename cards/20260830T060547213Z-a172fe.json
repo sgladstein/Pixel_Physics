@@ -1,0 +1,48 @@
+{
+  "id": "20260830T060547213Z-a172fe",
+  "created": "2026-08-30T06:05:47Z",
+  "board": "creatures",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/creature-lane-g-panel",
+    "commit": "322ea66",
+    "agent": null,
+    "session_id": "20234dc2-0590-5b0a-a98c-95c6fbc21c91",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The colony panel: SHIFT+Y (supersedes the earlier card)",
+  "question": "Are these the right things to have on it -- and is anything you would look at first missing, or anything on it you would never read?",
+  "context_md": "**Please judge this one and ignore the card I posted half an hour ago** — same panel, same question, but that shot was taken before I pulled main in, so its ants were on the old full-size food budget and every one of them sat at the same energy. The histogram was one bar, which is the worst possible advertisement for the reason it is a histogram.\n\n**A page for the colony, in the game.** Everything this project measures about ants lived in headless logs; on screen a colony was forty dots with no way to tell a thriving one from a dying one. `SHIFT+Y` (Y founds a colony, shift-Y asks after it) opens this down the left with the world still visible beside it.\n\nTwo questions before any detail:\n\n- **Is it doing well** — how many are alive, whether that is growing/steady/shrinking, the population traced while you watch, and births and deaths as a *rate* rather than a total that only climbs.\n- **What is it doing now** — carrying, in the air, how far out they are spread, and the work as rates per thousand frames.\n\nBetween them the larder, and on this colony it is doing the job it exists for: **37 of 40 are hungry**, and the shape says how — a heap piled against the empty end, with a single ant still nearly full. An average would have said 'about a quarter fed' and hidden both. The amber tick on the axis is the line where an ant starts feeling hungry — the same line the ant's own brain tests, not one invented for the picture — and bars below it are amber rather than red because hungry is a forager's normal state.\n\nTwo things I would rather you told me than guessed:\n\n1. Whether the **rate rows** (`PER 1K ...`) earn their space, or whether three lines of numbers is exactly the wall of counters this was meant to avoid.\n2. Whether the panel should be **narrower or shorter** — it takes the left half, and it is sized to its content so it grows when there is more to say. The DOWRY row at the bottom appeared on its own when main added the trait this evening.\n\nMeasured, not guessed: shut, it does no work at all — no count, no sample, one boolean test a frame — so a settled world keeps its render skip. Open, it costs a full redraw, the same bargain the help page and the options panel already make.",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "SHIFT+Y over a hungry 40-ant colony, about a minute in",
+      "files": [
+        "20260830T060547213Z-a172fe/000-colony_card2.png"
+      ],
+      "caption": "Drawn at 2x. The world shows through the panel at 82% -- the pale band across the GUT row is a lake behind it, not a widget.",
+      "meta": {
+        "ants alive": 40,
+        "ants below the hunger line": "37 of 40",
+        "energy, lowest / middle / highest ant": "14 / 23 / 191 of a full 200",
+        "food carried home in the window": 11,
+        "round trips completed": 52,
+        "cells dug": 233,
+        "richest ant's store against what a child costs": "191 of 1100",
+        "frame cost with it shut, settled world": "0.086 ms",
+        "frame cost with it open, settled world": "3.88 ms",
+        "one count of the whole colony": "0.013 ms, twice a second"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
