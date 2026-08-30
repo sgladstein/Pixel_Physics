@@ -150,11 +150,60 @@ measured:
 | 6144x1536 | 9.4M | 2042 ms | 165 MiB | 6.28 ms |
 
 **Cutting stone depth buys load time and memory, not frame rate.** Removing
-1,024 rows — 40% of the world's cells — halves generation and memory and
-moves the settled frame cost by 1%. That rock was never in the field's
-working set: it is dark, blocked and quiet, so no pass walks it. Only
-*narrowing* the world moves the frame, because the sky-lit band is
-proportional to width.
+1,024 rows — 40% of the world's cells — halves generation and memory. The
+conclusion holds; **the "1% frame cost" figure above and the mechanism given
+for it are both wrong, and are corrected below** rather than edited away,
+because the shape of the error is the useful part.
+
+### Re-measured 2026-08-30 on a much-changed `main`: the frame does move, and not monotonically
+
+Generation and peak RSS are still almost exactly linear in cells. The frame
+is not, and the earlier claim that deep rock "was never in the field's
+working set" does not survive a third data point:
+
+| world | cells | generation | peak RSS | field, per frame | chunks | tiles **solved**/frame |
+|---|---|---|---|---|---|---|
+| 8192x2560 | 21.0M | 5.8 s | 361 MiB | 18.67 ms | 5120 | 674 |
+| 8192x1536 | 12.6M | 3.0 s | 219 MiB | 11.95 ms | 3072 | 644 |
+| **8192x1024** | 8.4M | 2.0 s | 148 MiB | **25.66 ms** | 2048 | **887** |
+| 6144x1536 | 9.4M | 2.3 s | 166 MiB | 9.17 ms | 2304 | 479 |
+| 4096x1280 | 5.2M | 1.4 s | 99 MiB | 9.72 ms | 1280 | 403 |
+
+**Read the first two rows and it looks like a beautiful result**, and it is
+the wrong one. Cutting depth to 1536 removes 40% of the chunks and only
+**4.5%** of the tiles actually solved, and the cost falls 40% — which reads
+as *"the field spends its time enumerating dead rock"*, and the code supports
+the story: `field::step` rebuilds `Vec<ChunkCoord>` over every resident chunk
+each frame and does two `HashMap` fetches per entry before it knows what to
+skip. Across those first three sizes the cost even fits 3.87, 3.89 and 3.98
+ms per thousand chunks — the sort of tidiness `CLAUDE.md` says to distrust.
+
+**The 1024-deep row kills it.** 60% fewer chunks than the shipped size, 32%
+*more* tiles solved, and the field costs **more**. The cost follows the awake
+set, and the awake set is a property of what sits near the surface — the
+sky-lit band, unsettled water, loose material — not of how much rock is
+underneath. Shrinking the world changes the content, and the content is what
+is being paid for.
+
+So: **there is no efficient way to shrink for frame rate, because size is not
+the variable.** A world you shrink can cost more per frame than the one you
+started with. What is true is the other half — the field is **79% of the
+frame** (8.04 ms of a 10.17 ms mean at the shipped size, `scale_probe
+phases=1`), it is the only phase over a millisecond, and its cost is set by
+the awake-tile count rather than by anything a shrink would give up.
+
+Two method notes, both of which this table only yields because the numbers
+sit beside each other:
+
+- **`solved/frame` is what discriminates**, and `scale_probe` did not print
+  it until this measurement. Without it, "the field got cheaper when I shrank
+  the world" cannot be told from "the field had less to solve because the
+  world generated differently" — and every row here is a *different world*,
+  not a scaled one, because each size regenerates from scratch.
+- **One discriminating pair is not a result.** The first pair discriminated
+  (chunks −40%, solved −4.5%, cost −40%) and pointed at the scan; the second
+  pair pointed the opposite way and was decisive. The first conclusion had
+  already been written down before the second run existed.
 
 That is worth knowing before planning around it, because the question
 proposed the depth cut as the thing that pays for resolution. It is not. The
