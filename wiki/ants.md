@@ -3,7 +3,8 @@
 *Current as of: 2026-08-30, when ants bred for the first time — an animal
 close to affording young now finishes the meal instead of carrying it home,
 and takes the best thing within reach rather than whatever it happens to
-turn toward first. Also 2026-08-30: a beetle got eyes — the first animal here
+turn toward first. Also 2026-08-30: a dug tunnel first stayed dug, and a
+beetle got eyes — the first animal here
 that can tell there is something worth eating on the far side of the room,
 rather than only what it is already touching. Also 2026-08-30: the colony got
 a page of its own — how many
@@ -135,8 +136,36 @@ into the ground, so a colony that ignores a patch loses it.
 **They dig.** Ants chew through soil and stop at anything harder. This is
 not a list of what ants may dig; it is a contest between how hard the ant
 pushes and how hard the material is, so soft ground gives way and rock does
-not. Turn a colony loose on a soil bank and it hollows it out, leaving the
+not. Turn a colony loose on a soil bank and it works into it, leaving the
 stone beneath untouched.
+
+**And what they dig now stays dug — which it did not before.** This page used
+to say a colony hollows a bank out, and that was simply not true: soil is
+loose, a hole in loose soil falls in behind whatever made it, and a gallery
+was gone within a heartbeat of being cut. A colony could dig all day and
+leave nothing behind but a lower bank — the same smooth slope you would get
+from a landslide, with no more inside it than that.
+
+What closed the gap is that an ant now *tamps the wall it cuts*. Every cell
+it excavates presses the ground around it into packed soil, which holds
+itself up (see [Powders](powders.md)), so the tunnel is lined as fast as it
+is opened and the roof has something to rest on. The verb and the thing it
+leaves behind are the same act.
+
+So a worked bank now has a warren in it: narrow galleries a cell or two
+across, walled in darker packed ground, branching back from the face the
+ants entered by. It is not a cathedral — it is the size of what fifty-five
+ants can chew in the time you would watch them for, and you have to be
+looking at the bank rather than at the ants to see it. But it is genuinely
+enclosed ground, with soil standing over the top of it, and that is the
+thing a slumping bank can never produce.
+
+**Water is what takes it away.** Packed ground is grains pressed together,
+and wetting it past what it can hold turns it back into loose soil that
+falls like any other. A nest driven below the water table does not survive;
+one that takes on standing water loses the wettest part — the shaft it came
+in by — and keeps the deeper galleries. Nothing else threatens a burrow, so
+staying dry is the whole of what a colony is defending.
 
 **They build without being told to.** An ant carrying something is more
 likely to put it down where the ground is drying out unevenly, and more

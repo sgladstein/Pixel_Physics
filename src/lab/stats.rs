@@ -563,7 +563,13 @@ impl Stats {
     fn rect(&self, world: &World) -> (i32, i32, i32, i32) {
         let (left, top, width) = RECT;
         let content: i32 = self.rows(world).iter().map(Row::height).sum();
-        (left, top, left + width, (top + HEADER + content + 6).min(super::HEIGHT as i32 - 6))
+        // **Stops at the bar, not at the window.** Clamping to `HEIGHT - 6`
+        // ran the page's last rows *under* the control bar, and stats draws
+        // after it, so the page painted over the buttons -- a control you can
+        // see but cannot reach, which is worse than one plainly behind a
+        // page. Found by the interface lane looking at a capture; no test saw
+        // it, because both surfaces drew exactly what they were asked to.
+        (left, top, left + width, (top + HEADER + content + 6).min(super::ui::bar_top() - 6))
     }
 
     /// The oldest sample within [`RATE_WINDOW`] frames of now, the newest
@@ -1495,7 +1501,7 @@ mod tests {
 
         let (left, top, right, bottom) = stats.rect(&world);
         let content: i32 = stats.rows(&world).iter().map(Row::height).sum();
-        assert_eq!(bottom, (top + HEADER + content + 6).min(super::super::HEIGHT as i32 - 6));
+        assert_eq!(bottom, (top + HEADER + content + 6).min(super::super::ui::bar_top() - 6));
         let mut lit = 0;
         let mut ink = 0;
         for y in 0..super::super::HEIGHT as i32 {

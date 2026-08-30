@@ -927,9 +927,21 @@ other reversed it. Both orderings cannot be true. Nothing in the simulation
 changed: the statistic was measuring the rest of the machine. Two rules come
 out of that, and neither depends on the machine it was measured on:
 
-- **Gate on counters, never on wall clock.** Everything `examples/ascii.rs`
-  asserts is a deterministic count, identical under any load. A wall-clock
-  assertion is a flake generator — and usually the counter above it is the
+- **Gate on counters, never on wall clock — but a counter is only
+  load-independent at fixed parallelism, and that qualifier is measured
+  rather than assumed.** This bullet read *"identical under any load"* until
+  2026-08-30, when the burrow lane got **610 digs idle and 278 loaded from
+  the same baseline binary** on `ascii`'s colony scene — a 2.2x swing in a
+  pure count, from rayon's thread count changing with the box. So the claim
+  holds for anything the serial driver decides and for a census of a settled
+  world, and **fails for any counter downstream of `parallel.rs`'s
+  checkerboard**, where how the sweep is cut across workers reaches the
+  result. The remedy is cheap and it is not "stop using counters": pin the
+  thread count (`RAYON_NUM_THREADS`) for any run whose counter you intend to
+  compare, or compare two arms **inside one run** so both see the same
+  parallelism. An A/B by env switch in a single binary — which is what
+  measured the 130-against-0 that this entry comes from — is immune either
+  way. A wall-clock assertion is still a flake generator — and usually the counter above it is the
   stronger claim anyway, because "the pass did no work at all" cannot be
   explained away by a busy box. Measured again independently 2026-08-25 by the
   perf lane: a scheduler census recompiled between two runs of one scene came
@@ -1121,6 +1133,14 @@ touching the mechanism.
   cell in it is still occupied. An occupancy metric finds literally nothing.
 - **Powder faces: measure the face, not the spreading front.** The front
   crosses seams smoothly while a vertical face persists behind it.
+- **Excavation: standing void is not *dug* void, and the difference
+  reverses the sign.** A colony quarries the open face of a bank as well as
+  tunnelling into it, and a pit is standing void — so censusing "empty cells
+  in the bank" scored a build that leaves **no roof at all** at 788 against
+  a build whose tunnels stand at 472, i.e. exactly backwards. What a player
+  calls a nest is **roofed** void: empty cells with ground above them. The
+  same shape applies to any question of the form "did this make a *space*"
+  — a hole open to the sky is not a room.
 - **Destruction: a failure count is not a damage count.** `FailureCounts`
   counts cells that *failed*; a failed cell that became rubble is still
   standing there. Two digs whose event counts look comparable removed 894 and
