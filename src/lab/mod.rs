@@ -381,6 +381,40 @@ mod tests {
         assert_eq!(lab.world.frame, stopped_at, "stopping again did not stop it");
     }
 
+    /// **An empty box is a state, not an error.**
+    ///
+    /// `bin/lab.rs` opens the game with no founders and no colony — owner
+    /// request, 2026-08-30, *"the game should start with no plants or
+    /// creatures. I add them."* Everything that reads a population now has to
+    /// survive one of zero, and three of them divide by a count or index a
+    /// sorted list. This runs an empty bed and paints every page over it.
+    #[test]
+    fn an_empty_box_runs_and_draws_every_page() {
+        let mut lab = Lab::new(scene::LabBox {
+            founders: 0,
+            colonies: 0,
+            ..scene::LabBox::default()
+        });
+        lab.show_help = false;
+        assert_eq!(lab.world.live_organism_count(), 0, "the bed was not empty");
+        lab.act(ui::Action::TogglePhase);
+        for _ in 0..240 {
+            lab.advance(std::time::Duration::from_millis(16));
+        }
+        assert!(lab.world.frame > 0, "the positive control did not fire");
+        assert_eq!(lab.world.live_organism_count(), 0, "something grew in an empty bed");
+
+        let mut frame = vec![0u8; (WIDTH * HEIGHT * 4) as usize];
+        // Every page, plus the census, plus a cursor so the hover paths run.
+        lab.set_cursor(Some((40, 40)));
+        for panel in [ui::Panel::Plants, ui::Panel::Ants, ui::Panel::Box] {
+            lab.ui.panel = Some(panel);
+            lab.draw(&mut frame, 60.0);
+        }
+        lab.ui.panel = None;
+        lab.draw(&mut frame, 60.0);
+    }
+
     /// **The font cannot draw everything, and what it cannot draw it draws as
     /// nothing.** `[`/`]`, then `_`/`<`/`>`, then `;`/`'` have each shipped
     /// blank in this engine's UI for as long as they were bound. This is the

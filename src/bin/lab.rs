@@ -52,6 +52,8 @@
 //!
 //! Both are debug hooks. A real pointer overrides the first the moment it
 //! moves, and the second is spent after its last click.
+//!
+//! **The box opens empty** — see [`empty_bed`]. Owner request, 2026-08-30.
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -72,6 +74,27 @@ fn parse_at(v: impl AsRef<str>) -> Option<(i32, i32)> {
     let v = v.as_ref();
     let (x, y) = v.split_once(',')?;
     Some((x.trim().parse().ok()?, y.trim().parse().ok()?))
+}
+
+/// **The bed the game opens on: built, lit, and with nothing living in it.**
+///
+/// Owner, 2026-08-30: *"the game should start with no plants or creatures. I
+/// add them."* So the box, the soil, the walls and the grow lights are all
+/// still `LabBox::default()`'s — only the two population fields go to zero.
+/// The empty box is a real state, not an error: the census says `TRACKING
+/// FROM NOW`, the pages read zero, and the strips draw an honest flat line
+/// on the floor.
+///
+/// **Only the binary is emptied.** `LabBox::default()` still plants its eight
+/// founders and founds its colony, because every harness in `examples/` is
+/// built on it and a sheet of an empty bed answers nothing —
+/// `examples/labui.rs` photographs pages that need numbers in them, and
+/// `labdial` measures a dial against a box that costs something to run.
+///
+/// `Lab::reset` rebuilds from this same spec, so `REBUILD` empties the box
+/// rather than restocking it.
+fn empty_bed() -> LabBox {
+    LabBox { founders: 0, colonies: 0, ..LabBox::default() }
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -117,6 +140,9 @@ struct Handler {
     /// `PIXEL_PHYSICS_LAB_CLICK=x,y;x,y` — clicks to play back, one per
     /// rendered frame. Stored reversed so the next one is a `pop`.
     scripted_clicks: Vec<(i32, i32)>,
+    /// Whether a frame has been painted yet, which is what a click is tested
+    /// against. Only the scripted-click hook reads it.
+    drawn: bool,
     result: Result<(), Box<dyn std::error::Error>>,
 }
 
@@ -133,7 +159,7 @@ impl Handler {
         Self {
             window: None,
             pixels: None,
-            lab: Lab::new(LabBox::default()),
+            lab: Lab::new(empty_bed()),
             last_frame: Instant::now(),
             last_title: Instant::now(),
             fps: 0.0,
@@ -155,6 +181,7 @@ impl Handler {
                 .ok()
                 .map(|v| v.split(';').filter_map(parse_at).rev().collect())
                 .unwrap_or_default(),
+            drawn: false,
             result: Ok(()),
         }
     }
@@ -187,9 +214,14 @@ impl Handler {
         if let Some(at) = self.forced_cursor {
             self.lab.set_cursor(Some(at));
         }
-        // After the layout of at least one drawn frame exists, because that is
-        // what a click is tested against — the same order a real pointer sees.
-        if let Some((x, y)) = self.scripted_clicks.pop() {
+        // **Only once a frame has actually been drawn.** A click is tested
+        // against the retained layout of the last painted frame, so a scripted
+        // click on the very first pass hits an empty bar and is correctly
+        // consumed as nothing — which reads as "the hook does not work" rather
+        // than as "there was no bar yet". Real pointers cannot hit this,
+        // because a person cannot click before the window has drawn.
+        if self.drawn && !self.scripted_clicks.is_empty() {
+            let (x, y) = self.scripted_clicks.pop().expect("just checked");
             self.lab.set_cursor(Some((x, y)));
             self.lab.press(x, y);
             self.lab.release(x, y);
@@ -231,6 +263,7 @@ impl Handler {
                         self.screenshot_countdown = Some(n - 1);
                     }
                 }
+                self.drawn = true;
                 pixels.render().err().map(|e| format!("render failed: {e}"))
             }
             None => None,
