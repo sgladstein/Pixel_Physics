@@ -1,0 +1,46 @@
+{
+  "id": "20260830T203238476Z-08d795",
+  "created": "2026-08-30T20:32:38Z",
+  "board": "creatures",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/creature-scale-and-shape",
+    "commit": "51597408",
+    "agent": null,
+    "session_id": "414eca57-1caf-509f-a056-1b37e01751e9",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Same 36 cells, two shapes: which reads as an animal?",
+  "question": "Which of these two reads as a creature rather than a smudge? Pick one, and say in a sentence what makes it read that way.",
+  "context_md": "Now that a body scales with the grid, the extra cells have to be spent on a *shape*. These are the two shapes the repo already has, both at double density, both **exactly 36 cells**, both standing still on the same ground at the same hour.\n\n| | plan | on screen | cannot move |\n|---|---|---|---|\n| one | 3x3 block supersampled | 6 x 6 cells | **73%** of decisions |\n| two | waisted 5x2 supersampled | 10 x 4 cells | **51%** of decisions |\n\nThe shipped two-cell ant is blocked **5%** of the time, so both of these are animals that mostly cannot walk. That is the next problem and it is not this question.\n\n**This question is only about the silhouette**, because it decides where the cells go. Judge a still: a body that moves is findable at any size, so standing still is the honest test.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "block (6x6, 73% blocked)",
+      "files": [
+        "20260830T203238476Z-08d795/000-ant_block-k2.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "waisted (10x4, 51% blocked)",
+      "files": [
+        "20260830T203238476Z-08d795/001-ant_wide-k2.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
