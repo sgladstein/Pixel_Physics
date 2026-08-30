@@ -6,6 +6,7 @@ see *The precondition* below; this is the one deviation from the brief and it
 was taken to satisfy the brief's own stated requirement rather than to skirt
 it.
 **Head SHA:** `e6f380a6bdf2` — the docs commit; the code is `86b9f2a`, and `516cbd6` is the merge of `origin/main` onto this lane.
+**PR:** [#159](https://github.com/sgladstein/Pixel_Physics/pull/159), against `main` — #142 landed mid-session, so the stack resolved itself and no retarget is needed.
 **Cost fork:** built the package **and** wrote the finding. Both, because the
 finding is that the lever the package was built to open is blocked by
 something neither the package nor the appearance report had looked at.
