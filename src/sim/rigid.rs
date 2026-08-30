@@ -1098,7 +1098,20 @@ fn fracture_with_impulse(
         // `size_buckets`, main's other counter here, is untouched: it is
         // fed from `record` and measures the failing *region*, not the
         // fragment, so it is a different quantity and both are kept.
-        if fragment.len() >= MIN_BODY_CELLS {
+        // **Severed tissue always flies, whatever size it came out.**
+        //
+        // `MIN_BODY_CELLS` is a judgement about *rock*: below eight cells a
+        // tumbling body and a grain look the same, and rock wants grit --
+        // the ethos asks for a few blocks, more cobbles, a lot of grit. A
+        // plant does not. Owner, 2026-08-30: *"limbs always land as pieces
+        // nothing should be turning to dust at all!"*, which is the third
+        // time the same complaint has been made about this pipeline (*"the
+        // branches fall off as whole pieces (good), but then hit the ground
+        // and turn to dust"*, and *"some are disintegrating a little"*).
+        //
+        // A twig is a small twig, not sawdust, so the floor does not apply
+        // to it. Rock is untouched.
+        if tissue || fragment.len() >= MIN_BODY_CELLS {
             promote(world, &fragment, impulse, broke_at, hinge);
             promoted_cells += fragment.len();
         } else {
@@ -1137,15 +1150,32 @@ fn fracture_with_impulse(
     // on the hasher, and `shatter_to_rubble`/`convert_to_debris` both draw a
     // shade from `world.rng`. Same determinism rule as the seed loop, and
     // the same one §2a names.
-    for &cell in &remaining {
-        if !left.remove(&cell) {
-            continue;
-        }
-        if tissue {
-            if convert_to_debris(world, cell.0, cell.1) {
-                grit_cells += 1;
+    if tissue {
+        // **Foliage no woody fragment claimed comes down as a cluster, not
+        // as scatter.** It used to convert cell by cell to litter, which is
+        // the other half of the dust the owner keeps seeing: a crown is
+        // roughly a third leaf by count, so a limb whose wood all landed in
+        // one fragment could still shed hundreds of cells of powder around
+        // it.
+        //
+        // Grouped before promoting rather than promoted per cell, and that
+        // is the difference between a leafy spray falling together and a
+        // thousand one-cell bodies costing a thousand body slots. A cluster
+        // of leaves hangs together off its twig -- the same fact
+        // `plant::anchor_support` now encodes -- so it falls together too.
+        while let Some(&seed) = remaining.iter().find(|c| left.contains(c)) {
+            let cluster = take_fragment(world, &mut left, seed, usize::MAX, true);
+            if cluster.is_empty() {
+                continue;
             }
-        } else {
+            promote(world, &cluster, impulse, broke_at, hinge);
+            promoted_cells += cluster.len();
+        }
+    } else {
+        for &cell in &remaining {
+            if !left.remove(&cell) {
+                continue;
+            }
             shatter_to_rubble(world, cell.0, cell.1);
             grit_cells += 1;
         }
@@ -6006,20 +6036,32 @@ mod tests {
         assert_eq!(w.materials.get(log).name, "log", "test setup: the piece tier must exist");
     }
 
-    /// And the half that must **not** change: a leaf never seeds a fragment
-    /// and never sizes one, so foliage that no woody piece reaches still
-    /// scatters rather than flying as a slab of its own.
+    /// And the half that must **not** change: a leaf never *seeds* a
+    /// fragment and never sizes one, so a clump of pure foliage takes no
+    /// draw off wood's ladder.
     ///
     /// This is `Reports/physical-trees-design-2026-08-23.md` §5.3's actual
     /// argument, and it is what keeps "leaves ride down" from quietly
-    /// becoming "leaves are logs". Without the wood-only seed rule this
-    /// clump is 24 cells — three times `MIN_BODY_CELLS` — and would promote
-    /// as a body made entirely of foliage.
+    /// becoming "leaves are logs".
+    ///
+    /// **What changed, and why the old assertion had to go.** This used to
+    /// require the unclaimed clump to *scatter* — every cell converted to
+    /// `litter` where it hung. Owner, 2026-08-30: *"limbs always land as
+    /// pieces nothing should be turning to dust at all!"*, the third time
+    /// that complaint has been made about this pipeline. Scattering is the
+    /// other half of the dust: a crown is roughly a third leaf by count, so
+    /// a limb whose wood all landed in one fragment still shed hundreds of
+    /// powder cells around it. Unclaimed foliage now comes down as its own
+    /// cluster body.
+    ///
+    /// The seed rule is what this still guards, and it is untouched: the
+    /// clump is not promoted by *taking a rung off wood's ladder*, it is
+    /// promoted whole by the sweep that follows, so a leaf still never
+    /// chooses a fragment size.
     #[test]
-    fn foliage_no_piece_reaches_still_scatters_and_never_seeds_one() {
+    fn foliage_no_piece_reaches_falls_as_a_clump_and_never_seeds_a_fragment() {
         let (mut w, id) = tissue_world();
         let leaf = w.materials.id_of("leaf").expect("leaf");
-        let litter = w.materials.id_of("litter").expect("litter");
         let mut region = Vec::new();
         for x in 20..32 {
             for y in 20..22 {
@@ -6031,10 +6073,14 @@ mod tests {
 
         let (severed, as_pieces) = fell_severed_tissue(&mut w, &region, (20, 20));
         assert_eq!(severed, region.len() as u32, "every cell of the region left the tree");
-        assert_eq!(as_pieces, 0, "a clump of pure foliage is not a piece however large it is");
-        assert!(w.chunk_bodies.is_empty(), "a leaf must never seed a fragment -- 24 cells of it would otherwise clear MIN_BODY_CELLS");
+        assert_eq!(as_pieces, region.len() as u32, "and none of it turned to dust on the way");
+        assert_eq!(w.chunk_bodies.len(), 1, "the clump is connected, so it comes down as one thing rather than 24");
+        assert!(
+            w.chunk_bodies[0].cells.iter().all(|c| c.material == leaf),
+            "and it is still foliage -- promoting it must not have drawn a rung off wood's ladder"
+        );
         for &(x, y) in &region {
-            assert_eq!(w.get(x, y).material, litter, "unclaimed foliage scatters, which is the third tier");
+            assert!(w.get(x, y).is_empty(), "every cell left the grid with the body rather than converting in place");
         }
     }
 

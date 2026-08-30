@@ -334,7 +334,7 @@ PR", which would have encoded a step that silently does not happen:
 |---|---|
 | in-process subagent (the `Agent` tool) | **yes** — verified 2026-08-25, a probe called `mcp__github__get_me` and authenticated |
 | trigger-fired session (`create_trigger` + `fire_trigger`) | **no** — the trigger stamps its own `allowed_tools`, carrying no `mcp__*` |
-| cloud child (`create_session`) | untested |
+| cloud child (`create_session`) | **yes** — verified 2026-08-30: a creature-program lane opened its own PR (#146) unaided, and a second reported holding the tools |
 
 So an in-process subagent normally *can* open its own PR, and a woken lane
 cannot — which is the case the "PR list is not the work list" section below
