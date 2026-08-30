@@ -111,12 +111,77 @@ const PRESET: &str = "wetland";
 /// come to rest before anything walks on it.
 const WARMUP: usize = 2400;
 
+/// **Species overrides, applied through `SpeciesRegistry::set_creature`.**
+///
+/// The eye and the two weights that act on it are knobs here rather than
+/// edits to `beetle.ron`, and that is `CLAUDE.md`'s `include_str!` gotcha
+/// paid up front: the assets are compiled into the binary, so a sweep that
+/// edits the `.ron` and re-runs a prebuilt example produces bit-identical
+/// "runs" — three of them, once, before anyone noticed the knob was not
+/// connected. With the knob here, `mode=ab` can put an eyed beetle and a
+/// blind one in the **same process**, on the same seeds, differing in one
+/// field, which is the paired comparison the house rule asks for.
+///
+/// A negative value means "leave the species file alone".
+#[derive(Clone, Copy)]
+struct Overrides {
+    sight: i32,
+    pursue: f32,
+    release: f32,
+}
+
+impl Default for Overrides {
+    fn default() -> Self {
+        Self { sight: -1, pursue: f32::NAN, release: f32::NAN }
+    }
+}
+
+impl Overrides {
+    /// Eyes off, everything else as authored — the blind arm.
+    fn blind() -> Self {
+        Self { sight: 0, ..Self::default() }
+    }
+
+    fn apply(self, world: &mut World) {
+        use pixel_physics::sim::brain::{BrainInput, BrainOutput, Instinct};
+        let species = world.species.id_of("beetle").expect("beetle species");
+        let mut def = world.species.get(species).creature.clone().expect("beetle is a creature");
+        if self.sight >= 0 {
+            def.sight_range = self.sight;
+        }
+        for (input, output, w) in
+            [(BrainInput::PreyBearing, BrainOutput::Turn, self.pursue), (BrainInput::PreyNear, BrainOutput::Persist, self.release)]
+        {
+            if w.is_nan() {
+                continue;
+            }
+            def.instincts.retain(|i| !(i.0 == input && i.1 == output));
+            if w != 0.0 {
+                def.instincts.push(Instinct(input, output, w));
+            }
+        }
+        // **`set_creature` alone is not enough, and the sweep said so
+        // before this line existed.** The species' genome is compiled from
+        // its wiring lists once at load (`Species::from_def`) and
+        // `place_creature` stamps *that*, so overriding `instincts` and
+        // stopping there changes nothing a creature ever thinks with. The
+        // first run of `mode=sweep` came back **bit-identical across all
+        // eight settings** — 7500/4301/528 on every row — which is exactly
+        // `CLAUDE.md`'s tell that a knob was never connected, and it is the
+        // reason to keep this comment rather than just the call.
+        let genome = pixel_physics::sim::brain::genome_from_wiring(&def.instincts, &def.hidden_wiring, &def.hidden_outputs, &def.recurrence);
+        world.species.set_creature(species, def);
+        world.species.set_genome(species, genome);
+    }
+}
+
 fn main() {
     let mut frames = 6000usize;
     let mut every = 200usize;
     let mut seeds = 1u64;
     let mut mode = "preflight".to_string();
     let mut beetles = BEETLES;
+    let mut over = Overrides::default();
     for arg in std::env::args().skip(1) {
         let Some((k, v)) = arg.split_once('=') else { continue };
         match k {
@@ -125,9 +190,12 @@ fn main() {
             "seeds" => seeds = v.parse().expect("seeds"),
             "beetles" => beetles = v.parse().expect("beetles"),
             "mode" => mode = v.to_string(),
+            "sight" => over.sight = v.parse().expect("sight"),
+            "pursue" => over.pursue = v.parse().expect("pursue"),
+            "release" => over.release = v.parse().expect("release"),
             // **An unknown argument is silently ignored, and that has cost
             // this repo a 3.5-hour study** (`CLAUDE.md`). Panic instead.
-            other => panic!("unknown arg {other:?}; known: mode, frames, every, seeds, beetles"),
+            other => panic!("unknown arg {other:?}; known: mode, frames, every, seeds, beetles, sight, pursue, release"),
         }
     }
 
@@ -135,15 +203,18 @@ fn main() {
     // written by a binary that never had one.
     println!(
         "predation_probe: mode={mode} frames={frames} every={every} seeds={seeds} beetles={beetles} \
-         scene={PRESET} {W}x{H} ants={ANTS} trees={TREES} warmup={WARMUP}\n"
+         scene={PRESET} {W}x{H} ants={ANTS} trees={TREES} warmup={WARMUP}\n\
+         overrides: sight={} pursue={} release={} (negative sight / NaN weight = as authored)\n",
+        over.sight, over.pursue, over.release
     );
 
     match mode.as_str() {
-        "preflight" => preflight(frames, every, seeds, beetles),
+        "preflight" => preflight(frames, every, seeds, beetles, over),
         "control" => control(),
-        "ab" => ab(frames, every, seeds),
+        "ab" => ab(frames, every, seeds, over),
         "cost" => cost(frames, beetles),
-        other => panic!("unknown mode {other:?}; known: preflight, control, ab, cost"),
+        "sweep" => sweep(frames, every, seeds),
+        other => panic!("unknown mode {other:?}; known: preflight, control, ab, cost, sweep"),
     }
 }
 
@@ -245,9 +316,26 @@ struct Row {
     deliveries: u64,
     eats: u64,
     deaths: u64,
+    /// **The three sight counters, near side to far side.** `sight_casts`
+    /// says the eye ran, `sightings` says it had something to report, and
+    /// `sight_approaches` says the animal then moved toward it. All three,
+    /// because a null hides in any one of them: an eye that never ran, an
+    /// eye that ran over an empty world, and an eye wired to nothing are
+    /// three different failures that a single number cannot tell apart.
+    sight_casts: u64,
+    sightings: u64,
+    sight_approaches: u64,
+    /// Sightings with the prey inside 45 degrees of the heading, and the
+    /// summed sighted range. **The two counters `sight_approaches` was
+    /// unable to be** — see `CreatureStats::sight_facing`.
+    sight_facing: u64,
+    sight_dist_sum: u64,
+    /// Cells read by the sense, summed. `/ sight_casts` is the number the
+    /// sizing study's cost argument is built on.
+    sight_cells_read: u64,
 }
 
-fn preflight(frames: usize, every: usize, seeds: u64, beetles: usize) {
+fn preflight(frames: usize, every: usize, seeds: u64, beetles: usize, over: Overrides) {
     println!(
         "per channel: mass = summed value world-wide (mean over samples); cells = nonzero cells; \n\
          prey<=6 / beetle<=6 = fraction of heads with a nonzero cell within the beetle's sensor offset;\n\
@@ -259,7 +347,7 @@ fn preflight(frames: usize, every: usize, seeds: u64, beetles: usize) {
         "seed", "ch", "mass", "cells", "max", "prey<=6", "beetle<=6", "d", "differ", "front", "|along|");
     let mut rows = Vec::new();
     for s in 0..seeds {
-        let r = run(SEED_BASE + s, frames, every, beetles, Paint::None);
+        let r = run(SEED_BASE + s, frames, every, beetles, Paint::None, over);
         for (label, pl) in [("B", r.b), ("A", r.a)] {
             println!("{:>4} {label:>3} {:>9.0} {:>8.0} {:>5} {:>8.3} {:>10.3} {:>7.1} {:>8.3} {:>8.3} {:>8.4}",
                 s, pl.mass, pl.cells, pl.max, pl.prey_near, pl.beetle_near, pl.nearest, pl.differs, pl.front_nonzero, pl.along_abs);
@@ -327,9 +415,17 @@ enum Paint {
 /// The scene, built once and shared by every mode — so a cost figure and a
 /// perception figure are taken on the same world rather than on two that
 /// merely resemble each other.
-fn build_scene(seed: u64, beetles: usize) -> World {
+/// **`over` is applied before a single creature is placed, and that
+/// ordering is load-bearing.** `place_creature` stamps the genome from the
+/// species' `instincts` at birth, so a weight overridden after placement
+/// would change nothing at all in the founders and would read as a lever
+/// that does not work. `sight_range` is read from the def every tick and
+/// would survive either order; the weights would not.
+fn build_scene(seed: u64, beetles: usize, over: Overrides) -> World {
     let mut world = World::new(Rect::new(0, 0, W - 1, H - 1));
     world.seed = seed;
+
+    over.apply(&mut world);
 
     let (presets, _) = pixel_physics::worldgen::WorldgenPresets::load();
     let params = presets.get(PRESET).expect("wetland preset");
@@ -382,8 +478,8 @@ fn build_scene(seed: u64, beetles: usize) -> World {
     world
 }
 
-fn run(seed: u64, frames: usize, every: usize, beetles: usize, paint: Paint) -> Row {
-    let mut world = build_scene(seed, beetles);
+fn run(seed: u64, frames: usize, every: usize, beetles: usize, paint: Paint, over: Overrides) -> Row {
+    let mut world = build_scene(seed, beetles, over);
     let surface_at: Vec<i32> = (0..W).map(|x| surface(&world, x)).collect();
 
     let ant_mat = world.materials.id_of("ant").expect("ant");
@@ -574,6 +670,12 @@ fn run(seed: u64, frames: usize, every: usize, beetles: usize, paint: Paint) -> 
     row.deliveries = world.creature_stats.deliveries;
     row.eats = world.creature_stats.eats;
     row.deaths = world.creature_stats.deaths;
+    row.sight_casts = world.creature_stats.sight_casts;
+    row.sightings = world.creature_stats.sightings;
+    row.sight_approaches = world.creature_stats.sight_approaches;
+    row.sight_facing = world.creature_stats.sight_facing;
+    row.sight_dist_sum = world.creature_stats.sight_dist_sum;
+    row.sight_cells_read = world.creature_stats.sight_cells_read;
     row
 }
 
@@ -626,8 +728,8 @@ fn surface(world: &World, x: i32) -> i32 {
 fn control() {
     println!("positive controls — the instrument reporting the opposite of the null.\n");
 
-    let bare = run(SEED_BASE, 1200, 200, BEETLES, Paint::None);
-    let painted = run(SEED_BASE, 1200, 200, BEETLES, Paint::SaturatedTrail);
+    let bare = run(SEED_BASE, 1200, 200, BEETLES, Paint::None, Overrides::default());
+    let painted = run(SEED_BASE, 1200, 200, BEETLES, Paint::SaturatedTrail, Overrides::default());
     println!("{:>18} {:>10} {:>8} {:>10} {:>10} {:>12} {:>8}", "arm", "B mass", "B cells", "prey<=6", "beetle<=6", "reads differ", "|along|");
     for (label, r) in [("bare", bare), ("saturated trail", painted)] {
         println!("{label:>18} {:>10.0} {:>8.0} {:>10.3} {:>10.3} {:>12.3} {:>8.4}",
@@ -674,7 +776,7 @@ fn control() {
 /// Alternate this binary with one built from the other `.ron` and read the
 /// pair, never one run against a remembered number.
 fn cost(frames: usize, beetles: usize) {
-    let mut world = build_scene(SEED_BASE, beetles);
+    let mut world = build_scene(SEED_BASE, beetles, Overrides::default());
     // Settle: run without sampling until the creatures have spread out and
     // the terrain has stopped falling.
     for _ in 0..4000 {
@@ -776,19 +878,96 @@ fn catch_scene(gap: i32, hungry: bool) -> (u64, u64, usize, u64, u64) {
 /// bit-identical. Re-run here so any later claim about predation has a
 /// baseline taken on *this* build rather than a remembered number
 /// (`CLAUDE.md`: always re-measure the baseline in the same session).
-fn ab(frames: usize, every: usize, seeds: u64) {
-    println!("{:>4} {:>8} {:>10} {:>10} {:>7} {:>7} {:>8} {:>8} {:>7} {:>7} {:>7}",
-        "seed", "beetles", "B mass", "beetle<=6", "ants", "eats", "pickups", "injuries", "deaths", "feeds", "prey!");
+/// **How hard to pursue — swept, with the control that makes the sweep
+/// mean anything.**
+///
+/// The first row is `pursue=0 release=0`: **eyes open, wired to nothing.**
+/// Without it `approaches` is uninterpretable, because a beetle wandering
+/// at random already closes on a target it happens to be pointed at some
+/// of the time, and that share is not zero. It is the positive-control
+/// half of `CLAUDE.md`'s rule — a number that stays quiet when nothing is
+/// wrong has not been shown to *move* when something is — pointed at the
+/// only counter here that could be measuring the world rather than the
+/// wiring.
+///
+/// `appr/seen` is the column to read: of the casts that had prey to
+/// report, what fraction of them ended with the animal closer to it.
+/// The grid. Kept as a constant so the sweep's own points are named once
+/// and a log can be read against them.
+const SWEEP_POINTS: [(f32, f32); 5] = [(0.0, 0.0), (-2.5, 0.0), (-2.5, -3.0), (-2.5, -6.0), (-5.0, -6.0)];
+
+fn sweep(frames: usize, every: usize, seeds: u64) {
+    println!("{:>7} {:>8} {:>6} {:>7} {:>7} {:>9} {:>10} {:>8} {:>9} {:>6} {:>6}",
+        "pursue", "release", "seeds", "casts", "seen", "seen/cast", "facing/seen", "appr/seen", "mean range", "prey!", "injur");
+    for (pursue, release) in SWEEP_POINTS {
+        let (mut casts, mut seen, mut appr, mut facing, mut dist, mut prey, mut injur) = (0u64, 0u64, 0u64, 0u64, 0u64, 0u64, 0u64);
+        for s in 0..seeds {
+            let over = Overrides { sight: -1, pursue, release };
+            let r = run(SEED_BASE + s, frames, every, BEETLES, Paint::None, over);
+            casts += r.sight_casts;
+            seen += r.sightings;
+            appr += r.sight_approaches;
+            facing += r.sight_facing;
+            dist += r.sight_dist_sum;
+            prey += r.beetle_grabs_prey;
+            injur += r.injuries;
+        }
+        let d = seen.max(1) as f64;
+        println!("{pursue:>7.1} {release:>8.1} {seeds:>6} {casts:>7} {seen:>7} {:>9.3} {:>10.3} {:>8.3} {:>9.1} {prey:>6} {injur:>6}",
+            seen as f64 / casts.max(1) as f64, facing as f64 / d, appr as f64 / d, dist as f64 / d);
+    }
+    println!(
+        "\nRow 1 (0.0/0.0) is the control: the eye runs and steers nothing. Its `appr/seen` is what a \
+         beetle achieves by walking about, and every other row has to beat it to be a pursuit rather \
+         than a coincidence."
+    );
+}
+
+/// **The test of E15, and the only one that matters.**
+///
+/// The measured null this whole line started from is that `beetles=0` and
+/// `beetles=9` ran **bit-identical** over 6,000 frames — a predator that
+/// moves no counter is an absent one. So the first two rows of each seed
+/// are that null, re-run.
+///
+/// The third row is the one the sense exists for: **the same nine beetles,
+/// with eyes.** It is a paired arm rather than a remembered number, in the
+/// same process and on the same seed, differing from the row above it in
+/// one species field — which is what makes the difference attributable at
+/// all (`CLAUDE.md`: an A/B needs its two arms to differ only by the
+/// change).
+fn ab(frames: usize, every: usize, seeds: u64, over: Overrides) {
+    println!(
+        "arm: `blind` forces sight_range=0; `eyed` takes beetle.ron as authored (or the sight=/pursue=/release= overrides).\n\
+         casts/seen/appr are the sight counters: the eye ran / it had something to report / the animal then closed on it.\n\
+         A blind arm MUST read 0/0/0 -- if it does not, the species opt-in leaked and every number below is confounded.\n"
+    );
+    println!("{:>4} {:>7} {:>7} {:>9} {:>6} {:>6} {:>7} {:>8} {:>6} {:>6} {:>6} {:>8} {:>7} {:>7}",
+        "seed", "arm", "beetles", "B mass", "ants", "eats", "pickups", "injuries", "deaths", "feeds", "prey!", "casts", "seen", "appr");
     for s in 0..seeds {
-        for b in [0usize, BEETLES] {
-            let r = run(SEED_BASE + s, frames, every, b, Paint::None);
-            println!("{:>4} {b:>8} {:>10.0} {:>10.3} {:>7} {:>7} {:>8} {:>8} {:>7} {:>7} {:>7}",
-                s, r.b.mass, r.b.beetle_near, r.ants_alive, r.eats, r.pickups, r.injuries, r.deaths, r.beetle_feeds,
-                r.beetle_grabs_prey);
+        for (label, b, arm) in
+            [("blind", 0usize, Overrides::blind()), ("blind", BEETLES, Overrides::blind()), ("eyed", BEETLES, over)]
+        {
+            let r = run(SEED_BASE + s, frames, every, b, Paint::None, arm);
+            println!("{:>4} {label:>7} {b:>7} {:>9.0} {:>6} {:>6} {:>7} {:>8} {:>6} {:>6} {:>6} {:>8} {:>7} {:>7}",
+                s, r.b.mass, r.ants_alive, r.eats, r.pickups, r.injuries, r.deaths, r.beetle_feeds, r.beetle_grabs_prey,
+                r.sight_casts, r.sightings, r.sight_approaches);
+            if r.sight_casts > 0 {
+                // **The cost figure, deterministic.** A 0.004 ms/frame
+                // charge is below what a wall clock on a shared box can
+                // resolve, so the sizing study priced the sense through
+                // this quantity instead and predicted 485 cells per cast at
+                // r64. Printed here so the built sense can be held against
+                // its own specification rather than inheriting it.
+                println!("{:>4} {:>7}   {:.0} cells read per cast (sizing study predicted 485 at r64)",
+                    s, "", r.sight_cells_read as f64 / r.sight_casts as f64);
+            }
         }
     }
     println!(
         "\n`injuries` and `deaths` are the victim's side of the verb, counted by the engine. \
-         If the two rows of a seed agree on every column, the predator did not exist."
+         If the two `blind` rows of a seed agree on every column, the predator did not exist -- which is \
+         the measured null this line began from. The claim to check is that the `eyed` row does not agree \
+         with them."
     );
 }
