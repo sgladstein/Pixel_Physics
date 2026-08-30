@@ -66,7 +66,16 @@ the owner one static frame where a sequence played), with the still and the
 moving decoy counts in `meta`. Fire-and-forget; collect with
 `review.py inbox`.
 
-## Head SHA
+## Landing
 
-See the final commit on this branch — printed under `## Landing` below when
-the PR opened.
+- **Head SHA** `c997c58` — *The decoy field is static, and an ant is not:
+  motion measured*.
+- **PR** [#150](https://github.com/sgladstein/Pixel_Physics/pull/150),
+  opened from this lane.
+- **Review card** `20260830T045018630Z-abf50b`, board `creatures` — one
+  frozen frame against 20 stepping ones, still and moving decoy counts in
+  `meta`. Fire-and-forget; collect with `python3 scripts/review.py inbox`.
+- `cargo +1.98.0 clippy --all-targets -- -D warnings` clean (three findings
+  the container's 1.94.1 accepted), `bash scripts/docscheck.sh` clean.
+  `origin/main` merged in at `83bd4c4` and the headline numbers re-measured
+  identically on the merged tree.
