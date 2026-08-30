@@ -10,8 +10,8 @@
 | this note | `cf80c08` |
 | `main` merged in | `00856c8` — the branch is **0 behind** |
 | re-measurement after that merge | `790af73` |
-| PR | **#146 — MERGED** 2026-08-30 at `79a9daa` (main `83bd4c4`) |
-| follow-up | this correction landed on the branch *after* that merge, so it is a **new** PR, not a reopen — see below |
+| PRs | **#146 MERGED** (the probe and report) · **#151 MERGED** (corrections) · **#161 OPEN** — https://github.com/sgladstein/Pixel_Physics/pull/161 |
+| the pattern to know about | **both merges took the head *before* the latest re-measurement.** #146 merged nine minutes after a correction was pushed; #151 the same. Each time the branch was restarted from `origin/main` and the work re-applied as a new PR, because a merged PR cannot carry it. If you merge #161, check whether this branch has moved since |
 
 I had GitHub tools (`mcp__github__get_me` resolved), so I opened the PR
 myself. The coordinator merged it.
