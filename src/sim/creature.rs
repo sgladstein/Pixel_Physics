@@ -63,7 +63,7 @@ use super::cell::{Cell, AMBIENT_TEMPERATURE};
 use super::chunk::Rect;
 use super::field;
 use super::material::{self, MaterialKind};
-use super::organism::{pack_cell_type, Carried, CellType, CreatureDef, Flight, SpeciesId, CREATURE_TRAITS, TRAIT_BIRTH_GRANT, TRAIT_GUT_BIAS};
+use super::organism::{pack_cell_type, Carried, CellType, CreatureDef, Flight, ShadeRule, SpeciesId, CREATURE_TRAITS, TRAIT_BIRTH_GRANT, TRAIT_GUT_BIAS};
 use super::pheromone::{self, Channel};
 use super::rng;
 use super::scheduler::{ActiveKind, ActiveSite};
@@ -829,9 +829,23 @@ fn place_creature(
     // and `World::push_organism` for why refusal beats a corrupted id.
     let organism = world.push_organism(species_id)?;
     let shades = world.materials.get(material_id).palette.len().max(1) as u32;
+    // **The body's own vertical span**, measured off the positions rather
+    // than off `BodyPlan`, so it is right for either plan without asking
+    // which one this is. A `Chain` collapses this to zero -- it is one cell
+    // thick -- and `body_shade` grades along the body instead.
+    let ranked = shades_by_luma(world, material_id);
+    let (dy_min, dy_max) = positions
+        .iter()
+        .fold((i32::MAX, i32::MIN), |(lo, hi), &(_, py)| ((lo).min(py - y), (hi).max(py - y)));
     for (i, &(px, py)) in positions.iter().enumerate() {
-        let shade = rng::stream(world.seed, organism as u64, i as u64, RNG_SLOT_SHADE).below(shades) as u8;
         let cell_type = if i == 0 { CellType::Head } else { CellType::Segment };
+        let shade = match def.shade_rule {
+            // Unchanged, and deliberately still drawing even though the
+            // value could be computed: this is the shipped path and it must
+            // stay byte-identical.
+            ShadeRule::Random => rng::stream(world.seed, organism as u64, i as u64, RNG_SLOT_SHADE).below(shades) as u8,
+            ShadeRule::Countershade => body_shade(&ranked, i, positions.len(), py - y, dy_min, dy_max),
+        };
         world.set(px, py, Cell::new(material_id, shade).with_organism_id(organism).with_aux(pack_cell_type(cell_type)));
     }
     // Claimed before the state is borrowed, because `claim_lineage` takes
@@ -938,6 +952,71 @@ fn place_creature(
         }
     }
     Some(ActiveSite { x, y, kind: ActiveKind::Creature { organism }, next_frame: world.creature_due(def.tick_interval) })
+}
+
+/// This material's palette entries, ordered **darkest first** by luma.
+///
+/// Rec. 601 weights in integer arithmetic, and a **stable** sort: two
+/// palette entries of equal luma must keep their authored order, because
+/// `CLAUDE.md`'s `sort_unstable` gotcha is that tie order is a function of
+/// the element type and not of the comparator alone -- and a shade is
+/// exactly the kind of quantity where a silent reordering would change
+/// every animal in the world and no test would notice.
+fn shades_by_luma(world: &World, material_id: material::MaterialId) -> Vec<u8> {
+    let palette = &world.materials.get(material_id).palette;
+    if palette.is_empty() {
+        return vec![0];
+    }
+    let mut idx: Vec<u8> = (0..palette.len().min(u8::MAX as usize) as u8).collect();
+    idx.sort_by_key(|&i| {
+        let c = palette[i as usize];
+        c[0] as u32 * 299 + c[1] as u32 * 587 + c[2] as u32 * 114
+    });
+    idx
+}
+
+/// The palette entry for one body cell under `ShadeRule::Countershade`.
+///
+/// The head takes the palest entry outright -- it is the one cell whose job
+/// is to say which end is the front. The rest are graded on a fraction `t`
+/// that is 1 at the pale end and 0 at the dark end, and **which axis `t`
+/// runs along is decided by whether the body has a top and a bottom at
+/// all**:
+///
+/// * a body with vertical extent grades by height, palest on top. That is
+///   countershading, and the reason it is worth having is in `ShadeRule`.
+/// * a `Chain` has none -- it is one cell thick -- so `dy_max == dy_min`
+///   and the grade runs head-to-tail instead, which is what stops a long
+///   chain reading as one flat smear.
+///
+/// Note `y` grows downward, so the *smallest* `dy` is the top of the animal.
+fn body_shade(ranked: &[u8], i: usize, cells: usize, dy: i32, dy_min: i32, dy_max: i32) -> u8 {
+    let last = ranked.len().saturating_sub(1);
+    if i == 0 {
+        return ranked[last];
+    }
+    let t = if dy_max > dy_min {
+        (dy_max - dy) as f32 / (dy_max - dy_min) as f32
+    } else {
+        1.0 - (i as f32 / cells.saturating_sub(1).max(1) as f32)
+    };
+    ranked[(t * last as f32).round() as usize]
+}
+
+/// **How many body cells this animal is currently paying for.**
+///
+/// The **live** chain rather than `def.body.len()`, and the difference is
+/// not cosmetic: a creature that has lost cells — bitten off by a predator,
+/// burned, or buried — is a smaller animal and burns less. Reading the plan
+/// instead would keep charging a two-cell bill to an animal that is down to
+/// one, which is the same class of error as pricing a corpse at what it was
+/// worth alive.
+///
+/// Floored at 1. A zero here would make an animal mid-`reconcile_chain`
+/// briefly free, and free is the one value this must never take —
+/// `idle_cost_per_cell`'s doc has why.
+fn live_body_cells(world: &World, organism: u16, def: &CreatureDef) -> f32 {
+    world.organism(organism).map_or(def.body.len(), |s| s.chain.len()).max(1) as f32
 }
 
 /// **What one birth costs the parent**: the child's metabolic grant plus
@@ -1341,8 +1420,14 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
     // of a 90-point life on thinking, 80% of a life, and silently
     // dominated a three-knob sweep that had to be thrown away.
     let synapse_tax = def.synapse_fraction * def.start_energy * active_synapses as f32;
-    let mut spent = def.idle_cost + synapse_tax;
-    world.energy_ledger.metabolized += def.idle_cost as f64;
+    // **Metabolism is per body cell** (`idle_cost_per_cell`). Read once
+    // here rather than at each of the three charge sites below: the chain
+    // cannot change length between them, and a creature that steps into a
+    // predator pays for the body it started the tick with.
+    let body_cells = live_body_cells(world, organism, def);
+    let idle = def.idle_cost_per_cell * body_cells;
+    let mut spent = idle + synapse_tax;
+    world.energy_ledger.metabolized += idle as f64;
     world.energy_ledger.synapse_tax += synapse_tax as f64;
 
     // --- the four verbs, before moving: an ant that is going to pick
@@ -1372,7 +1457,7 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
             // energy ledger has one owner. The flight frames themselves
             // charge only pro-rated metabolism -- ballistics is free once
             // you have paid to leave.
-            let cost = def.move_cost * LAUNCH_COST_IN_MOVES;
+            let cost = def.move_cost_per_cell * body_cells * LAUNCH_COST_IN_MOVES;
             spent += cost;
             world.energy_ledger.moved += cost as f64;
             // **Deliberately not `moved`.** `moved` gates the pheromone
@@ -1383,8 +1468,9 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
         } else {
             moved = step_chain(world, organism, heading, &outputs, def, &mut draw);
             if moved {
-                spent += def.move_cost;
-                world.energy_ledger.moved += def.move_cost as f64;
+                let step = def.move_cost_per_cell * body_cells;
+                spent += step;
+                world.energy_ledger.moved += step as f64;
             }
         }
     } else if draw.unit_f32() < brain::unit_scale(outputs[brain::BrainOutput::Tumble as usize], 1.0) {
@@ -2592,7 +2678,7 @@ fn step_flight(world: &mut World, organism: u16, def: &CreatureDef) -> Vec<Activ
     // came from the scheduler rather than from the design. Pro-rating keeps
     // the *rate* identical and leaves `LAUNCH_COST_IN_MOVES` as the only
     // thing the verb actually charges for.
-    let idle = def.idle_cost / def.tick_interval.max(1) as f32;
+    let idle = def.idle_cost_per_cell * live_body_cells(world, organism, def) / def.tick_interval.max(1) as f32;
     world.energy_ledger.metabolized += idle as f64;
     if landed {
         // Back on the normal schedule, and back to deciding things.
@@ -5195,7 +5281,13 @@ mod tests {
         let w = test_world();
         let species = w.species.id_of("ant").expect("ant");
         let def = w.species.get(species).creature.as_ref().expect("creature");
-        let idle_life = (def.start_energy / def.idle_cost) as usize * def.tick_interval as usize;
+        // **Per cell since 2026-08-30.** `idle_cost_per_cell * body.len()`
+        // is the old whole-animal `idle_cost`, so this horizon is unchanged
+        // for the shipped two-cell ant -- but it is now a function of the
+        // body, and a species with a longer one has a proportionally
+        // shorter one. Written out rather than folded so that is visible.
+        let idle_per_tick = def.idle_cost_per_cell * def.body.len() as f32;
+        let idle_life = (def.start_energy / idle_per_tick) as usize * def.tick_interval as usize;
         idle_life * 11 / 10
     }
 
@@ -6188,5 +6280,140 @@ mod tests {
             }
         }
         out
+    }
+
+    // --- body extent: pricing and shading -------------------------------
+    //
+    // **Paired comparisons and deterministic functions only** (dead end
+    // 552). The pricing tests below hold everything except body length
+    // fixed and read the *difference*; the shade tests call a pure function
+    // with hand-built inputs, which is the one shape `CLAUDE.md` exempts
+    // from the "put the fault back" rule because it cannot be blind in an
+    // interesting way.
+
+    /// A one-ant world with `cells` body cells and a chosen bill.
+    ///
+    /// `move_cost_per_cell` is zeroed so the only size-dependent term left
+    /// is the idle charge -- otherwise a run that happened to move more
+    /// would swamp the quantity under test, and the difference would be
+    /// about the terrain rather than about the body.
+    fn priced_ant(cells: u8, idle_per_cell: f32) -> (World, u16) {
+        use super::super::organism::BodyPlan;
+        let mut w = test_world();
+        for cx in 0..200 {
+            w.set(cx, 101, Cell::new(material::STONE, 0));
+        }
+        let ant = w.species.id_of("ant").expect("ant species");
+        let mut def = w.species.get(ant).creature.clone().expect("ant is a creature");
+        def.body = BodyPlan::Chain(cells);
+        def.idle_cost_per_cell = idle_per_cell;
+        def.move_cost_per_cell = 0.0;
+        w.species.set_creature(ant, def);
+        w.plant_ant(20, 100);
+        let organism = w.get(20, 100).organism_id();
+        assert_ne!(organism, 0, "the ant must have hatched, or this measures nothing");
+        (w, organism)
+    }
+
+    #[test]
+    fn a_longer_body_costs_proportionally_more_to_run() {
+        // The premise `creature-evolution-plan.md` E10 was written on --
+        // "per-cell metabolic cost already prices a longer body" -- was
+        // false until 2026-08-30: nothing in the cost path read
+        // `chain.len()`, so this difference was exactly zero and a longer
+        // body was strictly free. That is the fault this guard is named
+        // for, and reverting either call site takes it red.
+        let idle = 0.05f32;
+        let energy_after_one_tick = |cells: u8| {
+            let (mut w, organism) = priced_ant(cells, idle);
+            let before = w.organism(organism).expect("live").energy;
+            let def = w.species.get(w.organism(organism).expect("live").species).creature.clone().expect("creature");
+            creature_tick(&mut w, 20, 100, organism, &def);
+            before - w.organism(organism).map_or(0.0, |s| s.energy)
+        };
+        let two = energy_after_one_tick(2);
+        let six = energy_after_one_tick(6);
+        // The synapse tax and every other term are identical across the
+        // pair, so the whole difference is the four extra cells.
+        let difference = six - two;
+        assert!(
+            (difference - idle * 4.0).abs() < 1e-4,
+            "four extra body cells must cost four extra per-cell idle charges: {two} -> {six} (difference {difference}, expected {})",
+            idle * 4.0
+        );
+    }
+
+    #[test]
+    fn a_damaged_animal_pays_for_the_body_it_still_has() {
+        // `live_body_cells` reads the live chain rather than `BodyPlan`,
+        // so an ant that has lost a cell is a smaller animal and burns
+        // less. Reading the plan instead would keep charging a two-cell
+        // bill to an animal down to one.
+        let (mut w, organism) = priced_ant(3, 0.05);
+        let def = w.species.get(w.organism(organism).expect("live").species).creature.clone().expect("creature");
+        assert_eq!(live_body_cells(&w, organism, &def), 3.0);
+        // Take the tail off, the way a bite does, and reconcile.
+        let tail = *w.organism(organism).expect("live").chain.last().expect("cells");
+        w.set(tail.0, tail.1, Cell::EMPTY);
+        reconcile_chain(&mut w, organism);
+        assert_eq!(
+            live_body_cells(&w, organism, &def),
+            2.0,
+            "a bitten ant is a two-cell animal and must be billed as one"
+        );
+    }
+
+    #[test]
+    fn countershading_puts_the_palest_cell_on_the_head() {
+        // Ranked darkest-first, so the last entry is the palest.
+        let ranked = [2u8, 0, 1];
+        // A rigid body two cells tall: dy 0 is the top row, dy 1 the bottom.
+        assert_eq!(body_shade(&ranked, 0, 6, 0, 0, 1), 1, "the head takes the palest entry outright");
+        assert_eq!(body_shade(&ranked, 1, 6, 0, 0, 1), 1, "a top-row body cell is pale");
+        assert_eq!(body_shade(&ranked, 2, 6, 1, 0, 1), 2, "an underside cell is the darkest");
+    }
+
+    #[test]
+    fn a_chain_grades_along_its_body_because_it_has_no_underside() {
+        // A `Chain` is one cell thick, so `dy_max == dy_min` and a
+        // top-to-bottom grade would put every cell on the same shade --
+        // one flat smear, which is exactly the "reads as a worm" problem
+        // E10 names. The grade runs head-to-tail instead.
+        let ranked = [2u8, 0, 1];
+        let shades: Vec<u8> = (0..5).map(|i| body_shade(&ranked, i, 5, 0, 0, 0)).collect();
+        assert_eq!(shades[0], 1, "head palest");
+        assert_eq!(*shades.last().expect("cells"), 2, "tail darkest");
+        assert!(
+            shades.iter().collect::<std::collections::HashSet<_>>().len() > 1,
+            "a chain must not come out one flat colour: {shades:?}"
+        );
+    }
+
+    #[test]
+    fn the_shipped_ant_still_draws_its_shade_at_random() {
+        // E10 is the owner's standing decision that the shipped ant does
+        // not change without a verdict, and `ShadeRule::Random` is what it
+        // ships with. This guard is what makes `ant.ron` gaining a
+        // `shade_rule` line a deliberate act rather than a merge accident.
+        let w = test_world();
+        let ant = w.species.id_of("ant").expect("ant species");
+        let def = w.species.get(ant).creature.as_ref().expect("ant is a creature");
+        assert_eq!(def.shade_rule, ShadeRule::Random);
+        assert_eq!(def.body.len(), 2, "and it is still two cells");
+    }
+
+    #[test]
+    fn shades_by_luma_orders_darkest_first_and_survives_an_empty_palette() {
+        let w = test_world();
+        let ant = w.materials.id_of("ant").expect("ant material");
+        let ranked = shades_by_luma(&w, ant);
+        let palette = &w.materials.get(ant).palette;
+        let luma = |i: u8| {
+            let c = palette[i as usize];
+            c[0] as u32 * 299 + c[1] as u32 * 587 + c[2] as u32 * 114
+        };
+        for pair in ranked.windows(2) {
+            assert!(luma(pair[0]) <= luma(pair[1]), "ranked darkest first: {ranked:?}");
+        }
     }
 }

@@ -59,10 +59,11 @@
         //
         // **What the cut does NOT change, and why each is left alone:**
         // `synapse_fraction` is authored as a fraction of this budget and
-        // rescales itself (that is what §13j bought); `idle_cost` and
-        // `move_cost` are this knob's other operands -- re-deriving them
-        // would put the horizon back and undo the change -- and their 2.5:1
-        // ratio is the researched worm figure, which the cut preserves;
+        // rescales itself (that is what §13j bought); `idle_cost_per_cell`
+        // and `move_cost_per_cell` are this knob's other operands --
+        // re-deriving their *totals* would put the horizon back and undo the
+        // change -- and their 2.5:1 ratio is the researched worm figure,
+        // which the cut preserves;
         // `hunger_fraction` is a fraction and rescales, and raising it is a
         // recorded dead end (deliveries 1,733 -> 3); `body_energy` is
         // pinned to the flesh pricing invariant against the `ant`,
@@ -70,8 +71,24 @@
         // alone. `reproduce_threshold` is the one that had to be
         // re-derived, and it is, below.
         start_energy: 200.0,
-        idle_cost: 0.10,
-        move_cost: 0.25,
+
+        // **Per body cell, since 2026-08-30, and this ant is the number
+        // both rates were calibrated from.** They were flat per *animal*
+        // and nothing in the cost path read `chain.len()`, so a longer body
+        // was free -- see `organism.rs`'s `idle_cost_per_cell`. The two
+        // values below are the old 0.10 and 0.25 divided by this body's two
+        // cells, so **a two-cell ant's bill is arithmetically unchanged**
+        // (0.05 x 2 = 0.10, 0.125 x 2 = 0.25) and E14's horizon is not
+        // disturbed. The 2.5:1 worm ratio the block above defends survives
+        // the division, because dividing both operands by the same 2 cannot
+        // move their ratio.
+        //
+        // What *does* move is every body that is not two cells: `ant_long`
+        // at six now pays 3x and the nine-cell probe bodies 4.5x, which is
+        // the whole point of the change and is measured in
+        // `Reports/creature-body-extent-2026-08-30.md`.
+        idle_cost_per_cell: 0.05,
+        move_cost_per_cell: 0.125,
 
         // Per active synapse per tick, **as a fraction of start_energy**:
         // 2.2222222e-6 * 900 was the 0.002 this was authored as, exactly,
