@@ -1,0 +1,75 @@
+{
+  "id": "20260830T045018630Z-abf50b",
+  "created": "2026-08-30T04:50:18Z",
+  "board": "creatures",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/creature-lane-h-motion-decoys",
+    "commit": "c997c58",
+    "agent": null,
+    "session_id": "482772b2-c0da-5f0d-ad94-315f97a0064c",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Ants: one frame, then the same slope stepping",
+  "question": "Same 31 ants, same slope, same seed. In the single frame, can you find them at all? Then scrub the sequence. The measurement says the frozen frame has ~148 other things in it that look as much like an ant as an ant does, and the moving frames have 1 -- does that match what your eye does here?",
+  "context_md": "`creature-appearance-design.md` says extent is the only lever and has to roughly quadruple. That rests on `decoys` -- how many other places in the frame are as different from their surroundings as the animal is -- and it is computed on a **single still**, where a decoy is a rock edge or a leaf: something that holds still, while the animal does not.\n\nMeasured with the motion axis added: **a body that moves has 0-2 competitors at every size from 1 to 16 cells**, so a walking two-cell ant is already better off than a stationary sixteen-cell one. In every sky tested -- a storm moves 6,316 pixels and still produces none.\n\n**The half that keeps it honest, and it is your own dead-ant observation as a number:** only 29% of these ants move in any given 8-frame gap and **42% never moved once across 384 frames**. For those, the still frame is the whole story.\n\nNothing on this branch changes a shipped creature.",
+  "kind": "frames",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "one frame",
+      "files": [
+        "20260830T045018630Z-abf50b/000-ants-still.png"
+      ],
+      "caption": "the first frame of the sequence beside it, frozen",
+      "meta": {
+        "decoys at 2 cells (still)": 148,
+        "ants placed": 31,
+        "ants findable by motion here": 0
+      },
+      "focus": null
+    },
+    {
+      "label": "the same scene stepping",
+      "files": [
+        "20260830T045018630Z-abf50b/001-ants-00.png",
+        "20260830T045018630Z-abf50b/002-ants-01.png",
+        "20260830T045018630Z-abf50b/003-ants-02.png",
+        "20260830T045018630Z-abf50b/004-ants-03.png",
+        "20260830T045018630Z-abf50b/005-ants-04.png",
+        "20260830T045018630Z-abf50b/006-ants-05.png",
+        "20260830T045018630Z-abf50b/007-ants-06.png",
+        "20260830T045018630Z-abf50b/008-ants-07.png",
+        "20260830T045018630Z-abf50b/009-ants-08.png",
+        "20260830T045018630Z-abf50b/010-ants-09.png",
+        "20260830T045018630Z-abf50b/011-ants-10.png",
+        "20260830T045018630Z-abf50b/012-ants-11.png",
+        "20260830T045018630Z-abf50b/013-ants-12.png",
+        "20260830T045018630Z-abf50b/014-ants-13.png",
+        "20260830T045018630Z-abf50b/015-ants-14.png",
+        "20260830T045018630Z-abf50b/016-ants-15.png",
+        "20260830T045018630Z-abf50b/017-ants-16.png",
+        "20260830T045018630Z-abf50b/018-ants-17.png",
+        "20260830T045018630Z-abf50b/019-ants-18.png",
+        "20260830T045018630Z-abf50b/020-ants-19.png"
+      ],
+      "caption": "20 frames, 8 sim frames apart",
+      "meta": {
+        "decoys at 2 cells (moving)": 1,
+        "ants placed": 31,
+        "ants that move per 8-frame gap": "29%",
+        "ants that never moved in 384 frames": "42%",
+        "ants' share of all moving pixels": "90%"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
