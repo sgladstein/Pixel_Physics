@@ -132,12 +132,12 @@ struct ColonyCensus {
     traits: Vec<Spread>,
 }
 
-/// One drawn row of the colony panel.
+/// What one drawn row of the colony panel *is*.
 ///
 /// The panel builds its whole list before it paints anything, so that it can
 /// size its own border to what it has to say — see `App::draw_colony_panel`.
 /// Each variant knows its own height and nothing else does.
-enum ColonyRow {
+enum ColonyBody {
     Text(String, [u8; 4]),
     /// Breathing space between sections. Half a row, because a full one made
     /// the panel taller than the world it is drawn over.
@@ -150,14 +150,36 @@ enum ColonyRow {
     Gauge(f32, String),
 }
 
+/// One drawn row, and what it means.
+///
+/// **The note is not decoration.** The panel is dense and every row is
+/// compressed to fit 5x7 glyphs across 250 pixels, so `FROM HOME 0 / 31 /
+/// 102` is unreadable to anyone who has not just written it. Asked for
+/// directly by the owner on review card `20260830T052805753Z-7ae046`:
+/// *"the user should be able to mouse hover over some of the words and get
+/// an explanation of what it means and this could also be a way to access
+/// more detailed data."* So a note says what the row means **and carries the
+/// numbers that did not fit** — the raw counts behind a rate, the exact
+/// thresholds behind a colour.
+struct ColonyRow {
+    body: ColonyBody,
+    note: String,
+}
+
 impl ColonyRow {
+    fn text(text: impl Into<String>, colour: [u8; 4], note: impl Into<String>) -> Self {
+        Self { body: ColonyBody::Text(text.into(), colour), note: note.into() }
+    }
+    fn gap() -> Self {
+        Self { body: ColonyBody::Gap, note: String::new() }
+    }
     fn height(&self) -> i32 {
-        match self {
-            ColonyRow::Text(..) => App::COLONY_LINE,
-            ColonyRow::Gap => 5,
-            ColonyRow::Trend => 24,
-            ColonyRow::Histogram => 22,
-            ColonyRow::Gauge(..) => App::COLONY_LINE + 3,
+        match self.body {
+            ColonyBody::Text(..) => App::COLONY_LINE,
+            ColonyBody::Gap => 5,
+            ColonyBody::Trend => 24,
+            ColonyBody::Histogram => 22,
+            ColonyBody::Gauge(..) => App::COLONY_LINE + 3,
         }
     }
 }
@@ -2205,7 +2227,7 @@ impl App {
         // surfaces and this is a readout you leave up, so it must not be the
         // thing covering the page you just opened over it.
         if self.show_colony && !self.show_help && !self.show_tunables {
-            self.draw_colony_panel(frame);
+            self.draw_colony_panel(frame, cursor);
         }
 
         if self.show_tunables {
@@ -2626,7 +2648,7 @@ impl App {
     /// drawn its border, so it stood at a fixed size with dead space under a
     /// short colony; and every row needed a "is there still room" test, which
     /// is a check that is only ever wrong once.
-    fn draw_colony_panel(&self, frame: &mut [u8]) {
+    fn draw_colony_panel(&self, frame: &mut [u8], cursor: Option<(i32, i32)>) {
         const PANEL: [u8; 4] = [10, 10, 16, 255];
         const PANEL_ALPHA: f32 = 0.82;
         const TITLE: [u8; 4] = [255, 220, 100, 255];
@@ -2658,124 +2680,259 @@ impl App {
         }
 
         let mut y = top + Self::COLONY_HEADER;
+        let mut hovered: Option<&str> = None;
         for row in &rows {
-            match row {
-                ColonyRow::Gap => {}
-                ColonyRow::Text(text, colour) => Self::colony_text(frame, pad, y, text, *colour),
-                ColonyRow::Trend => self.draw_colony_trend(frame, pad, y),
-                ColonyRow::Histogram => {
+            // **The row under the cursor, found while painting rather than by
+            // a second pass over the same arithmetic.** Two copies of a
+            // layout is how a marker and the thing it marks come to disagree
+            // (`swing_mark`'s doc records the same rule for the gnome's
+            // aim).
+            if let Some((cx, cy)) = cursor {
+                if !row.note.is_empty() && (left..right).contains(&cx) && (y..y + row.height()).contains(&cy) {
+                    hovered = Some(&row.note);
+                }
+            }
+            match &row.body {
+                ColonyBody::Gap => {}
+                ColonyBody::Text(text, colour) => Self::colony_text(frame, pad, y, text, *colour),
+                ColonyBody::Trend => self.draw_colony_trend(frame, pad, y),
+                ColonyBody::Histogram => {
                     if let Some(census) = &self.colony_census {
                         Self::draw_colony_histogram(frame, census, pad, y);
                     }
                 }
-                ColonyRow::Gauge(fill, label) => {
+                ColonyBody::Gauge(fill, label) => {
                     Self::draw_colony_gauge(frame, pad, y + 4, 118, *fill, Self::COLONY_GOOD, Self::COLONY_RULE);
                     Self::colony_text(frame, pad + 126, y + 3, label, Self::COLONY_FAINT);
                 }
             }
             y += row.height();
         }
+        if let (Some(note), Some(at)) = (hovered, cursor) {
+            Self::draw_colony_note(frame, note, at);
+        }
+    }
+
+    /// The explanation for the row under the cursor.
+    ///
+    /// Placed **beside the panel, not beside the cursor**, and that is the
+    /// choice worth recording: a box that follows the pointer covers the row
+    /// it is explaining, so you read the explanation having lost the thing it
+    /// is about. It sits to the right of the panel instead, top-aligned with
+    /// the row, and only steps up when it would run off the bottom.
+    fn draw_colony_note(frame: &mut [u8], note: &str, (_, cy): (i32, i32)) {
+        const BG: [u8; 4] = [16, 20, 30, 255];
+        const ALPHA: f32 = 0.92;
+        let (panel_left, _, panel_width) = Self::COLONY_RECT;
+        let x = panel_left + panel_width + 6;
+        let inner = WIDTH as i32 - x - 14;
+        let columns = (inner / (hud::GLYPH_WIDTH + 1)).max(8) as usize;
+        let lines = Self::wrap_words(note, columns);
+        let width = inner + 12;
+        let height = lines.len() as i32 * Self::COLONY_LINE + 9;
+        // Top-aligned with the row, then pulled back on screen. `max(10)`
+        // rather than clamping to 0 so it never sits under the top edge.
+        let y = (cy - 4).min(HEIGHT as i32 - 10 - height).max(10);
+        for py in y..y + height {
+            for px in x..x + width {
+                render::blend(frame, WIDTH, HEIGHT, px, py, BG, ALPHA);
+            }
+        }
+        for px in x..x + width {
+            render::put(frame, WIDTH, HEIGHT, px, y, Self::COLONY_HEADING);
+            render::put(frame, WIDTH, HEIGHT, px, y + height - 1, Self::COLONY_HEADING);
+        }
+        for py in y..y + height {
+            render::put(frame, WIDTH, HEIGHT, x, py, Self::COLONY_HEADING);
+            render::put(frame, WIDTH, HEIGHT, x + width - 1, py, Self::COLONY_HEADING);
+        }
+        for (i, line) in lines.iter().enumerate() {
+            Self::colony_text(frame, x + 6, y + 5 + i as i32 * Self::COLONY_LINE, line, Self::COLONY_WHITE);
+        }
+    }
+
+    /// Break `text` into lines of at most `columns` characters, on spaces.
+    ///
+    /// A word longer than the column count is left to overrun rather than
+    /// split: every one in this panel is a number, and a number cut in half
+    /// across two lines is worse than a line that runs a little wide.
+    fn wrap_words(text: &str, columns: usize) -> Vec<String> {
+        let mut lines: Vec<String> = Vec::new();
+        for word in text.split_whitespace() {
+            match lines.last_mut() {
+                Some(line) if line.chars().count() + 1 + word.chars().count() <= columns => {
+                    line.push(' ');
+                    line.push_str(word);
+                }
+                _ => lines.push(word.to_string()),
+            }
+        }
+        lines
     }
 
     /// Everything the panel says, in order, before any of it is painted.
     ///
-    /// Split out so the panel can measure itself, and so a test can read what
-    /// it would say without a framebuffer.
+    /// Split out so the panel can measure itself, so a hover can find the row
+    /// under the cursor, and so a test can read what it would say without a
+    /// framebuffer.
     fn colony_rows(&self) -> Vec<ColonyRow> {
         let (white, dim, faint) = (Self::COLONY_WHITE, Self::COLONY_DIM, Self::COLONY_FAINT);
         let (heading, good, wanting) = (Self::COLONY_HEADING, Self::COLONY_GOOD, Self::COLONY_WANTING);
         let mut rows = Vec::new();
         let Some(census) = &self.colony_census else {
-            rows.push(ColonyRow::Text("NO CREATURES IN THIS WORLD".into(), white));
-            rows.push(ColonyRow::Gap);
-            rows.push(ColonyRow::Text("PRESS Y OVER GROUND TO FOUND".into(), dim));
-            rows.push(ColonyRow::Text("A COLONY OF ABOUT FIFTY ANTS".into(), dim));
+            rows.push(ColonyRow::text("NO CREATURES IN THIS WORLD", white, "NOTHING IN THE WORLD IS AN ANIMAL. PLANTS DO NOT COUNT -- THIS PANEL IS ONLY EVER ABOUT CREATURES."));
+            rows.push(ColonyRow::gap());
+            rows.push(ColonyRow::text("PRESS Y OVER GROUND TO FOUND", dim, ""));
+            rows.push(ColonyRow::text("A COLONY OF ABOUT FIFTY ANTS", dim, "FEWER THAN ABOUT FIFTY DOES NOT LOOK LIKE A COLONY, HOWEVER CORRECT THE ANTS ARE."));
             return rows;
         };
         let st = self.world.creature_stats;
+        let window = self.colony_rates().map(|(span, ..)| span as u64).unwrap_or(0);
 
         // --- is this colony doing well -------------------------------------
-        // **The one word on the panel that is a judgement**, and it is a
-        // judgement about the only thing this panel can see change: the
-        // number of animals, across the window the trend line draws. Not a
-        // health score — nothing here knows what healthy is — just the sign
-        // of the line, said in words for a reader who has not looked at it.
+        // **The one word on the panel that is a judgement**, and it judges the
+        // only thing this panel can watch change: the number of animals,
+        // across the window the trend line draws. Not a health score --
+        // nothing here knows what healthy is -- just the sign of the line,
+        // said in words for a reader who has not looked at it.
         let trend = match (self.colony_history.first(), self.colony_history.last()) {
             (Some(a), Some(b)) if a.frame < b.frame && b.live > a.live => ("  GROWING", good),
             (Some(a), Some(b)) if a.frame < b.frame && b.live < a.live => ("  SHRINKING", wanting),
             (Some(a), Some(b)) if a.frame < b.frame => ("  STEADY", white),
             _ => ("", white),
         };
-        // The whole headline takes the trend's colour, rather than the word
+        let headline_note = match (self.colony_history.first(), self.colony_history.last()) {
+            (Some(a), Some(b)) if a.frame < b.frame => format!(
+                "LIVING ANIMALS OF THE COMMONEST SPECIES. THE WORD IS THE TREND OVER THE STRIP BELOW: {} THEN, {} NOW.",
+                a.live, b.live
+            ),
+            _ => "LIVING ANIMALS OF THE COMMONEST SPECIES. THE TREND WORD APPEARS ONCE THE STRIP HAS TWO READINGS.".to_string(),
+        };
+        // The whole headline takes the trend's colour rather than the word
         // alone: at 5x7 a single amber word inside a white line is not what
         // the eye lands on, and the headline going amber is.
-        rows.push(ColonyRow::Text(format!("{} {} ALIVE{}", census.name, census.live, trend.0), trend.1));
-        rows.push(ColonyRow::Trend);
-        rows.push(ColonyRow::Text(format!("PLACED {}   BORN {}   DIED {}", st.spawned, st.births, st.deaths), dim));
+        rows.push(ColonyRow::text(format!("{} {} ALIVE{}", census.name, census.live, trend.0), trend.1, headline_note));
+        rows.push(ColonyRow {
+            body: ColonyBody::Trend,
+            note: format!(
+                "POPULATION SINCE YOU OPENED THIS PANEL. UP TO {COLONY_HISTORY} READINGS {COLONY_SAMPLE_INTERVAL} FRAMES APART; {} SO FAR, SPANNING {window} FRAMES. NOTHING IS COUNTED WHILE THE PANEL IS SHUT, WHICH IS WHY IT STARTS EMPTY.",
+                self.colony_history.len()
+            ),
+        });
+        rows.push(ColonyRow::text(
+            format!("PLACED {}   BORN {}   DIED {}", st.spawned, st.births, st.deaths),
+            dim,
+            "TOTALS SINCE THE WORLD BEGAN. PLACED IS ANIMALS PUT THERE BY HAND OR BY A SCENE; BORN IS ANIMALS AN ANT PAID FOR OUT OF ITS OWN BODY.",
+        ));
         // **Rates, and the reason the totals above are not enough**: a colony
         // that lost forty ants an hour ago and is steady now reads exactly
         // like one dying this minute, in `deaths` alone.
         rows.push(match self.colony_rates() {
             Some((span, first, last)) => {
                 let per_k = |a: u64, b: u64| (b.saturating_sub(a)) as f64 * 1000.0 / span;
-                ColonyRow::Text(
+                ColonyRow::text(
                     format!("PER 1K FRAMES  BORN {:.1}  DIED {:.1}", per_k(first.births, last.births), per_k(first.deaths, last.deaths)),
                     dim,
+                    format!(
+                        "OVER THE LAST {window} FRAMES: {} BORN, {} DIED. THE WINDOW IS A LITTLE OVER ONE DAY IN THE WORLD, ON PURPOSE -- A SHORTER ONE WOULD REPORT THE TIME OF NIGHT.",
+                        last.births.saturating_sub(first.births),
+                        last.deaths.saturating_sub(first.deaths)
+                    ),
                 )
             }
-            None => ColonyRow::Text("PER 1K FRAMES  MEASURING...".into(), faint),
+            None => ColonyRow::text(
+                "PER 1K FRAMES  MEASURING...",
+                faint,
+                "A RATE NEEDS TWO READINGS. THIS FILLS IN A SECOND OR SO AFTER THE PANEL OPENS, AND SOONER IF THE WORLD IS NOT PAUSED.",
+            ),
         });
-        // **The two silent refusals**, shown only when they have happened.
-        // A birth the terrain refused and a birth the engine's address space
+        // **The two silent refusals**, shown only when they have happened. A
+        // birth the terrain refused and a birth the engine's address space
         // refused are both invisible in `births`, and both read as "nothing
-        // is breeding" — which is the same reading as a colony too poor to
+        // is breeding" -- which is the same reading as a colony too poor to
         // try, and wants the opposite fix.
         if st.births_denied_no_space > 0 || self.world.organisms_refused() > 0 {
-            rows.push(ColonyRow::Text(
+            rows.push(ColonyRow::text(
                 format!("BIRTHS REFUSED  NO ROOM {}  NO SLOT {}", st.births_denied_no_space, self.world.organisms_refused()),
                 wanting,
+                "AN ANT COULD AFFORD A CHILD AND DID NOT GET ONE. NO ROOM MEANS THERE WAS NOWHERE BESIDE THE PARENT TO PUT A BODY -- A CROWDED NEST. NO SLOT MEANS THE WORLD IS AT ITS LIMIT OF LIVING THINGS.",
             ));
         }
-        rows.push(ColonyRow::Gap);
+        rows.push(ColonyRow::gap());
 
         // --- the larder ------------------------------------------------------
-        rows.push(ColonyRow::Text("ENERGY".into(), heading));
-        rows.push(ColonyRow::Text(
+        rows.push(ColonyRow::text("ENERGY", heading, "WHAT EVERY LIVING ANT HAS IN THE BANK, AND WHAT IT WOULD TAKE TO MAKE ANOTHER ONE."));
+        rows.push(ColonyRow::text(
             format!("HUNGRY {} OF {}", census.hungry, census.live),
             if census.hungry * 2 > census.live { wanting } else { dim },
+            format!(
+                "ANTS BELOW {:.0}, WHICH IS THE LINE THE ANT'S OWN HEAD TESTS: UNDER IT IT EATS WHAT IT FINDS, OVER IT IT CARRIES THE FOOD HOME INSTEAD. HUNGRY IS THE NORMAL STATE OF A FORAGER.",
+                census.hunger_line
+            ),
         ));
-        rows.push(ColonyRow::Histogram);
-        rows.push(ColonyRow::Text(
+        rows.push(ColonyRow {
+            body: ColonyBody::Histogram,
+            note: format!(
+                "EVERY ANT'S STORE, IN EIGHT STEPS FROM NOTHING TO {:.0}. AMBER BARS ARE BELOW THE HUNGER LINE AND THE AMBER TICK ON THE AXIS IS THE LINE ITSELF. THE TALLEST BAR HOLDS {} ANTS. A SHAPE, NOT AN AVERAGE -- HALF STARVING AND HALF FED AVERAGES TO NEITHER.",
+                census.energy_axis,
+                census.energy_buckets.iter().copied().max().unwrap_or(0)
+            ),
+        });
+        rows.push(ColonyRow::text(
             format!("LOW {:.0}  MID {:.0}  HIGH {:.0}  FULL {:.0}", census.energy.low, census.energy.mid, census.energy.high, census.energy_axis),
             dim,
+            format!(
+                "THE POOREST ANT, THE MIDDLE ONE AND THE RICHEST. FULL {:.0} IS WHAT AN ANT IS CREATED WITH AND THE TOP OF THE HISTOGRAM AXIS; AN ANT THAT HAS JUST EATEN WELL CAN SIT ABOVE IT.",
+                census.energy_axis
+            ),
         ));
         match census.breed_at {
             Some(bar) => {
-                rows.push(ColonyRow::Text(
+                rows.push(ColonyRow::text(
                     format!("{} CAN BUD   A CHILD COSTS {:.0}", census.ready, census.birth_cost),
                     if census.ready > 0 { good } else { dim },
+                    format!(
+                        "AN ANT BUDS WHEN ITS BANK REACHES {bar:.0}, AND PAYS {:.0} OUT OF ITS OWN BODY FOR THE CHILD. NOTHING APPEARS OUT OF NOTHING, SO A COLONY CANNOT MAKE ANTS FASTER THAN IT FINDS FOOD.",
+                        census.birth_cost
+                    ),
                 ));
                 // The gauge, not another number: the interesting fact about an
                 // ant's bank against the bar it has to reach is not what the
-                // bank is, it is *how far short* — measured at a few hundred
-                // against nearly two thousand, which a bar says at a glance
-                // and a pair of figures does not.
-                rows.push(ColonyRow::Gauge((census.richest / bar).clamp(0.0, 1.0), format!("{:.0} OF {:.0}", census.richest, bar)));
+                // bank is, it is *how far short* -- which a bar says at a
+                // glance and a pair of figures does not.
+                rows.push(ColonyRow {
+                    body: ColonyBody::Gauge((census.richest / bar).clamp(0.0, 1.0), format!("{:.0} OF {:.0}", census.richest, bar)),
+                    note: format!(
+                        "THE RICHEST ANT IN THE COLONY AGAINST THE BAR IT HAS TO REACH TO BUD: {:.0} OF {bar:.0}, WHICH IS {:.0}% OF THE WAY. IF THIS BAR NEVER FILLS, NOTHING WILL EVER BE BORN HERE.",
+                        census.richest,
+                        (census.richest / bar * 100.0).clamp(0.0, 100.0)
+                    ),
+                });
             }
-            None => rows.push(ColonyRow::Text("THIS SPECIES DOES NOT BREED".into(), dim)),
+            None => rows.push(ColonyRow::text(
+                "THIS SPECIES DOES NOT BREED",
+                dim,
+                "NOTHING IN THIS SPECIES' DATA SETS A BUDDING BAR, SO THE ANIMALS HERE ARE THE ONLY ONES THERE WILL EVER BE.",
+            )),
         }
-        rows.push(ColonyRow::Gap);
+        rows.push(ColonyRow::gap());
 
         // --- what they are doing right now -----------------------------------
-        rows.push(ColonyRow::Text("OUT AND ABOUT".into(), heading));
-        rows.push(ColonyRow::Text(format!("CARRYING {}   IN THE AIR {}", census.laden, census.airborne), white));
-        rows.push(ColonyRow::Text(
+        rows.push(ColonyRow::text("OUT AND ABOUT", heading, "WHAT THE COLONY IS DOING THIS INSTANT, AND HOW HARD IT HAS BEEN WORKING LATELY."));
+        rows.push(ColonyRow::text(
+            format!("CARRYING {}   IN THE AIR {}", census.laden, census.airborne),
+            white,
+            "ANTS HOLDING SOMETHING RIGHT NOW, AND ANTS OFF THE GROUND RIGHT NOW. A LADEN ANT IS TAKING FOOD HOME RATHER THAN EATING IT. NEITHER IS A TOTAL -- BOTH ARE A HEADCOUNT THIS FRAME.",
+        ));
+        rows.push(ColonyRow::text(
             format!("FROM HOME  {:.0} / {:.0} / {:.0} CELLS", census.reach.low, census.reach.mid, census.reach.high),
             dim,
+            "HOW FAR THE NEAREST, MIDDLE AND FURTHEST ANT HAVE GOT FROM THE NEST ON THE TRIP THEY ARE ON NOW. IT RESETS EVERY TIME AN ANT TOUCHES HOME, SO IT IS HOW FAR OUT THEY ARE SPREAD, NOT HOW FAR THEY HAVE EVER BEEN.",
         ));
         if let Some((span, first, last)) = self.colony_rates() {
             let per_k = |a: u64, b: u64| (b.saturating_sub(a)) as f64 * 1000.0 / span;
-            rows.push(ColonyRow::Text(
+            let raw = |a: u64, b: u64| b.saturating_sub(a);
+            rows.push(ColonyRow::text(
                 format!(
                     "PER 1K  STEP {:.0}  BLOCKED {:.0}  FELL {:.0}",
                     per_k(first.moves, last.moves),
@@ -2783,8 +2940,14 @@ impl App {
                     per_k(first.falls, last.falls)
                 ),
                 dim,
+                format!(
+                    "OVER THE LAST {window} FRAMES: {} STEPS TAKEN, {} STEPS THAT HAD NOWHERE TO GO, {} FALLS. ANTS FALL A LOT BY DESIGN -- ONE STANDING ON A NESTMATE THAT WALKS OFF HAS FURTHER TO DROP, AND NOTHING DIES OF IT.",
+                    raw(first.moves, last.moves),
+                    raw(first.moves_blocked, last.moves_blocked),
+                    raw(first.falls, last.falls)
+                ),
             ));
-            rows.push(ColonyRow::Text(
+            rows.push(ColonyRow::text(
                 format!(
                     "        ATE {:.0}  PICKED {:.0}  DUG {:.0}",
                     per_k(first.eats, last.eats),
@@ -2792,31 +2955,52 @@ impl App {
                     per_k(first.digs, last.digs)
                 ),
                 dim,
+                format!(
+                    "OVER THE LAST {window} FRAMES: {} MOUTHFULS EATEN, {} THINGS PICKED UP TO CARRY HOME, {} CELLS DUG OUT. A HUNGRY ANT EATS WHAT IT FINDS; A FED ONE PICKS IT UP INSTEAD, WHICH IS THE DIFFERENCE BETWEEN FEEDING ITSELF AND FEEDING THE COLONY.",
+                    raw(first.eats, last.eats),
+                    raw(first.pickups, last.pickups),
+                    raw(first.digs, last.digs)
+                ),
             ));
-            rows.push(ColonyRow::Text(
+            rows.push(ColonyRow::text(
                 format!("        FOOD HOME {:.1}  TRIPS {:.1}", per_k(first.deliveries, last.deliveries), per_k(first.forage_trips, last.forage_trips)),
-                // Deliveries are the loop closing — nest to food to nest with
-                // cargo — and the one figure here that is a verdict rather
+                // Deliveries are the loop closing -- nest to food to nest with
+                // cargo -- and the one figure here that is a verdict rather
                 // than an activity level.
                 if last.deliveries > first.deliveries { good } else { dim },
+                format!(
+                    "OVER THE LAST {window} FRAMES: {} LOADS PUT DOWN AT THE NEST, {} EXCURSIONS THAT WENT A REAL DISTANCE AND CAME BACK. FOOD HOME IS THE WHOLE LOOP CLOSING, AND IT TURNS GREEN WHEN ANY IS HAPPENING.",
+                    raw(first.deliveries, last.deliveries),
+                    raw(first.forage_trips, last.forage_trips)
+                ),
             ));
         }
-        rows.push(ColonyRow::Gap);
+        rows.push(ColonyRow::gap());
 
         // --- the line ----------------------------------------------------------
-        rows.push(ColonyRow::Text("LINEAGE".into(), heading));
-        rows.push(ColonyRow::Text(
+        rows.push(ColonyRow::text("LINEAGE", heading, "WHERE THESE ANIMALS CAME FROM, AND WHETHER THEY ARE STILL DIFFERENT FROM EACH OTHER."));
+        rows.push(ColonyRow::text(
             format!("GENERATION {}  LINES {}  TOP {:.0}%", census.deepest_generation, census.lineages, census.top_lineage * 100.0),
             dim,
+            format!(
+                "GENERATION IS HOW MANY ANCESTORS DEEP THE DEEPEST ANT IS -- 0 MEANS NOTHING HAS BRED YET. LINES IS HOW MANY SEPARATE FAMILIES ARE STILL GOING ({} OF {} ANIMALS), AND TOP IS THE SHARE IN THE BIGGEST ONE. A COLONY AT ONE LINE HAS CONVERGED WHATEVER ITS ANIMALS LOOK LIKE.",
+                census.lineages, census.live
+            ),
         ));
         for (slot, spread) in census.traits.iter().enumerate() {
-            rows.push(ColonyRow::Text(
-                format!("{:<7} {:+.2} / {:+.2} / {:+.2}", Self::colony_trait_label(slot), spread.low, spread.mid, spread.high),
+            let label = Self::colony_trait_label(slot);
+            rows.push(ColonyRow::text(
+                format!("{label:<7} {:+.2} / {:+.2} / {:+.2}", spread.low, spread.mid, spread.high),
                 dim,
+                format!("{}  LOWEST, MIDDLE AND HIGHEST IN THE LIVING COLONY. A CHILD INHERITS ITS PARENT'S VALUE NUDGED SLIGHTLY, SO A SPREAD THAT IS ALL ONE NUMBER MEANS NOTHING HAS BRED YET.", Self::colony_trait_meaning(slot)),
             ));
         }
         for (name, count) in &census.others {
-            rows.push(ColonyRow::Text(format!("ALSO HERE  {name} {count}"), faint));
+            rows.push(ColonyRow::text(
+                format!("ALSO HERE  {name} {count}"),
+                faint,
+                "ANOTHER KIND OF ANIMAL IS IN THIS WORLD. EVERYTHING CENSUSED ABOVE IS THE COMMONEST SPECIES ONLY.",
+            ));
         }
         // **Say what the rates count when there is more than one animal in
         // the world.** Everything censused above is the named species';
@@ -2824,9 +3008,25 @@ impl App {
         // every PER 1K figure is every creature there is. With one species
         // that distinction does not exist and the line would be noise.
         if !census.others.is_empty() {
-            rows.push(ColonyRow::Text("RATES ABOVE COUNT EVERY CREATURE".into(), faint));
+            rows.push(ColonyRow::text(
+                "RATES ABOVE COUNT EVERY CREATURE",
+                faint,
+                "THE HEADCOUNTS AND THE ENERGY ARE THE NAMED SPECIES'. THE PER 1K FIGURES ARE NOT SPLIT BY SPECIES AT ALL, SO THEY COVER EVERY ANIMAL IN THE WORLD.",
+            ));
         }
         rows
+    }
+
+    /// What one trait slot *is*, in the world's words rather than the field's.
+    ///
+    /// Beside `colony_trait_label` rather than folded into it because the
+    /// label has to fit a seven-character column and this does not.
+    fn colony_trait_meaning(slot: usize) -> &'static str {
+        match slot {
+            organism::TRAIT_GUT_BIAS => "WHAT THIS LINE OF ANTS CAN DIGEST, FROM -1 (LEAVES AND SEEDS) TO +1 (MEAT).",
+            organism::TRAIT_BIRTH_GRANT => "HOW MUCH OF ITS OWN STORE AN ANT HANDS A NEWBORN, FROM -1 (NOTHING, CHEAP AND RISKY) TO +1 (A FULL BUDGET).",
+            _ => "A HERITABLE TRAIT THIS PANEL HAS NOT BEEN TOLD THE NAME OF YET.",
+        }
     }
 
     /// The population trend line.
@@ -4125,7 +4325,7 @@ mod tests {
         app.colony_sample();
 
         let mut frame = vec![0u8; (WIDTH * HEIGHT * 4) as usize];
-        app.draw_colony_panel(&mut frame);
+        app.draw_colony_panel(&mut frame, None);
 
         let (left, top, right, bottom) = app.colony_panel_rect();
         let mut lit = 0usize;
@@ -4154,6 +4354,66 @@ mod tests {
         // above while carrying a hand of dead space under every short colony.
         let content: i32 = app.colony_rows().iter().map(ColonyRow::height).sum();
         assert_eq!(bottom - top, App::COLONY_HEADER + content + 6, "the border is not drawn around the rows");
+    }
+
+    /// **Hovering a row explains it, and hovering a gap does not.**
+    ///
+    /// Both directions, because a test that only checks the notes appear
+    /// passes for a panel that draws a box under the cursor wherever it is.
+    /// It also drives every note through `colony_text`'s glyph
+    /// `debug_assert`, which is the only thing that can see a character the
+    /// font would render as a blank gap — the notes are built at run time out
+    /// of species names and formatted numbers, so no test over literals can.
+    #[test]
+    fn hovering_a_colony_row_explains_it_and_hovering_a_gap_does_not() {
+        let mut app = test_app();
+        found_a_demo_colony(&mut app);
+        app.show_colony = true;
+        app.colony_sample();
+        // A second sample a window apart, so the rate rows — which are most
+        // of the notes — actually exist to be hovered.
+        for _ in 0..COLONY_SAMPLE_INTERVAL + 1 {
+            app.update();
+            app.colony_sample();
+        }
+
+        let blank = {
+            let mut f = vec![0u8; (WIDTH * HEIGHT * 4) as usize];
+            app.draw_colony_panel(&mut f, None);
+            f
+        };
+        let (left, top, _, _) = app.colony_panel_rect();
+        let mut y = top + App::COLONY_HEADER;
+        let mut explained = 0;
+        for row in app.colony_rows() {
+            let mut f = vec![0u8; (WIDTH * HEIGHT * 4) as usize];
+            app.draw_colony_panel(&mut f, Some((left + 20, y + 1)));
+            let changed = f != blank;
+            assert_eq!(
+                changed,
+                !row.note.is_empty(),
+                "row at y={y} {} a note and {} one",
+                if row.note.is_empty() { "has no" } else { "has" },
+                if changed { "drew" } else { "drew no" }
+            );
+            explained += usize::from(changed);
+            y += row.height();
+        }
+        assert!(explained >= 10, "only {explained} rows explain themselves; the panel is dense and most of them should");
+    }
+
+    /// A note is wrapped to fit its box rather than clipped at the edge.
+    #[test]
+    fn a_colony_note_wraps_on_spaces_and_keeps_every_word() {
+        let note = "OVER THE LAST 3810 FRAMES: 114 THINGS PICKED UP TO CARRY HOME.";
+        let lines = App::wrap_words(note, 20);
+        assert!(lines.len() > 1, "a long note must wrap");
+        for line in &lines {
+            // A single word longer than the column count is allowed to
+            // overrun; a line made of several words is not.
+            assert!(line.chars().count() <= 20 || !line.contains(' '), "{line:?} is over the column count and is not one long word");
+        }
+        assert_eq!(lines.join(" "), note, "wrapping must not drop or reorder a word");
     }
 
     /// Rates are `None` until the trend window spans something. A cumulative
@@ -4303,6 +4563,17 @@ mod tests {
             app.update();
             app.draw(&mut frame, None);
         }
+        // `COLONY_HOVER=<row>` parks the cursor on that row for the last
+        // frame, so the sheet shows the explanation rather than only the
+        // dense line it explains.
+        if let Some(want) = std::env::var("COLONY_HOVER").ok().and_then(|v| v.parse::<usize>().ok()) {
+            let (left, top, _, _) = app.colony_panel_rect();
+            let mut hy = top + App::COLONY_HEADER;
+            for row in app.colony_rows().iter().take(want) {
+                hy += row.height();
+            }
+            app.draw(&mut frame, Some((left + 20, hy + 1)));
+        }
         // Written at 2x by default. The review page scales client-side, but
         // its own guidance records a 190x130 still the owner could see
         // nothing in, and 512x320 on a phone is not far off that.
@@ -4328,7 +4599,7 @@ mod tests {
         // and reading "PICKED 30" as "PICKED 0" off one is how this print
         // came to exist.
         for row in app.colony_rows() {
-            if let ColonyRow::Text(text, _) = row {
+            if let ColonyBody::Text(text, _) = row.body {
                 eprintln!("| {text}");
             }
         }

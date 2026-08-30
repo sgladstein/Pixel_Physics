@@ -261,6 +261,15 @@ is, and the spread of each inherited trait across the living animals. A
 freshly placed colony reads generation 0 with as many lines as there are
 ants, because every founder is its own ancestor.
 
+**Hover a line and it explains itself.** The page is dense — every row is
+squeezed to fit, and `FROM HOME 0 / 31 / 102` means nothing to anyone who has
+not just read the rest of this section. Put the pointer on any line and a note
+opens beside the page saying what that row is, in words, along with the
+figures that did not fit on it: the raw counts behind a rate, the exact
+threshold behind a colour, what a trait means and which way its numbers run.
+The note sits to the side rather than under the pointer, so it never covers
+the line it is explaining.
+
 Two things worth knowing about the page itself. The population strip **starts
 empty and fills as you watch** — nothing counts the colony until you ask it
 to, which is what makes the page free when it is shut. And every rate on it

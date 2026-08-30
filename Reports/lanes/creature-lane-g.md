@@ -161,11 +161,42 @@ window with it. Look at the picture for *what and where*; read the text for
 
 | | |
 |---|---|
-| `cargo test --lib` | 1099 passed, 0 failed, 54 ignored (re-run after the `main` merge) |
+| `cargo test --lib` | 1101 passed, 0 failed, 54 ignored (re-run after the `main` merge and after the hover) |
 | `cargo +1.98.0 clippy --all-targets -- -D warnings` | clean |
 | `cargo run --release --example ascii` | 31 scenes run, 0 skipped; worst frame 37.54 ms / mean 3.64 ms on the 166-organism scene |
 | `bash scripts/acceptance.sh` | all cases met their expectations |
 | `bash scripts/docscheck.sh` | clean |
+
+## The owner's verdict, and what it asked for next
+
+Both cards were answered within minutes. `…a172fe`: **"looks good"**.
+`…7ae046`, the superseded one, carried the substance:
+
+> *"This look good. more better graphs might be interesting. For whichever
+> you think it might be necessary, the user should be able to mouse hover
+> over some of the words and get and explaination of what it means and this
+> could also be a way to access more details data."*
+
+**The hover is built, both halves of it.** Every row carries a
+`ColonyRow::note` drawn by `App::draw_colony_note`, and a note is not a
+glossary entry: it says what the row means *and carries what did not fit on
+it* — the raw counts behind each rate, the exact hunger threshold behind the
+histogram's colours, what each trait is and which way its axis runs. The box
+sits **beside the panel, level with the row**, not under the pointer, because
+a box that follows the cursor covers the line it is explaining.
+
+Guarded by `hovering_a_colony_row_explains_it_and_hovering_a_gap_does_not`,
+which asserts both directions (a check that only looks for the note appearing
+passes for a panel that draws a box wherever the cursor is) and, in passing,
+drives every note through `colony_text`'s glyph assert — the only thing that
+can see a character the font would draw as a blank gap, since the notes are
+built at run time.
+
+**Not done: "more better graphs".** Put back to the owner on card
+`20260830T063…` with two concrete proposals — food delivered over time beside
+the population strip, and the energy histogram as a moving band rather than a
+snapshot — rather than guessed at. Whoever picks this up should read that
+card's answer first.
 
 ## Review
 
