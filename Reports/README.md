@@ -714,6 +714,20 @@ drift that two of these documents still reflect.**
   already the best of the values tested, and a nine-cell pale body puts less
   on screen than the shipped two-cell dark one. The creature-side answer to
   `plant-appearance-design.md`.
+- [creature-motion-decoys-2026-08-30.md](creature-motion-decoys-2026-08-30.md)
+  — **measured study, and a qualification of the report above.**
+  `creature-appearance-design.md`'s whole body-size case rests on `decoys`,
+  which is computed on a **single still**, and a decoy is a rock edge or a
+  leaf — something that holds still, while the animal does not. Adding the
+  motion axis (`examples/motion_look.rs`: a decoy that does not change
+  between two frames is not competing for the eye) finds the decoy field is
+  **entirely static**: a body that moves has **0–2** competitors at every
+  size from 1 to 16 cells, so a walking two-cell ant is already better off
+  than a stationary sixteen-cell one, in every sky measured and on four
+  seeds. Does not overturn the recommendation so much as split it — **22–42%
+  of ants never move across a 384-frame horizon**, and for those the static
+  ladder is the whole story, which is the owner's *"ants are mostly visible
+  with there motion"* arriving as a number.
 - [creature-direction.md](creature-direction.md) — **direction agreed
   (2026-08-17).** Cell-chain ants, the caged brain, the heritable genome;
   decision record plus implementation plan.
