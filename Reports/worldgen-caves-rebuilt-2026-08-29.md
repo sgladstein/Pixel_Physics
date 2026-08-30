@@ -977,6 +977,43 @@ order statistics: measured **7 of 9** each (widths 18/20/10/21/19/19/11/20/12,
 sinks on all but seeds 1 and 5), bars at 5 with the headroom `CLAUDE.md` asks
 for and a systemic break landing at 0-2.
 
+#### What is still red, and what it is
+
+**`a_forced_vault_world_is_sealed_and_arrives_at_rest`, `rolling` seed 2: 95
+liquid cells against the 40-cell fringe bar.** It is the same class as the
+defect above and the lintel does not reach it. Two clusters, at x 624-670 and
+x 1045-1114, rows 446-480, with 104 cells arriving at rows 488-594 below them
+-- water falling out of a basin into something open underneath. Rendered as
+ASCII it is a one-cell-wide thread of water in a V-shaped notch draining into
+a cavity ten to twenty rows below it.
+
+**The bar was deliberately not widened to cover it.** 40 is five times the
+worst *fringe* measured (8 cells, two ceiling nooks in a chamber pool, stable
+at 8 / 8 / 13 over 120 / 400 / 1,200 frames); 95 is a drain, and a bar that
+admits it would stop this guard seeing the next one. The number to hold it
+against is the one it started from: **6,179 cells on this seed**, so what is
+left is 1.5% of the defect.
+
+**One repair was tried and made it worse, so start after it.** `ponds` fills
+`pool ..= surface_y - 1`, and `carve_mouth_run`'s guard skips only
+`wy < surface_y - 1` -- so the lowest row of every lake in a column falls
+through the guard and is *opened* rather than lintelled. Lintelling it too
+looks like the obvious close and measured **20 / 199 / 75 / 149 / 26 cells
+moving against 8 / 95 / 0 / 0 / 0**: a plug of rock in the passage at the
+lake's own level dams it and displaces water rather than sealing it.
+
+**Where to look next, in order.** The lintel covers the entrance's own shell
+(`carve_mouth_run`, `up + LINTEL_THICK` above the centre line and `half_w +
+side` either side). A basin floor opened *further* than that from the run
+centre -- by the shallow conduit that reaches the breakout's start, by
+`weld_pieces`, or by a swallowed pocket at the basin's own floor -- is outside
+it. The cheap next measurement is the stage-tagged void map §14.5 used for the
+roof spans: tag each void cell with the stage that set it, then print the tag
+of whatever sits under a basin the pond pass filled. Note also that
+`pond_leaks` -- refusing a basin whose flood escapes, measured and removed --
+*did* suppress this seed, which is what says the hole is on the cave side and
+not in `ponds`.
+
 #### The shipped census, re-run
 
 `cave_probe seeds=8` at 8192x2560, against §3.2:
