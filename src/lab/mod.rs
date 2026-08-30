@@ -98,7 +98,8 @@ impl Lab {
     /// Build the box `spec` describes and start it **stopped**. Nothing
     /// ticks until the player presses `SPACE` or asks for a speed.
     pub fn new(spec: scene::LabBox) -> Self {
-        let world = spec.build();
+        let mut world = spec.build();
+        earth_toned_nest(&mut world);
         Self {
             world,
             particles: ParticleSystem::new(),
@@ -121,6 +122,7 @@ impl Lab {
     /// Rebuild the box from the same spec, keeping the view and the dial.
     pub fn reset(&mut self) {
         self.world = self.spec.build();
+        earth_toned_nest(&mut self.world);
         self.particles = ParticleSystem::new();
         self.blasts = Blasts::new();
         self.stats = stats::Stats::new();
@@ -548,6 +550,50 @@ impl Lab {
     }
 }
 
+/// **Draw nest material as worked earth in the lab, not as pale stone.**
+///
+/// Owner, 2026-08-30: *"we don't need a visible line for where the colony is
+/// placed."* `creature::found_colony` paints one row of `nest` across 53
+/// columns at the surface, and `nest.ron`'s palette is a pale warm sand
+/// (196,168,120) chosen to *"read clearly against soil"* — which outdoors is
+/// the point and in a flat bed is a stripe drawn across the box.
+///
+/// **The colour carries no behaviour.** `AtNest` is a contact scan for the
+/// material and nothing else, and an ant's route home is a pheromone gradient
+/// that never asks where the nest is — `nest.ron` says both, at length. So
+/// what the fix costs is exactly the player's ability to spot a colony at a
+/// glance, and what it buys is that a founded colony no longer draws a line.
+///
+/// Three things this is deliberately *not*:
+///
+/// - not an edit to `creature.rs`. The nest patch is functional and narrower
+///   than the ant band on purpose — *"home has to be a place, not everywhere,
+///   or there is no gradient to walk up"* — and the foraging scene measured
+///   414 deliveries at that ratio;
+/// - not an edit to `nest.ron`, which would change the sandbox too, where a
+///   findable nest is wanted;
+/// - not a test in `render.rs`'s per-pixel path. A material comparison per
+///   pixel is 163,840 of them a frame for a stripe; swapping the palette in
+///   the lab's own `Materials` costs **nothing at draw time at all**, which is
+///   what `Materials::get_mut` exists for.
+///
+/// The tones are `packedsoil`'s own reference-loam family, which is the
+/// engine's existing answer to "ground an animal has worked" — the same
+/// material an ant lines its galleries with. Worked ground drawn as worked
+/// ground.
+fn earth_toned_nest(world: &mut World) {
+    const WORKED_EARTH: [[u8; 4]; 4] = [
+        [48, 38, 32, 255],
+        [56, 45, 38, 255],
+        [42, 33, 28, 255],
+        [62, 50, 42, 255],
+    ];
+    let Some(nest) = world.materials.id_of("nest") else { return };
+    let def = world.materials.get_mut(nest);
+    def.palette = WORKED_EARTH.to_vec();
+    def.base_shades = WORKED_EARTH.len();
+}
+
 /// How far a planting click may walk **up** out of the ground to find an
 /// empty cell to drop a seed in. Twelve rows: a click aimed at the surface
 /// lands in soil, and a click aimed a hand's width into the bed should still
@@ -942,6 +988,46 @@ mod tests {
         assert_eq!(
             midpoint.material, soil,
             "the drag left a gap: a stroke must be a capsule, not two dabs"
+        );
+    }
+
+    /// **A founded colony must not draw a line across the bed.**
+    ///
+    /// Measured as contrast against the ground it sits on rather than as a
+    /// colour equality: the claim is *"you cannot see a stripe"*, and a test
+    /// that asserted three specific bytes would be green for any repaint and
+    /// would go red for a legitimate retune of `packedsoil`.
+    ///
+    /// The sensitivity half is the shipped `nest.ron` palette, checked in the
+    /// same test: a pale (196,168,120) against soil's (64,46,34) is a
+    /// separation of 132, and the assertion below must be one this cannot
+    /// pass — otherwise it is measuring nothing.
+    #[test]
+    fn a_founded_colony_does_not_draw_a_pale_line_across_the_bed() {
+        use crate::sim::material::MaterialId;
+        let lab = bench();
+        let luma = |id: MaterialId| -> f32 {
+            let p = &lab.world.materials.get(id).palette;
+            p.iter()
+                .map(|c| 0.299 * c[0] as f32 + 0.587 * c[1] as f32 + 0.114 * c[2] as f32)
+                .sum::<f32>()
+                / p.len().max(1) as f32
+        };
+        let nest = lab.world.materials.id_of("nest").expect("nest");
+        let soil = lab.world.materials.id_of("soil").expect("soil");
+        let gap = (luma(nest) - luma(soil)).abs();
+        assert!(gap < 24.0, "nest stands {gap:.0} luma off the soil it is painted on");
+
+        // The control: the shipped palette, which is what this replaces.
+        let shipped = [[196u8, 168, 120, 255], [184, 156, 110, 255], [206, 180, 132, 255]];
+        let shipped_luma = shipped
+            .iter()
+            .map(|c| 0.299 * c[0] as f32 + 0.587 * c[1] as f32 + 0.114 * c[2] as f32)
+            .sum::<f32>()
+            / shipped.len() as f32;
+        assert!(
+            (shipped_luma - luma(soil)).abs() > 24.0,
+            "the control does not fail the assertion, so the assertion measures nothing"
         );
     }
 
