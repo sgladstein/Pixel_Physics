@@ -536,7 +536,13 @@ fn colony_arm(seeds: u64, ants: i32, frames: u64, png: Option<&str>) {
         let mut tiles: Vec<Vec<u8>> = Vec::new();
         let shoot = png.is_some() && seed == 1;
 
-        let marks = [0u64, 500, 2_000, frames];
+        // Steerable so one stop can be asked for on its own: a four-tile
+        // column is the right shape for reading a run and the wrong shape for
+        // a side-by-side comparison, which is what a review card wants.
+        let marks: Vec<u64> = match arg::<String>("marks") {
+            Some(v) => v.split(',').map(|m| m.parse().expect("marks=a,b,c")).collect(),
+            None => vec![0, 500, 2_000, frames],
+        };
         for f in 0..=frames {
             if f > 0 {
                 parallel::step(&mut world);
