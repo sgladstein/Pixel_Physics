@@ -997,7 +997,9 @@ revamp rather than another round:
   rock is absent.** A room is a dissolution lens flooded through a removal
   cost built from the strata, then a roof that falls in until it reaches a bed
   strong enough to hold its span; conduits are paths through an anisotropic
-  cost field; **every system daylights.** `bed_span` is read off the material —
+  cost field; systems are given a way in — **though not all of them get one:
+  6 of 11 over 8 `rolling` seeds, corrected 2026-08-30, pre-existing and not
+  moved by the guard work.** `bed_span` is read off the material —
   42 cells in mudstone to 308 in basalt — so two rooms differ by a factor of
   seven with no parameter moving.
   Census over 16 seeds x 5 presets: worlds with **no cave 2–4 → 0**, largest
