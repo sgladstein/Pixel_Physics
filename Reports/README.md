@@ -1465,6 +1465,26 @@ filing them by which game happened to observe them would hide that.
   oversubscription and labelled as such; the render term is reported as
   **not measurable** rather than guessed.
 
+- [lab-sky-light-cost-2026-08-30.md](lab-sky-light-cost-2026-08-30.md) —
+  **built and landed.** The follow-up to Gate 1 §5.3: half the lab's draw was
+  `Renderer::rebuild_sky_light`, in a box whose whole premise is a ceiling
+  instead of a sky. **The sky being held was never what kept it awake** — the
+  rebuild fires on any touched chunk, and a bed with fifty walking ants
+  touches one every frame — and the cost inside it is a **per-cell scan**
+  (build 1.55 ms against a 0.90 ms fan and a 0.72 ms sweep), not the
+  propagation everyone assumes. Caching the per-block occupancy and rescanning
+  only the touched chunks' blocks takes the draw **4.80 -> 2.56 ms fresh and
+  2.97 -> 1.34 ms settled**, paired and alternating, 7 of 7 pairs; the whole
+  frame falls 32–38% and the renderer's tax on the speed dial goes from 18% to
+  8%. The picture is **byte-identical** in the lab and on the generated
+  outdoor world, and **0 pixels differ** across 3,000 per-frame comparisons
+  against a from-scratch renderer. Two findings past its own question: **a
+  frame hash is a positive control only where the change can reach a pixel** —
+  the deliberately broken cache drew a byte-identical lab sheet, so the light
+  grid is the discriminating comparison — and **half the remaining pass still
+  solves for movements of at most 20 bytes in 18,193**, which is the headroom
+  nobody has taken and is a harder change than this one.
+
 ## Licensing and distribution
 
 - [dependency-license-audit.md](dependency-license-audit.md) — **settled
