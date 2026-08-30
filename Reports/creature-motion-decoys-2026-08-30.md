@@ -266,6 +266,35 @@ Three further boundaries, stated rather than buried:
   texture grain and stable across worldgen changes (§2 of the appearance
   report); the moving ladder has not been tested that way.
 
+## 7b. The owner's verdict, and the half of it that is a correction
+
+Card `20260830T045018630Z-abf50b` — one frozen frame against 20 stepping
+ones, same 31 ants, same slope, same seed — came back:
+
+> *"I can see them in both but it is much more obvious in the scene
+> stepping."*
+
+**What it confirms** is the direction and the size of the effect: motion is
+the dominant cue, judged by eye, on the same scene the numbers were taken
+from. That is the claim this report exists to make and it is the strongest
+evidence available for it.
+
+**What it corrects** is a framing this report inherited and should not have
+carried unqualified. `creature-appearance-design.md` is titled *"Why you
+cannot find an ant"*, and the owner can — in this picture. So the decoy count
+is what §7 says it is, **a count of candidates the eye must reject and not a
+claim of invisibility**, and every ordinal statement above should be read
+that way: 148 candidates against 1 is a large difference in how hard the
+search is, not the difference between possible and impossible.
+
+**Two things made that picture easier than play scale, and they are the
+card's own limits.** The crop is 170x62 cells at zoom 5 — 850 px across,
+which the review skill requires so the owner can see anything at all — and
+the ants stand on a bare rock slope against sky rather than in vegetation. A
+whole 512x320 frame at 1x, which is what the player looks at, is the harder
+case and was not the thing judged. The right follow-up card is the same
+comparison at play scale.
+
 ## 7a. Re-taken after the merge, and why nothing moved
 
 `main` landed **#142** (ants starve; a birth grant), **#145**, **#146** and

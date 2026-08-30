@@ -59,6 +59,19 @@ until the weather arms produced 2,870–6,316 moving pixels and a blizzard
 produced 13 moving decoys at 2 cells. The world these reports measure on is
 genuinely at rest; it is not a broken instrument.
 
+## The owner's verdict — answered
+
+Card `20260830T045018630Z-abf50b`: *"I can see them in both but it is much
+more obvious in the scene stepping."*
+
+Confirms the direction and the magnitude by eye. **It also corrects one
+inherited framing**: the appearance report is titled *why you cannot find an
+ant*, and the owner can — so the decoy count is a count of candidates the eye
+must reject, not a claim of invisibility. Recorded as §7b, with the card's own
+limits: 850 px at zoom 5, on a bare slope against sky, which is an easier
+picture than the 512x320 frame at 1x that the player actually looks at. The
+follow-up worth posting is the same comparison at play scale.
+
 ## Review card
 
 Posted as a **frame sequence** (the skill's own measured note: a GIF showed
@@ -88,7 +101,10 @@ fraction would be expected to move.
 - **Head SHA** `c997c58` — *The decoy field is static, and an ant is not:
   motion measured*.
 - **PR** [#150](https://github.com/sgladstein/Pixel_Physics/pull/150),
-  opened from this lane.
+  opened from this lane and **merged** at head `9323e2e`. The post-merge
+  re-take (§7a) and the owner's verdict (§7b) missed that merge by minutes,
+  so the branch was restarted from `origin/main` and they are a **second**
+  PR — a merged PR cannot carry new work.
 - **Review card** `20260830T045018630Z-abf50b`, board `creatures` — one
   frozen frame against 20 stepping ones, still and moving decoy counts in
   `meta`. Fire-and-forget; collect with `python3 scripts/review.py inbox`.
