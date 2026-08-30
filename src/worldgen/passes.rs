@@ -2538,17 +2538,62 @@ impl VaultReport {
 /// allowed to have no cave in it.
 const PLACEMENT_TRIES: i32 = 6;
 
-/// Whether the cave plan leaves something solid at `(dx, dy)`: undisturbed
-/// rock (anything outside the kept void, including outside the envelope),
-/// or planned floor gravel. What the floor verifier leans on.
-fn planned_solid(env: CaveEnv, void: &[bool], floor: &[Option<(i32, i32, i32)>], dx: i32, dy: i32) -> bool {
+/// Whether anything holds material up at `(dx, dy)`: undisturbed rock,
+/// planned floor gravel, or the world's own rim. What the floor verifier
+/// leans on.
+///
+/// **Two sources, and the second was missing.** Inside the envelope the
+/// system's own `void` plan says what this system is about to open; outside
+/// it, and for every cell the plan is not opening, the *world* says what
+/// somebody else already opened. Both have to be asked -- see [`world_solid`]
+/// for the 587-cell failure that came of asking only the first.
+fn planned_solid(
+    env: CaveEnv,
+    void: &[bool],
+    floor: &[Option<(i32, i32, i32)>],
+    world: &World,
+    // The envelope's world centre, as one argument rather than two: `clippy::
+    // too_many_arguments` caps this at seven and the pair is never split.
+    at: (i32, i32),
+    dx: i32,
+    dy: i32,
+) -> bool {
     if dx.abs() > env.half_w || dy.abs() > env.half_h {
-        return true;
+        return world_solid(world, at.0 + dx, at.1 + dy);
     }
     if !void[env.idx(dx, dy)] {
-        return true;
+        return world_solid(world, at.0 + dx, at.1 + dy);
     }
     matches!(floor[(dx + env.half_w) as usize], Some((_, b, h)) if h > 0 && dy > b - h)
+}
+
+/// Is there anything at all at this world cell?
+///
+/// **"This system is not opening it" is not the same claim as "it is solid",
+/// and reading the first as the second is what laid a gravel floor across
+/// another cave's ceiling.** `void` is one system's plan; the world is what
+/// every system before it already did. Measured 2026-08-30 on `wetland` seed
+/// 2 at `CAVE_BOUNDS`: system k=0 at (1264,719) opens a chamber under
+/// x 867, and system k=2 at (496,584) -- whose envelope overlaps it -- drives
+/// its mouth run through the top of that void, so column 867's *bottommost
+/// run in k=2's own mask* ends at row 380 with nothing but k=0's open cave
+/// below it. The floor pass then laid its fill on that phantom floor: a
+/// diagonal gravel ramp ~27 cells thick hanging over the older chamber, which
+/// avalanched on frame one and took **587 cells** down with it, the largest
+/// single at-rest failure in the suite.
+///
+/// `Cell::OUT_OF_BOUNDS` is deliberately not empty, so a cell off the edge of
+/// the world reads as solid here -- which is the same answer the envelope
+/// bound above used to give unconditionally, and the right one: the world's
+/// rim holds material up.
+///
+/// Empty only, not "not a powder". A liquid cell cannot really hold gravel up
+/// -- gravel is denser and sinks through it -- but the system's own waterline
+/// is written *after* this pass, so at this point the only liquid inside the
+/// envelope is another system's pool, and narrowing the test to it has no
+/// measured case behind it. Named rather than done.
+fn world_solid(world: &World, x: i32, y: i32) -> bool {
+    world.get(x, y).material != material::EMPTY
 }
 
 /// One cave system: build the shape, verify the seal, write the cells.
@@ -2784,6 +2829,13 @@ fn cave_system(
     // fails is lowered until nothing can. A property of the check, not of
     // the case analysis.
     //
+    // **2026-08-30 correction: the check has to read the world, not only the
+    // plan.** Everything above is about the shape of *this* system, and a
+    // second system's envelope may already have opened the rock underneath
+    // it -- see [`world_solid`]. Same class of miss as the flank rule below,
+    // one level out: the rule was right and the state it consulted was
+    // partial.
+    //
     // **Round-5 correction: the slide rule has no flank requirement.**
     // `update_powder`'s diagonal step (`src/sim/update.rs`) tries
     // `try_move(x, y, x +/- 1, y + 1)` straight off, and `try_move` only
@@ -2811,7 +2863,9 @@ fn cave_system(
             // Shallowest gravel cell with an open diagonal-down neighbour,
             // scanning down -- the flank itself need not be open too.
             for y in (b - h + 1)..=b {
-                let exposed = [-1, 1].iter().any(|&s| !planned_solid(env, &void, &floor, dx + s, y + 1));
+                let exposed = [-1, 1]
+                    .iter()
+                    .any(|&s| !planned_solid(env, &void, &floor, world, (cx, cy), dx + s, y + 1));
                 if exposed {
                     // Drop this cell and everything stacked on it.
                     new_h = b - y;

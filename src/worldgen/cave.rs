@@ -783,6 +783,40 @@ fn dy_i(env: CaveEnv, dx: i32, dy: i32) -> usize {
 /// The border test is what keeps the soil blanket and the open sky out of it:
 /// both reach the envelope's edge, so neither is ever a pocket however the
 /// size cap is set.
+///
+/// **8-connected, because a pocket is a *body* and the thing that moves it is
+/// the powder rule, which is 8-connected.** This walk was 4-connected until
+/// 2026-08-30 and that is `CLAUDE.md`'s standing gotcha -- *a traversal must
+/// use the same neighbourhood the writer used* -- in the one place the
+/// project had not yet applied it. Both writers say eight. `passes::pockets`
+/// rasterises a thin ellipse rotated onto the bedding, so its tip pinches out
+/// into a diagonal staircase, and that pass already carries the same finding
+/// against its own rind: *"the rind above is an ellipse offset, not a
+/// dilation, and powder moves at eight neighbours"*. And the reader here is
+/// the seal, which asks whether anything loose is left at a free face -- a
+/// grain slides into an empty **diagonal** just as readily as into the cell
+/// below, so "one grain leaving destabilises the next" propagates at eight.
+///
+/// Measured on `canyon` seed 2 at `CAVE_BOUNDS`: `pockets` lays a ~40-cell
+/// gravel lens at x 612-628, rows 718-723, and its top two cells (627-628,
+/// 718) touch the rest of the lens **only diagonally**. Four-connected they
+/// are their own pocket, `take_touched_pockets` scans the void once and
+/// neither of them is within the rind of anything the carve cut, so the lens
+/// under them is emptied and they are left standing over it. (627, 718) then
+/// slides down-left into (626, 719) on frame one, and
+/// `a_forced_vault_world_is_sealed_and_arrives_at_rest` reports it. Eight-
+/// connected the staircase is one pocket, the carve touches it, and it goes
+/// whole -- which is the guarantee the one-pass take needs to be sound:
+/// distinct 8-connected groups are at least two cells apart, so emptying one
+/// can never leave another at a free face.
+///
+/// Measured cost of taking more: **none of it is the cave.** Paired
+/// `cave_probe seeds=8` at 8192x2560 over this change and the floor repair
+/// beside it moves 16 lines of 240, and **every mouth coordinate, system
+/// count, walkable-region share and reachable-by-player share is identical** --
+/// `Reports/worldgen-caves-rebuilt-2026-08-29.md` §14.7. `wetland` seed 2's
+/// 587 movers are *not* this: they are a second defect entirely, in the floor
+/// pass (`passes::world_solid`).
 #[allow(clippy::type_complexity)]
 fn swallowable(rock: &[bool], gw: usize, gh: usize) -> (Vec<u32>, Vec<Vec<usize>>) {
     let mut seen = vec![false; gw * gh];
@@ -804,18 +838,23 @@ fn swallowable(rock: &[bool], gw: usize, gh: usize) -> (Vec<u32>, Vec<Vec<usize>
             if x == 0 || y == 0 || x + 1 == gw || y + 1 == gh {
                 touches_border = true;
             }
-            for (dx, dy) in [(-1i32, 0i32), (1, 0), (0, -1), (0, 1)] {
-                let nx = x as i32 + dx;
-                let ny = y as i32 + dy;
-                if nx < 0 || ny < 0 || nx as usize >= gw || ny as usize >= gh {
-                    continue;
+            for dy in -1i32..=1 {
+                for dx in -1i32..=1 {
+                    if (dx, dy) == (0, 0) {
+                        continue;
+                    }
+                    let nx = x as i32 + dx;
+                    let ny = y as i32 + dy;
+                    if nx < 0 || ny < 0 || nx as usize >= gw || ny as usize >= gh {
+                        continue;
+                    }
+                    let j = ny as usize * gw + nx as usize;
+                    if seen[j] || rock[j] {
+                        continue;
+                    }
+                    seen[j] = true;
+                    stack.push(j);
                 }
-                let j = ny as usize * gw + nx as usize;
-                if seen[j] || rock[j] {
-                    continue;
-                }
-                seen[j] = true;
-                stack.push(j);
             }
         }
         if !touches_border && group.len() <= SWALLOW_MAX {

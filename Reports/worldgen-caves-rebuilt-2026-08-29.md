@@ -1197,12 +1197,179 @@ and one formation per world stops touching a waterline. Nothing about the
 rooms, the passages, the spans or the way in moves at all -- `ponds` runs
 after `vaults` and cannot reach them.
 
+### 14.7 The last two at-rest failures were two different bugs wearing one number
+
+*Added 2026-08-30 on `claude/worldgen-revamp-plan-dot67g`, off `322cfc2`. Same
+test bed as 14.5 and 14.6 -- `CAVE_BOUNDS` (2048x1300) at the tests' forced
+`vault_density: 4.0`, weather held at `Weather::CLEAR`.*
+
+14.6 closed the liquid half of
+`a_forced_vault_world_is_sealed_and_arrives_at_rest` and left its `dry.
+is_empty()` half red on three worlds: `canyon` 2 and `canyon` 5 losing one
+gravel cell each, `wetland` 2 losing **587**. It read them as one class --
+"powder left at a free face by the carve" -- and named `swallowable`'s
+4-connected flood fill as the mechanism. **That is right for the two, and it
+is not what `wetland` 2 is.** The 587 survive the pocket repair untouched.
+
+#### The census the guard cannot give you
+
+The assertion is *inside* the loop over fifteen worlds, so a run reports the
+first failure and says nothing about the fourteen behind it. Every table below
+is the same fifteen worlds evaluated to the end (a scratch copy of the guard
+that collects instead of asserting, run and deleted -- it is four lines of
+harness and would only rot in `tests/`):
+
+| | rolling | canyon | wetland |
+|---|---|---|---|
+| seed 1 | 0 | 0 | 0 |
+| seed 2 | 0 | **1** -> 0 | **587** -> 587 -> 0 |
+| seed 3 | 0 | 0 | 0 |
+| seed 4 | 0 | 0 | 0 |
+| seed 5 | 0 | **1** -> 0 | 0 |
+
+Three columns of numbers, in order: at `322cfc2`, after the pocket repair, and
+after the floor repair as well. **Failing worlds 3 -> 1 -> 0**, and the liquid
+half stays inside its bar throughout -- the worst is `wetland` 2 at 222 against
+546, and `canyon` 5 improves from 117 to 91 as a side effect of the pocket
+repair taking a little more gravel.
+
+#### The two cells: a pocket is a body, and bodies are 8-connected
+
+`canyon` 2 reduces to one cell and shows the whole shape. `pockets` lays a
+~40-cell gravel lens at x 612-628, rows 718-723; its top two cells at
+(627-628, 718) touch the rest **only diagonally**, so a 4-connected walk makes
+them their own pocket. `take_touched_pockets` scans the void **once**, before
+it empties anything, and at that moment nothing the carve cut is within
+`VAULT_RIND` of them -- the void that ends up beside them is the rest of the
+lens, emptied later in the same call. The lens goes, the pair stays, and
+(627, 718) slides down-left into the hole at (626, 719) on frame one.
+
+`swallowable` now floods at eight neighbours. **Both of the writers this reads
+back say eight**, which is `CLAUDE.md`'s standing gotcha (*a traversal must
+use the same neighbourhood the writer used*) in the one place the project had
+not yet applied it:
+
+* `pockets` rasterises a thin ellipse **rotated onto the bedding**, so a lens
+  tip pinches out into a diagonal staircase. That pass already carries this
+  exact finding against its own rind -- *"the rind above is an ellipse offset,
+  not a dilation, and powder moves at eight neighbours"* -- and 14.6's own
+  `pools_behind` repair is the same correction one stage over, where a
+  45-cell pond film read as **36 separate bodies**, thirty of them one cell.
+* the reader is the seal, which asks whether anything loose is left at a free
+  face. A grain slides into an empty **diagonal** as readily as into the cell
+  below, so "one grain leaving destabilises the next" propagates at eight.
+
+It also makes the single-pass take sound rather than lucky: two distinct
+8-connected groups are at least two cells apart, so emptying one can never
+leave the other at a free face. Four-connected that is false, and
+(627-628, 718) is the counterexample.
+
+#### The 587: a floor laid across another cave's ceiling
+
+Not a lens at all. The control settles it in one look: at `vault_density: 0.0`
+there is **no gravel anywhere near** x 843-905, rows 348-383 -- the whole
+band is written by the vault pass. It is a **cave floor**, and it is hanging
+in the air.
+
+`wetland` 2 has two overlapping systems. Instrumented at the carve:
+
+* **k=0** at (1264,719), envelope 645x437, opens a chamber and writes
+  (867, 378..384) as empty;
+* **k=2** at (496,584), envelope 479x347, overlaps it. Its mouth run -- *the
+  one carve in the module deliberately not clipped to the mask* -- drives
+  through the top of k=0's void, so k=2's own `void` mask reads **true** at
+  (867, 378..380) and **false** at (867, 381) and below.
+
+`cave_floor` then takes "per column, the bottommost vertical run of void" from
+k=2's mask, gets a run bottom at row 380, and fills upward from it. Underneath
+that bottom is not rock. It is k=0's open cave. The result is a diagonal
+gravel ramp ~27 cells thick lying along the passage, with nothing under its
+lower edge from row 375 down.
+
+On frame one the ramp's overhanging toe falls, and the rest arrives by the
+mechanism `update_powder` documents at `FLAG_UNDERCUT`: the vacancy rides the
+bottom-to-top sweep up the face, so a whole column empties per frame and the
+heap unravels from the toe upward. 29 cells start at a free face; 558 follow
+them. That is why the number is large and the defect is small -- and why
+reading 587 as "a lot of loose gravel" would have sized the wrong repair.
+
+**The repair is one predicate, and it is the same class of miss as the flank
+rule the verifier already carries, one level out.** `planned_solid` answered
+"is something holding material up here" from this system's `void` plan alone,
+so *"this system is not opening it"* was read as *"it is solid"*. It now asks
+the world as well (`passes::world_solid`): a cell another system already
+emptied is open, whoever emptied it. The verifier's own loop then does the
+rest -- the bottom fill cell in such a column is exposed on its diagonal, `h`
+goes to 0, and no gravel is written there at all. Nothing else changed; the
+rule was right and the state it consulted was partial.
+
+`Cell::OUT_OF_BOUNDS` is deliberately not empty, so the world's rim still
+reads as solid -- the same answer the envelope bound gave unconditionally
+before, and the right one.
+
+#### The shipped census, paired
+
+`cave_probe seeds=8` at 8192x2560, two binaries built from sources differing
+only by these two changes, one run each. **16 lines of 240 move.**
+
+Everything the previous two repairs were judged on is **byte-identical**: every
+`vaults mouths at:` coordinate in the file, every `systems N/M`, and every
+`rooms / pillars / conduits / mouths / collapsed / lintel / swallowed / capped
+/ pieces / welds / chambers / water` field of every `vaults detail` line. So is
+every census row: 0 worlds with no cave, 4.6-6.1 systems per world, largest
+walkable region a median of 98% (99% on `wetland`), reachable-by-player 98-99%,
+widest ceiling span 177 / 141 / 156 / 137 / 141, span across and down, tallest
+and median and p95 open column, walkable regions, contrast. **No entrance
+moved. No system was lost. No cave got harder to walk.**
+
+What moves:
+
+| | before | after |
+|---|---|---|
+| `canyon` void cells | 1,372,348 | 1,372,664 (**+316**, +0.023%) |
+| `wetland` void cells | 1,529,902 | 1,529,742 (**-160**, -0.010%) |
+| `terraced` void cells | 1,581,919 | 1,581,922 (+3) |
+| `arid` void cells | 1,405,834 | 1,405,836 (+2) |
+| `canyon` formations | 472 | 471 (79 crystal -> 78) |
+| `canyon` formation cells | 151,537 | 151,222 |
+| `wetland` formation cells | 179,033 | 179,006 |
+| one `canyon` world's `passages` | 29,174 | 29,423 |
+| two `wetland` worlds' `passages` | 37,083 / 20,760 | 37,819 / 20,761 |
+| ...and their `speleothems` | 12,828 / 27,276 | 12,513 / 27,249 |
+
+Which is the two changes doing what they say and nothing else. A pocket taken
+whole is a few hundred more cells of void on `canyon`; a phantom floor not
+written is a few hundred more cells of *passage* on the two `wetland` worlds
+with overlapping systems, and the one formation that had grown out of that
+floor goes with it. `rolling` and `flat` do not move at all.
+
+**One caution on reading the `void cells` rows**: `canyon` gains and `wetland`
+loses, which looks contradictory and is not. They are different quantities
+under one heading -- `canyon`'s gain is gravel that used to stand and now is
+not there, and `wetland`'s loss is the probe's own connected-network walk
+seeing a slightly different set of systems once a floor's worth of cells
+changed hands. Both are under a fortieth of a percent, and the shape rows that
+would say a cave had actually changed are all identical.
+
+#### What this does not close
+
+The `wetland` 2 mechanism is *two systems whose envelopes overlap*, and the
+repair here makes the **floor** honest about that. Nothing yet makes the rest
+of the pipeline honest about it: `cave_floor`'s run selection still picks the
+bottommost run in its own mask and then declines to fill it, where the truthful
+answer is that the column's floor is somewhere else entirely, in the other
+system. That costs a cosmetic gravel floor in a handful of columns per
+overlapping world and nothing more -- it cannot un-settle a world, because the
+verifier's failure mode is now to write *less*. Worth naming because the next
+person to wonder why an overlapped column has a bare stone floor should find
+the answer here rather than re-derive it.
+
 ---
 
 ---
 
 *Freshness: written 2026-08-30 on `claude/worldgen-caves`, off `47d6209`;
-14.6 added 2026-08-30 on `claude/worldgen-revamp-plan-dot67g`. Every figure is reproducible from `examples/cave_probe` at that
+14.6 and 14.7 added 2026-08-30 on `claude/worldgen-revamp-plan-dot67g`. Every figure is reproducible from `examples/cave_probe` at that
 head; the invocations are in the file's own doc comment. Same-build
 determinism holds and was checked; note `CLAUDE.md`'s warning that the release
 profile re-inlines on any recompile, so no figure here should be A/B'd across
