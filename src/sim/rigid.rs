@@ -626,11 +626,6 @@ fn crack_bits(cell: Cell) -> u8 {
     (if cell.crack_down() { CRACK_DOWN } else { 0 }) | (if cell.crack_right() { CRACK_RIGHT } else { 0 })
 }
 
-/// Put them back on a cell that has landed. See `BodyCell::cracks`.
-fn with_crack_bits(cell: Cell, bits: u8) -> Cell {
-    cell.with_crack_down(bits & CRACK_DOWN != 0).with_crack_right(bits & CRACK_RIGHT != 0)
-}
-
 /// One cell of a `ChunkBody`, stored as an offset from the body's origin so
 /// the whole body moves by changing two floats rather than every cell.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -662,6 +657,24 @@ pub struct BodyCell {
     /// Not only looks: `structural::free_blocks_around` decides what is
     /// severed by reading these bits, so a landed piece that has forgotten
     /// its own outline cannot be recognised as a piece again.
+    ///
+    /// **Only the edges internal to the piece are restored**, and that
+    /// half took a control to find. A crack bit is not decoration:
+    /// `structural::edge_is_cracked` is the whole crack mechanic and it
+    /// says **support does not cross a crack**. A bit written on a landed
+    /// cell therefore declares the edge beside it impassable to support —
+    /// including the edge between the piece and whatever it came to rest
+    /// against, which is geometry that never existed, since that outline
+    /// faced *air* when the block broke. Restoring verbatim inverted
+    /// `structural`'s `a_disturbance_extent_licenses_the_wound_but_not_the_
+    /// chain`: 1,017 cells away with the wound licensed against 1,318 with
+    /// a point licence, where the whole property is that the wound licence
+    /// buys *more*. Switching the restore off made it green on the same
+    /// binary.
+    ///
+    /// The visible cost is real and worth stating: a block whose cracks
+    /// were all on its outline lands showing few of them, because those
+    /// edges have become its silhouette rather than its fractures.
     ///
     /// **Restored unrotated**, and that is an accepted approximation
     /// rather than an oversight. A crack bit names an *edge* — down or
@@ -4136,6 +4149,12 @@ fn settle(world: &mut World, body: &ChunkBody) {
         }
     }
     let mut landed: Vec<(i32, i32)> = Vec::with_capacity(body.cells.len());
+    // **Paired with the cells, which `landed` alone is not.** A cell can be
+    // relocated several rows by the arms below, or dropped outright when it
+    // has nowhere to go (`record_settle_loss`), so `landed` is neither the
+    // same length as `body.cells` nor in step with it -- zipping the two is
+    // a silent misattribution. See the crack restore at the end.
+    let mut landed_cracks: Vec<((i32, i32), u8)> = Vec::with_capacity(body.cells.len());
     for cell in &body.cells {
         let (x, y) = body.cell_position(cell);
         // `Cell::new` starts unattached and with `aux` at 0, and both are
@@ -4241,14 +4260,11 @@ fn settle(world: &mut World, body: &ChunkBody) {
             }
             None => Cell::new(cell.material, cell.shade),
         };
-        // **The fractures the piece broke along land with it.** See
-        // `BodyCell::cracks` for why they used to be dropped here and what
-        // it cost. Applied to both arms: dead tissue that came off a
-        // severed limb was cracked when it left too.
-        let fresh = with_crack_bits(fresh, cell.cracks);
+
         if world.in_bounds(x, y) && world.is_empty(x, y) {
             place_settled(world, x, y, fresh);
             landed.push((x, y));
+            landed_cracks.push(((x, y), cell.cracks));
             continue;
         }
         // **A body that comes to rest underwater takes the water's place.**
@@ -4293,6 +4309,7 @@ fn settle(world: &mut World, body: &ChunkBody) {
                     world.set(nx, ny, occupant);
                     place_settled(world, x, y, fresh);
                     landed.push((x, y));
+                    landed_cracks.push(((x, y), cell.cracks));
                     continue;
                 }
             }
@@ -4300,6 +4317,7 @@ fn settle(world: &mut World, body: &ChunkBody) {
         if let Some((nx, ny)) = nearest_free(world, x, y) {
             place_settled(world, nx, ny, fresh);
             landed.push((nx, ny));
+            landed_cracks.push(((nx, ny), cell.cracks));
             continue;
         }
         // Nothing empty within reach, but a **directly adjacent** liquid
@@ -4333,6 +4351,7 @@ fn settle(world: &mut World, body: &ChunkBody) {
             world.set(sx, sy, occupant);
             place_settled(world, nx, ny, fresh);
             landed.push((nx, ny));
+            landed_cracks.push(((nx, ny), cell.cracks));
             continue;
         }
         // A column full to the top of the world -- genuinely nowhere,
@@ -4350,6 +4369,44 @@ fn settle(world: &mut World, body: &ChunkBody) {
         // where a cell with nowhere to go *should* end up, and that is a
         // settling question rather than a fragmentation one.
         world.structural_failures.record_settle_loss(1);
+    }
+    // **The fractures the piece broke along land with it — but only the
+    // ones that are internal to the piece.**
+    //
+    // See `BodyCell::cracks` for why they were being dropped and what that
+    // cost. Restoring them *verbatim* is the obvious repair and it is
+    // wrong, for a reason that is invisible until you read what the bit
+    // means: `structural::edge_is_cracked` is the whole crack mechanic, and
+    // it says **support does not cross a crack**. So a bit written at a
+    // landed cell is not decoration — it declares the edge beside it
+    // impassable to support, including the edge between the piece and
+    // whatever it came to rest against. That geometry never existed: the
+    // block's outline faced *air* when it broke, and after landing it faces
+    // the ground.
+    //
+    // Measured, and it is not subtle. `a_disturbance_extent_licenses_the_
+    // wound_but_not_the_chain` went red on the verbatim version — 1,017
+    // cells away with the wound licensed against 1,318 with a point
+    // licence, inverting the property that test exists for — and green with
+    // the restore switched off, on the same binary.
+    //
+    // An edge with both cells in this piece is a genuine fracture face and
+    // is kept; an edge against the world is dropped, because a piece at
+    // rest is one loose object that the ground supports from below. The
+    // visible cost is that a block whose cracks were all on its outline
+    // lands showing few of them, which is honest: those edges are now its
+    // silhouette rather than its fractures.
+    let settled: std::collections::HashSet<(i32, i32)> = landed.iter().copied().collect();
+    for &((x, y), cracks) in &landed_cracks {
+        if cracks == 0 {
+            continue;
+        }
+        let down = cracks & CRACK_DOWN != 0 && settled.contains(&(x, y + 1));
+        let right = cracks & CRACK_RIGHT != 0 && settled.contains(&(x + 1, y));
+        if down || right {
+            let here = world.get(x, y);
+            world.set(x, y, here.with_crack_down(down).with_crack_right(right));
+        }
     }
     // **Both where a cell was aimed and where it actually went**, and the
     // union rather than either alone.
@@ -4540,12 +4597,38 @@ mod tests {
 
         let landed: Vec<(i32, i32)> = (28..36).flat_map(|y| (18..26).map(move |x| (x, y))).filter(|&(x, y)| w.get(x, y).material == material::STONE).collect();
         assert_eq!(landed.len(), 16, "test setup: the whole body must land, found {} cells", landed.len());
-        let cracked = landed.iter().filter(|&&(x, y)| w.get(x, y).cracked()).count();
-        assert_eq!(cracked, 16, "a piece must land carrying the fractures it broke along; {cracked} of 16 cells kept theirs");
+        let here: std::collections::HashSet<(i32, i32)> = landed.iter().copied().collect();
+
+        // **Internal edges kept, outward edges dropped**, and the second
+        // half is the one that took a control to find. A crack bit is not
+        // decoration: `structural::edge_is_cracked` says *support does not
+        // cross a crack*, so a bit restored on the piece's outline declares
+        // the edge between the piece and whatever it landed against
+        // impassable — geometry that never existed, since that outline
+        // faced air when the block broke. Restoring verbatim inverted
+        // `a_disturbance_extent_licenses_the_wound_but_not_the_chain`
+        // (1,017 cells away with the wound licensed against 1,318 with a
+        // point licence) and was green with the restore switched off, on
+        // one binary.
+        //
+        // So for this 4x4 piece: every cell keeps `crack_down` unless it is
+        // on the bottom row, and `crack_right` unless it is on the right
+        // column. Restore them all and the outward assertions go red;
+        // restore none and the inward ones do.
+        let mut inward = 0;
         for &(x, y) in &landed {
             let c = w.get(x, y);
-            assert!(c.crack_down() && c.crack_right(), "both edges must survive the flight at ({x}, {y})");
+            let down_inside = here.contains(&(x, y + 1));
+            let right_inside = here.contains(&(x + 1, y));
+            assert_eq!(c.crack_down(), down_inside, "crack_down at ({x}, {y}) must follow whether the edge is inside the piece");
+            assert_eq!(c.crack_right(), right_inside, "crack_right at ({x}, {y}) must follow whether the edge is inside the piece");
+            if down_inside || right_inside {
+                inward += 1;
+            }
         }
+        assert_eq!(inward, 15, "test setup: a 4x4 piece has 15 cells with at least one inward edge, found {inward}");
+        let cracked = landed.iter().filter(|&&(x, y)| w.get(x, y).cracked()).count();
+        assert_eq!(cracked, 15, "a piece must land still showing its internal fractures; {cracked} of 15 cells kept theirs");
     }
 
     #[test]

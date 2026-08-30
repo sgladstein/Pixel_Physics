@@ -3889,7 +3889,22 @@ mod tests {
 
         // Dig with the cursor pointed somewhere useless: buried aims at
         // himself regardless, which is the whole escape.
-        let tuning = Tuning::default();
+        //
+        // **At full yield, because the conservation rider below is only a
+        // real claim at full yield.** It used to run at the default and
+        // pass for an accidental reason: `rigid::is_tool_target` took
+        // `Solid | Plant`, so the cut could not touch sand at all and a
+        // buried dig was pure displacement whatever the yield said. The
+        // pick reaches loose ground now (`rigid::is_dig_target`), so at the
+        // default trace yield digging out of a pile removes most of what
+        // it cuts -- measured, 127 of 1,404 cells -- which is the setting
+        // working, not an eraser. The invariant worth guarding is the one
+        // `at_full_yield_nothing_leaves_the_world` states: **a dig may move
+        // material, never delete it, when nothing is thinned.** Set
+        // `dig_yield` back to the default and this goes red on the
+        // conservation line while the escape still succeeds, which is the
+        // shape of the change.
+        let tuning = Tuning { dig_yield: 1.0, ..Tuning::default() };
         let mut bites = 0;
         for _ in 0..300 {
             if dig(&mut world, (0, 0), &tuning).is_some() {
