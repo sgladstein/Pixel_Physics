@@ -355,6 +355,32 @@ reason — after the free regrowth in §2 — that **no number in the R2 rows is
 evidence about fission.**
 
 
+### 4.2 And whichever route wins, the player cannot see it
+
+Rendered at the end of the run, seed 8, the two arms are a colony that
+**bred 79 times and grew from 38 ants to 106** and one that never managed a
+birth. Cropped to a 128x80 band on the nest and upscaled six times — the
+tightest this harness can frame — **the two pictures are, to this author,
+indistinguishable, and no ant is findable in either.**
+
+That is not the crop missing the colony, and the number is what says so:
+counted inside the rendered window, the breeding arm has **186 creature
+cells in shot** and the shipped one **66**. They are there. They cannot be
+seen. An ant is one or two cells of dark on dark soil, which is
+`creature-appearance-design.md`'s standing finding — extent is the only
+lever, and route 1 makes newborns *smaller*.
+
+**This matters more than which route wins.** The ethos says an event that
+produces no visible consequence is not finished regardless of what the
+simulation believes. A reproduction economy whose entire visible output is a
+population count that nobody can count is exactly that, and it is a cost
+every one of these routes carries equally — so it does not change the
+ranking in §5, but it does mean **none of them is done when the births
+column moves.** Posted to the owner's review queue as
+`20260830T062042271Z-8bcaa0` (board `creatures`) rather than settled here,
+because "can you see a difference" is not a question this lane can answer
+for him.
+
 ---
 
 ## 5. What to build
