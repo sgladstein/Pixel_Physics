@@ -166,13 +166,39 @@ in your own worktree, not the shared checkout"*, and this checkout has four
 live agent worktrees right now. A saving that evaporates in exactly the
 sessions the repo prescribes is not a saving.
 
-**Settle it before building, not after**: land one throwaway `paths:`-scoped
-rule, run `/context` from the main checkout and from a worktree, and read
-whether it loaded. The `InstructionsLoaded` hook logs which instruction files
-loaded and why, which is the instrument this restructure otherwise lacks —
-and a restructure whose entire value is a token count, in a repo whose
-standing rule is *put the fault back and watch it go red*, must not ship
-without one.
+**Attempted 2026-08-30, and it could not be settled locally.** A throwaway
+`paths:`-scoped rule was landed and two probe sessions were run in git
+worktrees. **Both were void, for the same reason, and the reason is worth
+more than the experiment was**: an `isolation: worktree` agent's worktree is
+cut from a base that predates the branch under test — both probes reported
+HEAD at a `main` merge commit with no commit anywhere in reachable history
+touching the probe's path. So the file was never on disk, and "the marker was
+not in my context" is explained by that alone.
+
+**The method cannot be repaired by merging the branch in**, because a rule
+must be present at *startup* and a merge is a tool call that happens after
+it. Settling it needs a session started in a worktree that already contains
+the rule — which the owner can do in one session and an agent cannot arrange.
+
+**The decision does not wait on it.** #23569 is closed as not planned, which
+is authoritative regardless of one local reading, and #16299 is open with a
+repro. Two independent reports agreeing that the filter does not filter is
+stronger evidence than a single probe could have been either way. **So step 7
+uses a routed report, and `paths:` is not used for scoping in this
+repository until those issues move.**
+
+The probe rule was **removed** rather than left standing: per #16299 it may
+load unconditionally in every session, so a probe that cannot run would have
+been paying rent.
+
+The instrument this still lacks is `InstructionsLoaded` — a real, documented
+hook whose payload names each loaded file with a `file_type` of `claude_md`
+or `rules` and a `reason` of `session_start`, `nested_traversal`,
+`path_glob_match`, `include` or `compact`. **That is the direct measurement
+of what `contextbudget.py` currently infers**, and wiring it is the honest
+way to make any future claim about always-loaded cost checkable. Note that an
+unrecognised hook name is silently ignored, so its own firing has to be
+established before its silence means anything.
 
 ---
 
