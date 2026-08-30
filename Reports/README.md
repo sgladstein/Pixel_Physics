@@ -852,7 +852,27 @@ drift that two of these documents still reflect.**
   36,000 frames and keeps dying, and the cut converts that unbounded
   run-down into an early cull that settles (§4a). Sharpens
   `creature-reproduction-economics.md` §3.6 and corrects the direction
-  `ant.ron`'s own comment stated.
+  `ant.ron`'s own comment stated. **§6 superseded the same day** by
+  `creature-gate0-births-2026-08-30.md`: the gap closed without the stamp
+  term, because the "one mouthful" in this report's ceiling was a property of
+  the feeding rule rather than of the animal. §2's arithmetic stands.
+- [creature-gate0-births-2026-08-30.md](creature-gate0-births-2026-08-30.md) —
+  **built and landed 2026-08-30. Ants breed.** The block was neither the
+  economy nor the gut: `act` fed an animal only below its satiety line and
+  made it carry everything after, so **the largest bank any ant could hold
+  was the satiety line plus one mouthful** — 1,060 against a 1,041 birth cost
+  and an 1,100 bud threshold. An animal short of a child's price now finishes
+  the meal (out on the route only for a mouthful that pays by itself, at the
+  nest for as long as the larder lasts), and `adjacent_food` returns the
+  **best** neighbour rather than the first. With food on the ground the
+  shipped ant at the shipped neutral gut reaches **generation 13**; the
+  worldgen colony goes 0 -> 1 birth against `origin/main` in a paired A/B.
+  **Supersedes `creature-birth-grant-2026-08-30.md` §6** — closing the gap
+  did not need the stamp term after all. What still blocks the unfed lab bed
+  is measured to the cell: **1,651 pickups, 4 deliveries, an empty larder**,
+  isolated to `act`'s out-of-nest drop rule with a controlled probe and filed
+  as a bug. Ships `best_offer` / `best_bite` / `peak_bank` and
+  `examples/windfall_probe.rs`.
 - [creature-body-extent-2026-08-30.md](creature-body-extent-2026-08-30.md) —
   **built and landed 2026-08-30.** The body is priced per cell at last:
   nothing in the cost path read `chain.len()`, so **E10's premise that
@@ -1099,6 +1119,24 @@ drift that two of these documents still reflect.**
   the owner's own opening premise — the ant *cannot* be fed over its birth
   cost, because its bank ceiling is the hunger line — and argues the lab wants
   that deadlock as its first puzzle where the outdoor game wants it fixed.
+- [evolution-lab-gui-physics-2026-08-30.md](evolution-lab-gui-physics-2026-08-30.md)
+  — **measurement + design, and it corrects the guide above in one place.**
+  Four owner questions: the lab's GUI, why ants have never dug a tunnel, how
+  far resolution can go, and a brainstorm. Two answers reverse their
+  questions. **Soil**: `burrow_probe` measures a dug gallery closing in **5
+  frames** and a chamber in **30**, against a stone control holding 100% at
+  every frame — and the guide's §2b declines the *structural scheduler*,
+  which powder never enters, while leaving `update.rs:631`'s unconditional
+  straight-down fall, which is what actually fills the tunnel. Raising
+  `friction_angle` cannot reach it. The fix is a self-supporting `packedsoil`
+  the ants lay as they dig, un-packed by water — which also answers the
+  guide's open question #10. **Resolution**: a creature is 2x1 because
+  `ant.ron` says `Chain(2)`; nine-cell bodies already ship as files and reach
+  **live 0** at 12,000 frames, because birth cost scales with the body
+  (4,400 at nine cells) and the bank ceiling does not (460). So the
+  good-looking-creature problem and Gate 0 are **the same problem**, and
+  §1a's incubator with a bigger dial is the answer to both. The render half
+  is separately free: 4x the pixels costs 1.13x.
 - [plant-evolution-design.md](plant-evolution-design.md) — **design, all
   nine §8 calls signed off 2026-08-19; partly implemented.** The plant
   ecology: litter, decay, grass and the creeper; §4a's register holds the

@@ -314,7 +314,10 @@ fn drive(lab: &mut Lab, buf: &mut [u8], seconds: f32) -> (u64, u64, Duration) {
         let advance = lab.advance(elapsed);
         ticks += advance.ticks as u64;
         if advance.draw {
-            lab.draw(buf, None);
+            // `Lab::draw` takes the measured frame rate now (the bar prints
+            // it); this harness has no display loop, so it has no rate to
+            // report and says so rather than inventing one.
+            lab.draw(buf, 0.0);
             draws += 1;
         }
         if !advance.idle.is_zero() {
