@@ -1,0 +1,67 @@
+{
+  "id": "20260830T024310143Z-2ba1e4",
+  "created": "2026-08-30T02:43:10Z",
+  "board": "fracture",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/explosion-effects-menu-isljo5",
+    "commit": "d046e29",
+    "agent": null,
+    "session_id": "59c041f8-0d1c-593e-b4e4-5d71a4ffff4c",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "In motion: how much of the airborne rock should a blast take?",
+  "question": "Which one do you want to play with -- and is the middle one leaving enough to go back and smash?",
+  "context_md": "Animated, since the stills could not answer this. Same five charges, same seed, only how much stranded rock the finished blast sweeps up.\n\nYou said you were *\"trying to decide if I like this best or want all the hunks in the air gone -- I could see it being fun smashing the leftover pieces.\"* This is that question as three settings of one number (`chip_sweep_cells`, in the menu under `cracks`), so you can pick rather than describe.\n\n**0** is what you photographed. **6** is what I have landed -- it takes only fragments below the size the fragmenter itself will touch, so dust goes and anything worth hitting stays. **24** takes essentially every loose piece in the air, the \"all the hunks gone\" end.\n\nWhatever you pick is one integer, changeable live.",
+  "kind": "gallery",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "0 -- nothing swept (what you saw)",
+      "files": [
+        "20260830T024310143Z-2ba1e4/000-sweep0.gif"
+      ],
+      "caption": "chips left exactly where the blast stranded them",
+      "meta": {
+        "floating cells @600": 507,
+        "floating pieces": 217
+      },
+      "focus": null,
+      "gif_frames": 32
+    },
+    {
+      "label": "6 -- dust only (landed default)",
+      "files": [
+        "20260830T024310143Z-2ba1e4/001-sweep6.gif"
+      ],
+      "caption": "below the fragmenter's own floor; smashable clumps survive",
+      "meta": {
+        "floating cells @600": 102,
+        "floating pieces": 15
+      },
+      "focus": null,
+      "gif_frames": 32
+    },
+    {
+      "label": "24 -- take the hunks too",
+      "files": [
+        "20260830T024310143Z-2ba1e4/002-sweep24.gif"
+      ],
+      "caption": "the 'all the hunks in the air gone' end",
+      "meta": {
+        "floating cells @600": "much lower",
+        "floating pieces": "few"
+      },
+      "focus": null,
+      "gif_frames": 32
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
