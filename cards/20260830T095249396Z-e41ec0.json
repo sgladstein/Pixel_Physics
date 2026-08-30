@@ -1,0 +1,64 @@
+{
+  "id": "20260830T095249396Z-e41ec0",
+  "created": "2026-08-30T09:52:49Z",
+  "board": "lab",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics/.claude/worktrees/agent-a83dc4b4a04726a5c",
+    "branch": "worktree-agent-a83dc4b4a04726a5c",
+    "commit": "08e2e5d",
+    "agent": null,
+    "session_id": "6546762f-3714-56a2-a0a4-47f13872ea63",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics/.claude/worktrees/agent-a83dc4b4a04726a5c"
+  },
+  "title": "The lab's biosphere page",
+  "question": "Reading this cold, with no explanation from me: can you tell whether anything in the box is reproducing, and how far it has got? If a line is unreadable, name it.",
+  "context_md": "**What this is.** The evolution lab's Running phase asks you to watch evolution happen, and an ant is two dark cells at play zoom -- findable only because it moves, and a dead one has stopped moving. This page is the other half of that answer: numbers beside the box, opened with `Tab`.\n\n**Same box, same run, two moments.** The left pane is 1,800 frames in, the right 27,000. Everything on the page is about the box on the left of the same picture.\n\n**What I have already checked, so you don't have to.** Every number here has been put through a box whose answer was known first: an empty box reports zeroes and says so rather than drawing a headline of them; a plants-only bed reports plants *and* reports no animals; killing half the stand mid-run makes the strips fall. `ANT CANNOT BREED` is correct rather than broken -- the shipped ant cannot pay for a child, and the page says by how much.\n\n**What I want your eye on is the reading, not the arithmetic.** Is it too dense? Does any row need a word it hasn't got? And is the right-hand side the right place for it, or should the page be on the left with the box on the right?",
+  "kind": "before_after",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "1,800 frames in",
+      "files": [
+        "20260830T095249396Z-e41ec0/000-lab-early.png"
+      ],
+      "caption": "eight herbs planted, one ant colony, nothing has bred yet",
+      "meta": {
+        "plants alive": 6,
+        "animals alive": 52,
+        "living cells": 375,
+        "seeds a plant paid for": 0,
+        "seeds that sprouted": 8,
+        "ants born": 0,
+        "ants dead": 0,
+        "generations deep": 0
+      },
+      "focus": null
+    },
+    {
+      "label": "27,000 frames in",
+      "files": [
+        "20260830T095249396Z-e41ec0/001-lab-late.png"
+      ],
+      "caption": "the stand has bred three times over; the colony has lost two thirds of its ants and produced none",
+      "meta": {
+        "plants alive": 41,
+        "animals alive": 14,
+        "living cells": 1015,
+        "seeds a plant paid for": 141,
+        "seeds that sprouted": 53,
+        "ants born": 0,
+        "ants dead": 38,
+        "generations deep": 3
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
