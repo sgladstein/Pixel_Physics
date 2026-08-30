@@ -29,9 +29,58 @@ use pixel_physics::lab::scene::LabBox;
 use pixel_physics::render::Renderer;
 use pixel_physics::sim::explosion::Blasts;
 use pixel_physics::sim::frame;
+use pixel_physics::sim::cell::Cell;
+use pixel_physics::sim::enclosure::Enclosure;
+use pixel_physics::sim::field;
+use pixel_physics::sim::material;
+use pixel_physics::sim::organism::{self, CellType};
 use pixel_physics::sim::particle::ParticleSystem;
-use pixel_physics::sim::organism::{cell_type, CellType};
 use pixel_physics::sim::player;
+use pixel_physics::sim::world::World;
+
+/// Three numbers a contact sheet cannot give, in one pass over the grid.
+///
+/// - **still a seed** — organisms with a live `Seed` cell and nothing else.
+///   This is the half of "five founders of eight are visible" that means
+///   *germination failed*; the other half means *too small to see*, and only
+///   `biggest` against the stand can tell them apart.
+/// - **biggest** — cells in the largest organism, so "everything germinated
+///   and stayed at one cell" is distinguishable from "three never started".
+/// - **roots reach** — rows below the surface the deepest root cell sits at.
+///   §2a's standing obligation: soil costs 1.9x the frame at 240 rows, and a
+///   bed whose bottom third is never entered is paying it for nothing.
+fn census(world: &World, ground_y: i32) -> (usize, usize, i32) {
+    let ids = world.live_organism_ids();
+    let mut ungerminated = 0usize;
+    let mut biggest = 0usize;
+    for id in &ids {
+        let Some(state) = world.organism(*id) else { continue };
+        biggest = biggest.max(state.cells.len());
+        // A founder that has not germinated is still exactly its seed.
+        let seed_only = state.cells.len() <= 1
+            && state.cells.keys().all(|&(x, y)| {
+                organism::cell_type(world.get(x, y).aux()) == Some(CellType::Seed)
+            });
+        ungerminated += usize::from(seed_only);
+    }
+    // Material-keyed, not type-keyed: a root matures into `MatureBody` while
+    // keeping the species' root material, so cell type alone misses all but
+    // the growing ends (`root_contact`'s own note).
+    let mut deepest = 0;
+    for id in &ids {
+        let Some(state) = world.organism(*id) else { continue };
+        let root = world
+            .materials
+            .id_of(&world.species.get(state.species).root_material);
+        let Some(root) = root else { continue };
+        for &(x, y) in state.cells.keys() {
+            if world.get(x, y).material == root {
+                deepest = deepest.max(y - ground_y + 1);
+            }
+        }
+    }
+    (ungerminated, biggest, deepest)
+}
 
 fn arg<T: std::str::FromStr>(key: &str) -> Option<T> {
     std::env::args()
@@ -45,22 +94,75 @@ fn main() {
     let stops: Vec<u64> = stops.split(',').map(|s| s.parse().expect("a frame number")).collect();
     let zoom: i32 = arg("zoom").unwrap_or(1);
 
+    // **The before/after arm, and it is one binary.** `CLAUDE.md` asks for a
+    // paired comparison rather than one run against a remembered impression,
+    // and the stale-example gotcha says the surest way to compare two
+    // renderers is not to build two. `interior=0` simply declines to declare
+    // the box an enclosure, so the identical world draws through the sky
+    // path — same cells, same frame, same binary, one branch different.
+    let interior: i32 = arg("interior").unwrap_or(1);
     let spec = LabBox {
         width: arg("width").unwrap_or(512),
         height: arg("height").unwrap_or(320),
-        soil_depth: arg("soil").unwrap_or(80),
+        soil_depth: arg("soil").unwrap_or(LabBox::default().soil_depth),
         founders: arg("founders").unwrap_or(8),
         colonies: arg("colonies").unwrap_or(1),
         compartments: arg("walls").unwrap_or(1),
         ..LabBox::default()
     };
     println!(
-        "labshot: {}x{} soil={} founders={} colonies={} walls={} frames={:?}",
+        "labshot: {}x{} soil={} founders={} colonies={} walls={} interior={interior} light={} frames={:?}",
         spec.width, spec.height, spec.soil_depth, spec.founders, spec.colonies,
-        spec.compartments, stops
+        spec.compartments,
+        arg::<f32>("light").map_or("held at noon".to_string(), |f| format!("{f}")),
+        stops
     );
 
-    let mut world = spec.build();
+    let (mut world, placed) = spec.build_counted();
+    if interior == 0 {
+        world.set_enclosure(None);
+    }
+    // **The light schedule, as a knob, because it is the game's largest
+    // lever** — 2.4x reproduction at full amplitude against a day/night
+    // cycle (design guide §2). `LabBox` holds it at the measured-brightest
+    // frame; `light=` moves it anywhere on the day's curve, so "the lights
+    // are on" and "the lights are off" are two runs of one binary rather
+    // than an assertion. `frame_for_daylight` is the inverse of the same
+    // cosine the field reads, so the picture and the plants agree.
+    if let Some(fraction) = arg::<f32>("light") {
+        world.set_sky_hold(Some(pixel_physics::sky::frame_for_daylight(fraction)));
+    }
+    // **The fixtures, off** — the control for "do the grow lights help or
+    // hurt". They are `crystal`, which both *blocks* the ceiling like stone
+    // and *emits* into the light channel, so their net effect on the crop is
+    // a measurement rather than an assumption. Done from the example rather
+    // than as a `LabBox` knob because a scene the harness can turn off is
+    // still the game's scene, where a second builder would not be.
+    if arg::<i32>("lamps") == Some(0) {
+        let crystal = world.materials.id_of("crystal");
+        if let Some(crystal) = crystal {
+            for y in 0..spec.room_top() {
+                for x in 0..spec.width {
+                    if world.get(x, y).material == crystal {
+                        world.set(x, y, Cell::new(material::STONE, 0));
+                    }
+                }
+            }
+        }
+        world.set_enclosure(Some(Enclosure::new(spec.room_top(), spec.ground_y)));
+    }
+    // The counter half of "five founders of eight are visible", printed
+    // before a single frame runs. A seed that was never planted and a plant
+    // too small to see look identical on a contact sheet and mean opposite
+    // things.
+    println!(
+        "  placed: {} of {} founders, {} ants; lamps at {:?}; partitions at {:?}",
+        placed.planted,
+        placed.asked,
+        placed.ants,
+        spec.lamp_columns().0,
+        spec.partition_columns()
+    );
     let mut particles = ParticleSystem::new();
     let mut blasts = Blasts::new();
     let tuning = player::Tuning::default();
@@ -85,22 +187,51 @@ fn main() {
             let touched = world.take_touched_chunks();
             renderer.draw(&world, &particles, &touched, &mut buf, (vw, vh), true);
             let ids = world.live_organism_ids();
-            let (mut cells, mut seeds, mut plants, mut ants) = (0usize, 0u32, 0usize, 0usize);
+            let cells: usize =
+                ids.iter().filter_map(|id| world.organism(*id)).map(|s| s.cells.len()).sum();
+            let seeds: u32 =
+                ids.iter().filter_map(|id| world.organism(*id)).map(|s| s.seeds_set).sum();
+            let (ungerminated, biggest, deepest) = census(&world, spec.ground_y);
+            // **The light the crop is actually standing in**, as a fraction
+            // of `field::MAX_LIGHT`. A sealed ceiling stops sky light, so
+            // how much reaches the bench is a property of the *shell* — its
+            // thickness, and whether the fixtures are emitting more than the
+            // stone they replaced is blocking. Nothing else in the lane
+            // would notice this being wrong: a dim box germinates and then
+            // simply grows less, which reads as a species problem.
+            let cols = spec.founder_columns();
+            let mut lit = 0.0f32;
+            let mut dimmest = f32::INFINITY;
+            for &x in &cols {
+                let v = world.field_at(x, spec.ground_y - 2).light / field::MAX_LIGHT;
+                lit += v;
+                dimmest = dimmest.min(v);
+            }
+            let mean = lit / cols.len().max(1) as f32;
+            println!(
+                "  frame {f:>6}: cells {cells:>6}  orgs {:>5}  seeds {seeds:>5}  \
+                 still a seed {ungerminated:>3}  biggest {biggest:>4}  roots reach {deepest:>3} rows  \
+                 light at the bench {mean:.3} (dimmest {dimmest:.3})",
+                ids.len()
+            );
+            // **The creature and standing-organ half**, beside the plant one
+            // above rather than instead of it. `orgs` counts plants *and*
+            // ants together, so a colony dying while the stand grows moves it
+            // by zero -- and the fruit columns are counted as **cells standing
+            // in the grid** rather than as `seeds_set`, which is a different
+            // quantity: seeds set is a plant's own tally, standing fruit is
+            // what an ant could walk to.
+            // `Reports/evolution-lab-gate-1-2026-08-30.md` §4.3 turns on that
+            // difference.
+            let (mut plants, mut ants) = (0usize, 0usize);
             for id in &ids {
-                let Some(s) = world.organism(*id) else { continue };
-                if world.species.get(s.species).creature.is_some() {
+                let Some(st) = world.organism(*id) else { continue };
+                if world.species.get(st.species).creature.is_some() {
                     ants += 1;
                 } else {
                     plants += 1;
-                    cells += s.cells.len();
-                    seeds += s.seeds_set;
                 }
             }
-            // Standing reproductive organs, counted as *cells in the grid*
-            // rather than as `seeds_set`. They are not the same quantity and
-            // the difference is the whole of
-            // `Reports/creature-stamp-routes-2026-08-30.md` §5: seeds set is
-            // a plant's own tally, standing fruit is what an ant can walk to.
             let (mut fruit, mut flower) = (0usize, 0usize);
             for y in 0..spec.height {
                 for x in 0..spec.width {
@@ -108,28 +239,30 @@ fn main() {
                     if c.organism_id() == 0 {
                         continue;
                     }
-                    match cell_type(c.aux()) {
+                    match organism::cell_type(c.aux()) {
                         Some(CellType::Fruit) => fruit += 1,
                         Some(CellType::Flower) => flower += 1,
                         _ => {}
                     }
                 }
             }
-            let st = world.creature_stats;
+            let stats = world.creature_stats;
             let (alloc, _) = world.organism_slot_usage();
             println!(
-                "  frame {f:>6}: plants {plants:>4} cells {cells:>6} seeds {seeds:>5} \
-                 fruit {fruit:>4} flower {flower:>4} | ants {ants:>4} births {:>4} deaths {:>4} \
-                 | slots {alloc:>4}/4095",
-                st.births, st.deaths,
+                "            plants {plants:>4} ants {ants:>4} births {:>4} deaths {:>4} | \
+                 standing fruit {fruit:>4} flower {flower:>4} | slots {alloc:>4}/4095",
+                stats.births, stats.deaths,
             );
-            // Each founder by the id it was given before the first tick — the
-            // germination-versus-invisibility readout. `dead` means the id no
-            // longer resolves; a small number means alive and unrenderable.
+            // Each founder by the id it held before the first tick. `dead`
+            // means the id no longer resolves -- which is a *death*, and is
+            // the reading the `still a seed` column above cannot give: a
+            // founder that germinated and was then eaten and one that never
+            // germinated are the same absence from the picture and opposite
+            // findings.
             let founder_line: Vec<String> = founders
                 .iter()
                 .map(|id| match world.organism(*id) {
-                    Some(s) => format!("{}", s.cells.len()),
+                    Some(st) => format!("{}", st.cells.len()),
                     None => "dead".to_string(),
                 })
                 .collect();

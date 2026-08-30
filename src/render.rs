@@ -1910,6 +1910,24 @@ pub struct Renderer {
     /// the per-pixel hot path and recomputing a cosine there would be paying
     /// for the same answer up to 160,000 times a frame.
     sky: Sky,
+    /// **`Some` when the world says it is a room**, in which case every
+    /// empty pixel takes this instead of the sky.
+    ///
+    /// Set from `World::enclosure` once per `draw`, exactly as `sky` is set
+    /// from `World::sky_frame` — so nothing outside has to know which
+    /// picture a given world wants, and the outdoor game reaches none of
+    /// this because it never declares an enclosure.
+    ///
+    /// Why it exists at all: empty sky is the most expensive branch in
+    /// `cell_colour` (**27.4 ns/px against stone's 6.7**), and a sealed box
+    /// is mostly empty. So the lab was paying 4x per pixel to draw a dusk
+    /// gradient with a star hash over a laboratory
+    /// (`Reports/evolution-lab-design-guide-2026-08-30.md` §2).
+    interior: Option<sky::Interior>,
+    /// The room last actually painted, for the same reason `last_sky_key`
+    /// holds the sky. `None` on both sides is an outdoor world and costs a
+    /// comparison of two `None`s.
+    last_interior_key: Option<[i32; 4]>,
     /// The quantised sky last actually painted. A frame whose sky key still
     /// matches this one would repaint the screen to exactly the same pixels,
     /// so it does not — which is what keeps a day/night sky from costing the
@@ -2074,6 +2092,8 @@ impl Renderer {
             near_glow_key: None,
             near_glow_rebuilds: 0,
             sky: Sky::at(0, 0, 1, 0, 1),
+            interior: None,
+            last_interior_key: None,
             last_sky_key: None,
             daylight: sky::LIGHT_LEVELS,
             pinned_light: None,
@@ -2605,12 +2625,36 @@ impl Renderer {
         self.sky = Sky::at(lit_at, vx0, vx1.max(vx0 + 1), vy0, vy1.max(vy0 + 1))
             .muted(sky::overcast(weather.intensity));
         self.daylight = sky::daylight_level(lit_at);
+        // A room, if the world says it is one. Built from the same `lit_at`
+        // the sky is, so the grow lights and the light channel the plants
+        // read cannot disagree about what the schedule is doing — which is
+        // the whole point of making the schedule visible.
+        self.interior = world.enclosure().map(|e| {
+            sky::Interior::new(
+                e,
+                self.daylight as f32 / sky::LIGHT_LEVELS as f32,
+                vx0,
+                vx1.max(vx0 + 1),
+                vy0,
+                vy1.max(vy0 + 1),
+            )
+        });
         split("preamble");
         self.rebuild_horizon(world);
         split("rebuild_horizon");
         let sky_key = self.sky.key();
-        let sky_changed = self.last_sky_key != Some(sky_key);
+        // The room's own key, and it is not implied by the sky's. Both are
+        // driven by `lit_at`, but they quantise differently — the sky in
+        // `SKY_QUANTUM` colour steps, the room in `LIGHT_LEVELS` — so the
+        // grow lights can step a level on a frame the sky's key does not
+        // move, and the room would then hold last frame's brightness until
+        // something unrelated repainted it. That is exactly the class of
+        // bug the depth-light toggle shipped with: coasting on
+        // `sky_changed` firing most frames is a coincidence, not a contract.
+        let interior_key = self.interior.as_ref().map(|i| i.key());
+        let sky_changed = self.last_sky_key != Some(sky_key) || self.last_interior_key != interior_key;
         self.last_sky_key = Some(sky_key);
+        self.last_interior_key = interior_key;
         // The two whole-look toggles (`F10` depth light, `F11` void reveal)
         // recolour cells that are already painted and settled, so flipping
         // either must repaint everything once or the screen shows a patchwork
@@ -3968,6 +4012,21 @@ impl Renderer {
     /// cloud ends up composited over a background nobody is drawing, so
     /// there is one copy now and both callers take it.
     fn background_at(&self, world: &World, x: i32, y: i32) -> [u8; 4] {
+        // **A room, if the world says it is one — and first, so nothing
+        // below is even reached.** This is the cheap branch on purpose:
+        // two indexed table reads and a lerp, against the sky's gradient,
+        // moon test and star hash. It also returns *before* `glow_at`,
+        // whose `HashSet` probe per empty pixel is affordable outdoors
+        // (almost no world has glow tiles) and is not affordable in a box
+        // whose ceiling is lined with lamps — the light those lamps throw
+        // is already in the table, painted rather than probed.
+        //
+        // The outdoor game never declares an enclosure, so every pixel of
+        // it takes one `Option` test and nothing else
+        // (`the_outdoor_render_is_unchanged_by_the_lab_interior`).
+        if let Some(interior) = &self.interior {
+            return interior.colour_at(x, y);
+        }
         // Sky, not a flat background. Empty space inside the world is
         // *air*, and drawing it black made every world read as a cutaway
         // diagram rather than a place -- the strongest remaining tell,
@@ -4661,7 +4720,18 @@ impl Renderer {
         // the top of the range and the darkening barely touches it. The one
         // thing that emits is the one thing that stays bright, which is the
         // behaviour a special case would have had to fake.
-        let mut rgb = sky::apply_light(rgb, self.daylight, self.sky.ambient());
+        //
+        // **Indoors the ambient is the room's, not the sky's.** `apply_light`
+        // tints an unlit surface toward whatever the sky is casting, which is
+        // warm at dusk and cold at night — correct outdoors and wrong under a
+        // ceiling, where turning the grow lights down made the soil and the
+        // walls go sepia as though the sun were setting on them through a
+        // stone roof. A room dims toward its own cool grey instead.
+        let ambient = match &self.interior {
+            Some(interior) => interior.ambient(),
+            None => self.sky.ambient(),
+        };
+        let mut rgb = sky::apply_light(rgb, self.daylight, ambient);
 
         // Translucency, after the light and not before it: `background_at`
         // returns an already-lit colour, so blending first would light the
@@ -5815,6 +5885,99 @@ mod tests {
             "at one depth the shaft must stay far darker than the open pit: \
              shaft {shaft_shallow}, pit floor {pit_floor}"
         );
+    }
+
+    /// **The outdoor game draws exactly what it drew before the lab existed.**
+    ///
+    /// `render.rs` is a contested file — 70 branch landings — and the lab
+    /// interior is a new branch inside `cell_colour`'s hottest path. A guard
+    /// that only says "the room looks like a room" cannot see the failure
+    /// that matters to everybody else in this tree, which is the outdoor
+    /// picture moving by a byte.
+    ///
+    /// Three arms, in the order `CLAUDE.md` asks for. The middle one is the
+    /// positive control: without it, a guard that returns the same frame
+    /// twice passes just as happily with the whole feature deleted, and
+    /// green would be evidence about the test rather than about the code.
+    #[test]
+    fn the_outdoor_render_is_unchanged_by_the_lab_interior() {
+        let mut world = World::new(Rect::new(0, 0, 199, 199));
+        for x in 0..200 {
+            for y in 120..200 {
+                world.set(x, y, Cell::new(material::STONE, 0));
+            }
+        }
+        // A roof with a room under it, so the frame contains empty cells on
+        // *both* of `background_at`'s outdoor branches — open sky above the
+        // ridge and cave dark below it. An all-sky scene would leave the
+        // second one untested, and the second one is the one an interior
+        // most resembles.
+        for x in 40..160 {
+            for y in 90..96 {
+                world.set(x, y, Cell::new(material::STONE, 0));
+            }
+        }
+        world.begin_step();
+
+        let particles = ParticleSystem::new();
+        let touched = HashSet::new();
+        let mut r = Renderer::new();
+        let shot = |r: &mut Renderer, world: &World| {
+            let mut buf = vec![0u8; 200 * 200 * 4];
+            r.draw(world, &particles, &touched, &mut buf, (200, 200), true);
+            buf
+        };
+
+        let outdoors = shot(&mut r, &world);
+
+        // The control: declaring the same world a room must change the
+        // picture. If this passes with the interior deleted, everything
+        // below it is measuring nothing.
+        world.set_enclosure(Some(crate::sim::enclosure::Enclosure::new(0, 120).with_lamps(vec![100], 60)));
+        let indoors = shot(&mut r, &world);
+        assert_ne!(outdoors, indoors, "declaring a world a room changed nothing on screen");
+
+        // ...and taking it away must put the outdoor picture back, byte for
+        // byte. Not "close enough": the whole claim this guard makes is that
+        // the outdoor game cannot tell the lab was built.
+        world.set_enclosure(None);
+        let outdoors_again = shot(&mut r, &world);
+        assert_eq!(
+            outdoors, outdoors_again,
+            "the lab interior leaked into the outdoor render — every other lane draws through this path"
+        );
+    }
+
+    /// The lab's air is cheaper than the sky it replaces, asserted as a
+    /// *shape* rather than as a timing.
+    ///
+    /// `CLAUDE.md`: gate on counters, never on wall clock — two runs of a
+    /// byte-identical binary disagreed 2.42x on one scene. The ns/px figures
+    /// belong in `examples/render_cost.rs`, where a human reads them beside
+    /// sky's own number from the same minute. What a test *can* hold is the
+    /// property those figures come from: an interior pixel reaches its
+    /// colour without the star hash, the moon test or the glow probe, so two
+    /// positions that differ only in their star hash must come out identical.
+    #[test]
+    fn an_interior_pixel_costs_no_hash_and_no_glow_probe() {
+        let mut world = World::new(Rect::new(0, 0, 199, 199));
+        world.set_enclosure(Some(crate::sim::enclosure::Enclosure::new(0, 199)));
+        world.begin_step();
+        let mut r = Renderer::new();
+        let particles = ParticleSystem::new();
+        let mut buf = vec![0u8; 200 * 200 * 4];
+        r.draw(&world, &particles, &HashSet::new(), &mut buf, (200, 200), true);
+
+        // With no lamps the room has no column term at all, so every cell in
+        // a row must be the same colour. A star, a moon or a per-cell glow
+        // would break that immediately — which is the point.
+        let row = r.cell_colour_at(&world, 0, 40, (0, 0));
+        for x in [1, 7, 63, 64, 137, 199] {
+            assert_eq!(r.cell_colour_at(&world, x, 40, (0, 0)), row, "column {x} of an unlit room differs from column 0");
+        }
+        // ...and rows must differ, or the "room" is one flat fill and the
+        // check above is vacuous.
+        assert_ne!(r.cell_colour_at(&world, 0, 120, (0, 0)), row);
     }
 
     /// A cliff brow must not shade the rock in its own column, all the way
