@@ -26,6 +26,12 @@
 //! | `WASD` / drag | pan; `-` / `=` zoom |
 //! | `R` | rebuild the box |
 //! | `Esc` | quit |
+//!
+//! `PIXEL_PHYSICS_SCREENSHOT_AFTER_FRAMES=N` dumps the framebuffer to
+//! `%TEMP%/pixel_physics_lab.png` after N rendered frames and exits nothing —
+//! the hook that makes this binary checkable on a headless box, where
+//! `labshot` can only render the world and never the interface drawn over
+//! it.
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -57,6 +63,16 @@ struct Handler {
     fps: f32,
     cursor: Option<(i32, i32)>,
     held: Held,
+    /// Real rendered frames left before a one-shot framebuffer dump, from
+    /// `PIXEL_PHYSICS_SCREENSHOT_AFTER_FRAMES`. The same hook `main.rs`
+    /// carries, and for the same reason: this build's swapchain is not
+    /// visible to OS screen capture, so getting a look at an actual rendered
+    /// window means dumping the framebuffer the app already holds. It is also
+    /// what makes the lab verifiable at all on a headless box -- `labshot`
+    /// renders the *world*, and only this renders the world **plus the HUD,
+    /// the key page and the stats panel**, which is most of what this binary
+    /// is. Cleared once fired, so it never repeats.
+    screenshot_countdown: Option<u32>,
     result: Result<(), Box<dyn std::error::Error>>,
 }
 
@@ -79,6 +95,9 @@ impl Handler {
             fps: 0.0,
             cursor: None,
             held: Held::default(),
+            screenshot_countdown: std::env::var("PIXEL_PHYSICS_SCREENSHOT_AFTER_FRAMES")
+                .ok()
+                .and_then(|v| v.parse().ok()),
             result: Ok(()),
         }
     }
@@ -114,6 +133,24 @@ impl Handler {
         let render_error = match &mut self.pixels {
             Some(pixels) => {
                 self.lab.draw(pixels.frame_mut(), self.cursor);
+                if let Some(n) = self.screenshot_countdown {
+                    if n <= 1 {
+                        self.screenshot_countdown = None;
+                        let path = std::env::temp_dir().join("pixel_physics_lab.png");
+                        match image::save_buffer(
+                            &path,
+                            pixels.frame(),
+                            WIDTH,
+                            HEIGHT,
+                            image::ColorType::Rgba8,
+                        ) {
+                            Ok(()) => eprintln!("lab screenshot saved: {}", path.display()),
+                            Err(e) => eprintln!("lab screenshot failed: {e}"),
+                        }
+                    } else {
+                        self.screenshot_countdown = Some(n - 1);
+                    }
+                }
                 pixels.render().err().map(|e| format!("render failed: {e}"))
             }
             None => None,
@@ -138,10 +175,11 @@ impl Handler {
     }
 
     fn key(&mut self, event_loop: &ActiveEventLoop, code: KeyCode, pressed: bool) {
+        // Held state first, and only `WASD` — the arrow keys drive the dial,
+        // so a pan reading of them would scroll the view every time the
+        // player changed speed.
         match code {
-            KeyCode::KeyA | KeyCode::ArrowLeft if !matches!(code, KeyCode::ArrowLeft) => {
-                self.held.left = pressed
-            }
+            KeyCode::KeyA => self.held.left = pressed,
             KeyCode::KeyD => self.held.right = pressed,
             KeyCode::KeyW => self.held.up = pressed,
             KeyCode::KeyS => self.held.down = pressed,
@@ -150,8 +188,17 @@ impl Handler {
         if !pressed {
             return;
         }
+        // Any key dismisses the opening key list, so it is never in the way —
+        // except `?`, which toggles it, and `Escape`, which quits.
+        if self.lab.show_help && code != KeyCode::Escape {
+            self.lab.show_help = false;
+            if code == KeyCode::Slash {
+                return;
+            }
+        }
         match code {
             KeyCode::Escape => event_loop.exit(),
+            KeyCode::Slash => self.lab.show_help = !self.lab.show_help,
             KeyCode::Space => self.lab.time.toggle_phase(),
             KeyCode::ArrowUp => self.lab.time.faster(),
             KeyCode::ArrowDown => self.lab.time.slower(),
