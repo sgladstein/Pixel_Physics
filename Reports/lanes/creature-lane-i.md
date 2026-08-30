@@ -59,3 +59,27 @@ three things a reader should carry away:
 Nothing in `src/`, nothing in `assets/`. The package was scoped to need no
 source change and it did not need one.
 
+## Gates, all on the merged tree
+
+`cargo test --lib` **1092 passed / 0 failed / 54 ignored** ·
+`cargo +1.98.0 clippy --all-targets -- -D warnings` **clean** (CI pins 1.98
+and the container ships 1.94, so the default toolchain proves nothing) ·
+`cargo build --release --examples` **clean** under `set -o pipefail` ·
+`ascii` **31 scenes, 0 skipped** · `acceptance.sh` **all cases** ·
+`worldgencheck.sh` **clean** · `docscheck.sh` **clean**.
+
+All re-run *after* merging `origin/main` (which by then carried #142), not
+only before.
+
+## Review queue
+
+`20260830T062042271Z-8bcaa0`, board `creatures`, blind A/B: a colony that
+bred 79 times and grew 38 -> 106 ants, against the shipped ant that never
+bred, same seed and frame. **Neither picture shows an ant**, and the in-frame
+counts (186 against 66) are what say they are there to be seen. The question
+put to the owner is whether the difference reads at all — because if it does
+not, the reproduction economy is invisible whichever route is built.
+
+## Head
+
+Head SHA: `5288a0ab75d331f04f54907500929514222d08d8`
