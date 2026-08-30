@@ -1,0 +1,46 @@
+{
+  "id": "20260830T025045646Z-c93473",
+  "created": "2026-08-30T02:50:45Z",
+  "board": "caves",
+  "origin": {
+    "worktree": "/home/user/wg-caves",
+    "branch": "claude/worldgen-caves",
+    "commit": "47d6209",
+    "agent": null,
+    "session_id": "2cb39797-d076-5699-b8bf-4494224deffe",
+    "user": null,
+    "cwd": "/home/user/wg-caves"
+  },
+  "title": "The same cave, pulled back so you can see how big it is",
+  "question": "You said the last three were all interior, so you could not tell the scale. This is the whole system as a shape inside the rock: the room, the passage down from it, the lower chamber with the crystal, and the strata around all of it. The gnome is the red dot on the room's floor. Room sizes are now a draw rather than a setting -- most rooms are 150-320 across, a quarter are 320-520, one in eleven is 520-720 and one in thirty-three is 720-950 -- so a big one should now be something you come across rather than something every cave has. Does the scale read now, and is the spread right?",
+  "context_md": "",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "rolling seed 3",
+      "files": [
+        "20260830T025045646Z-c93473/000-ctx_s3.png"
+      ],
+      "caption": "",
+      "meta": {
+        "view": "1200 x 760 cells of world (2.3 x 2.4 screens)",
+        "biggest room here": "467 x 274 cells",
+        "gnome": "7 x 14 cells",
+        "rooms by size band (small/med/large/huge)": "1/1/0/0",
+        "cells the roof lost": 71806,
+        "pillars": 2,
+        "passages": 2,
+        "mouths": 1
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
