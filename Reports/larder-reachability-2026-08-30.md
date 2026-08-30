@@ -1,16 +1,16 @@
 # Does the granary end of `store_in_body` exist? Censusing the nest pile
 
 **Status:** measured pre-flight, 2026-08-30, on this lane's branch with
-`origin/main` merged in at `5013c1a` — including PR #142's economy rewrite
+`origin/main` merged in at `2ed5c51` — carrying #142's economy rewrite
 (`start_energy` 900 → 200, `birth_grant` a heritable slot, `birth_cost` =
-`grant + body_energy × cells` = **1,040**) and #154's per-cell metabolism.
-One 4-core cloud container.
+`grant + body_energy × cells` = **1,040**), #154's per-cell metabolism, and
+#167's beetle sight sense. One 4-core cloud container.
 
-**Every figure has been taken four times, on four trees, in one session, and
-the fourth one is the report.** `main` moved under this study three times
-while it was being written. §8 has the four-way comparison and is the part
+**Every figure has been taken five times, on five trees, in one session, and
+the fifth one is the report.** `main` moved under this study four times
+while it was being written. §8a has the five-way comparison and is the part
 of this document most likely to be useful to somebody else. The short
-version, because it changed what this report claims and how strongly:
+version, because two of those merges changed what this report claims:
 
 - **plant + worldgen** (53 commits): moved every number, changed no finding.
 - **#142's economy**: changed two findings — the pile acquired a consumer at
@@ -19,6 +19,15 @@ version, because it changed what this report claims and how strongly:
   `idle_cost_per_cell: 0.05`, which for a two-cell ant is *arithmetically
   identical* and touches no rule here. It moved the numbers anyway, and it
   broke one sentence of this report that had been written too tightly (§4a).
+- **#167's sight sense**: moved the trajectory seed's deliveries from 625 to
+  958 — a 53% change, out of a feature that gives a *beetle* eyes.
+
+**The fifth re-measure was forced rather than chosen**, and the distinction
+matters because §8a argues against exactly this. The branch crossed
+`branchcheck`'s `BxF` bar (330 against 300), so merging `main` became a
+condition of landing; having merged it, the branch carried code these
+numbers had not been taken on. That is a different situation from chasing a
+moving trunk, and it is the only one that warrants another run.
 
 **On this line, "which tree" is not a footnote on the numbers, it is one of
 the inputs** — and the corollary, learned the hard way in §4a, is that a
@@ -73,28 +82,28 @@ on the floor and watch the colony eat it as income anyway*.
    has no reader at all. The asymmetry the owner's ruling is about got
    wider, not narrower.
 2. **A pile does exist and is not a rounding error.** Over 18 world seeds,
-   at frame 18,000, a colony holds a median **11** free food cells within
+   at frame 18,000, a colony holds a median **10** free food cells within
    two of its nest against **1** for the same world with no colony in it,
-   and 16 of 18 colonies hold something against 11 of 18 empty worlds.
-   Paired within each seed the difference is **+9 cells, 15 seeds of 18 up
-   against 2 down** — the strongest this has read on any of the four trees.
+   and 16 of 18 colonies hold something against 10 of 18 empty worlds.
+   Paired within each seed the difference is **+6 cells, 13 seeds of 18 up
+   against 2 down**, and at band 8 it is **+14 with 15 up against 1** — the
+   first tree on which the wider band is also clean.
    The material says it more sharply than the count: a colony's band holds
    **leaf, moss, seed and corpse**, a colony-free one holds **litter and
    nothing else** — the background is what falls, the difference is what is
    carried and what dies there.
 3. **It does not accumulate. It peaks at frame 1,600 and is then eaten to
    nothing.** On the trajectory seed the standing count reaches 11 at frame
-   1,600 — with roughly **a third of that run's deliveries made** — and
-   then falls away to single figures for the rest of the run. The remaining
-   two thirds of the deliveries do not merely fail to build a pile, they
-   arrive at one that is shrinking. On the pre-#142 economy this curve was
-   flat at 10–16 instead; the difference is entirely that ants now get
-   hungry.
+   800 — with **120 of that run's 958 deliveries made** — and then falls
+   away to single figures for the rest of the run. The other 838 deliveries
+   do not merely fail to build a pile, they arrive at one that is shrinking.
+   On the pre-#142 economy this curve was flat at 10–16 instead; the
+   difference is entirely that ants now get hungry.
 4. **And it is a flow, not a store.** Tracked on that same seed as a *set of
-   positions* (`mode=turnover`): over 15,000 frames, **109 entries against
-   105 exits** — they track each other to within 4% — while 625 deliveries
+   positions* (`mode=turnover`): over 15,000 frames, **145 entries against
+   143 exits** — they track each other to within 2% — while 915 deliveries
    were made, and `resident`, the count of positions occupied both at the
-   first non-empty sample and now, ends at **1**. Essentially nothing that
+   first non-empty sample and now, ends at **0**. Essentially nothing that
    was in the first pile is still there, and essentially everything that
    arrived later has left again. A standing count of ten cannot tell a store
    of ten from ten in transit; this is ten in transit. **Do not quote this
@@ -110,16 +119,16 @@ on the floor and watch the colony eat it as income anyway*.
    granary can physically stand here, and does not stand *in the presence of
    ants*.
 6. **The colony's net effect on the world's food is dispersal, not
-   concentration.** 16,692 deliveries across 18 colonies, against 138,115
-   pickups and 135,914 drops: **88% of what an ant puts down, it puts down
+   concentration.** 17,305 deliveries across 18 colonies, against 140,202
+   pickups and 137,945 drops: **87% of what an ant puts down, it puts down
    away from the nest.** An ant is a conveyor that happens to pass its own
    nest, and free food ends up spread over the map rather than banked at
    home — §2.2 has the world-wide count beside the banded one.
 7. **The larder's peak is worth about two thirds of one child.** Averaged
-   over 18 seeds, a colony's tight band peaks at **2,440 digestible = 2.35
+   over 18 seeds, a colony's tight band peaks at **2,293 digestible = 2.21
    births** against #142's `birth_cost` of 1,040 — but the colony-free
-   control peaks at **1,307 = 1.26 births** on ambient litter alone, so the
-   part the colony put there is **1.09 children**. Note which way #142 moved
+   control peaks at **1,080 = 1.04 births** on ambient litter alone, so the
+   part the colony put there is **1.17 children**. Note which way #142 moved
    this: the pile got *smaller* and the priced figure got *larger*, because
    a birth got cheaper faster than the larder shrank. Quoting face value
    would have said 9.4 births: `food_value` is what a mouthful is worth to anybody,
@@ -223,14 +232,14 @@ Free food cells at frame 18,000, over 18 seeds:
 
 | arm | quantity | min | p10 | med | p90 | max | peak (med) | seeds > 0 |
 |---|---|---|---|---|---|---|---|---|
-| colony | within 2 of nest | 0 | 2 | **11** | 22 | 32 | 19 | **16/18** |
-| no ants | within 2 of nest | 0 | 0 | **1** | 17 | 19 | 6 | 11/18 |
-| colony | within 8 of nest | 3 | 4 | **25** | 89 | 193 | 36 | 18/18 |
-| no ants | within 8 of nest | 0 | 0 | **9** | 44 | 89 | 21 | 14/18 |
-| planted, no ants | within 2 | 21 | 22 | 24 | 31 | 43 | 40 | 18/18 |
-| planted + colony | within 2 | 0 | 5 | 16 | 52 | 56 | 41 | 17/18 |
+| colony | within 2 of nest | 0 | 2 | **10** | 20 | 34 | 23 | **16/18** |
+| no ants | within 2 of nest | 0 | 0 | **1** | 10 | 21 | 5 | 10/18 |
+| colony | within 8 of nest | 0 | 2 | **34** | 97 | 138 | 60 | 16/18 |
+| no ants | within 8 of nest | 0 | 0 | **2** | 36 | 142 | 19 | 12/18 |
+| planted, no ants | within 2 | 21 | 21 | 25 | 28 | 49 | 40 | 18/18 |
+| planted + colony | within 2 | 2 | 3 | 20 | 41 | 44 | 41 | 18/18 |
 
-**Read the spread before the medians.** The colony's tight band runs 0 to 32
+**Read the spread before the medians.** The colony's tight band runs 0 to 34
 across seeds and is **empty on 2 seeds of 18**; nothing here is tidy, which
 is what an outcome in this engine is supposed to look like (`CLAUDE.md`: a
 clean first result is evidence of an artifact). The single seed the
@@ -243,22 +252,23 @@ that terrain, the water cycle and the day cycle all cancel:
 
 | comparison | p10 | med | p90 | seeds up / down |
 |---|---|---|---|---|
-| colony − no ants, cells within 2 of nest | +0 | **+9** | +16 | **15 up / 2 down** |
-| colony − no ants, cells within 8 of nest | −9 | **+14** | +80 | 14 up / 3 down |
-| planted+colony − planted-no-ants, within 2 | −21 | **−10** | +10 | 7 up / **11 down** |
+| colony − no ants, cells within 2 of nest | +0 | **+6** | +19 | **13 up / 2 down** |
+| colony − no ants, cells within 8 of nest | +0 | **+14** | +49 | **15 up / 1 down** |
+| planted+colony − planted-no-ants, within 2 | −19 | **−10** | +16 | 4 up / **13 down** |
 
 **Read the third column with the fifth.** The colony's effect on its own
-band is real — a median of +9 cells with **15 of 18 seeds up and only 2
-down**, the cleanest this has read on any of the four trees, and the p10 is
-0 rather than negative. **And the third row is a subtraction**: put a colony
-on a granary somebody else built and it takes a median 10 cells off it, on
-11 seeds of 18. A colony fills its own larder and empties one it finds, and
-the second effect is nearly as large as the first.
+band is real — a median of +6 cells with 13 of 18 seeds up and 2 down — and
+for the first time on any tree **the wider band is the cleaner of the two**:
++14 with 15 seeds up and a single one down. **And the third row is a
+subtraction**: put a colony on a granary somebody else built and it takes a
+median 10 cells off it, on 13 seeds of 18. A colony fills its own larder and
+empties one it finds, and the second effect is as large as the first.
 
-**These two rows have swapped strength across trees** — on the previous tree
-they read +3 (13/4) and −14 (15 down). Both signs have held on all four
-trees; the magnitudes have not, and neither ordering should be quoted as
-though it were stable. The band-8 row: a delivery
+**These rows have swapped strength across trees.** The tight band has read
++7, +5, +3, +9 and now +6; the wide band has been anywhere from a coin flip
+(10 up / 8 down) to 15 up / 1 down. Every sign has held on all five trees;
+no magnitude has, and no ordering between the two bands should be quoted as
+if it were stable. The band-8 row: a delivery
 lands within 2 of a nest cell *by construction*, so an effect that lives
 there and dies by band 8 is the delivery mechanism showing itself and
 nothing else.
@@ -276,8 +286,8 @@ seeds, the free cells within 2 of the nest at frame 18,000:
 
 | arm | what the band holds |
 |---|---|
-| colony | litter 117, **leaf 27, moss 18, seed 36, corpse 20** |
-| no ants | **litter 95** — and nothing else |
+| colony | litter 108, **leaf 13, moss 23, seed 40, corpse 14** |
+| no ants | **litter 67** — and nothing else |
 
 A colony-free nest strip collects litter, because litter is what falls. A
 colony's nest strip collects moss and seed as well, and neither of those
@@ -285,8 +295,8 @@ arrives by falling: they were carried. **This is the cleanest single piece
 of evidence that the pile is delivered rather than ambient**, and it needed
 no statistics at all.
 
-The `corpse 20` is new since #142 and is not food anybody brought home: it
-is dead ants. The colony arm logs **144 deaths across 18 seeds** where the
+The `corpse 14` is new since #142 and is not food anybody brought home: it
+is dead ants. The colony arm logs **110 deaths across 18 seeds** where the
 pre-#142 economy logged **1**, so part of what now sits by the nest is the
 colony itself.
 
@@ -323,16 +333,16 @@ The world-wide free-food count is in the same table, deliberately:
 
 | arm | min | p10 | med | p90 | max |
 |---|---|---|---|---|---|
-| colony, free cells **world-wide** | 199 | 230 | **359** | 563 | 788 |
-| no ants, free cells **world-wide** | 68 | 127 | **289** | 444 | 563 |
+| colony, free cells **world-wide** | 273 | 287 | **381** | 579 | 849 |
+| no ants, free cells **world-wide** | 120 | 157 | **277** | 578 | 667 |
 
 That column is what "census the food near the ant colony" returns when the
-band is left off: **359 against 11**, a factor of 33 on the median. And it
+band is left off: **381 against 10**, a factor of 38 on the median. And it
 is not merely bigger, it is **blunter**: between a world with a colony and
-one without, the banded median moves 11 → 1 (**11x**) and the world-wide
-median moves 359 → 289 (**1.2x**). Quoting the world column would have said
-the larder was thirty-three times its true size *and* been an order of
-magnitude less able to tell whether a colony was in the world at all. That is the recorded failure
+one without, the banded median moves 10 → 1 (**10x**) and the world-wide
+median moves 381 → 277 (**1.4x**). Quoting the world column would have said
+the larder was thirty-eight times its true size *and* been seven times less
+able to tell whether a colony was in the world at all. That is the recorded failure
 — *a census counted every `Solid` in the world rather than the platform
 under test* — with both of its costs made explicit.
 
@@ -347,19 +357,19 @@ strip, planted after the warmup in a colony-free world:
 
 | frame | 0 | 200 | 400 | 800 | 1,600 | 3,000 | 6,000 | 12,000 | 18,000 |
 |---|---|---|---|---|---|---|---|---|---|
-| cells within 2 of the nest | 40 | 40 | 33 | 27 | 25 | 23 | 23 | 23 | 22 |
+| cells within 2 of the nest | 40 | 41 | 32 | 25 | 23 | 22 | 23 | 23 | 22 |
 
-Nothing at all happens for the first 200 frames, it settles by 3,000, and
-then it does not move for another 15,000. Over 18 seeds the settled band
-reads **median 24, min 21, max 43, nonzero on every seed** — the tightest
+Nothing at all happens for the first 200 frames, it settles by 1,600, and
+then it does not move for another 16,000. Over 18 seeds the settled band
+reads **median 25, min 21, max 49, nonzero on every seed** — the tightest
 distribution anywhere in this report, and the one arm whose outcome is not
-chaotic. It is also the one figure that has barely moved across all four
-trees (23, 23, 23, 24), which is what a result that does not depend on
+chaotic. It is also the one figure that has barely moved across all five
+trees (23, 23, 23, 24, 25), which is what a result that does not depend on
 creature behaviour should look like.
 
 **The material breakdown says which half went.** Summed over 18 seeds at
-frame 18,000 the planted band holds `leaf 405, litter 58` — against 360
-leaves planted and 360 litter, and against a background of `litter 95` in
+frame 18,000 the planted band holds `leaf 404, litter 56` — against 360
+leaves planted and 360 litter, and against a background of `litter 67` in
 the arm where nothing was planted at all. So essentially **every planted
 litter cell is gone and essentially every planted leaf cell is still
 there.** `litter.ron` carries `decays_into: "soil"` at
@@ -377,14 +387,14 @@ identical world, with 52 ants added:
 
 | frame | 0 | 400 | 800 | 1,600 | 3,000 | 6,000 | 12,000 | 18,000 |
 |---|---|---|---|---|---|---|---|---|
-| no colony | 40 | 33 | 27 | 25 | 23 | 23 | 23 | 22 |
-| with a colony | 40 | 33 | 29 | 26 | 20 | **13** | **10** | **5** |
+| no colony | 40 | 32 | 25 | 23 | 22 | 23 | 23 | 22 |
+| with a colony | 40 | 36 | 30 | 26 | 27 | **17** | **7** | **6** |
 | `eats` so far, colony arm | 0 | 0 | 0 | 0 | 3 | 53 | 113 | 168 |
 
-The two arms track each other to within a cell or two until about frame
+The two arms track each other to within a few cells until about frame
 3,000 — which is where the colony's first ants get hungry — and then
-separate, ending 22 against 5. Over 18 seeds the paired difference is
-**−10 cells, down on 11 seeds of 18**.
+separate, ending 22 against 6. Over 18 seeds the paired difference is
+**−10 cells, down on 13 seeds of 18**.
 
 **This is the sentence the whole section exists for: the material keeps, and
 the colony is the sink.** A granary can physically stand at this nest. It
@@ -407,15 +417,15 @@ One seed, 15,000 frames, sampled every 250:
 
 | frame | cells | entries | exits | resident | deliveries | eats |
 |---|---|---|---|---|---|---|
-| 1,500 | 11 | 33 | 22 | **0** | 186 | 0 |
-| 4,500 | 6 | 72 | 66 | **0** | 425 | 38 |
-| 10,500 | 3 | 97 | 94 | **0** | 616 | 106 |
-| 15,000 | 4 | **109** | **105** | **1** | 625 | 136 |
+| 1,500 | 13 | 42 | 29 | 2 | 205 | 0 |
+| 4,500 | 7 | 80 | 73 | **0** | 562 | 40 |
+| 10,500 | 2 | 121 | 119 | 1 | 820 | 110 |
+| 15,000 | 2 | **145** | **143** | **0** | 915 | 141 |
 
-**Entries and exits track each other the whole way — 109 against 105 at the
-end, within 4% — while the standing count falls to a handful.** `resident`,
+**Entries and exits track each other the whole way — 145 against 143 at the
+end, within 2% — while the standing count falls to a handful.** `resident`,
 the count of positions occupied both at the first non-empty sample and now,
-is 0 for almost the whole run and ends at 1. Essentially nothing that was in
+never exceeds 2 and ends at 0. Essentially nothing that was in
 the first pile is still there and essentially everything that arrived later
 has left again. A standing count could not have shown this: at frame 1,500
 it says "eleven cells", which is indistinguishable from a granary of eleven.
@@ -431,7 +441,8 @@ exactly zero, and the report quoted it as *"everything that ever entered has
 left"*, a categorical claim. Merging a `main` that turned `idle_cost: 0.10`
 into `idle_cost_per_cell: 0.05` — arithmetically identical for a two-cell
 ant, and touching no rule this probe measures — moved it to 109/105 with a
-standing 4.
+standing 4; the tree after that, which gave a *beetle* eyes, moved it again
+to 145/143 with a standing 2.
 
 The finding survives and the phrasing did not, which is the lesson.
 `CLAUDE.md` says a clean first result is evidence of an artifact rather than
@@ -442,7 +453,7 @@ guarantees. **The claim to carry is "entries track exits and nothing
 persists", which held on every tree; the claim to drop is any version with
 the word "exactly" in it.**
 
-**109 entries against 625 deliveries** is the other half of the same
+**145 entries against 915 deliveries** is the other half of the same
 sentence: five deliveries in six never occupy a position the larder did not
 already have. It is a lower bound — a delivery picked back up inside one
 250-frame sampling interval is invisible — which only makes the ratio worse.
@@ -462,21 +473,21 @@ What moved, same probe, same seeds, same 18,000 frames:
 
 | summed over 18 colonies | before #142 | after |
 |---|---|---|
-| `eats` | 1,276 | **2,879** |
-| `deaths` | 1 | **144** |
-| `deliveries` | 20,506 | 16,692 |
-| paired effect on a *planted* granary | −6 (13/18 down) | **−10 (11/18 down)** |
+| `eats` | 1,276 | **2,984** |
+| `deaths` | 1 | **110** |
+| `deliveries` | 20,506 | 17,305 |
+| paired effect on a *planted* granary | −6 (13/18 down) | **−10 (13/18 down)** |
 
 Three things follow, and the second is the mechanism.
 
 - **The colony eats its own larder to nothing.** On the trajectory seed the
-  pile peaks at 11 cells at frame 1,600 and spends the back half of the run
-  bouncing around zero, while `eats` climbs 0 → 5 → 55 → 165 and the colony
+  pile peaks at 13 cells at frame 800 and spends the back half of the run
+  bouncing around zero, while `eats` climbs 0 → 4 → 55 → 171 and the colony
   loses 12 of its 52 ants. Deliveries keep arriving the whole time.
 - **But eating is not the only sink, and the planted arms separate them.**
   The colony takes a median 10 cells off a pile it did not build, and it
   starts doing so *before* the ants are hungry — the two planted arms are
-  still within 1–2 cells of each other at frame 1,600, when `eats` is 0.
+  still within a few cells of each other at frame 1,600, when `eats` is 0.
   What removes cells then is **pickups**. `act`'s eat/pick-up branch runs
   *before* the drop branch and is gated only on `carrying.is_none()`, so a
   sated ant standing beside its colony's own store picks a cell up rather
@@ -484,13 +495,13 @@ Three things follow, and the second is the mechanism.
   tick, scoring a second delivery. **Nothing marks a cell as stored.**
   `ant.ron`'s `nest_memory` comment already records the visible form of the
   loop: *"arriving, picking food up and then milling on the spot"*.
-- **And some of what is by the nest is the colony's own dead.** 144 deaths
-  across 18 seeds, and `corpse 20` in the material census, where before
+- **And some of what is by the nest is the colony's own dead.** 110 deaths
+  across 18 seeds, and `corpse 14` in the material census, where before
   there was one death and no corpses.
 
-Summed over 18 colonies: `pickups` **138,115**, `drops` **135,914**,
-`deliveries` **16,692**. Essentially every pickup is followed by a drop, and
-**88% of those drops happen away from the nest** — an ant is a conveyor that
+Summed over 18 colonies: `pickups` **140,202**, `drops` **137,945**,
+`deliveries` **17,305**. Essentially every pickup is followed by a drop, and
+**87% of those drops happen away from the nest** — an ant is a conveyor that
 happens to pass its own nest, not a stockpiler.
 
 ---
@@ -519,7 +530,7 @@ Three things. Only the first is real work, and the third may not be wanted.
    back up. A flag on the cell, or a rule that an ant adjacent to its nest
    does not pick up, closes it. The measurement that separates this sink
    from eating is §5's planted-pile pair *read early*: the two arms are
-   within 1–2 cells of each other at frame 1,600, while `eats` is still 0,
+   within a few cells of each other at frame 1,600, while `eats` is still 0,
    and only diverge once the colony gets hungry around frame 3,000. What
    removes cells before that can only be pickups.
 3. **And the store has to be made of something that keeps.** Persistence
@@ -585,57 +596,68 @@ The harness echoes its own parameters on its first line and panics on an
 unknown argument, so a log that does not name its seed was written by a
 binary that never had one.
 
-### 8a. The same study on four trees, which is the reusable part
+### 8a. The same study on five trees, which is the reusable part
 
-`main` took three creature-affecting merges in the six hours this took, so
-the whole study was re-run four times. Same probe, same 18 seeds, same
+`main` took four creature-affecting merges in the twelve hours this took, so
+the whole study was re-run five times. Same probe, same 18 seeds, same
 18,000 frames:
 
-| | `e7b72e7` | `+ plant/worldgen` | `+ #142` economy | `+ #154` per-cell |
-|---|---|---|---|---|
-| paired median, within 2 of nest | +7 | +5 | +3 | **+9** |
-| seeds up / down on that | 14/4 | 14/3 | 13/4 | **15/2** |
-| colony's settled band, median | 13 | 11 | 9 | **11** |
-| turnover entries / exits | 195/185 | 174/163 | 119/119 | **109/105** |
-| standing count at frame 15,000 | 10 | 11 | 0 | **4** |
-| paired effect on a planted granary | — | −6 (13 down) | −14 (15 down) | **−10 (11 down)** |
-| `birth_cost` | 1,860 | 1,860 | 1,040 | **1,040** |
-| peak larder, priced | 1.37 br | 1.30 | 2.07 | **2.35** |
-| `deaths` over 18 colonies | 0 | 1 | 134 | **144** |
-| planted pile, colony-free, settled | 23 | 23 | 23 | **24** |
+| | `e7b72e7` | `+ plant/wg` | `+ #142` | `+ #154` | `+ #167` |
+|---|---|---|---|---|---|
+| paired median, within 2 of nest | +7 | +5 | +3 | +9 | **+6** |
+| seeds up / down on that | 14/4 | 14/3 | 13/4 | 15/2 | **13/2** |
+| paired median, within 8 | +7 | +7 | +8 | +14 | **+14** |
+| seeds up / down on that | — | 11/7 | 12/6 | 14/3 | **15/1** |
+| colony's settled band, median | 13 | 11 | 9 | 11 | **10** |
+| turnover entries / exits | 195/185 | 174/163 | 119/119 | 109/105 | **145/143** |
+| standing count at frame 15,000 | 10 | 11 | 0 | 4 | **2** |
+| paired effect on a planted granary | — | −6 (13d) | −14 (15d) | −10 (11d) | **−10 (13d)** |
+| `birth_cost` | 1,860 | 1,860 | 1,040 | 1,040 | **1,040** |
+| peak larder, priced | 1.37 br | 1.30 | 2.07 | 2.35 | **2.21** |
+| `deaths` over 18 colonies | 0 | 1 | 134 | 144 | **110** |
+| planted pile, colony-free, settled | 23 | 23 | 23 | 24 | **25** |
 
 **A different lesson from each merge.**
 
-- **plant + worldgen** (53 commits, none in `creature.rs`): moved every
-  number, changed no finding.
-- **#142's economy** (`start_energy` 900 → 200): changed two findings. "The
-  pile has no consumer for the first 10,000 frames" became false, and "the
+- **plant + worldgen** (53 commits, none in `creature.rs`) moved every number
+  and changed no finding.
+- **#142's economy** (`start_energy` 900 → 200) changed two findings. "The
+  pile has no consumer for the first 10,000 frames" became false; "the
   standing count plateaus" became "it is eaten away".
-- **#154's per-cell metabolism** looked like it should change nothing —
+- **#154's per-cell metabolism** changed nothing anybody would predict —
   `idle_cost: 0.10` became `idle_cost_per_cell: 0.05` against a two-cell
   body, and `0.05f32 * 2` is bit-identical to `0.10f32`. It moved the paired
-  median from +3 to +9 and the turnover from 119/119 to 109/105 anyway. The
-  cause is not the arithmetic but `creature.rs:1019`: metabolism is now
-  charged on `chain.len()`, the animal's **current** cell count, rather than
-  on its authored `body.len()`, so a damaged ant pays less to live. The runs
-  are byte-identical until about frame 6,000 — which is where this colony
-  starts losing ants. **It also broke a sentence** (§4a), which is the only
-  real damage any of the three merges did.
+  median from +3 to +9 anyway. The cause is `creature.rs:1019`: metabolism is
+  charged on `chain.len()`, the animal's **current** cell count, not the
+  authored `body.len()`, so a damaged ant pays less to live. **It also broke
+  a sentence** (§4a).
+- **#167's sight sense** gives a *beetle* eyes and moved the ant's
+  deliveries by 53% (625 → 958 on the trajectory seed). There are nine
+  beetles and fifty-two ants in this scene; a change to what the beetles do
+  reshuffles every ant's world within a few thousand frames.
 
 **The transferable part is the bottom row against the top one.** The
-colony-free planted pile reads 23, 23, 23, 24 across all four trees — a
-measurement of *materials and decay*, which none of these merges touched.
-Everything above it swings by factors of two to three: measurements of
-*creature behaviour*, which every one of them touched. Before quoting a
-creature number, ask which of those two kinds it is.
+colony-free planted pile reads 23, 23, 23, 24, 25 across all five trees — a
+measurement of *materials and decay*, which no merge touched. Everything
+above it swings by factors of two to three: measurements of *creature
+behaviour*, which every merge touched. Before quoting a creature number, ask
+which of those two kinds it is.
 
-**And the honest limit of a study run against a moving trunk.** Four
-re-measures in one session is not diligence, it is a treadmill, and a fifth
-merge would very likely move these numbers again. The response is not to
-keep running. It is to state each finding at the strength that survives a
-tree change — which is what §0 now does — and to name the tree, which is
-what the status line does. **Every sign held on all four trees. Not one
-magnitude did.**
+**Which sign is safe, and which is not.** Every sign held on all five trees
+— the colony's band beats the colony-free control, the planted granary loses
+cells to a colony, entries track exits. No magnitude held. And one *ordering*
+did not: the tight band was the cleaner of the two bands on four trees and
+the wider band is cleaner on the fifth, so even "the effect lives where a
+delivery lands" is a claim about a tree rather than about the mechanism.
+
+**The honest limit of a study run against a moving trunk.** Five re-measures
+is not diligence, it is a treadmill, and the fifth was **forced rather than
+chosen**: `branchcheck` put the branch at `BxF` 330 against a bar of 300, so
+merging `main` became a condition of landing, and once merged the branch
+carried code these numbers had not been taken on. That is the only condition
+under which another run is worth it. Otherwise the answer is to state each
+finding at the strength that survives a tree change — which is what §0 does
+— and to name the tree, which is what the status line does.
 
 *And the control that should have moved nothing, did not.* Before the
 paired statistic was fixed, the first sweep was run twice on `e7b72e7` from
@@ -655,7 +677,7 @@ larder in a colony that has finished collapsing is outside this report.
 A blind A/B was posted to the owner's review queue
 (`20260830T014759506Z-618977`, board `creatures`): the colony's nest against
 a colony-free one at the same frame, asking which has taken 1,449
-deliveries. **It was rendered on the first of the four trees**, so its
+deliveries. **It was rendered on the first of the five trees**, so its
 counts are the pre-#142 ones — a card asking whether a person can pick
 the colony's nest out of a pair is not sensitive to a few cells either way,
 but the numbers under it are not this report's. The verdict is not in this

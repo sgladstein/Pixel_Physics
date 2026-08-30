@@ -938,30 +938,32 @@ drift that two of these documents still reflect.**
   zero" figure describes that scene rather than a founded colony.
 - [larder-reachability-2026-08-30.md](larder-reachability-2026-08-30.md) —
   **measured pre-flight, 2026-08-30, on this lane merged with `main` at
-  `5013c1a` — including #142's economy and #154's per-cell metabolism; no
-  code changed.** Whether
+  `2ed5c51` — including #142's economy, #154's per-cell metabolism and
+  #167's sight sense; no code changed.** Whether
   the *granary* end of `creature-reproduction-economics.md` §5.3's
   `store_in_body` gene is a reachable state of the world, which the owner's
   2026-08-30 ruling requires before the gene is written. **It is not**, and
   the blocking fact is in the birth path rather than in the pile:
   `creature::try_bud` charges `state.energy` and there is no second term, so
   a granary of any size funds zero births. The pile is real and small and
-  measured anyway — a median 11 cells within 2 of the nest against 1 with no
-  colony (paired **+9, 15 seeds up / 2 down**), worth 2.35 `birth_cost`s at
-  peak against a colony-free control's 1.26 — and `mode=turnover` shows it
-  is a **flow**, not a store: entries track exits (109 against 105) while
+  measured anyway — a median 10 cells within 2 of the nest against 1 with no
+  colony (paired **+6, 13 seeds up / 2 down**), worth 2.21 `birth_cost`s at
+  peak against a colony-free control's 1.04 — and `mode=turnover` shows it
+  is a **flow**, not a store: entries track exits (145 against 143) while
   nothing that was in the first pile is still there. Persistence is *not* the blocker (a hand-planted 40-cell pile
   settles at 22-23 and holds for 18,000 frames on every seed; the litter
   half rots, the leaf half does not) — **the colony is the sink**, taking a
   paired 10 cells off a granary it did not build. **Its §8a is the reusable
-  part**: `main` took three creature-affecting merges while this was being
-  written, so the same study was run on **four trees**, and every sign held
+  part**: `main` took four creature-affecting merges while this was being
+  written, so the same study was run on **five trees**, and every sign held
   while not one magnitude did. The plant/worldgen merge moved every figure
   and no finding; #142's economy changed two findings; #154's per-cell
-  metabolism looked arithmetically neutral and was not, because metabolism
-  is now charged on `chain.len()` rather than `body.len()`. The one figure
-  that barely moved is the colony-free planted pile — materials and decay,
-  which none of them touched — and that split is the transferable lesson.
+  metabolism looked arithmetically neutral and was not (metabolism is
+  charged on `chain.len()`, not `body.len()`); #167's *beetle* sight sense
+  moved the ants' deliveries 53%. The one figure that barely moved across
+  all five is the colony-free planted pile — 23, 23, 23, 24, 25 — because it
+  measures materials and decay, which no merge touched, and that split is
+  the transferable lesson.
   Also records a line headed "paired, per-seed" that was differencing two
   medians until it was caught. Names the three things that would have to exist, and says
   why writing the gene today would reproduce `light_weight`'s degenerate
