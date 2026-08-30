@@ -1,0 +1,44 @@
+{
+  "id": "20260830T070742689Z-1ae70e",
+  "created": "2026-08-30T07:07:42Z",
+  "board": "creatures",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/creature-lane-g-panel",
+    "commit": "80ec04f",
+    "agent": null,
+    "session_id": "20234dc2-0590-5b0a-a98c-95c6fbc21c91",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Colony panel: every row now explains itself on hover",
+  "question": "Does the note say enough, in the right words -- and is there a row whose note you would want to say something different?",
+  "context_md": "You asked for this on the first colony-panel card: *\"the user should be able to mouse hover over some of the words and get an explanation of what it means and this could also be a way to access more detailed data.\"* Built, both halves.\n\nEvery row on the panel now has a note. It says **what the row is, in words** — and it carries **what did not fit on the row**: the raw counts behind each rate (`PER 1K STEP 3124` becomes *3,124 steps... over the last 3,810 frames: 11,904 steps taken*), the exact threshold behind the histogram's amber, what a trait is and which way its numbers run.\n\nThe note is drawn **beside the panel and level with the row**, not under the pointer. A box that follows the cursor covers the line it is explaining, so you end up reading the explanation having lost the thing it is about.\n\nThe shot is hovering `LOW 14 MID 23 HIGH 191 FULL 200`, which is the densest row on the page and the one I expected to be least readable cold.\n\nI have **not** done the other half of your note — *\"more better graphs might be interesting\"* — yet. Say what you would want graphed and I will do it: the obvious candidates are food delivered over time beside the population strip, and the energy histogram as a moving band rather than a snapshot.",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "Hovering the energy spread row",
+      "files": [
+        "20260830T070742689Z-1ae70e/000-colony_hover.png"
+      ],
+      "caption": "Drawn at 2x. Same colony as the previous card.",
+      "meta": {
+        "rows that explain themselves": 17,
+        "rows with no note (section gaps)": 4,
+        "ants alive": 40,
+        "ants below the hunger line": "37 of 40",
+        "frame cost with it shut, settled world": "0.086 ms",
+        "frame cost with it open, settled world": "3.88 ms"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
