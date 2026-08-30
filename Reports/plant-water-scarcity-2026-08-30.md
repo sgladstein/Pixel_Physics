@@ -380,6 +380,14 @@ The unmirrored `same` control passes in both — 52.1% (p=0.40) deep, 53.7%
 unmirrored deliberately**: mirrored, `arm=same` is one simulation with the
 labels swapped and returns exactly 50.0% as an algebraic identity.
 
+**The deep `nobranch` arm reads n=12 rather than 18, and it was stopped for
+compute rather than for its result** — the thin bed's three arms needed the
+cores. Saying so because 12-of-12 stopped early is exactly what optional
+stopping looks like: every one of the twelve pointed the same way from the
+first seed, the thin bed's independent 18 seeds agree at 18 of 18, and the
+teeth report's own wet-bed 18 agree again at 38.9%. Nothing in this report's
+argument rests on that row's exact p.
+
 ### 4c. And the reason is that the handicap does not cost the plant water
 
 This is the finding, and it is measured rather than inferred. The two
