@@ -34,6 +34,16 @@ tried?"*.
   nor 14 MB of prose. Names the largest miss: **`README.md` is 71,561 tokens,
   the biggest document in the repo, overwhelmingly outdoor, and every agent is
   routed to it first.**
+- [why-changes-cost-so-much-2026-08-27.md](why-changes-cost-so-much-2026-08-27.md)
+  — **method finding, from a live instance.** Why every change here seems to
+  demand a global retune: most large levers have **no counterweight**, so
+  every constant is calibrated against every other constant's current
+  behaviour and any change reallocates a fixed budget. Costs are not a feature
+  competing with features — they are what makes features composable. Also
+  names the bias that compounds it (judging a change before its retune
+  systematically rejects the changes worth making, ratcheting toward a local
+  optimum the owner has already rejected), and proposes a `CLAUDE.md` rule
+  rather than making one.
 - [agent-communication.md](agent-communication.md) — **rule landed
   2026-08-29.** How sessions write to the owner, censused over 158 review
   cards, 347 image panes and 283 commit subjects: 56% of PR subjects need a
