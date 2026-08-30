@@ -1,9 +1,10 @@
 # Ants
 
-*Current as of: 2026-08-30, when ants started running out of food and dying
-of it — the first bodies in the world that nothing killed — and when how much
-an ant gives its young became a thing an ant can inherit rather than a fixed
-rule. Before that: 2026-08-29, when creatures learned to jump — though the ants
+*Current as of: 2026-08-30, when ants started running out of food early
+enough that you see it — bodies on the ground that nothing killed, and a
+colony that then holds its size instead of quietly running down — and when
+how much an ant gives its young became a thing an ant can inherit rather
+than a fixed rule. Before that: 2026-08-29, when creatures learned to jump — though the ants
 you place still cannot, and the section below says why that is not a
 contradiction — and when an ant that has eaten enough learned to make
 another ant, passing on what it is so that a colony's descendants can differ
@@ -131,26 +132,31 @@ wall". Walls, pillars and chambers are just what happens when a lot of ants
 follow that one preference in the same place — which is, as far as anyone
 can tell, how real termites do it too.
 
-**Ants starve, and this is new.** An ant carries a store of energy, spends
-it on standing still, walking and thinking, and refills it by eating. Until
-now that store was so deep that nothing ever reached the bottom of it inside
-any run anyone watched — an ant that foraged perfectly and an ant that never
-ate once came out the same, and no ant in the world had ever died of hunger.
-The store is now about a fifth of what it was, which is roughly one
-run's worth of standing still, so an ant that fails to feed itself runs out.
+**Ants starve now, and a colony settles at a size instead of running down.**
+An ant carries a store of energy, spends it on standing still, walking and
+thinking, and refills it by eating. That store used to be so deep that
+nothing reached the bottom of it inside any run anyone actually watched — so
+an ant that foraged perfectly and an ant that never ate once looked the same,
+and you would never see a body. The store is now about a fifth of what it
+was, roughly one run's worth of standing still.
 
-What you see is bodies. A colony left alone thins out over a long run — a
-quarter to a third of it, on the world as it generates — and each ant that
-goes leaves a corpse where it fell. **These are the first bodies in the world
-that nothing killed**, and they matter beyond looking right: a corpse is
-food, so a colony that starts losing members starts leaving meals for the
-ones still walking. Every previous corpse in the world had to be made by a
-fire or a blast.
+The surprise is what that changes, and it is not simply "ants can die". They
+always could; you just had to watch three times longer than anyone does, and
+if you did, the old colony kept dying — slowly, steadily, with no floor to
+it, because every ant was spending down a starting store that its own sense
+of fullness would not let it replace. The new colony loses a third of itself
+early, in the first stretch of a run, and then very nearly stops. **Left long
+enough, it ends up with more ants alive than the old one**, because the ones
+that survive are the ones that found food, and they can keep doing it.
 
-It is meant to thin a colony rather than empty one. At the setting shipped,
-most of a colony is still walking at the end of a long run; making the store
-much smaller kills far more, and making it much larger goes back to nothing
-dying at all.
+What you see is bodies, early, and then a colony that holds its size. Each ant
+that goes leaves a corpse where it fell, and a corpse is food — so a colony
+that loses members leaves meals for the ones still walking. Until now every
+corpse in the world had to be made by a fire or a blast.
+
+It is meant to thin a colony rather than empty one. Making the store much
+smaller kills far more; making it much larger goes back to nothing you will
+ever see dying.
 
 **They burn, and they feed the next thing.** An ant is made of the same
 stuff as everything else: set one alight and it burns, and what is left is a

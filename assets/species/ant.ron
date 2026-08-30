@@ -39,8 +39,16 @@
         // 200 / 0.10 * 6 = **12,000 frames, exactly one scene horizon**.
         // At 900 it was 54,000, so a scene saw 22% of a lifetime, and
         // foraging perfectly and never eating at all came out the same
-        // inside any run a harness could afford -- `deaths` read **0**
-        // everywhere, which is the entire reason E14 exists.
+        // inside any run a harness could afford. **E14's own decision
+        // record says `deaths` read 0 "everywhere"; that is false and the
+        // truth is better** -- the uncut ant dies at 36,000 frames and
+        // later (0 / 0 / 14 / 34 at 12k / 24k / 36k / 54k) and then keeps
+        // dying, because every ant is spending down a grant its satiety
+        // ceiling will not let it replace. The cut colony takes 16 losses
+        // inside 12,000 frames and then very nearly stops (16 / 17 / 20 /
+        // 22 over the same horizons), so by 54,000 frames it has lost
+        // *fewer* ants than the uncut one. The cut does not add death; it
+        // converts an unbounded run-down into an early cull that settles.
         //
         // Measured 2026-08-30, `creature_probe terrain=world frames=24000`
         // across the cut: deaths 0 (at 900) -> 26, 28, **17**, 11, 7 at

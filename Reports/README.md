@@ -701,8 +701,10 @@ drift that two of these documents still reflect.**
   together cannot make the shipped ant breed and no setting of either
   closes it**: the binding term is the 960-point body stamp, which is
   invariant to both, and cutting the budget lowers the bank ceiling faster
-  than it lowers the bar. What E14 does buy is `deaths` — 0 everywhere
-  before, live now, and back to 0 when the cut is undone. Sharpens
+  than it lowers the bar. What E14 buys is not what it was authorised on:
+  **`deaths` did not read "0 everywhere" before** — the uncut ant dies at
+  36,000 frames and keeps dying, and the cut converts that unbounded
+  run-down into an early cull that settles (§4a). Sharpens
   `creature-reproduction-economics.md` §3.6 and corrects the direction
   `ant.ron`'s own comment stated.
 - [creature-direction.md](creature-direction.md) — **direction agreed

@@ -29,12 +29,16 @@ Lane A of the 2026-08-30 creature program. Files:
    make breeding harder."* It does make it harder, by lowering the ceiling.
    The half it got right — "the stamp is the expensive half, and it does not
    move when the grant does" — is the whole finding, one step short.
-4. **What E14 actually buys is `deaths`.** The counter read **0 everywhere**
-   before this change and is now live: 17 deaths over 24,000 frames on the
-   shipped colony, and **exactly 0 again** when the budget is restored. That
-   is the positive control, and it is also the first real carrion in the
-   world — the thing §2.5 measured as the reason the diet curve has one
-   hump.
+4. **What E14 actually buys is a colony that finds a level instead of
+   running down.** The headline everyone including this report first wrote
+   is that `deaths` "read 0 everywhere and is now live". **That is wrong,
+   and the truth is better** — see §4a. The pre-cut ant does die; it dies at
+   36,000 frames and later, past any horizon a harness runs, and it then
+   keeps dying. Post-cut the colony loses 16 of 45 inside the first 12,000
+   frames and then very nearly stops. E14 converts an unbounded terminal
+   run-down into an **early cull that stabilises**, and it is the first real
+   carrion in the world at a horizon anyone will see it — §2.5's reason the
+   diet curve has one hump.
 5. **`birth_grant` is real, connected, and free for anything that does not
    breed.** It moves the shipped ant's birth cost 1,860 → 1,040, and on a
    config where births *are* reachable the cost tracks the allele exactly
@@ -197,8 +201,9 @@ creature_probe start_energy=200 body_energy=20 threshold=241 hunger=0.9 terrain=
 The ceiling model permits it and it happens. A null would have voided the
 arithmetic in §2; it is not a null.
 
-**Control B — `deaths` is live, and it is the cut that made it live.** The
-shipped colony, before and after, then with the budget restored:
+**Control B — `deaths` is live inside a usable horizon, and it is the cut
+that put it there.** The shipped colony, before and after, then with the
+budget restored, all at 24,000 frames:
 
 | | `deaths` | `live` | `births` | `richest bank` | bar |
 |---|---|---|---|---|---|
@@ -207,7 +212,7 @@ shipped colony, before and after, then with the budget restored:
 | after, budget restored to 900 | **0** | 45 | 0 | 567 | 1,320 |
 
 The counter goes non-zero with the cut and **back to exactly zero** with it
-undone. And across the cut the colony is thinned at every setting and wiped
+undone — at this horizon, which §4a is about. And across the cut the colony is thinned at every setting and wiped
 out at none — deaths 26 / 28 / 17 / 11 / 7 leaving 19 / 17 / 28 / 34 / 38 of
 45 founders alive at budgets 90 / 150 / 200 / 300 / 450 — which is the graded
 outcome the house ethos asks for rather than a binary.
@@ -236,6 +241,47 @@ deliberately in dead-end territory — economics §7 flags this arm as a
 control, not a proposal. It says the gene is connected and moves the world
 hard. It does not say which direction selection favours, and no run here
 answers that.
+
+### 4a. The correction: "deaths read 0 everywhere" is false, and the real result is better
+
+**Every earlier statement of E14's justification — the decision record's, the
+lane brief's, and this report's own first draft — says `deaths` reads 0
+everywhere.** It does not. It reads 0 at the horizons a harness runs, which
+is a different and much narrower claim, and the difference was found only
+because a `filmstrip` render for the review card came back with **11 deaths
+on the pre-change binary** where the story said there should be none.
+
+Deaths against horizon, `creature_probe terrain=world`, both budgets:
+
+| frames | at 900 (before) | at 200 (after) |
+|---|---|---|
+| 12,000 | **0** | **16** |
+| 24,000 | **0** | 17 |
+| 36,000 | 14 | 20 |
+| 54,000 | 34 | **22** |
+
+Read the columns, not the first row. **The pre-cut colony does not fail to
+die — it dies late and then keeps dying**, 0 → 14 → 34 and climbing, because
+every ant is slowly spending down a grant it can never fully replace inside
+its satiety ceiling. **The post-cut colony takes its losses at once and then
+very nearly stops**: 16 by frame 12,000, and only 6 more over the next
+42,000. By 54,000 frames the *cut* colony has lost **fewer** ants than the
+uncut one.
+
+That is a better outcome than the one E14 was authorised on, and a different
+one. It is not "ants can now starve" — they always could. It is that
+mortality now selects: the ants that die are the ones that failed to feed
+themselves early, the survivors are the ones that did, and the population
+settles at a level the world supports instead of drifting to zero on a
+timescale nobody watches. **A graded outcome with a middle**, which is what
+the house ethos asks for and what the "0 everywhere" framing could not have
+predicted.
+
+**The methodological lesson is this file's own rule arriving again**: ask
+what a counter reads when nothing is wrong. `deaths 0` was measured at one
+horizon, believed as a property of the engine, written into a decision
+record, and repeated by two documents and this report — and one render at a
+longer horizon overturned it.
 
 **And the guards were checked for blindness, not just for green.** The
 grazer horizon shrank 5x, which is exactly the shape that makes a guard stop
@@ -273,6 +319,30 @@ measuring the box.
 not pinned by any aggregate — mean × frames is 103,296 ms against it, so it
 is an order statistic over many similar frames rather than one rare
 expensive event, which makes it noise wearing a number.
+
+---
+
+## 5a. One thing this change does not deliver: you cannot see it
+
+**The ethos bar is that an event with no visible consequence is not
+finished**, and by that bar E14 is not finished. Twelve ants starve in the
+review card's run and the food census shows live ants standing next to the
+bodies and eating them — and **the corpses are not findable in the picture.**
+
+The mechanism is a collision of two things that are each individually right.
+A corpse is shaded by its worth, dark for a starved one and pale for a fresh
+kill, which is correct and useful. But a *starvation* death is by
+construction the poorest corpse there is, so it renders at the darkest end of
+the ramp — against ants, which are dark, on soil, which is dark. The one
+death the world can now produce for itself is the one death it draws least
+legibly.
+
+`render.rs` is not this lane's file and this is not a bug in it; it is an
+interaction nobody could have seen before there were any starvation deaths to
+look at. Posted to the owner's review queue
+(`20260830T031945607Z-7e0999`, board `creatures`) as a question rather than
+guessed at, because "make starved corpses lighter" trades directly against
+the worth ramp meaning what it says, and that is the owner's call.
 
 ---
 
