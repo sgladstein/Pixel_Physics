@@ -8554,7 +8554,10 @@ main today:  12 blades standing holding 47.998203 carbon; income 0,         budg
 
 **The carbon held is identical to the last digit.** The plant earns exactly
 the same in both arms — the whole difference is whether the organism's books
-can see it. A first draft of the control was invalid and is recorded on the
+can see it. Re-run after merging `main` at `3a86ff54`, which carries 379 more
+lines of `plant.rs`: byte-identical, so nothing in the fate-fallback or
+safety-net work touches this and the entry is live on the trunk head as well
+as on the `83bd4c47` the table above was measured at. A first draft of the control was invalid and is recorded on the
 test: relabelling the identical blades `CellType::Leaf` looks like the obvious
 paired arm and cannot work, because `grass.ron` declares `StructuralAnchor` on
 `MatureBody` and not on `Leaf`, so the relabelled sod is unanchored and the
