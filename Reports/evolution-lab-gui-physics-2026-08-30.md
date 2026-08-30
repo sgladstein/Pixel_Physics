@@ -168,7 +168,33 @@ Three things fall out that are worth more than the fix itself:
   that visibly *accumulates* over 45,000 frames. Nothing else in the box
   does.
 
-Full results in §2f.
+
+### 2f. What must NOT be fixed — the owner has already ruled on loose soil
+
+**Loose soil slumping is wanted, and this is on the record.** Review card
+2026-08-30T03:45, *"The pick digs soil now — but soil slumps"*, showing the
+gnome's pick opening a hole in a soil bank that immediately falls in:
+
+> *"this is fine"*
+
+So the defect is not that soil is loose. It is that **there is no way for
+anything in the world to produce soil that is not loose** — no verb, no
+material, no state. Loose tilth collapsing into a pick-hole is correct
+behaviour; a colony that can never build a nest is the flaw.
+
+That is why the fix in §2e is a **second material laid by a verb**, and not a
+change to how `soil` behaves. After it:
+
+- The gnome's pick opens a hole in loose soil and it slumps, exactly as the
+  owner approved.
+- An ant's gallery stands, because the ant packed its walls.
+- A flooded gallery comes down, because water un-packs them.
+
+Three outcomes where there was one. `CLAUDE.md`'s first law asks for a middle;
+this is the middle, and it arrives as a distribution over *who did the
+digging* rather than as a tuning constant.
+
+Full results in §2g.
 
 ---
 
