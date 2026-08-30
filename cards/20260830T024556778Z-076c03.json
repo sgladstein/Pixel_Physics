@@ -1,0 +1,56 @@
+{
+  "id": "20260830T024556778Z-076c03",
+  "created": "2026-08-30T02:45:56Z",
+  "board": "worldgen",
+  "origin": {
+    "worktree": "/home/user/wg-relief",
+    "branch": "claude/worldgen-relief",
+    "commit": "5da8b46",
+    "agent": null,
+    "session_id": "2cb39797-d076-5699-b8bf-4494224deffe",
+    "user": null,
+    "cwd": "/home/user/wg-relief"
+  },
+  "title": "The layers pulled onto one palette",
+  "question": "Is B closer to what you meant by a shared colour palette -- one rock in several shades, rather than six different rocks?",
+  "context_md": "You said it twice, on two different cards: *'the color changes between layers is too much. There is too much contrast. There should be more of a shared color palette.'* This is that. Same seed, same ground, same binary -- only the rock colours moved.\n\nEach bed is pulled two thirds of the way onto one shared warm-grey hue, and its brightness spread is squeezed by a fifth. **The brightness difference is what is left doing the work**, deliberately: the file's own history records that squeezing the *brightness* made the banding disappear from the picture entirely, so that is the one axis I did not touch much.\n\nThe six rocks are unchanged as materials -- they still differ in strength, which is what the new relief is built on. This is only their tone.\n\n**Not addressed here, and I want to know if it still bothers you:** the sandy yellow patches now stand out more than they did, because everything around them got quieter. And the layers still run right up to the ground surface -- you asked for them to start deeper, which is next.",
+  "kind": "before_after",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A -- six rocks as shipped",
+      "files": [
+        "20260830T024556778Z-076c03/000-canyon_on2.png"
+      ],
+      "caption": "canyon, seed 4",
+      "meta": {
+        "colours covering half the ground": 14,
+        "colours covering nine tenths": 55,
+        "distinct colours on screen": 179,
+        "spread of light-to-dark": 39.0
+      },
+      "focus": null
+    },
+    {
+      "label": "B -- one family, several shades",
+      "files": [
+        "20260830T024556778Z-076c03/001-canyon_pal.png"
+      ],
+      "caption": "canyon, seed 4",
+      "meta": {
+        "colours covering half the ground": 11,
+        "colours covering nine tenths": 40,
+        "distinct colours on screen": 153,
+        "spread of light-to-dark": 33.3
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
