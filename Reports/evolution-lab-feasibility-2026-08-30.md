@@ -35,11 +35,13 @@ the biology: **plants breed and ants do not**, measured today.
    cadence*, which is the largest untaken lever (§4). It is worth doing for
    those reasons and not for speed.
 
-4. **The plant and creature simulation itself is 5–10% of the frame.** The
-   other 90% is the substrate that exists to carry an outdoor world: the CA
-   sweep and the coarse air field. The arm the concept wants to keep is
-   nearly free; the arm it wants to delete is already free; **the cost is in
-   the middle, and nobody has been looking there.**
+4. **The organisms are 7% of the frame and the biosphere is 93%** — and the
+   93% is not overhead, which is the correction §3a records. The CA sweep
+   runs the soil water cycle; the field's passes carry light, heat and
+   humidity and the channels plants and creatures actually read. The right
+   reading is not *"the substrate is expensive"* but **"the environment costs
+   thirteen times what the life in it costs"** — which is good news for a
+   game about populations, because adding organisms is the cheap direction.
 
 5. **Measured end to end: 5–7 herb generations in 4 minutes 17 seconds**,
    headless, one 1024x320 bed, 45,000 frames, stand grown to 20,913 cells.
@@ -150,7 +152,7 @@ colony structures); this says to pay for depth **when something reaches it**,
 and that a depth slider is a performance knob whether or not it is presented
 as one.
 
-## 3. Where the frame goes, and why deleting the destruction half saves nothing
+## 3. Where the frame goes
 
 Per-phase mean, ms, `width=1024 soil=120 trees=16 species=herb frames=6000`:
 
@@ -162,7 +164,8 @@ Per-phase mean, ms, `width=1024 soil=120 trees=16 species=herb frames=6000`:
 
 `active_sites` is the plants' and creatures' own biology — growth, transport,
 allocation, reproduction, every brain tick. **It is 7% of the frame.** The
-other 93% is the CA sweep and the coarse air field.
+other 93% is the CA sweep and the coarse air field — see §3a, which is a
+correction to what an earlier draft of this report said that 93% *was*.
 
 Everything the concept proposes to delete is in the columns reading 0.000 to
 0.003: chunk bodies, particles, blasts, the player. At 1024x320 with a
@@ -177,12 +180,52 @@ This is worth stating plainly because it inverts the concept's stated
 premise. The case for stripping them is real, but it is a case about **scope,
 risk and cadence freedom** (§4), not about speed.
 
+### 3a. The 93% is the biosphere, not overhead — a correction
+
+**An earlier draft of this report called the CA sweep and the field "the
+substrate that exists to carry an outdoor world", and that is wrong.** The
+owner challenged it; it does not survive reading the code, and the sentence
+would have licensed deleting the game's environment as if it were scaffolding.
+Recorded here rather than quietly fixed, because the wrong version is the
+intuitive one and someone will arrive at it again.
+
+**Every channel in the field has a biological consumer.**
+
+| channel | written by | spread by | who reads it |
+|---|---|---|---|
+| `light` | `apply_sky` | `step_diffusion`, `step_advection` | photosynthesis, phototropism, `noon_equivalent_light` |
+| `temperature` / `sky_temperature` | `apply_sky_temperature` | `step_diffusion`, `step_advection` | plant physiology; the ant brain's `TempAboveAmb` input |
+| `moisture` | `apply_moisture_sources` | `step_diffusion`, `step_advection` | `organism::moisture_pull` — root hydrotropism |
+| `vx` / `vy` | `step_pressure`, `step_velocity` | `step_advection` | `organism::wind_lean_dir` — trees lean; particle and litter drift |
+
+`step_diffusion`'s own code says it: a blocked cell *"stays ambient — a wall
+has no temperature or light of its own"*. It is the pass that spreads light
+into a canopy and heat through a room. `step_advection` blends **pressure, vx,
+vy, temperature, sky_temperature, light and moisture** along the velocity
+field — it is how heat and humidity move on the air, not an air toy sitting
+beside the biology.
+
+**And the CA sweep is the water cycle.** `update.rs` runs infiltration
+("*liquid infiltrates soil, soil holds and drains it, roots drink it*"),
+drainage between soil cells, and the scheduling half of evaporation. In a bed
+of soil that is most of what it is doing.
+
+So the honest decomposition is not *biosphere versus overhead*. It is
+**organisms (7%) versus the environment they live in (93%)**, and the second
+number is the game.
+
+**One part is separable, and it is much narrower than the earlier draft
+claimed** — see §4a, which is rewritten around the measurement that settled
+it.
+
 ## 4. Where the speed actually is
 
-Two levers are visible in the measurements, both large, neither taken.
+Two levers, and they are not the same size. **4b is the large one and 4a is
+the interesting one** — the first draft had that the other way round, which
+§3a is the correction to.
 
-**4a. The air simulation runs in a sealed box that has no air movement.**
-`FIELD_PASS` inside the `lab` arm, at frame 3,000:
+**4a. The air's own motion is a dormant mechanic, not overhead — and it is
+the only separable part.** `FIELD_PASS` inside the `lab` arm, at frame 3,000:
 
 ```
 solved 35  momentum 35  total 1.73ms | blocked 0.20  pressure 0.13
@@ -190,19 +233,60 @@ velocity 0.20  diffusion 0.37  advection 0.41  sky 0.21  sky temperature 0.19
 moisture 0.01
 ```
 
-Pressure + velocity + diffusion + advection = **1.11 ms of 1.73 ms, 64% of the
-field**, in a box pinned to `Pin::Clear` with no wind and nothing falling.
-What a plant reads — sky, sky temperature, moisture — is **0.41 ms**.
+**The earlier draft read pressure + velocity + diffusion + advection — 1.11 ms,
+64% of the field — as "work no plant consumes". That was wrong twice over**,
+and §3a is why: `step_diffusion` is the light-and-heat pass, and
+`step_advection` transports light, temperature and moisture as well as
+momentum. Only `pressure` and `velocity` (0.33 ms) are the air's own
+mechanics, and even those exist to drive transport something reads.
 
-The reason is in `field::step`: `any_fluid |= chunk_awake` is a **global**
-gate, so one awake chunk anywhere runs the momentum passes over the entire
-solve set. A growing plant marks its chunk dirty, and the whole world's air
-gets re-solved. In an outdoor world with wind this is defensible. In a sealed
-box it is ~25% of the frame computing the motion of still air.
+**So it was measured instead of argued.** `FIELD_MOMENTUM=0` (new, in
+`field.rs`, a control and never a setting) switches the three momentum passes
+off for a whole run. Ablated against the shipped default, `width=1024
+soil=120 trees=16 species=herb frames=6000`, wind running:
 
-Making that gate per-tile (the machinery is there — `momentum_zero` exists and
-`FIELD_SKYFAST` already skips sun-woken tiles) is worth roughly **1.3x** on
-its own, and it is a performance change with no design content.
+| seed | ms/tick, on → off | plant cells | organisms | seeds set |
+|---|---|---|---|---|
+| 1 | 4.209 → **3.365** | 5,220 → 5,337 | 370 → 376 | 435 → 428 |
+| 2 | 3.474 → **3.075** | 3,993 → 4,492 | 264 → 274 | 311 → 315 |
+| 3 | 5.880 → **5.228** | 4,530 → 4,577 | 274 → 290 | 329 → 344 |
+
+**11–20% of the frame, and the stand comes out slightly *larger* without it** —
+more cells and more organisms in 3 of 3 seeds, seeds set within ±2%. So in
+this bed the air's motion is real cost doing mildly negative biological work,
+presumably by smearing the light and heat fields plants would otherwise keep
+above themselves.
+
+**The effect is weak and scale-dependent, and the counter is what shows it.**
+On a small bed — 512 wide, 60 rows of soil, 8 founders, 1,400 frames — the
+same ablation leaves the stand **byte-identical** at 557 cells / 15 organisms
+/ 8 seeds, which reads exactly like a dead knob. It is not: `FIELD_PASS` shows
+`momentum 40 → 0`, pressure 0.10 → 0.00, advection 0.35 → 0.06, and the solve
+set itself diverging (17 tiles against 6 by frame 1,200). So the air's state
+changes and the plants do not notice, at that size. Both pairs above
+reproduce byte-for-byte on a re-run, so every difference quoted is the knob
+and not variance. Quote the counter beside any census here — a null on the
+stand alone is indistinguishable from a switch that was never wired.
+
+**Read all of that as a statement about this bed, not about the concept.** The bed
+has nothing in it that drives air: no fire, no fans, no heaters, no
+humidifiers, no wind-dispersed seed, no scent plume, and creatures that do
+not read wind. Outdoors the weather forces these passes for free and they
+earn their cost in tree lean, smoke and drift. **In a sealed box nothing
+forces them, so they run at full price and return nothing — until the player
+installs something that moves air.**
+
+That is the interesting shape for the concept rather than a saving to bank:
+**the air simulation stops being ambient and becomes player-driven**, which
+is precisely the equipment-and-resource layer the brief describes. A fan is
+then not set dressing; it is the thing that switches a pass on.
+
+The reason it cannot sleep on its own today is in `field::step`:
+`skip_momentum` requires `!any_fluid` — **no chunk awake anywhere** — and
+every tile in range at exactly zero pressure and velocity. A growing plant
+marks its chunk dirty, so in any living world the passes run permanently. A
+per-tile gate is the obvious repair and is worth ~1.1x; the `FIELD_MOMENTUM`
+control above is what would tell you whether a given box wants it.
 
 **4b. The sweep runs at 60 Hz for a world whose fastest customer is 10 Hz.**
 `ORGANISM_TICK_INTERVAL` is 45 frames; the shipped ant's `tick_interval` is 6.
@@ -319,8 +403,16 @@ Stripped of the performance argument it does not need:
   is the same bed every run, which makes a selection experiment a controlled
   one — and `selection_arena`'s whole finding is that a world which does not
   discriminate invalidates every evolution result measured in it.
-- **It does not remove the plant/creature cost**, because that was never the
-  cost (§3).
+- **It turns the air simulation from an ambient system into a player-driven
+  one** (§4a). Outdoors the weather forces those passes for free; in a sealed
+  box nothing does, so they cost full price and return nothing until somebody
+  installs a fan or a heater. That is an argument *for* the equipment layer
+  rather than against the air sim.
+- **It does not remove the environment's cost, and should not.** The 93% is
+  light, heat, humidity and the soil water cycle — the biosphere itself, not
+  scaffolding (§3a). What it removes is the *outdoor* forcing of that
+  environment, replacing a weather system nobody can set with equipment a
+  player can.
 
 ## 7. What would have to be true, in the order it would have to be tested
 

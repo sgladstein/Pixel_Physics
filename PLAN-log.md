@@ -3730,3 +3730,55 @@ by maximising `sky_light_amplitude` and prints what it held.
 is recounted from `ls` rather than incremented.
 
 Full account: `Reports/evolution-lab-feasibility-2026-08-30.md`.
+
+## 2026-08-30 — the 93% was the biosphere, and the air is a dormant mechanic
+
+Correction to the entry above, prompted by the owner reading its framing back:
+*"doesn't this carry stuff very important for creating the biospheres in the
+game?"* It does. Calling the CA sweep and the coarse field **"the substrate
+that exists to carry an outdoor world"** was wrong, and the sentence would have
+licensed deleting the game's environment as scaffolding.
+
+**Every channel in the field has a biological consumer.** `step_diffusion`
+spreads `light`, `temperature`, `sky_temperature` and `moisture` — its own code
+says a wall *"has no temperature or light of its own"*. `step_advection` blends
+all of those **plus** pressure and velocity along the velocity field, so it is
+how heat and humidity move on the air. `light` feeds photosynthesis and
+phototropism, `temperature` feeds the ant brain's `TempAboveAmb` input,
+`moisture` feeds `organism::moisture_pull` root hydrotropism, and `vx`/`vy`
+feed `organism::wind_lean_dir`. And the CA sweep in a soil bed is the water
+cycle: infiltration, drainage, evaporation, roots drinking.
+
+So the split is **organisms 7% against the environment they live in 93%**, and
+the second number is the game rather than overhead. Which is the better news
+for a game about populations: adding organisms is the cheap direction.
+
+**The one separable part is much narrower than claimed, and was measured
+rather than argued.** New control `FIELD_MOMENTUM=0` in `field.rs` (a control,
+never a setting, defaulting to the shipped behaviour bit-identically) switches
+the three momentum passes off for a run. `labbox_cost width=1024 soil=120
+trees=16 species=herb frames=6000`, wind running, three seeds:
+
+  seed 1   4.209 -> 3.365 ms   cells 5220 -> 5337   orgs 370 -> 376
+  seed 2   3.474 -> 3.075 ms   cells 3993 -> 4492   orgs 264 -> 274
+  seed 3   5.880 -> 5.228 ms   cells 4530 -> 4577   orgs 274 -> 290
+
+**11-20% of the frame, and the stand comes out slightly larger without it** —
+more cells and more organisms in 3 of 3 seeds, seeds set within 2%. So in a bed
+with nothing driving air motion, the air's own mechanics are real cost doing
+mildly negative biological work.
+
+That is a statement about the bed, not the concept. Outdoors the weather forces
+those passes for free and they buy tree lean, smoke and drift; in a sealed box
+nothing forces them, so **the air simulation becomes player-driven rather than
+ambient** — a fan or a heater is then the thing that switches a pass on, which
+is an argument for the equipment layer rather than against the air sim.
+
+Why it cannot sleep today: `skip_momentum` needs `!any_fluid` — no chunk awake
+*anywhere* — plus every tile in range at exactly zero pressure and velocity. A
+growing plant marks its chunk dirty, so in any living world the passes run
+permanently. A per-tile gate is the repair and is worth ~1.1x.
+
+`Reports/evolution-lab-feasibility-2026-08-30.md` §3a records the wrong version
+beside the right one rather than overwriting it, because the wrong one is the
+intuitive reading and someone will arrive at it again.
