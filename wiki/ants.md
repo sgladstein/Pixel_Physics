@@ -3,8 +3,8 @@
 *Current as of: 2026-08-30, when ants bred for the first time — an animal
 close to affording young now finishes the meal instead of carrying it home,
 and takes the best thing within reach rather than whatever it happens to
-turn toward first. Also 2026-08-30: a dug tunnel first stayed dug, and a
-beetle got eyes — the first animal here
+turn toward first. The same day a dug tunnel first stayed dug, and a beetle
+got eyes — the first animal here
 that can tell there is something worth eating on the far side of the room,
 rather than only what it is already touching. Also 2026-08-30: the colony got
 a page of its own — how many
