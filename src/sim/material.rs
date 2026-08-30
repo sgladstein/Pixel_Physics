@@ -2225,7 +2225,7 @@ const EMBEDDED: &[&str] = &[
     include_str!("../../assets/materials/ironstone.ron"),
     include_str!("../../assets/materials/basalt.ron"),
     // Appended at the end, which is the only place a new material may go:
-    // ids are positional in this array. A byte-copy of `ant_long`'s palette
+    // ids are positional in this array. A byte-copy of `ant_block`'s palette
     // under another name, so the `shade_rule` A/B differs in the rule alone.
     include_str!("../../assets/materials/ant_block_shaded.ron"),
 ];

@@ -3469,7 +3469,7 @@ const EMBEDDED: &[&str] = &[
     // **Appended at the end so no existing species' position moves.**
     // `ant_block` with `shade_rule: Countershade` and nothing else
     // changed -- the blind A/B on the shade rule needs arms that differ
-    // in one thing, and its material is a byte-copy of `ant_long`'s.
+    // in one thing, and its material is a byte-copy of `ant_block`'s.
     include_str!("../../assets/species/ant_block_shaded.ron"),
 ];
 
