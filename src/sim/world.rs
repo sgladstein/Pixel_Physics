@@ -4533,6 +4533,30 @@ impl World {
         &self.sky_surface
     }
 
+    /// How far daylight is allowed to reach in under cover, in cells of path.
+    ///
+    /// The bound on [`World::freeze_underground_map`]'s flood, and the number
+    /// that decides whether a cave with a mouth is a cave or a room with the
+    /// sky in it. Set at twice `render.rs`'s own 24-row cave-light ramp,
+    /// which is the distance the renderer already fades daylight out over --
+    /// so nothing the player can see changes shape at this boundary, it only
+    /// stops being lit.
+    ///
+    /// It has to clear every *legitimately* covered place the old unbounded
+    /// flood called outdoors, and the largest of those is a cliff brow, whose
+    /// reach is capped at `worldgen::passes::MAX_BROW_REACH` = 20. Set from
+    /// that measurement with headroom, per `CLAUDE.md`, never sitting on it.
+    pub const SKY_PENETRATION: i32 = 32;
+
+    /// How wide an opening has to be, in columns, before the sky counts as
+    /// being over it rather than merely reachable from it.
+    ///
+    /// Above the widest entrance this generator cuts (thirteen across) and
+    /// far below any valley or canyon the terrain makes, which is the gap the
+    /// number has to sit in. See [`World::freeze_underground_map`] for the
+    /// two rules this replaces and how each was wrong.
+    pub const SKY_APERTURE: i32 = 20;
+
     /// Record which positions were inside the ground when the world was
     /// made, once. See `underground`.
     ///
@@ -4551,6 +4575,36 @@ impl World {
     /// over a 2048x640 world is a single region of ~400,000 cells and a
     /// recursive fill would blow the stack on the first world that generated
     /// a wide sky.
+    ///
+    /// # The flood is bounded by how far in under cover it has come
+    ///
+    /// **A plain connectivity flood says a cave with a mouth is outdoors, all
+    /// the way to its far end.** That was true and harmless while no cave in
+    /// this game had a mouth; the rebuilt cave generator gives every system
+    /// one, and the consequence was immediate and total — the whole cave
+    /// rendered as **sky**, with the day gradient in it and rain falling
+    /// inside, and `ground_datum` (which walks up each column to the first
+    /// cell the sky can reach, and whose own doc says *"it does not skip a
+    /// cave, because cave air is not outdoors"*) then graded every cell below
+    /// a chamber as if the chamber's ceiling were the ground, so the strata
+    /// under it drew as slabs floating in the air.
+    ///
+    /// So the flood carries **how far under cover it has travelled**: zero in
+    /// the open air and through liquid — a lake is outdoors and its level
+    /// moves, which is the property `freeze_sky_surface`'s own doc protects —
+    /// and one per step anywhere the sky is not directly overhead. Past
+    /// [`SKY_PENETRATION`] it stops, and what it did not reach is
+    /// underground, exactly as before.
+    ///
+    /// This restores the *previous* answer for caves rather than inventing
+    /// one: before the rebuild every cave was sealed, so every cave was
+    /// underground. What changed is that a cave now has a way in, and "the
+    /// sky can see this cell" stopped being the same question as "there is a
+    /// path of air from here to the top of the world".
+    ///
+    /// A 0-1 BFS over a deque rather than a plain queue, because the step
+    /// cost is 0 or 1 and that is the whole of what a deque buys: exact
+    /// minima with no heap.
     pub fn freeze_underground_map(&mut self) {
         let Some(b) = self.bounds else { return };
         if !self.underground.is_empty() {
@@ -4562,30 +4616,106 @@ impl World {
             matches!(world.materials.kind(world.get(x, y).material), MaterialKind::Solid | MaterialKind::Powder)
         };
 
-        let mut open = vec![false; w * h];
-        let mut stack: Vec<(i32, i32)> = Vec::new();
-        for x in b.min_x..=b.max_x {
-            if !blocks(self, x, b.min_y) {
-                open[idx(x, b.min_y)] = true;
-                stack.push((x, b.min_y));
+        // Under the open sky, or in water: the sky is directly overhead and
+        // nothing has been travelled under. `sky_surface` is the topmost
+        // `Solid`/`Powder` in the column, so everything above it is air the
+        // sky reaches by definition -- and a lake's own surface sits *below*
+        // it (water does not block), which is why the liquid exemption is
+        // here and not an afterthought.
+        // **The test is how wide the opening overhead is, not how deep the
+        // ground is**, and two simpler rules were tried and are wrong in
+        // opposite directions.
+        //
+        // The column's own topmost ground says a shaft cut down from the
+        // surface is open all the way to its foot -- true, and it means the
+        // flood spends none of its budget descending one and arrives at a
+        // chamber hundreds of rows down with the whole allowance intact,
+        // which the renderer then draws as **sky inside the cave**. Reported
+        // from a review card: *"some spots where it looks like background
+        // (sky) is coming into the cave"*.
+        //
+        // The shallowest ground *around* the column fixes that and blackens a
+        // deep valley, because a valley floor is far below the ridge beside
+        // it and has perfectly good sky over it. `render.rs`'s
+        // `the_per_cell_map_never_turns_open_sky_into_cave` is the guard that
+        // says so, and it fails for that rule.
+        //
+        // What separates them is the **aperture**: at a given row, how wide a
+        // run of columns is open at that row. A canyon is hundreds of columns
+        // wide and is open country however deep it is; a shaft is a dozen and
+        // is a hole. So a cell is uncovered when the opening it sits in is at
+        // least [`Self::SKY_APERTURE`] columns across -- and past that the
+        // cover budget starts running, which is what makes a cave a cave.
+        let w_i = b.width() as usize;
+        let open_at = |world: &Self, x: i32, y: i32| {
+            world.sky_surface.get((x - b.min_x) as usize).is_none_or(|&g| y <= g)
+        };
+        let mut lit = vec![false; w_i * b.height() as usize];
+        for y in b.min_y..=b.max_y {
+            let mut x = b.min_x;
+            while x <= b.max_x {
+                if !open_at(self, x, y) {
+                    x += 1;
+                    continue;
+                }
+                let a = x;
+                while x <= b.max_x && open_at(self, x, y) {
+                    x += 1;
+                }
+                if x - a >= Self::SKY_APERTURE {
+                    for xx in a..x {
+                        lit[idx(xx, y)] = true;
+                    }
+                }
             }
         }
-        while let Some((x, y)) = stack.pop() {
+        let uncovered = |world: &Self, x: i32, y: i32| {
+            // A lake is outdoors and its level moves, which is the property
+            // `freeze_sky_surface`'s own doc protects -- and its water sits
+            // *below* that array's answer, because water does not block.
+            matches!(world.materials.kind(world.get(x, y).material), MaterialKind::Liquid)
+                || lit[idx(x, y)]
+        };
+
+        const UNREACHED: u8 = u8::MAX;
+        let cap = Self::SKY_PENETRATION.min(UNREACHED as i32 - 1) as u8;
+        let mut cover = vec![UNREACHED; w * h];
+        let mut queue: std::collections::VecDeque<(i32, i32)> = std::collections::VecDeque::new();
+        for y in b.min_y..=b.max_y {
+            for x in b.min_x..=b.max_x {
+                if blocks(self, x, y) || !uncovered(self, x, y) {
+                    continue;
+                }
+                cover[idx(x, y)] = 0;
+                queue.push_back((x, y));
+            }
+        }
+        while let Some((x, y)) = queue.pop_front() {
+            let d = cover[idx(x, y)];
             for (nx, ny) in [(x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)] {
                 if nx < b.min_x || nx > b.max_x || ny < b.min_y || ny > b.max_y {
                     continue;
                 }
-                if open[idx(nx, ny)] || blocks(self, nx, ny) {
+                if blocks(self, nx, ny) {
                     continue;
                 }
-                open[idx(nx, ny)] = true;
-                stack.push((nx, ny));
+                let step = u8::from(!uncovered(self, nx, ny));
+                let cand = d.saturating_add(step);
+                if cand > cap || cand >= cover[idx(nx, ny)] {
+                    continue;
+                }
+                cover[idx(nx, ny)] = cand;
+                if step == 0 {
+                    queue.push_front((nx, ny));
+                } else {
+                    queue.push_back((nx, ny));
+                }
             }
         }
 
         self.underground = vec![0u64; (w * h).div_ceil(64)];
-        for (i, reached) in open.iter().enumerate() {
-            if !reached {
+        for (i, &d) in cover.iter().enumerate() {
+            if d == UNREACHED {
                 self.underground[i >> 6] |= 1 << (i & 63);
             }
         }

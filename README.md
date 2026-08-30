@@ -24,39 +24,39 @@ whole, then run `python3 scripts/readmetoc.py`.
 | [Controls](#controls) | 159 |
 | [Materials](#materials) | 225 |
 | [Architecture](#architecture) | 299 |
-| [The coarse field grid](#the-coarse-field-grid) | 471 |
-| [M12/M13 status](#m12m13-status) | 733 |
-| [Liquid physics: compressible volume, not discrete occupied cells](#liquid-physics-compressible-volume-not-discrete-occupied-cells) | 760 |
-| [M14 status](#m14-status) | 786 |
-| [M7 status](#m7-status) | 934 |
-| [M15 status](#m15-status) | 963 |
-| [M6 deferral](#m6-deferral) | 1094 |
-| [M5 status](#m5-status) | 1104 |
-| [Plant lines merged: the genome, and the ecology](#plant-lines-merged-the-genome-and-the-ecology) | 1199 |
-| [The generation loop: plants die, seeds expire, slots come back](#the-generation-loop-plants-die-seeds-expire-slots-come-back) | 1269 |
-| [The economy re-derived: standing tissue costs something](#the-economy-re-derived-standing-tissue-costs-something) | 1321 |
-| [Stems draw a line: the growth walk renders its heading](#stems-draw-a-line-the-growth-walk-renders-its-heading) | 1421 |
-| [Plants that stop: organs, determinacy, and a price on both](#plants-that-stop-organs-determinacy-and-a-price-on-both) | 1503 |
-| [M16 status](#m16-status) | 1571 |
-| [M17 status](#m17-status) | 1757 |
-| [M18 status](#m18-status) | 1984 |
-| [UI improvements — overnight run, section 9](#ui-improvements--overnight-run-section-9) | 2318 |
-| [Live tunables panel — overnight run, section 10](#live-tunables-panel--overnight-run-section-10) | 2363 |
-| [Rendering performance — overnight run, section 11](#rendering-performance--overnight-run-section-11) | 2431 |
-| [M8 status — started, not complete](#m8-status--started-not-complete) | 2451 |
-| [M9 status — the gnome](#m9-status--the-gnome) | 2564 |
-| [M10 status — the worldgen half](#m10-status--the-worldgen-half) | 3004 |
-| [Weather status](#weather-status) | 3119 |
-| [The ant colony — status](#the-ant-colony--status) | 3136 |
-| [Inheritance status — the growth program has no fallback under it](#inheritance-status--the-growth-program-has-no-fallback-under-it) | 3330 |
-| [M19 status — started](#m19-status--started) | 3409 |
-| [Felling status — the verb works, and what it produces is pieces](#felling-status--the-verb-works-and-what-it-produces-is-pieces) | 3481 |
-| [Bending status — soft tissue lies over, and the wind is what pushes it](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) | 3718 |
-| [Breaking status — a badly grown tree comes down on its own](#breaking-status--a-badly-grown-tree-comes-down-on-its-own) | 3795 |
-| [Performance](#performance) | 3921 |
-| [World speed — five independent time axes](#world-speed--five-independent-time-axes) | 4118 |
-| [Status](#status) | 4201 |
-| [License](#license) | 4312 |
+| [The coarse field grid](#the-coarse-field-grid) | 474 |
+| [M12/M13 status](#m12m13-status) | 736 |
+| [Liquid physics: compressible volume, not discrete occupied cells](#liquid-physics-compressible-volume-not-discrete-occupied-cells) | 763 |
+| [M14 status](#m14-status) | 789 |
+| [M7 status](#m7-status) | 937 |
+| [M15 status](#m15-status) | 966 |
+| [M6 deferral](#m6-deferral) | 1097 |
+| [M5 status](#m5-status) | 1107 |
+| [Plant lines merged: the genome, and the ecology](#plant-lines-merged-the-genome-and-the-ecology) | 1202 |
+| [The generation loop: plants die, seeds expire, slots come back](#the-generation-loop-plants-die-seeds-expire-slots-come-back) | 1272 |
+| [The economy re-derived: standing tissue costs something](#the-economy-re-derived-standing-tissue-costs-something) | 1324 |
+| [Stems draw a line: the growth walk renders its heading](#stems-draw-a-line-the-growth-walk-renders-its-heading) | 1424 |
+| [Plants that stop: organs, determinacy, and a price on both](#plants-that-stop-organs-determinacy-and-a-price-on-both) | 1506 |
+| [M16 status](#m16-status) | 1574 |
+| [M17 status](#m17-status) | 1760 |
+| [M18 status](#m18-status) | 1987 |
+| [UI improvements — overnight run, section 9](#ui-improvements--overnight-run-section-9) | 2321 |
+| [Live tunables panel — overnight run, section 10](#live-tunables-panel--overnight-run-section-10) | 2366 |
+| [Rendering performance — overnight run, section 11](#rendering-performance--overnight-run-section-11) | 2434 |
+| [M8 status — started, not complete](#m8-status--started-not-complete) | 2454 |
+| [M9 status — the gnome](#m9-status--the-gnome) | 2567 |
+| [M10 status — the worldgen half](#m10-status--the-worldgen-half) | 3007 |
+| [Weather status](#weather-status) | 3177 |
+| [The ant colony — status](#the-ant-colony--status) | 3194 |
+| [Inheritance status — the growth program has no fallback under it](#inheritance-status--the-growth-program-has-no-fallback-under-it) | 3388 |
+| [M19 status — started](#m19-status--started) | 3467 |
+| [Felling status — the verb works, and what it produces is pieces](#felling-status--the-verb-works-and-what-it-produces-is-pieces) | 3539 |
+| [Bending status — soft tissue lies over, and the wind is what pushes it](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) | 3776 |
+| [Breaking status — a badly grown tree comes down on its own](#breaking-status--a-badly-grown-tree-comes-down-on-its-own) | 3853 |
+| [Performance](#performance) | 3979 |
+| [World speed — five independent time axes](#world-speed--five-independent-time-axes) | 4176 |
+| [Status](#status) | 4259 |
+| [License](#license) | 4370 |
 
 ### Milestones, in numeric order
 
@@ -65,19 +65,19 @@ order they were written.
 
 | M | Section | Line |
 |---|---|---|
-| 5 | [M5 status](#m5-status) | 1104 |
-| 6 | [M6 deferral](#m6-deferral) | 1094 |
-| 7 | [M7 status](#m7-status) | 934 |
-| 8 | [M8 status — started, not complete](#m8-status--started-not-complete) | 2451 |
-| 9 | [M9 status — the gnome](#m9-status--the-gnome) | 2564 |
-| 10 | [M10 status — the worldgen half](#m10-status--the-worldgen-half) | 3004 |
-| 12 | [M12/M13 status](#m12m13-status) | 733 |
-| 14 | [M14 status](#m14-status) | 786 |
-| 15 | [M15 status](#m15-status) | 963 |
-| 16 | [M16 status](#m16-status) | 1571 |
-| 17 | [M17 status](#m17-status) | 1757 |
-| 18 | [M18 status](#m18-status) | 1984 |
-| 19 | [M19 status — started](#m19-status--started) | 3409 |
+| 5 | [M5 status](#m5-status) | 1107 |
+| 6 | [M6 deferral](#m6-deferral) | 1097 |
+| 7 | [M7 status](#m7-status) | 937 |
+| 8 | [M8 status — started, not complete](#m8-status--started-not-complete) | 2454 |
+| 9 | [M9 status — the gnome](#m9-status--the-gnome) | 2567 |
+| 10 | [M10 status — the worldgen half](#m10-status--the-worldgen-half) | 3007 |
+| 12 | [M12/M13 status](#m12m13-status) | 736 |
+| 14 | [M14 status](#m14-status) | 789 |
+| 15 | [M15 status](#m15-status) | 966 |
+| 16 | [M16 status](#m16-status) | 1574 |
+| 17 | [M17 status](#m17-status) | 1760 |
+| 18 | [M18 status](#m18-status) | 1987 |
+| 19 | [M19 status — started](#m19-status--started) | 3467 |
 
 ### By topic
 
@@ -90,25 +90,25 @@ them is named "plants". A section can appear twice; felling is honestly both
 plant work and structural work.
 
 **Known limitations for every topic are collected in one place**:
-[Status](#status), line 4201 — the *last* section in the
+[Status](#status), line 4259 — the *last* section in the
 file, not the first. Read it before concluding something is broken.
 
 | Topic | Sections, primary first |
 |---|---|
-| **plants, trees and moss** | [M16 status](#m16-status) 1571, [Plant lines merged](#plant-lines-merged-the-genome-and-the-ecology) 1199, [Inheritance status](#inheritance-status--the-growth-program-has-no-fallback-under-it) 3330, [The economy re-derived](#the-economy-re-derived-standing-tissue-costs-something) 1321, [Plants that stop](#plants-that-stop-organs-determinacy-and-a-price-on-both) 1503, [The generation loop](#the-generation-loop-plants-die-seeds-expire-slots-come-back) 1269, [Stems draw a line](#stems-draw-a-line-the-growth-walk-renders-its-heading) 1421, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 3481, [Bending status](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) 3718, [Breaking status](#breaking-status--a-badly-grown-tree-comes-down-on-its-own) 3795 |
-| **creatures — worms and the ant colony** | [M18 status](#m18-status) 1984, [The ant colony](#the-ant-colony--status) 3136 |
-| **structural collapse, felling and rigid bodies** | [M17 status](#m17-status) 1757, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 3481, [Bending status](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) 3718, [Breaking status](#breaking-status--a-badly-grown-tree-comes-down-on-its-own) 3795, [M8 status](#m8-status--started-not-complete) 2451 |
-| **fire, heat and phase change** | [M14 status](#m14-status) 786, [Materials](#materials) 225 |
-| **explosions, particles and debris** | [M15 status](#m15-status) 963, [M7 status](#m7-status) 934 |
-| **liquids and gases** | [Liquid physics](#liquid-physics-compressible-volume-not-discrete-occupied-cells) 760, [The coarse field grid](#the-coarse-field-grid) 471 |
+| **plants, trees and moss** | [M16 status](#m16-status) 1574, [Plant lines merged](#plant-lines-merged-the-genome-and-the-ecology) 1202, [Inheritance status](#inheritance-status--the-growth-program-has-no-fallback-under-it) 3388, [The economy re-derived](#the-economy-re-derived-standing-tissue-costs-something) 1324, [Plants that stop](#plants-that-stop-organs-determinacy-and-a-price-on-both) 1506, [The generation loop](#the-generation-loop-plants-die-seeds-expire-slots-come-back) 1272, [Stems draw a line](#stems-draw-a-line-the-growth-walk-renders-its-heading) 1424, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 3539, [Bending status](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) 3776, [Breaking status](#breaking-status--a-badly-grown-tree-comes-down-on-its-own) 3853 |
+| **creatures — worms and the ant colony** | [M18 status](#m18-status) 1987, [The ant colony](#the-ant-colony--status) 3194 |
+| **structural collapse, felling and rigid bodies** | [M17 status](#m17-status) 1760, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 3539, [Bending status](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) 3776, [Breaking status](#breaking-status--a-badly-grown-tree-comes-down-on-its-own) 3853, [M8 status](#m8-status--started-not-complete) 2454 |
+| **fire, heat and phase change** | [M14 status](#m14-status) 789, [Materials](#materials) 225 |
+| **explosions, particles and debris** | [M15 status](#m15-status) 966, [M7 status](#m7-status) 937 |
+| **liquids and gases** | [Liquid physics](#liquid-physics-compressible-volume-not-discrete-occupied-cells) 763, [The coarse field grid](#the-coarse-field-grid) 474 |
 | **powders and granular flow** | [Materials](#materials) 225, [Architecture](#architecture) 299 |
-| **the coarse field grid — pressure, heat, light** | [The coarse field grid](#the-coarse-field-grid) 471, [M12/M13 status](#m12m13-status) 733 |
-| **worldgen and world structure** | [M10 status](#m10-status--the-worldgen-half) 3004, [Architecture](#architecture) 299 |
-| **the gnome (player character)** | [M9 status](#m9-status--the-gnome) 2564, [Controls](#controls) 159 |
-| **weather, sky and the clock** | [Weather status](#weather-status) 3119, [M19 status](#m19-status--started) 3409, [World speed](#world-speed--five-independent-time-axes) 4118 |
-| **rendering, UI and tunables** | [UI improvements](#ui-improvements--overnight-run-section-9) 2318, [Live tunables panel](#live-tunables-panel--overnight-run-section-10) 2363, [Rendering performance](#rendering-performance--overnight-run-section-11) 2431, [M6 deferral](#m6-deferral) 1094 |
-| **performance and the parallel sweep** | [Performance](#performance) 3921, [M5 status](#m5-status) 1104, [Architecture](#architecture) 299, [Rendering performance](#rendering-performance--overnight-run-section-11) 2431 |
-| **materials and the data schema** | [Materials](#materials) 225, [M12/M13 status](#m12m13-status) 733 |
+| **the coarse field grid — pressure, heat, light** | [The coarse field grid](#the-coarse-field-grid) 474, [M12/M13 status](#m12m13-status) 736 |
+| **worldgen and world structure** | [M10 status](#m10-status--the-worldgen-half) 3007, [Architecture](#architecture) 299 |
+| **the gnome (player character)** | [M9 status](#m9-status--the-gnome) 2567, [Controls](#controls) 159 |
+| **weather, sky and the clock** | [Weather status](#weather-status) 3177, [M19 status](#m19-status--started) 3467, [World speed](#world-speed--five-independent-time-axes) 4176 |
+| **rendering, UI and tunables** | [UI improvements](#ui-improvements--overnight-run-section-9) 2321, [Live tunables panel](#live-tunables-panel--overnight-run-section-10) 2366, [Rendering performance](#rendering-performance--overnight-run-section-11) 2434, [M6 deferral](#m6-deferral) 1097 |
+| **performance and the parallel sweep** | [Performance](#performance) 3979, [M5 status](#m5-status) 1107, [Architecture](#architecture) 299, [Rendering performance](#rendering-performance--overnight-run-section-11) 2434 |
+| **materials and the data schema** | [Materials](#materials) 225, [M12/M13 status](#m12m13-status) 736 |
 
 <!-- END GENERATED TOC -->
 
@@ -376,6 +376,9 @@ src/worldgen/  M10's worldgen half: a playable 2D slice cut from coarse 3D
                pipeline), erosion.rs (plan-space erosion, which is what
                makes the mesas and benches), residual.rs (tors and stacks),
                legacy.rs (the old hand-built practice terrain),
+               cave.rs (the cave generator: rooms made by collapse, joined
+               by conduits found through the strata, with a passage that
+               reaches daylight -- it replaced a thresholded Worley field),
                passes::springs (spring and drain placement, added after the
                note below was written)
 src/sim/spring.rs
@@ -3046,6 +3049,61 @@ world at 2,048 columns) and comes up where it lands (95% of sown), guarded
 by `grass_is_sown_across_a_seed_sweep` and `sown_grass_also_comes_up`. `F6`/`F8` roll seeds, `F7` cycles presets, and the same seed and preset
 rebuild the same world within one build. `tests/worldgen.rs` guards it;
 [`wiki/the-world.md`](wiki/the-world.md) describes what a player sees.
+
+**As of 2026-08-30 the ground has a cause, and mountains.** Erosion could
+previously only *remove*, and only where the ground was already steep, so a
+flat world stayed flat — instrumented, no column ever peaked above its
+iteration-0 prominence, 0 of 2048, in either preset. `erosion.rs` now carries
+a **slope-free lowering term** coupled to the resistance of the rock *under*
+the surface: a strong bed holds while the soft ground beside it is carried
+off, so the stratigraphy the world already had becomes topography — benches,
+scarps, mesas. It is taken as a **contrast against a running mean over ±200
+columns** rather than against a fixed reference hardness, which is what stops
+it planing the terrain onto the bedding planes (the absolute form was built,
+improved every number in the census, and rendered as the flattest world this
+generator has made — `Reports/dead-ends.md`). `column.rs` gained a **massif**,
+country-scale ridged relief three to six screens between crests, because
+nothing in the pipeline had a wavelength longer than half a screen and a
+landform smaller than the view reads as a bump; and `strata_offset` gained a
+**long fold and faults**, so the bedding dips, rolls over and steps instead of
+running as level ribbons across the whole world.
+
+Measured paired in one process (`PIXEL_PHYSICS_RELIEF=0` restores the shipped
+world exactly), six seeds per preset at the shipped size: the skyline's
+movement across one player screen roughly **doubles at p90** (49–132 → 66–203
+rows of 320), local relief at the 15–30 column formation scale **doubles**
+(reach-30 p90 14–54 → 26–85), and the starved landform passes come back —
+`brows` 2.7–23x, `talus` 3.2–66x, and **`boulders` writes cells at all for the
+first time** on four of five presets, against a wiki paragraph that has given
+it *"an event, not a decoration"* since round 4. Generation costs +290 ms of
+its ~2.1 s; no per-frame code changed. `examples/wg_ceilings.rs mode=relief`
+is the instrument and `Reports/worldgen-relief-2026-08-30.md` holds the
+derivation, including the three things it could not do — bed *thickness* is
+still constant, there are no unconformities, and faults are vertical.
+
+**Two owner verdicts landed the same day and are answered in the same
+change.** Shown the rock vocabulary he approved the rocks and rejected the
+geometry — *"the perfect stripped bands are too uniform and look bad"*, and
+*"very clearly reads as stripes"* — which is what the fold and the faults
+above are for. Shown *those*, he replied twice, unprompted, that the problem
+had moved: *"the color changes between layers is too much… there should be
+more of a shared color palette"*, and *"the layers should only start deeper.
+Anything above the ground level should be more uniform no layers."* The first is done over
+two rounds, the second is measured and open. Five of the six rocks are pulled
+86% onto one shared hue and the brightness gap **between** rocks is halved
+(116 points to 57), while the spread **inside** each rock is untouched —
+that internal spread is what makes a bed legible, and `stone.ron`'s own history
+records that squeezing *it* made the banding vanish from the render entirely.
+Measured paired, colours covering half the ground go 14–15 → 7–9, which is
+close to the 4–8 the world had before it had different rocks at all; the floor
+is stated in the report rather than guessed at. Rock standing above the
+surrounding country also draws one tone now, with the bedding fading in over 44
+cells below **base level** (`Ctx::base_y`, a sliding-window maximum over ±220
+columns) — but that lever **does not reach the picture**: it redraws 19.4% of a
+frame and moves each pixel by a median of 11 of 255, and the owner's verdict on
+its A/B was *"These look identical to me."* Making standing rock read as
+unlayered needs its *material* unified, not its tone, and that is put to him as
+a question rather than taken.
 
 **The world ships at 8192 x 2560 cells** — sixteen viewport-widths across
 and eight deep, 4x linear on the 2048x640 it shipped at through round 7 and
