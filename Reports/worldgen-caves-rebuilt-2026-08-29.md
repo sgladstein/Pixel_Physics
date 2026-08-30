@@ -372,7 +372,7 @@ and a hardcoded one goes stale -- `viewshot vault=1` learnt that the hard way.
 
 ---
 
-## 10. The size distribution, and the round it took to get it right
+## 9. The size distribution, and the round it took to get it right
 
 **The first build put a big room in every system and the owner's verdict was
 that they were all too big** -- *"these all look huge. Huge sometimes more
@@ -409,7 +409,7 @@ are written as an explicit mixture rather than as an exponent on a unit draw.
 
 ---
 
-## 11. Smoothing, without going back to a drawn shape
+## 10. Smoothing, without going back to a drawn shape
 
 *"The opening is fine. Everything should be smoother."* Two causes, and the
 fix has to leave the shape the collapse made or the whole claim of the
@@ -435,7 +435,7 @@ by name, so fitting an ellipse to a room is not available.
 
 ---
 
-## 9. What I could not establish, and what is left
+## 11. What I could not establish, and what is left
 
 * **Whether the room sizes are the ones the owner meant.** The bar was read as
   linear extent (`cave-redesign` §8.1): 435-1015 across, from a room he called
