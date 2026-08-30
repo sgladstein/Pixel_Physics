@@ -1,0 +1,56 @@
+{
+  "id": "20260830T102712192Z-64d2e9",
+  "created": "2026-08-30T10:27:12Z",
+  "board": "lab",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics/.claude/worktrees/agent-abb92253707067bd5",
+    "branch": "worktree-agent-abb92253707067bd5",
+    "commit": "11cc546",
+    "agent": null,
+    "session_id": "6546762f-3714-56a2-a0a4-47f13872ea63",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics/.claude/worktrees/agent-abb92253707067bd5"
+  },
+  "title": "The lab box gets an interior instead of a sky",
+  "question": "Does the box read as a laboratory now, and do the ceiling fixtures read as grow lights? And is the pale slab under the bed too much of the screen?",
+  "context_md": "**Same world, same frames, same binary — only the paint differs.** `labshot interior=0` draws the box through the shipped sky path; `interior=1` draws it as a room. The simulation numbers under the two are identical at every frame, so nothing here is two different runs being compared.\n\n- **A** is what the box looked like: the sky code painting a day gradient, a horizon band and a star hash *inside a sealed box*, which comes out as a flat grey slab.\n- **B** is the room: a panelled back wall, brightest a little below the ceiling and darkening again where it meets the bench, with four grow-light fixtures set into the ceiling and a pool of cold light under each.\n\n**Two things I already know, and one of them is the question.** The stone base under the bed used to be a band of flat black — that is fixed, the bed now fills the frame — but it is a large pale slab and I would rather you told me whether to shrink it than guess. Shrinking it means a taller room and a bed lower down the screen.\n\nThe other: the fixtures are *visible* lights but not the crop's actual light source. Replacing every one with plain stone leaves the whole stand byte-identical, because a glow reaches a handful of field blocks and the bench is about nineteen below the ceiling. The crop lives on light coming through the shell. The room still dims with the schedule, so the lever is visible — it is just not lit from where it looks like it is.\n\n**Also fixed on the way**: the ceiling was three rows thicker than it needed to be, which cost 45% of the light at the bench and half the stand — 286 plant cells at frame 3,600 against 468 now, and no seed set at all against 12.",
+  "kind": "ab",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A — sky, as it shipped",
+      "files": [
+        "20260830T102712192Z-64d2e9/000-lab_before.png"
+      ],
+      "caption": "frames 0 / 900 / 3,600 / 10,800, top to bottom",
+      "meta": {
+        "founders planted": "8 of 8",
+        "founders germinated": "8 of 8",
+        "cost to draw the air": "69.3 ns per pixel",
+        "plant cells at frame 10,800": 725
+      },
+      "focus": null
+    },
+    {
+      "label": "B — the lab interior",
+      "files": [
+        "20260830T102712192Z-64d2e9/001-lab_after.png"
+      ],
+      "caption": "the identical run, drawn as a room",
+      "meta": {
+        "founders planted": "8 of 8",
+        "founders germinated": "8 of 8",
+        "cost to draw the air": "49.8 ns per pixel, 0.72x the sky's",
+        "plant cells at frame 10,800": 725
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
