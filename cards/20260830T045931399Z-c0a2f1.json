@@ -1,0 +1,38 @@
+{
+  "id": "20260830T045931399Z-c0a2f1",
+  "created": "2026-08-30T04:59:31Z",
+  "board": "plants",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/plant-mechanics-handoff-d4zo44",
+    "commit": "c12cfe3",
+    "agent": null,
+    "session_id": "0b681d5e-ee2b-50cf-b73a-d5a1dfcfbc79",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "A felled tree comes down entirely as pieces",
+  "question": "You said limbs should always land as pieces and nothing should turn to dust. This is the same cut as before, with that in.\n\n**Does it come apart the way it should?** Three things I'd want your eye on:\n\n1. Are the piece sizes right — is there a proper mix of big trunk sections, branch-sized chunks and twigs, or is it too uniform?\n2. Does the foliage riding down with the limbs read correctly, or should leaves separate more on impact?\n3. When it lands and settles, does the pile look like fallen timber, or still too tidy?\n\nAlso fixed, though not visible here: if a limb lands on you, jump and you heave yourself out on top of it, and the limb keeps falling.\n\nStill not done, and it's a deliberate choice rather than an oversight — walking into a fallen limb still stops you. He can only step up 4 cells unaided, so you have to jump. Say if you'd rather he climbed over automatically.",
+  "context_md": "**2,120 of 2,120 cells left as pieces — 100%.** Nothing converted where it\nstood. Before this it was 79%, and before the leaf fix a snapped limb took\n*fourteen* cells with it.\n\nAnd they are not all one size:\n\n`<8: 16 pieces · 8-15: 17 · 16-31: 18 · 32-63: 11 · 64-127: 4 · 128-255: 3 · 256+: 5`\n\nThe cause of \"nothing falls over\" turned out not to be the breaking rule at\nall: **a crown was hanging on by its leaves.** The pass that decides what\nstill reaches the ground treated foliage as load-bearing, so cutting the wood\nunderneath changed nothing.\n",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "",
+      "files": [
+        "20260830T045931399Z-c0a2f1/000-fellpieces.gif"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null,
+      "gif_frames": 30
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
