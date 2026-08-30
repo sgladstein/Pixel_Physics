@@ -1,0 +1,100 @@
+// **The wall of an ant tunnel.** Soil that has been worked — trodden,
+// tamped and cemented against the side of a gallery — as against `soil`,
+// which is loose tilth and falls like any other powder.
+//
+// It exists because a burrow could not exist without it. Measured with
+// `examples/burrow_probe.rs`: a shaft, a gallery and a chamber cut into a
+// bed of `soil` are 63%/67%/82% open one frame later and the gallery is
+// **gone in five frames**, because `update_powder`'s straight-down rule is
+// unconditional on support — the roof simply falls into the hole. Raising
+// `friction_angle` cannot reach that; repose only ever makes a pile
+// *flatter*, and at 89 degrees the roll reach goes to zero while the
+// straight-down move still fires. The same excavation in `stone` holds
+// 100% at every frame, which is what says the harness measures physics
+// and not its own scene.
+//
+// So the fix is a second soil, and the property that separates them is
+// stated as data rather than inferred from shape: `self_supporting`.
+// `CLAUDE.md`'s "when a rule must tell apart two things that can look
+// identical, state the difference as data" — four support models failed to
+// tell a mountain from a stacked wall by geometry, and a dug wall against
+// a drift of the same grains is that problem exactly.
+//
+// **Deliberately not `reinforces_powder`.** That flag stabilises the
+// *neighbours*, which is right for a root threading through a bank and
+// wrong here: a lining that froze the loose soil touching it would spread
+// outward a cell per dig and end with the whole bed immobile. A packed
+// cell holds itself up and nothing else.
+//
+// **Deliberately still a `Powder`, not a `Solid`.** `deadleaf.ron` records
+// what making a mobile material solid costs — the piece tier is opted out
+// of the structural check, so the first cells placed become a scaffold
+// nothing can ever fail. A `Powder` that declines to move keeps every other
+// path (blasts, the gnome's pick, root penetration, infiltration) working
+// on it exactly as before.
+(
+    name: "packedsoil",
+    display: "Packed Soil",
+    kind: Powder,
+    // Compaction is a bulk-density change; that is what the word means.
+    // Loose tilth is 1.3.
+    density: 1.5,
+    // **Not the mechanism, and it must not be read as one.** A packed cell
+    // returns before `roll_along_slope` is ever reached, so this angle is
+    // unreachable while the cell is packed and describes only what the
+    // material would do if something else moved it. Recorded at a steep
+    // value because that is honest about worked ground, not because it does
+    // any work.
+    friction_angle: 45.0,
+    // **Just under the ant's `dig_force` of 1.0**, which is the whole
+    // authoring constraint: an ant must be able to cut through its own
+    // lining to extend a gallery, and must find it harder than the 0.8 of
+    // loose tilth. Nothing here is a name whitelist — `creature.rs`'s dig
+    // gate compares this against the species' force, so a weaker species
+    // simply cannot re-enter a wall a stronger one packed.
+    //
+    // It is also under every shipped root's `penetration_force` (1.0 for
+    // herb/grass/scrambler, 1.2 for conifer/creeper), so roots still thread
+    // a nest wall — they pay 0.95/0.8 = 1.19x the carbon for it
+    // (`plant.rs`'s `penetration_cost_mult`).
+    penetration_resistance: 0.95,
+    // **Must match `soil`.** A wall is still ground: plants root through
+    // it, `moisture_gradient` reads it, and the water it holds is what
+    // un-packs it. Dropping this to 0 would make a nest a dry stripe
+    // through the moisture field and silently disable `slumps_into`.
+    water_capacity: 1000,
+    // Worked ground resists a blast a little better than tilth (0.5) and
+    // nothing like stone (1.0). A charge should still wreck a nest.
+    blast_resistance: 0.6,
+    // **What it becomes when it can no longer hold.** Above
+    // `material::SOIL_FIELD_CAPACITY` the pore space is full and the
+    // packing has nothing to grip with, so the wall reverts to loose soil
+    // and the ordinary fall rules take the tunnel down. That is the graded
+    // half of this mechanic: a burrow is not immortal, it is dry.
+    slumps_into: "soil",
+    self_supporting: true,
+    // Three families of four tones in `soil.ron`'s own layout, so a nest
+    // keeps the regional palette the bank around it was generated in
+    // (`worldgen::passes::palette_family`) and a cell's `shade` byte can be
+    // carried across the conversion unchanged. Each tone is its soil
+    // counterpart darkened and pulled toward grey — worked, compacted
+    // ground, which is what reads as architecture against the loose bank.
+    colors: [
+        // 0: reference loam, packed
+        (48, 38, 32),
+        (56, 45, 38),
+        (42, 33, 28),
+        (62, 50, 42),
+        // 1: wet, dark and rich, packed
+        (39, 30, 23),
+        (45, 36, 28),
+        (33, 25, 19),
+        (51, 41, 32),
+        // 2: dry, pale and dusty, packed
+        (74, 64, 54),
+        (84, 73, 61),
+        (65, 56, 47),
+        (92, 80, 67),
+    ],
+    base_colors: 4,
+)
