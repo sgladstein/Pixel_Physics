@@ -1,6 +1,14 @@
 # The Gnome
 
-*Current as of: 2026-08-29. New since the last pass: **he carries three
+*Current as of: 2026-08-30. New since the last pass: **the pick digs
+loose ground** — soil, sand, gravel and spoil, which it could not touch at
+all before, so a passage into a bank is now cut rather than shoved. **The
+hammer no longer breaks rock out by the width of the swing**: a blow
+cracks along the rock's own joints, the cracked zone widens by about a
+ring a swing, and a block whose outline has parted all the way round comes
+out whole. **Hitting a piece that has already broken off knocks it away
+rather than destroying it.**\
+Before that — 2026-08-29: **he carries three
 tools** — a pick, a hammer and an axe — swapped with `1`/`2`/`3` or the
 middle mouse button, named in a small HUD in the top-left corner while he
 exists, and visible in his hand on the sprite. **The pick's default dig is
@@ -8,9 +16,7 @@ no longer free-hand**: it cuts a passage his own size, up, down, left or
 right, and the box it will open is drawn before you commit to it; the old
 round bite is still there on `4`. **The bore no longer changes direction
 because he walked** — only moving the mouse a real distance re-points it.
-The hammer breaks rock out to the full width of the swing, opens the
-rock's own joints around it the way a blast does, throws the pieces clear
-(and bursts one caught in mid-air), and shoves him back when it lands. The axe chops living
+The axe chops living
 wood, and cutting a bole through fells the tree.*
 
 *Before that — 2026-08-26: loose grains at
@@ -246,14 +252,12 @@ into a shaft under you without your having touched anything. It's the
 hand that re-points the dig now, not the legs: move the cursor a real
 distance, about his own height, and it re-points at once.
 
-The box sites itself against **the first rock in reach** in that
-direction, not against his boots, so a wall a dozen cells off is cut
-rather than the air in front of it. Loose material doesn't site it: he
-reaches over a heap of his own spoil to the stone behind rather than
-chewing the muck again. Nor does a tree — his aim goes through living wood
-to the stone behind, so you can dig in a wood, and dig while standing
-inside a trunk. Anything standing inside the box is still cut, tree
-included.
+The box sites itself against **the first thing in reach he can cut** in
+that direction, not against his boots, so a wall a dozen cells off is cut
+rather than the air in front of it. A tree doesn't site it — his aim goes
+through living wood to the stone behind, so you can dig in a wood, and dig
+while standing inside a trunk. Anything standing inside the box is still
+cut, tree included.
 
 Digging **down** sinks a shaft and drops him into it. Digging **up** puts
 the passage over his hat and the spoil on his head.
@@ -264,6 +268,20 @@ chamber, undercutting a slab or reaching a seam too narrow for a passage.
 Point at a living plant with the pick and there's no marker at all: that
 is the shake, described above, on the same button, and the absence is the
 tell — no marker means no cut is coming.
+
+**Soil, sand, gravel and his own spoil are dug like anything else.** They
+were not, for a long time, and it was the biggest hole in the tool: the
+pick took rock and living wood and nothing else, so pointing it at the
+ground most of this world is made of removed nothing at all and a passage
+into a bank was driven entirely by shoving grains four cells sideways —
+which they poured straight back out of. Loose ground now comes out of the
+cut properly.
+
+It still behaves like loose ground, and that is the point of it rather
+than a snag: **it slumps.** The walls of a hole in sand pour into it as
+fast as you open it, so digging a bank is working a face that keeps
+filling, not stamping out a shape. Rock stays where you cut it; earth does
+not.
 
 A bite doesn't erase rock, it breaks it: the stone cracks, comes apart,
 throws an impulse, and leaves rubble. But breaking alone can never open a
@@ -326,14 +344,30 @@ round and the whole block comes away, **whole and in the shape the cracks
 drew**. That is what makes working a face progress rather than repeat, and
 it is why the hole a hammer leaves is angular rather than round.
 
+**The cracked zone widens by about a ring a swing, and it does not stop.**
+The first blow on sound rock only cracks it; each one after reaches a
+little further than the damage it inherits, so the parted zone grows until
+it has swallowed a whole block of the grain and that block falls out.
+Keep hitting the same place and it keeps giving — a cantilever's root
+worked with six blows in one spot goes from sound to gone.
+
 Nothing is ground to powder by the swing itself. Grit is what is left over
 where a piece came out too small to be a piece.
 
 Most of what comes off a blow is *pieces* rather than grit — a few blocks,
 more cobbles, and grit besides. **And a piece is still something you can
-hit.** Catch one in the air and it bursts where it flies; let it land and
-it is rock again, and breaks the way rock does. That is the whole ladder:
-face, to pieces, to dust.
+hit — but hitting one knocks it away rather than destroying it.** Catch a
+chunk in the air and it goes flying off in the direction you swung,
+turning as it goes, and the lighter it is the further it travels. It stays
+one piece. Breaking a released block down into smaller pieces and then
+into dust is meant to come, and has not yet: for now the hammer's job on
+loose rock is to move it.
+
+One consequence worth knowing: **a block still standing where the cracks
+cut it out comes away whole.** A blow releases what earlier swings already
+surrounded *before* it opens any new joints, so the piece you have spent
+five swings outlining leaves the wall in one lump rather than being
+re-cut into three on the swing that frees it.
 
 The cursor draws that difference: a bright ring for what the blow takes
 and a second, dimmer one for how far the cracks reach. The gap between the

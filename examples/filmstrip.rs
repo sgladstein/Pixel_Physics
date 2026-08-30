@@ -1728,11 +1728,34 @@ fn build_scene(args: &Args) -> World {
         // a controlled pair. What differs is what the sheet is read for --
         // the tunnel asks whether a bore opens, this asks whether the face
         // *fails*, which is a thing the pick cannot cause at all.
-        "tunnel" | "smash" => {
+        "tunnel" | "smash" | "hammerface" => {
             stone_floor(&mut w);
             for x in 180..WIDTH {
                 for y in (floor_y - 90)..floor_y {
                     w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+                }
+            }
+            w.player = Some(pixel_physics::sim::player::Player::at(150, floor_y - 4));
+        }
+        // `scene=tunnel`'s bank, in **soil** rather than stone, and it is a
+        // controlled pair with it: same floor, same wall position, same
+        // walk, same button. The only variable is what the bank is made of.
+        //
+        // Reported from play, 2026-08-30: *"There should be a way for me to
+        // dig through soil or other particulate."* There was not —
+        // `rigid::is_tool_target` took `Solid | Plant`, so a cut into loose
+        // ground broke nothing at all and the bore advanced only by
+        // `player::displace_rect` shoving grains four cells sideways, which
+        // they poured straight back out of. Read this sheet for whether a
+        // passage opens *and stays open*: soil slumps, so a hole that is
+        // being dug and a hole that is refilling look identical in one
+        // frame and quite different across four.
+        "dirtbore" => {
+            stone_floor(&mut w);
+            let soil = w.materials.id_of("soil").expect("soil exists");
+            for x in 180..WIDTH {
+                for y in (floor_y - 90)..floor_y {
+                    w.set(x, y, Cell::new(soil, (x % 3) as u8));
                 }
             }
             w.player = Some(pixel_physics::sim::player::Player::at(150, floor_y - 4));
@@ -3860,6 +3883,15 @@ struct Gnome {
     /// Which script — set from the scene name, since the M9 scenes each
     /// exist to show a different verb.
     script: Script,
+    /// `scene=hammerface`: never swap to the pick.
+    ///
+    /// `scene=smash` alternates the two tools every 240 frames, which is
+    /// the right sheet for *"which tool should I reach for"* and the wrong
+    /// one for *"what do successive swings do"* — read at the hammer's own
+    /// cadence, the strip runs out of hammer window after five tiles and
+    /// the rest are pick bites, which is precisely the reading the whole
+    /// rebuild exists to remove. Same bed, same walk, one tool.
+    hammer_only: bool,
     /// Bites that actually landed (the cooldown swallows most frames).
     bites: usize,
     /// Where he was standing when he set off, so the sheet can report how
@@ -3946,20 +3978,21 @@ const CLIMB_WALK_TICKS: usize = 60;
 impl Gnome {
     fn for_scene(scene: &str, dig_yield: f32, shoulder_grains: u8) -> Self {
         let script = match scene {
-            "tunnel" => Script::Tunnel,
+            "tunnel" | "dirtbore" => Script::Tunnel,
             "bury" => Script::Bury,
             "swim" => Script::Swim,
             "ride" => Script::Ride,
             "wood" => Script::Wood,
             "climb" => Script::Climb,
             "shake" => Script::Shake,
-            "smash" => Script::Smash,
+            "smash" | "hammerface" => Script::Smash,
             "chop" => Script::Chop,
             _ => Script::Course,
         };
         Self {
             script,
             tuning: pixel_physics::sim::player::Tuning { dig_yield, shoulder_grains, ..Default::default() },
+            hammer_only: scene == "hammerface",
             bites: 0,
             start_x: None,
             grabbed: false,
@@ -4122,7 +4155,7 @@ impl Gnome {
         // Alternating them is what a player does and what this scene has to
         // show, or the sheet measures a tool used wrongly.
         if self.script == Script::Smash && step_no >= 120 {
-            let hammering = (step_no / 240).is_multiple_of(2);
+            let hammering = self.hammer_only || (step_no / 240).is_multiple_of(2);
             if let Some(p) = world.player.as_mut() {
                 p.tool = if hammering { player::Tool::Hammer } else { player::Tool::Pick };
             }

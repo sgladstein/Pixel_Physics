@@ -2309,11 +2309,14 @@ fn bore_rect_at(p: &Player, dir: Dir, offset: i32) -> (i32, i32, i32, i32) {
 /// shoves whatever of it lies inside its own slice. So the face is the
 /// nearest slab with something the cut can *break* in it.
 ///
-/// The fallback is what keeps a bore into a dune working, and it is not a
-/// safety net — most of this world's surface is soil and sand, which
-/// `rigid::is_tool_target` refuses. With no breakable cell anywhere in the
-/// box the face becomes the nearest slab that is not empty, and the stroke
-/// advances by displacement alone.
+/// The fallback catches a slab holding only what the pick declines —
+/// water, or a gas pocket. It used to catch far more than that: the face
+/// test asked `rigid::is_tool_target`, which refuses `Powder`, so **most
+/// of this world's surface** fell through it and a bore into a dune
+/// advanced by displacement alone. `rigid::is_dig_target` is the pick's
+/// own predicate and takes loose ground, so soil and sand are now a
+/// working face like any other and the fallback is the rare case its
+/// wording implies.
 pub fn bore_slice(world: &World, dir: Dir, rect: (i32, i32, i32, i32), depth: i32) -> (i32, i32, i32, i32) {
     let span = bore_span(dir, rect);
     let slab_holds = |i: i32, want: &dyn Fn(&World, i32, i32) -> bool| {
@@ -2321,7 +2324,7 @@ pub fn bore_slice(world: &World, dir: Dir, rect: (i32, i32, i32, i32), depth: i3
         (slab.1..=slab.3).any(|y| (slab.0..=slab.2).any(|x| world.in_bounds(x, y) && want(world, x, y)))
     };
     let face = (0..span)
-        .find(|&i| slab_holds(i, &|w, x, y| crate::sim::rigid::is_tool_target(w, x, y)))
+        .find(|&i| slab_holds(i, &|w, x, y| crate::sim::rigid::is_dig_target(w, x, y)))
         .or_else(|| (0..span).find(|&i| slab_holds(i, &|w: &World, x, y| !w.is_empty(x, y))))
         // A box with nothing in it at all: the stroke lands on the near
         // edge and reports zero, which is what a swing at nothing is.
@@ -2384,13 +2387,20 @@ fn bore_bite(world: &mut World, p: &mut Player, aim: (i32, i32), tuning: &Tuning
     // rather than starting a fresh bore behind it.
     p.last_bite = Some(at);
     let dusted = crate::sim::rigid::mine_rect(world, (slice.0, slice.1), (slice.2, slice.3), tuning.dig_yield);
-    // **Displacement is not optional for the bore, and the reason is not
-    // spoil.** `mine_rect` only breaks `rigid::is_tool_target` cells —
-    // solid and plant — so a slice cut into sand, soil or water breaks
-    // nothing at all. Without this shove, driving a passage through the
-    // ground the world is mostly made of would do literally nothing, which
-    // is the "a mechanism appears inert, check the scene" failure with the
-    // scene being correct.
+    // **Displacement is still not optional, and the reason has changed.**
+    // It used to be the only thing that worked at all in loose ground:
+    // `mine_rect` broke `rigid::is_tool_target` cells — solid and plant —
+    // so a slice cut into sand or soil broke nothing, and driving a
+    // passage through the ground the world is mostly made of did literally
+    // nothing. `rigid::is_dig_target` closed that; the cut now removes
+    // loose ground itself.
+    //
+    // What is left for the shove is the half a cut cannot do: **spoil the
+    // stroke leaves behind, and material that flows back in.** Loose
+    // ground slumps into the hole under the ordinary sweep — which is what
+    // makes digging soil feel like digging rather than erasing — and
+    // without somewhere for the near slab's grains to go, the face fills
+    // as fast as it is cut.
     let displaced = displace_rect(world, p, slice, SPOIL_THROW);
     Bite { at, displaced, dusted }
 }
@@ -4946,7 +4956,7 @@ mod tests {
         let mut cells = Vec::new();
         for dx in 0..24 {
             for dy in 0..3 {
-                cells.push(BodyCell { dx, dy, material: material::STONE, shade: 0, organism_id: 0 });
+                cells.push(BodyCell { dx, dy, material: material::STONE, shade: 0, organism_id: 0, cracks: 0 });
             }
         }
         world.chunk_bodies.push(ChunkBody::at(cells, 50.0, 60.0));
@@ -4975,7 +4985,7 @@ mod tests {
         let mut cells = Vec::new();
         for dx in 0..24 {
             for dy in 0..3 {
-                cells.push(BodyCell { dx, dy, material: material::STONE, shade: 0, organism_id: 0 });
+                cells.push(BodyCell { dx, dy, material: material::STONE, shade: 0, organism_id: 0, cracks: 0 });
             }
         }
         // Already at `rigid`'s fall clamp of 6 — faster than the gnome's
