@@ -53,10 +53,10 @@ whole, then run `python3 scripts/readmetoc.py`.
 | [Felling status — the verb works, and what it produces is pieces](#felling-status--the-verb-works-and-what-it-produces-is-pieces) | 3380 |
 | [Bending status — soft tissue lies over, and the wind is what pushes it](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) | 3617 |
 | [Breaking status — a badly grown tree comes down on its own](#breaking-status--a-badly-grown-tree-comes-down-on-its-own) | 3694 |
-| [Performance](#performance) | 3786 |
-| [World speed — five independent time axes](#world-speed--five-independent-time-axes) | 3983 |
-| [Status](#status) | 4066 |
-| [License](#license) | 4177 |
+| [Performance](#performance) | 3820 |
+| [World speed — five independent time axes](#world-speed--five-independent-time-axes) | 4017 |
+| [Status](#status) | 4100 |
+| [License](#license) | 4211 |
 
 ### Milestones, in numeric order
 
@@ -90,7 +90,7 @@ them is named "plants". A section can appear twice; felling is honestly both
 plant work and structural work.
 
 **Known limitations for every topic are collected in one place**:
-[Status](#status), line 4066 — the *last* section in the
+[Status](#status), line 4100 — the *last* section in the
 file, not the first. Read it before concluding something is broken.
 
 | Topic | Sections, primary first |
@@ -105,9 +105,9 @@ file, not the first. Read it before concluding something is broken.
 | **the coarse field grid — pressure, heat, light** | [The coarse field grid](#the-coarse-field-grid) 455, [M12/M13 status](#m12m13-status) 717 |
 | **worldgen and world structure** | [M10 status](#m10-status--the-worldgen-half) 2988, [Architecture](#architecture) 298 |
 | **the gnome (player character)** | [M9 status](#m9-status--the-gnome) 2548, [Controls](#controls) 159 |
-| **weather, sky and the clock** | [Weather status](#weather-status) 3103, [M19 status](#m19-status--started) 3308, [World speed](#world-speed--five-independent-time-axes) 3983 |
+| **weather, sky and the clock** | [Weather status](#weather-status) 3103, [M19 status](#m19-status--started) 3308, [World speed](#world-speed--five-independent-time-axes) 4017 |
 | **rendering, UI and tunables** | [UI improvements](#ui-improvements--overnight-run-section-9) 2302, [Live tunables panel](#live-tunables-panel--overnight-run-section-10) 2347, [Rendering performance](#rendering-performance--overnight-run-section-11) 2415, [M6 deferral](#m6-deferral) 1078 |
-| **performance and the parallel sweep** | [Performance](#performance) 3786, [M5 status](#m5-status) 1088, [Architecture](#architecture) 298, [Rendering performance](#rendering-performance--overnight-run-section-11) 2415 |
+| **performance and the parallel sweep** | [Performance](#performance) 3820, [M5 status](#m5-status) 1088, [Architecture](#architecture) 298, [Rendering performance](#rendering-performance--overnight-run-section-11) 2415 |
 | **materials and the data schema** | [Materials](#materials) 224, [M12/M13 status](#m12m13-status) 717 |
 
 <!-- END GENERATED TOC -->
@@ -3722,6 +3722,40 @@ anything outside `within_disturbance`, so a limb broken by wind in a quiet
 wood would hang there at every `chain_reach` setting but the default. A snap
 is an event, so it reports itself as one with the wound it actually does: a
 single cell.
+
+**A snapped limb actually comes down, and that took a second fix.**
+`plant::anchor_support` walked every organism cell alike, so a crown stayed
+attached to the ground *through its own foliage* and severing the wood that
+carried it changed nothing — a member of section 1 carrying 820 snapped and
+took **fourteen cells** with it. `leaf.ron`'s own doc already said a leaf must
+not be a load path and the span rule honoured it; this field did not. The rule
+has a direction: leaf-to-leaf carries (a cluster hangs together off its twig),
+wood holds leaf, **leaf never holds wood**. Blocking leaves symmetrically is
+much worse than the bug and is recorded as a dead end — only the leaf touching
+a twig is ever reached, so the stand sheds its canopy as grit. With the
+direction in, the same three breaks sever **810 cells at 91% pieces**.
+
+**And nothing turns to dust.** `MIN_BODY_CELLS` is a judgement about rock —
+below eight cells a tumbling body and a grain look alike, and rock *wants*
+grit — so it does not apply to tissue: every severed plant fragment flies
+whatever its size, and foliage no woody fragment claimed comes down as a
+connected cluster rather than scattering. Measured on the shipped cut,
+**2,120 of 2,120 severed cells left as pieces (100%)** against 79% before,
+with a genuine size spread (`<8:16, 8-15:17, 16-31:18, 32-63:11, 64-127:4,
+128-255:3, 256+:5`).
+
+**A limb across the path is a wall, and the gnome can get out from under
+one.** `player::depenetrate` frees an invaded rectangle within 4 cells or
+declares him buried, on the stated grounds that a larger push is a teleport —
+right for a shove the world gives him, wrong for one he asks for. A jump press
+now searches straight up as far as his own height and leaves with a jump's
+velocity. The limb keeps falling regardless: a `ChunkBody` never tests the
+player, so it passes through him and lands, and it is `depenetrate` finding
+him inside the result that buries him. The walking harness scripts jump when
+they stall for the same reason — a driver pressing only `right` is not a fair
+test of a world with fallen limbs in it. Still open ground: a grounded walk
+mounts only `Tuning::step_up` (4 cells), so a gnome who never jumps is stopped
+by a limb.
 
 **Snow reaches it.** `plant::surcharge_mass` adds the loose material standing
 on a cell to that cell's mass, so a crown under a snowfall raises its own

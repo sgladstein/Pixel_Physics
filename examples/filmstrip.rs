@@ -3977,6 +3977,10 @@ struct Gnome {
     /// read for — see `Script::Climb`.
     grabbed: bool,
     grabbed_at: f32,
+    /// Where the walking scripts last saw him, and for how many ticks he has
+    /// been there — the state behind `blocked_jump` below.
+    walked_to: f32,
+    stalled: u16,
     highest: f32,
     shakes: usize,
     dislodged_by_shaking: usize,
@@ -4076,6 +4080,8 @@ impl Gnome {
             start_x: None,
             grabbed: false,
             grabbed_at: 0.0,
+            walked_to: f32::NAN,
+            stalled: 0,
             highest: 0.0,
             shakes: 0,
             dislodged_by_shaking: 0,
@@ -4104,6 +4110,16 @@ impl Gnome {
         use pixel_physics::sim::player::{self, PlayerInput};
         let tuning = self.tuning;
         let phase = step_no % 60;
+        // How long a walking script goes nowhere before it tries a jump. See
+        // `Script::Wood`. Measured in ticks and deliberately not one: a gnome
+        // shoving into a bank makes slow progress rather than none, and
+        // jumping on the first stalled frame would have him hopping the whole
+        // way across a world instead of walking it.
+        const STALL_BEFORE_JUMP: u16 = 12;
+        if let Some(here) = world.player.as_ref().map(|p| p.x) {
+            self.stalled = if (here - self.walked_to).abs() < 0.25 { self.stalled.saturating_add(1) } else { 0 };
+            self.walked_to = here;
+        }
         let input = match self.script {
             Script::Course => PlayerInput {
                 right: true,
@@ -4137,7 +4153,29 @@ impl Gnome {
             // than what lifts him out of it.
             Script::Surf => PlayerInput { right: true, jump_held: true, ..Default::default() },
             Script::Ride => PlayerInput::default(),
-            Script::Wood => PlayerInput { right: step_no >= WOOD_WALK_FROM, ..Default::default() },
+            // **He jumps when he stops making progress, because a player
+            // would.**
+            //
+            // This script pressed nothing but `right`, which was fine while
+            // a forest floor was flat. It is not a fair driver of a world
+            // where limbs fall across the path: a grounded walk mounts
+            // `Tuning::step_up` (4 cells) and a fallen limb is taller than
+            // the gnome, so a walk-only script reads "the forest is
+            // impassable" where a person would simply hop over it. Measured
+            // when severed tissue started landing as pieces: 296 cells of a
+            // 400 bar, and 8 of 40 on `woodalt`, with him walled in three
+            // cells from where he spawned.
+            //
+            // The bar is untouched -- he still has to cover the same ground.
+            // What changed is that the driver now does the obvious thing
+            // when it stops working, which is also what exercises the
+            // buried-jump escape `player::step` gained for the same reason.
+            Script::Wood => PlayerInput {
+                right: step_no >= WOOD_WALK_FROM,
+                jump_pressed: self.stalled > STALL_BEFORE_JUMP,
+                jump_held: self.stalled > STALL_BEFORE_JUMP,
+                ..Default::default()
+            },
             // Walk until he has a handhold, then hold `W` and nothing
             // else. Holding a direction *while* climbing shimmies him
             // sideways out of the trunk, which is how you leave a tree and

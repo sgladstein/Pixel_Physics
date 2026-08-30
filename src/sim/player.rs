@@ -1721,6 +1721,39 @@ pub fn step(world: &mut World, input: PlayerInput, tuning: &Tuning) {
     // the right place to end up.
     depenetrate(world, &bodies, &mut p, wade, shoulder);
 
+    // **Buried, but not helpless: jump and he heaves himself out on top.**
+    //
+    // `depenetrate` above already prefers "up" and already means to leave
+    // him on top of the pile, and its reach is `DEPENETRATE_REACH` = 4 on
+    // the stated grounds that *"a large push is a teleport, and popping
+    // through a thin ceiling reads far worse than being stuck under it"*.
+    // That is right for a push the world does *to* him and wrong for one he
+    // asks for: a fallen limb is thicker than four cells, so the gnome went
+    // under it and stayed under it with no move available -- measured on
+    // `scene=wood`, he covered 8 cells of a 40-cell bar, walled in three
+    // cells from where he spawned.
+    //
+    // Owner, 2026-08-30: *"If a limb lands on the gnome and he is stuck, he
+    // should be able to jump through to get on top of it."* So this searches
+    // straight up only, on a press, as far as his own height -- he can heave
+    // himself out of something he could stand beside -- and leaves with a
+    // real jump's velocity so it reads as a heave rather than a teleport.
+    //
+    // The other half of that sentence, *"and it should continue falling"*,
+    // needs no code: a `ChunkBody` never tests the player at all, so a
+    // landing limb passes through him and keeps going regardless. It is
+    // `depenetrate` finding him inside the settled result that buries him.
+    if p.buried && (input.jump_pressed || p.jump_buffer > 0) {
+        let (xi, yi) = p.rect_origin();
+        if let Some(d) = (1..=PLAYER_HEIGHT).find(|&d| rect_free(world, &bodies, xi, yi - d, (p.w, p.h), wade, shoulder)) {
+            p.y -= d as f32;
+            p.buried = false;
+            p.jump_buffer = 0;
+            p.coyote = 0;
+            p.vx = 0.0;
+            p.vy = -tuning.jump_impulse;
+        }
+    }
     if p.buried {
         // Entombed: no movement, no jump, velocities dead. Coyote and the
         // jump buffer still tick down so nothing fires the instant the
