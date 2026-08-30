@@ -1,0 +1,44 @@
+{
+  "id": "20260830T090158049Z-471350",
+  "created": "2026-08-30T09:01:58Z",
+  "board": "lab",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/evolution-lab-game-interface-9vf0fl",
+    "commit": "eb7d445",
+    "agent": null,
+    "session_id": "6546762f-3714-56a2-a0a4-47f13872ea63",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The evolution lab, first run",
+  "question": "Opening this is the first thing a player does. Does the box read as a laboratory you would want to experiment in, or as an empty field with walls?",
+  "context_md": "The second game binary, `cargo run --release --bin lab`, captured headlessly from the real window at frame 6.\n\n**What I already know is wrong, so don't spend the answer on it:** the interior draws through `sky.rs` — that dark blue is a day-sky gradient with a star hash, inside a sealed box. A lane is replacing it with a real interior this round. The guide flags it at **27.4 ns/px against stone's 6.7**, so it is expensive as well as wrong.\n\n**What I am unsure of and want your eye on:**\n\n- The **proportions**. Soil is 80 rows of a 320-row box, so a quarter of the height. Roots reach about 40 rows, so the bottom half of the soil is currently paying for nothing.\n- Whether the **grey stone shell** is the right read for lab walls, or whether it looks like you are underground.\n- Whether greeting you with the **key list** is right, or whether it should stay out of the way.\n\nThe stand in this box lives: 112 to 774 plant cells and 0 to 51 seeds over 10,800 frames. The 60 organisms are 8 herbs plus a colony; the ants cannot breed (a birth costs 1,041 against a 219 bank) and that is a known deadlock, not a defect here.",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "the lab at frame 6",
+      "files": [
+        "20260830T090158049Z-471350/000-lab_firstrun.png"
+      ],
+      "caption": "512x320, 80 rows of soil, 8 herb founders, one colony",
+      "meta": {
+        "living organisms": 60,
+        "plant cells at frame 10,800": 774,
+        "seeds set by frame 10,800": 51,
+        "ant births ever": 0,
+        "rows of soil": 80,
+        "rows roots actually reach": 40
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
