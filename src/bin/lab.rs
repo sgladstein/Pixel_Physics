@@ -22,10 +22,18 @@
 //! | `Space` | Tending ⇄ Running |
 //! | `Up` / `Down` | the speed dial, through the presets |
 //! | `1`-`6` | jump straight to a preset |
+//! | `F1` / `F2` / `F3` | the plants, ants and box pages |
 //! | `Tab` | the stats page |
 //! | `WASD` / drag | pan; `-` / `=` zoom |
 //! | `R` | rebuild the box |
 //! | `Esc` | quit |
+//!
+//! **And none of them is the only way in.** `lab::ui` draws every one of the
+//! above as a button along the bottom of the screen with its key printed
+//! under it, so the lab can be driven with the mouse alone — owner request,
+//! 2026-08-30, *"It shouldn't all be keyboard shortcuts."* The keys are
+//! unchanged; the bar is additive. Both routes go through `Lab::act`, so
+//! there is one definition of what each control does.
 //!
 //! `PIXEL_PHYSICS_SCREENSHOT_AFTER_FRAMES=N` dumps the framebuffer to
 //! `%TEMP%/pixel_physics_lab.png` after N rendered frames and exits nothing —
@@ -37,11 +45,12 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use pixel_physics::lab::time::Phase;
+use pixel_physics::lab::ui::{Action, Panel};
 use pixel_physics::lab::{scene::LabBox, Lab, HEIGHT, WIDTH};
 use pixels::{Pixels, SurfaceTexture};
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
-use winit::event::{ElementState, MouseScrollDelta, WindowEvent};
+use winit::event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::window::{Window, WindowId};
@@ -132,7 +141,7 @@ impl Handler {
 
         let render_error = match &mut self.pixels {
             Some(pixels) => {
-                self.lab.draw(pixels.frame_mut(), self.cursor);
+                self.lab.draw(pixels.frame_mut(), self.fps);
                 if let Some(n) = self.screenshot_countdown {
                     if n <= 1 {
                         self.screenshot_countdown = None;
@@ -208,6 +217,9 @@ impl Handler {
             KeyCode::Digit4 => self.lab.time.set_preset(3),
             KeyCode::Digit5 => self.lab.time.set_preset(4),
             KeyCode::Digit6 => self.lab.time.set_preset(5),
+            KeyCode::F1 => self.lab.act(Action::Panel(Panel::Plants)),
+            KeyCode::F2 => self.lab.act(Action::Panel(Panel::Ants)),
+            KeyCode::F3 => self.lab.act(Action::Panel(Panel::Box)),
             KeyCode::Tab => self.lab.stats.toggle(),
             KeyCode::KeyR => self.lab.reset(),
             KeyCode::Minus => self.lab.renderer.adjust_zoom(-1),
@@ -256,8 +268,30 @@ impl ApplicationHandler for Handler {
                     .as_ref()
                     .and_then(|p| p.window_pos_to_pixel(position.into()).ok())
                     .map(|(x, y)| (x as i32, y as i32));
+                self.lab.set_cursor(self.cursor);
             }
-            WindowEvent::CursorLeft { .. } => self.cursor = None,
+            WindowEvent::CursorLeft { .. } => {
+                self.cursor = None;
+                self.lab.set_cursor(None);
+            }
+            // The one event this binary did not handle at all until the bar
+            // existed. Press and release are kept apart deliberately: a button
+            // fires on release over itself, so a press can be taken back by
+            // sliding off it, and `REBUILD` cannot throw the box away on the
+            // way past.
+            WindowEvent::MouseInput { state, button, .. } => {
+                if button == MouseButton::Left {
+                    match (state == ElementState::Pressed, self.cursor) {
+                        (true, Some((x, y))) => self.lab.press(x, y),
+                        (false, Some((x, y))) => self.lab.release(x, y),
+                        // Released with the pointer outside the window: the
+                        // gesture is abandoned, not aimed at whatever it was
+                        // last over.
+                        (false, None) => self.lab.ui.cancel_press(),
+                        (true, None) => {}
+                    }
+                }
+            }
             WindowEvent::MouseWheel { delta, .. } => {
                 let up = match delta {
                     MouseScrollDelta::LineDelta(_, y) => y > 0.0,

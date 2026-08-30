@@ -23,7 +23,8 @@
 //! | `scene` | the box: geometry, soil, light, partitions, founders |
 //! | `time`  | Tending vs Running, the speed dial, and what it actually achieved |
 //! | `stats` | the census, and the page that draws it |
-//! | this file | `Lab` — the state the three above are wired into, and the frame |
+//! | `ui`    | the control bar along the bottom, its pages, and the mouse |
+//! | this file | `Lab` — the state the four above are wired into, and the frame |
 //!
 //! **The viewport is `app::WIDTH` x `app::HEIGHT`**, deliberately the same
 //! framebuffer the sandbox uses, so `render::Renderer` and `hud` need no
@@ -33,6 +34,7 @@
 pub mod scene;
 pub mod stats;
 pub mod time;
+pub mod ui;
 
 use crate::render::Renderer;
 use crate::sim::explosion::Blasts;
@@ -59,6 +61,9 @@ pub struct Lab {
     pub time: time::TimeControl,
     /// The census and its page. See `stats`.
     pub stats: stats::Stats,
+    /// The control bar along the bottom, the pages it opens, and the mouse.
+    /// See `ui`.
+    pub ui: ui::Ui,
     /// What the box was built from, kept so a reset rebuilds the same lab and
     /// so the stats page can say what bed these numbers are from.
     pub spec: scene::LabBox,
@@ -66,6 +71,10 @@ pub struct Lab {
     /// because there is no other way to discover a control here — the sandbox
     /// grew its bindings a key at a time in front of somebody who already knew
     /// them, and the lab has no such person.
+    ///
+    /// **It is no longer the only way**, which is what `ui` is for: the bar
+    /// along the bottom shows every control as a button and prints its key
+    /// under it, so the page is now a reference rather than the interface.
     pub show_help: bool,
 }
 
@@ -81,6 +90,7 @@ impl Lab {
             player_tuning: player::Tuning::default(),
             time: time::TimeControl::new(),
             stats: stats::Stats::new(),
+            ui: ui::Ui::new(),
             spec,
             show_help: true,
         }
@@ -131,16 +141,30 @@ impl Lab {
         }
         let advance = self.time.record(ran, started.elapsed());
         self.stats.observe(&self.world);
+        // Sampled here rather than in `draw` so that a frame which drew
+        // nothing still advances the series -- and gated on `World::frame`
+        // inside, so the x-axis is simulated time and not the speed dial.
+        self.ui.observe(&self.world);
         advance
     }
 
     /// Draw the world, then whatever the lab is showing over it.
-    pub fn draw(&mut self, frame_buf: &mut [u8], cursor: Option<(i32, i32)>) {
+    ///
+    /// `fps` is the *window's* rate, which only the binary knows; it is passed
+    /// in rather than measured here so that the number on the box page is the
+    /// same one the title bar shows.
+    pub fn draw(&mut self, frame_buf: &mut [u8], fps: f32) {
         // Anything drawn over the terrain has no footprint tracked between
         // frames, so the dirty-rect skip cannot know to erase last frame's.
-        // Same rule, and the same reasoning, as `App::draw`'s.
-        let force_full =
-            cursor.is_some() || self.stats.showing() || self.time.hud_is_dirty() || self.show_help;
+        // Same rule, and the same reasoning, as `App::draw`'s. The bar is
+        // permanent chrome and its hover highlight moves with the cursor, so
+        // `ui::Ui::is_dirty` is in this expression for the same reason
+        // `time::hud_is_dirty` is.
+        let force_full = self.ui.cursor().is_some()
+            || self.ui.is_dirty()
+            || self.stats.showing()
+            || self.time.hud_is_dirty()
+            || self.show_help;
         let touched = self.world.take_touched_chunks();
         self.renderer.draw(
             &self.world,
@@ -152,8 +176,74 @@ impl Lab {
         );
         self.time.draw(frame_buf, &self.world);
         self.stats.draw(frame_buf, &self.world);
+        let state = ui::BarState {
+            running: self.time.phase == time::Phase::Running,
+            requested: self.time.requested,
+            achieved: self.time.achieved,
+            presets: &time::PRESETS,
+            panel: self.ui.panel,
+            stats: self.stats.showing(),
+            help: self.show_help,
+        };
+        self.ui.draw(frame_buf, &self.world, &self.spec, &state, &self.renderer, fps);
+        // Last, because the key page is modal: it covers the box *and* the
+        // bar, and a control you can see but not reach is worse than one that
+        // is plainly behind a page.
         if self.show_help {
             draw_help(frame_buf);
+        }
+    }
+
+    /// Where the mouse is, in framebuffer pixels — `None` when it has left the
+    /// window. Drives the hover highlight and the hover explanations.
+    pub fn set_cursor(&mut self, at: Option<(i32, i32)>) {
+        self.ui.set_cursor(at);
+    }
+
+    /// The left button went down at `(x, y)`.
+    pub fn press(&mut self, x: i32, y: i32) {
+        self.ui.press(x, y);
+    }
+
+    /// The left button came up at `(x, y)`. This is where a click turns into
+    /// something happening.
+    ///
+    /// **Every verb here is one a key already had, plus one the keyboard could
+    /// not offer at all** — pointing at a cell. That asymmetry is the whole
+    /// argument for the mouse: a key can toggle a page, and nothing on the
+    /// keyboard can say *that ant*.
+    pub fn release(&mut self, x: i32, y: i32) {
+        match self.ui.release(x, y) {
+            ui::Release::Fired(action) => self.act(action),
+            ui::Release::Consumed => {}
+            ui::Release::World => {
+                // The key page is modal, so a click on the world dismisses it
+                // rather than reaching through it — the same rule as any key.
+                if self.show_help {
+                    self.show_help = false;
+                    return;
+                }
+                let (wx, wy) = self.renderer.screen_to_world(x, y);
+                self.ui.inspect((wx, wy));
+            }
+        }
+    }
+
+    /// Do one of the bar's verbs.
+    ///
+    /// **The single place a control turns into a change**, so a button and its
+    /// keyboard shortcut cannot drift: `bin/lab.rs`'s key handler routes
+    /// through here too, and there is no second copy of "what SPACE does".
+    pub fn act(&mut self, action: ui::Action) {
+        match action {
+            ui::Action::TogglePhase => self.time.toggle_phase(),
+            ui::Action::Slower => self.time.slower(),
+            ui::Action::Faster => self.time.faster(),
+            ui::Action::Preset(i) => self.time.set_preset(i),
+            ui::Action::Panel(panel) => self.ui.toggle_panel(panel),
+            ui::Action::Stats => self.stats.toggle(),
+            ui::Action::Help => self.show_help = !self.show_help,
+            ui::Action::Reset => self.reset(),
         }
     }
 }
@@ -165,16 +255,20 @@ impl Lab {
 /// have draws as a silent blank rather than as anything you would notice. That
 /// gap has shipped three times in this repo, so every line here is checked
 /// against `hud::has_glyph` by `every_help_line_is_drawable`.
-const HELP: [&str; 9] = [
+const HELP: [&str; 13] = [
     "THE EVOLUTION LAB",
     "",
+    "EVERY CONTROL IS ALSO A BUTTON",
+    "ON THE BAR ALONG THE BOTTOM.",
+    "",
     "SPACE    TENDING / RUNNING",
-    "UP DOWN  SPEED",
-    "1-6      SPEED PRESET",
+    "UP DOWN  SPEED    1-6  PRESET",
+    "F1 F2 F3 PLANTS / ANTS / BOX",
     "TAB      STATS",
     "WASD     PAN     - =  ZOOM",
     "R        REBUILD THE BOX",
     "?        THIS PAGE",
+    "CLICK    INSPECT A CELL",
 ];
 
 fn draw_help(frame: &mut [u8]) {
