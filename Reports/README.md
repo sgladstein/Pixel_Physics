@@ -16,6 +16,22 @@ tried?"*.
 
 ## Method and architecture — read these first
 
+- [two-games-one-repo-2026-08-30.md](two-games-one-repo-2026-08-30.md) —
+  **proposal, not yet built.** Answers the owner's question of whether two
+  games on one engine means everything shared or everything separate. It
+  means neither: **six layers separate, and three of them are shared today
+  only because the mechanisms that would scope them are unused.** The engine
+  stays shared permanently (a lab-evolved creature is a `.ron` the outdoor
+  game can plant); game code already is separate; but `.claude/rules/` with
+  `paths:` frontmatter — which loads a rule only when a matching file is read
+  — does not exist here at all, `Reports/` is **165 files in one flat
+  directory** an agent greps, and CI gates every push identically. Carries the
+  numbers behind that (`CLAUDE.md` is **25,635 always-loaded tokens, 63% of it
+  consulted by lookup, and of that 86% is evidence rather than rule**), a
+  build order, and the argument **against** the naive cut: the rules that
+  saved the lab's two rounds fired *unprompted* and match no path, so it has
+  to be *rule stays, evidence moves*. Names the divergence risk nothing
+  currently guards — a shared constant edited for one game's benefit.
 - [why-changes-cost-so-much-2026-08-27.md](why-changes-cost-so-much-2026-08-27.md)
   — **method finding, from a live instance.** Why every change here seems to
   demand a global retune: most large levers have **no counterweight**, so
