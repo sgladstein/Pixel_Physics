@@ -1,0 +1,44 @@
+{
+  "id": "20260830T022545338Z-b01712",
+  "created": "2026-08-30T02:25:45Z",
+  "board": "caves",
+  "origin": {
+    "worktree": "/home/user/wg-caves",
+    "branch": "claude/worldgen-caves",
+    "commit": "47d6209",
+    "agent": null,
+    "session_id": "2cb39797-d076-5699-b8bf-4494224deffe",
+    "user": null,
+    "cwd": "/home/user/wg-caves"
+  },
+  "title": "The way in -- the first cave entrance this game has had",
+  "question": "You asked for cave openings. Until now there were none: the depth band started two hundred rows down and the pass asserted its own envelope was sealed stone, so every cave verdict you have given was on a place the player cannot reach. This is a mouth: an inclined passage running down into the hillside with daylight fading out along it, and the gnome standing on the skyline above it for scale. Every system in every world now has one. Is this findable and enterable enough, or does the opening itself need to be more obvious from outside?",
+  "context_md": "",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "arid seed 2",
+      "files": [
+        "20260830T022545338Z-b01712/000-mouth_arid.png"
+      ],
+      "caption": "",
+      "meta": {
+        "mouths in this world": 1,
+        "mouth at": "x 6036, y 197",
+        "worlds with a cave and no way in": 0,
+        "entrance slope": "1 row in 2 -- a ramp, not a shaft",
+        "gnome": "7 x 14 cells",
+        "world": "8192x2560"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
