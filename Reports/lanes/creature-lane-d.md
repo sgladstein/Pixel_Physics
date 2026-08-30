@@ -85,6 +85,12 @@ merged, this branch needs rebasing.
    would have made two reallocations inseparable. Named in the constants
    table with a verdict, and in `dead-ends.md` with the Kleiber alternative.
 
+6. **One card is on the queue**, blind, board `creatures`, id
+   `20260830T063631048Z-ae976a`: random shade against countershade on a
+   nine-cell body, arms identical but for the paint. It is **not** the
+   body-size card the brief asked for, for the reason in item 3. Collect it
+   with `review.py inbox`.
+
 ## What another lane should know before touching these files
 
 - **`idle_cost` and `move_cost` no longer exist.** They are

@@ -186,6 +186,39 @@ decision that the shipped ant does not change without a verdict, and a guard
 asserts `ant.ron` still carries `Random` and two cells so that changing it is
 a deliberate act rather than a merge accident.
 
+### 5a. What it looks like, measured rather than asserted
+
+Rendered through `creature_look mode=live` on the `flat` preset, 600 frames,
+arms that are the **same simulation** — 15 ants placed, 135 body cells on
+screen, 9.00 cells per creature on both — so only the paint differs:
+
+| nine-cell body | ink per creature |
+|---|---|
+| `ant_block`, random shade | 1,295 |
+| `ant_block_shaded`, countershaded | **1,270** |
+
+**That is slightly *less* ink, and it is expected rather than a regression**:
+countershading deliberately puts the pale cells on top, where they contrast
+less against a bright sky. So this is **not** a contrast win and is not
+claimed as one — §3 of the appearance report already established that no flat
+value wins against both backgrounds, and the claim here is about *anatomy*,
+which is not what `ink` measures.
+
+**Whether it reads as an anatomy is on the owner's queue**, blind, as card
+`20260830T063631048Z-ae976a` (board `creatures`). Posted rather than asserted
+because "this looks better" is exactly the claim this repo has been wrong
+about three times.
+
+**On a chain it is barely visible, and that is worth recording as a limit.**
+The same pair built at `Chain(6)` renders as two near-identical rows of dark
+bars: a single-file chain silhouetted against sky is a solid dark shape
+whatever its cells do internally, and the ant palette spans only 24 luma units
+by design. So the head-to-tail grade is real, unit-tested and correct, and it
+does **not** on its own answer E10's "a long chain reads as a worm" — it needs
+either a body with an underside or a horizon where the chain is seen against
+ground rather than sky. Not a reason to widen the palette; that is a recorded
+dead end.
+
 ## 6. What is owed before the owner should be asked to choose a body
 
 The lane brief asked for a runtime selector and a blind A/B. **Both are held,
