@@ -3734,3 +3734,392 @@ thickens and never anchors. Deformed rather than dead, which is the graded
 outcome the ethos asks for.
 
 Full account: `Reports/plant-fate-fallback-fork-2026-08-30.md`.
+
+## 2026-08-30 — the evolution lab: an empty box is free, and the ant is the blocker
+
+Feasibility question from the owner: could a second game live on this engine
+with the gnome, worldgen, rock, tunnelling, explosions and collapse stripped
+out — a sealed lab box of soil under grow lights, plants and creatures only,
+run fast enough that a player watches several generations in a sitting?
+
+**Yes, and the performance argument the concept rests on is backwards.**
+Measured with a new instrument, `examples/labbox_cost.rs`, four arms over one
+hand-built bed:
+
+- **An empty sealed box costs 0.001 ms/frame** — 18,000x real time, 0 tiles
+  solved, 0 chunks awake. The sleeping machinery is already perfect, so every
+  millisecond in this game is bought by something being alive.
+- **Cost is ~0.7 µs per living plant cell per tick and is not a function of
+  world size.** A 2048-wide bed measured **cheaper** than a 512-wide one at
+  fixed founders (2.505 vs 3.232 ms), because the same stand spread thinner.
+  Shrinking the box concentrates the stand, which is the expensive direction.
+- **Everything the concept deletes already costs nothing**: `player 0.001`,
+  `rigid bodies 0.001`, `blasts 0.000`, `particles 0.000`, `liquid bodies
+  0.000` ms. The case for stripping them is scope, risk and *cadence
+  freedom*, not frame time.
+- **The plants' and creatures' own biology is 7% of the frame.** The other
+  93% is the CA sweep and the coarse air field — the substrate that exists to
+  carry an outdoor world.
+- **Soil depth costs and, at this stand size, buys nothing**: 40 → 240 rows is
+  2.294 → 4.380 ms for a byte-identical stand, because herb's roots never
+  reach past 40.
+
+**The generation clock is already fast enough.** 45,000 frames of herb —
+`plant-throughput-herb-2026-08-29.md`'s generation 5–7 run — took **4 min 17 s**
+headless, about 1.4 generations per wall-clock minute, unoptimised. And the
+grow light is a *throughput* lever rather than a performance one: holding the
+sky at full amplitude produced **1,037 seeds against 435** over the same 6,000
+frames, 2.4x the reproduction, at 12% more cost per frame.
+
+**The blocker is biological.** `creature_probe terrain=world frames=12000
+ants=45` reports `births 0`, `deepest generation 0`, richest bank **219**
+against a birth cost of **1,040** — which is what `ant.ron`'s own comment says,
+written the same morning. Plants breed (`herb`); ants have never reached
+generation 1. A game about evolving creatures cannot start there.
+
+Two instrument corrections came out of it. The `floor` arm (field not called)
+reads 0.007 ms and a stand of **14 cells / 0 seeds** — light is delivered
+through the field, so it measures a dead lab rather than a cheap one, which is
+the *work that vanished* trap firing on the first run. And the `lab` arm first
+held the sky at `DAY_NIGHT_PERIOD_FRAMES / 4` on the assumption that a quarter
+of the cycle is noon; it is not, the phase belongs to `sun_elevation`, and the
+dim pin reversed the sign of the grow-light result. The harness now finds noon
+by maximising `sky_light_amplitude` and prints what it held.
+
+`instruments.md`'s own count was stale by thirteen (36 claimed, 49 actual) and
+is recounted from `ls` rather than incremented.
+
+Full account: `Reports/evolution-lab-feasibility-2026-08-30.md`.
+
+## 2026-08-30 — the 93% was the biosphere, and the air is a dormant mechanic
+
+Correction to the entry above, prompted by the owner reading its framing back:
+*"doesn't this carry stuff very important for creating the biospheres in the
+game?"* It does. Calling the CA sweep and the coarse field **"the substrate
+that exists to carry an outdoor world"** was wrong, and the sentence would have
+licensed deleting the game's environment as scaffolding.
+
+**Every channel in the field has a biological consumer.** `step_diffusion`
+spreads `light`, `temperature`, `sky_temperature` and `moisture` — its own code
+says a wall *"has no temperature or light of its own"*. `step_advection` blends
+all of those **plus** pressure and velocity along the velocity field, so it is
+how heat and humidity move on the air. `light` feeds photosynthesis and
+phototropism, `temperature` feeds the ant brain's `TempAboveAmb` input,
+`moisture` feeds `organism::moisture_pull` root hydrotropism, and `vx`/`vy`
+feed `organism::wind_lean_dir`. And the CA sweep in a soil bed is the water
+cycle: infiltration, drainage, evaporation, roots drinking.
+
+So the split is **organisms 7% against the environment they live in 93%**, and
+the second number is the game rather than overhead. Which is the better news
+for a game about populations: adding organisms is the cheap direction.
+
+**The one separable part is much narrower than claimed, and was measured
+rather than argued.** New control `FIELD_MOMENTUM=0` in `field.rs` (a control,
+never a setting, defaulting to the shipped behaviour bit-identically) switches
+the three momentum passes off for a run. `labbox_cost width=1024 soil=120
+trees=16 species=herb frames=6000`, wind running, three seeds:
+
+  seed 1   4.209 -> 3.365 ms   cells 5220 -> 5337   orgs 370 -> 376
+  seed 2   3.474 -> 3.075 ms   cells 3993 -> 4492   orgs 264 -> 274
+  seed 3   5.880 -> 5.228 ms   cells 4530 -> 4577   orgs 274 -> 290
+
+**11-20% of the frame, and the stand comes out slightly larger without it** —
+more cells and more organisms in 3 of 3 seeds, seeds set within 2%. So in a bed
+with nothing driving air motion, the air's own mechanics are real cost doing
+mildly negative biological work.
+
+That is a statement about the bed, not the concept. Outdoors the weather forces
+those passes for free and they buy tree lean, smoke and drift; in a sealed box
+nothing forces them, so **the air simulation becomes player-driven rather than
+ambient** — a fan or a heater is then the thing that switches a pass on, which
+is an argument for the equipment layer rather than against the air sim.
+
+Why it cannot sleep today: `skip_momentum` needs `!any_fluid` — no chunk awake
+*anywhere* — plus every tile in range at exactly zero pressure and velocity. A
+growing plant marks its chunk dirty, so in any living world the passes run
+permanently. A per-tile gate is the repair and is worth ~1.1x.
+
+`Reports/evolution-lab-feasibility-2026-08-30.md` §3a records the wrong version
+beside the right one rather than overwriting it, because the wrong one is the
+intuitive reading and someone will arrive at it again.
+
+## 2026-08-30 — three claims in the feasibility report do not survive being attacked
+
+The owner asked why the shipped game is nowhere near the 1.4 generations per
+minute the headless bed measured, and then asked for anything contradicting
+the analysis to be validated. Three of the report's claims failed.
+
+**1. "World size is not a term in the cost" — true only with the sky held.**
+The width sweep behind it was run on the `lab` arm alone. Re-run with both,
+founders fixed at 16:
+
+  width   live ms   live solved/f   lab ms   lab solved/f   tiles in world
+    512     4.818            40.0    5.092           24.7               40
+   1024     5.133            80.0    3.897           40.3               80
+   2048     5.484           160.0    2.679           53.4              160
+   4096     7.178           320.0    4.082          123.2              320
+
+With the sun running, `solved/frame` is **exactly every tile in the world,
+every frame**, and the field's cost is linear in width (2.32 -> 6.52 ms). The
+mechanism is `sky_drifted`, which `frame-cost-audit-2026-08.md` named in
+August: a lit tile with a stale amplitude solves whether or not anything in it
+moved. So under a moving sun width IS the dominant term -- which is why the
+shipped game is slow -- and the lab's saving is real but conditional on there
+being no sun.
+
+**2. "Deleting rock and collapse saves essentially nothing" — wrong, and
+wrong circularly.** It was measured in a hand-built bed with nothing to
+collapse, so the collapse system idled by construction. Asked of the shipped
+world with `PROBE_NO_LOAD=1`:
+
+  active sites: scheduler   3.389 ms (16.7%)  ->  0.197 ms (1.4%)
+  whole frame              20.262 ms          -> 14.263 ms
+
+**3.19 ms directly, 15.7% of the frame, a 17x drop.** The whole-frame 30% is
+one unpaired pair and is a direction, not a figure. The conclusion survives
+(a lab box is fast) but the reason was wrong: you collect that 16% by not
+having rock, not by deleting code.
+
+**3. "~0.7 us per living plant cell" — not a constant.** The three arms it was
+read off all ran at the same width and the same founder count, so they could
+not test a per-cell model at all -- this file's own *ask what your number
+counts* rule, applied to a ratio. On the sweep that does vary the stand it is
+strongly sublinear (2.25 us/cell at 497 cells, 0.91 at 5,684 -- an 11x stand
+for 4.6x the cost), and in the `live` arm it breaks outright.
+
+Also recorded: the shipped world on this machine measures **20.262 ms/frame
+with no render and nobody playing**, 60.4% of frames over budget, 5,120 chunks
+resident and **24 awake**. Report gains section 3b, which decomposes the
+game-versus-harness gap into the sun, the renderer and the 60 Hz fixed
+timestep, and section 3c for the destruction correction.
+
+`Reports/frame-cost-the-render-half-2026-08-29.md` is another session's, not
+this one's; its glow-halo fix is already in this tree, so the render figures
+quoted here are post-fix.
+
+### ...and the headline claim was a splice, now closed
+
+The report's own headline — "5-7 herb generations in 4 min 17 s" — quoted this
+session's wall clock against the **earlier report's** generation counts. Same
+parameters, but a build 17 commits older, and determinism is same-build only,
+so the two were never entitled to be quoted together. Re-run with the
+population block captured:
+
+  population: 2477 organisms -- 154 established; 11314 seeds set
+  generations [gen 0: 14, gen 1: 496, gen 2: 939, gen 3: 699,
+               gen 4: 204, gen 5: 120, gen 6: 5]
+  established carrying an inherited genome: 140 of 154, deepest generation 5
+  real 4m1.886s
+
+Deepest established generation **5**, 91% of established plants carrying an
+inherited genome, in **4m02** -- on a busier machine than the first run's
+4m17. Two runs, +/-3% on the clock, and the biology matches the earlier
+report's seed 1 (10,926 seeds, 110 of 125 established, deepest 5). The claim
+survives; it is now this build's own measurement rather than two runs stapled
+together. Headline restated as ~1.2 generations per wall-clock minute.
+
+### ...and the design guide the measurements imply
+
+`Reports/evolution-lab-design-guide-2026-08-30.md`, written on request. Not a
+plan and not a schedule -- it keeps **measured / policy / call / open** apart
+throughout, because most of the interesting content is calls and they should
+be attackable as such.
+
+**Its §0 is the finding that reframes the concept: the lab game already exists
+as a decision.** Owner decision E8, 2026-08-23 -- *"evolution is a dev tool as
+well as a mechanic: we can use it to create new creatures that get saved and
+added to the game"* -- is the lab game with a player in it, and the export path
+already ships: `examples/species_export.rs` writes a genome and its traits out
+as `assets/species/<name>.ron` and reads them back through the loader. So the
+lab's core loop produces content for the main game, and the two should share
+the species format rather than code.
+
+§2 turns each measurement into a design consequence rather than a budget line:
+unused lab space is free (an empty box is 0.001 ms); the lab has a ceiling
+rather than a sky, which is the fiction and the largest performance decision
+at once; population is the frame budget and it is already a diegetic quantity;
+soil depth is an upgrade that costs 1.9x and returns nothing until something
+reaches it, which most upgrade trees have to fake; the grow light is a 2.4x
+reproduction lever; equipment is what switches on an air simulation that
+otherwise runs idle; and diggable collapsing rock is a **16% purchase**
+(section 3c) to be made deliberately.
+
+§3 is five gates, each a thing that must be measured rather than done. Gate 0
+is "an ant reaches generation 2" and nothing downstream matters first. Gate 1
+is that **no scene today runs plants and creatures in one hand-built box**.
+Gate 2 is `selection_arena` against the lab bed, where a null is a finding
+about the bed rather than the genome.
+
+§4 lists candidate verbs each with what it produces, per the second law. The
+useful count: **only `cull` and `partition` have no engine support**, and they
+are the two the premise most depends on -- everything else is exposing
+something that already runs.
+
+§5 answers "reward interesting behaviour" without naming a behaviour, by
+lifting `creature-evolution-plan.md` §7's own success definition: coverage
+smaller than random sampling's 26/81 while occupied cells are *separated*,
+plus asymmetric reciprocal transplant. `creature_space` measures the first
+half today and the lab's partitions give the second for free.
+
+§6 puts the brief's "keep them alive or start all over" against the first law
+-- an outcome is a distribution, not a binary -- and proposes the graded form
+the plant line already uses for senescence.
+
+## 2026-08-30 — it is the wind, not the sun, and the lab is not a fork
+
+Two owner questions, both answered by measurement, and the first overturns a
+claim this session made twice.
+
+**1. "Can we fake the sun a little in the main game and get a big boost?"
+No -- because the sun is not what is costing.** Three arms at width 4096,
+matched stands, 320 field tiles in the world:
+
+  live  (sun + weather)   7.045 ms   solved 320.0  (every tile)  1247 cells
+  calm  (sun only)        4.176 ms   solved 141.6                1227 cells
+  lab   (neither)         4.021 ms   solved 123.2                1653 cells
+
+Removing the **weather** saves 41% of the frame and 56% of the solve set at a
+stand matched to within 2%. Removing the **sun's drift** on top saves a further
+4%, from an arm carrying *more* biomass. In tiles: weather wakes 178 of 320,
+the sun wakes 18.
+
+**And slowing the sun buys nothing at all.** `Clock::day_minutes` is the
+shipped, player-facing lever, and `field.rs`'s own comment claims a longer day
+is "proportionally cheaper here". Swept with weather running:
+
+  daymin  1   7.081 ms   solved 320.0   1247 cells
+  daymin  4   7.076 ms   solved 320.0   1499 cells
+  daymin 16   7.156 ms   solved 320.0   1598 cells
+  daymin 64   7.323 ms   solved 320.0   1661 cells
+
+A **64x longer day** changes the frame 3% and the solve set not at all, while
+the stand grows 33% -- so the flat cost is against rising biomass, which makes
+the null stronger. The comment is true of the global `amplitude_changed` flag
+and irrelevant to the solve set, because the weather already has every tile
+unsettled before the sun is consulted. **You cannot see the sun underneath the
+wind.** Feasibility report gains section 3d; two earlier statements that named
+the sun are corrected in place.
+
+**2. "Can the two games share the plant and animal code instead of forking?"
+Yes, and the reason is a measurement rather than an abstraction: you do not
+have to remove anything to get the lab's speed.** Every system the concept
+strips already costs ~0 with nothing to do -- blasts 0.000, particles 0.000,
+rigid 0.001, player 0.001 ms, and the structural scheduler 0.028 ms in a bed
+with no rock against 3.389 ms shipped. The lab's speed comes from what is not
+in the *box*, not from what is not in the *binary*.
+
+`Cargo.toml` declares neither `[lib]` nor `[[bin]]`, so a second binary is
+`src/bin/lab.rs` against the same library -- a pattern already proven 49 times
+over, since every `examples/` harness is exactly that. The real coupling risk
+is **constants, not code**: the plant economy is calibrated against the
+outdoor world, and a lab at constant light with no wind is a different
+operating point for the same weighted sums. Held at the species file first,
+`tunables.rs` second, a per-world block only if those fail. Design guide gains
+section 7a.
+
+**Two owner decisions recorded** (design guide sections 2a, 2b): **soil is
+required** -- plants root into it, creatures dig homes in it -- so the 1.9x
+depth cost is accepted and the obligation flips to making sure something
+reaches the depth being paid for; and **collapsing tunnels are removed**, so
+the 16% structural purchase is declined and a burrow is permanent once dug.
+What threatens a burrow instead -- water, decay, or the colony's own growth --
+is now an open question rather than a settled one.
+
+### ...and a fan turns out to be weather, which partitions then pay for
+
+The owner spotted the contradiction: if weather costs 41% of the main game's
+frame by waking every tile, and a fan drives air the same way, doesn't
+installing one break the lab? **Yes to the first half.** Modelled with
+`World::add_pressure_impulse`, one fan takes an open 1024-wide box from 40.3
+solved tiles to **80.0, every tile in it**, and at 4096 wide a single fan
+costs **6.999 ms against full outdoor weather's 7.045 ms**. Same mechanism,
+same price. The "a fan is local where weather is global" hypothesis was wrong.
+
+**No to the second half, for three measured reasons.**
+
+Cost is a **step function**: 1 fan 3.523 ms, 2 fans 3.539, 4 fans 3.495, 8
+fans 3.610. The first fan wakes the box and the rest are free, so the question
+is "does this space have moving air", never "how many fans".
+
+The ceiling is **box size**: the main game runs wind across 5,120 chunks and a
+lab across 80. Even fully awake, 1024 wide is 3.5 ms -- 4.7x real time.
+
+And **walls contain it**, which is the finding worth keeping. One fan, 2048
+wide, 160 tiles, compartments floor to ceiling:
+
+  compartments   ms      solved/f    speed-up   plant cells
+      1 (open)   4.097   159.7       4.1x       1048
+      2          3.119   102.6       5.3x       1046
+      4          2.863    78.5       5.8x       1046
+      8          2.389    62.8       7.0x       1005
+     16          2.207    52.7       7.6x        949
+
+Partitioning a fanned bed **nearly doubles the speed-up** at a stand held to
+within 0.2% through the first three rows. Design guide section 5 already
+wanted partitions for evolutionary isolation; they are air partitions too, so
+one wall buys isolation, a scoring mechanic and the frame time back. Air
+should therefore be a **per-compartment** property rather than a
+facility-wide one.
+
+**One scene error changed the answer and is recorded.** The first `walls=`
+sweep put its single fan at `width/2`, which is also where the partition goes
+at every power-of-two compartment count, so the impulse straddled two
+compartments and containment measured as none at all (159.7 solved at 2
+compartments against 102.6 once the fan sits inside one). A scene that
+contradicts the thing under test looks exactly like a weak effect. The harness
+now offsets each fan by a third of a spacing.
+
+New `labbox_cost` args: `fans=N`, `fan_radius=`, `fan_force=`, `walls=N`.
+
+## 2026-08-30 — the lab's opening is a deadlock, and the deadlock is the point
+
+Design guide finalised with the owner's vision put to him directly. One
+decision, three deliberate deferrals, and one finding that came out of taking
+the premise literally.
+
+**The owner's opening is "the most basic creature that cannot even feed
+itself", and the shipped ant already is that.** But the intuitive mechanic --
+hand-feed it until it can stand on its own -- **does not work, and the
+arithmetic says why**: birth cost 1,041 against a richest measured bank of
+219, and the bank has a *ceiling* (the hunger line plus one mouthful, a
+neutral gut drawing 120 from a 480 leaf) rather than a supply problem. Piling
+food in front of it changes nothing.
+
+**And the exit is closed from both ends.** `gut_bias` is heritable and a
+specialised gut would clear the bar, but mutation needs reproduction and
+reproduction is what the gut blocks. You need to breed to evolve the gut and
+the gut to breed.
+
+**The call: that deadlock is the opening's content, not its obstacle.** The
+player's first machine pays the birth cost the creature cannot -- an incubator
+subsidising the ~820 shortfall -- so a first generation exists, selection has
+something to act on (400 random genomes span survival 0.103-0.541), and the
+first real win is legible without a tutorial: *switch the machine off and they
+keep going.*
+
+**This reframes Gate 0.** Read naively it says "make the ant self-sufficient",
+which would delete the opening. What the lab needs is that a first generation
+is *reachable* -- by a player machine, a lab-only species file, or the engine
+fix. Only the last is expensive and the outdoor game needs it anyway. The lab
+wants the deadlock; the outdoor game wants it fixed; §7a says they can have
+both, because the difference is a species file and a machine rather than
+engine code.
+
+**Decided (§7b-i): mutation is a progression, not a choice.** Selection only
+at the opening; mutagens bought or acquired mid-game (the `mutation_rate` and
+`FATE_MUTATION_CHANCE` dials already exist as data, so it is equipment writing
+a number); rare directed splicing a late-game maybe, explicitly not committed.
+
+**Deferred by the owner, with what would decide each recorded (§7b-ii)**: what
+leaves the lab on a sale, what sets a price, and how graded failure is. All
+three came back as "way down the line" or "needs playtesting". Worth carrying:
+the owner's pricing instinct (*"value scales with novelty"*) and §5's proposed
+score are the same quantity from two sides -- if that holds, the economy is
+the biology's own score with a price on it rather than a second system.
+
+**New open question §8.9, and it is uncomfortable**: what does the player
+watch during a Running phase? `creature_look` and `motion_look` measured that
+an ant is two dark cells at play zoom, findable only because it moves -- and a
+dead one has stopped moving, so it is unfindable by the very channel that
+finds a live one. A phase whose whole content is "watch evolution happen" has
+a legibility problem this repo has measured and not solved.
