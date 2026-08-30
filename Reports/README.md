@@ -754,6 +754,23 @@ drift that two of these documents still reflect.**
   work packages with file anchors, steps, measurements and landing
   checklists; the scope guard on what must not start before the owner's
   verdicts (S6, S7's larder, new channels).
+- [creature-vision-sizing-2026-08-30.md](creature-vision-sizing-2026-08-30.md)
+  — **measured pre-flight, 2026-08-30; instrument `examples/vision_probe.rs`,
+  no behaviour changed.** Sizes **E15**'s sight sense before anyone builds it,
+  by tracing the geometry that already exists: **build it at radius 64,
+  all-round, seeing over the floor litter**, and it costs **0.005 ms of a
+  frame** — 0.16% of `ascii`'s 3.00 ms mean, below what a wall clock resolves,
+  and under 10% of a frame only past ~317 predators. The radius argument is
+  the **p10 seed** rather than the median: the stranded beetle sees prey
+  0.108–0.260 of the time at r32 and 0.240–0.389 at r64, over three presets
+  and 18 seeds each. Two findings the design has to carry: what blocks a
+  sight line is **floor clutter, not landscape** (seed, litter, corpse, soil
+  — 28.1% of pairs on `wetland`, 8.6% with the eye one cell up), and making
+  **foliage a binary blocker costs half the sense** (0.667 → 0.350) with no
+  eye height buying it back, which is `CLAUDE.md`'s *an outcome is a
+  distribution, not a binary* arriving on the creature line. Does not answer
+  whether a beetle acts on a sighting; `predation_probe`'s control already
+  says the kill works at contact.
 - [foraging-range-measurement.md](foraging-range-measurement.md) —
   **measured record, instrument landed via `da252dc`;** §0 and §5 corrected
   on landing, **§3 corrected 2026-08-23** by WP-9 arm 1's re-test. Why
