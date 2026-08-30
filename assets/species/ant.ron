@@ -32,13 +32,54 @@
         // cheaper to run than a worm and has to complete round trips, so
         // it gets a longer budget against a lighter idle cost. These are
         // the knobs a colony that starves too fast is tuned with.
-        start_energy: 900.0,
+        //
+        // **200, cut from 900 -- E14, "yes, let them starve"**, and the
+        // number is derived rather than chosen. An idle life is
+        // `start_energy / idle_cost` ticks of `tick_interval` frames:
+        // 200 / 0.10 * 6 = **12,000 frames, exactly one scene horizon**.
+        // At 900 it was 54,000, so a scene saw 22% of a lifetime, and
+        // foraging perfectly and never eating at all came out the same
+        // inside any run a harness could afford. **E14's own decision
+        // record says `deaths` read 0 "everywhere"; that is false and the
+        // truth is better** -- the uncut ant dies at 36,000 frames and
+        // later (0 / 0 / 14 / 34 at 12k / 24k / 36k / 54k) and then keeps
+        // dying, because every ant is spending down a grant its satiety
+        // ceiling will not let it replace. The cut colony takes 16 losses
+        // inside 12,000 frames and then very nearly stops (16 / 17 / 20 /
+        // 22 over the same horizons), so by 54,000 frames it has lost
+        // *fewer* ants than the uncut one. The cut does not add death; it
+        // converts an unbounded run-down into an early cull that settles.
+        //
+        // Measured 2026-08-30, `creature_probe terrain=world frames=24000`
+        // across the cut: deaths 0 (at 900) -> 26, 28, **17**, 11, 7 at
+        // start_energy 90, 150, 200, 300, 450, with 19, 17, **28**, 34, 38
+        // of the 45 founders still alive. The colony is thinned at every
+        // setting and wiped out at none, which is the graded outcome the
+        // house ethos asks for rather than a binary.
+        //
+        // **What the cut does NOT change, and why each is left alone:**
+        // `synapse_fraction` is authored as a fraction of this budget and
+        // rescales itself (that is what §13j bought); `idle_cost` and
+        // `move_cost` are this knob's other operands -- re-deriving them
+        // would put the horizon back and undo the change -- and their 2.5:1
+        // ratio is the researched worm figure, which the cut preserves;
+        // `hunger_fraction` is a fraction and rescales, and raising it is a
+        // recorded dead end (deliveries 1,733 -> 3); `body_energy` is
+        // pinned to the flesh pricing invariant against the `ant`,
+        // `chitin_*` and `corpse` materials and cannot move from this file
+        // alone. `reproduce_threshold` is the one that had to be
+        // re-derived, and it is, below.
+        start_energy: 200.0,
         idle_cost: 0.10,
         move_cost: 0.25,
 
         // Per active synapse per tick, **as a fraction of start_energy**:
-        // 2.2222222e-6 * 900 is the 0.002 this was authored as, exactly, in
-        // f32 at both this budget and the 90 the sweep harness cuts it to.
+        // 2.2222222e-6 * 900 was the 0.002 this was authored as, exactly,
+        // in f32 at that budget and at the 90 the sweep harness cuts it to.
+        // **The fraction is why E14 could cut the budget to 200 without
+        // touching this line** -- the tax is now 4.44e-4 per synapse per
+        // tick and every ratio below is unchanged, which is the whole
+        // reason it stopped being an absolute.
         // Against idle_cost 0.10, a fully-dense brain (~168 connections)
         // costs about a third of standing still and the authored sparse
         // brain below (11 connections) costs about 2%. The magnitude is not
@@ -177,34 +218,63 @@
         // eating fallen leaves" is about. Specialising is what pays now --
         // a gut at -1.0 draws 480 from a leaf against this ant's 120 --
         // which is the trade S5 exists to create.
-        traits: (0.0,),
-        // The width one birth may move the gut. Authored here so it and
+        // Slot 0 is the gut, above. **Slot 1 is `birth_grant`** -- where
+        // on the `-1..=1` axis this lineage provisions its young, read as
+        // a fraction of `start_energy` by `creature::grant_fraction`.
+        // -0.2 is a **0.4 grant**: a newborn is handed 80 of a 200 budget,
+        // which is 800 idle ticks = 4,800 frames to find its first meal.
+        // Ancestral 0.3-0.5 per the economics report's §5.1, sitting off
+        // centre so the allele has room to move in both directions.
+        //
+        // **This is the number §2.6's anti-freeloading rule was always
+        // about.** "The threshold must exceed `start_energy`" was a proxy
+        // for "the threshold must exceed what a newborn is *given*", and
+        // the two were the same number only because a bud was handed a
+        // full species budget. They are not the same number now.
+        traits: (0.0, -0.2),
+        // The width one birth may move the gut, and the grant. Authored so it and
         // the ancestral value it widens cannot drift apart in separate
         // commits -- see `CreatureDef::trait_variance`. Read by nothing
         // until S6; read by `creature::try_bud` now that S6 is in.
-        trait_variance: (0.15,),
+        trait_variance: (0.15, 0.15),
 
         // **Budding: the bank an ant must reach before it makes another
         // ant** (S6, `Reports/creature-evolution-plan.md` §2.6). This is
         // the line that switches evolution on -- every gene the last five
         // stages built was inert until something inherited one.
         //
-        // 2000 against a birth cost of 1860 (`start_energy` 900 plus
-        // `body_energy` 480 for each of two body cells). Two things about
-        // that number, and the second is the one to read:
+        // **1100, re-derived for the 200 budget** -- the 2000 this was
+        // authored as described itself as "clears `start_energy` by more
+        // than a factor of two", which at a budget of 200 would have been
+        // a factor of ten and meant nothing. The birth cost is now the
+        // grant (0.4 * 200 = 80) plus the stamp (480 for each of two body
+        // cells), so `creature::reproduce_at` floors this at **1041**;
+        // 1100 sits just above the floor so the authored number is a
+        // statement rather than a value the floor silently replaces.
         //
-        // * It clears `start_energy` by more than a factor of two, which
-        //   is §2.6's rule and its whole point: reproduction is
-        //   unreachable without feeding, so doing nothing is not a slow
-        //   strategy, it is the end of a line.
-        // * **The stamp is the expensive half, and it does not move when
-        //   the grant does.** Whatever `start_energy` is set to, a birth
-        //   needs ~960 of *harvested* energy on top of a full bank --
-        //   about two corpse cells at `food_energy: 480`. That is what
-        //   makes this threshold a statement about foraging rather than
-        //   about the size of the grant, and it is why cutting the grant
-        //   to shorten the horizon does not also make breeding harder.
-        reproduce_threshold: 2000.0,
+        // **Read this next part before treating the number as a knob.**
+        // The stamp is the expensive half and it does not move when the
+        // grant does: whatever the endowment is cut to, a birth still
+        // needs 960 of *harvested* energy. Against that, an ant's bank has
+        // a hard ceiling -- it stops eating above `hunger_fraction *
+        // start_energy` and carries the mouthful home instead, so the most
+        // it can ever hold is the hunger line plus one mouthful, and a
+        // neutral gut draws 120 from a 480 leaf through `diet_yield`'s
+        // matched filter. Measured 2026-08-30: **richest bank 567 at a
+        // budget of 900, 219 at 200**, against a floor of 1,041.
+        //
+        // **So the shipped ant does not breed, at any grant and at any
+        // budget, and this line cannot fix that** -- the earlier note here
+        // had it backwards when it said cutting the grant "does not also
+        // make breeding harder". Cutting `start_energy` lowers the ceiling
+        // (0.5 * S) faster than it lowers the cost, because the 960 stamp
+        // is invariant to it: bank-over-bar goes 0.30 at 900 to 0.21 at
+        // 200 to 0.16 at 90. Closing it needs the *stamp* term, not this
+        // one -- a child born at one cell that grows into its plan, or a
+        // gut specialised enough to draw 480 from a leaf. Full arithmetic,
+        // and why tuning this line is the trap rather than the fix, in
+        // `Reports/creature-birth-grant-2026-08-30.md`.
+        reproduce_threshold: 1100.0,
         // Per live genome slot, per birth. 268 slots are live, so this is
         // about 2.7 point mutations per child -- enough that a lineage
         // drifts within a run, far short of the density explosion an
