@@ -569,7 +569,59 @@ impl Carvable {
                 rock[i] = true;
             }
         }
-        let ok = erode(&rock, gw, gh, VAULT_RIND as usize, VAULT_RIND as usize);
+        let mut ok = erode(&rock, gw, gh, VAULT_RIND as usize, VAULT_RIND as usize);
+        // **The envelope's own edge is a hole in that erosion, and it has to
+        // be closed here rather than excused at the assertion.** `erode`
+        // clamps its window at the grid border (`x.saturating_sub(rx)`), so a
+        // cell two columns inside the edge is asked only about the *part of
+        // its rind that is inside the envelope* -- and the two columns beyond
+        // it, which no stage ever looked at, are whatever `pockets` put there.
+        // Measured 2026-08-30: `cave system k=67 at (1325,857) env 638x487:
+        // rind cell (-640,34) world (685,891) is "gravel" inside=false`, and
+        // the same defect fires at the **shipped 8192x2560 at the shipped
+        // density** -- canyon, 1 seed in 16, `worldgen::generate` panicking
+        // outright. A lens two cells from a room wall is not a cosmetic
+        // breach either: soil and gravel are `Powder`, so it pours in on
+        // frame one, which is the whole of `Reports/dead-ends.md` #28.
+        //
+        // Closed by asking the world directly, over the band the erosion
+        // could not see -- ~10k cells against the envelope's 1.6M, so it is
+        // free -- and the predicate is the *seal's own* (`Material::rock`),
+        // not this function's, because the seal is what has to be satisfied.
+        // A pocket outside the envelope reads as loose and correctly clears
+        // the cell: `take_touched_pockets` can only empty a pocket it has an
+        // id for, and it has none out there.
+        //
+        // It **narrows the mask, never widens it**, and only within
+        // `VAULT_RIND` of the edge -- so a world that does not trip the
+        // assertion today generates identically. Verified: `cave_probe` at
+        // 16 seeds x 6 presets, shipped size, before and after.
+        for dy in -env.half_h..=env.half_h {
+            for dx in -env.half_w..=env.half_w {
+                let i = dy_i(env, dx, dy);
+                if !ok[i] {
+                    continue;
+                }
+                if dx.abs() <= env.half_w - VAULT_RIND && dy.abs() <= env.half_h - VAULT_RIND {
+                    continue; // the whole rind is inside, so `erode` already answered
+                }
+                let mut sealed = true;
+                for ry in -VAULT_RIND..=VAULT_RIND {
+                    for rx in -VAULT_RIND..=VAULT_RIND {
+                        let (nx, ny) = (dx + rx, dy + ry);
+                        if nx.abs() <= env.half_w && ny.abs() <= env.half_h {
+                            continue; // inside: `erode` covered it
+                        }
+                        let (px, py) = (cx + nx, cy + ny);
+                        if px < 0 || px >= w || py < 0 || py >= h || !world.materials.get(world.get(px, py).material).rock {
+                            sealed = false;
+                        }
+                    }
+                }
+                ok[i] = sealed;
+            }
+        }
+        let ok = ok;
         // And again by the **narrowest** section a conduit can cut, not the
         // widest. Eroding by the widest was the first version and it is the
         // size-cap landmine in a new costume: at `TUBE_HALF_W_MAX` across and
@@ -737,6 +789,16 @@ fn swallowable(rock: &[bool], gw: usize, gh: usize) -> (Vec<u32>, Vec<Vec<usize>
 /// Separable: a horizontal pass then a vertical one, each using a prefix sum
 /// of the *false* count so a window query is two subtractions rather than a
 /// scan.
+///
+/// **The window is clamped at the grid border, so the result is optimistic
+/// there**: a cell within `rx`/`ry` of an edge is judged on the part of its
+/// window that exists, and says nothing about the world beyond the grid. That
+/// is a hole in any guarantee phrased over the *world* rather than over the
+/// mask, and it cost a shipped-size crash -- see the band pass in
+/// [`Carvable::build`], which closes it by asking the world directly. Do not
+/// "fix" it here by treating out-of-grid as false: `ok_tube` erodes by the
+/// tube's whole section, and a false border there would refuse a route the
+/// per-cell clip handles correctly.
 fn erode(src: &[bool], gw: usize, gh: usize, rx: usize, ry: usize) -> Vec<bool> {
     let mut tmp = vec![false; gw * gh];
     let mut pre = vec![0u32; gw + 1];

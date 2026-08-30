@@ -492,8 +492,21 @@ fn every_pass_writes_something() {
     // world these exclusions describe, so each stays a claim about the pass
     // rather than about the sky. The shipped-size half below is unpinned and
     // still reads the real preset.
+    //
+    // **`massif_amplitude` has to be pinned with it, and that is the pin
+    // doing its own job rather than a second exemption.** W1's massif is
+    // bounded by `column.rs`'s `relief_headroom` -- `h - (sky_rows +
+    // 2*relief + 2*hill + dune + 24)` -- so `sky_rows` is now an input to
+    // *how much mountain this world gets*. At the real 190 a 320-row world
+    // scores -46 and the massif is off; at the pinned 95 it scores 49 and
+    // switches on, which is a landform the shipped 512x320 world does not
+    // have. That is exactly what the pin exists to prevent, and it broke the
+    // springs exclusion below: 512x320 writes **0** spring cells with
+    // `PIXEL_PHYSICS_RELIEF=0` and **109** with the massif the pin let in.
+    // Pinning it to 0 restores the composition the real preset gives at this
+    // size, so the exclusions stay claims about their passes.
     let base = presets.get(&presets.default_name()).expect("default preset");
-    let params = &WorldgenParams { sky_rows: 95.0, ..base.clone() };
+    let params = &WorldgenParams { sky_rows: 95.0, massif_amplitude: 0.0, ..base.clone() };
     // Brows and talus depend on the world containing genuine cliffs, which
     // is a per-seed property; checked across the sweep rather than per seed.
     let mut totals: std::collections::BTreeMap<&str, usize> = Default::default();
@@ -508,10 +521,17 @@ fn every_pass_writes_something() {
         // the reason is the world *size* rather than the pass: a chamber must
         // sit `vault_min_depth` (200) rows below the surface and stop
         // `vault_bedrock_margin` (16) above bedrock, and at 512x320 -- surface
-        // around y 100-200, bedrock around y 300 -- that band is empty. The
-        // shipped world is 2048x640, where it fits. Asserting it separately
-        // below rather than excusing it keeps the guard's teeth: if the pass
-        // stops firing at the shipped size too, something still fails.
+        // around y 100-200, bedrock around y 300 -- that band is empty.
+        // Asserting it separately below rather than excusing it keeps the
+        // guard's teeth: if the pass stops firing at the shipped size too,
+        // something still fails. **That half used to say "the shipped world
+        // is 2048x640, where it fits" and build one; it is neither.**
+        // `app::WORLD_*` has been 8192x2560 throughout, and the rebuilt cave
+        // generator needs a minimum 380x260 envelope, which a 640-row world
+        // cannot hold at all (see [`CAVE_BOUNDS`]) -- so the half that was
+        // meant to prove the pass still fires somewhere was quietly asserting
+        // it at a size where it now cannot. It reads the real shipped size
+        // below.
         if *name == "vaults" {
             assert_eq!(*cells, 0, "vaults placed a chamber at 512x320, where the depth band should be empty");
             continue;
@@ -550,36 +570,38 @@ fn every_pass_writes_something() {
         }
         assert!(*cells > 0, "pass {name} never wrote a cell across {} seeds", SEEDS.len());
     }
-    // The other half: at the size the game actually ships, vaults fire.
-    let mut vault_cells = 0;
-    for seed in SEEDS {
-        let mut world = World::new(Rect::new(0, 0, REVIEW_BOUNDS.0, REVIEW_BOUNDS.1));
-        // `base`, not the pinned `params`: at a world this tall `sky_rows` is
-        // a few per cent of the height, so the real preset is what should be
-        // under test here.
-        for (name, cells) in worldgen::generate_reported(&mut world, Spec::Generated { params: base, seed }) {
-            if name == "vaults" {
-                vault_cells += cells;
-            }
-        }
-    }
-    assert!(vault_cells > 0, "vaults never wrote a cell across {} seeds at the shipped 2048x640", SEEDS.len());
-
-    // And `springs`, at the size that actually ships: its source basin needs
-    // a cliff with level rock behind it, which is a property of a big world's
-    // terrain rather than of the pass.
+    // The other half: at the size the game actually ships, both of the passes
+    // excused above do fire. **One sweep for both**, because they are the same
+    // claim about the same worlds and each of these costs seconds -- the
+    // vaults half used to build its own five at 2048x640 and the springs half
+    // two more at the real size, and merging them takes the springs claim from
+    // two seeds to five while building fewer worlds than before.
     let big = (pixel_physics::app::WORLD_WIDTH as i32 - 1, pixel_physics::app::WORLD_HEIGHT as i32 - 1);
-    let mut spring_cells = 0;
-    for seed in [1u64, 7] {
+    let (mut vault_cells, mut spring_cells) = (0, 0);
+    for seed in SEEDS {
         let mut world = World::new(Rect::new(0, 0, big.0, big.1));
-        // `base` for the same reason as the vault sweep above.
+        // `base`, not the pinned `params`: at a world this tall `sky_rows` is
+        // a few per cent of the height and `relief_headroom` is 2,180 rows
+        // against the largest preset's 380, so the real preset is what should
+        // be under test here and nothing about it is clamped.
         for (name, cells) in worldgen::generate_reported(&mut world, Spec::Generated { params: base, seed }) {
-            if name == "springs" {
-                spring_cells += cells;
+            match name {
+                "vaults" => vault_cells += cells,
+                "springs" => spring_cells += cells,
+                _ => {}
             }
         }
     }
-    assert!(spring_cells > 0, "springs never cut a source basin at the shipped size across 2 seeds");
+    assert!(
+        vault_cells > 0,
+        "vaults never wrote a cell across {} seeds at the shipped {}x{}",
+        SEEDS.len(),
+        big.0 + 1,
+        big.1 + 1
+    );
+    // `springs`' source basin needs a cliff with level rock behind it, which
+    // is a property of a big world's terrain rather than of the pass.
+    assert!(spring_cells > 0, "springs never cut a source basin at the shipped size across {} seeds", SEEDS.len());
 
     // `boulders`'s own "the pass fires somewhere" half lives in
     // `a_forced_boulder_world_seats_stone_and_arrives_at_rest` rather than
@@ -777,20 +799,38 @@ const WOODY: [&str; 4] = ["conifer", "creeper", "shrub", "tree"];
 /// A guard over a procedural system has to sweep the procedure, and it has
 /// to gate an *order statistic* rather than any single world (`CLAUDE.md`):
 /// which seed is worst reshuffles on any legitimate change, so a per-seed
-/// baseline gets rubber-stamped. Measured over these sixteen worlds at
-/// 2048 columns, every woody species is sown in all sixteen, with per-world
-/// medians of conifer 6, creeper 14, shrub 6, tree 15 and per-world minima
-/// of 2/2/1/1 — so the bars below sit well under the medians and one world
-/// is allowed to miss a species outright.
+/// baseline gets rubber-stamped. Measured over these sixteen worlds at the
+/// full shipped width, every woody species is sown in all sixteen, with
+/// per-world medians of conifer 13, creeper 50, shrub 17, tree 18 and
+/// per-world minima of 6/20/3/5 — so the bars below sit well under the
+/// medians and one world is allowed to miss a species outright.
 const FLORA_SEEDS: [u64; 16] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
 
-/// Wider than [`BOUNDS`] on purpose. The shipped world is 8,192 columns and
-/// a 512-column sample is a *different composition*: at that width a whole
-/// region can miss the sweep, and four of eight worlds contained no shrub at
-/// all for that reason alone rather than for anything about the rule. 2,048
-/// is a quarter of the shipped width and generates in ~0.3 s, which is what
-/// makes sixteen of them affordable here.
-const FLORA_BOUNDS: (i32, i32) = (2047, 639);
+/// **The shipped width, and the height cut instead.** The argument was always
+/// about composition rather than area: a 512-column sample is a *different
+/// world*, and four of eight of them contained no shrub at all for that
+/// reason rather than for anything about the rule. A quarter of the shipped
+/// width was enough for that argument until W1 put a landform in the terrain
+/// **wider than the sample** — `massif_wavelength` is 2,200-3,000 columns
+/// across the presets, so a 2,048-column world is less than one period of it
+/// and comes out as a single flank, high or low, with whole niches missing.
+///
+/// Measured, 16 seeds on `rolling`, worlds containing **no** individual of a
+/// species (the sweep allows one):
+///
+/// | | conifer | creeper | grass | shrub | tree |
+/// |---|---|---|---|---|---|
+/// | 2048 x 640 | 0 | 0 | **2** | **3** | **3** |
+/// | 2048 x 1300 | 1 | 0 | **2** | **2** | **4** |
+/// | 4096 x 640 | 1 | 0 | 0 | 1 | 1 |
+/// | **8192 x 640** | **0** | **0** | **0** | **0** | **0** |
+/// | 8192 x 2560 (shipped) | 0 | 0 | 0 | 0 | 0 |
+///
+/// **Width is the axis and height is not**: every height from 800 to 2560 at
+/// 2,048 columns gives the identical census, and only the width column moves
+/// it. So the width goes to the shipped 8,192 and the height stays at 640,
+/// which is the same trade this constant always made — 16 worlds in 17 s.
+const FLORA_BOUNDS: (i32, i32) = (8191, 639);
 
 /// Live organisms per species name, counted off the grid.
 ///
@@ -2097,25 +2137,47 @@ fn probe_r2t3_do_vaults_place_at_all() {
 /// `vaults` row reads zero.
 /// The world the cave and vault tests build in, and why it is not [`BOUNDS`].
 ///
-/// **A 4x cave needs a 4x world, and this is that fact stated once.** Phase 2
-/// took `MIN_CAVE_HALF_W`/`_H` to 220/88, and `vaults` rejects a placement
-/// outright when even the *minimum* envelope will not fit inside the depth
-/// band with its rind -- the same rule that has always declined to put a cave
-/// in a world too shallow to hold one. At 512x320 that is now every
-/// placement, so all five forced-cave tests went to *"only 0 forced-vault
-/// worlds actually placed a chamber"* in one commit. That message is the
-/// counter beside the claim doing exactly its job: without it they would have
-/// passed by never running.
+/// **A bigger cave needs a bigger world, and this is that fact stated once.**
+/// `vaults` rejects a placement outright when even the *minimum* envelope will
+/// not fit inside the depth band with its rind -- the same rule that has
+/// always declined to put a cave in a world too shallow to hold one -- so this
+/// constant is a direct reading of `MIN_CAVE_HALF_W`/`_H` and has to move
+/// whenever they do. It has now moved twice for that reason:
 ///
-/// 2048x640 is the smallest round number that clears it with real headroom --
-/// a cave needs roughly 450 columns and 400 rows before the minimum envelope
-/// fits at all -- and it is the size round 7 shipped, so nothing about these
-/// tests' subject changes. It is deliberately *not* `app::WORLD_WIDTH`: these
-/// build 13 worlds and the shipped size is 9 s and 359 MiB each.
+/// | | minimum envelope | world these tests need |
+/// |---|---|---|
+/// | phase 2 | 220 x 88 | 2048 x 640 |
+/// | the rebuild (2026-08-30) | **380 x 260** | **2048 x 1300** |
+///
+/// At 640 rows the rebuilt generator declines *every* placement and all five
+/// forced-cave tests report `systems 0/0`. The gate is `passes.rs`'s
+/// `env.half_w < MIN_CAVE_HALF_W || env.half_h < MIN_CAVE_HALF_H`, and it is
+/// the **height** that binds: measured on `rolling` at 2048x640, the depth
+/// band `(bedrock_top_y - vault_bedrock_margin) - (surface_y +
+/// vault_min_depth)` gives a half-height of 11-53 against the 260 required,
+/// on every one of the six placement tries. (The width binds too, on about
+/// two tries in three, because a placement needs 382 clear columns either
+/// side; but no width would have saved a 640-row world.) `cave.rs`'s
+/// `MIN_ROOF_COVER` and `MAX_DOME_RISE` are never reached at all -- the
+/// envelope is refused before a room is ever sited.
+///
+/// **1300 rows is measured, not derived.** Worlds placing a system at the
+/// forced parameters below, 8 seeds per cell:
+///
+/// | | rolling | canyon | wetland |
+/// |---|---|---|---|
+/// | 2048 x 640 | 0/8 | 0/8 | 0/8 |
+/// | 2048 x 1100 | 8/8 | **5/8** | 8/8 |
+/// | 2048 x 1300 | 8/8 | 8/8 | 8/8 |
+///
+/// canyon is the binding preset and 1100 is where it is still marginal, so
+/// the bar sits a clear step above it. The width stays 2048 for the reason it
+/// always did: it is deliberately *not* `app::WORLD_WIDTH`, because these
+/// build ~60 worlds and the shipped size is seconds and hundreds of MiB each.
 ///
 /// The rest of the suite stays at [`BOUNDS`]; only this section pays for the
 /// larger build.
-const CAVE_BOUNDS: (i32, i32) = (2047, 639);
+const CAVE_BOUNDS: (i32, i32) = (2047, 1299);
 
 fn build_cave_world(params: &WorldgenParams, seed: u64) -> World {
     let mut world = World::new(Rect::new(0, 0, CAVE_BOUNDS.0, CAVE_BOUNDS.1));

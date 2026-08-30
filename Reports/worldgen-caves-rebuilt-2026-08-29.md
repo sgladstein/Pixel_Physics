@@ -579,6 +579,123 @@ arriving on schedule -- *a wall-clock assertion is a flake generator*, and *a
 timing number is only as trustworthy as the box was quiet*. Nothing in this
 change touches those scenes.
 
+## 14. The minimum world a cave fits in, and the edge of the envelope
+
+*Added 2026-08-30, from repairing red CI on PR #148. Nine tests in
+`tests/worldgen.rs` were failing; every log line read
+`vaults detail: systems 0/0`.*
+
+### 14.1 The generator has a minimum viable world size, and it is large
+
+**Nothing in this report or in the source stated it, and it is the first
+thing a future session needs.** `passes::vaults` refuses a placement outright
+when even the *minimum* envelope will not fit -- the same rule that has always
+declined to put a cave in a world too shallow to hold one -- and the rebuild
+took that minimum from **220 x 88 to 380 x 260**. So:
+
+| | needs |
+|---|---|
+| columns | `MIN_CAVE_HALF_W + VAULT_RIND` = **382 clear either side of the placement**, so a world under ~765 columns can never hold a system, and one under ~1,500 rejects most draws |
+| rows | a depth band `(bedrock_top_y - vault_bedrock_margin) - (surface_y + vault_min_depth)` of at least `2 * (MIN_CAVE_HALF_H + VAULT_RIND)` = **524 rows** |
+
+The rows are the binding term at any test-scale world. Measured on `rolling`
+at 2048x640 with `PP_CAVE_WHY` instrumentation on the placement loop: the
+depth band yields a half-height of **11-53 against the 260 required, on every
+one of the six placement tries**. The width binds too, on about two tries in
+three, but no width would have saved a 640-row world.
+
+**`cave.rs`'s own constants are not what rejects.** `MIN_ROOF_COVER` (90) and
+`MAX_DOME_RISE` (170) are never reached -- the envelope is refused in
+`passes.rs` before a room is ever sited. Anyone reading `systems 0/0` should
+look at `env.half_w < MIN_CAVE_HALF_W || env.half_h < MIN_CAVE_HALF_H` first.
+
+Worlds placing a system, at `tests/worldgen.rs`'s forced parameters
+(`vault_density: 4.0`, `vault_min_depth: 40`), 8 seeds per cell:
+
+| | rolling | canyon | wetland |
+|---|---|---|---|
+| 2048 x 640 | 0/8 | 0/8 | 0/8 |
+| 2048 x 900 | 2/5 | -- | -- |
+| 2048 x 1100 | 8/8 | **5/8** | 8/8 |
+| 2048 x 1300 | 8/8 | 8/8 | 8/8 |
+
+canyon is the binding preset. `CAVE_BOUNDS` is now **2048 x 1300**, a clear
+step above where canyon is still marginal.
+
+### 14.2 The seal's guarantee had a hole at the envelope's own edge
+
+**A live crash at the shipped size and the shipped density, not a test-only
+one.** `Carvable::build` erodes its rock bitmap by `VAULT_RIND`, and `erode`
+clamps its window at the grid border (`x.saturating_sub(rx)`). So a cell two
+columns inside the envelope's edge was only ever asked about *the part of its
+rind that is inside the envelope*; the two columns beyond it, which no stage
+looked at, are whatever `pockets` put there. `cave_system`'s seal assertion
+then fires on a rind cell it correctly reports as `inside=false`:
+
+```
+cave system k=67 at (1325,857) env 638x487: rind cell (-640,34)
+  world (685,891) is "gravel" inside=false | void-neighbour at (-638,36)
+```
+
+Rate, `vaults` at 8192x2560, 16 seeds per preset, **shipped `vault_density`**:
+**canyon 1/16 worlds panic**; rolling, wetland, arid, terraced 0/16. At the
+tests' forced density 4.0, canyon and wetland both panic 1 in 8. It is not
+cosmetic either way -- soil and gravel are `Powder`, so a lens two cells from
+a room wall pours in on frame one, which is `dead-ends.md` #28.
+
+**The repair is in `Carvable::build`, not in the assertion.** A band pass over
+the cells within `VAULT_RIND` of the envelope edge asks the *world* directly,
+using the seal's own predicate (`Material::rock`), and clears `ok` where the
+answer is no. ~10k cells against the envelope's 1.6M, so it is free. It
+**narrows the mask and never widens it**, and only at the edge.
+
+`erode` is left clamping, deliberately: `ok_tube` erodes by the tube's whole
+section, and a false border there would refuse routes the per-cell clip
+handles correctly. Its doc comment now says so.
+
+**Shipped behaviour is unchanged, and this is the proof**: `cave_probe
+seeds=16` per preset at 8192x2560, before and after. Every line of rolling,
+terraced, wetland, arid and flat is **byte-identical**. canyon has no "before"
+to compare -- the run crashed. After, it censuses 80 systems over 16 seeds,
+0 worlds with none.
+
+### 14.3 What a world with caves in it then said about the guards
+
+`CAVE_BOUNDS` at 640 rows meant five cave tests had **stopped seeing a
+cave**. Given a world where caves exist, four of them fail -- and three fail
+because the rebuild replaced the contract they state, which nothing noticed
+because they had no cave to state it about. Recorded here rather than
+repaired, because each is a decision about what the rebuilt generator
+promises:
+
+- **`a_forced_cave_world_keeps_every_roof_span_bounded`** restates
+  `MAX_CEILING_SPAN = 36` and the stone teeth that enforced it. **Neither
+  exists in the source any more** -- grep finds no `MAX_CEILING_SPAN`. The
+  rebuild's answer to a wide roof is pillars, and `cave_probe` reports a
+  *median* widest ceiling span of 156 across the presets. The test fails at
+  104.
+- **`a_forced_vault_world_is_sealed_and_arrives_at_rest`** asserts, off a
+  paired-build diff, that every changed cell was intact rock beforehand. The
+  rebuild deliberately breaks that: `take_touched_pockets` swallows a small
+  lens whole, and the mouth's lintel turns hillside soil to rock. Classified
+  over `rolling` seed 1, the diff's non-rock origins are `gravel -> empty`
+  4,292, `sand -> empty` 5,230, `soil -> stone` 131, plus flowstone and spar
+  grown where a pocket was taken. The property itself is now asserted **inside
+  the pass**, with `breakout` as the named exemption, on every world these
+  tests build.
+- **`vault_water_cannot_wet_the_massif_around_it`** rests on "a chamber 40+
+  rows into solid rock has nothing within reach it could wet". Every system
+  now daylights and carries a lintel under soil, so the premise is gone.
+- **`a_cave_system_survives_a_pocket_lens_inside_its_envelope`** is the one
+  that looks like a real defect rather than a superseded contract: 1,206 cells
+  move within 16 cells of a carved system in 120 frames, and they are all
+  **water** (material 6). Volume is conserved -- 27,693 water cells before,
+  27,686 after -- so the cave's pool is not draining, it is **levelling**,
+  which means it is placed slightly off-level. Small, but it is the one thing
+  here the generator should simply do better.
+
+---
+
 ---
 
 *Freshness: written 2026-08-30 on `claude/worldgen-caves`, off
