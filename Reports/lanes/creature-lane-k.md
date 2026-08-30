@@ -1,7 +1,9 @@
 # Lane K — §R3 diagnosis
 
 **Branch** `claude/creature-lane-k-r3-diagnosis`
-**Head SHA** _(filled at the end of this note)_
+**Head SHA** `c3eb3a3` — the diagnosis, §R3 and the sweep. This note's own
+commit sits on top of it; take the branch tip for the whole lane.
+**PR** [#160](https://github.com/sgladstein/Pixel_Physics/pull/160)
 **Report** `Reports/creature-chain-head-loss-2026-08-30.md`
 **Status** done. Diagnosis complete, §R3 rewritten in place, no `src/` change.
 
