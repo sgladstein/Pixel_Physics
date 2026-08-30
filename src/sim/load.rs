@@ -1145,7 +1145,7 @@ const POWDER_SURCHARGE_WEIGHT: f32 = 1.0;
 /// does stop delivering its full weight downward, and a cap is closer to the
 /// physics than an uncapped sum would be. It also keeps the scan short on a
 /// path that runs per walked cell.
-const POWDER_SURCHARGE_CAP: i32 = 12;
+pub(crate) const POWDER_SURCHARGE_CAP: i32 = 12;
 
 /// The extra mass `(x, y)` carries because loose material is standing on it,
 /// in `LOAD_SCALE` units.

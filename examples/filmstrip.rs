@@ -32,8 +32,12 @@
 //!
 //! At 1:1 a one-pixel-tall dark line across a 512-wide world — the size a
 //! filmstrip scene builds at (`WIDTH`x`HEIGHT`, viewport-sized on purpose;
-//! see `viewshot.rs`'s own doc for why the *shipped*, now much larger, world
-//! is a separate question this tool does not answer) — is genuinely easy to
+//! the *shipped* world is 8192x2560 and **`scene=worldgen` here does not
+//! build it**, which is a live trap rather than a footnote: that scene calls
+//! itself the thing worldgen is judged on and six rounds were judged on a
+//! world 1/128th the area, where `boulders`, `vaults` and `springs` cannot
+//! fire. It now says so in its own output; `world_look mode=strip` is the
+//! sheet that builds the shipped world) — is genuinely easy to
 //! miss — that is exactly how the horizontal chunk-seam tearing went
 //! unnoticed until it was pointed out. `crop` and `zoom` are the difference
 //! between "I looked at it" and "I saw it".
@@ -1321,6 +1325,7 @@ fn build_scene(args: &Args) -> World {
             return common::PlantScene {
                 species: args.species.clone(),
                 trees: plants,
+                seed: args.seed_given.then_some(args.seed),
                 soil_moisture: args.soil_moisture,
                 soil_depth: args.soil_depth,
                 start_frame: args.frame0,
@@ -1901,6 +1906,39 @@ fn build_scene(args: &Args) -> World {
             for (pass, cells) in &report {
                 println!("  {pass:<14} {cells:>7} cells");
             }
+            // **Say which world this is, every time, unprompted.**
+            //
+            // This scene's own comment above calls it "the thing worldgen is
+            // judged on", and for six rounds it was -- at 512x320, which is
+            // **1/128th of the area the game ships** -- 16x wider and 8x
+            // deeper, not the 256x the revamp plan states. Features that need room
+            // read as dead here and the sheet cannot say so: measured on
+            // `rolling` seed 1, this world reports `boulders 0`, `vaults 0`,
+            // `springs 0` and `talus 2`, while the same generator at
+            // 8192x2560 seats boulders, carves cave systems and cuts spring
+            // basins. Three separate review cards asked the owner to judge a
+            // retune of a pass that writes nothing at this size.
+            //
+            // The scene is *not* grown to the shipped size, deliberately:
+            // `blastsweep.sh` steps it 5,000 frames and every whole-world
+            // census in this file loops the frame's own `WIDTH`/`HEIGHT`, so
+            // a 256x world would make thirty counters silently describe the
+            // top-left viewport. `world_look mode=strip` builds the shipped
+            // world and renders player viewports across it; this line is
+            // what stops a small-world sheet being mistaken for one.
+            let (sw, sh) = (pixel_physics::app::WORLD_WIDTH as i32, pixel_physics::app::WORLD_HEIGHT as i32);
+            if WIDTH != sw || HEIGHT != sh {
+                let dead: Vec<&str> =
+                    report.iter().filter(|(_, c)| *c == 0).map(|(n, _)| *n).collect();
+                println!(
+                    "  !! this is a {WIDTH}x{HEIGHT} world -- 1/{}th of the area the game ships ({sw}x{sh}).",
+                    (sw as i64 * sh as i64) / (WIDTH as i64 * HEIGHT as i64)
+                );
+                if !dead.is_empty() {
+                    println!("  !! wrote nothing here: {}. That may be the world size, not the pass.", dead.join(", "));
+                }
+                println!("  !! to judge the world the game ships: cargo run --release --example world_look -- mode=strip presets={name} out=/tmp/w.png");
+            }
         }
         // The payoff mechanic, and the one M17 "was built for and has never
         // had a real test case" (`Reports/worldgen-design.md` §7): mine
@@ -2270,6 +2308,7 @@ fn build_scene(args: &Args) -> World {
             let w = common::PlantScene {
                 species: args.species.clone(),
                 trees: 1,
+                seed: args.seed_given.then_some(args.seed),
                 soil_moisture: args.soil_moisture,
                 start_frame: args.frame0,
                 ..common::PlantScene::default()
@@ -2321,6 +2360,7 @@ struct Args {
     clock: pixel_physics::sim::clock::Clock,
     /// `seed=N` -- which generated world `scene=worldgen` builds.
     seed: u64,
+    seed_given: bool,
     /// `yield=F` -- the gnome's `dig_yield`, for comparing the spoil
     /// modes the app cycles with `F2`. Whether a bore actually opens is
     /// decided entirely by this number (see `player::Tuning::dig_yield`),
@@ -3023,6 +3063,7 @@ fn parse() -> Args {
         shoulder_grains: pixel_physics::sim::player::Tuning::default().shoulder_grains,
         dig_style: pixel_physics::sim::player::DigStyle::default(),
         seed: 1,
+        seed_given: false,
         species: "tree".into(),
         soil_moisture: pixel_physics::sim::material::SOIL_FIELD_CAPACITY,
         frame0: 0,
@@ -3114,7 +3155,14 @@ fn parse() -> Args {
         let Some((k, v)) = arg.split_once('=') else { continue };
         match k {
             "scene" => a.scene = v.into(),
-            "seed" => a.seed = v.parse().expect("seed"),
+            "seed" => {
+                a.seed = v.parse().expect("seed");
+                // Tracked separately because `Args::seed` defaults to 1
+                // while `World::new` uses `DEFAULT_WORLD_SEED`: passing it
+                // through unconditionally would silently move every plant
+                // sheet ever taken. Only an explicit `seed=` overrides.
+                a.seed_given = true;
+            }
             "yield" => a.dig_yield = v.parse().expect("yield"),
             "shoulder" => a.shoulder_grains = v.parse().expect("shoulder"),
             // `digstyle=`, because **both shorter names were already
@@ -4411,25 +4459,47 @@ fn bend_census(world: &World) {
     // carries almost nothing, so its own numbers are two orders of magnitude
     // down and invisible in the pooled quantiles that a stiffness was being
     // read off.
-    let mut by_material: std::collections::BTreeMap<String, Vec<f32>> = Default::default();
+    let mut by_material: std::collections::BTreeMap<String, Vec<(f32, f32)>> = Default::default();
     for id in world.live_organism_ids() {
         for (at, s) in pixel_physics::sim::plant::stress_field(world, id) {
             let name = world.materials.get(world.get(at.0, at.1).material).name.clone();
-            by_material.entry(name).or_default().push(s.moment.abs());
+            by_material.entry(name).or_default().push((s.moment.abs(), s.stress));
         }
     }
     for (name, mut v) in by_material {
-        v.sort_by(f32::total_cmp);
-        let q = |f: f32| v.get(((v.len() as f32 - 1.0) * f) as usize).copied().unwrap_or(0.0);
-        let stiffness = world.materials.id_of(&name).map_or(f32::INFINITY, |m| world.materials.get(m).stiffness);
-        let want = v.iter().filter(|&&m| m >= stiffness).count();
+        let id = world.materials.id_of(&name);
+        let stiffness = id.map_or(f32::INFINITY, |m| world.materials.get(m).stiffness);
+        v.sort_by(|a, b| a.0.total_cmp(&b.0));
+        let q = |v: &[f32], f: f32| v.get(((v.len() as f32 - 1.0) * f) as usize).copied().unwrap_or(0.0);
+        let moments: Vec<f32> = v.iter().map(|&(m, _)| m).collect();
+        let want = moments.iter().filter(|&&m| m >= stiffness).count();
         println!(
-            "        {name:<12} {:5} cells: p50 {:.2}, p90 {:.2}, p99 {:.2}, max {:.2}; stiffness {stiffness}, so {want} want to lean",
+            "        {name:<12} {:5} cells  moment p50 {:.2}, p90 {:.2}, p99 {:.2}, max {:.2}; stiffness {stiffness}, so {want} want to lean",
             v.len(),
-            q(0.50),
-            q(0.90),
-            q(0.99),
-            q(1.0)
+            q(&moments, 0.50),
+            q(&moments, 0.90),
+            q(&moments, 0.99),
+            q(&moments, 1.0)
+        );
+        // **The stress line beside the moment line, because they fit
+        // different constants.** `stiffness` is compared against a moment (a
+        // cell leans when the torque on it beats what it can hold);
+        // `strength` is compared against `stress`, which is that torque
+        // divided by the square of the section carrying it. A thick trunk and
+        // a twig can share a moment and be nowhere near each other in stress,
+        // which is the whole reason breaking reads the second one.
+        let mut stresses: Vec<f32> = v.iter().map(|&(_, s)| s).collect();
+        stresses.sort_by(f32::total_cmp);
+        let strength = id.map_or(f32::INFINITY, |m| world.materials.get(m).strength);
+        let over = stresses.iter().filter(|&&s| s >= strength).count();
+        println!(
+            "        {:<12} {:5} cells  stress p50 {:.2}, p90 {:.2}, p99 {:.2}, max {:.2}; strength {strength}, so {over} over it",
+            "",
+            v.len(),
+            q(&stresses, 0.50),
+            q(&stresses, 0.90),
+            q(&stresses, 0.99),
+            q(&stresses, 1.0)
         );
     }
     moments.sort_by(f32::total_cmp);
@@ -4451,6 +4521,54 @@ fn bend_census(world: &World) {
         "      ...of which actually leaned: {} cells moved, {} refused (cumulative; {} cross-sections blocked, {} would have torn)",
         f.bends_applied, f.bends_refused, f.bends_blocked, f.bends_would_tear
     );
+    // **The break counter beside the bend one, because they are the same
+    // arithmetic read through two constants** -- and because "an intact
+    // healthy stand loses zero cells" is a bar nothing else in this census
+    // can report. `severed_organism_cells` already folds in limbs that lost
+    // an anchor and cells that over-reached their span, so a snap hidden
+    // inside it is invisible.
+    println!("      ...and snapped under load: {} cells (cumulative)", f.snapped_under_load);
+    // **Peak stress per *plant*, not over the stand**, and the difference is
+    // a constant that was set wrong once already.
+    //
+    // A stand's maximum is one cell out of thousands, and it belongs to the
+    // single worst-grown individual in the wood -- exactly the tree that
+    // ought to fail. A `strength` fitted above that number is fitted above
+    // the whole failure mode, so nothing ever breaks and the outcome is
+    // binary. What the constant wants is the shape of this distribution: the
+    // typical tree well under it, the badly-grown tail over.
+    let mut peaks: Vec<f32> = Vec::new();
+    for id in world.live_organism_ids() {
+        let field = pixel_physics::sim::plant::stress_field(world, id);
+        let peak = field
+            .iter()
+            .filter(|(at, _)| world.materials.get(world.get(at.0, at.1).material).name == "wood")
+            .map(|(_, s)| s.stress)
+            .fold(0.0f32, f32::max);
+        if peak > 0.0 {
+            peaks.push(peak);
+        }
+    }
+    if !peaks.is_empty() {
+        peaks.sort_by(f32::total_cmp);
+        let q = |f: f32| peaks[((peaks.len() as f32 - 1.0) * f) as usize];
+        println!(
+            "      peak wood stress per plant over {} plants: p50 {:.0}, p75 {:.0}, p90 {:.0}, p95 {:.0}, p99 {:.0}, max {:.0}",
+            peaks.len(),
+            q(0.50),
+            q(0.75),
+            q(0.90),
+            q(0.95),
+            q(0.99),
+            q(1.0)
+        );
+        // The values themselves, because a quantile over eight plants is not
+        // a quantile -- p90 and max are the same order statistic at that
+        // sample size, and a constant fitted between them would be fitted to
+        // noise. Pooling the raw lists across seeds is what gives the tail
+        // enough plants to be a tail.
+        println!("      ...each plant's peak: {}", peaks.iter().map(|v| format!("{v:.0}")).collect::<Vec<_>>().join(" "));
+    }
     // **What wind was blowing while that was measured**, because half the
     // moment now comes from it and a bend sheet read in a calm hour is a
     // different experiment from one read in a gale. This is the

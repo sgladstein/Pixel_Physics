@@ -1,0 +1,77 @@
+// **The bedded rock of dry country.** Its four fresh tones are byte-for-byte
+// `stone.ron`'s old family 2 ("warm sandstone"), promoted from a *tint on
+// the one rock* to a rock of its own -- which is the whole of
+// `Reports/rock-vocabulary-design-2026-08-29.md` in one file. Under the old
+// scheme those colours arrived as a 2-D noise blob that cut across the
+// bedding and read as camouflage; here they arrive as a bed, with a top and
+// a bottom, that you can follow along a cliff.
+//
+// Set relative to `stone.ron`, which is the reference rock and carries the
+// reasoning for every field; only the departures are argued here.
+(
+    name: "sandstone",
+    display: "Sandstone",
+    kind: Solid,
+    // Porous, so lighter than stone's 2.5.
+    density: 2.3,
+
+    // **Two families of four tones**, `family * 4 + tone`, tone order
+    // (mid, dark, light, darkest) as `stone.ron` numbers them.
+    //
+    //   0  fresh    the old family 2, unchanged. Random picks stay here.
+    //   1  weathered  desert varnish: a sandstone face darkens with age as
+    //      manganese and iron wash down it, so this family is *darker* than
+    //      fresh -- deliberately the opposite direction to `mudstone.ron`'s
+    //      weathering, so a mixed face reads as two rocks doing two
+    //      different things rather than as one rock under a gradient.
+    colors: [
+        // 0: fresh -- stone.ron's retired family 2, entry for entry
+        (168, 146, 112),
+        (156, 135, 103),
+        (182, 160, 124),
+        (146, 126, 96),
+        // 1: weathered -- varnish
+        (150, 120, 88),
+        (138, 110, 80),
+        (166, 136, 102),
+        (128, 101, 73),
+        // 2: **damp** -- rock below the water table, and rock a pond or a
+        // stream is standing against.
+        //
+        // Derived rather than eyeballed, and stated so it can be re-derived:
+        // family 0 multiplied by (0.78, 0.79, 0.83). Wet rock is darker
+        // because the water film kills the diffuse scatter off the grain,
+        // and it is *cooler* because the loss is smallest at the blue end --
+        // so a single multiplier per channel says the whole thing, and no
+        // rock in the set needs its own artistic judgement about being wet.
+        // It is one byte, written at genesis, exactly like the other two.
+        (131, 115, 93),
+        (122, 107, 85),
+        (142, 126, 103),
+        (114, 100, 80),
+    ],
+    base_colors: 4,
+
+    // A little weaker than stone (16 / 12): sandstone makes good cliffs but
+    // does not hold an overhang the way a limestone cap does.
+    max_unsupported_span: 13,
+    attached_span_bonus: 11,
+    support_cost_below: 1,
+    support_cost_beside: 1,
+    support_cost_above: 3,
+
+    blast_resistance: 0.8,
+
+    // Blocks, not slabs and not grit: floor 2 rungs 5 is {4, 8, 16, 32, 64},
+    // the same top rung as stone with the dust rung removed.
+    fragment_floor: 2,
+    fragment_rungs: 5,
+
+    // A little coarser than stone's 13 -- sandstone joints stand further
+    // apart than a fine-grained rock's do.
+    joint_spacing: 15.0,
+
+    breaks_into: "rubble",
+    heat_conductivity: 0.1,
+    rock: true,
+)

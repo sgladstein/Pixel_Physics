@@ -1,0 +1,82 @@
+// **The basement, and the occasional sill.** The hardest and darkest rock in
+// the world, and the other end of the value range from `limestone.ron`:
+// together the two span 40..192, against the 110..138 that `stone.ron`'s own
+// note records the whole rock palette used to sit in.
+//
+// Two jobs. Below a fixed fraction of the massif every bed is basalt, so a
+// shaft that goes deep enough arrives somewhere that looks different -- the
+// only reward deep mining currently has. And a narrow window of the bed
+// draw makes a basalt *sill* anywhere in the section, a black band cutting a
+// pale one, which is the strongest single contrast a cliff face can show.
+//
+// Set relative to `stone.ron`; see
+// `Reports/rock-vocabulary-design-2026-08-29.md` for the set.
+(
+    name: "basalt",
+    display: "Basalt",
+    kind: Solid,
+    density: 2.9,
+
+    //   0  fresh    near-black, blue-cool. Random picks stay here.
+    //   1  weathered  basalt weathers to a dull brown rind, warm where the
+    //      fresh rock is cold -- so an exposed basalt face reads brown and a
+    //      cut one reads black, which is a large hue swing for a byte
+    //      written once at genesis.
+    colors: [
+        // 0: fresh
+        (58, 60, 68),
+        (48, 50, 58),
+        (72, 74, 84),
+        (40, 42, 50),
+        // 1: weathered -- rind
+        (74, 70, 66),
+        (64, 60, 57),
+        (88, 84, 79),
+        (55, 52, 49),
+        // 2: **damp** -- rock below the water table, and rock a pond or a
+        // stream is standing against.
+        //
+        // Derived rather than eyeballed, and stated so it can be re-derived:
+        // family 0 multiplied by (0.78, 0.79, 0.83). Wet rock is darker
+        // because the water film kills the diffuse scatter off the grain,
+        // and it is *cooler* because the loss is smallest at the blue end --
+        // so a single multiplier per channel says the whole thing, and no
+        // rock in the set needs its own artistic judgement about being wet.
+        // It is one byte, written at genesis, exactly like the other two.
+        (45, 47, 56),
+        (37, 40, 48),
+        (56, 58, 70),
+        (31, 33, 42),
+    ],
+    base_colors: 4,
+
+    // The hardest thing that is not bedrock.
+    max_unsupported_span: 22,
+    attached_span_bonus: 14,
+    support_cost_below: 1,
+    support_cost_beside: 1,
+    support_cost_above: 3,
+
+    blast_resistance: 1.6,
+
+    // {4, 8, 16, 32, 64}: columns, not slabs. Basalt's characteristic
+    // fragment is tall and narrow rather than large, and the *shape* of that
+    // comes from the joint fabric below rather than from the size ladder.
+    fragment_floor: 2,
+    fragment_rungs: 5,
+
+    // Close-spaced cooling joints -- finer than stone's 13.
+    //
+    // `joint_band_contrast` is deliberately left at its 0.0 default here
+    // even though columnar jointing is the one place a varied pitch would
+    // genuinely earn its keep: `Material::joint_band_contrast`'s own note
+    // measures it at **10-14 ms on the worst frame**, and frame cost is a
+    // hard constraint in this repo rather than a tiebreaker. It is the first
+    // thing to turn on if a blast in basalt ever needs to read differently
+    // from a blast in stone, and it should be measured when it is.
+    joint_spacing: 9.0,
+
+    breaks_into: "rubble",
+    heat_conductivity: 0.1,
+    rock: true,
+)

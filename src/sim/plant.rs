@@ -4162,7 +4162,25 @@ pub fn step_organisms(world: &mut World) {
             // stress flow reads, and before growth -- a tip that flushes this
             // tick should grow from where the stem has leaned to, not from
             // where it was.
-            bend_under_load(world, organism_id);
+            // **One field for both passes, recomputed only if the bend
+            // actually moved something.** `stress_field` is a pure function
+            // of the world, so a tick in which nothing leaned leaves it
+            // identical and a second walk is pure waste -- which is the
+            // normal case in a wood, where nothing but foliage can bend at
+            // all. Measured on `ascii scene=foraging`: the unconditional
+            // recompute cost +0.43 ms/frame against BREAK=off, and this is
+            // bit-identical to it because the recompute still happens on
+            // exactly the ticks where the world changed under it.
+            let field = stress_field(world, organism_id);
+            let field = if bend_under_load(world, organism_id, &field) {
+                stress_field(world, organism_id)
+            } else {
+                field
+            };
+            // After the bend, because bending is what takes the load off:
+            // whatever is still over its strength once the plant has leaned
+            // as far as it can is what actually cannot hold.
+            break_under_load(world, organism_id, &field);
             // Before upkeep, so a bud that flushes this tick is already a
             // `GrowingTip` when `thicken` runs and can be counted as frontier
             // rather than thickened over on the same tick it woke up.
@@ -5038,11 +5056,136 @@ fn bend_enabled() -> bool {
     *ON.get_or_init(|| !matches!(std::env::var("BEND").as_deref(), Ok("off")))
 }
 
-fn bend_under_load(world: &mut World, organism_id: u16) {
-    if !bend_enabled() {
+/// `BREAK=off` holds every plant unbreakable by load, whatever its
+/// `strength` says — the control, and the sibling of `BEND=off`.
+///
+/// It exists for the same reason that one does: the counters that catch an
+/// error in this mechanism arrive alongside the mechanism, so an arm built
+/// from the previous binary does not have them and cannot be compared
+/// against. Holding the semantics fixed and changing one switch is the only
+/// comparison that works here.
+fn break_enabled() -> bool {
+    use std::sync::OnceLock;
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| !matches!(std::env::var("BREAK").as_deref(), Ok("off")))
+}
+
+/// The overloaded tissue in this plant lets go, one cell at a time, until
+/// nothing is over its strength.
+///
+/// **One cell at a time, re-evaluated after each — but all within this
+/// tick, and that correction is what made breaking visible at all.**
+///
+/// A beam fails at its weakest section, and the instant it does the load
+/// path is a different load path: what routed through that cell now routes
+/// through its neighbours, which may not be able to hold it either. Failing
+/// every over-strength cell in one pass would shatter a trunk along its
+/// whole length simultaneously, which is dynamite rather than a snap. So the
+/// loop is genuinely one-at-a-time.
+///
+/// **The first version stopped after one and waited for the next organism
+/// tick**, on the reasoning that re-evaluation is required — true — without
+/// asking *when*. Measured, and it is the difference between a break and a
+/// blemish: a limb carrying 820 units through a **section of 1** snapped,
+/// its load rerouted through the crown's other eight-connected paths, and
+/// only sixteen cells came away. The next cell in the member went ~450
+/// frames later, the one after that ~1,500 frames after that. Nothing ever
+/// fell. The owner's reading of a sheet of it: *"nothing falls over or
+/// breaks... some are disintegrating a little"* — which is exactly what a
+/// break dribbled out over minutes looks like. A real break propagates at
+/// the speed of sound in wood.
+///
+/// **It terminates because each pass destroys a cell**, so the loop is
+/// bounded by the plant's own size and cannot spin: the field is recomputed
+/// from a strictly smaller organism every time. Exhausting it means every
+/// remaining cell is over its strength, which is a plant that has entirely
+/// failed — an answer, not a budget running out.
+///
+/// **Ranked by how far over it is, not by raw stress**, because `strength`
+/// is per material and a stand is several materials at once. A leaf at twice
+/// its strength is in more trouble than a trunk at one and a tenth times
+/// its own, however much larger the trunk's stress reads.
+///
+/// **After `bend_under_load`, deliberately.** Bending relieves the moment
+/// that caused it, so what is still over its strength once the plant has
+/// leaned as far as it can is what genuinely cannot hold — which is why
+/// grass bends and never breaks, and why these are one mechanism read
+/// through two constants rather than two mechanisms.
+fn break_under_load(world: &mut World, organism_id: u16, field: &std::collections::HashMap<(i32, i32), CellStress>) {
+    if !break_enabled() {
         return;
     }
-    let field = stress_field(world, organism_id);
+    // **`strength` is taken flat off the material, with no wood-density
+    // term, and the omission is the design.**
+    //
+    // Scaling it by `organism::wood_density` — which `organism_structural_
+    // tick` does to `max_cantilever_reach` one module over — was built and
+    // removed on the owner's call: *"I care more about mechanics impacting
+    // growth patterns so I don't want density dominating this evolutionary
+    // pressure."* Density is a **discrete** allele worth a straight 1.8x on
+    // the threshold, so one mutation buys the entire escape and a lineage
+    // never has to change shape. Leaving it out means the only ways out from
+    // under this rule are a smaller moment or a bigger section.
+    //
+    // And section is the steeper gradient in any case: `stress` is
+    // `|moment| / section^2`, so doubling a trunk's girth quarters its
+    // stress. Girth is `pipe_ratio` at genome slot 4, whose
+    // `genotype_variance` is 0.7 — the widest of any trait in `tree.ron`'s
+    // tuple. The lever this rule pushes on is the most variable heritable
+    // thing a tree has, and density is not wasted either way: it still
+    // scales the span rule.
+    let probe = std::env::var("SNAP_PROBE").as_deref() == Ok("1");
+    // Owned, because the loop below recomputes it from a world it has just
+    // changed. The caller's field is used for the first pass so an unbroken
+    // plant -- every plant, nearly every tick -- pays nothing extra at all.
+    let mut current = None;
+    loop {
+        let field = current.as_ref().unwrap_or(field);
+        let mut worst: Option<((i32, i32), f32)> = None;
+        for (&at, s) in field {
+            let strength = world.materials.get(world.get(at.0, at.1).material).strength;
+            // **A positive guard, not a negated one**, and both halves of
+            // that matter. `>` rather than `>=` keeps the infinite default
+            // meaning unbreakable even if a stress ever overflows to
+            // infinity; asking it the right way round rather than as
+            // `!(a > b)` keeps a `NaN` out -- it compares false against
+            // everything, so it falls through here and would pass a `<=`
+            // test. (`clippy::neg_cmp_op_on_partial_ord`, which 1.98 rejects
+            // and 1.94 accepts.)
+            if s.stress > strength {
+                let over = s.stress / strength;
+                // Sorted by `(over, y, x)` so a tie is broken by the world
+                // rather than by the hash order -- same-build determinism is
+                // required, and `field` is a `HashMap`.
+                if worst.is_none_or(|(w_at, w)| (over, at.1, at.0) > (w, w_at.1, w_at.0)) {
+                    worst = Some((at, over));
+                }
+            }
+        }
+        let Some(((x, y), over)) = worst else { return };
+        if probe {
+            let s = field[&(x, y)];
+            eprintln!(
+                "[snap] ({x},{y}) stress {:.0} over strength by {over:.2}x, section {} carrying {:.1}",
+                s.stress, s.section, s.carried
+            );
+        }
+        let sites = crate::sim::structural::snap_organism_cell(world, x, y);
+        for site in sites {
+            world.schedule_active_site(site);
+        }
+        // The cell is gone, so the field that described it is stale in the
+        // one way that matters: everything that routed through it now routes
+        // somewhere else, at a stress this pass has not seen. Recomputed from
+        // a strictly smaller organism, which is what bounds the loop.
+        current = Some(stress_field(world, organism_id));
+    }
+}
+
+fn bend_under_load(world: &mut World, organism_id: u16, field: &std::collections::HashMap<(i32, i32), CellStress>) -> bool {
+    if !bend_enabled() {
+        return false;
+    }
     let support_of = |w: &World, p: (i32, i32)| w.organism_cell(p.0, p.1).map_or(u16::MAX, |c| c.support);
 
     // Every cell that wants to bend, most-deflected first — not just the
@@ -5069,15 +5212,16 @@ fn bend_under_load(world: &mut World, organism_id: u16) {
         .map(|(&at, s)| (at, s.deflection.abs()))
         .collect();
     if candidates.is_empty() {
-        return;
+        return false;
     }
     candidates.sort_by(|a, b| (b.1, b.0.1, b.0.0).partial_cmp(&(a.1, a.0.1, a.0.0)).unwrap_or(std::cmp::Ordering::Equal));
 
     for (hinge, _) in candidates.into_iter().take(BEND_ATTEMPTS_PER_TICK) {
-        if try_bend_at(world, organism_id, &field, hinge) {
-            return;
+        if try_bend_at(world, organism_id, field, hinge) {
+            return true;
         }
     }
+    false
 }
 
 /// How many hinges a plant may try in one tick before giving up.
@@ -5376,6 +5520,41 @@ fn section_across(world: &World, x: i32, y: i32, organism_id: u16, load_path: (f
 /// `anchor_support` — whose `support` field this reads — walks eight.
 /// `CLAUDE.md`'s standing rule: a traversal must use the same neighbourhood
 /// the writer used. (`load.rs` is four-connected on purpose; rock is.)
+/// Loose material standing on one cell of tissue, weighed in the same units
+/// as the tissue's own mass — the snow-on-a-branch term.
+///
+/// **Why this is here and not `load::powder_surcharge`.** That function is
+/// the same idea in the rock model's units (one cell of rock is
+/// `LOAD_SCALE`), and it feeds `structural.rs`'s `effective_span`, which
+/// still works and is not being replaced. What ask 1 needs is for snow to
+/// raise the **moment** — a crown that snaps its own trunk under a snowfall
+/// — and a moment is a sum over masses, so the load has to arrive as mass.
+/// Converting between the two scales would tie the plant's arithmetic to a
+/// constant that exists for rock; summing real densities instead means a
+/// crown loaded with wet sand is heavier than one loaded with snow, which is
+/// true and free.
+///
+/// Shares `POWDER_SURCHARGE_CAP` deliberately, so the two rules disagree
+/// about *weight* and never about *how far up a column they look*.
+///
+/// The dispatch-site guard is the same one that function uses, and for the
+/// same reason: one kind lookup and out, so the sweep pays nothing for this
+/// existing anywhere there is no pile.
+fn surcharge_mass(world: &World, x: i32, y: i32) -> f32 {
+    if world.materials.kind(world.get(x, y - 1).material) != MaterialKind::Powder {
+        return 0.0;
+    }
+    let mut total = 0.0;
+    for depth in 0..crate::sim::load::POWDER_SURCHARGE_CAP {
+        let cell = world.get(x, y - 1 - depth);
+        if world.materials.kind(cell.material) != MaterialKind::Powder {
+            break;
+        }
+        total += world.materials.density(cell.material);
+    }
+    total
+}
+
 /// How hard the wind pushes on one cell of tissue, per unit of field
 /// velocity, in the same units as a cell's weight.
 ///
@@ -5486,7 +5665,7 @@ pub fn stress_field(world: &World, organism_id: u16) -> std::collections::HashMa
     let mut supporters: Vec<usize> = Vec::with_capacity(8);
     for &i in &visit {
         let (x, y) = cells[i];
-        let mass = world.materials.density(world.get(x, y).material);
+        let mass = world.materials.density(world.get(x, y).material) + surcharge_mass(world, x, y);
         carried[i] += mass;
         moment_x[i] += mass * x as f32;
         let f = push_at(y);
@@ -8414,7 +8593,7 @@ mod tests {
 
         let (mut rigid, id) = stem_world(&arm);
         let before: Vec<(i32, i32)> = rigid.organism(id).expect("state").cells.keys().copied().collect();
-        bend_under_load(&mut rigid, id);
+        { let f = stress_field(&rigid, id); bend_under_load(&mut rigid, id, &f); }
         let after: Vec<(i32, i32)> = rigid.organism(id).expect("state").cells.keys().copied().collect();
         let (mut a, mut b) = (before.clone(), after);
         a.sort_unstable();
@@ -8423,7 +8602,7 @@ mod tests {
 
         let (mut soft, soft_id) = stem_world_of(&arm, "grassblade");
         let moment_before = peak_moment(&soft, soft_id);
-        bend_under_load(&mut soft, soft_id);
+        { let f = stress_field(&soft, soft_id); bend_under_load(&mut soft, soft_id, &f); }
         let moved: Vec<(i32, i32)> = soft.organism(soft_id).expect("state").cells.keys().copied().collect();
         let mut m = moved.clone();
         m.sort_unstable();
@@ -8445,7 +8624,7 @@ mod tests {
         let mut shape: Vec<(i32, i32)> = Vec::new();
         for _ in 0..40 {
             anchor_support(&mut soft, soft_id);
-            bend_under_load(&mut soft, soft_id);
+            { let f = stress_field(&soft, soft_id); bend_under_load(&mut soft, soft_id, &f); }
         }
         shape.extend(soft.organism(soft_id).expect("state").cells.keys().copied());
         shape.sort_unstable();
@@ -8456,11 +8635,159 @@ mod tests {
         );
         for _ in 0..20 {
             anchor_support(&mut soft, soft_id);
-            bend_under_load(&mut soft, soft_id);
+            { let f = stress_field(&soft, soft_id); bend_under_load(&mut soft, soft_id, &f); }
         }
         let mut settled: Vec<(i32, i32)> = soft.organism(soft_id).expect("state").cells.keys().copied().collect();
         settled.sort_unstable();
         assert_eq!(shape, settled, "a bending plant must come to rest, not creep -- twenty more ticks moved it again");
+    }
+
+    /// **The plan's first break bar, and the reason it is stated as
+    /// "at its root, not its tip".**
+    ///
+    /// A cantilever is most stressed where it leaves its trunk and least
+    /// stressed at its free tip. Any rule that reads the load backwards —
+    /// or flat — snaps the far end off first, which looks like a twig
+    /// dropping rather than a limb failing, and a bare "something broke"
+    /// assertion cannot tell the two apart. So this asserts *where*.
+    #[test]
+    fn an_overreaching_branch_breaks_at_its_root_and_not_its_tip() {
+        // **A trunk with real girth, and the first version of this fixture
+        // did not have one.** A one-cell-wide stem carrying a nineteen-cell
+        // arm snaps at the *ground*, and that is the rule being right rather
+        // than wrong: the trunk base carries the whole arm on a longer lever
+        // through a section of one. Three columns divide its stress by nine
+        // and leave the branch as the weak point, which is the shape the bar
+        // is actually about -- `section` is per `order`, so the stem's own
+        // width is what the stem is judged on.
+        let mut cells: Vec<((i32, i32), u8)> = (48..51).flat_map(|x| (90..100).map(move |y| ((x, y), 0u8))).collect();
+        cells.extend((51..70).map(|x| ((x, 90), 1u8)));
+        let (mut w, id) = stem_world(&cells);
+
+        // The strength is set below the arm's own root stress and above its
+        // tip's, which is the setup this bar needs -- with no such gap the
+        // test would pass on a rule that broke a uniformly random cell.
+        let field = stress_field(&w, id);
+        let root = field[&(51, 90)].stress;
+        let tip = field[&(69, 90)].stress;
+        assert!(root > tip, "test setup: the arm must be hotter at its root ({root}) than its tip ({tip})");
+        let wood = w.materials.id_of("wood").expect("wood");
+        w.materials.get_mut(wood).strength = (root + tip) / 2.0;
+
+        anchor_support(&mut w, id);
+        { let f = stress_field(&w, id); break_under_load(&mut w, id, &f); }
+        let gone: Vec<(i32, i32)> =
+            cells.iter().map(|&(at, _)| at).filter(|&(x, y)| w.get(x, y).organism_id() != id).collect();
+        assert!(!gone.is_empty(), "the arm was over its strength and nothing gave way");
+        // **Where, not how many.** An earlier version asserted exactly one
+        // cell, which was the old "one snap then wait for the next organism
+        // tick" behaviour rather than a property worth having -- and holding
+        // it made a break dribble out over minutes instead of propagating.
+        // See `break_under_load`. What must stay true is that the failure is
+        // at the arm's root: every cell that gave way is on the arm, and the
+        // innermost of them is near where it leaves the stem.
+        assert!(gone.iter().all(|&(_, y)| y == 90), "the break must be on the arm, not up the stem: {gone:?}");
+        let innermost = gone.iter().map(|&(x, _)| x).min().expect("a break");
+        assert!(
+            innermost <= 55,
+            "the arm must let go near its root at x=51, not out at its tip x=69: innermost break at x={innermost}"
+        );
+    }
+
+    /// **The plan's second break bar: a snow-loaded crown snaps its own
+    /// trunk** — ask 1, with no new verb, because snow already falls and
+    /// piles on its own.
+    ///
+    /// Paired against the identical plant with nothing on it, which must
+    /// *not* break. That pairing is the whole test: a stand where the trunk
+    /// snaps under its own weight would pass a bare "it broke" assertion
+    /// while being the failure the strength constant exists to prevent.
+    #[test]
+    fn snow_piled_on_a_crown_snaps_the_trunk_and_a_bare_one_holds() {
+        // A trunk with a wide crown on it — the shape that has somewhere for
+        // snow to land and a lever for it to act on.
+        let mut cells: Vec<((i32, i32), u8)> = (48..51).flat_map(|x| (86..100).map(move |y| ((x, y), 0u8))).collect();
+        cells.extend((40..60).map(|x| ((x, 85), 1u8)));
+
+        let bare_stress = {
+            let (mut w, id) = stem_world(&cells);
+            let wood = w.materials.id_of("wood").expect("wood");
+            let peak = stress_field(&w, id).values().map(|s| s.stress).fold(0.0f32, f32::max);
+            w.materials.get_mut(wood).strength = peak * 2.0;
+            anchor_support(&mut w, id);
+            { let f = stress_field(&w, id); break_under_load(&mut w, id, &f); }
+            assert_eq!(
+                w.structural_failures.snapped_under_load, 0,
+                "a bare crown at twice its own peak stress must hold -- otherwise the loaded arm proves nothing"
+            );
+            peak
+        };
+
+        let (mut w, id) = stem_world(&cells);
+        let wood = w.materials.id_of("wood").expect("wood");
+        w.materials.get_mut(wood).strength = bare_stress * 2.0;
+        // A real snowfall's worth, standing on the crown the way `Powder`
+        // settles: `surcharge_mass` looks up `POWDER_SURCHARGE_CAP` cells.
+        let snow = w.materials.id_of("snow").expect("snow is a compiled-in material");
+        for x in 40..60 {
+            for y in (85 - crate::sim::load::POWDER_SURCHARGE_CAP)..85 {
+                w.set(x, y, Cell::new(snow, 0));
+            }
+        }
+        let loaded = stress_field(&w, id).values().map(|s| s.stress).fold(0.0f32, f32::max);
+        assert!(
+            loaded > bare_stress * 2.0,
+            "the snow must actually raise the load past the bar: bare peak {bare_stress}, loaded {loaded}"
+        );
+        anchor_support(&mut w, id);
+        { let f = stress_field(&w, id); break_under_load(&mut w, id, &f); }
+        // A count, not an exact one: the break propagates within the tick
+        // until nothing is left over its strength, so how far it runs is a
+        // property of the load rather than of the rule. The bar is that the
+        // loaded crown gives way at all and the bare one above did not.
+        assert!(w.structural_failures.snapped_under_load > 0, "the loaded crown must snap");
+        let broken: Vec<(i32, i32)> =
+            cells.iter().map(|&(at, _)| at).filter(|&(x, y)| w.get(x, y).organism_id() != id).collect();
+        assert!(!broken.is_empty(), "and cells must actually be gone from the plant");
+    }
+
+    /// **Nothing breaks that has not opted in**, which is what keeps this
+    /// rule off every material nobody has measured.
+    ///
+    /// Asserted against a case that is *not* null -- the identical plant
+    /// with a strength set does break -- so this is testing the property
+    /// and not a scene too weak to break anything.
+    #[test]
+    fn tissue_with_no_strength_never_snaps_and_tissue_with_one_does() {
+        let mut cells: Vec<((i32, i32), u8)> = (90..100).map(|y| ((50, y), 0u8)).collect();
+        cells.extend((51..70).map(|x| ((x, 90), 1u8)));
+
+        // **`rootwood`, because it is a material that really has opted out**
+        // rather than one this test switched off. Roots are underground and
+        // take no wind, so `rootwood.ron` deliberately has no `strength`, and
+        // asserting against it means this guard tracks the shipped state: if
+        // someone gives roots a strength one day, this fails and asks them to
+        // mean it. Written against `wood` first, which then quietly became a
+        // test of nothing the moment wood got its own.
+        let (mut rigid, id) = stem_world_of(&cells, "rootwood");
+        assert!(
+            rigid.materials.get(rigid.materials.id_of("rootwood").expect("rootwood")).strength.is_infinite(),
+            "test setup: this asserts the opt-out, so rootwood must not have been given a strength"
+        );
+        let before = rigid.organism(id).expect("state").cells.len();
+        anchor_support(&mut rigid, id);
+        { let f = stress_field(&rigid, id); break_under_load(&mut rigid, id, &f); }
+        assert_eq!(before, rigid.organism(id).expect("state").cells.len(), "unmeasured tissue must be unbreakable");
+
+        let (mut weak, weak_id) = stem_world_of(&cells, "rootwood");
+        let root = weak.materials.id_of("rootwood").expect("rootwood");
+        weak.materials.get_mut(root).strength = 1.0;
+        anchor_support(&mut weak, weak_id);
+        { let f = stress_field(&weak, weak_id); break_under_load(&mut weak, weak_id, &f); }
+        assert!(
+            weak.organism(weak_id).expect("state").cells.len() < before,
+            "the same plant with a strength must break -- otherwise the null above proves nothing"
+        );
     }
 
     /// A bend must never tear the plant in half. Every cell still has to
@@ -8483,7 +8810,7 @@ mod tests {
         let (mut w, id) = stem_world_of(&arm, "grassblade");
         for tick in 0..40 {
             anchor_support(&mut w, id);
-            bend_under_load(&mut w, id);
+            { let f = stress_field(&w, id); bend_under_load(&mut w, id, &f); }
             anchor_support(&mut w, id);
             let stranded: Vec<(i32, i32)> = w
                 .organism(id)
@@ -8519,7 +8846,7 @@ mod tests {
         assert!(!anchors.is_empty(), "test setup: no anchors, so this asserts nothing");
         for _ in 0..6 {
             anchor_support(&mut w, id);
-            bend_under_load(&mut w, id);
+            { let f = stress_field(&w, id); bend_under_load(&mut w, id, &f); }
         }
         for at in anchors {
             assert!(w.get(at.0, at.1).organism_id() == id, "the anchor at {at:?} left its footing");

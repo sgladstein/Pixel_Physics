@@ -231,6 +231,330 @@ fn palette_family_for(ctx: &Ctx, ch: crate::worldgen::region::Character, x: i32,
     FAMILY_NEUTRAL
 }
 
+// --- The rock vocabulary -----------------------------------------------
+//
+// `Reports/rock-vocabulary-design-2026-08-29.md`. Until this existed
+// `stone` was the entire geology of the world: one material, four colour
+// families, the family a *region tint* chosen by a 2-D noise blob and the
+// tone a bedding index. The measured consequence
+// (`Reports/worldgen-appearance-audit-2026-08-29.md`) is that ~90% of every
+// picture the player sees is drawn from four colours of one rock, and that
+// the one axis which does vary -- the family -- varies in a shape that cuts
+// *across* the bedding and reads as camouflage rather than as rock.
+//
+// Two things change. A bed picks a **material**, not a tint, so rock differs
+// in hardness, in how coarsely it calves and in its joint fabric as well as
+// in colour. And the choice is keyed on `(band, x)` and never on `y`, so a
+// bed is one rock from its floor to its roof and a facies change interfingers
+// *along* the bedding instead of blotching through it.
+
+/// Prototype switch. `PIXEL_PHYSICS_ROCK_VOCAB=0` puts every bed back on
+/// `stone` with its old four-family tint, which restores the shipped world
+/// **byte for byte** -- `noise::hash` is stateless, so adding streams
+/// perturbs nothing, and the control arm is the same binary with one
+/// predicate flipped. That is `CLAUDE.md`'s rule for measuring a change of
+/// this shape: hold the semantic rule fixed with one env switch rather than
+/// measuring around the confound.
+pub(crate) fn rock_vocab_on() -> bool {
+    // An atomic rather than a `OnceLock<bool>`, so a harness can build both
+    // arms in **one process**. That is not tidiness: it is the difference
+    // between an A/B whose arms share a binary, a world-building path and a
+    // machine, and one that does not, and `CLAUDE.md` records an overturned
+    // performance claim that turned on exactly that distinction.
+    //
+    // `-1` means "nobody has said", in which case the env var decides and
+    // the answer is cached. `set_rock_vocab` overwrites it either way.
+    match ROCK_VOCAB.load(std::sync::atomic::Ordering::Relaxed) {
+        -1 => {
+            let on = std::env::var("PIXEL_PHYSICS_ROCK_VOCAB").map(|v| v != "0").unwrap_or(true);
+            ROCK_VOCAB.store(i8::from(on), std::sync::atomic::Ordering::Relaxed);
+            on
+        }
+        v => v != 0,
+    }
+}
+
+/// Force the rock vocabulary on or off, overriding `PIXEL_PHYSICS_ROCK_VOCAB`.
+///
+/// For harnesses that need both arms in one process
+/// (`examples/world_look.rs mode=vocab`). Nothing the app runs calls it.
+pub fn set_rock_vocab(on: bool) {
+    ROCK_VOCAB.store(i8::from(on), std::sync::atomic::Ordering::Relaxed);
+}
+
+static ROCK_VOCAB: std::sync::atomic::AtomicI8 = std::sync::atomic::AtomicI8::new(-1);
+
+/// Whether the weathered family is applied at all. Same shape as
+/// `rock_vocab_on`, and separate from it so the two halves of the proposal
+/// can be *priced separately* -- the rocks are a genesis-time material
+/// decision and the weathering is a genesis-time shade decision, and an
+/// appearance number that pools them cannot say which one earned it.
+fn rock_weather_on() -> bool {
+    match ROCK_WEATHER.load(std::sync::atomic::Ordering::Relaxed) {
+        -1 => {
+            let on = std::env::var("PIXEL_PHYSICS_ROCK_WEATHER").map(|v| v != "0").unwrap_or(true);
+            ROCK_WEATHER.store(i8::from(on), std::sync::atomic::Ordering::Relaxed);
+            on
+        }
+        v => v != 0,
+    }
+}
+
+/// See [`set_rock_vocab`]; this is the weathering half.
+pub fn set_rock_weather(on: bool) {
+    ROCK_WEATHER.store(i8::from(on), std::sync::atomic::Ordering::Relaxed);
+}
+
+static ROCK_WEATHER: std::sync::atomic::AtomicI8 = std::sync::atomic::AtomicI8::new(-1);
+
+/// Whether rock below the water table takes the damp family. Its own switch,
+/// for the reason `rock_weather_on` gives: the three parts of this proposal
+/// have very different pixel shares and a pooled number cannot say so.
+fn rock_damp_on() -> bool {
+    match ROCK_DAMP.load(std::sync::atomic::Ordering::Relaxed) {
+        -1 => {
+            let on = std::env::var("PIXEL_PHYSICS_ROCK_DAMP").map(|v| v != "0").unwrap_or(true);
+            ROCK_DAMP.store(i8::from(on), std::sync::atomic::Ordering::Relaxed);
+            on
+        }
+        v => v != 0,
+    }
+}
+
+/// See [`set_rock_vocab`]; this is the damp half.
+pub fn set_rock_damp(on: bool) {
+    ROCK_DAMP.store(i8::from(on), std::sync::atomic::Ordering::Relaxed);
+}
+
+static ROCK_DAMP: std::sync::atomic::AtomicI8 = std::sync::atomic::AtomicI8::new(-1);
+
+/// Whether `brows` yields a lip to a boulder socket (round-4 finding R4-1;
+/// see `brows` for the mechanism).
+///
+/// **This switch exists so the guard over the fix can be shown able to
+/// fail.** `scripts/worldgencheck.sh` asserts that no pass "APPEARS" when
+/// another is switched off -- the exact signature R4-1 produced -- and green
+/// is that check's default state, so on its own it is evidence about the
+/// check and not about the world. `--selftest` sets
+/// `PIXEL_PHYSICS_BROW_YIELD=0`, which restores the pre-fix world exactly,
+/// and requires the check to go red. That is `CLAUDE.md`'s standing rule
+/// ("put the fault it is named for back and watch it go red") built as a
+/// command rather than left as a discipline, the same way
+/// `scripts/docscheck.sh --selftest` is.
+///
+/// Nothing in the game reads it, and the default is on.
+fn brow_yield_on() -> bool {
+    match BROW_YIELD.load(std::sync::atomic::Ordering::Relaxed) {
+        -1 => {
+            let on = std::env::var("PIXEL_PHYSICS_BROW_YIELD").map(|v| v != "0").unwrap_or(true);
+            BROW_YIELD.store(i8::from(on), std::sync::atomic::Ordering::Relaxed);
+            on
+        }
+        v => v != 0,
+    }
+}
+
+static BROW_YIELD: std::sync::atomic::AtomicI8 = std::sync::atomic::AtomicI8::new(-1);
+
+/// How far a free face's weather reaches into the rock, in cells.
+///
+/// Small on purpose. This is the depth at which a *cut* stops showing
+/// weathered rock and starts showing fresh, so it has to be shallower than
+/// the bite a single swing takes or mining never crosses it. It is also the
+/// horizontal reach used for the same test, so a cliff face -- where the air
+/// is sideways, not above -- weathers down its whole height rather than only
+/// at its lip.
+const WEATHER_DEPTH: i32 = 5;
+
+/// Fraction of the world's height below which every bed is basalt.
+///
+/// The basement. Deep mining currently arrives nowhere: the rock at 2,000
+/// rows down is the same four greys as the rock at 200. This is the cheapest
+/// possible "you got somewhere" and it costs one comparison per bed.
+const BASEMENT_FRACTION: f32 = 0.80;
+
+/// Wavelength of the lateral facies dither, in cells. Long: a facies change
+/// is a *country* boundary, an order of magnitude coarser than the palette
+/// dither it replaces (`FAMILY_DITHER_WAVELENGTH`, 40), because a bed that
+/// changed rock every 40 columns would read as a dashed line rather than as
+/// two rocks meeting.
+const FACIES_WAVELENGTH: f32 = 420.0;
+
+/// How far the facies dither may move a bed's rank. At 0.10 most beds keep
+/// their identity across a whole world and the ones sitting near a bucket
+/// edge change partway along -- which is the interfingering the boundary is
+/// for. Larger and every bed changes rock every few hundred columns, which
+/// is the camouflage problem again in a different costume.
+const FACIES_STRENGTH: f32 = 0.10;
+
+/// How far a region's `resistance` may tilt a bed's rank. Positive: a
+/// resistant region turns its soft beds hard.
+const RESISTANCE_TILT: f32 = 0.22;
+
+/// How many bedding planes a rock **unit** spans, nominally.
+///
+/// A unit is the thing that has a rock; the beds inside it are its internal
+/// bedding, and they still draw their own tone, so a limestone unit is a
+/// pale band with lighter and darker courses in it rather than one flat
+/// ribbon. Set at 2.6 rather than 1 because at 1 -- rock re-drawn every bed
+/// -- a face of six rocks reads as a striped awning: see `Purpose::RockUnit`.
+const UNIT_BEDS: f32 = 1.8;
+
+/// How far [`bed_unit`]'s warp may move a unit boundary, in units, and the
+/// wavelength it moves over. `2 * UNIT_WARP / UNIT_WARP_WAVELENGTH` must stay
+/// under 1 or the warped coordinate stops being monotone and a unit can turn
+/// inside out; at 0.45 / 2.5 it is 0.36.
+const UNIT_WARP: f32 = 0.45;
+const UNIT_WARP_WAVELENGTH: f32 = 2.5;
+
+/// Which rock unit a bed belongs to.
+///
+/// `floor` of a *warped* unit coordinate rather than of a plain division, so
+/// unit boundaries land irregularly. Everything else about the section --
+/// where the bedding planes are, how the terraces snap to them -- is
+/// untouched; this only decides how many consecutive beds share one rock.
+fn bed_unit(ctx: &Ctx, band: i32) -> i32 {
+    let v = band as f32 / UNIT_BEDS;
+    let w = noise::value_1d(ctx.terrain.seed, Purpose::RockUnit, v / UNIT_WARP_WAVELENGTH);
+    (v + UNIT_WARP * (w * 2.0 - 1.0)).floor() as i32
+}
+
+/// The bed's rank in the section, `0` softest to `1` hardest, at `(band, x)`.
+///
+/// **Three terms, and the first is the one that matters.** `q` is keyed on
+/// the band index alone, so a bed holds its rank across the whole world --
+/// the same property the tone draw already has, and the reason a bed is
+/// followable from one cliff face to the next. The other two only displace
+/// it: the region's resistance, and a long-wavelength lateral dither.
+fn bed_rank(ctx: &Ctx, unit: i32, x: i32, ch: crate::worldgen::region::Character) -> f32 {
+    let q = noise::unit(ctx.terrain.seed, Purpose::RockType, unit, 0);
+    let facies = noise::fbm_2d(
+        ctx.terrain.seed,
+        Purpose::RockFacies,
+        x as f32 / FACIES_WAVELENGTH,
+        unit as f32 * 0.37,
+        2,
+    );
+    let q = q + FACIES_STRENGTH * (facies * 2.0 - 1.0);
+    (q + RESISTANCE_TILT * (ch.resistance - 1.0)).clamp(0.0, 1.0)
+}
+
+/// Which rock a bed is made of.
+///
+/// **A cumulative selection over one rank**, the same shape `palette_family`
+/// uses and for the same two reasons: the buckets partition, so a bed cannot
+/// come out both soft and resistant, and the boundary between two of them
+/// is a dither rather than a ruled line.
+///
+/// Aridity picks which rock a *given* rank shows up as, rather than moving
+/// the rank -- so a dry country and a wet one have the same *number* of hard
+/// beds and soft beds, made of different rock. That is what a facies is, and
+/// it is why the two read as different places rather than as one place with
+/// the contrast turned up.
+fn strata_rock(ctx: &Ctx, band: i32, x: i32, ch: crate::worldgen::region::Character) -> material::MaterialId {
+    let r = &ctx.rocks;
+    // The basement, first and unconditionally: below this everything is
+    // basalt whatever the section above it is doing.
+    let thickness = ctx.terrain.params.strata_thickness.max(1.0);
+    let basement_band = ((ctx.terrain.h as f32 * BASEMENT_FRACTION) / thickness) as i32;
+    if band >= basement_band {
+        return r.basalt;
+    }
+    // **Markers first, and per bed.** A rib of ironstone or a basalt sill is
+    // one bed thick by definition; drawn on the unit stream it would inherit
+    // the unit's thickness. See `Purpose::RockMarker`.
+    let m = noise::unit(ctx.terrain.seed, Purpose::RockMarker, band, 0);
+    if m < MARKER_IRONSTONE {
+        return r.ironstone;
+    }
+    if m < MARKER_IRONSTONE + MARKER_SILL {
+        return r.basalt;
+    }
+    let q = bed_rank(ctx, bed_unit(ctx, band), x, ch);
+    let dry = ch.aridity;
+    if q < 0.27 {
+        // The soft bed. Present in every country -- something always has to
+        // be the thing that goes first.
+        r.mudstone
+    } else if q < 0.58 {
+        if dry > 0.25 { r.sandstone } else { r.stone }
+    } else if q < 0.80 {
+        if dry > 0.65 { r.sandstone } else { r.stone }
+    } else {
+        r.limestone
+    }
+}
+
+/// Share of *beds* that are an ironstone rib, and a basalt sill.
+///
+/// Deliberately small, and the reason is in `ironstone.ron`: a marker bed
+/// you see everywhere marks nothing. At `strata_thickness` 9-12 these put a
+/// rib roughly every 30 beds -- one or two in a screen-height of section,
+/// which is what makes finding the same one on the next cliff mean anything.
+const MARKER_IRONSTONE: f32 = 0.030;
+const MARKER_SILL: f32 = 0.015;
+
+/// Where a rock's **weathered** family starts in its `colors` list.
+///
+/// 4 for every rock in the vocabulary, and 16 for `stone`, because the
+/// prototype keeps stone's three retired region-tint families in place so
+/// that `PIXEL_PHYSICS_ROCK_VOCAB=0` restores the shipped world exactly.
+/// Landing this deletes them and the answer becomes 4 everywhere.
+fn weathered_base(ctx: &Ctx, m: material::MaterialId) -> u8 {
+    if m == ctx.rocks.stone { 16 } else { 4 }
+}
+
+/// Where a rock's **damp** family starts. Same prototype caveat as
+/// [`weathered_base`]: 8 for the vocabulary, 20 for `stone`, which is
+/// carrying three retired region-tint families so the control arm stays
+/// byte-identical.
+fn damp_base(ctx: &Ctx, m: material::MaterialId) -> u8 {
+    if m == ctx.rocks.stone { 20 } else { 8 }
+}
+
+/// Per-column state for the weathering test: how far this cell is from open
+/// air, given the plan surface of this column and its neighbours.
+///
+/// **Distance to air, not depth below the surface**, and the difference is
+/// the whole point: on a cliff the air is *sideways*. Measuring depth alone
+/// weathers the lip of a face and leaves the face itself fresh, which is
+/// backwards -- the face is the part the player is looking at.
+#[derive(Clone, Copy)]
+struct Exposure {
+    /// `surface_y` for `x - WEATHER_DEPTH ..= x + WEATHER_DEPTH`.
+    surf: [i32; (2 * WEATHER_DEPTH + 1) as usize],
+    /// The deepest of those. Below it plus `WEATHER_DEPTH` nothing can be
+    /// exposed, whatever the neighbours do, so the common case is one
+    /// comparison.
+    deepest: i32,
+}
+
+impl Exposure {
+    fn new(ctx: &Ctx, x: i32) -> Self {
+        let mut surf = [0i32; (2 * WEATHER_DEPTH + 1) as usize];
+        let mut deepest = i32::MIN;
+        for (i, slot) in surf.iter_mut().enumerate() {
+            let nx = (x + i as i32 - WEATHER_DEPTH).clamp(0, ctx.terrain.w - 1);
+            *slot = ctx.plans[nx as usize].surface_y;
+            deepest = deepest.max(*slot);
+        }
+        Exposure { surf, deepest }
+    }
+
+    fn weathered(&self, y: i32) -> bool {
+        if y > self.deepest + WEATHER_DEPTH {
+            return false;
+        }
+        for (i, &s) in self.surf.iter().enumerate() {
+            let dx = (i as i32 - WEATHER_DEPTH).abs();
+            if dx + (y - s).max(0) < WEATHER_DEPTH {
+                return true;
+            }
+        }
+        false
+    }
+}
+
 /// Sedimentary banding, written into the shade byte.
 ///
 /// The whole visual argument for cut rock. Stone's four shades cost nothing
@@ -264,6 +588,20 @@ pub(crate) struct ColumnShade {
     character: crate::worldgen::region::Character,
     band: i32,
     base: u8,
+    /// Which rock this band is, memoised on the same band crossing the tone
+    /// draw is. **This is why splitting the massif into six materials is
+    /// nearly free**: the rock is a function of `(band, x)`, so it is
+    /// re-decided once every `strata_thickness` rows rather than once per
+    /// cell, exactly like the tone above it.
+    rock: material::MaterialId,
+    /// Distance-to-air state for the weathering family. Per column, built
+    /// once; see `Exposure`.
+    exposure: Exposure,
+    /// The column's water table (`ColumnPlan::table_y`). Rock at or below it
+    /// draws damp. **A plan number, so this stays a pure function of the
+    /// column plan** -- the decide/realise split is what makes
+    /// `pass_ablation` possible and this does not spend it.
+    table_y: i32,
 }
 
 impl ColumnShade {
@@ -277,10 +615,18 @@ impl ColumnShade {
             // `shade` call always takes the miss path.
             band: i32::MIN,
             base: 0,
+            rock: ctx.stone,
+            exposure: Exposure::new(ctx, x),
+            table_y: ctx.plans[x as usize].table_y,
         }
     }
 
-    pub(crate) fn shade(&mut self, ctx: &Ctx, x: i32, y: i32) -> u8 {
+    /// The material and shade of the massif cell at `(x, y)`.
+    ///
+    /// Returns both because they are one decision: the rock decides which
+    /// palette the tone indexes into, and reading them apart is how the
+    /// old scheme ended up with a region tint pretending to be a rock.
+    pub(crate) fn bed(&mut self, ctx: &Ctx, x: i32, y: i32) -> (material::MaterialId, u8) {
         let band = ((y as f32 + self.offset) / self.thickness).floor() as i32;
         if band != self.band {
             self.band = band;
@@ -294,13 +640,45 @@ impl ColumnShade {
             } else {
                 2
             };
+            self.rock = if rock_vocab_on() && ctx.terrain.params.region_variation > 0.0 {
+                strata_rock(ctx, band, x, self.character)
+            } else {
+                // `flat` ships `region_variation = 0` and is the structural
+                // test bed and the destruction workstream's control render,
+                // so it is left byte-identical -- the same exemption
+                // `palette_family_for` takes, for the same reason.
+                ctx.stone
+            };
         }
         let tone = if noise::unit(ctx.terrain.seed, Purpose::Shade, x, y) < 0.12 {
             (self.base + 1).min(TONES - 1)
         } else {
             self.base
         };
-        palette_family_for(ctx, self.character, x, y, true) * TONES + tone
+        if self.rock == ctx.stone && !(rock_vocab_on() && ctx.terrain.params.region_variation > 0.0) {
+            return (ctx.stone, palette_family_for(ctx, self.character, x, y, true) * TONES + tone);
+        }
+        // **Damp beats weathered.** A cell can be both -- a cliff foot
+        // standing in a pond -- and what the eye reads there is wet rock,
+        // not bleached rock. Ordering it the other way puts a pale
+        // sun-weathered skin under the waterline.
+        let family = if rock_damp_on() && y >= self.table_y {
+            damp_base(ctx, self.rock)
+        } else if rock_weather_on() && self.exposure.weathered(y) {
+            weathered_base(ctx, self.rock)
+        } else {
+            0
+        };
+        (self.rock, family + tone)
+    }
+
+    /// The shade half of [`ColumnShade::bed`]. Kept because
+    /// `column_shade_matches_the_per_cell_version` pins it against
+    /// `strata_shade` cell for cell, which is the only thing stopping the
+    /// column walk and the per-cell entry point drifting apart.
+    #[allow(dead_code)]
+    pub(crate) fn shade(&mut self, ctx: &Ctx, x: i32, y: i32) -> u8 {
+        self.bed(ctx, x, y).1
     }
 }
 
@@ -355,7 +733,35 @@ pub(crate) fn strata_shade(ctx: &Ctx, x: i32, y: i32) -> u8 {
     // decides which of the four tones a bed takes, so a bed remains
     // followable from one cliff face to the next -- what the region changes
     // is which four colours those tones name. Family, not texture.
-    palette_family(ctx, x, y, true) * TONES + tone
+    if !rock_vocab_on() || ctx.terrain.params.region_variation <= 0.0 {
+        return palette_family(ctx, x, y, true) * TONES + tone;
+    }
+    let rock = strata_rock(ctx, band, x, ctx.terrain.character(x));
+    let family = if rock_damp_on() && y >= ctx.plans[x.clamp(0, ctx.terrain.w - 1) as usize].table_y {
+        damp_base(ctx, rock)
+    } else if rock_weather_on() && Exposure::new(ctx, x).weathered(y) {
+        weathered_base(ctx, rock)
+    } else {
+        0
+    };
+    family + tone
+}
+
+/// [`strata_shade`]'s material half — which rock the massif is at `(x, y)`.
+///
+/// The passes that paint rock *outside* the massif walk — a cliff brow
+/// hanging into air, a tor `residual.rs` stands up — have to agree with the
+/// bed they are continuing or the seam between them shows. They already
+/// shared `strata_shade` for exactly that reason; this is the other half of
+/// the same answer, and calling one without the other is how a sandstone tor
+/// ends up wearing limestone's colours.
+pub(crate) fn strata_rock_at(ctx: &Ctx, x: i32, y: i32) -> material::MaterialId {
+    if !rock_vocab_on() || ctx.terrain.params.region_variation <= 0.0 {
+        return ctx.stone;
+    }
+    let thickness = ctx.terrain.params.strata_thickness.max(1.0);
+    let band = ((y as f32 + ctx.terrain.strata_offset(x)) / thickness).floor() as i32;
+    strata_rock(ctx, band, x, ctx.terrain.character(x))
 }
 
 /// Shade for a soil cell, darkening toward the surface.
@@ -419,6 +825,10 @@ fn cover_shade(ctx: &Ctx, purpose: Purpose, x: i32, y: i32) -> u8 {
 /// no movement rule at all, so it cannot settle however steep the face is.
 pub fn stone_massif(ctx: &Ctx, world: &mut World) -> usize {
     let mut n = 0;
+    // One buffer for the whole pass, reused per column. A `Vec` per *run*
+    // was the first version and allocates ~1.6 M times over an 8192-wide
+    // world; this allocates once.
+    let mut column: Vec<(material::MaterialId, u8)> = Vec::with_capacity(ctx.terrain.h as usize);
     for x in 0..ctx.terrain.w {
         let c = ctx.plans[x as usize];
         // `fill_run` rather than `set` per cell: this pass writes essentially
@@ -426,9 +836,58 @@ pub fn stone_massif(ctx: &Ctx, world: &mut World) -> usize {
         // material and its sweep properties are all constant down a run. See
         // `World::fill_run`, which exists for this measurement.
         let mut shade = ColumnShade::new(ctx, x);
-        n += world.fill_run(x, (c.surface_y + c.soil_depth).max(0), c.bedrock_top_y - 1, ctx.stone, |y| {
-            Cell::new(ctx.stone, shade.shade(ctx, x, y)).with_attached(true)
-        });
+        let (top, bottom) = ((c.surface_y + c.soil_depth).max(0), c.bedrock_top_y - 1);
+        // **One `fill_run` per bed-material run, not per bed and not per
+        // cell.** `fill_run` asserts a single material down its whole run,
+        // so a column of six rocks has to be cut into runs -- but only where
+        // the material actually *changes*, which is far rarer than a band
+        // boundary because consecutive beds frequently draw the same rock.
+        //
+        // The cost is one more `chunks.entry` HashMap lookup per run.
+        // `fill_run` already re-enters the map every 64 rows at a chunk
+        // boundary, so this raises the number of entries per column from
+        // `height / 64` to `height / 64 + material changes`, and the measured
+        // pass time is in the report. Everything else in the walk -- the band
+        // draw, the rock draw, the column's character and offset -- is
+        // memoised in `ColumnShade` exactly as it was.
+        column.clear();
+        for y in top..=bottom {
+            let (m, sh) = shade.bed(ctx, x, y);
+            // The counters. See `Ctx::rock_cells` -- a picture cannot say
+            // whether the vocabulary fired, and these are what the
+            // `massif detail` line prints beside it.
+            let slot = if m == ctx.rocks.stone {
+                0
+            } else if m == ctx.rocks.mudstone {
+                1
+            } else if m == ctx.rocks.sandstone {
+                2
+            } else if m == ctx.rocks.limestone {
+                3
+            } else if m == ctx.rocks.ironstone {
+                4
+            } else {
+                5
+            };
+            ctx.rock_cells[slot].set(ctx.rock_cells[slot].get() + 1);
+            if sh >= TONES {
+                ctx.weathered_cells.set(ctx.weathered_cells.get() + 1);
+            }
+            column.push((m, sh));
+        }
+        let mut i = 0usize;
+        while i < column.len() {
+            let m = column[i].0;
+            let start = top + i as i32;
+            let mut j = i + 1;
+            while j < column.len() && column[j].0 == m {
+                j += 1;
+            }
+            n += world.fill_run(x, start, top + j as i32 - 1, m, |yy| {
+                Cell::new(m, column[(yy - start) as usize + i].1).with_attached(true)
+            });
+            i = j;
+        }
     }
     n
 }
@@ -456,6 +915,42 @@ pub fn bedrock_floor(ctx: &Ctx, world: &mut World) -> usize {
 pub fn soil_blanket(ctx: &Ctx, world: &mut World) -> usize {
     let mut n = 0;
     let p = ctx.terrain.params;
+    // **Where the plan's talus goes, under `TALUS_DEBUG=1`.**
+    //
+    // `talus-recoloured 40` against a planned volume of 689 is the same
+    // output for three different causes -- the deposit was thin, the
+    // rounding discarded it, or the cover cap ate it -- and telling them
+    // apart is the difference between a fix and a re-run. Same argument as
+    // `SPRING_DEBUG`, which exists because "0 springs placed" was the same
+    // output for six.
+    //
+    // Measured 2026-08-29, shipped size, seed 1: on `canyon` the deposit
+    // rounds to **636 cells** and **16** survive `.min(soil_depth)`. The cap
+    // is the drain, not the arithmetic -- talus lands at the foot of a face,
+    // `plan_from`'s slope gate gives a steep column no cover at all, and
+    // `taper_cover` propagates that zero outward, so the columns holding the
+    // most talus are exactly the ones with nothing to recolour.
+    if std::env::var("TALUS_DEBUG").is_ok() {
+        let t = &ctx.deposits.talus;
+        let sum: f32 = t.iter().sum();
+        let (mut uncapped, mut capped) = (0i64, 0i64);
+        for x in 0..ctx.terrain.w {
+            let v = t[x as usize];
+            if v <= 0.0 {
+                continue;
+            }
+            let d = ctx.plans[x as usize].soil_depth;
+            let want = v.floor() as i32
+                + i32::from(noise::unit(ctx.terrain.seed, Purpose::Talus, x, 0) < v.fract());
+            uncapped += i64::from(want.max(0));
+            capped += i64::from(want.min(d).max(0));
+        }
+        println!(
+            "  talus detail: {} columns hold deposit, {sum:.1} cells planned, {uncapped} after rounding, \
+             {capped} after the soil_depth cap",
+            t.iter().filter(|&&v| v > 0.0).count()
+        );
+    }
     for x in 0..ctx.terrain.w {
         let c = ctx.plans[x as usize];
         if c.soil_depth <= 0 {
@@ -497,8 +992,34 @@ pub fn soil_blanket(ctx: &Ctx, world: &mut World) -> usize {
         // `extra_cover`), so this is purely a recolouring of cover cells
         // that were already going to be placed; zero new placement, and the
         // dithered soil/stone contact at the bottom is untouched by it.
-        let talus_cells = if ctx.deposits.talus[x as usize] >= 1.0 {
-            (ctx.deposits.talus[x as usize].round() as i32).min(c.soil_depth)
+        // **Rounded on a per-column draw, not floored.** The plan computes a
+        // median talus volume of **244.5 cells per world** and this line used
+        // to realise a median of **3** of them (`Reports/worldgen-
+        // architecture-ceilings-2026-08-29.md`), because it asked for
+        // `>= 1.0` at each column independently: 244.5 cells spread over 8192
+        // columns is ~0.03 per column, so essentially every column failed the
+        // test and the whole apron came out as ordinary blanket. That is
+        // round-4 finding R4-2 -- `soil_blanket` eating `talus` -- and the
+        // eating was arithmetic rather than a pass order.
+        //
+        // Stochastic rounding fixes it and keeps every property the pass
+        // needs: `floor(v)` cells always, plus one more with probability
+        // `fract(v)`, drawn from `(seed, x)` alone. So it is still a **pure
+        // per-column function** -- no carry swept along the row, which would
+        // make the result depend on traversal order and break the decide
+        // phase's own contract -- it is deterministic, and it conserves the
+        // planned volume in expectation instead of discarding 99% of it.
+        //
+        // Still capped by `soil_depth`, so this only ever *recolours* cover
+        // that was going to be placed: zero new material, which is what lets
+        // the at-rest guarantee stay inherited rather than re-proved. A
+        // column the blanket skips outright realises nothing however much
+        // talus landed on it, and that is a real remaining floor rather than
+        // a rounding artifact.
+        let v = ctx.deposits.talus[x as usize];
+        let talus_cells = if v > 0.0 {
+            let extra = i32::from(noise::unit(ctx.terrain.seed, Purpose::Talus, x, 0) < v.fract());
+            (v.floor() as i32 + extra).min(c.soil_depth)
         } else {
             0
         };
@@ -578,6 +1099,45 @@ const RUN_NEAR: i32 = 4;
 /// 1.0. A face qualifying at either scale qualifies.
 const RUN_FAR: i32 = 20;
 const CLIFF_DROP_FAR: i32 = 20;
+
+/// The widest base a boulder may draw, and the reach either side of its
+/// centre column that follows.
+///
+/// **Named because two passes read them.** `boulders` draws to them, and
+/// `brows` has to know how much ground a socket claims so it can decline to
+/// hang a lip over it. A literal in one pass and a guessed number in the
+/// other is how the two silently stop agreeing -- and this pair *had* no
+/// agreement at all, which is round-4 finding R4-1: `brows` runs four passes
+/// earlier and took the air every dome wanted, so `boulders` wrote **0 cells
+/// on every preset** for nine days while its own counter reported the same
+/// zero a failed noise draw would.
+const BOULDER_WIDTH_MIN: i32 = 3;
+const BOULDER_WIDTH_SPAN: i32 = 10;
+/// Half the widest base, rounded up: `+ 1` is the ceiling, not a fudge.
+const BOULDER_MAX_REACH: i32 = (BOULDER_WIDTH_MIN + BOULDER_WIDTH_SPAN) / 2 + 1;
+
+/// Columns a boulder socket claims: every marker, padded by the widest a
+/// dome can reach either side of the column it is centred on.
+///
+/// A superset of the real footprint by construction -- the seating pass
+/// centres one boulder per *run* of adjacent markers, so padding every
+/// marker column covers wherever in the run that centre lands. Deliberately
+/// generous: a marker is rare (a couple per world against thousands of cliff
+/// edges), so declining a handful of lips costs `brows` nothing measurable
+/// and mis-sizing this the other way costs the boulder entirely.
+fn boulder_footprint(ctx: &Ctx) -> Vec<bool> {
+    let w = ctx.terrain.w;
+    let mut mask = vec![false; w as usize];
+    for x in 0..w {
+        if !ctx.deposits.boulder[x as usize] {
+            continue;
+        }
+        for lx in (x - BOULDER_MAX_REACH).max(0)..=(x + BOULDER_MAX_REACH).min(w - 1) {
+            mask[lx as usize] = true;
+        }
+    }
+    mask
+}
 
 /// Cap on how far a brow reaches out, and on how tall a talus heap starts.
 ///
@@ -674,6 +1234,30 @@ pub fn brows(ctx: &Ctx, world: &mut World) -> usize {
     if p.brow_chance <= 0.0 {
         return n;
     }
+    // **A lip yields to a boulder socket** -- round-4 finding R4-1, recorded
+    // 2026-08-20 and still deleting the feature nine days later
+    // (`Reports/pass-interference-2026-08.md`).
+    //
+    // A socket is by construction at a steep drop: `erosion.rs` marks a
+    // column where a *hard* surface has shed past its threshold, and hard
+    // surfaces shed at faces. That is the same place `cliff_edges` finds, so
+    // the two passes want the identical air -- and `brows` runs four passes
+    // earlier and wins every time. Measured: `boulders` wrote 0 cells on all
+    // six presets, and the ablation matrix reported `without brows: boulders
+    // APPEARS (was zero)` on five of them.
+    //
+    // The boulder gets the site, and that is a judgement rather than a
+    // coin-toss. A socket is *caused* -- it is plan-space data erosion
+    // computed from what the rock actually did -- while a lip is drawn at
+    // whatever edge the detector found and passed a chance roll. The
+    // priority is stated as data (the marker) rather than inferred from
+    // shape, which is this generator's own lesson about telling two
+    // look-alike situations apart.
+    //
+    // Cheap by construction: a world holds a couple of markers against
+    // thousands of qualifying edges, so this declines a handful of lips.
+    let boulder_ground =
+        if brow_yield_on() { boulder_footprint(ctx) } else { vec![false; ctx.terrain.w as usize] };
     for (x, dir, drop) in cliff_edges(&ctx.plans, ctx.terrain.w) {
         // Only hang a lip from bare rock. The origin's own topmost cell is
         // what every written cell ultimately has to trace an attached path
@@ -710,6 +1294,15 @@ pub fn brows(ctx: &Ctx, world: &mut World) -> usize {
         let thick = 2
             + (noise::unit(ctx.terrain.seed, Purpose::Pocket, x, dir * 13) * 2.0) as i32
             + (drop / 22).min(3);
+        // Yield the whole lip, not the columns that overlap: a brow truncated
+        // mid-reach is a shelf with a sawn-off end, and the lip is the thing
+        // that is cheap to lose here.
+        if (0..=reach).any(|step| {
+            let lx = x + dir * step;
+            lx >= 0 && lx < ctx.terrain.w && boulder_ground[lx as usize]
+        }) {
+            continue;
+        }
         for row in 0..thick {
             let y = top + row;
             // Never below the local water table. A lip that dips underwater
@@ -735,7 +1328,11 @@ pub fn brows(ctx: &Ctx, world: &mut World) -> usize {
                 if world.get(lx, y).material != material::EMPTY {
                     break;
                 }
-                world.set(lx, y, Cell::new(ctx.stone, strata_shade(ctx, lx, y)).with_attached(true));
+                // The bed this lip is continuing, not "stone": a brow that
+                // hangs a grey lip off a sandstone face draws the seam it
+                // exists to hide.
+                let m = strata_rock_at(ctx, lx, y);
+                world.set(lx, y, Cell::new(m, strata_shade(ctx, lx, y)).with_attached(true));
                 n += 1;
             }
         }
@@ -1488,7 +2085,11 @@ pub fn vaults(ctx: &Ctx, world: &mut World) -> usize {
                     sealed = false;
                     break 'envelope;
                 }
-                if world.get(px, py).material != ctx.stone {
+                // **Intact country rock, not specifically grey stone.** With
+                // a rock vocabulary the massif has six materials in it, and
+                // asking for one of them by id makes a chamber sunk in a
+                // sandstone bed read as breached. See `Material::rock`.
+                if !world.materials.get(world.get(px, py).material).rock {
                     sealed = false;
                     break 'envelope;
                 }
@@ -2045,8 +2646,11 @@ fn grow_monumental_chamber(ctx: &Ctx, env: CaveEnv, k: i32, cx: i32, void: &mut 
 ///
 /// Returns whether anything was removed, so the caller's outer fixpoint
 /// (component keep, ceiling guard, this) knows whether to loop again.
-fn erode_breaches(ctx: &Ctx, env: CaveEnv, world: &World, cx: i32, cy: i32, void: &mut [bool]) -> bool {
-    let is_stone = |px: i32, py: i32| world.get(px, py).material == ctx.stone;
+fn erode_breaches(_ctx: &Ctx, env: CaveEnv, world: &World, cx: i32, cy: i32, void: &mut [bool]) -> bool {
+    // Any intact rock, not specifically `stone` -- see `Material::rock`. A
+    // breach test that only recognised one of six rocks would erode a cave
+    // out through every sandstone bed it met.
+    let is_stone = |px: i32, py: i32| world.materials.get(world.get(px, py).material).rock;
     let mut any = false;
     loop {
         let mut to_remove = Vec::new();
@@ -2132,9 +2736,8 @@ fn cave_system(ctx: &Ctx, env: CaveEnv, world: &mut World, k: i32, cx: i32, cy: 
             // *inside* the would-be void is just as much a breach as one in
             // the rind.
             if in_grid && void[env.idx(dx, dy)] {
-                assert_eq!(
-                    world.get(cx + dx, cy + dy).material,
-                    ctx.stone,
+                assert!(
+                    world.materials.get(world.get(cx + dx, cy + dy).material).rock,
                     "cave system k={k} at ({cx},{cy}): void cell ({dx},{dy}) was not eroded from a breach"
                 );
                 continue;
@@ -2148,9 +2751,8 @@ fn cave_system(ctx: &Ctx, env: CaveEnv, world: &mut World, k: i32, cx: i32, cy: 
                 })
             });
             if near_void {
-                assert_eq!(
-                    world.get(cx + dx, cy + dy).material,
-                    ctx.stone,
+                assert!(
+                    world.materials.get(world.get(cx + dx, cy + dy).material).rock,
                     "cave system k={k} at ({cx},{cy}): rind cell ({dx},{dy}) was not eroded from a breach"
                 );
             }
@@ -3240,7 +3842,13 @@ pub fn springs(ctx: &Ctx, world: &mut World) -> usize {
         // surface, so the two should never meet, and this check is what makes
         // that a guarantee rather than an expectation.
         let ordinary = |m: material::MaterialId| {
-            m == material::EMPTY || m == ctx.stone || m == ctx.soil || m == ctx.sand || m == ctx.gravel
+            // `rock` covers all six of the massif's materials; the three
+            // named ones are the loose cover lying on it.
+            m == material::EMPTY
+                || world.materials.get(m).rock
+                || m == ctx.soil
+                || m == ctx.sand
+                || m == ctx.gravel
         };
         // The flanks are checked too, not just the carve volume. A basin cut
         // hard against an existing pond merges with it, and two pools at
@@ -4585,7 +5193,10 @@ pub fn pockets(ctx: &Ctx, world: &mut World) -> usize {
                             sealed = false;
                             break 'lens;
                         }
-                        if world.get(px, py).material != ctx.stone {
+                        // Any intact rock (`Material::rock`), not
+                        // specifically the grey one -- a lens sealed in a
+                        // sandstone bed is as sealed as one in stone.
+                        if !world.materials.get(world.get(px, py).material).rock {
                             sealed = false;
                             break 'lens;
                         }
@@ -4639,7 +5250,7 @@ pub fn pockets(ctx: &Ctx, world: &mut World) -> usize {
                                 && qx < w
                                 && qy >= 0
                                 && qy < ctx.terrain.h
-                                && world.get(qx, qy).material == ctx.stone
+                                && world.materials.get(world.get(qx, qy).material).rock
                         })
                     })
                 });
@@ -4695,10 +5306,12 @@ const MAX_SOCKET_DEPTH: i32 = 300;
 ///
 /// Runs after `pockets` and before `vaults` (`mod.rs`'s `PASSES`), so at the
 /// point this reads the world only `stone_massif`, `bedrock_floor`,
-/// `soil_blanket`, `brows`, `talus` and `pockets` have written -- water and
-/// vault linings do not exist yet. The write-target check still excludes
-/// them: a check that "cannot fire today" is exactly the kind CLAUDE.md
-/// warns rots invisibly the day something upstream of this pass changes.
+/// `soil_blanket`, `brows`, `talus`, `pockets` and `residuals` have written --
+/// water and vault linings do not exist yet. The write-target check still
+/// excludes them: a check that "cannot fire today" is exactly the kind
+/// CLAUDE.md warns rots invisibly the day something upstream of this pass
+/// changes, and moving `vaults` ahead of `pockets` is a change that has
+/// already been proposed once.
 ///
 /// **Most markers reject.** A hard band that sheds enough to leave a socket
 /// is, by construction, right at a steep drop, and `brows` hangs a lip at
@@ -4752,7 +5365,8 @@ pub fn boulders(ctx: &Ctx, world: &mut World) -> usize {
         // Skewing the draw upward is what a uniform draw cannot do on its
         // own reach; the skew is on the *attempt*, not an override of which
         // ones survive collect-verify-write.
-        let width = 3 + (noise::unit(seed, Purpose::Boulder, cx, 0).sqrt() * 10.0) as i32;
+        let width = BOULDER_WIDTH_MIN
+            + (noise::unit(seed, Purpose::Boulder, cx, 0).sqrt() * BOULDER_WIDTH_SPAN as f32) as i32;
         let max_height = ((width as f32) * 3.0).round() as i32;
         let height = 2 + (noise::unit(seed, Purpose::Boulder, cx, 1).sqrt() * (max_height - 2).max(1) as f32) as i32;
         let a = width as f32 / 2.0;
@@ -4784,12 +5398,19 @@ pub fn boulders(ctx: &Ctx, world: &mut World) -> usize {
         // matching `pockets`' all-or-nothing seal.
         let mut cells: Vec<(i32, i32)> = Vec::new();
         let mut sealed = true;
+        // Which of `Ctx::boulder_rejects` this marker run lands in if it
+        // fails. Set beside every `sealed = false` rather than inferred
+        // afterwards: the three causes are indistinguishable once the loop
+        // has broken, and telling them apart is the whole point -- see
+        // `BoulderRejects`.
+        let rejects = &ctx.boulder_rejects;
         'run: for dx in -reach..=reach {
             if (dx as f32 / a).abs() > 1.0 {
                 continue;
             }
             let lx = cx + dx;
             if lx < 0 || lx >= w {
+                rejects.edge.set(rejects.edge.get() + 1);
                 sealed = false;
                 break;
             }
@@ -4799,6 +5420,7 @@ pub fn boulders(ctx: &Ctx, world: &mut World) -> usize {
             for row in 1..=dome {
                 let py = ground_y - row;
                 if py < 0 {
+                    rejects.edge.set(rejects.edge.get() + 1);
                     sealed = false;
                     break 'run;
                 }
@@ -4806,6 +5428,15 @@ pub fn boulders(ctx: &Ctx, world: &mut World) -> usize {
                 if mat == material::EMPTY || mat == ctx.soil || mat == ctx.sand || mat == ctx.gravel {
                     cells.push((lx, py));
                 } else {
+                    // **Above the planned ground, so this cell is another
+                    // pass's.** Nothing in the plan puts material higher
+                    // than `surface_y`; `stone_massif` and `soil_blanket`
+                    // both write downward from it. So anything found here
+                    // that is not open air or loose cover was written by an
+                    // earlier *realise* pass reaching out over the drop --
+                    // which is R4-1 exactly, and this counter is what makes
+                    // it visible without an ablation run.
+                    rejects.taken.set(rejects.taken.get() + 1);
                     sealed = false;
                     break 'run;
                 }
@@ -4824,16 +5455,18 @@ pub fn boulders(ctx: &Ctx, world: &mut World) -> usize {
             let mut py = ground_y;
             loop {
                 let mat = world.get(lx, py).material;
-                if mat == ctx.stone {
+                if world.materials.get(mat).rock {
                     break;
                 }
                 if mat != ctx.soil && mat != ctx.sand && mat != ctx.gravel {
+                    rejects.buried.set(rejects.buried.get() + 1);
                     sealed = false;
                     break 'run;
                 }
                 cells.push((lx, py));
                 py += 1;
                 if py - ground_y > MAX_SOCKET_DEPTH {
+                    rejects.edge.set(rejects.edge.get() + 1);
                     sealed = false;
                     break 'run;
                 }
@@ -4843,7 +5476,7 @@ pub fn boulders(ctx: &Ctx, world: &mut World) -> usize {
             // them cannot change what is or is not anchored.
             for row in 0..visual_blend {
                 let bpy = py + row;
-                if world.get(lx, bpy).material == ctx.stone {
+                if world.materials.get(world.get(lx, bpy).material).rock {
                     cells.push((lx, bpy));
                 } else {
                     break;
@@ -4864,7 +5497,32 @@ pub fn boulders(ctx: &Ctx, world: &mut World) -> usize {
             world.set(
                 px,
                 py,
-                Cell::new(ctx.stone, FAMILY_RESISTANT * TONES + loose_shade(ctx, Purpose::Boulder, px, py))
+                {
+                    // **Limestone, not the bed it is standing on** -- and
+                    // this is the one place in the vocabulary where a
+                    // feature keeps a fixed rock rather than taking its
+                    // surroundings'.
+                    //
+                    // A boulder is a hard-band survivor by construction
+                    // (`erosion.rs`'s `BOULDER_HARDNESS` gate on which shed
+                    // counts toward a socket), so the resistant rock is the
+                    // honest answer as well as the legible one: it has to
+                    // read as *not* the ground it is lying on, or it stops
+                    // being a boulder and becomes a bump. Painting it with
+                    // `strata_rock_at` was tried first and does exactly
+                    // that -- a mudstone boulder sitting in a mudstone bed
+                    // is invisible, and
+                    // `a_seated_boulder_stands_at_a_believable_height`
+                    // went from a p50 visible height of 11 to **2** because
+                    // it could no longer find one.
+                    let m = if rock_vocab_on() && ctx.terrain.params.region_variation > 0.0 {
+                        ctx.rocks.limestone
+                    } else {
+                        ctx.stone
+                    };
+                    let fam = if m == ctx.stone { FAMILY_RESISTANT * TONES } else { 0 };
+                    Cell::new(m, fam + loose_shade(ctx, Purpose::Boulder, px, py))
+                }
                     .with_attached(true),
             );
             n += 1;
