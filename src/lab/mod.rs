@@ -24,6 +24,7 @@
 //! | `time`  | paused vs running, the speed dial, and what it actually achieved |
 //! | `stats` | the census, and the page that draws it |
 //! | `ui`    | the control bar along the bottom, its pages, and the mouse |
+//! | `params`| which numbers the player can reach, and how they are written |
 //! | this file | `Lab` — the state the four above are wired into, and the frame |
 //!
 //! **The viewport is `app::WIDTH` x `app::HEIGHT`**, deliberately the same
@@ -31,6 +32,7 @@
 //! second set of geometry and a screenshot from either game is comparable
 //! with one from the other.
 
+pub mod params;
 pub mod scene;
 pub mod stats;
 pub mod time;
@@ -546,7 +548,85 @@ impl Lab {
             }
             ui::Action::Help => self.show_help = !self.show_help,
             ui::Action::Reset => self.reset(),
+            ui::Action::ParamGroup(i) => self.ui.set_param_group(i),
+            ui::Action::ParamScroll(d) => self.ui.scroll_params(d),
+            ui::Action::ParamSelect(i) => self.ui.select_param(i),
+            ui::Action::ParamAdjust(i, sign) => self.adjust_param(i, sign),
+            ui::Action::ParamSave => self.save_param(),
         }
+    }
+
+    /// **Move one parameter by one of its own steps, and say what it did.**
+    ///
+    /// The list is rebuilt here rather than carried from the paint, `ui::Ui::
+    /// page_params`' tradeoff — and `i` is an index into the page as it was
+    /// drawn, which is the page a click was aimed at.
+    ///
+    /// Every branch of `params::write` is a live store the tick reads through,
+    /// so an ordinary change is felt on the next tick with no reload. The one
+    /// exception is the bed's own spec, which is what a rebuild is made from;
+    /// the notice says so rather than leaving the player to wonder why nothing
+    /// moved. `CLAUDE.md`'s second law: an event with no visible consequence
+    /// is not finished, and half of these knobs are invisible on a **stopped**
+    /// box, which is exactly when you set them.
+    fn adjust_param(&mut self, index: usize, sign: i32) {
+        let list = self.ui.page_params(&self.world, &self.spec);
+        let Some(param) = list.get(index) else { return };
+        if !param.writable() {
+            self.ui.say("THIS ONE IS SHOWN, NOT CHANGED");
+            return;
+        }
+        let target = param.tunable.stepped(sign);
+        // The name as the panel prints it, not as the file spells it: the
+        // notice sits under the row it is about, and `BIRTH_GRANT` beside a
+        // row reading `BIRTH GRANT` reads as a different thing.
+        let name = param.tunable.name.replace('_', " ").to_uppercase();
+        let rebuild = params::needs_rebuild(&param.knob);
+        let knob = param.knob.clone();
+        // Cloned out before the borrow ends, so the write can take the world
+        // mutably. A `Knob` is a small enum over a name and a species string.
+        if !params::write(&mut self.world, &mut self.spec, &knob, target) {
+            // A registered row whose writer declined is the "reader with no
+            // writer" failure `CLAUDE.md` names, and it looks exactly like
+            // working code from the outside -- so it is said out loud rather
+            // than swallowed. `params::tests::every_writable_parameter_
+            // actually_moves` is what keeps it from ever being seen.
+            self.ui.say(format!("{name} HAS NO WRITER -- NOTHING CHANGED"));
+            return;
+        }
+        self.ui.select_param(index);
+        // Re-read rather than echoing `target`: the store may have rounded it
+        // (every integral field does), and a readout that disagrees with the
+        // world is worse than no readout.
+        let shown = self
+            .ui
+            .page_params(&self.world, &self.spec)
+            .get(index)
+            .map_or_else(|| format!("{target:.3}"), |p| p.display());
+        self.ui.say(if rebuild {
+            format!("{name} = {shown} - TAKES EFFECT ON REBUILD")
+        } else {
+            format!("{name} = {shown}")
+        });
+    }
+
+    /// Write the highlighted parameter back to its asset file.
+    ///
+    /// The refusals are as much of the feature as the writes — see
+    /// `params::save`, which declines an ambiguous or non-numeric field rather
+    /// than editing the wrong one.
+    fn save_param(&mut self) {
+        let Some(index) = self.ui.selected_param() else {
+            self.ui.say("NOTHING PICKED - MOVE A ROW OR CLICK ITS NAME FIRST");
+            return;
+        };
+        let list = self.ui.page_params(&self.world, &self.spec);
+        let Some(param) = list.get(index) else { return };
+        let message = match params::save(param) {
+            Ok(ok) => ok,
+            Err(e) => e.to_uppercase(),
+        };
+        self.ui.say(message);
     }
 }
 
@@ -608,7 +688,7 @@ const MAX_PLANT_LIFT: i32 = 12;
 /// have draws as a silent blank rather than as anything you would notice. That
 /// gap has shipped three times in this repo, so every line here is checked
 /// against `hud::has_glyph` by `every_help_line_is_drawable`.
-const HELP: [&str; 20] = [
+const HELP: [&str; 22] = [
     "THE EVOLUTION LAB",
     "",
     "THE BOX STARTS EMPTY. YOU STOCK IT.",
@@ -626,6 +706,8 @@ const HELP: [&str; 20] = [
     "[ ]        BRUSH NARROWER WIDER",
     "O L        FIELD / LIFE OVERLAY",
     "",
+    "P          PARAMETERS -- THE NUMBERS",
+    "           BEHIND THE VERBS",
     "F1 F2 F3   PLANTS ANTS BOX   TAB STATS",
     "F RATE   WASD PAN   - = ZOOM   R REBUILD",
     "?          THIS PAGE",
@@ -727,12 +809,83 @@ mod tests {
         let mut frame = vec![0u8; (WIDTH * HEIGHT * 4) as usize];
         // Every page, plus the census, plus a cursor so the hover paths run.
         lab.set_cursor(Some((40, 40)));
-        for panel in [ui::Panel::Plants, ui::Panel::Ants, ui::Panel::Box] {
+        for panel in [ui::Panel::Plants, ui::Panel::Ants, ui::Panel::Box, ui::Panel::Params] {
             lab.ui.panel = Some(panel);
             lab.draw(&mut frame, 60.0);
         }
         lab.ui.panel = None;
         lab.draw(&mut frame, 60.0);
+    }
+
+    /// **The parameters page, driven the way a player drives it: by clicking.**
+    ///
+    /// The positive control the bar already has (`every_button_answers_where_
+    /// it_was_drawn`), extended to the one page whose rows are controls. Every
+    /// `+` face is clicked at the middle of the rectangle it was *drawn* at —
+    /// read back out of the retained layout, so this cannot pass against a
+    /// hand-written pixel table — and the value is read back out of the
+    /// registry afterwards.
+    ///
+    /// **A row that paints its figure correctly and refuses to move looks
+    /// identical to a working one in any screenshot.** `params::tests::every_
+    /// writable_parameter_actually_moves` guards the writers; this guards
+    /// everything between the click and them: the hit test, the row index the
+    /// action carries, and `Lab::act`'s routing.
+    #[test]
+    fn clicking_a_parameters_row_moves_it() {
+        let mut lab = Lab::new(scene::LabBox::default());
+        lab.show_help = false;
+        let mut frame = vec![0u8; (WIDTH * HEIGHT * 4) as usize];
+        lab.act(ui::Action::Panel(ui::Panel::Params));
+        // A frame has to be painted before anything on it can be clicked: the
+        // page's rectangles are retained from the last paint, deliberately.
+        lab.draw(&mut frame, 60.0);
+
+        let mut moved = 0;
+        for group in 0..params::GROUPS.len() {
+            lab.act(ui::Action::ParamGroup(group));
+            lab.draw(&mut frame, 60.0);
+            for row in 0..lab.ui.page_params(&lab.world, &lab.spec).len() {
+                let Some(r) = lab.ui.widget_rect(ui::Action::ParamAdjust(row, 1)) else { continue };
+                let (cx, cy) = (r.x + r.w / 2, r.y + r.h / 2);
+                assert_eq!(
+                    lab.ui.hit(cx, cy),
+                    Some(ui::Action::ParamAdjust(row, 1)),
+                    "row {row} of page {group} answered for another widget"
+                );
+                let before = lab.ui.page_params(&lab.world, &lab.spec)[row].display();
+                lab.press(cx, cy);
+                lab.release(cx, cy);
+                lab.draw(&mut frame, 60.0);
+                let after = lab.ui.page_params(&lab.world, &lab.spec)[row].display();
+                let param = &lab.ui.page_params(&lab.world, &lab.spec)[row];
+                // A knob shipped at its own ceiling clamps rather than moves,
+                // which is right -- `water.flow_rate` is 1000 of 1000.
+                if param.tunable.value < param.tunable.max {
+                    assert_ne!(before, after, "{}.{} did not move on a click", param.tunable.category, param.tunable.name);
+                    moved += 1;
+                }
+            }
+        }
+        assert!(moved >= 30, "only {moved} rows were reachable by a click");
+    }
+
+    /// A click on the parameters page must not also reach the world behind it.
+    /// The page is a big rectangle over the bed and the `LOOK` tool is armed
+    /// by default, so without this every adjustment would move the inspector
+    /// as well.
+    #[test]
+    fn a_click_on_the_parameters_page_does_not_reach_the_world() {
+        let mut lab = Lab::new(scene::LabBox::default());
+        lab.show_help = false;
+        let mut frame = vec![0u8; (WIDTH * HEIGHT * 4) as usize];
+        lab.act(ui::Action::Panel(ui::Panel::Params));
+        lab.draw(&mut frame, 60.0);
+        let before = lab.ui.inspecting();
+        // Somewhere on the page that is not one of its chips: the title bar.
+        lab.press(20, ui::bar_top() - 120);
+        lab.release(20, ui::bar_top() - 120);
+        assert_eq!(lab.ui.inspecting(), before, "a click on the page moved the inspector");
     }
 
     /// An empty bed with the view at rest, and the screen position of one

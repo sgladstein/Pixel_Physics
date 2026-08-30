@@ -134,6 +134,100 @@ impl Void {
     }
 }
 
+
+/// **Is the standing void one gallery, or a scatter of bites?** — a
+/// connected-component pass over the empty cells in the bank footprint.
+///
+/// `roofed` says *how much* enclosed void there is and cannot distinguish
+/// 130 cells of tunnel from 130 separate nibbles at an open face. Those are
+/// the same number and opposite findings — `CLAUDE.md`'s *a mean over events
+/// is not a mean over the thing you care about*, one level up: a gallery is a
+/// long connected run, quarrying is a scatter of singletons.
+///
+/// **Eight-connected, because the digger is.** `creature.rs`'s dig steps the
+/// cell in the ant's `heading`, and headings are the eight compass
+/// directions, so two diagonally-touching void cells are one passage to the
+/// animal that made them. `CLAUDE.md`: *a traversal must use the same
+/// neighbourhood the writer used* — a four-neighbour pass here would report a
+/// diagonal tunnel as a row of singletons and manufacture the very finding
+/// this measurement exists to test for.
+///
+/// Each component carries its **roofed** count as well as its size, because
+/// the two answer different halves. The quarried corner of a bank is one
+/// enormous component with almost no roof over it; a gallery is a smaller
+/// component that is nearly all roof. Reading size alone would score the
+/// erosion case as the best tunneller in the run.
+///
+/// Returned largest-first.
+fn void_components(
+    world: &World,
+    (x0, x1): (i32, i32),
+    (y0, y1): (i32, i32),
+) -> Vec<Component> {
+    let (w, h) = ((x1 - x0) as usize, (y1 - y0) as usize);
+    let idx = |x: i32, y: i32| (y - y0) as usize * w + (x - x0) as usize;
+
+    // Roofed is a per-column prefix over the *whole* column, not just the
+    // footprint: a cell is roofed when ground stands above it anywhere,
+    // including the bank's own untouched cap above `y0`.
+    let mut empty = vec![false; w * h];
+    let mut roofed = vec![false; w * h];
+    for x in x0..x1 {
+        let mut above = 0usize;
+        for y in 0..y1 {
+            let m = world.get(x, y).material;
+            if y >= y0 && m == material::EMPTY {
+                empty[idx(x, y)] = true;
+                roofed[idx(x, y)] = above > 0;
+            }
+            if matches!(world.materials.kind(m), MaterialKind::Powder | MaterialKind::Solid) {
+                above += 1;
+            }
+        }
+    }
+
+    let mut seen = vec![false; w * h];
+    let mut out = Vec::new();
+    let mut stack: Vec<(i32, i32)> = Vec::new();
+    for sy in y0..y1 {
+        for sx in x0..x1 {
+            if !empty[idx(sx, sy)] || seen[idx(sx, sy)] {
+                continue;
+            }
+            seen[idx(sx, sy)] = true;
+            stack.push((sx, sy));
+            let mut comp = Component::default();
+            while let Some((cx, cy)) = stack.pop() {
+                comp.cells += 1;
+                if roofed[idx(cx, cy)] {
+                    comp.roofed += 1;
+                }
+                for (dx, dy) in [(-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1)] {
+                    let (nx, ny) = (cx + dx, cy + dy);
+                    if nx < x0 || nx >= x1 || ny < y0 || ny >= y1 {
+                        continue;
+                    }
+                    if empty[idx(nx, ny)] && !seen[idx(nx, ny)] {
+                        seen[idx(nx, ny)] = true;
+                        stack.push((nx, ny));
+                    }
+                }
+            }
+            out.push(comp);
+        }
+    }
+    out.sort_unstable_by(|a, b| b.cells.cmp(&a.cells).then(b.roofed.cmp(&a.roofed)));
+    out
+}
+
+/// One connected run of standing void: how big it is, and how much of it has
+/// ground overhead.
+#[derive(Default, Clone, Copy)]
+struct Component {
+    cells: usize,
+    roofed: usize,
+}
+
 fn main() {
     let frames: u64 = arg("frames").unwrap_or(1_800);
     let width: i32 = arg("width").unwrap_or(256);
@@ -421,8 +515,23 @@ fn colony_arm(seeds: u64, ants: i32, frames: u64, png: Option<&str>) {
         "  `void` is every empty cell in the bank footprint -- **erosion moves it**; \n           `roofed` is empty with ground standing above it, which erosion cannot produce. Read `roofed`."
     );
     println!(
-        "{:>6}  {:>7}  {:>8}  {:>8}  {:>8}  {:>7}  {:>7}  {:>9}  {:>10}",
-        "seed", "frame", "void", "roofed", "roofed3", "digs", "packed", "soil", "packedsoil"
+        "  `comps`/`largest`/`ge8` are the connected-component split of that void (8-connected,\n           the neighbourhood the digger uses). `lgroof` is how much of the largest run has\n           ground overhead: a quarried face is one huge run with no roof, a gallery is a\n           smaller run that is nearly all roof."
+    );
+    println!(
+        "{:>6}  {:>7}  {:>8}  {:>8}  {:>8}  {:>6}  {:>8}  {:>5}  {:>7}  {:>7}  {:>7}  {:>9}  {:>10}",
+        "seed",
+        "frame",
+        "void",
+        "roofed",
+        "roofed3",
+        "comps",
+        "largest",
+        "ge8",
+        "lgroof",
+        "digs",
+        "packed",
+        "soil",
+        "packedsoil"
     );
 
     for seed in 1..=seeds {
@@ -531,6 +640,20 @@ fn colony_arm(seeds: u64, ants: i32, frames: u64, png: Option<&str>) {
         // four samples of a wide distribution presented as if they were a
         // result.
         let mut renderer = Renderer::new();
+        // **The lighting model is a parameter of this measurement, not a
+        // constant of it.** `SkyLight::Coarse4` is the shipped default and
+        // propagates sky light on a **4-cell block grid**; an ant gallery is
+        // one to three cells across, so the nest is a feature finer than the
+        // model that is supposed to darken it. `sky-light-design.md` measured
+        // exactly this one step coarser -- block 8 "loses a one-cell shaft
+        // entirely" -- and nothing had asked what block 4 does to a structure
+        // the size of a burrow. `light=depth|4|2|1` asks.
+        renderer.sky_light = match arg::<String>("light").as_deref() {
+            Some("depth") => pixel_physics::render::SkyLight::Depth,
+            Some("2") => pixel_physics::render::SkyLight::Coarse2,
+            Some("1") => pixel_physics::render::SkyLight::Exact,
+            _ => pixel_physics::render::SkyLight::Coarse4,
+        };
         let particles = ParticleSystem::new();
         let (vw, vh) = (w as u32, h as u32);
         let mut tiles: Vec<Vec<u8>> = Vec::new();
@@ -552,16 +675,163 @@ fn colony_arm(seeds: u64, ants: i32, frames: u64, png: Option<&str>) {
             }
             if marks.contains(&f) {
                 let (void, roofed, roofed3, soil, packed) = census(&world);
+                let comps = void_components(&world, (bank_x0, bank_x1), (bank_y0, bank_y1));
+                let largest = comps.first().copied().unwrap_or_default();
+                let ge8 = comps.iter().filter(|c| c.cells >= 8).count();
                 let st = world.creature_stats;
                 println!(
-                    "{seed:>6}  {f:>7}  {void:>8}  {roofed:>8}  {roofed3:>8}  {:>7}  {:>7}  {soil:>9}  {packed:>10}",
-                    st.digs, st.packed
+                    "{seed:>6}  {f:>7}  {void:>8}  {roofed:>8}  {roofed3:>8}  {:>6}  {:>8}  {ge8:>5}  {:>7}  {:>7}  {:>7}  {soil:>9}  {packed:>10}",
+                    comps.len(),
+                    largest.cells,
+                    largest.roofed,
+                    st.digs,
+                    st.packed
                 );
+                // The distribution, at the last stop only. `comps`/`largest`
+                // are order statistics over it and cannot say whether the
+                // remainder is forty pockets or four hundred crumbs -- which
+                // is the whole question when the total is the same number
+                // either way.
+                if f == *marks.iter().max().unwrap_or(&0) {
+                    let singles = comps.iter().filter(|c| c.cells == 1).count();
+                    let top: Vec<String> =
+                        comps.iter().take(8).map(|c| format!("{}({})", c.cells, c.roofed)).collect();
+                    println!(
+                        "         sizes(roofed): {}  ...  singletons {singles} of {}",
+                        top.join(" "),
+                        comps.len()
+                    );
+                }
                 if shoot {
                     let mut buf = vec![0u8; (vw * vh * 4) as usize];
                     let touched = world.take_touched_chunks();
                     renderer.draw(&world, &particles, &touched, &mut buf, (vw, vh), true);
                     tiles.push(buf);
+                }
+            }
+        }
+
+        // **What do these things actually look like next to each other?** --
+        // the render-side half of the legibility question, and it cannot be
+        // answered from the palette tables. `soil.ron` and `packedsoil.ron`
+        // list twelve tones each, but what reaches the screen is whatever
+        // `Renderer::draw` makes of them after lighting and shading, and it is
+        // the screen the owner is judging. So this samples the **shipped
+        // renderer's own output buffer**, one pixel per cell, and reports the
+        // mean colour and relative luminance of each class standing in the
+        // bank.
+        //
+        // The column that matters is not the gap between two means. It is the
+        // gap between two means measured against the **spread within one
+        // class**: a bank is deliberately mottled, and a lining whose tone sits
+        // inside that mottle is not a faint signal, it is no signal -- the two
+        // populations overlap and no amount of looking separates them. That is
+        // the quantitative form of the owner's *"These look identical"*.
+        //
+        // Generalises well past ants: any question of the form "can a player
+        // see X against Y" in this engine is this measurement, and nothing
+        // else here could answer it.
+        if std::env::args().any(|a| a == "contrast=1") && seed == 1 {
+            let mut buf = vec![0u8; (vw * vh * 4) as usize];
+            let touched = world.take_touched_chunks();
+            let mut r2 = Renderer::new();
+            r2.sky_light = renderer.sky_light;
+            r2.draw(&world, &particles, &touched, &mut buf, (vw, vh), true);
+            let lum = |c: [f64; 3]| 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+            let mut classes: Vec<(&str, Vec<f64>, [f64; 3])> = vec![
+                ("soil", Vec::new(), [0.0; 3]),
+                ("packedsoil", Vec::new(), [0.0; 3]),
+                ("void (roofed)", Vec::new(), [0.0; 3]),
+                ("void (open face)", Vec::new(), [0.0; 3]),
+                ("sky (control)", Vec::new(), [0.0; 3]),
+            ];
+            // **Two controls, because a colour is only a finding against a
+            // known answer.** `CLAUDE.md`: construct the case whose answer you
+            // know and check the instrument reports it. Open sky must come
+            // back pale and tight; the unroofed void the ants opened at the
+            // face is open air and must come back indistinguishable from it.
+            // If either misses, the sampling is wrong and the roofed-void row
+            // says nothing.
+            for x in bank_x0..bank_x1 {
+                for y in (bank_y0 - 12).max(0)..bank_y0 - 2 {
+                    if world.get(x, y).material == material::EMPTY {
+                        let o = ((y as u32 * vw + x as u32) * 4) as usize;
+                        let px = [buf[o] as f64, buf[o + 1] as f64, buf[o + 2] as f64];
+                        for (k, v) in px.iter().enumerate() {
+                            classes[4].2[k] += v;
+                        }
+                        classes[4].1.push(lum(px));
+                    }
+                }
+            }
+            for x in bank_x0..bank_x1 {
+                let mut above = 0usize;
+                for y in 0..bank_y1 {
+                    let m = world.get(x, y).material;
+                    let ground = matches!(
+                        world.materials.kind(m),
+                        MaterialKind::Powder | MaterialKind::Solid
+                    );
+                    if y >= bank_y0 {
+                        let which = if m == soil_id {
+                            Some(0)
+                        } else if m == packed_id {
+                            Some(1)
+                        } else if m == material::EMPTY {
+                            Some(if above > 0 { 2 } else { 3 })
+                        } else {
+                            None
+                        };
+                        if let Some(i) = which {
+                            let o = ((y as u32 * vw + x as u32) * 4) as usize;
+                            let px = [buf[o] as f64, buf[o + 1] as f64, buf[o + 2] as f64];
+                            for (k, v) in px.iter().enumerate() {
+                                classes[i].2[k] += v;
+                            }
+                            classes[i].1.push(lum(px));
+                        }
+                    }
+                    if ground {
+                        above += 1;
+                    }
+                }
+            }
+            println!("  contrast, as the shipped renderer draws it (one pixel per cell, frame {frames}):");
+            println!("{:>16}  {:>7}  {:>17}  {:>7}  {:>15}", "class", "cells", "mean RGB", "mean L", "L range (p5-p95)");
+            let mut summary: Vec<(String, f64, f64, f64)> = Vec::new();
+            for (name, mut ls, sum) in classes.into_iter() {
+                if ls.is_empty() {
+                    continue;
+                }
+                let n = ls.len() as f64;
+                let mean = lum([sum[0] / n, sum[1] / n, sum[2] / n]);
+                ls.sort_by(|a, b| a.partial_cmp(b).expect("no NaN in a luminance"));
+                let (lo, hi) = (ls[ls.len() / 20], ls[ls.len() * 19 / 20]);
+                println!(
+                    "{name:>16}  {:>7}  {:>17}  {mean:>7.1}  {:>15}",
+                    ls.len(),
+                    format!("({:.0}, {:.0}, {:.0})", sum[0] / n, sum[1] / n, sum[2] / n),
+                    format!("{lo:.1} - {hi:.1}")
+                );
+                summary.push((name.to_string(), mean, lo, hi));
+            }
+            // The verdict line. Two classes are *separable* only if the gap
+            // between their means beats the spread each of them already has --
+            // otherwise a cell of one is routinely brighter than a cell of the
+            // other and the boundary between them is not a boundary.
+            for i in 0..summary.len() {
+                for j in i + 1..summary.len() {
+                    let (a, b) = (&summary[i], &summary[j]);
+                    let gap = (a.1 - b.1).abs();
+                    let spread = ((a.3 - a.2) + (b.3 - b.2)) / 2.0;
+                    println!(
+                        "  {} vs {}: mean gap {:.1} of 255 against a within-class spread of {:.1} -- {}",
+                        a.0,
+                        b.0,
+                        gap,
+                        spread,
+                        if gap > spread { "separable" } else { "**overlapping: these read as one material**" }
+                    );
                 }
             }
         }
