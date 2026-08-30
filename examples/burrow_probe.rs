@@ -417,12 +417,23 @@ fn colony_arm(seeds: u64, ants: i32, frames: u64, png: Option<&str>) {
     let lining_on = std::env::var("PIXEL_PHYSICS_BURROW_LINING").as_deref() != Ok("off");
     println!("\n=== arm colony ===  lining {}", if lining_on { "ON" } else { "OFF (ablated)" });
     println!("  55 ants on a soil bank over stone; `void` is standing empty cells inside the bank");
-    println!("{:>6}  {:>7}  {:>10}  {:>8}  {:>8}  {:>10}  {:>10}", "seed", "frame", "void", "digs", "packed", "soil", "packedsoil");
+    println!(
+        "{:>6}  {:>7}  {:>8}  {:>8}  {:>7}  {:>8}  {:>8}  {:>10}",
+        "seed", "frame", "void", "roofed", "digs", "packed", "soil", "packedsoil"
+    );
 
     for seed in 1..=seeds {
         let (w, h) = (200i32, 120i32);
         let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
         world.set_weather_pin(Pin::Clear);
+        // **Held at noon.** The day/night cycle is the largest visual signal
+        // in the engine, and a contact sheet whose stops fall at 0/500/2,000/
+        // 8,000 frames lands two of them after dark: the first sheet taken
+        // here had a moon in it and the bank was unreadable. That is
+        // `CLAUDE.md`'s designed-oscillator rule applied to a picture rather
+        // than to a number -- the light must be divided out, or every stop is
+        // its own phase plus the thing being looked at.
+        world.set_sky_hold(Some(pixel_physics::sky::frame_for_daylight(1.0)));
         let soil_id = world.materials.id_of("soil").expect("soil");
         let packed_id = world.materials.id_of("packedsoil").expect("packedsoil");
         let nest_id = world.materials.id_of("nest").expect("nest");
@@ -453,8 +464,19 @@ fn colony_arm(seeds: u64, ants: i32, frames: u64, png: Option<&str>) {
             world.plant_ant(20 + off + i % 10 * 2, floor - 1 - (i / 10));
         }
 
+        // **`roofed` and not `void`, and the difference is the whole
+        // measurement.** A colony eats into the bank from its open face as
+        // well as tunnelling, and an open pit is empty cells too: measured
+        // on `examples/ascii.rs`'s version of this scene, the *ablated*
+        // build leaves **more** raw void than the lined one, which reads as
+        // the feature making things worse and is entirely an artifact of
+        // counting a quarry as a burrow. `CLAUDE.md`, "ask what your number
+        // counts when nothing is wrong" -- `void` is arithmetically correct
+        // and answers a different question. What is being claimed is that
+        // something stands over the hole, so that is what is counted.
         let census = |world: &World| {
             let mut void = 0usize;
+            let mut roofed = 0usize;
             let mut soil = 0usize;
             let mut packed = 0usize;
             for x in bank_x0..bank_x1 {
@@ -462,6 +484,14 @@ fn colony_arm(seeds: u64, ants: i32, frames: u64, png: Option<&str>) {
                     let m = world.get(x, y).material;
                     if m == material::EMPTY {
                         void += 1;
+                        if (0..y).rev().any(|uy| {
+                            matches!(
+                                world.materials.kind(world.get(x, uy).material),
+                                MaterialKind::Powder | MaterialKind::Solid
+                            )
+                        }) {
+                            roofed += 1;
+                        }
                     } else if m == soil_id {
                         soil += 1;
                     } else if m == packed_id {
@@ -469,7 +499,7 @@ fn colony_arm(seeds: u64, ants: i32, frames: u64, png: Option<&str>) {
                     }
                 }
             }
-            (void, soil, packed)
+            (void, roofed, soil, packed)
         };
 
         // The sheet is written for the first seed only: it is there to show
@@ -492,10 +522,10 @@ fn colony_arm(seeds: u64, ants: i32, frames: u64, png: Option<&str>) {
                 world.step_pheromones();
             }
             if marks.contains(&f) {
-                let (void, soil, packed) = census(&world);
+                let (void, roofed, soil, packed) = census(&world);
                 let st = world.creature_stats;
                 println!(
-                    "{seed:>6}  {f:>7}  {void:>10}  {:>8}  {:>8}  {soil:>10}  {packed:>10}",
+                    "{seed:>6}  {f:>7}  {void:>8}  {roofed:>8}  {:>7}  {:>8}  {soil:>8}  {packed:>10}",
                     st.digs, st.packed
                 );
                 if shoot {
@@ -514,14 +544,29 @@ fn colony_arm(seeds: u64, ants: i32, frames: u64, png: Option<&str>) {
             // show a third of the bank and the sheet would silently be a
             // crop. This keeps the whole bank in frame and each cell a 3x3
             // block, which is what makes a one-cell gallery visible at all.
-            const Z: u32 = 3;
-            let (sw, sh) = (vw * Z, vh * Z * tiles.len() as u32);
+            const Z: u32 = 10;
+            // **Cropped to the bank.** The excavation is 130-odd cells inside
+            // a 200x120 world, so a full-frame sheet is mostly sky: the first
+            // one taken here was unreadable for that reason alone, before the
+            // light was even considered. The window is the bank footprint
+            // plus a margin, which is the only part of the picture the claim
+            // is about.
+            //
+            // **The left third, not the whole bank.** The colony enters from
+            // the nest at x=16..40 and works into the bank's near face, so
+            // the excavation is a pocket at that end and the other two
+            // thirds are undisturbed ground. A window over the whole bank
+            // spends 70% of its pixels on soil nothing happened to, and at
+            // that scale a three-cell gallery is three pixels.
+            let (cx0, cy0) = (bank_x0 as u32 - 26, bank_y0 as u32 - 6);
+            let (cw, ch) = (56u32, (bank_y1 - bank_y0) as u32 + 12);
+            let (sw, sh) = (cw * Z, ch * Z * tiles.len() as u32);
             let mut sheet = vec![0u8; (sw * sh * 4) as usize];
             for (i, tile) in tiles.iter().enumerate() {
-                let y0 = i as u32 * vh * Z;
-                for y in 0..vh * Z {
+                let y0 = i as u32 * ch * Z;
+                for y in 0..ch * Z {
                     for x in 0..sw {
-                        let src = (((y / Z) * vw + x / Z) * 4) as usize;
+                        let src = (((cy0 + y / Z) * vw + cx0 + x / Z) * 4) as usize;
                         let dst = (((y0 + y) * sw + x) * 4) as usize;
                         sheet[dst..dst + 4].copy_from_slice(&tile[src..src + 4]);
                     }
