@@ -1,0 +1,58 @@
+{
+  "id": "20260830T174711314Z-ff3451",
+  "created": "2026-08-30T17:47:11Z",
+  "board": "lab",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/evolution-lab-gui-physics-dhkblx",
+    "commit": "0250e34",
+    "agent": null,
+    "session_id": "c7783652-0f30-51a8-b3fa-7773cb6c24fa",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Coarser light in the lab: same bed, three times the plants",
+  "question": "The lower bed is what the lab grows if the light field is made half as fine. Is that denser, bushier stand what you want the lab to look like, or has the shade stopped doing its job?",
+  "context_md": "Measuring how far the evolution lab's resolution can be raised. The cheap way to pay for more cells is to make the **light and air field coarser** — one light value per 16 cells across instead of per 8 — and the prediction was that this would look identical.\n\nIt does not. It makes the box **brighter**: a thin leaf shades less when the light is sampled over a taller block, so plants shade each other less and the stand grows away. Same bed, same seed, same 8 founders, frame 6,000.\n\n**6 of 6 seeds ran the same direction** — 2.3x to 3.1x the plant tissue, 4x to 22x the seed set. This is not two chaotic runs diverging.\n\nWhat I want judged is only the look. The cost side is already answered (it is cheaper, and I have the numbers). Nothing here is landed — the change was made locally and reverted.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A - light as it is now (one value per 8 cells)",
+      "files": [
+        "20260830T174711314Z-ff3451/000-box512_fs8_f6000.png"
+      ],
+      "caption": "the shipped lab bed at frame 6,000",
+      "meta": {
+        "plant cells standing": 505,
+        "plants alive": 56,
+        "seeds set": 23,
+        "ants alive": 38,
+        "simulated seconds per real second": "6.9x"
+      },
+      "focus": null
+    },
+    {
+      "label": "B - light half as fine (one value per 16 cells)",
+      "files": [
+        "20260830T174711314Z-ff3451/001-box512_fs16_f6000.png"
+      ],
+      "caption": "identical bed, seed and frame",
+      "meta": {
+        "plant cells standing": 1972,
+        "plants alive": 231,
+        "seeds set": 205,
+        "ants alive": 41,
+        "simulated seconds per real second": "7.6x"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
