@@ -1,9 +1,10 @@
 # The World
 
-*Current as of: 2026-08-29. Updated when worldgen started sowing four
+*Current as of: 2026-08-30. Updated when worldgen started sowing four
 woody species instead of one, again when grass joined them as a ground
-layer, again when the sky was doubled and the soil blanket deepened, and
-again when the world stopped being made of one rock.*
+layer, again when the sky was doubled and the soil blanket deepened, again
+when the world stopped being made of one rock, and again when caves stopped
+being sealed and started having a way in.*
 
 Every world is generated. There is no single fixed map: the world you get is
 built from a **seed** — a number — and a **preset**, which is a named style of
@@ -162,34 +163,55 @@ toward bedrock. You will not see them from outside; you find them by digging,
 and they pour once opened. Buried gravel reads as its own brown against the
 stone, where scree at the surface stays rock-grey.
 
-**Sealed caves** hide far below the surface — much deeper than any
-pocket, in the quiet rock a couple of hundred rows down. Most worlds hold
-one system, some none, sometimes two, and nothing on the surface marks
-where.
+**Caves have a way in.** Somewhere on a hillside — usually in a steep face
+where the rock is bare — a passage runs into the ground, and following it
+takes you down into a system of rooms. Every world that has a cave in it has
+a way into that cave; you no longer have to dig two hundred rows of rock on a
+guess to find out whether there is one. Daylight falls a little way down the
+entrance and then gives out.
 
-**No two are the same size.** Most are modest — a few rooms and the
-passages between them, the work of a few minutes. A rare one is enormous,
-several times that across and deep enough that its far end is a separate
-expedition, with chambers to match: a big cave is a big cave all through,
-not a small one with more rooms in it. You cannot tell which you have
-found until you are inside. Dig deep enough in the right place and the wall breaks into a real
-cave: rooms joined by narrower passages, stretched along the same rock
-banding you can see in every cut face, with stone pillars holding the
-galleries apart. The floors are rubble — gravel banked into uneven mounds,
-not tile — and stalactites hang from the high ceilings with stalagmites
-rising to meet them, a pale fringe of flowstone with the occasional pair
-almost touching. A few formations are of **spar**, which glows.
+**A cave is rooms joined by passages.** The passages are wide enough to walk
+along their whole length — a wide arched roof with a narrower slot cut down
+out of its floor, which is the shape water leaves when it fills a passage and
+then drains out of it — and they take you from one room directly to the next.
+Most of a system is one connected place: you can walk nearly all of it
+without doubling back through solid rock.
+
+**The rooms are not the same size, and the reason is the rock.** Each system
+has one big room — the sort of space you cross rather than see — with smaller
+ones hung off it, some barely bigger than a passage. Which is which is decided
+by what the rock there is made of. A room in soft mudstone country cannot hold
+a wide roof, so its ceiling falls in until it reaches a bed that can, and it
+ends up tall and stepped; a room under hard basalt keeps a low flat ceiling
+over a much wider floor. Two caves in one world differ because their rock
+differs, not because a different size was drawn for them.
+
+**The ceiling is a bedding plane, and the floor is what fell off it.** Look up
+in a big room and the roof is one of the bands you can see in every cut face —
+the collapse stopped there because that bed was strong enough to hold. Look
+down and the floor is the rubble that came out of the roof, banked into uneven
+heaps rather than laid flat. The bigger the room, the more of it there is.
+
+**Pillars hold the big rooms up**, and you walk under them: a column of rock
+standing floor to ceiling with an arch through its base. They are the rock the
+water never took, and they are also the only way to tell how big a room is —
+a space with nothing in it reads as flat however large it is.
+
+Deeper in, the passages follow the banding: long near-level galleries where
+the water was under pressure, and steeper shafts along the joints where it was
+falling. Stalactites hang from the high ceilings with stalagmites rising to
+meet them, a pale fringe of flowstone with the occasional pair almost
+touching. A few formations are of **spar**, which glows.
 
 **You walk through the formations.** A stalactite, a stalagmite or a full
 floor-to-ceiling column is scenery, not wall: the gnome passes through it
 the same way he passes through a tree, and passes in front of some and
 behind others, so a decorated gallery reads as deep rather than as a
 thicket. They are still rock — point the pick at one and it breaks like
-anything else, and what comes off it falls. The cave you can see into is
-the cave you can walk into. Each system has its own
+anything else, and what comes off it falls. Each system has its own
 water: some are dry throughout, some pond in their lowest rooms, and some
 are flooded through most of their galleries — one system can hold both a
-drowned wing and a dry one, which is the picture worth digging for.
+drowned wing and a dry one, which is the picture worth walking in for.
 
 The **geode** survives as the rare jewel variant: a single hollow ringed
 with pale crystal, its lining now uneven — thick here, thin there — rather

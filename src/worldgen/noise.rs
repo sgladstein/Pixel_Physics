@@ -265,6 +265,41 @@ pub enum Purpose {
     /// first rendering of it and reads as a different world rather than as a
     /// bed you can follow.
     RockMarker = 38,
+    /// **Which karst cells hold a cave system, and where its rooms sit.**
+    ///
+    /// The rebuilt cave generator (`cave.rs`) places rooms rather than
+    /// thresholding a field, so this is the placement stream: whether a
+    /// system exists here, how many rooms it has, and each room's site and
+    /// target volume. Its own stream rather than sharing `Vault` -- `Vault`
+    /// still draws the *system's* column and depth, and a room's position
+    /// inside the system must not be the same coin as the system's position
+    /// in the world, or every world's first room sits in the same corner of
+    /// its own envelope.
+    Karst = 39,
+    /// **The dissolution cost field a room grows through**, and the lobe
+    /// offsets whose coalescence leaves relict pillars between them.
+    ///
+    /// Separate from `Karst` for the reason every purpose tag exists: a
+    /// room's *shape* must not be tied to whether it was placed at all.
+    CaveRoom = 40,
+    /// **The conjugate joint set** -- two fracture directions, drawn per
+    /// block of a coarse quantising lattice.
+    ///
+    /// Quantised deliberately, and this is a dead end being avoided rather
+    /// than an arbitrary choice: `Reports/dead-ends.md` records that a
+    /// *smoothly varying* lattice pitch is structurally broken wherever the
+    /// consumer is an identity test between neighbours, and names
+    /// quantisation on a coarse lattice as the repair. A conduit asks "am I
+    /// on the same joint as the cell I came from", which is exactly such an
+    /// identity test.
+    CaveJoint = 41,
+    /// Where a system daylights, and the jitter on its entrance passage.
+    ///
+    /// Its own stream because the mouth is chosen by a *search* over the
+    /// skyline (`cave::find_mouth`) and only tie-broken by a draw -- sharing
+    /// `Karst` would tie which room is shallowest to where the hillside
+    /// happens to be steep.
+    CaveMouth = 42,
 }
 
 /// SplitMix64-style finalizer over `(seed, purpose, x, y)`.

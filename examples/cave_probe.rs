@@ -129,8 +129,18 @@ fn main() {
             // Handled before the sweep loop; accepted here so the arg parser
             // does not reject its own mode.
             "field" | "t" | "t3" | "halfw" | "halfh" | "cell" | "squash" | "fseed" => {}
+            // `span=1` mode's own arguments; see `span_sweep`.
+            "span" | "widths" | "pillars" | "frames" | "roomh" | "leash" | "hit" | "lid" => {}
             _ => panic!("unknown argument {arg:?}"),
         }
+    }
+
+    // The span sweep is its own mode: it does not census the caves the
+    // generator wrote, it cuts a room of a *chosen* width into real rock and
+    // asks whether the roof stays up. See `span_sweep`.
+    if std::env::args().any(|a| a == "span=1") {
+        span_sweep(seeds, &only);
+        return;
     }
 
     // The field dump is its own mode: it builds no world at all, because
@@ -326,14 +336,48 @@ fn main() {
 /// depth band matches the pass's own `vault_min_depth` intent rather than
 /// reading it, because what is being measured is "what is down there", not
 /// "did the knob take".
-fn deep_y() -> i32 {
-    pixel_physics::app::WORLD_HEIGHT as i32 / 2
+/// The shallowest row this census will look at, **read off the world rather
+/// than assumed to be half its height**.
+///
+/// It was `WORLD_HEIGHT / 2`, which was right when the world was
+/// 2048x640 and is **1,280 rows down** at 8192x2560 -- below most of the
+/// depth band `vaults` places into, which starts at `surface + 200`. This is
+/// the identical defect the design lane repaired in `viewshot vault=1`
+/// (`Reports/cave-redesign-2026-08-29.md` §3.5), where it printed `NO VAULT
+/// in this world` on a seed whose own pass counter said `systems 1` --
+/// found there and not looked for here, because the same instrument file
+/// carries both readings and only one of them was under suspicion.
+///
+/// **Per column, not one row for the whole world**, and the first version was
+/// one row: at 8192 columns the ground line moves hundreds of rows, so a
+/// single cut-off taken from the *shallowest* column leaves every deeper
+/// column's sky inside the window. Measured that way the census reported 25
+/// "systems" in two seeds with a median span down of **17 cells** -- valley
+/// air, counted as caves.
+///
+/// The margin below each column's own ground does two jobs: it keeps the sky
+/// out of the flood, which matters now that a cave can have a **mouth** and
+/// would otherwise flood-fill the whole atmosphere as one component; and it
+/// keeps out brow and overhang air, which is not a cave (`brows` reaches 20
+/// cells, so 60 clears it with room to spare).
+fn cave_top(world: &World) -> Vec<i32> {
+    let (w, h) = (pixel_physics::app::WORLD_WIDTH as i32, pixel_physics::app::WORLD_HEIGHT as i32);
+    (0..w)
+        .map(|x| {
+            let ground = (0..h).find(|&y| world.get(x, y).material != material::EMPTY).unwrap_or(h);
+            (ground + 60).min(h - 1)
+        })
+        .collect()
 }
 
 fn deep_area(world: &World) -> (usize, usize) {
     let (mut void, mut rock) = (0usize, 0usize);
-    for y in deep_y()..pixel_physics::app::WORLD_HEIGHT as i32 {
+    let tops = cave_top(world);
+    for y in 0..pixel_physics::app::WORLD_HEIGHT as i32 {
         for x in 0..pixel_physics::app::WORLD_WIDTH as i32 {
+            if y < tops[x as usize] {
+                continue;
+            }
             let c = world.get(x, y);
             if c.material == material::EMPTY {
                 void += 1;
@@ -350,7 +394,8 @@ fn deep_area(world: &World) -> (usize, usize) {
 /// read of an 8-connected writer sees fragments (CLAUDE.md).
 fn census(world: &World, forms: &mut Formations, vugs: &mut Vec<System>) -> Vec<System> {
     let (w, h) = (pixel_physics::app::WORLD_WIDTH as i32, pixel_physics::app::WORLD_HEIGHT as i32);
-    let top = deep_y();
+    let tops = cave_top(world);
+    let top = *tops.iter().min().unwrap_or(&0);
     let idx = |x: i32, y: i32| ((y - top) * w + x) as usize;
     let mut seen = vec![false; ((h - top) * w) as usize];
     let mut out = Vec::new();
@@ -360,6 +405,9 @@ fn census(world: &World, forms: &mut Formations, vugs: &mut Vec<System>) -> Vec<
     // still a passage and measuring it as stone would say a water-filled
     // system does not exist.
     let is_void = |x: i32, y: i32| {
+        if y < tops[x as usize] {
+            return false; // above this column's own ground: sky, not cave
+        }
         let c = world.get(x, y);
         c.material == material::EMPTY || world.materials.kind(c.material) == MaterialKind::Liquid
     };
@@ -389,8 +437,20 @@ fn census(world: &World, forms: &mut Formations, vugs: &mut Vec<System>) -> Vec<
                 }
             }
             // A component this small is a pocket edge or a stray cell, not a
-            // cave — the pass's own `MIN_SYSTEM_CELLS` is 80.
+            // cave -- the pass's own `MIN_SYSTEM_CELLS` is 80.
             if cells.len() < 80 {
+                continue;
+            }
+            // **And it has to reach the depth band, or it is not a cave.**
+            // Widening the window from `WORLD_HEIGHT / 2` to each column's own
+            // ground line let the census see caves that were previously
+            // invisible -- and also let it see every overhang, brow-shadow and
+            // valley pocket in the world. Measured before this line: 64
+            // components over 16 arid seeds, **4.0 per world**, against one or
+            // two systems the pass actually placed. `vault_min_depth` is 200,
+            // so a cave by construction has a cell at least that far under its
+            // own column's ground; nothing near the surface does.
+            if !cells.iter().any(|&(x, y)| y >= tops[x as usize] + 140) {
                 continue;
             }
             let sh = shape(world, &cells);
@@ -888,4 +948,301 @@ fn worley3(seed: u64, purpose: pixel_physics::worldgen::noise::Purpose, x: f32, 
         }
     }
     (f1, f2, f3)
+}
+
+// ---------------------------------------------------------------------------
+// `span=1`: how wide a room can be before its roof comes down
+// ---------------------------------------------------------------------------
+
+/// **Does a room of width `W` stand in real rock at cave depth, and what does
+/// it take to hold one up?**
+///
+/// Written for `Reports/worldgen-caves-rebuilt-2026-08-29.md`. The cave
+/// redesign asks for rooms 3-7x the 145-cell one the generator shipped, and
+/// `Reports/cave-redesign-2026-08-29.md` §10 names this as the largest open
+/// risk in the whole programme and says to measure it *before* the size is
+/// chosen. Nothing in `Reports/instruments.md` answered it: `arch_probe`
+/// sweeps a hand-built pier-and-lintel scene in a 200-row test world, and
+/// `support_census` reads the distance field without ever cutting a hole.
+///
+/// # The two answers, and why quoting one of them alone is wrong
+///
+/// `World::chain_reach` is a **policy layered over** the load model: at the
+/// shipped TIGHT setting a failing region is clipped to what sits near a live
+/// disturbance, so an *undisturbed* generated cave is never licensed to fail
+/// however wide its roof is. That is the honest answer to "does the world
+/// stand at genesis", and it is not the answer to "what happens when the
+/// player digs in here". So every width is run in three arms:
+///
+/// | arm | what it asks |
+/// |---|---|
+/// | `quiet` | shipped leash, nothing disturbed — does the room survive genesis |
+/// | `pick` | shipped leash, one pick swing into the ceiling — what a player sets off |
+/// | `model` | leash off (`without_chain_limit`) — what the load model believes, i.e. the bound |
+///
+/// # Controls, both mandatory
+///
+/// `W = 0` carves nothing and must lose **zero** rock in every arm: a
+/// non-zero reading there means the census is counting the sweep's own
+/// weathering rather than the collapse. And the widest arm must lose a lot
+/// under `model`: a sweep that reads zero at every width has measured nothing
+/// (`CLAUDE.md`, *ask what your number counts when nothing is wrong* — and
+/// its other half, that it must move when something is).
+///
+/// ```text
+/// cargo run --release --example cave_probe -- span=1 seeds=3 preset=rolling
+/// cargo run --release --example cave_probe -- span=1 widths=0,128,512,1024 pillars=0,224
+/// ```
+fn span_sweep(seeds: u64, only: &str) {
+    let arg = |k: &str| std::env::args().find_map(|a| a.strip_prefix(k).map(|v| v.to_string()));
+    let list = |k: &str, d: &str| -> Vec<i32> {
+        arg(k).unwrap_or_else(|| d.to_string()).split(',').map(|v| v.parse().expect(k)).collect()
+    };
+    let widths = list("widths=", "0,64,128,256,512,1024");
+    let pillars = list("pillars=", "0");
+    let frames: usize = arg("frames=").map(|v| v.parse().expect("frames=N")).unwrap_or(400);
+    let room_h: i32 = arg("roomh=").map(|v| v.parse().expect("roomh=N")).unwrap_or(160);
+    // **The positive control.** `lid=T` cuts a second void above the room,
+    // leaving the roof as a genuine slab `T` cells thick spanning the whole
+    // width -- the case whose answer is *known* to be non-zero. A sweep whose
+    // widest room loses a few hundred cells is only believable if the
+    // instrument can also report a real collapse, and this is the arm that
+    // proves it can (`CLAUDE.md`: run the case whose answer you know is
+    // non-zero and check the instrument reports it).
+    let lid: i32 = arg("lid=").map(|v| v.parse().expect("lid=N")).unwrap_or(0);
+
+    let (presets, err) = worldgen::WorldgenPresets::load();
+    if let Some(e) = err {
+        panic!("{e}");
+    }
+    // Echoes its own parameters -- a log that does not name its sweep was
+    // written by a binary that may not have had one (`CLAUDE.md`).
+    println!(
+        "cave span sweep: widths {widths:?} pillars {pillars:?} room_h {room_h} frames {frames} \
+         lid {lid} seeds {seeds} world {}x{}",
+        pixel_physics::app::WORLD_WIDTH,
+        pixel_physics::app::WORLD_HEIGHT
+    );
+    println!("  gnome is {PLAYER_W}x{PLAYER_H}; stone spans {} attached", stone_span());
+    println!();
+
+    for name in presets.cycle_order() {
+        if !only.is_empty() && name != only {
+            continue;
+        }
+        let Some(params) = presets.get(&name) else { continue };
+        println!("### {name}");
+        println!(
+            "  {:>6} {:>7} | {:>8} {:>8} {:>8} | {:>7} {:>7}",
+            "width", "pillars", "quiet", "pick", "model", "fail_q", "fail_m"
+        );
+        for &w in &widths {
+            for &p in &pillars {
+                if w == 0 && p != pillars[0] {
+                    continue; // the null control needs running once, not once per pillar arm
+                }
+                let (mut quiet, mut pick, mut model) = (0i64, 0i64, 0i64);
+                let (mut fq, mut fm) = (0u64, 0u64);
+                for seed in 1..=seeds {
+                    let (a, faq) = one_room(params, seed, w, p, room_h, frames, lid, Arm::Quiet);
+                    let (b, _) = one_room(params, seed, w, p, room_h, frames, lid, Arm::Pick);
+                    let (c, fam) = one_room(params, seed, w, p, room_h, frames, lid, Arm::Model);
+                    quiet += a;
+                    pick += b;
+                    model += c;
+                    fq += faq;
+                    fm += fam;
+                }
+                let n = seeds as i64;
+                println!(
+                    "  {w:>6} {p:>7} | {:>8} {:>8} {:>8} | {fq:>7} {fm:>7}",
+                    quiet / n,
+                    pick / n,
+                    model / n
+                );
+            }
+        }
+        println!();
+    }
+}
+
+/// The gnome's box, from `player.rs`, so the room heights below are quoted in
+/// something the owner can see.
+const PLAYER_W: i32 = 7;
+const PLAYER_H: i32 = 14;
+
+fn stone_span() -> i32 {
+    let w = World::new(Rect::new(0, 0, 1, 1));
+    let m = w.materials.get(material::STONE);
+    m.max_unsupported_span as i32 * m.attached_span_bonus as i32
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum Arm {
+    /// Shipped leash, undisturbed.
+    Quiet,
+    /// Shipped leash, one pick swing into the middle of the ceiling.
+    Pick,
+    /// Leash off: what the load model believes with no policy over it.
+    Model,
+}
+
+/// Cut one room and report `(rock cells lost around it, structural failures)`.
+///
+/// The world is rebuilt per arm rather than cloned, which costs a few seconds
+/// and buys that no arm can inherit another's damage.
+#[allow(clippy::too_many_arguments)]
+fn one_room(
+    params: &pixel_physics::worldgen::WorldgenParams,
+    seed: u64,
+    room_w: i32,
+    pillar_pitch: i32,
+    room_h: i32,
+    frames: usize,
+    lid: i32,
+    arm: Arm,
+) -> (i64, u64) {
+    use pixel_physics::sim::cell::Cell;
+    use pixel_physics::sim::{parallel, rigid, structural};
+
+    let bounds = Rect::new(
+        0,
+        0,
+        pixel_physics::app::WORLD_WIDTH as i32 - 1,
+        pixel_physics::app::WORLD_HEIGHT as i32 - 1,
+    );
+    let mut world = World::new(bounds);
+    worldgen::generate(&mut world, worldgen::Spec::Generated { params, seed });
+    if arm == Arm::Model {
+        world = world.without_chain_limit();
+    }
+
+    // The site: the middle of the world, in the middle of the depth band the
+    // cave pass places into, so the rock around it is ordinary massif rather
+    // than anything near a surface or the bedrock floor.
+    let w = pixel_physics::app::WORLD_WIDTH as i32;
+    let cx = w / 2;
+    let (top, bottom) = cave_band(&world, params, seed, cx);
+    let cy = (top + bottom) / 2;
+
+    // Census box: the room plus a generous apron, so a cascade running out
+    // past the room's own walls is still counted.
+    let apron = 400;
+    let box_x = (cx - room_w / 2 - apron, cx + room_w / 2 + apron);
+    let box_y = (cy - room_h / 2 - apron, cy + room_h / 2 + apron);
+
+    if room_w > 0 {
+        // Pillars are left standing, not added: a pillar here is rock the cut
+        // did not take, which is what a collapse survivor is.
+        let x0 = cx - room_w / 2;
+        for y in cy - room_h / 2..=cy + room_h / 2 {
+            for x in x0..=cx + room_w / 2 {
+                if pillar_pitch > 0 && (x - x0).rem_euclid(pillar_pitch) < PILLAR_W {
+                    continue;
+                }
+                if world.in_bounds(x, y) {
+                    world.set(x, y, Cell::EMPTY);
+                }
+            }
+        }
+    }
+    if lid > 0 && room_w > 0 {
+        // The control: take the rock above the roof away too, so what is left
+        // spanning the room is a slab and not a massif.
+        let x0 = cx - room_w / 2;
+        for y in cy - room_h / 2 - lid - 200..=cy - room_h / 2 - lid - 1 {
+            for x in x0..=cx + room_w / 2 {
+                if pillar_pitch > 0 && (x - x0).rem_euclid(pillar_pitch) < PILLAR_W {
+                    continue;
+                }
+                if world.in_bounds(x, y) {
+                    world.set(x, y, Cell::EMPTY);
+                }
+            }
+        }
+    }
+    // The field has to be re-solved after the cut, exactly as generation
+    // solves it after the passes: without this every roof cell keeps the
+    // distance it had while the rock under it was still there.
+    structural::compute_world_distances(&mut world);
+
+    if arm == Arm::Model && room_w > 0 {
+        // **Hand-cut geometry reaches the structural heap through nothing.**
+        // `arch_probe` carries the same pair for the same reason: a scene
+        // nothing ever asks about stands because it was never questioned,
+        // which is `CLAUDE.md`'s vacuous-test failure in scene form. The
+        // first run of this sweep did not have these two lines and reported
+        // **zero rock lost at every width including 2048** -- a clean,
+        // arithmetically-correct null about a question nobody had asked.
+        for y in cy - room_h / 2 - 40..=cy + room_h / 2 + 40 {
+            for x in cx - room_w / 2 - 40..=cx + room_w / 2 + 40 {
+                if world.in_bounds(x, y) && world.materials.get(world.get(x, y).material).rock {
+                    world.schedule_structural_check(x, y);
+                }
+            }
+        }
+        world.record_disturbance(cx, cy, room_w / 2 + 40);
+    }
+
+    let before = rock_in(&world, box_x, box_y);
+    if arm == Arm::Pick && room_w > 0 {
+        // One swing into the middle of the ceiling -- the verb, at the
+        // shipped brush radius. `mine` reports what it loosened; the census
+        // below is what actually left.
+        rigid::mine(&mut world, cx, cy - room_h / 2 - 1, 6, 1.0);
+    }
+    for _ in 0..frames {
+        parallel::step(&mut world);
+        world.step_active_sites();
+        rigid::step_chunk_bodies(&mut world);
+    }
+    let after = rock_in(&world, box_x, box_y);
+    (
+        before as i64 - after as i64,
+        u64::from(world.structural_failures.unsupported) + u64::from(world.structural_failures.overloaded),
+    )
+}
+
+/// How wide a pillar the sweep leaves standing. Two gnomes across: narrower
+/// and it is a formation rather than a support, and the question here is
+/// about support.
+const PILLAR_W: i32 = 14;
+
+/// The depth band `vaults` places into, read from the same plan the pass
+/// reads so the probe cannot drift from it.
+fn cave_band(
+    world: &World,
+    params: &pixel_physics::worldgen::WorldgenParams,
+    seed: u64,
+    x: i32,
+) -> (i32, i32) {
+    let bounds = world.bounds().expect("bounded");
+    let soil = world.materials.get(world.materials.id_of("soil").expect("soil")).friction_angle.to_radians().tan();
+    let sand = world.materials.get(world.materials.id_of("sand").expect("sand")).friction_angle.to_radians().tan();
+    let terrain = pixel_physics::worldgen::column::Terrain::new(
+        seed,
+        params,
+        bounds.max_x + 1,
+        bounds.max_y + 1,
+        soil,
+        sand,
+    );
+    let plan = terrain.plan(x);
+    (plan.surface_y + params.vault_min_depth, plan.bedrock_top_y - params.vault_bedrock_margin)
+}
+
+/// Intact rock cells inside a box. **A census, not a failure count** --
+/// `CLAUDE.md`'s metric trap: a failed cell that became rubble is still
+/// standing there, and two digs whose event counts looked comparable removed
+/// 894 and 23,042 cells.
+fn rock_in(world: &World, xs: (i32, i32), ys: (i32, i32)) -> usize {
+    let mut n = 0;
+    for y in ys.0..=ys.1 {
+        for x in xs.0..=xs.1 {
+            if world.in_bounds(x, y) && world.materials.get(world.get(x, y).material).rock {
+                n += 1;
+            }
+        }
+    }
+    n
 }
