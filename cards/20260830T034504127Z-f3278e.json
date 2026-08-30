@@ -1,0 +1,37 @@
+{
+  "id": "20260830T034504127Z-f3278e",
+  "created": "2026-08-30T03:45:04Z",
+  "board": "gnome",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/gnome-mining-mechanic-obm7j4",
+    "commit": "e635078",
+    "agent": null,
+    "session_id": "7e6d7527-9f19-5475-bb25-535b32238ac6",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The pick digs soil now — but soil slumps",
+  "question": "Six frames, 120 apart, of him digging into a bank of soil. He is removing it — 2,065 cells over the run, where before this it was zero — but loose ground pours back in, so there is no tunnel: just a face he keeps eating into and a slope that keeps easing. Is that what digging earth should feel like? Or should soil hold a bore open the way rock does?",
+  "context_md": "The pick could not touch **soil, sand, gravel or its own spoil** at all — the cut took solid rock and living wood only. So pointing it at the ground most of this world is made of removed **nothing**, and a passage into a bank was driven entirely by shoving grains four cells sideways, which they poured straight back out of.\n\nLoose ground now comes out of the cut properly. What this sheet shows is the honest consequence: **it still flows.** Same walk, same button, same bank position as the stone tunnel scene — the only difference is that the bank is soil rather than stone.\n\n(Ignore the stray card titled *Eight hammer swings: the counts under the picture* with the question \"placeholder\" — that is a duplicate I posted by accident and cannot withdraw.)",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "",
+      "files": [
+        "20260830T034504127Z-f3278e/000-dirt_now.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
