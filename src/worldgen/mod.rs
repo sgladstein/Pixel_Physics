@@ -38,6 +38,11 @@
 //!
 //! Caves, erosion, world age and streaming.
 
+/// **The cave generator.** Rooms made by collapse, joined by conduits found
+/// through the strata, with a passage that reaches daylight. Replaces the
+/// thresholded Worley field the `vaults` pass used to carve; see the module
+/// doc and `Reports/cave-redesign-2026-08-29.md`.
+pub mod cave;
 pub mod column;
 pub mod erosion;
 pub mod legacy;
