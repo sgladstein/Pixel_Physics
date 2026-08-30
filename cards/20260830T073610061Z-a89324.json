@@ -1,0 +1,58 @@
+{
+  "id": "20260830T073610061Z-a89324",
+  "created": "2026-08-30T07:36:10Z",
+  "board": "plants",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics/.claude/worktrees/agent-a724999a9ca31a05d",
+    "branch": "claude/plant-mutation-rate-rederive",
+    "commit": "fb5ea5f0",
+    "agent": null,
+    "session_id": "397b67e6-720e-53b9-88fe-e126fc070a89",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics/.claude/worktrees/agent-a724999a9ca31a05d"
+  },
+  "title": "A herb stand where a third of the plants grow by their own rule",
+  "question": "Both are herb. One is the stand you have now, one has real variation in it. Does the varied one still read as a single species -- or as a mess?",
+  "context_md": "Plants inherit their growth program and it can mutate. **At the rate that ships today the mutation never reaches a plant** -- measured: 60,000 frames of herb at the shipped rate produces a stand *identical in every number* to the same world with mutation switched off. 45 mutations fired, and none of the 28 plants that carried one ever grew past a seedling.\n\nThis is what raising that rate 30x looks like. Same world, same seed, same frame (noon, 21,600), everything else equal.\n\nWhat I already checked, so you don't have to look for it: the varied stand is **not** sicker. Same number of seeds set (1,788 against 1,789), plants slightly *larger* on average, and across four world seeds establishment moves +3%, +4%, +6%, -13% -- no consistent cost. Even mutating *every single birth* does not break the stand.\n\nSo the question is purely a look-and-feel one, and it is the one thing I could not measure: **is a species with a visible minority of odd individuals in it better than a species where every plant is the same plant?** If it reads as broken, or as noise rather than as variation, that is the answer and I will take the rate back down.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A",
+      "files": [
+        "20260830T073610061Z-a89324/000-noon_r0.01.png"
+      ],
+      "caption": "the rate that ships today",
+      "meta": {
+        "plants growing by a changed rule": "2 of 66 -- and both are 17-cell seedlings",
+        "different growth programs alive in the stand": 8,
+        "plants that got established": 64,
+        "seeds set over the run": 1789,
+        "average plant size (cells)": 105.9
+      },
+      "focus": null
+    },
+    {
+      "label": "B",
+      "files": [
+        "20260830T073610061Z-a89324/001-noon_r0.30.png"
+      ],
+      "caption": "30x the mutation rate",
+      "meta": {
+        "plants growing by a changed rule": "17 of 53 -- full-sized plants",
+        "different growth programs alive in the stand": 153,
+        "plants that got established": 56,
+        "seeds set over the run": 1788,
+        "average plant size (cells)": 127.8
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
