@@ -534,6 +534,23 @@ drift that two of these documents still reflect.**
   *"the 4,095-organism ceiling is nowhere near binding"* (herb runs at 44–61%
   of it). Also records that `grass.ron`'s fate table is **byte-identical** to
   `tree.ron`'s, so switching to grass would never have bought mutability.
+- [plant-fate-fallback-fork-2026-08-30.md](plant-fate-fallback-fork-2026-08-30.md)
+  — **the fallback fork is decided and landed**: the owner answered *"No safety
+  net"*, so `fate_for` reads the individual's genome and stops. A mutation that
+  vacates a slot vacates it for real, which is what makes `delete` and
+  `recondition` real operators; the gate report below is the baseline it is
+  measured against. **Its §0 is the part to quote**: at the shipped mutation
+  rate this is a **no-op** — 88,909 fate queries over 60,000 frames of `herb`
+  with the net catching **0** of them, and `genome_drift` byte-identical
+  between the old and new depths at both 0 and 10x. The net first bites at
+  **90x**. Generation turnover (mean depth 2.04 at 60,000 frames), not the
+  fallback depth, is the bottleneck. **Withdraws one standing claim**:
+  `builtin_fate` is *not* the absorber — at 90x all 1,305 saves went to the
+  **species** layer and `builtin_fate` took 0; the two layers agree, which is
+  why dropping the middle one measured identical. Also records why `moss`
+  (empty fate table, 0 calls — it only `Divide`s) and `(RootTip, Node)`
+  (unreachable at `plastochron: 0`) are safe, and that an emptied `Grow` slot
+  makes a tip that **never retires** rather than one that cannot grow.
 - [plant-fate-operator-gate-2026-08-29.md](plant-fate-operator-gate-2026-08-29.md)
   — **all four mutation operators now have a viability gate**, closing §3a of
   the handoff below, and the answer is not the one its weighting hedged

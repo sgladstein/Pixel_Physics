@@ -3,7 +3,10 @@
 *What plants do, and what it looks like when they are working. No code, no
 file names — see `Reports/` for why any of it is built the way it is.*
 
-*Current as of: 2026-08-29 (most of a felled tree's leaves now stay on the
+*Current as of: 2026-08-30 (a plant's inherited growth program has no fallback
+any more: a mutation that deletes a rule deletes the behaviour, rather than the
+plant quietly reverting to its species' version -- see **Individuals of one
+species differ too**. Before that: most of a felled tree's leaves now stay on the
 branch rather than only the layer touching it -- see **Cutting a plant down**;
 what breaks off a plant turns as it falls and goes over where it lands, instead of dropping in the pose it
 grew in; stems draw a line instead of wandering into one --
@@ -325,6 +328,17 @@ holds. `wiki/the-world.md` has where it goes.
 Individuals of one species differ too. Every plant carries a genome drawn when
 it germinates and inherited by its seed, so a population drifts and can be
 selected on.
+
+**A plant's growth program is part of that genome, and there is no longer a
+safety net under it.** The rules that say what a growing tip turns into, what
+it puts out sideways, and when an axis stops are inherited and can mutate like
+anything else — and a mutation that *removes* one removes it for good. The
+lineage does not quietly fall back on the way its species used to grow. That
+is what lets a line of plants reach a shape its species never had; it is also
+what lets a line inherit a body plan that does not work, which is a thing that
+can now happen. In practice you will not see it yet: plants breed slowly
+enough that a stand rarely gets past its great-grandchildren, so almost every
+plant on screen is still growing to its species' original program.
 
 ## Plants that stop, and what they stop in
 
