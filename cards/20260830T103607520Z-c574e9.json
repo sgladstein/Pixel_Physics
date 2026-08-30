@@ -1,0 +1,70 @@
+{
+  "id": "20260830T103607520Z-c574e9",
+  "created": "2026-08-30T10:36:07Z",
+  "board": "lab",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics/.claude/worktrees/agent-a1657db264d1e2ece",
+    "branch": "worktree-agent-a1657db264d1e2ece",
+    "commit": "876b731",
+    "agent": null,
+    "session_id": "6546762f-3714-56a2-a0a4-47f13872ea63",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics/.claude/worktrees/agent-a1657db264d1e2ece"
+  },
+  "title": "The speed dial: where does the lab stop moving and start fast-forwarding?",
+  "question": "Watch the six panels. At which one does the box stop showing things moving and start showing jump cuts?",
+  "context_md": "The lab's speed dial is built, and this is what its six stops look like from\nthe player's chair. It is the last thing before the dial is called done.\n\n**Six panels, one box.** Same bed, same seed, same warm-up, so on the first\nframe they are identical. Each then runs at its own multiplier for the same\n**1.2 seconds of your watching time**, drawn 20 times a second. The 1x panel\nadvances 1.2 seconds of world; the 256x panel advances 5 minutes of it. They\ndiverge because that is what the dial does, not because anything is broken --\nthe counts under this image show it: same box, 72 ticks run in one panel and\n18,432 in another, and the plants and the colony end up in different places\nbecause of it.\n\n**An ant is two dark cells on dark soil and you find it by watching it move**\n-- this repo has that from you, on a colony contact sheet. So a still of any one\nof these panels shows you almost nothing, and the animation is the only thing\nthat can answer the question. If you cannot pick the ants out even in the 1x\npanel, say so: that is a finding about the lab's legibility and I would rather\nhave it than not.\n\n**What I already measured, so you do not have to judge it.** In this box the\nonly things that translate are the ants, and an ant covers **0.06 cells a\ntick** -- so the obvious arithmetic (a falling grain moves a cell a tick)\noverstates by about **14x**. Under 0.16% of the box changes even at 256x.\n\n**Two defensible lines, and the panels bracket both.** An ant is 2 cells, and\n\"you can follow a thing while it moves less than its own width between frames\"\ngives either:\n\n- the **fastest tenth** of ants crossing two cells, which is the **4x** panel\n  (identical on three seeds), or\n- the **typical** ant crossing two cells, which is the **16x** panel.\n\nThe game currently ships the strict one and calls 4x the last of the motion.\nThat is a guess about your eye, not a measurement of it, and the readout names\nwhichever side you put the line on -- so wherever you say it is, is where it\nwill say it.",
+  "kind": "frames",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "The six dial stops, side by side",
+      "files": [
+        "20260830T103607520Z-c574e9/000-dialframe000.png",
+        "20260830T103607520Z-c574e9/001-dialframe001.png",
+        "20260830T103607520Z-c574e9/002-dialframe002.png",
+        "20260830T103607520Z-c574e9/003-dialframe003.png",
+        "20260830T103607520Z-c574e9/004-dialframe004.png",
+        "20260830T103607520Z-c574e9/005-dialframe005.png",
+        "20260830T103607520Z-c574e9/006-dialframe006.png",
+        "20260830T103607520Z-c574e9/007-dialframe007.png",
+        "20260830T103607520Z-c574e9/008-dialframe008.png",
+        "20260830T103607520Z-c574e9/009-dialframe009.png",
+        "20260830T103607520Z-c574e9/010-dialframe010.png",
+        "20260830T103607520Z-c574e9/011-dialframe011.png",
+        "20260830T103607520Z-c574e9/012-dialframe012.png",
+        "20260830T103607520Z-c574e9/013-dialframe013.png",
+        "20260830T103607520Z-c574e9/014-dialframe014.png",
+        "20260830T103607520Z-c574e9/015-dialframe015.png",
+        "20260830T103607520Z-c574e9/016-dialframe016.png",
+        "20260830T103607520Z-c574e9/017-dialframe017.png",
+        "20260830T103607520Z-c574e9/018-dialframe018.png",
+        "20260830T103607520Z-c574e9/019-dialframe019.png",
+        "20260830T103607520Z-c574e9/020-dialframe020.png",
+        "20260830T103607520Z-c574e9/021-dialframe021.png",
+        "20260830T103607520Z-c574e9/022-dialframe022.png",
+        "20260830T103607520Z-c574e9/023-dialframe023.png"
+      ],
+      "caption": "top row 1x / 2x / 4x, bottom row 16x / 64x / 256x, drawn 20 times a second",
+      "meta": {
+        "world time per second of watching": "1s / 2s / 4s / 16s / 1m 4s / 4m 16s",
+        "ticks between drawn frames": "3 / 6 / 12 / 48 / 192 / 768",
+        "ticks run over the whole clip": "72 / 144 / 288 / 1,152 / 4,608 / 18,432",
+        "how far a fast ant jumps between frames, cells": "1.0 / 1.1 / 2.0 / 5.0 / 11.3 / 21.4",
+        "an ant is this many cells": 2,
+        "ants alive at the end": "33 / 32 / 30 / 27 / 24 / 14",
+        "plant cells at the end": "467 / 475 / 481 / 607 / 858 / 1,012",
+        "where the game draws the line now": "4x, 12 ticks a frame",
+        "the looser reading would be": "16x, 48 ticks a frame"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
