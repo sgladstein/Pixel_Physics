@@ -1,0 +1,47 @@
+{
+  "id": "20260830T022524586Z-ccf3ea",
+  "created": "2026-08-30T02:25:24Z",
+  "board": "caves",
+  "origin": {
+    "worktree": "/home/user/wg-caves",
+    "branch": "claude/worldgen-caves",
+    "commit": "47d6209",
+    "agent": null,
+    "session_id": "2cb39797-d076-5699-b8bf-4494224deffe",
+    "user": null,
+    "cwd": "/home/user/wg-caves"
+  },
+  "title": "A cave system, rebuilt: rooms made by collapse",
+  "question": "The Worley web is gone -- nothing in this picture is a thresholded field. This is one room of a system, 522 cells across and 308 tall (about 3.6x the room you called small), with the gnome in it for scale and the flooded lower gallery behind him. The room's shape is not drawn: a lens dissolves along the bedding and then the roof falls in until it reaches a bed strong enough to hold it, and what is on the floor is what came out of the ceiling. Does this read as a cave you would want to be in, and is the big room the right size or should it be bigger still?",
+  "context_md": "",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "rolling seed 3",
+      "files": [
+        "20260830T022524586Z-ccf3ea/000-cave_s3.png"
+      ],
+      "caption": "",
+      "meta": {
+        "systems": 1,
+        "rooms": 2,
+        "pillars": 3,
+        "passages": 2,
+        "mouths": 1,
+        "cells the roof lost, now on the floor": 96338,
+        "biggest room": "522 x 308 cells",
+        "gnome": "7 x 14 cells",
+        "world": "8192x2560"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
