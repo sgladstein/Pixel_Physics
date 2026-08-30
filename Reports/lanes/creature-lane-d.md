@@ -92,6 +92,49 @@ merged, this branch needs rebasing.
    body-size card the brief asked for, for the reason in item 3. Collect it
    with `review.py inbox`.
 
+## The two mid-session additions to my brief, and what I did with each
+
+Both arrived from the coordinator **after** the package was built and PR #159
+was open. Neither changed the code; both changed the report, and one of them
+found a gate I had not run.
+
+**1. Body geometry already drives motion (`creature-motion-design.md` §5).**
+Acted on three ways. (a) **The falls-per-move gate — `forage_probe gate=1`,
+bar 0.40 — was missing from my gate list and is now run**; it pins its own
+frame budget and *refuses* to run at any other, so the "a bar quoted without
+its budget is not reproducible" caveat is enforced by the harness rather than
+by me remembering. Result in the report's gate line. (b) The report now
+records that **§5's own cost column already claimed this change** — the long
+chain's entry reads *"what it pays: more metabolism per tick"*, which was not
+true when written. So that is a second document that was carrying E10's false
+premise, and it is now correct without being edited. (c) The **launch verb
+scales with the body too**, since impulse cost is
+`move_cost_per_cell * body_cells * LAUNCH_COST_IN_MOVES` — identical at the
+shipped two-cell ant, proportionally dearer above it, which is the intended
+direction.
+
+**2. Lane H's motion/decoys result (PR #150).** Read the report, and it
+**strengthens rather than threatens** my finding — so the honest thing was to
+put it in §5b rather than defend the package. Motion removes the size axis for
+the 58-78% of ants that move at all; nine cells buys a *walking* ant nothing
+measurable. Combined with §4b (no multi-cell colony survives) the case for a
+bigger shipped ant is now weak from two independent directions.
+
+I also did the arithmetic item 2 of that message asked for, and it is sharper
+than expected: the stamp scales with the body and the bank ceiling does not,
+so **bank-over-bar goes 0.44 at two cells to 0.10 at nine** — a nine-cell ant
+is ~4.2x further from affording a child, on top of not surviving to try.
+
+**On the animated A/B**: agreed in principle and not done, because the card I
+posted is not the body-size card. The body-size card is held (item 3 above),
+and when it is posted it should be a frame sequence — the review skill's own
+measurement is that a sequence plays where a GIF did not.
+
+**What I did not do, deliberately**: name or build the movement-frequency
+lever beyond recording it. Lane H's closing point is that *how often an animal
+moves* is brain-side and therefore the first appearance-adjacent property
+evolution can actually reach. It is named in §6 and stopped there, as asked.
+
 ## What another lane should know before touching these files
 
 - **`idle_cost` and `move_cost` no longer exist.** They are
