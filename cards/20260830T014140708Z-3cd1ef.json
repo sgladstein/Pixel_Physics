@@ -1,0 +1,54 @@
+{
+  "id": "20260830T014140708Z-3cd1ef",
+  "created": "2026-08-30T01:41:40Z",
+  "board": "worldgen",
+  "origin": {
+    "worktree": "/home/user/wg-relief",
+    "branch": "claude/worldgen-relief",
+    "commit": "47d6209",
+    "agent": null,
+    "session_id": "2cb39797-d076-5699-b8bf-4494224deffe",
+    "user": null,
+    "cwd": "/home/user/wg-relief"
+  },
+  "title": "Six screens of walking: is this high country, or just big hills?",
+  "question": "Walking left to right in B, does the land change *height* enough to feel like you are crossing country -- or is it still one size of hill everywhere?",
+  "context_md": "Six viewport widths of continuous ground, one camera, so the ground line rising is the ground actually rising. Gnome standing in each screen for scale. Same seed, same preset, same binary, one switch.\n\nThe generator had **nothing** longer than half a screen in it: hills every 150-200 columns, and the regional layout changing every 100-240. So the biggest thing the land could be was about half a view wide, and you asked for mountains. B adds high country three to six screens across, with broad low basins between.\n\n**This is the one I am least sure of.** I can make the high country much taller -- it is a single number -- but past a point the ground fills the screen and you cannot see over it. Tell me if it wants to be bigger and I will raise it.",
+  "kind": "before_after",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A -- shipped today",
+      "files": [
+        "20260830T014140708Z-3cd1ef/000-mtn_off.png"
+      ],
+      "caption": "rolling, seed 1, world x 600-3672",
+      "meta": {
+        "how far the skyline moves per screen, typical": 38,
+        "how far it moves on the tenth-worst screen": 64,
+        "longest wavelength in the terrain (columns)": 200
+      },
+      "focus": null
+    },
+    {
+      "label": "B -- with mountains",
+      "files": [
+        "20260830T014140708Z-3cd1ef/001-mtn_on.png"
+      ],
+      "caption": "rolling, seed 1, world x 600-3672",
+      "meta": {
+        "how far the skyline moves per screen, typical": 54,
+        "how far it moves on the tenth-worst screen": 125,
+        "longest wavelength in the terrain (columns)": 2600
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
