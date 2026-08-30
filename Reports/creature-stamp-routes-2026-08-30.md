@@ -9,22 +9,38 @@ changes which routes are still live; §5 is what to build.
 
 ---
 
-## 0. The finding, in one paragraph
+## 0. The finding
 
 An ant cannot afford a child because a birth has to *buy the child's body* —
-`body_energy` for each of its two cells, **960**, against a bank that stops
+`body_energy` for each of its two cells, **960** — against a bank that stops
 filling at **100**. Three ways past that were named and none was priced.
-Priced, **the shipped budget has moved the goalposts since they were
-written**: `creature-reproduction-economics.md` §3 does its arithmetic
-against a satiety line of **450**, and E14 has since cut `start_energy` from
-900 to 200, which puts that line at **100**. Two of the three routes were
-judged on the old number. Re-priced against the tree that actually ships:
-**route 3 (a specialised gut) does not close, and cannot** — it falls short
-by 381, not by the 31 the earlier arithmetic reports. **Route 1 (born at one
-cell) no longer closes on its own either**, though it did at the old budget.
-**Route 2 (fission) closes, by the widest margin of the three, and is the
-only one that closes without also forcing the diet gene.** The
-recommendation is route 2, and §5 says what it costs.
+Priced, four things come out, and the first is the one that reorders the
+choice.
+
+1. **Neither stamp route removes the stamp; both defer it** — route 1 leaves
+   the newborn a second cell to buy, route 2 leaves the parent one to buy
+   back — and the deferred instalment is **480 against a bank that caps at
+   220**. At the shipped diet it is unaffordable for ever. **So route 3 is
+   not an alternative to routes 1 and 2. It is the precondition for both**,
+   because the specialised gut is the only thing in the current design that
+   lifts the ceiling (220 → 580) past that 480.
+2. **No single route breeds.** Measured over 12 pre-registered seeds at
+   24,000 frames: route 3 alone **0 births**, route 1 alone **0 births**, the
+   shipped ant **0 births** — and all three report `denied-no-space` of
+   **zero**, so those are energy results and not space ones.
+3. **Routes 1 and 3 together do breed**, and the colony grows rather than
+   merely persisting. That is the only combination in this report that both
+   works and is measurable.
+4. **Route 3's escape hatch does not exist in this world, by construction.**
+   §3.5 rests on a matched gut collecting a 960-point `fruit` or a
+   1,440-point `flower`. **No fruit or flower cell stands in any sampled
+   world at any frame** — and the reason is not the horizon: worldgen sows
+   `creeper`, `shrub`, `conifer` and `tree`, and the only two species that
+   bear fruit at all, `herb` and `scrambler`, **are never planted**. That
+   makes "sow a fruiting plant" the cheapest lead in this document, and §5
+   treats it as a real fourth option rather than a footnote.
+
+The recommendation is in §5.
 
 ---
 
@@ -166,4 +182,109 @@ frames=24000`, at seed 2711 — gives **births 8,982, live 3,283, generation
 102, 19 lineages**. A null there would have voided everything below. It is a
 control and not a proposal: `hunger=0.9` is in dead-end territory, and a
 route that only worked there would not have worked.
+
+---
+
+## 3. The wall both stamp routes hit one step later
+
+This is the finding that reframes the choice, and it is arithmetic rather
+than measurement, so it is stated before the results.
+
+**Neither stamp route removes the stamp. Both defer it.**
+
+- Route 1 births a one-cell child for `g + 480`. That child is not an ant
+  yet. To become one it must **buy its second cell, at `body_energy` = 480**,
+  out of its own bank.
+- Route 2 moves a cell from parent to child, so the birth is nearly free —
+  and leaves **the parent one cell short**. To be a two-cell ant again it
+  must buy that cell back, at 480, out of its own bank.
+
+In both cases the deferred instalment is **480 against a bank that stops
+filling at 220** at the shipped gut. The stamp is not avoided; it is split
+into two payments, and at the shipped diet **the second payment is
+unaffordable for ever**.
+
+| gut | bank ceiling | can it pay the deferred 480? |
+|---|---|---|
+| 0.0 (shipped) | 220 | **no, not ever** |
+| −1.0 (matched herbivore) | 580 | yes, with 100 to spare |
+
+So route 1 at the shipped gut does not produce ants that start small and grow
+up. It produces **a species of permanent juveniles** — one-cell animals that
+can never afford their second cell. Route 2 at the shipped gut produces the
+same thing from the other end: a colony that halves itself once, cannot
+regrow, and — since §3.2's own stopping rule is that a one-cell animal has no
+cell to give — **stops reproducing at exactly twice the founder count**.
+
+**Which makes route 3 not an alternative to routes 1 and 2 but the
+precondition for both.** The specialised gut is the only thing in the current
+design that lifts the bank ceiling over 480, and without it neither stamp
+route survives its own second instalment. That is why the arm that works
+below is the one that combines them.
+
+### 3.1 And the growth verb does not exist
+
+`creature-reproduction-economics.md` §3.1 costs route 1 as "`birth_cost` must
+become a function of the *born* size rather than `def.body.len()`; a growth
+step must charge at the moment it appends". **There is no growth step.**
+Nothing in `src/sim/creature.rs` ever appends a body cell to a live organism:
+the only `Grow` in the file is a comment about plants, and the only
+`regrowing` is about a tree. A creature is placed at its full body plan by
+`place_creature` and never changes size again.
+
+So both stamp routes need **a new verb for creatures — growth — that the
+engine does not have**, on top of the birth-cost change. That is not a
+line-item in either §3.1 or §3.2, and it is the larger half of both. Route 3
+needs no new mechanism at all, which was always its stated advantage; what
+this report adds is that route 3 cannot be *used* on its own.
+
+---
+
+## 6. What this does not measure, named rather than assumed
+
+Four things, and the first two are the ones a reader should not let this
+report quietly stand in for.
+
+- **A one-cell newborn's survival in the window before it grows.** The brief
+  asks it directly and the proxy cannot answer it: R1's and R13's animals are
+  born full-size. What §3 establishes instead is that at the shipped gut
+  there *is* no such window, because the second cell is never affordable.
+  Once route 3's gut and a growth verb are both in, this is the first thing
+  to measure, and `deaths` against `live` is the readout.
+- **What fission does to the parent.** The `body_energy=0` proxy prices the
+  birth and makes the regrowth free, which is precisely the constraint §3
+  identifies as binding. So **R2 and R2b measure route 2's easy half only.**
+  No number in this report is evidence about a fissioned parent, and the one
+  place the report reasons about it (§3) is arithmetic.
+- **Whether selection would find the specialised gut on its own.** The
+  positive control ends at a mean gut of **−0.66** after 102 generations from
+  a neutral ancestor, so selection clearly does push that way once
+  reproduction works. It cannot bootstrap: at gut 0 nothing breeds, so there
+  is no differential reproduction to select through. The ancestral value has
+  to be moved by hand to start it. That is a one-line change to `ant.ron`'s
+  `traits` and this lane does not own the file.
+- **Frame cost of any of this.** Not measured. A breeding population is not a
+  55-ant colony, and Lane A's figure (+1.3 ms for 1,781 ants) is the number
+  to re-take rather than to carry forward.
+
+---
+
+## 7. Provenance
+
+Everything here is `examples/stamp_probe.rs` at 24,000 frames on
+`terrain=world`, on the branch `claude/creature-lane-i-stamp-routes` — which
+is `origin/main` with `origin/claude/creature-lane-a-birth-grant` merged in,
+because **PR #142 was open and conflicted rather than landed** when this lane
+ran, so `origin/main` has no `birth_grant` at all. The lane note records that
+and how it was resolved.
+
+Seeds are the 18 of the first 30 that seat at least 30 of their 55 founders,
+screened at `frames=1` before any arm was run. Arms differ from the shipped
+species only in the knobs named in their row, applied in-process through
+`set_creature` rather than by editing `ant.ron` — assets are `include_str!`ed
+and a sweep that edits one and re-runs a prebuilt binary produces
+bit-identical runs.
+
+The binary was rebuilt with `cargo build --release --example stamp_probe`
+under `set -o pipefail` before the sweep, and not rebuilt during it.
 
