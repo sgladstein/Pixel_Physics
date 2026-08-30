@@ -108,16 +108,15 @@ fn spec_from_args() -> LabBox {
         lamp_spacing: arg("lamps").unwrap_or(width / 4),
         species: arg("species").unwrap_or_else(|| "herb".to_string()),
         seed: arg("seed").unwrap_or(1),
-        // **Struct update rather than an exhaustive list**, and that is the
-        // repair as much as the addition. `LabBox` is `src/lab/scene.rs`'s and
-        // grows a field whenever the lab's interface does; listing every field
-        // here made *this example* the thing that breaks when it does, which
-        // is what happened -- `lamp_spacing` landed with the grow-light work
-        // and left `cargo build --examples` red, and with it `clippy
-        // --all-targets` and CI. Anything this function does not deliberately
-        // derive from `height` should track the shipped bed, which is exactly
-        // what `default()` means.
-        ..LabBox::default()
+        // **Every field is listed on purpose, and that has a maintenance cost
+        // worth knowing about**: `LabBox` belongs to `src/lab/scene.rs` and
+        // grows a field whenever the lab's interface does, at which point this
+        // example stops compiling and takes `cargo build --examples`, `clippy
+        // --all-targets` and CI down with it -- which is exactly what
+        // `lamp_spacing` did when it landed with the grow-light work. The list
+        // stays exhaustive anyway, because the two fields above are
+        // deliberately *derived* rather than inherited and a `..default()`
+        // would quietly stop new ones getting that decision.
     }
 }
 
