@@ -562,9 +562,12 @@ records the same distinction being needed for terrain shading.
 
 ## 13. Gates
 
-`cargo test --lib`, `cargo +1.98.0 clippy --all-targets -- -D warnings`,
-`bash scripts/acceptance.sh` and `cargo run --release --example ascii` are all
-green on the head this report describes. `bash scripts/docscheck.sh` reports
+All green on the head this report describes: `cargo test --lib` (**1,084
+passed / 0 failed / 54 ignored**, 879 s), `cargo +1.98.0 clippy --all-targets
+-- -D warnings` (clean -- and the container's own clippy is 1.94, which
+accepts three lints CI's 1.98 rejects, so the pinned toolchain is the one that
+counts), `bash scripts/acceptance.sh` (every case) and `cargo run --release
+--example ascii` (31 scenes, 0 skipped). `bash scripts/docscheck.sh` reports
 one thing: this report is not indexed in `Reports/README.md`, which this lane
 was told not to edit -- **the coordinator has to add that line**.
 
