@@ -82,18 +82,40 @@ distinguish "the net never fires" from "the counter is not on the path". Adding
 1,305 when the net does catch something. A counter that could only ever read
 zero would produce this table too.
 
-**Why the shipped rate reads zero.** Not because mutation is absent — the same
-`herb` run applies 153 genome changes and carries 161 standing drifted genomes.
-It is that a drifted genome mostly still answers: `retarget` (60% of the
-budget) rewrites in place and vacates nothing, `insert` (15%) only adds. The
-operators that *can* vacate a slot are the 25% that were inert precisely
-because the net absorbed them, and at 0.01 with a mean generation depth of
-**2.04 at 60,000 frames** there are too few of them in too few lineages to land
-on a slot anything queries.
+**Why the shipped rate reads zero — counted, not inferred.** The 60,000-frame
+`herb` run at 0.01, read from `genome_drift`'s own source-counter block:
 
-**So generation turnover is the bottleneck, not the fallback depth.** That is
-the same conclusion `plant-evolution-handoff-2026-08-30.md` §5 reaches from the
-selection side, arrived at here by a different route.
+```
+births that reached the draw   6533
+...where the draw fired          56  (0.857% of births, nominal 1.000%)
+...that changed the genome       55
+standing drifted genomes          9   (of 934 live organisms -- ~1%)
+```
+
+**Fifty-five mutations in the whole run.** Of those, the two operators that
+can vacate a slot — `delete` at 10% of the draw and `recondition` at 15% —
+account for about **14**, spread over eight founding lineages, and only nine
+drifted genomes are standing at the end. A net that never fired across 88,909
+queries is exactly what a population with ~1% standing variation in its
+production rule should produce. Nothing needs explaining beyond the count.
+
+**So the binding constraint is mutation volume, not generation turnover — and
+an earlier draft of this report said the opposite.** It attributed the zeros
+to a mean generation depth of 2.04, which is the statistic
+`plant-evolution-handoff-2026-08-30.md` §2 explicitly warns is **not a
+clock**: the mean is taken over *living* organisms, so it equilibrates rather
+than accumulating. Depth is in fact adequate — max 4 here, max 5 at 20,000
+frames, and `plant-throughput-herb-2026-08-29.md` reports deepest *established*
+generation 5, 7 and 3 with 8,000–11,000 seeds set per run. Lineages do turn
+over. What they do not do is carry mutations, because there are only ~14
+relevant ones per run.
+
+**Consequence for what to do next.** `FATE_MUTATION_CHANCE = 0.01` is the
+lever, and this is the second report to arrive at that from a different
+direction — `plant-fate-operator-gate-2026-08-29.md` §4 got there by weighting
+per-operator effectiveness. Removing the net raises the *effective* rate by an
+unmeasured amount, because the operators it was suppressing now act; the rate
+wants re-deriving against that.
 
 ## 4. One withdrawn claim: `builtin_fate` is not the absorber
 
@@ -169,6 +191,9 @@ depends on which slot went.
 ## 7. What this does not establish
 
 - **That the change is visible.** It is not, at the shipped rate. §3.
+- **That generation turnover is or is not a problem.** This report withdraws
+  its own first answer to that, above. Depth is adequate; standing variation
+  is not.
 - **That mutations now produce fitness variation.** That is the DFE question,
   still open and still the payoff of the line
   (`Reports/lanes/settled-rerun.md` §8). This change is a precondition for it

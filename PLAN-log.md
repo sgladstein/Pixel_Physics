@@ -3635,8 +3635,19 @@ occasion where the genome had no answer and a lower layer supplied one.
 `genome_drift` logs came back **byte-identical** between the two depths for
 `moss`, `tree` and `herb` at both 0 and 10x mutation. The net first bites at
 **90x** (1,305 saves in 39,340 queries). So this is a licence rather than a
-behaviour change, and the thing standing between it and a visible effect is
-generation turnover: mean depth **2.04 at 60,000 frames**.
+behaviour change.
+
+**What stands between it and a visible effect is mutation volume, and the
+first version of this entry blamed the wrong thing.** It said generation
+turnover, citing a mean depth of 2.04 -- a mean over *living* organisms, which
+`Reports/lanes/plant-evolution-handoff-2026-08-30.md` §2 warns equilibrates and
+is not a clock. Counted at the source instead, the same 60,000-frame run has
+**6,533 births reaching the draw, 56 firing, 55 changing a genome, and 9
+drifted genomes standing** in a population of 934. About **14** of those 55 are
+the operators that can vacate a slot at all. Fourteen relevant mutations per
+run is why 88,909 queries found nothing to catch; depth is fine (max 4 here,
+and `plant-throughput-herb-2026-08-29.md` reports deepest established
+generation 5, 7 and 3). `FATE_MUTATION_CHANCE = 0.01` is the lever.
 
 **The zeros only mean something because a call counter sat beside them.** The
 first version of the probe printed three zeros and could not tell "the net

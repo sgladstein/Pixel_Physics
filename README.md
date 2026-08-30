@@ -49,13 +49,13 @@ whole, then run `python3 scripts/readmetoc.py`.
 | [Weather status](#weather-status) | 3047 |
 | [The ant colony — status](#the-ant-colony--status) | 3064 |
 | [Inheritance status — the growth program has no fallback under it](#inheritance-status--the-growth-program-has-no-fallback-under-it) | 3173 |
-| [M19 status — started](#m19-status--started) | 3244 |
-| [Felling status — the verb works, and what it produces is pieces](#felling-status--the-verb-works-and-what-it-produces-is-pieces) | 3316 |
-| [Bending status — soft tissue lies over, and the wind is what pushes it](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) | 3553 |
-| [Performance](#performance) | 3630 |
-| [World speed — five independent time axes](#world-speed--five-independent-time-axes) | 3827 |
-| [Status](#status) | 3910 |
-| [License](#license) | 4021 |
+| [M19 status — started](#m19-status--started) | 3252 |
+| [Felling status — the verb works, and what it produces is pieces](#felling-status--the-verb-works-and-what-it-produces-is-pieces) | 3324 |
+| [Bending status — soft tissue lies over, and the wind is what pushes it](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) | 3561 |
+| [Performance](#performance) | 3638 |
+| [World speed — five independent time axes](#world-speed--five-independent-time-axes) | 3835 |
+| [Status](#status) | 3918 |
+| [License](#license) | 4029 |
 
 ### Milestones, in numeric order
 
@@ -76,7 +76,7 @@ order they were written.
 | 16 | [M16 status](#m16-status) | 1554 |
 | 17 | [M17 status](#m17-status) | 1740 |
 | 18 | [M18 status](#m18-status) | 1967 |
-| 19 | [M19 status — started](#m19-status--started) | 3244 |
+| 19 | [M19 status — started](#m19-status--started) | 3252 |
 
 ### By topic
 
@@ -89,14 +89,14 @@ them is named "plants". A section can appear twice; felling is honestly both
 plant work and structural work.
 
 **Known limitations for every topic are collected in one place**:
-[Status](#status), line 3910 — the *last* section in the
+[Status](#status), line 3918 — the *last* section in the
 file, not the first. Read it before concluding something is broken.
 
 | Topic | Sections, primary first |
 |---|---|
-| **plants, trees and moss** | [M16 status](#m16-status) 1554, [Plant lines merged](#plant-lines-merged-the-genome-and-the-ecology) 1182, [Inheritance status](#inheritance-status--the-growth-program-has-no-fallback-under-it) 3173, [The economy re-derived](#the-economy-re-derived-standing-tissue-costs-something) 1304, [Plants that stop](#plants-that-stop-organs-determinacy-and-a-price-on-both) 1486, [The generation loop](#the-generation-loop-plants-die-seeds-expire-slots-come-back) 1252, [Stems draw a line](#stems-draw-a-line-the-growth-walk-renders-its-heading) 1404, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 3316, [Bending status](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) 3553 |
+| **plants, trees and moss** | [M16 status](#m16-status) 1554, [Plant lines merged](#plant-lines-merged-the-genome-and-the-ecology) 1182, [Inheritance status](#inheritance-status--the-growth-program-has-no-fallback-under-it) 3173, [The economy re-derived](#the-economy-re-derived-standing-tissue-costs-something) 1304, [Plants that stop](#plants-that-stop-organs-determinacy-and-a-price-on-both) 1486, [The generation loop](#the-generation-loop-plants-die-seeds-expire-slots-come-back) 1252, [Stems draw a line](#stems-draw-a-line-the-growth-walk-renders-its-heading) 1404, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 3324, [Bending status](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) 3561 |
 | **creatures — worms and the ant colony** | [M18 status](#m18-status) 1967, [The ant colony](#the-ant-colony--status) 3064 |
-| **structural collapse, felling and rigid bodies** | [M17 status](#m17-status) 1740, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 3316, [Bending status](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) 3553, [M8 status](#m8-status--started-not-complete) 2434 |
+| **structural collapse, felling and rigid bodies** | [M17 status](#m17-status) 1740, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 3324, [Bending status](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) 3561, [M8 status](#m8-status--started-not-complete) 2434 |
 | **fire, heat and phase change** | [M14 status](#m14-status) 769, [Materials](#materials) 223 |
 | **explosions, particles and debris** | [M15 status](#m15-status) 946, [M7 status](#m7-status) 917 |
 | **liquids and gases** | [Liquid physics](#liquid-physics-compressible-volume-not-discrete-occupied-cells) 743, [The coarse field grid](#the-coarse-field-grid) 454 |
@@ -104,9 +104,9 @@ file, not the first. Read it before concluding something is broken.
 | **the coarse field grid — pressure, heat, light** | [The coarse field grid](#the-coarse-field-grid) 454, [M12/M13 status](#m12m13-status) 716 |
 | **worldgen and world structure** | [M10 status](#m10-status--the-worldgen-half) 2932, [Architecture](#architecture) 297 |
 | **the gnome (player character)** | [M9 status](#m9-status--the-gnome) 2547, [Controls](#controls) 158 |
-| **weather, sky and the clock** | [Weather status](#weather-status) 3047, [M19 status](#m19-status--started) 3244, [World speed](#world-speed--five-independent-time-axes) 3827 |
+| **weather, sky and the clock** | [Weather status](#weather-status) 3047, [M19 status](#m19-status--started) 3252, [World speed](#world-speed--five-independent-time-axes) 3835 |
 | **rendering, UI and tunables** | [UI improvements](#ui-improvements--overnight-run-section-9) 2301, [Live tunables panel](#live-tunables-panel--overnight-run-section-10) 2346, [Rendering performance](#rendering-performance--overnight-run-section-11) 2414, [M6 deferral](#m6-deferral) 1077 |
-| **performance and the parallel sweep** | [Performance](#performance) 3630, [M5 status](#m5-status) 1087, [Architecture](#architecture) 297, [Rendering performance](#rendering-performance--overnight-run-section-11) 2414 |
+| **performance and the parallel sweep** | [Performance](#performance) 3638, [M5 status](#m5-status) 1087, [Architecture](#architecture) 297, [Rendering performance](#rendering-performance--overnight-run-section-11) 2414 |
 | **materials and the data schema** | [Materials](#materials) 223, [M12/M13 status](#m12m13-status) 716 |
 
 <!-- END GENERATED TOC -->
@@ -3209,9 +3209,17 @@ So at the shipped rate the two behave identically, and `genome_drift` logs for
 `moss`, `tree` and `herb` came back byte-identical between `Full` and
 `GenomeOnly` at both 0 and 10x mutation. **Do not quote this as "removing the
 net changed the stand".** What it changes is what a mutation is *allowed* to
-do; whether that ever shows depends on generations turning over, and mean
-generation depth is **2.04 at 60,000 frames**. That is the bottleneck, and it
-is not this.
+do.
+
+**What stops it showing is mutation volume, counted at the source.** The same
+60,000-frame `herb` run: **6,533 births reached the draw, 56 fired, 55 changed
+a genome, and 9 drifted genomes were standing** in a population of 934 — about
+1%. The two operators that can vacate a slot are 25% of the draw weighting, so
+roughly **14 relevant mutations in the entire run**. That, not generation
+turnover, is the binding constraint: depth reaches max 4–5 here and
+`plant-throughput-herb-2026-08-29.md` reports deepest established generation 5,
+7 and 3. `FATE_MUTATION_CHANCE = 0.01` is the lever, and removing the net
+raises the *effective* rate by an amount nobody has measured.
 
 **One claim is withdrawn.** `FateLookup`'s own doc said `builtin_fate` was
 "the real absorber", inferred from `NoSpecies` and `Full` measuring
