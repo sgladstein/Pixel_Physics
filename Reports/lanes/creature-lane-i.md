@@ -82,7 +82,7 @@ not, the reproduction economy is invisible whichever route is built.
 
 ## Head
 
-**`e3c30e7209f50d9bebab1d136ba6761694c3de05`** — the last commit carrying work, and the one to hand on.
+**`af4b08c1053b1322878833ba8c38bf665fb38383`** — the last commit carrying work, and the one to hand on.
 A note cannot name its own commit, so this deliberately names its parent
 rather than a SHA that goes stale the moment the note is amended (which is
 how it went wrong the first time here).
