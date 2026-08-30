@@ -1,0 +1,60 @@
+{
+  "id": "20260830T205809552Z-620d82",
+  "created": "2026-08-30T20:58:09Z",
+  "board": "lab",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/field-scale-16",
+    "commit": "ca7e9042",
+    "agent": null,
+    "session_id": "77dc1f19-2e8c-5dcf-8593-4ce64db17c2f",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The other thing coarser light buys: same shade, four times the pixels",
+  "question": "B is the same bed with creatures and plants drawn at twice the linear detail, and the light and shade land in the same physical places as A. Worth taking, at 1.5 -> 2.6 ms a frame?",
+  "context_md": "You picked the coarser light grid (card ...ff3451, \"looks goods we can tweak later\"). That is landed and this is **not** it — this is the second thing the same constant can buy, and it is your call whether to take it.\n\n- **A** is what ships today: 512x320 cells, one light value per 8.\n- **B** is 1024x640 cells, one light value per 16. A light block covers the **same physical area** in both, so the shading is the same size relative to the bed — the plants are just drawn with four times the pixels. This is the \"creatures are not 2x1 pixels any more\" version.\n\nWhat I am unsure of and want your eye on: whether B actually reads as *more detail* or just as *bigger*. The stand is denser in B and I cannot tell from the stills how much of that is resolution and how much is more plant.\n\n**One correction to what I was told, measured this session, paired and alternating with threads pinned.** I was handed a table saying the coarser light makes the frame *cheaper*. On this build it does not, at the shipped box size: the field itself really does get 1.3x cheaper and solves 3.9x fewer cells, but the coarser light grows nearly twice the plant, and the extra plant costs more in the CA sweep than the field saves. Whole frame goes 1.53 -> 2.01 ms. Per plant cell it is 1.6x *cheaper*, and the box still runs 7.6x faster than real time, so nothing is in trouble — but it is a cost, not a saving, and you should have that before deciding on B.",
+  "kind": "ab",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A — ships today (512x320, light per 8)",
+      "files": [
+        "20260830T205809552Z-620d82/000-lab_fs8_512.png"
+      ],
+      "caption": "one light value per 8 cells",
+      "meta": {
+        "plant cells standing": 467,
+        "plants": 54,
+        "seeds": 23,
+        "ants": 36,
+        "typical frame ms": 1.53,
+        "faster than real time": "8.8x"
+      },
+      "focus": null
+    },
+    {
+      "label": "B — twice the cell detail (1024x640, light per 16)",
+      "files": [
+        "20260830T205809552Z-620d82/001-lab_fs16_1024.png"
+      ],
+      "caption": "light block covers the same physical area as A",
+      "meta": {
+        "plant cells standing": 3443,
+        "plants": 392,
+        "seeds": 392,
+        "ants": 36,
+        "typical frame ms": 2.55,
+        "faster than real time": "5.9x"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
