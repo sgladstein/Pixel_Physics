@@ -4087,7 +4087,39 @@ pub fn ponds(ctx: &Ctx, world: &mut World) -> usize {
             continue;
         }
         let plan = ctx.plans[x];
-        for y in pool.max(0)..plan.surface_y {
+        // **Filled from the floor up, and only where there is a floor.** The
+        // lintel above stops a lake *draining* into an entrance; it cannot
+        // stop this pass writing a film of water onto the mouth itself. The
+        // entrance run opens everything from `surface_y - 1` down inside its
+        // own box, so in a column the run passes under, the cell this pass
+        // was about to fill has open cave beneath it and falls on frame one.
+        // Measured on `rolling` seed 2 at 2048x1300 with four systems
+        // forced: **fourteen water bodies, 95 cells between them, every one
+        // of them entirely airborne** -- x 624-668 over the west mouth and a
+        // staircase down both walls of the east passage -- and every cell of
+        // all fourteen gone from where it was written, at 120 frames, at 400
+        // and at 1,200 alike.
+        //
+        // Lintelling those cells instead is `Reports/dead-ends.md`: a plug of
+        // rock at the lake's own level inside the passage dams it and
+        // displaces water rather than sealing it, and it measured **20 / 199
+        // / 75 / 149 / 26** against 8 / 95 / 0 / 0 / 0. This adds no rock at
+        // all -- it declines to place water on nothing, which is what the
+        // solver would do to it on the first frame anyway. Refusing the whole
+        // *basin* is the other thing already tried and removed (`pond_leaks`,
+        // in `Reports/worldgen-caves-rebuilt-2026-08-29.md` 14.5); this is
+        // that rule made per cell, so a hollow with a cave mouth in one bank
+        // keeps its lake and loses only the film over the hole.
+        //
+        // The full account, with the stability census that says the 95 were
+        // neither a drain nor fringe, is 14.6 of the same report.
+        //
+        // Bottom-up because support is cumulative: a cell rests on the water
+        // under it, so the column has to be decided from the floor.
+        for y in (pool.max(0)..plan.surface_y).rev() {
+            if world.get(x as i32, y + 1).material == material::EMPTY {
+                continue;
+            }
             if world.get(x as i32, y).material != material::EMPTY {
                 continue;
             }

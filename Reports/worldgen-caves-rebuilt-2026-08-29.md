@@ -1002,6 +1002,16 @@ looks like the obvious close and measured **20 / 199 / 75 / 149 / 26 cells
 moving against 8 / 95 / 0 / 0 / 0**: a plug of rock in the passage at the
 lake's own level dams it and displaces water rather than sealing it.
 
+**Measured and closed 2026-08-30 -- see 14.6.** The 95 read 95 / 95 / 95 at
+120 / 400 / 1,200 frames, so it is not a drain; and it is **100% of the
+fourteen water bodies it came out of**, so it is not fringe either. It was a
+film of pond written on to the mouth itself, outboard of the lintel, with open
+cave under every cell. `ponds` now declines a cell with nothing under it. The
+paragraph below was the guess at the time and it aimed at the right place --
+"a basin floor opened further than the lintel reaches" -- but the hole is not
+further out, it is the entrance's own box, and the answer was at the pond end
+rather than the cave end.
+
 **Where to look next, in order.** The lintel covers the entrance's own shell
 (`carve_mouth_run`, `up + LINTEL_THICK` above the centre line and `half_w +
 side` either side). A basin floor opened *further* than that from the run
@@ -1033,12 +1043,166 @@ not in `ponds`.
 between the report and the generator, not a regression from this work, and it
 wants its own look.
 
----
+### 14.6 The 95 measured, the film that made it, and the four failures behind it
+
+*Added 2026-08-30. Same test bed as 14.5 -- `CAVE_BOUNDS` (2048x1300) at the
+tests' forced `vault_density: 4.0`, weather held at `Weather::CLEAR`.*
+
+#### The measurement 14.5 asked for
+
+14.5 leaves a discriminator and does not apply it: **fringe is stable across
+frames, a drain grows.** Seed 1's 8 cells read 8 / 8 / 13 at 120 / 400 / 1,200
+out of a 16,696-cell pool, which is why they are fringe. Seed 2's 95, on the
+same instrument:
+
+| censused at | 120 | 400 | 1,200 | 3,000 |
+|---|---|---|---|---|
+| liquid cells that left their position | **95** | **95** | **95** | 109 |
+
+Not merely the same count -- the same cells, in the same four clusters
+(x 624-668 rows 446-448, x 1041-1114 rows 447-480), unchanged for 1,080
+further frames. The world is not frozen while that holds: `arrived` moves 104
+-> 105 and one landing cluster is replaced by another between 120 and 400. At
+3,000 the count reaches 109 through **two new clusters elsewhere in the
+world** -- 13 cells at x 434-440 row 801 and 1 at (1312, 862) -- which is a
+separate later event, not growth at these.
+
+**So by that discriminator it is not a drain. It is also not fringe, and the
+second half of the measurement is what says so.** Flood-filled 8-connected in
+the world as generated, the 95 cells are **100% of the water they came out
+of**: fourteen separate bodies totalling exactly 95 cells -- 45 over the west
+mouth, 23 and 15 down the two walls of the east passage, eleven more of one or
+two cells each -- and every one of the fourteen is at **0 cells and 0 volume**
+by frame 120 and stays there. Seed 1 was 8 of 16,696, 0.05%. Seed 2 is 95 of
+95.
+
+A share of the pool was the number that decided this. Taken as a share of the
+*world's* standing water instead, 95 of 63,007 is 0.15% and reads as nothing
+at all.
+
+#### What it was: a film of pond written onto the mouth
+
+Rendered as ASCII at frame 0, the west system is unambiguous. The lake stands
+at x <= 621. 14.5's lintel has walled it off -- rock at x 622-635 on row 446,
+x 622-625 on row 447, x 622-623 on row 448, a staircase following the bank
+down. **Outboard of that wall, on the cave side, `ponds` has written water
+anyway**: (636-668, 446), (626-635, 447), (624-625, 448), one row per column,
+with open cave underneath every cell of it. The east system is the same thing
+along a diagonal passage -- single cells at (1074, 447), (1077, 455),
+(1078, 458), (1079, 461) and so on down both walls.
+
+The mechanism is the one 14.5 names in passing and does not follow up.
+`ponds` fills `pool ..= surface_y - 1` per column -- the rows above the
+*planned* ground -- and `carve_mouth_run` opens everything from
+`surface_y - 1` downward inside its own box. So in any column the entrance run
+passes under, the ground the pond was going to stand on is not there. The
+lintel covers the run's **shell**; it cannot cover this, because these are
+cells that do not exist yet when it runs and are not in the shell when they do.
+
+**The repair is at the pond end, and it adds no rock.** `ponds` now fills a
+column from the floor up and declines any cell with nothing under it. Water
+stands on something or it is not standing water. Lintelling these cells is
+`Reports/dead-ends.md` and measured 20 / 199 / 75 / 149 / 26 against
+8 / 95 / 0 / 0 / 0 -- a plug at the lake's own level dams the passage; this
+cannot dam anything, because it only ever removes. Refusing the whole basin is
+the other recorded dead end (`pond_leaks`); this is that rule made per cell, so
+a hollow with a cave mouth in one bank keeps its lake and loses only the film
+over the hole. At `vault_density: 0.0` it changes nothing at all -- terrain
+fills every row at and below `surface_y`, so the support test can only ever
+fire where a carve has been.
+
+Paired, one build each, `wet` cells at 120 frames over the fifteen worlds the
+guard builds:
+
+| | rolling | canyon | wetland |
+|---|---|---|---|
+| seed 1 | 5 -> 3 | 0 -> 0 | 10 -> 5 |
+| seed 2 | **95 -> 1** | 0 -> 0 | 316 -> 222 |
+| seed 3 | 37 -> 0 | 42 -> 39 | 152 -> 0 |
+| seed 4 | 66 -> 3 | 221 -> 155 | 6 -> 1 |
+| seed 5 | 23 -> 20 | 117 -> 117 | 37 -> 0 |
+
+Eight worlds improve, none is worse. The seal check needed a third outcome
+named for it -- water may become rock under the lintel, or may never be
+placed -- and it is asserted rather than assumed: an empty cell whose support
+is intact is the vault deleting a lake and still fails.
+
+#### The guard stopped at the first world, and four more were failing behind it
+
+`a_forced_vault_world_is_sealed_and_arrives_at_rest` asserts **inside** its
+loop over fifteen worlds, so it stops at the first failure and every world
+after it is unevaluated. 14.5's "what is still red" reports one world because
+one world is all the run ever reached. With `rolling` seed 2 fixed, four more
+appear, in two classes that are not the one just closed.
+
+**Class 1, and 14.5's own hypothesis is right about it: chamber-pool surface
+fringe.** `canyon` 4 sheds 155 cells of a 21,053-cell body, `wetland` 2 sheds
+222 of 25,313, `canyon` 5 sheds 117 of 25,826. Both of 14.5's tests say
+fringe: the count does not move (canyon 4 reads 155 / 155 / 155 at
+120 / 400 / 1,200 and 160 at 3,000), and the body keeps itself (20,898 of its
+21,053 cells still standing at 3,000 frames). What sheds is the free surface,
+one cell per column the pool is wide, which is why a wider chamber sheds more.
+
+`LIQUID_FRINGE = 40` was five times a **count** taken on one 16,696-cell pool
+that happened to shed 8, so as a fixed number it is a bar on chamber width.
+It is now `40 + 2% of the 8-connected body the cells came out of`. The share
+is a little over twice the worst measured (0.88%, `wetland` 2) and a long way
+under every leak on record -- the lake-into-an-entrance defect ran 1,469 to
+8,816 cells out of bodies of roughly 9,000, which this bar puts at 220, and
+the airborne films above were 100% of theirs. **Checked by putting the fault
+back**: with the `ponds` repair reverted, `rolling` seed 2 fails the new bar at
+95 against 41.
+
+**Class 2, and it is what is still red: powder left at a free face by the
+carve.** `wetland` seed 2 loses **587 gravel cells** against the guard's
+`dry.is_empty()` half -- terrain, which no liquid bar reaches -- and `canyon`
+2 and `canyon` 5 lose one each. The control is decisive: **the same three
+worlds at `vault_density: 0.0` move zero cells of anything**, so it is the
+cave pass, not the terrain.
+
+`canyon` seed 2 is one cell and shows the shape. `pockets` puts a ~40-cell
+lens at x 612-628, rows 718-723, sloping down to the left. The carve takes all
+of it except the top two cells at (627-628, 718) -- which are a **separate
+4-connected group**, touching the rest only diagonally, and `swallowable`'s
+flood fill is 4-connected -- and opens the void at (627, 719) directly beneath
+them. On `wetland` seed 2 only **29 of the 587** movers start at a free face
+at all; the other 558 are the heap unravelling behind them, which is why the
+count is large and the defect is not. The next measurement to take is whether
+those 29 are lens cells the pocket walk split, or cave-floor gravel the floor
+pass's repose verifier laid over a lip it could not see -- the verifier's own
+doc records that exact failure once already, on `wetland` seed 1.
+
+
+#### The shipped census after the pond repair, paired
+
+`cave_probe seeds=8` at 8192x2560, the same binary either side of the `ponds`
+change and nothing else different. **Every number 14.5's table names is
+identical** -- 0 worlds with no cave on every preset that ships them, largest
+walkable region a median of 98% on `rolling`, `canyon` and `arid` alike,
+widest ceiling span 156 / 141 / 177, 4.6-6.1 systems per world, reachable-by-
+player 99%. Six lines out of 130 move at all, and they move by:
+
+| | before | after |
+|---|---|---|
+| `canyon` void cells | 1,372,364 | 1,372,348 (**-16**, 0.001%) |
+| `terraced` void cells | 1,581,908 | 1,581,919 (+11) |
+| `wetland` void cells | 1,529,876 | 1,529,902 (+26) |
+| `canyon` formations | 474 | 472 |
+| `canyon` true columns | 140 | 138 |
+| `wetland` formations at a waterline | 46 | 45 |
+
+Which is the change doing exactly what it says and nothing else: a handful of
+water cells near a mouth are no longer written, so they count as void instead,
+and one formation per world stops touching a waterline. Nothing about the
+rooms, the passages, the spans or the way in moves at all -- `ponds` runs
+after `vaults` and cannot reach them.
 
 ---
 
-*Freshness: written 2026-08-30 on `claude/worldgen-caves`, off
-`47d6209`. Every figure is reproducible from `examples/cave_probe` at that
+---
+
+*Freshness: written 2026-08-30 on `claude/worldgen-caves`, off `47d6209`;
+14.6 added 2026-08-30 on `claude/worldgen-revamp-plan-dot67g`. Every figure is reproducible from `examples/cave_probe` at that
 head; the invocations are in the file's own doc comment. Same-build
 determinism holds and was checked; note `CLAUDE.md`'s warning that the release
 profile re-inlines on any recompile, so no figure here should be A/B'd across

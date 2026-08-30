@@ -2231,14 +2231,87 @@ fn moved(before: &CellSet, after: &CellSet, world: &World) -> (Vec<Occupied>, Ve
 }
 
 /// How many liquid cells may drop out of a generated world's pools in the
-/// 120 frames after it loads.
+/// 120 frames after it loads, **before** the share below is added.
 ///
-/// Set from measurement with headroom, per `CLAUDE.md`: the worst world in
-/// the sweeps below sheds **8**, so this is 5x that and still nowhere near
-/// what a *draining* pool looks like -- the defect this replaced, a lake
-/// emptying into a cave entrance, ran **1,469 to 8,816 cells** on the same
-/// four seeds. It is a bar on the fringe, not a licence for a leak.
+/// The floor of the bar, for a pool too small for a share to mean anything:
+/// the worst world that is not shedding from a big body sheds **20**
+/// (`rolling` seed 5, 2,099-cell pool), so this is 2x that.
 const LIQUID_FRINGE: usize = 40;
+
+/// ...and how much of a pool's own body it may shed on top of that.
+///
+/// **A fixed cell count is the wrong shape for this, and it was set from the
+/// one world anybody had looked at.** 40 was five times the 8 cells `rolling`
+/// seed 1 sheds from a 16,696-cell chamber pool -- but what a settling pool
+/// sheds is its *free surface*, one cell of every column the pool is wide, so
+/// a wider chamber sheds proportionally more and an absolute bar becomes a
+/// bar on chamber width. Measured 2026-08-30 over these fifteen worlds at
+/// 120 frames, cells shed against the 8-connected body they came from:
+///
+/// | world | shed | pool | share |
+/// |---|---|---|---|
+/// | `wetland` 2 | 222 | 25,313 | 0.88% |
+/// | `canyon` 4 | 155 | 21,053 | 0.74% |
+/// | `canyon` 5 | 117 | 25,826 | 0.45% |
+/// | `canyon` 3 | 39 | 10,932 | 0.36% |
+/// | `rolling` 5 | 20 | 2,099 | 0.95% |
+/// | `rolling` 1 | 3 | 3,718 | 0.08% |
+///
+/// **And it is fringe, checked rather than assumed**, by the two tests
+/// `Reports/worldgen-caves-rebuilt-2026-08-29.md` 14.6 sets out: the count
+/// does not grow -- `canyon` seed 4 sheds the same 155 cells at 120, 400 and
+/// 1,200 frames and 160 at 3,000 -- and the body keeps itself, 20,898 of its
+/// 21,053 cells still standing at 3,000 frames. A draining pool does neither.
+///
+/// 2% is a little over twice the worst share measured, and it stays a long
+/// way under every leak on record: the lake-into-an-entrance defect ran
+/// **1,469 to 8,816 cells** out of bodies of roughly 9,000, which this bar
+/// puts at 220, and the airborne pond films 14.6 removed were **100%** of
+/// their own bodies (95 cells of 95 on `rolling` seed 2, against a bar of
+/// 41). What it does give up is the small end: a film of under 40 cells over
+/// a hole still passes on the floor term, as it did before.
+const LIQUID_FRINGE_SHARE: f64 = 0.02;
+
+/// The water bodies the moved cells came out of, in cells.
+///
+/// **8-connected, because that is the neighbourhood the water moves
+/// through** (`CLAUDE.md`: a traversal must use the same neighbourhood the
+/// writer used). `ponds` fills to one level over sloping ground, so a pool
+/// edge is a staircase and a 4-connected walk cuts it at every diagonal
+/// step: measured on `rolling` seed 2, one 45-cell film read as **36
+/// separate bodies**, thirty of them a single cell.
+fn pools_behind(before: &CellSet, world: &World, moved: &[Occupied]) -> usize {
+    let liquid: std::collections::HashSet<(i32, i32)> = before
+        .iter()
+        .filter(|&&(_, _, m)| {
+            world.materials.kind(material::MaterialId(m)) == material::MaterialKind::Liquid
+        })
+        .map(|&(x, y, _)| (x, y))
+        .collect();
+    let mut seen: std::collections::HashSet<(i32, i32)> = std::collections::HashSet::new();
+    let mut total = 0usize;
+    for &(sx, sy, _) in moved {
+        if seen.contains(&(sx, sy)) || !liquid.contains(&(sx, sy)) {
+            continue;
+        }
+        seen.insert((sx, sy));
+        let mut stack = vec![(sx, sy)];
+        while let Some((x, y)) = stack.pop() {
+            total += 1;
+            for dy in -1..=1 {
+                for dx in -1..=1 {
+                    let n = (x + dx, y + dy);
+                    if (dx, dy) == (0, 0) || seen.contains(&n) || !liquid.contains(&n) {
+                        continue;
+                    }
+                    seen.insert(n);
+                    stack.push(n);
+                }
+            }
+        }
+    }
+    total
+}
 
 #[test]
 fn a_forced_vault_world_is_sealed_and_arrives_at_rest() {
@@ -2270,7 +2343,7 @@ fn a_forced_vault_world_is_sealed_and_arrives_at_rest() {
     let mut checked = 0;
     // The two declared exceptions, counted rather than assumed -- a run in
     // which neither ever fired would be passing a rule it never exercised.
-    let (mut swallowed, mut lintel) = (0usize, 0usize);
+    let (mut swallowed, mut lintel, mut declined) = (0usize, 0usize, 0usize);
     for preset in ["rolling", "canyon", "wetland"] {
         let base = presets.get(preset).expect("preset");
         let with = vault_test_params(base);
@@ -2351,9 +2424,45 @@ fn a_forced_vault_world_is_sealed_and_arrives_at_rest() {
                 // has to wall itself off from water that does not exist yet
                 // or the lake empties down it (`passes::pond_levels`'s use in
                 // `vaults`, and `cave::Carvable::will_flood`). The direction
-                // is what makes this tight rather than a widening: a liquid
-                // may only ever become **rock**, never open cave.
+                // is what makes this tight rather than a widening: what a
+                // liquid may never become is **open cave holding water**,
+                // and the two branches below are the only two ways out of
+                // that -- rock under the lintel, or never placed at all.
                 if control.materials.kind(before) == material::MaterialKind::Liquid {
+                    let now = world.get(x, y).material;
+                    // **Water gets *two* legitimate outcomes over a cave, and
+                    // this is the second of them.** The lintel is the vault
+                    // pass's answer -- it turns the cell into rock. The pond
+                    // pass has its own, added 2026-08-30: it fills a column
+                    // from the floor up and **declines any cell with nothing
+                    // under it**, so where the entrance run took the ground
+                    // out from under a basin no water is written there at
+                    // all. `Reports/worldgen-caves-rebuilt-2026-08-29.md`
+                    // 14.6; measured on `rolling` seed 2, fourteen airborne
+                    // water bodies of 95 cells between them, every cell of
+                    // all fourteen gone from where it was written.
+                    //
+                    // **Not a widening, and the assertion beneath is what
+                    // makes it one rather than two.** The licence is
+                    // specifically *"there was nothing to stand on"*, so the
+                    // hole has to actually be there: an empty cell whose
+                    // support is intact is the vault deleting a lake, which
+                    // is the failure this clause exists for and still fails.
+                    // Rocking these cells instead is `Reports/dead-ends.md`
+                    // -- a plug at the lake's own level dams the passage and
+                    // measured **20 / 199 / 75 / 149 / 26** against
+                    // 8 / 95 / 0 / 0 / 0.
+                    if now == material::EMPTY {
+                        assert!(
+                            world.get(x, y + 1).material == material::EMPTY,
+                            "{preset} seed {seed}: vault removed the standing water at ({x}, {y}) \
+                             while the cell under it is still {:?} -- water is only ever declined \
+                             for having no floor, so this is a lake going missing",
+                            world.materials.get(world.get(x, y + 1).material).name
+                        );
+                        declined += 1;
+                        continue;
+                    }
                     // Solid rather than `rock`: the lintel writes the local
                     // bed, and the speleothem pass may then draw a formation
                     // on that cell. Either way it is something water cannot
@@ -2361,11 +2470,11 @@ fn a_forced_vault_world_is_sealed_and_arrives_at_rest() {
                     // forbidden is the entrance leaving *open cave* where a
                     // lake will be.
                     assert!(
-                        world.materials.kind(world.get(x, y).material) == material::MaterialKind::Solid,
+                        world.materials.kind(now) == material::MaterialKind::Solid,
                         "{preset} seed {seed}: vault left standing water at ({x}, {y}) as {:?} -- \
                          the entrance lintel is the only licence over water and it must leave \
                          something the water cannot pass",
-                        world.materials.get(world.get(x, y).material).name
+                        world.materials.get(now).name
                     );
                     lintel += 1;
                     continue;
@@ -2458,10 +2567,13 @@ fn a_forced_vault_world_is_sealed_and_arrives_at_rest() {
                 dry.len(),
                 dry.iter().take(6).collect::<Vec<_>>()
             );
+            let pool = pools_behind(&before, &world, &wet);
+            let bar = LIQUID_FRINGE + (LIQUID_FRINGE_SHARE * pool as f64) as usize;
             assert!(
-                wet.len() <= LIQUID_FRINGE,
-                "{preset} seed {seed}: {} liquid cells left their position, over the {LIQUID_FRINGE} \
-                 fringe bar -- a pool is draining, not settling; first {:?}",
+                wet.len() <= bar,
+                "{preset} seed {seed}: {} liquid cells left their position, over the {bar}-cell \
+                 fringe bar for the {pool} cells of pool they came out of -- a pool is draining, \
+                 not settling; first {:?}",
                 wet.len(),
                 wet.iter().take(6).collect::<Vec<_>>()
             );
@@ -2475,7 +2587,10 @@ fn a_forced_vault_world_is_sealed_and_arrives_at_rest() {
     assert!(checked >= 8, "only {checked} forced-vault worlds actually placed a chamber");
     assert!(swallowed > 1_000, "only {swallowed} swallowed-pocket cells -- the exception is untested");
     assert!(lintel > 100, "only {lintel} entrance-lintel cells -- the exception is untested");
-    println!("vault seal: {checked} worlds, {swallowed} swallowed-pocket cells, {lintel} lintel cells");
+    println!(
+        "vault seal: {checked} worlds, {swallowed} swallowed-pocket cells, {lintel} lintel cells, \
+         {declined} pond cells declined for having no floor"
+    );
 }
 
 /// Attribution probe for the 25 moving cells `a_cave_system_survives_a_pocket_
