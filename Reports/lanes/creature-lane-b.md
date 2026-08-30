@@ -100,6 +100,23 @@ The lane brief scoped me to the probe, a report, this note and one line in
 table row in a file nobody else in this program is editing. `docscheck` is
 clean with it and would not have been without it.
 
+## The sense was built, and the prediction landed
+
+`creature-sight-sense-2026-08-30.md` shipped the same day, taking every
+recommendation: `PreyNear` and `PreyBearing`, a 16-ray fan at radius 64 from
+one cell above the head. **Predicted 0.572 of samples with prey in sight;
+built sense reads 0.50** over 8 seeds. Pursuit moves two independent far-side
+counters together — mean sighted range 15.2 → 12.5 cells, prey caught
+302 → 323.
+
+**One prediction was wrong by 2x and the report now says so.** The shipped
+sense reads 1,020–1,100 cells per cast against the 525 this lane priced,
+because a real implementation tests prey in the *un-lifted* frame and
+blockers in the *lifted* one — two walks of the fan where `cast_fan` made
+one. A modelling gap in the harness, not a measurement error. Still 0.3% of a
+frame, so the conclusion holds; §0b and §5 both carry the correction, and
+anyone sizing a different sense off §5's table should double it.
+
 ## Open, for whoever picks this up
 
 - **Radius 128 is not measured.** The curve is still climbing at 64 and the

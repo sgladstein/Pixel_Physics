@@ -889,23 +889,23 @@ drift that two of these documents still reflect.**
   no behaviour changed.** Sizes **E15**'s sight sense before anyone builds it,
   by tracing the geometry that already exists: **build it at radius 64,
   all-round, seeing over the floor litter**, and it costs **0.005–0.007 ms of
-  a frame** — 0.15–0.24% of `ascii`'s 3.06 ms mean, below what a wall clock
+  a frame** — 0.14–0.23% of `ascii`'s 3.16 ms mean, below what a wall clock
   resolves, and under 10% of a frame only past a few hundred predators. Every
-  number was re-taken on **each of the five trees `main` landed underneath** —
-  worldgen, tree-breaking, the creature economy, a further plant landing. The
-  first three were byte-identical, the fourth moved in the third decimal, the
-  fifth materially; **the recommendation held throughout and one supporting
-  claim was corrected** (32 → 64 is the largest step in the p10, not in the
-  median). The radius argument is the **p10 seed** rather than the median:
-  the stranded beetle sees prey
-  0.08–0.28 of the time at r32 and 0.26–0.39 at r64, over three presets and
-  18 seeds each. Two findings the design has to carry: what blocks a
-  sight line is **floor clutter, not landscape** (seed, litter, corpse, soil
-  — 24% of pairs on `wetland`, 6.4% with the eye one cell up, which recovers
-  the whole transparent-world ceiling on every tree measured), and making
-  **foliage a binary blocker costs half the sense** (0.667 → 0.340) with no
-  eye height buying it back, which is `CLAUDE.md`'s *an outcome is a
-  distribution, not a binary* arriving on the creature line. Does not answer
+  number was re-taken on **each of the eight trees `main` landed underneath**;
+  three moved them, five did not. **The recommendation survived all eight and
+  two versions of the argument for it did not** — both were superlatives
+  (*"32 → 64 is the largest step"*, then *"...in the p10"*), and a superlative
+  describes a curve's shape, which moves with the population. The ordering
+  underneath — 64 beats 32 at every preset, median and p10 — has never moved,
+  and the report now states it that way and records both deaths. Its §0a says
+  which figures are stable and which drift, with the command and the rule for
+  re-taking them. Two findings the design has to carry: what blocks a sight
+  line is **floor clutter, not landscape** (24% of pairs on `wetland`, 6.3%
+  with the eye one cell up, which recovers the whole transparent-world ceiling
+  on all eight trees), and making **foliage a binary blocker costs most of the
+  sense** (0.667 → 0.387) with no eye height buying it back, which is
+  `CLAUDE.md`'s *an outcome is a distribution, not a binary* arriving on the
+  creature line. Does not answer
   whether a beetle acts on a sighting; `predation_probe`'s control already
   says the kill works at contact.
 - [creature-sight-sense-2026-08-30.md](creature-sight-sense-2026-08-30.md)
