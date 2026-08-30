@@ -346,6 +346,53 @@ pub struct CreatureStats {
     /// terrain around the parent and the other is a property of the
     /// engine's address space.
     pub births_denied_no_space: u64,
+    /// **The biggest single mouthful any creature in this world ever
+    /// swallowed**, in the units the eater received — `diet_yield`, after
+    /// the gut's matched filter, not the cell's face value.
+    ///
+    /// The reach counter for Gate 0, and it exists because `eats` cannot
+    /// answer the question it looks like it answers. A colony that grazes
+    /// leaf all day and a colony that once found a 1,440 flower report the
+    /// same `eats`; what decides whether an ant can ever afford a child is
+    /// `hunger_fraction * start_energy + one mouthful` against the birth
+    /// bar, and *which* mouthful is the whole of it. Flowers and fruit
+    /// stand twenty to forty rows up a stem, so "the food exists in this
+    /// world" and "an animal got its mandibles on it" are different claims
+    /// and only this one is about the animal.
+    ///
+    /// Paired with `peak_bank` below, the two split the deadlock three
+    /// ways: a best bite stuck at the leaf value is *cannot reach*; a big
+    /// bite with a bank that still never clears the bar is *the ceiling
+    /// blocks*; both clear and `births` still zero is something else again.
+    pub best_bite: f32,
+    /// **The largest mouthful any creature was ever *offered***, in the same
+    /// units as `best_bite`: the best cell in some animal's own
+    /// 8-neighbourhood, whether or not it took it.
+    ///
+    /// The near side of the pair, and it is what separates the two readings
+    /// of a colony that never eats well. `best_bite` alone cannot: a bite
+    /// stuck at the leaf value means *the good food was never within reach*
+    /// if this counter is stuck there too, and *the animal was standing next
+    /// to it and walked away* if this one is not. Those want opposite fixes —
+    /// grow more food where the animals are, against change what the animal
+    /// does when it is in front of food — and `CLAUDE.md`'s standing rule is
+    /// that a counter saying a thing fired is only worth what a counter from
+    /// the far side of the call says about it.
+    ///
+    /// Sampled where the eat verb looks, so it sees exactly what the animal
+    /// saw — including the fact that a laden animal is not offered anything
+    /// at all.
+    pub best_offer: f32,
+    /// **The highest bank any creature in this world ever held**, sampled
+    /// every time energy is charged or credited.
+    ///
+    /// `richest bank`, as every harness here reports it, is a census of the
+    /// *survivors at the end of the run* — an animal that reached 1,059 and
+    /// spent it back down, or reached it and died, is invisible in that
+    /// number. Against a birth bar this is exactly the wrong way round: the
+    /// question is whether anything ever got close, not whether anything is
+    /// close right now.
+    pub peak_bank: f32,
 }
 
 /// Where every joule went. See `World::energy_ledger`.
