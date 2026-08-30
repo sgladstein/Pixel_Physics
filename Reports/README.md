@@ -485,6 +485,25 @@ drift that two of these documents still reflect.**
   named (a mutation counter at `bear_seed_at`, whose return value is currently
   discarded). **That discrepancy is now closed — see the entry directly
   below, which finds the model at fault rather than the mechanism.**
+- [plant-selection-teeth-2026-08-29.md](plant-selection-teeth-2026-08-29.md)
+  — **does this world punish a plant that is worse? Yes, and gradedly.** The
+  teeth-test: two genomes competing in **one** bed, 5 arms x 18 mirrored
+  seeds, closing the gap the operator gate's §6 names. Built against a
+  **false-negative** worry — measuring nothing in a world whose pressures are
+  incomplete and recording it as "evolution does not work". The load-bearing
+  row is `nobranch`: a plant that grows, flowers and sets seed loses **11
+  points of the bed on 18 of 18 seeds** (p=0.0002), which is selection between
+  two *living* plants; `lethal` at 0.0% is near-tautological and should not be
+  quoted for that claim. Carries a **null that is a finding** — `norootbranch`
+  reads 49.7%, p=0.86, and the bed is uniform field-capacity soil, so a root
+  system has no scarcity to compete over. **States its own blindness up
+  front**: the control's spread is ±9.3 share-points, so 18 seeds resolve ~7.5
+  points and a 1% selection coefficient would need ~620 — the next experiment
+  needs a frequency trajectory over generations, not more seeds. Its §2 and §5
+  are the method value: the mirrored identical-arms control is **vacuous by
+  construction** (exactly 50.0%, an algebraic identity), and three arms were
+  silent before they were real — `lateral: None` is not "no lateral", and a
+  herb shoot never places a lateral at all while its root does.
 - [plant-mutation-counted-at-source-2026-08-29.md](plant-mutation-counted-at-source-2026-08-29.md)
   — **§4 closed: the 2.6x was the model, not a loss.** Counts fate mutations
   where they happen (`World::fate_mutation_rolls` / `_fired` / `_applied`) and
