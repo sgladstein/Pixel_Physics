@@ -325,6 +325,43 @@ impl<'a> Ctx<'a> {
 /// world would find a massif that believes it is holding itself up. Running
 /// it here means every solid has a real distance from frame one, exactly as
 /// the hand-authored terrain always has.
+/// Whether **W1's relief work** runs: the differential-lowering term in
+/// `erosion.rs`, the massif in `column::Terrain::massif`, and the fold and
+/// faults in `column::Terrain::strata_offset`.
+///
+/// `PIXEL_PHYSICS_RELIEF=0` restores the shipped pre-W1 world exactly, so the
+/// control arm is **the same binary with one predicate flipped**. That is
+/// `CLAUDE.md`'s rule for measuring a change of this shape -- *"the control is
+/// to hold the semantic rule fixed, not to add another metric"* -- and it is
+/// the reason the before/after in `Reports/worldgen-relief-2026-08-30.md` is a
+/// paired run rather than two builds on two machines.
+///
+/// **One switch for all three terms, not one each**, and that was a
+/// correction rather than the first design. Gating only the erosion term made
+/// a "control" arm that still carried the massif and the deformed bedding, so
+/// every number measured against it understated the change and the picture
+/// beside it was not the shipped world. A control that is not the baseline is
+/// worse than no control, because it looks like one.
+///
+/// Lives here rather than in `erosion.rs` because `column.rs` needs it too
+/// and a column asking the erosion module whether it has mountains reads
+/// backwards.
+pub fn relief_on() -> bool {
+    // An atomic rather than a `OnceLock`, so a harness can build both arms in
+    // one process -- the same argument `passes::rock_vocab_on` records, and
+    // the difference between an A/B that shares a binary, a world-building
+    // path and a machine and one that does not.
+    static RELIEF: std::sync::atomic::AtomicI8 = std::sync::atomic::AtomicI8::new(-1);
+    match RELIEF.load(std::sync::atomic::Ordering::Relaxed) {
+        -1 => {
+            let on = std::env::var("PIXEL_PHYSICS_RELIEF").map(|v| v != "0").unwrap_or(true);
+            RELIEF.store(i8::from(on), std::sync::atomic::Ordering::Relaxed);
+            on
+        }
+        v => v != 0,
+    }
+}
+
 pub fn generate(world: &mut World, spec: Spec) {
     generate_reporting(world, spec, &mut |_, _| {});
 }
@@ -450,10 +487,13 @@ fn generate_reported_with(
             }
             if ctx.deposits.iterations > 0 {
                 println!(
-                    "  erosion detail: moved {:.1} exported {:.1} talus {:.1} sediment {:.1} \
+                    "  erosion detail: moved {:.1} exported {:.1} stripped {:.0} raised {:.0} \
+                     talus {:.1} sediment {:.1} \
                      boulder-markers {} boulders-seated {} talus-recoloured {} | {:.1}ms",
                     ctx.deposits.volume_moved,
                     ctx.deposits.exported,
+                    ctx.deposits.stripped,
+                    ctx.deposits.raised,
                     ctx.deposits.talus.iter().sum::<f32>(),
                     ctx.deposits.sediment.iter().sum::<f32>(),
                     ctx.deposits.boulder.iter().filter(|&&b| b).count(),

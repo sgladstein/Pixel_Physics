@@ -1019,6 +1019,13 @@ const CLIFF_DROP_FAR: i32 = 20;
 /// saturates. They also make each pass's column margin a *number* rather
 /// than an unbounded claim, which is what the pass table has to declare.
 const MAX_BROW_REACH: i32 = 20;
+
+/// How far the ground behind a brow's edge may wander from the edge's own
+/// height, over `RUN_NEAR` columns, and still count as the bench a lip hangs
+/// off. Three rows over four columns is a slope of 0.75 -- comfortably below
+/// the 1.0 that `CLIFF_DROP_FAR / RUN_FAR` admits on the falling side, which
+/// is the gap the test is reading.
+const BROW_BENCH_TOLERANCE: i32 = 3;
 const MAX_TALUS_PEAK: i32 = 30;
 
 /// Columns of context `brows` reads beyond the ones it writes: the far
@@ -1105,7 +1112,32 @@ pub fn brows(ctx: &Ctx, world: &mut World) -> usize {
     if p.brow_chance <= 0.0 {
         return n;
     }
+    let at = |x: i32| ctx.plans[x.clamp(0, ctx.terrain.w - 1) as usize].surface_y;
     for (x, dir, drop) in cliff_edges(&ctx.plans, ctx.terrain.w) {
+        // **A lip needs a bench behind it.**
+        //
+        // `cliff_edges` asks only that the ground falls away on one side, and
+        // its far test is a 20-row drop over 20 columns -- a slope of exactly
+        // 1.0. So *every column* of any sustained 45-degree hillside is a
+        // cliff edge, and at `brow_chance` 0.8 four in five of them hang a
+        // lip. While the terrain never cleared that test this was invisible
+        // (`brows` wrote 2,352 cells of 18.9M); once W1's differential
+        // erosion supplied real relief it rendered as a **comb** -- a ladder
+        // of thin shelves stepping down both flanks of every knoll, which is
+        // the single most artificial thing in a W1 render and reads as a fish
+        // bone rather than as rock.
+        //
+        // `CLAUDE.md`: fixing one thing exposes the constant that was
+        // compensating for it. The compensating constant here was the
+        // *terrain*, so the repair is not to thin `brow_chance` -- a uniform
+        // thinning leaves the comb, only sparser, and the owner has rejected
+        // that shape by name on a different pass. An overhang is a lip at the
+        // *top* of a face, and the thing that makes it a top is level ground
+        // behind it. A slope has none.
+        let here = at(x);
+        if (1..=RUN_NEAR).any(|d| (at(x - dir * d) - here).abs() > BROW_BENCH_TOLERANCE) {
+            continue;
+        }
         // Only hang a lip from bare rock. The origin's own topmost cell is
         // what every written cell ultimately has to trace an attached path
         // back through, and a soil-covered origin's topmost cell is loose
@@ -4936,7 +4968,14 @@ pub fn pockets(ctx: &Ctx, world: &mut World) -> usize {
                 // constant `y + strata_offset(x)`, so its gradient is minus
                 // the offset's -- a central difference over the same pure
                 // function `strata_shade` and `terraced` both read.
-                let dip = -(ctx.terrain.strata_offset(cx + 1) - ctx.terrain.strata_offset(cx - 1)) / 2.0;
+                // Clamped, because `strata_offset` now contains fault blocks
+                // and a lens whose centre lands inside a fault's flexure
+                // would read a dip of several cells per column and stand up
+                // on end. A bedding plane past 45 degrees is not something
+                // this generator makes; past that the number is the fault,
+                // not the bedding.
+                let dip = (-(ctx.terrain.strata_offset(cx + 1) - ctx.terrain.strata_offset(cx - 1)) / 2.0)
+                    .clamp(-1.0, 1.0);
                 let norm = (1.0 + dip * dip).sqrt();
                 let (cos_t, sin_t) = (1.0 / norm, dip / norm);
 
