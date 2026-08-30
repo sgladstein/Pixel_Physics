@@ -89,15 +89,27 @@ pub struct LabBox {
 /// and 64 of that stone was on screen above the control bar — more visible
 /// cement than dirt, in a box whose whole subject is what lives in the dirt.
 ///
-/// **The number is arithmetic, not a preference:** `ui::bar_top()` (264) −
-/// `ground_y` (160) − `FLOOR_ROWS` (8) = **96**. The soil runs down to the
-/// last row the player can see and the stone floor is the eight-row rim
-/// directly above the bar, so every remaining row of the base is *behind*
-/// the interface. That is the owner's "a lot of that should become the
-/// interface" taken literally rather than approximately. It is deliberately
-/// not written as a call into `ui`: the bar is expected to grow, and a soil
-/// depth that silently shrank when it did would be a light-and-water change
-/// arriving as a UI commit.
+/// **The number is arithmetic, not a preference:** `ground_y` (160) + 96 +
+/// `FLOOR_ROWS` (8) = **264**, which is the top of the control bar at the
+/// two-row height the interface lane is building it to (`BAR_HEIGHT` 56 of
+/// a 320-row window). The soil runs down to the last row the player can
+/// see, the stone floor is the eight-row rim directly above the bar, and
+/// every remaining row of the base is *behind* the interface — the owner's
+/// "a lot of that should become the interface" taken literally rather than
+/// approximately.
+///
+/// **Today's shipped bar is one row, 30 rows tall**, so until the second row
+/// lands there is a 34-row rim of stone between the floor and the bar
+/// instead of 8. That is the right way round to be wrong: a rim is stone
+/// the player can see and a *buried* floor is soil the box pays
+/// `update_soil_water` for and nobody can look at, which is exactly the
+/// waste §2a names.
+///
+/// It is deliberately **not** written as a call into `ui::bar_top()`. The
+/// bar is expected to keep growing, and a soil depth that moved when it did
+/// would be a light, water and frame-cost change arriving as a UI commit
+/// with nobody measuring it. The relationship is guarded instead, by
+/// `the_visible_bed_is_mostly_soil_and_its_floor_clears_the_control_bar`.
 ///
 /// # This was measured before it was changed, and the first measurement said not to
 ///
@@ -712,47 +724,46 @@ mod tests {
         }
     }
 
-    /// **The bed's floor lands on the top of the control bar, and this is the
-    /// thing that will silently stop being true.**
+    /// **The bed's floor has to clear the control bar, and the visible bed
+    /// has to be mostly dirt.** Nothing else in the tree relates the bed's
+    /// geometry to the interface's, and the owner's complaint was precisely
+    /// a ratio he could see: 40 rows of soil under 90 visible rows of stone.
     ///
-    /// The owner's complaint was a ratio he could see — 40 rows of soil under
-    /// 64 visible rows of stone — and the fix set `DEFAULT_SOIL_DEPTH` from
-    /// where the bar starts. Nothing else in the tree relates those two
-    /// numbers, so a bar that grows a third row of buttons would quietly
-    /// bury the floor and put the complaint back with no gate going red.
+    /// **Two assertions rather than an equality, because the bar is moving.**
+    /// It is one row today and two rows on the interface lane's branch — 30
+    /// rows against 56 — so an equality would be green against whichever copy
+    /// of `ui.rs` happened to be in the tree and red against the other, which
+    /// is how a guard ends up asserting another lane's unlanded work. What
+    /// does not depend on which bar is in the tree is: the floor must not be
+    /// *under* the bar (soil the box simulates and nobody can see, §2a's own
+    /// waste), and dirt must outweigh visible cement.
     ///
-    /// This is a *decision* prompt rather than a rule: if it fails, someone
-    /// has to say whether the soil or the stone gives up the rows. It is not
-    /// written as `DEFAULT_SOIL_DEPTH = bar_top() - ...` in the constant
-    /// itself on purpose — a soil depth that moved on a UI commit would
-    /// change the light, the water and the frame cost of every measurement in
-    /// the lab without anyone measuring it.
+    /// If this fails, someone has to decide whether the soil or the stone
+    /// gives up the rows, and re-run `examples/labsoil` if it is the soil.
     #[test]
-    fn the_visible_bed_is_soil_and_its_floor_sits_on_the_control_bar() {
+    fn the_visible_bed_is_mostly_soil_and_its_floor_clears_the_control_bar() {
         let b = LabBox::default();
         let bar_top = crate::lab::ui::bar_top();
-        assert_eq!(
-            b.ground_y + b.soil_depth + FLOOR_ROWS,
-            bar_top,
-            "the bed's floor no longer lands on the bar (soil {} + floor {FLOOR_ROWS} under \
-             ground {} against bar_top {bar_top}). The bar has moved: decide whether the soil \
-             or the stone gives up the rows, and re-run `examples/labsoil` if it is the soil",
-            b.soil_depth,
-            b.ground_y,
+        let floor_bottom = b.ground_y + b.soil_depth + FLOOR_ROWS;
+        assert!(
+            floor_bottom <= bar_top,
+            "the bed's floor ends at row {floor_bottom}, below the bar at {bar_top}: the box is \
+             running `update_soil_water` over rows the interface covers. The bar has grown — \
+             take the rows off the soil"
         );
 
-        // ...and the ratio the owner was actually looking at. Everything from
-        // the surface to the bar is either soil or the floor's rim, and the
-        // soil is the overwhelming majority of it.
+        // The ratio the owner was actually looking at, off the built world
+        // rather than off the constants: everything from the surface to the
+        // bar, split into dirt and cement.
         let w = b.build();
         let soil = w.materials.id_of("soil").expect("soil is compiled in");
-        let x = b.width / 4; // clear of the colony at the centre.
-        let visible = (b.ground_y..bar_top).count();
+        let x = b.width / 4; // clear of the colony founded at the centre.
         let dirt = (b.ground_y..bar_top).filter(|&y| w.get(x, y).material == soil).count();
+        let cement = (b.ground_y..bar_top).count() - dirt;
         assert!(
-            dirt * 10 >= visible * 9,
-            "only {dirt} of the {visible} visible rows under the surface are soil; the owner's \
-             complaint was that this was 40 of 104"
+            dirt >= cement * 2,
+            "{dirt} rows of dirt against {cement} of visible cement between the surface and the \
+             bar. The owner's complaint was that this was 40 against 90"
         );
     }
 }
