@@ -2661,7 +2661,7 @@ pub fn strike(world: &mut World, cx: i32, cy: i32, radius: i32, force: f32) -> u
     // is measured in cells and `flat` is counted in rings of
     // `BLOW_JOINT_REACH`, and rounding that conversion down loses the ring
     // the increment just bought.
-    let grow = if front == 0 { 0 } else { (((front as u32).div_ceil(BLOW_JOINT_REACH as u32) as i32 - chip + 1).max(1)).min(JOINT_GROWTH_MAX) };
+    let grow = if front == 0 { 0 } else { ((front as u32).div_ceil(BLOW_JOINT_REACH as u32) as i32 - chip + 1).clamp(1, JOINT_GROWTH_MAX) };
     let flat = chip + grow;
     // **The count includes the cracking**, and that is not bookkeeping.
     // `player::smash` gates the recoil on this being non-zero, so with
@@ -7455,7 +7455,7 @@ mod swing_probe {
             // the first release and every later swing lands in air.
             let face = (100..250).find(|&x| w.get(x, 128).material == material::STONE).unwrap_or(104);
             let prior = damage_front(&w, face, 128, (7 + JOINT_GROWTH_MAX) * BLOW_JOINT_REACH);
-            let grow = if prior == 0 { 0 } else { (((prior as u32).div_ceil(BLOW_JOINT_REACH as u32) as i32 - 7 + 1).max(1)).min(JOINT_GROWTH_MAX) };
+            let grow = if prior == 0 { 0 } else { ((prior as u32).div_ceil(BLOW_JOINT_REACH as u32) as i32 - 7 + 1).clamp(1, JOINT_GROWTH_MAX) };
             let acted = strike(&mut w, face, 128, 7, 12.0);
             let cracked: Vec<(i32, i32)> = (0..256)
                 .flat_map(|y| (0..256).map(move |x| (x, y)))
@@ -7571,7 +7571,7 @@ mod swing_probe {
         println!("swing  prior  grow  flat  acted  cracked  reach  bodies  root_stone  root_attached");
         for swing in 1..=6 {
             let prior = damage_front(&w, 100, 157, (7 + JOINT_GROWTH_MAX) * BLOW_JOINT_REACH);
-            let grow = if prior == 0 { 0 } else { (((prior as u32).div_ceil(BLOW_JOINT_REACH as u32) as i32 - 7 + 1).max(1)).min(JOINT_GROWTH_MAX) };
+            let grow = if prior == 0 { 0 } else { ((prior as u32).div_ceil(BLOW_JOINT_REACH as u32) as i32 - 7 + 1).clamp(1, JOINT_GROWTH_MAX) };
             let acted = strike(&mut w, 100, 157, 7, 6.0);
             let cracked: Vec<(i32, i32)> = (0..320)
                 .flat_map(|y| (0..512).map(move |x| (x, y)))
