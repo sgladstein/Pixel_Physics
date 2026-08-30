@@ -3857,3 +3857,50 @@ inherited genome, in **4m02** -- on a busier machine than the first run's
 report's seed 1 (10,926 seeds, 110 of 125 established, deepest 5). The claim
 survives; it is now this build's own measurement rather than two runs stapled
 together. Headline restated as ~1.2 generations per wall-clock minute.
+
+### ...and the design guide the measurements imply
+
+`Reports/evolution-lab-design-guide-2026-08-30.md`, written on request. Not a
+plan and not a schedule -- it keeps **measured / policy / call / open** apart
+throughout, because most of the interesting content is calls and they should
+be attackable as such.
+
+**Its §0 is the finding that reframes the concept: the lab game already exists
+as a decision.** Owner decision E8, 2026-08-23 -- *"evolution is a dev tool as
+well as a mechanic: we can use it to create new creatures that get saved and
+added to the game"* -- is the lab game with a player in it, and the export path
+already ships: `examples/species_export.rs` writes a genome and its traits out
+as `assets/species/<name>.ron` and reads them back through the loader. So the
+lab's core loop produces content for the main game, and the two should share
+the species format rather than code.
+
+§2 turns each measurement into a design consequence rather than a budget line:
+unused lab space is free (an empty box is 0.001 ms); the lab has a ceiling
+rather than a sky, which is the fiction and the largest performance decision
+at once; population is the frame budget and it is already a diegetic quantity;
+soil depth is an upgrade that costs 1.9x and returns nothing until something
+reaches it, which most upgrade trees have to fake; the grow light is a 2.4x
+reproduction lever; equipment is what switches on an air simulation that
+otherwise runs idle; and diggable collapsing rock is a **16% purchase**
+(section 3c) to be made deliberately.
+
+§3 is five gates, each a thing that must be measured rather than done. Gate 0
+is "an ant reaches generation 2" and nothing downstream matters first. Gate 1
+is that **no scene today runs plants and creatures in one hand-built box**.
+Gate 2 is `selection_arena` against the lab bed, where a null is a finding
+about the bed rather than the genome.
+
+§4 lists candidate verbs each with what it produces, per the second law. The
+useful count: **only `cull` and `partition` have no engine support**, and they
+are the two the premise most depends on -- everything else is exposing
+something that already runs.
+
+§5 answers "reward interesting behaviour" without naming a behaviour, by
+lifting `creature-evolution-plan.md` §7's own success definition: coverage
+smaller than random sampling's 26/81 while occupied cells are *separated*,
+plus asymmetric reciprocal transplant. `creature_space` measures the first
+half today and the lab's partitions give the second for free.
+
+§6 puts the brief's "keep them alive or start all over" against the first law
+-- an outcome is a distribution, not a binary -- and proposes the graded form
+the plant line already uses for senescence.

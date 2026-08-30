@@ -879,6 +879,16 @@ drift that two of these documents still reflect.**
   function of world size, and the phases the concept deletes already measure
   0.000–0.001 ms. 5–7 herb generations measured at 4 min 17 s. The blocker is
   biological — the shipped ant reaches **generation 0**.
+- [evolution-lab-design-guide-2026-08-30.md](evolution-lab-design-guide-2026-08-30.md)
+  — **design guide; calls and open questions, not a plan.** How you would
+  build the lab game the feasibility report says is affordable. Its §0 is the
+  reframe: the concept **is owner decision E8** ("evolution is a dev tool as
+  well as a mechanic") with a player in it, and `species_export` already
+  ships the keep. §2 turns each measurement into a design consequence — no
+  sky, population as the frame budget, depth as an honestly-priced upgrade,
+  equipment as what switches the idle air simulation on. §3 is five gates,
+  of which Gate 0 is "an ant reaches generation 2". §5 answers "reward
+  interesting behaviour" without naming a behaviour.
 - [plant-evolution-design.md](plant-evolution-design.md) — **design, all
   nine §8 calls signed off 2026-08-19; partly implemented.** The plant
   ecology: litter, decay, grass and the creeper; §4a's register holds the
