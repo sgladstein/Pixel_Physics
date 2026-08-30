@@ -63,7 +63,7 @@ use super::cell::{Cell, AMBIENT_TEMPERATURE};
 use super::chunk::Rect;
 use super::field;
 use super::material::{self, MaterialKind};
-use super::organism::{pack_cell_type, Carried, CellType, CreatureDef, Flight, SpeciesId, CREATURE_TRAITS, TRAIT_BIRTH_GRANT, TRAIT_GUT_BIAS};
+use super::organism::{pack_cell_type, Carried, CellType, CreatureDef, Flight, ShadeRule, SpeciesId, CREATURE_TRAITS, TRAIT_BIRTH_GRANT, TRAIT_GUT_BIAS};
 use super::pheromone::{self, Channel};
 use super::rng;
 use super::scheduler::{ActiveKind, ActiveSite};
@@ -725,6 +725,43 @@ impl World {
 const AHEAD_LEFT: u8 = 1;
 const AHEAD_RIGHT: u8 = 7;
 
+/// Rays in the all-round sight fan, swept over the full circle.
+///
+/// **16, and it is the number that was priced.** The cost of the sense is a
+/// function of this and `CreatureDef::sight_range` and **not** of how many
+/// prey exist — a pairwise test against every prey would need an index the
+/// engine does not have and would scale with the colony, which is the whole
+/// reason the fan is the shippable shape
+/// (`Reports/creature-vision-sizing-2026-08-30.md` §5).
+///
+/// A module constant rather than a species field on purpose: it is the
+/// resolution of the instrument, not a trait of an animal, and a species
+/// that could author it would be authoring its own frame cost.
+const SIGHT_RAYS: usize = 16;
+
+/// How far above the head the eye sits, in cells.
+///
+/// **One, and this is the whole of the "sees over the litter" rule** —
+/// there is no material whitelist and there should not be. Measured
+/// (`creature-vision-sizing-2026-08-30.md` §4): both animals here are
+/// ground-huggers, so a sight line between two heads grazes the floor for
+/// its whole length and a two-cell seed pile stops a forty-cell line. At
+/// head height **28.1%** of prey pairs were blocked; one cell up, **8.5%**
+/// — which on `wetland` recovers the *entire* transparent-world ceiling
+/// (median `los` at r64 back to 0.667, identical to occlusion switched
+/// off). On `rolling` it recovers about 70% of the gap rather than all of
+/// it, because that preset has real relief and some of what stops a line
+/// there is landscape.
+///
+/// **`eye = 3` is not better and the row is not smoothed over**: its
+/// pooled blocking is lower (4.8%) and its median `los` is *worse* (0.613).
+/// Nothing in that study explains it; 1 is the setting it supports.
+///
+/// The lift passes only through cells that do not themselves block —
+/// raising an eye *into* the terrain would manufacture sight lines out of
+/// nothing.
+const SIGHT_EYE_LIFT: i32 = 1;
+
 /// Radius of the crowding scan, in cells. Small on purpose: this is a
 /// *contact-range* read of the grid, which decision D5 explicitly permits
 /// (`Reports/creature-direction.md`) — the hard line is at colony scale,
@@ -829,9 +866,23 @@ fn place_creature(
     // and `World::push_organism` for why refusal beats a corrupted id.
     let organism = world.push_organism(species_id)?;
     let shades = world.materials.get(material_id).palette.len().max(1) as u32;
+    // **The body's own vertical span**, measured off the positions rather
+    // than off `BodyPlan`, so it is right for either plan without asking
+    // which one this is. A `Chain` collapses this to zero -- it is one cell
+    // thick -- and `body_shade` grades along the body instead.
+    let ranked = shades_by_luma(world, material_id);
+    let (dy_min, dy_max) = positions
+        .iter()
+        .fold((i32::MAX, i32::MIN), |(lo, hi), &(_, py)| ((lo).min(py - y), (hi).max(py - y)));
     for (i, &(px, py)) in positions.iter().enumerate() {
-        let shade = rng::stream(world.seed, organism as u64, i as u64, RNG_SLOT_SHADE).below(shades) as u8;
         let cell_type = if i == 0 { CellType::Head } else { CellType::Segment };
+        let shade = match def.shade_rule {
+            // Unchanged, and deliberately still drawing even though the
+            // value could be computed: this is the shipped path and it must
+            // stay byte-identical.
+            ShadeRule::Random => rng::stream(world.seed, organism as u64, i as u64, RNG_SLOT_SHADE).below(shades) as u8,
+            ShadeRule::Countershade => body_shade(&ranked, i, positions.len(), py - y, dy_min, dy_max),
+        };
         world.set(px, py, Cell::new(material_id, shade).with_organism_id(organism).with_aux(pack_cell_type(cell_type)));
     }
     // Claimed before the state is borrowed, because `claim_lineage` takes
@@ -938,6 +989,71 @@ fn place_creature(
         }
     }
     Some(ActiveSite { x, y, kind: ActiveKind::Creature { organism }, next_frame: world.creature_due(def.tick_interval) })
+}
+
+/// This material's palette entries, ordered **darkest first** by luma.
+///
+/// Rec. 601 weights in integer arithmetic, and a **stable** sort: two
+/// palette entries of equal luma must keep their authored order, because
+/// `CLAUDE.md`'s `sort_unstable` gotcha is that tie order is a function of
+/// the element type and not of the comparator alone -- and a shade is
+/// exactly the kind of quantity where a silent reordering would change
+/// every animal in the world and no test would notice.
+fn shades_by_luma(world: &World, material_id: material::MaterialId) -> Vec<u8> {
+    let palette = &world.materials.get(material_id).palette;
+    if palette.is_empty() {
+        return vec![0];
+    }
+    let mut idx: Vec<u8> = (0..palette.len().min(u8::MAX as usize) as u8).collect();
+    idx.sort_by_key(|&i| {
+        let c = palette[i as usize];
+        c[0] as u32 * 299 + c[1] as u32 * 587 + c[2] as u32 * 114
+    });
+    idx
+}
+
+/// The palette entry for one body cell under `ShadeRule::Countershade`.
+///
+/// The head takes the palest entry outright -- it is the one cell whose job
+/// is to say which end is the front. The rest are graded on a fraction `t`
+/// that is 1 at the pale end and 0 at the dark end, and **which axis `t`
+/// runs along is decided by whether the body has a top and a bottom at
+/// all**:
+///
+/// * a body with vertical extent grades by height, palest on top. That is
+///   countershading, and the reason it is worth having is in `ShadeRule`.
+/// * a `Chain` has none -- it is one cell thick -- so `dy_max == dy_min`
+///   and the grade runs head-to-tail instead, which is what stops a long
+///   chain reading as one flat smear.
+///
+/// Note `y` grows downward, so the *smallest* `dy` is the top of the animal.
+fn body_shade(ranked: &[u8], i: usize, cells: usize, dy: i32, dy_min: i32, dy_max: i32) -> u8 {
+    let last = ranked.len().saturating_sub(1);
+    if i == 0 {
+        return ranked[last];
+    }
+    let t = if dy_max > dy_min {
+        (dy_max - dy) as f32 / (dy_max - dy_min) as f32
+    } else {
+        1.0 - (i as f32 / cells.saturating_sub(1).max(1) as f32)
+    };
+    ranked[(t * last as f32).round() as usize]
+}
+
+/// **How many body cells this animal is currently paying for.**
+///
+/// The **live** chain rather than `def.body.len()`, and the difference is
+/// not cosmetic: a creature that has lost cells — bitten off by a predator,
+/// burned, or buried — is a smaller animal and burns less. Reading the plan
+/// instead would keep charging a two-cell bill to an animal that is down to
+/// one, which is the same class of error as pricing a corpse at what it was
+/// worth alive.
+///
+/// Floored at 1. A zero here would make an animal mid-`reconcile_chain`
+/// briefly free, and free is the one value this must never take —
+/// `idle_cost_per_cell`'s doc has why.
+fn live_body_cells(world: &World, organism: u16, def: &CreatureDef) -> f32 {
+    world.organism(organism).map_or(def.body.len(), |s| s.chain.len()).max(1) as f32
 }
 
 /// **What one birth costs the parent**: the child's metabolic grant plus
@@ -1317,7 +1433,20 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
     }
 
     let heading = world.organism(organism).map_or(0, |s| s.heading);
-    let inputs = sense(world, x, y, organism, heading, def);
+    let (inputs, sighting, sight_reads) = sense(world, x, y, organism, heading, def);
+    if def.sight_range > 0 {
+        world.creature_stats.sight_casts += 1;
+        world.creature_stats.sight_cells_read += sight_reads;
+        if let Some(seen) = sighting {
+            world.creature_stats.sightings += 1;
+            world.creature_stats.sight_dist_sum += seen.dist as u64;
+            // |bearing| <= 0.25 is +-45 degrees: the sighted prey lies
+            // within the three candidate steps this creature can take.
+            if inputs[brain::BrainInput::PreyBearing as usize].abs() <= 0.25 {
+                world.creature_stats.sight_facing += 1;
+            }
+        }
+    }
     let (outputs, active_synapses) = {
         let Some(state) = world.organism_mut(organism) else {
             return Vec::new();
@@ -1341,8 +1470,14 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
     // of a 90-point life on thinking, 80% of a life, and silently
     // dominated a three-knob sweep that had to be thrown away.
     let synapse_tax = def.synapse_fraction * def.start_energy * active_synapses as f32;
-    let mut spent = def.idle_cost + synapse_tax;
-    world.energy_ledger.metabolized += def.idle_cost as f64;
+    // **Metabolism is per body cell** (`idle_cost_per_cell`). Read once
+    // here rather than at each of the three charge sites below: the chain
+    // cannot change length between them, and a creature that steps into a
+    // predator pays for the body it started the tick with.
+    let body_cells = live_body_cells(world, organism, def);
+    let idle = def.idle_cost_per_cell * body_cells;
+    let mut spent = idle + synapse_tax;
+    world.energy_ledger.metabolized += idle as f64;
     world.energy_ledger.synapse_tax += synapse_tax as f64;
 
     // --- the four verbs, before moving: an ant that is going to pick
@@ -1372,7 +1507,7 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
             // energy ledger has one owner. The flight frames themselves
             // charge only pro-rated metabolism -- ballistics is free once
             // you have paid to leave.
-            let cost = def.move_cost * LAUNCH_COST_IN_MOVES;
+            let cost = def.move_cost_per_cell * body_cells * LAUNCH_COST_IN_MOVES;
             spent += cost;
             world.energy_ledger.moved += cost as f64;
             // **Deliberately not `moved`.** `moved` gates the pheromone
@@ -1383,8 +1518,9 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
         } else {
             moved = step_chain(world, organism, heading, &outputs, def, &mut draw);
             if moved {
-                spent += def.move_cost;
-                world.energy_ledger.moved += def.move_cost as f64;
+                let step = def.move_cost_per_cell * body_cells;
+                spent += step;
+                world.energy_ledger.moved += step as f64;
             }
         }
     } else if draw.unit_f32() < brain::unit_scale(outputs[brain::BrainOutput::Tumble as usize], 1.0) {
@@ -1411,6 +1547,25 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
     }
 
     let (hx, hy) = world.organism(organism).and_then(|s| s.chain.first().copied()).unwrap_or((x, y));
+
+    // **The far side of the sighting counter.** `sightings` says the eye
+    // fired; on its own that is exactly the shape of counter `CLAUDE.md`
+    // warns about — a mining harness once reported 200 cuts having removed
+    // 0 cells. This says the sighting *changed where the animal went*:
+    // the head ended the tick closer to the prey it saw than it started.
+    //
+    // Read from the head's actual position after the move rather than from
+    // the chosen direction, so a step the world refused does not count.
+    // Against the target's position at decision time, not a re-cast, so
+    // this cannot silently become a second sighting counter.
+    if let Some(seen) = sighting {
+        let before = (seen.x - x) * (seen.x - x) + (seen.y - y) * (seen.y - y);
+        let after = (seen.x - hx) * (seen.x - hx) + (seen.y - hy) * (seen.y - hy);
+        if after < before {
+            world.creature_stats.sight_approaches += 1;
+        }
+    }
+
     let mut sites = apply_creature_energy(world, hx, hy, organism, -spent, def);
 
     // --- bud, last, and only if the tick was survived -------------------
@@ -1440,7 +1595,7 @@ pub fn probe(world: &World, x: i32, y: i32, organism: u16, def: &CreatureDef) ->
     let Some(state) = world.organism(organism) else {
         return ([0.0; brain::BRAIN_INPUTS], [0.0; brain::BRAIN_OUTPUTS], 0);
     };
-    let inputs = sense(world, x, y, organism, state.heading, def);
+    let (inputs, _, _) = sense(world, x, y, organism, state.heading, def);
     let mut brain_state = state.brain_state;
     let (outputs, active) = brain::eval_brain(&state.genome, &inputs, &mut brain_state);
     (inputs, outputs, active)
@@ -1454,7 +1609,14 @@ pub fn probe(world: &World, x: i32, y: i32, organism: u16, def: &CreatureDef) ->
 /// 14 brain inputs" for two appends past 14 (it is 16), because a literal
 /// in prose has nothing that fails when the enum grows — and the one law
 /// this file has is that inputs may be appended freely. Name the const.
-fn sense(world: &World, x: i32, y: i32, organism: u16, heading: u8, def: &CreatureDef) -> [f32; brain::BRAIN_INPUTS] {
+fn sense(
+    world: &World,
+    x: i32,
+    y: i32,
+    organism: u16,
+    heading: u8,
+    def: &CreatureDef,
+) -> ([f32; brain::BRAIN_INPUTS], Option<Sighting>, u64) {
     use brain::BrainInput as I;
     let mut inputs = [0.0f32; brain::BRAIN_INPUTS];
     inputs[I::Bias as usize] = 1.0;
@@ -1555,7 +1717,43 @@ fn sense(world: &World, x: i32, y: i32, organism: u16, heading: u8, def: &Creatu
     }
     inputs[I::Crowding as usize] = (crowd as f32 / CROWDING_SCALE).min(1.0);
 
-    inputs
+    // **The distal sense, and the reason E15 exists.** Everything above
+    // this line is contact range or a field read; nothing in it reports
+    // another animal at a distance, which is why a predator that could
+    // already kill moved no counter at all.
+    //
+    // **Gated on the species field, at a site that already holds the
+    // `CreatureDef`** (`CLAUDE.md`: guard hot-path work at the call site
+    // that has the data). An eyeless species pays one `i32` compare per
+    // tick and never enters `sight`; the ant, the worm and every plant-side
+    // caller are therefore bit-identical to before this input existed.
+    let mut sight_reads = 0u64;
+    let sighting =
+        (def.sight_range > 0).then(|| sight(world, x, y, organism, def, gut_of(world, organism, def), &mut sight_reads)).flatten();
+    if let Some(seen) = sighting {
+        // **Nearness rather than distance**, so that "nothing in sight" and
+        // "at the very edge of sight" are both ~0 and the input rises as
+        // the thing that matters gets closer. A raw distance would read
+        // *largest* when the prey is furthest, and an authored weight would
+        // have to be negative to mean "approach", which is the kind of sign
+        // inversion an evolved genome has no reason to find.
+        inputs[I::PreyNear as usize] = (1.0 - seen.dist / def.sight_range as f32).clamp(0.0, 1.0);
+        // Signed turn-to-target, **positive = to the right**, matching
+        // `PheroALateral`. `DIRS` runs anticlockwise on a y-down screen, so
+        // a heading index `h` points along `-h * PI/4` in screen radians;
+        // the wrapped difference from that to the bearing is then positive
+        // clockwise, which is the right hand. +-1 is directly behind.
+        let bearing = ((seen.y - y) as f32).atan2((seen.x - x) as f32);
+        let heading_angle = -(heading as f32) * std::f32::consts::FRAC_PI_4;
+        let mut error = bearing - heading_angle;
+        error = error.rem_euclid(std::f32::consts::TAU);
+        if error > std::f32::consts::PI {
+            error -= std::f32::consts::TAU;
+        }
+        inputs[I::PreyBearing as usize] = error / std::f32::consts::PI;
+    }
+
+    (inputs, sighting, sight_reads)
 }
 
 /// **What one cell is worth to *this gut*** — S5's matched filter, and the
@@ -1678,6 +1876,151 @@ fn adjacent_food(world: &World, x: i32, y: i32, gut: Gut) -> Option<(i32, i32, m
         }
         (diet_yield(world, cell, gut.bias) > EAT_YIELD_THRESHOLD).then_some((x + dx, y + dy, cell.material))
     })
+}
+
+/// One prey animal, seen: where it is and how far away.
+///
+/// Returned out of `sense` rather than kept inside it because the *effect*
+/// counter needs it. `CLAUDE.md`'s standing rule is that a counter which
+/// says a thing fired is only as good as a counter from the far side of the
+/// call — "the beetle saw something" is worth nothing on its own, and
+/// `CreatureStats::sight_approaches` is what says the sighting changed
+/// where the animal went.
+#[derive(Clone, Copy)]
+pub struct Sighting {
+    pub x: i32,
+    pub y: i32,
+    /// Cells, Euclidean, from the head that saw it.
+    pub dist: f32,
+}
+
+/// What stops a sight line: **rock and soil, and nothing else.**
+///
+/// `Solid | Powder` covers stone, soil and every piece of floor clutter
+/// (seed, litter, corpse), which pooled over 18 seeds are 25% / 21% / 17%
+/// of everything that stops a ray. Clutter is not exempted here by name —
+/// `SIGHT_EYE_LIFT` is what gets over it, which is one rule instead of a
+/// material list that a new powder would silently fall out of.
+///
+/// **`Plant` deliberately does not block, and that is a measured decision
+/// rather than an oversight.** Making foliage opaque costs *half the
+/// sense* (median `los` at r64 0.667 -> 0.350 on `wetland`, worse than
+/// halving the radius) and no eye height buys it back. It is also the
+/// house ethos: a canopy that either passes sight perfectly or blocks it
+/// perfectly is the binary outcome the rubble had. What a bush should do is
+/// **attenuate** — shorten the effective radius through it — which is a
+/// mechanism `creature-vision-sizing-2026-08-30.md` §4 priced at nothing
+/// and left for whoever wants foliage to matter. `Liquid` is a non-question:
+/// it moved blocking 0.7 points and median `los` not at all.
+fn blocks_sight(world: &World, cell: Cell) -> bool {
+    matches!(world.materials.kind(cell.material), MaterialKind::Solid | MaterialKind::Powder)
+}
+
+/// Is this cell a living animal **this gut would eat**?
+///
+/// **The same filter the mouth uses**, one step further out — exactly the
+/// argument `BrainInput::FoodAdjacent`'s call site already makes: if the
+/// eye used a wider test than the mouth, an animal would steer at food it
+/// cannot digest, and the gene would be nutritional bookkeeping rather than
+/// a behaviour. A meat gut stops *seeing* leaves.
+///
+/// Living tissue only (`MaterialKind::Creature`), which is what makes this
+/// a prey sense rather than a general food sense: a corpse is a `Powder`
+/// and stops the ray as clutter. Scavenging at a distance is a separate
+/// design question and is not answered here.
+///
+/// Its own body is excluded by owner, and a nestmate by `eats_kin` — the
+/// same two exemptions `adjacent_food` makes, for the same reasons.
+fn is_visible_prey(world: &World, cell: Cell, gut: Gut, self_organism: u16) -> bool {
+    if cell.organism_id() == self_organism || world.materials.kind(cell.material) != MaterialKind::Creature {
+        return false;
+    }
+    if !gut.eats_kin && is_living_kin(world, cell, gut.species) {
+        return false;
+    }
+    diet_yield(world, cell, gut.bias) > EAT_YIELD_THRESHOLD
+}
+
+/// **The distal sense: cast `SIGHT_RAYS` rays all round and return the
+/// nearest prey any of them reached.**
+///
+/// Built to `Reports/creature-vision-sizing-2026-08-30.md`, which sized
+/// every part of it before a line existed: reach 64, all-round, occluded by
+/// rock and soil, eye one cell up.
+///
+/// **All-round rather than a forward cone, and the cone was measured.** A
+/// +-60 degree cone throws away **a third of every sighting** at every
+/// preset (r64 median 0.572 -> 0.400 on `wetland`) and saves nothing the
+/// clock can resolve — the fan's cost is 16 rays either way unless the ray
+/// count drops with it, and dropping it is a resolution cut, not a saving.
+///
+/// **Dispatched at the creature's own position**, never by scanning the
+/// world for creature cells. §5's `locate` arm exists precisely to keep
+/// that scan out of the answer: timed against a do-nothing control it
+/// overstated the sense's cost **thirtyfold**.
+///
+/// **Occlusion makes this cheaper as well as weaker**, which is worth
+/// knowing before anyone proposes relaxing it for performance: rays die on
+/// the first blocker, so 8 -> 64 is an eightfold radius for a sixfold read
+/// count (81 -> 485 cells per cast), well short of the 1,024 an
+/// unobstructed fan would pay.
+///
+/// Returns `None` when nothing edible is in sight, which is also what an
+/// eyeless species gets — but an eyeless species never reaches here, since
+/// the caller tests `sight_range` before the call (`CreatureDef::sight_range`).
+fn sight(world: &World, x: i32, y: i32, organism: u16, def: &CreatureDef, gut: Gut, reads: &mut u64) -> Option<Sighting> {
+    let reach = def.sight_range;
+    debug_assert!(reach > 0, "sight() called for a species with no eyes; the gate belongs at the call site");
+
+    // The eye, lifted only through cells that do not themselves block.
+    let mut ey = y;
+    for _ in 0..SIGHT_EYE_LIFT {
+        if blocks_sight(world, world.get(x, ey - 1)) {
+            break;
+        }
+        ey -= 1;
+    }
+    // How far it actually got. **Prey is tested in the un-lifted frame and
+    // blockers in the lifted one**, which is the same geometry the sizing
+    // study's pairwise test used: the line runs eye-to-eye while the animal
+    // it is looking for stands on the ground. Testing prey at the lifted
+    // cell instead would sail a horizontal ray straight over every ant in
+    // the world -- the sense would fire on nothing and read as a design
+    // failure rather than a frame-of-reference one.
+    let lift = y - ey;
+
+    let mut best: Option<Sighting> = None;
+    let mut best_d2 = i32::MAX;
+    for i in 0..SIGHT_RAYS {
+        let a = std::f32::consts::TAU * i as f32 / SIGHT_RAYS as f32;
+        let (rdx, rdy) = (a.cos(), a.sin());
+        for step in 1..=reach {
+            let sx = x + (rdx * step as f32).round() as i32;
+            let sy = ey + (rdy * step as f32).round() as i32;
+            let (tx, ty) = (sx, sy + lift);
+            let target = world.get(tx, ty);
+            *reads += 1;
+            if is_visible_prey(world, target, gut, organism) {
+                let d2 = (tx - x) * (tx - x) + (ty - y) * (ty - y);
+                if d2 < best_d2 {
+                    best_d2 = d2;
+                    best = Some(Sighting { x: tx, y: ty, dist: (d2 as f32).sqrt() });
+                }
+                break;
+            }
+            // One read when the eye did not rise, two when it did.
+            let blocker = if lift == 0 {
+                target
+            } else {
+                *reads += 1;
+                world.get(sx, sy)
+            };
+            if blocks_sight(world, blocker) {
+                break;
+            }
+        }
+    }
+    best
 }
 
 fn adjacent_nest(world: &World, x: i32, y: i32, def: &CreatureDef) -> bool {
@@ -2592,7 +2935,7 @@ fn step_flight(world: &mut World, organism: u16, def: &CreatureDef) -> Vec<Activ
     // came from the scheduler rather than from the design. Pro-rating keeps
     // the *rate* identical and leaves `LAUNCH_COST_IN_MOVES` as the only
     // thing the verb actually charges for.
-    let idle = def.idle_cost / def.tick_interval.max(1) as f32;
+    let idle = def.idle_cost_per_cell * live_body_cells(world, organism, def) / def.tick_interval.max(1) as f32;
     world.energy_ledger.metabolized += idle as f64;
     if landed {
         // Back on the normal schedule, and back to deciding things.
@@ -4123,6 +4466,177 @@ mod tests {
         assert_eq!(eats_when_digging, 0, "Dig must no longer feed the animal -- one weight moving both is the bug");
     }
 
+    // --- the sight sense (E15) ------------------------------------------
+
+    /// A bare stone floor with a beetle and an ant standing on it, both
+    /// facing east. Returns the world, the beetle's handle and its
+    /// `CreatureDef`, so a caller can override `sight_range` before
+    /// probing.
+    ///
+    /// **The floor is `STONE` and nothing else is on it**, so a sighting
+    /// that fails in a derived scene fails because of what that scene added.
+    fn sight_bed(beetle_x: i32, ant_x: i32) -> (World, u16, CreatureDef) {
+        let mut w = test_world();
+        for cx in 0..200 {
+            w.set(cx, 101, Cell::new(material::STONE, 0));
+        }
+        let beetle = plant_creature_seed(&mut w, beetle_x, 100, "beetle").map(|_| w.get(beetle_x, 100).organism_id()).unwrap_or(0);
+        assert_ne!(beetle, 0, "the beetle was not placed; the scene does not contain the situation this test is about");
+        w.plant_ant(ant_x, 100);
+        assert_ne!(w.get(ant_x, 100).organism_id(), 0, "the ant was not placed; there is nothing to see");
+        let def = w.species.get(w.organism(beetle).expect("live").species).creature.as_ref().expect("beetle is a creature").clone();
+        (w, beetle, def)
+    }
+
+    /// `(PreyNear, PreyBearing)` as the beetle at `(x, 100)` reads them.
+    fn prey_inputs(w: &World, beetle: u16, x: i32, def: &CreatureDef) -> (f32, f32) {
+        let (inputs, _, _) = probe(w, x, 100, beetle, def);
+        (inputs[brain::BrainInput::PreyNear as usize], inputs[brain::BrainInput::PreyBearing as usize])
+    }
+
+    #[test]
+    fn a_beetle_sees_an_ant_across_a_bare_floor() {
+        // **The positive control, and it comes first deliberately.** Every
+        // other test here is a claim that something stops the sense; none
+        // of them means anything until the sense is shown to fire at all,
+        // and a `los`-only readout cannot tell a reach failure from an
+        // occlusion failure (`creature-vision-sizing-2026-08-30.md` §2).
+        let (w, beetle, def) = sight_bed(60, 90);
+        let (near, bearing) = prey_inputs(&w, beetle, 60, &def);
+        assert!(near > 0.0, "a beetle on a bare floor 30 cells from an ant must see it");
+        // 30 cells at reach 64: 1 - 30/64 = 0.53, give or take the ant's
+        // chain laying out to the left of its head.
+        assert!((0.45..0.65).contains(&near), "nearness should scale with distance, read {near}");
+        assert!(bearing.abs() < 0.05, "prey dead ahead of an east-facing beetle is a bearing of ~0, read {bearing}");
+    }
+
+    #[test]
+    fn a_wall_stops_the_sight_line() {
+        // The occlusion test is not stuck off — the same ants at the same
+        // distance behind a full-height slab.
+        let (mut w, beetle, def) = sight_bed(60, 90);
+        for cy in 80..101 {
+            w.set(75, cy, Cell::new(material::STONE, 0));
+        }
+        let (near, _) = prey_inputs(&w, beetle, 60, &def);
+        assert_eq!(near, 0.0, "a full-height stone wall between them must stop every ray");
+    }
+
+    #[test]
+    fn floor_litter_does_not_blind_a_beetle_but_a_two_cell_pile_does() {
+        // **The whole of the eye-height rule, and both halves of it.** Both
+        // animals are ground-huggers, so a sight line between two heads
+        // grazes the floor for its length and a low pile stops a long line:
+        // measured at 28.1% of prey pairs blocked at head height against
+        // 8.5% one cell up. `SIGHT_EYE_LIFT` is what gets over the first
+        // pile; the second reaches the lifted eye and must still stop it,
+        // or the "fix" is really "occlusion is off".
+        let (mut w, beetle, def) = sight_bed(60, 90);
+        let soil = w.materials.id_of("soil").expect("soil");
+        w.set(75, 100, Cell::new(soil, 0));
+        assert!(prey_inputs(&w, beetle, 60, &def).0 > 0.0, "one cell of floor clutter must not blind a beetle: the eye sits above it");
+
+        w.set(75, 99, Cell::new(soil, 0));
+        assert_eq!(prey_inputs(&w, beetle, 60, &def).0, 0.0, "clutter that reaches the eye must still stop the ray, or nothing is occluding anything");
+    }
+
+    #[test]
+    fn prey_past_the_eye_is_not_seen() {
+        // The radius test is a radius test. 100 cells against a reach of
+        // 64, on the same bare floor that reads a sighting at 30.
+        let (w, beetle, def) = sight_bed(20, 120);
+        assert_eq!(prey_inputs(&w, beetle, 20, &def).0, 0.0, "an ant 100 cells away is outside a 64-cell eye");
+    }
+
+    #[test]
+    fn a_species_with_no_sight_range_sees_nothing_and_costs_nothing() {
+        // **The opt-in, which is the guard that keeps this sense off every
+        // other species in the world.** `sight_range` defaults to 0 and the
+        // gate is at the call site, so an eyeless animal must read exactly
+        // the zero it read before this input existed — and the counters
+        // must stay at zero too, or the sense is running and merely quiet.
+        let (mut w, beetle, mut def) = sight_bed(60, 90);
+        assert!(prey_inputs(&w, beetle, 60, &def).0 > 0.0, "the eyed control must see it, or this test cannot fail for the right reason");
+
+        def.sight_range = 0;
+        let (near, bearing) = prey_inputs(&w, beetle, 60, &def);
+        assert_eq!((near, bearing), (0.0, 0.0), "a species with no eyes must read the same zero it read before this input existed");
+
+        let species = w.organism(beetle).expect("live").species;
+        w.species.set_creature(species, def);
+        for _ in 0..200 {
+            w.step_active_sites();
+        }
+        assert_eq!(
+            (w.creature_stats.sight_casts, w.creature_stats.sightings),
+            (0, 0),
+            "an eyeless world must not cast a single ray; the gate is at the call site for exactly this reason"
+        );
+    }
+
+    #[test]
+    fn the_ant_has_no_eyes_and_the_shipped_ant_is_unchanged_by_this_input() {
+        // Every species but the beetle authors no `sight_range`, which is
+        // what makes the append lawful for them: two new slots, both zero,
+        // read by nothing.
+        let mut w = test_world();
+        let ant = ant_on_a_floor(&mut w, 100);
+        let def = w.species.get(w.organism(ant).expect("live").species).creature.as_ref().expect("ant is a creature").clone();
+        assert_eq!(def.sight_range, 0, "ant.ron must not author an eye");
+        let (inputs, _, _) = probe(&w, 100, 100, ant, &def);
+        assert_eq!(inputs[brain::BrainInput::PreyNear as usize], 0.0);
+        assert_eq!(inputs[brain::BrainInput::PreyBearing as usize], 0.0);
+    }
+
+    #[test]
+    fn the_bearing_says_which_way_to_turn() {
+        // **Positive is to the right**, matching `PheroALateral`, and
+        // `Turn` biases *left* when positive — so a pursuit instinct is a
+        // negative weight. A sign error here is a beetle that flees what it
+        // can see, and it would look exactly like a sense that does not
+        // work.
+        let (w, beetle, def) = sight_bed(90, 60); // prey behind an east-facing beetle
+        let (near, behind) = prey_inputs(&w, beetle, 90, &def);
+        assert!(near > 0.0, "the beetle must see the ant behind it: the eye is all-round, not a cone");
+        assert!(behind.abs() > 0.9, "prey directly behind is a hard turn, +-1, not the 0 a left-minus-right sensor would give; read {behind}");
+
+        // **The left/right half, asked with the heading rather than with
+        // the geometry.** The first draft built a ledge above the beetle
+        // and the ledge blocked the very ray that would have reached the
+        // ant standing on it — a scene that contradicted the code, which
+        // reads exactly like the mechanism being inert (`CLAUDE.md`).
+        // Turning the animal instead needs no terrain at all: facing north,
+        // east is on the right hand and west on the left.
+        let (mut w2, beetle2, def2) = sight_bed(100, 130);
+        w2.plant_ant(70, 100);
+        assert_ne!(w2.get(70, 100).organism_id(), 0, "the western ant was not placed");
+        w2.organism_mut(beetle2).expect("live").heading = 2; // north
+        let (near2, east) = prey_inputs(&w2, beetle2, 100, &def2);
+        assert!(near2 > 0.0, "the beetle must still see an ant while facing north: the eye is all-round");
+        // The eastern ant is 30 cells away and the western one 30 as well,
+        // so which one is nearest is decided by the chains laying out to
+        // the left of each head. Assert the *magnitude* is a right angle
+        // and the sign matches whichever side won, rather than assuming.
+        assert!((east.abs() - 0.5).abs() < 0.05, "prey abeam a north-facing beetle is a quarter turn, +-0.5; read {east}");
+    }
+
+    #[test]
+    fn a_beetle_does_not_see_another_beetle() {
+        // Its own body is excluded by owner and a nestmate by `eats_kin` —
+        // the same two exemptions `adjacent_food` makes. Without them the
+        // "prey" sense would be a beetle-detector and every counter it
+        // moved would be beetles chasing each other.
+        let mut w = test_world();
+        for cx in 0..200 {
+            w.set(cx, 101, Cell::new(material::STONE, 0));
+        }
+        let beetle = plant_creature_seed(&mut w, 60, 100, "beetle").map(|_| w.get(60, 100).organism_id()).unwrap_or(0);
+        assert_ne!(beetle, 0);
+        assert_ne!(plant_creature_seed(&mut w, 90, 100, "beetle").map(|_| w.get(90, 100).organism_id()).unwrap_or(0), 0, "the second beetle was not placed");
+        let def = w.species.get(w.organism(beetle).expect("live").species).creature.as_ref().expect("creature").clone();
+        assert_eq!(prey_inputs(&w, beetle, 60, &def).0, 0.0, "a beetle is not prey to a beetle, and neither is its own 2x2 body");
+    }
+
     #[test]
     fn a_lone_creature_is_not_crowded_by_its_own_body() {
         // **The known-good case, which is what makes this a measurement
@@ -5195,7 +5709,13 @@ mod tests {
         let w = test_world();
         let species = w.species.id_of("ant").expect("ant");
         let def = w.species.get(species).creature.as_ref().expect("creature");
-        let idle_life = (def.start_energy / def.idle_cost) as usize * def.tick_interval as usize;
+        // **Per cell since 2026-08-30.** `idle_cost_per_cell * body.len()`
+        // is the old whole-animal `idle_cost`, so this horizon is unchanged
+        // for the shipped two-cell ant -- but it is now a function of the
+        // body, and a species with a longer one has a proportionally
+        // shorter one. Written out rather than folded so that is visible.
+        let idle_per_tick = def.idle_cost_per_cell * def.body.len() as f32;
+        let idle_life = (def.start_energy / idle_per_tick) as usize * def.tick_interval as usize;
         idle_life * 11 / 10
     }
 
@@ -6188,5 +6708,140 @@ mod tests {
             }
         }
         out
+    }
+
+    // --- body extent: pricing and shading -------------------------------
+    //
+    // **Paired comparisons and deterministic functions only** (dead end
+    // 552). The pricing tests below hold everything except body length
+    // fixed and read the *difference*; the shade tests call a pure function
+    // with hand-built inputs, which is the one shape `CLAUDE.md` exempts
+    // from the "put the fault back" rule because it cannot be blind in an
+    // interesting way.
+
+    /// A one-ant world with `cells` body cells and a chosen bill.
+    ///
+    /// `move_cost_per_cell` is zeroed so the only size-dependent term left
+    /// is the idle charge -- otherwise a run that happened to move more
+    /// would swamp the quantity under test, and the difference would be
+    /// about the terrain rather than about the body.
+    fn priced_ant(cells: u8, idle_per_cell: f32) -> (World, u16) {
+        use super::super::organism::BodyPlan;
+        let mut w = test_world();
+        for cx in 0..200 {
+            w.set(cx, 101, Cell::new(material::STONE, 0));
+        }
+        let ant = w.species.id_of("ant").expect("ant species");
+        let mut def = w.species.get(ant).creature.clone().expect("ant is a creature");
+        def.body = BodyPlan::Chain(cells);
+        def.idle_cost_per_cell = idle_per_cell;
+        def.move_cost_per_cell = 0.0;
+        w.species.set_creature(ant, def);
+        w.plant_ant(20, 100);
+        let organism = w.get(20, 100).organism_id();
+        assert_ne!(organism, 0, "the ant must have hatched, or this measures nothing");
+        (w, organism)
+    }
+
+    #[test]
+    fn a_longer_body_costs_proportionally_more_to_run() {
+        // The premise `creature-evolution-plan.md` E10 was written on --
+        // "per-cell metabolic cost already prices a longer body" -- was
+        // false until 2026-08-30: nothing in the cost path read
+        // `chain.len()`, so this difference was exactly zero and a longer
+        // body was strictly free. That is the fault this guard is named
+        // for, and reverting either call site takes it red.
+        let idle = 0.05f32;
+        let energy_after_one_tick = |cells: u8| {
+            let (mut w, organism) = priced_ant(cells, idle);
+            let before = w.organism(organism).expect("live").energy;
+            let def = w.species.get(w.organism(organism).expect("live").species).creature.clone().expect("creature");
+            creature_tick(&mut w, 20, 100, organism, &def);
+            before - w.organism(organism).map_or(0.0, |s| s.energy)
+        };
+        let two = energy_after_one_tick(2);
+        let six = energy_after_one_tick(6);
+        // The synapse tax and every other term are identical across the
+        // pair, so the whole difference is the four extra cells.
+        let difference = six - two;
+        assert!(
+            (difference - idle * 4.0).abs() < 1e-4,
+            "four extra body cells must cost four extra per-cell idle charges: {two} -> {six} (difference {difference}, expected {})",
+            idle * 4.0
+        );
+    }
+
+    #[test]
+    fn a_damaged_animal_pays_for_the_body_it_still_has() {
+        // `live_body_cells` reads the live chain rather than `BodyPlan`,
+        // so an ant that has lost a cell is a smaller animal and burns
+        // less. Reading the plan instead would keep charging a two-cell
+        // bill to an animal down to one.
+        let (mut w, organism) = priced_ant(3, 0.05);
+        let def = w.species.get(w.organism(organism).expect("live").species).creature.clone().expect("creature");
+        assert_eq!(live_body_cells(&w, organism, &def), 3.0);
+        // Take the tail off, the way a bite does, and reconcile.
+        let tail = *w.organism(organism).expect("live").chain.last().expect("cells");
+        w.set(tail.0, tail.1, Cell::EMPTY);
+        reconcile_chain(&mut w, organism);
+        assert_eq!(
+            live_body_cells(&w, organism, &def),
+            2.0,
+            "a bitten ant is a two-cell animal and must be billed as one"
+        );
+    }
+
+    #[test]
+    fn countershading_puts_the_palest_cell_on_the_head() {
+        // Ranked darkest-first, so the last entry is the palest.
+        let ranked = [2u8, 0, 1];
+        // A rigid body two cells tall: dy 0 is the top row, dy 1 the bottom.
+        assert_eq!(body_shade(&ranked, 0, 6, 0, 0, 1), 1, "the head takes the palest entry outright");
+        assert_eq!(body_shade(&ranked, 1, 6, 0, 0, 1), 1, "a top-row body cell is pale");
+        assert_eq!(body_shade(&ranked, 2, 6, 1, 0, 1), 2, "an underside cell is the darkest");
+    }
+
+    #[test]
+    fn a_chain_grades_along_its_body_because_it_has_no_underside() {
+        // A `Chain` is one cell thick, so `dy_max == dy_min` and a
+        // top-to-bottom grade would put every cell on the same shade --
+        // one flat smear, which is exactly the "reads as a worm" problem
+        // E10 names. The grade runs head-to-tail instead.
+        let ranked = [2u8, 0, 1];
+        let shades: Vec<u8> = (0..5).map(|i| body_shade(&ranked, i, 5, 0, 0, 0)).collect();
+        assert_eq!(shades[0], 1, "head palest");
+        assert_eq!(*shades.last().expect("cells"), 2, "tail darkest");
+        assert!(
+            shades.iter().collect::<std::collections::HashSet<_>>().len() > 1,
+            "a chain must not come out one flat colour: {shades:?}"
+        );
+    }
+
+    #[test]
+    fn the_shipped_ant_still_draws_its_shade_at_random() {
+        // E10 is the owner's standing decision that the shipped ant does
+        // not change without a verdict, and `ShadeRule::Random` is what it
+        // ships with. This guard is what makes `ant.ron` gaining a
+        // `shade_rule` line a deliberate act rather than a merge accident.
+        let w = test_world();
+        let ant = w.species.id_of("ant").expect("ant species");
+        let def = w.species.get(ant).creature.as_ref().expect("ant is a creature");
+        assert_eq!(def.shade_rule, ShadeRule::Random);
+        assert_eq!(def.body.len(), 2, "and it is still two cells");
+    }
+
+    #[test]
+    fn shades_by_luma_orders_darkest_first_and_survives_an_empty_palette() {
+        let w = test_world();
+        let ant = w.materials.id_of("ant").expect("ant material");
+        let ranked = shades_by_luma(&w, ant);
+        let palette = &w.materials.get(ant).palette;
+        let luma = |i: u8| {
+            let c = palette[i as usize];
+            c[0] as u32 * 299 + c[1] as u32 * 587 + c[2] as u32 * 114
+        };
+        for pair in ranked.windows(2) {
+            assert!(luma(pair[0]) <= luma(pair[1]), "ranked darkest first: {ranked:?}");
+        }
     }
 }

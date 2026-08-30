@@ -1,10 +1,20 @@
 # Ants
 
-*Current as of: 2026-08-30, when ants started running out of food early
+*Current as of: 2026-08-30, when a beetle got eyes — the first animal here
+that can tell there is something worth eating on the far side of the room,
+rather than only what it is already touching. Also 2026-08-30: the colony got
+a page of its own — how many
+ants there are, whether that number is climbing, what they are eating and
+carrying, and how far short of breeding they are, all on screen in the game
+rather than in a log nobody runs; the size of an animal's
+body started to cost it something to carry around, and a body became able to
+shade itself — a paler head, a darker underside — instead of every cell of it
+picking a colour out of a hat; and ants started running out of food early
 enough that you see it — bodies on the ground that nothing killed, and a
-colony that then holds its size instead of quietly running down — and when
-how much an ant gives its young became a thing an ant can inherit rather
-than a fixed rule. Before that: 2026-08-29, when creatures learned to jump — though the ants
+colony that then holds its size instead of quietly running down — and how
+much an ant gives its young became a thing an ant can inherit rather than a
+fixed rule. Before that: 2026-08-29, when creatures learned to jump — though
+the ants
 you place still cannot, and the section below says why that is not a
 contradiction — and when an ant that has eaten enough learned to make
 another ant, passing on what it is so that a colony's descendants can differ
@@ -190,6 +200,78 @@ worth. That is also the quickest way to see the thing the numbers say is
 true and the picture does not: most of a forest's food is up in the canopy
 where no ant can reach it.
 
+## A bigger animal costs more to carry
+
+An ant pays for its body. Standing still costs it something every moment,
+walking costs it more, and **both are now charged for each cell the animal is
+made of** — so an animal twice the size burns twice as fast doing exactly the
+same thing, and one that has had a piece bitten off it burns less than it did
+the day before.
+
+That sounds obvious and it was not true until now. A longer animal used to be
+free: it put more of itself on screen, it flowed over broken ground *better*
+than a short one, and it ate exactly the same. Anything that costs nothing
+and buys something is not a choice, and a world where being bigger is simply
+better ends up with everything the same size.
+
+The ant you place is unchanged — the price was worked out from the animal
+that already ships, so a two-cell ant pays today precisely what it paid
+yesterday. What changed is that the bigger bodies now pay their way.
+
+## A beetle can see
+
+Everything in this world used to find its food by touch or by smell. An ant
+knows about food when food is *next to it*; the two scents carry further, but
+they are trails the ants themselves lay, and a beetle does not lay them —
+which is why, for a long time, a beetle and an empty room were the same
+thing. You could put nine of them in with fifty ants and the ants would live
+exactly as long as if the beetles were not there.
+
+**A beetle now looks around.** It can pick out an ant about sixty cells off —
+most of a screen at play zoom — in any direction, not just ahead of it, and
+it does not need the ant to have done anything. What it can see it will turn
+toward.
+
+Three things about how it sees are worth knowing, because you can watch all
+of them happen:
+
+**It sees over the mess on the floor, but not through the ground.** Both
+animals walk on the floor, so a line of sight between them skims it the whole
+way, and a two-cell pile of seed was enough to hide an ant forty cells away.
+A beetle looks from a little above its head instead, which clears the litter
+and the seed and the fallen leaves; a boulder, a bank of soil or a wall still
+stops it dead. Stand a beetle behind a rock and it is blind on that side.
+
+**Leaves do not stop it.** Foliage is see-through as far as a beetle is
+concerned, which is not quite right and is deliberate: making a bush solid
+took away half of everything a beetle could ever see, and a bush that is
+either perfectly transparent or perfectly opaque is the wrong answer in both
+directions. What a thicket ought to do is *shorten* how far you can see
+through it, and nothing does that yet.
+
+**It only sees what it could eat.** A beetle looking at another beetle sees
+nothing at all, and neither does it see its own body. This is the same rule
+its mouth uses: an animal that steered toward food it cannot digest would be
+running on bookkeeping rather than on appetite.
+
+**Nothing else in the world has eyes.** Ants do not, and the ant you place
+behaves exactly as it did before this existed.
+
+### What it does not yet do well
+
+Seeing and *getting there* are not the same problem, and the second one is
+only half solved. An animal here changes direction by stepping diagonally, so
+on genuinely flat ground it has nowhere to put its foot when it tries to turn
+— the step down is into the floor and the step up is into the air. On a stone
+slab a beetle that can see perfectly well will still walk past its dinner.
+Give it real ground with slopes and steps and it turns and closes; on
+generated terrain a beetle now spends its time about a third nearer to the
+ants it can see than one that cannot see at all, and catches noticeably more
+of them.
+
+That is a walking problem rather than a seeing problem, and it is written
+down as one.
+
 ## Placing a colony, and watching what they smell
 
 Press **Y** to found a colony on the ground under the cursor: it lays a nest
@@ -215,6 +297,63 @@ paints them at full strength rather than tinting — a trail that is there
 looks like a bright line, and a channel nobody has used looks like an even
 dark field rather than like nothing at all.
 
+## Reading the colony
+
+**Press SHIFT+Y and the colony gets a page.** `Y` founds one; shift-`Y` asks
+after it. The page opens down the left of the screen with the world still
+visible beside it, so you can watch the ants and their figures at the same
+time.
+
+It is arranged around two questions, and the detail comes after them rather
+than instead of them.
+
+**Is this colony doing well?** — the top of the page. How many ants are
+alive, and whether that number is *growing*, *steady* or *shrinking*, said in
+one word and in the colour of the headline. Under it a strip traces the
+population while you watch. Then the plain totals: how many were placed by
+hand, how many have been born, how many have died — and, because a total
+that only ever climbs says nothing about now, births and deaths again as a
+rate, per thousand frames.
+
+**What are they doing right now?** — the middle. How many are carrying
+something this instant, how many are in the air, and how far from home the
+colony is spread, as the nearest, the middle and the furthest ant rather than
+an average. Then the work, again as rates: steps taken, steps blocked, falls,
+mouthfuls eaten, things picked up, cells dug, food actually delivered home,
+and round trips completed. Deliveries turn green when any are happening,
+because that one is the whole loop closing rather than an activity level.
+
+**The larder** sits between them, and it is a histogram rather than an
+average on purpose: a colony half starving and half comfortable averages out
+to one that is neither, and those are not the same colony. The line where an
+ant starts feeling hungry is marked on the axis, and bars below it are drawn
+in a different colour — amber rather than red, because hungry is the normal
+state of a forager and a page that alarms at the ordinary teaches you to
+ignore it. Below the histogram, a gauge puts the richest ant's store against
+what an ant costs to make. That gauge is currently the shortest route to the
+thing this page explains at the bottom: nobody is close.
+
+**The line** is last. How many generations deep the colony has got, how many
+separate family lines are still going, how much of the colony the largest one
+is, and the spread of each inherited trait across the living animals. A
+freshly placed colony reads generation 0 with as many lines as there are
+ants, because every founder is its own ancestor.
+
+**Hover a line and it explains itself.** The page is dense — every row is
+squeezed to fit, and `FROM HOME 0 / 31 / 102` means nothing to anyone who has
+not just read the rest of this section. Put the pointer on any line and a note
+opens beside the page saying what that row is, in words, along with the
+figures that did not fit on it: the raw counts behind a rate, the exact
+threshold behind a colour, what a trait means and which way its numbers run.
+The note sits to the side rather than under the pointer, so it never covers
+the line it is explaining.
+
+Two things worth knowing about the page itself. The population strip **starts
+empty and fills as you watch** — nothing counts the colony until you ask it
+to, which is what makes the page free when it is shut. And every rate on it
+is measured over a window a little longer than one day in the world, so a
+reading is the colony rather than the time of night.
+
 ## What is not finished
 
 A laden ant does find its way home, and it does it the way a bacterium does
@@ -223,6 +362,19 @@ on, so instead it keeps walking while the home scent is getting stronger,
 and stops and turns on the spot when it is not. Watch one long enough and
 you will see it wander, catch the scent, and then travel in a fairly
 straight line back.
+
+**Nothing bigger than the ant you can place survives yet, and that is the
+honest state of it.** Longer animals were meant to be the cheap way to make a
+creature you can actually spot on screen — a two-cell ant is very nearly
+invisible against the ground, and the measurements say size is the only thing
+that fixes that. But stand a colony of three-cell animals in the world and
+they are gone within the horizon anyone watches, and so are four, six and
+nine. Two things go wrong at once: far fewer of them find anywhere to stand
+in the first place, because a long body needs a long clear run of ground to
+be laid down on, and the ones that do stand there do not last. That is not
+the new price for a body — it happened just as thoroughly under the old free
+one, and it happens on a dead-flat floor as well as in the real world. It is
+something else, and it is not understood yet.
 
 What a colony is still not especially good at is **finding food in the first
 place**. A pile a long way off may take a while to be discovered, and one

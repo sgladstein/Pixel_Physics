@@ -37,8 +37,16 @@
         // it gets a longer budget against a lighter idle cost. These are
         // the knobs a colony that starves too fast is tuned with.
         start_energy: 900.0,
-        idle_cost: 0.10,
-        move_cost: 0.25,
+        // **Per body cell** (`organism.rs`'s `idle_cost_per_cell`). These
+        // are `ant.ron`'s rates unchanged -- this is the same animal at a
+        // different size, so it must pay the same rate per cell -- and at
+        // 6 cells that is 0.3 idle and 0.75 a step against the
+        // two-cell ant's 0.10 and 0.25. **3.0x, where it used to be 1x.**
+        // Before 2026-08-30 nothing in the cost path read `chain.len()`,
+        // so this body was strictly free: 3.0x the ink, less blocked
+        // movement, and an identical bill.
+        idle_cost_per_cell: 0.05,
+        move_cost_per_cell: 0.125,
 
         // Per active synapse per tick, **as a fraction of start_energy**:
         // 2.2222222e-6 * 900 is the 0.002 this was authored as, exactly, in

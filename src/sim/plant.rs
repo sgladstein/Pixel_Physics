@@ -1385,26 +1385,47 @@ const FATE_MUTATION_STREAM: u64 = 201;
 
 /// **How often a seed's production rule takes a point mutation.**
 ///
-/// **Unmeasured, and deliberately below `DISCRETE_MUTATION_CHANCE` (0.03)
-/// rather than equal to it.** Gate 1 measured what *one* mutation does to a
-/// fresh table — 92% of effective ones still produce a living plant on the
-/// woody base, 97% on the determinate one — and that is not the same quantity
-/// as a rate compounding over generations, which nobody has measured. Two
-/// things say to start low rather than high:
+/// **Measured 2026-08-30, and the measurement is why this is 0.30 and not the
+/// 0.01 it shipped as** — `Reports/plant-mutation-rate-2026-08-30.md`, 39
+/// runs of `genome_drift` over 3 world seeds, 7 rates and both `herb` and
+/// `tree`. The old value was not "a little low". It did **nothing**:
 ///
-/// - the failures are concentrated: `child` on a frontier type killed 5 of 6,
-///   because it decides what carries growth forward, so roughly a third of
-///   mutations land on the field that is ~83% lethal;
-/// - a rule table is a *program*. An allele that jumps is one of three values
-///   on a designed axis; a retargeted rule can make a lineage that never
-///   grows, and there is no counterweight pulling it back.
+/// ```text
+/// herb, 60,000 frames, seed 1, rate 0.01 against the same world at rate 0:
+///   every line of the log identical -- 873 live, 74 established,
+///   309 germinations, 5,858 births, same body sizes, same slot means
+///   45 mutations fired, 28 individuals ever carried one, NONE ever
+///   reached 20 cells, ZERO drifted plants standing with a body
+/// ```
 ///
-/// 0.01 is one plant in a hundred per birth. **The number to replace this
-/// with comes from a run, not from an argument** — the measurement is a
-/// lineage census over generations at several rates, and it cannot be taken
-/// until turnover exists to take it on: measured, a tree reaches generation 1
-/// in 8 of 8 seeds and never more, so on the woody species this rate has
-/// almost nothing to act on yet.
+/// The genome moved and no plant did. At 0.30, 29–40% of plants **with a
+/// body** carry a rule table that is no longer their species' (44.6% at
+/// 60,000 frames), and the four quantities that were expected to trade
+/// against it do not move: median across three seeds against each seed's own
+/// rate-0 control, establishment **1.04**, births **1.00**, body size
+/// **0.96**. Nothing consistent breaks even at rate **1.0**, where every
+/// birth mutates — establishment there runs −13%, +13%, +28%, without a sign.
+///
+/// **Why 0.30 rather than the equally free 0.10**, both measured: at 0.10 the
+/// variation is thin (three plants in sixty-four on one seed), and the
+/// shipped no-safety-net lookup is a **dead letter** — `GenomeOnly` and
+/// `Full` give byte-identical worlds at 0.10 on two seeds and different ones
+/// at 0.30 on two, so the fallback the owner declined would never have fired
+/// below 0.30 anyway.
+///
+/// **What it is *not* calibrated against, and the trigger to re-derive.** The
+/// rate is per birth, so what a population carries is set by how deep its
+/// pedigree gets: `1 - (1-r)^g` at the run's own mean generation predicts the
+/// standing figure to within a tenth of a point (56.5% predicted, 56.4%
+/// observed). `herb` sits near g = 2.34 here. **Re-derive when herb's mean
+/// generation passes ~4** — M10 streaming raises it.
+///
+/// **On `tree` this constant does nothing at any setting**, and that is not a
+/// reason to split it per species: the whole ladder from 0 to 0.30 leaves a
+/// tree stand bit-identical, because tree reaches generation 1 and its
+/// mutants are all seeds that never germinate. It is `herb`'s knob until the
+/// woody species turns over.
+///
 /// **`pub` so a harness reads the engine's rate instead of carrying its own
 /// copy.** `Reports/plant-fate-operator-gate-2026-08-29.md` §1 is what this
 /// guards against: `fate_viability` held a second implementation of the
@@ -1412,7 +1433,19 @@ const FATE_MUTATION_STREAM: u64 = 201;
 /// noticed the two had diverged. A rate is the same hazard in miniature — a
 /// harness that hardcodes 0.01 keeps reporting against 0.01 after this line
 /// moves.
-pub const FATE_MUTATION_CHANCE: f32 = 0.01;
+///
+/// The argument this replaces, kept because it is the bar the measurement had
+/// to clear rather than a mistake: the rate was set *below*
+/// `DISCRETE_MUTATION_CHANCE` (0.03) on the reasoning that a rule table is a
+/// *program* and its failures are concentrated — `child` on a frontier type
+/// killed 5 of 6 in gate 1, so roughly a third of mutations land on a field
+/// that is ~83% lethal. That reasoning is sound about **one mutation to one
+/// plant grown alone**, which is what the gate measured. In a living stand
+/// the mutants overwhelmingly die as seeds before expressing anything, and
+/// the population-level cost of even a 100% rate is not detectable in
+/// establishment or throughput. The two are not the same quantity, and it
+/// took a population census to tell them apart.
+pub const FATE_MUTATION_CHANCE: f32 = 0.30;
 
 /// **The rate actually in effect**, which is `FATE_MUTATION_CHANCE` unless
 /// `PIXEL_PHYSICS_FATE_MUTATION_CHANCE` overrides it.
@@ -15419,6 +15452,121 @@ floor {ROOT_INVERSION_BAR}. Measured 0.994 (SE 0.046) when this bar was set -- s
         // grass", not "it reaches it at exactly this rate".
         assert!(dark <= 8, "a sward in the dark must thin: {dark} of {BLADES} still standing");
         assert!(dark < lit, "the dark arm must lose more than the lit one: {dark} against {lit}");
+    }
+
+    /// **A species that prices reproduction must be able to earn the
+    /// currency the price is denominated in.**
+    ///
+    /// `Reports/open-bugs-handoff.md` §1n, and the guard that did not exist
+    /// when `19b87d8e` moved `Behavior::Reproduce` off the bearing cell's
+    /// carbon and onto `OrganismState::reproductive_budget`. That account is
+    /// funded from `allocate_to_frontier`'s `surplus`, and `surplus` is
+    /// driven by `intercepted`, which sums over `CellType::Leaf` **only** --
+    /// so a species with no `Leaf` stage has income, surplus and
+    /// reproductive budget all structurally zero, and `grass` went sterile
+    /// on `main` with every gate green.
+    ///
+    /// **`#[ignore]`d because it is red today.** It is the reproduction for
+    /// an open bug rather than a claim about working code, and un-ignoring
+    /// it is the acceptance test for whichever repair §1n's closing block is
+    /// settled on -- `CLAUDE.md`'s rule that a diagnosis keeps its
+    /// reproduction and gets an address. Confirmed to go **green** with
+    /// `intercepted` asking `is_foliage`, and red without it, which is the
+    /// only thing that makes it a guard rather than a wish.
+    ///
+    /// **Three positive controls, because a zero here has three innocent
+    /// explanations and only one guilty one.** The sward could be dead, the
+    /// organism tick could never have run, or the plant could genuinely be
+    /// earning nothing. So this asserts, before it asserts anything else,
+    /// that the sod is still standing, that its cells are *holding carbon
+    /// they earned* through `Photosynthesize`, and that `organism_upkeep`
+    /// has charged it maintenance. With those three green, `income == 0` is
+    /// a statement about the predicate and nothing else -- the plant is
+    /// demonstrably earning and the organism-level books say it is not.
+    ///
+    /// A fourth control was tried and is recorded here because it is the
+    /// obvious one: relabel the identical blades `CellType::Leaf` and
+    /// compare. It cannot work in this scene -- `grass.ron` declares
+    /// `StructuralAnchor` on `MatureBody`, not on `Leaf`, so the relabelled
+    /// sod is unanchored and the structural pass takes half of it down
+    /// inside 600 frames (measured: 6 blades of 12). That reads as "the
+    /// economy is dead" and is `CLAUDE.md`'s "a scene that contradicts the
+    /// code will look like a bug in the code".
+    #[test]
+    #[ignore = "red on main -- open-bugs-handoff.md 1n: grass declares no CellType::Leaf, so its income and its reproductive budget are structurally zero"]
+    fn a_lit_sward_funds_a_reproductive_budget() {
+        const BLADES: i32 = 12;
+        const FRAMES: usize = 4_500; // 100 organism ticks
+
+        let mut w = World::new(Rect::new(0, 0, 63, 63));
+        let soil = w.materials.id_of("soil").expect("soil is compiled in");
+        for x in 0..64 {
+            w.set(x, 40, Cell::new(material::STONE, 0));
+            for y in 32..40 {
+                w.set(x, y, Cell::new(soil, 0).with_aux(material::SOIL_FIELD_CAPACITY));
+            }
+        }
+        let id = place_grass(&mut w, 10, 32, BLADES, 3);
+        let blade = w.materials.id_of("grassblade").expect("grassblade");
+        // Blades standing, and the carbon they are holding. Both come off
+        // one scan because both are controls on the same run.
+        let census = |w: &World| {
+            let b = w.bounds().expect("a non-empty world");
+            let (mut standing, mut carbon) = (0usize, 0.0f32);
+            for y in b.min_y..=b.max_y {
+                for x in b.min_x..=b.max_x {
+                    let c = w.get(x, y);
+                    if c.material == blade && c.organism_id() == id {
+                        standing += 1;
+                        carbon += w.organism_cell(x, y).map_or(0.0, |oc| oc.carbon);
+                    }
+                }
+            }
+            (standing, carbon)
+        };
+        // The settle `a_shaded_sward_thins_and_a_lit_one_does_not` also
+        // does, and for the same reason: an unanchored sod is taken apart
+        // by the structural pass, which reads as a dead economy.
+        run(&mut w, 600);
+        assert_eq!(
+            census(&w).0,
+            BLADES as usize,
+            "test setup: the sod came apart before the measurement started -- check it is anchored, not that the economy is wrong"
+        );
+        run_with_fields(&mut w, FRAMES);
+
+        let (standing, carbon) = census(&w);
+        let s = w.organism(id).expect("the sod should still be alive");
+        let (income, budget, maintenance) = (s.income, s.reproductive_budget, s.maintenance);
+        println!(
+            "lit sward after {FRAMES} frames: {standing} blades standing holding {carbon} carbon; \
+             organism income {income}, maintenance {maintenance}, reproductive budget {budget}"
+        );
+        assert!(
+            standing as i32 == BLADES,
+            "positive control: the sward must still be there for its books to mean anything -- {standing} of {BLADES}"
+        );
+        assert!(
+            carbon > 0.0,
+            "positive control: the blades must be holding carbon they earned through `Photosynthesize`, \
+             or `income == 0` below is honest rather than a defect -- got {carbon}"
+        );
+        assert!(
+            maintenance > 0.0,
+            "positive control: `organism_upkeep` must have run and billed this plant, \
+             or nothing downstream of it was ever evaluated -- got {maintenance}"
+        );
+        assert!(
+            income > 0.0,
+            "a fully lit sward earns carbon from every blade it owns -- the control above shows the carbon is there -- \
+             and `OrganismState::income` reads {income}. `allocate_to_frontier`'s `intercepted` asks `CellType::Leaf` \
+             where it should ask `is_foliage`"
+        );
+        assert!(
+            budget > 0.0,
+            "a species whose `Reproduce` declares `reproductive_allocation: 0.30` must be able to fund a seed, \
+             and this one banks {budget} -- so `budget >= seed_cost` can never hold and grass is sterile for ever"
+        );
     }
 
     /// **A plant that cannot earn again is dead, its remains rot, and its

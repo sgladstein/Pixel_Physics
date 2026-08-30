@@ -1,0 +1,1376 @@
+# Caves, rebuilt: rooms made by collapse, joined by passages, with a way in
+
+2026-08-30. Lane I of the worldgen revamp, building W3 against the design in
+`cave-redesign-2026-08-29.md`. The owner's instruction, verbatim: *"The whole
+shape and generation of the cave shold be rebuilt from the ground up. The
+caves are still all slightly modified circles or ovals, not realistic at all.
+The voroni worly patter around the cave should be removed. I know I said that
+I liked it before but no."* And, on a second card the same minute, three
+words: ***"Remove the web"***.
+
+This is the implementation report: what was built, what it measures, the
+pillar answer the plan called the largest open risk in the programme, and
+what it costs in reach. The design is not re-derived here.
+
+---
+
+## 1. What was built
+
+**Two objects, and no field.** `src/worldgen/cave.rs` is new and is the whole
+generator; `passes::vaults` now calls it and keeps the writers the owner has
+already accepted (gravel floors, the aquifer waterline, speleothems, the
+geode vug).
+
+| | what it is | how it is made |
+|---|---|---|
+| **Room** | a space you stand in | a dissolution lens flooded through a **removal cost** built from the strata, then a roof that falls in until it reaches a bed strong enough to hold its span |
+| **Conduit** | the passage between two rooms | a shortest path on a coarse lattice through an **anisotropic cost field** -- bedding, joints, and a palaeo-water-table -- cut as a **keyhole** section |
+| **Mouth** | the way in | the same search on a mask without the cover rule, then a run outward down the local slope, rising one row in two until it is out in the air |
+
+**Deleted:** `carve_cave_void`, `settle_cave_void`, `keep_seed_component`,
+`all_long_ceiling_runs`, `grow_monumental_chamber`, `erode_breaches`,
+`CAVE_CELL`, `CAVE_SQUASH`, `CAVE_EDGE_FADE_X/Y`, `CAVE_THRESHOLD`,
+`MAX_CEILING_SPAN`, `ROUND_3_HALF_W`. Nothing in the new module reads a noise
+field to decide where rock is absent.
+
+### 1.1 The room is not drawn, and the rock decides its shape
+
+`bed_span` is `max_unsupported_span * attached_span_bonus`, read straight off
+the material rather than invented: over the six beds it runs **42 (mudstone)
+to 308 (basalt)**. That one number does three jobs -- it prices removal in the
+dissolution flood, it decides where the roof stops falling, and it sets how
+far apart the pillars stand -- so two rooms in one world differ by a factor of
+seven in shape without a parameter moving.
+
+Measured across sixteen seeds, `collapsed` (cells the roofs lost) spans **40
+to 137,000 per system**. That is the ethos's first law in a number: the
+outcome is a distribution, not a binary.
+
+### 1.2 Pillars are a designed feature, and they are pierced
+
+A room 3-7x the one the owner called small is wider than any bed can roof, so
+the pitch is derived from the rock (`pillar_pitch`) and the lens flood is
+forbidden to take the reserved columns. The collapse then leaves them standing
+floor to ceiling **by construction** -- it only ever eats a cell with void
+directly beneath it, and a pillar column has none.
+
+**A floor-to-ceiling pillar is a wall in a side-on world**, which is the one
+thing about pillars this engine's geometry forces, and it is not a concession
+to pierce them: a real breakdown pillar usually *is* pierced at the base,
+because the water that left it standing was still running past its foot. So
+`open_floor` cuts an arch through every pillar after the collapse, keeping
+both legs at no less than five cells so the roof still reaches the ground.
+
+---
+
+## 2. The pillar finding, and it is not the one the plan expected
+
+The plan: *"stone's `max_unsupported_span` is 16 -- so a room that size forces
+pillars. That is measurable today with `support_census`, and it should be
+measured before the room size is chosen, not after."*
+
+`support_census` cannot answer it -- it reads the distance field and never
+cuts a hole -- and neither can `arch_probe`, which sweeps a hand-built
+pier-and-lintel scene in a 200-row test world. So `cave_probe` gained a
+**`span=1` mode**: it generates a real world at the shipped 8192x2560, cuts a
+room of a chosen width into the massif at cave depth, re-solves the support
+field, runs three hundred frames of the real sweep, and censuses the rock that
+left a box around it. Three arms, because the answer is different in each:
+
+| arm | what it asks |
+|---|---|
+| `quiet` | shipped leash, nothing disturbed -- does the room survive genesis |
+| `pick` | shipped leash, one pick swing into the ceiling -- what a player sets off |
+| `model` | leash off, every rock cell in the rim scheduled -- what the load model believes |
+
+**The answer is that the roof does not come down, and it is not close.** Three
+seeds, `rolling`, at the shipped world size, rock cells lost from a box around
+the room:
+
+| width across | pillars | quiet | pick | model |
+|---|---|---|---|---|
+| 0 (control) | -- | **0** | **0** | **0** |
+| 128 | none | 0 | 63 | 3 |
+| 128 | every 224 | 0 | 63 | 3 |
+| 256 | none | 0 | 63 | 11 |
+| 256 | every 224 | 0 | 63 | 432 |
+| 512 | none | 0 | 63 | 3 |
+| 512 | every 224 | 0 | 63 | 6 |
+| 1024 | none | 0 | 63 | 112 |
+| 1024 | every 224 | 0 | 63 | 360 |
+
+
+**Read the `quiet` column first.** `World::chain_reach` is a policy layered
+over the load model: at the shipped TIGHT setting a failing region is clipped
+to what sits near a live disturbance, so an *undisturbed* generated cave is
+never licensed to fail however wide its roof is. That is the honest answer to
+"does a room this size stand at genesis", and it is **yes at every width
+tested, including 2048 -- four screens across.**
+
+The `pick` column is flat in the width: one swing removes its own bite and
+sets nothing else off. And even with the leash off and every rock cell in the
+rim scheduled, the model's answer is a rounding error against the room's own
+volume. The reason is `load::capacity`: a cave roof's `section` is the run of
+rock above it, which in a massif is hundreds of cells, and capacity is
+quadratic in it and multiplied again by `attached_span_bonus`. `stone.ron`'s
+`max_unsupported_span: 16` never enters the arithmetic at the scale the plan
+assumed it would.
+
+**So pillars are not required by the physics, and they are in anyway.** They
+are required by the *generator's own* collapse model, which is what shapes the
+room; they are the eye's only ruler in a space too large to see the ends of;
+and they are what makes a dig into a big room's leg mean something later. The
+plan asked for the number either way, and this is it: **the engine will not
+bring a cave roof down on its own at any width up to two screens.**
+
+**One caution on all three columns.** This is a probe over three seeds on one
+preset, and the `model` arm's absolute numbers should not be read as a
+prediction of what a player will see -- what it bounds is the *direction*.
+The controls it carries are the ones that make the null admissible: `W = 0`
+loses zero rock in every arm, and the `lid=6` control -- the same room with
+the massif above it cut away, so the roof is a six-cell slab -- is where the
+instrument is shown to be able to report a real collapse at all.
+
+| control | quiet | pick | model |
+|---|---|---|---|
+| `W=0` -- nothing carved | **0** | **0** | **0** |
+| `lid=6` -- 512 wide, roofed by a **six-cell slab** | 0 | **185** | **207** |
+
+**Read that control honestly: it works and it is weaker than it should be.**
+It proves the instrument is not blind -- the same width goes from 3 to 207
+cells lost when the massif above the roof is taken away -- and it also says
+that a six-cell slab spanning five hundred cells *still stands*, which is the
+same finding again from the other side. `load::capacity` is
+`(span^2 / 2) x section^2 x attached_span_bonus`; at a section of six and
+stone's twelvefold attachment bonus that is fifty-five thousand against a
+demand nothing like it.
+
+
+---
+
+## 3. The census: before and after
+
+16 seeds x 5 presets at the shipped 8192x2560, `examples/cave_probe`.
+
+### 3.1 An instrument repair first, because it moves the "before" numbers
+
+`cave_probe`'s census window was `WORLD_HEIGHT / 2` -- **1,280 rows down** at
+the shipped size, below most of the depth band `vaults` places into. This is
+the identical defect the design lane repaired in `viewshot vault=1`
+(`cave-redesign-2026-08-29.md` §3.5), found there and not looked for here,
+because the same file carries both readings and only one of them was under
+suspicion.
+
+It is now each column's own ground line plus sixty rows, and a component has
+to reach `vault_min_depth` under that ground to count as a cave at all --
+without which the wider window counts every overhang and valley pocket in the
+world (measured: 4.0 "systems" per world against the one or two the pass
+places).
+
+**The correction moves the headline figure the programme was quoting.** The
+design lane reported *"8 or 9 of 16 worlds have no cave at all"*; measured
+through the repaired window on the same code, it is **2 to 4 of 16**. The old
+number was counting shallow caves as absent.
+
+### 3.2 The numbers
+
+Both columns measured through the repaired instrument, 16 seeds x 5 presets,
+at `47d6209` and at this branch's head. Ranges are across the five presets.
+
+| | before | after |
+|---|---|---|
+| **worlds with no cave** (of 16) | 2-4 | **0**, every preset |
+| cave systems per world | 2.1-2.7 | 3.9-4.9 |
+| **largest connected walkable region**, share of a system's void | 36-39% | **98%** |
+| **separate walkable pockets** per system, med / p90 / max | 3 / 31-38 / 86-95 | **1 / 3-6 / 9-13** |
+| median open column (the gnome is **14** tall) | 13-16 | **60-72** |
+| tallest open column | 56-77 | 146-179 |
+| span across, median / max | 165-340 / 1,528-1,544 | 197-260 / 929-1,184 |
+| void, share of the massif under the ground line | 0.29-0.32% | 0.75-0.89% |
+| **systems with a way in** | **0, by construction** | **all of them** |
+
+Four of those are the owner's own sentences answered:
+
+* *"It is also looks like a single room instead of a cave system"* -- a system
+  is 3.9-4.9 connected places per world with several rooms in each, and
+  **98% of one of them is one walkable region**, against 36-39%. The p90 used
+  to be a system shattered into **thirty-one to thirty-eight separate
+  pockets** with no way between them; it is now three to six.
+* *"It doesn't look like I could even enter it"*, first reading: the median
+  passage was **the gnome's own height with nothing to spare**. It is now
+  four to five times his height.
+* *"It doesn't look like I could even enter it"*, second reading: there was no
+  entrance in the game at all. Every system now has one, and no world with a
+  cave in it lacks a way in.
+* *"there should be variability between caves"*: the biggest room in a system
+  runs from ~240 to 660 cells across and `collapsed` -- the volume its roof
+  lost -- spans **40 to 137,000 cells**, out of the same code and the same
+  draw, because the beds differ.
+
+**The span-across maximum went down** (1,544 to ~1,100) and that is the point
+rather than a regression: the old figure was the width of a Worley web spread
+across a whole envelope, most of which was fringe the player could not enter.
+What replaced it is a shorter system with rooms in it.
+
+
+
+---
+
+## 4. What it costs in reach
+
+`VAULTS_MARGIN` was `MAX_CAVE_HALF_W + VAULT_RIND = 802`, the widest declared
+margin in the pipeline: generating one 64-column chunk required 1,668 planned
+columns, **26x amplification**.
+
+It is now **780**, and the rooms got several times bigger. The mechanism is
+not cleverness, it is a direction: **a system chains downward.** The depth
+band is over a thousand rows deep at the shipped size and rows are free in a
+margin measured in columns, so `MAX_CAVE_HALF_W` came *down* from 800 to 720
+while `MAX_CAVE_HALF_H` went from 320 to 560.
+
+**The margin is derived from the widest term, not the obvious one**, because
+three passes in this pipeline have already declared a margin smaller than they
+walk:
+
+| what leaves the envelope | reach beyond `cx` |
+|---|---|
+| the seal check's rind | `MAX_CAVE_HALF_W + VAULT_RIND` = 722 |
+| the mouth's lintel shell | `MAX_CAVE_HALF_W + 6 + LINTEL_THICK` = 730 |
+| the slope read that decides which way a mouth faces | `MAX_CAVE_HALF_W + MOUTH_SLOPE_LOOK` = **780** |
+
+`a_cave_cannot_reach_past_its_declared_margin` in `tests/worldgen.rs` asserts
+the first of those against the constants; it is now understated relative to
+the real reach and should be widened to the expression above by whoever
+touches it next. **Flagged rather than fixed here**: that test belongs to the
+margin contract as a whole and three lanes are in `tests/worldgen.rs`.
+
+---
+
+## 5. What it costs at build time
+
+`vaults` was **38-116 ms** of a ~5,700 ms world build. It is now **115-650
+ms**, median around 200 ms -- three to six times more, and 2-11% of the whole
+build. Where it goes, in order: `Carvable::build` walks the envelope once
+through `World::get` (a bounds check plus a `HashMap` lookup per cell) and
+erodes it twice; the lens floods are a Dijkstra per lobe; the seal check is a
+5x5 dilation of the void.
+
+Two of those were already made cheap and the numbers are worth keeping:
+
+* **The seal check walks the void outward, not the envelope inward.** The
+  obvious form probes 5x5 per cell over a box of nearly two million -- forty
+  million array reads for a property that concerns the few tens of thousands
+  of cells next to a hole. Iterating the void and dilating it is the same set
+  by definition, at a fortieth of the work.
+* **The rind erosion is separable and runs over prefix sums**, `O(area)`
+  rather than `O(area x r)`. At the tube radii the conduit search needs, the
+  naive form is a hundred and fifty million reads per system.
+
+**Nothing here runs per frame.** Caves are static geometry written at genesis,
+and the render skip is untouched.
+
+---
+
+## 6. The consequence nobody had named: a cave with a mouth is "outdoors"
+
+**This is the finding most likely to matter to another lane.**
+`World::freeze_underground_map` defines "outdoors" as *a flood fill from the
+top of the world through everything that is not `Solid` or `Powder`*. That was
+exactly right while no cave in this game had a way in. The moment one does,
+the flood walks in through the mouth and marks the whole system outdoors --
+and the consequence is total, not cosmetic:
+
+* the cave renders as **sky**, with the day gradient in it and **rain falling
+  inside it**;
+* `ground_datum` -- whose own doc says *"it does not skip a cave, because cave
+  air is not outdoors"* -- then grades every cell below a chamber as if the
+  chamber's ceiling were the ground, so the strata under a room draw as slabs
+  floating in mid-air.
+
+Both were in the first render of a finished room and neither is subtle.
+
+The fix is in `freeze_underground_map` and it restores the *previous* answer
+rather than inventing one: the flood now carries **how far under cover it has
+travelled** -- zero in the open air and through liquid, one per step anywhere
+the sky is not directly overhead -- and stops past `World::SKY_PENETRATION`
+(48 cells, twice `render.rs`'s own cave-light ramp, and more than double the
+20-cell reach of the deepest brow, which is the largest legitimately-covered
+place the unbounded flood used to reach). A 0-1 BFS over a deque, so the
+minima are exact and there is no heap.
+
+Before the rebuild every cave was sealed, so every cave was underground. What
+changed is that a cave now has a way in, and *"the sky can see this cell"*
+stopped being the same question as *"there is a path of air from here to the
+top of the world"*.
+
+---
+
+## 7. Three defects found by rendering, each with its mechanism
+
+None of these was visible in any counter, and all three came out of looking at
+one frame.
+
+* **Lenses left floating.** `pockets` writes sand and gravel through the
+  massif and `Carvable` forbids carving them *or the two cells of rock around
+  them*, so a lens inside a dome survived as an island hanging in the void,
+  rock rind and all, with stalactites hung underneath it. Routing around a
+  lens is right for a big one -- that is a passage narrowing past an
+  incompetent bed -- and wrong for a small one, which a falling roof takes
+  with it. Pockets under 3,000 cells and clear of the envelope edge are now
+  swallowed **whole** (taking half of one leaves the other half loose against
+  a free face, which the seal assertion caught on the third world), and
+  anything the carve still leaves enclosed by void goes with `drop_islands`.
+* **A drawn passage is not a connected one.** `chain_rooms` cut a keyhole
+  along every edge of a spanning tree over the rooms and the void still came
+  out in **seven pieces on one seed** -- a conduit's section is clipped per
+  cell to carvable rock, and where the route grazes a lens the narrowing can
+  go to nothing. Two repairs: the path search now runs on a mask eroded by the
+  *narrowest* section a conduit can cut (eroding by the widest was tried and
+  closed the massif off entirely -- `conduits 1` for four rooms), and whatever
+  is still separate afterwards is welded and **counted** (`pieces`, `welds`).
+* **Six-hundred-row needles.** Formation length is drawn from the local open
+  span, the rebuild took that from tens of rows to four hundred, and the first
+  big chamber had hairlines hanging the full height of it -- the owner's
+  *"they are all 1 pixle thick"*, made worse by a change that never touched
+  that code. §7 of the design asks for a minimum aspect enforced by
+  *shortening*; `SPELEO_MAX_ASPECT` is that, at nine times the formation's own
+  drawn base width.
+
+---
+
+## 8. What the counters say, and why they are there
+
+`vaults detail` now prints, per world:
+
+```
+vaults detail: systems 1/1 rooms 2 pillars 3 conduits 2 mouths 1
+  | collapsed 96338 lintel 1873 swallowed 0 capped 0d/2l pieces 1 welds 0
+  | room med 522x308 max 522x308 | ...
+vaults mouths at: 2826,252
+```
+
+Every one of those exists because a picture cannot show it. Three are worth
+naming:
+
+* **`mouths` counts mouths that reached daylight, not attempts.** It counted
+  attempts first: the breakout was recorded as a mouth whatever point it
+  stopped at, so a run that hit the envelope wall two hundred rows underground
+  printed `mouths 1`. That is this repo's most-recurring failure -- a number
+  that is arithmetically correct and about a different question.
+* **`capped Nd/Ml`** counts domes stopped by `MAX_DOME_RISE` rather than by
+  the rock, and lenses stopped by their volume budget rather than by the cost
+  field. A cap that bounds work is fine and a cap that decides the answer is
+  the landmine `CLAUDE.md` names twice; counting how often each binds is the
+  only way to tell them apart. At the shipped settings `domes_capped` is
+  **0 on almost every world**.
+* **`pieces`** is what *"chained together so you can walk directly from one to
+  the other"* is actually about, and `conduits` cannot answer it (§7).
+
+`vaults mouths at:` prints the coordinate because a cave's position is a draw
+and a hardcoded one goes stale -- `viewshot vault=1` learnt that the hard way.
+`viewshot at=<x>` frames an opening from it.
+
+---
+
+## 9. The size distribution, and the round it took to get it right
+
+**The first build put a big room in every system and the owner's verdict was
+that they were all too big** -- *"these all look huge. Huge sometimes more
+rare is good, but they should not all be this large."* That is the same
+complaint as *"this is way too small"*, one iteration later and from the other
+side: the number moved and the *shape* did not. `CLAUDE.md`'s first law is
+that an outcome is a distribution rather than a binary, and a size everything
+shares is a binary wearing a number.
+
+What was wrong was not the size, it was that it was a **setting**. The first
+build forced the first room of every system into the top of the range, and it
+did that for a real reason: sites are rejected against each other by their own
+extents, so a big room needs a lot of clear envelope and is rejected far more
+often than a small one -- draw order truncates the distribution toward small,
+and a free draw produced systems whose biggest room was 85 cells across.
+
+The fix is not a forced size, it is **placement order**: draw every width up
+front, sort descending, and place the biggest first, so the largest room gets
+first pick of an empty envelope and the truncation falls on the small ones,
+where it does not matter. `ROOM_BANDS` is then a plain mixture:
+
+| band | across | in "small rooms" (145) | share of draws | measured, 4 seeds |
+|---|---|---|---|---|
+| small | 150-320 | 1.0 - 2.2x | 62% | 53% |
+| medium | 320-520 | 2.2 - 3.6x | 26% | 27% |
+| large | 520-720 | 3.6 - 5.0x | 9% | 13% |
+| **huge** | 720-950 | 5.0 - 6.5x | **3%** | 7% |
+
+The measured column is a fifteen-room sample and is stated as such; the
+per-band count is printed by `vaults detail` (`bands a/b/c/d`) on every world,
+so the distribution can be censused rather than taken from this table. **The
+shares are the reviewable object here, not any one room**, which is why they
+are written as an explicit mixture rather than as an exponent on a unit draw.
+
+---
+
+## 10. Smoothing, without going back to a drawn shape
+
+*"The opening is fine. Everything should be smoother."* Two causes, and the
+fix has to leave the shape the collapse made or the whole claim of the
+generator goes with it -- *"slightly modified circles or ovals"* was rejected
+by name, so fitting an ellipse to a room is not available.
+
+* **The tool marks.** A room whose boundary is where a collapse stopped has a
+  one-cell staircase everywhere the ceiling changed bed. `smooth_walls` is a
+  **majority vote over a 7x7 window** -- a filter over the shape the physics
+  produced, not a replacement for it. It fills a notch and shaves a spur of up
+  to three cells and leaves every feature wider than the window exactly where
+  it was; the pillars (ten cells and up), the arches through them (thirteen
+  across) and the passages (eleven and up) all pass through untouched.
+  Additions are clipped to carvable rock like everything else, so it cannot
+  smooth its way through the seal.
+* **Straight walls, which were not tool marks at all.** The lens flood was
+  clipped to the room's nominal box, and with `BEDDING_ANISOTROPY` at 3.4 the
+  flood's own iso-cost contour is *wider* than that box is -- so the clip, not
+  the rock, set the outline, and the room came out with dead straight sides.
+  Giving the box half again the nominal half-width makes the budget the
+  binding constraint, and the outline is then a contour of the cost field.
+  **A box nothing drew still looks drawn.**
+
+---
+
+## 11. What I could not establish, and what is left
+
+* **Whether the room sizes are the ones the owner meant.** The bar was read as
+  linear extent (`cave-redesign` §8.1): 435-1015 across, from a room he called
+  small at 145. The generator's *largest room per system* runs median ~520 and
+  reaches 660; the median room over all of them is smaller, because a system
+  is a cathedral with smaller rooms hung off it rather than a row of equals.
+  That is a judgement call and it is on the review cards.
+* **The collapse is a single upward sweep, and a real one is iterative.**
+  Charging each ceiling cell for its distance to the nearer abutment is the
+  better statics and produces **no dome at all** in one sweep -- the middle
+  fails, the row above sees a narrower run, and it closes. Recorded at the
+  call site so it is not rediscovered. What ships charges the whole run and
+  bounds the result by `DOME_ASPECT`, which is a shape rather than a budget
+  but is still a rule about the answer rather than about the rock.
+* **`welds` reaches its cap of 12 on some seeds**, which means the void was in
+  more pieces than the repair could join and the system stayed fragmented.
+  Rare, counted, and the number to watch if a card comes back saying a cave
+  dead-ends.
+* **The lintel writes up to 17,000 cells of hillside as rock** on a long
+  entrance run. It is invisible from outside (it is a lining, under the soil)
+  but it is a lot of writing, and in a world as flat as this one an entrance
+  is a long shallow adit rather than a mouth in a cliff. **The right fix is
+  upstream**: W1's relief gives a mouth somewhere to open, and this should be
+  re-measured after it lands.
+* **The formations are still the weakest thing in the picture**, exactly as
+  the owner said (*"not at all the main issue"*). The aspect cap stops the
+  needles; it does not give them a profile.
+
+---
+
+## 12. Round three: the passages, the middle of the range, and a bug
+
+Three verdicts on the second set of cards, and the first is the only
+unambiguously positive thing said about worldgen in this programme:
+
+> *"This is worlds better than our previous iterations. Thank you. Still needs
+> some work. The tunnels and caves are too boxy. They read more planned than
+> natural, especially the tunnels."*
+
+> *"small tunnels leading to huge caverns. There should be more smaller
+> caverns too."*
+
+> *"In all these test images I am being shown, there are some spots where it
+> looks like background (sky) is coming into the cave."*
+
+### 12.1 Why the tunnels read as planned: because they were plans
+
+**A shortest path on a square lattice is a straight line.** The conduits
+minimise a sum over a grid, so they have no reason to wander and come out as
+straight runs meeting at angles -- which is exactly what a plan looks like,
+and the owner read the algorithm off the picture.
+
+The cure has to be in the **field**, not in a filter afterwards: rounding the
+corners of a straight tunnel gives a straight tunnel with rounded corners. So
+the per-cell traversal cost carries a low-frequency roughness (`WANDER`, at a
+90-cell wavelength -- a few passage widths, so a detour is genuinely cheaper
+than the straight line over a stretch long enough to be a bend rather than a
+wobble). A second term: the bore's radius rides its own slow wobble along the
+run, half as wide at its narrowest and half again at its widest, because a
+tube of one radius is a pipe however the route bends.
+
+### 12.2 The size range was bimodal, and the bands now say so
+
+*"Small tunnels leading to huge caverns"* is a description of a distribution
+with a hole in the middle: at four bands starting at 150 cells there was a
+passage or a hall and nothing between. Two bands were added below, and the
+smallest is the one that was missing:
+
+| band | across | in gnome-heights | share of draws |
+|---|---|---|---|
+| **cell** | 60-140 | 4-10 | 30% |
+| **chamber** | 140-300 | 10-21 | 34% |
+| **hall** | 300-500 | 21-36 | 22% |
+| **great** | 500-720 | 36-51 | 11% |
+| **cathedral** | 720-950 | 51-68 | **3%** |
+
+Rooms per system went from 3-6 to 4-9 with them, because the small ones cost
+almost no envelope and a three-room system cannot show a distribution at all.
+Measured over four `rolling` seeds, thirteen rooms: **4 cell / 3 chamber /
+2 hall / 3 great / 1 cathedral** -- every band occupied. `vaults detail`
+prints the count per band on every world, so this is censused rather than
+asserted.
+
+### 12.3 The sky in the cave was the renderer, and the cause was my own fix
+
+**Discriminated before it was touched, as it should be**: the wide-context
+frames show rock on every side of the affected chambers, so the void was not
+breaching to open air -- the cells were being *drawn* as sky.
+
+The cause is §6's own fix, one level down. `freeze_underground_map` treated a
+cell as uncovered when it is at or above **its own column's** topmost ground,
+and a shaft cut down from the surface has no ground above it -- so every cell
+of the shaft answered "uncovered", the flood spent none of its budget
+descending, and it arrived at a chamber hundreds of rows down with the whole
+allowance intact.
+
+**Two rules were written before the right one, and they are wrong in opposite
+directions.** The obvious repair is to ask about the ground *around* the
+column instead -- the shallowest within twenty-four either side -- and that
+blackens a **deep valley**, because a valley floor is far below the ridge
+beside it and has perfectly good sky over it. `render.rs`'s
+`the_per_cell_map_never_turns_open_sky_into_cave` exists for exactly that
+trade and goes red for it.
+
+What separates a canyon from a shaft is neither depth nor the neighbours: it
+is the **aperture**. At a given row, how wide is the run of columns open at
+that row? A canyon is hundreds and is open country however deep it is; a shaft
+is a dozen and is a hole. So a cell is uncovered when the opening it sits in
+is at least `World::SKY_APERTURE` (20) columns across, and past that the cover
+budget starts running. `SKY_PENETRATION` came down from 48 to 32 with it.
+
+**The guard was watched going red before its green was cited**: with
+`SKY_APERTURE` set absurdly high -- nothing counts as open -- the test fails,
+and at the shipped value all 78 render tests pass. A guard whose green is the
+default state is not evidence.
+
+**That is the second time this session a rule keyed on a column has been wrong
+about a hole in that column**, and it is worth stating as a shape:
+`sky_surface` answers *"is there anything above me"*, and both of these needed
+*"is there any sky over this piece of ground"*. `ground_datum`'s own doc
+records the same distinction being needed for terrain shading.
+
+---
+
+## 13. Gates
+
+All green on the head this report describes: `cargo test --lib` (**1,084
+passed / 0 failed / 54 ignored**, 879 s), `cargo +1.98.0 clippy --all-targets
+-- -D warnings` (clean -- and the container's own clippy is 1.94, which
+accepts three lints CI's 1.98 rejects, so the pinned toolchain is the one that
+counts), `bash scripts/acceptance.sh` (every case) and `cargo run --release
+--example ascii` (31 scenes, 0 skipped). `bash scripts/docscheck.sh` reports
+one thing: this report is not indexed in `Reports/README.md`, which this lane
+was told not to edit -- **the coordinator has to add that line**.
+
+**One acceptance note worth keeping.** Run while the box was carrying a
+sixteen-seed census and a debug test build, `ligament`, `rockdrop` and
+`lavadrop` all failed their 60 ms worst-frame budgets (68.6, 66.1, 117.8 ms);
+re-run on a quiet box, every case passed. That is `CLAUDE.md`'s own rule
+arriving on schedule -- *a wall-clock assertion is a flake generator*, and *a
+timing number is only as trustworthy as the box was quiet*. Nothing in this
+change touches those scenes.
+
+## 14. The minimum world a cave fits in, and the edge of the envelope
+
+*Added 2026-08-30, from repairing red CI on PR #148. Nine tests in
+`tests/worldgen.rs` were failing; every log line read
+`vaults detail: systems 0/0`.*
+
+### 14.1 The generator has a minimum viable world size, and it is large
+
+**Nothing in this report or in the source stated it, and it is the first
+thing a future session needs.** `passes::vaults` refuses a placement outright
+when even the *minimum* envelope will not fit -- the same rule that has always
+declined to put a cave in a world too shallow to hold one -- and the rebuild
+took that minimum from **220 x 88 to 380 x 260**. So:
+
+| | needs |
+|---|---|
+| columns | `MIN_CAVE_HALF_W + VAULT_RIND` = **382 clear either side of the placement**, so a world under ~765 columns can never hold a system, and one under ~1,500 rejects most draws |
+| rows | a depth band `(bedrock_top_y - vault_bedrock_margin) - (surface_y + vault_min_depth)` of at least `2 * (MIN_CAVE_HALF_H + VAULT_RIND)` = **524 rows** |
+
+The rows are the binding term at any test-scale world. Measured on `rolling`
+at 2048x640 with `PP_CAVE_WHY` instrumentation on the placement loop: the
+depth band yields a half-height of **11-53 against the 260 required, on every
+one of the six placement tries**. The width binds too, on about two tries in
+three, but no width would have saved a 640-row world.
+
+**`cave.rs`'s own constants are not what rejects.** `MIN_ROOF_COVER` (90) and
+`MAX_DOME_RISE` (170) are never reached -- the envelope is refused in
+`passes.rs` before a room is ever sited. Anyone reading `systems 0/0` should
+look at `env.half_w < MIN_CAVE_HALF_W || env.half_h < MIN_CAVE_HALF_H` first.
+
+Worlds placing a system, at `tests/worldgen.rs`'s forced parameters
+(`vault_density: 4.0`, `vault_min_depth: 40`), 8 seeds per cell:
+
+| | rolling | canyon | wetland |
+|---|---|---|---|
+| 2048 x 640 | 0/8 | 0/8 | 0/8 |
+| 2048 x 900 | 2/5 | -- | -- |
+| 2048 x 1100 | 8/8 | **5/8** | 8/8 |
+| 2048 x 1300 | 8/8 | 8/8 | 8/8 |
+
+canyon is the binding preset. `CAVE_BOUNDS` is now **2048 x 1300**, a clear
+step above where canyon is still marginal.
+
+### 14.2 The seal's guarantee had a hole at the envelope's own edge
+
+**A live crash at the shipped size and the shipped density, not a test-only
+one.** `Carvable::build` erodes its rock bitmap by `VAULT_RIND`, and `erode`
+clamps its window at the grid border (`x.saturating_sub(rx)`). So a cell two
+columns inside the envelope's edge was only ever asked about *the part of its
+rind that is inside the envelope*; the two columns beyond it, which no stage
+looked at, are whatever `pockets` put there. `cave_system`'s seal assertion
+then fires on a rind cell it correctly reports as `inside=false`:
+
+```
+cave system k=67 at (1325,857) env 638x487: rind cell (-640,34)
+  world (685,891) is "gravel" inside=false | void-neighbour at (-638,36)
+```
+
+Rate, `vaults` at 8192x2560, 16 seeds per preset, **shipped `vault_density`**:
+**canyon 1/16 worlds panic**; rolling, wetland, arid, terraced 0/16. At the
+tests' forced density 4.0, canyon and wetland both panic 1 in 8. It is not
+cosmetic either way -- soil and gravel are `Powder`, so a lens two cells from
+a room wall pours in on frame one, which is `dead-ends.md` #28.
+
+**The repair is in `Carvable::build`, not in the assertion.** A band pass over
+the cells within `VAULT_RIND` of the envelope edge asks the *world* directly,
+using the seal's own predicate (`Material::rock`), and clears `ok` where the
+answer is no. ~10k cells against the envelope's 1.6M, so it is free. It
+**narrows the mask and never widens it**, and only at the edge.
+
+`erode` is left clamping, deliberately: `ok_tube` erodes by the tube's whole
+section, and a false border there would refuse routes the per-cell clip
+handles correctly. Its doc comment now says so.
+
+**Shipped behaviour is unchanged, and this is the proof**: `cave_probe
+seeds=16` per preset at 8192x2560, before and after. Every line of rolling,
+terraced, wetland, arid and flat is **byte-identical**. canyon has no "before"
+to compare -- the run crashed. After, it censuses 80 systems over 16 seeds,
+0 worlds with none.
+
+### 14.3 What a world with caves in it then said about the guards
+
+**`CAVE_BOUNDS` at 640 rows meant four guards had never once seen a cave
+system.** They were not merely quiet -- they were green, with their own
+"vacuous" counters satisfied, because the *vug* path survives in a world too
+shallow for a system. Measured at 2048x640 with the tests' own forced
+parameters:
+
+| | carved cells | widest roofed run | seal breaches | soil saturation |
+|---|---|---|---|---|
+| `rolling` seed 1 | **0** | -- | -- | -- |
+| `wetland` seed 4 | 8,488 -- **one geode vug** | 6 | 0 | unchanged |
+
+A vug is a sealed ellipse in intact rock, so it satisfies every one of these
+invariants trivially. That is what the guards were reading.
+
+**Given a world with a system in it, four fail -- and they fail at the
+shipped 8192x2560 too, so none of them is an artifact of the test world.**
+The right-hand column is the answer to the only question that matters here:
+
+| the guard's claim | its bar | 2048x640 (old) | 2048x1300 (new) | **8192x2560 (shipped)** |
+|---|---|---|---|---|
+| no roofed run of carved open cells over 36 | 36 | 0 / 6 | 106 | **56-294, on 8 of 8 `wetland` seeds** |
+| every carved cell was intact rock before | 0 | 0 | 13,224 | **7,492-18,793, on 8 of 8** |
+| nothing moves in the 120 frames after generation | 0 | 0 | 737, all water | **3,189-5,353, all but one water** |
+| no soil cell's saturation changes | exact | 0 | 8 drier on 1 seed in 5 | **4 drier on 1 seed in 8; 0 WETTER on any seed, at any size** |
+
+`cave_probe`'s own 16-seed census agrees on the first row independently: the
+**median** widest ceiling span at the shipped size is 156 on `rolling`, 138 on
+`terraced`, 153 on `canyon`. The 36 is exceeded fourfold by the typical world,
+not by an outlier.
+
+So each of the four is a real property of the shipped generator, and three of
+them are the rebuild doing what it was rebuilt to do:
+
+- **`a_forced_cave_world_keeps_every_roof_span_bounded`** restates
+  `MAX_CEILING_SPAN = 36` and the stone teeth that dropped from a longer run.
+  **Neither exists in the source any more** -- grep finds no
+  `MAX_CEILING_SPAN`, and `carve_cave_void`, which the test names as the
+  enforcer, is gone too (three doc comments in `passes.rs` and three in
+  `tests/worldgen.rs` still point at it, one of them explaining the pass's
+  quadratic cost by "once per tooth dropped"). The rebuild's answer to a roof
+  wider than a bed can span is a **pillar**, and the owner's verdict on the
+  result was *"worlds better than our previous iterations."*
+- **`a_forced_vault_world_is_sealed_and_arrives_at_rest`**'s seal half asserts
+  off a paired diff that every changed cell was intact rock beforehand. The
+  breaches are entirely the rebuild's two declared exceptions, and they are
+  named in `cave.rs`'s module doc: `take_touched_pockets` swallowing a small
+  lens whole (`gravel -> empty` 4,471, `sand -> empty` 7,237 on `rolling`
+  seed 1 at the shipped size) and the mouth's lintel turning hillside to rock
+  (`soil -> limestone` 265, `soil -> sandstone` 336, `soil -> stone` 44).
+  The property itself is now asserted **inside the pass**, on every world
+  these tests build, with `breakout` as the named exemption -- and that
+  assertion is what caught 14.2's crash.
+- **`vault_water_cannot_wet_the_massif_around_it`** rests on "a chamber 40+
+  rows into solid rock has nothing within reach it could wet". Every system
+  now daylights and carries a lintel under soil, so the premise is gone.
+  **But the claim in its title still holds exactly**: across 8 shipped seeds
+  and 5 seeds at three test heights, **not one soil cell anywhere got
+  wetter**. What moves is 4-8 cells getting *drier* on about one seed in
+  eight -- a void near soil changing the moisture distance transform, which
+  is the opposite of the failure the test is named for. The assertion is
+  `assert_eq!` on saturation, which is stricter than the claim above it, and
+  the extra strictness is the whole of the failure.
+
+The fourth is the one where the guard is asking the right question:
+
+- **`a_cave_system_survives_a_pocket_lens_inside_its_envelope`**'s at-rest
+  half. 3,189-5,353 cells move within 16 of a carved system in 120 frames at
+  the shipped size, and they are **water**. It is not a drain and not a level
+  drop: measured on `rolling` seed 1, the pool goes **26,888 -> 26,881 cells
+  (-0.03%) with its top and bottom rows identical at 402 and 1094**. What
+  moves is ~3% of the cells, at the margins, redistributing fill -- and
+  `render.rs` dims a liquid toward black by fill, so those are the invisible
+  ones. The waterline itself is written level by construction, one global row
+  per system (`passes.rs`, "the aquifer waterline"), and the measurement says
+  that construction holds.
+
+  So the honest reading is a **fringe** effect rather than an off-level pool,
+  and `CLAUDE.md`'s own liquid rule is what the guard trips over: *measure
+  column volume, not the topmost cell -- near-empty cells fringe every
+  artifact*, and *prefer a continuous quantity over a count of bad cells*.
+  An exact-zero count of moved cells is the instrument that rule warns
+  against.
+
+### 14.4 And one failure that is neither the world nor the rebuild
+
+**`a_generated_world_grows_a_spring_that_actually_runs` is a per-seed bar on
+three hand-picked seeds, and W1 reshuffled which seeds land badly.** It builds
+`canyon` at the shipped size on seeds 1, 7 and 42 and asserts `drained > 0`
+per seed; seed 1 now reports `emitted 4500000 drained 0 throttled 0`, and
+still 0 at 3,600 frames, so it is not a budget.
+
+The rate did not move. Canyon, 17 seeds, 900 frames, worlds whose spring
+reaches no sink:
+
+| | |
+|---|---|
+| `PIXEL_PHYSICS_RELIEF=0` (pre-W1) | **2/17** -- seeds 4 and 9 |
+| W1 on | **3/17** -- seeds 1, 5 and 10 |
+
+So it is a pre-existing ~12% outcome that the seed choice used to miss, which
+is exactly the shape `CLAUDE.md` warns about: *which seed is worst reshuffles
+on any legitimate change, so a per-seed baseline gets rubber-stamped.* The
+same test already gates its plunge-pool claim as an order statistic for that
+reason; `drained` was left per-seed.
+
+**The mechanism, since it is worth having written down.** On seed 1 the
+outlet sits at (3915, 344), 18 columns *behind* the lip on the shelf side, and
+the two drain clusters go down the falling side at x 3894-3898 and 3770-3774.
+The water goes the other way: it pools at **x 4024-4109, 26 cells deep** --
+past the far end of the 40-column cut basin, on the shelf. `springs` requires
+the shelf to sit within `SPRING_BASIN_RIM` of the lip only across the basin's
+own width; beyond it the ground may fall away, and there the pool spills
+backwards instead of over the lip. Draining the other side is not the fix on
+its own -- the source basin is on that side, and a drain inside it would empty
+the source pool the same card asked for.
+
+### 14.5 What each of the five turned out to be, and what was done
+
+*Added 2026-08-30, closing the five. Every figure below is `rolling` unless
+named otherwise; the test-scale worlds are `CAVE_BOUNDS` (2048x1300) at the
+tests' forced `vault_density: 4.0`, and "shipped" is 8192x2560 at 1.6.*
+
+**Two of the five were one defect wearing two costumes, and it was neither of
+the two the split expected.** The at-rest failure was not the chamber pools:
+it was a **lake emptying into a cave entrance**. And the roof-span failure has
+a mechanism, a repair, and a measured reason the repair was withdrawn.
+
+| # | guard | what it was | what was done |
+|---|---|---|---|
+| 1 | `a_forced_cave_world_keeps_every_roof_span_bounded` | the shape backstops leave the roof in whatever bed they stop in, and one bed in four is mudstone | guard re-expressed against `bed_span`; the generator repair was **built, measured and withdrawn** |
+| 2 | at-rest | `ponds` fills a hollow whose floor the entrance passage opened | the entrance now lintels itself against water |
+| 3 | the seal | two declared exceptions, now three | rewritten to name them, tightened elsewhere |
+| 4 | `vault_water_cannot_wet_the_massif_around_it` | `assert_eq!` was stricter than the title | asserts the title |
+| 5 | the spring | a per-seed bar on a ~15% outcome | a sweep, after checking the placement |
+
+#### 1. The roof stops in the wrong rock, and the obvious repair costs more than it buys
+
+The finished world's roofed runs were censused against `cave::bed_span` of the
+rock actually over them, walked up past speleothems to the first real rock.
+Over five seeds at test scale: **every run that exceeded its bed's span was
+under mudstone** (42), the weakest bed in the massif -- 92, 67, 63, 59, 57, 46
+and 46 cells -- while runs of **106 under sandstone (143), 167 under stone
+(192) and 60 under basalt (308)** were all comfortably inside theirs. The roof
+is not too wide. It has stopped in the wrong rock.
+
+The mechanism is that `DOME_ASPECT` and `MAX_DOME_RISE` are statements about
+the **arch**, not about the rock, so wherever one binds the sweep halts at
+whatever row it had reached. Three stages that cut void *after* the room
+collapse -- `chain_rooms`, `open_floor` and `drive_mouth` -- are never asked
+the question at all, and a stage-tagged census of the raw void puts the widest
+residual runs squarely on them (98 cells all `open_floor`, 297 all conduit, 63
+all mouth).
+
+**The repair was built: `SPALL_REACH`, an additive allowance past
+`DOME_ASPECT` letting a roof fall on to a bed that can span the opening.** It
+works, and it is cheap:
+
+| | over-36 runs on rock that cannot span them | collapsed cells |
+|---|---|---|
+| without | 11 over 5 seeds | 61,894 / 48,836 / 33,454 / 66,136 / 8,330 |
+| `SPALL_REACH` 24 | **6** | 76,536 / 48,836 / 39,262 / 75,093 / 8,330 (+11% mean) |
+
+**And it was withdrawn, because it takes `speleothems_never_bridge_a_passage`
+from a measured max of 1.79 to 2.56 bridged formations per 100 columns of
+system span, against a 2.4 bar and a picket-fence ceiling of 2.78.** At 12
+rows it still read 2.41. Taller rooms are more formations reaching floor to
+ceiling, which is the artifact the A3 formation rebuild exists to avoid and
+which the owner has already ruled on once. **The roof invariant is not worth a
+wall of pillars**, and the trade is recorded in `Reports/dead-ends.md`.
+
+Two things were also tried and are worth not retrying: a **whole-envelope
+settling sweep** after every stage that creates void takes **134,000 cells in
+one system** at the shipped bounds and 257,000 unbounded -- the black pit;
+and **pillar pitch off the weakest bed** rather than the mean moves the worst
+run 92 -> 66 on one seed and 55 -> 73 on another, which is a trade rather than
+a fix.
+
+**So the guard carries the correction, and it is a correction rather than a
+loosening.** `MAX_CEILING_SPAN = 36` restated a constant and a mechanism
+(`carve_cave_void`'s stone teeth) that no longer exist, and at the old
+`CAVE_BOUNDS` it had never once seen a cave. It now asks the rebuild's own
+question -- *can the rock over this run hold it* -- per run, off the material
+the finished world has, and gates two pooled order statistics over the seed
+sweep, which is `CLAUDE.md`'s rule for procedural content:
+
+* **share of roofed cells standing on rock that cannot span them** -- worst
+  seed 6.4% (563 of 8,810), bar 15%;
+* **worst single run as a multiple of its own bed's span** -- worst 2.19x (a
+  92-cell run under mudstone), bar 4x.
+
+The pre-rebuild artifact this exists to catch -- a flat ceiling running the
+width of an envelope -- is 10-30x its bed and lands far outside both.
+
+#### 2. The at-rest failure was a lake, not a cave
+
+**The control settles it and nothing else did.** `rolling` at test scale,
+four systems forced, cells that changed material in the 120 frames after
+generation:
+
+| | seed 1 | 2 | 3 | 4 | 5 |
+|---|---|---|---|---|---|
+| as found | 1,469 | 6,179 | 1,730 | 8,816 | 0 |
+| lenses at 20x, **caves off** | 0 | -- | -- | -- | -- |
+| caves on, **`drive_mouth` off** | **0** | **0** | **0** | **0** | -- |
+| after the fix | **8** | 0 | 0 | 0 | 0 |
+
+Every moving cell was water, and the water was not the chambers': a run with
+the cave pools removed entirely still moved 1,469 cells, and a run with the
+*entrance* removed moved none. Dumping the world showed it directly -- on seed
+1 a lake stands at x 783-988, rows 419-462, and the entrance passage is cut at
+x 989-1011 over the same rows, touching it.
+
+**`ponds` runs after `vaults` and fills a hollow to the *planned* ground.** The
+entrance is the one carve licensed to break `MIN_ROOF_COVER`, and
+`carve_mouth_run` is not clipped to `Carvable` at all -- it has to leave the
+rock to be an entrance. Cut through the bank of a hollow, it is a plug pulled
+out of a lake, and the pond pass cannot see the hole. `dry_shoulder` was the
+rule that was supposed to stop this and it tested the wrong thing twice over:
+the **exit column only**, against a +-40-column hollow test with ten rows of
+slack, which a two-hundred-column lake walks straight through.
+
+**The fix is the lintel the entrance already carries, extended to the other
+kind of cover it could not see.** `pond_levels` is split out of `ponds` so
+`vaults` can ask the same question of the same code, and every cell in the
+entrance's shell that `ponds` will fill is written as rock. A few cells of a
+lake's edge become rock; the passage stays where it is; the two are no longer
+connected.
+
+**Refusing the passage instead was built first, and the measurement is why it
+is not what landed**: banning the breakout from lake columns fixes at-rest
+identically and costs **half the world's entrances** -- 6 systems with a mouth
+over 8 `rolling` seeds at the shipped size, down to 3. A cave you cannot get
+into is the complaint this whole rebuild started from.
+
+**What is left is 8 cells and it is fringe, not a leak.** Two ceiling nooks in
+one chamber pool, at (1134-1136, 801-802) and (811-816, 831): 8 cells at 120
+frames, 8 at 400, 13 at 1,200, out of a 16,696-cell pool. `CLAUDE.md`'s liquid
+rule is what the old assertion tripped over -- *a `Liquid` cell holds
+continuous fill and near-empty cells fringe every artifact* -- so the at-rest
+halves now split by phase: **everything that is not a liquid must hold exactly
+still**, and a pool may shed up to `LIQUID_FRINGE` (40, five times the
+measured worst). A draining pool ran 1,469-8,816 on the same seeds, so the bar
+is a bound on the fringe and not a licence for a leak.
+
+#### 3. The seal now names what the rebuild writes over
+
+The old form was *every cell the pass wrote was intact rock before*, full
+stop, written against a generator with no entrance that swallowed nothing.
+Rewritten to name the exceptions by **what the cell was**, so anything else
+still fails:
+
+* a **swallowed pocket** -- `sand` or `gravel`, the loose lens the carve ran
+  into and took whole (`Reports/dead-ends.md` #28 is the alternative);
+* **hillside soil** the entrance cuts and lintels;
+* **standing water** the entrance lintels, from §14.5's own fix -- and this
+  one is asserted with its direction: a liquid may only ever become **rock**,
+  never open cave.
+
+Over fifteen worlds: `gravel -> *` and `sand -> *` run 1,400-5,400 cells each
+and `soil -> *` 5-1,920, against diffs of 120,000-674,000 cells -- most of
+which is the **shade halo** an opened void puts on the rock around it.
+
+That halo is also why the flush half changed. It asked every changed cell's
+neighbours to have been intact rock, as a proxy for *nothing can flow in* --
+but most changed cells are not open cave at all, and a halo cell may sit
+beside a pocket the cave never came near. For the things that flow the proxy
+is also **weaker than what this test already does next**: the at-rest half
+steps the built world for 120 frames and asks whether anything actually moved.
+So the flush check keeps the case 120 frames cannot see -- a **liquid** at a
+free face, exact and zero -- and the powders are left to the direct
+measurement.
+
+#### 4. The moisture guard asserts its own title now
+
+`assert_eq!` on saturation was stricter than *water sealed in a chamber is
+moisture-inert*, and the rebuild broke the premise rather than the claim:
+every system daylights, so its entrance runs under soil and its lintel turns
+hillside into rock, and the moisture distance transform reads the void either
+way. Measured across `rolling`, `canyon` and `wetland` at test scale and 8
+seeds at the shipped size: **not one soil cell anywhere got wetter, on any
+world, at any size.** What moves is cells getting **drier** -- 0 to 9,605 per
+world, worst delta -762 of a 1,000 scale -- which is the opposite of the named
+failure. The assertion is now the claim; the drier count is printed rather
+than gated, because gating it would be a per-seed bar on where an entrance
+happened to land.
+
+#### 5. The spring became a sweep, after the placement was checked
+
+**The placement was checked for a cheap repair first, and there is not one.**
+The mechanism is known: on seed 1 the outlet sits 18 columns behind the lip
+and the water pools on the shelf side, past the far end of the 40-column cut
+basin, where the ground falls away again. `springs` requires the shelf to
+stand within `SPRING_BASIN_RIM` of the lip only across the basin's own width,
+so an inland backstop is the obvious gate. Built and swept over 17 canyon
+seeds at the shipped size:
+
+| inland backstop | worlds with no sink | worlds with no spring |
+|---|---|---|
+| none | 3/17 | 0/17 |
+| 40 columns | 3/17 -- **byte-identical, the gate never fires** | 0/17 |
+| 120 columns | 3/17 -- byte-identical | 0/17 |
+| 240 columns | **0/17** | **8/17** |
+
+It works and it costs half the world's waterfalls. A world with no waterfall
+is worse than one whose waterfall fills a tarn instead of a drain, so the gate
+was withdrawn and the bar became a sweep -- which is `CLAUDE.md`'s rule for
+this shape anyway, and which the same test's plunge-pool claim had already
+been converted to for the same reason.
+
+Nine seeds, and **every claim reads all nine**. `emitted > 0` and the throttle
+ratio stay per-seed because they are structural -- a walled outlet is the same
+defect in every world that has one. `drained` and the source-pool width are
+order statistics: measured **7 of 9** each (widths 18/20/10/21/19/19/11/20/12,
+sinks on all but seeds 1 and 5), bars at 5 with the headroom `CLAUDE.md` asks
+for and a systemic break landing at 0-2.
+
+#### What is still red, and what it is
+
+**`a_forced_vault_world_is_sealed_and_arrives_at_rest`, `rolling` seed 2: 95
+liquid cells against the 40-cell fringe bar.** It is the same class as the
+defect above and the lintel does not reach it. Two clusters, at x 624-670 and
+x 1045-1114, rows 446-480, with 104 cells arriving at rows 488-594 below them
+-- water falling out of a basin into something open underneath. Rendered as
+ASCII it is a one-cell-wide thread of water in a V-shaped notch draining into
+a cavity ten to twenty rows below it.
+
+**The bar was deliberately not widened to cover it.** 40 is five times the
+worst *fringe* measured (8 cells, two ceiling nooks in a chamber pool, stable
+at 8 / 8 / 13 over 120 / 400 / 1,200 frames); 95 is a drain, and a bar that
+admits it would stop this guard seeing the next one. The number to hold it
+against is the one it started from: **6,179 cells on this seed**, so what is
+left is 1.5% of the defect.
+
+**One repair was tried and made it worse, so start after it.** `ponds` fills
+`pool ..= surface_y - 1`, and `carve_mouth_run`'s guard skips only
+`wy < surface_y - 1` -- so the lowest row of every lake in a column falls
+through the guard and is *opened* rather than lintelled. Lintelling it too
+looks like the obvious close and measured **20 / 199 / 75 / 149 / 26 cells
+moving against 8 / 95 / 0 / 0 / 0**: a plug of rock in the passage at the
+lake's own level dams it and displaces water rather than sealing it.
+
+**Measured and closed 2026-08-30 -- see 14.6.** The 95 read 95 / 95 / 95 at
+120 / 400 / 1,200 frames, so it is not a drain; and it is **100% of the
+fourteen water bodies it came out of**, so it is not fringe either. It was a
+film of pond written on to the mouth itself, outboard of the lintel, with open
+cave under every cell. `ponds` now declines a cell with nothing under it. The
+paragraph below was the guess at the time and it aimed at the right place --
+"a basin floor opened further than the lintel reaches" -- but the hole is not
+further out, it is the entrance's own box, and the answer was at the pond end
+rather than the cave end.
+
+**Where to look next, in order.** The lintel covers the entrance's own shell
+(`carve_mouth_run`, `up + LINTEL_THICK` above the centre line and `half_w +
+side` either side). A basin floor opened *further* than that from the run
+centre -- by the shallow conduit that reaches the breakout's start, by
+`weld_pieces`, or by a swallowed pocket at the basin's own floor -- is outside
+it. The cheap next measurement is the stage-tagged void map §14.5 used for the
+roof spans: tag each void cell with the stage that set it, then print the tag
+of whatever sits under a basin the pond pass filled. Note also that
+`pond_leaks` -- refusing a basin whose flood escapes, measured and removed --
+*did* suppress this seed, which is what says the hole is on the cave side and
+not in `ponds`.
+
+#### The shipped census, re-run
+
+`cave_probe seeds=8` at 8192x2560, against §3.2:
+
+| | §3.2 | now |
+|---|---|---|
+| worlds with no cave | 0 | **0**, every preset that ships caves |
+| largest connected walkable region | 98% | **97-98%** (med, `rolling`/`canyon`/`arid`) |
+| widest ceiling span, median | 156 / 138 / 153 | 157 / 141 / 152 |
+| systems per world | 3.9-4.9 | 4.0-6.2 |
+
+**One number in that table is not what §3.2 claims and it did not move today.**
+*"Systems with a way in: all of them"* does not hold at the shipped
+`vault_density` on this build: measured over 8 `rolling` seeds, **6 systems of
+11 have a mouth, with the entrance change and without it alike** (2/0/0/1/0/1/
+1/1 mouths against 2/1/1/1/1/2/2/1 systems). That is a pre-existing gap
+between the report and the generator, not a regression from this work, and it
+wants its own look.
+
+### 14.6 The 95 measured, the film that made it, and the four failures behind it
+
+*Added 2026-08-30. Same test bed as 14.5 -- `CAVE_BOUNDS` (2048x1300) at the
+tests' forced `vault_density: 4.0`, weather held at `Weather::CLEAR`.*
+
+#### The measurement 14.5 asked for
+
+14.5 leaves a discriminator and does not apply it: **fringe is stable across
+frames, a drain grows.** Seed 1's 8 cells read 8 / 8 / 13 at 120 / 400 / 1,200
+out of a 16,696-cell pool, which is why they are fringe. Seed 2's 95, on the
+same instrument:
+
+| censused at | 120 | 400 | 1,200 | 3,000 |
+|---|---|---|---|---|
+| liquid cells that left their position | **95** | **95** | **95** | 109 |
+
+Not merely the same count -- the same cells, in the same four clusters
+(x 624-668 rows 446-448, x 1041-1114 rows 447-480), unchanged for 1,080
+further frames. The world is not frozen while that holds: `arrived` moves 104
+-> 105 and one landing cluster is replaced by another between 120 and 400. At
+3,000 the count reaches 109 through **two new clusters elsewhere in the
+world** -- 13 cells at x 434-440 row 801 and 1 at (1312, 862) -- which is a
+separate later event, not growth at these.
+
+**So by that discriminator it is not a drain. It is also not fringe, and the
+second half of the measurement is what says so.** Flood-filled 8-connected in
+the world as generated, the 95 cells are **100% of the water they came out
+of**: fourteen separate bodies totalling exactly 95 cells -- 45 over the west
+mouth, 23 and 15 down the two walls of the east passage, eleven more of one or
+two cells each -- and every one of the fourteen is at **0 cells and 0 volume**
+by frame 120 and stays there. Seed 1 was 8 of 16,696, 0.05%. Seed 2 is 95 of
+95.
+
+A share of the pool was the number that decided this. Taken as a share of the
+*world's* standing water instead, 95 of 63,007 is 0.15% and reads as nothing
+at all.
+
+#### What it was: a film of pond written onto the mouth
+
+Rendered as ASCII at frame 0, the west system is unambiguous. The lake stands
+at x <= 621. 14.5's lintel has walled it off -- rock at x 622-635 on row 446,
+x 622-625 on row 447, x 622-623 on row 448, a staircase following the bank
+down. **Outboard of that wall, on the cave side, `ponds` has written water
+anyway**: (636-668, 446), (626-635, 447), (624-625, 448), one row per column,
+with open cave underneath every cell of it. The east system is the same thing
+along a diagonal passage -- single cells at (1074, 447), (1077, 455),
+(1078, 458), (1079, 461) and so on down both walls.
+
+The mechanism is the one 14.5 names in passing and does not follow up.
+`ponds` fills `pool ..= surface_y - 1` per column -- the rows above the
+*planned* ground -- and `carve_mouth_run` opens everything from
+`surface_y - 1` downward inside its own box. So in any column the entrance run
+passes under, the ground the pond was going to stand on is not there. The
+lintel covers the run's **shell**; it cannot cover this, because these are
+cells that do not exist yet when it runs and are not in the shell when they do.
+
+**The repair is at the pond end, and it adds no rock.** `ponds` now fills a
+column from the floor up and declines any cell with nothing under it. Water
+stands on something or it is not standing water. Lintelling these cells is
+`Reports/dead-ends.md` and measured 20 / 199 / 75 / 149 / 26 against
+8 / 95 / 0 / 0 / 0 -- a plug at the lake's own level dams the passage; this
+cannot dam anything, because it only ever removes. Refusing the whole basin is
+the other recorded dead end (`pond_leaks`); this is that rule made per cell, so
+a hollow with a cave mouth in one bank keeps its lake and loses only the film
+over the hole. At `vault_density: 0.0` it changes nothing at all -- terrain
+fills every row at and below `surface_y`, so the support test can only ever
+fire where a carve has been.
+
+Paired, one build each, `wet` cells at 120 frames over the fifteen worlds the
+guard builds:
+
+| | rolling | canyon | wetland |
+|---|---|---|---|
+| seed 1 | 5 -> 3 | 0 -> 0 | 10 -> 5 |
+| seed 2 | **95 -> 1** | 0 -> 0 | 316 -> 222 |
+| seed 3 | 37 -> 0 | 42 -> 39 | 152 -> 0 |
+| seed 4 | 66 -> 3 | 221 -> 155 | 6 -> 1 |
+| seed 5 | 23 -> 20 | 117 -> 117 | 37 -> 0 |
+
+Eight worlds improve, none is worse. The seal check needed a third outcome
+named for it -- water may become rock under the lintel, or may never be
+placed -- and it is asserted rather than assumed: an empty cell whose support
+is intact is the vault deleting a lake and still fails.
+
+#### The guard stopped at the first world, and four more were failing behind it
+
+`a_forced_vault_world_is_sealed_and_arrives_at_rest` asserts **inside** its
+loop over fifteen worlds, so it stops at the first failure and every world
+after it is unevaluated. 14.5's "what is still red" reports one world because
+one world is all the run ever reached. With `rolling` seed 2 fixed, four more
+appear, in two classes that are not the one just closed.
+
+**Class 1, and 14.5's own hypothesis is right about it: chamber-pool surface
+fringe.** `canyon` 4 sheds 155 cells of a 21,053-cell body, `wetland` 2 sheds
+222 of 25,313, `canyon` 5 sheds 117 of 25,826. Both of 14.5's tests say
+fringe: the count does not move (canyon 4 reads 155 / 155 / 155 at
+120 / 400 / 1,200 and 160 at 3,000), and the body keeps itself (20,898 of its
+21,053 cells still standing at 3,000 frames). What sheds is the free surface,
+one cell per column the pool is wide, which is why a wider chamber sheds more.
+
+`LIQUID_FRINGE = 40` was five times a **count** taken on one 16,696-cell pool
+that happened to shed 8, so as a fixed number it is a bar on chamber width.
+It is now `40 + 2% of the 8-connected body the cells came out of`. The share
+is a little over twice the worst measured (0.88%, `wetland` 2) and a long way
+under every leak on record -- the lake-into-an-entrance defect ran 1,469 to
+8,816 cells out of bodies of roughly 9,000, which this bar puts at 220, and
+the airborne films above were 100% of theirs. **Checked by putting the fault
+back**: with the `ponds` repair reverted, `rolling` seed 2 fails the new bar at
+95 against 41.
+
+**Class 2, and it is what is still red: powder left at a free face by the
+carve.** `wetland` seed 2 loses **587 gravel cells** against the guard's
+`dry.is_empty()` half -- terrain, which no liquid bar reaches -- and `canyon`
+2 and `canyon` 5 lose one each. The control is decisive: **the same three
+worlds at `vault_density: 0.0` move zero cells of anything**, so it is the
+cave pass, not the terrain.
+
+`canyon` seed 2 is one cell and shows the shape. `pockets` puts a ~40-cell
+lens at x 612-628, rows 718-723, sloping down to the left. The carve takes all
+of it except the top two cells at (627-628, 718) -- which are a **separate
+4-connected group**, touching the rest only diagonally, and `swallowable`'s
+flood fill is 4-connected -- and opens the void at (627, 719) directly beneath
+them. On `wetland` seed 2 only **29 of the 587** movers start at a free face
+at all; the other 558 are the heap unravelling behind them, which is why the
+count is large and the defect is not. The next measurement to take is whether
+those 29 are lens cells the pocket walk split, or cave-floor gravel the floor
+pass's repose verifier laid over a lip it could not see -- the verifier's own
+doc records that exact failure once already, on `wetland` seed 1.
+
+
+#### The shipped census after the pond repair, paired
+
+`cave_probe seeds=8` at 8192x2560, the same binary either side of the `ponds`
+change and nothing else different. **Every number 14.5's table names is
+identical** -- 0 worlds with no cave on every preset that ships them, largest
+walkable region a median of 98% on `rolling`, `canyon` and `arid` alike,
+widest ceiling span 156 / 141 / 177, 4.6-6.1 systems per world, reachable-by-
+player 99%. Six lines out of 130 move at all, and they move by:
+
+| | before | after |
+|---|---|---|
+| `canyon` void cells | 1,372,364 | 1,372,348 (**-16**, 0.001%) |
+| `terraced` void cells | 1,581,908 | 1,581,919 (+11) |
+| `wetland` void cells | 1,529,876 | 1,529,902 (+26) |
+| `canyon` formations | 474 | 472 |
+| `canyon` true columns | 140 | 138 |
+| `wetland` formations at a waterline | 46 | 45 |
+
+Which is the change doing exactly what it says and nothing else: a handful of
+water cells near a mouth are no longer written, so they count as void instead,
+and one formation per world stops touching a waterline. Nothing about the
+rooms, the passages, the spans or the way in moves at all -- `ponds` runs
+after `vaults` and cannot reach them.
+
+### 14.7 The last two at-rest failures were two different bugs wearing one number
+
+*Added 2026-08-30 on `claude/worldgen-revamp-plan-dot67g`, off `322cfc2`. Same
+test bed as 14.5 and 14.6 -- `CAVE_BOUNDS` (2048x1300) at the tests' forced
+`vault_density: 4.0`, weather held at `Weather::CLEAR`.*
+
+14.6 closed the liquid half of
+`a_forced_vault_world_is_sealed_and_arrives_at_rest` and left its `dry.
+is_empty()` half red on three worlds: `canyon` 2 and `canyon` 5 losing one
+gravel cell each, `wetland` 2 losing **587**. It read them as one class --
+"powder left at a free face by the carve" -- and named `swallowable`'s
+4-connected flood fill as the mechanism. **That is right for the two, and it
+is not what `wetland` 2 is.** The 587 survive the pocket repair untouched.
+
+#### The census the guard cannot give you
+
+The assertion is *inside* the loop over fifteen worlds, so a run reports the
+first failure and says nothing about the fourteen behind it. Every table below
+is the same fifteen worlds evaluated to the end (a scratch copy of the guard
+that collects instead of asserting, run and deleted -- it is four lines of
+harness and would only rot in `tests/`):
+
+| | rolling | canyon | wetland |
+|---|---|---|---|
+| seed 1 | 0 | 0 | 0 |
+| seed 2 | 0 | **1** -> 0 | **587** -> 587 -> 0 |
+| seed 3 | 0 | 0 | 0 |
+| seed 4 | 0 | 0 | 0 |
+| seed 5 | 0 | **1** -> 0 | 0 |
+
+Three columns of numbers, in order: at `322cfc2`, after the pocket repair, and
+after the floor repair as well. **Failing worlds 3 -> 1 -> 0**, and the liquid
+half stays inside its bar throughout -- the worst is `wetland` 2 at 222 against
+546, and `canyon` 5 improves from 117 to 91 as a side effect of the pocket
+repair taking a little more gravel.
+
+#### The two cells: a pocket is a body, and bodies are 8-connected
+
+`canyon` 2 reduces to one cell and shows the whole shape. `pockets` lays a
+~40-cell gravel lens at x 612-628, rows 718-723; its top two cells at
+(627-628, 718) touch the rest **only diagonally**, so a 4-connected walk makes
+them their own pocket. `take_touched_pockets` scans the void **once**, before
+it empties anything, and at that moment nothing the carve cut is within
+`VAULT_RIND` of them -- the void that ends up beside them is the rest of the
+lens, emptied later in the same call. The lens goes, the pair stays, and
+(627, 718) slides down-left into the hole at (626, 719) on frame one.
+
+`swallowable` now floods at eight neighbours. **Both of the writers this reads
+back say eight**, which is `CLAUDE.md`'s standing gotcha (*a traversal must
+use the same neighbourhood the writer used*) in the one place the project had
+not yet applied it:
+
+* `pockets` rasterises a thin ellipse **rotated onto the bedding**, so a lens
+  tip pinches out into a diagonal staircase. That pass already carries this
+  exact finding against its own rind -- *"the rind above is an ellipse offset,
+  not a dilation, and powder moves at eight neighbours"* -- and 14.6's own
+  `pools_behind` repair is the same correction one stage over, where a
+  45-cell pond film read as **36 separate bodies**, thirty of them one cell.
+* the reader is the seal, which asks whether anything loose is left at a free
+  face. A grain slides into an empty **diagonal** as readily as into the cell
+  below, so "one grain leaving destabilises the next" propagates at eight.
+
+It also makes the single-pass take sound rather than lucky: two distinct
+8-connected groups are at least two cells apart, so emptying one can never
+leave the other at a free face. Four-connected that is false, and
+(627-628, 718) is the counterexample.
+
+#### The 587: a floor laid across another cave's ceiling
+
+Not a lens at all. The control settles it in one look: at `vault_density: 0.0`
+there is **no gravel anywhere near** x 843-905, rows 348-383 -- the whole
+band is written by the vault pass. It is a **cave floor**, and it is hanging
+in the air.
+
+`wetland` 2 has two overlapping systems. Instrumented at the carve:
+
+* **k=0** at (1264,719), envelope 645x437, opens a chamber and writes
+  (867, 378..384) as empty;
+* **k=2** at (496,584), envelope 479x347, overlaps it. Its mouth run -- *the
+  one carve in the module deliberately not clipped to the mask* -- drives
+  through the top of k=0's void, so k=2's own `void` mask reads **true** at
+  (867, 378..380) and **false** at (867, 381) and below.
+
+`cave_floor` then takes "per column, the bottommost vertical run of void" from
+k=2's mask, gets a run bottom at row 380, and fills upward from it. Underneath
+that bottom is not rock. It is k=0's open cave. The result is a diagonal
+gravel ramp ~27 cells thick lying along the passage, with nothing under its
+lower edge from row 375 down.
+
+On frame one the ramp's overhanging toe falls, and the rest arrives by the
+mechanism `update_powder` documents at `FLAG_UNDERCUT`: the vacancy rides the
+bottom-to-top sweep up the face, so a whole column empties per frame and the
+heap unravels from the toe upward. 29 cells start at a free face; 558 follow
+them. That is why the number is large and the defect is small -- and why
+reading 587 as "a lot of loose gravel" would have sized the wrong repair.
+
+**The repair is one predicate, and it is the same class of miss as the flank
+rule the verifier already carries, one level out.** `planned_solid` answered
+"is something holding material up here" from this system's `void` plan alone,
+so *"this system is not opening it"* was read as *"it is solid"*. It now asks
+the world as well (`passes::world_solid`): a cell another system already
+emptied is open, whoever emptied it. The verifier's own loop then does the
+rest -- the bottom fill cell in such a column is exposed on its diagonal, `h`
+goes to 0, and no gravel is written there at all. Nothing else changed; the
+rule was right and the state it consulted was partial.
+
+`Cell::OUT_OF_BOUNDS` is deliberately not empty, so the world's rim still
+reads as solid -- the same answer the envelope bound gave unconditionally
+before, and the right one.
+
+#### The shipped census, paired
+
+`cave_probe seeds=8` at 8192x2560, two binaries built from sources differing
+only by these two changes, one run each. **16 lines of 240 move.**
+
+Everything the previous two repairs were judged on is **byte-identical**: every
+`vaults mouths at:` coordinate in the file, every `systems N/M`, and every
+`rooms / pillars / conduits / mouths / collapsed / lintel / swallowed / capped
+/ pieces / welds / chambers / water` field of every `vaults detail` line. So is
+every census row: 0 worlds with no cave, 4.6-6.1 systems per world, largest
+walkable region a median of 98% (99% on `wetland`), reachable-by-player 98-99%,
+widest ceiling span 177 / 141 / 156 / 137 / 141, span across and down, tallest
+and median and p95 open column, walkable regions, contrast. **No entrance
+moved. No system was lost. No cave got harder to walk.**
+
+What moves:
+
+| | before | after |
+|---|---|---|
+| `canyon` void cells | 1,372,348 | 1,372,664 (**+316**, +0.023%) |
+| `wetland` void cells | 1,529,902 | 1,529,742 (**-160**, -0.010%) |
+| `terraced` void cells | 1,581,919 | 1,581,922 (+3) |
+| `arid` void cells | 1,405,834 | 1,405,836 (+2) |
+| `canyon` formations | 472 | 471 (79 crystal -> 78) |
+| `canyon` formation cells | 151,537 | 151,222 |
+| `wetland` formation cells | 179,033 | 179,006 |
+| one `canyon` world's `passages` | 29,174 | 29,423 |
+| two `wetland` worlds' `passages` | 37,083 / 20,760 | 37,819 / 20,761 |
+| ...and their `speleothems` | 12,828 / 27,276 | 12,513 / 27,249 |
+
+Which is the two changes doing what they say and nothing else. A pocket taken
+whole is a few hundred more cells of void on `canyon`; a phantom floor not
+written is a few hundred more cells of *passage* on the two `wetland` worlds
+with overlapping systems, and the one formation that had grown out of that
+floor goes with it. `rolling` and `flat` do not move at all.
+
+**One caution on reading the `void cells` rows**: `canyon` gains and `wetland`
+loses, which looks contradictory and is not. They are different quantities
+under one heading -- `canyon`'s gain is gravel that used to stand and now is
+not there, and `wetland`'s loss is the probe's own connected-network walk
+seeing a slightly different set of systems once a floor's worth of cells
+changed hands. Both are under a fortieth of a percent, and the shape rows that
+would say a cave had actually changed are all identical.
+
+#### What this does not close
+
+The `wetland` 2 mechanism is *two systems whose envelopes overlap*, and the
+repair here makes the **floor** honest about that. Nothing yet makes the rest
+of the pipeline honest about it: `cave_floor`'s run selection still picks the
+bottommost run in its own mask and then declines to fill it, where the truthful
+answer is that the column's floor is somewhere else entirely, in the other
+system. That costs a cosmetic gravel floor in a handful of columns per
+overlapping world and nothing more -- it cannot un-settle a world, because the
+verifier's failure mode is now to write *less*. Worth naming because the next
+person to wonder why an overlapped column has a bare stone floor should find
+the answer here rather than re-derive it.
+
+---
+
+---
+
+*Freshness: written 2026-08-30 on `claude/worldgen-caves`, off `47d6209`;
+14.6 and 14.7 added 2026-08-30 on `claude/worldgen-revamp-plan-dot67g`. Every figure is reproducible from `examples/cave_probe` at that
+head; the invocations are in the file's own doc comment. Same-build
+determinism holds and was checked; note `CLAUDE.md`'s warning that the release
+profile re-inlines on any recompile, so no figure here should be A/B'd across
+a build.*

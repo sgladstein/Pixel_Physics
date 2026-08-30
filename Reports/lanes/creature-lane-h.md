@@ -59,6 +59,19 @@ until the weather arms produced 2,870–6,316 moving pixels and a blizzard
 produced 13 moving decoys at 2 cells. The world these reports measure on is
 genuinely at rest; it is not a broken instrument.
 
+## The owner's verdict — answered
+
+Card `20260830T045018630Z-abf50b`: *"I can see them in both but it is much
+more obvious in the scene stepping."*
+
+Confirms the direction and the magnitude by eye. **It also corrects one
+inherited framing**: the appearance report is titled *why you cannot find an
+ant*, and the owner can — so the decoy count is a count of candidates the eye
+must reject, not a claim of invisibility. Recorded as §7b, with the card's own
+limits: 850 px at zoom 5, on a bare slope against sky, which is an easier
+picture than the 512x320 frame at 1x that the player actually looks at. The
+follow-up worth posting is the same comparison at play scale.
+
 ## Review card
 
 Posted as a **frame sequence** (the skill's own measured note: a GIF showed
@@ -66,12 +79,32 @@ the owner one static frame where a sequence played), with the still and the
 moving decoy counts in `meta`. Fire-and-forget; collect with
 `review.py inbox`.
 
+## Re-taken after main was merged in
+
+Another session merged `main` into this branch at `9323e2e`, bringing **#142**
+(ants starve, a birth grant), #145, #146 and #149. My three files were not
+touched by it. Every figure in the report was **re-taken on the merged head
+and is identical** — ladder, ambient motion, all four live seeds, the
+never-moved fractions.
+
+Identical output across a merge is the stale-binary tell, so it was checked
+rather than assumed: rebuilt after the merge (binary 05:43:34 against
+`creature.rs` 05:39:03) and the binary carries `birth_grant`, which exists
+only in the merged `ant.ron`. It is unmoved because this harness runs 600
+frames of founders — nothing hatches and nothing starves in that window, so
+#142's ledger changes cannot reach it. Recorded in the report as §7a,
+including that a colony run long enough to starve is where the never-moved
+fraction would be expected to move.
+
 ## Landing
 
 - **Head SHA** `c997c58` — *The decoy field is static, and an ant is not:
   motion measured*.
 - **PR** [#150](https://github.com/sgladstein/Pixel_Physics/pull/150),
-  opened from this lane.
+  opened from this lane and **merged** at head `9323e2e`. The post-merge
+  re-take (§7a) and the owner's verdict (§7b) missed that merge by minutes,
+  so the branch was restarted from `origin/main` and they are a **second**
+  PR — a merged PR cannot carry new work.
 - **Review card** `20260830T045018630Z-abf50b`, board `creatures` — one
   frozen frame against 20 stepping ones, still and moving decoy counts in
   `meta`. Fire-and-forget; collect with `python3 scripts/review.py inbox`.

@@ -3,10 +3,12 @@
 *What plants do, and what it looks like when they are working. No code, no
 file names — see `Reports/` for why any of it is built the way it is.*
 
-*Current as of: 2026-08-30 (a plant's inherited growth program has no fallback
-any more: a mutation that deletes a rule deletes the behaviour, rather than the
-plant quietly reverting to its species' version -- see **Individuals of one
-species differ too**. Before that: most of a felled tree's leaves now stay on the
+*Current as of: 2026-08-30 (growth programs now actually mutate often enough to
+see: a stand of one species carries a real minority running a different program,
+where before it was the species' program and nothing else -- see **Individuals
+of one species differ too**. Before that: a plant's inherited growth program
+lost its fallback, so a mutation that deletes a rule deletes the behaviour
+rather than the plant quietly reverting to its species' version. Before that: most of a felled tree's leaves now stay on the
 branch rather than only the layer touching it -- see **Cutting a plant down**;
 what breaks off a plant turns as it falls and goes over where it lands, instead of dropping in the pose it
 grew in; stems draw a line instead of wandering into one --
@@ -336,9 +338,21 @@ anything else — and a mutation that *removes* one removes it for good. The
 lineage does not quietly fall back on the way its species used to grow. That
 is what lets a line of plants reach a shape its species never had; it is also
 what lets a line inherit a body plan that does not work, which is a thing that
-can now happen. In practice you will not see it yet: plants breed slowly
-enough that a stand rarely gets past its great-grandchildren, so almost every
-plant on screen is still growing to its species' original program.
+can now happen.
+
+**And it happens often enough to see, which it did not until 2026-08-30.** A
+mature stand of a fast-breeding species carries roughly a third of its plants
+running a program that is no longer the one the species started with; the rest
+still grow the original way. That is the state to expect — a species with a
+minority of variants inside it, rather than either a stand of identical copies
+or a soup with no species left in it. It costs nothing you can see in the
+stand's health: as many plants get established, they set as many seeds, and
+they reach much the same size. The old wording here said you would not see it
+because plants breed too slowly for a lineage to get past its
+great-grandchildren; the generations were in fact there all along, and what was
+missing was the mutation. Slow-breeding species like the big trees still show
+none of this, because a run rarely gets past their first generation of children
+and a program can only change when a seed is set.
 
 ## Plants that stop, and what they stop in
 
