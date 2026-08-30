@@ -63,7 +63,7 @@ use super::cell::{Cell, AMBIENT_TEMPERATURE};
 use super::chunk::Rect;
 use super::field;
 use super::material::{self, MaterialKind};
-use super::organism::{pack_cell_type, Carried, CellType, CreatureDef, Flight, SpeciesId, TRAIT_GUT_BIAS};
+use super::organism::{pack_cell_type, Carried, CellType, CreatureDef, Flight, SpeciesId, CREATURE_TRAITS, TRAIT_BIRTH_GRANT, TRAIT_GUT_BIAS};
 use super::pheromone::{self, Channel};
 use super::rng;
 use super::scheduler::{ActiveKind, ActiveSite};
@@ -844,8 +844,21 @@ fn place_creature(
     // `self.organisms` cannot both be borrowed, the same reason
     // `push_organism` reads the fate table up front.
     let founder_genome = matches!(origin, Origin::Founder).then(|| world.species.get(species_id).genome.clone());
+    // **What this creature is handed, which is not its species' budget.**
+    // A founder appears out of nothing and gets the whole of
+    // `start_energy`; a bud gets what its *parent's* `TRAIT_BIRTH_GRANT`
+    // says to give it, which is the one number §2.6's anti-freeloading
+    // rule is actually about (`Reports/creature-reproduction-economics.md`
+    // §1.3). The two were the same quantity by accident until this slot
+    // existed, and the parent is charged exactly this a few lines down --
+    // one expression, read twice, so the endowment and the charge cannot
+    // drift apart.
+    let endowment = match &origin {
+        Origin::Founder => def.start_energy,
+        Origin::Bud { traits, .. } => birth_grant(def, traits),
+    };
     if let Some(state) = world.organism_mut(organism) {
-        state.energy = def.start_energy;
+        state.energy = endowment;
         state.chain = positions;
         state.heading = 0; // east
         state.lineage = founder_lineage;
@@ -917,7 +930,7 @@ fn place_creature(
             // The parent is charged the whole of it one line down, so the
             // live identity closes by construction rather than by luck.
             world.energy_ledger.stored_in_meat += stamp;
-            let cost = birth_cost(def);
+            let cost = birth_cost_of(def, endowment);
             if let Some(state) = world.organism_mut(parent) {
                 state.energy -= cost;
                 state.seeds_set = state.seeds_set.saturating_add(1);
@@ -939,7 +952,40 @@ fn place_creature(
 /// of speech: an unpriced birth is the largest free term any of these
 /// animals could reach.
 pub fn birth_cost(def: &CreatureDef) -> f32 {
-    def.start_energy + def.body_energy * def.body.len() as f32
+    birth_cost_of(def, birth_grant(def, &def.traits))
+}
+
+/// `birth_cost` for a **particular** endowment rather than the species'
+/// ancestral one, because `TRAIT_BIRTH_GRANT` is heritable and two parents
+/// of one species do not pay the same price for a child.
+///
+/// **The stamp term does not move when the grant does, and that is the
+/// whole shape of this economy.** Whatever a lineage cuts its endowment
+/// to, a birth still needs `body_energy` per body cell of *harvested*
+/// energy on top of it -- 960 for the shipped two-cell ant. Measured
+/// 2026-08-30: against a bank ceiling of `hunger_fraction * start_energy +
+/// one mouthful` = 567, that stamp alone is unreachable, so the shipped
+/// ant does not breed at any grant and cutting `start_energy` lowers the
+/// ceiling faster than it lowers the cost. See
+/// `Reports/creature-birth-grant-2026-08-30.md`.
+pub fn birth_cost_of(def: &CreatureDef, grant: f32) -> f32 {
+    grant + def.body_energy * def.body.len() as f32
+}
+
+/// **What a newborn of this species is handed**, given the provisioning
+/// allele of the animal paying for it.
+pub fn birth_grant(def: &CreatureDef, traits: &[f32; CREATURE_TRAITS]) -> f32 {
+    grant_fraction(traits[TRAIT_BIRTH_GRANT]) * def.start_energy
+}
+
+/// `TRAIT_BIRTH_GRANT`'s position on the shared `-1..=1` trait axis, as a
+/// fraction of `start_energy`: `-1` hands a newborn nothing, `+1` hands it
+/// a full species budget, `0` half.
+///
+/// The clamp is the axis rather than a tuning choice -- the same statement
+/// `try_bud`'s mutation step makes for every slot.
+pub fn grant_fraction(t: f32) -> f32 {
+    ((t + 1.0) * 0.5).clamp(0.0, 1.0)
 }
 
 /// **The bank an individual actually has to reach to bud**, or `None` if
@@ -969,13 +1015,24 @@ pub fn reproduce_at(def: &CreatureDef) -> Option<f32> {
 fn try_bud(world: &mut World, organism: u16, def: &CreatureDef) -> Option<ActiveSite> {
     let threshold = reproduce_at(def)?;
     let state = world.organism(organism)?;
-    if state.energy < threshold {
+    let parent_traits = state.traits;
+    // **The bar this individual has to clear, not the one its species
+    // was authored with.** `reproduce_at` is the species' authored
+    // threshold floored above the *ancestral* birth cost; an animal whose
+    // `TRAIT_BIRTH_GRANT` has drifted upward owes more than that, and
+    // charging it a cost it never had to reach would put the parent's bank
+    // negative -- a birth that kills its parent, which is precisely what
+    // `reproduce_at`'s floor exists to make impossible. Taking the max
+    // keeps that guarantee total under a heritable grant, and the `+ 1`
+    // matches the floor's own strictness so the two cannot disagree by a
+    // rounding step.
+    let cost = birth_cost_of(def, birth_grant(def, &parent_traits));
+    if state.energy < threshold.max(cost + 1.0) {
         return None;
     }
     let (hx, hy) = *state.chain.first()?;
     let species_id = state.species;
     let parent_genome = state.genome.clone();
-    let parent_traits = state.traits;
     // **Read off the parent here, while `state` is still the parent.** See
     // the `Origin::Bud` arm in `place_creature` for the incident this
     // naming exists to prevent.
@@ -5041,13 +5098,32 @@ mod tests {
     #[test]
     fn the_standing_meat_never_exceeds_what_was_put_into_it() {
         let mut w = sealed_box();
-        // The identity's drift *before anything has died or eaten* -- in
-        // this box the first death is around frame 12,000, so this is a
-        // clean baseline for the charge path alone. See the assertion at the
-        // end for why one number here is worth more than a tighter bar.
-        run(&mut w, 10_000);
-        assert_eq!(w.creature_stats.deaths, 0, "test setup: the 10,000-frame sample has to land before the first death to be a baseline");
-        let baseline_drift = (w.live_creature_energy() - w.energy_ledger.expected_live_total()).abs();
+        // The identity's drift *before anything has died or eaten*, which is
+        // a clean baseline for the charge path alone.
+        //
+        // **Found rather than fitted.** This was `run(&mut w, 10_000)` with
+        // a comment saying the first death lands "around frame 12,000", and
+        // E14's `start_energy` cut (900 -> 200) moved the first death to
+        // roughly a fifth of that and took the test red with 9 deaths inside
+        // its own baseline window. The frame count was a constant calibrated
+        // against an animal that could not starve; the *property* the
+        // baseline needs is "the last sample before anything died", so ask
+        // for that directly and the test survives the next retune too.
+        let mut baseline_drift = 0.0;
+        let mut baseline_at = 0;
+        for _ in 0..40 {
+            let probe = (w.live_creature_energy() - w.energy_ledger.expected_live_total()).abs();
+            run(&mut w, 500);
+            if w.creature_stats.deaths > 0 {
+                break;
+            }
+            baseline_drift = probe;
+            baseline_at += 500;
+        }
+        assert!(
+            baseline_at >= 1_000,
+            "test setup: the first death landed within {baseline_at} frames, leaving no pre-death window to take a baseline in"
+        );
         for _ in 0..30 {
             run(&mut w, 1_000);
             let standing = standing_meat(&w, SEALED_BOX) + carried_meat(&w);
@@ -5101,6 +5177,28 @@ mod tests {
     }
 
     /// A damp soil bed, a larder, and one hungry ant standing on it.
+    /// **How long a grazer run is, in units of the animal's own life.**
+    ///
+    /// This was the literal `60_000` at both call sites, which was about
+    /// 1.1 idle lifetimes against the `start_energy: 900` it was written
+    /// under. E14 cut that budget to 200 and the same 60,000 frames became
+    /// **five** lifetimes -- so the *control* arm starved, the setup
+    /// assertion fired, and the test reported "this scene cannot feed
+    /// anything" about a scene that was fine. A frame count is not a
+    /// horizon; a horizon is a number of lifetimes, and this computes one
+    /// so the next retune of the economy does not take it red again.
+    ///
+    /// An idle lifetime is `start_energy / idle_cost` ticks of
+    /// `tick_interval` frames each. 1.1 of them keeps the meaning the
+    /// original number had.
+    fn grazer_horizon() -> usize {
+        let w = test_world();
+        let species = w.species.id_of("ant").expect("ant");
+        let def = w.species.get(species).creature.as_ref().expect("creature");
+        let idle_life = (def.start_energy / def.idle_cost) as usize * def.tick_interval as usize;
+        idle_life * 11 / 10
+    }
+
     fn grazer_scene(larder: Larder, frames: usize) -> World {
         let mut w = test_world();
         let soil = w.materials.id_of("soil").expect("soil");
@@ -5288,7 +5386,8 @@ mod tests {
     /// can reach at all (§13k/§13n).
     #[test]
     fn a_lone_grazer_cannot_farm_a_moss_lawn_forever() {
-        let unlimited = grazer_scene(Larder::Unlimited, 60_000);
+        let horizon = grazer_horizon();
+        let unlimited = grazer_scene(Larder::Unlimited, horizon);
         let ceiling = grazing_ratio(&unlimited);
         // The control has to actually feed something, or the renewable arm
         // below is measuring the harness.
@@ -5297,7 +5396,7 @@ mod tests {
             "test setup: an animal standing inside an inexhaustible larder starved anyway, so this scene cannot feed anything             and the moss arm proves nothing (ratio {ceiling:.3})"
         );
 
-        let lawn = grazer_scene(Larder::Renewable, 60_000);
+        let lawn = grazer_scene(Larder::Renewable, horizon);
         let renewable = grazing_ratio(&lawn);
 
         // Measured 2026-08-21: unlimited 0.95 and survives with 217 in the

@@ -3676,3 +3676,61 @@ gnome that must not disturb, the knob-off run compared to the pool cell for
 cell, and a conservation check that the water shoved is water taken. The
 owner's verdict on the two review cards: *"B looks good"* on the entry and
 *"B looks great"* on the wake.
+## 2026-08-30 — the growth program loses its safety net, and the net turns out never to have caught anything
+
+**The owner's answer came back on the fallback fork, and it was "No safety
+net".** Review card `20260829T204941423Z-880e13` was the one item
+`Reports/lanes/plant-evolution-handoff-2026-08-30.md` §3 marked *open, waiting
+on the owner*, with the instruction not to touch shipped behaviour until it
+was answered. `plant::fate_for` now reads the individual's `FateGenome` and
+stops: a mutation that vacates a slot vacates it for real, which is what turns
+`delete` and `recondition` from near-inert operators into real ones. `Full` and
+`NoSpecies` stay reachable behind `PIXEL_PHYSICS_FATE_LOOKUP` so the fork's
+measurements can be re-run.
+
+**And the net had never fired.** Counted at the source, inside
+`fate_for_under`, on the pre-flip build: over 60,000 frames of `herb` at the
+shipped 0.01 rate there were **88,909 fate queries and 0 saves** — not one
+occasion where the genome had no answer and a lower layer supplied one.
+`genome_drift` logs came back **byte-identical** between the two depths for
+`moss`, `tree` and `herb` at both 0 and 10x mutation. The net first bites at
+**90x** (1,305 saves in 39,340 queries). So this is a licence rather than a
+behaviour change.
+
+**What stands between it and a visible effect is mutation volume, and the
+first version of this entry blamed the wrong thing.** It said generation
+turnover, citing a mean depth of 2.04 -- a mean over *living* organisms, which
+`Reports/lanes/plant-evolution-handoff-2026-08-30.md` §2 warns equilibrates and
+is not a clock. Counted at the source instead, the same 60,000-frame run has
+**6,533 births reaching the draw, 56 firing, 55 changing a genome, and 9
+drifted genomes standing** in a population of 934. About **14** of those 55 are
+the operators that can vacate a slot at all. Fourteen relevant mutations per
+run is why 88,909 queries found nothing to catch; depth is fine (max 4 here,
+and `plant-throughput-herb-2026-08-29.md` reports deepest established
+generation 5, 7 and 3). `FATE_MUTATION_CHANCE = 0.01` is the lever.
+
+**The zeros only mean something because a call counter sat beside them.** The
+first version of the probe printed three zeros and could not tell "the net
+never fires" from "the counter is not on the path" — `CLAUDE.md`'s null that
+looks the same whether the mechanism is quiet or the probe never arrived.
+Adding `calls` separated them in one run, and incidentally settled the one real
+hazard: `moss.ron` authors no fate table at all, so under a genome-only lookup
+every query would return `None` — but moss makes **0 calls**, because its only
+behaviour is `Divide`, which never consults a fate.
+
+**One standing claim is withdrawn.** `FateLookup`'s doc said `builtin_fate` was
+"the real absorber", inferred from `NoSpecies` and `Full` measuring identical.
+Counted directly, **all 1,305 saves went to the species layer and
+`builtin_fate` took 0**: the two layers *agree*, which is why deleting the
+middle one changed nothing. A/B equality says two layers agree; it cannot say
+which is load-bearing. Both that and the withdrawn fallback are in
+`Reports/dead-ends.md`.
+
+**What an emptied slot actually does, since the phrase in circulation was "a
+plant that cannot grow".** At the `Grow` site a missing fate leaves
+`self_type_after_grow` as the cell's own type, so the tip never *retires* — the
+lineage grows as a frontier of tips that never become `MatureBody`, never
+thickens and never anchors. Deformed rather than dead, which is the graded
+outcome the ethos asks for.
+
+Full account: `Reports/plant-fate-fallback-fork-2026-08-30.md`.
