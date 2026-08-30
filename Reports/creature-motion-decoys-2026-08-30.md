@@ -266,6 +266,64 @@ Three further boundaries, stated rather than buried:
   texture grain and stable across worldgen changes (§2 of the appearance
   report); the moving ladder has not been tested that way.
 
+## 7b. The owner's verdict, and the half of it that is a correction
+
+Card `20260830T045018630Z-abf50b` — one frozen frame against 20 stepping
+ones, same 31 ants, same slope, same seed — came back:
+
+> *"I can see them in both but it is much more obvious in the scene
+> stepping."*
+
+**What it confirms** is the direction and the size of the effect: motion is
+the dominant cue, judged by eye, on the same scene the numbers were taken
+from. That is the claim this report exists to make and it is the strongest
+evidence available for it.
+
+**What it corrects** is a framing this report inherited and should not have
+carried unqualified. `creature-appearance-design.md` is titled *"Why you
+cannot find an ant"*, and the owner can — in this picture. So the decoy count
+is what §7 says it is, **a count of candidates the eye must reject and not a
+claim of invisibility**, and every ordinal statement above should be read
+that way: 148 candidates against 1 is a large difference in how hard the
+search is, not the difference between possible and impossible.
+
+**Two things made that picture easier than play scale, and they are the
+card's own limits.** The crop is 170x62 cells at zoom 5 — 850 px across,
+which the review skill requires so the owner can see anything at all — and
+the ants stand on a bare rock slope against sky rather than in vegetation. A
+whole 512x320 frame at 1x, which is what the player looks at, is the harder
+case and was not the thing judged. The right follow-up card is the same
+comparison at play scale.
+
+## 7a. Re-taken after the merge, and why nothing moved
+
+`main` landed **#142** (ants starve; a birth grant), **#145**, **#146** and
+**#149** underneath this branch while the report was open, and #142 is
+creature code. Every figure above was re-taken on the merged head
+(`9323e2e`) rather than carried forward — `CLAUDE.md`'s rule that a baseline
+measured on a tree nobody else has does not transfer.
+
+**Every number is identical.** The whole probe ladder (371 / 141 / 57 / 36 /
+15 / 0 still, 1 / 0 / 0 / 0 / 0 / 0 moving), the ambient motion figure, and
+all four live seeds to the last percent — 148/1, 190/2, 277/2, 290/0, and the
+never-moved fractions 42 / 41 / 33 / 22%.
+
+**Identical output across a change that must have moved something is this
+repo's tell for a stale binary, so that was checked before the result was
+believed**: the example was rebuilt after the merge (binary 05:43:34 against
+`src/sim/creature.rs` at 05:39:03) and the built binary contains
+`birth_grant`, a field that exists only in the merged `assets/species/ant.ron`.
+The binary is the merged code.
+
+The reason it is unmoved is a **regime** difference worth stating, because it
+also bounds this report. #142 governs the colony's energy ledger — who
+starves, what a hatch costs — over long horizons. This harness places
+founders and runs **600 frames**, in which nothing hatches and nothing
+starves; it measures how a body *appears and moves*, and the merged changes
+touch neither. A colony run long enough to starve is a different question,
+and the fraction of ants that never move is exactly the number that would be
+expected to shift there.
+
 ## 8. What is on this branch
 
 Nothing here changes a shipped creature or any engine behaviour.
