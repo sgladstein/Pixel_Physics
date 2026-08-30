@@ -10,10 +10,21 @@
 | this note | `cf80c08` |
 | `main` merged in | `00856c8` — the branch is **0 behind** |
 | re-measurement after that merge | `790af73` |
-| PR | **#146**, https://github.com/sgladstein/Pixel_Physics/pull/146 |
+| PR | **#146 — MERGED** 2026-08-30 at `79a9daa` (main `83bd4c4`) |
+| follow-up | this correction landed on the branch *after* that merge, so it is a **new** PR, not a reopen — see below |
 
 I had GitHub tools (`mcp__github__get_me` resolved), so I opened the PR
-myself. The coordinator owns the merge. Cost fork: **built the probe and answered the
+myself. The coordinator merged it.
+
+**One commit missed that merge and is the follow-up.** #146 was merged at
+`79a9daa` at 04:42 UTC; the third-tree re-measurement was pushed at 04:51,
+nine minutes later. So `main` carries the report quoting a frame cost from a
+tree that no longer exists (2.98 ms, 0.14% of a frame, ~358 predators). The
+branch was restarted from `origin/main` and the commit re-applied there — a
+merged PR is finished and cannot track new work. **The simulation code in
+current `main` is byte-identical to the tree the numbers were taken on**
+(`git diff bfb4ced origin/main -- src assets` is empty), so nothing needed
+re-measuring for the follow-up. Cost fork: **built the probe and answered the
 question** — the geometry needed no engine work, so nothing was blocked.
 
 ## What landed
@@ -37,11 +48,11 @@ litter.**
 
 | decision | build it as | the number |
 |---|---|---|
-| reach | **64 cells** | the **p10** seed's beetle sees prey 0.108–0.260 of the time at r32 and **0.240–0.389** at r64, over three presets × 18 seeds. 32 → 64 is the largest single step at every preset |
+| reach | **64 cells** | the **p10** seed's beetle sees prey 0.108–0.280 of the time at r32 and **0.240–0.389** at r64, over three presets × 18 seeds. 32 → 64 is the largest single step at every preset |
 | shape | **all-round** | a ±60° cone costs a third of every sighting (r64 median 0.572 → 0.400) and saves nothing measurable |
-| occlusion | rock and soil, **never floor litter** | 28.1% of beetle-ant pairs blocked at head height, **8.5%** one cell up. The blockers are seed, litter, corpse, soil — clutter, not landscape |
+| occlusion | rock and soil, **never floor litter** | 28.0% of beetle-ant pairs blocked at head height, **8.4%** one cell up. The blockers are seed, litter, corpse, soil — clutter, not landscape |
 | foliage | **not a binary blocker** | `dense` costs half the sense (0.667 → 0.350) and no eye height buys it back |
-| cost | **free at this scale** | 485 cells read per beetle per cast; **0.004 ms/frame**, 0.14% of `ascii`'s 2.98 ms mean, below the wall clock's floor. Under 10% of a frame only past ~358 predators |
+| cost | **free at this scale** | 485 cells read per beetle per cast; **~0.005 ms/frame**, 0.15–0.22% of `ascii`'s 2.94 ms mean, below the wall clock's floor. Under 10% of a frame only past a few hundred predators |
 
 ## Three things worth carrying past this lane
 
@@ -109,9 +120,14 @@ clean with it and would not have been without it.
 Card `20260830T021057007Z-18900e`, board `creatures`, **verified on the
 `review-queue` remote branch** (`cards/` and both images present) — a
 labelled A/B of the sight lines at eye=0 against eye=1, asking which reads
-right for an insect on a forest floor. Fire-and-forget; the verdict bears on
-the occlusion recommendation, not on the radius one. Collect with
-`python3 scripts/review.py inbox`.
+right for an insect on a forest floor. **Answered 2026-08-30:** *"I don't think there is a clear good
+answer. Just pick one that makes sense to you."* No preference between the
+two eye heights, so that choice is delegated and rests on the measurement —
+eye=1, because it recovers the transparent-world ceiling on `wetland` and
+~70% of the gap on `rolling` at a third of the blocking. Recorded in §4 of
+the report so a later reader knows the recommendation was put to the owner
+and where the decision actually came from. The radius recommendation never
+depended on this card.
 
 ## Gates, on the merged tree
 
@@ -133,15 +149,30 @@ cargo build --release --examples                 # NOT --release alone
 cargo run --release --example ascii                                          # the whole-frame baseline
 ```
 
-**Everything here was measured twice, on two different trees.** The worldgen
-revamp (716 lines of `passes.rs`, five new rock materials) landed on `main`
-underneath this lane, so the whole study was re-taken after merging it in.
-**Every order statistic came back identical**, as did `mode=cost`'s
-`cells read` column bit for bit; the only changes anywhere are that the base
-rock is now called `basalt` rather than `stone` in the blocker census, one
-blocking percentage moving 8.6 → 8.5, and pair counts moving by a handful out
-of ~20,000. That is the staleness check, and it is a stronger one than a
-repeat on one tree.
+**Everything here was measured on four different trees**, because `main`
+landed underneath this lane three times and each landing could plausibly have
+moved it: the worldgen revamp (716 lines of `passes.rs`, five new rock
+materials), tree-breaking (355 lines of `plant.rs` — which changes what lies
+on the floor, and floor debris is exactly what blocks a sight line), and the
+creature-economy rework (`ant.ron`, `beetle.ron`, `creature.rs`,
+`organism.rs` — which changes where the animals stand). The whole study was
+re-taken after each.
+
+**The first three came back byte-identical. The fourth moved, in the third
+decimal only** — and that is the useful one, because it shows the instrument
+responds when the world does rather than being insensitive. **Every median and
+every p10 the recommendation rests on held**, on all three presets, as did
+every median in the occlusion table. What moved: `arid`'s r64 median 0.440 →
+0.420 and its r32 p10 0.260 → 0.280, some p90s and maxima, blocking
+percentages by a tenth of a point, `cells read` by 1.2%, and the frame
+timing. That is a far stronger staleness check than a repeat on one tree.
+
+**The per-read cost is the loosest number in the report and is now quoted as
+a range.** Four readings: 15.6, 13.8, 14.9 and 22.1 ns. The 22.1 came from a
+run whose own control spread was twice any other's, on the same tree where
+`ascii`'s worst frame read 78 ms against a usual 28 — a loud box, not slow
+code. The conclusion is unchanged at either end of the range (0.15% vs 0.22%
+of a frame), which is why the range is quoted rather than a pick.
 
 `mode=cost`'s wall clock does not and cannot reproduce — which is the point
 of the `cells read` column beside it.
