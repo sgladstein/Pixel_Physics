@@ -93,12 +93,40 @@ fn main() {
     // `field.rs`'s own comment claims a longer day is "proportionally
     // cheaper" and nothing had measured it.
     let daymin: u32 = arg("daymin").unwrap_or(1);
+    // **`fans=N` puts N air sources in the box** -- the design question
+    // "isn't a fan just weather, and doesn't it break the lab?", asked by the
+    // owner and worth an experiment rather than an argument.
+    //
+    // The hypothesis being tested is that **weather is global and a fan is
+    // local**: `weather::step` gusts across the whole world, so every tile's
+    // momentum channels move and every tile lands in the solve set, whereas a
+    // pressure impulse is damped (`VELOCITY_DAMPING`) and advection
+    // back-traces at most one tile, so its disturbance should reach a
+    // neighbourhood rather than a world. If that is wrong, `solved/f` goes to
+    // the whole box with one fan and the answer is "yes, it is the same".
+    //
+    // Modelled with `World::add_pressure_impulse`, which is what every other
+    // air source in this engine uses and which calls `disturb_momentum` on
+    // the tiles it touches -- so this is a real fan, not a simulation of one.
+    let fans: usize = arg("fans").unwrap_or(0);
+    let fan_radius: i32 = arg("fan_radius").unwrap_or(12);
+    let fan_force: f32 = arg("fan_force").unwrap_or(0.6);
+    // **`walls=N` divides the bed into N sealed compartments**, floor to
+    // ceiling, and puts every fan in compartment 0. The design question this
+    // settles: a fan wakes the whole box (measured), so does a *partition*
+    // contain that, or does the solve set ignore walls?
+    //
+    // It matters because §5 of the design guide already wants partitions for
+    // evolutionary isolation. If they also contain air, one wall buys three
+    // things at once; if they do not, they buy one and the air cost is a
+    // property of the whole facility.
+    let walls: usize = arg("walls").unwrap_or(0);
 
     // Echoes its own parameters -- `instruments.md`'s standing rule, and the
     // reason a 3.5-hour study once produced eight identical logs.
     println!(
         "labbox_cost: frames={frames} warm={warm} width={width}x{height} soil={soil} \
-         trees={trees} species={species} worldseed={worldseed} daymin={daymin} arms={want}"
+         trees={trees} species={species} worldseed={worldseed} daymin={daymin} fans={fans} walls={walls} arms={want}"
     );
 
     println!(
@@ -156,6 +184,18 @@ fn main() {
             world.set_sky_hold(Some(noon));
         }
 
+        // Stone partitions, written after the bed is built so they cut through
+        // soil and air alike -- a real wall, the same material the bed's own
+        // floor is made of.
+        if walls > 1 {
+            let stone = pixel_physics::sim::material::STONE;
+            for k in 1..walls {
+                let x = (width * k as i32) / walls as i32;
+                for y in 0..height {
+                    world.set(x, y, pixel_physics::sim::Cell::new(stone, 0));
+                }
+            }
+        }
         let mut particles = ParticleSystem::default();
         let mut blasts = Blasts::default();
         let mut totals = Vec::with_capacity(frames as usize);
@@ -168,6 +208,22 @@ fn main() {
             let record = f >= warm;
             if record {
                 world.field_stats.tiles_solved = 0;
+            }
+            // Fans run before the sweep, once per frame, evenly spaced across
+            // the bed a few rows above the soil -- where a bench fan would be.
+            for i in 0..fans {
+                // **Offset by a third of a spacing, so a fan is never sitting
+                // exactly on a partition.** Without it the first `walls=`
+                // sweep put the single fan at `width/2` -- which is also
+                // where the wall goes at every power-of-two `walls` -- so the
+                // impulse straddled two compartments and the containment
+                // measured weaker than it is. A scene that contradicts the
+                // thing under test looks exactly like a weak effect
+                // (`CLAUDE.md`).
+                let spacing = width / (fans as i32 + 1);
+                let x = spacing * (i as i32 + 1) + spacing / 3;
+                let y = scene.ground_y - 24;
+                world.add_pressure_impulse(x, y, fan_radius, fan_force);
             }
             let mut marks = [Instant::now(); PHASES.len() + 1];
             parallel::step(&mut world);

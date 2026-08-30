@@ -155,6 +155,75 @@ past a factor of two; it is a sizing rule, not a model.
 
 ---
 
+### 2c. A fan *is* weather — and partitions are what make that affordable
+
+**The owner spotted the contradiction**: if the weather costs 41% of the main
+game's frame by waking every tile, and a fan drives air the same way, doesn't
+installing one break the lab? **Yes to the first half. No to the second, for
+three measured reasons, and the third is the interesting one.**
+
+**A fan is weather.** Modelled with `World::add_pressure_impulse` — the call
+every other air source in this engine uses — one fan takes an open 1024-wide
+box from **40.3 solved tiles to 80.0, which is every tile in it**. At 4096
+wide a single fan costs **6.999 ms** against full outdoor weather's
+**7.045 ms** on the same bed. Same mechanism, same price. An earlier draft of
+this guide assumed a fan would be *local* where weather is *global*; it is
+not, and the hypothesis was wrong.
+
+**1. The cost is a step function, not a per-fan charge.**
+
+| fans | ms/tick | solved/f (of 80) |
+|---|---|---|
+| 0 | 2.906 | 40.3 |
+| 1 | 3.523 | **80.0** |
+| 2 | 3.539 | 79.9 |
+| 4 | 3.495 | 79.8 |
+| 8 | **3.610** | 80.0 |
+
+**Eight fans cost what one costs.** The first fan wakes the box; the rest are
+free. So the design question is *"does this space have moving air"* — never
+*"how many fans"* — and a lab full of equipment is priced the same as a lab
+with one.
+
+**2. The ceiling is box size, and box size is a design choice.** The main game
+is slow because it runs wind across **5,120 chunks**; a lab runs it across
+**80**. Even with the whole box awake, 1024 wide is 3.5 ms — **4.7x real
+time**, still comfortably inside the range that makes generations watchable.
+Wind is not intrinsically expensive; wind times a continent is.
+
+**3. Walls contain it — and that is the convergence.** §5 already wants
+partitions for evolutionary isolation, because asexual isolation is where
+clusters come from. They turn out to be *air* partitions as well. One fan,
+2048 wide, 160 tiles, compartments floor-to-ceiling:
+
+| compartments | ms/tick | solved/f | speed-up | plant cells |
+|---|---|---|---|---|
+| 1 (open) | 4.097 | 159.7 (100%) | 4.1x | 1,048 |
+| 2 | 3.119 | 102.6 (64%) | 5.3x | 1,046 |
+| 4 | 2.863 | 78.5 (49%) | 5.8x | 1,046 |
+| 8 | 2.389 | 62.8 (39%) | 7.0x | 1,005 |
+| 16 | **2.207** | **52.7 (33%)** | **7.6x** | 949 |
+
+**Partitioning a fanned bed nearly doubles the speed-up** — 4.1x to 7.6x, a
+46% cut — at a stand held to within 0.2% through the first three rows. So a
+wall buys **evolutionary isolation, a scoring mechanic (§5), and the frame
+time back**, all from one object. That is the strongest single design finding
+in this guide and it came out of the owner's objection, not out of planning.
+
+**(Call.)** The consequence: **air should be a per-compartment property, not a
+facility-wide one.** "This bed has a fan" is then a local decision with a
+local cost and a local biological effect — which is exactly the shape the
+resource-management layer wants, and it makes the performance model legible to
+the player instead of hidden.
+
+**One scene error is recorded here because it changed the answer.** The first
+`walls=` sweep placed its single fan at `width/2` — which is also where the
+partition goes at every power-of-two compartment count — so the impulse
+straddled two compartments and containment measured much weaker (159.7 solved
+at 2 compartments, i.e. none at all, against 102.6 once the fan sits inside
+one). A scene that contradicts the thing under test looks exactly like a weak
+effect. The harness now offsets each fan by a third of a spacing.
+
 ## 3. Build order, as gates
 
 Each gate is a thing that must be **true and measured**, not a task that must

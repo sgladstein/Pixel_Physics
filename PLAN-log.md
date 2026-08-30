@@ -3964,3 +3964,49 @@ reaches the depth being paid for; and **collapsing tunnels are removed**, so
 the 16% structural purchase is declined and a burrow is permanent once dug.
 What threatens a burrow instead -- water, decay, or the colony's own growth --
 is now an open question rather than a settled one.
+
+### ...and a fan turns out to be weather, which partitions then pay for
+
+The owner spotted the contradiction: if weather costs 41% of the main game's
+frame by waking every tile, and a fan drives air the same way, doesn't
+installing one break the lab? **Yes to the first half.** Modelled with
+`World::add_pressure_impulse`, one fan takes an open 1024-wide box from 40.3
+solved tiles to **80.0, every tile in it**, and at 4096 wide a single fan
+costs **6.999 ms against full outdoor weather's 7.045 ms**. Same mechanism,
+same price. The "a fan is local where weather is global" hypothesis was wrong.
+
+**No to the second half, for three measured reasons.**
+
+Cost is a **step function**: 1 fan 3.523 ms, 2 fans 3.539, 4 fans 3.495, 8
+fans 3.610. The first fan wakes the box and the rest are free, so the question
+is "does this space have moving air", never "how many fans".
+
+The ceiling is **box size**: the main game runs wind across 5,120 chunks and a
+lab across 80. Even fully awake, 1024 wide is 3.5 ms -- 4.7x real time.
+
+And **walls contain it**, which is the finding worth keeping. One fan, 2048
+wide, 160 tiles, compartments floor to ceiling:
+
+  compartments   ms      solved/f    speed-up   plant cells
+      1 (open)   4.097   159.7       4.1x       1048
+      2          3.119   102.6       5.3x       1046
+      4          2.863    78.5       5.8x       1046
+      8          2.389    62.8       7.0x       1005
+     16          2.207    52.7       7.6x        949
+
+Partitioning a fanned bed **nearly doubles the speed-up** at a stand held to
+within 0.2% through the first three rows. Design guide section 5 already
+wanted partitions for evolutionary isolation; they are air partitions too, so
+one wall buys isolation, a scoring mechanic and the frame time back. Air
+should therefore be a **per-compartment** property rather than a
+facility-wide one.
+
+**One scene error changed the answer and is recorded.** The first `walls=`
+sweep put its single fan at `width/2`, which is also where the partition goes
+at every power-of-two compartment count, so the impulse straddled two
+compartments and containment measured as none at all (159.7 solved at 2
+compartments against 102.6 once the fan sits inside one). A scene that
+contradicts the thing under test looks exactly like a weak effect. The harness
+now offsets each fan by a third of a spacing.
+
+New `labbox_cost` args: `fans=N`, `fan_radius=`, `fan_force=`, `walls=N`.
