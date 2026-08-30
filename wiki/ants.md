@@ -3,12 +3,15 @@
 *Current as of: 2026-08-30, when the colony got a page of its own — how many
 ants there are, whether that number is climbing, what they are eating and
 carrying, and how far short of breeding they are, all on screen in the game
-rather than in a log nobody runs. Also 2026-08-30: ants started running out
-of food early enough that you see it — bodies on the ground that nothing
-killed, and a colony that then holds its size instead of quietly running
-down — and how much an ant gives its young became a thing an ant can inherit
-rather than a fixed rule. Before that: 2026-08-29, when creatures learned to
-jump — though the ants
+rather than in a log nobody runs. Also 2026-08-30: the size of an animal's
+body started to cost it something to carry around, and a body became able to
+shade itself — a paler head, a darker underside — instead of every cell of it
+picking a colour out of a hat; and ants started running out of food early
+enough that you see it — bodies on the ground that nothing killed, and a
+colony that then holds its size instead of quietly running down — and how
+much an ant gives its young became a thing an ant can inherit rather than a
+fixed rule. Before that: 2026-08-29, when creatures learned to jump — though
+the ants
 you place still cannot, and the section below says why that is not a
 contradiction — and when an ant that has eaten enough learned to make
 another ant, passing on what it is so that a colony's descendants can differ
@@ -194,6 +197,24 @@ worth. That is also the quickest way to see the thing the numbers say is
 true and the picture does not: most of a forest's food is up in the canopy
 where no ant can reach it.
 
+## A bigger animal costs more to carry
+
+An ant pays for its body. Standing still costs it something every moment,
+walking costs it more, and **both are now charged for each cell the animal is
+made of** — so an animal twice the size burns twice as fast doing exactly the
+same thing, and one that has had a piece bitten off it burns less than it did
+the day before.
+
+That sounds obvious and it was not true until now. A longer animal used to be
+free: it put more of itself on screen, it flowed over broken ground *better*
+than a short one, and it ate exactly the same. Anything that costs nothing
+and buys something is not a choice, and a world where being bigger is simply
+better ends up with everything the same size.
+
+The ant you place is unchanged — the price was worked out from the animal
+that already ships, so a two-cell ant pays today precisely what it paid
+yesterday. What changed is that the bigger bodies now pay their way.
+
 ## Placing a colony, and watching what they smell
 
 Press **Y** to found a colony on the ground under the cursor: it lays a nest
@@ -284,6 +305,19 @@ on, so instead it keeps walking while the home scent is getting stronger,
 and stops and turns on the spot when it is not. Watch one long enough and
 you will see it wander, catch the scent, and then travel in a fairly
 straight line back.
+
+**Nothing bigger than the ant you can place survives yet, and that is the
+honest state of it.** Longer animals were meant to be the cheap way to make a
+creature you can actually spot on screen — a two-cell ant is very nearly
+invisible against the ground, and the measurements say size is the only thing
+that fixes that. But stand a colony of three-cell animals in the world and
+they are gone within the horizon anyone watches, and so are four, six and
+nine. Two things go wrong at once: far fewer of them find anywhere to stand
+in the first place, because a long body needs a long clear run of ground to
+be laid down on, and the ones that do stand there do not last. That is not
+the new price for a body — it happened just as thoroughly under the old free
+one, and it happens on a dead-flat floor as well as in the real world. It is
+something else, and it is not understood yet.
 
 What a colony is still not especially good at is **finding food in the first
 place**. A pile a long way off may take a while to be discovered, and one

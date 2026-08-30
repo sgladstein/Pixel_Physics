@@ -1,12 +1,23 @@
 # Sizing a sight sense before it is built — E15
 
 **Status: measured pre-flight, 2026-08-30, on `e7b72e7` + `examples/vision_probe.rs`,
-and **re-taken in full after merging `main`** — the worldgen revamp landed
-underneath this work (716 lines of `passes.rs`, five new rock materials), so
-every number here was measured twice, on two different trees. **Every order
-statistic in §3 and §4 came back identical**; the only change anywhere is
-that the base rock is now called `basalt` rather than `stone` in the blocker
-census, and the pair counts move by a handful out of ~20,000.**
+and re-taken in full three times as `main` landed underneath it — the
+worldgen revamp (716 lines of `passes.rs`, five new rock materials),
+tree-breaking (355 lines of `plant.rs`, which changes what lies on the floor),
+and the creature-economy rework (`ant.ron`, `beetle.ron`, `creature.rs`,
+`organism.rs` — which changes where the animals stand). Each could plausibly
+have moved the result, so every number here was measured on **four different
+trees**.
+
+**The first three were byte-identical. The fourth moved, and only in the third
+decimal.** The creature rework perturbs individual seeds — no surprise, it
+changes the population — but **every median and every p10 the recommendation
+rests on is unchanged**, on all three presets, as is every median in §4. What
+moved: `arid`'s median at r64 (0.440 → 0.420) and its p10 at r32 (0.260 →
+0.280), a handful of p90s and maxima, blocking percentages by a tenth of a
+point, and the frame timing, which §5 now handles as a range rather than a
+number. **That the first three runs were identical is what makes the fourth
+informative**: the instrument does move when the world does.**
 Answers the question the owner's E15 authorisation left open. Nothing here
 changes behaviour: the instrument is read-only geometry over `World::get`,
 and no vision is implemented on this branch.
@@ -26,15 +37,16 @@ four decisions:
 |---|---|---|
 | **reach** | **64 cells** | the bad-seed beetle sees prey a sixth of the time at 32 and **two fifths** at 64; 32 → 64 is the largest single step at every preset measured |
 | **shape** | **all-round**, not a forward cone | a ±60° cone throws away **a third of every sighting** and saves nothing measurable |
-| **what stops it** | rock and soil, **never floor litter** | at head height, floor clutter blocks **28%** of sight lines; one cell higher, **8.5%**, which is the whole of the transparent-world ceiling recovered |
+| **what stops it** | rock and soil, **never floor litter** | at head height, floor clutter blocks **28%** of sight lines; one cell higher, **8.4%**, which is the whole of the transparent-world ceiling recovered |
 | **foliage** | **not a binary blocker** | making plant matter opaque costs **half the sense** (r64 median 0.667 → 0.350) and no eye height buys it back |
 
 **And it is free at this scale.** A radius-64 fan of 16 rays, cast at the
-beetle's own `tick_interval`, reads **485 cells per beetle per cast** and
-costs **0.004 ms of a frame** — **0.14%** of the 2.98 ms mean `ascii`
+beetle's own `tick_interval`, reads **479 cells per beetle per cast** and
+costs **~0.005 ms of a frame** — **0.15–0.22%** of the 2.94 ms mean `ascii`
 reports, and below what a wall clock can resolve. It stays under 1% of a
-frame to about **36** predators and under 10% to about **358**, which is the
-number to carry into a streamed world.
+frame to a few dozen predators and under 10% to **two or three hundred**,
+which is the number to carry into a streamed world. §5 says why that is a
+range rather than a figure.
 
 **What this does not say.** Whether a beetle that can see an ant will catch
 one. That is movement and brain work; `predation_probe`'s control already
@@ -149,14 +161,14 @@ be sized from.
 | | min | p10 | **median** | p90 | max |
 |---|---|---|---|---|---|
 | `range` r8 | 0.000 | 0.022 | 0.389 | 0.667 | 0.675 |
-| `range` r64 | 0.000 | 0.467 | 0.667 | 0.922 | 0.989 |
+| `range` r64 | 0.000 | 0.467 | 0.667 | 0.917 | 0.989 |
 | **`los` r8** | 0.000 | 0.022 | **0.383** | 0.650 | 0.667 |
 | **`los` r16** | 0.000 | 0.089 | **0.450** | 0.667 | 0.708 |
 | **`los` r32** | 0.000 | 0.156 | **0.467** | 0.667 | 0.742 |
-| **`los` r64** | 0.000 | 0.389 | **0.572** | 0.822 | 0.911 |
-| `cone` r64 | 0.000 | 0.156 | 0.400 | 0.589 | 0.650 |
+| **`los` r64** | 0.000 | 0.389 | **0.572** | 0.817 | 0.911 |
+| `cone` r64 | 0.000 | 0.156 | 0.400 | 0.589 | 0.617 |
 | beetle → nearest ant | 19.2 | 25.1 | 55.2 | 68.2 | 122.2 |
-| ...nearest ant it can *see* | 2.3 | 3.6 | 16.4 | 32.0 | 54.4 |
+| ...nearest ant it can *see* | 2.3 | 3.6 | 16.5 | 32.0 | 54.4 |
 
 **And it is not one scene.** `preset=` was added for exactly the reason
 "six seeds is not a sweep" exists — measured on one preset, this would be a
@@ -164,9 +176,9 @@ statement about `wetland`. Median `los`, 18 seeds each:
 
 | preset | r8 | r16 | r32 | **r64** | p10 r32 | **p10 r64** | pairs blocked |
 |---|---|---|---|---|---|---|---|
-| `wetland` | 0.383 | 0.450 | 0.467 | **0.572** | 0.156 | **0.389** | 28.1% |
-| `rolling` | 0.327 | 0.380 | 0.393 | **0.500** | 0.108 | **0.240** | 23.3% |
-| `arid` | 0.240 | 0.293 | 0.347 | **0.440** | 0.260 | **0.347** | 8.4% |
+| `wetland` | 0.383 | 0.450 | 0.467 | **0.572** | 0.156 | **0.389** | 28.0% |
+| `rolling` | 0.327 | 0.380 | 0.393 | **0.500** | 0.108 | **0.240** | 23.5% |
+| `arid` | 0.240 | 0.293 | 0.347 | **0.420** | 0.280 | **0.347** | 8.6% |
 
 **Three readings, and the third is the one that sets the radius.**
 
@@ -175,15 +187,20 @@ statement about `wetland`. Median `los`, 18 seeds each:
    median *visible* ant is 16 cells away, so a radius under that is throwing
    away the sightings that actually happen.
 2. **The curve does not flatten.** 32 → 64 is the largest single step at
-   every preset (+0.105, +0.107, +0.093) and it is still climbing at 64 —
+   every preset (+0.105, +0.107, +0.073) and it is still climbing at 64 —
    unsurprising, since the median beetle is 55–65 cells from the nearest ant.
    Where 128 lands is **not measured**, and is the honest gap in this table.
 3. **The p10 seed is where the decision is.** The house rule is to gate an
    order statistic, not a median, and the p10 beetle — the one stranded away
    from the colony, which is precisely the animal a distal sense exists for —
-   goes from **0.156 / 0.108 / 0.260** at r32 to **0.389 / 0.240 / 0.347** at
+   goes from **0.156 / 0.108 / 0.280** at r32 to **0.389 / 0.240 / 0.347** at
    r64. At 32 that beetle is blind five times in six on two of the three
    presets. **That is the case for 64 and it is not a median argument.**
+   `arid` is the weak leg and is worth naming: its p10 gains only 0.280 →
+   0.347 and its median 0.347 → 0.420. It is also the preset with almost no
+   occlusion (8.6% of pairs blocked), so what limits it is distance alone —
+   its beetles sit 47–81 cells from the nearest ant, a much tighter spread
+   than the other two presets produce.
 
 **A ±60° cone costs a third of everything**, at every preset (r64 median
 0.572 → 0.400, 0.500 → 0.360, 0.440 → 0.307), for a saving that §5 shows is
@@ -203,7 +220,10 @@ next 3,000. Median `los` on `wetland`:
 | from frame 3,000 | 0.358 | 0.483 | 0.500 | 0.622 |
 
 Within the seed spread everywhere, and slightly *higher* at long radius.
-**The placement is not driving the result.** Occlusion does rise with time —
+**The placement is not driving the result.** (This control was taken on the
+second of the four trees and not re-run since; it is a qualitative check that
+two ways of sampling agree, and the figures either side of it moved by
+thousandths on the trees that followed.) Occlusion does rise with time —
 28.1% → 38.2% of pairs blocked, with litter climbing from 21% to 36% of
 blockers — because litter accumulates on the floor, which is §4's finding
 arriving by a second route.
@@ -220,10 +240,10 @@ arithmetic bug, so the check is free and runs every time.
 |  occl | eye | r8 | r16 | r32 | **r64** | pairs blocked |
 |---|---|---|---|---|---|---|
 | `none` (ceiling) | 0 | 0.389 | 0.450 | 0.500 | **0.667** | 0.0% |
-| `opaque` | 0 | 0.383 | 0.450 | 0.467 | **0.572** | 28.1% |
-| **`opaque`** | **1** | 0.389 | 0.450 | 0.500 | **0.667** | **8.5%** |
-| `opaque` | 3 | 0.389 | 0.450 | 0.500 | 0.613 | 4.8% |
-| `dense` | 0 | 0.272 | 0.322 | 0.328 | **0.350** | 78.7% |
+| `opaque` | 0 | 0.383 | 0.450 | 0.467 | **0.572** | 28.0% |
+| **`opaque`** | **1** | 0.389 | 0.450 | 0.500 | **0.667** | **8.4%** |
+| `opaque` | 3 | 0.389 | 0.450 | 0.500 | 0.613 | 4.9% |
+| `dense` | 0 | 0.272 | 0.322 | 0.328 | **0.350** | 78.8% |
 | `dense` | 3 | 0.272 | 0.350 | 0.367 | 0.422 | 63.8% |
 | `all` | 0 | 0.272 | 0.322 | 0.328 | 0.350 | 79.4% |
 
@@ -233,14 +253,14 @@ pooled over 18 seeds:
 | preset | what stopped them |
 |---|---|
 | `wetland` | seed 25%, litter 21%, soil 18%, corpse 17%, basalt 13%, deadwood 4% |
-| `rolling` | seed 25%, soil 20%, basalt 19%, litter 15%, corpse 13%, deadwood 3% |
-| `arid` | corpse 45%, basalt 34%, seed 22% |
+| `rolling` | seed 25%, soil 20%, basalt 19%, litter 15%, corpse 14%, deadwood 4% |
+| `arid` | corpse 45%, basalt 34%, seed 21% |
 
 Both animals are ground-hugging, so a sight line between two heads grazes the
 floor for its whole length and a two-cell seed pile stops a forty-cell line.
 **One cell of eye height removes most of it**, and on `wetland` it removes
 all of it: `opaque eye=1` reads 0.667 at r64, identical to the transparent
-world, at 8.5% blocking against 28.1%.
+world, at 8.4% blocking against 28.0%.
 
 **On a second preset it removes most but not all, and that correction is why
 the second preset was run.** `rolling`, 12 seeds:
@@ -248,22 +268,34 @@ the second preset was run.** `rolling`, 12 seeds:
 |  occl | eye | r8 | r16 | r32 | **r64** | pairs blocked |
 |---|---|---|---|---|---|---|
 | `none` (ceiling) | 0 | 0.424 | 0.429 | 0.500 | **0.613** | 0.0% |
-| `opaque` | 0 | 0.419 | 0.429 | 0.492 | **0.567** | 24.9% |
+| `opaque` | 0 | 0.419 | 0.429 | 0.492 | **0.567** | 25.1% |
 | `opaque` | 1 | 0.424 | 0.429 | 0.500 | **0.581** | 9.5% |
 | `opaque` | 3 | 0.424 | 0.429 | 0.500 | 0.581 | 6.5% |
-| `dense` | 0 | 0.373 | 0.380 | 0.400 | **0.429** | 51.3% |
+| `dense` | 0 | 0.373 | 0.380 | 0.400 | **0.429** | 51.4% |
 | `dense` | 3 | 0.380 | 0.387 | 0.408 | 0.452 | 38.1% |
-| `all` | 0 | 0.373 | 0.380 | 0.400 | 0.429 | 51.3% |
+| `all` | 0 | 0.373 | 0.380 | 0.400 | 0.429 | 51.4% |
 
-Blocking falls the same way (24.9% → 9.5%) but r64 recovers to 0.581 of a
+Blocking falls the same way (25.1% → 9.5%) but r64 recovers to 0.581 of a
 0.613 ceiling — **about 70% of the gap, not the whole of it**. `rolling` has
 real relief, so some of what stops a line there is landscape rather than
 clutter, which the blocker census agrees with: stone is 19% of `rolling`'s
 blockers against 13% of `wetland`'s. **Eye height is still the setting to
 build; it is not a complete fix on hilly ground.**
 
+**The owner was asked and declined to pick, so this one is settled on the
+measurement.** Card `20260830T021057007Z-18900e` put the two eye heights side
+by side as a labelled A/B — the same world and instant, sight lines drawn by
+the tracer under test — and asked which reads right for an insect on a forest
+floor. The verdict, 2026-08-30: *"I don't think there is a clear good answer.
+Just pick one that makes sense to you."* So **eye=1 is recommended on the
+numbers above and nothing else**: it is the setting that recovers the ceiling
+on `wetland` and ~70% of the gap on `rolling`, at a third of the blocking. A
+later playtest may overturn it, and if it does, the thing to change is one
+parameter rather than the model — which is part of why the eye is a knob here
+and not baked in.
+
 **`eye=3` is not better than `eye=1`, and this is the row not to smooth
-over.** Its pooled blocking is lower (4.8% against 8.5%) while its median
+over.** Its pooled blocking is lower (4.9% against 8.4%) while its median
 `los` at r64 is *worse* (0.613 against 0.667). The two columns are different
 statistics — pooled pairs are dominated by the seeds carrying the most pairs,
 the median is per-seed — and they genuinely disagree here. Nothing in this
@@ -306,75 +338,90 @@ design. `locate` is the scan alone.
 
 ```
        arm     ms/frame     vs blind    vs locate     cells read  per beetle/cast
-     blind       2.9249            -            -              0                -
-    locate       3.0548            -            -       30720000              5.0
-    locate       3.0266            -            -       30720000              5.0
-    locate       3.0940            -            -       30720000              5.0
-    locate       3.0757            -            -       30720000              5.0
-    locate       3.1130            -            -       30720000              5.0
-     blind       2.9378            -            -              0                -
-        r8       3.0379       0.1065      -0.0349         152319               81
-       r16       3.0920       0.1606       0.0191         266713              142
-       r32       3.0677       0.1363      -0.0052         487096              260
-       r64       3.1017       0.1703       0.0289         909763              485
+     blind       2.8043            -            -              0                -
+    locate       2.9846            -            -       30720000              5.0
+    locate       3.0825            -            -       30720000              5.0
+    locate       3.0167            -            -       30720000              5.0
+    locate       3.0155            -            -       30720000              5.0
+    locate       2.9791            -            -       30720000              5.0
+     blind       2.7743            -            -              0                -
+        r8       2.9858       0.1965      -0.0299         147501               79
+       r16       3.0376       0.2483       0.0219         259794              139
+       r32       3.0129       0.2236      -0.0028         480936              256
+       r64       3.0124       0.2231      -0.0033         898619              479
 ```
 
-blind spread **0.0129 ms**, locate spread **0.0864 ms** over 3,000 frames an
+blind spread **0.030 ms**, locate spread **0.103 ms** over 3,000 frames an
 arm, arms alternating, every arm asserted to have started from a
 byte-identical world.
 
-**Read `vs locate`, never `vs blind`.** The `vs blind` column runs 0.11–0.17
+**Read `vs locate`, never `vs blind`.** The `vs blind` column runs 0.20–0.25
 ms and is almost entirely this harness's own whole-world scan; a reader
-taking it for the sense's cost would be off by a factor of thirty.
+taking it for the sense's cost would be off by a factor of forty.
 
-**The wall clock cannot resolve the sense at all, and this is now measured
-three times rather than argued.** In this run every `vs locate` lands inside
-the control spread (−0.035 to +0.029 against 0.086). Across three runs of
-this mode — two before the `main` merge, one after — r64 has read **−0.012,
-+0.059 and +0.029 ms** against control spreads of 0.046 to 0.086. A quantity
-whose sign flips between runs and never leaves its own noise bar is noise.
+**The wall clock cannot resolve the sense at all, and this is now five runs
+rather than an argument.** In this run every `vs locate` lands inside the
+control spread (−0.030 to +0.022 against 0.103). Across five runs of this
+mode, spanning four trees, r64 has read **−0.012, +0.059, +0.029, −0.015 and
+−0.003 ms** against control spreads of 0.046 to 0.103. **The sign flips four
+times.** A quantity that never leaves its own noise bar and cannot hold a
+sign is noise.
 
-**The deterministic route says the same thing and transfers.** The
-`cells read` column is **bit-identical across the merge** — 909,763 at r64,
-5.0 beetles located per cast, on two different trees — which is the staleness
-check the wall clock cannot provide. And `locate` reads every cell of the
-world once per cast and does nothing else, so it prices one `World::get`
-directly: 0.141 ms/frame for 10,240 reads/frame is **13.8 ns a read** on this
-box (the pre-merge run gave 15.6 ns, so call it 14–16). Then:
+**The deterministic route is the one to quote, and it is stable.** `cells
+read` was bit-identical across the first three trees (909,763 at r64) and
+moved 1.2% on the fourth, to **898,619** — the creature rework changed the
+population slightly, which is exactly the kind of thing it should track.
+Beetles located per cast is 5.0 on every tree.
+
+`locate` reads every cell of the world once per cast and does nothing else,
+so it prices one `World::get` directly. **That price is the loosest number in
+this report and it is quoted as a range on purpose**: four readings give
+**15.6, 13.8, 14.9 and 22.1 ns**, and the 22.1 came from the run above, whose
+own control spread (0.103 ms) is twice any of the others — the same run whose
+`ascii` worst frame read 78 ms against a 28 ms usual. So the box was loud, not
+the code slow. Taking the whole range rather than picking:
 
 | radius | cells read per beetle per cast | ms/frame at 5 beetles | µs per beetle per frame |
 |---|---|---|---|
-| 8 | 81 | 0.0007 | 0.14 |
-| 16 | 142 | 0.0012 | 0.24 |
-| 32 | 260 | 0.0022 | 0.45 |
-| **64** | **485** | **0.0042** | **0.84** |
+| 8 | 79 | 0.0007–0.0011 | 0.15–0.22 |
+| 16 | 139 | 0.0013–0.0019 | 0.26–0.38 |
+| 32 | 256 | 0.0024–0.0035 | 0.48–0.70 |
+| **64** | **479** | **0.0045–0.0066** | **0.90–1.32** |
 
-So a radius-64 all-round sense costs **0.004 ms of a frame** at this
-population — which is why the clock cannot see it, and why the noise-floor
-statement and the derived one agree rather than merely coexisting.
+**The conclusion does not depend on which reading you take**, which is the
+point of quoting the range: at the optimistic end a radius-64 sense is 0.15%
+of a frame and at the pessimistic end 0.22%. Both are free.
 
 **Against the whole frame.** `cargo run --release --example ascii` on this
-tree reports **mean 2.983 ms** over 12,000 frames with 154 live organisms
-(worst 27.593 ms). Per `CLAUDE.md`'s own test the worst is **not** pinned by
-an aggregate here — mean × frames is 35,796 ms against a 27.6 ms worst, so
-the worst is one frame among thousands of comparable ones and is noise
-wearing a number. The mean is the figure to quote, and this harness's blind
-arm at 2.93 ms agrees with it. **The sense is 0.14% of a mean frame.**
+tree reports **mean 2.937 ms** over 12,000 frames with 159 live organisms
+(worst 78.303 ms). Per `CLAUDE.md`'s own test the worst is **not** pinned by
+an aggregate — mean × frames is 35,244 ms against a 78 ms worst, 0.2% of it —
+so that worst is one frame among thousands of comparable ones and is noise
+wearing a number. It is quoted here only as corroboration that this
+particular run was taken on a loaded box: the same run's `locate` spread
+doubled. The mean is the figure to use, and this harness's blind arm at
+2.79 ms agrees with it to 5%.
 
 **What it costs at scale, which is the number that matters** — the current
-512x320 world is a test environment, not the target. At 0.84 µs per beetle
-per frame:
+512x320 world is a test environment, not the target. At 0.9–1.3 µs per beetle
+per frame against a ~2.9 ms frame:
 
-| predators in the world | cost of the sense | share of a 2.98 ms frame |
+| predators in the world | cost of the sense | share of a frame |
 |---|---|---|
-| 5 (measured) | 0.004 ms | 0.14% |
-| 36 | 0.030 ms | 1% |
-| **358** | **0.30 ms** | **10%** |
+| 5 (measured) | 0.005–0.007 ms | 0.15–0.22% |
+| a few dozen | ~0.03 ms | ~1% |
+| **two to three hundred** | **~0.3 ms** | **10%** |
+
+Round numbers deliberately, and rounder than the last revision: the per-read
+cost spans 13.8–22.1 ns across four measurements and the frame itself has
+moved 2.82–2.98 ms across three, so any three-digit predator count would be
+false precision. **The honest claim is "a few hundred", and it is the claim
+the design needs** — nothing plausible for this world sits near that bound.
 
 **Radius buys itself cheaply, and that is not an assumption.** 8 → 64 is an
-eightfold radius for a **sixfold** read count (81 → 485), well short of the
-16 × 64 = 1,024 an unobstructed fan would cost, because rays terminate on
-the first blocker and a ground-hugging beetle's downward rays die at once.
+eightfold radius for a **sixfold** read count (79 → 479), well short of the
+16 × 64 = 1,024 an unobstructed fan would cost, because rays terminate on the
+first blocker and a ground-hugging beetle's downward rays die at once.
 **Occlusion makes the sense cheaper as well as weaker**, which is worth
 knowing before anyone proposes to relax it for performance.
 
