@@ -1,0 +1,14 @@
+{
+  "card_id": "20260830T174711314Z-ff3451",
+  "answered_at": "2026-08-30T18:17:28Z",
+  "choice": 1,
+  "choice_label": "B - light half as fine (one value per 16 cells)",
+  "rating": null,
+  "comment": "looks goods we can tweak later if needed",
+  "annotations": [],
+  "archived": false,
+  "blind_was": [
+    1,
+    0
+  ]
+}
