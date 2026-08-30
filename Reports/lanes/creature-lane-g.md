@@ -193,7 +193,7 @@ can see a character the font would draw as a blank gap, since the notes are
 built at run time.
 
 **Not done: "more better graphs".** Put back to the owner on card
-`20260830T063…` with two concrete proposals — food delivered over time beside
+`20260830T070742689Z-1ae70e` with two concrete proposals — food delivered over time beside
 the population strip, and the energy histogram as a moving band rather than a
 snapshot — rather than guessed at. Whoever picks this up should read that
 card's answer first.
@@ -232,6 +232,8 @@ where before the merge all forty sat on one bar.
 
 ## Head
 
+`80ec04fc222f59f9618bd1250a999057f47c711f` on
+`claude/creature-lane-g-panel` (the hover). Before it,
 `b07847b815f8a8ac11f1cb72ec9ec4ea4242a275` on
 `claude/creature-lane-g-panel`, which is `322ea66`'s merge of `main`
 (`3a86ff5`) plus `a25584f` (the panel) plus this note.
