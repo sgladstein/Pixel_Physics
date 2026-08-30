@@ -231,6 +231,22 @@ pub struct Tuning {
     /// Ticks between strokes. Long enough that swimming reads as a series
     /// of pulls rather than a thruster.
     pub stroke_cooldown: u8,
+    /// How hard he hits the water: one multiplier over the whole surface
+    /// effect — the crown going in, the sheet coming out, and the wake he
+    /// pushes while he swims (`disturb_water`).
+    ///
+    /// **One knob rather than four**, because the three events are one
+    /// look and a player who thinks the water is too busy does not want to
+    /// be asked which third of it. `0.0` switches the whole thing off and
+    /// restores the pre-M9 behaviour exactly, which is what makes it an
+    /// A/B rather than a preference — the same shape as
+    /// `shoulder_grains`'s zero.
+    ///
+    /// Deliberately **not** part of `WaterFeel`, for the reason
+    /// `surface_hop` gives: the four feels are buoyancy, damping and
+    /// strokes — how the water *holds* him — and folding a look knob in
+    /// would make `F4` stomp a value someone had just swept in the panel.
+    pub splash_force: f32,
     /// How far he can reach to shake a plant.
     ///
     /// Shorter than `dig_reach`, deliberately, and the ordering is the rule
@@ -502,6 +518,7 @@ impl Default for Tuning {
             swim_damp: 0.84,
             stroke_impulse: 1.3,
             stroke_cooldown: 7,
+            splash_force: 1.0,
             shake_reach: 20,
             shake_shed: 0.08,
             shake_seed: 0.12,
@@ -1053,6 +1070,56 @@ pub struct Player {
     /// climbing off the top launches him, letting go of the grab key
     /// drops him. Same shape as `was_swimming`, same reason.
     was_climbing: bool,
+    /// Any part of him overlaps liquid — a different question from
+    /// `swimming`, which reads the head row alone. This is the one the
+    /// water surface asks: he breaks it with his feet going in and clears
+    /// it with his feet coming out, and both of those happen while
+    /// `swimming` is false.
+    ///
+    /// Public for the same reason `swimming` is: it is the difference
+    /// between being in the water and being over it, and a harness cannot
+    /// infer it from position without knowing where the pool is.
+    pub floating: bool,
+    /// Last tick's `floating`, so the two ticks that matter — the one he
+    /// goes in on and the one he comes out on — can be told from the
+    /// hundreds in between. Same shape as `was_swimming`, same reason.
+    was_floating: bool,
+    /// How many times he has broken a water surface going in, and coming
+    /// out. **The "did it fire at all" counters for the splash**, and
+    /// separate because they are separate code paths that can each be
+    /// dead on their own: a picture of a gnome in a pond cannot say
+    /// whether the crown beside him was thrown on the way in, on the way
+    /// out, or by the pool doing something else entirely.
+    ///
+    /// Crossings, not droplets. `World::splashes_thrown` is the effect
+    /// counter on the far side of the call — the pairing `CLAUDE.md` asks
+    /// for, because a site that reports and is declined a frame later
+    /// looks exactly like one that fired.
+    pub water_entries: u32,
+    pub water_exits: u32,
+    /// Fill shoved aside by swimming, cumulative, in
+    /// `material::LIQUID_FULL` units. The wake's own effect counter: it
+    /// throws no droplets, so nothing else in the world says whether it
+    /// ran.
+    pub water_shoved: u64,
+    /// Fill earned by swimming and not yet spent, in
+    /// `material::LIQUID_FULL` units. See the wake's own comment in
+    /// `disturb_water` for why the budget is carried rather than spent as
+    /// it is earned.
+    ///
+    /// **A remainder, not a bank**, and capped at one tick's earnings for
+    /// a reason that only shows up on a long dive: swimming deep, both
+    /// flanks are refused every tick — there is no free surface down
+    /// there, which is correct — so nothing is ever spent and an uncapped
+    /// carry would climb for the whole dive and then discharge at full
+    /// rate for as long as it took to drain. Surfacing after a minute
+    /// under would churn the pool as if he had been sprinting across it.
+    shove_carry: u32,
+    /// Strokes that found a free surface to throw spray off. Distinct from
+    /// the crossings above: a stroke deep under water correctly throws
+    /// nothing, so counting strokes rather than *splashing* strokes would
+    /// report a mechanism firing that had never once reached the surface.
+    pub strokes_splashed: u32,
     /// Loose powder overlaps him: slowed, and sunk into it.
     pub wading: bool,
     /// Gripping living plant tissue: gravity is off and `W`/`S` drive him
@@ -1147,6 +1214,7 @@ impl Tuning {
             swim_damp,
             stroke_impulse,
             stroke_cooldown,
+            splash_force,
             shake_reach,
             shake_shed,
             shake_seed,
@@ -1231,6 +1299,10 @@ impl Tuning {
             buoyancy,
             swim_damp,
             surface_hop,
+            // A multiplier over an effect whose own magnitudes are already
+            // stated as fractions of `fall_clamp` and `run_max`, so it
+            // scales through them and must not be scaled again.
+            splash_force,
             // Plain probabilities and fractions of a material yield.
             shake_shed,
             shake_seed,
@@ -1297,6 +1369,13 @@ impl Player {
             bore_dir: None,
             swimming: false,
             was_swimming: false,
+            floating: false,
+            was_floating: false,
+            water_entries: 0,
+            water_exits: 0,
+            water_shoved: 0,
+            shove_carry: 0,
+            strokes_splashed: 0,
             was_climbing: false,
             wading: false,
             climbing: false,
@@ -1722,11 +1801,25 @@ pub fn step(world: &mut World, input: PlayerInput, tuning: &Tuning) {
     // with nothing under his feet, which is precisely when he wants to
     // pull himself onto the bank. Keying the haul-out on `swimming` would
     // have switched it off exactly where it is needed.
-    let floating = (0..p.h).any(|dy| {
+    //
+    // Kept on the `Player` as well as read here, because the water surface
+    // needs *last* tick's answer to find the two ticks he crosses it on --
+    // see `disturb_water`.
+    p.was_floating = p.floating;
+    p.floating = (0..p.h).any(|dy| {
         (0..p.w).any(|dx| {
             world.in_bounds(xi + dx, yi + dy) && world.materials.kind(world.get(xi + dx, yi + dy).material) == MaterialKind::Liquid
         })
     });
+    let floating = p.floating;
+    // The speed he arrived at, taken before this tick's gravity, buoyancy
+    // and damping touch it — that is what a splash is sized by, and by the
+    // end of the tick water has already eaten most of it (`swim_damp`).
+    let arrival = (p.vx, p.vy);
+    // Set on the tick a stroke actually fires, so the spray it throws is
+    // the verb's own and not a per-frame drip. Read by `disturb_water` at
+    // the end of the tick.
+    let mut stroke = false;
     // How *deep* in the powder, not merely whether. Reported from the
     // first playtest: "sand and dirt felt the same, which was just a
     // little slower than rock. It just felt like it changed my speed" —
@@ -1931,6 +2024,7 @@ pub fn step(world: &mut World, input: PlayerInput, tuning: &Tuning) {
             let pull = if input.down { tuning.stroke_impulse } else { -tuning.stroke_impulse };
             p.vy += pull;
             p.stroke_cooldown = tuning.stroke_cooldown;
+            stroke = true;
         }
         p.vy += tuning.gravity * tuning.buoyancy;
         p.vx *= tuning.swim_damp;
@@ -2132,7 +2226,412 @@ pub fn step(world: &mut World, input: PlayerInput, tuning: &Tuning) {
         p.x += body.vx;
     }
 
+    // Last, so the crown and the wake are placed against where he actually
+    // ended up rather than where he started the tick, and so the cells it
+    // writes are the settled ones this frame's `throw_splashes` will read.
+    // Cheap to skip: one branch on a flag the medium block already
+    // computed, and a dry gnome never enters it.
+    if p.floating || p.was_floating {
+        disturb_water(world, &mut p, tuning, arrival, stroke);
+    }
+
     world.player = Some(p);
+}
+
+// ---------------------------------------------------------------------------
+// The water surface
+// ---------------------------------------------------------------------------
+
+/// Arrival speed, as a fraction of `Tuning::fall_clamp`, below which
+/// breaking the surface is a ripple and not a splash.
+///
+/// **A fraction rather than a speed**, because every speed on `Tuning` is
+/// scaled by `Tuning::scaled` and slowed by `Tuning::dilated`, and a bare
+/// 0.7 cells per tick would mean "a hard landing" for the authored gnome
+/// and "a drift" for one built at twice the cell resolution. Referred to
+/// `fall_clamp` it is the same fraction of his terminal speed at any size:
+/// 0.7 cells/tick at the defaults, which is `rigid::SPLASH_MIN_ENTRY_SPEED`
+/// exactly -- rock and gnome should not need different speeds to wet the
+/// same pool.
+const SPLASH_MIN_SPEED: f32 = 0.25;
+
+/// ...and the fraction at which the crown is at its full width. Two thirds
+/// of terminal, so most of a fall from any real height reads the same and
+/// the gradation is spent on the range a player actually varies -- a step
+/// off a bank against a jump off a cliff.
+const SPLASH_FULL_SPEED: f32 = 0.70;
+
+/// What a *just*-fast-enough entry reports, so the slowest splash that
+/// fires is still a droplet and not a stationary one.
+///
+/// `particle::throw_splashes` reads strength twice — as the gate on whether
+/// a site throws a crown (`SPLASH_CROWN_STRENGTH`, 0.5) or a single drop,
+/// and as the multiplier on the droplet's launch velocity. A strength of
+/// zero would report a site and throw a droplet that goes nowhere, which
+/// looks like water briefly vanishing.
+const SPLASH_MIN_STRENGTH: f32 = 0.3;
+
+/// The strength above which the crown gets a second pair of sites, three
+/// columns further out.
+///
+/// This is where the *distribution* lives, and it is the point of grading
+/// the entry at all: a slide off a bank throws two droplets, a fall from
+/// height throws twelve. One site's fan already spans three columns
+/// (`particle::SPLASH_DROPLETS`), so the second pair goes at ±3 rather than
+/// ±2 — at ±2 the two fans would overlap by two columns and the wider
+/// crown would be almost entirely droplets the inner site had already
+/// taken.
+const SPLASH_WIDE_STRENGTH: f32 = 0.65;
+
+/// How far out the wide crown's second pair of sites goes, in columns.
+/// Three, because one site's fan already spans three columns — see
+/// `SPLASH_WIDE_STRENGTH`.
+const SPLASH_WIDE_OFFSET: i32 = 3;
+
+/// How far, in cells, a splash site may be from the rectangle before the
+/// scan gives up on the column. Small: this is looking for the surface he
+/// is crossing, not for the nearest water in the world.
+const SURFACE_SEARCH: i32 = 3;
+
+/// Water shoved aside in one tick at full swimming speed, in whole cells,
+/// split between the two flanks.
+///
+/// **Sized to move whole cells, and the first version did not.** Spread
+/// thin it measured perfectly and showed nothing: at one cell over four rim
+/// columns each flank got a fifth of a cell, and a fifth of a cell is
+/// invisible twice over — `render.rs` dims a liquid toward black by fill,
+/// so a part-full cell above the line reads as a shadow rather than as
+/// water, and the liquid sweep drops it back the next frame before anything
+/// has seen it. Measured on `scene=surf`: **203 cells shoved across a
+/// 300-cell crossing, and a waterline still flat to the pixel.** That is
+/// the counter-without-a-consequence failure `CLAUDE.md` opens by warning
+/// about, arrived at from the other side — the mechanism fired every frame
+/// and was not finished.
+///
+/// Two cells over two columns puts a whole cell on each flank at full
+/// speed, which is water standing above the line, and grades down through
+/// part-cells to nothing as he slows.
+const SURFACE_SHOVE: f32 = 2.0;
+
+/// Speed, as a fraction of `Tuning::run_max`, below which he is floating
+/// rather than swimming and the surface is left alone.
+///
+/// Not zero, and that is the whole shape of the effect: a gnome bobbing at
+/// rest in a pond should leave a flat pond. Without a floor here the shove
+/// becomes a permanent halo that follows him around whatever he does,
+/// which is the binary outcome the ethos rejects wearing a continuous
+/// number.
+const SURFACE_STILL: f32 = 0.10;
+
+/// How far out the shove looks for the water he is *not* disturbing, to
+/// bound how high the heap on his flank may stand. Just past his own
+/// reach: the rim is one column out and a heap spreads about as far again.
+const SURFACE_REFERENCE: i32 = 4;
+
+/// How far above the undisturbed line the heap may stand, in cells. One —
+/// water pushed aside by something swimming stands proud of the surface,
+/// it does not tower over it.
+const SURFACE_HEAP_ROWS: i32 = 1;
+
+/// The most unspent shove that may be carried between ticks, in
+/// `material::LIQUID_FULL` units: one tick's earnings at full speed. See
+/// `Player::shove_carry` for the dive this bounds.
+const SURFACE_CARRY_CAP: u32 = (SURFACE_SHOVE * super::material::LIQUID_FULL as f32) as u32;
+
+/// How many rows below the waterline the shove will reach for water when
+/// the top row under him has already been drained. Two: enough that a fast
+/// crossing is not throttled by the cell it emptied last tick, and shallow
+/// enough that the notch stays a notch.
+const SURFACE_DRAW_ROWS: i32 = 2;
+
+/// What one swimming stroke throws, as a `report_splash` strength.
+///
+/// **The verb has to deliver something.** A stroke is the only thing a
+/// swimmer actively *does*, and before this it moved him and left the
+/// world exactly as it found it. Below `particle::SPLASH_CROWN_STRENGTH`
+/// deliberately, so a stroke is a flick of spray and not the crown that
+/// going in throws — the two events should not read the same.
+const STROKE_SPLASH: f32 = 0.4;
+
+/// The topmost liquid cell of a column, within a row window — the
+/// waterline, whatever its fill.
+///
+/// Fill is deliberately not tested: a settled pool's top row is the
+/// remainder of its volume and is *never* full (`particle::throw_splashes`
+/// says so at length), so a scan that wanted a full cell would find the
+/// surface one row lower than it is and heap water into the pool instead of
+/// onto it.
+fn waterline(world: &World, x: i32, y0: i32, y1: i32) -> Option<i32> {
+    (y0.max(0)..=y1).find(|&y| world.in_bounds(x, y) && world.materials.kind(world.get(x, y).material) == MaterialKind::Liquid)
+}
+
+/// The topmost row of a column that `particle::throw_splashes` will
+/// actually throw a droplet out of.
+///
+/// **The two predicates have to agree**, the same standing requirement
+/// `rigid::report_entry_splash` records: a site is re-checked a frame later
+/// against a full cell with air (or the pool's own film) above it, so a
+/// site reported against anything else is a site that reports and never
+/// fires — the silent-null shape `CLAUDE.md` warns a counter cannot see.
+fn splash_site(world: &World, x: i32, y0: i32, y1: i32) -> Option<i32> {
+    (y0.max(0)..=y1).find(|&y| {
+        if !world.in_bounds(x, y) || !world.in_bounds(x, y - 1) {
+            return false;
+        }
+        let cell = world.get(x, y);
+        if world.materials.kind(cell.material) != MaterialKind::Liquid || super::update::liquid_fill(cell) < super::material::LIQUID_FULL {
+            return false;
+        }
+        let cover = world.get(x, y - 1);
+        cover.material == super::material::EMPTY
+            || (cover.material == cell.material && super::update::liquid_fill(cover) < super::material::LIQUID_FULL)
+    })
+}
+
+/// Grade an arrival or departure speed into a `report_splash` strength,
+/// `None` below the bar.
+fn crossing_strength(speed: f32, tuning: &Tuning) -> Option<f32> {
+    let ratio = speed / tuning.fall_clamp.max(f32::EPSILON);
+    if ratio < SPLASH_MIN_SPEED || tuning.splash_force <= 0.0 {
+        return None;
+    }
+    let t = ((ratio - SPLASH_MIN_SPEED) / (SPLASH_FULL_SPEED - SPLASH_MIN_SPEED)).clamp(0.0, 1.0);
+    Some((SPLASH_MIN_STRENGTH + (1.0 - SPLASH_MIN_STRENGTH) * t) * tuning.splash_force)
+}
+
+/// Report a crown of splash sites over `columns`, scanning each for the
+/// free surface inside the row window. Returns how many sites were found.
+fn report_crown(world: &mut World, columns: &[i32], y0: i32, y1: i32, strength: f32) -> u32 {
+    let mut sites = 0;
+    for &x in columns {
+        let Some(y) = splash_site(world, x, y0, y1) else { continue };
+        super::surface::CellSurface::report_splash(world, x, y, strength);
+        sites += 1;
+    }
+    sites
+}
+
+/// Everything the character does to a body of water by being in it: the
+/// crown he throws going in, the sheet he drags out coming back up, and
+/// the wake he pushes while he swims.
+///
+/// # Why this is the one place the gnome writes cells
+///
+/// The module doc's "writes no cells, invisible to the CA sweep" is the
+/// whole performance story and this is its single exception, gated on him
+/// overlapping liquid at all — an idle gnome on dry land still wakes zero
+/// chunks and still costs the dirty-rect skip nothing. It is worth the
+/// exception because the alternative is the failure the ethos names
+/// outright: before this, a gnome falling into a pond at terminal velocity
+/// moved the surface by **not one pixel**, and water he swam through
+/// stayed mirror-flat. A verb the world does not answer is a verb the
+/// player is a spectator of.
+///
+/// # Three events, one scan
+///
+/// - **Entry** puts the crown at the *rim*, a column outside his footprint
+///   on each side, for `rigid::report_entry_splash`'s recorded reason: the
+///   crown needs air above the water it comes out of, and under a falling
+///   body there is nowhere for the water to go but sideways.
+/// - **Exit** puts it over his own columns instead, because those are the
+///   ones he has just vacated — the water he was displacing closes over
+///   behind him, and that is where a departing sheet comes off.
+/// - **Swimming** shoves fill out of the waterline cells under him and
+///   heaps it on the row above the waterline at his flanks. The trough is
+///   hidden by his own sprite while he is over it and revealed the moment
+///   he moves on, which is what makes the wake read as a wake rather than
+///   as a halo.
+///
+/// All three are graded rather than switched: below `SPLASH_MIN_SPEED`
+/// crossing the surface reports nothing, below `SURFACE_STILL` floating
+/// disturbs nothing, and everything between is a fraction of a full
+/// crown.
+fn disturb_water(world: &mut World, p: &mut Player, tuning: &Tuning, arrival: (f32, f32), stroke: bool) {
+    let (xi, yi) = p.rect_origin();
+    let (top, bottom) = (yi - SURFACE_SEARCH, yi + p.h + SURFACE_SEARCH);
+    let speed = (arrival.0 * arrival.0 + arrival.1 * arrival.1).sqrt();
+
+    // --- crossing the surface, in either direction ---
+    //
+    // **Going in is his feet touching; coming out is his head clearing,
+    // and they are deliberately not the same test.** Keying the exit on
+    // the mirror of the entry — the last of him leaving the water — was
+    // the first version and it is a trigger that essentially never fires:
+    // `surface_hop` is 0.75 of a standing jump, which lifts him
+    // `v^2 / 2g` = 12.4 cells, and he is 14 tall. A gnome hopping out of
+    // open water **cannot** clear the surface with his boots, so
+    // `scene=swim` reported `1 in / 0 out` over 450 frames with the path in
+    // place and working. Head-clearing is also the moment the engine
+    // already treats as leaving the water: it is what `Tuning::surface_hop`
+    // is sized against and what the wiki calls "the tick his head clears".
+    //
+    // The whole-body test is kept as the *second* way out, because walking
+    // up a beach never puts his head under at all.
+    let entering = p.floating && !p.was_floating;
+    let leaving = (p.was_swimming && !p.swimming && arrival.1 < 0.0) || (!p.floating && p.was_floating);
+    if entering || leaving {
+        if let Some(strength) = crossing_strength(speed, tuning) {
+            // Going in, the sites are outside him, for
+            // `rigid::report_entry_splash`'s recorded reason. Coming out
+            // they are his own columns: that is the water closing over the
+            // hole he was occupying, which is where a departing sheet
+            // actually comes off.
+            let mut columns = if entering { vec![xi - 1, xi + p.w] } else { vec![xi, xi + p.w - 1] };
+            if strength >= SPLASH_WIDE_STRENGTH && entering {
+                columns.push(xi - 1 - SPLASH_WIDE_OFFSET);
+                columns.push(xi + p.w + SPLASH_WIDE_OFFSET);
+            }
+            let sites = report_crown(world, &columns, top, bottom, strength);
+            if sites > 0 {
+                if entering {
+                    p.water_entries += 1;
+                } else {
+                    p.water_exits += 1;
+                }
+            }
+        }
+    }
+
+    // --- the wake, while he is in it ---
+    if !p.floating {
+        return;
+    }
+
+    // --- the stroke, which is the only thing a swimmer actively does ---
+    //
+    // Deterministic, and it has to be: this module has no RNG and a replay
+    // from a `PlayerInput` sequence has to land in the same place, which
+    // the module doc states as the whole reason the character is
+    // input-driven. Keying the spray on the stroke rather than on a chance
+    // per frame is not a compromise for that — it is the better rule
+    // anyway, because it is the *verb* that throws the water.
+    if stroke && tuning.splash_force > 0.0 {
+        let sites = report_crown(world, &[xi, xi + p.w - 1], top, bottom, STROKE_SPLASH * tuning.splash_force);
+        p.strokes_splashed += u32::from(sites > 0);
+    }
+
+    let drive = (speed / tuning.run_max.max(f32::EPSILON)).clamp(0.0, 1.0);
+    if drive < SURFACE_STILL || tuning.splash_force <= 0.0 {
+        return;
+    }
+
+    // **Whole cells, paid for out of a carried remainder.**
+    //
+    // The first version spent the budget as it earned it, which put a
+    // fifth of a cell on each flank every tick — arithmetically the same
+    // water and visually nothing at all, because `Material::fill_dimming`
+    // draws a part-full cell dark and the liquid sweep drops it back before
+    // the next frame. Measured on `scene=surf`: 203 cells shoved across a
+    // 300-cell crossing against a waterline still flat to the pixel.
+    //
+    // Accumulating instead keeps the *rate* continuous — a slow swimmer
+    // lifts a cell every few ticks, a fast one lifts two a tick — while
+    // every cell that does go up is a full one, which is water rather than
+    // a dark speck. The gradation the ethos asks for lives in how often it
+    // happens, which is the axis that survives being quantised.
+    //
+    // **Capped where it is earned, not where it is spent**, because the
+    // spend has four early exits and only one of them is reached on a
+    // dive: capping at the bottom of the function left the carry at 2,671
+    // against a cap of 2,000 the first time it was measured, on a run that
+    // swam out of the side of the pool. An invariant belongs at the point
+    // that can break it.
+    let earned = (SURFACE_SHOVE * drive * tuning.splash_force * super::material::LIQUID_FULL as f32) as u32;
+    p.shove_carry = p.shove_carry.saturating_add(earned).min(SURFACE_CARRY_CAP);
+    let mut cells = p.shove_carry / super::material::LIQUID_FULL as u32;
+    if cells == 0 {
+        return;
+    }
+
+    // The water he is in decides the material — a gnome swimming in lava
+    // must not heap water onto the shore beside him. Taken from the first
+    // waterline cell under him rather than assumed, and every cell touched
+    // below is checked against it.
+    //
+    // **Trailing edge first**, so the notch opens behind him rather than
+    // ahead: water closes in over the space a swimmer has left, and drained
+    // in the other order the hole would lead him like a bow wave made of
+    // absence. `SURFACE_DRAW_ROWS` deep because one row is emptied in a
+    // tick at speed, and a column with nothing left in its top cell would
+    // otherwise stop contributing for as long as it took the sweep to
+    // refill it.
+    let lead_right = arrival.0 > 0.0;
+    let mut sources: Vec<(i32, i32)> = Vec::new();
+    for i in 0..p.w {
+        let x = if lead_right { xi + i } else { xi + p.w - 1 - i };
+        let Some(y) = waterline(world, x, yi, bottom) else { continue };
+        for row in 0..SURFACE_DRAW_ROWS {
+            sources.push((x, y + row));
+        }
+    }
+    let Some(&(fx, fy)) = sources.first() else { return };
+    let liquid = world.get(fx, fy).material;
+
+    // Leading flank first: a bow wave heaps in front of what is making it,
+    // and the trough the sources leave is behind by construction.
+    let mut moved = 0u32;
+    let flanks = if lead_right { [1, -1] } else { [-1, 1] };
+    for side in flanks {
+        if cells == 0 {
+            break;
+        }
+        let x = if side < 0 { xi - 1 } else { xi + p.w };
+        let Some(y) = waterline(world, x, top, bottom) else { continue };
+        if world.get(x, y).material != liquid {
+            continue;
+        }
+        // The row above the line: the heap has to be *above* it or it is
+        // invisible.
+        let (hx, hy) = (x, y - 1);
+        if !world.in_bounds(hx, hy) || world.get(hx, hy).material != super::material::EMPTY {
+            continue;
+        }
+        // **The heap is capped against water he is not touching, not
+        // against itself.** Deposit onto a cell and next tick that cell is
+        // the waterline, so the tick after that would deposit on top of
+        // *it* — a gnome treading water in one spot would build a tower out
+        // of the pool he is in, conserving every cell of it and looking
+        // absurd. `SURFACE_REFERENCE` columns out is past his own
+        // disturbance, so the undisturbed line is what bounds the heap.
+        let reference = waterline(world, x + side * SURFACE_REFERENCE, top, bottom);
+        if reference.is_some_and(|r| hy < r - SURFACE_HEAP_ROWS) {
+            continue;
+        }
+        // Take a whole cell's worth out of the waterline under him. Never
+        // more than is there — a short take is deposited short, so the
+        // ledger balances even at the edge of a pool.
+        let mut taken = 0u32;
+        for &(sx, sy) in &sources {
+            if taken >= super::material::LIQUID_FULL as u32 {
+                break;
+            }
+            let cell = world.get(sx, sy);
+            if cell.material != liquid {
+                continue;
+            }
+            let fill = super::update::liquid_fill(cell) as u32;
+            let take = fill.min(super::material::LIQUID_FULL as u32 - taken);
+            if take == 0 {
+                continue;
+            }
+            let left = fill - take;
+            // `aux == 0` on a liquid means **full**, so a drained cell is
+            // written as `Cell::EMPTY` and never `with_aux(0)` -- the
+            // gotcha `material::LIQUID_FULL` exists to warn about, and the
+            // one that manufactures water out of nothing when it is got
+            // backwards.
+            world.set(sx, sy, if left == 0 { super::cell::Cell::EMPTY } else { cell.with_aux(left as u16) });
+            taken += take;
+        }
+        if taken == 0 {
+            break; // nothing left under him to shove
+        }
+        world.set(hx, hy, super::cell::Cell::new(liquid, world.get(x, y).shade).with_aux(taken as u16));
+        moved += taken;
+        cells -= 1;
+    }
+    p.shove_carry = p.shove_carry.saturating_sub(moved);
+    p.water_shoved += moved as u64;
 }
 
 /// One dig bite toward `aim` — the phase-2 verb. A no-op without a
@@ -4940,6 +5439,276 @@ mod tests {
             "expected him out of the water and standing on the bank, got feet at {feet} (waterline 60), grounded {}",
             p.grounded
         );
+    }
+
+    // ---- the water surface -------------------------------------------
+
+    /// Total liquid volume in the world, in cell-equivalents.
+    ///
+    /// **Fill, not occupancy** — the recorded metric trap: a `Liquid` cell
+    /// holds continuous fill and the whole point of the wake is that it
+    /// moves partial cells about, so a cell count would read a shove as a
+    /// loss and a gain in the same frame.
+    ///
+    /// Splash droplets are deliberately *not* counted, because these tests
+    /// step the world with no `ParticleSystem` at all: nothing drains
+    /// `World::splash_sites`, so no droplet is ever debited and the pool
+    /// keeps every cell it reports. That is the property
+    /// `particle::throw_splashes` exists to give, and it is what makes the
+    /// conservation check below a check on *this* code.
+    fn water_volume(world: &World) -> f64 {
+        let mut total = 0.0;
+        for y in 0..96 {
+            for x in 0..128 {
+                let cell = world.get(x, y);
+                if world.materials.kind(cell.material) == MaterialKind::Liquid {
+                    total += crate::sim::update::liquid_fill(cell) as f64 / material::LIQUID_FULL as f64;
+                }
+            }
+        }
+        total
+    }
+
+    /// Going in throws a crown, and going in *gently* does not.
+    ///
+    /// **The paired negative is what makes this a test of entry rather
+    /// than of wetness**, borrowed from `rigid`'s own version: the
+    /// identical gnome started already at the waterline never gets past
+    /// `SPLASH_MIN_SPEED` before he is under, so he reports nothing. A
+    /// version without that control would pass against a rule that
+    /// splashed every frame of a long sink, which is the thing this must
+    /// not do.
+    #[test]
+    fn a_gnome_falling_into_a_pool_reports_a_crown_and_one_slipping_in_does_not() {
+        let mut fell = world_with_pool(60);
+        fell.player = Some(Player::at(64, 20));
+        let mut sites = 0;
+        for _ in 0..120 {
+            tick(&mut fell, PlayerInput::default());
+            sites += fell.splash_sites.len();
+            fell.splash_sites.clear();
+        }
+        let p = fell.player.as_ref().unwrap();
+        assert_eq!(p.water_entries, 1, "one entry, on the tick he broke the surface");
+        assert!(sites >= 2, "a fall from 40 cells should report a crown, got {sites} site(s)");
+
+        let mut slid = world_with_pool(60);
+        // Feet on the waterline, at rest: he is under before gravity gets
+        // him to the bar.
+        slid.player = Some(Player::at(64, 60 - PLAYER_HEIGHT / 2));
+        for _ in 0..120 {
+            tick(&mut slid, PlayerInput::default());
+        }
+        assert_eq!(
+            slid.player.as_ref().unwrap().water_entries,
+            0,
+            "sliding in at rest is a ripple, not a crown"
+        );
+    }
+
+    /// The crown is graded by how hard he hits, not switched by whether he
+    /// did.
+    ///
+    /// The ethos's first law as a guard: an outcome is a distribution. A
+    /// drop from 40 cells must report strictly more than one from 8, and
+    /// the shallow one must still report *something* — a rule that only
+    /// fires for a plunge has the same defect as one that fires for
+    /// everything.
+    #[test]
+    fn a_harder_entry_throws_a_wider_crown() {
+        // **`height` is his feet above the waterline, not his centre.**
+        // Written against the centre first, an "8-cell drop" was his boots
+        // starting one cell off the water — 0.63 cells/tick at contact,
+        // under the bar, reporting nothing — and read as the shallow case
+        // being broken rather than as the fixture being wrong.
+        let sites_from = |height: i32| {
+            let mut world = world_with_pool(60);
+            world.player = Some(Player::at(64, 60 - height - PLAYER_HEIGHT / 2));
+            let mut sites = 0;
+            for _ in 0..200 {
+                tick(&mut world, PlayerInput::default());
+                sites += world.splash_sites.len();
+                world.splash_sites.clear();
+            }
+            sites
+        };
+        let (shallow, deep) = (sites_from(8), sites_from(40));
+        assert!(shallow > 0, "even a short drop should wet the surface");
+        assert!(
+            deep > shallow,
+            "a plunge should throw a wider crown than a step in: {deep} sites against {shallow}"
+        );
+    }
+
+    /// Coming out throws water off, and the trigger is his *head* clearing
+    /// rather than the last of him leaving.
+    ///
+    /// **Watched failing for the mirror rule.** Keyed on the whole body
+    /// leaving the water — the obvious mirror of the entry — this reports
+    /// zero over any run in open water, because `surface_hop` lifts him
+    /// 12.4 cells and he is 14 tall. That is not a tuning problem: there is
+    /// no setting of the exit hop at which a gnome in mid-pool gets his
+    /// boots out.
+    #[test]
+    fn surfacing_throws_the_water_off_him() {
+        let mut world = world_with_pool(60);
+        world.player = Some(Player::at(64, 75));
+        let mut input = PlayerInput { jump_held: true, jump_pressed: true, ..Default::default() };
+        for _ in 0..300 {
+            tick(&mut world, input);
+            input.jump_pressed = false;
+        }
+        let p = world.player.as_ref().unwrap();
+        assert!(p.water_exits > 0, "stroking up out of a pool should throw water off the surface");
+    }
+
+    /// Swimming disturbs the surface; floating in it does not.
+    ///
+    /// The second half is the control, and it is the half that matters: a
+    /// rule with no speed floor is a permanent halo round the gnome, which
+    /// is a binary outcome wearing a continuous number. Both arms are the
+    /// same world and the same gnome, so nothing but the input differs.
+    #[test]
+    fn swimming_disturbs_the_surface_and_floating_still_does_not() {
+        let mut swum = world_with_pool(60);
+        swum.player = Some(Player::at(20, 62));
+        for _ in 0..200 {
+            tick(&mut swum, PlayerInput { right: true, jump_held: true, ..Default::default() });
+        }
+        let shoved = swum.player.as_ref().unwrap().water_shoved;
+        assert!(shoved > 0, "a crossing should move water, got {shoved}");
+
+        let mut still = world_with_pool(60);
+        still.player = Some(Player::at(64, 62));
+        // Long enough to sink to rest: the first ticks carry the speed he
+        // was created with, which is exactly what the floor is about.
+        for _ in 0..400 {
+            tick(&mut still, PlayerInput::default());
+        }
+        let settled = still.player.as_ref().unwrap().water_shoved;
+        for _ in 0..200 {
+            tick(&mut still, PlayerInput::default());
+        }
+        assert_eq!(
+            still.player.as_ref().unwrap().water_shoved,
+            settled,
+            "a gnome hanging still in a pool should leave it alone"
+        );
+    }
+
+    /// The whole effect conserves water exactly.
+    ///
+    /// Not a formality: the wake takes fill out of one cell and writes it
+    /// into another, and the `aux` convention on a `Liquid` is that **0
+    /// means full** — so a drained cell written as `with_aux(0)` rather
+    /// than `Cell::EMPTY` manufactures a full cell out of an empty one.
+    /// That gotcha has its own entry in `CLAUDE.md` because it has already
+    /// cost real time elsewhere in the engine.
+    #[test]
+    fn the_water_he_shoves_is_water_he_took() {
+        let mut world = world_with_pool(60);
+        world.player = Some(Player::at(20, 20));
+        let before = water_volume(&world);
+        for _ in 0..400 {
+            tick(&mut world, PlayerInput { right: true, jump_held: true, ..Default::default() });
+            // Dropped rather than drained, as `examples/ascii.rs` and every
+            // other `ParticleSystem`-less caller does.
+            world.splash_sites.clear();
+        }
+        let p = world.player.as_ref().unwrap();
+        assert!(p.water_shoved > 0 && p.water_entries > 0, "the run has to exercise both paths");
+        let after = water_volume(&world);
+        assert!(
+            (after - before).abs() < 1e-6,
+            "water is neither made nor lost: {before} -> {after}"
+        );
+    }
+
+    /// A long dive does not bank a wake to discharge on surfacing.
+    ///
+    /// **Found by reading the diff, not by playing it**, and it is the kind
+    /// of fault a picture would never show: deep under water both flanks
+    /// are correctly refused every tick — there is no free surface down
+    /// there — so nothing is spent, and an uncapped carry climbs for the
+    /// whole dive. A gnome who had been under for a minute would come up
+    /// churning the pool as if he had sprinted across it, and every
+    /// counter would agree with him.
+    ///
+    /// Asserted on the carry rather than on the churn because the carry is
+    /// the quantity that was wrong; the churn is one frame of it and would
+    /// need a threshold pulled out of the air.
+    #[test]
+    fn a_long_dive_does_not_bank_a_wake() {
+        let mut world = world_with_pool(40);
+        world.player = Some(Player::at(64, 60));
+        for _ in 0..600 {
+            tick(&mut world, PlayerInput { right: true, down: true, ..Default::default() });
+            world.splash_sites.clear();
+        }
+        let p = world.player.as_ref().unwrap();
+        assert!(p.y > 50.0, "he has to actually be under, not bobbing: y {:.1}", p.y);
+        assert!(
+            p.shove_carry <= SURFACE_CARRY_CAP,
+            "an unspendable budget must not accumulate: {} against a cap of {SURFACE_CARRY_CAP}",
+            p.shove_carry
+        );
+    }
+
+    /// `splash_force = 0` leaves the pool exactly as it was.
+    ///
+    /// The A/B off-switch, and the sensitivity control for every assertion
+    /// above: each of those is a claim that a number *moved*, and this is
+    /// the paired run in which it must not.
+    ///
+    /// **Compared cell for cell rather than by volume.** The wake conserves
+    /// volume by construction — that is what `the_water_he_shoves_is_water_
+    /// he_took` checks — so a volume comparison here would pass against a
+    /// version that shuffled the whole pool round and called it off. Cell
+    /// for cell is exact because `tick` runs no CA sweep at all: with the
+    /// knob down, nothing in the engine has any business touching this
+    /// water, so a single changed cell is a failure.
+    ///
+    /// The two arms differ **only** by the knob — same world, same spawn,
+    /// same input — because an A/B whose arms differ in two things is the
+    /// recorded way to attribute an effect to the wrong one.
+    #[test]
+    fn splash_force_zero_leaves_the_water_untouched() {
+        let pool = |force: f32| {
+            let mut world = world_with_pool(60);
+            world.player = Some(Player::at(20, 20));
+            let tuning = Tuning { splash_force: force, ..Default::default() };
+            for _ in 0..300 {
+                step(&mut world, PlayerInput { right: true, jump_held: true, ..Default::default() }, &tuning);
+                // Dropped rather than drained, as `examples/ascii.rs` and
+                // every other `ParticleSystem`-less caller does.
+                world.splash_sites.clear();
+            }
+            world
+        };
+        let untouched = world_with_pool(60);
+        let off = pool(0.0);
+        let p = off.player.as_ref().unwrap();
+        assert_eq!((p.water_entries, p.water_exits, p.water_shoved), (0, 0, 0), "the knob is off");
+        let changed = |a: &World, b: &World| {
+            (0..96)
+                .flat_map(|y| (0..128).map(move |x| (x, y)))
+                .filter(|&(x, y)| a.get(x, y).material != b.get(x, y).material || a.get(x, y).aux() != b.get(x, y).aux())
+                .count()
+        };
+        assert_eq!(changed(&off, &untouched), 0, "a gnome the water ignores leaves it exactly as he found it");
+
+        // ...and the mechanism it switches off is a real one. Without this
+        // the test above passes just as well against a `disturb_water` that
+        // was never called.
+        let on = pool(1.0);
+        let q = on.player.as_ref().unwrap();
+        assert!(
+            q.water_entries > 0 && q.water_shoved > 0,
+            "the control is only worth anything if the treatment fires: {} in, {} shoved",
+            q.water_entries,
+            q.water_shoved
+        );
+        assert!(changed(&on, &untouched) > 0, "and the treatment has to have moved water");
     }
 
     /// **Litter is a powder that does not impede him, and both halves of
