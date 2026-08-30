@@ -5,7 +5,7 @@
 see *The precondition* below; this is the one deviation from the brief and it
 was taken to satisfy the brief's own stated requirement rather than to skirt
 it.
-**Head SHA:** filled at the end of this note.
+**Head SHA:** `e6f380a6bdf2` — the docs commit; the code is `86b9f2a`, and `516cbd6` is the merge of `origin/main` onto this lane.
 **Cost fork:** built the package **and** wrote the finding. Both, because the
 finding is that the lever the package was built to open is blocked by
 something neither the package nor the appearance report had looked at.
