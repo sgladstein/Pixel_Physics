@@ -1429,6 +1429,32 @@ pub struct World {
     /// the renderer instead needs every call site changed, and draws a lab
     /// as open country wherever one is missed.
     enclosure: Option<crate::sim::enclosure::Enclosure>,
+    /// **Whether the sun reaches this world at all.**
+    ///
+    /// `true` everywhere but the evolution lab, where it is the one-line
+    /// statement of the design of record's §2: *the lab has a ceiling, not a
+    /// sky.* It had both, and the sky was winning — `field::apply_sky_to`
+    /// casts daylight down every column through `SKY_TRANSMISSION^(depth /
+    /// FIELD_SCALE)`, and a four-row ceiling passes **0.447** of it, which
+    /// is precisely the 0.447 the bench measured. The fixtures bolted into
+    /// that ceiling contributed nothing (`labshot lamps=0` came back
+    /// byte-identical at every stop), so the picture said grow lights and
+    /// the physics said sunshine through the roof.
+    ///
+    /// **A flag rather than a thicker or blacker shell, and it is the
+    /// cheapest of the three.** Thickening the ceiling is the same fiction
+    /// dimmer — 4 rows to 7 took the bench from 0.40 to 0.22 and halved the
+    /// stand, with no gate going red — and it leaves the crop's light a
+    /// function of how solid the box looks. An opaque *material* still pays
+    /// the whole descent to arrive at zero. This makes the sun's amplitude
+    /// zero at the top of the world, so the descent starts dark, every
+    /// `*c <= 0.0` early-out fires immediately, and the only thing left
+    /// writing light is a lamp.
+    ///
+    /// It is deliberately **not** folded into [`World::enclosure`], which is
+    /// documented as read by nothing in the simulation and is set by three
+    /// render tests that want a room drawn without their world going dark.
+    sky_lighting: bool,
 }
 
 /// The seed a world has when nothing has given it one. Arbitrary, fixed,
@@ -2092,6 +2118,7 @@ impl World {
             splashes_thrown: 0,
             seed: DEFAULT_WORLD_SEED,
             enclosure: None,
+            sky_lighting: true,
         };
         world.ensure_chunks_for(bounds);
         world
@@ -4420,6 +4447,27 @@ impl World {
     /// The room this world is inside, if it is inside one.
     pub fn enclosure(&self) -> Option<&crate::sim::enclosure::Enclosure> {
         self.enclosure.as_ref()
+    }
+
+    /// **Cut the sun out of this world, or let it back in** — see
+    /// [`World::sky_lighting`].
+    ///
+    /// Clears the settled flag so the change is visible on the next step
+    /// rather than whenever something else happens to wake a tile, exactly
+    /// as [`World::set_sky_hold`] does and for the same reason: a settled
+    /// world would otherwise keep the light it had.
+    pub fn set_sky_lighting(&mut self, lit: bool) {
+        if self.sky_lighting == lit {
+            return;
+        }
+        self.sky_lighting = lit;
+        self.fields_settled = false;
+    }
+
+    /// Whether the sun reaches this world. `true` unless something declared
+    /// otherwise; see the field's own doc for why the lab declares it.
+    pub fn sky_lighting(&self) -> bool {
+        self.sky_lighting
     }
 
     /// **Pin the weather to a named sky, or let it run again** — the

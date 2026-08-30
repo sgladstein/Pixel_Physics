@@ -1404,6 +1404,26 @@ creature findings stay in their own sections even when the lab measured them
 — the whole premise is that those are the same organisms either side, and
 filing them by which game happened to observe them would hide that.
 
+- [lab-lamps-light-the-bed-2026-08-30.md](lab-lamps-light-the-bed-2026-08-30.md)
+  — **built and measured.** The fixtures are what light the crop, and moving
+  one moves what grows under it. **They used to contribute nothing**: `labshot
+  lamps=0` came back byte-identical, because `Material::glow` seeds its own
+  field block and dies within a handful of them while the bench is nineteen
+  below — so the roof's 0.447 leak was the entire light budget and the shell's
+  thickness was the crop's light knob. `Material::beam` rides the sun's own
+  column descent instead, and the box declares itself sunless
+  (`World::set_sky_lighting`). The stand grows **44% larger and sets 2.2x the
+  seed**; dragging a fixture off a plant station **kills that plant**. **The
+  granularity question is answered at both `FIELD_SCALE` 8 and 16, with its
+  positive control**: at 8 every one of 32 columns moves the pool (the
+  block-quantised control sits still for six and then jumps 4.0), and at 16
+  there are **ten dead columns and a 4.9-cell lurch** — cured by one line,
+  because a fixture narrower than a light block cannot be positioned more
+  finely than the block. Frame cost is **+0.002 ms for the machinery** and
+  +0.42 ms for the bigger crop it grew, separated by an empty-box control. Two
+  things left open and stated: the pool draws on the back wall rather than on
+  the ground (a `render.rs` gate, and that file is being rewritten elsewhere),
+  and the pool's total flux ripples ±11% with sub-block phase.
 - [evolution-lab-gate-1-2026-08-30.md](evolution-lab-gate-1-2026-08-30.md) —
   **measured, nothing built beyond the two harnesses.** Gate 1 of the
   evolution-lab program: the census and the frame cost of `lab::scene::LabBox`,

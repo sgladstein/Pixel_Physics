@@ -365,6 +365,33 @@ pub struct MaterialDef {
     /// another material, no new mechanism.
     #[serde(default)]
     pub glow: f32,
+    /// Light this material throws **downward**, in the same units as
+    /// [`MaterialDef::glow`]. `0.0` — the default, and every material but
+    /// the grow lamp — throws nothing.
+    ///
+    /// **`glow` is a lamp you can see; `beam` is a lamp that lights
+    /// something.** `glow` seeds the light channel of the emitter's *own*
+    /// field block and then relies on `field::LIGHT_DECAY` (0.95) to spread
+    /// it, which reaches a handful of blocks and no further — right for a
+    /// geode lining read from across a cavern, and the reason the evolution
+    /// lab's fixtures contributed *nothing* to the crop nineteen blocks
+    /// below them (`labshot lamps=0` came back byte-identical). `beam`
+    /// instead rides `field::apply_sky_to`'s column descent, the same walk
+    /// the sun already takes: it re-seeds the amplitude falling down its own
+    /// column, so clear air passes it undimmed and only occluders stop it.
+    ///
+    /// **Emitted from the fixture's face, not through its housing.** The
+    /// descent attenuates first and re-seeds second, so a lamp recessed into
+    /// a ceiling does not shade its own light. That is what decouples how
+    /// much light the crop gets from how thick the shell is — the knob
+    /// `lab::scene::CEILING` used to be, and was found to be the expensive
+    /// way.
+    ///
+    /// Zero cost for a world with no beam in it: the per-block value is
+    /// gathered in the scan `blocked`/`glow` already run, and the descent
+    /// takes its beam-aware branch only for a tile whose `has_beam` is set.
+    #[serde(default)]
+    pub beam: f32,
     /// Whether standing cells of this `Liquid` dry up into the air above
     /// them — `evaporation.rs`.
     ///
@@ -1554,6 +1581,9 @@ pub struct Material {
     /// See `MaterialDef::glow` — light emitted into the field, 0 for all
     /// but the glowing materials.
     pub glow: f32,
+    /// See `MaterialDef::beam` — light thrown down the emitter's own column,
+    /// 0 for all but the grow lamp.
+    pub beam: f32,
     /// See `MaterialDef::evaporates`.
     pub evaporates: bool,
     /// See `MaterialDef::dissipation`.
@@ -1904,6 +1934,7 @@ impl From<MaterialDef> for Material {
             penetration_resistance: def.penetration_resistance,
             water_capacity: def.water_capacity,
             glow: def.glow,
+            beam: def.beam,
             evaporates: def.evaporates,
             // Clamped rather than trusted: a negative value would be a
             // silent "never" (`Rng::chance` returns false at or below 0),
@@ -2228,6 +2259,12 @@ const EMBEDDED: &[&str] = &[
     // ids are positional in this array. A byte-copy of `ant_block`'s palette
     // under another name, so the `shade_rule` A/B differs in the rule alone.
     include_str!("../../assets/materials/ant_block_shaded.ron"),
+    // **The evolution lab's grow-light fixture** -- the thing that lights the
+    // crop, and the first material to carry `beam`. At the end, per the line
+    // directly above: ids are positional, so anywhere else renumbers every
+    // material after it at runtime rather than in a test. Addressed by name
+    // through `id_of("growlamp")` and never by number.
+    include_str!("../../assets/materials/growlamp.ron"),
 ];
 
 /// Where the loader looks for material files, relative to the working directory.
@@ -2279,6 +2316,7 @@ impl MaterialRegistry {
             penetration_resistance: default_penetration_resistance(),
             water_capacity: 0,
             glow: 0.0,
+            beam: 0.0,
             evaporates: false,
             dissipation: 0.0,
             food_energy: 0.0,
@@ -2355,6 +2393,7 @@ impl MaterialRegistry {
             penetration_resistance: default_penetration_resistance(),
             water_capacity: 0,
             glow: 0.0,
+            beam: 0.0,
             evaporates: false,
             dissipation: 0.0,
             food_energy: 0.0,
