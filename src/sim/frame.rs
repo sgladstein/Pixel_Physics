@@ -114,7 +114,6 @@ pub fn step(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::app::App;
     use crate::sim::cell::Cell;
     use crate::sim::material;
