@@ -7545,6 +7545,57 @@ mod swing_probe {
         println!("world holds {} cracked cells after swing 2", all().filter(|&(x, y)| w.get(x, y).cracked()).count());
     }
 
+    /// **Does the load model know the shelf is severed?** The owner ruled
+    /// 2026-08-30 that a shelf cut free of the cliff should break off, and
+    /// this separates the two possible causes before anything is built:
+    /// either the model does not know it is unsupported (a distance that
+    /// is not propagating) or it knows and will not act (a licence, a span
+    /// or a capacity refusing the failure). Those want opposite fixes.
+    #[test]
+    #[ignore = "probe: what the load model knows about a severed shelf"]
+    fn what_the_model_knows_about_a_severed_shelf() {
+        let mut w = World::new(Rect::new(0, 0, 512, 320));
+        for x in 0..512 {
+            for y in 312..320 {
+                w.set(x, y, Cell::new(material::BEDROCK, 0));
+            }
+        }
+        for y in 120..280 {
+            for x in 0..90 {
+                w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+            }
+        }
+        for y in 150..164 {
+            for x in 90..250 {
+                w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+            }
+        }
+        crate::sim::structural::compute_world_distances(&mut w);
+        let shelf = || (150..164).flat_map(|y| (110..250).map(move |x| (x, y)));
+        let report = |w: &World, when: &str| {
+            let cells: Vec<(i32, i32)> = shelf().filter(|&(x, y)| w.get(x, y).material == material::STONE).collect();
+            let aux: Vec<u16> = cells.iter().map(|&(x, y)| w.get(x, y).aux()).collect();
+            let unreachable = aux.iter().filter(|&&a| a == u16::MAX).count();
+            let attached = cells.iter().filter(|&&(x, y)| w.get(x, y).attached()).count();
+            let interesting = cells.iter().filter(|&&(x, y)| crate::sim::load::is_structurally_interesting(w, x, y)).count();
+            let max = aux.iter().copied().max().unwrap_or(0);
+            let med = { let mut v = aux.clone(); v.sort_unstable(); v.get(v.len() / 2).copied().unwrap_or(0) };
+            println!("{when:22} cells {:5}  attached {attached:5}  interesting {interesting:5}  aux median {med:6} max {max:6}  at u16::MAX {unreachable:5}", cells.len());
+        };
+        report(&w, "before the blows");
+        for _ in 0..6 {
+            strike(&mut w, 100, 157, 7, 6.0);
+        }
+        report(&w, "after six blows");
+        for f in 1..=6 {
+            for _ in 0..100 {
+                crate::sim::parallel::step(&mut w);
+            }
+            report(&w, &format!("after {} frames", f * 100));
+        }
+        println!("failures: overloaded {} unsupported {}", w.structural_failures.overloaded, w.structural_failures.unsupported);
+    }
+
     /// The `acceptance.sh` `worked` case, swing by swing: six blows at one
     /// fixed point on a shelf's root, which is what a person working a
     /// cantilever does.
