@@ -1,6 +1,9 @@
 # Ants
 
-*Current as of: 2026-08-29, when creatures learned to jump — though the ants
+*Current as of: 2026-08-30, when ants started running out of food and dying
+of it — the first bodies in the world that nothing killed — and when how much
+an ant gives its young became a thing an ant can inherit rather than a fixed
+rule. Before that: 2026-08-29, when creatures learned to jump — though the ants
 you place still cannot, and the section below says why that is not a
 contradiction — and when an ant that has eaten enough learned to make
 another ant, passing on what it is so that a colony's descendants can differ
@@ -128,6 +131,27 @@ wall". Walls, pillars and chambers are just what happens when a lot of ants
 follow that one preference in the same place — which is, as far as anyone
 can tell, how real termites do it too.
 
+**Ants starve, and this is new.** An ant carries a store of energy, spends
+it on standing still, walking and thinking, and refills it by eating. Until
+now that store was so deep that nothing ever reached the bottom of it inside
+any run anyone watched — an ant that foraged perfectly and an ant that never
+ate once came out the same, and no ant in the world had ever died of hunger.
+The store is now about a fifth of what it was, which is roughly one
+run's worth of standing still, so an ant that fails to feed itself runs out.
+
+What you see is bodies. A colony left alone thins out over a long run — a
+quarter to a third of it, on the world as it generates — and each ant that
+goes leaves a corpse where it fell. **These are the first bodies in the world
+that nothing killed**, and they matter beyond looking right: a corpse is
+food, so a colony that starts losing members starts leaving meals for the
+ones still walking. Every previous corpse in the world had to be made by a
+fire or a blast.
+
+It is meant to thin a colony rather than empty one. At the setting shipped,
+most of a colony is still walking at the end of a long run; making the store
+much smaller kills far more, and making it much larger goes back to nothing
+dying at all.
+
 **They burn, and they feed the next thing.** An ant is made of the same
 stuff as everything else: set one alight and it burns, and what is left is a
 corpse. A corpse is food. Ants that die in a fire become the next colony's
@@ -210,7 +234,8 @@ queueing.
 
 The visible cost is that ants fall more. An ant standing on a nestmate that
 walks away has further to drop. They pick themselves up and carry on, and
-nothing dies of it.
+nothing dies of the fall itself — though ants do die now, of hunger, which
+is new and has its own section below.
 
 **Nothing that comes with the game jumps yet**, and that is deliberate
 rather than unfinished. Jumping is expensive — it costs about four steps'
@@ -241,21 +266,39 @@ little differently from the ants you first placed. That is the whole point of
 it: everything the ants have that could be inherited was, until now, the same
 in every ant that ever existed.
 
-**In the world as it currently stands, this does not happen, and the reason
-is worth understanding rather than treating as a bug.** An ant only eats when
-it is genuinely hungry — otherwise it carries what it finds home, which is
-what makes it a forager rather than a grazer. That rule means an ant's store
-can never climb much above the point where it stops feeling hungry, and the
-cost of making another ant is well above that. So the richest ant in a
-colony sits at a few hundred units of store against a birth costing nearly
-two thousand, and no ant ever gets close.
+**How much a parent hands its newcomer is now a thing an ant inherits**,
+rather than a fixed rule every ant in the world obeys. It is the oldest
+trade-off in having young: a well-provisioned newcomer has a long grace
+period to find its first meal but costs its parent a great deal, and a
+poorly-provisioned one is cheap and has to eat almost at once. Neither end
+is right, which is what makes it worth inheriting — and it only became a
+real choice at all once an ant that fails to eat can actually die, which is
+the change described further up.
 
-Making it happen needs a change to how the food economy is priced rather than
-to anything about breeding — either ants' bodies have to be cheaper to build,
-or an ant has to keep eating past the point where it stops being hungry. The
-second one is measurably a bad trade on its own: an ant that eats whenever it
-sees food stops taking anything home, and the colony's food deliveries fall
-away almost entirely. So this is a decision about what kind of animal an ant
-is, not a number to nudge.
+**In the world as it currently stands, no ant ever breeds, and the reason is
+worth understanding rather than treating as a bug.** An ant only eats when it
+is genuinely hungry — otherwise it carries what it finds home, which is what
+makes it a forager rather than a grazer. That rule puts a hard ceiling on
+what an ant can be carrying: it stops eating once it is comfortable, so its
+store never climbs much above that line. The richest ant in a colony sits at
+a couple of hundred units of store against a birth costing about a thousand.
+
+**Cutting what a newcomer is given does not fix it, and this is the part that
+is easy to get backwards.** Most of what a birth costs is not the newcomer's
+starting store at all — it is the meat the newcomer's body is made of, and
+that price does not move however little the parent hands over. A two-cell ant
+is nearly a thousand units of body before a single unit of starting store is
+added. Worse, making ants live on less also lowers the ceiling on what they
+can carry, so shortening their lives moves the finish line and the runner
+in the same direction. An ant handed *nothing at all* still could not
+afford a child.
+
+So what has to change is the body, not the endowment: either an ant is born
+as a single cell and grows the rest later, paying for it as it goes, or a
+parent splits and gives up part of its own body, which costs nothing to
+build because it is already built. The third way out is a specialist — an ant
+whose gut is properly tuned to leaves gets four times as much out of one, and
+that alone very nearly closes the gap. Ordinary ants are generalists and get
+a quarter of what a leaf is worth.
 
 Colonies still have no queens and no eggs.

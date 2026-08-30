@@ -695,6 +695,16 @@ drift that two of these documents still reflect.**
   already the best of the values tested, and a nine-cell pale body puts less
   on screen than the shipped two-cell dark one. The creature-side answer to
   `plant-appearance-design.md`.
+- [creature-birth-grant-2026-08-30.md](creature-birth-grant-2026-08-30.md) —
+  **built and landed 2026-08-30.** `birth_grant` as a heritable slot, E14's
+  `start_energy` cut (900 -> 200), and the measured finding that **the two
+  together cannot make the shipped ant breed and no setting of either
+  closes it**: the binding term is the 960-point body stamp, which is
+  invariant to both, and cutting the budget lowers the bank ceiling faster
+  than it lowers the bar. What E14 does buy is `deaths` — 0 everywhere
+  before, live now, and back to 0 when the cut is undone. Sharpens
+  `creature-reproduction-economics.md` §3.6 and corrects the direction
+  `ant.ron`'s own comment stated.
 - [creature-direction.md](creature-direction.md) — **direction agreed
   (2026-08-17).** Cell-chain ants, the caged brain, the heritable genome;
   decision record plus implementation plan.
