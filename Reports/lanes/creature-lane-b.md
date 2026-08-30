@@ -10,10 +10,21 @@
 | this note | `cf80c08` |
 | `main` merged in | `00856c8` — the branch is **0 behind** |
 | re-measurement after that merge | `790af73` |
-| PR | **#146**, https://github.com/sgladstein/Pixel_Physics/pull/146 |
+| PR | **#146 — MERGED** 2026-08-30 at `79a9daa` (main `83bd4c4`) |
+| follow-up | this correction landed on the branch *after* that merge, so it is a **new** PR, not a reopen — see below |
 
 I had GitHub tools (`mcp__github__get_me` resolved), so I opened the PR
-myself. The coordinator owns the merge. Cost fork: **built the probe and answered the
+myself. The coordinator merged it.
+
+**One commit missed that merge and is the follow-up.** #146 was merged at
+`79a9daa` at 04:42 UTC; the third-tree re-measurement was pushed at 04:51,
+nine minutes later. So `main` carries the report quoting a frame cost from a
+tree that no longer exists (2.98 ms, 0.14% of a frame, ~358 predators). The
+branch was restarted from `origin/main` and the commit re-applied there — a
+merged PR is finished and cannot track new work. **The simulation code in
+current `main` is byte-identical to the tree the numbers were taken on**
+(`git diff bfb4ced origin/main -- src assets` is empty), so nothing needed
+re-measuring for the follow-up. Cost fork: **built the probe and answered the
 question** — the geometry needed no engine work, so nothing was blocked.
 
 ## What landed
