@@ -307,6 +307,17 @@ const SKY_LIGHT_MARGIN: i32 = 64;
 /// is lost to resolution. Measured on one 512x320 viewport: block 8 costs
 /// 0.03 ms and loses a one-cell shaft entirely, block 4 costs 0.13 ms and
 /// keeps it, block 1 costs 4.4 ms and is exact.
+///
+/// **Those three numbers are the solve, and the solve is not where the time
+/// goes** — a point that cost the evolution lab 2.8 ms a frame before anyone
+/// split the pass. Measured 2026-08-30 on the lab bed at block 4: the cell
+/// **scan** is 1.55 ms, the view fan 0.90 and the four sweeps 0.72. The scan
+/// reads every cell of the region whatever the block size is, so it is the
+/// same 1.55 ms in all three modes — which means the numbers above understate
+/// every one of them by more than they differ from each other.
+/// `rebuild_sky_light` caches that scan per block now, which is why the label
+/// below prices a rebuild and a hold separately
+/// (`Reports/lab-sky-light-cost-2026-08-30.md`).
 #[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
 pub enum SkyLight {
     /// The older cave fade: darkness is a function of depth below the frozen
@@ -360,9 +371,9 @@ impl SkyLight {
     pub fn label(self) -> &'static str {
         match self {
             SkyLight::Depth => "DEPTH (the old cave fade)",
-            SkyLight::Coarse4 => "PROPAGATED /4 (~0.13 ms)",
-            SkyLight::Coarse2 => "PROPAGATED /2 (~0.55 ms)",
-            SkyLight::Exact => "PROPAGATED /1 (~4.4 ms, reference)",
+            SkyLight::Coarse4 => "PROPAGATED /4 (~3.2 ms to rebuild, ~0.2 ms to hold)",
+            SkyLight::Coarse2 => "PROPAGATED /2 (4x the blocks to solve)",
+            SkyLight::Exact => "PROPAGATED /1 (16x — a reference, not a frame budget)",
         }
     }
 }
@@ -2060,6 +2071,66 @@ pub struct Renderer {
     /// Block size the grid was built at, and its dimensions in blocks.
     sky_light_block: i32,
     sky_light_dims: (i32, i32),
+    /// The per-block occupancy the grid was derived from — solid cells and
+    /// open-sky cells, one count each per block, row-major over
+    /// `sky_light_dims`.
+    ///
+    /// **Kept so a rebuild can rescan only the blocks a touched chunk can
+    /// have changed.** The cell scan that fills these is the whole cost of
+    /// the pass (measured in the lab bed: 1.55 ms of a 3.3 ms rebuild, over
+    /// 286,720 cells), and it ran in full on every frame anything anywhere
+    /// moved. Everything downstream of it — the seeds, the Beer-Lambert
+    /// decay, the view fan and the four sweeps — is a pure function of these
+    /// two arrays plus `SKY_LIGHT_*`, so when no count changed the grid
+    /// cannot have changed either and the rebuild can return without
+    /// touching it.
+    ///
+    /// Empty means "no cache": the next rebuild does the full scan. Three
+    /// things empty it, and between them they are the whole invalidation
+    /// story — `forget_world` (a new world under the same `Renderer`, which
+    /// is what `App::reset` does), a change in the copied `underground` map
+    /// (`rebuild_horizon`, since `under_sky` reads it per cell), and any
+    /// change of block size, region or dimensions, which the reuse check in
+    /// `rebuild_sky_light` tests directly. Cell changes come in through
+    /// `touched`, on the same contract the dirty-rect skip already runs on.
+    sky_light_solid: Vec<u8>,
+    sky_light_outdoors: Vec<u8>,
+    /// How many rebuilds took each of the three routes — full scan,
+    /// incremental scan then solve, incremental scan then held — since this
+    /// `Renderer` was made.
+    ///
+    /// **A counter beside the timing, on `CLAUDE.md`'s standing rule**: a
+    /// pass that got cheaper because it stopped being asked anything is
+    /// indistinguishable, in every timing, from one that converged. These
+    /// say which happened. `held` climbing while `full + incremental` stays
+    /// at zero over a world that is visibly changing would mean the
+    /// invalidation is broken, not that the pass got fast.
+    sky_light_rebuilds: SkyLightRebuilds,
+}
+
+/// The three routes through [`Renderer::rebuild_sky_light`], counted.
+#[derive(Clone, Copy, Default, Debug, PartialEq, Eq)]
+pub struct SkyLightRebuilds {
+    /// The whole region rescanned: first draw, camera move, zoom, or an
+    /// invalidated cache.
+    pub full: u64,
+    /// Only the touched chunks' blocks rescanned, and something changed, so
+    /// the fan and the sweeps ran.
+    pub incremental: u64,
+    /// Only the touched chunks' blocks rescanned, and nothing changed, so
+    /// the grid was kept as it stood.
+    pub held: u64,
+    /// Of `full + incremental`, how many actually moved a byte of the grid.
+    ///
+    /// **The one that says whether the solve was worth running.** A large
+    /// `incremental` against a small `changed` means the occupancy moved and
+    /// the light did not — which is most of a sealed box, where everything
+    /// below the ceiling quantises to the same darkness whatever walks
+    /// through it. It is the measurement anyone extending this should start
+    /// from, and it is deliberately *not* acted on here: predicting it
+    /// without running the fan is a different and much less obviously exact
+    /// change than the scan cache.
+    pub changed: u64,
 }
 
 impl Renderer {
@@ -2146,7 +2217,44 @@ impl Renderer {
             sky_light_rect: Rect::new(0, 0, 0, 0),
             sky_light_block: 1,
             sky_light_dims: (0, 0),
+            sky_light_solid: Vec::new(),
+            sky_light_outdoors: Vec::new(),
+            sky_light_rebuilds: SkyLightRebuilds::default(),
         }
+    }
+
+    /// How many sky-light rebuilds took each route so far — see
+    /// [`SkyLightRebuilds`]. Read it beside any timing of the draw.
+    pub fn sky_light_rebuilds(&self) -> SkyLightRebuilds {
+        self.sky_light_rebuilds
+    }
+
+    /// The propagated sky-light grid, for a harness that has to compare two
+    /// renderers' answers rather than two pictures.
+    ///
+    /// **A picture is the weaker of the two comparisons here and that is not
+    /// obvious**: a stale block deep inside a dark room moves this by a byte
+    /// and moves no pixel at all, so a frame hash can be identical across a
+    /// cache that has genuinely drifted. Measured 2026-08-30 in the lab bed:
+    /// with the incremental rebuild's change detection deliberately broken,
+    /// `labshot`'s contact sheet came back **byte-identical** while this
+    /// array had diverged. Anything checking the block cache should compare
+    /// this, and the pixels as well rather than instead.
+    pub fn sky_light_grid_for_test(&self) -> &[u8] {
+        &self.sky_light_grid
+    }
+
+    /// The per-block occupancy behind that grid — the cached half — so a
+    /// harness that finds a drift can say whether the *scan* went stale or
+    /// the solve did.
+    pub fn sky_light_occupancy_for_test(&self) -> (&[u8], &[u8], (i32, i32), i32, Rect) {
+        (
+            &self.sky_light_solid,
+            &self.sky_light_outdoors,
+            self.sky_light_dims,
+            self.sky_light_block,
+            self.sky_light_rect,
+        )
     }
 
     /// `F10` — toggle the terrain depth light, so the review's largest
@@ -2184,6 +2292,23 @@ impl Renderer {
     pub fn forget_world(&mut self) {
         self.near_glow.clear();
         self.near_glow_key = None;
+        // Same reason, one pass further on: `sky_light_solid` is a cache of
+        // what the *cells* held, and a new world under the same `Renderer`
+        // reports nothing in `touched` about the terrain it replaced. The
+        // region and block size would match, so the reuse check would pass
+        // and the old world's occupancy would light the new one.
+        //
+        // **The grid goes with it**, and that half is a pre-existing gap
+        // rather than one this cache opened: `rebuild_sky_light` is called
+        // only when the grid is empty, the camera or scale moved, or
+        // something was touched, so a reset that happened to dirty nothing
+        // would have kept the previous world's lighting on screen. It never
+        // bit because building a world touches every chunk it writes — but
+        // that is a coincidence of `App::reset`'s order, not a contract, and
+        // `forget_world` is where the contract lives.
+        self.sky_light_solid.clear();
+        self.sky_light_outdoors.clear();
+        self.sky_light_grid.clear();
     }
 
     /// `F12` — cycle where the dark behind a void comes from. Same
@@ -2691,7 +2816,7 @@ impl Renderer {
             self.sky_light_grid.clear();
             had
         } else if self.sky_light_grid.is_empty() || camera_moved || scale_changed || !touched.is_empty() {
-            self.rebuild_sky_light(world, (width, height))
+            self.rebuild_sky_light(world, (width, height), touched)
         } else {
             false
         };
@@ -3462,9 +3587,21 @@ impl Renderer {
         // memcpy at 2048x640 against a draw that touches every pixel and
         // measures ~11 ms; worst-frame timing before and after is in the
         // commit message.
-        self.underground.clear();
-        self.underground.extend_from_slice(world.underground_map());
-        if self.underground.is_empty() {
+        // **Compared before it is replaced, and that comparison is what lets
+        // the sky-light block cache exist at all.** `rebuild_sky_light` reads
+        // `under_sky` — which reads this map — once per cell, and caches the
+        // answer per block. Nothing in `touched` mentions this map, so if it
+        // ever changed under a live cache the cache would keep answering from
+        // the terrain that is gone. Content equality is the exact condition
+        // the cache needs (identical bits give identical `under_sky`
+        // answers), and it is strictly stronger than the shape check the
+        // copy below rejects for `App::reset`. When they are equal the copy
+        // is a no-op, so this replaces a memcpy with a memcmp rather than
+        // adding one.
+        let previous_rect = self.underground_rect;
+        let map = world.underground_map();
+        let mut underground_changed = false;
+        if map.is_empty() {
             // Fallback, for a world nothing has ever stepped -- the same
             // case `rebuild_horizon`'s own column-scan fallback below
             // covers, and it has to be covered here too or `start=0` in
@@ -3479,9 +3616,35 @@ impl Renderer {
             // the world, so a renderer with history and a fresh one still
             // agree, which is what `dirty_rect_skip_is_pixel_identical_to_a_
             // full_redraw` requires.
-            self.underground = underground_from_scratch(world, b);
+            let fresh = underground_from_scratch(world, b);
+            if self.underground != fresh {
+                underground_changed = true;
+                self.underground = fresh;
+            }
+        } else if self.underground != map {
+            underground_changed = true;
+            self.underground.clear();
+            self.underground.extend_from_slice(map);
         }
         self.underground_rect = if self.underground.is_empty() { None } else { Some(b) };
+        // **Nothing in the suite can make this fire, and it stays anyway --
+        // said plainly rather than left to look tested.** The map is frozen
+        // by `World::begin_step` on the first frame, so it can change
+        // exactly once in a world's life: from `rebuild_horizon`'s
+        // read-the-world-as-it-stands fallback to the genesis map. That
+        // first step also wakes every chunk in the world, so the incremental
+        // branch rescans the whole region on that draw regardless and the
+        // stale cache is overwritten by coincidence. A guard was written for
+        // it (a shaft closed between the two draws, on a world wide enough
+        // that `touched` could not cover it) and stayed green with this
+        // clear removed, so it was deleted rather than kept as decoration --
+        // `CLAUDE.md`: a guard that cannot go red is blind, not weak. What
+        // is left is four lines of belt and braces against that coincidence
+        // ceasing to hold, at the cost of a comparison that replaces a copy.
+        if underground_changed || previous_rect != self.underground_rect {
+            self.sky_light_solid.clear();
+            self.sky_light_outdoors.clear();
+        }
         // **Copied every frame, not cached on a size check.** `App::reset`
         // builds a whole new `World` and keeps the same `Renderer`, so a
         // cache keyed on "same width, same origin" would hold the *previous*
@@ -3551,7 +3714,7 @@ impl Renderer {
     /// `draw` needs: a dig changes the light over a region far wider than
     /// the chunks the CA marked as touched, so the dirty-rect skip would
     /// otherwise leave most of the change unpainted.
-    fn rebuild_sky_light(&mut self, world: &World, viewport: (u32, u32)) -> bool {
+    fn rebuild_sky_light(&mut self, world: &World, viewport: (u32, u32), touched: &HashSet<ChunkCoord>) -> bool {
         let Some(block) = self.sky_light.block() else {
             let had = !self.sky_light_grid.is_empty();
             self.sky_light_grid.clear();
@@ -3580,6 +3743,144 @@ impl Renderer {
         let timing = std::env::var_os("PIXEL_PHYSICS_SKY_LIGHT_TIMING").is_some();
         let t_build = std::time::Instant::now();
         let n = (bw * bh) as usize;
+        let rect = Rect::new(x0, y0, x1, y1);
+
+        // **The block scan reruns only where a chunk was touched**, which is
+        // the whole of this pass's cost in an enclosed world. Measured in the
+        // lab bed (512x320, a sealed box with a ceiling, camera fixed): the
+        // scan is 1.55 ms of a 3.3 ms rebuild, over 286,720 cells, and it ran
+        // in full on every frame anything anywhere in the box moved -- which
+        // in a bed with fifty walking ants is every frame. Everything after
+        // it is a pure function of `solid` and `outdoors`, so those are the
+        // only things a rebuild has to bring up to date.
+        //
+        // The reuse test is the whole invalidation story on this side; the
+        // other two clears are `forget_world` and `rebuild_horizon` (see
+        // `sky_light_solid`). Cell changes arrive through `touched`, on
+        // exactly the contract the dirty-rect skip below already runs on: a
+        // cell that changed without dirtying its chunk would leave a stale
+        // *pixel* too, so this adds no assumption the draw was not making.
+        let reusable = !self.sky_light_grid.is_empty()
+            && self.sky_light_solid.len() == n
+            && self.sky_light_outdoors.len() == n
+            && self.sky_light_block == block
+            && self.sky_light_rect == rect
+            && self.sky_light_dims == (bw, bh);
+        let mut solid = std::mem::take(&mut self.sky_light_solid);
+        let mut outdoors = std::mem::take(&mut self.sky_light_outdoors);
+        let mut scanned = 0usize;
+        let mut occupancy_changed = !reusable;
+        if reusable {
+            // `touched` is a `HashSet`, so this runs in an arbitrary order --
+            // deliberately not sorted, because every write here is an
+            // absolute value at an index no other chunk can reach (a block
+            // never straddles a chunk, see below) and `occupancy_changed` is
+            // an OR. Nothing observable depends on the order, which is the
+            // condition the repo's determinism rule actually asks for.
+            for &coord in touched {
+                let cb = coord.bounds();
+                let bx_lo = (cb.min_x - x0).div_euclid(block).max(0);
+                let bx_hi = (cb.max_x - x0).div_euclid(block).min(bw - 1);
+                let by_lo = (cb.min_y - y0).div_euclid(block).max(0);
+                let by_hi = (cb.max_y - y0).div_euclid(block).min(bh - 1);
+                if bx_lo > bx_hi || by_lo > by_hi {
+                    // Off-screen: the region is the viewport plus a margin,
+                    // and the CA dirties chunks anywhere in the world.
+                    continue;
+                }
+                let chunk = world.chunk(coord);
+                for by in by_lo..=by_hi {
+                    for bx in bx_lo..=bx_hi {
+                        let (ox, oy) = (x0 + bx * block, y0 + by * block);
+                        let (s, o) = self.scan_sky_light_block(world, chunk, bounds, ox, oy, block);
+                        let i = (by * bw + bx) as usize;
+                        if solid[i] != s || outdoors[i] != o {
+                            occupancy_changed = true;
+                            solid[i] = s;
+                            outdoors[i] = o;
+                        }
+                        scanned += 1;
+                    }
+                }
+            }
+            // **Nothing the light depends on moved, so the grid cannot have
+            // moved either.** This is the case the lab is in for most of its
+            // frames: roots thickening inside soil that was already solid,
+            // an ant stepping from one cell of air to the next inside the
+            // same block. Returning `false` here is the same answer the full
+            // rebuild would have reached after the fan and the sweeps, for
+            // none of the work.
+            if !occupancy_changed {
+                self.sky_light_solid = solid;
+                self.sky_light_outdoors = outdoors;
+                self.sky_light_rebuilds.held += 1;
+                if timing {
+                    eprintln!(
+                        "sky_light block={block} held: {scanned} block(s) rescanned from {} touched chunk(s), \
+                         0 changed, build={:.2} ms (fan and sweep skipped)",
+                        touched.len(),
+                        t_build.elapsed().as_secs_f64() * 1000.0
+                    );
+                }
+                return false;
+            }
+        } else {
+            solid.clear();
+            solid.resize(n, 0);
+            outdoors.clear();
+            outdoors.resize(n, 0);
+            // **One chunk lookup per block, not one per cell**, and this is
+            // the whole cost of a full rebuild. `World::get` is a `HashMap`
+            // lookup, and the first version of this called it for every cell
+            // of a viewport-plus-margin region -- 286,720 of them -- which
+            // measured **+7.5 ms on a 13.2 ms redraw**, fifty times the 0.13
+            // ms the design round predicted for the sweep. The design report
+            // had even written down that the block scan must not be charged
+            // to this approach, and the implementation went ahead and paid
+            // it anyway.
+            //
+            // `CHUNK_SIZE` is 64 and blocks are 1, 2 or 4 aligned to world
+            // multiples of their own size, so **a block can never straddle a
+            // chunk** and one lookup covers all of it. Same lesson
+            // `ChunkView` already applied to the sweep, and the one the
+            // fake-AO note names as the thing to do before that experiment
+            // could be revived. It is also what lets the incremental branch
+            // above take its chunk once and reuse it for every block in it.
+            let mut cached: Option<(ChunkCoord, &crate::sim::chunk::Chunk)> = None;
+            for by in 0..bh {
+                for bx in 0..bw {
+                    let (ox, oy) = (x0 + bx * block, y0 + by * block);
+                    let coord = ChunkCoord::containing(ox, oy);
+                    if cached.map(|(c, _)| c) != Some(coord) {
+                        cached = world.chunk(coord).map(|c| (coord, c));
+                        if cached.is_none() {
+                            // Not resident: empty space that has not been
+                            // materialised, which is exactly what
+                            // `World::get` reports there too. Remembered as
+                            // a miss for this coord so the next block does
+                            // not re-look-it-up.
+                            cached = None;
+                        }
+                    }
+                    let chunk = match cached {
+                        Some((c, ch)) if c == coord => Some(ch),
+                        _ => None,
+                    };
+                    let i = (by * bw + bx) as usize;
+                    let (s, o) = self.scan_sky_light_block(world, chunk, bounds, ox, oy, block);
+                    solid[i] = s;
+                    outdoors[i] = o;
+                }
+            }
+            scanned = n;
+        }
+
+        if reusable {
+            self.sky_light_rebuilds.incremental += 1;
+        } else {
+            self.sky_light_rebuilds.full += 1;
+        }
+
         let mut light = vec![0.0f32; n];
         let mut decay = vec![0.0f32; n];
         // The same Beer-Lambert transmission with the *air* factor left out,
@@ -3588,109 +3889,37 @@ impl Renderer {
         // second `powf` per block.
         let mut through_solid = vec![0.0f32; n];
         let area = (block * block) as f32;
-        // **One chunk lookup per block, not one per cell**, and this is the
-        // whole cost of the feature. `World::get` is a `HashMap` lookup, and
-        // the first version of this called it for every cell of a
-        // viewport-plus-margin region -- 286,720 of them -- which measured
-        // **+7.5 ms on a 13.2 ms redraw**, fifty times the 0.13 ms the design
-        // round predicted for the sweep. The design report had even written
-        // down that the block scan must not be charged to this approach, and
-        // the implementation went ahead and paid it anyway.
+        // Beer-Lambert over the block's occupancy, the same shape
+        // `FieldTile::transmission` uses: a block that is a fraction `f`
+        // solid costs `solid^(block*f) * air^(block*(1-f))`. So a one-cell
+        // shaft inside a four-cell block is charged mostly-solid and dims
+        // faster than a four-wide shaft that fills its block. The two differ
+        // in *rate*, which is the acceptable form of the quantisation --
+        // unlike the existing channel, where a block-aligned shaft simply
+        // never dims.
         //
-        // `CHUNK_SIZE` is 64 and blocks are 1, 2 or 4 aligned to world
-        // multiples of their own size, so **a block can never straddle a
-        // chunk** and one lookup covers all of it. Same lesson `ChunkView`
-        // already applied to the sweep, and the one the fake-AO note names
-        // as the thing to do before that experiment could be revived.
-        let mut cached: Option<(ChunkCoord, &crate::sim::chunk::Chunk)> = None;
-        for by in 0..bh {
-            for bx in 0..bw {
-                let (mut solid, mut outdoors) = (0i32, 0i32);
-                let (ox, oy) = (x0 + bx * block, y0 + by * block);
-                let coord = ChunkCoord::containing(ox, oy);
-                if cached.map(|(c, _)| c) != Some(coord) {
-                    cached = world.chunk(coord).map(|c| (coord, c));
-                    if cached.is_none() {
-                        // Not resident: empty space that has not been
-                        // materialised, which is exactly what `World::get`
-                        // reports there too. Remembered as a miss for this
-                        // coord so the next block does not re-look-it-up.
-                        cached = None;
-                    }
-                }
-                let chunk = match cached {
-                    Some((c, ch)) if c == coord => Some(ch),
-                    _ => None,
-                };
-                for dy in 0..block {
-                    for dx in 0..block {
-                        let (x, y) = (ox + dx, oy + dy);
-                        // Above the world is open sky, and has to seed as
-                        // such or a camera at the top of the world would
-                        // find its own ceiling dark.
-                        if y < bounds.min_y {
-                            outdoors += 1;
-                            continue;
-                        }
-                        // **Everywhere else outside the world is a wall, not
-                        // a window.** Skipping these cells left them
-                        // counting as neither solid nor outdoors, which made
-                        // them fully transmissive air: daylight ran down the
-                        // columns *beside* the world at 0.91 a cell and came
-                        // back in from the side, so a sealed room lit up
-                        // through the world edge.
-                        //
-                        // Caught by `the_dark_under_a_roof_fades_in_with_
-                        // depth_rather_than_cutting`, one of the four guards
-                        // `underground-definition.md` left behind — it reads
-                        // 486 where full dark is 93. Not a test-only defect:
-                        // the same leak reaches any room within the decay
-                        // radius of the world's left or right edge.
-                        if x < bounds.min_x || x > bounds.max_x || y > bounds.max_y {
-                            solid += 1;
-                            continue;
-                        }
-                        let cell = match chunk {
-                            Some(ch) => ch.get_world(x, y),
-                            None => Cell::EMPTY,
-                        };
-                        if !matches!(
-                            world.materials.kind(cell.material),
-                            material::MaterialKind::Empty | material::MaterialKind::Gas
-                        ) {
-                            solid += 1;
-                        }
-                        // `under_sky`, not `World::is_outdoors`: identical
-                        // answer on any world that has been stepped -- both
-                        // read the same genesis map -- and it reads the copy
-                        // this `Renderer` already holds instead of paying
-                        // the world's bounds checks and empty-map branch per
-                        // cell. Worth ~1.5 ms of a 286,720-cell region.
-                        if self.under_sky(x, y) {
-                            outdoors += 1;
-                        }
-                    }
-                }
-                let i = (by * bw + bx) as usize;
-                // **Majority, not "any".** One outdoors cell at a cave mouth
-                // would otherwise seed its whole block at full brightness
-                // and hand the tunnel behind it a free block of daylight --
-                // the same class of error as the column rule this replaces.
-                if outdoors as f32 / area > 0.5 {
-                    light[i] = 1.0;
-                }
-                // Beer-Lambert over the block's occupancy, the same shape
-                // `FieldTile::transmission` uses: a block that is a fraction
-                // `f` solid costs `solid^(block*f) * air^(block*(1-f))`. So a
-                // one-cell shaft inside a four-cell block is charged
-                // mostly-solid and dims faster than a four-wide shaft that
-                // fills its block. The two differ in *rate*, which is the
-                // acceptable form of the quantisation -- unlike the existing
-                // channel, where a block-aligned shaft simply never dims.
-                let f = solid as f32 / area;
-                through_solid[i] = SKY_LIGHT_SOLID.powf(block as f32 * f);
-                decay[i] = through_solid[i] * SKY_LIGHT_AIR.powf(block as f32 * (1.0 - f));
+        // **Tabulated by solid count rather than evaluated per block.** A
+        // block holds `area + 1` distinct counts -- seventeen at block 4 --
+        // so the two `powf`s per block were 36,386 calls to compute 17
+        // answers. Bit-identical by construction: the same expression on the
+        // same `f32` inputs, evaluated once each.
+        let mut transmission = [(0.0f32, 0.0f32); 17];
+        for (k, t) in transmission.iter_mut().enumerate().take(area as usize + 1) {
+            let f = k as f32 / area;
+            let through = SKY_LIGHT_SOLID.powf(block as f32 * f);
+            *t = (through, through * SKY_LIGHT_AIR.powf(block as f32 * (1.0 - f)));
+        }
+        for i in 0..n {
+            // **Majority, not "any".** One outdoors cell at a cave mouth
+            // would otherwise seed its whole block at full brightness and
+            // hand the tunnel behind it a free block of daylight -- the same
+            // class of error as the column rule this replaces.
+            if outdoors[i] as f32 / area > 0.5 {
+                light[i] = 1.0;
             }
+            let (through, d) = transmission[solid[i] as usize];
+            through_solid[i] = through;
+            decay[i] = d;
         }
 
         let build_ms = t_build.elapsed().as_secs_f64() * 1000.0;
@@ -3770,24 +3999,114 @@ impl Renderer {
 
         if timing {
             eprintln!(
-                "sky_light block={block} region={}x{} cells={} blocks={} build={build_ms:.2} ms \
-                 view={view_ms:.2} ms sweep={:.2} ms",
+                "sky_light block={block} region={}x{} cells={} blocks={} scanned={scanned} \
+                 ({}) build={build_ms:.2} ms view={view_ms:.2} ms sweep={:.2} ms",
                 x1 - x0,
                 y1 - y0,
                 (x1 - x0) * (y1 - y0),
                 bw * bh,
+                if reusable { "incremental" } else { "full" },
                 t_sweep.elapsed().as_secs_f64() * 1000.0
             );
         }
         let grid: Vec<u8> = light.iter().map(|v| (v.clamp(0.0, 1.0) * 255.0).round() as u8).collect();
         let changed = grid != self.sky_light_grid
-            || self.sky_light_rect != Rect::new(x0, y0, x1, y1)
+            || self.sky_light_rect != rect
             || self.sky_light_block != block;
         self.sky_light_grid = grid;
-        self.sky_light_rect = Rect::new(x0, y0, x1, y1);
+        self.sky_light_rect = rect;
         self.sky_light_block = block;
         self.sky_light_dims = (bw, bh);
+        self.sky_light_solid = solid;
+        self.sky_light_outdoors = outdoors;
+        if changed {
+            self.sky_light_rebuilds.changed += 1;
+        }
         changed
+    }
+
+    /// One block's occupancy for [`Renderer::rebuild_sky_light`]: how many of
+    /// its cells hold something that blocks light, and how many stand under
+    /// open sky.
+    ///
+    /// `chunk` is the chunk containing the block, looked up once by the
+    /// caller — a block never straddles a chunk, so one lookup covers all of
+    /// it. `None` is empty space that has not been materialised, which is
+    /// what `World::get` reports there too.
+    fn scan_sky_light_block(
+        &self,
+        world: &World,
+        chunk: Option<&crate::sim::chunk::Chunk>,
+        bounds: Rect,
+        ox: i32,
+        oy: i32,
+        block: i32,
+    ) -> (u8, u8) {
+        let area = (block * block) as u8;
+        // **A block wholly outside the world is answered without a scan**,
+        // and in an enclosed world that is a large share of the region: the
+        // lab's box is 512x320 against a 640x448 region, so 43% of the cells
+        // scanned were world edge. Both answers are exactly what the per-cell
+        // loop below would have counted, so this is a shortcut and not an
+        // approximation -- the two branches below are the same two rules.
+        if oy + block - 1 < bounds.min_y {
+            return (0, area);
+        }
+        if oy >= bounds.min_y
+            && (ox + block - 1 < bounds.min_x || ox > bounds.max_x || oy > bounds.max_y)
+        {
+            return (area, 0);
+        }
+        let (mut solid, mut outdoors) = (0u8, 0u8);
+        for dy in 0..block {
+            for dx in 0..block {
+                let (x, y) = (ox + dx, oy + dy);
+                // Above the world is open sky, and has to seed as such or a
+                // camera at the top of the world would find its own ceiling
+                // dark.
+                if y < bounds.min_y {
+                    outdoors += 1;
+                    continue;
+                }
+                // **Everywhere else outside the world is a wall, not a
+                // window.** Skipping these cells left them counting as
+                // neither solid nor outdoors, which made them fully
+                // transmissive air: daylight ran down the columns *beside*
+                // the world at 0.91 a cell and came back in from the side,
+                // so a sealed room lit up through the world edge.
+                //
+                // Caught by `the_dark_under_a_roof_fades_in_with_depth_
+                // rather_than_cutting`, one of the four guards
+                // `underground-definition.md` left behind — it reads 486
+                // where full dark is 93. Not a test-only defect: the same
+                // leak reaches any room within the decay radius of the
+                // world's left or right edge.
+                if x < bounds.min_x || x > bounds.max_x || y > bounds.max_y {
+                    solid += 1;
+                    continue;
+                }
+                let cell = match chunk {
+                    Some(ch) => ch.get_world(x, y),
+                    None => Cell::EMPTY,
+                };
+                if !matches!(
+                    world.materials.kind(cell.material),
+                    material::MaterialKind::Empty | material::MaterialKind::Gas
+                ) {
+                    solid += 1;
+                }
+                // `under_sky`, not `World::is_outdoors`: identical answer on
+                // any world that has been stepped -- both read the same
+                // genesis map -- and it reads the copy this `Renderer`
+                // already holds instead of paying the world's bounds checks
+                // and empty-map branch per cell. Worth ~1.5 ms of a 286,720-
+                // cell region.
+                if self.under_sky(x, y) {
+                    outdoors += 1;
+                }
+            }
+        }
+        (solid, outdoors)
     }
 
     /// The fraction of the sky each block can see, traced back along
@@ -5844,7 +6163,7 @@ mod tests {
         let mut r = Renderer::new();
         r.sky_light = SkyLight::Coarse4;
         r.rebuild_horizon(&world);
-        r.rebuild_sky_light(&world, (200, 200));
+        r.rebuild_sky_light(&world, (200, 200), &HashSet::new());
 
         let shaft_deep = r.sky_light_at(30, 175);
         let pit_rim = r.sky_light_at(100, 101);
@@ -6104,7 +6423,7 @@ mod tests {
         let mut r = Renderer::new();
         r.sky_light = SkyLight::Coarse4;
         r.rebuild_horizon(&world);
-        r.rebuild_sky_light(&world, (200, 200));
+        r.rebuild_sky_light(&world, (200, 200), &HashSet::new());
 
         // The chamber is sealed, so it must be as dark as rock at the same
         // depth in the middle of the world — the paired control, which is
@@ -8253,6 +8572,173 @@ mod tests {
             differing(&serial, &many),
             None,
             "a pixel is not showing the world cell it should"
+        );
+    }
+
+    /// **The incremental sky-light rebuild must agree with a full one, cell
+    /// for cell, on a world that keeps changing.**
+    ///
+    /// `rebuild_sky_light` keeps the per-block occupancy between draws and
+    /// rescans only the blocks a touched chunk covers, so everything that
+    /// makes it correct is an invalidation: `touched` for cells,
+    /// `forget_world` for a new world under the same `Renderer`,
+    /// `rebuild_horizon` for the map `under_sky` reads per cell, and the
+    /// reuse test itself for a camera move, a zoom or a block-size change. A
+    /// miss in any of them reads here as a `Renderer` with history
+    /// disagreeing with a fresh one.
+    ///
+    /// Same property `dirty_rect_skip_is_pixel_identical_to_a_full_redraw`
+    /// tests one frame deep, run over a **sealed box** across many frames,
+    /// because that is the world the cache was built for and the one where
+    /// it is reused hardest -- and because a room with a ceiling is where a
+    /// stale block is least visible: everything inside it is dark anyway.
+    ///
+    /// **Both grids and both frames are compared, and the grid is the
+    /// discriminating one.** A stale block deep in a dark room moves the
+    /// grid by a byte and moves no pixel at all, so a pixel-only assertion
+    /// would be green through most of the ways this can break.
+    ///
+    /// **Watched going red**, on `CLAUDE.md`'s rule that a guard's green is
+    /// worth nothing until the fault it is named for has been put back: with
+    /// the incremental branch's `occupancy_changed` forced to `false` -- the
+    /// exact "the cache never noticed" bug -- this fails at the first step
+    /// that moves a cell.
+    #[test]
+    fn an_incremental_sky_light_rebuild_agrees_with_a_full_one() {
+        use crate::sim::update;
+        let (w, h) = (128i32, 96i32);
+        let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
+        // The lab bed in miniature: a stone shell with a ceiling over it, a
+        // room of air, and a floor. Nothing inside is under open sky, which
+        // is the whole point -- it is the geometry the cache exists for.
+        for x in 0..w {
+            for y in 0..h {
+                if x < 3 || x >= w - 3 || y < 3 || y >= h - 20 {
+                    world.set(x, y, Cell::new(material::STONE, 0));
+                }
+            }
+        }
+        // Stepped once so `World::begin_step` freezes the underground map --
+        // otherwise `under_sky` runs on `rebuild_horizon`'s never-stepped
+        // fallback, which is a different code path from the shipped one.
+        update::step(&mut world);
+
+        let (uw, uh) = (w as u32, h as u32);
+        let particles = ParticleSystem::new();
+        let bytes = (uw * uh * 4) as usize;
+        let mut subject = Renderer::new();
+        let mut with_history = vec![0u8; bytes];
+        let mut from_scratch = vec![0u8; bytes];
+        let warm = world.take_touched_chunks();
+        subject.draw(&world, &particles, &warm, &mut with_history, (uw, uh), true);
+
+        for step in 0..24i32 {
+            // Something moves every step, somewhere different each time, so
+            // the touched set is a moving target rather than one chunk: a
+            // cell placed, a cell moved sideways across a block boundary,
+            // and -- the change that moves the most light -- a hole opened
+            // in the ceiling of a sealed box.
+            let x = 6 + (step * 7) % (w - 12);
+            let y = 8 + (step * 5) % (h - 32);
+            match step % 3 {
+                0 => world.set(x, y, Cell::new(material::STONE, 0)),
+                1 => {
+                    world.set(x, y, Cell::EMPTY);
+                    world.set(x + 1, y, Cell::new(material::STONE, 0));
+                }
+                _ => world.set(x, 2, Cell::EMPTY),
+            }
+            update::step(&mut world);
+            let touched = world.take_touched_chunks();
+            subject.draw(&world, &particles, &touched, &mut with_history, (uw, uh), true);
+
+            let mut fresh = Renderer::new();
+            fresh.draw(&world, &particles, &HashSet::new(), &mut from_scratch, (uw, uh), true);
+            assert_eq!(
+                fresh.sky_light_rebuilds().full,
+                1,
+                "the control arm must be doing the full scan, or it is not a control"
+            );
+            assert_eq!(
+                subject.sky_light_grid, fresh.sky_light_grid,
+                "the incremental sky-light grid drifted from a full rebuild at step {step}"
+            );
+            assert_eq!(
+                with_history, from_scratch,
+                "a renderer with history drew a different frame from a fresh one at step {step}"
+            );
+        }
+
+        // **The counter, beside the comparison.** Both arms agreeing proves
+        // nothing if the subject never took the incremental route -- that is
+        // `CLAUDE.md`'s "a cost that vanishes may be work that vanished",
+        // applied to a guard rather than to a timing.
+        let counts = subject.sky_light_rebuilds();
+        assert_eq!(counts.full, 1, "only the first draw should have scanned the whole region: {counts:?}");
+        assert!(
+            counts.incremental + counts.held == 24,
+            "every draw after the first should have gone the incremental route: {counts:?}"
+        );
+        assert!(counts.incremental > 0, "no draw ever re-solved, so nothing was compared: {counts:?}");
+    }
+
+    /// A new world under the same `Renderer` must not inherit the old
+    /// world's block occupancy. `App::reset` is exactly that shape, and the
+    /// region and block size match across it, so the reuse test cannot see
+    /// the difference — `forget_world` has to say so.
+    #[test]
+    fn forget_world_drops_the_sky_light_block_cache() {
+        let (w, h) = (128i32, 96i32);
+        let roofed = {
+            let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
+            for x in 0..w {
+                for y in 0..h {
+                    if x < 3 || x >= w - 3 || y < 3 || y >= h - 20 {
+                        world.set(x, y, Cell::new(material::STONE, 0));
+                    }
+                }
+            }
+            crate::sim::update::step(&mut world);
+            world
+        };
+        // The same bounds with the roof gone: open sky over bare ground, so
+        // every block in the room reads differently.
+        let open = {
+            let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
+            for x in 0..w {
+                for y in (h - 20)..h {
+                    world.set(x, y, Cell::new(material::STONE, 0));
+                }
+            }
+            crate::sim::update::step(&mut world);
+            world
+        };
+
+        let (uw, uh) = (w as u32, h as u32);
+        let particles = ParticleSystem::new();
+        let mut buf = vec![0u8; (uw * uh * 4) as usize];
+        let mut reused = Renderer::new();
+        reused.draw(&roofed, &particles, &HashSet::new(), &mut buf, (uw, uh), true);
+        reused.forget_world();
+        // **Asserted directly, because the grid comparison below cannot see
+        // it.** Clearing the grid alone already fails the reuse test, so a
+        // `forget_world` that dropped the grid and kept the occupancy would
+        // still draw the right picture today — and would start lighting the
+        // new world with the old one's cells the moment the rebuild gate
+        // changes. Put that fault back and only this line goes red.
+        assert!(
+            reused.sky_light_solid.is_empty() && reused.sky_light_outdoors.is_empty(),
+            "forget_world left the previous world's per-block occupancy in place"
+        );
+        assert!(reused.sky_light_grid.is_empty(), "forget_world left the previous world's light grid in place");
+        reused.draw(&open, &particles, &HashSet::new(), &mut buf, (uw, uh), true);
+
+        let mut fresh = Renderer::new();
+        let mut fresh_buf = vec![0u8; (uw * uh * 4) as usize];
+        fresh.draw(&open, &particles, &HashSet::new(), &mut fresh_buf, (uw, uh), true);
+        assert_eq!(
+            reused.sky_light_grid, fresh.sky_light_grid,
+            "a reset renderer lit the new world with the old world's occupancy"
         );
     }
 

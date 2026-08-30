@@ -794,6 +794,114 @@ move a silhouette that texture and colour set"*).
 
 ---
 
+## 6. Round three, the evening of 2026-08-30 — three findings from playtest
+
+The owner played the merged lab and reported three things. **Two of them
+overturned a hypothesis of mine, and one of them found a bug I had not
+looked for.** Playtest is the highest-authority evidence in this project;
+three models have been overturned by it before, and this is a fourth and
+fifth.
+
+### 6a. Roots steer by air humidity, not soil water — found by eye
+
+> *"plants seem to suck water from the soil in a narrow band near the top of
+> the soil ever extending out from the left side of the plant... the dry area
+> will spread far to the left of the plant but not down at all and not to the
+> right."* — and then: *"this results in a dry band of soil at the top and
+> stops new seeds from germinating. I feel like it is also related to why
+> roots don't go deeper."*
+
+**All three symptoms have one cause.** There are two moisture quantities and
+the plant code mixes them:
+
+| | lives | is |
+|---|---|---|
+| soil water | per cell, `Cell::aux`, `update::soil_moisture` | what a root drinks |
+| field moisture | one value per **8x8 block** | **air humidity** |
+
+- `organism::moisture_pull` (`organism.rs:4872`) — **hydrotropism, the rule
+  that steers roots toward water** — reads `field_at_bilinear(...).moisture`.
+- **`field.rs`'s `step_diffusion` skips blocked blocks** — they *"stay
+  ambient"*. So below the surface that channel **carries no gradient at
+  all**, and a root tip twenty rows down asks "which way is wetter" and gets
+  nothing. That is why roots stop at **13 rows** (measured, 48 runs,
+  median 7, unchanged by giving them more depth).
+- `plant.rs`'s `is_damp` (`:1974`) gates **germination** on the same channel
+  (`:2233`).
+- `absorb_water` calls `deplete_moisture` (`:515`, `:557`), which paints
+  `radius / FIELD_SCALE` = **one 8x8 block of air humidity** to represent a
+  root drinking soil. That is the band.
+- It drifts sideways because field moisture is **advected** (`field.rs:3204`).
+  **Diffusion is not at fault** — it reads `old` and writes `next`, properly
+  double-buffered. Checked; do not re-investigate.
+
+**This is the fifth occurrence of the coarse-field trap** `CLAUDE.md` records
+(worm thermotaxis "always flee west", tree phototropism, a third proposal
+stopped by a reviewer, the sensor-offset case). It was found from a
+screenshot, by eye, by the owner.
+
+**And the overlay invites the confusion**: `render.rs` has `FieldOverlay::
+Moisture` ("MOISTURE", the air) *and* `OrganismOverlay::SoilMoisture` ("SOIL
+MOISTURE", the real per-cell water). He was reading the first as the second.
+
+### 6b. The tunnels were never collapsing
+
+> *"it looks to me like tunnels that ants are digging are collapsing or soil
+> is filling and they get stuck underground."*
+
+Measured on the lab's own bed — `examples/labnest.rs`, which exists because
+`burrow_probe`'s hand-built bank is **not the scene he is playing**. 9,000
+frames, two seeds:
+
+| frame | roofed | packed | overcap | ants | buried | digs |
+|---|---|---|---|---|---|---|
+| 2,000 | 87 | 435 | **0** | 52 | 1 | 249 |
+| 4,000 | 205 | 653 | **0** | 52 | 2 | 633 |
+| 5,000 | 201 | 692 | **0** | **12** | 0 | 731 |
+| 9,000 | 230 | 751 | **0** | **12** | 0 | 786 |
+
+Roofed void rises and **holds**; the lining holds; `buried` never exceeds 4.
+
+**My leading hypothesis was wrong and the harness says so directly.** The bed
+is built at exactly `SOIL_FIELD_CAPACITY` and the un-pack rule fires at
+`aux > SOIL_FIELD_CAPACITY` — a one-unit margin — so I expected water around
+a void to tip walls over. **`overcap` is 0 at every frame**, wet bed and dry
+control alike. The margin is not the problem, and `overcap`/`wettest` stay in
+the harness so nobody re-derives that.
+
+**What is real: ants 52 -> 12 between frames 4,000 and 5,000**, both seeds,
+`digs` plateauing immediately after. The colony collapses and the digging
+stops with it, which from outside looks exactly like getting stuck. That run
+had `founders: 0` — no food — so starvation is confounded, and **this is
+worth re-running now #174 has landed**, because the feeding ladder changes
+what a colony does with an empty larder.
+
+### 6c. The dirt-depth regression does not reproduce, and my light steer was wrong
+
+A single paired run had said deepening the bed 40 -> 96 rows cost 20% of the
+stand. Swept properly — 4 depths x 12 seeds x 9,000 frames at **equal
+ticks** — the direction is neutral-to-slightly-positive at every depth, and
+**the run that condemned it sits at 0.80 inside its own arm's spread of
+0.81-1.57**.
+
+**I told that lane to suspect light first. Light was measured out flat**:
+0.447 at the bench in **all 48 runs**, identical at every depth, and it
+cannot be otherwise — soil sits *below* the bench, so it cannot shade it.
+**The `0.216 -> 0.172` that started the hunt is downstream of the stand, not
+upstream**: a bigger stand shades its own bench. A reversed-causality trap,
+and the kind worth carrying rather than quietly deleting.
+
+The honest cost of deeper soil is frame time: about **+23%/tick** on a young
+box, paired and alternating, slower in 5 of 5.
+
+**And it answered the design question the depth was for.** Roots max at 13
+rows over all 48 runs and do not use what they are given, while the colony's
+galleries were already at **35 rows of a 40-row bed**. The bed, not the
+biology, was the binding constraint on the burrow system: **deep soil is
+earned by the ants, not by a deep-rooting mutant that does not exist.**
+
+---
+
 ## 5. What this report does not decide
 
 - **Whether the lining should be an ant behaviour or a player machine.** It is
