@@ -1,0 +1,46 @@
+{
+  "id": "20260830T183134235Z-74eb83",
+  "created": "2026-08-30T18:31:34Z",
+  "board": "ants",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/evolution-lab-gui-physics-dhkblx",
+    "commit": "eae4e27",
+    "agent": null,
+    "session_id": "c7783652-0f30-51a8-b3fa-7773cb6c24fa",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The face of a soil bank after 8,000 frames of ants — worked, or just slumped",
+  "question": "Ants now tamp the wall of every cell they dig, so a burrow stands instead of closing in five frames. Does the worked bank read as *dug* — benches, an overhang, holes at the toe — or does it just read as a mess? Second question, and the one I would change on your word: I made the packed wall darker than loose soil, so the tunnels inside the bank are invisible (both columns look identical from further out). A pale wall, like the nest material, would make a nest read from across the map. Darker, paler, or leave it?",
+  "context_md": "Same colony, same seed, same binary; the only difference is one switch that turns the tamping off. Four stops top to bottom: frames 0, 500, 2000, 8000, held at noon, 10x on the face the colony works. Discrete events after 8,000 frames — with tamping: 278 digs, 384 wall cells packed, 130 roofed tunnel cells still standing. Without: 610 digs, 0 packed, 0 roofed. Supersedes card 20260830T181245204Z-ba7326, which was cropped too wide to see anything.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "no tamping (ablated)",
+      "files": [
+        "20260830T183134235Z-74eb83/000-tight_bare.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "ants tamp the wall",
+      "files": [
+        "20260830T183134235Z-74eb83/001-tight_lined.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
