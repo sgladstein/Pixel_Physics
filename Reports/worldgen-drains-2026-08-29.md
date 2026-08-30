@@ -423,5 +423,16 @@ before.
   `20260830T002417283Z-d50e39`). The open question on that card is real: the
   dome is drawn per column above each column's own ground, so on a slope it
   comes out slanted rather than round.
-- **Nothing here is a performance claim.** The reorder and the yield add no
-  per-frame work and no measurable generation work, but nothing was timed.
+- **Nothing here is a performance claim.** The brow yield adds one `Vec<bool>`
+  over the world's width, built once per generation, and no per-frame work at
+  all. Nothing was timed, so that is an argument rather than a measurement.
+- **The gate is at 2 seeds in CI and that is not a sweep.** Its two claims are
+  structural rather than statistical — a pass APPEARS or it does not — so seeds
+  buy coverage of *which* worlds, not confidence in a number. `SEEDS=6` is what
+  this report quotes; anything comparing models still belongs in
+  `seedsweep.sh`.
+- **This branch is 14 commits behind `main`** (`behind x files = 490`, past the
+  300 bar) because it was cut from the coordinating branch rather than from the
+  trunk. Merging `main` in unilaterally would put fourteen commits of other
+  lanes' work into this lane's diff, which is the coordinator's sequencing
+  call, not this lane's.
