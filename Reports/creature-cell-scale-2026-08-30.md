@@ -189,6 +189,63 @@ that is the shape of the change, and it belongs to whoever owns
 `assets/materials/**`. Done there, the bar is invariant under resolution and
 this section stops existing.
 
+## 5a. The owner's verdicts, same evening
+
+Both cards came back within three minutes, and the second one **fails the
+lane's step 2 outright** — which is the finding, and is why it is written
+here rather than left in the queue.
+
+**`20260830T203214131Z-d133c8`, the size proof: rating 5, "Yes."** §1 stands.
+
+**`20260830T203238476Z-08d795`, blind A/B, two 36-cell silhouettes:**
+`choice_label` **waisted (10x4)**, comment *"Both are smudges but A is
+closer."* `blind_was: [1, 0]`, so the displayed "A" was the stored **waisted**
+arm and the prose and the click agree — decoded, as the review skill
+requires, because raw they look like a contradiction.
+
+**"Both are smudges" is the sentence that matters.** 36 cells is four times
+the ink of the shipped ant and it did not buy an animal. Looking at the
+bodies at 28 px per physical unit, which nobody had done, says why in one
+frame:
+
+- the `ant` material's palette is **(38,30,28) / (52,42,38) / (28,22,20)** —
+  three near-black browns spanning fourteen units of luma. Against sand the
+  body reads as a *hole*, not as a creature.
+- `ShadeRule::Countershade` fires and is **invisible**, because it grades
+  *within* that palette. It is value-only, and `PLAN.md`'s M19 research says
+  in as many words that value-only differences vanish at small pixel sizes.
+  This is a channel with a writer and a reader whose output cannot be seen —
+  a fifth instance of the class `dead-ends.md` says this project has hit
+  three times.
+- the body is a **solid filled rectangle**. Nothing breaks the outline: no
+  legs, no antennae, no gap between head and thorax. The waisted plan's only
+  advantage is a one-cell notch, and the owner picked it — which says the
+  outline is doing *something*, at the smallest possible amplitude.
+
+**So step 2 is not a resolution problem and more cells will not fix it**, and
+that is `plant-appearance-design.md` arriving on the creature line exactly as
+it warned: *"a lever that relabels a cell cannot move a silhouette that
+texture and colour set."* The plant line lost a phase to this. The creature
+line has now lost one card.
+
+**The fork, and it is asked rather than assumed** (card
+`20260830T204942304Z-a6b871`): the same 36-cell block in `ant` against
+`chitin_pale` (214,202,188), identical cell for cell, colour the only
+difference. The previous pair varied outline at fixed colour; this one varies
+colour at fixed outline, and between the two answers the next lane knows
+whether to spend on a silhouette or on a palette. `CLAUDE.md`'s "a complaint
+could mean two things — render both readings rather than spending the whole
+detour on the wrong one".
+
+**One thing the fork already rules in.** A creature's whole body is painted
+from **one** `material_id`, looked up from the species name in
+`place_creature` — so a pale head on a dark thorax, which is the cheapest
+real composition an insect has, is **not authorable today**. `chitin_pale`
+and `chitin_mid` exist as separate materials and separate species; nothing
+lets one animal use two. That is a small engine change (a second material on
+`CreatureDef`, chosen by `CellType` at the one call site that already
+computes it) and it is the thing to build if the card says colour.
+
 ## 6. What a body that reads as an animal *and* walks would have to be
 
 Not built. Written down because the analysis is the expensive part and a
@@ -246,8 +303,11 @@ perpendicular) are defined for a node. Budget the ledger check as part of it.
 
 ## 7. Not done
 
-- **The ribbon** (§6). The lane's step 2 and 3 are a design and a
-  measurement, not a shipped body.
+- **A body that reads as an animal** (§5a). Attempted, measured, and
+  **rejected by the owner** — both 36-cell silhouettes came back "smudges".
+  The next move is the palette/composition fork, not more cells.
+- **The ribbon** (§6). The lane's step 3 is a design and a measurement, not a
+  shipped body.
 - **`body_energy` scaling** (§2, §5) — needs `assets/materials/**`.
 - **Flight constants** (§2).
 - **Plants.** `plant.rs` and `organism.rs`'s growth path read `cell_scale`

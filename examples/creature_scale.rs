@@ -45,6 +45,7 @@ use pixel_physics::sim::chunk::Rect;
 use pixel_physics::sim::material::MaterialKind;
 use pixel_physics::sim::particle::ParticleSystem;
 use pixel_physics::sim::world::World;
+use pixel_physics::sim::organism::CreatureDef;
 use pixel_physics::sim::{creature, parallel};
 
 /// Where in the day every frame is pinned. Noon, for the reason
@@ -58,13 +59,13 @@ const DAYLIGHT: f32 = 1.0;
 /// grid cells. Every arm crops `2 * CROP` physical units wide, so at `k=2`
 /// that is twice as many grid cells and the panels still show the same
 /// piece of ground.
-const CROP: i32 = 13;
+const CROP_DEFAULT: i32 = 13;
 
 /// Pixels per physical unit in the output. Fixed across arms, which is what
 /// makes the panels comparable at a glance: an arm at `k` upscales by
 /// `PANEL_ZOOM / k`, so a correct scaling puts the body at the same size in
 /// every panel and a broken one halves it.
-const PANEL_ZOOM: i32 = 12;
+const PANEL_ZOOM_DEFAULT: i32 = 12;
 
 fn main() {
     let mut mode = "size".to_string();
@@ -76,6 +77,8 @@ fn main() {
     let mut count = 24i32;
     let mut out = String::new();
     let mut control = true;
+    let mut crop = CROP_DEFAULT;
+    let mut zoom = PANEL_ZOOM_DEFAULT;
     for arg in std::env::args().skip(1) {
         let Some((k, v)) = arg.split_once('=') else { continue };
         match k {
@@ -88,13 +91,15 @@ fn main() {
             "count" => count = v.parse().unwrap_or(count),
             "out" => out = v.to_string(),
             "control" => control = v != "off",
+            "crop" => crop = v.parse().unwrap_or(crop),
+            "zoom" => zoom = v.parse().unwrap_or(zoom),
             _ => {}
         }
     }
-    println!("creature_scale: mode={mode} species={species} scales={scales:?} frames={frames} seed={seed} preset={preset} count={count} control={control} out={out:?}");
+    println!("creature_scale: mode={mode} species={species} scales={scales:?} frames={frames} seed={seed} preset={preset} count={count} control={control} crop={crop} zoom={zoom} out={out:?}");
 
     match mode.as_str() {
-        "size" => size_mode(&species, &scales, seed, &preset, &out, control),
+        "size" => size_mode(&species, &scales, seed, &preset, &out, control, crop, zoom),
         "walk" => walk_mode(&species, &scales, seed, &preset, count, frames),
         other => panic!("unknown mode {other}; expected size or walk"),
     }
@@ -165,21 +170,33 @@ fn arms(scales: &[i32], control: bool) -> Vec<(i32, bool)> {
     out
 }
 
-fn size_mode(species: &str, scales: &[i32], seed: u64, preset: &str, out: &str, control: bool) {
-    let panel = (2 * CROP * PANEL_ZOOM) as usize;
+/// One panel per (species, resolution, scaling) arm.
+///
+/// **`species=` takes a comma list**, because the question the owner sent
+/// back -- *"both are smudges"* -- is a comparison between body plans at one
+/// resolution, and a sheet that can only vary the grid cannot ask it.
+fn size_mode(species: &str, scales: &[i32], seed: u64, preset: &str, out: &str, control: bool, crop: i32, zoom_px: i32) {
+    let panel = (2 * crop * zoom_px) as usize;
+    let species_list: Vec<&str> = species.split(',').map(str::trim).filter(|s| !s.is_empty()).collect();
     let mut panels: Vec<Vec<u8>> = Vec::new();
     // The authored def, read out of a 1x world so the control arm below is
     // the real thing rather than a hand-written copy of it.
-    let authored = {
+    let authored: Vec<CreatureDef> = {
         let w = build(1, seed, preset);
-        let id = w.species.id_of(species).unwrap_or_else(|| panic!("no species {species}"));
-        w.species.get(id).creature.clone().unwrap_or_else(|| panic!("{species} is not a creature"))
+        species_list
+            .iter()
+            .map(|sp| {
+                let id = w.species.id_of(sp).unwrap_or_else(|| panic!("no species {sp}"));
+                w.species.get(id).creature.clone().unwrap_or_else(|| panic!("{sp} is not a creature"))
+            })
+            .collect()
     };
     for (k, scaled) in arms(scales, control) {
+    for (si, &species) in species_list.iter().enumerate() {
         let mut world = build(k, seed, preset);
         if !scaled {
             let id = world.species.id_of(species).expect("species");
-            world.species.set_creature(id, authored.clone());
+            world.species.set_creature(id, authored[si].clone());
         }
         // Mid-map, on whatever ground `found_colony` would have accepted --
         // the same predicate, never a second copy of it
@@ -215,7 +232,7 @@ fn size_mode(species: &str, scales: &[i32], seed: u64, preset: &str, out: &str, 
         let (bw, bh) = (x1 - x0 + 1, y1 - y0 + 1);
         let def = world.species.get(world.organism(id).expect("live").species).creature.clone().expect("a creature");
         println!(
-            "  k={k} body-scaling={:<3} plan={:>3} cells  on-screen={:>3} cells  bbox={bw}x{bh} cells = {:.1}x{:.1} physical  \
+            "  {species:<18} k={k} body-scaling={:<3} plan={:>3} cells  on-screen={:>3} cells  bbox={bw}x{bh} cells = {:.1}x{:.1} physical  \
              tick_interval={}  sensor_offset={}  idle/cell={:.5}  move/cell={:.5}",
             if scaled { "on" } else { "OFF" },
             def.body.len(),
@@ -236,8 +253,8 @@ fn size_mode(species: &str, scales: &[i32], seed: u64, preset: &str, out: &str, 
         // Crop `2*CROP` **physical** units around the body's centre, then
         // upscale by `PANEL_ZOOM / k` so every panel is the same pixel size.
         let (ccx, ccy) = ((x0 + x1) / 2, (y0 + y1) / 2);
-        let half = CROP * k;
-        let zoom = (PANEL_ZOOM / k).max(1);
+        let half = crop * k;
+        let zoom = (zoom_px / k).max(1);
         let mut img = vec![0u8; panel * panel * 4];
         for ry in 0..(2 * half * zoom) {
             for rx in 0..(2 * half * zoom) {
@@ -256,6 +273,7 @@ fn size_mode(species: &str, scales: &[i32], seed: u64, preset: &str, out: &str, 
         }
         panels.push(img);
     }
+    }
 
     if out.is_empty() {
         return;
@@ -273,7 +291,7 @@ fn size_mode(species: &str, scales: &[i32], seed: u64, preset: &str, out: &str, 
         }
     }
     write_png(out, &sheet, w, panel);
-    println!("  wrote {out} ({w}x{panel}; {} panels, each {} physical units wide at {PANEL_ZOOM} px/unit)", panels.len(), 2 * CROP);
+    println!("  wrote {out} ({w}x{panel}; {} panels, each {} physical units wide at {zoom_px} px/unit)", panels.len(), 2 * crop);
 }
 
 /// **Can it walk?** `moves_blocked / (moves + moves_blocked)` on generated

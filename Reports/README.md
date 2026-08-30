@@ -927,8 +927,17 @@ drift that two of these documents still reflect.**
   #174 is open, not merged, so births are still 0 — with the resolution
   interaction the lane owns: the stamp `body_energy * cells` multiplies by
   the cell ratio, taking a 36-cell body's birth cost to 17,360 against a bank
-  ceiling of ~460. Cards `20260830T203214131Z-d133c8` (the size proof) and
-  `20260830T203238476Z-08d795` (which 36-cell silhouette reads as an animal)
+  ceiling of ~460. **Both verdicts are in and §5a carries them**: the size
+  proof rates **5, "Yes"**, and the silhouette A/B comes back *"Both are
+  smudges but A is closer"* — so **36 cells does not buy an animal**, and the
+  reason is visible at 28 px per unit: the `ant` palette is three near-black
+  browns spanning fourteen units of luma, `Countershade` grades *within* it
+  and is invisible, and the body is a solid rectangle with nothing breaking
+  its outline. `plant-appearance-design.md` arriving on the creature line.
+  The fork is asked rather than assumed (card `…a6b871`, colour at fixed
+  outline), and §5a records what it already rules in: a creature is painted
+  from **one** `material_id`, so a pale head on a dark thorax is not
+  authorable today
 - [creature-direction.md](creature-direction.md) — **direction agreed
   (2026-08-17).** Cell-chain ants, the caged brain, the heritable genome;
   decision record plus implementation plan.
