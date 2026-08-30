@@ -161,18 +161,43 @@ window with it. Look at the picture for *what and where*; read the text for
 
 | | |
 |---|---|
-| `cargo test --lib` | 1096 passed, 0 failed, 54 ignored |
+| `cargo test --lib` | 1099 passed, 0 failed, 54 ignored (re-run after the `main` merge) |
 | `cargo +1.98.0 clippy --all-targets -- -D warnings` | clean |
 | `cargo run --release --example ascii` | 31 scenes run, 0 skipped; worst frame 37.54 ms / mean 3.64 ms on the 166-organism scene |
-| `bash scripts/acceptance.sh` | all cases met their expectations; worst full-screen draw 5.90 ms |
+| `bash scripts/acceptance.sh` | all cases met their expectations |
 | `bash scripts/docscheck.sh` | clean |
 
 ## Review
 
-Card `20260830T052805753Z-7ae046` on board `creatures`, posted 2026-08-30:
-the panel over a 40-ant colony, asking whether the right things are on it,
-whether the three rate rows earn their space, and whether it should be
-narrower. Verdict not yet collected — `python3 scripts/review.py inbox`.
+Card **`20260830T060547213Z-a172fe`** on board `creatures`, posted
+2026-08-30: the panel over a hungry 40-ant colony, asking whether the right
+things are on it, whether the three rate rows earn their space, and whether
+it should be narrower. Verdict not yet collected —
+`python3 scripts/review.py inbox`.
+
+It supersedes `20260830T052805753Z-7ae046`, posted half an hour earlier and
+**not worth reading**: that shot predates the merge with `main`, so its ants
+were on the old full-size food budget and every one of them sat at the same
+energy — the histogram was a single bar, which is the worst possible
+advertisement for the reason it is a histogram. Post-merge the same panel
+reads `HUNGRY 37 OF 40` with the mass piled against the empty end and one ant
+still nearly full, which is the case the shape exists for.
+
+## Pulled in
+
+`main` came in at `322ea66` — 33 commits, conflicting only in `README.md`'s
+generated table of contents (resolved by taking main's side and re-running
+`scripts/readmetoc.py`) and in `wiki/ants.md`'s freshness note, where both
+sides had written a 2026-08-30 line and both were kept.
+
+That merge is also the trait guard paying for itself: `CREATURE_TRAITS` went
+1 -> 2 while this branch was open, and the panel grew a `DOWRY` row with no
+edit to the layout — only a name added to `colony_trait_label`, which is one
+line and optional (it would have drawn `TRAIT 1` and been correct). It also
+made the panel a much better demonstration of itself: with main's smaller
+food budget and its starvation path, the same colony reads `HUNGRY 37 OF 40`
+with the energy piled against the empty end and one ant still nearly full,
+where before the merge all forty sat on one bar.
 
 ## Head
 
