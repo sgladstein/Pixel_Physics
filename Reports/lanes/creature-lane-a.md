@@ -93,6 +93,18 @@ statistic and not worth quoting. Note the byte-identical control scene reads
 drift on a provably identical simulation**, which is why every frame figure
 here was re-measured rather than compared against the morning's numbers.
 
+## The measurements survived a second merge
+
+The plant lane's tree-breaking work landed on `main` underneath this branch
+after the first merge, and it conflicted in `Reports/dead-ends.md` — both
+sides had *appended different entries*, so both were kept (this was not the
+stale-copy case the house rules warn about). Since it changes the world an ant
+forages in, the headline numbers were re-taken rather than carried forward:
+`deaths` 17 → **17**, `live` 28 → **28**, birth cost 1,040 → **1,040**,
+control `deaths` 0 → **0**, banks 219 → 217 and 567 → 568. Meanwhile `moves`
+went 31,035 → 29,328 and `deliveries` 1,991 → 2,156, so the world genuinely
+moved and the finding did not.
+
 ## Two tests were re-derived, not re-fitted
 
 Both had windows calibrated against an ant that could not starve, and both
