@@ -294,40 +294,27 @@ fits on one screen; at 7x it is two screens wide and two deep, and stone's
 measurable today with `support_census`, and it should be measured before the
 room size is chosen, not after.
 
-**W4 — A world you can watch green up.** Owner ruling, 2026-08-30, and it
-**reverses this plan's first answer**: *"I want to watch the plants grow so the
-world starts at germination or seeding."* The plan had said germinate at
-genesis. It does not: the world starts sown, and **growing up is something the
-player sees happen.**
+**W4 — Plants: no change. Settled, and out of scope.** Owner ruling,
+2026-08-30, after this plan proposed changing it twice — first "germinate at
+genesis", then "tune the sowing density, growth rate and spread":
 
-That is a harder brief than pre-growing, and a better one, but it must not be
-read as "leave it as it is" — the measured problem is unchanged. The entire
-flora of an 8192-column world is **343 one-cell seeds**, one per 24 columns,
-each a single cell; **no `wood`, `leaf` or `grassblade` cell exists in any
-world at settle**, because five of six species need thousands of frames; and
-Lane D had to run to frame **29,400** to get *two trees* into one view. A world
-that starts sown and stays visually empty for eight minutes is not a world you
-can watch grow — it is the barren world with a longer wait in front of it.
+> *"Don't change anything. Keep it how it is today. Your job is not to manage
+> plant growth rates. Right now the world starts with no plants, just seeds and
+> they grow as I play. Don't change that."*
 
-So the workstream is **the rate and the density, not the starting state**:
+**The current behaviour is correct and deliberate: the world is sown with
+seeds, and they grow while the player plays.** Do not change sowing density,
+germination, growth rate, or spread. Do not pre-grow a world at genesis.
 
-- **Sowing density** — one seed per 24 columns cannot read as a landscape
-  becoming green, however long you wait.
-- **Germination and growth rate** — fast enough that change is visible over
-  minutes. This is the number that decides whether the brief is met.
-- **Spread.** The owner has asked for this twice before and it is still on the
-  list: *"patches of grass should spread over time and completely fill up an
-  area without trees and the correct environment"*. Watching the world green
-  up **is** spread; without it there is nothing to watch but individual plants
-  getting taller.
-- **Draw width**, together with the above (`subpixel-rendering-2026-08-29.md`
-  §1) — plants are drawn one cell wide, and sowing more of them multiplies
-  whatever a plant currently looks like.
+The barrenness measurements elsewhere in this document stand as *facts about
+what a freshly generated world contains* — they are why a review card rendered
+at settle shows no vegetation, which matters when reading any card. **They are
+not a brief.** Nothing downstream depends on them: the one workstream that
+cited vegetation as a prerequisite was terrain lighting, and that is killed
+too.
 
-The success test is not a census, it is a **time-lapse**: from a fresh world,
-does the ground visibly green over a span someone would sit through? Judge it
-as a frame sequence, not a still — this is a *motion* question and a contact
-sheet cannot answer it.
+**A future session reading the 343-seed figure should not re-propose this.**
+It has now been proposed twice and declined once in plain terms.
 
 **W5 — Stop throwing away what is already computed.** The §3.4 losses, the
 `brows`→`boulders` pass-order defect, and the three other live eaters. Cheap,
@@ -396,16 +383,17 @@ Split on the contested-file table so lanes do not collide. `passes.rs` is
 4,874 lines and contested — whoever holds it lands quickly rather than holding
 a large diff across a session.
 
-**Phase 0 — clear the drains (days, two lanes).** Neither is the revamp;
-both are cheap, and the first is a *prerequisite* for the revamp being
-visible. If relief lands while `brows` is still deleting every boulder and
-`ponds` is still eating the vegetation, W1 will pay into passes that are
-being thrown away.
+**Phase 0 — clear the drains (days, one lane).** Not the revamp; cheap, and a
+*prerequisite* for the revamp being visible. If relief lands while `brows` is still deleting every boulder, W1 will pay
+into passes that are being thrown away.
+
+**Note for the drains lane:** `ponds` also suppresses `life_scatter`. Under
+W4's ruling, do **not** change how many seeds a world ends up with — report
+that conflict rather than landing a fix that moves the seed count.
 
 | lane | work | files |
 |---|---|---|
 | 0a | W5 the discarded character, the four live eaters, judge at shipped size | `passes.rs`, `examples/*` |
-| 0b | W4 a grown world at genesis, with plant draw-width | `life_scatter`, `plant.rs` |
 
 **Phase 1 — the build. This is the revamp.**
 
