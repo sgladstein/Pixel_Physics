@@ -1,0 +1,58 @@
+{
+  "id": "20260830T013709739Z-03dbdb",
+  "created": "2026-08-30T01:37:09Z",
+  "board": "worldgen",
+  "origin": {
+    "worktree": "/home/user/wg-relief",
+    "branch": "claude/worldgen-relief",
+    "commit": "47d6209",
+    "agent": null,
+    "session_id": "2cb39797-d076-5699-b8bf-4494224deffe",
+    "user": null,
+    "cwd": "/home/user/wg-relief"
+  },
+  "title": "The ground got a cause: mountains, benches and scarps",
+  "question": "Does the land in B read as a place that was shaped by something, rather than a bumpy top on a block of rock?",
+  "context_md": "Same seed, same preset, same binary -- one switch. Shipped size 8192x2560, three viewport widths of continuous ground, gnome standing in each for scale.\n\n**What changed.** The ground now wears down at the rate its rock allows instead of only where it was already steep, so a strong bed holds and the soft ground beside it is carried off. What is left standing is the strong rock: benches, scarps, mesas. On top of that the terrain gained **mountains** -- high country three to six screens across -- because nothing in it previously had a wavelength longer than half a screen.\n\n**What I am unsure of and want you to look at:** whether the benching reads as *rock* or as a stack of shelves. And the tall thin spire in B is a residual, which is the pass you have already complained about -- that is a different lane's work, not this change.",
+  "kind": "before_after",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A -- shipped today",
+      "files": [
+        "20260830T013709739Z-03dbdb/000-canyon_off.png"
+      ],
+      "caption": "canyon, seed 4",
+      "meta": {
+        "how far the skyline moves per screen (cells)": 89,
+        "tallest rock feature at 30-column reach, p90": 54,
+        "overhang cells in the world": 11711,
+        "scree cells in the world": 5226,
+        "boulders seated in the world": 3
+      },
+      "focus": null
+    },
+    {
+      "label": "B -- with relief",
+      "files": [
+        "20260830T013709739Z-03dbdb/001-canyon_on.png"
+      ],
+      "caption": "canyon, seed 4",
+      "meta": {
+        "how far the skyline moves per screen (cells)": 119,
+        "tallest rock feature at 30-column reach, p90": 82,
+        "overhang cells in the world": 45797,
+        "scree cells in the world": 16693,
+        "boulders seated in the world": 291
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
