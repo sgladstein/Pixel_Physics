@@ -181,13 +181,14 @@ impl Lab {
 /// have draws as a silent blank rather than as anything you would notice. That
 /// gap has shipped three times in this repo, so every line here is checked
 /// against `hud::has_glyph` by `every_help_line_is_drawable`.
-const HELP: [&str; 9] = [
+const HELP: [&str; 10] = [
     "THE EVOLUTION LAB",
     "",
     "SPACE    TENDING / RUNNING",
     "UP DOWN  SPEED",
     "1-6      SPEED PRESET",
     "TAB      STATS",
+    "F        DISPLAY RATE",
     "WASD     PAN     - =  ZOOM",
     "R        REBUILD THE BOX",
     "?        THIS PAGE",
