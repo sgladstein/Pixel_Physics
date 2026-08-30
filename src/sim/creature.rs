@@ -2243,8 +2243,90 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
             // precedent) -- noted, not built.
             world.set(tx, ty, Cell::EMPTY);
             world.creature_stats.digs += 1;
+            line_burrow(world, tx, ty);
         }
     }
+}
+
+/// **Line the hole just dug** — turn the loose ground around it into the
+/// wall of a tunnel.
+///
+/// This is the half of digging that makes a burrow a *place*. Without it an
+/// ant excavates perfectly well and nothing survives it: measured with
+/// `examples/burrow_probe.rs`, a gallery cut into a bed of `soil` is **gone
+/// by frame 5**, because `update_powder`'s straight-down move is
+/// unconditional on support and the roof falls into the hole. Nothing in
+/// the repose model reaches that (`roll_along_slope`'s own doc: a pile can
+/// only get flatter, never overhanging), and the structural system never
+/// sees a `Powder` at all (`Reports/dead-ends.md`: `is_body_material` is
+/// `Solid | Plant`, so there is no anchor distance to extend).
+///
+/// It is also real behaviour rather than a physics patch: ants tamp and
+/// cement gallery walls as they cut them, which is why an abandoned nest
+/// stays legible in a soil profile.
+///
+/// **Eight neighbours, not four.** The four-neighbour rules in `update.rs`
+/// (`root_reinforced`, `on_a_branch`) are deliberately conservative because
+/// they hold *other people's* material up on a corner contact. This one is
+/// the opposite case: the diagonals of a dug cell are exactly the cells
+/// that slump into it via `try_move(x +- 1, y + 1)`, so leaving them loose
+/// would line the roof and let the shoulders fall in anyway.
+///
+/// **Which object does this rule evaluate?** One cell, and that is the
+/// right object here: a lining is a per-cell property of the surface of the
+/// excavation, and the excavation grows one cell at a time. There is no
+/// piece, span or centroid in it.
+///
+/// Nothing is whitelisted by name. The ground says what it becomes
+/// (`Material::packs_into`, unset on everything but `soil`), so `stone` is
+/// untouched because it is not diggable, `snow` because it has no packed
+/// form, plant tissue and creatures because they have none either, and a
+/// cell that is already lining because `packedsoil` does not pack further.
+fn line_burrow(world: &mut World, x: i32, y: i32) {
+    if !lining_enabled() {
+        return;
+    }
+    for (dx, dy) in NEIGHBOURS_8 {
+        let (nx, ny) = (x + dx, y + dy);
+        let cell = world.get(nx, ny);
+        let Some(packed) = world.materials.get(cell.material).packs_into else {
+            continue;
+        };
+        // Everything but the material rides across: the held water
+        // (`aux`), the palette index, the attached flag, the temperature.
+        // Writing a fresh `Cell` here would read as *dry* ground on a
+        // `Powder` (`CLAUDE.md`'s two-conventions gotcha) and would quietly
+        // destroy the moisture a plant or the un-packing rule depends on.
+        let mut lined = cell;
+        lined.material = packed;
+        world.set(nx, ny, lined);
+        world.creature_stats.packed += 1;
+    }
+}
+
+/// The ablation switch for the lining, off by default.
+///
+/// `PIXEL_PHYSICS_BURROW_LINING=off` makes `line_burrow` a no-op and changes
+/// **nothing else** -- ants dig at the same rate, into the same materials,
+/// and the sweep's rules are untouched. That is deliberately the shape
+/// `CLAUDE.md` prescribes after the `relax_region` night: *the control is to
+/// hold the semantic rule fixed, not to add another metric*, and measuring
+/// around a confound "would have taken all night and convinced nobody".
+///
+/// It exists because the claim this feature makes is about a *standing*
+/// quantity -- how much void is left in a bank after a colony has worked it
+/// -- and a standing quantity has no baseline of its own. A colony that digs
+/// vigorously into ground that closes behind it and one that never dug leave
+/// the same bank. `examples/burrow_probe.rs`'s `colony` arm runs the same
+/// binary twice across this switch, which makes the two arms differ in one
+/// thing rather than in a rebuild.
+///
+/// Read once per process through a `OnceLock`, matching `plant::fate_lookup`:
+/// an `env::var` per dig would be a syscall in a creature's decision path,
+/// and the setting cannot change mid-run anyway.
+fn lining_enabled() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_BURROW_LINING").as_deref() != Ok("off"))
 }
 
 /// Move the whole chain one cell, snake-fashion. Returns whether it moved.
