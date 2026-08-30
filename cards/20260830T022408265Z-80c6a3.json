@@ -1,0 +1,54 @@
+{
+  "id": "20260830T022408265Z-80c6a3",
+  "created": "2026-08-30T02:24:08Z",
+  "board": "fracture",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/explosion-effects-menu-isljo5",
+    "commit": "6e7d73d",
+    "agent": null,
+    "session_id": "59c041f8-0d1c-593e-b4e4-5d71a4ffff4c",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The floating specks after heavy blasting",
+  "question": "Does the right-hand one look like rock that has been blasted, rather than rock plus a dust of stuck pixels?",
+  "context_md": "Your screenshot: *\"lots of single pixel or small clumps that stay floating.\"* Same five charges, same seed, same frame — the only difference is whether a finished blast sweeps up the chips it stranded.\n\nMeasured first: they do **not** all eventually fall. The ones that can fall drain 715 → 35 over about 3,000 frames and then stop dead — frames 3,000, 4,200 and 5,400 are identical. So \"very slow\" is fifty seconds, and \"not clear if all of them ever will\" is no.\n\nThis fixes the half you actually look at: a chip touching **nothing but air** is floating by inspection — no support rule can argue — so the blast takes those itself, instantly, the way you described. It does not need the load model at all.\n\nWhat it does **not** fix: about 19 cells per scene are still stuck permanently, and those are joined to the rock rather than floating. That half is in the mining lane's files and they have it.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A -- before",
+      "files": [
+        "20260830T022408265Z-80c6a3/000-sweep0.png"
+      ],
+      "caption": "chips left where the blast stranded them",
+      "meta": {
+        "floating cells": 507,
+        "floating pieces": 217,
+        "rock lost": 9142
+      },
+      "focus": null
+    },
+    {
+      "label": "B -- blast sweeps its own chips",
+      "files": [
+        "20260830T022408265Z-80c6a3/001-sweep6.png"
+      ],
+      "caption": "fully-isolated fragments under 6 cells fall at once",
+      "meta": {
+        "floating cells": 102,
+        "floating pieces": 15,
+        "rock lost": 10358
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
