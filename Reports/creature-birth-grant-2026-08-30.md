@@ -415,6 +415,25 @@ default seed unless stated, measured 2026-08-30 on one machine in one
 session, with the release examples rebuilt between every setting — species
 files are `include_str!`'d and a stale binary produces bit-identical "runs".
 
+**Re-taken after the plant lane's tree-breaking work landed on `main`
+underneath this branch**, because a world where trees now come apart is a
+different world for an ant to forage in, and a number measured on a tree
+nobody else has does not transfer. It transferred:
+
+| | before the merge | after |
+|---|---|---|
+| shipped ant: `deaths` | 17 | **17** |
+| shipped ant: `live` | 28 | **28** |
+| shipped ant: `richest bank` | 219 | 217 |
+| birth cost | 1,040 | **1,040** |
+| control (budget 900): `deaths` | 0 | **0** |
+| control: `richest bank` | 567 | 568 |
+
+**The world did change** — `moves` went 31,035 → 29,328 and `deliveries`
+1,991 → 2,156, so the ants are living somewhere measurably different — and
+every number this report rests on is unmoved or moved by two points. That is
+a stronger staleness check than a repeat on one tree would have been.
+
 Reads on: `Reports/creature-reproduction-economics.md` §§1, 3.1, 3.6, 5.1
 (the arithmetic this confirms and, in one place, corrects the direction of);
 `Reports/creature-evolution-plan.md` §0 E12/E14 and §2.6.

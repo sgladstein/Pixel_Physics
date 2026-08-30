@@ -534,6 +534,23 @@ drift that two of these documents still reflect.**
   *"the 4,095-organism ceiling is nowhere near binding"* (herb runs at 44–61%
   of it). Also records that `grass.ron`'s fate table is **byte-identical** to
   `tree.ron`'s, so switching to grass would never have bought mutability.
+- [plant-fate-fallback-fork-2026-08-30.md](plant-fate-fallback-fork-2026-08-30.md)
+  — **the fallback fork is decided and landed**: the owner answered *"No safety
+  net"*, so `fate_for` reads the individual's genome and stops. A mutation that
+  vacates a slot vacates it for real, which is what makes `delete` and
+  `recondition` real operators; the gate report below is the baseline it is
+  measured against. **Its §0 is the part to quote**: at the shipped mutation
+  rate this is a **no-op** — 88,909 fate queries over 60,000 frames of `herb`
+  with the net catching **0** of them, and `genome_drift` byte-identical
+  between the old and new depths at both 0 and 10x. The net first bites at
+  **90x**. Generation turnover (mean depth 2.04 at 60,000 frames), not the
+  fallback depth, is the bottleneck. **Withdraws one standing claim**:
+  `builtin_fate` is *not* the absorber — at 90x all 1,305 saves went to the
+  **species** layer and `builtin_fate` took 0; the two layers agree, which is
+  why dropping the middle one measured identical. Also records why `moss`
+  (empty fate table, 0 calls — it only `Divide`s) and `(RootTip, Node)`
+  (unreachable at `plastochron: 0`) are safe, and that an emptied `Grow` slot
+  makes a tip that **never retires** rather than one that cannot grow.
 - [plant-fate-operator-gate-2026-08-29.md](plant-fate-operator-gate-2026-08-29.md)
   — **all four mutation operators now have a viability gate**, closing §3a of
   the handoff below, and the answer is not the one its weighting hedged
@@ -714,6 +731,20 @@ drift that two of these documents still reflect.**
   already the best of the values tested, and a nine-cell pale body puts less
   on screen than the shipped two-cell dark one. The creature-side answer to
   `plant-appearance-design.md`.
+- [creature-motion-decoys-2026-08-30.md](creature-motion-decoys-2026-08-30.md)
+  — **measured study, and a qualification of the report above.**
+  `creature-appearance-design.md`'s whole body-size case rests on `decoys`,
+  which is computed on a **single still**, and a decoy is a rock edge or a
+  leaf — something that holds still, while the animal does not. Adding the
+  motion axis (`examples/motion_look.rs`: a decoy that does not change
+  between two frames is not competing for the eye) finds the decoy field is
+  **entirely static**: a body that moves has **0–2** competitors at every
+  size from 1 to 16 cells, so a walking two-cell ant is already better off
+  than a stationary sixteen-cell one, in every sky measured and on four
+  seeds. Does not overturn the recommendation so much as split it — **22–42%
+  of ants never move across a 384-frame horizon**, and for those the static
+  ladder is the whole story, which is the owner's *"ants are mostly visible
+  with there motion"* arriving as a number.
 - [creature-birth-grant-2026-08-30.md](creature-birth-grant-2026-08-30.md) —
   **built and landed 2026-08-30.** `birth_grant` as a heritable slot, E14's
   `start_energy` cut (900 -> 200), and the measured finding that **the two
@@ -817,6 +848,23 @@ drift that two of these documents still reflect.**
   work packages with file anchors, steps, measurements and landing
   checklists; the scope guard on what must not start before the owner's
   verdicts (S6, S7's larder, new channels).
+- [creature-vision-sizing-2026-08-30.md](creature-vision-sizing-2026-08-30.md)
+  — **measured pre-flight, 2026-08-30; instrument `examples/vision_probe.rs`,
+  no behaviour changed.** Sizes **E15**'s sight sense before anyone builds it,
+  by tracing the geometry that already exists: **build it at radius 64,
+  all-round, seeing over the floor litter**, and it costs **0.004 ms of a
+  frame** — 0.14% of `ascii`'s 2.98 ms mean, below what a wall clock resolves,
+  and under 10% of a frame only past ~358 predators. The radius argument is
+  the **p10 seed** rather than the median: the stranded beetle sees prey
+  0.108–0.260 of the time at r32 and 0.240–0.389 at r64, over three presets
+  and 18 seeds each. Two findings the design has to carry: what blocks a
+  sight line is **floor clutter, not landscape** (seed, litter, corpse, soil
+  — 28.1% of pairs on `wetland`, 8.6% with the eye one cell up), and making
+  **foliage a binary blocker costs half the sense** (0.667 → 0.350) with no
+  eye height buying it back, which is `CLAUDE.md`'s *an outcome is a
+  distribution, not a binary* arriving on the creature line. Does not answer
+  whether a beetle acts on a sighting; `predation_probe`'s control already
+  says the kill works at contact.
 - [foraging-range-measurement.md](foraging-range-measurement.md) —
   **measured record, instrument landed via `da252dc`;** §0 and §5 corrected
   on landing, **§3 corrected 2026-08-23** by WP-9 arm 1's re-test. Why
