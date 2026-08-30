@@ -133,7 +133,9 @@ fn main() {
     match mode.as_str() {
         "census" => census(frames, every, seeds, plant),
         "control" => control(plant),
-        other => panic!("unknown mode {other:?}; known: census, control"),
+        "render" => render(frames, every),
+        "pair" => pair(frames),
+        other => panic!("unknown mode {other:?}; known: census, control, render, pair"),
     }
 }
 
@@ -439,6 +441,188 @@ fn control(plant: usize) {
         for s in &r.samples {
             println!("{:>18} {:>7} {:>7} {:>7} {:>8} {:>8}", r.arm, s.frame, s.free_cells[0], s.free_cells[2], s.world_free_cells, s.eats);
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// the picture
+// ---------------------------------------------------------------------------
+
+/// A contact sheet of the nest over time, **from the same world the census
+/// ran on**.
+///
+/// This is a mode here rather than a scene on `filmstrip` for one reason
+/// and it is not ownership: `filmstrip`'s `scene=colony` builds a
+/// *different* nest (`found_colony`'s 53-column patch, placed by score)
+/// than the one the 532-delivery claim and this census were measured on,
+/// and a picture of a different world than the claim it illustrates
+/// illustrates nothing. The counts printed under each tile come from the
+/// identical `sample` call the census uses, so the number beside the image
+/// cannot disagree with the number in the table.
+fn render(frames: usize, every: usize) {
+    use pixel_physics::render::Renderer;
+    use pixel_physics::sim::particle::ParticleSystem;
+    use std::collections::HashSet;
+
+    // Crop to the nest and the air above it, zoomed, because a 512x160
+    // sheet puts the whole question in a strip 74 px wide and a pile of ten
+    // cells is not judgeable at that size.
+    const ZOOM: i32 = 4;
+    const CROP_W: i32 = 110;
+    const CROP_H: i32 = 46;
+    let crop_x = NEST_X0 - 4;
+
+    let mut world = build_scene(SEED_BASE, true, Plant::None);
+    let dist = nest_distance(&world);
+    let bias = world
+        .species
+        .id_of("ant")
+        .and_then(|id| world.species.get(id).creature.as_ref().map(|d| d.traits[TRAIT_GUT_BIAS]))
+        .expect("ant species");
+    let crop_y = (0..W).map(|x| surface(&world, x)).skip(NEST_X0 as usize).take(40).min().unwrap_or(60) - CROP_H + 12;
+
+    let mut renderer = Renderer::new();
+    // **Pin the daylight.** Sampling every 3,000 frames walks straight
+    // across the day/night cycle, so half the tiles came back at night and
+    // the sheet compared a lit nest with an unlit one -- the oscillator
+    // aliasing into the picture exactly as it aliases into a number.
+    renderer.pinned_light = Some(pixel_physics::sky::frame_for_daylight(1.0));
+    let particles = ParticleSystem::new();
+    let mut frame = vec![0u8; (W * H * 4) as usize];
+    let mut tiles: Vec<Vec<u8>> = Vec::new();
+    let mut captions: Vec<String> = Vec::new();
+
+    for f in 0..=frames {
+        if f % every == 0 {
+            renderer.draw(&world, &particles, &HashSet::new(), &mut frame, (W as u32, H as u32), true);
+            let mut tile = vec![0u8; (CROP_W * ZOOM * CROP_H * ZOOM * 4) as usize];
+            for ty in 0..CROP_H * ZOOM {
+                for tx in 0..CROP_W * ZOOM {
+                    let (sx, sy) = (crop_x + tx / ZOOM, crop_y + ty / ZOOM);
+                    let src = (((sy.clamp(0, H - 1)) * W + sx.clamp(0, W - 1)) * 4) as usize;
+                    let dst = ((ty * CROP_W * ZOOM + tx) * 4) as usize;
+                    tile[dst..dst + 4].copy_from_slice(&frame[src..src + 4]);
+                }
+            }
+            tiles.push(tile);
+            let s = sample(&world, &dist, bias, f);
+            captions.push(format!("frame {f}: larder <=2 = {} cells ({:.0} digestible), <=8 = {}, deliveries {}", s.free_cells[0], s.free_yield[0], s.free_cells[2], s.deliveries));
+        }
+        if f == frames {
+            break;
+        }
+        parallel::step(&mut world);
+        world.step_active_sites();
+        world.step_fields();
+        world.step_pheromones();
+    }
+
+    // Two columns, gutters between.
+    const GAP: i32 = 6;
+    let cols = 2i32;
+    let rows = (tiles.len() as i32 + cols - 1) / cols;
+    let (tw, th) = (CROP_W * ZOOM, CROP_H * ZOOM);
+    let (sw, sh) = (cols * tw + (cols - 1) * GAP, rows * th + (rows - 1) * GAP);
+    let mut sheet = vec![24u8; (sw * sh * 4) as usize];
+    for p in sheet.chunks_exact_mut(4) {
+        p[3] = 255;
+    }
+    for (i, tile) in tiles.iter().enumerate() {
+        let (cx, cy) = (i as i32 % cols, i as i32 / cols);
+        let (ox, oy) = (cx * (tw + GAP), cy * (th + GAP));
+        for y in 0..th {
+            let dst = (((oy + y) * sw + ox) * 4) as usize;
+            let src = ((y * tw) * 4) as usize;
+            sheet[dst..dst + (tw * 4) as usize].copy_from_slice(&tile[src..src + (tw * 4) as usize]);
+        }
+    }
+    let out = "larder_nest.png";
+    image::save_buffer(out, &sheet, sw as u32, sh as u32, image::ColorType::Rgba8).expect("write sheet");
+    println!("wrote {out} ({sw}x{sh}), crop={crop_x},{crop_y},{CROP_W},{CROP_H} zoom={ZOOM}, tiles left-to-right then down:");
+    for c in &captions {
+        println!("  {c}");
+    }
+}
+
+/// **The paired panel, and the only honest way to ask this by eye.** One
+/// world has taken every delivery a 52-ant colony makes over `frames`; the
+/// other has no colony at all. Everything else about them — seed, terrain,
+/// trees, frame, daylight — is identical. If the granary end of
+/// `store_in_body` is a thing that exists in the world, the two pictures
+/// differ at the nest; a viewer who cannot tell them apart is the finding.
+fn pair(frames: usize) {
+    use pixel_physics::render::Renderer;
+    use pixel_physics::sim::particle::ParticleSystem;
+    use std::collections::HashSet;
+
+    const ZOOM: i32 = 6;
+    const CROP_W: i32 = 96;
+    const CROP_H: i32 = 34;
+    const GAP: i32 = 8;
+    let crop_x = NEST_X0 - 2;
+
+    let mut panels: Vec<(Vec<u8>, String)> = Vec::new();
+    let mut crop_y = 0;
+    for (label, ants) in [("colony", true), ("no colony", false)] {
+        let mut world = build_scene(SEED_BASE, ants, Plant::None);
+        let dist = nest_distance(&world);
+        let bias = world
+            .species
+            .id_of("ant")
+            .and_then(|id| world.species.get(id).creature.as_ref().map(|d| d.traits[TRAIT_GUT_BIAS]))
+            .expect("ant species");
+        if crop_y == 0 {
+            crop_y = (NEST_X0..NEST_X0 + 40).map(|x| surface(&world, x)).min().unwrap_or(60) - CROP_H + 10;
+        }
+        for _ in 0..frames {
+            parallel::step(&mut world);
+            world.step_active_sites();
+            world.step_fields();
+            world.step_pheromones();
+        }
+        let mut renderer = Renderer::new();
+        renderer.pinned_light = Some(pixel_physics::sky::frame_for_daylight(1.0));
+        let particles = ParticleSystem::new();
+        let mut frame = vec![0u8; (W * H * 4) as usize];
+        renderer.draw(&world, &particles, &HashSet::new(), &mut frame, (W as u32, H as u32), true);
+        let mut tile = vec![0u8; (CROP_W * ZOOM * CROP_H * ZOOM * 4) as usize];
+        for ty in 0..CROP_H * ZOOM {
+            for tx in 0..CROP_W * ZOOM {
+                let (sx, sy) = ((crop_x + tx / ZOOM).clamp(0, W - 1), (crop_y + ty / ZOOM).clamp(0, H - 1));
+                let src = ((sy * W + sx) * 4) as usize;
+                let dst = ((ty * CROP_W * ZOOM + tx) * 4) as usize;
+                tile[dst..dst + 4].copy_from_slice(&frame[src..src + 4]);
+            }
+        }
+        let s = sample(&world, &dist, bias, frames);
+        panels.push((
+            tile,
+            format!("{label}: deliveries {}, larder <=2 of nest {} cells ({:.0} digestible), <=8 {} cells, free food world-wide {}",
+                s.deliveries, s.free_cells[0], s.free_yield[0], s.free_cells[2], s.world_free_cells),
+        ));
+    }
+
+    let (tw, th) = (CROP_W * ZOOM, CROP_H * ZOOM);
+    let (sw, sh) = (tw, 2 * th + GAP);
+    let mut sheet = vec![24u8; (sw * sh * 4) as usize];
+    for p in sheet.chunks_exact_mut(4) {
+        p[3] = 255;
+    }
+    for (i, (tile, _)) in panels.iter().enumerate() {
+        let oy = i as i32 * (th + GAP);
+        for y in 0..th {
+            let dst = (((oy + y) * sw) * 4) as usize;
+            let src = ((y * tw) * 4) as usize;
+            sheet[dst..dst + (tw * 4) as usize].copy_from_slice(&tile[src..src + (tw * 4) as usize]);
+        }
+    }
+    for (i, (tile, _)) in panels.iter().enumerate() {
+        image::save_buffer(format!("larder_pair_{i}.png"), tile, tw as u32, th as u32, image::ColorType::Rgba8).expect("write panel");
+    }
+    image::save_buffer("larder_pair.png", &sheet, sw as u32, sh as u32, image::ColorType::Rgba8).expect("write pair");
+    println!("wrote larder_pair.png ({sw}x{sh}) and larder_pair_0/1.png ({tw}x{th} each), crop={crop_x},{crop_y},{CROP_W},{CROP_H} zoom={ZOOM}, top then bottom:");
+    for (_, c) in &panels {
+        println!("  {c}");
     }
 }
 
