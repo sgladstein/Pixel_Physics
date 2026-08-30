@@ -3492,6 +3492,11 @@ const EMBEDDED: &[&str] = &[
     include_str!("../../assets/species/ant_wide.ron"),
     // The palette arm: `ant_block`'s body in `chitin_pale`'s colours.
     include_str!("../../assets/species/chitin_pale.ron"),
+    // **Appended at the end so no existing species' position moves.**
+    // `ant_block` with `shade_rule: Countershade` and nothing else
+    // changed -- the blind A/B on the shade rule needs arms that differ
+    // in one thing, and its material is a byte-copy of `ant_block`'s.
+    include_str!("../../assets/species/ant_block_shaded.ron"),
 ];
 
 /// Where the loader looks for species files, relative to the working

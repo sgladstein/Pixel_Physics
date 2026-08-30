@@ -11,7 +11,7 @@ Read `CLAUDE.md` first; it holds the method these bugs keep re-teaching.
 
 <!-- BEGIN GENERATED INDEX -- regenerate with scripts/bugindex.py -->
 
-**41 open, 86 bugs** (plus 21 landing-note items,
+**42 open, 87 bugs** (plus 20 landing-note items,
 marked `note`). Generated from the headings by
 `scripts/bugindex.py` -- a bug's verdict is written into its own heading, so
 this is derived, never maintained by hand. Entries are never moved when they
@@ -106,33 +106,33 @@ point.
 | -- | historic | 6032 | R2 (original). An ant put down on open water stands on the surface for ever, and found_co... |
 | S | closed | 6094 | Every destructive verb but the brush leaves the structural scheduler pinned at its cap fo... |
 | S2 | **OPEN** | 7091 | The brush's anchor rule destroys structures the other two rules leave standing |
-| R3 | **OPEN** | 7255 | No creature body above two cells leaves a living colony |
-| S4 | **OPEN** | 7343 | Rock still crushes itself on an idle world |
-| S5 | closed | 7415 | A fully-cracked chunk stays welded because the load model never finishes asking |
-| T | **OPEN** | 7536 | A starving plant strands a cell: growth races dieback |
-| S3 | closed | 7580 | A world nobody has touched pulls its own ground apart |
-| -- | closed | 7629 | The plant model bounds height and does not bound width FIXED |
-| 1 | note | 7720 | MAX_ROOT_FRACTION feeds the staleness counter, permanently retiring roots |
-| 2 | note | 7734 | Grow into soil destroys the soil's stored water |
-| 3 | note | 7746 | Capillary exchange can push a neighbour above its own capacity |
-| U | note | 7759 | A crown hangs on by its leaves, so a snapped limb never falls |
-| W1a | note | 7878 | creeper.ron's root tips still run the superseded in-tick branch path |
-| W1b | note | 7899 | A material-counting guard cannot see a species |
-| W1c | note | 7912 | generated_terrain_is_already_at_rest went red on main |
-| T1a | note | 8046 | load::grain_is_footing reads *attachment* where it means *supported* |
-| T1b | note | 8124 | The structural opt-out did not hold against bearing |
-| T1d | note | 8135 | acceptance.sh's lavadrop sits close enough to its frame budget to flake, and is over it o... |
-| T1e | note | 8169 | "The pieces hit the ground and turn to dust" was not settle, and the measurement says so |
-| T1f | note | 8223 | The felled pile is 74% powder because the tree is 56% leaves. The piece ladder cannot fix... |
-| T1g | note | 8277 | A "refixed" claim went out over a settled state that had barely moved |
-| T1c | note | 8306 | §1c's settle loss is now a counter |
-| -- | note | 8323 | What landed |
-| -- | note | 8346 | Do not re-derive these |
-| -- | note | 8374 | Measurements that contradict something written |
-| -- | note | 8394 | Open |
-| -- | note | 8429 | Unmerged at close, and one of it is a fix main needs anyway |
-| 1n | note | 8447 | grass sets zero seeds on main |
-| R4 | note | 8505 | BrainOutput::Turn is nearly inert for a surface walker on level ground |
+| R3 | **OPEN** | 7255 | A creature chain above two cells overwrites its own head |
+| R4 | **OPEN** | 7368 | BrainOutput::Turn is nearly inert for a surface walker on level ground |
+| S4 | **OPEN** | 7459 | Rock still crushes itself on an idle world |
+| S5 | closed | 7531 | A fully-cracked chunk stays welded because the load model never finishes asking |
+| T | **OPEN** | 7652 | A starving plant strands a cell: growth races dieback |
+| S3 | closed | 7696 | A world nobody has touched pulls its own ground apart |
+| -- | closed | 7745 | The plant model bounds height and does not bound width FIXED |
+| 1 | note | 7836 | MAX_ROOT_FRACTION feeds the staleness counter, permanently retiring roots |
+| 2 | note | 7850 | Grow into soil destroys the soil's stored water |
+| 3 | note | 7862 | Capillary exchange can push a neighbour above its own capacity |
+| U | note | 7875 | A crown hangs on by its leaves, so a snapped limb never falls |
+| W1a | note | 7994 | creeper.ron's root tips still run the superseded in-tick branch path |
+| W1b | note | 8015 | A material-counting guard cannot see a species |
+| W1c | note | 8028 | generated_terrain_is_already_at_rest went red on main |
+| T1a | note | 8162 | load::grain_is_footing reads *attachment* where it means *supported* |
+| T1b | note | 8240 | The structural opt-out did not hold against bearing |
+| T1d | note | 8251 | acceptance.sh's lavadrop sits close enough to its frame budget to flake, and is over it o... |
+| T1e | note | 8285 | "The pieces hit the ground and turn to dust" was not settle, and the measurement says so |
+| T1f | note | 8339 | The felled pile is 74% powder because the tree is 56% leaves. The piece ladder cannot fix... |
+| T1g | note | 8393 | A "refixed" claim went out over a settled state that had barely moved |
+| T1c | note | 8422 | §1c's settle loss is now a counter |
+| -- | note | 8439 | What landed |
+| -- | note | 8462 | Do not re-derive these |
+| -- | note | 8490 | Measurements that contradict something written |
+| -- | note | 8510 | Open |
+| -- | note | 8545 | Unmerged at close, and one of it is a fix main needs anyway |
+| 1n | note | 8563 | grass sets zero seeds on main |
 
 <!-- END GENERATED INDEX -->
 
@@ -7252,69 +7252,185 @@ takes this should decide the rule on its own merits and against the brush,
 with the `paint_capsule` case rendered, not deduce it from a frame timing.
 
 
-### R3. **No creature body above two cells leaves a living colony** — OPEN, creatures
+### R3. **A creature chain above two cells overwrites its own head** — OPEN, creatures
 
-Filed 2026-08-30 by lane D, while pricing the body per cell. **It is not the
-pricing** — that control is the first thing below, because the obvious
-reading of these numbers is that the new bill starves them and it is wrong.
+Filed 2026-08-30 by lane D as *"no creature body above two cells leaves a
+living colony"*. **Diagnosed 2026-08-30 by lane K, and that headline is
+wrong: the colony is alive.** Full account in
+`Reports/creature-chain-head-loss-2026-08-30.md`. Retitled to the defect
+that is actually here, and left OPEN because that defect is unfixed.
 
-`creature_probe terrain=world seed=0xA17 frames=12000`, one seed:
+**The answer, in one line.** A `Chain(n >= 3)` loses its `CellType::Head`
+marking, so every instrument that finds an ant by looking for a head reports
+an empty world over a living, feeding, delivering population — **the extent
+lever is recoverable**, and neither candidate effect this entry named is the
+cause.
 
-| body | peak pop | moves | deliveries | deaths | **live @12k** |
+**Nothing was ever unaccounted for.** The entry's *"peak 34 against deaths 12
+leaves 22 animals unaccounted for"* differences a head-cell count against a
+death count. `World::live_creature_count` — the organism registry — closes
+the books exactly, in every arm:
+
+| arm, 12,000 frames | bodies built | deaths | registry | head cells |
+|---|---|---|---|---|
+| world `Chain(2)` | 45 | 18 | **27** | 27 |
+| world `Chain(3)` | 34 | 18 | **16** | **0** |
+| world `Chain(6)` | 29 | 18 | **11** | **0** |
+| slab `Chain(2)` | 55 | 31 | **24** | 24 |
+| slab `Chain(3)` | 28 | 16 | **12** | **0** |
+
+`built - deaths = registry` on every row. `deaths` was telling the truth; the
+number it was differenced against was not. The `Chain(3)` survivors stand as
+47 ant cells all owned by a live organism, and the run logs `moves 11440 ...
+eats 62 ... deliveries 619`.
+
+**The mechanism.** `body_after_step` builds a chain's next body as
+`[head, chain[0], ..., chain[n-2]]`. A head that steps into a cell its own
+body occupies therefore puts **one position in that list twice**, and
+`relocate_chain` writes the carried cells in order — so the trailing Segment
+lands on top of the Head and last write wins. At `Chain(2)` the list is
+`[head, chain[0]]` and those are distinct however the animal turns, which is
+exactly the length threshold. `reconcile_chain` then sees an unchanged
+`chain.first()` over still-owned cells and books **no death, no injury and no
+`meat_lost`** — the silent disappearance this entry described.
+
+Verified, `terrain=slab seed=0xA17 body=3`: chains carrying a repeated
+position are present throughout while non-Head-at-`chain[0]` climbs 2 -> 10
+-> 26 -> **17 of 17** at frames 20 / 100 / 500 / 3,000. The `body=2` control
+over the same 3,000 frames: **0 duplicates, 0 headless, `Head 55 Segment
+55`.** The damage is permanent — a head once overwritten is never re-marked —
+which is why it is total by 12,000 frames and invisible at the 600 that
+`creature-appearance-design.md`'s decoys were measured over.
+
+**Cannibalism is ruled out, with both controls.** This entry's prescribed
+experiment was run through new `creature_probe` knobs, `terrain=world
+seed=0xA17 frames=12000 body=3`:
+
+| arm | `meat_lost` | registry | |
+|---|---|---|---|
+| shipped | 0 | 16 | the arm under test |
+| `kinfood=off` | 0 | 16 | **byte-identical to shipped** |
+| `eatskin=on` | **40,320** | — | positive control: the instrument sees it |
+| `eatskin=on kinfood=off` | 0 | 16 | knob validity: back to shipped |
+
+Rows 3 and 4 are why the null is worth something: forced cannibalism is
+enormous and unmistakable, and `kinfood=off` suppresses it. **The
+`food in reach: ant 480` evidence never applied the kin gate** — `report`
+calls `food_value`, while `adjacent_food` refuses living kin through
+`is_living_kin`, and `ant.ron` does not set `eats_kin`. Three of its four
+entries are the animal's **own tail**, since a `Chain(3)` head is
+permanently adjacent to its own segments; that is also why the count grew
+with chain length.
+
+**Placement is real, and on the slab it is the harness.** Both
+`creature_probe` scenes plant 55 founders at a **two-cell pitch**,
+calibrated to the shipped two-cell ant, so a three-cell body overlaps its
+neighbour. With the new `pitch=` knob, slab `body=3`: **28** bodies built at
+`pitch=2` against **46** at `pitch=4`. On the generated world it is *not* the
+pitch (34 -> 35, and `body=2` gets *worse* at 40) — that half is a real
+interaction between a longer body and real terrain and is unexplained.
+Neither changes the reported extinction, which is the head counter.
+
+**The seed sweep, which this entry asked for and did not have.** 18 seeds x
+3 arms x 12,000 frames, `terrain=world`, every arm paired on the same seeds:
+
+| arm | built (med) | registry (med) | reg p10 | reg max | survival (med) | seeds at reg 0 |
+|---|---|---|---|---|---|---|
+| `Chain(2)` | 33.0 | 14.0 | 2 | 38 | **0.48** | 2 / 18 |
+| `Chain(3)` | 20.0 | 9.5 | 0 | 24 | **0.48** | 4 / 18 |
+| `Chain(3)` `pitch=4` | 21.5 | 9.0 | 3 | 22 | 0.44 | **0 / 18** |
+
+Three things it settles, and one it does not.
+
+- **`built - deaths = registry` held on all 54 runs, zero exceptions.** The
+  identity is not an artefact of one seed; the books close everywhere.
+- **The head loss is universal, not seed-dependent.** `head == registry` on
+  **every** `Chain(2)` seed and `head == 0` on **every** `Chain(3)` seed, in
+  both pitch arms. There is no seed on which a three-cell ant keeps a head.
+- **A three-cell colony survives at the same rate as a two-cell one** — the
+  median survival fraction is 0.48 in both arms. This entry's headline claim
+  does not survive the sweep once the population is counted by registry
+  rather than by heads.
+- **What it does not settle: the tail.** `Chain(3)` reaches registry 0 on
+  **4** seeds against `Chain(2)`'s 2, so a longer body is genuinely less
+  robust even though its median is unchanged — and the spread is enormous in
+  both arms (registry 0 to 38). That is a real remaining cost of extent,
+  most of it downstream of placing fewer founders (median 33 -> 20), and no
+  bar should be set on it from these numbers alone. Note the `pitch=4` arm
+  reaches zero on **no** seed, which is the one thing wider spacing clearly
+  buys.
+
+**Provenance.** One horizon (12,000 frames) and one preset. Counters only —
+nothing here is gated on wall clock.
+
+---
+
+### R4. **`BrainOutput::Turn` is nearly inert for a surface walker on level ground** — OPEN, creatures
+
+Filed 2026-08-30 by lane J, while wiring E15's sight sense to `Turn` and
+finding the wiring could not steer on a flat floor. **This is a movement
+finding, not a perception one**, which is exactly the split E13 and E15 were
+written around; the sense itself measures fine (`creature-sight-sense-2026-08-30.md`).
+
+**The mechanism, from `step_chain`'s own candidate scoring.** A creature's
+three candidates are `[ahead-left, ahead, ahead-right]` and `Turn` biases the
+two outer ones with opposite signs. For an animal standing *on* a flat floor:
+
+* the **downward** diagonal lands inside the floor and fails `passable`, so
+  its score is set to 0 outright and whatever `Turn` asked for is discarded;
+* the **upward** diagonal is over thin air and fails `body_has_foothold`, so
+  it loses the `footing` bonus and scores at most `turn` against a
+  straight-ahead candidate carrying `persist + footing`.
+
+Both outer candidates therefore lose, at every `Turn` value, and the heading
+changes only through `tumble` — a *random* re-roll. **A walking creature on
+level ground cannot be steered; it can only be scattered.**
+
+**The reproduction, and it is a clean one.** A hand-built stone slab, eight
+ants and one beetle 37 cells apart, run 1,600 frames, eyed against blind
+(`filmstrip scene=hunt` before its ripple was added — `git show` the scene's
+first form, or delete the `surface` ripple):
+
+| arm | moves | blocked | falls | pickups | sightings |
 |---|---|---|---|---|---|
-| `Chain(2)` — ships today | 45 | 20,351 | 733 | 16 | **29** |
-| `Chain(3)` | 34 | 10,083 | 339 | 18 | **0** |
-| `Chain(4)` | 30 | 8,840 | 624 | 15 | **0** |
-| `Chain(6)` | 29 | 5,917 | 352 | 17 | **0** |
-| `Chain(9)` | 26 | 5,547 | 457 | 15 | **0** |
+| `sight_range: 0` | 898 | 28 | 167 | 4 | — |
+| `sight_range: 64` | 898 | 28 | 167 | 4 | **139 of 195 casts** |
 
-**Ruled out by measurement, not by argument:**
+**Byte-identical movement while the eye reported prey on 71% of its casts.**
+The input fires, the weight is in the genome (dumped: `io(PreyBearing, Turn)
+= -2.5`), and the choice does not move.
 
-- **The per-cell metabolic price is not the cause.** `creature_probe`'s
-  `idle=`/`move=` knobs exist to run a body against the bill it used to pay.
-  At the pre-2026-08-30 flat total, `Chain(3)` gives peak 34 / deaths 12 /
-  **live 0** and `Chain(6)` gives peak 29 / deaths 6 / **live 0**. Peak
-  population is *identical* within each body size across both bills, so the
-  arms are properly paired and both die.
-- **It is not the terrain.** On the hand-built flat slab — the easiest ground
-  a chain could be asked to stand on — `Chain(2)` gives peak 55 / live 24 and
-  `Chain(3)` gives peak 28 / **live 0**.
+**What rules out the obvious alternatives.** It is not the input: the same
+build on the *same* slab with the beetle's starting heading varied over six
+values diverges from blind at every one of them, because a heading that is
+not axis-aligned puts at least one turn candidate somewhere it can stand. It
+is not the weight's sign: `(PheroALateral, Turn, ..)` in `ant.ron` carries
+the same sign for the same reason and the guard
+`the_bearing_says_which_way_to_turn` pins the convention. And it is not the
+sense's reach or occlusion, both of which have their own guards.
 
-**Two effects, and they may be independent:**
+**Why it went unseen.** Every existing creature measurement runs on
+*generated* terrain, which has slopes, and a slope is what gives a turn
+somewhere to put its foot. Over 8 generated `wetland` seeds the identical
+wiring moves mean sighted range 15.2 → 12.5 cells and prey caught 302 → 323.
+So the ability to steer is a property of the ground, and no harness had ever
+asked the question on flat ground.
 
-1. **Placement roughly halves at three cells**, 45 → 34 on the world and
-   55 → 28 on a slab. A `Chain(n)` is laid down as *n* cells in a straight
-   horizontal line, every one of which must be empty at the hatch, so the
-   site predicate gets much harder as *n* grows. This one is understood; it
-   is the *size* of it that is surprising, since the appearance study placed
-   22 of 40 at six cells against 31 of 40 at two.
-2. **The rest are then consumed, and the death counter does not see it.** At
-   `Chain(3)` on the old bill, peak 34 against deaths 12 leaves **22 animals
-   unaccounted for**. The leading hypothesis is that ants eat each other: a
-   frame-0 dump reads `food in reach: ant 480 ant 480 ant 480 ant 480`, ant
-   flesh at 480 is the richest food in the world, and a longer chain has
-   proportionally more contact surface with its neighbours. **Hypothesis, not
-   result** — it has a mechanism and an observation and no isolating control.
+**What it costs.** Any authored or evolved `Turn` weight is worth less than
+it reads on level terrain, and worth nothing on a slab — including the ant's
+own trail-following, which is routed through hidden units into `Turn`. A
+genome selected on generated terrain therefore carries a lever that partly
+stops working wherever the world is flat, and `scene=flat` is the structural
+test bed.
 
-**The cheap next step**, which is why this is filed rather than chased: make
-ant flesh inedible to ants and re-run `Chain(3)`. If the colony lives, it is
-cannibalism and the question becomes whether that is a bug or an ecology; if
-it dies, the placement half is the whole story and the fix is the site
-predicate.
+**Not fixed here, and the fix is not obvious.** Letting an unfooted diagonal
+win would put creatures back to walking off ledges — that discount is
+`falls 16,451 against moves 22,138` in its own commit message. Letting the
+*heading* rotate without a step is a movement-model change and wants its own
+design pass. What is cheap and worth doing first is a counter: how often is
+a `Turn` request discarded because the side it asked for scored zero.
 
-**Why it matters more than a probe species usually would.**
-`creature-evolution-plan.md` E10 authorises chain *length* as the cheap route
-to a creature the player can actually see, on the strength of
-`creature-appearance-design.md`'s decoy measurements. Those measurements are
-sound and were taken over 600-frame renders. This says the same bodies do not
-hold a colony over 12,000 frames, and did not before anything was repriced —
-so the extent lever is blocked on this, and the blind A/B that report asks
-for should not be posted until it is understood.
 
-**Provenance and its limit.** One seed, one horizon. The paired structure is
-what carries the claim — every arm is matched against itself at the other
-bill — but no seed sweep was run, and no bar should be set on these numbers
-until one is.
 
 ## Closed this session
 
@@ -8499,70 +8615,3 @@ silently stopped reproducing with no gate catching it.
 **101** after printing the soil census; a later identical run exited 0, and
 the panic has not reproduced since. Not chased. If `plant_probe` on grass
 panics again, that is this entry's second half.
-
----
-
-### R4. **`BrainOutput::Turn` is nearly inert for a surface walker on level ground** — OPEN, creatures
-
-Filed 2026-08-30 by lane J, while wiring E15's sight sense to `Turn` and
-finding the wiring could not steer on a flat floor. **This is a movement
-finding, not a perception one**, which is exactly the split E13 and E15 were
-written around; the sense itself measures fine (`creature-sight-sense-2026-08-30.md`).
-
-**The mechanism, from `step_chain`'s own candidate scoring.** A creature's
-three candidates are `[ahead-left, ahead, ahead-right]` and `Turn` biases the
-two outer ones with opposite signs. For an animal standing *on* a flat floor:
-
-* the **downward** diagonal lands inside the floor and fails `passable`, so
-  its score is set to 0 outright and whatever `Turn` asked for is discarded;
-* the **upward** diagonal is over thin air and fails `body_has_foothold`, so
-  it loses the `footing` bonus and scores at most `turn` against a
-  straight-ahead candidate carrying `persist + footing`.
-
-Both outer candidates therefore lose, at every `Turn` value, and the heading
-changes only through `tumble` — a *random* re-roll. **A walking creature on
-level ground cannot be steered; it can only be scattered.**
-
-**The reproduction, and it is a clean one.** A hand-built stone slab, eight
-ants and one beetle 37 cells apart, run 1,600 frames, eyed against blind
-(`filmstrip scene=hunt` before its ripple was added — `git show` the scene's
-first form, or delete the `surface` ripple):
-
-| arm | moves | blocked | falls | pickups | sightings |
-|---|---|---|---|---|---|
-| `sight_range: 0` | 898 | 28 | 167 | 4 | — |
-| `sight_range: 64` | 898 | 28 | 167 | 4 | **139 of 195 casts** |
-
-**Byte-identical movement while the eye reported prey on 71% of its casts.**
-The input fires, the weight is in the genome (dumped: `io(PreyBearing, Turn)
-= -2.5`), and the choice does not move.
-
-**What rules out the obvious alternatives.** It is not the input: the same
-build on the *same* slab with the beetle's starting heading varied over six
-values diverges from blind at every one of them, because a heading that is
-not axis-aligned puts at least one turn candidate somewhere it can stand. It
-is not the weight's sign: `(PheroALateral, Turn, ..)` in `ant.ron` carries
-the same sign for the same reason and the guard
-`the_bearing_says_which_way_to_turn` pins the convention. And it is not the
-sense's reach or occlusion, both of which have their own guards.
-
-**Why it went unseen.** Every existing creature measurement runs on
-*generated* terrain, which has slopes, and a slope is what gives a turn
-somewhere to put its foot. Over 8 generated `wetland` seeds the identical
-wiring moves mean sighted range 15.2 → 12.5 cells and prey caught 302 → 323.
-So the ability to steer is a property of the ground, and no harness had ever
-asked the question on flat ground.
-
-**What it costs.** Any authored or evolved `Turn` weight is worth less than
-it reads on level terrain, and worth nothing on a slab — including the ant's
-own trail-following, which is routed through hidden units into `Turn`. A
-genome selected on generated terrain therefore carries a lever that partly
-stops working wherever the world is flat, and `scene=flat` is the structural
-test bed.
-
-**Not fixed here, and the fix is not obvious.** Letting an unfooted diagonal
-win would put creatures back to walking off ledges — that discount is
-`falls 16,451 against moves 22,138` in its own commit message. Letting the
-*heading* rotate without a step is a movement-model change and wants its own
-design pass. What is cheap and worth doing first is a counter: how often is
-a `Turn` request discarded because the side it asked for scored zero.

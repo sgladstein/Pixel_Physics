@@ -770,6 +770,42 @@ drift that two of these documents still reflect.**
   the world — so the collapse is upstream of both the pricing and the
   palette, and the blind A/B `creature-appearance-design.md` §6 asks for is
   held until it is understood. Prices the arms that report measured.
+- [creature-chain-head-loss-2026-08-30.md](creature-chain-head-loss-2026-08-30.md)
+  — **diagnosis, 2026-08-30. Closes `open-bugs-handoff.md` §R3, and the
+  answer is neither of the two effects that entry named.** The colony above
+  two cells never dies: `built - deaths = registry` exactly in every arm, so
+  nothing was ever unaccounted for. A `Chain(n >= 3)` loses its
+  `CellType::Head` marking — `body_after_step` can put one position in the
+  next body twice when a head steps into its own tail, and `relocate_chain`
+  writes a trailing Segment over the Head — so every instrument that finds
+  an ant by looking for a head reports an empty world over a living,
+  feeding, delivering population. **Cannibalism is ruled out with both
+  controls**: `kinfood=off` is byte-identical to shipped, while
+  `eatskin=on` moves `meat_lost` 0 -> 40,320, so the null is a real one and
+  not a blind instrument. The `food in reach: ant 480` dump §R3 rests on
+  never applied the kin gate, and three of its four entries are the
+  animal's own tail. Placement is real but is the harness on the slab (a
+  two-cell founder pitch: 28 bodies at `pitch=2`, **46** at `pitch=4`).
+  **The extent lever is recoverable.** No fix attempted — `creature.rs` was
+  another lane's.
+- [creature-stamp-routes-2026-08-30.md](creature-stamp-routes-2026-08-30.md) —
+  **priced, nothing built; a decision document.** The three routes past the
+  960-point body stamp, each with a number against it, over 12 pre-registered
+  seeds. **What decides a birth is one number — `ceiling - bar`** — and it
+  governs regardless of mechanism: every negative margin gave *exactly zero*
+  births and every positive one bred, with two arms sharing no mechanism but
+  the same +99 margin breeding at the same rate. Three corrections to the
+  standing account: economics §3 prices every route against a satiety line of
+  **450** that E14 has since cut to **100**, which reverses two verdicts;
+  **neither stamp route removes the stamp, both defer it** (480 against a
+  220 bank), so **route 3 is the precondition for routes 1 and 2 rather than
+  an alternative** — and **creatures cannot grow**, so both stamp routes need
+  a verb the engine does not have. The recommendation is **none of the
+  three first**: `fruit` (960) and `flower` (1,440) exist and no world
+  contains one, because worldgen sows `creeper`/`shrub`/`conifer`/`tree` and
+  the only fruiting species, `herb` and `scrambler`, **are never planted** —
+  which answers the experiment economics §7 calls its cheapest. Route 2 is
+  reported as **unpriced**, with the reason.
 - [creature-direction.md](creature-direction.md) — **direction agreed
   (2026-08-17).** Cell-chain ants, the caged brain, the heritable genome;
   decision record plus implementation plan.
@@ -852,9 +888,13 @@ drift that two of these documents still reflect.**
   — **measured pre-flight, 2026-08-30; instrument `examples/vision_probe.rs`,
   no behaviour changed.** Sizes **E15**'s sight sense before anyone builds it,
   by tracing the geometry that already exists: **build it at radius 64,
-  all-round, seeing over the floor litter**, and it costs **0.004 ms of a
-  frame** — 0.14% of `ascii`'s 2.98 ms mean, below what a wall clock resolves,
-  and under 10% of a frame only past ~358 predators. The radius argument is
+  all-round, seeing over the floor litter**, and it costs **~0.005 ms of a
+  frame** — 0.15–0.22% of `ascii`'s 2.94 ms mean, below what a wall clock
+  resolves, and under 10% of a frame only past a few hundred predators. Every
+  geometry number in it was measured on **four different trees** as `main`
+  landed underneath — worldgen, tree-breaking, the creature economy. The first
+  three were byte-identical; the fourth moved only in the third decimal and
+  **every median and p10 the recommendation rests on held**. The radius argument is
   the **p10 seed** rather than the median: the stranded beetle sees prey
   0.108–0.260 of the time at r32 and 0.240–0.389 at r64, over three presets
   and 18 seeds each. Two findings the design has to carry: what blocks a
