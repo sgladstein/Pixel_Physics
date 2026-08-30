@@ -1,12 +1,16 @@
 # Sizing a sight sense before it is built — E15
 
 **Status: measured pre-flight, 2026-08-30, on `e7b72e7` + `examples/vision_probe.rs`,
-and **re-taken in full after merging `main`** — the worldgen revamp landed
-underneath this work (716 lines of `passes.rs`, five new rock materials), so
-every number here was measured twice, on two different trees. **Every order
-statistic in §3 and §4 came back identical**; the only change anywhere is
-that the base rock is now called `basalt` rather than `stone` in the blocker
-census, and the pair counts move by a handful out of ~20,000.**
+and re-taken in full twice as `main` landed underneath it — first the
+worldgen revamp (716 lines of `passes.rs`, five new rock materials), then
+tree-breaking (355 lines of `plant.rs`, which changes what lies on the floor,
+and floor debris is exactly what blocks a sight line). So every geometry
+number here was measured on **three different trees**. **Every order statistic
+in §3 and §4 came back byte-identical on all three**, as did the deterministic
+half of §5. What moved at all: the base rock is now called `basalt` rather
+than `stone` in the blocker census (same percentages), one blocking figure
+went 8.6% → 8.5%, pair counts moved by a handful out of ~20,000, and the frame
+timing drifted, which §5 handles.**
 Answers the question the owner's E15 authorisation left open. Nothing here
 changes behaviour: the instrument is read-only geometry over `World::get`,
 and no vision is implemented on this branch.
@@ -31,9 +35,9 @@ four decisions:
 
 **And it is free at this scale.** A radius-64 fan of 16 rays, cast at the
 beetle's own `tick_interval`, reads **485 cells per beetle per cast** and
-costs **0.004 ms of a frame** — **0.14%** of the 2.98 ms mean `ascii`
+costs **~0.005 ms of a frame** — **0.16%** of the 2.82 ms mean `ascii`
 reports, and below what a wall clock can resolve. It stays under 1% of a
-frame to about **36** predators and under 10% to about **358**, which is the
+frame to about **30** predators and under 10% to about **310**, which is the
 number to carry into a streamed world.
 
 **What this does not say.** Whether a beetle that can see an ant will catch
@@ -328,48 +332,54 @@ ms and is almost entirely this harness's own whole-world scan; a reader
 taking it for the sense's cost would be off by a factor of thirty.
 
 **The wall clock cannot resolve the sense at all, and this is now measured
-three times rather than argued.** In this run every `vs locate` lands inside
-the control spread (−0.035 to +0.029 against 0.086). Across three runs of
-this mode — two before the `main` merge, one after — r64 has read **−0.012,
-+0.059 and +0.029 ms** against control spreads of 0.046 to 0.086. A quantity
-whose sign flips between runs and never leaves its own noise bar is noise.
+four times rather than argued.** In this run every `vs locate` lands inside
+the control spread (−0.035 to +0.029 against 0.086). Across four runs of this
+mode, spanning three trees, r64 has read **−0.012, +0.059, +0.029 and
+−0.015 ms** against control spreads of 0.046 to 0.090 — **the sign flips
+three times.** A quantity that never leaves its own noise bar and cannot hold
+a sign is noise.
 
 **The deterministic route says the same thing and transfers.** The
-`cells read` column is **bit-identical across the merge** — 909,763 at r64,
-5.0 beetles located per cast, on two different trees — which is the staleness
-check the wall clock cannot provide. And `locate` reads every cell of the
-world once per cast and does nothing else, so it prices one `World::get`
-directly: 0.141 ms/frame for 10,240 reads/frame is **13.8 ns a read** on this
-box (the pre-merge run gave 15.6 ns, so call it 14–16). Then:
+`cells read` column is **bit-identical across all three trees** — 909,763 at
+r64, 5.0 beetles located per cast — which is the staleness check the wall
+clock cannot provide. And `locate` reads every cell of the world once per
+cast and does nothing else, so it prices one `World::get` directly:
+0.153 ms/frame for 10,240 reads/frame is **14.9 ns a read** on this box. That
+figure has been taken three times and read **15.6, 13.8 and 14.9 ns**, so it
+is good to about ±6% and the numbers below are quoted to match. Then:
 
 | radius | cells read per beetle per cast | ms/frame at 5 beetles | µs per beetle per frame |
 |---|---|---|---|
-| 8 | 81 | 0.0007 | 0.14 |
-| 16 | 142 | 0.0012 | 0.24 |
-| 32 | 260 | 0.0022 | 0.45 |
-| **64** | **485** | **0.0042** | **0.84** |
+| 8 | 81 | 0.0008 | 0.15 |
+| 16 | 142 | 0.0013 | 0.26 |
+| 32 | 260 | 0.0024 | 0.48 |
+| **64** | **485** | **0.0045** | **0.90** |
 
-So a radius-64 all-round sense costs **0.004 ms of a frame** at this
+So a radius-64 all-round sense costs **~0.005 ms of a frame** at this
 population — which is why the clock cannot see it, and why the noise-floor
 statement and the derived one agree rather than merely coexisting.
 
 **Against the whole frame.** `cargo run --release --example ascii` on this
-tree reports **mean 2.983 ms** over 12,000 frames with 154 live organisms
-(worst 27.593 ms). Per `CLAUDE.md`'s own test the worst is **not** pinned by
-an aggregate here — mean × frames is 35,796 ms against a 27.6 ms worst, so
+tree reports **mean 2.823 ms** over 12,000 frames with 166 live organisms
+(worst 28.993 ms). Per `CLAUDE.md`'s own test the worst is **not** pinned by
+an aggregate here — mean × frames is 33,876 ms against a 29.0 ms worst, so
 the worst is one frame among thousands of comparable ones and is noise
 wearing a number. The mean is the figure to quote, and this harness's blind
-arm at 2.93 ms agrees with it. **The sense is 0.14% of a mean frame.**
+arm at 2.96 ms agrees with it to 5%. **The sense is 0.16% of a mean frame.**
 
 **What it costs at scale, which is the number that matters** — the current
-512x320 world is a test environment, not the target. At 0.84 µs per beetle
-per frame:
+512x320 world is a test environment, not the target. At ~0.9 µs per beetle
+per frame, against a ~2.8 ms frame:
 
-| predators in the world | cost of the sense | share of a 2.98 ms frame |
+| predators in the world | cost of the sense | share of a frame |
 |---|---|---|
-| 5 (measured) | 0.004 ms | 0.14% |
-| 36 | 0.030 ms | 1% |
-| **358** | **0.30 ms** | **10%** |
+| 5 (measured) | 0.005 ms | 0.16% |
+| ~30 | 0.03 ms | 1% |
+| **~310** | **0.28 ms** | **10%** |
+
+Round numbers deliberately: the per-read cost is good to ±6% and the frame
+itself moved 2.98 → 2.82 ms between two trees, so a three-digit predator
+count would be false precision.
 
 **Radius buys itself cheaply, and that is not an assumption.** 8 → 64 is an
 eightfold radius for a **sixfold** read count (81 → 485), well short of the

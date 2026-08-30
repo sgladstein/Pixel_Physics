@@ -796,9 +796,11 @@ drift that two of these documents still reflect.**
   — **measured pre-flight, 2026-08-30; instrument `examples/vision_probe.rs`,
   no behaviour changed.** Sizes **E15**'s sight sense before anyone builds it,
   by tracing the geometry that already exists: **build it at radius 64,
-  all-round, seeing over the floor litter**, and it costs **0.004 ms of a
-  frame** — 0.14% of `ascii`'s 2.98 ms mean, below what a wall clock resolves,
-  and under 10% of a frame only past ~358 predators. The radius argument is
+  all-round, seeing over the floor litter**, and it costs **~0.005 ms of a
+  frame** — 0.16% of `ascii`'s 2.82 ms mean, below what a wall clock resolves,
+  and under 10% of a frame only past ~310 predators. Every geometry number in
+  it was measured on **three different trees** as `main` landed underneath,
+  and came back byte-identical on all three. The radius argument is
   the **p10 seed** rather than the median: the stranded beetle sees prey
   0.108–0.260 of the time at r32 and 0.240–0.389 at r64, over three presets
   and 18 seeds each. Two findings the design has to carry: what blocks a

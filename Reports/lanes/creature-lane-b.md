@@ -41,7 +41,7 @@ litter.**
 | shape | **all-round** | a ±60° cone costs a third of every sighting (r64 median 0.572 → 0.400) and saves nothing measurable |
 | occlusion | rock and soil, **never floor litter** | 28.1% of beetle-ant pairs blocked at head height, **8.5%** one cell up. The blockers are seed, litter, corpse, soil — clutter, not landscape |
 | foliage | **not a binary blocker** | `dense` costs half the sense (0.667 → 0.350) and no eye height buys it back |
-| cost | **free at this scale** | 485 cells read per beetle per cast; **0.004 ms/frame**, 0.14% of `ascii`'s 2.98 ms mean, below the wall clock's floor. Under 10% of a frame only past ~358 predators |
+| cost | **free at this scale** | 485 cells read per beetle per cast; **~0.005 ms/frame**, 0.16% of `ascii`'s 2.82 ms mean, below the wall clock's floor. Under 10% of a frame only past ~310 predators |
 
 ## Three things worth carrying past this lane
 
@@ -133,15 +133,18 @@ cargo build --release --examples                 # NOT --release alone
 cargo run --release --example ascii                                          # the whole-frame baseline
 ```
 
-**Everything here was measured twice, on two different trees.** The worldgen
-revamp (716 lines of `passes.rs`, five new rock materials) landed on `main`
-underneath this lane, so the whole study was re-taken after merging it in.
-**Every order statistic came back identical**, as did `mode=cost`'s
-`cells read` column bit for bit; the only changes anywhere are that the base
-rock is now called `basalt` rather than `stone` in the blocker census, one
-blocking percentage moving 8.6 → 8.5, and pair counts moving by a handful out
-of ~20,000. That is the staleness check, and it is a stronger one than a
-repeat on one tree.
+**Everything here was measured on three different trees**, because `main`
+landed underneath this lane twice and both landings could plausibly have
+moved it: the worldgen revamp (716 lines of `passes.rs`, five new rock
+materials), then tree-breaking (355 lines of `plant.rs` — which changes what
+lies on the floor, and floor debris is exactly what blocks a sight line).
+The whole study was re-taken after each. **Every order statistic came back
+byte-identical all three times**, as did `mode=cost`'s `cells read` column.
+The only changes anywhere: the base rock is now `basalt` rather than `stone`
+in the blocker census (same percentages), one blocking figure 8.6 → 8.5, pair
+counts by a handful out of ~20,000, and the frame timing drifting 2.98 → 2.82
+ms, which moved the derived cost figures slightly. That is a far stronger
+staleness check than a repeat on one tree.
 
 `mode=cost`'s wall clock does not and cannot reproduce — which is the point
 of the `cells read` column beside it.
