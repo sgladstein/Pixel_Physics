@@ -1,12 +1,10 @@
 # The World
 
-*Current as of: 2026-08-30. Updated when boulders started appearing in
-worlds at all — the paragraph below described them for weeks while every
-world had none, because an overhanging lip was being hung over the ground
-each one wanted. Previously updated when worldgen started sowing four
+*Current as of: 2026-08-30. Updated when the ground got real relief — mountains, and benches and scarps that stand where a hard bed resists — and when boulders started appearing in worlds at all: the paragraph below described them for weeks while every world had none, because an overhanging lip was being hung over the ground each one wanted. Previously updated when worldgen started sowing four
 woody species instead of one, again when grass joined them as a ground
-layer, again when the sky was doubled and the soil blanket deepened, and
-again when the world stopped being made of one rock.*
+layer, again when the sky was doubled and the soil blanket deepened, again
+when the world stopped being made of one rock, and again when the ground
+got mountains, benches and faults.*
 
 Every world is generated. There is no single fixed map: the world you get is
 built from a **seed** — a number — and a **preset**, which is a named style of
@@ -79,8 +77,21 @@ are, and what kind of places they turn out to be, is the seed's business.
 
 ## What a world is made of
 
-**The surface** always has real shape to it: the regional layout sets the big
-form, smaller hills sit on top of that, and finer roughness on top of those.
+**The surface** always has real shape to it, at four sizes. **Mountains**
+are the largest: high country three to six screens across, rising out of
+broad low basins, and you see one long before you reach it. The regional
+layout sets where the country changes, hills sit on top of that, and finer
+roughness on top of those. Most of a world is low ground; a range is
+somewhere you travel to.
+
+**Benches, scarps and mesas** sit between the mountains and the hills, and
+they are the size of a building rather than of a landscape — a flat step
+you can stand on with a face at its edge, a table of rock with its sides
+falling away, a rim you can walk along. They come from the rock rather than
+from the shape: where a strong bed is at the surface it holds and the ground
+stalls on it; where it has been cut through, the ground drops to the next one
+down. So a bench runs along a layer and ends where that layer does, and the
+step at the end of it is where the layer was breached.
 
 **Bluffs and benches** appear in patches: flat steps cut into a hillside with
 steeper faces between them. They are not scattered arbitrarily — they follow
@@ -101,10 +112,13 @@ naturally piles, and there is more of it under a taller face — a great
 escarpment sheds a real apron, a terrace step only a scatter. It is real
 loose material, so digging into it makes it run.
 
-**The land is weathered.** Every world has been through a stretch of
-simulated history before you arrive: soft rock has cut back where hard
-bands stand proud, crests are rounded, valley floors carry washed-in fill,
-and the shed rock of ages mantles the slopes as gravel over the soil. How
+**The land is weathered, and the weather is what shaped it.** Every world
+has been through a stretch of simulated history before you arrive. The
+country wears down everywhere, but not evenly — it wears at the rate its
+*rock* allows, so a strong bed is left standing while the soft ground beside
+it is carried off, and the difference between them is most of the relief you
+walk over. Crests are rounded, valley floors carry washed-in fill, and the
+shed rock of ages mantles the slopes as gravel over the soil. How
 weathered varies by landscape — canyon country is the most worked-over,
 deserts wear slowly. Where a hard cap shed heavily, a rounded **boulder**
 of pale resistant stone sits on the surface where it came to rest, seated
@@ -154,12 +168,31 @@ with stones in it, getting stonier until it is simply rock. That profile is
 only visible in a cross-section, which is the one thing this view has that a
 map does not.
 
-**Rock** carries visible layering — beds of slightly different tone, tilted
-and gently folded, running through the whole massif. The beds vary in
-thickness and there is no repeating pattern to them: a distinctly pale or dark
-layer can be followed from one cliff face to another across the world. Every
-cut you make, every tunnel and every blast crater exposes it, so the inside of
-a hill looks like rock rather than like fill.
+**Rock** carries visible layering — beds of different rock and tone running
+through the whole massif. They are shades of one another rather than different
+colours: a section reads as one kind of stone in several tones, the way a
+quarry face does, and the difference between beds is mostly light and dark.
+There is no repeating pattern to them, and a distinctly pale or dark layer can
+be followed from one cliff face to another across the world. Every cut you
+make, every tunnel and every blast crater exposes it, so the inside of a hill
+looks like rock rather than like fill.
+
+**The layering is quieter above the level of the surrounding ground.** Rock
+that stands *above* the country around it — a mesa, a tor, the upper part of a
+bluff — settles toward one weathered tone, and the bedding comes back in
+gradually as you look down into a cut, over roughly the height of three
+gnomes. It is a soft effect rather than a hard one: a bed still shows what
+rock it is made of wherever it is.
+
+**And the layers are not level.** They **dip**, climbing or falling across a
+view rather than running flat, and the dip itself rolls over as you travel, so
+a bed that was rising is falling a screen later. They also **step**: the
+ground is cut by faults, and at one the whole stack jumps — a few beds' worth,
+sometimes more — so the pale layer you were following carries on at a
+different height on the far side. Some of those breaks are sharp enough to be
+a line you could put a finger on; others are a flexure a few paces wide, where
+the beds bend into the step instead of snapping. A cut face is a structure to
+read, not a stack of stripes.
 
 **Buried pockets** of sand and gravel sit sealed inside the rock — long, thin
 lenses that lie *along* the rock's layering rather than cutting across it,
@@ -314,12 +347,15 @@ genuinely different places.
   bluffs in patches, and a fair chance of water.
 - **Terraced** — benched country, with steps over most of the relief rather
   than in occasional patches.
-- **Canyon** — deep relief and big vertical faces, thin soil, tall scree.
-- **Wetland** — low, gentle, deep-soiled ground.
+- **Canyon** — the highest and most broken: deep relief, big vertical faces,
+  thin soil, tall scree, and the tallest mountains of any preset.
+- **Wetland** — low, gentle, deep-soiled ground. It has high country too, but
+  half the height of anywhere else and much more of it under water.
 - **Arid** — desert: a sand sheet whose dune crests come big and small at
-  varying spacing, the way a real field does, low relief, the water
-  table far below the surface, and almost nothing growing. Occasionally a
-  less dry region sneaks in, which reads as an oasis.
+  varying spacing, the way a real field does, the water table far below the
+  surface, and almost nothing growing. Its hills are the lowest of any
+  preset, but its rock is bare, so its benches and scarps read hardest.
+  Occasionally a less dry region sneaks in, which reads as an oasis.
 - **Legacy** — the old hand-built practice terrain: a flat floor and three
   ledges. Not a landscape, but a known shape, useful for comparing against.
 

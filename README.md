@@ -46,15 +46,15 @@ whole, then run `python3 scripts/readmetoc.py`.
 | [M8 status — started, not complete](#m8-status--started-not-complete) | 2433 |
 | [M9 status — the gnome](#m9-status--the-gnome) | 2546 |
 | [M10 status — the worldgen half](#m10-status--the-worldgen-half) | 2931 |
-| [Weather status](#weather-status) | 3046 |
-| [The ant colony — status](#the-ant-colony--status) | 3063 |
-| [M19 status — started](#m19-status--started) | 3172 |
-| [Felling status — the verb works, and what it produces is pieces](#felling-status--the-verb-works-and-what-it-produces-is-pieces) | 3244 |
-| [Bending status — soft tissue lies over, and the wind is what pushes it](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) | 3481 |
-| [Performance](#performance) | 3558 |
-| [World speed — five independent time axes](#world-speed--five-independent-time-axes) | 3755 |
-| [Status](#status) | 3838 |
-| [License](#license) | 3949 |
+| [Weather status](#weather-status) | 3101 |
+| [The ant colony — status](#the-ant-colony--status) | 3118 |
+| [M19 status — started](#m19-status--started) | 3227 |
+| [Felling status — the verb works, and what it produces is pieces](#felling-status--the-verb-works-and-what-it-produces-is-pieces) | 3299 |
+| [Bending status — soft tissue lies over, and the wind is what pushes it](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) | 3536 |
+| [Performance](#performance) | 3613 |
+| [World speed — five independent time axes](#world-speed--five-independent-time-axes) | 3810 |
+| [Status](#status) | 3893 |
+| [License](#license) | 4004 |
 
 ### Milestones, in numeric order
 
@@ -75,7 +75,7 @@ order they were written.
 | 16 | [M16 status](#m16-status) | 1553 |
 | 17 | [M17 status](#m17-status) | 1739 |
 | 18 | [M18 status](#m18-status) | 1966 |
-| 19 | [M19 status — started](#m19-status--started) | 3172 |
+| 19 | [M19 status — started](#m19-status--started) | 3227 |
 
 ### By topic
 
@@ -88,14 +88,14 @@ them is named "plants". A section can appear twice; felling is honestly both
 plant work and structural work.
 
 **Known limitations for every topic are collected in one place**:
-[Status](#status), line 3838 — the *last* section in the
+[Status](#status), line 3893 — the *last* section in the
 file, not the first. Read it before concluding something is broken.
 
 | Topic | Sections, primary first |
 |---|---|
-| **plants, trees and moss** | [M16 status](#m16-status) 1553, [Plant lines merged](#plant-lines-merged-the-genome-and-the-ecology) 1181, [The economy re-derived](#the-economy-re-derived-standing-tissue-costs-something) 1303, [Plants that stop](#plants-that-stop-organs-determinacy-and-a-price-on-both) 1485, [The generation loop](#the-generation-loop-plants-die-seeds-expire-slots-come-back) 1251, [Stems draw a line](#stems-draw-a-line-the-growth-walk-renders-its-heading) 1403, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 3244, [Bending status](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) 3481 |
-| **creatures — worms and the ant colony** | [M18 status](#m18-status) 1966, [The ant colony](#the-ant-colony--status) 3063 |
-| **structural collapse, felling and rigid bodies** | [M17 status](#m17-status) 1739, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 3244, [Bending status](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) 3481, [M8 status](#m8-status--started-not-complete) 2433 |
+| **plants, trees and moss** | [M16 status](#m16-status) 1553, [Plant lines merged](#plant-lines-merged-the-genome-and-the-ecology) 1181, [The economy re-derived](#the-economy-re-derived-standing-tissue-costs-something) 1303, [Plants that stop](#plants-that-stop-organs-determinacy-and-a-price-on-both) 1485, [The generation loop](#the-generation-loop-plants-die-seeds-expire-slots-come-back) 1251, [Stems draw a line](#stems-draw-a-line-the-growth-walk-renders-its-heading) 1403, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 3299, [Bending status](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) 3536 |
+| **creatures — worms and the ant colony** | [M18 status](#m18-status) 1966, [The ant colony](#the-ant-colony--status) 3118 |
+| **structural collapse, felling and rigid bodies** | [M17 status](#m17-status) 1739, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 3299, [Bending status](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) 3536, [M8 status](#m8-status--started-not-complete) 2433 |
 | **fire, heat and phase change** | [M14 status](#m14-status) 768, [Materials](#materials) 222 |
 | **explosions, particles and debris** | [M15 status](#m15-status) 945, [M7 status](#m7-status) 916 |
 | **liquids and gases** | [Liquid physics](#liquid-physics-compressible-volume-not-discrete-occupied-cells) 742, [The coarse field grid](#the-coarse-field-grid) 453 |
@@ -103,9 +103,9 @@ file, not the first. Read it before concluding something is broken.
 | **the coarse field grid — pressure, heat, light** | [The coarse field grid](#the-coarse-field-grid) 453, [M12/M13 status](#m12m13-status) 715 |
 | **worldgen and world structure** | [M10 status](#m10-status--the-worldgen-half) 2931, [Architecture](#architecture) 296 |
 | **the gnome (player character)** | [M9 status](#m9-status--the-gnome) 2546, [Controls](#controls) 157 |
-| **weather, sky and the clock** | [Weather status](#weather-status) 3046, [M19 status](#m19-status--started) 3172, [World speed](#world-speed--five-independent-time-axes) 3755 |
+| **weather, sky and the clock** | [Weather status](#weather-status) 3101, [M19 status](#m19-status--started) 3227, [World speed](#world-speed--five-independent-time-axes) 3810 |
 | **rendering, UI and tunables** | [UI improvements](#ui-improvements--overnight-run-section-9) 2300, [Live tunables panel](#live-tunables-panel--overnight-run-section-10) 2345, [Rendering performance](#rendering-performance--overnight-run-section-11) 2413, [M6 deferral](#m6-deferral) 1076 |
-| **performance and the parallel sweep** | [Performance](#performance) 3558, [M5 status](#m5-status) 1086, [Architecture](#architecture) 296, [Rendering performance](#rendering-performance--overnight-run-section-11) 2413 |
+| **performance and the parallel sweep** | [Performance](#performance) 3613, [M5 status](#m5-status) 1086, [Architecture](#architecture) 296, [Rendering performance](#rendering-performance--overnight-run-section-11) 2413 |
 | **materials and the data schema** | [Materials](#materials) 222, [M12/M13 status](#m12m13-status) 715 |
 
 <!-- END GENERATED TOC -->
@@ -2973,6 +2973,61 @@ world at 2,048 columns) and comes up where it lands (95% of sown), guarded
 by `grass_is_sown_across_a_seed_sweep` and `sown_grass_also_comes_up`. `F6`/`F8` roll seeds, `F7` cycles presets, and the same seed and preset
 rebuild the same world within one build. `tests/worldgen.rs` guards it;
 [`wiki/the-world.md`](wiki/the-world.md) describes what a player sees.
+
+**As of 2026-08-30 the ground has a cause, and mountains.** Erosion could
+previously only *remove*, and only where the ground was already steep, so a
+flat world stayed flat — instrumented, no column ever peaked above its
+iteration-0 prominence, 0 of 2048, in either preset. `erosion.rs` now carries
+a **slope-free lowering term** coupled to the resistance of the rock *under*
+the surface: a strong bed holds while the soft ground beside it is carried
+off, so the stratigraphy the world already had becomes topography — benches,
+scarps, mesas. It is taken as a **contrast against a running mean over ±200
+columns** rather than against a fixed reference hardness, which is what stops
+it planing the terrain onto the bedding planes (the absolute form was built,
+improved every number in the census, and rendered as the flattest world this
+generator has made — `Reports/dead-ends.md`). `column.rs` gained a **massif**,
+country-scale ridged relief three to six screens between crests, because
+nothing in the pipeline had a wavelength longer than half a screen and a
+landform smaller than the view reads as a bump; and `strata_offset` gained a
+**long fold and faults**, so the bedding dips, rolls over and steps instead of
+running as level ribbons across the whole world.
+
+Measured paired in one process (`PIXEL_PHYSICS_RELIEF=0` restores the shipped
+world exactly), six seeds per preset at the shipped size: the skyline's
+movement across one player screen roughly **doubles at p90** (49–132 → 66–203
+rows of 320), local relief at the 15–30 column formation scale **doubles**
+(reach-30 p90 14–54 → 26–85), and the starved landform passes come back —
+`brows` 2.7–23x, `talus` 3.2–66x, and **`boulders` writes cells at all for the
+first time** on four of five presets, against a wiki paragraph that has given
+it *"an event, not a decoration"* since round 4. Generation costs +290 ms of
+its ~2.1 s; no per-frame code changed. `examples/wg_ceilings.rs mode=relief`
+is the instrument and `Reports/worldgen-relief-2026-08-30.md` holds the
+derivation, including the three things it could not do — bed *thickness* is
+still constant, there are no unconformities, and faults are vertical.
+
+**Two owner verdicts landed the same day and are answered in the same
+change.** Shown the rock vocabulary he approved the rocks and rejected the
+geometry — *"the perfect stripped bands are too uniform and look bad"*, and
+*"very clearly reads as stripes"* — which is what the fold and the faults
+above are for. Shown *those*, he replied twice, unprompted, that the problem
+had moved: *"the color changes between layers is too much… there should be
+more of a shared color palette"*, and *"the layers should only start deeper.
+Anything above the ground level should be more uniform no layers."* The first is done over
+two rounds, the second is measured and open. Five of the six rocks are pulled
+86% onto one shared hue and the brightness gap **between** rocks is halved
+(116 points to 57), while the spread **inside** each rock is untouched —
+that internal spread is what makes a bed legible, and `stone.ron`'s own history
+records that squeezing *it* made the banding vanish from the render entirely.
+Measured paired, colours covering half the ground go 14–15 → 7–9, which is
+close to the 4–8 the world had before it had different rocks at all; the floor
+is stated in the report rather than guessed at. Rock standing above the
+surrounding country also draws one tone now, with the bedding fading in over 44
+cells below **base level** (`Ctx::base_y`, a sliding-window maximum over ±220
+columns) — but that lever **does not reach the picture**: it redraws 19.4% of a
+frame and moves each pixel by a median of 11 of 255, and the owner's verdict on
+its A/B was *"These look identical to me."* Making standing rock read as
+unlayered needs its *material* unified, not its tone, and that is put to him as
+a question rather than taken.
 
 **The world ships at 8192 x 2560 cells** — sixteen viewport-widths across
 and eight deep, 4x linear on the 2048x640 it shipped at through round 7 and

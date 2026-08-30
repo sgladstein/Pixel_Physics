@@ -895,6 +895,25 @@ revamp rather than another round:
   it makes overlapping cave systems' independent waterlines fire — that goes
   to the cave lane. Corrects two errors in the revamp plan: `springs` was
   never at zero, and the shipped world is 128x the small one, not 256x.
+- [worldgen-relief-2026-08-30.md](worldgen-relief-2026-08-30.md) — **W1;
+  shipped.** The centrepiece: the ground gets a surface. A slope-free lowering
+  term coupled to the *section* resistance under the surface, taken as a
+  contrast against a running mean over +/-200 columns, plus a `ridged_1d`
+  massif and a long fold with horst-and-graben faults in `strata_offset`.
+  **The formation-scale band roughly doubled** — local relief at reach 30,
+  p90 over 6 seeds: arid 21→46, canyon 54→83, rolling 27→50, terraced 30→47,
+  wetland 14→26 — and the starved passes switched on with it (brows 4.9–55x,
+  talus 3.2–66x, `boulders` writing at all on four of five presets).
+  Generation +290 ms on ~2.1 s; no per-frame code changed.
+  **Two traps recorded.** A mountain does not fit in a 320-row world, so
+  `filmstrip` and every 512x320 scene are **bit-identical to before** — do not
+  judge this from a filmstrip. And the obvious form of the erosion term
+  improved every number while rendering as the flattest world this generator
+  has made; looking at it is what caught that.
+  Also deletes a **blind guard** (`an_old_world_is_smoother_than_a_young_one`
+  was false at the median on both arms and passed on two hand-picked seeds),
+  replacing it with a paired eight-seed guard watched going red, and adds a
+  test three comments had cited by name without it existing.
 
 - [worldgen-design.md](worldgen-design.md) — **direction agreed,
   implemented** (`src/worldgen/`). The M10 redesign: 2D play through 3D

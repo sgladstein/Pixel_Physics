@@ -602,6 +602,9 @@ pub(crate) struct ColumnShade {
     /// column plan** -- the decide/realise split is what makes
     /// `pass_ablation` possible and this does not spend it.
     table_y: i32,
+    /// This column's base level (`Ctx::base_y`) — the ground the rock here is
+    /// standing on, not the ground at the top of it. See [`MANTLE_DEPTH`].
+    base_y: i32,
 }
 
 impl ColumnShade {
@@ -618,6 +621,7 @@ impl ColumnShade {
             rock: ctx.stone,
             exposure: Exposure::new(ctx, x),
             table_y: ctx.plans[x as usize].table_y,
+            base_y: ctx.base_y[x as usize],
         }
     }
 
@@ -650,11 +654,19 @@ impl ColumnShade {
                 ctx.stone
             };
         }
-        let tone = if noise::unit(ctx.terrain.seed, Purpose::Shade, x, y) < 0.12 {
-            (self.base + 1).min(TONES - 1)
-        } else {
-            self.base
-        };
+        // The mantle: bedding fades out toward base level. See
+        // [`MANTLE_DEPTH`] and `strata_shade`, which this has to agree with
+        // cell for cell -- `column_shade_matches_the_per_cell_version` is
+        // what stops the column walk and the per-cell entry point drifting
+        // apart, and it is the reason the rule is written twice rather than
+        // once in a place only one of them can reach.
+        let depth = y - self.base_y;
+        let mantle = depth < MANTLE_DEPTH
+            && noise::unit(ctx.terrain.seed, Purpose::Dither, x, y)
+                > (depth.max(0) as f32 / MANTLE_DEPTH as f32);
+        let (roll, mid) = if mantle { (0.18, MANTLE_TONE) } else { (0.12, self.base) };
+        let tone =
+            if noise::unit(ctx.terrain.seed, Purpose::Shade, x, y) < roll { (mid + 1).min(TONES - 1) } else { mid };
         if self.rock == ctx.stone && !(rock_vocab_on() && ctx.terrain.params.region_variation > 0.0) {
             return (ctx.stone, palette_family_for(ctx, self.character, x, y, true) * TONES + tone);
         }
@@ -729,10 +741,91 @@ pub(crate) fn strata_shade(ctx: &Ctx, x: i32, y: i32) -> u8 {
     } else {
         base
     };
+    // **The mantle: bedding fades out toward the surface.**
+    //
+    // The owner's instruction, shown a world whose section runs banded right
+    // up to the skyline: *"the layers should only start deeper. Anything
+    // above the ground level should be more uniform no layers (this is just
+    // an aesthetics thing, you can keep different materials for the world gen
+    // if needed)"*. The parenthesis is the load-bearing half -- the
+    // *materials* stay, because the differential erosion this world's relief
+    // is made of depends on a soft bed under a hard cap meaning something.
+    // Only the tone is unified, so a bed keeps its rock and stops advertising
+    // itself.
+    //
+    // **Dithered over the transition, not cut at a depth.** A hard threshold
+    // draws a horizontal line across every cliff face at exactly
+    // `MANTLE_DEPTH` -- one more ruled edge in a world whose whole complaint
+    // is ruled edges -- and this file has the same rule in three other places
+    // (`palette_family`'s cumulative buckets, `soil_shade`'s jittered
+    // horizons, the rock/rock contact). The chance of a cell taking its
+    // bed's tone rises linearly with depth, so the bedding *emerges* over
+    // forty-odd cells.
+    // Depth below **base level**, not below this column's own surface. The
+    // top of a mesa is `surface_y` for its own column, so a depth measured
+    // that way calls a 150-cell tower one cell deep at its summit -- true,
+    // and useless for "is this standing above the landscape". Measured, the
+    // per-column reading moved **209 pixels of 491,520** in a shipped-size
+    // render: 0.04%, which is the audit's own loop failure (*measure a pass
+    // in pixels, not cells*) caught before shipping rather than after.
+    let base = ctx.base_y[x.clamp(0, ctx.terrain.w - 1) as usize];
+    let depth = y - base;
+    if depth < MANTLE_DEPTH
+        && noise::unit(ctx.terrain.seed, Purpose::Dither, x, y)
+            > (depth.max(0) as f32 / MANTLE_DEPTH as f32)
+    {
+        // One tone for the whole mantle -- the middle of the four, so the
+        // fade is toward the rock's own average rather than toward its
+        // lightest or darkest extreme.
+        return mantle_shade(ctx, x, y, band);
+    }
     // The region's family, applied *after* the tone. The band index still
     // decides which of the four tones a bed takes, so a bed remains
     // followable from one cliff face to the next -- what the region changes
     // is which four colours those tones name. Family, not texture.
+    if !rock_vocab_on() || ctx.terrain.params.region_variation <= 0.0 {
+        return palette_family(ctx, x, y, true) * TONES + tone;
+    }
+    let rock = strata_rock(ctx, band, x, ctx.terrain.character(x));
+    let family = if rock_damp_on() && y >= ctx.plans[x.clamp(0, ctx.terrain.w - 1) as usize].table_y {
+        damp_base(ctx, rock)
+    } else if rock_weather_on() && Exposure::new(ctx, x).weathered(y) {
+        weathered_base(ctx, rock)
+    } else {
+        0
+    };
+    family + tone
+}
+
+/// How deep the bedding takes to emerge, in cells below the local surface.
+///
+/// Sized against a face rather than against a hillside: the mesas and scarps
+/// W1's differential erosion builds run 25 to 85 cells at the formation scale
+/// (`Reports/worldgen-relief-2026-08-30.md` section 3.2), so a mantle much
+/// deeper than this would swallow the bedding on exactly the features that
+/// most need to read as rock, and one much shallower is a skin nobody sees.
+/// At 44 a bench top is quiet and the face under it is banded, which is what
+/// a weathered outcrop looks like.
+const MANTLE_DEPTH: i32 = 44;
+
+/// The single tone the mantle draws — the middle of the four, so the fade is
+/// toward the rock's own average rather than toward its lightest or darkest
+/// extreme.
+const MANTLE_TONE: u8 = 1;
+
+/// The uniform tone the mantle draws: the bed's *rock* with the bedding's
+/// tone variation removed.
+///
+/// Not a constant tone, because a constant is flat and this file's own note
+/// records that the fix for wallpaper is irregular runs rather than low
+/// contrast. It keeps the per-cell grain jitter and drops only the per-*band*
+/// draw, so the mantle is textured rock with no layers in it.
+fn mantle_shade(ctx: &Ctx, x: i32, y: i32, band: i32) -> u8 {
+    let tone = if noise::unit(ctx.terrain.seed, Purpose::Shade, x, y) < 0.18 {
+        (MANTLE_TONE + 1).min(TONES - 1)
+    } else {
+        MANTLE_TONE
+    };
     if !rock_vocab_on() || ctx.terrain.params.region_variation <= 0.0 {
         return palette_family(ctx, x, y, true) * TONES + tone;
     }
@@ -1148,6 +1241,13 @@ fn boulder_footprint(ctx: &Ctx) -> Vec<bool> {
 /// saturates. They also make each pass's column margin a *number* rather
 /// than an unbounded claim, which is what the pass table has to declare.
 const MAX_BROW_REACH: i32 = 20;
+
+/// How far the ground behind a brow's edge may wander from the edge's own
+/// height, over `RUN_NEAR` columns, and still count as the bench a lip hangs
+/// off. Three rows over four columns is a slope of 0.75 -- comfortably below
+/// the 1.0 that `CLIFF_DROP_FAR / RUN_FAR` admits on the falling side, which
+/// is the gap the test is reading.
+const BROW_BENCH_TOLERANCE: i32 = 3;
 const MAX_TALUS_PEAK: i32 = 30;
 
 /// Columns of context `brows` reads beyond the ones it writes: the far
@@ -1258,7 +1358,50 @@ pub fn brows(ctx: &Ctx, world: &mut World) -> usize {
     // thousands of qualifying edges, so this declines a handful of lips.
     let boulder_ground =
         if brow_yield_on() { boulder_footprint(ctx) } else { vec![false; ctx.terrain.w as usize] };
+    let at = |x: i32| ctx.plans[x.clamp(0, ctx.terrain.w - 1) as usize].surface_y;
     for (x, dir, drop) in cliff_edges(&ctx.plans, ctx.terrain.w) {
+        // **A lip needs a bench behind it.**
+        //
+        // `cliff_edges` asks only that the ground falls away on one side, and
+        // its far test is a 20-row drop over 20 columns -- a slope of exactly
+        // 1.0. So *every column* of any sustained 45-degree hillside is a
+        // cliff edge, and at `brow_chance` 0.8 four in five of them hang a
+        // lip. While the terrain never cleared that test this was invisible
+        // (`brows` wrote 2,352 cells of 18.9M); once W1's differential
+        // erosion supplied real relief it rendered as a **comb** -- a ladder
+        // of thin shelves stepping down both flanks of every knoll, which is
+        // the single most artificial thing in a W1 render and reads as a fish
+        // bone rather than as rock.
+        //
+        // `CLAUDE.md`: fixing one thing exposes the constant that was
+        // compensating for it. The compensating constant here was the
+        // *terrain*, so the repair is not to thin `brow_chance` -- a uniform
+        // thinning leaves the comb, only sparser, and the owner has rejected
+        // that shape by name on a different pass. An overhang is a lip at the
+        // *top* of a face, and the thing that makes it a top is level ground
+        // behind it. A slope has none.
+        let here = at(x);
+        if (1..=RUN_NEAR).any(|d| (at(x - dir * d) - here).abs() > BROW_BENCH_TOLERANCE) {
+            continue;
+        }
+        // **And a face to hang over, not merely a long fall.**
+        //
+        // `cliff_edges` accepts an edge on *either* test, and the far one --
+        // 20 rows over 20 columns -- is satisfied by the flank of any rounded
+        // hill. A lip hung there juts horizontally out of a curved dome with
+        // nothing under it, which renders as a plank floating in the air
+        // rather than as an overhang; the owner's word for it, shown the
+        // first W1 render, was *"weird artifacts at the top"*. The bench test
+        // above cannot catch that on its own -- a dome is level over four
+        // columns behind the edge, so it passes.
+        //
+        // So a brow re-asks the *near* test as a requirement rather than as
+        // an alternative: six rows over four columns, the pass's own number
+        // for a face. `talus` keeps the far test and should -- scree does
+        // mantle a long slope, and a plank does not.
+        if (1..=RUN_NEAR).map(|d| at(x + dir * d)).max().unwrap_or(here) - here < CLIFF_DROP {
+            continue;
+        }
         // Only hang a lip from bare rock. The origin's own topmost cell is
         // what every written cell ultimately has to trace an attached path
         // back through, and a soil-covered origin's topmost cell is loose
@@ -5098,7 +5241,14 @@ pub fn pockets(ctx: &Ctx, world: &mut World) -> usize {
                 // constant `y + strata_offset(x)`, so its gradient is minus
                 // the offset's -- a central difference over the same pure
                 // function `strata_shade` and `terraced` both read.
-                let dip = -(ctx.terrain.strata_offset(cx + 1) - ctx.terrain.strata_offset(cx - 1)) / 2.0;
+                // Clamped, because `strata_offset` now contains fault blocks
+                // and a lens whose centre lands inside a fault's flexure
+                // would read a dip of several cells per column and stand up
+                // on end. A bedding plane past 45 degrees is not something
+                // this generator makes; past that the number is the fault,
+                // not the bedding.
+                let dip = (-(ctx.terrain.strata_offset(cx + 1) - ctx.terrain.strata_offset(cx - 1)) / 2.0)
+                    .clamp(-1.0, 1.0);
                 let norm = (1.0 + dip * dip).sqrt();
                 let (cos_t, sin_t) = (1.0 / norm, dip / norm);
 
@@ -5529,4 +5679,61 @@ pub fn boulders(ctx: &Ctx, world: &mut World) -> usize {
         }
     }
     n
+}
+
+#[cfg(test)]
+mod shade_tests {
+    use super::*;
+    use crate::sim::chunk::Rect;
+    use crate::worldgen::params::WorldgenPresets;
+    use crate::worldgen::Spec;
+
+    /// **The two shade paths must agree, cell for cell.**
+    ///
+    /// `stone_massif` walks a column through [`ColumnShade`], which memoises
+    /// the per-band draw; every pass that paints rock *outside* the massif --
+    /// a brow hanging into air, a residual tor, a boulder -- calls
+    /// [`strata_shade`] per cell instead. They are two implementations of one
+    /// rule, and where they disagree the seam shows as a tor wearing a
+    /// different bed's colours than the cliff it grew out of.
+    ///
+    /// **Three separate comments in this file already named this guard by
+    /// this name, and it did not exist.** It is written now because the
+    /// mantle rule (`MANTLE_DEPTH`) made the duplication three branches deep
+    /// rather than one, but it covers the whole rule, not just that part --
+    /// which is the point: nothing had been checking any of it.
+    #[test]
+    fn column_shade_matches_the_per_cell_version() {
+        let (presets, err) = WorldgenPresets::load();
+        assert!(err.is_none(), "{err:?}");
+        for name in ["rolling", "canyon", "arid", "flat"] {
+            let p = presets.get(name).expect("shipped preset");
+            for seed in 0..3u64 {
+                // Tall enough that there is real rock under the surface to walk:
+                // at 192 rows against `sky_rows` 190 the massif is a dozen cells
+                // deep and the guard compares almost nothing.
+                let mut world = World::new(Rect::new(0, 0, 255, 511));
+                crate::worldgen::generate(&mut world, Spec::Generated { params: p, seed });
+                let ctx = Ctx::for_test(&world, p, seed);
+                let mut checked = 0usize;
+                for x in (0..ctx.terrain.w).step_by(7) {
+                    let mut walk = ColumnShade::new(&ctx, x);
+                    let top = ctx.plans[x as usize].surface_y;
+                    for y in top..ctx.terrain.h {
+                        let (_, walked) = walk.bed(&ctx, x, y);
+                        let per_cell = strata_shade(&ctx, x, y);
+                        assert_eq!(
+                            walked, per_cell,
+                            "{name} seed {seed} at ({x}, {y}): the column walk and the per-cell \
+                             entry point disagree"
+                        );
+                        checked += 1;
+                    }
+                }
+                // A "did it fire" counter beside the assertion: a loop that
+                // ran zero times passes this test perfectly.
+                assert!(checked > 5000, "{name} seed {seed}: only {checked} cells compared");
+            }
+        }
+    }
 }

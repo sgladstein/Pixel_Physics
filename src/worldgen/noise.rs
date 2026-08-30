@@ -265,6 +265,51 @@ pub enum Purpose {
     /// first rendering of it and reads as a different world rather than as a
     /// bed you can follow.
     RockMarker = 38,
+    /// **Lateral variation in how resistant a bed is** — per `(band, x)`, the
+    /// facies change that makes a resistant bed die out along strike.
+    ///
+    /// Its own stream, and deliberately *not* `RockFacies` (36), which
+    /// decides which rock a bed is made of at the same `(band, x)`: sharing
+    /// would tie a bed's strength to its identity, so every limestone
+    /// outcrop in the world would stand proud in the same places and the two
+    /// channels would carry one bit between them. Nor `Hardness` (23), which
+    /// draws the bed's base resistance keyed on the band index alone —
+    /// sharing would make a bed's lateral variation a function of how hard it
+    /// already is.
+    ///
+    /// It exists because `Hardness` has **no `x` in it at all**
+    /// (`Reports/worldgen-architecture-ceilings-2026-08-29.md` C7), so a bed
+    /// is equally resistant along its whole 8192-column outcrop. Coupling
+    /// resistance to relief without this planes the terrain onto bedding
+    /// planes and the world comes out as dead-level tables — rendered,
+    /// looked at, and that is what it did.
+    HardnessFacies = 39,
+    /// **The massif**: country-scale relief, three to six screens between
+    /// crests. See `column::Terrain::massif`.
+    ///
+    /// Its own stream rather than sharing `Height` (the hill octaves) even
+    /// though both are sampled at the same warped x: sharing would tie where
+    /// a mountain is to where the hills on it are, so every range in every
+    /// world would carry its ridges in the same place relative to its crest.
+    Massif = 40,
+    /// **The long fold**: the bedding's own dip, over hundreds of columns.
+    ///
+    /// Its own stream rather than more octaves on `Strata`, which supplies
+    /// the short ripple at a fixed 130-cell wavelength that four consumers
+    /// and one rescaling test are calibrated against. Widening that call's
+    /// octave count would move the ripple as well as add the fold, and the
+    /// two are separately tunable questions: how *wavy* the rock is, and how
+    /// far it dips across a view.
+    Fold = 41,
+    /// **Faults**: which block of the world a column belongs to, and how far
+    /// that block has moved.
+    ///
+    /// Its own stream rather than sharing `Fold` or `Strata`, both of which
+    /// are sampled over the same x at overlapping scales: sharing would put
+    /// every fault on the same side of every fold, so a world would have one
+    /// structural style rather than a fold field and a fault field that
+    /// happen to cross.
+    Fault = 42,
     /// **Whether a column's fractional talus deposit realises as one more
     /// cell of gravel**, in `soil_blanket`'s recolouring.
     ///
@@ -274,7 +319,7 @@ pub enum Purpose {
     /// would appear exactly where the contact is shallowest. That is the
     /// correlation every purpose tag here exists to prevent, and `Palette`'s
     /// own note records the same argument against the same stream.
-    Talus = 39,
+    Talus = 43,
 }
 
 /// SplitMix64-style finalizer over `(seed, purpose, x, y)`.
@@ -362,6 +407,45 @@ pub fn fbm_2d(seed: u64, purpose: Purpose, x: f32, y: f32, octaves: u32) -> f32 
     for i in 0..octaves {
         let s = seed.wrapping_add((i as u64 + 1).wrapping_mul(0xA076_1D64_78BD_642F));
         sum += amp * value_2d(s, purpose, x * freq, y * freq);
+        norm += amp;
+        amp *= 0.5;
+        freq *= 2.0;
+    }
+    if norm > 0.0 {
+        sum / norm
+    } else {
+        0.0
+    }
+}
+
+/// 1D **ridged** multifractal in `[0, 1]`: fBm with each octave folded about
+/// its own midpoint before it is summed.
+///
+/// Folding turns the smooth crests of value noise into sharp ones and its
+/// smooth troughs into broad flat floors — the asymmetry a mountain range
+/// has and plain fBm does not, and the reason the standard trick for
+/// mountains is this and not a larger amplitude.
+///
+/// **Folded per octave, which is the whole difference.** Folding the summed
+/// fBm instead — `1 - |2 * fbm_1d(..) - 1|` — was written first and is not
+/// the same function: three octaves of value noise concentrate near 0.5 by
+/// the central limit theorem, so `|2v - 1|` is small nearly everywhere, and
+/// the fold comes out squashed hard against its *maximum*. Measured over 2^20
+/// samples, its mean was 0.567 with most of the world sitting near a crest
+/// and troughs rare — exactly backwards from the broad-basin, rare-summit
+/// shape it was reached for. Folding first gives each octave its own creases
+/// and the sum keeps them.
+pub fn ridged_1d(seed: u64, purpose: Purpose, x: f32, octaves: u32) -> f32 {
+    let mut sum = 0.0f32;
+    let mut amp = 1.0f32;
+    let mut freq = 1.0f32;
+    let mut norm = 0.0f32;
+    for i in 0..octaves {
+        // The same per-octave sub-seed as `fbm_1d`, and for the same reason:
+        // without it every octave samples one lattice at different scales, so
+        // they align at the origin and at every power of two.
+        let s = seed.wrapping_add((i as u64 + 1).wrapping_mul(0xA076_1D64_78BD_642F));
+        sum += amp * (1.0 - (2.0 * value_1d(s, purpose, x * freq) - 1.0).abs());
         norm += amp;
         amp *= 0.5;
         freq *= 2.0;
