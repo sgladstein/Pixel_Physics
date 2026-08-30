@@ -1198,13 +1198,19 @@ impl App {
     /// The label for one `organism::CREATURE_TRAITS` slot.
     ///
     /// **A fallback rather than a table, and that is the point.** The slot
-    /// map grows — it is `1` today and the plan adds more — and a panel with
-    /// a fixed list of names would either stop showing new slots or fail to
-    /// compile against the lane that adds one. An unnamed slot draws as
-    /// `TRAIT n`, which is ugly and correct; name it here when it lands.
+    /// map grows — it went from one slot to two in a single evening — and a
+    /// panel with a fixed list of names would either stop showing new slots
+    /// or fail to compile against the lane that adds one. An unnamed slot
+    /// draws as `TRAIT n`, which is ugly and correct; name it here when it
+    /// lands.
+    ///
+    /// `DOWRY` rather than `BIRTH GRANT`: it is what an ant sets aside for
+    /// its young, the row has to fit beside three signed numbers, and this
+    /// panel speaks `wiki/ants.md`'s vocabulary rather than the field's.
     fn colony_trait_label(slot: usize) -> String {
         match slot {
             organism::TRAIT_GUT_BIAS => "GUT".to_string(),
+            organism::TRAIT_BIRTH_GRANT => "DOWRY".to_string(),
             other => format!("TRAIT {other}"),
         }
     }

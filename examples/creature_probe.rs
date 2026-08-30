@@ -56,6 +56,11 @@ fn main() {
     let mut threshold = -1.0f32;
     let mut hunger = -1.0f32;
     let mut mutation_rate = -1.0f32;
+    // The ancestral `TRAIT_BIRTH_GRANT` allele, taken as a **fraction of
+    // `start_energy`** rather than as its `-1..=1` axis position, because
+    // the fraction is the quantity the arithmetic is written in. Negative
+    // means "leave the species file alone".
+    let mut grant = -1.0f32;
     for arg in std::env::args().skip(1) {
         let Some((k, v)) = arg.split_once('=') else { continue };
         match k {
@@ -69,8 +74,9 @@ fn main() {
             "threshold" => threshold = v.parse().expect("threshold"),
             "hunger" => hunger = v.parse().expect("hunger"),
             "mutation_rate" => mutation_rate = v.parse().expect("mutation_rate"),
+            "grant" => grant = v.parse().expect("grant"),
             other => panic!(
-                "unknown arg {other:?}; known: frames, every, ants, terrain, seed, start_energy, body_energy, threshold, hunger, mutation_rate"
+                "unknown arg {other:?}; known: frames, every, ants, terrain, seed, start_energy, body_energy, threshold, hunger, mutation_rate, grant"
             ),
         }
     }
@@ -111,6 +117,9 @@ fn main() {
         }
         if threshold >= 0.0 {
             def.reproduce_threshold = threshold;
+        }
+        if grant >= 0.0 {
+            def.traits[pixel_physics::sim::organism::TRAIT_BIRTH_GRANT] = grant * 2.0 - 1.0;
         }
         if hunger >= 0.0 {
             def.hunger_fraction = hunger;
@@ -156,8 +165,14 @@ fn main() {
         if world_terrain { "world" } else { "slab" }
     );
     println!(
-        "  economy: start_energy {:.0} body_energy {:.0} hunger_fraction {:.2} reproduce_threshold {:.0} mutation_rate {:.3}",
-        def.start_energy, def.body_energy, def.hunger_fraction, def.reproduce_threshold, def.mutation_rate
+        "  economy: start_energy {:.0} body_energy {:.0} hunger_fraction {:.2} reproduce_threshold {:.0} mutation_rate {:.3} birth_grant {:.2} (= {:.0} energy)",
+        def.start_energy,
+        def.body_energy,
+        def.hunger_fraction,
+        def.reproduce_threshold,
+        def.mutation_rate,
+        pixel_physics::sim::creature::grant_fraction(def.traits[pixel_physics::sim::organism::TRAIT_BIRTH_GRANT]),
+        pixel_physics::sim::creature::birth_grant(&def, &def.traits)
     );
     println!(
         "  reachability: birth costs {:.0}, and an ant banks at most about {:.0} (hunger_fraction * start_energy + best digestible mouthful {best_mouthful:.0}) -- {}",
