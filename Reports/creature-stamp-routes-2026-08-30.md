@@ -1,5 +1,21 @@
 # Three ways past the body stamp, priced
 
+> **CORRECTED 2026-08-30, after this landed. §5's recommendation — sow a
+> fruiting plant — has been measured and it does not work, for the reason
+> §5 itself names as its failure case.**
+> `evolution-lab-gate-1-2026-08-30.md` §4.3 fitted the matched gut in a box
+> that *does* flower and fruit: the margin goes from **−820 to +500** and
+> the colony still produces **zero births over 48,000 frames**, because
+> **every flower and attached fruit stands 22 to 40 rows up a stem**, and
+> `windfall` — the ground form, the only one an ant walking the soil can
+> reach — **never exceeds 1 cell** in a 90,000-frame run. So this is a
+> *reach* problem, not an economy one, exactly as §5 said it would be if it
+> failed. **The margin model in §4.1 still holds; what it does not contain
+> is whether the best mouthful can be got at**, and §1.1's census counts a
+> flower up a stem as standing food. Read §5 with that correction: the fruit
+> route is not dead, but it is blocked behind fruit *falling*, which is a
+> plant question. The fallback in §5's step 2 is untouched.
+
 *Lane I of the creature program, 2026-08-30. A decision document: the three
 routes named in `creature-reproduction-economics.md` §§3.1, 3.2 and 3.5, each
 with a number against it, and a recommendation.*
@@ -389,6 +405,13 @@ for him.
 
 ### Step 1 — sow a plant that fruits. No creature code at all.
 
+> **Measured since, and it fails here: see the correction at the head of
+> this report.** The step is right that it needs no creature code and wrong
+> that sowing is enough — a flower 22 to 40 rows up a stem is standing food
+> this report's own census counts and an ant on the ground cannot reach.
+> What it actually needs is fruit *falling*, which is `Behavior::Ripen`'s
+> fruit-to-windfall path and a plant lane's work, not a creature one.
+
 Route 3's own escape hatch is a `fruit` worth 960 and a `flower` worth 1,440.
 Both exist, both are already grown by `plant.rs`, and **the world never
 contains one**, because `LIFE_SPECIES` in `src/worldgen/passes.rs` sows
@@ -503,6 +526,13 @@ report quietly stand in for.
   is no differential reproduction to select through. The ancestral value has
   to be moved by hand to start it. That is a one-line change to `ant.ron`'s
   `traits` and this lane does not own the file.
+- **Whether the best mouthful can be *reached*.** §1.1 corrects
+  `creature_probe` by pricing the food standing in this world rather than the
+  whole material table — and "standing in the world" is still not "reachable
+  by an ant on the ground". `stamp_probe` counts a flower 22 to 40 rows up a
+  stem exactly as it counts a leaf on the floor. That gap is what
+  `evolution-lab-gate-1-2026-08-30.md` §4.3 walked into, and it is the
+  instrument's known limit rather than a surprise.
 - **Frame cost of any of this.** Not measured. A breeding population is not a
   55-ant colony, and Lane A's figure (+1.3 ms for 1,781 ants) is the number
   to re-take rather than to carry forward.
