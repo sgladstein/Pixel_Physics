@@ -1,0 +1,42 @@
+{
+  "id": "20260830T030513497Z-43e806",
+  "created": "2026-08-30T03:05:13Z",
+  "board": "worldgen",
+  "origin": {
+    "worktree": "/home/user/wg-relief",
+    "branch": "claude/worldgen-relief",
+    "commit": "5da8b46",
+    "agent": null,
+    "session_id": "2cb39797-d076-5699-b8bf-4494224deffe",
+    "user": null,
+    "cwd": "/home/user/wg-relief"
+  },
+  "title": "The quiet-above-ground change: it ran, and it is too small to see",
+  "question": "Nothing to judge here -- this is me answering my own card. Do you want me to keep it, or should the near-surface rock lose its bedding entirely?",
+  "context_md": "You said the two panes of *'Layers starting deeper'* looked identical. That is a finding about the change, not about your eye, so I counted instead of guessing.\n\n**It ran.** The two images are not the same file. It redraws **95,253 of 491,520 pixels -- 19.4% of the frame**. So it is not dead and it is not the wrong camera.\n\n**And it is invisible because the change is tiny per pixel.** Where it changes anything, the colour moves by a **median of 11 out of 255**, mean 15, never more than 38. A fifth of the frame shifted by four percent of the range is not something anyone sees.\n\n**The reason is structural.** The change swaps a bed's *tone* -- one of four shades inside one rock -- and those four shades are about 28 points apart by design. What you actually see between layers is the difference between *rocks*, and that is four times bigger. So unifying tone near the surface can never do what you asked; unifying the rock could, and that would mean the standing rock is one material rather than the bed it was cut from.\n\n**That is the question.** I have not done it, because the differential erosion this world's new relief is made of depends on beds differing in strength, and I did not want to quietly weaken that to win a colour argument.\n\nThe picture is the current state -- the contrast drop from the other card, plus this.",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "current",
+      "files": [
+        "20260830T030513497Z-43e806/000-pal2_on.png"
+      ],
+      "caption": "canyon, seed 4",
+      "meta": {
+        "pixels the quiet-above-ground rule redraws": 95253,
+        "share of the frame": "19.4%",
+        "how far each moves, out of 255": "median 11, max 38",
+        "how far apart two rocks are": "four times that"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
