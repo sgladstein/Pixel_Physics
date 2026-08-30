@@ -806,6 +806,28 @@ drift that two of these documents still reflect.**
   the only fruiting species, `herb` and `scrambler`, **are never planted** —
   which answers the experiment economics §7 calls its cheapest. Route 2 is
   reported as **unpriced**, with the reason.
+- [evolution-lab-gate-1-2026-08-30.md](evolution-lab-gate-1-2026-08-30.md) —
+  **measured, nothing built beyond the two harnesses.** Gate 1 of the
+  evolution-lab program: the census and the frame cost of `lab::scene::LabBox`,
+  the first scene in this repo running plants and creatures together.
+  **The box lives** — plants reach generation 5, 285 born against 266 dead in
+  90,000 frames — **and the colony is the biggest thing acting on it**: a bed
+  with no ants holds all eight founders and 2.9x the organisms, **12 seeds of
+  12, every column**. Three corrections. **The founders that go missing are
+  eaten, not ungerminated and not merely too small to draw.** **Gate 0 is a
+  reach problem, not an economy one**: the matched gut that
+  [creature-stamp-routes-2026-08-30.md](creature-stamp-routes-2026-08-30.md)
+  prices takes the margin from −820 to **+500** and produces **zero births**
+  over 48,000 frames, because the flower it unlocks stands **22 to 40 rows up
+  a stem** and the ground-level form of it, `windfall`, stands at 1–2 cells
+  for two census tiles out of sixteen. And **frame cost in the lab is the
+  field's solve set, not biomass** — correlation with plant cells **−0.02**,
+  with tiles solved **+0.90** — so the box gets *cheaper* as it runs, 5.1x
+  real time early to 11.5x settled, which is the opposite of the sizing rule
+  it was measured against. The organism ceiling is a footnote: 66 slots of
+  4,095 used, 0 refused. Timings taken under five-to-nine-times
+  oversubscription and labelled as such; the render term is reported as
+  **not measurable** rather than guessed.
 - [creature-direction.md](creature-direction.md) — **direction agreed
   (2026-08-17).** Cell-chain ants, the caged brain, the heritable genome;
   decision record plus implementation plan.

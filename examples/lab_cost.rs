@@ -159,6 +159,14 @@ struct Tile {
     /// above the leaf ceiling says outright that no ant ever ate a fruit —
     /// and this says *why*.
     nearest_food: Option<f64>,
+    /// How high the fruit-class food stands above the soil line, as
+    /// (lowest, highest) rows. **This is the column that turns "a foraging
+    /// problem" into a mechanism**: an ant walks the ground, and a fruit
+    /// still attached to its stem twenty rows up is not somewhere it can go.
+    /// Only `windfall` — fruit that has ripened and dropped — is food an ant
+    /// can walk to, which is exactly the delivery
+    /// `creature-stamp-routes-2026-08-30.md` §5 describes and never counted.
+    food_height: Option<(i32, i32)>,
     solved: f64,
     awake: f64,
     ms_mean: f64,
@@ -271,6 +279,11 @@ fn census(w: &World, spec: &LabBox, ids: &Ids, tile: &mut Tile) {
                 }
             }
         }
+    }
+    if !food.is_empty() {
+        let lo = food.iter().map(|(_, y)| spec.ground_y - y).min().expect("food is non-empty");
+        let hi = food.iter().map(|(_, y)| spec.ground_y - y).max().expect("food is non-empty");
+        tile.food_height = Some((lo, hi));
     }
     if !food.is_empty() && !ants.is_empty() {
         tile.nearest_food = Some(
@@ -649,13 +662,13 @@ fn main() {
         // different worlds. `richest` against the bar is #162's arithmetic,
         // and `denied` separates an energy result from a space one.
         println!(
-            "\n{:>7} | {:>7} {:>7} {:>8} | {:>8} {:>10} | {:>7} {:>7} {:>8} | {:>9}",
+            "\n{:>7} | {:>7} {:>7} {:>8} | {:>8} {:>10} | {:>7} {:>7} {:>8} | {:>9} {:>9}",
             "frame", "p.born", "p.died", "live", "richest", "ant energy", "fruitC", "flowrC",
-            "denied", "ant->food",
+            "denied", "ant->food", "food up",
         );
         for t in tiles {
             println!(
-                "{:>7} | {:>7} {:>7} {:>8} | {:>8.0} {:>10.0} | {:>7} {:>7} {:>8} | {:>9}",
+                "{:>7} | {:>7} {:>7} {:>8} | {:>8.0} {:>10.0} | {:>7} {:>7} {:>8} | {:>9} {:>9}",
                 t.frame,
                 t.born_total,
                 t.died_total,
@@ -666,6 +679,7 @@ fn main() {
                 t.flower_cells,
                 t.denied,
                 t.nearest_food.map_or("no food".to_string(), |d| format!("{d:.0}")),
+                t.food_height.map_or("-".to_string(), |(lo, hi)| format!("{lo}..{hi}")),
             );
         }
 
@@ -686,7 +700,7 @@ fn main() {
             spec.founders,
             spec.colonies,
         );
-        println!("  {:>4} {:>8} {:>7} {:>9}  {}", "#", "id", "cells", "kind", "verdict");
+        println!("  {:>4} {:>8} {:>7} {:>9}  verdict", "#", "id", "cells", "kind");
         for (i, id) in founder_ids.iter().enumerate() {
             match world.organism(*id) {
                 Some(s) => {
@@ -838,6 +852,17 @@ fn main() {
             let mut means: Vec<f64> = runs.iter().map(|r| r[k].ms_mean).collect();
             means.sort_by(|a, b| a.partial_cmp(b).expect("no NaN"));
             let mean = means[means.len() / 2];
+            // **The median across repetitions of each run's own median frame.**
+            // Not the first repetition's, which is what this printed until it
+            // was caught: a column that ignores every arm but one is a
+            // one-sample reading wearing a paired-measurement's label. And
+            // the median frame is the statistic to read on a loud box — the
+            // mean carries the tail that machine contention writes into it,
+            // and `CLAUDE.md` records that an untrusted median is still worth
+            // something where an untrusted worst is not.
+            let mut p50s: Vec<f64> = runs.iter().map(|r| r[k].ms_p50).collect();
+            p50s.sort_by(|a, b| a.partial_cmp(b).expect("no NaN"));
+            let p50 = p50s[p50s.len() / 2];
             let mut rend: Vec<f64> = runs.iter().map(|r| r[k].render_ms).collect();
             rend.sort_by(|a, b| a.partial_cmp(b).expect("no NaN"));
             let render = rend[rend.len() / 2];
@@ -849,7 +874,7 @@ fn main() {
                 t.frame,
                 t.plant_cells,
                 mean,
-                t.ms_p50,
+                p50,
                 t.ms_worst,
                 t.solved,
                 t.awake,
@@ -905,16 +930,16 @@ fn main() {
         println!("\ncompartments, at the last tile — the §2c claim, in this bed");
         println!(
             "{:>5} {:>9} {:>10} {:>9} {:>9} {:>9}",
-            "walls", "ms/tick", "solved/f", "speed-up", "cells", "vs open"
+            "walls", "p50 ms", "solved/f", "speed-up", "cells", "vs open"
         );
         let open = {
             let runs = &all[0].1;
-            let mut m: Vec<f64> = runs.iter().map(|r| r.last().expect("a tile").ms_mean).collect();
+            let mut m: Vec<f64> = runs.iter().map(|r| r.last().expect("a tile").ms_p50).collect();
             m.sort_by(|a, b| a.partial_cmp(b).expect("no NaN"));
             m[m.len() / 2]
         };
         for (w, runs) in &all {
-            let mut m: Vec<f64> = runs.iter().map(|r| r.last().expect("a tile").ms_mean).collect();
+            let mut m: Vec<f64> = runs.iter().map(|r| r.last().expect("a tile").ms_p50).collect();
             m.sort_by(|a, b| a.partial_cmp(b).expect("no NaN"));
             let mean = m[m.len() / 2];
             let t = runs[0].last().expect("a tile");
