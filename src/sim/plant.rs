@@ -5771,8 +5771,39 @@ fn anchor_support(world: &mut World, organism_id: u16) {
             continue; // a better path settled this cell already
         }
         let (x, y) = cells[i];
+        // **A leaf may hold another leaf, and may never hold wood.**
+        //
+        // `leaf.ron`'s own doc says a leaf must not be a load path, and the
+        // span rule honours that with `max_cantilever_reach: u16::MAX`. This
+        // field did not: it walked every organism cell alike, so a crown
+        // stayed attached to the ground *through its own foliage*. Measured
+        // before the fix on `scene=grove seed=1`, three self-breaks: a member
+        // of **section 1 carrying 820** snapped and took **fourteen cells**
+        // with it, because everything above it was still reachable by
+        // stepping sideways through leaves. The owner's reading of a sheet of
+        // it -- *"nothing falls over or breaks... some are disintegrating a
+        // little"* -- was exactly right, and nothing could.
+        //
+        // **The direction matters and the symmetric version is much worse.**
+        // Blocking a leaf from conducting to *anything* was tried first:
+        // foliage grows in clusters, so only the one leaf touching a twig is
+        // ever reached and every leaf behind it reads as detached. The stand
+        // sheds its whole canopy -- 4,227 cells severed with **1% leaving as
+        // pieces**, the rest converted where they stood, which is the
+        // crushing failure `Reports/dead-ends.md` records for aiming a load
+        // verdict at the wrong object. A cluster of leaves hangs together off
+        // its twig, so leaf-to-leaf carries; wood holds leaf; leaf never
+        // holds wood. With the direction in, the same three breaks sever
+        // **810 cells at 91% pieces**.
+        let source_is_leaf = organism::cell_type(world.get(x, y).aux()) == Some(CellType::Leaf);
         for (dx, dy) in NEIGHBOURS_8 {
             let Some(&j) = index.get(&(x + dx, y + dy)) else { continue };
+            if source_is_leaf {
+                let (nx, ny) = cells[j];
+                if organism::cell_type(world.get(nx, ny).aux()) != Some(CellType::Leaf) {
+                    continue;
+                }
+            }
             // `dy > 0` puts the child *below* its parent, so it hangs from
             // it; `dy < 0` puts it above, standing on it. Sideways is
             // charged separately, so a diagonal pays for the reach it makes
