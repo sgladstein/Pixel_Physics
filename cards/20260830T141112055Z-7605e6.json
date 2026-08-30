@@ -1,0 +1,66 @@
+{
+  "id": "20260830T141112055Z-7605e6",
+  "created": "2026-08-30T14:11:12Z",
+  "board": "lab",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics/.claude/worktrees/agent-a159e01ffed06c9a2",
+    "branch": "worktree-agent-a159e01ffed06c9a2",
+    "commit": "83538c0",
+    "agent": null,
+    "session_id": "6546762f-3714-56a2-a0a4-47f13872ea63",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics/.claude/worktrees/agent-a159e01ffed06c9a2"
+  },
+  "title": "Gate 1: the box lives, and the colony eats it down and then dies out",
+  "question": "The lab bed works -- plants germinate, flower, fruit, set seed and breed to generation 4. But the ant colony is the biggest single thing acting on it, and it does not survive itself: 52 ants founded, 52 dead, ZERO born, extinct by frame 66,000, taking five of the eight founder plants and half the biomass with it. Is a colony that grazes the bed down and then starves the opening you want, or should the lab start with a smaller or weaker colony so the stand establishes first?",
+  "context_md": "Same bed, same seed, same 8 herb founders, on `LabBox` as it ships today (40 rows of soil, lit interior). Frames 0 / 5,000 / 24,000 / 66,000, top to bottom.\n\n- **A** is the shipped default (1 colony, 52 ants)\n- **B** is the identical bed with `colonies=0`\n\nThe direction holds on **12 seeds out of 12**, on organisms, biomass and seed set alike -- median 2.8x the plants without a colony.\n\n**Ant births are zero at every setting measured**, including with the matched gut the design guide asks for: that takes the breeding margin from -820 to +500 and still produces no births, because the flower it unlocks grows 22 to 40 rows up a stem and the ants walk the floor.",
+  "kind": "ab",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A -- shipped: 8 founders + 1 colony",
+      "files": [
+        "20260830T141112055Z-7605e6/000-C_ants.png"
+      ],
+      "caption": "frames 0 / 5,000 / 24,000 / 66,000",
+      "meta": {
+        "plant cells at 66k": 628,
+        "plants at 66k": 30,
+        "seeds set": 215,
+        "founders alive of 8": 3,
+        "deepest plant generation": 3,
+        "ants at 66k": 0,
+        "ant births": 0,
+        "ant deaths": 52,
+        "organism slots used of 4095": 66
+      },
+      "focus": null
+    },
+    {
+      "label": "B -- control: 8 founders, no colony",
+      "files": [
+        "20260830T141112055Z-7605e6/001-D_noants.png"
+      ],
+      "caption": "frames 0 / 5,000 / 24,000 / 66,000",
+      "meta": {
+        "plant cells at 66k": 1322,
+        "plants at 66k": 50,
+        "seeds set": 600,
+        "founders alive of 8": 7,
+        "deepest plant generation": 4,
+        "ants at 66k": 0,
+        "ant births": 0,
+        "ant deaths": 0,
+        "organism slots used of 4095": 131
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
