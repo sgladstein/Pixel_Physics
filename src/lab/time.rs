@@ -1,10 +1,14 @@
 //! **The speed dial, and the two-phase loop it lives in.**
 //!
 //! `Reports/evolution-lab-design-guide-2026-08-30.md` §1: two phases,
-//! alternating. **Tending** is real time — the player plants, installs,
-//! adjusts, and everything is responsive. **Running** is the experiment —
-//! interaction closes and the simulation fast-forwards while the player
-//! watches generations turn over.
+//! alternating. **Paused** is the bench — the player plants, installs,
+//! adjusts, and the box holds perfectly still while they do it. **Running**
+//! is the experiment — the simulation runs at the speed the dial asks for,
+//! from real time up, while the player watches generations turn over.
+//!
+//! The guide calls the first phase *tending* and had it running at 1x. The
+//! owner's 2026-08-30 ruling collapsed the two readings — see [`Phase`] for
+//! why pause is not a third state.
 //!
 //! **The split is free rather than expensive, and that is a measurement, not
 //! a hope** (feasibility §4c): determinism is required same-build and the
@@ -48,9 +52,9 @@
 //! whether this pass through the loop draws at all — and the frames that do
 //! not draw spend their whole budget ticking. **This is the mechanism that
 //! buys the top of the dial**, and it is why [`Advance::draw`] exists.
-//! Tending never skips a frame: there the loop is throttled by the display's
-//! own vsync, the player is interacting, and responsiveness is the whole
-//! point.
+//! A paused box never skips a frame: there the loop is throttled by the
+//! display's own vsync, the player is working in the box, and
+//! responsiveness is the whole point.
 //!
 //! **3. The crossover.** Past some number of ticks between displayed frames
 //! the screen stops showing *motion* and starts showing *fast-forward* — a
@@ -61,11 +65,30 @@
 use std::time::Duration;
 
 /// Which phase the lab is in.
+///
+/// **`Paused` was `Tending`, and it used to run at 1x.** Owner ruling,
+/// 2026-08-30: *"what does spacebar/tending mean. it isn't pausing anything."*
+/// The design guide's tending phase is the bench work — plant, cull, paint,
+/// release founders — and it was implemented as *the world at real time*,
+/// which is indistinguishable on screen from running at 1x. So `Space` had a
+/// name nobody could read and no visible effect.
+///
+/// **Pause is not a third state, deliberately.** A `Paused` beside a
+/// `Tending` beside a `Running` is a mode the player has to learn, and the
+/// two of them do the same job: the box holds still while you work in it. So
+/// tending *became* the pause, and real time moved onto the speed ladder
+/// where it already lived — `1X` is now a running speed like every other
+/// stop, and `set_preset` enters `Running` at every stop rather than
+/// silently dropping out of the run at the bottom of the ladder.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Phase {
-    /// Real time. The player interacts; the world runs at 1x.
-    Tending,
-    /// The experiment. Interaction closes and the world fast-forwards.
+    /// **Stopped.** No tick runs at all: [`TimeControl::multiple`] is 0 here,
+    /// so the debt accrues nothing and the tick loop is asked for nothing.
+    /// The screen still draws every pass, because a paused box is exactly
+    /// when the player is looking at it and working in it.
+    Paused,
+    /// The experiment. The world runs at the speed the dial asks for — `1X`
+    /// included, which is real time.
     Running,
 }
 
@@ -84,7 +107,7 @@ pub struct Plan {
 pub struct Advance {
     pub ticks: u32,
     pub spent: Duration,
-    /// **Whether this pass should draw.** In Tending this is always true. In
+    /// **Whether this pass should draw.** Paused, this is always true. In
     /// Running it is true only on display-rate boundaries, and the passes
     /// where it is false are the ones that buy the top of the dial: they
     /// spend their whole budget on ticks and pay nothing for a render.
@@ -220,7 +243,7 @@ impl Default for TimeControl {
 impl TimeControl {
     pub fn new() -> Self {
         Self {
-            phase: Phase::Tending,
+            phase: Phase::Paused,
             requested: 1,
             achieved: 1.0,
             display_hz: DISPLAY_RATES[0],
@@ -238,11 +261,13 @@ impl TimeControl {
         }
     }
 
-    /// The multiplier actually in force. Tending is 1x by definition — the
-    /// phase *is* the statement that the world runs at real time.
+    /// The multiplier actually in force. **Paused is 0, not 1** — that zero
+    /// is the whole of the pause: `plan` multiplies elapsed real time by it
+    /// before adding to the debt, so a paused box accrues nothing to run and
+    /// `owed_ticks` is 0 for as long as it is paused.
     pub fn multiple(&self) -> u32 {
         match self.phase {
-            Phase::Tending => 1,
+            Phase::Paused => 0,
             Phase::Running => self.requested.max(1),
         }
     }
@@ -285,7 +310,7 @@ impl TimeControl {
         // - only a **displayed** pass carries a render, so a skipped one is
         //   not a sample; folding it in would report the render as free and
         //   hand the tick loop a budget it cannot honour;
-        // - only in **Running**. In Tending every pass draws and the loop is
+        // - only in **Running**. Paused, every pass draws and the loop is
         //   vsync-throttled, so `elapsed - spent` there is the wait for the
         //   display, not the cost of drawing -- about 16 ms, which would
         //   collapse the budget to its floor the moment the player asked for
@@ -295,11 +320,11 @@ impl TimeControl {
             self.overhead = ewma(self.overhead, sample, 0.25);
         }
 
-        // Whether this pass draws. Tending always does: the loop is vsync-
-        // throttled there and the player is interacting.
+        // Whether this pass draws. A paused box always does: the loop is
+        // vsync-throttled there and the player is working in it.
         self.display_accum += elapsed;
         self.drawing = match self.phase {
-            Phase::Tending => true,
+            Phase::Paused => true,
             Phase::Running => {
                 let interval = self.display_interval();
                 if self.display_accum >= interval {
@@ -314,6 +339,15 @@ impl TimeControl {
             }
         };
 
+        // **A paused box owes nothing, including what it owed when it
+        // stopped.** `multiple()` is 0 here so nothing accrues, and the debt
+        // standing at the moment of the pause is discarded rather than
+        // carried: a box paused mid-frame and resumed a minute later must
+        // resume, not spend its first frame paying off a tick it owed before
+        // the player touched anything.
+        if self.phase == Phase::Paused {
+            self.sim_debt = Duration::ZERO;
+        }
         self.sim_debt += elapsed * self.multiple();
         let ticks = self.owed_ticks();
 
@@ -422,19 +456,27 @@ impl TimeControl {
         let grey = [150u8, 150, 150, 255];
         let mut lines = Vec::new();
 
-        match self.phase {
-            Phase::Tending => lines.push(("TENDING - 1X REAL TIME".to_string(), white)),
-            Phase::Running => {
-                lines.push((format!("RUNNING - ASKED {}X", self.requested), white))
-            }
+        // **Paused says one thing and says it loudly.** Every other line
+        // below is a rate, and a rate of zero printed six times over is a
+        // readout the player has to *infer* a stopped box from. The whole
+        // point of the owner's complaint was that the phase had no unmistakable
+        // statement on screen, so this is that statement and it displaces the
+        // rates rather than sitting above them.
+        if self.phase == Phase::Paused {
+            let stopped = [235u8, 185, 90, 255];
+            lines.push(("PAUSED - NOTHING IS TICKING".to_string(), stopped));
+            lines.push((format!("SPACE RUNS THE BOX AT {}X", self.requested), white));
+            lines.push((format!("FRAME {frame} - HELD"), grey));
+            return lines;
         }
+        lines.push((format!("RUNNING - ASKED {}X", self.requested), white));
         lines.push((
             format!("GOT {:.1}X AT {}HZ", self.achieved.max(0.0), self.display_hz),
             white,
         ));
         lines.push((format!("SIM {} PER REAL SECOND", sim_per_second(self.achieved)), grey));
         let n = self.ticks_per_frame();
-        // Singular at one, because Tending at a display rate the box can meet
+        // Singular at one, because 1X at a display rate the box can meet
         // sits there permanently and "1 TICKS PER FRAME" is the line the
         // player reads most.
         lines.push((format!("{n} TICK{} PER FRAME", if n == 1 { "" } else { "S" }), grey));
@@ -514,8 +556,8 @@ pub const DISPLAY_RATES: [u32; 4] = [60, 30, 20, 10];
 impl TimeControl {
     pub fn toggle_phase(&mut self) {
         self.phase = match self.phase {
-            Phase::Tending => Phase::Running,
-            Phase::Running => Phase::Tending,
+            Phase::Paused => Phase::Running,
+            Phase::Running => Phase::Paused,
         };
         self.reset_pacing();
     }
@@ -535,7 +577,11 @@ impl TimeControl {
 
     pub fn set_preset(&mut self, i: usize) {
         self.requested = PRESETS[i.min(PRESETS.len() - 1)];
-        self.phase = if self.requested > 1 { Phase::Running } else { Phase::Tending };
+        // **Every stop on the ladder is a running stop, `1X` included.** It
+        // used to drop back to the stopped phase at the bottom, which was
+        // coherent while that phase ran at 1x and is not now: a player asking
+        // for real time would have got a frozen box. See `Phase`.
+        self.phase = Phase::Running;
         self.reset_pacing();
     }
 
@@ -563,9 +609,9 @@ impl TimeControl {
         self.window_ticks = 0;
         self.pending_ticks = 0;
         // The display phase and the render sample are as stale as the debt.
-        // A Tending stretch accrues `display_accum` it never spends (it draws
+        // A paused stretch accrues `display_accum` it never spends (it draws
         // every pass), so without this the first Running pass after a long
-        // Tending one would find the accumulator arbitrarily large; and the
+        // pause would find the accumulator arbitrarily large; and the
         // render cost measured at the previous dial setting is not this one's.
         self.display_accum = Duration::ZERO;
         self.overhead = Duration::ZERO;
@@ -649,29 +695,66 @@ mod tests {
         }
     }
 
+    /// **The pause, and the control that proves the instrument can see it.**
+    ///
+    /// Both arms are one test on purpose. A paused box asked for zero ticks
+    /// would be green for a `plan` that had simply stopped working, and the
+    /// running arm is what says the harness can count a tick at all: ten
+    /// seconds of real time at `1X` is a fixed timestep and must land within
+    /// two ticks of real time divided by the tick.
     #[test]
-    fn tending_runs_one_tick_per_sixtieth_of_a_second() {
+    fn a_paused_box_runs_no_ticks_and_a_running_one_runs_real_time() {
         let mut t = TimeControl::new();
+        assert_eq!(t.phase, Phase::Paused, "a fresh lab starts stopped");
         let mut m = Machine::new(10_000, 3);
         m.run_for(&mut t, Duration::from_secs(10));
-        // A fixed timestep: whatever the frame rate, the tick count is the
-        // real time divided by the tick.
+        assert_eq!(m.ticks, 0, "a paused box ran {} ticks", m.ticks);
+
+        let mut t = TimeControl::new();
+        t.set_preset(0);
+        assert_eq!(t.phase, Phase::Running, "1X is a running speed");
+        let mut m = Machine::new(10_000, 3);
+        m.run_for(&mut t, Duration::from_secs(10));
         let want = (m.real.as_nanos() / TICK.as_nanos()) as u64;
         assert!(
             m.ticks.abs_diff(want) <= 2,
-            "tending drifted: {} ticks against {want} of real time",
+            "1X drifted: {} ticks against {want} of real time",
             m.ticks
         );
-        assert_eq!(t.phase, Phase::Tending);
     }
 
+    /// A paused box is exactly when the player is working in it, so it must
+    /// keep answering the window at the full display rate.
     #[test]
-    fn tending_always_draws() {
+    fn a_paused_box_still_draws_every_frame() {
         let mut t = TimeControl::new();
         let mut m = Machine::new(10_000, 3);
         for _ in 0..500 {
-            assert!(m.pass(&mut t).draw, "tending must never skip a frame");
+            assert!(m.pass(&mut t).draw, "a paused box must never skip a frame");
         }
+    }
+
+    /// **Resuming must not pay off a backlog.** A box paused for a minute and
+    /// then run has nothing owed: the debt standing when it stopped is
+    /// discarded rather than carried, or the first frame after `SPACE` would
+    /// run a burst nobody asked for.
+    #[test]
+    fn a_long_pause_does_not_bank_ticks_to_run_on_resume() {
+        let mut t = TimeControl::new();
+        t.set_preset(0);
+        let mut m = Machine::new(10_000, 3);
+        // Half a second of running, so there is a debt to strand.
+        m.run_for(&mut t, Duration::from_millis(500));
+        t.toggle_phase();
+        assert_eq!(t.phase, Phase::Paused);
+        let mut m = Machine::new(10_000, 3);
+        m.run_for(&mut t, Duration::from_secs(60));
+        assert_eq!(m.ticks, 0, "a minute of pause ran {} ticks", m.ticks);
+        t.toggle_phase();
+        let mut m = Machine::new(10_000, 3);
+        // One 60 Hz frame of running: one tick, not sixty seconds of them.
+        m.run_for(&mut t, Duration::from_millis(17));
+        assert!(m.ticks <= 3, "resume burst: {} ticks in one frame", m.ticks);
     }
 
     /// **The one the brief names.** A dial set past the machine's capability
@@ -883,6 +966,16 @@ mod tests {
     fn every_readout_line_uses_glyphs_the_font_has() {
         let mut t = TimeControl::new();
         let mut seen = 0;
+        // **Paused first, and as its own arm.** `set_preset` enters Running at
+        // every stop, so a sweep over the ladder alone never once reaches the
+        // paused branch of `readout` -- which is the branch the owner's
+        // complaint is about and the newest three lines in this function.
+        for (line, _) in t.readout(1_234_567) {
+            for c in line.chars() {
+                assert!(crate::hud::has_glyph(c), "paused readout {line:?} needs {c:?}");
+                seen += 1;
+            }
+        }
         for preset in 0..PRESETS.len() {
             t.set_preset(preset);
             for hz in DISPLAY_RATES {
@@ -922,6 +1015,10 @@ mod tests {
     #[test]
     fn the_readout_fits_the_viewport() {
         let mut t = TimeControl::new();
+        for (line, _) in t.readout(u32::MAX as u64) {
+            let w = crate::hud::text_width(&line) + 4;
+            assert!(w <= super::super::WIDTH as i32, "paused: {line:?} is {w}px wide");
+        }
         t.set_preset(6);
         t.set_display_hz(10);
         t.achieved = 1234.5;
@@ -939,7 +1036,7 @@ mod tests {
         assert_eq!(&PRESETS[..6], &[1, 2, 4, 16, 64, 256]);
         let mut t = TimeControl::new();
         t.set_preset(0);
-        assert_eq!(t.phase, Phase::Tending);
+        assert_eq!(t.phase, Phase::Running, "every stop on the ladder runs");
         for _ in 0..20 {
             t.faster();
         }
@@ -949,7 +1046,9 @@ mod tests {
             t.slower();
         }
         assert_eq!(t.requested, 1);
-        assert_eq!(t.phase, Phase::Tending);
+        // ...and the bottom of the ladder no longer drops out of the run: it
+        // is real time, which is a speed, not a stop.
+        assert_eq!(t.phase, Phase::Running);
     }
 
     #[test]

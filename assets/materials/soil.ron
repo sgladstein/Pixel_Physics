@@ -19,6 +19,12 @@
     water_capacity: 1000,
     // See Material::blast_resistance -- loose tilth, well under stone's 1.0.
     blast_resistance: 0.5,
+    // **What an ant makes of it when it digs.** Loose tilth worked into the
+    // wall of a gallery becomes `packedsoil`, which holds itself up -- see
+    // that file's header for why a tunnel in this material is gone in five
+    // frames without it. A property of the ground rather than a list in the
+    // digger: `snow` is diggable at 1.0 too and must not become packed soil.
+    packs_into: "packedsoil",
     // Three families of four tones, `family * 4 + tone`, keyed by the
     // region's aridity at genesis (`worldgen::passes::palette_family`).
     // Family 0 is exactly what this file shipped before families existed and

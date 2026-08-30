@@ -1089,6 +1089,24 @@ drift that two of these documents still reflect.**
   the owner's own opening premise — the ant *cannot* be fed over its birth
   cost, because its bank ceiling is the hunger line — and argues the lab wants
   that deadlock as its first puzzle where the outdoor game wants it fixed.
+- [evolution-lab-gui-physics-2026-08-30.md](evolution-lab-gui-physics-2026-08-30.md)
+  — **measurement + design, and it corrects the guide above in one place.**
+  Four owner questions: the lab's GUI, why ants have never dug a tunnel, how
+  far resolution can go, and a brainstorm. Two answers reverse their
+  questions. **Soil**: `burrow_probe` measures a dug gallery closing in **5
+  frames** and a chamber in **30**, against a stone control holding 100% at
+  every frame — and the guide's §2b declines the *structural scheduler*,
+  which powder never enters, while leaving `update.rs:631`'s unconditional
+  straight-down fall, which is what actually fills the tunnel. Raising
+  `friction_angle` cannot reach it. The fix is a self-supporting `packedsoil`
+  the ants lay as they dig, un-packed by water — which also answers the
+  guide's open question #10. **Resolution**: a creature is 2x1 because
+  `ant.ron` says `Chain(2)`; nine-cell bodies already ship as files and reach
+  **live 0** at 12,000 frames, because birth cost scales with the body
+  (4,400 at nine cells) and the bank ceiling does not (460). So the
+  good-looking-creature problem and Gate 0 are **the same problem**, and
+  §1a's incubator with a bigger dial is the answer to both. The render half
+  is separately free: 4x the pixels costs 1.13x.
 - [plant-evolution-design.md](plant-evolution-design.md) — **design, all
   nine §8 calls signed off 2026-08-19; partly implemented.** The plant
   ecology: litter, decay, grass and the creeper; §4a's register holds the
