@@ -22,6 +22,7 @@
 //! | `Space` | Tending ⇄ Running |
 //! | `Up` / `Down` | the speed dial, through the presets |
 //! | `1`-`6` | jump straight to a preset |
+//! | `F` | display rate: 60 / 30 / 20 / 10 Hz |
 //! | `Tab` | the stats page |
 //! | `WASD` / drag | pan; `-` / `=` zoom |
 //! | `R` | rebuild the box |
@@ -60,7 +61,16 @@ struct Handler {
     lab: Lab,
     last_frame: Instant,
     last_title: Instant,
+    /// Frames actually *drawn* per second, not passes through the loop.
+    ///
+    /// The distinction appeared the moment the display rate was decoupled:
+    /// with draws gated, the loop runs many passes per displayed frame, so a
+    /// per-pass figure reports a number nobody ever sees — and would read as
+    /// a healthy 300 fps on a lab drawing at 10 Hz. Measured against
+    /// `last_drawn`, which only advances on a pass that drew.
     fps: f32,
+    /// When a frame was last actually drawn. `None` until the first one.
+    last_drawn: Option<Instant>,
     cursor: Option<(i32, i32)>,
     held: Held,
     /// Real rendered frames left before a one-shot framebuffer dump, from
@@ -93,6 +103,7 @@ impl Handler {
             last_frame: Instant::now(),
             last_title: Instant::now(),
             fps: 0.0,
+            last_drawn: None,
             cursor: None,
             held: Held::default(),
             screenshot_countdown: std::env::var("PIXEL_PHYSICS_SCREENSHOT_AFTER_FRAMES")
@@ -112,7 +123,6 @@ impl Handler {
         let elapsed = now.duration_since(self.last_frame);
         self.last_frame = now;
         let dt = elapsed.as_secs_f32().max(1e-6);
-        self.fps += (1.0 / dt - self.fps) * 0.1;
 
         // The view pans on the same keys the sandbox scrolls with. Read from
         // held state rather than edges, and applied here rather than in
@@ -128,9 +138,19 @@ impl Handler {
             self.lab.renderer.pan(dir, dt.min(0.1), (WIDTH, HEIGHT), bounds);
         }
 
-        self.lab.advance(elapsed);
+        let advance = self.lab.advance(elapsed);
 
-        let render_error = match &mut self.pixels {
+        // **The display rate is decoupled from the frame loop**, and this is
+        // the mechanism behind the top of the dial. In Running, `advance`
+        // says which passes draw; the ones that do not spend their whole
+        // budget on ticks instead. Gate 3's call, and measured: dropping 60
+        // Hz to 20 Hz buys **2.6x** the world per second on a loaded box and
+        // 1.4x on a quiet one, because what it reclaims is the render's share
+        // of a contended frame.
+        let render_error = if !advance.draw {
+            None
+        } else {
+            match &mut self.pixels {
             Some(pixels) => {
                 self.lab.draw(pixels.frame_mut(), self.cursor);
                 if let Some(n) = self.screenshot_countdown {
@@ -154,9 +174,26 @@ impl Handler {
                 pixels.render().err().map(|e| format!("render failed: {e}"))
             }
             None => None,
+            }
         };
         if let Some(message) = render_error {
             return self.fail(event_loop, message);
+        }
+
+        // Skipping the draw also skips the vsync that was throttling this
+        // loop, so a dial the box can easily meet would spin a core between
+        // displayed frames. `idle` is non-zero only when no tick and no frame
+        // is due, and is capped at `time::MAX_IDLE` so a keypress is still
+        // answered promptly.
+        if advance.draw {
+            if let Some(prev) = self.last_drawn.replace(now) {
+                let gap = now.duration_since(prev).as_secs_f32().max(1e-6);
+                self.fps += (1.0 / gap - self.fps) * 0.1;
+            }
+        }
+
+        if !advance.idle.is_zero() {
+            std::thread::sleep(advance.idle);
         }
 
         if now.duration_since(self.last_title) >= Duration::from_millis(250) {
@@ -208,6 +245,7 @@ impl Handler {
             KeyCode::Digit4 => self.lab.time.set_preset(3),
             KeyCode::Digit5 => self.lab.time.set_preset(4),
             KeyCode::Digit6 => self.lab.time.set_preset(5),
+            KeyCode::KeyF => self.lab.time.cycle_display_rate(),
             KeyCode::Tab => self.lab.stats.toggle(),
             KeyCode::KeyR => self.lab.reset(),
             KeyCode::Minus => self.lab.renderer.adjust_zoom(-1),

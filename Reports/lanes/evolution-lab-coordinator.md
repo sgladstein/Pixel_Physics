@@ -87,13 +87,39 @@ things in it point straight at this bed:
    `scrambler`, are never planted by `LIFE_SPECIES`.
 
 **The lab plants `herb`.** So the cheapest route past the deadlock — a
-fruiting crop, no creature code — may already be sitting in this bed
-unmeasured. What is not established: that fruit actually *stands* (seeds set
-is a different quantity), that the lab's ants have a matched rather than a
-neutral gut, and that they can *find* it. #162 says plainly that the failure
-case there is a foraging problem rather than an economy one. Being measured
-by the measurement lane; the fix, if one is needed, belongs in a lab-only
-species file rather than in engine code, per guide §7a.
+fruiting crop, no creature code — may already be sitting in this bed.
+
+**And it is. Corrected 2026-08-30 by the stats lane, which measured it
+rather than inferring it from worldgen.** #162's *"no fruit or flower cell
+stands in any sampled world"* is a statement about **worldgen worlds**,
+where `LIFE_SPECIES` plants no fruiting species. It does not transfer to a
+hand-built herb bed, and the lab's own breeding-margin row says so:
+
+| bed | `ceiling − bar` | what the best standing mouthful is |
+|---|---|---|
+| ants only | **−880** | 120, the ant's own flesh — reproduces #162 exactly |
+| the lab bed | **−640** | **360**, which at a neutral gut implies a 1,440-worth flower standing |
+
+**A flower therefore stands in the lab bed, and that much holds.** What was
+inferred *from* it did not.
+
+**The "one mutation away" reading is withdrawn — the measurement lane ran
+it.** The inference was that `diet_yield` squares the gut mismatch, so a
+`gut_bias` drifted to −1 would draw the whole 1,440 from one mouthful and
+clear the bar outright. Measured rather than inferred, **with the matched
+gut the design guide asks for, an ant's bank tops out at 575 against a
+1,040 birth bar.** It does not clear. Ant births are **zero at every
+setting measured**, across a 45,000-frame run.
+
+So Gate 0 is *not* one heritable step away in this bed. The margin row is
+still a real and useful readout — it is how the flower was found at all —
+but a margin computed from the best *standing* mouthful is an upper bound
+on what an ant **could draw**, not a statement about what one **banks**,
+and the two differ by the hunger line. This is the repo's own recurring
+failure in miniature: a number that is arithmetically correct and answers a
+different question than the one asked looks exactly like a result. It was
+caught by a lane that *ran* the case instead of computing it, which is the
+whole argument for the positive control.
 
 ## Deliberately not being built yet
 
@@ -120,4 +146,16 @@ measured in it.
 - **Four agents in one container makes every timing untrustworthy.** Two
   byte-identical `ascii` runs have disagreed 2.42x under load here before
   (`Reports/measurement-under-contention.md`). Later rounds should run as
-  separate cloud sessions, one machine each.
+  separate cloud sessions, one machine each. Measured by the dial lane on
+  this very box: the same bed reached **1.7-2.0x at 60 Hz under load 16 and
+  3.4-4.0x under load 5**.
+- **This container is suspended between tool calls, so a background job
+  makes no progress while the session is idle.** Found by the dial lane
+  after it cost hours, and it explains a failure this session spent three
+  attempts on: `cargo test --lib` completed in 1,420 s when run alongside
+  active work and then hit the wall at 1,800 s and 2,400 s when left to run
+  while nothing else was happening. **A long job has to run in a foreground
+  call, or CI has to be the gate.** CI runs on branch pushes as well as on
+  pull requests, so pushing and reading the run is the reliable route --
+  and it is the *only* route for the full suite, which does not fit in one
+  foreground call at this build's `codegen-units = 1`.
