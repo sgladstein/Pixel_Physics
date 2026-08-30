@@ -1,0 +1,56 @@
+{
+  "id": "20260830T184356556Z-19553e",
+  "created": "2026-08-30T18:43:56Z",
+  "board": "creatures",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/creature-births-gate0",
+    "commit": "06762dea",
+    "agent": null,
+    "session_id": "24ab13b4-64ef-5d6d-9726-1fc800462b22",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "A colony that can breed digs a crater and halves the stand",
+  "question": "Is a bed that ends up looking like the right-hand picture the dynamic you want the lab to have, or has the colony gone too far?",
+  "context_md": "Ants have never reproduced in this engine. They do now — same bed, same 24,000 frames, same shipped ant, and the only difference between the two pictures is **whether there was food lying on the ground for them to find**.\n\nWhat I am unsure of is the *right-hand* picture, not the mechanism. A breeding colony strips the herb bed from 177 plants to 37 and excavates the pit in the middle. That may be exactly the grazer-versus-crop pressure the lab wants, or it may be a colony that eats its world and then dies with it.\n\nAlready measured, so please ignore: the ants do reproduce (generation 13), the food economy adds up, and nothing in the outdoor game changes visibly.\n\n**The still cannot show the ants** — your own note that ants read by their motion holds here, and the dark specks in the pit are them. Judge the *bed*, not the animals.",
+  "kind": "ab",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A — as it ships today",
+      "files": [
+        "20260830T184356556Z-19553e/000-bed-unfed.png"
+      ],
+      "caption": "nothing on the ground to find; the colony never breeds and dwindles",
+      "meta": {
+        "ants born": 0,
+        "ants alive at the end": 15,
+        "plants standing": 177,
+        "generations reached": 0
+      },
+      "focus": null
+    },
+    {
+      "label": "B — with food on the ground",
+      "files": [
+        "20260830T184356556Z-19553e/001-bed-fed.png"
+      ],
+      "caption": "food dropped by the harness near the nest; the colony breeds",
+      "meta": {
+        "ants born": 148,
+        "ants alive at the end": 136,
+        "plants standing": 37,
+        "generations reached": 13
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
