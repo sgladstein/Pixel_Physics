@@ -5,11 +5,11 @@
 
 | | |
 |---|---|
-| **head SHA at hand-off** | **`0c923dd`** — this note's own commit, so the tree is exactly what is described below |
+| **the tree to build against** | **`790af73`** — the last commit touching anything but this note. Everything after it on this branch edits only this file, so `origin/claude/creature-lane-b-vision-sizing` and `790af73` describe the same code |
 | the work | `18f79c6` — probe, report, index, instruments row |
 | this note | `cf80c08` |
 | `main` merged in | `00856c8` — the branch is **0 behind** |
-| re-measurement after that merge | `790af73` — the last commit touching anything but this note |
+| re-measurement after that merge | `790af73` |
 | PR | **#146**, https://github.com/sgladstein/Pixel_Physics/pull/146 |
 
 I had GitHub tools (`mcp__github__get_me` resolved), so I opened the PR
