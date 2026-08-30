@@ -72,6 +72,7 @@ pub mod chunk;
 pub mod clock;
 pub mod creature;
 pub mod decay;
+pub mod enclosure;
 pub mod evaporation;
 pub mod explosion;
 pub mod field;

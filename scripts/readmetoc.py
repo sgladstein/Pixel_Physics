@@ -75,6 +75,46 @@ DOC = Path(__file__).resolve().parent.parent / "README.md"
 # silent. A section may appear under several topics -- `Felling status` is
 # genuinely both plant work and structural work, and saying so once here is
 # cheaper than the reader discovering it twice.
+# Which game each topic belongs to, and the whole point of the column.
+#
+# **`README.md` is 71,561 tokens -- the largest document in this repository --
+# and `CLAUDE.md`'s routing table sends every agent to the table below
+# first.** With two games on one engine (the outdoor sandbox and the evolution
+# lab, `Reports/two-games-one-repo-2026-08-30.md`) a session working on one of
+# them was reading a topic map that could not tell it which entries were even
+# about its game. This column is the cheapest possible fix: it changes no
+# file layout, it is reversible in one commit, and it scopes the two routing
+# layers every agent is sent to before it opens anything else.
+#
+# **`engine` is the honest default and the largest class**, because the whole
+# argument for one repository is that plants, creatures, fire, liquids and the
+# sweep are the same code in both games. A topic is only marked `outdoor` or
+# `lab` when the *other* game demonstrably does not build a scene that reaches
+# it: the lab has no rock, no worldgen and no gnome, and the outdoor game has
+# no sealed box.
+#
+# **This is a routing hint, not an access rule.** Nothing stops a lab session
+# reading the worldgen sections; the column only says it will probably be
+# wasting its time. Getting one wrong costs a reader one section, which is why
+# it is safe to add now and refine later -- unlike a directory move, which
+# takes five non-recursive globs in `docscheck.sh` with it.
+GAME = {
+    "plants, trees and moss": "engine",
+    "creatures — worms and the ant colony": "engine",
+    "structural collapse, felling and rigid bodies": "outdoor",
+    "fire, heat and phase change": "engine",
+    "explosions, particles and debris": "outdoor",
+    "liquids and gases": "engine",
+    "powders and granular flow": "engine",
+    "the coarse field grid — pressure, heat, light": "engine",
+    "worldgen and world structure": "outdoor",
+    "the gnome (player character)": "outdoor",
+    "weather, sky and the clock": "engine",
+    "rendering, UI and tunables": "engine",
+    "performance and the parallel sweep": "engine",
+    "materials and the data schema": "engine",
+}
+
 TOPICS = {
     "plants, trees and moss": [
         "M16 status",
@@ -238,6 +278,25 @@ def validate(rows):
                     f"       and check `Reports/dead-ends.md` -- 47 of its entries address\n"
                     f"       README by section name and do not move themselves."
                 )
+    # A topic with no `GAME` entry would crash `render` with a `KeyError` at
+    # the moment somebody adds a topic -- a stack trace instead of a sentence.
+    # Reported here so the failure names itself, and so the *reverse* --
+    # a `GAME` entry for a topic that no longer exists -- is caught too, which
+    # is how a renamed topic silently keeps a stale game label.
+    for t in TOPICS:
+        if t not in GAME:
+            problems.append(
+                f"  topic {t!r} has no GAME entry\n"
+                f"    -> add it to GAME as 'engine', 'outdoor' or 'lab'. 'engine'\n"
+                f"       is the honest default: mark a topic for one game only when\n"
+                f"       the other never builds a scene that reaches it."
+            )
+    for t in GAME:
+        if t not in TOPICS:
+            problems.append(
+                f"  GAME names topic {t!r}, which is not in TOPICS\n"
+                f"    -> it was renamed or removed; repoint or drop the GAME entry."
+            )
     placed = {m for members in TOPICS.values() for m in members}
     for t, _ in rows:
         if t not in placed and t not in UNINDEXED:
@@ -305,8 +364,14 @@ def render(rows):
         f"[Status](#status), line {line_of.get('Status', '?')} — the *last* section in the",
         "file, not the first. Read it before concluding something is broken.",
         "",
-        "| Topic | Sections, primary first |",
-        "|---|---|",
+        "**Which game a topic belongs to** is the third column. `engine` is shared",
+        "by both and is most of the table -- that sharing is the whole argument for",
+        "one repository. `outdoor` and `lab` mark topics the other game never builds",
+        "a scene that reaches. It is a hint about where your time goes, not a rule",
+        "about what you may read.",
+        "",
+        "| Topic | Game | Sections, primary first |",
+        "|---|---|---|",
     ]
     for topic, members in TOPICS.items():
         cells = ", ".join(
@@ -314,7 +379,7 @@ def render(rows):
             for m in members
             if m in line_of
         )
-        out.append(f"| **{topic}** | {cells} |")
+        out.append(f"| **{topic}** | {GAME[topic]} | {cells} |")
 
     out += ["", END]
     return "\n".join(out)

@@ -137,6 +137,31 @@ concurrency:
 # 292s release tests, 398s debug tests, 9s clippy, 135s ascii, 239s
 # acceptance -- so roughly 18 minutes becomes roughly 9). If the compute
 # ever matters, a Rust build cache is the lever, not re-merging the jobs.
+#
+# **That lever is now pulled** (2026-08-30). It was worth pulling because the
+# gap between those local figures and CI is not the work, it is the rebuild:
+#
+#   job              local     CI   ratio
+#   release tests     292s   1164s   4.0x
+#   debug tests       398s   1159s   2.9x
+#   clippy              9s     47s   5.2x
+#   ascii             135s    203s   1.5x
+#   acceptance        239s    388s   1.6x
+#
+# **Clippy is the tell.** It only *checks* -- there is no codegen and no link
+# -- so nine seconds of real work becoming forty-seven is almost entirely
+# dependency compilation, and every one of these jobs was paying its own
+# copy of it from cold on every push. `Swatinem/rust-cache` keys on the
+# lockfile, the rustc version and the job, so the release and debug profiles
+# keep separate buckets and a `Cargo.lock` change invalidates cleanly.
+#
+# **What a cache must never do here is make a gate cheaper by making it
+# quieter.** It cannot: cargo's own fingerprinting decides what to rebuild,
+# and the cache only supplies artifacts cargo would otherwise have produced
+# itself. The failure this repo actually paid for -- `ascii` green because it
+# was `continue-on-error` in bulk -- is a gate that did not run, and nothing
+# here can cause that. Read the *timings* to judge whether it worked, and the
+# counters, as always, to judge whether the gates did.
 jobs:
   # Cheap, no toolchain, runs beside `test` rather than ahead of it. Asks one
   # question: does any other name for the trunk hold a commit `main` cannot
@@ -222,6 +247,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.98
+      - uses: Swatinem/rust-cache@v2
       - run: cargo test --release --locked
 
   test-debug:
@@ -236,6 +262,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.98
+      - uses: Swatinem/rust-cache@v2
       - run: cargo test --locked
 
   clippy:
@@ -246,6 +273,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.98
         with:
           components: clippy
+      - uses: Swatinem/rust-cache@v2
       - run: cargo clippy --all-targets --release --locked -- -D warnings
 
   ascii:
@@ -276,6 +304,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.98
+      - uses: Swatinem/rust-cache@v2
       - run: cargo run --release --example ascii --locked
 
   acceptance:
@@ -291,6 +320,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.98
+      - uses: Swatinem/rust-cache@v2
       - run: bash scripts/acceptance.sh
 
   worldgen:
@@ -324,6 +354,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.98
+      - uses: Swatinem/rust-cache@v2
       - run: bash scripts/worldgencheck.sh
 
   fmt:
@@ -344,6 +375,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.98
         with:
           components: rustfmt
+      - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --check
         continue-on-error: true
 

@@ -131,6 +131,53 @@ ROOT = Path(__file__).resolve().parent.parent
 ALWAYS_LOADED = ROOT / "CLAUDE.md"
 RECORD = ROOT / ".claude" / "README.md"
 
+# **Everything else that is loaded before a session acts, and the reason this
+# is not just `CLAUDE.md` any more.**
+#
+# A `.claude/rules/*.md` file **with no `paths:` frontmatter loads at launch
+# exactly as `CLAUDE.md` does**. So moving prose out of `CLAUDE.md` into such
+# a file saves nothing at all -- and until 2026-08-30 this script counted
+# `CLAUDE.md` alone, which means it would have reported that move as a 2x
+# reduction and turned `--gate` green for a change that moved no context.
+#
+# That is this project's worst-recurring failure aimed at its own instrument:
+# *a number that is arithmetically correct and answers a different question
+# than the one asked looks exactly like a result.* It is recorded here rather
+# than fixed quietly because the proposal that would have tripped it
+# (`Reports/two-games-one-repo-2026-08-30.md`) is still unbuilt, and this
+# script is what will be cited to say whether it worked.
+#
+# A rule **with** `paths:` is genuinely conditional and is counted separately,
+# because two live Claude Code bugs make that conditionality unreliable here:
+# #16299 (open, with a repro -- scoped rules loading regardless of the glob)
+# and #23569 (under a **git worktree** the filter is ignored, and `CLAUDE.md`
+# mandates working in worktrees). Until those are settled on this machine, the
+# honest reading of a scoped rule is "probably loaded", so it is reported and
+# excluded from the gate rather than silently assumed free either way.
+RULES_DIR = ROOT / ".claude" / "rules"
+
+
+def _rule_files():
+    """Every `.claude/rules/*.md`, split by whether it declares `paths:`.
+
+    Returns `(unconditional, scoped)`. Frontmatter detection is deliberately
+    literal -- a `paths:` key at the top level of a leading `---` block --
+    because guessing wrong in the permissive direction would under-report the
+    always-loaded cost, which is the one direction a budget must not err in.
+    """
+    uncond, scoped = [], []
+    if not RULES_DIR.is_dir():
+        return uncond, scoped
+    for f in sorted(RULES_DIR.glob("*.md")):
+        text = f.read_text(encoding="utf-8")
+        has_paths = False
+        if text.startswith("---"):
+            end = text.find("\n---", 3)
+            if end != -1 and re.search(r"^paths:", text[3:end], re.M):
+                has_paths = True
+        (scoped if has_paths else uncond).append((f, len(text.encode("utf-8"))))
+    return uncond, scoped
+
 # The audit's own datum: 65,182 B measured as 16,300 tokens. Named, not guessed.
 BYTES_PER_TOKEN = 4.0
 CEILING_TOKENS = 28_000
@@ -250,10 +297,19 @@ def corpus():
 
 def measure():
     text = ALWAYS_LOADED.read_text(encoding="utf-8")
-    nbytes = len(text.encode("utf-8"))
+    uncond, scoped = _rule_files()
+    rule_bytes = sum(b for _, b in uncond)
+    # Unconditional rule files are always-loaded in the same sense CLAUDE.md
+    # is, so they are inside the gated figure, not beside it.
+    nbytes = len(text.encode("utf-8")) + rule_bytes
     secs = sections(text)
     lookup = sum(b for n, _, b in secs if is_lookup(n))
     return {
+        "rule_files": uncond,
+        "scoped_rule_files": scoped,
+        "rule_bytes": rule_bytes,
+        "scoped_rule_bytes": sum(b for _, b in scoped),
+        "claude_md_bytes": len(text.encode("utf-8")),
         "bytes": nbytes,
         "tokens": tokens(nbytes),
         "lines": len(text.splitlines()),
@@ -298,7 +354,22 @@ def block(m):
 
 
 def report(m):
-    print(f"contextbudget: CLAUDE.md {m['bytes']:,} B / {m['lines']:,} lines")
+    if m["rule_files"] or m["scoped_rule_files"]:
+        print(
+            f"contextbudget: CLAUDE.md {m['claude_md_bytes']:,} B "
+            f"+ {len(m['rule_files'])} unconditional rule file(s) "
+            f"{m['rule_bytes']:,} B = {m['bytes']:,} B / {m['lines']:,} lines"
+        )
+        for f, b in m["rule_files"]:
+            print(f"    always  .claude/rules/{f.name}  {b:,} B  (~{tokens(b):,} tok)")
+        for f, b in m["scoped_rule_files"]:
+            print(
+                f"    scoped  .claude/rules/{f.name}  {b:,} B  (~{tokens(b):,} tok)"
+                f"  -- `paths:` declared, but see #23569: the filter is ignored"
+                f" inside a git worktree, which CLAUDE.md mandates"
+            )
+    else:
+        print(f"contextbudget: CLAUDE.md {m['bytes']:,} B / {m['lines']:,} lines")
     print(f"contextbudget: ~{m['tokens']:,} tokens always-loaded (bytes/4.0, estimate)")
     print(f"contextbudget: ceiling {CEILING_TOKENS:,}, reachable target ~{TARGET_TOKENS:,}")
     print()
