@@ -1,0 +1,57 @@
+{
+  "id": "20260830T030452516Z-daed5b",
+  "created": "2026-08-30T03:04:52Z",
+  "board": "worldgen",
+  "origin": {
+    "worktree": "/home/user/wg-relief",
+    "branch": "claude/worldgen-relief",
+    "commit": "5da8b46",
+    "agent": null,
+    "session_id": "2cb39797-d076-5699-b8bf-4494224deffe",
+    "user": null,
+    "cwd": "/home/user/wg-relief"
+  },
+  "title": "Contrast dropped again -- and where the floor is",
+  "question": "Is B far enough now, or further still? If further, I need to change what varies rather than how much -- see below.",
+  "context_md": "*'I would drop the contrast even more.'* This is another step, and about twice as big as the last one. A is what you just judged; B is now.\n\n**What moved and what did not.** The six rocks are pulled almost fully onto one shared hue, and the brightness gap *between* them is halved -- from a 114-point spread to 57. The brightness spread *inside* each rock is untouched, at exactly the value it has always had. That is deliberate and it is where the floor is: the four tones inside one rock are what makes a bed a bed, and the file's own history records that squeezing *those* made the layering disappear from the picture entirely. So I can keep pulling the rocks together for a while yet, but the moment I start on the tones the beds stop existing.\n\nBy the number: the colours covering half the ground have gone 14-15 (when you first complained) to 11-13 (last card) to **7-9** now. Before the six rocks landed it was 4-8. So B is close to where the world was before it had different rocks at all -- while still *having* them.\n\n**If B is still too much, tell me what is too much in it** and I will go after that rather than turning the dial again: my guess is the blue-grey blocks, which come from a rock I deliberately left alone because another lane's control measurements depend on it.",
+  "kind": "before_after",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A -- last card's B",
+      "files": [
+        "20260830T030452516Z-daed5b/000-canyon_pal.png"
+      ],
+      "caption": "canyon, seed 4",
+      "meta": {
+        "colours covering half the ground": 11,
+        "colours covering nine tenths": 40,
+        "distinct colours on screen": 179,
+        "brightness gap between the six rocks": 89
+      },
+      "focus": null
+    },
+    {
+      "label": "B -- another step down",
+      "files": [
+        "20260830T030452516Z-daed5b/001-pal2_on.png"
+      ],
+      "caption": "canyon, seed 4",
+      "meta": {
+        "colours covering half the ground": 7,
+        "colours covering nine tenths": 29,
+        "distinct colours on screen": 142,
+        "brightness gap between the six rocks": 57,
+        "brightness spread inside one rock": "28, unchanged"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
