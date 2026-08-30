@@ -201,4 +201,10 @@ where before the merge all forty sat on one bar.
 
 ## Head
 
-*(filled in at push)*
+`b07847b815f8a8ac11f1cb72ec9ec4ea4242a275` on
+`claude/creature-lane-g-panel`, which is `322ea66`'s merge of `main`
+(`3a86ff5`) plus `a25584f` (the panel) plus this note.
+
+Files touched: `src/app.rs`, `src/main.rs` (the `SHIFT+Y` arm only),
+`README.md`, `wiki/ants.md`, `Reports/lanes/creature-lane-g.md`. Nothing in
+`src/sim/`, nothing in `assets/`, nothing in `examples/`.
