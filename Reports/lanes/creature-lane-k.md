@@ -50,6 +50,28 @@ feeding, delivering population. **The extent lever is recoverable.**
   in this harness must set `pitch=` or their placement number is about the
   scene.
 
+## The sweep
+
+18 seeds x 3 arms x 12,000 frames, `terrain=world`, paired on the same seeds:
+
+| arm | built (med) | registry (med) | survival (med) | seeds at reg 0 |
+|---|---|---|---|---|
+| `Chain(2)` | 33.0 | 14.0 | **0.48** | 2 / 18 |
+| `Chain(3)` | 20.0 | 9.5 | **0.48** | 4 / 18 |
+| `Chain(3)` `pitch=4` | 21.5 | 9.0 | 0.44 | **0 / 18** |
+
+`built - deaths = registry` on **all 54 runs, zero exceptions**, and the head
+loss is universal — `head == registry` on every `Chain(2)` seed, `head == 0`
+on every `Chain(3)` seed. A three-cell colony survives at the two-cell rate.
+
+**Two warnings for whoever reads these numbers next.** At 12 of 18 seeds the
+same sweep read `Chain(3)` 0.60 against `Chain(2)` 0.50 — a longer body
+looking *better*. The full 18 says equal. Do not quote a partial sweep here.
+And the medians hide a real tail: `Chain(3)` reaches zero on twice as many
+seeds, spread runs 0 to 38 in both arms, and **`births 0` in every arm** —
+nothing in this scene reproduces at any body size, so "survives" means
+founders outliving the horizon, not a colony sustaining itself.
+
 ## What I did not do, and why
 
 - **No fix.** Out of scope by the brief, and `creature.rs` is another lane's.

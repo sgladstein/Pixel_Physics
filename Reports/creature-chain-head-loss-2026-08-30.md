@@ -217,7 +217,44 @@ still reports `live 0`, because that number is counting heads.
 
 ---
 
-## 5. What this does not settle
+## 5. The seed sweep
+
+§R3 says of itself: *"One seed, one horizon. No seed sweep was run, and no
+bar should be set on these numbers until one is."* 18 seeds x 3 arms x
+12,000 frames on `terrain=world`, every arm paired on the same seeds:
+
+| arm | built (med) | registry (med) | reg p10 | reg max | survival (med) | seeds at reg 0 |
+|---|---|---|---|---|---|---|
+| `Chain(2)` | 33.0 | 14.0 | 2 | 38 | **0.48** | 2 / 18 |
+| `Chain(3)` | 20.0 | 9.5 | 0 | 24 | **0.48** | 4 / 18 |
+| `Chain(3)` `pitch=4` | 21.5 | 9.0 | 3 | 22 | 0.44 | **0 / 18** |
+
+- **`built - deaths = registry` held on all 54 runs, zero exceptions.** The
+  identity is not a property of one seed.
+- **The head loss is universal.** `head == registry` on every `Chain(2)`
+  seed; `head == 0` on every `Chain(3)` seed in both pitch arms. There is no
+  seed on which a three-cell ant keeps a head, which is what makes this a
+  defect rather than a tendency.
+- **A three-cell colony survives at the same median rate as a two-cell one**
+  — 0.48 against 0.48. §R3's headline does not survive the sweep.
+
+**And the honest half.** An earlier reading of this sweep at 12 of 18 seeds
+put `Chain(3)` at 0.60 against `Chain(2)`'s 0.50 — a three-cell body
+*better* than a two-cell one. The full 18 says they are equal. The partial
+was not wrong, it was unrepresentative, and it is the same shape as the
+1.64x-over-six-seeds that `CLAUDE.md` records: a clean, pleasing number from
+a sample that had not finished. Quoted here because the tidy version was
+briefly believed.
+
+**What the sweep does not settle: the tail.** `Chain(3)` reaches registry 0
+on **4** seeds against `Chain(2)`'s 2, so a longer body is genuinely less
+robust even though its median is unchanged, and the spread is enormous in
+both arms (registry 0 to 38). Most of that is downstream of placing fewer
+founders — median built 33 -> 20. It is a real remaining cost of extent and
+no bar should be set on it from these numbers. The `pitch=4` arm reaching
+zero on **no** seed is the one thing wider spacing clearly buys.
+
+## 6. What this does not settle
 
 - **No fix is proposed or measured.** The duplicate-position write is one
   lane's to repair and one lane's to test; this document only shows it
@@ -229,9 +266,10 @@ still reports `live 0`, because that number is counting heads.
   deliberately left it; nothing here touches it, and it is a real cost of a
   longer body that will still be there once the head bug is gone.
 - **Whether a three-cell colony is *healthy* once counted correctly is a
-  separate question.** It survives — 16 of 34 on the world against 27 of 45
-  at two cells — but survival fraction is not viability, and `births 0` in
-  every arm means nothing in this scene reproduces at all, at any body size.
+  separate question.** It survives at the two-cell rate (§5) but goes to
+  zero on twice as many seeds, and **`births 0` in every arm** means nothing
+  in this scene reproduces at all, at any body size — so "survives" here is
+  a statement about founders outliving the horizon, not about a colony.
 
 ---
 
