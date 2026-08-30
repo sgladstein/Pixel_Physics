@@ -527,6 +527,17 @@ fn main() {
     let handicap = Handicap::parse(&handicap_name)
         .unwrap_or_else(|| panic!("arm={handicap_name} is not one of same|lethal|nobranch|norootbranch|early"));
     let seeds: u64 = arg("seeds").unwrap_or(18);
+    // **`seed0=` makes one seed an independently runnable unit**, so a long
+    // measurement can be driven as a sequence of short invocations whose
+    // results accumulate on disk.
+    //
+    // This is an environment constraint, not a scientific one: the container
+    // this runs in restarts (observed uptime of 3 minutes while a 12-seed
+    // 90,000-frame pair was in flight), and a single long run loses
+    // everything it had not printed. Chunked, a restart costs the one seed
+    // that was mid-flight. The per-seed lines this prints are the durable
+    // record; the pooled statistics at the end are recomputed from them.
+    let seed0: u64 = arg("seed0").unwrap_or(0);
     let founders: usize = arg("founders").unwrap_or(16);
     let frames: u64 = arg("frames").unwrap_or(30_000);
     let every: u64 = arg("every").unwrap_or(5_000);
@@ -607,7 +618,7 @@ fn main() {
     let mut traj_span: Vec<f64> = Vec::new();
     // How many individual world-runs ended while the share was still moving.
     let (mut unsettled, mut runs_total) = (0usize, 0usize);
-    for s in 0..seeds {
+    for s in seed0..(seed0 + seeds) {
         // The mirror pair: same world, arm assignment inverted, pooled.
         let mut a = Tally::default();
         let mut b = Tally::default();
