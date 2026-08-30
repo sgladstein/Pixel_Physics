@@ -661,38 +661,121 @@ to compare -- the run crashed. After, it censuses 80 systems over 16 seeds,
 
 ### 14.3 What a world with caves in it then said about the guards
 
-`CAVE_BOUNDS` at 640 rows meant five cave tests had **stopped seeing a
-cave**. Given a world where caves exist, four of them fail -- and three fail
-because the rebuild replaced the contract they state, which nothing noticed
-because they had no cave to state it about. Recorded here rather than
-repaired, because each is a decision about what the rebuilt generator
-promises:
+**`CAVE_BOUNDS` at 640 rows meant four guards had never once seen a cave
+system.** They were not merely quiet -- they were green, with their own
+"vacuous" counters satisfied, because the *vug* path survives in a world too
+shallow for a system. Measured at 2048x640 with the tests' own forced
+parameters:
+
+| | carved cells | widest roofed run | seal breaches | soil saturation |
+|---|---|---|---|---|
+| `rolling` seed 1 | **0** | -- | -- | -- |
+| `wetland` seed 4 | 8,488 -- **one geode vug** | 6 | 0 | unchanged |
+
+A vug is a sealed ellipse in intact rock, so it satisfies every one of these
+invariants trivially. That is what the guards were reading.
+
+**Given a world with a system in it, four fail -- and they fail at the
+shipped 8192x2560 too, so none of them is an artifact of the test world.**
+The right-hand column is the answer to the only question that matters here:
+
+| the guard's claim | its bar | 2048x640 (old) | 2048x1300 (new) | **8192x2560 (shipped)** |
+|---|---|---|---|---|
+| no roofed run of carved open cells over 36 | 36 | 0 / 6 | 106 | **56-294, on 8 of 8 `wetland` seeds** |
+| every carved cell was intact rock before | 0 | 0 | 13,224 | **7,492-18,793, on 8 of 8** |
+| nothing moves in the 120 frames after generation | 0 | 0 | 737, all water | **3,189-5,353, all but one water** |
+| no soil cell's saturation changes | exact | 0 | 8 drier on 1 seed in 5 | **4 drier on 1 seed in 8; 0 WETTER on any seed, at any size** |
+
+`cave_probe`'s own 16-seed census agrees on the first row independently: the
+**median** widest ceiling span at the shipped size is 156 on `rolling`, 138 on
+`terraced`, 153 on `canyon`. The 36 is exceeded fourfold by the typical world,
+not by an outlier.
+
+So each of the four is a real property of the shipped generator, and three of
+them are the rebuild doing what it was rebuilt to do:
 
 - **`a_forced_cave_world_keeps_every_roof_span_bounded`** restates
-  `MAX_CEILING_SPAN = 36` and the stone teeth that enforced it. **Neither
-  exists in the source any more** -- grep finds no `MAX_CEILING_SPAN`. The
-  rebuild's answer to a wide roof is pillars, and `cave_probe` reports a
-  *median* widest ceiling span of 156 across the presets. The test fails at
-  104.
-- **`a_forced_vault_world_is_sealed_and_arrives_at_rest`** asserts, off a
-  paired-build diff, that every changed cell was intact rock beforehand. The
-  rebuild deliberately breaks that: `take_touched_pockets` swallows a small
-  lens whole, and the mouth's lintel turns hillside soil to rock. Classified
-  over `rolling` seed 1, the diff's non-rock origins are `gravel -> empty`
-  4,292, `sand -> empty` 5,230, `soil -> stone` 131, plus flowstone and spar
-  grown where a pocket was taken. The property itself is now asserted **inside
-  the pass**, with `breakout` as the named exemption, on every world these
-  tests build.
+  `MAX_CEILING_SPAN = 36` and the stone teeth that dropped from a longer run.
+  **Neither exists in the source any more** -- grep finds no
+  `MAX_CEILING_SPAN`, and `carve_cave_void`, which the test names as the
+  enforcer, is gone too (three doc comments in `passes.rs` and three in
+  `tests/worldgen.rs` still point at it, one of them explaining the pass's
+  quadratic cost by "once per tooth dropped"). The rebuild's answer to a roof
+  wider than a bed can span is a **pillar**, and the owner's verdict on the
+  result was *"worlds better than our previous iterations."*
+- **`a_forced_vault_world_is_sealed_and_arrives_at_rest`**'s seal half asserts
+  off a paired diff that every changed cell was intact rock beforehand. The
+  breaches are entirely the rebuild's two declared exceptions, and they are
+  named in `cave.rs`'s module doc: `take_touched_pockets` swallowing a small
+  lens whole (`gravel -> empty` 4,471, `sand -> empty` 7,237 on `rolling`
+  seed 1 at the shipped size) and the mouth's lintel turning hillside to rock
+  (`soil -> limestone` 265, `soil -> sandstone` 336, `soil -> stone` 44).
+  The property itself is now asserted **inside the pass**, on every world
+  these tests build, with `breakout` as the named exemption -- and that
+  assertion is what caught 14.2's crash.
 - **`vault_water_cannot_wet_the_massif_around_it`** rests on "a chamber 40+
   rows into solid rock has nothing within reach it could wet". Every system
   now daylights and carries a lintel under soil, so the premise is gone.
-- **`a_cave_system_survives_a_pocket_lens_inside_its_envelope`** is the one
-  that looks like a real defect rather than a superseded contract: 1,206 cells
-  move within 16 cells of a carved system in 120 frames, and they are all
-  **water** (material 6). Volume is conserved -- 27,693 water cells before,
-  27,686 after -- so the cave's pool is not draining, it is **levelling**,
-  which means it is placed slightly off-level. Small, but it is the one thing
-  here the generator should simply do better.
+  **But the claim in its title still holds exactly**: across 8 shipped seeds
+  and 5 seeds at three test heights, **not one soil cell anywhere got
+  wetter**. What moves is 4-8 cells getting *drier* on about one seed in
+  eight -- a void near soil changing the moisture distance transform, which
+  is the opposite of the failure the test is named for. The assertion is
+  `assert_eq!` on saturation, which is stricter than the claim above it, and
+  the extra strictness is the whole of the failure.
+
+The fourth is the one where the guard is asking the right question:
+
+- **`a_cave_system_survives_a_pocket_lens_inside_its_envelope`**'s at-rest
+  half. 3,189-5,353 cells move within 16 of a carved system in 120 frames at
+  the shipped size, and they are **water**. It is not a drain and not a level
+  drop: measured on `rolling` seed 1, the pool goes **26,888 -> 26,881 cells
+  (-0.03%) with its top and bottom rows identical at 402 and 1094**. What
+  moves is ~3% of the cells, at the margins, redistributing fill -- and
+  `render.rs` dims a liquid toward black by fill, so those are the invisible
+  ones. The waterline itself is written level by construction, one global row
+  per system (`passes.rs`, "the aquifer waterline"), and the measurement says
+  that construction holds.
+
+  So the honest reading is a **fringe** effect rather than an off-level pool,
+  and `CLAUDE.md`'s own liquid rule is what the guard trips over: *measure
+  column volume, not the topmost cell -- near-empty cells fringe every
+  artifact*, and *prefer a continuous quantity over a count of bad cells*.
+  An exact-zero count of moved cells is the instrument that rule warns
+  against.
+
+### 14.4 And one failure that is neither the world nor the rebuild
+
+**`a_generated_world_grows_a_spring_that_actually_runs` is a per-seed bar on
+three hand-picked seeds, and W1 reshuffled which seeds land badly.** It builds
+`canyon` at the shipped size on seeds 1, 7 and 42 and asserts `drained > 0`
+per seed; seed 1 now reports `emitted 4500000 drained 0 throttled 0`, and
+still 0 at 3,600 frames, so it is not a budget.
+
+The rate did not move. Canyon, 17 seeds, 900 frames, worlds whose spring
+reaches no sink:
+
+| | |
+|---|---|
+| `PIXEL_PHYSICS_RELIEF=0` (pre-W1) | **2/17** -- seeds 4 and 9 |
+| W1 on | **3/17** -- seeds 1, 5 and 10 |
+
+So it is a pre-existing ~12% outcome that the seed choice used to miss, which
+is exactly the shape `CLAUDE.md` warns about: *which seed is worst reshuffles
+on any legitimate change, so a per-seed baseline gets rubber-stamped.* The
+same test already gates its plunge-pool claim as an order statistic for that
+reason; `drained` was left per-seed.
+
+**The mechanism, since it is worth having written down.** On seed 1 the
+outlet sits at (3915, 344), 18 columns *behind* the lip on the shelf side, and
+the two drain clusters go down the falling side at x 3894-3898 and 3770-3774.
+The water goes the other way: it pools at **x 4024-4109, 26 cells deep** --
+past the far end of the 40-column cut basin, on the shelf. `springs` requires
+the shelf to sit within `SPRING_BASIN_RIM` of the lip only across the basin's
+own width; beyond it the ground may fall away, and there the pool spills
+backwards instead of over the lip. Draining the other side is not the fix on
+its own -- the source basin is on that side, and a drain inside it would empty
+the source pool the same card asked for.
 
 ---
 
