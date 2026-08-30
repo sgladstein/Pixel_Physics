@@ -1,6 +1,7 @@
 # Powders
 
-*Current as of: 2026-08-23.*
+*Current as of: 2026-08-30, when soil gained a worked form that holds
+itself up.*
 
 Sand, gravel, ash, soil, and a handful of debris materials all behave the
 same basic way: they fall under gravity, and instead of spreading out flat
@@ -17,10 +18,36 @@ natural resting angle, the way real loose material does.
   steep but not knife-edged.
 - **Soil** rests at almost the same angle as sand, but reads as looser and
   softer — more like something you'd dig through than something that could
-  hold a structure up.
+  hold a structure up. Loose soil is exactly that, and it is meant to be: cut
+  a hole in a soil bank with a pick and the hole falls in behind you. That is
+  the right answer for a bank nobody has touched. What it used to mean, and
+  no longer does, is that *nothing in the world* could produce soil that
+  stands.
 - **Ash** is fine and light, and slumps almost flat wherever it lands. It's
   also close in weight to water, so a puff of ash dropped into a pool drifts
   and sinks slowly instead of plunging straight through the way sand does.
+
+- **Packed soil** is the same ground after something has worked it. It is
+  darker and denser than loose tilth, and the one thing that separates it
+  from every other powder here is that it does not fall — a cell of it holds
+  its own weight, so a wall of it can stand with nothing underneath and a
+  roof of it can span a hole. It is harder to dig than loose soil, though not
+  by much: whatever packed it can cut back through it, and a weaker digger
+  cannot.
+
+  **Nothing paints it and no weather makes it.** It is what a burrowing
+  animal leaves behind — an ant tamps the sides of a gallery as it cuts it,
+  and the tunnel stands because of that and for no other reason (see
+  [Ants](ants.md)). Take the tamping away and the same colony digs just as
+  hard and leaves a smooth slope with nothing inside it.
+
+  **And it is not permanent.** Packing works by grains pressed into contact,
+  so water undoes it: soak a wall past the point where the ground can hold
+  any more, and it goes back to loose soil and comes down like loose soil. A
+  gallery driven below the water table caves in outright; one that merely
+  floods loses the wettest of it — the shaft nearest the water — and keeps
+  the rest. So a burrow is not a permanent hole in the world. It is a dry
+  one, and staying dry is the whole of what keeps it standing.
 
 Two more materials in this family come from elsewhere in the world rather
 than being something you'd paint on purpose:

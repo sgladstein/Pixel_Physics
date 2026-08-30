@@ -2175,19 +2175,89 @@ fn nest_dig_scene() {
     for x in 16..40 {
         world.set(x, floor, Cell::new(nest, 0).with_attached(true));
     }
-    let soil_before = (0..w).flat_map(|x| (0..h).map(move |y| (x, y))).filter(|&(x, y)| world.get(x, y).material == soil).count();
+    // **Bank, not `soil`.** An ant now works the wall of the gallery it cuts
+    // into `packedsoil` (`creature::line_burrow`), so a census of the `soil`
+    // id alone would book every *lined* cell as excavated and report a dig
+    // rate several times the real one -- a number that is arithmetically
+    // correct and answers a different question, which `CLAUDE.md` names as
+    // this repo's worst-recurring failure. What the scene claims is that the
+    // ants removed material from the bank, so what it counts is the bank:
+    // both forms of the ground, whether worked or loose.
+    let packed = world.materials.id_of("packedsoil").expect("packedsoil");
+    let bank = |world: &World| -> usize {
+        (0..w)
+            .flat_map(|x| (0..h).map(move |y| (x, y)))
+            .filter(|&(x, y)| {
+                let m = world.get(x, y).material;
+                m == soil || m == packed
+            })
+            .count()
+    };
+    let soil_before = bank(&world);
     for i in 0..55 {
         world.plant_ant(20 + i % 10 * 2, floor - 1 - (i / 10));
     }
 
     run_colony(&mut world, 8000);
 
-    let soil_after = (0..w).flat_map(|x| (0..h).map(move |y| (x, y))).filter(|&(x, y)| world.get(x, y).material == soil).count();
+    let soil_after = bank(&world);
     let stone_floor: usize = (0..w).map(|x| usize::from(world.get(x, h - 1).material == material::STONE)).sum();
+    // **Standing void inside the bank footprint** -- the quantity a player
+    // would call a nest, and the one this scene never had. `digs` says the
+    // verb fired and `soil -> bank` says material left; neither can say
+    // whether anything is still *open*, and before the wall was lined the
+    // answer was almost nothing: a dug hole in loose soil closes in a
+    // handful of frames (`examples/burrow_probe.rs`).
+    //
+    // **Two numbers, because the obvious one is the wrong one.** `void`
+    // counts every empty cell in the footprint, and a colony that quarries
+    // the bank away from its open face produces a great deal of that without
+    // ever roofing anything: measured on this scene, the *ablated* build
+    // (`PIXEL_PHYSICS_BURROW_LINING=off`) leaves **more** raw void than the
+    // lined one, which reads as the feature making things worse and is an
+    // artifact of counting an open pit as a tunnel. `roofed` is the claim
+    // actually being made -- empty cells with ground standing over them --
+    // and it is the column to read.
+    let roofed_over = |world: &World, x: i32, y: i32| -> bool {
+        (0..y).rev().any(|uy| {
+            matches!(
+                world.materials.kind(world.get(x, uy).material),
+                material::MaterialKind::Powder | material::MaterialKind::Solid
+            )
+        })
+    };
+    let mut void = 0usize;
+    let mut roofed = 0usize;
+    for x in 40..160 {
+        for y in (floor - 30)..floor {
+            if world.get(x, y).material == material::EMPTY {
+                void += 1;
+                if roofed_over(&world, x, y) {
+                    roofed += 1;
+                }
+            }
+        }
+    }
+    let lined: usize = (0..w)
+        .flat_map(|x| (0..h).map(move |y| (x, y)))
+        .filter(|&(x, y)| world.get(x, y).material == packed)
+        .count();
     let st = world.creature_stats;
     println!("  digs {} | moves {} blocked {} deaths {}", st.digs, st.moves, st.moves_blocked, st.deaths);
-    println!("  soil {soil_before} -> {soil_after} ({} excavated), stone floor intact {stone_floor}/{w}", soil_before - soil_after.min(soil_before));
+    println!("  bank {soil_before} -> {soil_after} ({} excavated), stone floor intact {stone_floor}/{w}", soil_before - soil_after.min(soil_before));
+    println!("  standing void inside the bank {void}, of it roofed {roofed} | wall cells packed {} (standing {lined})", st.packed);
     assert!(st.digs > 0, "no ant ever dug -- the verb never fired, whatever the picture shows");
+    // The far-side effect counter on the same call `digs` counts. A renamed
+    // `packedsoil` or a dropped `packs_into` leaves every dig firing and
+    // every wall unlined, and only this reads 0 when that happens.
+    // Skipped when the lining is deliberately ablated, which is the control
+    // this scene's own numbers are read against -- otherwise the control run
+    // aborts here and never reaches the scenes after it.
+    if std::env::var("PIXEL_PHYSICS_BURROW_LINING").as_deref() != Ok("off") {
+        assert!(st.packed > 0, "ants dug and lined nothing -- Material::packs_into never resolved");
+        assert!(roofed > 0, "ants dug {} cells and left no roofed void at all -- no tunnel stood", st.digs);
+    }
+    assert!(void > 0, "the ants dug {} cells and left no standing void at all", st.digs);
     assert!(soil_after < soil_before, "soil should have been excavated: {soil_before} -> {soil_after}");
     assert_eq!(stone_floor as i32, w, "ants must not have dug through stone -- dig_force 1.0 is below stone's penetration_resistance");
 }
