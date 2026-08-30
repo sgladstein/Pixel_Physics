@@ -378,6 +378,11 @@ impl Handler {
             KeyCode::F1 => self.lab.act(Action::Panel(Panel::Plants)),
             KeyCode::F2 => self.lab.act(Action::Panel(Panel::Ants)),
             KeyCode::F3 => self.lab.act(Action::Panel(Panel::Box)),
+            // The parameters page. `P` rather than `F4`: it is the one page
+            // you open to *change* something rather than to read something,
+            // and it sits with the tools on the bar's top row for the same
+            // reason.
+            KeyCode::KeyP => self.lab.act(Action::Panel(Panel::Params)),
             KeyCode::KeyF => self.lab.time.cycle_display_rate(),
             KeyCode::Tab => self.lab.act(Action::Stats),
             KeyCode::KeyR => self.lab.act(Action::Reset),
