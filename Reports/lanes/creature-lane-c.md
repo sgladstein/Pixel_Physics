@@ -23,6 +23,7 @@ that barely moved is the colony-free planted pile — a measurement of
 materials and decay rather than of creature behaviour. That split is the
 thing worth carrying: before quoting a creature number, ask which kind it
 is.
+
 Cost fork taken in turn 1: **build the probe and answer the question** — the
 brief's question is binary and a writeup without a census cannot settle it.
 
@@ -47,67 +48,15 @@ at what is *in* the nest neighbourhood. A granary of any size funds zero
 births, so an allele set to "granary" expresses as *throw the surplus on the
 floor and never breed*.
 
-### The pile is real, and I measured it anyway — the numbers matter for what comes next
+### The numbers are in the report, not here
 
-- **It exists**, over 18 seeds at frame 18,000: median **11** free food
-  cells within 2 of the nest against **1** for the same world with no
-  colony, nonzero on 16 of 18 seeds against 11 of 18. **Paired within each
-  seed: +9 cells, 15 up / 2 down** — the cleanest of the four trees. Spread
-  is wide (0–32), so read the distribution, not a seed: the trajectory seed
-  reads **0** at that frame.
-- **The material is sharper than the count.** Summed over 18 seeds, a
-  colony's band holds `litter 117, leaf 27, moss 18, seed 36, corpse 20`; a
-  colony-free one holds `litter 95` and nothing else. The corpses are new
-  since #142 — 144 deaths across 18 colonies where there was 1. Litter is what *falls*; moss and
-  seed do not arrive by falling. That is the cleanest evidence the pile is
-  delivered rather than ambient, and it needed no statistics.
-- **It does not accumulate — and since #142 it is eaten to nothing.** On the
-  trajectory seed the pile peaks at 11 cells at frame 1,600 (196 of 607
-  deliveries made) and spends the back half of the run bouncing around zero
-  while `eats` climbs 0 → 5 → 55 → 165 and the colony loses 12 of 52 ants.
-  16,692 deliveries across 18 colonies against 138,115 pickups and 135,914
-  drops — **88% of what an ant puts down it puts down away from the nest**.
-- **It is a flow, not a store**, and this is the measurement I would keep if
-  only one survived. Tracking the band as a *set of positions*: `resident` —
-  positions occupied both at the first non-empty
-  sample and now — **0 for almost the whole run, ending at 1**, while
-  entries and exits track each other to within 4% (109 against 105). The
-  first pile forms by
-  frame 100 and is gone by 200. A standing ten and ten-in-transit are
-  identical to a count.
-- **The material keeps; the colony is the sink.** A hand-planted 40-cell
-  pile in a colony-free world settles to 22–23 and holds for 18,000 frames
-  on every one of 18 seeds. Put a colony on it and the paired difference is
-  **−10 cells, down on 11 seeds of 18** (−6 on 13/18 before #142, −14 on
-  15/18 after it — the sign is stable, the magnitude is not). The `litter`
-  half rots into soil; the `leaf` half does not (`leaf.ron` has no
-  `decays_into`). §5.3's own caveat about corpses keeping for ever is
-  confirmed.
-- **Peak worth is about one child.** Over 18 seeds the tight band peaks at
-  2,440 digestible = **2.35** of your new `birth_cost` of 1,040 — but the
-  colony-free control peaks at 1,307 = 1.26 on ambient litter alone, so the
-  colony-attributable part is **1.09 children**. Note the direction: the
-  pile got smaller and the priced figure went *up*, because #142 made a
-  birth cheaper faster than the larder shrank. Face value would have said
-  9.4: `diet_yield` at the ant's generalist gut keeps a quarter of a
-  plant food's `food_value`.
-
-### → Lane A, and this is the part that touches your 960
-
-Your finding is that the body stamp — `body_energy × cells` = 960 of a 1,040
-`birth_cost` — is what blocks a breeding colony, not the budget. **My answer
-makes that sharper rather than moot, and in your favour.** A birth part-paid
-from a nest store is one of the few routes by which that 960 stops having to
-be saved up inside one animal's bank. The granary is not available as that
-route today: `try_bud` charges `state.energy` and nothing reads the cells by
-the nest.
-
-And #142 has made the asymmetry visible in the source. You gave the
-**replete** end a real heritable slot (`TRAIT_BIRTH_GRANT`, authored −0.2,
-mutating every birth); the **granary** end still has no reader. Adding
-`store_in_body` beside `birth_grant` would put two alleles in one genome
-where one is connected to the simulation and the other is not — a harder
-version of the bug to find later than an inert weight on its own.
+`Reports/larder-reachability-2026-08-30.md` — §0 for the findings, §8a for
+the four-tree comparison. The three lines worth having without opening it:
+a colony holds a median **11** free food cells within 2 of its nest against
+**1** with no colony (**paired +9, 15 seeds up / 2 down**); the larder is a
+**flow** (entries track exits, nothing that was in the first pile is still
+there); and a hand-planted granary **persists in a colony-free world and
+does not survive next to ants** (paired −10, down on 11 seeds of 18).
 
 ### → Lane D, one thing you will want to know about #154
 
@@ -142,13 +91,16 @@ been neutral.
 1. **The re-pickup loop is in `act`'s ordering.** The eat/pick-up branch runs
    before the drop branch and is gated only on `carrying.is_none()`, so a
    sated ant beside its colony's own store picks a cell up. Nothing marks a
-   cell as stored. Measured sink rather than assumed: the planted pile ends
-   at 13 with a colony and 22 without, over a window in which `eats` never
-   exceeded 69 and `deaths` was 0 — so the removals are pickups, not meals.
-   `ant.ron`'s `nest_memory` comment already describes the visible form of
-   it (*"arriving, picking food up and then milling on the spot"*).
+   cell as stored. Measured rather than assumed, and **the measurement that
+   separates this sink from eating is reading the planted arms early**: with
+   and without a colony they stay within a cell or two until frame 3,000,
+   while `eats` is still 0, and only diverge once the colony gets hungry.
+   What removes cells before that can only be pickups. Over 18 seeds the
+   settled paired difference is −10 cells, down on 11 seeds. `ant.ron`'s
+   `nest_memory` comment already describes the visible form of it
+   (*"arriving, picking food up and then milling on the spot"*).
 2. **#142 moved the frame at which a colony starts eating from ~10,500 to
-   ~3,000, and gave it 134 deaths where there was 1.** At `start_energy: 200`
+   ~3,000, and gave it 144 deaths where there was 1.** At `start_energy: 200`
    the hunger threshold is 100, reached about three times sooner. Two
    consequences for anyone quoting a creature figure: a 6,000-frame harness
    now straddles the transition instead of sitting entirely before it, and
@@ -156,50 +108,43 @@ been neutral.
    peaks at frame 1,600 and is empty by 15,000, where before it was flat.
    Any creature number taken on a fixed budget wants its frame named.
 
-### The one I did walk into, and what it cost
+### Two instrument defects, recorded in the report rather than here
 
-My first summary printed a line headed *"paired, per-seed medians"* that
-computed `med(colony) - med(no ants)` — **a difference of medians, which
-discards the pairing the shared seed exists to provide.** It read +9 and
-+19 on the pre-merge tree. Taken properly, within each seed, the same data
-gave **+7 and +7** — an overstatement of about a third in both bands — and
-the wide-band figure turned out to rest on 10 seeds of 18 rather than on a
-population. Both versions are arithmetically correct; only one answers the
-question, which is the shape `CLAUDE.md` warns about, and the heading is
-what made it invisible. Fixing it cost a second 75-minute sweep, so the
-probe now prints the per-seed rows as well and no one has to pay that twice.
+A line headed *"paired, per-seed medians"* that was differencing two
+medians (report §2), and a claim written so tightly that a no-op refactor
+falsified it (§4a). Both cost a re-run; both are now in the probe's own
+output so nobody pays twice.
 
-### The trap I nearly walked into, for the record
+### PR — open, CI green, ready for you
 
-The world-wide free-food count in the colony arm is 355–517 while the larder
-holds 10. A census of every food cell in the world would have reported the
-larder as fifty times its size, which is verbatim one of `CLAUDE.md`'s six
-recorded instances (*a census counted every `Solid` in the world rather than
-the platform under test*). `mode=control` tests it rather than intending it:
-the same 40-cell pile planted at the far end of the world moves the world
-column and leaves every band at 0.
-
-The second one was quieter: face value 19,200 against 4,800 digestible for
-the same forty cells. `food_value` is what a mouthful is worth to anybody,
-`diet_yield` is what this gut extracts, and the ant's generalist gut keeps a
-quarter of a plant food. Every worth figure I quote is the digestible one.
-
-### Review card
-
-Blind A/B posted to board `creatures`, id `20260830T014759506Z-618977`: the
-colony's nest against a colony-free one at the same frame, daylight pinned,
-asking which has taken 1,449 deliveries, with the counts in each item's
-`meta`. Fire-and-forget — no verdict yet, and the finding above does not
-depend on one, since the card asks whether the pile is *visible* and §0.1 is
-about whether it is *spendable*.
-
-### PR
-
-I have the GitHub MCP tools, so the PR is opened from this lane:
 **[#155](https://github.com/sgladstein/Pixel_Physics/pull/155)**, head
-`06b7580` (this note's own commit lands on top of it). Coordinator owns the
-merge.
+**`3435378`** (this note's own commit lands on top of it, so take the branch
+tip rather than that SHA). **Coordinator owns the merge — I have not merged
+it.**
 
-Gates at the head: `cargo test --lib` 1089 passed / 0 failed / 54 ignored;
-`cargo +1.98.0 clippy --all-targets -- -D warnings` clean; `docscheck`
-clean; `mode=control`'s four assertions pass on every run.
+State at 2026-08-30 09:48 UTC: **CI green** on `3435378` (run 1431), no
+merge conflict, no review comments, base was `5013c1a`. Gates run here on
+that head: `cargo test --lib` **1105 passed / 0 failed / 54 ignored**;
+`cargo +1.98.0 clippy --all-targets -- -D warnings` clean at CI's pinned
+version; `docscheck` clean; `mode=control`'s four assertions pass on every
+run.
+
+**The branch is now behind `main` again and I have deliberately stopped
+chasing it.** `main` took three creature-affecting merges during this lane
+and each one moved the numbers; §8a of the report argues that the answer is
+to state findings at the strength that survives a tree change and name the
+tree, not to keep re-running. `BxF` is well under the 300 bar, so nothing
+about landing requires another merge. **If you merge `main` in before
+landing, do not assume the figures still hold** — `git diff HEAD origin/main
+-- src/sim/creature.rs src/sim/organism.rs assets/species` is the check, and
+if it is non-empty the census wants re-running before the report's numbers
+are quoted anywhere else.
+
+### Review card — still unanswered
+
+`20260830T014759506Z-618977`, board `creatures`, posted 01:47 UTC and
+unanswered as of 09:48. Fire-and-forget, and nothing in the finding depends
+on it: the card asks whether the pile is *visible*, the finding is about
+whether it is *spendable*. It was rendered on the first of the four trees,
+so its counts are pre-#142. If a verdict arrives after this lane closes,
+it belongs against §0.1's independence note rather than against any number.
