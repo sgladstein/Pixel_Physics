@@ -138,6 +138,17 @@ throws a pool of cold light down the wall beneath it that fades out before it
 reaches the floor, so where the lights are is something you read off the room
 rather than being told. Turn the light schedule down and the whole room dims
 with it — the pools go first and hardest, the walls keep enough to see by.
+Nothing else in the room goes warm as it dims, either: an unlit surface
+indoors settles toward the wall's own cool grey rather than toward whatever
+the sky outside is doing, so a dark laboratory reads as switched off and not
+as evening.
+
+What the fixtures are *not* is where the crop's light comes from. That still
+arrives through the shell from the world's own daylight, and how thick the
+shell is decides how much gets in — a ceiling three rows thicker than it
+needs to be costs nearly half the light on the bench, and the only sign of
+it is that everything growing there grows less.
+
 This is what the sealed laboratory of the second game is made of; the
 outdoor world never declares itself a room and is drawn exactly as it always
 was.

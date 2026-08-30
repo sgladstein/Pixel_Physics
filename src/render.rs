@@ -4720,7 +4720,18 @@ impl Renderer {
         // the top of the range and the darkening barely touches it. The one
         // thing that emits is the one thing that stays bright, which is the
         // behaviour a special case would have had to fake.
-        let mut rgb = sky::apply_light(rgb, self.daylight, self.sky.ambient());
+        //
+        // **Indoors the ambient is the room's, not the sky's.** `apply_light`
+        // tints an unlit surface toward whatever the sky is casting, which is
+        // warm at dusk and cold at night — correct outdoors and wrong under a
+        // ceiling, where turning the grow lights down made the soil and the
+        // walls go sepia as though the sun were setting on them through a
+        // stone roof. A room dims toward its own cool grey instead.
+        let ambient = match &self.interior {
+            Some(interior) => interior.ambient(),
+            None => self.sky.ambient(),
+        };
+        let mut rgb = sky::apply_light(rgb, self.daylight, ambient);
 
         // Translucency, after the light and not before it: `background_at`
         // returns an already-lit colour, so blending first would light the
@@ -5911,7 +5922,7 @@ mod tests {
         let particles = ParticleSystem::new();
         let touched = HashSet::new();
         let mut r = Renderer::new();
-        let mut shot = |r: &mut Renderer, world: &World| {
+        let shot = |r: &mut Renderer, world: &World| {
             let mut buf = vec![0u8; 200 * 200 * 4];
             r.draw(world, &particles, &touched, &mut buf, (200, 200), true);
             buf

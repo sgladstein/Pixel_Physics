@@ -919,6 +919,8 @@ pub struct Interior {
     left_x: i32,
     /// Per column: how much of the lit tone this column gets, `0..=255`.
     cols: Vec<u8>,
+    /// What an unlit surface in here is tinted toward. See [`Interior::ambient`].
+    ambient: [u8; 3],
 }
 
 impl Interior {
@@ -985,7 +987,7 @@ impl Interior {
         for x in min_x..=max_x {
             cols.push((enclosure.lamp_weight(x) * 255.0).round().clamp(0.0, 255.0) as u8);
         }
-        Self { top_y, rows, left_x: min_x, cols }
+        Self { top_y, rows, left_x: min_x, cols, ambient: to_u8(scale(WALL_BOTTOM, wall_scale)) }
     }
 
     /// The interior's colour at a world position.
@@ -1011,6 +1013,23 @@ impl Interior {
         }
         let mix = |a: u8, b: u8| (((a as u16) * (255 - w) + (b as u16) * w) / 255) as u8;
         [mix(dim[0], lit[0]), mix(dim[1], lit[1]), mix(dim[2], lit[2]), 255]
+    }
+
+    /// What an unlit surface in this room is tinted toward.
+    ///
+    /// `apply_light` pulls a dimming surface toward the ambient it is given,
+    /// and outdoors that is the sky — warm at dusk, cold at night. Under a
+    /// ceiling it must not be: turning the grow lights down tinted the soil
+    /// and the walls sepia, as though a sun were setting on them through a
+    /// stone roof. A room's ambient is the room, so this is the wall's own tone
+    /// at the bench, and a dark lab reads as unlit rather than as evening.
+    ///
+    /// Stored rather than read back off `rows`, which would be one line and
+    /// the wrong colour: the last row of that table is *below* the bench and
+    /// is `EARTH_DARK`, so a "take the bottom row" ambient would tint the
+    /// whole room warm — the exact defect this exists to remove.
+    pub fn ambient(&self) -> [u8; 3] {
+        self.ambient
     }
 
     /// What a repaint has to notice. Same job as [`Sky::key`]: a room whose
