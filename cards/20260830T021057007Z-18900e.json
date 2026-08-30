@@ -1,0 +1,58 @@
+{
+  "id": "20260830T021057007Z-18900e",
+  "created": "2026-08-30T02:10:57Z",
+  "board": "creatures",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/creature-lane-b-vision-sizing",
+    "commit": "e7b72e7",
+    "agent": null,
+    "session_id": "207227ce-4f2b-56ea-9900-4f0738ba4db2",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "What a hunting beetle could see, and what the ground hides",
+  "question": "One cell of eye height turns a third of the blocked sight lines green. Which of these reads right for an insect hunting on a forest floor — eye on the deck, or eye a cell up?",
+  "context_md": "Sizing a sight sense before it is built (E15). Green = beetle can see that ant; dark red = the line is stopped by something; the red dot is the cell that stopped it.\n\n**Most blocked lines are stopped at their first step**, by a seed or a leaf lying right beside the beetle — so they draw as a dot rather than a line, and blocking looks rarer in the picture than it is. The numbers below are the real count.\n\nWhat I already measured, 18 world seeds: over the whole world, terrain stops **28%** of beetle-to-ant lines at eye level and **9%** one cell up. What stops them is litter, seeds, corpses and soil — floor clutter, not hills or trunks.\n\nWhat I am unsure of is whether a beetle that sees over its own litter is right, or whether being blinded by the debris it walks through is the more satisfying animal.",
+  "kind": "ab",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A — eye on the ground",
+      "files": [
+        "20260830T021057007Z-18900e/000-sight_eye0.png"
+      ],
+      "caption": "sight line traced head to head",
+      "meta": {
+        "ants this beetle can see": 21,
+        "ants hidden from it": 29,
+        "how far it sees": "64 cells",
+        "beetles in frame": 5,
+        "ants in frame": 50
+      },
+      "focus": null
+    },
+    {
+      "label": "B — eye one cell up",
+      "files": [
+        "20260830T021057007Z-18900e/001-sight_eye1.png"
+      ],
+      "caption": "same world, same instant, eye lifted one cell",
+      "meta": {
+        "ants this beetle can see": 32,
+        "ants hidden from it": 18,
+        "how far it sees": "64 cells",
+        "beetles in frame": 5,
+        "ants in frame": 50
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
