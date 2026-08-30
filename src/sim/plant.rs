@@ -1469,9 +1469,9 @@ fn set_seed(world: &mut World, x: i32, y: i32, parent_id: u16, seed_cost: f32, r
 /// sequence *choose a spot, draw a shade, mutate the genome* exactly where it
 /// was. The drop path has no spot draw at all: a fruit lets go where it hangs.
 fn bear_seed_at(world: &mut World, sx: i32, sy: i32, parent_id: u16, seed_cost: f32, seed_material: material::MaterialId, rng: &mut Rng) -> bool {
-    let Some((species, draws, generation, parent_alleles, parent_fates)) = world
+    let Some((species, draws, generation, parent_alleles, parent_fates, parent_lineage)) = world
         .organism(parent_id)
-        .map(|s| (s.species, s.genotype_draws, s.generation, s.alleles, s.fates))
+        .map(|s| (s.species, s.genotype_draws, s.generation, s.alleles, s.fates, s.lineage))
     else {
         return false;
     };
@@ -1546,6 +1546,12 @@ fn bear_seed_at(world: &mut World, sx: i32, sy: i32, parent_id: u16, seed_cost: 
         // every rule a little would smear a population into one cloud instead
         // of letting a morph hold together between excursions.
         state.fates = parent_fates;
+        // **The lineage label rides with the genome and is never mutated.**
+        // It names the founder this descent came from, which is what makes a
+        // descendant attributable to an arm in `examples/selection_arena.rs`
+        // and what `plant-rule-drift-observed-2026-08-29.md` §5 records as
+        // missing outright: "No lineage was followed individually."
+        state.lineage = parent_lineage;
         for (locus, allele) in state.alleles.iter_mut().enumerate() {
             if rng.chance(organism::DISCRETE_MUTATION_CHANCE) {
                 let n = organism::LOCUS_ALLELES[locus].max(1);
@@ -5014,17 +5020,36 @@ fn break_enabled() -> bool {
     *ON.get_or_init(|| !matches!(std::env::var("BREAK").as_deref(), Ok("off")))
 }
 
-/// The most overloaded cell in this plant lets go.
+/// The overloaded tissue in this plant lets go, one cell at a time, until
+/// nothing is over its strength.
 ///
-/// **One cell, not every cell that is over its strength, and that is the
-/// physics rather than a work bound.** A beam fails at its weakest section,
-/// and the instant it does the load path is a different load path — what was
-/// carrying the crown a moment ago is now carrying nothing, and cells that
-/// were nowhere near failing may be the next to go. Failing every
-/// over-strength cell in one pass would shatter a trunk along its whole
-/// length simultaneously, which is a stick of dynamite rather than a snap.
-/// Re-evaluating after each break is therefore required for the answer to be
-/// right, not a way of doing less work.
+/// **One cell at a time, re-evaluated after each — but all within this
+/// tick, and that correction is what made breaking visible at all.**
+///
+/// A beam fails at its weakest section, and the instant it does the load
+/// path is a different load path: what routed through that cell now routes
+/// through its neighbours, which may not be able to hold it either. Failing
+/// every over-strength cell in one pass would shatter a trunk along its
+/// whole length simultaneously, which is dynamite rather than a snap. So the
+/// loop is genuinely one-at-a-time.
+///
+/// **The first version stopped after one and waited for the next organism
+/// tick**, on the reasoning that re-evaluation is required — true — without
+/// asking *when*. Measured, and it is the difference between a break and a
+/// blemish: a limb carrying 820 units through a **section of 1** snapped,
+/// its load rerouted through the crown's other eight-connected paths, and
+/// only sixteen cells came away. The next cell in the member went ~450
+/// frames later, the one after that ~1,500 frames after that. Nothing ever
+/// fell. The owner's reading of a sheet of it: *"nothing falls over or
+/// breaks... some are disintegrating a little"* — which is exactly what a
+/// break dribbled out over minutes looks like. A real break propagates at
+/// the speed of sound in wood.
+///
+/// **It terminates because each pass destroys a cell**, so the loop is
+/// bounded by the plant's own size and cannot spin: the field is recomputed
+/// from a strictly smaller organism every time. Exhausting it means every
+/// remaining cell is over its strength, which is a plant that has entirely
+/// failed — an answer, not a budget running out.
 ///
 /// **Ranked by how far over it is, not by raw stress**, because `strength`
 /// is per material and a stand is several materials at once. A leaf at twice
@@ -5036,7 +5061,7 @@ fn break_enabled() -> bool {
 /// leaned as far as it can is what genuinely cannot hold — which is why
 /// grass bends and never breaks, and why these are one mechanism read
 /// through two constants rather than two mechanisms.
-fn break_under_load(world: &mut World, _organism_id: u16, field: &std::collections::HashMap<(i32, i32), CellStress>) {
+fn break_under_load(world: &mut World, organism_id: u16, field: &std::collections::HashMap<(i32, i32), CellStress>) {
     if !break_enabled() {
         return;
     }
@@ -5059,30 +5084,51 @@ fn break_under_load(world: &mut World, _organism_id: u16, field: &std::collectio
     // tuple. The lever this rule pushes on is the most variable heritable
     // thing a tree has, and density is not wasted either way: it still
     // scales the span rule.
-    let mut worst: Option<((i32, i32), f32)> = None;
-    for (&at, s) in field {
-        let strength = world.materials.get(world.get(at.0, at.1).material).strength;
-        // **A positive guard, not a negated one**, and both halves of that
-        // matter. `>` rather than `>=` keeps the infinite default meaning
-        // unbreakable even if a stress ever overflows to infinity; asking it
-        // the right way round rather than as `!(a > b)` keeps a `NaN` out —
-        // it compares false against everything, so it falls through here and
-        // would pass a `<=` test. (`clippy::neg_cmp_op_on_partial_ord`, which
-        // 1.98 rejects and 1.94 accepts.)
-        if s.stress > strength {
-            let over = s.stress / strength;
-            // Sorted by `(over, y, x)` so a tie is broken by the world rather
-            // than by the hash order -- same-build determinism is required,
-            // and `field` is a `HashMap`.
-            if worst.is_none_or(|(w_at, w)| (over, at.1, at.0) > (w, w_at.1, w_at.0)) {
-                worst = Some((at, over));
+    let probe = std::env::var("SNAP_PROBE").as_deref() == Ok("1");
+    // Owned, because the loop below recomputes it from a world it has just
+    // changed. The caller's field is used for the first pass so an unbroken
+    // plant -- every plant, nearly every tick -- pays nothing extra at all.
+    let mut current = None;
+    loop {
+        let field = current.as_ref().unwrap_or(field);
+        let mut worst: Option<((i32, i32), f32)> = None;
+        for (&at, s) in field {
+            let strength = world.materials.get(world.get(at.0, at.1).material).strength;
+            // **A positive guard, not a negated one**, and both halves of
+            // that matter. `>` rather than `>=` keeps the infinite default
+            // meaning unbreakable even if a stress ever overflows to
+            // infinity; asking it the right way round rather than as
+            // `!(a > b)` keeps a `NaN` out -- it compares false against
+            // everything, so it falls through here and would pass a `<=`
+            // test. (`clippy::neg_cmp_op_on_partial_ord`, which 1.98 rejects
+            // and 1.94 accepts.)
+            if s.stress > strength {
+                let over = s.stress / strength;
+                // Sorted by `(over, y, x)` so a tie is broken by the world
+                // rather than by the hash order -- same-build determinism is
+                // required, and `field` is a `HashMap`.
+                if worst.is_none_or(|(w_at, w)| (over, at.1, at.0) > (w, w_at.1, w_at.0)) {
+                    worst = Some((at, over));
+                }
             }
         }
-    }
-    let Some(((x, y), _)) = worst else { return };
-    let sites = crate::sim::structural::snap_organism_cell(world, x, y);
-    for site in sites {
-        world.schedule_active_site(site);
+        let Some(((x, y), over)) = worst else { return };
+        if probe {
+            let s = field[&(x, y)];
+            eprintln!(
+                "[snap] ({x},{y}) stress {:.0} over strength by {over:.2}x, section {} carrying {:.1}",
+                s.stress, s.section, s.carried
+            );
+        }
+        let sites = crate::sim::structural::snap_organism_cell(world, x, y);
+        for site in sites {
+            world.schedule_active_site(site);
+        }
+        // The cell is gone, so the field that described it is stale in the
+        // one way that matters: everything that routed through it now routes
+        // somewhere else, at a stress this pass has not seen. Recomputed from
+        // a strictly smaller organism, which is what bounds the loop.
+        current = Some(stress_field(world, organism_id));
     }
 }
 
@@ -8300,9 +8346,21 @@ impl World {
         // At the slot ceiling nothing is planted -- see `push_organism`.
         // After the emptiness check above, so a refusal and an occupied
         // cell are the same silent no-op from the caller's side.
+        // **A founder claims a lineage label**, exactly as `plant_creature_
+        // seed` does for animals. Until 2026-08-29 only creatures did, so
+        // every plant in every world carried `lineage == 0` and the field's
+        // own promise -- "copied unchanged from parent to child at every
+        // birth, so a whole clonal line shares one number" -- was true for
+        // half the kingdom. Nothing was wrong with the mechanism; plants
+        // simply never entered it, which is the channel-with-no-writer shape
+        // `CLAUDE.md` names.
+        let lineage = self.claim_lineage();
         let Some(organism_id) = self.push_organism(moss_species) else {
             return;
         };
+        if let Some(state) = self.organism_mut(organism_id) {
+            state.lineage = lineage;
+        }
         let aux = organism::pack_cell_type(CellType::GrowingTip);
         self.set(x, y, Cell::new(moss_material, shade).with_organism_id(organism_id).with_aux(aux));
         // Moss skips the `Seed` stage entirely, so it has no germination to
@@ -8352,9 +8410,15 @@ impl World {
         // At the slot ceiling nothing is planted -- see `push_organism`.
         // `false` is the same answer this already gives for an occupied
         // cell, so every caller's existing handling covers it.
+        // A founder claims a lineage label -- see `plant_moss_seed`.
+        // Claimed before `push_organism` because it borrows `self`.
+        let lineage = self.claim_lineage();
         let Some(organism_id) = self.push_organism(tree_species) else {
             return false;
         };
+        if let Some(state) = self.organism_mut(organism_id) {
+            state.lineage = lineage;
+        }
         let aux = organism::pack_cell_type(CellType::Seed);
         self.set(x, y, Cell::new(seed_material, shade).with_organism_id(organism_id).with_aux(aux));
         // Checked often while it is still falling -- see SEED_TICK_INTERVAL.
@@ -8564,10 +8628,20 @@ mod tests {
         { let f = stress_field(&w, id); break_under_load(&mut w, id, &f); }
         let gone: Vec<(i32, i32)> =
             cells.iter().map(|&(at, _)| at).filter(|&(x, y)| w.get(x, y).organism_id() != id).collect();
-        assert_eq!(gone.len(), 1, "exactly one cell gives way at a time, and it broke {gone:?}");
-        let (bx, by) = gone[0];
-        assert_eq!(by, 90, "the break must be on the arm, not up the stem: {gone:?}");
-        assert!(bx <= 55, "the arm must break near its root at x=51, not out at its tip x=69: it broke at x={bx}");
+        assert!(!gone.is_empty(), "the arm was over its strength and nothing gave way");
+        // **Where, not how many.** An earlier version asserted exactly one
+        // cell, which was the old "one snap then wait for the next organism
+        // tick" behaviour rather than a property worth having -- and holding
+        // it made a break dribble out over minutes instead of propagating.
+        // See `break_under_load`. What must stay true is that the failure is
+        // at the arm's root: every cell that gave way is on the arm, and the
+        // innermost of them is near where it leaves the stem.
+        assert!(gone.iter().all(|&(_, y)| y == 90), "the break must be on the arm, not up the stem: {gone:?}");
+        let innermost = gone.iter().map(|&(x, _)| x).min().expect("a break");
+        assert!(
+            innermost <= 55,
+            "the arm must let go near its root at x=51, not out at its tip x=69: innermost break at x={innermost}"
+        );
     }
 
     /// **The plan's second break bar: a snow-loaded crown snaps its own
@@ -8617,10 +8691,14 @@ mod tests {
         );
         anchor_support(&mut w, id);
         { let f = stress_field(&w, id); break_under_load(&mut w, id, &f); }
-        assert_eq!(w.structural_failures.snapped_under_load, 1, "the loaded crown must snap exactly one cell");
+        // A count, not an exact one: the break propagates within the tick
+        // until nothing is left over its strength, so how far it runs is a
+        // property of the load rather than of the rule. The bar is that the
+        // loaded crown gives way at all and the bare one above did not.
+        assert!(w.structural_failures.snapped_under_load > 0, "the loaded crown must snap");
         let broken: Vec<(i32, i32)> =
             cells.iter().map(|&(at, _)| at).filter(|&(x, y)| w.get(x, y).organism_id() != id).collect();
-        assert_eq!(broken.len(), 1, "one cell gives way at a time: {broken:?}");
+        assert!(!broken.is_empty(), "and cells must actually be gone from the plant");
     }
 
     /// **Nothing breaks that has not opted in**, which is what keeps this
@@ -10947,6 +11025,64 @@ The night factor belongs on income only -- see NIGHT_INCOME_FLOOR"
             "a child must inherit its parent's production rule. At FATE_MUTATION_CHANCE this draw does not \
              mutate, so any difference here is the table being re-read from the species rather than inherited \
              -- which is exactly the pre-change behaviour wearing the new field's name"
+        );
+    }
+
+    /// **A plant founder gets a lineage label, and its seed inherits it.**
+    ///
+    /// The writer-and-reader check for a channel that had a reader and no
+    /// writer on the plant side: `OrganismState::lineage` has existed and
+    /// been documented as *"copied unchanged from parent to child at every
+    /// birth"* since the creature line landed it, and until 2026-08-29 no
+    /// plant ever claimed one, so every plant in every world read 0 — the
+    /// value the field's own doc reserves for "not descended from any
+    /// founder". A census built on it would have reported one giant lineage
+    /// containing the entire flora and been arithmetically correct.
+    ///
+    /// Asserts all three properties, because any two of them can hold while
+    /// the channel is still useless: founders are non-zero, two founders
+    /// differ, and a bred seed carries its parent's label rather than a
+    /// fresh one.
+    #[test]
+    fn a_plant_founder_claims_a_lineage_and_its_seed_inherits_it() {
+        let mut w = test_world();
+        w.seed = 909;
+        let stone = material::STONE;
+        for x in 40..60 {
+            w.set(x, 60, Cell::new(stone, 0));
+        }
+        assert!(w.plant_tree_species(45, 59, "herb"), "test setup: the first founder must plant");
+        assert!(w.plant_tree_species(55, 59, "herb"), "test setup: the second founder must plant");
+        let founders: Vec<u16> = (40..60).filter_map(|x| Some(w.get(x, 59).organism_id()).filter(|&id| id != 0)).collect();
+        assert_eq!(founders.len(), 2, "test setup: expected exactly two founder organisms on the shelf");
+
+        let a = w.organism(founders[0]).expect("live").lineage;
+        let b = w.organism(founders[1]).expect("live").lineage;
+        assert_ne!(a, 0, "a founder must claim a lineage label; 0 means it never entered the mechanism");
+        assert_ne!(b, 0, "a founder must claim a lineage label; 0 means it never entered the mechanism");
+        assert_ne!(a, b, "two founders must get different labels, or every plant is one lineage");
+
+        // The parent needs a body to bear from, as in the test above.
+        let parent = founders[0];
+        let wood = w.materials.id_of("wood").expect("wood");
+        place(&mut w, (45, 58), wood, parent, CellType::MatureBody, (4.0, 0.0));
+        let mut rng = rng::stream(5, 6, 7, 8);
+        assert!(set_seed(&mut w, 45, 58, parent, 0.2, &mut rng), "the parent must manage to bear a seed");
+
+        let child = (35..70)
+            .flat_map(|x| (40..70).map(move |y| (x, y)))
+            .filter_map(|(x, y)| {
+                let c = w.get(x, y);
+                (c.organism_id() != 0 && c.organism_id() != parent && c.organism_id() != founders[1])
+                    .then(|| c.organism_id())
+            })
+            .next()
+            .expect("the seed created a child organism");
+        assert_eq!(
+            w.organism(child).expect("live").lineage,
+            a,
+            "a seed must carry its parent's lineage label. A fresh label here would make every birth its own \
+             lineage and the share statistic meaningless; 0 would mean the copy never happens for plants"
         );
     }
 

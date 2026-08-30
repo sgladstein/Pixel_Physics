@@ -135,7 +135,10 @@ fn main() {
     // against a 1,860 bar. A debug readout that is a function of the wrong
     // quantity is the failure this project has paid for twice; the
     // authority is the measured `richest bank` below, and this is the
-    // arithmetic that has to agree with it.
+    // arithmetic that has to agree with it -- and **measured 2026-08-29, it
+    // does not**: 616 banked against 540 printed. The two channels it misses
+    // are named at the readout further down; the authority is still the
+    // measurement, which is the point.
     let gut = def.traits[pixel_physics::sim::organism::TRAIT_GUT_BIAS];
     let best_mouthful = (0..world.materials.len())
         .map(|i| pixel_physics::sim::material::MaterialId(i as u16))
@@ -164,16 +167,45 @@ fn main() {
         // has to say so. `best_mouthful` is the best cell in the whole
         // material table, not the best one an ant in this world can
         // actually reach -- 360 comes off a flower, which no ant here has
-        // ever touched. So a ceiling *under* the bar is a proof of
-        // unreachability, and a ceiling over it is only the absence of one:
-        // measured, arms at 495 against a 330 bar still produced zero
-        // births, because the reachable food is worth a third of the best
-        // food. Reading a bound as a verdict is the size-cap failure in a
-        // readout's clothing -- exhausting it must not produce an answer.
+        // ever touched. So a ceiling over the bar is only the absence of a
+        // proof: measured, arms at 495 against a 330 bar still produced
+        // zero births, because the reachable food is worth a third of the
+        // best food. Reading a bound as a verdict is the size-cap failure
+        // in a readout's clothing -- exhausting it must not produce an
+        // answer.
+        //
+        // **And the other direction is not a proof either, which this line
+        // claimed until 2026-08-29.** It said "UNREACHABLE, and this is a
+        // proof". Measured on the S6 gate control (`start_energy=200
+        // body_energy=20 threshold=241 hunger=0.9 terrain=world
+        // frames=24000`): printed ceiling **540**, measured `richest bank`
+        // **616** -- the bound exceeded by 14%, and again at **561** with
+        // `mutation_rate=0`, so it is not a one-off of a lucky lineage.
+        // Two channels widen it past this arithmetic, and neither is in the
+        // sum above:
+        //
+        // - **The gut it prices is the founder's, not the eater's.** This
+        //   reads `def.traits[TRAIT_GUT_BIAS]` -- a species constant --
+        //   while `creature.rs:1583` digests with the *organism's* own
+        //   `s.traits[TRAIT_GUT_BIAS]`, which is heritable and mutates by
+        //   `trait_variance`. A matched gut pays `worth` where the neutral
+        //   founder pays `worth/4`, so 18 generations of selection eat food
+        //   this line cannot price. Turning mutation off removed 55 of the
+        //   76 excess, which is the measurement that names this channel.
+        // - **A corpse is worth more than its stamp.** `creature.rs:3028`
+        //   writes `(body_energy * cells + leftover) / cells` -- the dead
+        //   animal's unspent bank rides into the meat -- where the probe
+        //   cell below is stamped with `body_energy` alone.
+        //
+        // The shipped ant's conclusion survives this comfortably (bank 567
+        // against a 1,860 bar, a 3.3x margin, and nothing dies in that
+        // scene), which is *why* the wording is the thing being fixed
+        // rather than the arithmetic: the number is still the most useful
+        // one to print, it just does not license the word "proof".
         if ceiling > pixel_physics::sim::creature::birth_cost(&def) {
             "the bar is not ruled out by this bound (which is optimistic -- read `richest bank` below)"
         } else {
-            "UNREACHABLE, and this is a proof: the bar is above the best bank arithmetic allows"
+            "the bar is above this bound -- strong evidence of unreachability, but the bound is not a ceiling (measured 616 against a printed 540; see the note above) -- read `richest bank` below"
         }
     );
 

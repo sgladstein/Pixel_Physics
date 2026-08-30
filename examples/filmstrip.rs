@@ -4268,7 +4268,17 @@ impl Gnome {
         // supply — a hammered cliff face and an untouched one differ by a
         // shade of grey, and an axe notch is three pixels.
         if self.script == Script::Smash {
-            s.push_str(&format!(", {} blows landed ({} cells broken)", self.blows, self.broken));
+            // **Cracked cells beside broken ones, because the playtest
+            // complaint was a *ratio*.** Reported of the first hammer:
+            // "it mostly makes big strike lines instead of breaking rock
+            // into pieces". Both halves of that are real quantities --
+            // cells the blow scored a fissure through, against cells it
+            // actually took apart -- and neither is legible on a contact
+            // sheet, where a crack is a one-pixel line and fresh rubble is
+            // a shade of grey. Read the two together or the sheet cannot
+            // say whether a change moved the balance or just the total.
+            let cracked = count_cracked(world);
+            s.push_str(&format!(", {} blows landed ({} cells broken, {cracked} cells cracked)", self.blows, self.broken));
         }
         if self.script == Script::Chop {
             s.push_str(&format!(
@@ -4649,6 +4659,17 @@ fn leaf_reach(world: &World) {
 /// "a piece" means everywhere else in this pipeline — a 3-cell speck of log
 /// is grit that happens to have landed as a body, and counting it as a
 /// fallen log would flatter the number the card is about.
+/// Cells carrying a scored fissure — the "strike lines" a hammer leaves.
+///
+/// Whole-world rather than a disc around the blow, deliberately: cracks
+/// are the one damage channel that *accumulates* across blows
+/// (`rigid::score_cracks` keys its ray directions on the site so repeats
+/// drive the same fissures deeper), so a per-blow count would understate
+/// exactly the thing the complaint was about.
+fn count_cracked(world: &World) -> usize {
+    (0..HEIGHT).flat_map(|y| (0..WIDTH).map(move |x| (x, y))).filter(|&(x, y)| world.get(x, y).cracked()).count()
+}
+
 fn log_pieces(world: &World) -> LogPieces {
     let Some(log) = world.materials.id_of("log") else { return LogPieces::default() };
     let mut seen: HashSet<(i32, i32)> = HashSet::new();
