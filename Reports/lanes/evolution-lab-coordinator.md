@@ -100,19 +100,26 @@ hand-built herb bed, and the lab's own breeding-margin row says so:
 | ants only | **−880** | 120, the ant's own flesh — reproduces #162 exactly |
 | the lab bed | **−640** | **360**, which at a neutral gut implies a 1,440-worth flower standing |
 
-**So the deadlock in this bed is one heritable step wide.** `diet_yield`
-squares the gut mismatch, so a `gut_bias` drifted to −1 draws the whole
-1,440 from a single mouthful and clears the 1,100 bar outright — no engine
-change, no machine, not even a species file. One mutation.
+**A flower therefore stands in the lab bed, and that much holds.** What was
+inferred *from* it did not.
 
-**What is still open, and it is the half that decides whether this is real**:
-a direct census of *standing* flower and fruit cells (the 1,440 is inferred
-from a margin, and this repo has measured a stand at 1,126 organs *built*
-with no fruit standing on any plant), the squaring arithmetic read off
-`diet_yield` rather than relayed, and whether an ant walking the floor can
-actually reach a flower at the top of a herb. #162's own caveat is that the
-failure case there is foraging rather than economy. With the measurement
-lane.
+**The "one mutation away" reading is withdrawn — the measurement lane ran
+it.** The inference was that `diet_yield` squares the gut mismatch, so a
+`gut_bias` drifted to −1 would draw the whole 1,440 from one mouthful and
+clear the bar outright. Measured rather than inferred, **with the matched
+gut the design guide asks for, an ant's bank tops out at 575 against a
+1,040 birth bar.** It does not clear. Ant births are **zero at every
+setting measured**, across a 45,000-frame run.
+
+So Gate 0 is *not* one heritable step away in this bed. The margin row is
+still a real and useful readout — it is how the flower was found at all —
+but a margin computed from the best *standing* mouthful is an upper bound
+on what an ant **could draw**, not a statement about what one **banks**,
+and the two differ by the hunger line. This is the repo's own recurring
+failure in miniature: a number that is arithmetically correct and answers a
+different question than the one asked looks exactly like a result. It was
+caught by a lane that *ran* the case instead of computing it, which is the
+whole argument for the positive control.
 
 ## Deliberately not being built yet
 
