@@ -112,7 +112,7 @@ merged, this branch needs rebasing.
 
 ## Gates
 
-`cargo test --lib` **1095 passed / 0 failed / 54 ignored** ·
+`cargo test --lib` **1098 passed / 0 failed / 54 ignored** ·
 `cargo +1.98.0 clippy --all-targets -- -D warnings` **clean** ·
 `ascii` **31 scenes, 0 skipped, zero non-timing differences against a
 baseline built from this branch's own merge commit in the same session** ·
