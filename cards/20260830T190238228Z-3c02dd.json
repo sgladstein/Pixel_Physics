@@ -1,0 +1,56 @@
+{
+  "id": "20260830T190238228Z-3c02dd",
+  "created": "2026-08-30T19:02:38Z",
+  "board": "creatures",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/evolution-lab-gui-physics-dhkblx",
+    "commit": "3c7a9c60",
+    "agent": null,
+    "session_id": "ee0d920f-4b0f-58c7-b72d-e1dbee6a0ae2",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Ant nest in a soil bank: can you tell the worked bank from the landslide?",
+  "question": "One of these banks has 55 ants tunnelling into it and the other has 55 ants eating into it. Which one looks like something dug a nest in it?",
+  "context_md": "**What this is for.** Ants have never been able to tunnel — a gallery in soil closed in 5 frames, so a colony could dig all day and leave only a lower bank. An ant now tamps the wall it cuts into packed soil, which holds itself up, so the tunnel is lined as fast as it is opened.\n\n**The physics is verified and is not what I am asking about.** Same binary both sides, one switch. Enclosed void — empty ground with soil standing over it, which a slumping bank cannot produce — is **130/146/151/133 cells with the tamping and 0/0/0/0 without it**, over four seeds, no overlap. An ASCII dump of the worked bank shows a branching warren of packed-walled galleries; the other is a smooth talus slope with nothing inside it.\n\n**What I am unsure about is whether any of that reaches you.** The galleries are one to two cells wide and packed soil is only soil darkened, so I cannot tell whether a worked bank reads as *worked* or just as a scruffier pile. If the two panes look the same to you, the answer is that the mechanic is invisible and the colour or the gallery size needs to change — that is a more useful result than a correct guess.\n\nBoth at frame 8,000, noon held so the light is the same, near face of the bank.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "tamping on — ants line the gallery",
+      "files": [
+        "20260830T190238228Z-3c02dd/000-ab_lined.png"
+      ],
+      "caption": "the shipped behaviour",
+      "meta": {
+        "cells ants dug out": 278,
+        "wall cells tamped": 384,
+        "enclosed void left standing": 130,
+        "packed wall still standing": 125
+      },
+      "focus": null
+    },
+    {
+      "label": "tamping off — same ants, no lining",
+      "files": [
+        "20260830T190238228Z-3c02dd/001-ab_bare.png"
+      ],
+      "caption": "ablation: digging unchanged, nothing packs",
+      "meta": {
+        "cells ants dug out": 610,
+        "wall cells tamped": 0,
+        "enclosed void left standing": 0,
+        "packed wall still standing": 0
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
