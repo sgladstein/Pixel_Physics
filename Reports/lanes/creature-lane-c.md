@@ -126,5 +126,11 @@ about whether it is *spendable*.
 
 ### PR
 
-I have the GitHub MCP tools (`mcp__github__get_me` resolves), so the PR is
-opened from this lane. Coordinator owns the merge.
+I have the GitHub MCP tools, so the PR is opened from this lane:
+**[#155](https://github.com/sgladstein/Pixel_Physics/pull/155)**, head
+`06b7580` (this note's own commit lands on top of it). Coordinator owns the
+merge.
+
+Gates at the head: `cargo test --lib` 1089 passed / 0 failed / 54 ignored;
+`cargo +1.98.0 clippy --all-targets -- -D warnings` clean; `docscheck`
+clean; `mode=control`'s four assertions pass on every run.
