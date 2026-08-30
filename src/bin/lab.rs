@@ -21,11 +21,16 @@
 //! |---|---|
 //! | `Space` | pause ⇄ run — paused, nothing ticks at all |
 //! | `Up` / `Down` | the speed dial, through the presets |
-//! | `1`-`6` | jump straight to a preset |
+//! | `1`-`7` | jump straight to a preset |
+//! | `Z` `X` `C` `V` `B` `N` | the tools: look, plant, colony, cull, soil, water |
+//! | `.` | which species the planting tool puts in |
+//! | `[` / `]` | the brush, narrower and wider |
+//! | `O` / `L` | the field and organism overlays |
 //! | `F1` / `F2` / `F3` | the plants, ants and box pages |
 //! | `F` | display rate: 60 / 30 / 20 / 10 Hz |
 //! | `Tab` | the stats page |
-//! | `WASD` / drag | pan; `-` / `=` zoom |
+//! | `WASD` | pan; `-` / `=` zoom |
+//! | left / right mouse | the armed tool / the eraser |
 //! | `R` | rebuild the box |
 //! | `Esc` | quit |
 //!
@@ -59,7 +64,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use pixel_physics::lab::time::Phase;
-use pixel_physics::lab::ui::{Action, Panel};
+use pixel_physics::lab::ui::{Action, Panel, Tool};
 use pixel_physics::lab::{scene::LabBox, Lab, HEIGHT, WIDTH};
 use pixels::{Pixels, SurfaceTexture};
 use winit::application::ApplicationHandler;
@@ -345,6 +350,31 @@ impl Handler {
             // it, so `1024X` was reachable by the bar and by `UP` and by no
             // digit at all.
             KeyCode::Digit7 => self.lab.act(Action::Preset(6)),
+            // The tools, in one unbroken run of the keyboard's bottom row and
+            // in the same left-to-right order the bar draws them. The obvious
+            // initials are not available -- `S` and `W` are the pan -- and six
+            // scattered near-misses are harder to learn than one run you can
+            // read off the bar. See `lab::ui::Tool`.
+            KeyCode::KeyZ => self.lab.act(Action::Tool(Tool::Look)),
+            KeyCode::KeyX => self.lab.act(Action::Tool(Tool::Plant)),
+            KeyCode::KeyC => self.lab.act(Action::Tool(Tool::Colony)),
+            KeyCode::KeyV => self.lab.act(Action::Tool(Tool::Cull)),
+            KeyCode::KeyB => self.lab.act(Action::Tool(Tool::Soil)),
+            KeyCode::KeyN => self.lab.act(Action::Tool(Tool::Water)),
+            KeyCode::Period => self.lab.act(Action::NextSpecies),
+            KeyCode::BracketLeft => self.lab.act(Action::Brush(-1)),
+            KeyCode::BracketRight => self.lab.act(Action::Brush(1)),
+            KeyCode::KeyO => self.lab.act(Action::CycleOverlay),
+            // The organism overlay keeps the sandbox's `L` and stays off the
+            // bar: its channels are plant-internal scalars with names up to
+            // `VEIN CONDUCTANCE`, and a chip sized to hold that would take a
+            // fifth of the row for a debug view. The field overlay -- which is
+            // where the pheromones are -- is the one that earned the button.
+            KeyCode::KeyL => {
+                self.lab.renderer.cycle_organism_overlay();
+                let label = self.lab.renderer.organism_overlay.label();
+                self.lab.ui.say(format!("LIFE OVERLAY {label}"));
+            }
             KeyCode::F1 => self.lab.act(Action::Panel(Panel::Plants)),
             KeyCode::F2 => self.lab.act(Action::Panel(Panel::Ants)),
             KeyCode::F3 => self.lab.act(Action::Panel(Panel::Box)),
@@ -398,6 +428,12 @@ impl ApplicationHandler for Handler {
                     .and_then(|p| p.window_pos_to_pixel(position.into()).ok())
                     .map(|(x, y)| (x as i32, y as i32));
                 self.lab.set_cursor(self.cursor);
+                // ...and a live brush stroke follows it. `Lab::drag` no-ops
+                // unless a button is actually down, so this is unconditional
+                // here rather than gated on a second copy of the button state.
+                if let Some((x, y)) = self.cursor {
+                    self.lab.drag(x, y);
+                }
             }
             WindowEvent::CursorLeft { .. } => {
                 self.cursor = None;
@@ -409,16 +445,24 @@ impl ApplicationHandler for Handler {
             // sliding off it, and `REBUILD` cannot throw the box away on the
             // way past.
             WindowEvent::MouseInput { state, button, .. } => {
-                if button == MouseButton::Left {
-                    match (state == ElementState::Pressed, self.cursor) {
-                        (true, Some((x, y))) => self.lab.press(x, y),
-                        (false, Some((x, y))) => self.lab.release(x, y),
-                        // Released with the pointer outside the window: the
-                        // gesture is abandoned, not aimed at whatever it was
-                        // last over.
-                        (false, None) => self.lab.ui.cancel_press(),
-                        (true, None) => {}
+                let down = state == ElementState::Pressed;
+                match (button, down, self.cursor) {
+                    (MouseButton::Left, true, Some((x, y))) => self.lab.press(x, y),
+                    (MouseButton::Left, false, Some((x, y))) => self.lab.release(x, y),
+                    // Released with the pointer outside the window: the
+                    // gesture is abandoned, not aimed at whatever it was
+                    // last over.
+                    (MouseButton::Left, false, None) => {
+                        self.lab.end_stroke();
+                        self.lab.ui.cancel_press();
                     }
+                    // **The right button is the eraser, whatever tool is
+                    // armed** -- the sandbox's rule and the owner's request.
+                    // It never reaches the bar: a right-click on a button
+                    // would be a press nothing can take back.
+                    (MouseButton::Right, true, Some((x, y))) => self.lab.press_erase(x, y),
+                    (MouseButton::Right, false, _) => self.lab.end_stroke(),
+                    _ => {}
                 }
             }
             WindowEvent::MouseWheel { delta, .. } => {

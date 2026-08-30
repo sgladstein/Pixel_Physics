@@ -55,12 +55,30 @@ use super::{HEIGHT as H, WIDTH as W};
 
 /// How many rows of the screen the bar owns, measured up from the bottom.
 ///
-/// 30 is not arbitrary: a button holds two 7-pixel rows (its label and its
-/// keyboard shortcut) plus padding, which is 24, and the bar needs an edge
-/// and a margin around that.
-pub const BAR_HEIGHT: i32 = 30;
+/// A button holds two 7-pixel rows (its label and its keyboard shortcut) plus
+/// padding, which is 24, and the bar needs an edge and a margin around that:
+/// one row of buttons is 30.
+///
+/// **Two rows, and the second one is not free.** 26 more rows of 512 is 13,312
+/// pixels painted over terrain that was already painted, and a lab redraw
+/// measures a flat 19.2-19.9 ns/px with essentially no fixed cost to amortise
+/// (the field lane, 2026-08-30) — so this costs about **0.26 ms of a drawn
+/// frame**, every drawn frame, and it does not get cheaper as the bar settles
+/// because chrome has no dirty-rect skip. It is spent because the alternative
+/// is worse: at one row the seven-stop ladder, six pages and six tools do not
+/// fit at any spacing, and a bar that does not fit loses its last control off
+/// the right edge where only a screenshot ever finds it.
+pub const BAR_HEIGHT: i32 = 56;
 const BTN_TOP: i32 = 3;
 const BTN_HEIGHT: i32 = 24;
+/// Between the two rows of buttons.
+const ROW_GAP: i32 = 2;
+/// How many rows of buttons the bar has. Row 0 is the tools — what a click on
+/// the world does — and row 1 is the transport, the speed ladder and the
+/// pages. **The tools sit against the world and the transport against the
+/// screen edge**, which is the order they are reached in: you pick a tool and
+/// then use it up there, and you set the clock once and leave it.
+const ROWS: usize = 2;
 /// Horizontal padding inside a button, per side.
 const PAD: i32 = 2;
 /// Between two buttons of the same group.
@@ -73,9 +91,14 @@ const ICON_W: i32 = 6;
 const ICON_GAP: i32 = 3;
 
 /// The first screen row the bar covers. Everything above it is the world, and
-/// a click there inspects rather than pressing anything.
+/// a click there is the active tool rather than a press.
 pub fn bar_top() -> i32 {
     H as i32 - BAR_HEIGHT
+}
+
+/// The top of one row of buttons.
+fn row_y(row: usize) -> i32 {
+    bar_top() + BTN_TOP + row as i32 * (BTN_HEIGHT + ROW_GAP)
 }
 
 // ---------------------------------------------------------------- palette
@@ -110,6 +133,9 @@ const GOOD: [u8; 4] = [112, 208, 132, 255];
 const FAIR: [u8; 4] = [224, 192, 92, 255];
 const POOR: [u8; 4] = [224, 112, 92, 255];
 const MARKER: [u8; 4] = [255, 214, 92, 255];
+/// The ring under the cursor that says what the active tool will cover.
+/// Bright and cool, so it reads against soil, water and the lit sky alike.
+const TOOL_RING: [u8; 4] = [150, 226, 255, 255];
 
 /// Colour for "the box achieved this much of what was asked". Graded rather
 /// than a pass/fail tint: `CLAUDE.md`'s first law is that an outcome is a
@@ -175,6 +201,12 @@ fn text(frame: &mut [u8], x: i32, y: i32, s: &str, colour: [u8; 4]) {
     hud::draw_text(frame, W, H, x, y, s, colour);
 }
 
+/// The same call under a name that does not collide with a local `text`
+/// binding. `draw` already binds `text` from `paint_page`'s return.
+fn text_at(frame: &mut [u8], x: i32, y: i32, s: &str, colour: [u8; 4]) {
+    text(frame, x, y, s, colour);
+}
+
 // ------------------------------------------------------------------ icons
 
 /// The two transport glyphs, drawn as pixels rather than added to
@@ -223,10 +255,97 @@ pub enum Action {
     Slower,
     Faster,
     Preset(usize),
+    /// Choose what a left-click on the world does. See [`Tool`].
+    Tool(Tool),
+    /// Cycle which species the planting tool puts in.
+    NextSpecies,
+    /// Widen or narrow the brush, by `+1` or `-1` steps.
+    Brush(i32),
+    /// Cycle the false-colour view of the invisible channels.
+    CycleOverlay,
     Panel(Panel),
     Stats,
     Help,
     Reset,
+}
+
+/// **What a left-click on the world does.**
+///
+/// The design guide's Gate 4 verbs, plus the two the owner asked for
+/// separately. `Reports/evolution-lab-design-guide-2026-08-30.md` names `cull`
+/// and `partition` as *"the only two with no engine support and the two the
+/// premise most depends on"*, and puts **selection only** in the opening — so
+/// the opening's whole lever is `cull`, and until now it did not exist.
+///
+/// **The keys are positional, not mnemonic, and that is deliberate.** The
+/// obvious initials are gone: `S` is pan-down, `W` is pan-up, `P`... would be
+/// free but `C`/`S`/`W` are not, so a mnemonic set would be four near-misses
+/// and two collisions. `Z X C V B N` is one unbroken run of the keyboard's
+/// bottom row in **the same left-to-right order the buttons appear in**, which
+/// is a thing you can learn by looking at the bar once. Every button prints
+/// its own key under it either way — the bar is how you find a control and the
+/// key is how you use it once you have.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Tool {
+    /// Point at a cell and read it. The default, and the only one that changes
+    /// nothing.
+    #[default]
+    Look,
+    /// Put a seed of the selected species in the soil.
+    Plant,
+    /// Release a colony of founders.
+    Colony,
+    /// Kill the organism under the cursor — marked senescent, so it rots down
+    /// rather than vanishing.
+    Cull,
+    /// Paint soil, at field capacity.
+    Soil,
+    /// Paint water, full.
+    Water,
+}
+
+/// Every tool, in bar order. One list, so the row, the key table and the
+/// tests cannot disagree about what exists.
+pub const TOOLS: [Tool; 6] =
+    [Tool::Look, Tool::Plant, Tool::Colony, Tool::Cull, Tool::Soil, Tool::Water];
+
+impl Tool {
+    pub fn label(self) -> &'static str {
+        match self {
+            Tool::Look => "LOOK",
+            Tool::Plant => "PLANT",
+            Tool::Colony => "COLONY",
+            Tool::Cull => "CULL",
+            Tool::Soil => "SOIL",
+            Tool::Water => "WATER",
+        }
+    }
+    fn key(self) -> &'static str {
+        match self {
+            Tool::Look => "Z",
+            Tool::Plant => "X",
+            Tool::Colony => "C",
+            Tool::Cull => "V",
+            Tool::Soil => "B",
+            Tool::Water => "N",
+        }
+    }
+    /// Whether this tool paints continuously while the button is held. The
+    /// verbs are one-shot — a drag that founded a colony per pixel would empty
+    /// the organism table in one gesture.
+    pub fn is_brush(self) -> bool {
+        matches!(self, Tool::Soil | Tool::Water)
+    }
+    fn note(self) -> &'static str {
+        match self {
+            Tool::Look => "POINT AT A CELL AND READ IT. CLICK TO PIN THE CELL PAGE OPEN; CLICK IT AGAIN TO PUT IT AWAY. WHAT IS UNDER THE POINTER IS ALWAYS READ OUT TOP RIGHT, TOOL OR NO TOOL.",
+            Tool::Plant => "PUT ONE SEED IN THE SOIL WHERE YOU CLICK. THE CHIP TO THE RIGHT SAYS WHICH SPECIES AND WHAT IT COSTS TO GROW ONE. A SEED NEEDS BARE SOIL WITH ROOM ABOVE IT.",
+            Tool::Colony => "RELEASE A COLONY OF FOUNDERS AT THE SURFACE UNDER THE CLICK. THEY ARRIVE WITH A PATCH OF NEST TO WALK HOME TO -- WITHOUT ONE THERE IS NO GRADIENT AND NOBODY FORAGES.",
+            Tool::Cull => "KILL THE ORGANISM YOU CLICK. IT IS MARKED SENESCENT, NOT DELETED, SO IT ROTS DOWN OVER ITS SPECIES HALF-LIFE AND FEEDS WHATEVER IS STILL ALIVE. THIS IS THE SELECTION LEVER: WHAT YOU CULL DOES NOT BREED.",
+            Tool::Soil => "PAINT SOIL, AT FIELD CAPACITY -- DAMP ENOUGH FOR A ROOT, NOT SO WET IT SLUMPS. IT WILL NOT PAINT OVER STONE OR OVER A LIVING PLANT.",
+            Tool::Water => "PAINT WATER, FULL. IT RUNS, IT SOAKS INTO SOIL, AND TOO MUCH OF IT DROWNS ROOTS -- WHICH IS AN EXPERIMENT, NOT A MISTAKE.",
+        }
+    }
 }
 
 /// Which info panel a button opens.
@@ -273,7 +392,11 @@ pub struct Widget {
 #[derive(Default)]
 pub struct Bar {
     pub widgets: Vec<Widget>,
-    dividers: Vec<i32>,
+    /// `(x, row)` — a group separator, and which row's band it is drawn in.
+    /// The row is carried rather than derived, because a divider drawn the
+    /// full height of a two-row bar reads as a column rule across controls
+    /// that have nothing to do with each other.
+    dividers: Vec<(i32, usize)>,
 }
 
 impl Bar {
@@ -302,7 +425,7 @@ impl Bar {
 /// A snapshot rather than a borrow of `Lab`, so that `Lab::draw` can hand the
 /// UI its own state and the world at the same time without the borrow checker
 /// having an opinion about it.
-pub struct BarState {
+pub struct BarState<'a> {
     pub running: bool,
     pub requested: u32,
     pub achieved: f32,
@@ -310,6 +433,17 @@ pub struct BarState {
     pub panel: Option<Panel>,
     pub stats: bool,
     pub help: bool,
+    /// What a left-click on the world does.
+    pub tool: Tool,
+    /// The species the planting tool will put in, and one line about it.
+    /// Borrowed from the world's species table rather than copied, so a chip
+    /// naming a species cannot name one that is not loaded.
+    pub species: &'a str,
+    pub species_note: &'a str,
+    /// Brush radius in cells, for the two painting tools.
+    pub brush: i32,
+    /// The active false-colour channel, already named.
+    pub overlay: &'static str,
 }
 
 /// Width of a cell whose label is `label_px` wide and whose shortcut caption
@@ -328,15 +462,19 @@ struct Spec {
     latched: bool,
     icon: Option<Icon>,
     ratio: Option<f32>,
-    note: &'static str,
+    /// Owned rather than `&'static str`, because the species chip's note is
+    /// the species' own line read out of the loaded table — and a chip that
+    /// named the species while explaining a *different* one would be the
+    /// stale-side-table failure this field exists to avoid.
+    note: String,
 }
 
 fn button(
     label: &str,
-    sub: &'static str,
+    sub: &str,
     action: Action,
     latched: bool,
-    note: &'static str,
+    note: &str,
     pad: i32,
 ) -> Spec {
     Spec {
@@ -347,7 +485,7 @@ fn button(
         latched,
         icon: None,
         ratio: None,
-        note,
+        note: note.to_string(),
     }
 }
 
@@ -374,7 +512,7 @@ const MIN_SEPARATOR: i32 = 6;
 /// `hud::text_width`, so renaming a button cannot silently leave its face
 /// narrower than its own text — which is the failure a hand-tuned pixel table
 /// produces and only a screenshot catches.
-pub fn layout(state: &BarState) -> Bar {
+pub fn layout(state: &BarState<'_>) -> Bar {
     for (pad, gap) in SPACINGS {
         let bar = lay_out(state, pad, gap);
         if std::env::var("PIXEL_PHYSICS_BAR_TRACE").is_ok() {
@@ -393,7 +531,7 @@ pub fn layout(state: &BarState) -> Bar {
     lay_out(state, pad, gap)
 }
 
-fn lay_out(state: &BarState, pad: i32, gap: i32) -> Bar {
+fn lay_out(state: &BarState<'_>, pad: i32, gap: i32) -> Bar {
     // Group 1 — transport. The phase button's face is sized to the *wider* of
     // its two captions so that pressing it does not shove the rest of the bar
     // sideways; a control that moves when you use it is a control you miss on
@@ -421,7 +559,7 @@ fn lay_out(state: &BarState, pad: i32, gap: i32) -> Bar {
         latched: state.running,
         icon: Some(phase_icon),
         ratio: None,
-        note: "STOP THE BOX DEAD, OR START IT AGAIN. PAUSED, NOTHING TICKS AT ALL -- THAT IS WHEN YOU PLANT, CULL AND DIG. RUNNING GOES AT WHATEVER THE DIAL ASKS FOR, AND 1X IS REAL TIME.",
+        note: "STOP THE BOX DEAD, OR START IT AGAIN. PAUSED, NOTHING TICKS AT ALL -- THAT IS WHEN YOU PLANT, CULL AND DIG. RUNNING GOES AT WHATEVER THE DIAL ASKS FOR, AND 1X IS REAL TIME.".to_string(),
     };
     // `DN`/`UP` rather than `DOWN`/`UP`: the caption was the wider of the two
     // lines and so set the face width, and two arrow buttons 27 pixels wide
@@ -473,7 +611,7 @@ fn lay_out(state: &BarState, pad: i32, gap: i32) -> Bar {
         latched: false,
         icon: None,
         ratio: Some(ratio),
-        note: "WHAT THE DIAL WAS ASKED FOR, AGAINST WHAT THE BOX ACTUALLY MANAGED, AND THE STRIP IS THE SECOND OVER THE FIRST. A BED THAT HAS GROWN COSTS WHAT IT COSTS AND THE DIAL IS ONLY A REQUEST. STOPPED, IT SAYS PAUSED -- NO TICK RUNS, SO THERE IS NOTHING TO REPORT.",
+        note: "WHAT THE DIAL WAS ASKED FOR, AGAINST WHAT THE BOX ACTUALLY MANAGED, AND THE STRIP IS THE SECOND OVER THE FIRST. A BED THAT HAS GROWN COSTS WHAT IT COSTS AND THE DIAL IS ONLY A REQUEST. STOPPED, IT SAYS PAUSED -- NO TICK RUNS, SO THERE IS NOTHING TO REPORT.".to_string(),
     };
 
     // Group 2 — the speed ladder, one chip per stop.
@@ -495,7 +633,7 @@ fn lay_out(state: &BarState, pad: i32, gap: i32) -> Bar {
                 latched: state.requested == *mult,
                 icon: None,
                 ratio: None,
-                note: "RUN AT THIS MULTIPLE OF REAL TIME, STARTING THE BOX IF IT IS STOPPED. 1X IS REAL TIME. THE TOP OF THE LADDER IS DELIBERATELY PAST WHAT ANY BOX CAN DO -- THAT IS HOW THE ACHIEVED READOUT EARNS ITS KEEP.",
+                note: "RUN AT THIS MULTIPLE OF REAL TIME, STARTING THE BOX IF IT IS STOPPED. 1X IS REAL TIME. THE TOP OF THE LADDER IS DELIBERATELY PAST WHAT ANY BOX CAN DO -- THAT IS HOW THE ACHIEVED READOUT EARNS ITS KEEP.".to_string(),
             }
         })
         .collect();
@@ -552,52 +690,135 @@ fn lay_out(state: &BarState, pad: i32, gap: i32) -> Bar {
         ),
     ];
 
-    let groups: [Vec<Spec>; 3] = [
-        vec![phase, slower, faster, readout],
-        presets,
-        panels.into_iter().collect(),
-    ];
-
-    // Slack goes into the gaps *between* groups rather than at one end, so the
-    // three groups read as three groups and the bar stays centred if a label
-    // is ever renamed. Computed here, in the same pass, for the same reason
-    // everything else is.
-    let content: i32 = groups
+    // ---- row 0, the tools. What a click on the world does, and what it
+    // does it with. Against the world rather than against the screen edge,
+    // because this is the row you reach for while you are working up there.
+    let tools: Vec<Spec> = TOOLS
         .iter()
-        .map(|g| {
-            g.iter().map(|s| s.width).sum::<i32>() + gap * (g.len() as i32 - 1).max(0)
-        })
-        .sum();
-    let slack = W as i32 - MARGIN * 2 - content;
-    let separator = (slack / 2).max(MIN_SEPARATOR);
+        .map(|t| button(t.label(), t.key(), Action::Tool(*t), state.tool == *t, t.note(), pad))
+        .collect();
+
+    // The species chip. **Not decoration**: the design guide is explicit that
+    // planting has to show what you are about to plant *"or planting is a slot
+    // machine"*, and the face is that. Sized to the widest species the table
+    // can hold rather than to the current one, so cycling it does not shove
+    // the row sideways.
+    let species_px = species_face_px().max(hud::text_width(state.species));
+    let species = Spec {
+        width: cell_width(species_px, ".", pad),
+        line1: state.species.to_string(),
+        line2: ".".to_string(),
+        action: Some(Action::NextSpecies),
+        latched: state.tool == Tool::Plant,
+        icon: None,
+        ratio: None,
+        note: state.species_note.to_string(),
+    };
+
+    // The brush, for the two painting tools: narrower, the radius, wider.
+    let step_px = cell_width(hud::text_width("W"), "]", pad);
+    let narrower = Spec {
+        width: step_px,
+        ..button("-", "[", Action::Brush(-1), false, "A NARROWER BRUSH. THE RADIUS IS IN CELLS, SO R1 IS A THREE-CELL DAB AND R16 IS A SPADEFUL.", pad)
+    };
+    let wider = Spec {
+        width: step_px,
+        ..button("+", "]", Action::Brush(1), false, "A WIDER BRUSH. THE RADIUS IS IN CELLS, AND THE COST OF A STROKE GOES UP WITH ITS AREA, NOT ITS LENGTH.", pad)
+    };
+    let size = Spec {
+        // Sized to `R64`, the widest it can say. See the readout.
+        width: cell_width(hud::text_width("R64"), "SIZE", pad),
+        line1: format!("R{}", state.brush),
+        line2: "SIZE".to_string(),
+        action: None,
+        latched: false,
+        icon: None,
+        ratio: None,
+        note: "HOW WIDE THE SOIL AND WATER BRUSHES ARE, IN CELLS.".to_string(),
+    };
+
+    // The overlay. **Its face is the channel**, because an unlabelled
+    // false-colour view is unreadable — `CLAUDE.md` records a canopy-density
+    // sheet that read as blank and was misdiagnosed as dead code.
+    let overlay = Spec {
+        width: cell_width(overlay_face_px(), "O", pad),
+        line1: state.overlay.to_string(),
+        line2: "O".to_string(),
+        action: Some(Action::CycleOverlay),
+        latched: state.overlay != "OFF",
+        icon: None,
+        ratio: None,
+        note: "FALSE-COLOUR THE INVISIBLE CHANNELS: PRESSURE, TEMPERATURE, LIGHT, MOISTURE, AND THE TWO PHEROMONES. PHEROMONE IS THE ONE TO WATCH -- IT IS AT FULL CELL RESOLUTION AND IT IS THE COLONY'S OWN MAP OF ITSELF, SO YOU SEE THE TRAIL BEFORE YOU SEE THE ANT.".to_string(),
+    };
+
+    let rows: [Vec<Vec<Spec>>; ROWS] = [
+        vec![tools, vec![species], vec![narrower, size, wider], vec![overlay]],
+        vec![vec![phase, slower, faster, readout], presets, panels.into_iter().collect()],
+    ];
 
     let mut widgets = Vec::new();
     let mut dividers = Vec::new();
-    let mut x = MARGIN;
-    let y = bar_top() + BTN_TOP;
-    for (gi, group) in groups.into_iter().enumerate() {
-        if gi > 0 {
-            dividers.push(x + separator / 2);
-            x += separator;
-        }
-        for (wi, spec) in group.iter().enumerate() {
-            if wi > 0 {
-                x += gap;
+    for (ri, groups) in rows.into_iter().enumerate() {
+        // Slack goes into the gaps *between* groups rather than at one end, so
+        // the groups read as groups and the row stays centred if a label is
+        // ever renamed. Per row, because the two rows have different content
+        // and a shared separator would make the shorter one look padded.
+        let content: i32 = groups
+            .iter()
+            .map(|g| g.iter().map(|s| s.width).sum::<i32>() + gap * (g.len() as i32 - 1).max(0))
+            .sum();
+        let gaps = (groups.len() as i32 - 1).max(1);
+        let slack = W as i32 - MARGIN * 2 - content;
+        let separator = (slack / gaps).max(MIN_SEPARATOR);
+        let mut x = MARGIN;
+        let y = row_y(ri);
+        for (gi, group) in groups.into_iter().enumerate() {
+            if gi > 0 {
+                dividers.push((x + separator / 2, ri));
+                x += separator;
             }
-            widgets.push(Widget {
-                rect: Rect { x, y, w: spec.width, h: BTN_HEIGHT },
-                line1: spec.line1.clone(),
-                line2: spec.line2.clone(),
-                action: spec.action,
-                latched: spec.latched,
-                icon: spec.icon,
-                ratio: spec.ratio,
-                note: spec.note.to_string(),
-            });
-            x += spec.width;
+            for (wi, spec) in group.iter().enumerate() {
+                if wi > 0 {
+                    x += gap;
+                }
+                widgets.push(Widget {
+                    rect: Rect { x, y, w: spec.width, h: BTN_HEIGHT },
+                    line1: spec.line1.clone(),
+                    line2: spec.line2.clone(),
+                    action: spec.action,
+                    latched: spec.latched,
+                    icon: spec.icon,
+                    ratio: spec.ratio,
+                    note: spec.note.clone(),
+                });
+                x += spec.width;
+            }
         }
     }
     Bar { widgets, dividers }
+}
+
+/// Width of the widest species name the chip has to hold, so cycling the
+/// species does not resize the chip and shove the row along under the cursor.
+/// Measured off the shipped table rather than written down: a species added to
+/// `assets/species/` must not silently overrun its own chip.
+fn species_face_px() -> i32 {
+    ["SCRAMBLER", "CONIFER", "CREEPER", "SHRUB", "GRASS", "HERB", "MOSS", "TREE"]
+        .iter()
+        .map(|n| hud::text_width(n))
+        .max()
+        .unwrap_or(0)
+}
+
+/// Width of the widest overlay name. Same reasoning as the species chip's, and
+/// the same failure it prevents: a control that changes width when you use it
+/// is a control you miss on the second press.
+fn overlay_face_px() -> i32 {
+    ["OFF", "PRESSURE", "TEMPERATURE", "LIGHT", "MOISTURE", "PHEROMONE A", "PHEROMONE B"]
+        .iter()
+        .map(|n| hud::text_width(n))
+        .max()
+        .unwrap_or(0)
 }
 
 fn paint_widget(frame: &mut [u8], wid: &Widget, hover: bool, down: bool) {
@@ -832,6 +1053,28 @@ pub struct Ui {
     press_inside: bool,
     /// The page currently open above the bar, if any.
     pub panel: Option<Panel>,
+    /// What a left-click on the world does. See [`Tool`].
+    tool: Tool,
+    /// Which plantable species the planting tool puts in — an **index into
+    /// the world's own plantable list**, not a name, so a chip can never name
+    /// a species that is not loaded. Wrapped at use rather than clamped, so
+    /// an asset set with fewer species cannot leave it dangling.
+    species: usize,
+    /// Radius of the soil and water brushes, in cells.
+    brush: i32,
+    /// **What the last verb did, and when it said so.**
+    ///
+    /// `CLAUDE.md`'s second law: *if an event produces no visible consequence
+    /// it is not finished regardless of what the simulation believes*. Three
+    /// of the tools produce nothing you can see on a **stopped** box — a
+    /// culled plant is marked senescent and rots at its species half-life,
+    /// which needs ticks; a seed is one cell; a colony's ants are two dark
+    /// cells each. Stopped is exactly when you use them. So every verb says
+    /// what it did, with the count in it.
+    ///
+    /// Real time, not frames: a frame-based timer on a paused box never
+    /// expires, which is the one state this line exists for.
+    notice: Option<(String, std::time::Instant)>,
     /// The world cell the player last clicked, re-read every frame.
     inspect: Option<(i32, i32)>,
     history: History,
@@ -849,9 +1092,44 @@ pub struct Ui {
     inspect_box: Option<Rect>,
 }
 
+/// Every species that can be planted, in a stable order.
+///
+/// **Filtered on `creature.is_none()`, not on a written-down list.** The
+/// species table holds ants, worms and beetles beside the plants, and a
+/// hand-kept list of plant names is the side table that goes stale the first
+/// time `assets/species/` gains a file. Sorted by name so the cycle order is
+/// the same on every run and in every harness.
+pub fn plantable_species(world: &World) -> Vec<crate::sim::organism::SpeciesId> {
+    use crate::sim::organism::SpeciesId;
+    let mut ids: Vec<SpeciesId> = (0..world.species.len() as u16)
+        .map(SpeciesId)
+        .filter(|id| world.species.get(*id).creature.is_none())
+        .collect();
+    ids.sort_by(|a, b| world.species.get(*a).name.cmp(&world.species.get(*b).name));
+    ids
+}
+
+/// Where the hover readout's top edge sits.
+///
+/// Clear of the **tallest** thing `time::draw` can put in the left column —
+/// six lines at `4 + 10i`, so 66 — rather than of whatever it is showing now.
+/// A readout that jumped 30 pixels every time the box was stopped would be
+/// harder to read than one sitting slightly low.
+const HOVER_TOP: i32 = 68;
+
+/// How long a verb's notice stays up. Long enough to read one line cold,
+/// short enough that it is gone before you have finished the next click.
+const NOTICE_SECONDS: f32 = 3.0;
+
 impl Ui {
     pub fn new() -> Self {
-        Self::default()
+        Self {
+            // A radius of 6, the sandbox's own default: one click is a
+            // shovelful rather than a grain, which is what makes the first
+            // stroke read as a verb.
+            brush: 6,
+            ..Self::default()
+        }
     }
 
     pub fn set_cursor(&mut self, at: Option<(i32, i32)>) {
@@ -920,6 +1198,43 @@ impl Ui {
 
     pub fn toggle_panel(&mut self, panel: Panel) {
         self.panel = if self.panel == Some(panel) { None } else { Some(panel) };
+    }
+
+    pub fn tool(&self) -> Tool {
+        self.tool
+    }
+
+    /// Choose a tool, or put it away by choosing it twice — which lands you
+    /// back on `LOOK`, the one tool that changes nothing. A brush you cannot
+    /// switch off is a brush that paints the next time you meant to point.
+    pub fn set_tool(&mut self, tool: Tool) {
+        self.tool = if self.tool == tool { Tool::Look } else { tool };
+    }
+
+    pub fn brush(&self) -> i32 {
+        self.brush
+    }
+
+    /// The radius is clamped to the same 1..=64 the sandbox's brush uses, and
+    /// for the same reason: below 1 a brush paints nothing and above 64 one
+    /// click is most of a 512-wide bed.
+    pub fn adjust_brush(&mut self, delta: i32) {
+        self.brush = (self.brush + delta).clamp(1, 64);
+    }
+
+    /// Which of `world`'s plantable species is selected, and its name.
+    pub fn species_of(&self, world: &World) -> Option<crate::sim::organism::SpeciesId> {
+        let plantable = plantable_species(world);
+        plantable.get(self.species % plantable.len().max(1)).copied()
+    }
+
+    pub fn next_species(&mut self) {
+        self.species = self.species.wrapping_add(1);
+    }
+
+    /// Say what a verb just did. Displaces whatever the last one said.
+    pub fn say(&mut self, text: impl Into<String>) {
+        self.notice = Some((text.into(), std::time::Instant::now()));
     }
 
     /// Whether anything this module draws needs the frame fully repainted.
@@ -1361,6 +1676,21 @@ impl Ui {
             }
         }
 
+        // **The brush, and what it will cover, before you press.** A radius
+        // you can only discover by painting is a radius you discover by
+        // ruining something. Drawn in world space through
+        // `world_rect_to_screen`, so it is the right size at every zoom rather
+        // than the right number of *screen* pixels at one of them.
+        if let Some((cx, cy)) = self.cursor.filter(|&(_, y)| y < bar_top()) {
+            let (wx, wy) = renderer.screen_to_world(cx, cy);
+            let r = if self.tool.is_brush() { self.brush } else { 1 };
+            let (x0, _, x1, _, _) = renderer.world_rect_to_screen(wx - r, wy - r, wx + r, wy + r);
+            let screen_r = ((x1 - x0) / 2).max(2);
+            if self.tool != Tool::Look {
+                render::draw_circle_outline(frame, W, H, cx, cy, screen_r, TOOL_RING);
+            }
+        }
+
         let mut note: Option<(String, Rect, i32, Note)> = None;
 
         if let Some(panel) = self.panel {
@@ -1406,8 +1736,11 @@ impl Ui {
         for x in 0..W as i32 {
             render::put(frame, W, H, x, bar.y, BAR_EDGE);
         }
-        for dx in &self.bar.dividers {
-            for y in bar.y + 5..bar.bottom() - 5 {
+        for (dx, row) in &self.bar.dividers {
+            // Inside that row's own band. A rule the full height of a two-row
+            // bar separates controls that have nothing to do with each other.
+            let top = row_y(*row) + 2;
+            for y in top..top + BTN_HEIGHT - 4 {
                 render::put(frame, W, H, *dx, y, DIVIDER);
             }
         }
@@ -1424,9 +1757,94 @@ impl Ui {
             }
         }
 
+        // **What is under the pointer, always, with no mode to turn on.**
+        // Owner request, 2026-08-30: *"the info option that tells me what
+        // material, temp, etc that my mouse is hovering over."* Docked rather
+        // than following the cursor, for `draw_note`'s reason — a box under
+        // the pointer covers the thing it is describing.
+        //
+        // **Left column, under the clock, and it was top right first.** The
+        // biosphere page is a full-height *right-hand* column and `Lab::draw`
+        // paints it after this, so a top-right box spends its life half
+        // hidden — which a contact sheet showed and no test could have. The
+        // left column is free below the clock.
+        if let Some((cx, cy)) = self.cursor.filter(|&(x, y)| y < bar_top() && !self.covers(x, y)) {
+            let (wx, wy) = renderer.screen_to_world(cx, cy);
+            paint_hover_cell(frame, world, (wx, wy));
+        }
+
+        // The last verb's notice, over everything, just above the bar.
+        if let Some((text, at)) = &self.notice {
+            if at.elapsed().as_secs_f32() < NOTICE_SECONDS {
+                let w = hud::text_width(text) + 12;
+                let r = Rect {
+                    x: ((W as i32 - w) / 2).max(MARGIN),
+                    y: bar_top() - 16,
+                    w: w.min(W as i32 - MARGIN * 2),
+                    h: 13,
+                };
+                fill(frame, r, NOTE_BG);
+                outline(frame, r, MARKER);
+                text_at(frame, r.x + 6, r.y + 3, text, MARKER);
+            }
+        }
+
         if let Some((body, avoid, y, place)) = note {
             draw_note(frame, &body, avoid, y, place);
         }
+    }
+}
+
+/// **What is in the cell under the pointer**, docked top right.
+///
+/// Four lines, always four, present or absent — a readout that changes height
+/// as the cursor moves is one you cannot read while moving. Every line names
+/// the accessor it came from:
+///
+/// - the material's `display` name and the cell's world coordinates;
+/// - `Cell::temperature`, this cell's own, not the coarse field's;
+/// - **fill for a liquid, held water for a powder** — the two conventions
+///   point opposite ways (`CLAUDE.md`: on a `Liquid` `aux == 0` is *full*, on
+///   a `Powder` it is *dry*), so this goes through `update::liquid_fill` for
+///   the first rather than reading `aux` and getting it backwards;
+/// - the organism owning the cell, and its whole-body energy.
+fn paint_hover_cell(frame: &mut [u8], world: &World, (x, y): (i32, i32)) {
+    use crate::sim::material::MaterialKind;
+    let cell = world.get(x, y);
+    let def = world.materials.get(cell.material);
+    let wet = match world.materials.kind(cell.material) {
+        MaterialKind::Liquid => {
+            let fill = crate::sim::update::liquid_fill(cell);
+            format!("FILL {}%", fill as u32 * 100 / crate::sim::material::LIQUID_FULL.max(1) as u32)
+        }
+        _ if def.water_capacity > 0 => format!(
+            "WATER {}%",
+            cell.aux().min(def.water_capacity) as u32 * 100 / def.water_capacity.max(1) as u32
+        ),
+        _ => "DRY".to_string(),
+    };
+    let organism = world.organism(cell.organism_id());
+    let life = match organism {
+        Some(state) => format!(
+            "{} E{:.0}",
+            world.species.get(state.species).name.to_uppercase(),
+            state.energy
+        ),
+        None => "NO ORGANISM".to_string(),
+    };
+    let lines = [
+        format!("{} {},{}", def.display.to_uppercase(), x, y),
+        format!("{}C{}", cell.temperature(), if cell.is_burning() { " BURNING" } else { "" }),
+        wet,
+        life,
+    ];
+    let w = lines.iter().map(|l| hud::text_width(l)).max().unwrap_or(0) + 12;
+    let r = Rect { x: MARGIN, y: HOVER_TOP, w, h: lines.len() as i32 * LINE + 8 };
+    fill(frame, r, READOUT_BG);
+    outline(frame, r, PANEL_EDGE);
+    for (i, line) in lines.iter().enumerate() {
+        let tint = if i == 0 { VALUE } else if organism.is_some() && i == 3 { GOOD } else { FAINT };
+        text_at(frame, r.x + 6, r.y + 4 + i as i32 * LINE, line, tint);
     }
 }
 
@@ -1435,7 +1853,7 @@ mod tests {
     use super::*;
     use crate::sim::chunk::Rect as WorldRect;
 
-    fn state(running: bool, requested: u32) -> BarState {
+    fn state(running: bool, requested: u32) -> BarState<'static> {
         BarState {
             running,
             requested,
@@ -1444,6 +1862,11 @@ mod tests {
             panel: None,
             stats: true,
             help: false,
+            tool: Tool::Look,
+            species: "HERB",
+            species_note: "WHICH PLANT THE PLANTING TOOL PUTS IN.",
+            brush: 6,
+            overlay: "OFF",
         }
     }
 
@@ -1537,14 +1960,19 @@ mod tests {
                         wid.line1
                     );
                 }
+                // **A rectangle intersection, not an x-range one.** The
+                // x-range form was correct for a one-row bar and is a false
+                // alarm for two: every tool on the top row shares its columns
+                // with the transport under it, which is the layout rather than
+                // a fault. It is also *weaker* than it looks in the other
+                // direction — it could not have caught two rows overlapping.
                 for (i, a) in bar.widgets.iter().enumerate() {
                     for b in &bar.widgets[i + 1..] {
-                        assert!(
-                            a.rect.right() <= b.rect.x || b.rect.right() <= a.rect.x,
-                            "{:?} and {:?} overlap",
-                            a.line1,
-                            b.line1
-                        );
+                        let apart = a.rect.right() <= b.rect.x
+                            || b.rect.right() <= a.rect.x
+                            || a.rect.bottom() <= b.rect.y
+                            || b.rect.bottom() <= a.rect.y;
+                        assert!(apart, "{:?} and {:?} overlap", a.line1, b.line1);
                     }
                 }
             }
@@ -1576,12 +2004,14 @@ mod tests {
             }
             buttons += usize::from(wid.action.is_some());
         }
-        // Three transport buttons (the readout is not one), one chip per stop
-        // on the ladder, and six pages. Written as the sum rather than as a
-        // literal so that growing the ladder does not have to come here.
+        // Row 0: one chip per tool, the species chip, two brush steps and the
+        // overlay. Row 1: three transport buttons (the readout is not one),
+        // one chip per stop on the ladder, and six pages. Written as the sum
+        // rather than as a literal so that growing either list does not have
+        // to come here.
         assert_eq!(
             buttons,
-            3 + super::super::time::PRESETS.len() + 6,
+            TOOLS.len() + 1 + 2 + 1 + 3 + super::super::time::PRESETS.len() + 6,
             "the bar carried {buttons} pressable buttons"
         );
         // Nothing above the bar is pressable — that belongs to the world.
@@ -1610,8 +2040,16 @@ mod tests {
         assert_eq!(face(&running), "STOP", "a running box must offer to stop");
         // And the readout beside it names the state, so the two together are
         // unambiguous rather than each being half a sentence.
+        // **The transport readout, not just "a widget with no action".** The
+        // brush's `R6` chip is a readout too now, and it lays out first, so
+        // the old predicate started answering for the wrong cell the day the
+        // tools row arrived. The ratio strip is what makes this one unique.
         let readout = |bar: &Bar| {
-            bar.widgets.iter().find(|w| w.action.is_none()).map(|w| w.line1.clone()).unwrap()
+            bar.widgets
+                .iter()
+                .find(|w| w.action.is_none() && w.ratio.is_some())
+                .map(|w| w.line1.clone())
+                .unwrap()
         };
         assert_eq!(readout(&tending), "PAUSED");
         assert!(readout(&running).starts_with("ASK"), "{}", readout(&running));
@@ -1623,11 +2061,13 @@ mod tests {
     /// a readout that never printed it at all would pass the first half.
     #[test]
     fn the_achieved_figure_is_shown_running_and_withheld_while_paused() {
+        // Keyed on the ratio strip, for the reason the sibling test records:
+        // the brush size chip is also an actionless readout.
         let line2 = |running, requested| {
             layout(&state(running, requested))
                 .widgets
                 .iter()
-                .find(|w| w.action.is_none())
+                .find(|w| w.action.is_none() && w.ratio.is_some())
                 .map(|w| w.line2.clone())
                 .unwrap()
         };
