@@ -161,7 +161,7 @@ window with it. Look at the picture for *what and where*; read the text for
 
 | | |
 |---|---|
-| `cargo test --lib` | 1101 passed, 0 failed, 54 ignored (re-run after the `main` merge and after the hover) |
+| `cargo test --lib` | 1114 passed, 0 failed, 54 ignored (re-run after each `main` merge and after the hover) |
 | `cargo +1.98.0 clippy --all-targets -- -D warnings` | clean |
 | `cargo run --release --example ascii` | 31 scenes run, 0 skipped; worst frame 37.54 ms / mean 3.64 ms on the 166-organism scene |
 | `bash scripts/acceptance.sh` | all cases met their expectations |
@@ -216,10 +216,20 @@ still nearly full, which is the case the shape exists for.
 
 ## Pulled in
 
-`main` came in at `322ea66` — 33 commits, conflicting only in `README.md`'s
-generated table of contents (resolved by taking main's side and re-running
-`scripts/readmetoc.py`) and in `wiki/ants.md`'s freshness note, where both
-sides had written a 2026-08-30 line and both were kept.
+`main` came in **twice**, at `322ea66` (33 commits) and `29501b8` (17 more),
+because the creature line landed three PRs while this one was open. Both
+merges conflicted in exactly the same two places, and the shape is worth
+recording for whoever is next: **`README.md`'s generated table of contents
+and `wiki/ants.md`'s freshness note conflict on every landing**, by
+construction rather than by bad luck — the TOC carries a line number for
+every section so any insertion moves all of them, and every creature PR
+writes a dated line at the top of the wiki page.
+
+Neither needs judgement. The TOC is resolved by taking main's side and
+re-running `scripts/readmetoc.py` — but check first that every conflict is
+*inside* the generated block before resolving blind, which is three lines of
+python and the difference between a merge and a silent loss. The freshness
+note is resolved by keeping both dates in one sentence, newest first.
 
 That merge is also the trait guard paying for itself: `CREATURE_TRAITS` went
 1 -> 2 while this branch was open, and the panel grew a `DOWRY` row with no
@@ -232,8 +242,9 @@ where before the merge all forty sat on one bar.
 
 ## Head
 
-`80ec04fc222f59f9618bd1250a999057f47c711f` on
-`claude/creature-lane-g-panel` (the hover). Before it,
+`29501b8c766ec74b19a99487ddc10f3ae5b95554` on
+`claude/creature-lane-g-panel` — the second `main` merge, over
+`80ec04fc222f59f9618bd1250a999057f47c711f` (the hover) and
 `b07847b815f8a8ac11f1cb72ec9ec4ea4242a275` on
 `claude/creature-lane-g-panel`, which is `322ea66`'s merge of `main`
 (`3a86ff5`) plus `a25584f` (the panel) plus this note.
