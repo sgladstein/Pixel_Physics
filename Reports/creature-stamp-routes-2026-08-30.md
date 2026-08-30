@@ -521,6 +521,31 @@ written, and `main` has since been merged in; **no number here was re-taken
 against it**, and nothing in those commits touches `ant.ron` or the birth
 path. The lane note records the original state.
 
+### 7.1 Re-checked on the tree that landed under it
+
+`main` moved twice while this was being written, and the second move was
+**PR #154, which re-prices metabolism per body cell** — `idle_cost: 0.10`
+and `move_cost: 0.25` became `idle_cost_per_cell: 0.05` and
+`move_cost_per_cell: 0.125`. For the two-cell body every arm here uses, that
+is the same number (`0.05 x 2 = 0.10`), so the cost path should be
+untouched — but a diff is not evidence, and a measurement taken on a tree
+nobody else has does not transfer.
+
+So the two decisive arms were re-run on the merged tree, same seeds:
+
+| arm, seed | before the merge | after |
+|---|---|---|
+| shipped, 8 | 0 births, 38 alive, bank/bar 0.211 | **0 births, 38 alive, 0.205** |
+| shipped, 10 | 0 births, 27 alive, 0.208 | **0 births, 27 alive, 0.203** |
+| routes 1+3, 8 | 79 births, 106 alive, 0.974 | **71 births, 100 alive, 0.973** |
+| routes 1+3, 10 | 59 births, 71 alive, 0.982 | **61 births, 83 alive, 0.979** |
+
+**Not bit-identical**, so something in those commits does reach these runs —
+which is why this was checked rather than argued. But the movement (79 -> 71,
+59 -> 61) sits well inside the per-seed spread the sweep already reports for
+this arm (0 to 79 across twelve seeds), the shipped arm is unchanged to the
+ant, and every verdict in §4 holds. The full sweep was **not** re-taken.
+
 Seeds are the 18 of the first 30 that seat at least 30 of their 55 founders,
 screened at `frames=1` before any arm was run. Arms differ from the shipped
 species only in the knobs named in their row, applied in-process through
