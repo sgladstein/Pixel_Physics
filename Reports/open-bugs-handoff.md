@@ -115,22 +115,22 @@ point.
 | 2 | note | 7668 | Grow into soil destroys the soil's stored water |
 | 3 | note | 7680 | Capillary exchange can push a neighbour above its own capacity |
 | U | note | 7693 | A crown hangs on by its leaves, so a snapped limb never falls |
-| W1a | note | 7748 | creeper.ron's root tips still run the superseded in-tick branch path |
-| W1b | note | 7769 | A material-counting guard cannot see a species |
-| W1c | note | 7782 | generated_terrain_is_already_at_rest went red on main |
-| T1a | note | 7916 | load::grain_is_footing reads *attachment* where it means *supported* |
-| T1b | note | 7994 | The structural opt-out did not hold against bearing |
-| T1d | note | 8005 | acceptance.sh's lavadrop sits close enough to its frame budget to flake, and is over it o... |
-| T1e | note | 8039 | "The pieces hit the ground and turn to dust" was not settle, and the measurement says so |
-| T1f | note | 8093 | The felled pile is 74% powder because the tree is 56% leaves. The piece ladder cannot fix... |
-| T1g | note | 8147 | A "refixed" claim went out over a settled state that had barely moved |
-| T1c | note | 8176 | §1c's settle loss is now a counter |
-| -- | note | 8193 | What landed |
-| -- | note | 8216 | Do not re-derive these |
-| -- | note | 8244 | Measurements that contradict something written |
-| -- | note | 8264 | Open |
-| -- | note | 8299 | Unmerged at close, and one of it is a fix main needs anyway |
-| 1n | note | 8317 | grass sets zero seeds on main |
+| W1a | note | 7790 | creeper.ron's root tips still run the superseded in-tick branch path |
+| W1b | note | 7811 | A material-counting guard cannot see a species |
+| W1c | note | 7824 | generated_terrain_is_already_at_rest went red on main |
+| T1a | note | 7958 | load::grain_is_footing reads *attachment* where it means *supported* |
+| T1b | note | 8036 | The structural opt-out did not hold against bearing |
+| T1d | note | 8047 | acceptance.sh's lavadrop sits close enough to its frame budget to flake, and is over it o... |
+| T1e | note | 8081 | "The pieces hit the ground and turn to dust" was not settle, and the measurement says so |
+| T1f | note | 8135 | The felled pile is 74% powder because the tree is 56% leaves. The piece ladder cannot fix... |
+| T1g | note | 8189 | A "refixed" claim went out over a settled state that had barely moved |
+| T1c | note | 8218 | §1c's settle loss is now a counter |
+| -- | note | 8235 | What landed |
+| -- | note | 8258 | Do not re-derive these |
+| -- | note | 8286 | Measurements that contradict something written |
+| -- | note | 8306 | Open |
+| -- | note | 8341 | Unmerged at close, and one of it is a fix main needs anyway |
+| 1n | note | 8359 | grass sets zero seeds on main |
 
 <!-- END GENERATED INDEX -->
 
@@ -7726,13 +7726,55 @@ whole canopy as grit. The rule has a *direction* in it: leaf-to-leaf carries
 (a cluster hangs together off its twig), wood-to-leaf carries, leaf-to-wood
 must not.
 
-**Why it is not fixed here.** The directional version is measured good on
-plants and **fails `scripts/acceptance.sh`'s `woodalt` case**: *"expected the
-gnome to cover at least 40 cells, he covered 8"*. Ruled in as this change's
-own doing rather than main's, by reverting only that hunk and re-running —
-acceptance is then clean. So the fix is real, the regression is real, and
-they need separating before either lands. The patch is small and lives in
-`anchor_support`'s relaxation loop.
+**The patch**, so it is not re-derived. In `anchor_support`'s relaxation
+loop, before the `NEIGHBOURS_8` walk:
+
+```rust
+let source_is_leaf = organism::cell_type(world.get(x, y).aux()) == Some(CellType::Leaf);
+for (dx, dy) in NEIGHBOURS_8 {
+    let Some(&j) = index.get(&(x + dx, y + dy)) else { continue };
+    if source_is_leaf {
+        let (nx, ny) = cells[j];
+        if organism::cell_type(world.get(nx, ny).aux()) != Some(CellType::Leaf) {
+            continue;
+        }
+    }
+    // ... unchanged
+```
+
+**Why it is not landed. It costs `scripts/acceptance.sh`'s `woodalt` case**:
+*"expected the gnome to cover at least 40 cells, he covered 8"*. Attributed
+to this change rather than to main by reverting only that hunk and re-running,
+which is clean.
+
+**And the cause is not what the case's own comment predicts.** That comment
+blames a soil bank the gnome sinks into — *"`step_up` cannot mount a powder
+face"* — so the obvious reading is that more foliage falls and he wades into
+it. Measured, that is backwards. Leaf litter goes **down**:
+
+| | travelled | log | deadwood | litter |
+|---|---|---|---|---|
+| shipped | **50** | 18 | 67 | 315 |
+| with the fix | **8** | 115 | **396** | 243 |
+
+What rises is *wood* debris — deadwood 67 → 396 — because limbs now genuinely
+detach. Rendered at zoom 20 on the gnome's own position, he is standing
+against **a wall of fallen wood taller than he is**, three cells from where he
+spawns. Not a bank to wade; a limb lying across the path, which in a side-on
+world is a wall.
+
+The whole world loses only 567 cells to the change (36,067 → 35,500), so this
+is a handful of limbs coming down rather than a stand collapsing. The fix is
+proportionate and the gnome was unlucky.
+
+**So this is a gameplay call, not a correctness one, and it is the owner's.**
+A fallen limb blocking a path is right; a gnome walled in at spawn with no
+way over is not. Three ways out, and they are not equivalent: teach `step_up`
+or the climb to get over debris (the general fix, and this will recur every
+time the world gets rougher); let him chop through it, which he already can
+(`rigid::is_tool_target` accepts `Plant`) but no script does here; or bias
+`MIN_BODY_CELLS` so more of a limb lands as `log` pieces and less as
+`deadwood` grit, which the ethos prefers anyway.
 
 **Why it matters beyond breaking.** Any rule that decides a plant has come
 apart reads this field — felling, the span rule, dieback. If foliage is a
