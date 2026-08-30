@@ -4,13 +4,21 @@
 plan and not a schedule.** Carries five owner decisions taken 2026-08-30
 (§2a soil, §2b collapse, §7b-i mutation progression, plus three questions
 deliberately deferred in §7b-ii) and ten open questions in §8.
-Downstream of `evolution-lab-feasibility-2026-08-30.md`, which asked whether a
-second game could live on this engine and answered yes. This asks *how you
-would build it*, and its job is to stop the same questions being re-derived.
+Downstream of [evolution-lab-feasibility-2026-08-30.md](evolution-lab-feasibility-2026-08-30.md), which asked
+whether a second game could live on this engine and answered yes. This asks
+*how you would build it*, and its job is to stop the same questions being
+re-derived.
+
+**Reading the cross-references.** A bare `§n` is a section of *this* document.
+Anything in another report is named — *feasibility §3c*,
+[creature-evolution-plan.md](creature-evolution-plan.md) §2.6 — because both documents have a §3 and a §4
+and an unqualified number silently resolves to the wrong one. That is not
+hypothetical: this guide shipped for a day with five such references before
+the owner asked whether the feasibility report was even linked.
 
 **Three sources of authority, kept separate throughout.** Where this says
 **measured**, a number in the feasibility report or another named report says
-so. Where it says **policy**, `CLAUDE.md` or `design-philosophy.md` or a
+so. Where it says **policy**, `CLAUDE.md` or [design-philosophy.md](design-philosophy.md) or a
 recorded owner decision already settles it. Where it says **call**, it is a
 judgement made here and open to being overturned — most of §4 and §6 are calls.
 Where it says **open**, it needs the owner and §8 lists them together.
@@ -60,7 +68,7 @@ measurements support it exactly:
   the experiment. The player watches generations turn over, and cannot touch
   anything until it ends.
 
-**Why the split is free rather than expensive** (measured, feasibility §4c):
+**Why the split is free rather than expensive** (measured, [evolution-lab-feasibility-2026-08-30.md](evolution-lab-feasibility-2026-08-30.md) §4c):
 determinism is required same-build, and `main.rs` already runs a fixed
 timestep with a catch-up loop. Raising `MAX_TICKS_PER_FRAME` runs the
 *identical* tick sequence in the identical order — a fast-forwarded experiment
@@ -144,12 +152,12 @@ design choice. This table is the guide's centre of gravity.
 | Measured | Design consequence |
 |---|---|
 | An empty sealed box costs **0.001 ms/frame**; all cost is bought by life | **Unused lab space is free.** Expansion costs nothing until it is planted. The player can be given a large facility from the start without paying for it |
-| Under a **moving sun**, the field solves every tile in the world every frame; under a **held light** it does not (§2, §3b) | **The lab has a ceiling, not a sky.** This is simultaneously the fiction, the single largest performance decision, and free — it is not an optimisation to build, it is a thing not to have |
+| Under a **moving sun**, the field solves every tile in the world every frame; under a **held light** it does not (feasibility §2, §3b) | **The lab has a ceiling, not a sky.** This is simultaneously the fiction, the single largest performance decision, and free — it is not an optimisation to build, it is a thing not to have |
 | Cost follows **living biomass**, not world size — a 2048-wide bed measured cheaper than a 512-wide one at fixed founders | **Population is the performance budget, and it is diegetic.** "How many growth beds is your lab running" *is* the frame-time dial. Do not hide it in a settings menu; it is a resource-management quantity already |
 | Soil depth: 40 → 240 rows costs **1.9x** for a **byte-identical stand**, because herb's roots never reach past 40 | **Deep soil is required — owner decision, 2026-08-30**: *"We need soil. Plants grow roots into it and creatures need to dig into it and ideally create homes."* So the 1.9x is **accepted, not optional**, and the design obligation flips: something must actually reach the depth being paid for. See §2a — as measured, the shipped herb does not, and paying 1.9x for rows nothing touches is the failure mode to avoid |
 | A grow light held at full amplitude: **1,037 seeds against 435** in the same frames, for 12% more cost | **The light schedule is a real strategic lever with a measured payoff.** 24-hour light is ~2.4x the generations per minute against a day/night cycle. Whether that has a downside is **open** — today it does not, and a lever with no cost is not a decision |
 | The air simulation runs permanently but has **nothing driving it** in a sealed box: 11–20% of frame, stand comes out *slightly larger* without it | **Equipment switches on a simulation that is otherwise idle.** A fan, a heater, a humidifier, a fire are not set dressing — they are what makes pressure/velocity/advection do work. This is the strongest mechanical argument for the equipment layer |
-| The structural scheduler is **16% of the shipped frame** and ~0 in a bed with no rock (§3c) | **Declined — owner decision, 2026-08-30**: *"We can remove collapsing tunnels."* The 16% is not spent. Soil holds whatever shape is dug into it, so a burrow is permanent once made. §2b records what that costs in drama and what replaces it |
+| The structural scheduler is **16% of the shipped frame** and ~0 in a bed with no rock (feasibility §3c) | **Declined — owner decision, 2026-08-30**: *"We can remove collapsing tunnels."* The 16% is not spent. Soil holds whatever shape is dug into it, so a burrow is permanent once made. §2b records what that costs in drama and what replaces it |
 | Empty sky is **27.4 ns/px** against stone's 6.7 | **Whatever fills the air above the soil must not draw as sky.** A lab interior is cheap to draw; a gradient with a star hash is not |
 | `herb` reaches generation 5 in 45,000 frames; `tree` reaches generation 1 in 200,000 | **The starting plant must have a herb's life cycle.** Trees are a late-game unlock and are not a substrate evolution can act on today |
 | The ant reaches **generation 0** — richest bank 219 against a birth cost of 1,040 | §3, Gate 0. Nothing else matters first |
@@ -185,8 +193,8 @@ Three consequences (**calls**):
 
 **Owner decision, 2026-08-30**: *"We can remove collapsing tunnels."*
 
-**What it buys**: the 16% structural purchase is declined (§3c of the
-feasibility report — the scheduler runs 3.389 ms in the shipped world and
+**What it buys**: the 16% structural purchase is declined (feasibility §3c
+— the scheduler runs 3.389 ms in the shipped world and
 0.197 ms with its load walks off). Soil in the lab holds whatever shape is dug
 into it.
 
@@ -313,7 +321,7 @@ shortfall, a lab-only species file with a cheaper body, or the engine fix. The
 outdoor game needs the engine fix regardless. Gate 0 is satisfied by any of
 the three; §8.4b is which one to build.
 
-**It is not a tuning problem** (`ant.ron`, `creature-birth-grant-2026-08-30.md`):
+**It is not a tuning problem** (`ant.ron`, [creature-birth-grant-2026-08-30.md](creature-birth-grant-2026-08-30.md)):
 a birth costs the grant plus a 960-unit body stamp, the stamp is invariant to
 every knob in the file, and an ant's bank is capped by `hunger_fraction` at
 roughly half `start_energy` plus one mouthful. The two routes named at the
@@ -388,7 +396,7 @@ that produces nothing visible is not on the list. All **calls**.
 | **Install a fan / heater / humidifier** | Switches on the air simulation, which today runs idle. Visible as drift, as heat spreading, as humidity reaching a bed that could not otherwise get it |
 | **Deepen a bed** | Costs 1.9x frame time, returns nothing until roots reach it. An upgrade that is honestly priced |
 | **Cull** an individual or a lineage | Directed selection — the player *is* the selection pressure. This is the verb the premise most needs and the one with no engine support today |
-| **Partition / connect** two beds | Isolation is what makes divergence possible (`plant-evolution-design.md`: asexual isolation is where clusters come from). A door between two beds is a genuine evolutionary operator |
+| **Partition / connect** two beds | Isolation is what makes divergence possible ([plant-evolution-design.md](plant-evolution-design.md): asexual isolation is where clusters come from). A door between two beds is a genuine evolutionary operator |
 | **Export** an individual to the species library | E8's own verb, already built (`species_export`). This is the game's *keep* |
 | **Feed / withhold** | The economy exists; withholding is how a bottleneck is applied |
 

@@ -2,9 +2,12 @@
 
 **Status: feasibility measurement, not a plan and not a decision.**
 **The design guide downstream of this is
-`evolution-lab-design-guide-2026-08-30.md`** — this report says what the
-concept costs and what blocks it; that one says how you would build it, and
-turns each measurement below into a design consequence. Answers a
+[evolution-lab-design-guide-2026-08-30.md](evolution-lab-design-guide-2026-08-30.md)** —
+this report says what the concept costs and what blocks it; that one says how
+you would build it, and turns each measurement below into a design
+consequence. **It cites this document's sections as *feasibility §n***, since
+both files have a §2, §3 and §4 and a bare number would resolve to the wrong
+one. Answers a
 question put by the owner: strip the gnome, worldgen, rock, tunnelling,
 explosions and collapse from this engine and build a second game on the plant
 and creature arms alone — a sealed lab box of deep soil under grow lights, a
