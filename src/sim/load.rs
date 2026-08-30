@@ -466,7 +466,7 @@ fn flows_down(world: &World, x: i32, y: i32) -> bool {
 /// `Cell::OUT_OF_BOUNDS` reports as bedrock) — held from outside the model
 /// entirely, and the **only** thing that exempts a cell from evaluation.
 /// See `evaluate_within` for why this is narrower than `is_anchor`.
-fn touches_bedrock(world: &World, x: i32, y: i32) -> bool {
+pub(crate) fn touches_bedrock(world: &World, x: i32, y: i32) -> bool {
     NEIGHBOURS_4.iter().any(|&(dx, dy)| world.get(x + dx, y + dy).material == super::material::BEDROCK)
 }
 

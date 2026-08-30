@@ -150,18 +150,31 @@ Still not started, and deferred by the owner in the same message that asked
 for the rest (*"lets take this one step at a time"*): hitting a released
 block so it breaks down into smaller pieces and then dust.
 
-**The `worked` acceptance case is still red, and it is a load-model
-question rather than a hammer one.** 1 overload failure against a bar of 3.
-The shelf's root is completely cut away — measured, 238 stone cells to 0 —
-and the shelf hangs in the air anyway, because every cell of it is
-`attached` and attachment means *"I am terrain, I need no support"*. The old
-blow brought it down by stripping a wide band of that flag with its radius
-disc; cutting the root out along the joints removes far less, and
-`detach_exposed_neighbours` reaches 3 cells while the shelf is 160 long.
-Making severed terrain lose the flag would fix it and would reach every
-cliff and overhang in the world, so it is posted to the owner as a card
-(board `structural`, 2026-08-30) rather than decided here. **The bar is
-untouched.**
+**The `worked` acceptance case is still red, the owner has ruled on it, and
+the diagnosis is filed as `open-bugs-handoff.md` §S6.** 1 overload failure
+against a bar of 3. Owner, 2026-08-30: *"it should break off. I may have
+given a different answer earlier in development."*
+
+**Read §S6 rather than this paragraph** — it carries the census, the
+seedsweep baseline, and the two changes it needs. The short form: the
+shelf's root is measured gone, the support field (with reconvergence on)
+correctly reads all 1,818 of its cells as unreachable, nothing touches
+bedrock — and **three grains of rubble under it make `load::is_supported`
+call the whole 1,853-cell piece supported**. The fix is not connectivity;
+it is that a grain footing is priced per *cell*, after a binary that has
+already answered for the whole piece.
+
+**Two diagnoses this lane wrote first and had to withdraw**, both recorded
+in §S6 so they are not re-derived: that a calved block failing to unbrace
+its neighbours was the cause (it is a real defect, fixed, and the shelf
+still hangs), and that the support field was simply stale (it is, but only
+because `reconverge_enabled()` is off by default — and the probe that
+"showed" it frozen was stepping `parallel::step` alone, which never ticks
+the structural system, so it reported zero failures on a scene built to
+make a shelf fall).
+
+**The bar is untouched**, and `load.rs` is the structural lane's file, so
+this is a handoff rather than something this lane should land.
 
 **One case known open.** A piece that has *landed* is grid cells again, and
 `structural::free_blocks_around` floods by Worley domain rather than by

@@ -7606,6 +7606,26 @@ mod swing_probe {
             report(&w, &format!("after {} frames", f * 100));
         }
         println!("failures: overloaded {} unsupported {}", w.structural_failures.overloaded, w.structural_failures.unsupported);
+        // **What is holding it up?** The field can be entirely correct and
+        // the shelf still stand, so name the anchor rather than guessing.
+        // `load::is_supported` floods 4-connected through uncracked edges
+        // looking for one cell that `chain_reaches_anchor`, and its cap is
+        // 20,000 against a 1,900-cell shelf, so it is not capping out --
+        // it is finding something.
+        let grounded: Vec<(i32, i32)> = (150..164)
+            .flat_map(|y| (90..250).map(move |x| (x, y)))
+            .filter(|&(x, y)| w.get(x, y).material == material::STONE && crate::sim::load::rests_on_ground(&w, x, y))
+            .collect();
+        println!("shelf cells resting on loose ground: {}", grounded.len());
+        for &(x, y) in grounded.iter().take(8) {
+            let below = w.get(x, y + 1);
+            println!("    ({x}, {y}) sits on {}", w.materials.get(below.material).name);
+        }
+        let touching: usize = (150..164)
+            .flat_map(|y| (90..250).map(move |x| (x, y)))
+            .filter(|&(x, y)| w.get(x, y).material == material::STONE && crate::sim::load::touches_bedrock(&w, x, y))
+            .count();
+        println!("shelf cells touching bedrock: {touching}");
     }
 
     /// The `acceptance.sh` `worked` case, swing by swing: six blows at one
