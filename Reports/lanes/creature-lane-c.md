@@ -140,6 +140,19 @@ landing, do not assume the figures still hold** — `git diff HEAD origin/main
 if it is non-empty the census wants re-running before the report's numbers
 are quoted anywhere else.
 
+**One forward risk, noticed on the way past and not acted on.** #166 landed
+`sim::frame::step` as the single copy of the tick sequence, extracted out of
+`App::update`. Every harness that hand-rolls that loop is now a **second
+copy** — mine calls `parallel::step`, `step_active_sites`, `step_fields`,
+`step_pheromones` and nothing else, and `frame::step` already does more than
+that (a liquid-bodies phase between the sweep and active sites, plus blasts
+and player input). `predation_probe` and `creature_space`, which my scene is
+copied from, roll the same four. Nothing is wrong today; the risk is the one
+`open-bugs-handoff.md` §R2 is about — two copies of an ordering rule that
+drift, and the harness is the copy nobody notices. Porting the examples onto
+`frame::step` is somebody's small job and would have to be done deliberately,
+since it changes every creature baseline again.
+
 ### Review card — still unanswered
 
 `20260830T014759506Z-618977`, board `creatures`, posted 01:47 UTC and
