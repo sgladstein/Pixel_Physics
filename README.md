@@ -49,12 +49,12 @@ whole, then run `python3 scripts/readmetoc.py`.
 | [Weather status](#weather-status) | 3046 |
 | [The ant colony — status](#the-ant-colony--status) | 3063 |
 | [M19 status — started](#m19-status--started) | 3172 |
-| [Felling status — the verb works, and what it produces is pieces](#felling-status--the-verb-works-and-what-it-produces-is-pieces) | 3228 |
-| [Bending status — soft tissue lies over, and the wind is what pushes it](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) | 3465 |
-| [Performance](#performance) | 3542 |
-| [World speed — five independent time axes](#world-speed--five-independent-time-axes) | 3716 |
-| [Status](#status) | 3799 |
-| [License](#license) | 3910 |
+| [Felling status — the verb works, and what it produces is pieces](#felling-status--the-verb-works-and-what-it-produces-is-pieces) | 3244 |
+| [Bending status — soft tissue lies over, and the wind is what pushes it](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) | 3481 |
+| [Performance](#performance) | 3558 |
+| [World speed — five independent time axes](#world-speed--five-independent-time-axes) | 3755 |
+| [Status](#status) | 3838 |
+| [License](#license) | 3949 |
 
 ### Milestones, in numeric order
 
@@ -88,14 +88,14 @@ them is named "plants". A section can appear twice; felling is honestly both
 plant work and structural work.
 
 **Known limitations for every topic are collected in one place**:
-[Status](#status), line 3799 — the *last* section in the
+[Status](#status), line 3838 — the *last* section in the
 file, not the first. Read it before concluding something is broken.
 
 | Topic | Sections, primary first |
 |---|---|
-| **plants, trees and moss** | [M16 status](#m16-status) 1553, [Plant lines merged](#plant-lines-merged-the-genome-and-the-ecology) 1181, [The economy re-derived](#the-economy-re-derived-standing-tissue-costs-something) 1303, [Plants that stop](#plants-that-stop-organs-determinacy-and-a-price-on-both) 1485, [The generation loop](#the-generation-loop-plants-die-seeds-expire-slots-come-back) 1251, [Stems draw a line](#stems-draw-a-line-the-growth-walk-renders-its-heading) 1403, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 3228, [Bending status](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) 3465 |
+| **plants, trees and moss** | [M16 status](#m16-status) 1553, [Plant lines merged](#plant-lines-merged-the-genome-and-the-ecology) 1181, [The economy re-derived](#the-economy-re-derived-standing-tissue-costs-something) 1303, [Plants that stop](#plants-that-stop-organs-determinacy-and-a-price-on-both) 1485, [The generation loop](#the-generation-loop-plants-die-seeds-expire-slots-come-back) 1251, [Stems draw a line](#stems-draw-a-line-the-growth-walk-renders-its-heading) 1403, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 3244, [Bending status](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) 3481 |
 | **creatures — worms and the ant colony** | [M18 status](#m18-status) 1966, [The ant colony](#the-ant-colony--status) 3063 |
-| **structural collapse, felling and rigid bodies** | [M17 status](#m17-status) 1739, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 3228, [Bending status](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) 3465, [M8 status](#m8-status--started-not-complete) 2433 |
+| **structural collapse, felling and rigid bodies** | [M17 status](#m17-status) 1739, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 3244, [Bending status](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) 3481, [M8 status](#m8-status--started-not-complete) 2433 |
 | **fire, heat and phase change** | [M14 status](#m14-status) 768, [Materials](#materials) 222 |
 | **explosions, particles and debris** | [M15 status](#m15-status) 945, [M7 status](#m7-status) 916 |
 | **liquids and gases** | [Liquid physics](#liquid-physics-compressible-volume-not-discrete-occupied-cells) 742, [The coarse field grid](#the-coarse-field-grid) 453 |
@@ -103,9 +103,9 @@ file, not the first. Read it before concluding something is broken.
 | **the coarse field grid — pressure, heat, light** | [The coarse field grid](#the-coarse-field-grid) 453, [M12/M13 status](#m12m13-status) 715 |
 | **worldgen and world structure** | [M10 status](#m10-status--the-worldgen-half) 2931, [Architecture](#architecture) 296 |
 | **the gnome (player character)** | [M9 status](#m9-status--the-gnome) 2546, [Controls](#controls) 157 |
-| **weather, sky and the clock** | [Weather status](#weather-status) 3046, [M19 status](#m19-status--started) 3172, [World speed](#world-speed--five-independent-time-axes) 3716 |
+| **weather, sky and the clock** | [Weather status](#weather-status) 3046, [M19 status](#m19-status--started) 3172, [World speed](#world-speed--five-independent-time-axes) 3755 |
 | **rendering, UI and tunables** | [UI improvements](#ui-improvements--overnight-run-section-9) 2300, [Live tunables panel](#live-tunables-panel--overnight-run-section-10) 2345, [Rendering performance](#rendering-performance--overnight-run-section-11) 2413, [M6 deferral](#m6-deferral) 1076 |
-| **performance and the parallel sweep** | [Performance](#performance) 3542, [M5 status](#m5-status) 1086, [Architecture](#architecture) 296, [Rendering performance](#rendering-performance--overnight-run-section-11) 2413 |
+| **performance and the parallel sweep** | [Performance](#performance) 3558, [M5 status](#m5-status) 1086, [Architecture](#architecture) 296, [Rendering performance](#rendering-performance--overnight-run-section-11) 2413 |
 | **materials and the data schema** | [Materials](#materials) 222, [M12/M13 status](#m12m13-status) 715 |
 
 <!-- END GENERATED TOC -->
@@ -3225,6 +3225,22 @@ running the shallow rays on the transpose rather than striding the grid
 `a_dug_shaft_goes_dark_while_a_wide_pit_keeps_its_rim_lit`, which now asserts
 both halves of the pair from one run.
 
+**And the rebuild did not need to happen at all.** Its trigger read
+`force_full` — *"an overlay is on screen with no tracked footprint"*, which
+is true whenever the cursor is over the window — so the splat was rebuilt on
+essentially every frame of play for a reason that has nothing to do with
+cells. Removing it takes a full redraw to **2.4 ms** and the rebuild to a
+frame where a crystal was actually exposed or mined.
+`Renderer::forget_world`, called from `App::reset`, now does the one thing
+`force_full` was covering by accident, and did badly.
+
+**`PIXEL_PHYSICS_DRAW_TIMING=1` splits `Renderer::draw` by phase**, which
+nothing here could do — every frame-cost instrument times `App::update`, so
+the largest single cost in the frame had no owner *and* could not be
+attributed internally. The pixel loop everyone reasoned about is 1.9 ms of
+it. Both halves, the measurements and the guard that was blind to this are in
+[`Reports/frame-cost-the-render-half-2026-08-29.md`](Reports/frame-cost-the-render-half-2026-08-29.md).
+
 ## Felling status — the verb works, and what it produces is pieces
 
 **A tool can damage a plant, and cutting through a bole brings the crown
@@ -3587,6 +3603,29 @@ resolution step affordable at all. `Reports/resolution-step-2026-08-29.md`
 has the ledger, the owner's verdict on what "double the resolution" means,
 and the measured finding that cutting stone depth buys load time and memory
 but **not** frame rate.
+
+**Both numbers above were overtaken the same day, and by a cost neither of
+them contained.** Re-measured on a deliberately quiet box, on the shipped
+generated world rather than the one those figures were taken on, a forced
+full redraw at 512x320 was **~42 ms** — the glow halo's splat was hashing a
+`ChunkCoord` twice for every cell of every emitter's disc, on every forced
+redraw, which is ~100% of frames while the gnome walks. Walking the disc
+chunk-major instead takes it to **~7.5 ms** (six of six paired passes, two
+fixed binaries, output byte-identical). The same fix removes the whole cost
+of PR #94's taller sky, which was that halo spread over more chunks and not
+the field at all. **And then the rebuild stopped happening every frame** —
+its trigger read `force_full`, true whenever the cursor is over the window —
+which takes the redraw to **2.4 ms**.
+
+So the current picture is **`App::update` 18.88 ms ±0.9% plus a ~2.4 ms
+render**, against a 16.6 ms budget — and the simulation is now the whole of
+the overspend, with the field 59% of it and `plant::step_organisms` 27%.
+(The 6.28 ms above is a short window; 18.88 is the two-day-cycle protocol
+`Reports/frame-cost-audit-2026-08.md` uses, which is the one that compares.)
+`Reports/frame-cost-the-render-half-2026-08-29.md` has all of it — including
+why **no image-level check can verify a change to the glow splat**, measured
+by putting a fault back and watching two byte-identical renders and four
+guards stay green.
 
 Measured by `cargo run --release --example ascii`, which reports the worst
 single frame of each scenario — now run through both drivers back to back

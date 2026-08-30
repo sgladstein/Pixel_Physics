@@ -485,6 +485,25 @@ drift that two of these documents still reflect.**
   named (a mutation counter at `bear_seed_at`, whose return value is currently
   discarded). **That discrepancy is now closed — see the entry directly
   below, which finds the model at fault rather than the mechanism.**
+- [plant-selection-teeth-2026-08-29.md](plant-selection-teeth-2026-08-29.md)
+  — **does this world punish a plant that is worse? Yes, and gradedly.** The
+  teeth-test: two genomes competing in **one** bed, 5 arms x 18 mirrored
+  seeds, closing the gap the operator gate's §6 names. Built against a
+  **false-negative** worry — measuring nothing in a world whose pressures are
+  incomplete and recording it as "evolution does not work". The load-bearing
+  row is `nobranch`: a plant that grows, flowers and sets seed loses **11
+  points of the bed on 18 of 18 seeds** (p=0.0002), which is selection between
+  two *living* plants; `lethal` at 0.0% is near-tautological and should not be
+  quoted for that claim. Carries a **null that is a finding** — `norootbranch`
+  reads 49.7%, p=0.86, and the bed is uniform field-capacity soil, so a root
+  system has no scarcity to compete over. **States its own blindness up
+  front**: the control's spread is ±9.3 share-points, so 18 seeds resolve ~7.5
+  points and a 1% selection coefficient would need ~620 — the next experiment
+  needs a frequency trajectory over generations, not more seeds. Its §2 and §5
+  are the method value: the mirrored identical-arms control is **vacuous by
+  construction** (exactly 50.0%, an algebraic identity), and three arms were
+  silent before they were real — `lateral: None` is not "no lateral", and a
+  herb shoot never places a lateral at all while its root does.
 - [plant-mutation-counted-at-source-2026-08-29.md](plant-mutation-counted-at-source-2026-08-29.md)
   — **§4 closed: the 2.6x was the model, not a loss.** Counts fate mutations
   where they happen (`World::fate_mutation_rolls` / `_fired` / `_applied`) and
@@ -704,6 +723,25 @@ drift that two of these documents still reflect.**
   material rather than on the eater, corpse worth in `Cell::aux`, and the
   edible forest floor. Its "As built" notes carry the measurements; every
   S4 number in them predates the litter merge and is superseded by it.
+- [creature-reproduction-economics.md](creature-reproduction-economics.md) —
+  **design research, 2026-08-29; nothing built, nothing timed. Awaiting an
+  owner ruling.** Why S6's budding never fires on the shipped ant, and what
+  a reproductive economy that *can* fire would look like. Corrects the
+  standing account in two places: the bank ceiling is **570, not 930** (the
+  neutral gut draws 120 from a 480 leaf through S5's matched filter), and
+  there are **two independent gaps** — the body stamp, and a grant term that
+  is unreachable even with a free body, so fixing the birth cost alone
+  leaves a 3.75x shortfall. Nature's answer in four parts (Smith–Fretwell
+  offspring size, mass versus progressive provisioning, the claustral queen
+  metabolising her own flight muscles, trophallaxis and repletes), five
+  candidates scored against this engine's arithmetic and its ledger, and a
+  recommendation that is a **fork**: `birth_grant` first in both arms, then
+  either a solitary altricial income breeder (E5's own ancestor) or a
+  colonial mass provisioner (E8's other half). Names three genes with
+  two-sided trade-offs and **refuses a fourth** — heritable body size
+  ratchets to one end whichever way it is priced, because `idle_cost` and
+  `move_cost` are flat per organism, which corrects **E10**'s premise that a
+  longer body is already priced. Six experiments named and none run.
 - [creature-export-design.md](creature-export-design.md) — **built and
   landed 2026-08-29.** The dev-tool exit decision **E8** asks for and nothing
   implemented: an evolved individual written back out as a species `.ron` the
@@ -876,13 +914,38 @@ revamp rather than another round:
   section before quoting any field timing; both earlier versions of this
   file were wrong because they did not.
 - [frame-cost-audit-2026-08.md](frame-cost-audit-2026-08.md) —
-  **measurement of record for whole-frame cost.** The first attribution of
-  `App::update` as a whole, at the shipped 8192x2560 size: 30.1 ms amortised
-  with nobody playing, 79% of frames over the 16.6 ms budget. Reranked the
-  performance backlog — issue #2 down (the sweep is a tenth of the frame),
-  `plant::step_organisms` up (a quarter of it, and in no plan). Read it
-  before quoting any per-phase cost; `field-settling-2026-08.md` remains the
-  record for the field's *internal* split and is not contradicted here.
+  **measurement of record for how `App::update` divides.** The first
+  attribution of `App::update` as a whole, at the shipped 8192x2560 size:
+  30.1 ms amortised with nobody playing, 79% of frames over the 16.6 ms
+  budget. Reranked the performance backlog — issue #2 down (the sweep is a
+  tenth of the frame), `plant::step_organisms` up (a quarter of it, and in no
+  plan). Read it before quoting any per-phase cost; `field-settling-2026-08.md`
+  remains the record for the field's *internal* split and is not contradicted
+  here. **Its headline is no longer the frame** — see the next entry, which
+  extends rather than supersedes it.
+- [frame-cost-the-render-half-2026-08-29.md](frame-cost-the-render-half-2026-08-29.md)
+  — **measurement of record for the whole frame, simulation *and* render.**
+  `App::update` has fallen to 18.9 ms (±1%, measured on this job), so the
+  simulation did not regress — but `Renderer::draw` is not in `App::update`
+  and nothing had ever counted it: it is **~40 ms**, the larger half of the
+  frame by 2:1. Bisects the owner's "the game feels slow" to `39e6f36`
+  (PR #94) and to the **sky** half of it, worth ~29 ms a redraw and ~2 ms of
+  simulation, with the soil half worth nothing. The cost was a *cliff* rather
+  than a price per sky pixel, which is what said it was a defect — and it
+  was: `rebuild_near_glow` hashed a `ChunkCoord` twice for each of ~615 disc
+  cells of each of ~6,900 glowing cells, on every forced full redraw. Fixed
+  here, **~42 ms -> ~7.5 ms**, and PR #94 stays. **Then the "on every forced
+  full redraw" half went too**: that trigger read `force_full`, which is true
+  whenever the cursor is over the window, so the rebuild happened on ~100% of
+  frames for a reason that has nothing to do with cells. Removing it takes the
+  redraw to **2.4 ms** and the rebuild to a frame where a crystal actually
+  changed — §7, with `Renderer::forget_world` for the one thing `force_full`
+  was covering by accident, and the phase split
+  (`PIXEL_PHYSICS_DRAW_TIMING`) that no instrument here had. **Read its "every
+  image-level check of this is blind" section before verifying any change to
+  the glow splat by rendering** — a deliberate off-by-one left two renders
+  byte-identical and four existing guards green. Carries a separate ~8 ms
+  finding for rain.
 - [world-review-2026-08.md](world-review-2026-08.md) — **review.** A
   multi-lens pass over the generated world.
 - [cave-beauty-review-2026-08.md](cave-beauty-review-2026-08.md) —
