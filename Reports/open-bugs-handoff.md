@@ -116,22 +116,22 @@ point.
 | 2 | note | 7733 | Grow into soil destroys the soil's stored water |
 | 3 | note | 7745 | Capillary exchange can push a neighbour above its own capacity |
 | U | note | 7758 | A crown hangs on by its leaves, so a snapped limb never falls |
-| W1a | note | 7855 | creeper.ron's root tips still run the superseded in-tick branch path |
-| W1b | note | 7876 | A material-counting guard cannot see a species |
-| W1c | note | 7889 | generated_terrain_is_already_at_rest went red on main |
-| T1a | note | 8023 | load::grain_is_footing reads *attachment* where it means *supported* |
-| T1b | note | 8101 | The structural opt-out did not hold against bearing |
-| T1d | note | 8112 | acceptance.sh's lavadrop sits close enough to its frame budget to flake, and is over it o... |
-| T1e | note | 8146 | "The pieces hit the ground and turn to dust" was not settle, and the measurement says so |
-| T1f | note | 8200 | The felled pile is 74% powder because the tree is 56% leaves. The piece ladder cannot fix... |
-| T1g | note | 8254 | A "refixed" claim went out over a settled state that had barely moved |
-| T1c | note | 8283 | §1c's settle loss is now a counter |
-| -- | note | 8300 | What landed |
-| -- | note | 8323 | Do not re-derive these |
-| -- | note | 8351 | Measurements that contradict something written |
-| -- | note | 8371 | Open |
-| -- | note | 8406 | Unmerged at close, and one of it is a fix main needs anyway |
-| 1n | note | 8424 | grass sets zero seeds on main |
+| W1a | note | 7877 | creeper.ron's root tips still run the superseded in-tick branch path |
+| W1b | note | 7898 | A material-counting guard cannot see a species |
+| W1c | note | 7911 | generated_terrain_is_already_at_rest went red on main |
+| T1a | note | 8045 | load::grain_is_footing reads *attachment* where it means *supported* |
+| T1b | note | 8123 | The structural opt-out did not hold against bearing |
+| T1d | note | 8134 | acceptance.sh's lavadrop sits close enough to its frame budget to flake, and is over it o... |
+| T1e | note | 8168 | "The pieces hit the ground and turn to dust" was not settle, and the measurement says so |
+| T1f | note | 8222 | The felled pile is 74% powder because the tree is 56% leaves. The piece ladder cannot fix... |
+| T1g | note | 8276 | A "refixed" claim went out over a settled state that had barely moved |
+| T1c | note | 8305 | §1c's settle loss is now a counter |
+| -- | note | 8322 | What landed |
+| -- | note | 8345 | Do not re-derive these |
+| -- | note | 8373 | Measurements that contradict something written |
+| -- | note | 8393 | Open |
+| -- | note | 8428 | Unmerged at close, and one of it is a fix main needs anyway |
+| 1n | note | 8446 | grass sets zero seeds on main |
 
 <!-- END GENERATED INDEX -->
 
@@ -7755,7 +7755,7 @@ do.
 ---
 
 
-### U. A crown hangs on by its leaves, so a snapped limb never falls — **OPEN, found 2026-08-30 while playtesting stage 3's breaking**
+### U. A crown hangs on by its leaves, so a snapped limb never falls — **FIXED 2026-08-30**
 
 **The owner's verdict on a sheet of three self-breaks:** *"Not sure what I
 am supposed to see in this gif. The trees barely move/change. It looks some
@@ -7832,14 +7832,36 @@ The whole world loses only 567 cells to the change (36,067 → 35,500), so this
 is a handful of limbs coming down rather than a stand collapsing. The fix is
 proportionate and the gnome was unlucky.
 
-**So this is a gameplay call, not a correctness one, and it is the owner's.**
-A fallen limb blocking a path is right; a gnome walled in at spawn with no
-way over is not. Three ways out, and they are not equivalent: teach `step_up`
-or the climb to get over debris (the general fix, and this will recur every
-time the world gets rougher); let him chop through it, which he already can
-(`rigid::is_tool_target` accepts `Plant`) but no script does here; or bias
-`MIN_BODY_CELLS` so more of a limb lands as `log` pieces and less as
-`deadwood` grit, which the ethos prefers anyway.
+**Resolved 2026-08-30, and the owner took two of the three ways out at
+once.** *"limbs always land as pieces nothing should be turning to dust at
+all!"* and *"If a limb lands on the gnome and he is stuck, he should be able
+to jump through to get on top of it and it should continue falling."*
+
+- **Every severed plant fragment now flies**, whatever its size:
+  `MIN_BODY_CELLS` is a judgement about rock (a tumbling body under eight
+  cells looks like a grain, and rock *wants* grit) and does not apply to
+  tissue. Unclaimed foliage comes down as a connected cluster rather than
+  scattering, which was the other half of the dust. Measured on the shipped
+  cut: **2,120 of 2,120 severed cells left as pieces (100%)**, against 79%
+  before, with a real size spread — `<8:16, 8-15:17, 16-31:18, 32-63:11,
+  64-127:4, 128-255:3, 256+:5`.
+- **A buried gnome can jump out on top.** `depenetrate`'s reach is 4 cells
+  on the stated grounds that a large push is a teleport — right for a shove
+  the world gives him, wrong for one he asks for. A jump press now searches
+  straight up as far as his own height and leaves with a jump's velocity.
+  The second half of that sentence needed no code: a `ChunkBody` never tests
+  the player, so a landing limb passes through him and keeps falling
+  regardless.
+- **And the walking scripts jump when they stall**, because a player would.
+  `Script::Wood` pressed nothing but `right`, which is not a fair driver of
+  a world with limbs across the path. The bar is untouched — he covers the
+  same ground — and acceptance is green: 406 / 180 / 377 / 380 cells over the
+  four windows.
+
+The third option, teaching `step_up` or the climb to mount debris unaided,
+was **not** taken and is still open ground: a grounded walk still mounts only
+`Tuning::step_up` (4 cells), so a gnome who never presses jump is still
+stopped by a fallen limb. That is now a choice rather than an accident.
 
 **Why it matters beyond breaking.** Any rule that decides a plant has come
 apart reads this field — felling, the span rule, dieback. If foliage is a

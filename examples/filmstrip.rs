@@ -1790,6 +1790,57 @@ fn build_scene(args: &Args) -> World {
             }
             w.player = Some(pixel_physics::sim::player::Player::at(260, 120));
         }
+        // `swim`'s pool, entered at the waterline and crossed rather than
+        // dived into — the other half of what a gnome does to water, and
+        // the half `scene=swim` is blind to by construction: its script
+        // holds `down` and then `jump` and never once presses a direction,
+        // so he has never swum *along* a surface in this harness at all.
+        //
+        // Wider than `swim`'s pool and shallower, because what is read here
+        // is a length of waterline rather than a depth: the question is
+        // whether the line he is crossing stays a razor-straight line.
+        "surf" => {
+            stone_floor(&mut w);
+            for y in 150..floor_y {
+                for x in 100..110 {
+                    w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+                }
+            }
+            // A **shelving beach** on the far side rather than another
+            // wall, and it is the whole reason this scene can answer the
+            // second half of the question. `scene=swim`'s pool is walled
+            // from above the waterline to the floor on both sides, so its
+            // gnome has never once left the water: it reported `1 in /
+            // 0 out` across a 450-frame run with the exit path in place and
+            // working, which is a guard blind by construction rather than a
+            // mechanism that does not fire.
+            //
+            // A beach and not a lip, because the haul-out is `step_up`
+            // (4 cells) rather than `mantle_reach` while he is in the
+            // water — his own comment at that branch says so — and a
+            // swimmer floats far enough down that a lip he can see is a lip
+            // he cannot reach. Shelving out at 1:2 he grounds, wades, and
+            // the stroke buffer he has been holding fires as `surface_hop`
+            // the tick his head clears: he *hops* out, which is the verb the
+            // exit crown is sized against.
+            for x in 380..430 {
+                let top = 210 - (x - 380) / 2;
+                for y in top..floor_y {
+                    w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+                }
+            }
+            for x in 110..410 {
+                for y in 200..floor_y {
+                    if w.get(x, y).material == material::EMPTY {
+                        w.set(x, y, water_at(x, y));
+                    }
+                }
+            }
+            // At the waterline, not above it: an entry crown would be the
+            // first thing on the sheet and this scene is about what comes
+            // after one.
+            w.player = Some(pixel_physics::sim::player::Player::at(140, 200));
+        }
         // M9's other acceptance line: "stands on a tumbling rigid body".
         // The `undercut` recipe with a passenger -- a shelf cut off its
         // support, which the structural pass promotes to a chunk body and
@@ -2367,6 +2418,12 @@ struct Args {
     /// so a harness that could not vary it could not show the difference
     /// between "you cannot dig" and "rock simply goes".
     dig_yield: f32,
+    /// `Tuning::splash_force` — the whole water-surface effect behind one
+    /// multiplier, and `splash=0` is the A/B control: the gnome the pool
+    /// used to ignore. Present as an argument because the effect is judged
+    /// by eye and a remembered impression of the old behaviour is exactly
+    /// the comparison `CLAUDE.md` says not to make.
+    splash: f32,
     /// `shoulder=N` -- the gnome's `shoulder_grains`, for sweeping how many
     /// loose grains above the wade line he pushes past. 0 is the old veto,
     /// under which one stray soil cell in a canopy was an impassable wall.
@@ -3060,6 +3117,7 @@ fn parse() -> Args {
     let mut a = Args {
         scene: "pour".into(),
         dig_yield: pixel_physics::sim::player::Tuning::default().dig_yield,
+        splash: pixel_physics::sim::player::Tuning::default().splash_force,
         shoulder_grains: pixel_physics::sim::player::Tuning::default().shoulder_grains,
         dig_style: pixel_physics::sim::player::DigStyle::default(),
         seed: 1,
@@ -3164,6 +3222,7 @@ fn parse() -> Args {
                 a.seed_given = true;
             }
             "yield" => a.dig_yield = v.parse().expect("yield"),
+            "splash" => a.splash = v.parse().expect("splash"),
             "shoulder" => a.shoulder_grains = v.parse().expect("shoulder"),
             // `digstyle=`, because **both shorter names were already
             // taken**: `dig=` is `scene=room`'s cut radius and `cut=` is a
@@ -3918,6 +3977,10 @@ struct Gnome {
     /// read for — see `Script::Climb`.
     grabbed: bool,
     grabbed_at: f32,
+    /// Where the walking scripts last saw him, and for how many ticks he has
+    /// been there — the state behind `blocked_jump` below.
+    walked_to: f32,
+    stalled: u16,
     highest: f32,
     shakes: usize,
     dislodged_by_shaking: usize,
@@ -3957,6 +4020,10 @@ enum Script {
     Bury,
     /// `scene=swim`: sink, float, pull under with `S`, then jump clear.
     Swim,
+    /// `scene=surf`: cross a pool at the waterline, stroking to stay up —
+    /// the one thing `Swim` never does, since it presses no direction at
+    /// all.
+    Surf,
     /// `scene=ride`: no input at all — the shelf under him gives way and
     /// the only question is whether he goes with it.
     Ride,
@@ -3992,11 +4059,12 @@ const WOOD_WALK_FROM: usize = 6000;
 const CLIMB_WALK_TICKS: usize = 60;
 
 impl Gnome {
-    fn for_scene(scene: &str, dig_yield: f32, shoulder_grains: u8) -> Self {
+    fn for_scene(scene: &str, dig_yield: f32, shoulder_grains: u8, splash_force: f32) -> Self {
         let script = match scene {
             "tunnel" => Script::Tunnel,
             "bury" => Script::Bury,
             "swim" => Script::Swim,
+            "surf" => Script::Surf,
             "ride" => Script::Ride,
             "wood" => Script::Wood,
             "climb" => Script::Climb,
@@ -4007,11 +4075,13 @@ impl Gnome {
         };
         Self {
             script,
-            tuning: pixel_physics::sim::player::Tuning { dig_yield, shoulder_grains, ..Default::default() },
+            tuning: pixel_physics::sim::player::Tuning { dig_yield, shoulder_grains, splash_force, ..Default::default() },
             bites: 0,
             start_x: None,
             grabbed: false,
             grabbed_at: 0.0,
+            walked_to: f32::NAN,
+            stalled: 0,
             highest: 0.0,
             shakes: 0,
             dislodged_by_shaking: 0,
@@ -4040,6 +4110,16 @@ impl Gnome {
         use pixel_physics::sim::player::{self, PlayerInput};
         let tuning = self.tuning;
         let phase = step_no % 60;
+        // How long a walking script goes nowhere before it tries a jump. See
+        // `Script::Wood`. Measured in ticks and deliberately not one: a gnome
+        // shoving into a bank makes slow progress rather than none, and
+        // jumping on the first stalled frame would have him hopping the whole
+        // way across a world instead of walking it.
+        const STALL_BEFORE_JUMP: u16 = 12;
+        if let Some(here) = world.player.as_ref().map(|p| p.x) {
+            self.stalled = if (here - self.walked_to).abs() < 0.25 { self.stalled.saturating_add(1) } else { 0 };
+            self.walked_to = here;
+        }
         let input = match self.script {
             Script::Course => PlayerInput {
                 right: true,
@@ -4065,8 +4145,37 @@ impl Gnome {
                 jump_pressed: step_no >= 260,
                 ..Default::default()
             },
+            // Swim right, stroking to stay up. `jump_held` rather than
+            // `jump_pressed` because a stroke fires off the held key on its
+            // own cooldown (`Tuning::stroke_cooldown`), and the default
+            // `DIVER` feel has *positive* buoyancy — he sinks unless he
+            // pulls, so holding `W` is what keeps him at the surface rather
+            // than what lifts him out of it.
+            Script::Surf => PlayerInput { right: true, jump_held: true, ..Default::default() },
             Script::Ride => PlayerInput::default(),
-            Script::Wood => PlayerInput { right: step_no >= WOOD_WALK_FROM, ..Default::default() },
+            // **He jumps when he stops making progress, because a player
+            // would.**
+            //
+            // This script pressed nothing but `right`, which was fine while
+            // a forest floor was flat. It is not a fair driver of a world
+            // where limbs fall across the path: a grounded walk mounts
+            // `Tuning::step_up` (4 cells) and a fallen limb is taller than
+            // the gnome, so a walk-only script reads "the forest is
+            // impassable" where a person would simply hop over it. Measured
+            // when severed tissue started landing as pieces: 296 cells of a
+            // 400 bar, and 8 of 40 on `woodalt`, with him walled in three
+            // cells from where he spawned.
+            //
+            // The bar is untouched -- he still has to cover the same ground.
+            // What changed is that the driver now does the obvious thing
+            // when it stops working, which is also what exercises the
+            // buried-jump escape `player::step` gained for the same reason.
+            Script::Wood => PlayerInput {
+                right: step_no >= WOOD_WALK_FROM,
+                jump_pressed: self.stalled > STALL_BEFORE_JUMP,
+                jump_held: self.stalled > STALL_BEFORE_JUMP,
+                ..Default::default()
+            },
             // Walk until he has a handhold, then hold `W` and nothing
             // else. Holding a direction *while* climbing shimmies him
             // sideways out of the trunk, which is how you leave a tree and
@@ -4235,7 +4344,7 @@ impl Gnome {
         // Aim: straight ahead at his own height for the tunnel, and
         // anywhere at all while buried, since a buried bite auto-aims.
         let digging = match self.script {
-            Script::Course | Script::Swim | Script::Ride | Script::Wood | Script::Climb => false,
+            Script::Course | Script::Swim | Script::Surf | Script::Ride | Script::Wood | Script::Climb => false,
             // Handled below rather than through the dig path: the same
             // left button, a different verb.
             Script::Shake | Script::Smash | Script::Chop => false,
@@ -4299,6 +4408,23 @@ impl Gnome {
             self.displaced
         );
         s.push_str(&format!(", {} dusted", self.dusted));
+        // The water surface's three "did it fire at all" counters, on the
+        // scene that exists to show it. A crown is six one-pixel droplets
+        // that land within a few frames and a wake is a quarter-cell hump
+        // on the waterline, so a tile can show both mechanisms working, one
+        // of them working, or neither, and read identically -- which is the
+        // exact trap `CLAUDE.md` opens by warning about. `water_shoved` is
+        // in `LIQUID_FULL` units, so it is quoted in whole cells.
+        if self.script == Script::Swim || self.script == Script::Surf {
+            let p = world.player.as_ref().expect("reported inside the gnome block");
+            s.push_str(&format!(
+                ", water: {} in / {} out, {:.1} cells shoved, {} strokes sprayed",
+                p.water_entries,
+                p.water_exits,
+                p.water_shoved as f64 / pixel_physics::sim::material::LIQUID_FULL as f64,
+                p.strokes_splashed
+            ));
+        }
         // **Only when the tool that produces them is in his hands.** A row
         // of zeroes on every gnome sheet is a row nobody reads, and these
         // are exactly the "did it fire at all" counters the picture cannot
@@ -5713,7 +5839,7 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, (usize, usize), (i
     if let Some(v) = args.smoke {
         blasts.tuning.smoke_fraction = v;
     }
-    let mut gnome = Gnome::for_scene(&args.scene, args.dig_yield, args.shoulder_grains);
+    let mut gnome = Gnome::for_scene(&args.scene, args.dig_yield, args.shoulder_grains, args.splash);
     // Set on the character rather than passed to `dig`: the style is his
     // state, exactly as it is in the app, so the harness and the game reach
     // the mechanism through the same door.

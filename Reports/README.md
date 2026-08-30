@@ -731,6 +731,20 @@ drift that two of these documents still reflect.**
   already the best of the values tested, and a nine-cell pale body puts less
   on screen than the shipped two-cell dark one. The creature-side answer to
   `plant-appearance-design.md`.
+- [creature-motion-decoys-2026-08-30.md](creature-motion-decoys-2026-08-30.md)
+  — **measured study, and a qualification of the report above.**
+  `creature-appearance-design.md`'s whole body-size case rests on `decoys`,
+  which is computed on a **single still**, and a decoy is a rock edge or a
+  leaf — something that holds still, while the animal does not. Adding the
+  motion axis (`examples/motion_look.rs`: a decoy that does not change
+  between two frames is not competing for the eye) finds the decoy field is
+  **entirely static**: a body that moves has **0–2** competitors at every
+  size from 1 to 16 cells, so a walking two-cell ant is already better off
+  than a stationary sixteen-cell one, in every sky measured and on four
+  seeds. Does not overturn the recommendation so much as split it — **22–42%
+  of ants never move across a 384-frame horizon**, and for those the static
+  ladder is the whole story, which is the owner's *"ants are mostly visible
+  with there motion"* arriving as a number.
 - [creature-birth-grant-2026-08-30.md](creature-birth-grant-2026-08-30.md) —
   **built and landed 2026-08-30.** `birth_grant` as a heritable slot, E14's
   `start_energy` cut (900 -> 200), and the measured finding that **the two
@@ -838,9 +852,13 @@ drift that two of these documents still reflect.**
   — **measured pre-flight, 2026-08-30; instrument `examples/vision_probe.rs`,
   no behaviour changed.** Sizes **E15**'s sight sense before anyone builds it,
   by tracing the geometry that already exists: **build it at radius 64,
-  all-round, seeing over the floor litter**, and it costs **0.004 ms of a
-  frame** — 0.14% of `ascii`'s 2.98 ms mean, below what a wall clock resolves,
-  and under 10% of a frame only past ~358 predators. The radius argument is
+  all-round, seeing over the floor litter**, and it costs **~0.005 ms of a
+  frame** — 0.15–0.22% of `ascii`'s 2.94 ms mean, below what a wall clock
+  resolves, and under 10% of a frame only past a few hundred predators. Every
+  geometry number in it was measured on **four different trees** as `main`
+  landed underneath — worldgen, tree-breaking, the creature economy. The first
+  three were byte-identical; the fourth moved only in the third decimal and
+  **every median and p10 the recommendation rests on held**. The radius argument is
   the **p10 seed** rather than the median: the stranded beetle sees prey
   0.108–0.260 of the time at r32 and 0.240–0.389 at r64, over three presets
   and 18 seeds each. Two findings the design has to carry: what blocks a
