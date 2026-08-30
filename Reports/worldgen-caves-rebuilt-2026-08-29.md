@@ -179,27 +179,26 @@ at `47d6209` and at this branch's head. Ranges are across the five presets.
 
 | | before | after |
 |---|---|---|
-| **worlds with no cave** (of 16) | 2-4 | **0** |
-| cave systems per world | 2.1-2.7 | 4.0-4.6 |
-| **largest connected walkable region**, share of a system's void | 36-39% | **98-99%** |
-| **separate walkable pockets** per system, med / p90 / max | 3 / 31-38 / 86-95 | **1 / 3-4 / 11-28** |
-| median open column (the gnome is **14** tall) | 13-16 | **63-88** |
-| tallest open column | 56-77 | 167-199 |
-| span down, median | 104-173 | 185-214 |
-| span across, median / max | 165-340 / 1,528-1,544 | 197-282 / 991-1,138 |
-| void, share of the massif under the ground line | 0.29-0.32% | 0.94-1.02% |
+| **worlds with no cave** (of 16) | 2-4 | **0**, every preset |
+| cave systems per world | 2.1-2.7 | 3.9-4.9 |
+| **largest connected walkable region**, share of a system's void | 36-39% | **98%** |
+| **separate walkable pockets** per system, med / p90 / max | 3 / 31-38 / 86-95 | **1 / 3-6 / 9-13** |
+| median open column (the gnome is **14** tall) | 13-16 | **60-72** |
+| tallest open column | 56-77 | 146-179 |
+| span across, median / max | 165-340 / 1,528-1,544 | 197-260 / 929-1,184 |
+| void, share of the massif under the ground line | 0.29-0.32% | 0.75-0.89% |
 | **systems with a way in** | **0, by construction** | **all of them** |
 
 Four of those are the owner's own sentences answered:
 
 * *"It is also looks like a single room instead of a cave system"* -- a system
-  is 4.0-4.6 connected places per world with several rooms in each, and
-  **98-99% of one of them is one walkable region**, against 36-39%. The p90
-  used to be a system shattered into **thirty-one to thirty-eight separate
-  pockets** with no way between them; it is now three or four.
+  is 3.9-4.9 connected places per world with several rooms in each, and
+  **98% of one of them is one walkable region**, against 36-39%. The p90 used
+  to be a system shattered into **thirty-one to thirty-eight separate
+  pockets** with no way between them; it is now three to six.
 * *"It doesn't look like I could even enter it"*, first reading: the median
   passage was **the gnome's own height with nothing to spare**. It is now
-  four and a half to six times his height.
+  four to five times his height.
 * *"It doesn't look like I could even enter it"*, second reading: there was no
   entrance in the game at all. Every system now has one, and no world with a
   cave in it lacks a way in.
@@ -541,6 +540,24 @@ about a hole in that column**, and it is worth stating as a shape:
 `sky_surface` answers *"is there anything above me"*, and both of these needed
 *"is there any sky over this piece of ground"*. `ground_datum`'s own doc
 records the same distinction being needed for terrain shading.
+
+---
+
+## 13. Gates
+
+`cargo test --lib`, `cargo +1.98.0 clippy --all-targets -- -D warnings`,
+`bash scripts/acceptance.sh` and `cargo run --release --example ascii` are all
+green on the head this report describes. `bash scripts/docscheck.sh` reports
+one thing: this report is not indexed in `Reports/README.md`, which this lane
+was told not to edit -- **the coordinator has to add that line**.
+
+**One acceptance note worth keeping.** Run while the box was carrying a
+sixteen-seed census and a debug test build, `ligament`, `rockdrop` and
+`lavadrop` all failed their 60 ms worst-frame budgets (68.6, 66.1, 117.8 ms);
+re-run on a quiet box, every case passed. That is `CLAUDE.md`'s own rule
+arriving on schedule -- *a wall-clock assertion is a flake generator*, and *a
+timing number is only as trustworthy as the box was quiet*. Nothing in this
+change touches those scenes.
 
 ---
 
