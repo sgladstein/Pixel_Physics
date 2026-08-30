@@ -52,10 +52,10 @@ whole, then run `python3 scripts/readmetoc.py`.
 | [Felling status — the verb works, and what it produces is pieces](#felling-status--the-verb-works-and-what-it-produces-is-pieces) | 2996 |
 | [Bending status — soft tissue lies over, and the wind is what pushes it](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) | 3233 |
 | [Breaking status — a badly grown tree comes down on its own](#breaking-status--a-badly-grown-tree-comes-down-on-its-own) | 3310 |
-| [Performance](#performance) | 3396 |
-| [World speed — five independent time axes](#world-speed--five-independent-time-axes) | 3570 |
-| [Status](#status) | 3653 |
-| [License](#license) | 3764 |
+| [Performance](#performance) | 3402 |
+| [World speed — five independent time axes](#world-speed--five-independent-time-axes) | 3576 |
+| [Status](#status) | 3659 |
+| [License](#license) | 3770 |
 
 ### Milestones, in numeric order
 
@@ -89,7 +89,7 @@ them is named "plants". A section can appear twice; felling is honestly both
 plant work and structural work.
 
 **Known limitations for every topic are collected in one place**:
-[Status](#status), line 3653 — the *last* section in the
+[Status](#status), line 3659 — the *last* section in the
 file, not the first. Read it before concluding something is broken.
 
 | Topic | Sections, primary first |
@@ -104,9 +104,9 @@ file, not the first. Read it before concluding something is broken.
 | **the coarse field grid — pressure, heat, light** | [The coarse field grid](#the-coarse-field-grid) 454, [M12/M13 status](#m12m13-status) 716 |
 | **worldgen and world structure** | [M10 status](#m10-status--the-worldgen-half) 2699, [Architecture](#architecture) 297 |
 | **the gnome (player character)** | [M9 status](#m9-status--the-gnome) 2547, [Controls](#controls) 158 |
-| **weather, sky and the clock** | [Weather status](#weather-status) 2814, [M19 status](#m19-status--started) 2940, [World speed](#world-speed--five-independent-time-axes) 3570 |
+| **weather, sky and the clock** | [Weather status](#weather-status) 2814, [M19 status](#m19-status--started) 2940, [World speed](#world-speed--five-independent-time-axes) 3576 |
 | **rendering, UI and tunables** | [UI improvements](#ui-improvements--overnight-run-section-9) 2301, [Live tunables panel](#live-tunables-panel--overnight-run-section-10) 2346, [Rendering performance](#rendering-performance--overnight-run-section-11) 2414, [M6 deferral](#m6-deferral) 1077 |
-| **performance and the parallel sweep** | [Performance](#performance) 3396, [M5 status](#m5-status) 1087, [Architecture](#architecture) 297, [Rendering performance](#rendering-performance--overnight-run-section-11) 2414 |
+| **performance and the parallel sweep** | [Performance](#performance) 3402, [M5 status](#m5-status) 1087, [Architecture](#architecture) 297, [Rendering performance](#rendering-performance--overnight-run-section-11) 2414 |
 | **materials and the data schema** | [Materials](#materials) 223, [M12/M13 status](#m12m13-status) 716 |
 
 <!-- END GENERATED TOC -->
@@ -3359,9 +3359,14 @@ the **per-plant** peak pooled over eight seeds, 71 plants:
 |---|---|---|---|---|
 | 6,735 | 10,094 | 21,032 | 22,925 | 31,160 |
 
-Set at **10,000** (p75), so about a quarter of plants stand over the line at
-any moment — the owner's call, on the expectation that stands evolve stronger
-and the damage rate falls.
+Set at **21,000** (p90), so about a tenth of plants stand over the line at any
+moment. p75 was tried first, on the expectation that stands evolve stronger,
+and **the stand does not survive it long enough to select**: 160,000 frames on
+one seed against a `BREAK=off` control, living tissue 19,123 (control) against
+14,859 (p90) against **4,057** (p75), with 16 snaps against 278 and the stand
+falling from nine plants to five. A population culled faster than it breeds
+crashes before selection can operate, so that measurement argues *for* the
+gentler constant rather than against the idea.
 
 **The pressure is aimed at growth patterns, not at wood density**, and
 `strength` is deliberately flat per material for that reason. Scaling it by
@@ -3382,12 +3387,13 @@ tick, recomputed only when a bend actually moved something.
 loses zero cells over 12,000 frames"*, and it was met before being withdrawn:
 a stand where nothing ever breaks is the binary outcome the ethos forbids.
 What replaces it is that a healthy stand *survives* while a
-badly-proportioned minority does not, and **at p75 that is not yet
-demonstrated over a long run** — one seed measured 6,369 → 8,066 → 6,950 →
-5,264 wood cells over 32,000 frames with snaps accumulating 4 → 13 → 27 → 38.
-Whether selection on `pipe_ratio` closes that gap needs far more frames than
-that to answer, and until it is answered this constant is a bet rather than a
-measurement. Buckling — a slender column under its own weight, the other
+badly-proportioned minority does not, and at p90 that holds over 160,000
+frames — but at **~78% of the control's standing tissue**, so breaking is not
+free and a longer horizon than that is untested. The per-plant stress drift
+is consistent with selection on `pipe_ratio` and is not evidence of it:
+culling the worst-proportioned trees produces the same trend, and separating
+them needs the genotype tracked across generations rather than the phenotype
+censused. Buckling — a slender column under its own weight, the other
 half of stage 3's physics — is not built; the shipped
 `support > max_cantilever_reach · density` slenderness rule still stands
 unchanged beside this one. Play-facing:

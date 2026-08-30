@@ -170,11 +170,38 @@
     //
     //     p50 6,735   p75 10,094   p90 21,032   p95 22,925   max 31,160
     //
-    // 10000 is that distribution's **p75**, so about a quarter of plants
-    // stand over the line at any moment. Owner's call, 2026-08-29, and the
-    // reasoning is a selection argument rather than a tolerance for damage:
-    // *"I expect plants to evolve to be stronger and the damage rate will
-    // drop over time."*
+    // 21000 is that distribution's **p90**, so about a tenth of plants stand
+    // over the line at any moment.
+    //
+    // **p75 was tried first and the stand did not survive it.** The owner
+    // asked for p75 on a selection argument -- *"I expect plants to evolve
+    // to be stronger and the damage rate will drop over time"* -- which is
+    // sound and needs the population to live long enough to select. It does
+    // not. One seed, 160,000 frames, `scene=grove`, living plant tissue,
+    // against a `BREAK=off` control on the same seed:
+    //
+    //     frames    control    p90 (this)      p75
+    //      20,000    17,336        17,476   16,898
+    //      60,000    19,194        17,085    8,790
+    //     100,000    18,583        15,858    7,763
+    //     160,000    19,123        14,859    4,057
+    //     snaps           -            16      278
+    //     plants          9             7        5
+    //
+    // At p75 the wood loses **79%** of itself and the stand falls from nine
+    // plants to five. That is not the lifecycle -- the control holds flat at
+    // ~19,000 -- and evolution cannot answer it, because **a population
+    // culled faster than it breeds crashes before selection can operate**.
+    // The owner's mechanism requires the stand to persist, so this is an
+    // argument for the gentler constant rather than against the idea.
+    //
+    // At p90 the stand holds at ~78% of the control and still loses sixteen
+    // limbs over the run. The per-plant peak drifts down across it (p90
+    // 15,306 -> 10,446), which is *consistent with* selection on
+    // `pipe_ratio` and is not evidence of it: culling the worst-proportioned
+    // trees produces the same trend, and separating the two needs the
+    // genotype tracked across generations rather than the phenotype
+    // censused.
     //
     // **Flat per material, with no wood-density term, and that is what aims
     // the pressure at growth patterns.** Scaling it by
@@ -213,5 +240,5 @@
     // underground and take no wind, and a leaf that snapped under load would
     // be a leaf falling off its branch -- the exact complaint the foliage
     // work exists to answer.
-    strength: 10000.0,
+    strength: 21000.0,
 )

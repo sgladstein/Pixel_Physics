@@ -513,8 +513,29 @@ The fit that works is the **per-plant** peak, pooled across eight seeds,
 |---|---|---|---|---|
 | 6,735 | 10,094 | 21,032 | 22,925 | 31,160 |
 
-Set at **10,000**, p75, on the owner's call: *"I expect plants to evolve to
-be stronger and the damage rate will drop over time."*
+Set at **21,000** — p90. The owner asked for p75 on a selection argument,
+*"I expect plants to evolve to be stronger and the damage rate will drop over
+time"*, and **the stand does not survive p75 long enough to select**. One
+seed, 160,000 frames, against a `BREAK=off` control on the same seed:
+
+| frames | control | p90 (shipped) | p75 |
+|---|---|---|---|
+| 20,000 | 17,336 | 17,476 | 16,898 |
+| 60,000 | 19,194 | 17,085 | 8,790 |
+| 100,000 | 18,583 | 15,858 | 7,763 |
+| 160,000 | **19,123** | **14,859** | **4,057** |
+| snaps | — | 16 | 278 |
+| plants | 9 | 7 | 5 |
+
+At p75 the wood loses 79% of itself and the stand falls from nine plants to
+five. The control holds flat, so that is the rule and not the lifecycle — and
+**a population culled faster than it breeds crashes before selection can
+operate**, so the owner's own mechanism is an argument *for* the gentler
+constant. At p90 the stand holds at ~78% of the control while still losing
+sixteen limbs, and the per-plant peak drifts down (p90 15,306 → 10,446) —
+consistent with selection on `pipe_ratio`, though culling the
+worst-proportioned trees produces the same trend and separating the two needs
+the genotype tracked across generations.
 
 **And the pressure is aimed at shape, not at density.** Scaling `strength`
 by `organism::wood_density` was built and removed:
