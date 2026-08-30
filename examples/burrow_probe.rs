@@ -20,6 +20,26 @@
 //! | `soil` | the lab's own bed — `soil`, a `Powder` |
 //! | `sand` | `sand`, the loosest shipped powder — the *negative* control, expected worse |
 //! | `stone` | `stone`, a `Solid` — the **positive control** |
+//! | `lined` | `soil`, with the excavation's wall worked into `packedsoil` — what an ant now leaves behind |
+//! | `flooded` | `lined`, with the shaft filled with water — the wall wets from the inside |
+//! | `watertable` | `lined`, dug into a bank already at `SOIL_SATURATED` — the wall wets from the outside |
+//!
+//! **The last three exist to keep the mechanic from being a binary.**
+//! `CLAUDE.md`'s first law is that an outcome is a distribution, not a
+//! switch, so a lining that could never fail would be the same defect as a
+//! tunnel that always does. `packedsoil` reverts to `soil` above
+//! `material::SOIL_FIELD_CAPACITY`, and these two arms are the wet halves
+//! of that: one soaks the wall from the void, one from the bank.
+//!
+//! **Two columns per void, and the second one is why the wet arms are
+//! readable at all.** `open` is *materially empty*, which a flooded shaft
+//! is not — so on `flooded` the shaft reads 0% open on frame 0, before a
+//! single tick, purely because there is water standing in it. That is
+//! `CLAUDE.md`'s "ask what your number counts when nothing is wrong"
+//! exactly. `caved` counts the void's cells that now hold **ground** (a
+//! `Powder` or a `Solid`), which is the thing actually being claimed, and
+//! it stays 0 for water. Read `caved`, not `open`, on any arm with liquid
+//! in it.
 //!
 //! **The positive control is the point.** `CLAUDE.md`: *a null looks the same
 //! whether the mechanism is quiet or the probe never reached it*, and *run the
@@ -47,6 +67,7 @@ use common::PlantScene;
 use pixel_physics::sim::explosion::Blasts;
 use pixel_physics::sim::particle::ParticleSystem;
 use pixel_physics::sim::weather::Pin;
+use pixel_physics::sim::material::MaterialKind;
 use pixel_physics::sim::{frame, material, player, Cell, World};
 
 fn arg<T: std::str::FromStr>(key: &str) -> Option<T> {
@@ -70,6 +91,26 @@ impl Void {
     fn open(&self, world: &World) -> usize {
         self.cells.iter().filter(|(x, y)| world.get(*x, *y).material == material::EMPTY).count()
     }
+
+    /// How many of the carved cells have **ground** standing in them --
+    /// anything the sweep treats as a `Powder` or a `Solid`.
+    ///
+    /// `open` alone cannot carry the wet arms. A shaft full of water is not
+    /// materially empty, so it reads 0% open on frame 0 with nothing having
+    /// happened; a shaft whose roof fell in reads 0% open too, and those are
+    /// the opposite finding. This column separates them, and it is the one
+    /// to quote whenever there is liquid in the scene.
+    fn caved(&self, world: &World) -> usize {
+        self.cells
+            .iter()
+            .filter(|(x, y)| {
+                matches!(
+                    world.materials.kind(world.get(*x, *y).material),
+                    MaterialKind::Powder | MaterialKind::Solid
+                )
+            })
+            .count()
+    }
 }
 
 fn main() {
@@ -87,7 +128,8 @@ fn main() {
     let ground: i32 = arg("ground").unwrap_or(60);
     let soil: i32 = arg("soil").unwrap_or(200);
     let seeds: u64 = arg("seeds").unwrap_or(1);
-    let want: String = arg("arms").unwrap_or_else(|| "soil,sand,stone".to_string());
+    let want: String =
+        arg("arms").unwrap_or_else(|| "soil,sand,stone,lined,flooded,watertable".to_string());
 
     println!(
         "burrow_probe: frames={frames} width={width}x{height} soil={soil} seeds={seeds} arms={want}"
@@ -97,11 +139,13 @@ fn main() {
          `stone` is the positive control and must read 100% at every frame."
     );
 
-    for arm in ["soil", "sand", "stone"].iter().filter(|a| want.split(',').any(|w| &w == *a)) {
+    for arm in
+        ["soil", "sand", "stone", "lined", "flooded", "watertable"].iter().filter(|a| want.split(',').any(|w| &w == *a))
+    {
         println!("\n=== arm {arm} ===");
         println!(
-            "{:>8}  {:>7}  {:>18}  {:>18}  {:>18}",
-            "seed", "frame", "shaft open", "gallery open", "chamber open"
+            "{:>6}  {:>7}  {:>24}  {:>24}  {:>24}",
+            "seed", "frame", "shaft open/caved", "gallery open/caved", "chamber open/caved"
         );
 
         for seed in 1..=seeds {
@@ -123,7 +167,14 @@ fn main() {
             // soil rows it produced -- same geometry, same stone floor
             // underneath, one material changed. That is the A/B `CLAUDE.md`
             // asks for: two arms differing in one thing.
-            if *arm != "soil" {
+            //
+            // The three wet/lined arms keep the soil bed and differ only
+            // after the carve, below -- so `lined` against `soil` is an A/B
+            // in one thing, which is what makes the comparison mean
+            // anything (`CLAUDE.md`: an A/B whose arms differ in two things
+            // carries half its effect in the thing that was not under
+            // test).
+            if *arm == "sand" || *arm == "stone" {
                 let id = world
                     .materials
                     .id_of(arm)
@@ -170,6 +221,84 @@ fn main() {
             }
             let carved: Vec<usize> = voids.iter().map(|v| v.cells.len()).collect();
 
+            // **The lining, and it is the same set of cells an ant produces.**
+            // `creature::line_burrow` packs the 8-neighbourhood of every cell
+            // it empties, so the union of those rings over a swept-out tunnel
+            // is exactly the shell around the excavation -- which is what this
+            // writes in one pass. Doing it here rather than by running ants
+            // separates the two claims: this arm asks *does a lined tunnel
+            // stand*, and the colony run in `ascii`'s excavation scene asks
+            // *do ants produce one*. A single harness answering both could not
+            // tell a dead lining from ants that never dug.
+            //
+            // Routed through `Material::packs_into` rather than
+            // `id_of("packedsoil")` so this measures the shipped rule: if the
+            // material were renamed or the field dropped, this arm would come
+            // back identical to `soil` instead of silently lining itself by a
+            // path the game does not use.
+            let lined_arm = matches!(*arm, "lined" | "flooded" | "watertable");
+            let mut lining = 0usize;
+            if lined_arm {
+                let carved_set: std::collections::HashSet<(i32, i32)> =
+                    voids.iter().flat_map(|v| v.cells.iter().copied()).collect();
+                let mut wall: Vec<(i32, i32)> = Vec::new();
+                for &(cx, cy) in &carved_set {
+                    for dy in -1..=1 {
+                        for dx in -1..=1 {
+                            let n = (cx + dx, cy + dy);
+                            if !carved_set.contains(&n) {
+                                wall.push(n);
+                            }
+                        }
+                    }
+                }
+                wall.sort_unstable();
+                wall.dedup();
+                for (wx, wy) in wall {
+                    let cell = world.get(wx, wy);
+                    let Some(packed) = world.materials.get(cell.material).packs_into else {
+                        continue;
+                    };
+                    let mut lined = cell;
+                    lined.material = packed;
+                    world.set(wx, wy, lined);
+                    lining += 1;
+                }
+            }
+
+            // **Wet the wall from the outside**: the whole bank at
+            // `SOIL_SATURATED`, which is a gallery driven below the water
+            // table. Every packed cell is then over `SOIL_FIELD_CAPACITY` and
+            // `slumps_into` should take the lining apart on the first sweep.
+            if *arm == "watertable" {
+                for x in 0..width {
+                    for y in ground..(ground + soil) {
+                        let cell = world.get(x, y);
+                        if world.materials.get(cell.material).water_capacity > 0 {
+                            world.set(x, y, cell.with_aux(material::SOIL_SATURATED));
+                        }
+                    }
+                }
+            }
+
+            // **Wet the wall from the inside**: standing water in the shaft,
+            // which drains down it and along the gallery, infiltrating the
+            // lining as it goes. This is the arm whose `open` column is
+            // uninformative -- water is not materially empty -- and the reason
+            // `caved` exists.
+            let mut poured = 0usize;
+            if *arm == "flooded" {
+                let water = world.materials.id_of("water").expect("water is compiled in");
+                for (x, y) in &shaft.cells {
+                    world.set(*x, *y, Cell::new(water, 0));
+                    poured += 1;
+                }
+            }
+            if lined_arm {
+                println!("{:>6}  {:>7}  wall cells worked into packedsoil: {lining}{}", "", "-",
+                    if poured > 0 { format!(", water poured into the shaft: {poured}") } else { String::new() });
+            }
+
             let mut particles = ParticleSystem::default();
             let mut blasts = Blasts::default();
             let tuning = player::Tuning::default();
@@ -180,13 +309,15 @@ fn main() {
                     .zip(&carved)
                     .map(|(v, n)| {
                         let open = v.open(world);
-                        format!("{open:>5}/{n:<5} {:>5.1}%", 100.0 * open as f64 / *n as f64)
+                        let caved = v.caved(world);
+                        format!(
+                            "{open:>4}/{n:<4}{:>6.1}%/{:>5.1}%",
+                            100.0 * open as f64 / *n as f64,
+                            100.0 * caved as f64 / *n as f64
+                        )
                     })
                     .collect();
-                println!(
-                    "{seed:>8}  {f:>7}  {:>18}  {:>18}  {:>18}",
-                    cols[0], cols[1], cols[2]
-                );
+                println!("{seed:>6}  {f:>7}  {:>24}  {:>24}  {:>24}", cols[0], cols[1], cols[2]);
             };
 
             // **The scene check, as an assertion.** Every carved cell must be
@@ -194,7 +325,18 @@ fn main() {
             // where the harness thinks it is and every number below is about
             // the scene rather than about the physics.
             report(&world, 0);
+            // **The flooded arm is exempt from the emptiness half and not
+            // from the check**: its shaft is deliberately full of water, so
+            // `open` is 0 there by construction. What must still hold on every
+            // arm is that no *ground* is standing in the excavation before a
+            // tick runs, which is the scene error this assertion exists to
+            // catch, so `caved` is asserted for all arms and `open` for the
+            // dry ones.
             for (v, n) in voids.iter().zip(&carved) {
+                assert_eq!(v.caved(&world), 0, "{} had ground standing in it at frame 0", v.name);
+                if *arm == "flooded" {
+                    continue;
+                }
                 assert_eq!(
                     v.open(&world),
                     *n,
