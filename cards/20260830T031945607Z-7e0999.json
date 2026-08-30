@@ -1,0 +1,56 @@
+{
+  "id": "20260830T031945607Z-7e0999",
+  "created": "2026-08-30T03:19:45Z",
+  "board": "creatures",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/creature-lane-a-birth-grant",
+    "commit": "afc41b1",
+    "agent": null,
+    "session_id": "5c525fce-ac0d-54e6-8551-2ca835a3cdff",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Ants starving: is a body on the ground readable at all?",
+  "question": "Ants now run out of food and die, leaving corpses. In these six frames of one colony, can you tell a dead ant from a standing one? If not, does that matter to you — or is a colony that visibly thins out enough?",
+  "context_md": "**What changed, and where it is going.** Ants are getting an evolutionary economy — this is the step that makes failing to feed yourself *cost* something, which is what any later selection has to bite on. An ant's energy store was so deep that nothing ever reached the bottom of it inside a run anyone watches; it is now about a fifth of that.\n\n**The surprise is not that ants can die — they always could.** You had to watch three times longer than anyone does, and if you did, the old colony kept dying with no floor to it (0 deaths at 12k and 24k frames, then 14 at 36k, 34 at 54k, still climbing). The new one loses a third of itself early and then very nearly stops (16, 17, 20, **22** over the same horizons) — so left long enough it ends up with **more** ants alive than the old one.\n\n**Same scene, same seed, same six frames** (2,000 to 12,000, `scene=colony seed=4`). The only difference is the size of the store.\n\nThe reason I am asking rather than telling: a starved ant's corpse is drawn at the dark end of the worth ramp *because* it is worth the least, and a live ant is also dark, on dark soil. The counter says twelve ants died here and the food census says live ants are standing next to the bodies and eating them. **I cannot see it in the picture, and if it is not visible then the event has no visible consequence.**",
+  "kind": "before_after",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "before — deep store (main)",
+      "files": [
+        "20260830T031945607Z-7e0999/000-before.png"
+      ],
+      "caption": "start_energy 900",
+      "meta": {
+        "deaths": 0,
+        "births": 0,
+        "ants founded": 25,
+        "frames": 12000
+      },
+      "focus": null
+    },
+    {
+      "label": "after — cut store (this branch)",
+      "files": [
+        "20260830T031945607Z-7e0999/001-after.png"
+      ],
+      "caption": "start_energy 200",
+      "meta": {
+        "deaths": 12,
+        "births": 0,
+        "ants founded": 25,
+        "frames": 12000
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
