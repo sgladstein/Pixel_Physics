@@ -6,6 +6,7 @@ see *The precondition* below; this is the one deviation from the brief and it
 was taken to satisfy the brief's own stated requirement rather than to skirt
 it.
 **Head SHA:** `e6f380a6bdf2` — the docs commit; the code is `86b9f2a`, and `516cbd6` is the merge of `origin/main` onto this lane.
+**PR:** [#159](https://github.com/sgladstein/Pixel_Physics/pull/159), against `main` — #142 landed mid-session, so the stack resolved itself and no retarget is needed.
 **Cost fork:** built the package **and** wrote the finding. Both, because the
 finding is that the lever the package was built to open is blocked by
 something neither the package nor the appearance report had looked at.
@@ -85,6 +86,55 @@ merged, this branch needs rebasing.
    would have made two reallocations inseparable. Named in the constants
    table with a verdict, and in `dead-ends.md` with the Kleiber alternative.
 
+6. **One card is on the queue**, blind, board `creatures`, id
+   `20260830T063631048Z-ae976a`: random shade against countershade on a
+   nine-cell body, arms identical but for the paint. It is **not** the
+   body-size card the brief asked for, for the reason in item 3. Collect it
+   with `review.py inbox`.
+
+## The two mid-session additions to my brief, and what I did with each
+
+Both arrived from the coordinator **after** the package was built and PR #159
+was open. Neither changed the code; both changed the report, and one of them
+found a gate I had not run.
+
+**1. Body geometry already drives motion (`creature-motion-design.md` §5).**
+Acted on three ways. (a) **The falls-per-move gate — `forage_probe gate=1`,
+bar 0.40 — was missing from my gate list and is now run**; it pins its own
+frame budget and *refuses* to run at any other, so the "a bar quoted without
+its budget is not reproducible" caveat is enforced by the harness rather than
+by me remembering. **Result: GATE PASS, worst seed 0.270 against the 0.40 bar** (min 0.207 / median 0.214 / max 0.270 over 12 seeds). At or just under the baseline the message quotes on all three statistics -- but `main` moved between the two readings, so no improvement is claimed from that. (b) The report now
+records that **§5's own cost column already claimed this change** — the long
+chain's entry reads *"what it pays: more metabolism per tick"*, which was not
+true when written. So that is a second document that was carrying E10's false
+premise, and it is now correct without being edited. (c) The **launch verb
+scales with the body too**, since impulse cost is
+`move_cost_per_cell * body_cells * LAUNCH_COST_IN_MOVES` — identical at the
+shipped two-cell ant, proportionally dearer above it, which is the intended
+direction.
+
+**2. Lane H's motion/decoys result (PR #150).** Read the report, and it
+**strengthens rather than threatens** my finding — so the honest thing was to
+put it in §5b rather than defend the package. Motion removes the size axis for
+the 58-78% of ants that move at all; nine cells buys a *walking* ant nothing
+measurable. Combined with §4b (no multi-cell colony survives) the case for a
+bigger shipped ant is now weak from two independent directions.
+
+I also did the arithmetic item 2 of that message asked for, and it is sharper
+than expected: the stamp scales with the body and the bank ceiling does not,
+so **bank-over-bar goes 0.44 at two cells to 0.10 at nine** — a nine-cell ant
+is ~4.2x further from affording a child, on top of not surviving to try.
+
+**On the animated A/B**: agreed in principle and not done, because the card I
+posted is not the body-size card. The body-size card is held (item 3 above),
+and when it is posted it should be a frame sequence — the review skill's own
+measurement is that a sequence plays where a GIF did not.
+
+**What I did not do, deliberately**: name or build the movement-frequency
+lever beyond recording it. Lane H's closing point is that *how often an animal
+moves* is brain-side and therefore the first appearance-adjacent property
+evolution can actually reach. It is named in §6 and stopped there, as asked.
+
 ## What another lane should know before touching these files
 
 - **`idle_cost` and `move_cost` no longer exist.** They are
@@ -106,7 +156,9 @@ merged, this branch needs rebasing.
 
 ## Gates
 
-`cargo test --lib` **1095 passed / 0 failed / 54 ignored** ·
+`forage_probe gate=1 seeds=12 frames=12000 spacing=4` **GATE PASS, worst
+seed 0.270 <= 0.40** ·
+`cargo test --lib` **1098 passed / 0 failed / 54 ignored** ·
 `cargo +1.98.0 clippy --all-targets -- -D warnings` **clean** ·
 `ascii` **31 scenes, 0 skipped, zero non-timing differences against a
 baseline built from this branch's own merge commit in the same session** ·
