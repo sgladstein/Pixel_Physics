@@ -914,6 +914,32 @@ revamp rather than another round:
   was false at the median on both arms and passed on two hand-picked seeds),
   replacing it with a paired eight-seed guard watched going red, and adds a
   test three comments had cited by name without it existing.
+- [worldgen-caves-rebuilt-2026-08-29.md](worldgen-caves-rebuilt-2026-08-29.md)
+  — **W3; shipped** (`src/worldgen/cave.rs`, new). The cave generator replaced
+  rather than retuned: **nothing in it reads a noise field to decide where
+  rock is absent.** A room is a dissolution lens flooded through a removal
+  cost built from the strata, then a roof that falls in until it reaches a bed
+  strong enough to hold its span; conduits are paths through an anisotropic
+  cost field; **every system daylights.** `bed_span` is read off the material —
+  42 cells in mudstone to 308 in basalt — so two rooms differ by a factor of
+  seven with no parameter moving.
+  Census over 16 seeds x 5 presets: worlds with **no cave 2–4 → 0**, largest
+  connected walkable region **36–39% → 98%**, median open column **13–16 → 60–72**
+  against a 14-cell gnome, and systems with a way in **0 → all of them**.
+  Margin came *down*, 802 → 780.
+  **Two corrections the programme needs.** `cave_probe`'s census window was
+  `WORLD_HEIGHT/2`, below most of the depth band — the earlier "8 or 9 of 16
+  worlds have no cave" is really **2 to 4**. And the pillar question the
+  revamp plan flagged as its largest open risk is **answered and the risk does
+  not exist**: `support_census` could not see it (it reads the field and never
+  cuts a hole), so `cave_probe` gained a `span=1` mode, and the roof does not
+  come down at any width up to 2,048 cells — `load::capacity` is quadratic in
+  section and multiplied by `attached_span_bonus`, so `max_unsupported_span:
+  16` never reaches the scale the plan assumed. Positive control (`lid=6`)
+  reads 0 → 207, so the instrument is not blind. Pillars stay as a design
+  choice, not a structural necessity.
+  Also: the owner's "sky is coming into the cave" was **the renderer, not
+  geometry**.
 
 - [worldgen-design.md](worldgen-design.md) — **direction agreed,
   implemented** (`src/worldgen/`). The M10 redesign: 2D play through 3D
