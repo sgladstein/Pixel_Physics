@@ -485,6 +485,25 @@ drift that two of these documents still reflect.**
   named (a mutation counter at `bear_seed_at`, whose return value is currently
   discarded). **That discrepancy is now closed — see the entry directly
   below, which finds the model at fault rather than the mechanism.**
+- [plant-selection-teeth-2026-08-29.md](plant-selection-teeth-2026-08-29.md)
+  — **does this world punish a plant that is worse? Yes, and gradedly.** The
+  teeth-test: two genomes competing in **one** bed, 5 arms x 18 mirrored
+  seeds, closing the gap the operator gate's §6 names. Built against a
+  **false-negative** worry — measuring nothing in a world whose pressures are
+  incomplete and recording it as "evolution does not work". The load-bearing
+  row is `nobranch`: a plant that grows, flowers and sets seed loses **11
+  points of the bed on 18 of 18 seeds** (p=0.0002), which is selection between
+  two *living* plants; `lethal` at 0.0% is near-tautological and should not be
+  quoted for that claim. Carries a **null that is a finding** — `norootbranch`
+  reads 49.7%, p=0.86, and the bed is uniform field-capacity soil, so a root
+  system has no scarcity to compete over. **States its own blindness up
+  front**: the control's spread is ±9.3 share-points, so 18 seeds resolve ~7.5
+  points and a 1% selection coefficient would need ~620 — the next experiment
+  needs a frequency trajectory over generations, not more seeds. Its §2 and §5
+  are the method value: the mirrored identical-arms control is **vacuous by
+  construction** (exactly 50.0%, an algebraic identity), and three arms were
+  silent before they were real — `lateral: None` is not "no lateral", and a
+  herb shoot never places a lateral at all while its root does.
 - [plant-mutation-counted-at-source-2026-08-29.md](plant-mutation-counted-at-source-2026-08-29.md)
   — **§4 closed: the 2.6x was the model, not a loss.** Counts fate mutations
   where they happen (`World::fate_mutation_rolls` / `_fired` / `_applied`) and
@@ -704,6 +723,25 @@ drift that two of these documents still reflect.**
   material rather than on the eater, corpse worth in `Cell::aux`, and the
   edible forest floor. Its "As built" notes carry the measurements; every
   S4 number in them predates the litter merge and is superseded by it.
+- [creature-reproduction-economics.md](creature-reproduction-economics.md) —
+  **design research, 2026-08-29; nothing built, nothing timed. Awaiting an
+  owner ruling.** Why S6's budding never fires on the shipped ant, and what
+  a reproductive economy that *can* fire would look like. Corrects the
+  standing account in two places: the bank ceiling is **570, not 930** (the
+  neutral gut draws 120 from a 480 leaf through S5's matched filter), and
+  there are **two independent gaps** — the body stamp, and a grant term that
+  is unreachable even with a free body, so fixing the birth cost alone
+  leaves a 3.75x shortfall. Nature's answer in four parts (Smith–Fretwell
+  offspring size, mass versus progressive provisioning, the claustral queen
+  metabolising her own flight muscles, trophallaxis and repletes), five
+  candidates scored against this engine's arithmetic and its ledger, and a
+  recommendation that is a **fork**: `birth_grant` first in both arms, then
+  either a solitary altricial income breeder (E5's own ancestor) or a
+  colonial mass provisioner (E8's other half). Names three genes with
+  two-sided trade-offs and **refuses a fourth** — heritable body size
+  ratchets to one end whichever way it is priced, because `idle_cost` and
+  `move_cost` are flat per organism, which corrects **E10**'s premise that a
+  longer body is already priced. Six experiments named and none run.
 - [creature-export-design.md](creature-export-design.md) — **built and
   landed 2026-08-29.** The dev-tool exit decision **E8** asks for and nothing
   implemented: an evolved individual written back out as a species `.ron` the
@@ -809,6 +847,71 @@ drift that two of these documents still reflect.**
   three §X desert levers, two of which have changed since the record.
 
 ## Worldgen and world
+
+**The 2026-08-29 revamp program** — six audits and a plan, written the day
+the owner said six rounds had not made the world interesting and asked for a
+revamp rather than another round:
+
+- [worldgen-revamp-plan-2026-08-29.md](worldgen-revamp-plan-2026-08-29.md) —
+  **the plan.** What the four audits below add up to, the workstreams in
+  priority order, the sequencing and the stop gate. Start here; the audits
+  are its evidence.
+- [worldgen-appearance-audit-2026-08-29.md](worldgen-appearance-audit-2026-08-29.md)
+  — **audit; measured.** What the player actually sees, in rendered pixels:
+  the landform passes are at most 0.6% of the view and the palette passes are
+  90%. Killed the "every world looks the same" premise (presets differ 4.76x
+  in colour) and replaced it with a sharper one — they differ by repainting,
+  not reshaping. Its distance matrix is **owner-calibrated**: it predicted
+  "identical" and "2, maybe 3 kinds of country" before either verdict existed.
+- [worldgen-architecture-ceilings-2026-08-29.md](worldgen-architecture-ceilings-2026-08-29.md)
+  — **audit; structural.** What no tuning inside this pipeline can produce.
+  The root: the generator has no representation of a feature — a heightfield
+  and a cell grid with nothing in between. Also refutes the "hard boundary at
+  1/3 and 2/3" reading, and finds that every sharp vertical face in the world
+  is a residual.
+- [worldgen-prior-art-and-dead-ends-2026-08-29.md](worldgen-prior-art-and-dead-ends-2026-08-29.md)
+  — **audit; research.** The do-not-retry list with each rejection's
+  *condition* (and whether a revamp voids it), the six-round ledger, and the
+  outside prior art. Records that the 3D coarse map of `worldgen-design.md`
+  §0 was designed in detail and never built.
+- [worldgen-visual-interest-2026-08-29.md](worldgen-visual-interest-2026-08-29.md)
+  — **audit; measured.** How our world differs from beautiful landscape,
+  ranked and split into worldgen/render/content. Killed the "shading terrain
+  is the cheapest large win" hypothesis with a positive control — a shading
+  term needs a surface and 95% of the ground on screen is interior — and the
+  owner then killed it in his own words (*"it is the build"*). Carries the
+  cutaway reframing: most of the screen is a cross-section through rock, so
+  landscape photography is the wrong referent for it.
+- [cave-redesign-2026-08-29.md](cave-redesign-2026-08-29.md) — **design.**
+  Why six of the owner's eight cave verdicts are one fact (a cave is a Worley
+  field thresholded in a box, and retuning can only zoom the lattice), the
+  replacement (rooms grown by roof collapse, conduits routed through the
+  strata), and the finding that **there is no cave entrance in this game** —
+  so every cave verdict on record was given on a place the player cannot
+  reach. Also repairs two instruments that could not see a cave at the
+  shipped world size.
+- [rock-vocabulary-design-2026-08-29.md](rock-vocabulary-design-2026-08-29.md)
+  — **design; prototyped and measured.** The ground made of six rocks instead
+  of one rock with tints painted on it. Six rocks move **24.89%** of the
+  player's view — more than `soil_blanket`, and ~40x the whole landform
+  programme of six rounds — while running **2.2x faster**, because the old
+  region tint sampled two 2-D fBm fields per cell over 18.7M cells. Finds that
+  tint as a blob *cutting across the bedding* (why the underground reads as
+  camouflage), and that `pockets` and `boulders` both tested for grey stone by
+  identity and so silently did nothing. Overturns the revamp plan's own
+  demotion of rock: the case is strength, not colour.
+- [worldgen-drains-2026-08-29.md](worldgen-drains-2026-08-29.md) —
+  **Phase 0; shipped.** The pass conflicts that were deleting other passes'
+  output. Fixes R4-1 (`brows` taking the air `boulders` needed, recorded
+  2026-08-20 and live for nine days) — **boulders exist for the first time**,
+  3 cells across all presets to 777, median over 6 seeds at the shipped size —
+  and makes `talus` realise 2.5–3.5x more. Adds `scripts/worldgencheck.sh`, a
+  CI gate that fails when a pass writes nothing or appears only when another
+  is switched off, with a selftest that restores R4-1 and requires the gate to
+  *name* it. Withdraws its own `pockets`→`vaults` fix with a control, because
+  it makes overlapping cave systems' independent waterlines fire — that goes
+  to the cave lane. Corrects two errors in the revamp plan: `springs` was
+  never at zero, and the shipped world is 128x the small one, not 256x.
 
 - [worldgen-design.md](worldgen-design.md) — **direction agreed,
   implemented** (`src/worldgen/`). The M10 redesign: 2D play through 3D

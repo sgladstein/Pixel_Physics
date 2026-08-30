@@ -344,15 +344,17 @@ fn every_solid_is_anchored_and_no_liquid_carries_a_stale_fill() {
     let presets = presets();
     let params = presets.get(&presets.default_name()).expect("default preset");
     let world = build(params, 3);
-    let stone = world.materials.id_of("stone").unwrap();
-
+    // Every intact rock, not just `stone`: the massif is six materials
+    // under the rock vocabulary and counting one of them made this guard
+    // vacuous on `arid`, which has no `stone` in it at all
+    // (`Material::rock`, and `Reports/rock-vocabulary-design-2026-08-29.md`).
     let mut attached_stone = 0;
     for y in 0..=BOUNDS.1 {
         for x in 0..=BOUNDS.0 {
             let c = world.get(x, y);
-            if c.material == stone {
-                assert!(c.attached(), "unattached stone in the massif at ({x}, {y})");
-                assert!(c.aux() < u16::MAX, "stone at ({x}, {y}) never reached an anchor");
+            if world.materials.get(c.material).rock {
+                assert!(c.attached(), "unattached rock in the massif at ({x}, {y})");
+                assert!(c.aux() < u16::MAX, "rock at ({x}, {y}) never reached an anchor");
                 attached_stone += 1;
             }
             if c.material == material::BEDROCK {
@@ -360,7 +362,7 @@ fn every_solid_is_anchored_and_no_liquid_carries_a_stale_fill() {
             }
         }
     }
-    assert!(attached_stone > 10_000, "vacuous: only {attached_stone} stone cells in the world");
+    assert!(attached_stone > 10_000, "vacuous: only {attached_stone} rock cells in the world");
 }
 
 #[test]
@@ -1594,7 +1596,26 @@ fn erosion_talus_draws_as_buried_gravel_at_the_top_of_the_cover() {
             if talus < 1.0 {
                 continue;
             }
-            let talus_cells = (talus.round() as i32).min(plan.soil_depth);
+            // **The realise side's own rule, recomputed, not an approximation
+            // of it.** This read `round(talus)` while `soil_blanket` floored
+            // at `>= 1.0`, which agreed closely enough to pass -- and stopped
+            // agreeing on 2026-08-30 when the recolouring began rounding
+            // stochastically so that a talus deposit spread thinner than one
+            // cell per column stops being discarded
+            // (`Reports/worldgen-drains-2026-08-29.md` §4). `round(1.6)` is 2
+            // and the world may hold 1, so the second cell this inspected was
+            // an ordinary stony-contact gravel in the scree family and the
+            // test reported it as a wrong-family talus cell: **1 of 25**, a
+            // real disagreement about a cell that is not talus at all.
+            //
+            // Recomputing the same draw keeps the guard exact rather than
+            // approximate. It costs a dependency on `Purpose::Talus`, and
+            // that is the right dependency to have: a test that models the
+            // rule loosely is a test that reports the model's error as the
+            // code's.
+            use pixel_physics::worldgen::noise::{self, Purpose};
+            let extra = i32::from(noise::unit(seed, Purpose::Talus, x as i32, 0) < talus.fract());
+            let talus_cells = (talus.floor() as i32 + extra).min(plan.soil_depth);
             let top = plan.surface_y.max(0);
             for depth in 0..talus_cells {
                 let (px, py) = (x as i32, top + depth);
@@ -1645,6 +1666,22 @@ fn a_varied_world_uses_more_than_one_rock_family() {
         let params = presets.get(preset).expect("preset");
         let world = build(params, 1);
         let stone = world.materials.id_of("stone").expect("stone");
+        // **What "more than one rock" means changed under it, and the test
+        // has to move with it.** This guard was written when the only rock
+        // was `stone` and variety could only be a palette *family*; under
+        // the rock vocabulary variety is carried by the material, and on
+        // `arid` there is no `stone` cell in the world at all -- so the old
+        // reading came out as "every rock cell is in family {}" and was
+        // measuring an empty set. Either axis counts.
+        let mut rocks: std::collections::BTreeSet<u16> = Default::default();
+        for y in 0..=BOUNDS.1 {
+            for x in 0..=BOUNDS.0 {
+                let m = world.get(x, y).material;
+                if world.materials.get(m).rock {
+                    rocks.insert(m.0);
+                }
+            }
+        }
         let seen = families(&world, stone);
         // Printed as well as asserted: the bar is "more than one", and the
         // number next to the strip is what says whether that means a token
@@ -1659,7 +1696,10 @@ fn a_varied_world_uses_more_than_one_rock_family() {
             }
         }
         println!("{preset} seed 1 rock families (0 neutral, 1 wet, 2 dry, 3 cap-rock): {counts:?}");
-        assert!(seen.len() > 1, "{preset} seed 1: every rock cell is in family {seen:?}");
+        assert!(
+            seen.len() > 1 || rocks.len() > 1,
+            "{preset} seed 1: one rock ({rocks:?}) in one family ({seen:?})"
+        );
     }
     // And the control: `flat` asks for no regional variation, so it must get
     // none. Without this the test above passes just as well for a generator
@@ -2114,6 +2154,18 @@ fn a_forced_vault_world_is_sealed_and_arrives_at_rest() {
     // difference is anything else. Inferring which cells are vault cells from
     // *where they are* is the mistake that miscounted twice in round 1's
     // task 4.
+    //
+    // **"Nothing downstream reads a vault" is a premise, not a fact about
+    // the world, and one pass reordering falsifies it.** Moving `pockets`
+    // after `vaults` -- built and withdrawn 2026-08-30, see `mod.rs`'s
+    // `PASSES` -- makes `pockets` read the cave through its own all-rock seal
+    // and decline a lens that overlaps one, so a no-cave control grows lenses
+    // exactly where the cave is and this test fails with *"vault wrote
+    // (x, y), which was not intact rock before"* pointing at a cell `vaults`
+    // never touched. Classifying the diff by direction does not rescue it:
+    // `rolling` seed 1 has a cell that is *both* (gravel in the control, open
+    // cave in the world). Anyone landing that reorder has to switch `pockets`
+    // off in both arms here, and should read this paragraph first.
     let presets = presets();
     let mut checked = 0;
     for preset in ["rolling", "canyon", "wetland"] {
@@ -2123,7 +2175,6 @@ fn a_forced_vault_world_is_sealed_and_arrives_at_rest() {
         for seed in SEEDS {
             let world = build_cave_world(&with, seed);
             let control = build_cave_world(&without, seed);
-            let stone = world.materials.id_of("stone").expect("stone");
 
             let mut vault_cells = Vec::new();
             for y in 0..=CAVE_BOUNDS.1 {
@@ -2144,10 +2195,13 @@ fn a_forced_vault_world_is_sealed_and_arrives_at_rest() {
             // envelope was stone. Checked on the *control* world, which is
             // what "before the pass ran" means.
             for &(x, y) in &vault_cells {
-                assert_eq!(
-                    control.get(x, y).material,
-                    stone,
-                    "{preset} seed {seed}: vault wrote ({x}, {y}), which was not stone before"
+                // The seal is over *intact country rock*, not over one
+                // material: with a rock vocabulary the massif has six of
+                // them and a chamber sunk in a sandstone bed is exactly as
+                // sealed as one in stone (`Material::rock`).
+                assert!(
+                    control.materials.get(control.get(x, y).material).rock,
+                    "{preset} seed {seed}: vault wrote ({x}, {y}), which was not intact rock before"
                 );
             }
             // And no vault cell touches anything that was not stone -- which
@@ -2161,10 +2215,12 @@ fn a_forced_vault_world_is_sealed_and_arrives_at_rest() {
                     if changed.contains(&(nx, ny)) {
                         continue;
                     }
-                    assert_eq!(
-                        control.get(nx, ny).material,
-                        stone,
-                        "{preset} seed {seed}: vault cell ({x}, {y}) is flush against ({nx}, {ny}), which was not stone"
+                    // Intact rock, for the same reason the envelope check
+                    // above takes it: the seal is against the massif, and
+                    // the massif is six materials.
+                    assert!(
+                        control.materials.get(control.get(nx, ny).material).rock,
+                        "{preset} seed {seed}: vault cell ({x}, {y}) is flush against ({nx}, {ny}), which was not intact rock"
                     );
                 }
             }
@@ -2173,6 +2229,17 @@ fn a_forced_vault_world_is_sealed_and_arrives_at_rest() {
             // curved bottom, and the chamber may hold standing water, so this
             // is the claim most likely to break if the floor stops being
             // filled flat.
+            //
+            // **It is also the one that caught the withdrawn `pockets`
+            // reorder**, and what it caught is a latent defect of the vault
+            // pass rather than of the reorder: `vault_density: 4.0` places
+            // four systems at independent columns in a 2048-wide world, each
+            // with its **own** waterline, and nothing stops two envelopes
+            // overlapping. Two pools at different levels touching is a head
+            // difference -- exactly what `every_pool_has_a_level_surface`
+            // exists to catch for ponds. Reordering does not create that; it
+            // re-rolls which seeds hit it, and `canyon` seed 1 then reports
+            // one water cell in motion at (1341, 560).
             let mut world = world;
             // **The sky is held still, for the same reason `spring_flow` is
             // zeroed elsewhere in this file: a live process is not a
@@ -3419,10 +3486,18 @@ fn a_seated_boulder_stands_at_a_believable_height() {
         worldgen::generate(&mut world, Spec::Generated { params: &params, seed });
         let stone = world.materials.id_of("stone").expect("stone");
 
+        // **A boulder identifies itself by its rock.** Under the rock
+        // vocabulary (`Reports/rock-vocabulary-design-2026-08-29.md`) a
+        // boulder is limestone -- the resistant rock, because that is what a
+        // hard-band survivor is made of; with the vocabulary off it is
+        // `stone` in the pale cap-rock family, which is what that used to
+        // mean. Both readings are accepted so this test measures the same
+        // *landform* either way rather than one build's palette.
+        let limestone = world.materials.id_of("limestone").expect("limestone");
         let is_boulder_stone = |x: i32, row: i32| -> bool {
             let ground = plans[x as usize].surface_y;
             let c = world.get(x, ground - row);
-            c.material == stone && c.shade / 4 == 3
+            c.material == limestone || (c.material == stone && c.shade / 4 == 3)
         };
         let height_at = |x: i32| -> i32 {
             let mut h = 0;
