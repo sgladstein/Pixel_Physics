@@ -1,0 +1,56 @@
+{
+  "id": "20260830T062042271Z-8bcaa0",
+  "created": "2026-08-30T06:20:42Z",
+  "board": "creatures",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/creature-lane-i-stamp-routes",
+    "commit": "c0cd42f",
+    "agent": null,
+    "session_id": "36fc5a61-22cc-5b06-8b2f-f6f5cb1d7aa3",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "A colony that breeds, and one that cannot — same world, same moment",
+  "question": "One of these has 186 ant cells in frame and the other 66. Can you see any difference at all?",
+  "context_md": "Pricing the routes that would let an ant afford a child (Lane I). One combination works: the colony in one of these panes **bred 79 times and grew from 38 ants to 106**; the other never managed a single birth and is the ant that ships today. Same world seed, same frame, same crop.\n\n**I cannot find the ants in either picture, and that is why I am asking rather than telling.** The counts under each pane are measured inside the rendered window, so they are in shot — 186 of them in one case. If the two read the same to you, then the whole reproduction economy is invisible to a player whichever route gets built, and that is a bigger finding than which route wins.\n\nWhat I am *not* asking about: the trees and the ground differ slightly because the two runs diverge after the first birth. Ignore that — the question is only whether a colony three times the size looks like one.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "shipped ant",
+      "files": [
+        "20260830T062042271Z-8bcaa0/000-shipped.png"
+      ],
+      "caption": "the ant that ships today",
+      "meta": {
+        "ants alive at the end": 38,
+        "births in the whole run": 0,
+        "ant cells inside this crop": 66,
+        "deaths": 0
+      },
+      "focus": null
+    },
+    {
+      "label": "born small, herbivore gut",
+      "files": [
+        "20260830T062042271Z-8bcaa0/001-routes13.png"
+      ],
+      "caption": "born at one cell, with a matched plant-eating gut",
+      "meta": {
+        "ants alive at the end": 106,
+        "births in the whole run": 79,
+        "ant cells inside this crop": 186,
+        "deaths": 11
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
