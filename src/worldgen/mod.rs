@@ -206,6 +206,22 @@ pub struct Ctx<'a> {
     pub terrain: Terrain<'a>,
     /// One entry per column of the world, indexed by x.
     pub plans: Vec<ColumnPlan>,
+    /// **Base level**: the lowest ground within a screen-half of each column,
+    /// so `y < base_y[x]` means "this cell is standing proud of its own
+    /// neighbourhood" and `y > base_y[x]` means "this cell is below the
+    /// surrounding ground, in a cut".
+    ///
+    /// A different question from `plans[x].surface_y`, which is the ground at
+    /// *this* column, and the difference is the whole of what it is for: the
+    /// top of a mesa is `surface_y` for its own column, so a depth measured
+    /// against that says a 150-cell tower is one cell below the surface at its
+    /// summit and 150 cells below it at its foot -- which is true and useless
+    /// for the question *"is this rock standing above the landscape"*.
+    ///
+    /// Computed once, by two sweeps of a running maximum, because the realise
+    /// passes read it per cell over eighteen million cells and a windowed scan
+    /// there would be the generator's whole cost.
+    pub base_y: Vec<i32>,
     /// What plan-space erosion moved and left behind on the way to `plans`
     /// (`erosion.rs`) — talus and sediment depths per column, boulder-socket
     /// markers, and the volume counters. `plan_all` already folded the
@@ -264,6 +280,14 @@ pub struct Ctx<'a> {
 }
 
 impl<'a> Ctx<'a> {
+    /// Build a context without running a pass. Test-only: the shade guard in
+    /// `passes.rs` needs the same `Ctx` the realise passes see, and building
+    /// one is otherwise private to `generate_reported_with`.
+    #[cfg(test)]
+    pub(crate) fn for_test(world: &World, params: &'a WorldgenParams, seed: u64) -> Self {
+        Self::new(world, params, seed)
+    }
+
     fn new(world: &World, params: &'a WorldgenParams, seed: u64) -> Self {
         let bounds = world.bounds().expect("worldgen needs a bounded world");
         let id = |name: &str| {
@@ -294,9 +318,11 @@ impl<'a> Ctx<'a> {
         let terrain =
             Terrain::new(seed, params, bounds.max_x + 1, bounds.max_y + 1, soil_tan, sand_tan);
         let (plans, deposits) = terrain.plan_all_with_deposits();
+        let base_y = base_levels(&plans);
         Self {
             terrain,
             plans,
+            base_y,
             deposits,
             stone,
             rocks,
@@ -361,6 +387,51 @@ pub fn relief_on() -> bool {
         v => v != 0,
     }
 }
+
+/// The lowest ground (largest `surface_y`) within [`BASE_LEVEL_REACH`] columns
+/// of each one.
+///
+/// A max-filter, done as two passes of a **monotonic deque** so the whole
+/// array costs O(w) rather than O(w * reach) -- at the shipped 8,192 columns
+/// and a reach of 160 that is the difference between a rounding error and a
+/// tenth of a second.
+///
+/// The maximum rather than a mean, deliberately: what the consumer wants is
+/// *"the floor this feature stands on"*, and a mean over a neighbourhood
+/// containing a tall mesa is pulled up by the mesa itself, which is the
+/// feature it is trying to measure the height of.
+fn base_levels(plans: &[ColumnPlan]) -> Vec<i32> {
+    let w = plans.len();
+    let mut out = vec![0i32; w];
+    // Indices in increasing order whose `surface_y` is strictly decreasing:
+    // the front is always the deepest ground still inside the window.
+    let mut dq: std::collections::VecDeque<usize> = Default::default();
+    let mut next = 0usize;
+    for (x, slot) in out.iter_mut().enumerate() {
+        let want = (x + BASE_LEVEL_REACH).min(w - 1);
+        while next <= want {
+            while dq.back().is_some_and(|&b| plans[b].surface_y <= plans[next].surface_y) {
+                dq.pop_back();
+            }
+            dq.push_back(next);
+            next += 1;
+        }
+        while dq.front().is_some_and(|&f| f + BASE_LEVEL_REACH < x) {
+            dq.pop_front();
+        }
+        *slot = plans[*dq.front().expect("window is never empty")].surface_y;
+    }
+    out
+}
+
+/// How far either side a column looks for the ground it is standing on, in
+/// columns.
+///
+/// A little under half a player screen. The quantity being asked for is *"is
+/// this rock standing above the landscape"*, and the landscape is what fits
+/// in a view -- read over a whole world every mesa is level with the world's
+/// deepest canyon, and read over ten columns a mesa is level with itself.
+const BASE_LEVEL_REACH: usize = 220;
 
 pub fn generate(world: &mut World, spec: Spec) {
     generate_reporting(world, spec, &mut |_, _| {});

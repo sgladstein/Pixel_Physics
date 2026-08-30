@@ -640,7 +640,7 @@ mod tests {
         };
         let mut ratios = Vec::new();
         for seed in 0..8u64 {
-            let mut arm = |h: i32| -> (f32, f32) {
+            let arm = |h: i32| -> (f32, f32) {
                 let t = Terrain::new(seed, &p, 512, h, soil, sand);
                 let mut hv: Vec<f32> = (0..t.w).map(|x| t.elev(x)).collect();
                 let d = erode(&t, &mut hv);

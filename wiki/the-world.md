@@ -166,10 +166,20 @@ only visible in a cross-section, which is the one thing this view has that a
 map does not.
 
 **Rock** carries visible layering — beds of different rock and tone running
-through the whole massif. There is no repeating pattern to them: a distinctly
-pale or dark layer can be followed from one cliff face to another across the
-world. Every cut you make, every tunnel and every blast crater exposes it, so
-the inside of a hill looks like rock rather than like fill.
+through the whole massif. They are shades of one another rather than different
+colours: a section reads as one kind of stone in several tones, the way a
+quarry face does, and the difference between beds is mostly light and dark.
+There is no repeating pattern to them, and a distinctly pale or dark layer can
+be followed from one cliff face to another across the world. Every cut you
+make, every tunnel and every blast crater exposes it, so the inside of a hill
+looks like rock rather than like fill.
+
+**The layering is quieter above the level of the surrounding ground.** Rock
+that stands *above* the country around it — a mesa, a tor, the upper part of a
+bluff — settles toward one weathered tone, and the bedding comes back in
+gradually as you look down into a cut, over roughly the height of three
+gnomes. It is a soft effect rather than a hard one: a bed still shows what
+rock it is made of wherever it is.
 
 **And the layers are not level.** They **dip**, climbing or falling across a
 view rather than running flat, and the dip itself rolls over as you travel, so
