@@ -777,6 +777,225 @@ backwards instead of over the lip. Draining the other side is not the fix on
 its own -- the source basin is on that side, and a drain inside it would empty
 the source pool the same card asked for.
 
+### 14.5 What each of the five turned out to be, and what was done
+
+*Added 2026-08-30, closing the five. Every figure below is `rolling` unless
+named otherwise; the test-scale worlds are `CAVE_BOUNDS` (2048x1300) at the
+tests' forced `vault_density: 4.0`, and "shipped" is 8192x2560 at 1.6.*
+
+**Two of the five were one defect wearing two costumes, and it was neither of
+the two the split expected.** The at-rest failure was not the chamber pools:
+it was a **lake emptying into a cave entrance**. And the roof-span failure has
+a mechanism, a repair, and a measured reason the repair was withdrawn.
+
+| # | guard | what it was | what was done |
+|---|---|---|---|
+| 1 | `a_forced_cave_world_keeps_every_roof_span_bounded` | the shape backstops leave the roof in whatever bed they stop in, and one bed in four is mudstone | guard re-expressed against `bed_span`; the generator repair was **built, measured and withdrawn** |
+| 2 | at-rest | `ponds` fills a hollow whose floor the entrance passage opened | the entrance now lintels itself against water |
+| 3 | the seal | two declared exceptions, now three | rewritten to name them, tightened elsewhere |
+| 4 | `vault_water_cannot_wet_the_massif_around_it` | `assert_eq!` was stricter than the title | asserts the title |
+| 5 | the spring | a per-seed bar on a ~15% outcome | a sweep, after checking the placement |
+
+#### 1. The roof stops in the wrong rock, and the obvious repair costs more than it buys
+
+The finished world's roofed runs were censused against `cave::bed_span` of the
+rock actually over them, walked up past speleothems to the first real rock.
+Over five seeds at test scale: **every run that exceeded its bed's span was
+under mudstone** (42), the weakest bed in the massif -- 92, 67, 63, 59, 57, 46
+and 46 cells -- while runs of **106 under sandstone (143), 167 under stone
+(192) and 60 under basalt (308)** were all comfortably inside theirs. The roof
+is not too wide. It has stopped in the wrong rock.
+
+The mechanism is that `DOME_ASPECT` and `MAX_DOME_RISE` are statements about
+the **arch**, not about the rock, so wherever one binds the sweep halts at
+whatever row it had reached. Three stages that cut void *after* the room
+collapse -- `chain_rooms`, `open_floor` and `drive_mouth` -- are never asked
+the question at all, and a stage-tagged census of the raw void puts the widest
+residual runs squarely on them (98 cells all `open_floor`, 297 all conduit, 63
+all mouth).
+
+**The repair was built: `SPALL_REACH`, an additive allowance past
+`DOME_ASPECT` letting a roof fall on to a bed that can span the opening.** It
+works, and it is cheap:
+
+| | over-36 runs on rock that cannot span them | collapsed cells |
+|---|---|---|
+| without | 11 over 5 seeds | 61,894 / 48,836 / 33,454 / 66,136 / 8,330 |
+| `SPALL_REACH` 24 | **6** | 76,536 / 48,836 / 39,262 / 75,093 / 8,330 (+11% mean) |
+
+**And it was withdrawn, because it takes `speleothems_never_bridge_a_passage`
+from a measured max of 1.79 to 2.56 bridged formations per 100 columns of
+system span, against a 2.4 bar and a picket-fence ceiling of 2.78.** At 12
+rows it still read 2.41. Taller rooms are more formations reaching floor to
+ceiling, which is the artifact the A3 formation rebuild exists to avoid and
+which the owner has already ruled on once. **The roof invariant is not worth a
+wall of pillars**, and the trade is recorded in `Reports/dead-ends.md`.
+
+Two things were also tried and are worth not retrying: a **whole-envelope
+settling sweep** after every stage that creates void takes **134,000 cells in
+one system** at the shipped bounds and 257,000 unbounded -- the black pit;
+and **pillar pitch off the weakest bed** rather than the mean moves the worst
+run 92 -> 66 on one seed and 55 -> 73 on another, which is a trade rather than
+a fix.
+
+**So the guard carries the correction, and it is a correction rather than a
+loosening.** `MAX_CEILING_SPAN = 36` restated a constant and a mechanism
+(`carve_cave_void`'s stone teeth) that no longer exist, and at the old
+`CAVE_BOUNDS` it had never once seen a cave. It now asks the rebuild's own
+question -- *can the rock over this run hold it* -- per run, off the material
+the finished world has, and gates two pooled order statistics over the seed
+sweep, which is `CLAUDE.md`'s rule for procedural content:
+
+* **share of roofed cells standing on rock that cannot span them** -- worst
+  seed 6.4% (563 of 8,810), bar 15%;
+* **worst single run as a multiple of its own bed's span** -- worst 2.19x (a
+  92-cell run under mudstone), bar 4x.
+
+The pre-rebuild artifact this exists to catch -- a flat ceiling running the
+width of an envelope -- is 10-30x its bed and lands far outside both.
+
+#### 2. The at-rest failure was a lake, not a cave
+
+**The control settles it and nothing else did.** `rolling` at test scale,
+four systems forced, cells that changed material in the 120 frames after
+generation:
+
+| | seed 1 | 2 | 3 | 4 | 5 |
+|---|---|---|---|---|---|
+| as found | 1,469 | 6,179 | 1,730 | 8,816 | 0 |
+| lenses at 20x, **caves off** | 0 | -- | -- | -- | -- |
+| caves on, **`drive_mouth` off** | **0** | **0** | **0** | **0** | -- |
+| after the fix | **8** | 0 | 0 | 0 | 0 |
+
+Every moving cell was water, and the water was not the chambers': a run with
+the cave pools removed entirely still moved 1,469 cells, and a run with the
+*entrance* removed moved none. Dumping the world showed it directly -- on seed
+1 a lake stands at x 783-988, rows 419-462, and the entrance passage is cut at
+x 989-1011 over the same rows, touching it.
+
+**`ponds` runs after `vaults` and fills a hollow to the *planned* ground.** The
+entrance is the one carve licensed to break `MIN_ROOF_COVER`, and
+`carve_mouth_run` is not clipped to `Carvable` at all -- it has to leave the
+rock to be an entrance. Cut through the bank of a hollow, it is a plug pulled
+out of a lake, and the pond pass cannot see the hole. `dry_shoulder` was the
+rule that was supposed to stop this and it tested the wrong thing twice over:
+the **exit column only**, against a +-40-column hollow test with ten rows of
+slack, which a two-hundred-column lake walks straight through.
+
+**The fix is the lintel the entrance already carries, extended to the other
+kind of cover it could not see.** `pond_levels` is split out of `ponds` so
+`vaults` can ask the same question of the same code, and every cell in the
+entrance's shell that `ponds` will fill is written as rock. A few cells of a
+lake's edge become rock; the passage stays where it is; the two are no longer
+connected.
+
+**Refusing the passage instead was built first, and the measurement is why it
+is not what landed**: banning the breakout from lake columns fixes at-rest
+identically and costs **half the world's entrances** -- 6 systems with a mouth
+over 8 `rolling` seeds at the shipped size, down to 3. A cave you cannot get
+into is the complaint this whole rebuild started from.
+
+**What is left is 8 cells and it is fringe, not a leak.** Two ceiling nooks in
+one chamber pool, at (1134-1136, 801-802) and (811-816, 831): 8 cells at 120
+frames, 8 at 400, 13 at 1,200, out of a 16,696-cell pool. `CLAUDE.md`'s liquid
+rule is what the old assertion tripped over -- *a `Liquid` cell holds
+continuous fill and near-empty cells fringe every artifact* -- so the at-rest
+halves now split by phase: **everything that is not a liquid must hold exactly
+still**, and a pool may shed up to `LIQUID_FRINGE` (40, five times the
+measured worst). A draining pool ran 1,469-8,816 on the same seeds, so the bar
+is a bound on the fringe and not a licence for a leak.
+
+#### 3. The seal now names what the rebuild writes over
+
+The old form was *every cell the pass wrote was intact rock before*, full
+stop, written against a generator with no entrance that swallowed nothing.
+Rewritten to name the exceptions by **what the cell was**, so anything else
+still fails:
+
+* a **swallowed pocket** -- `sand` or `gravel`, the loose lens the carve ran
+  into and took whole (`Reports/dead-ends.md` #28 is the alternative);
+* **hillside soil** the entrance cuts and lintels;
+* **standing water** the entrance lintels, from §14.5's own fix -- and this
+  one is asserted with its direction: a liquid may only ever become **rock**,
+  never open cave.
+
+Over fifteen worlds: `gravel -> *` and `sand -> *` run 1,400-5,400 cells each
+and `soil -> *` 5-1,920, against diffs of 120,000-674,000 cells -- most of
+which is the **shade halo** an opened void puts on the rock around it.
+
+That halo is also why the flush half changed. It asked every changed cell's
+neighbours to have been intact rock, as a proxy for *nothing can flow in* --
+but most changed cells are not open cave at all, and a halo cell may sit
+beside a pocket the cave never came near. For the things that flow the proxy
+is also **weaker than what this test already does next**: the at-rest half
+steps the built world for 120 frames and asks whether anything actually moved.
+So the flush check keeps the case 120 frames cannot see -- a **liquid** at a
+free face, exact and zero -- and the powders are left to the direct
+measurement.
+
+#### 4. The moisture guard asserts its own title now
+
+`assert_eq!` on saturation was stricter than *water sealed in a chamber is
+moisture-inert*, and the rebuild broke the premise rather than the claim:
+every system daylights, so its entrance runs under soil and its lintel turns
+hillside into rock, and the moisture distance transform reads the void either
+way. Measured across `rolling`, `canyon` and `wetland` at test scale and 8
+seeds at the shipped size: **not one soil cell anywhere got wetter, on any
+world, at any size.** What moves is cells getting **drier** -- 0 to 9,605 per
+world, worst delta -762 of a 1,000 scale -- which is the opposite of the named
+failure. The assertion is now the claim; the drier count is printed rather
+than gated, because gating it would be a per-seed bar on where an entrance
+happened to land.
+
+#### 5. The spring became a sweep, after the placement was checked
+
+**The placement was checked for a cheap repair first, and there is not one.**
+The mechanism is known: on seed 1 the outlet sits 18 columns behind the lip
+and the water pools on the shelf side, past the far end of the 40-column cut
+basin, where the ground falls away again. `springs` requires the shelf to
+stand within `SPRING_BASIN_RIM` of the lip only across the basin's own width,
+so an inland backstop is the obvious gate. Built and swept over 17 canyon
+seeds at the shipped size:
+
+| inland backstop | worlds with no sink | worlds with no spring |
+|---|---|---|
+| none | 3/17 | 0/17 |
+| 40 columns | 3/17 -- **byte-identical, the gate never fires** | 0/17 |
+| 120 columns | 3/17 -- byte-identical | 0/17 |
+| 240 columns | **0/17** | **8/17** |
+
+It works and it costs half the world's waterfalls. A world with no waterfall
+is worse than one whose waterfall fills a tarn instead of a drain, so the gate
+was withdrawn and the bar became a sweep -- which is `CLAUDE.md`'s rule for
+this shape anyway, and which the same test's plunge-pool claim had already
+been converted to for the same reason.
+
+Nine seeds, and **every claim reads all nine**. `emitted > 0` and the throttle
+ratio stay per-seed because they are structural -- a walled outlet is the same
+defect in every world that has one. `drained` and the source-pool width are
+order statistics: measured **7 of 9** each (widths 18/20/10/21/19/19/11/20/12,
+sinks on all but seeds 1 and 5), bars at 5 with the headroom `CLAUDE.md` asks
+for and a systemic break landing at 0-2.
+
+#### The shipped census, re-run
+
+`cave_probe seeds=8` at 8192x2560, against §3.2:
+
+| | §3.2 | now |
+|---|---|---|
+| worlds with no cave | 0 | **0**, every preset that ships caves |
+| largest connected walkable region | 98% | **97-98%** (med, `rolling`/`canyon`/`arid`) |
+| widest ceiling span, median | 156 / 138 / 153 | 157 / 141 / 152 |
+| systems per world | 3.9-4.9 | 4.0-6.2 |
+
+**One number in that table is not what §3.2 claims and it did not move today.**
+*"Systems with a way in: all of them"* does not hold at the shipped
+`vault_density` on this build: measured over 8 `rolling` seeds, **6 systems of
+11 have a mouth, with the entrance change and without it alike** (2/0/0/1/0/1/
+1/1 mouths against 2/1/1/1/1/2/2/1 systems). That is a pre-existing gap
+between the report and the generator, not a regression from this work, and it
+wants its own look.
+
 ---
 
 ---

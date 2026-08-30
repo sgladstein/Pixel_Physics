@@ -2070,6 +2070,39 @@ pub fn vaults(ctx: &Ctx, world: &mut World) -> usize {
     let t0 = std::time::Instant::now();
     let mut written = 0;
     let mut report = VaultReport::default();
+    // **Where standing water is going to be**, so the entrance passage can
+    // wall itself off from it. `ponds` runs after this pass, so the lakes do
+    // not exist yet -- but their levels are a pure function of `ctx.plans`,
+    // which does, and `pond_levels` is the same code `ponds` itself uses.
+    //
+    // A cave entrance is the one carve licensed to break `cave.rs`'s
+    // `MIN_ROOF_COVER`, and `carve_mouth_run` is not clipped to the carvable
+    // mask at all -- it has to leave the rock to be an entrance. Cut through
+    // the bank of a hollow, it is a plug pulled out of a lake, and `ponds`
+    // fills to the *planned* ground and cannot see the hole: measured
+    // 2026-08-30 on `rolling` seeds 1-4 at 2048x1300 with four systems
+    // forced, **1,469 / 6,179 / 1,730 / 8,816 cells still moving 120 frames
+    // after generation, and 0 / 0 / 0 / 0 with the entrance switched off
+    // entirely.** The entrance carries a rock lintel wherever it runs under
+    // soil for exactly this reason; this hands it the other kind of cover it
+    // could not see.
+    let wet = {
+        let levels = pond_levels(ctx);
+        // Per column, the rows `ponds` will fill. `(MAX, MIN)` is "no water
+        // in this column", which is most of the world.
+        let mut band = vec![(i32::MAX, i32::MIN); levels.len()];
+        for (x, &l) in levels.iter().enumerate() {
+            if l == i32::MAX {
+                continue;
+            }
+            // Exactly the rows `ponds` will fill in this column -- no
+            // clearance, because the entrance walls itself off from the water
+            // rather than keeping away from it, so the cells that matter are
+            // the ones that will actually hold water.
+            band[x] = (l, ctx.plans[x].surface_y);
+        }
+        band
+    };
     for k in 0..whole + extra {
         // Position from its own draw. Rejected rather than nudged when the
         // massif there is too thin -- moving a rejected chamber to wherever
@@ -2188,7 +2221,7 @@ pub fn vaults(ctx: &Ctx, world: &mut World) -> usize {
                 if cy + env.half_h < top + 2 * MIN_CAVE_HALF_H {
                     continue;
                 }
-                let r = cave_system(ctx, env, world, key, cx, cy);
+                let r = cave_system(ctx, env, world, key, cx, cy, &wet);
                 written += r.cells;
                 let hit = r.systems > 0;
                 report.absorb(r);
@@ -2532,8 +2565,16 @@ fn planned_solid(env: CaveEnv, void: &[bool], floor: &[Option<(i32, i32, i32)>],
 /// delete a cave. `Reports/dead-ends.md` #28 -- one grain of sand has
 /// deleted an entire cave system, and a pass that can reject wholesale is
 /// how.
-fn cave_system(ctx: &Ctx, env: CaveEnv, world: &mut World, k: i32, cx: i32, cy: i32) -> VaultReport {
-    let Some((void, sysplan)) = crate::worldgen::cave::carve(ctx, env, world, k, cx, cy) else {
+fn cave_system(
+    ctx: &Ctx,
+    env: CaveEnv,
+    world: &mut World,
+    k: i32,
+    cx: i32,
+    cy: i32,
+    wet: &[(i32, i32)],
+) -> VaultReport {
+    let Some((void, sysplan)) = crate::worldgen::cave::carve(ctx, env, world, k, cx, cy, wet) else {
         return VaultReport::default();
     };
 
@@ -3926,11 +3967,16 @@ pub fn springs(ctx: &Ctx, world: &mut World) -> usize {
     filled
 }
 
-pub fn ponds(ctx: &Ctx, world: &mut World) -> usize {
-    let mut n = 0;
+/// Where standing water would stand, per column, from the **plan alone**.
+///
+/// Split out of [`ponds`] so `vaults` can ask the same question before it
+/// cuts an entrance: a cave mouth that daylights inside a hollow this pass
+/// will fill is a plug pulled out of a lake. Pure in `ctx.plans`, so both
+/// callers necessarily agree.
+pub(crate) fn pond_levels(ctx: &Ctx) -> Vec<i32> {
     let w = ctx.terrain.w as usize;
     if w == 0 {
-        return n;
+        return Vec::new();
     }
     // Rim heights sweeping in from each edge. Remember y-down: a *smaller*
     // y is a taller barrier, so the running extreme is a minimum.
@@ -4016,7 +4062,26 @@ pub fn ponds(ctx: &Ctx, world: &mut World) -> usize {
             }
         }
     }
+    level
+}
 
+pub fn ponds(ctx: &Ctx, world: &mut World) -> usize {
+    let mut n = 0;
+    let w = ctx.terrain.w as usize;
+    if w == 0 {
+        return n;
+    }
+    let level = pond_levels(ctx);
+    // **`vaults` runs before this pass and cannot be allowed to open a hole
+    // in a basin's floor**; that is enforced at the cave end, by
+    // `cave::Carvable::will_flood` and the entrance's own lintel, because the
+    // only thing licensed to come within
+    // `cave.rs`'s `MIN_ROOF_COVER` of the ground is an entrance passage. A
+    // hole here is a lake that empties into a cave for as long as the world
+    // is allowed to run: **1,469 / 6,179 / 1,730 / 8,816 cells still moving
+    // 120 frames after generation** on `rolling` seeds 1-4 at 2048x1300 with
+    // four systems forced, against 0 on all four once an entrance may no
+    // longer break in.
     for (x, &pool) in level.iter().enumerate() {
         if pool == i32::MAX {
             continue;

@@ -220,6 +220,7 @@ const MIN_ROOF_COVER: i32 = 90;
 /// after a few beds and a wide one is allowed a real dome.
 const DOME_ASPECT: f32 = 0.28;
 
+
 /// The absolute backstop under [`DOME_ASPECT`], in rows.
 ///
 /// **A bound on work, and it is counted when it binds** -- see
@@ -497,6 +498,15 @@ pub(crate) struct Carvable {
     /// The shallowest row each envelope column may be carved at under the
     /// cover rule.
     min_y: Vec<i32>,
+    /// Per envelope column, the **world** rows `ponds` will fill --
+    /// `(i32::MAX, i32::MIN)` where it will fill none. See
+    /// `passes::MOUTH_POOL_CLEARANCE`: the entrance passage is the one carve
+    /// here that is not clipped to the mask, so it has to know where the
+    /// water is going to be and wall itself off from it.
+    near_water: Vec<(i32, i32)>,
+    /// World row of the envelope's centre, so [`Carvable::at_shallow`] can
+    /// compare a local row against [`Carvable::near_water`]'s world rows.
+    cy: i32,
     /// Cells of a small pocket of loose material the carve is allowed to take
     /// away outright, with its rind, rather than route around.
     ///
@@ -532,7 +542,7 @@ pub(crate) struct Carvable {
 const SWALLOW_MAX: usize = 3000;
 
 impl Carvable {
-    pub(crate) fn build(ctx: &Ctx, env: CaveEnv, world: &World, cx: i32, cy: i32) -> Self {
+    pub(crate) fn build(ctx: &Ctx, env: CaveEnv, world: &World, cx: i32, cy: i32, wet: &[(i32, i32)]) -> Self {
         let (gw, gh) = (env.grid_w() as usize, env.grid_h() as usize);
         let mut rock = vec![false; gw * gh];
         let (w, h) = (ctx.terrain.w, ctx.terrain.h);
@@ -651,7 +661,11 @@ impl Carvable {
                 ctx.plans[px as usize].surface_y + cover - cy
             })
             .collect();
-        Carvable { env, ok, ok_tube, min_y, soft_id, soft_cells }
+        // The world rows standing water will occupy in each envelope column.
+        let near_water = (-env.half_w..=env.half_w)
+            .map(|dx| wet.get((cx + dx).clamp(0, w - 1) as usize).copied().unwrap_or((i32::MAX, i32::MIN)))
+            .collect();
+        Carvable { env, ok, ok_tube, min_y, near_water, cy, soft_id, soft_cells }
     }
 
     /// Empty every soft pocket the carve reached into, whole, and mark all
@@ -709,7 +723,38 @@ impl Carvable {
         if dx.abs() > self.env.half_w || dy.abs() > self.env.half_h {
             return false;
         }
-        self.ok_tube[dy_i(self.env, dx, dy)]
+        self.ok_tube[dy_i(self.env, dx, dy)] && !self.wet_rind(dx, dy)
+    }
+
+    /// Whether `ponds` will put standing water at this envelope column and
+    /// **world** row.
+    ///
+    /// Read by [`carve_mouth_run`] rather than by [`Carvable::at_shallow`],
+    /// because the entrance run is the one carve in the module that is
+    /// deliberately not clipped to the mask at all -- it has to leave the
+    /// rock to be an entrance, so it walls itself off from the water instead
+    /// of being refused near it.
+    pub(crate) fn will_flood(&self, dx: i32, world_y: i32) -> bool {
+        if dx.abs() > self.env.half_w {
+            return false;
+        }
+        let (t, b) = self.near_water[(dx + self.env.half_w) as usize];
+        world_y >= t && world_y <= b
+    }
+
+    /// Whether a local row in this column is water, or within the rind of it.
+    ///
+    /// **The entrance is clipped away from a lake as well as lintelled
+    /// against one**, and both are needed: the lintel covers the breakout
+    /// run's own shell, and this covers the shallow conduit that reaches the
+    /// breakout's start, which carries no shell at all.
+    fn wet_rind(&self, dx: i32, dy: i32) -> bool {
+        let (t, b) = self.near_water[(dx + self.env.half_w) as usize];
+        if t > b {
+            return false;
+        }
+        let y = dy + self.cy;
+        y >= t - VAULT_RIND && y <= b + VAULT_RIND
     }
 
     /// Carvable for the **entrance passage only**: rock and rind, without the
@@ -724,7 +769,7 @@ impl Carvable {
         if dx.abs() > self.env.half_w || dy.abs() > self.env.half_h {
             return false;
         }
-        self.ok[dy_i(self.env, dx, dy)]
+        self.ok[dy_i(self.env, dx, dy)] && !self.wet_rind(dx, dy)
     }
 }
 
@@ -1327,6 +1372,30 @@ fn collapse_roof(
                 // a room. A single upward sweep cannot express progressive
                 // spalling; what it can express is "this bed cannot roof this
                 // opening", and the arch is then bounded by [`DOME_ASPECT`].
+                // **The two bounds here are about the arch, not about the
+                // rock, so wherever one binds the sweep stops at whatever bed
+                // it had reached** -- and about one bed in four is mudstone,
+                // whose `bed_span` is 42, the weakest thing the massif is
+                // made of. Measured 2026-08-30 on `rolling` at 2048x1300,
+                // five seeds: every roofed run in the finished world that
+                // exceeded the span of the rock over it was under mudstone,
+                // up to 92 cells against 42, while runs of 106, 167 and 60
+                // under sandstone, stone and basalt were all comfortably
+                // inside theirs. The roof was not too wide; it had stopped in
+                // the wrong rock.
+                //
+                // **Letting it spall on to a competent bed was built,
+                // measured and withdrawn** -- see `Reports/dead-ends.md`. An
+                // additive allowance of 24 rows past `DOME_ASPECT` cut
+                // over-36 roofed runs standing on rock that cannot span them
+                // from 11 to 6 across those five seeds, at +11% collapsed
+                // cells; and it took `speleothems_never_bridge_a_passage`
+                // from 1.79 to **2.56** bridged formations per 100 columns
+                // against a 2.4 bar and a 2.78 picket-fence ceiling. Taller
+                // rooms are more formations reaching floor to ceiling, and
+                // that is the artifact the A3 rebuild exists to avoid. At 12
+                // rows it still read 2.41. The roof invariant is not worth a
+                // wall of pillars.
                 let risen = lens_top - ty;
                 if run > cache[i].1 && (risen as f32) < DOME_ASPECT * run as f32 {
                     void[env.idx(xx, ty)] = true;
@@ -1940,7 +2009,7 @@ fn drive_mouth(
     if cy + ey > ctx.plans[out_x as usize].surface_y - 4 {
         return;
     }
-    let opened = carve_mouth_run(ctx, env, world, &run, cx, cy, void, plan);
+    let opened = carve_mouth_run(ctx, env, carv, world, &run, cx, cy, void, plan);
     if opened == 0 {
         return;
     }
@@ -2028,6 +2097,13 @@ fn dry_shoulder(ctx: &Ctx, px: i32) -> bool {
     })
 }
 
+/// How far above and below the entrance run's centre line the cut reaches.
+///
+/// Named because [`try_breakout`] has to know them: it is the swath, not the
+/// centre line, that decides whether a step would open a lake.
+const MOUTH_SHELL_UP: i32 = 12;
+const MOUTH_SHELL_DOWN: i32 = 9;
+
 /// Cut the entrance run itself, and lintel it.
 ///
 /// The run is the only carve in the module that is **not** clipped to intact
@@ -2040,6 +2116,7 @@ fn dry_shoulder(ctx: &Ctx, px: i32) -> bool {
 fn carve_mouth_run(
     ctx: &Ctx,
     env: CaveEnv,
+    carv: &Carvable,
     world: &World,
     run: &[(i32, i32)],
     cx: i32,
@@ -2048,8 +2125,8 @@ fn carve_mouth_run(
     plan: &mut SystemPlan,
 ) -> usize {
     let half_w = 6;
-    let up = 12;
-    let down = 9;
+    let up = MOUTH_SHELL_UP;
+    let down = MOUTH_SHELL_DOWN;
     // The shell is thicker over the passage than beside it. A lintel is what
     // stops the blanket falling in, and that is a job for the rock *above*;
     // two cells at the shoulder is a rind, and the full four all the way round
@@ -2075,6 +2152,17 @@ fn carve_mouth_run(
                 // a chamber and flood to it. Those cells are already empty; the
                 // passage reaches daylight through them without owning them.
                 if wy < ctx.plans[wx as usize].surface_y - 1 {
+                    // **Skipped for being above this column's ground -- but a
+                    // cell above the ground is where a lake goes.** These
+                    // cells are inside the passage box, so the shell loop
+                    // below skips them as "the passage itself" and they were
+                    // the one place neither the cut nor the lintel reached:
+                    // `rolling` seed 1, open passage cell (989, 419) flush
+                    // against (988, 420) holding water, which is the lake at
+                    // x <= 988 with the entrance cut through its bank.
+                    if carv.will_flood(qx, wy) {
+                        plan.lintel.push((wx, wy));
+                    }
                     continue;
                 }
                 // Never cut into bedrock: it is the anchor material and the
@@ -2104,7 +2192,29 @@ fn carve_mouth_run(
                     plan.breakout[env.idx(px + dx, py + dy)] = true;
                 }
                 let m = world.get(wx, wy).material;
-                if m == crate::sim::material::EMPTY || m == crate::sim::material::BEDROCK {
+                if m == crate::sim::material::BEDROCK {
+                    continue;
+                }
+                if m == crate::sim::material::EMPTY {
+                    // **An empty cell that `ponds` is going to fill is cover
+                    // too, and it is the one kind this shell could not see.**
+                    // `ponds` runs after `vaults` and fills a hollow to the
+                    // *planned* ground, so a passage cut through the bank of
+                    // one is a plug pulled out of a lake -- measured on
+                    // `rolling` seed 1 at 2048x1300, the lake at x 783-988
+                    // emptying into a passage at x 989-1011, **1,469 cells
+                    // still moving 120 frames after generation and 0 with the
+                    // entrance switched off**. Lintelling it is the same
+                    // remedy soil already gets, for the same reason and at
+                    // the same thickness: a few cells of the lake's edge
+                    // become rock, the passage stays where it is, and the two
+                    // are no longer connected. Refusing the passage instead
+                    // was built and measured first, and it cost **half the
+                    // world's entrances** -- 6 systems with a mouth over 8
+                    // `rolling` seeds at the shipped size, down to 3.
+                    if carv.will_flood(px + dx, wy) {
+                        plan.lintel.push((wx, wy));
+                    }
                     continue;
                 }
                 if !world.materials.get(m).rock {
@@ -2131,8 +2241,9 @@ pub(crate) fn carve(
     k: i32,
     cx: i32,
     cy: i32,
+    wet: &[(i32, i32)],
 ) -> Option<(Vec<bool>, SystemPlan)> {
-    let carv = Carvable::build(ctx, env, world, cx, cy);
+    let carv = Carvable::build(ctx, env, world, cx, cy, wet);
     let sites = room_sites(ctx, env, k, cx);
     if sites.is_empty() {
         return None;
