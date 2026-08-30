@@ -1,0 +1,37 @@
+{
+  "id": "20260830T180709546Z-ebc1ab",
+  "created": "2026-08-30T18:07:09Z",
+  "board": "lab",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/evolution-lab-gui-physics-dhkblx",
+    "commit": "7d7062e",
+    "agent": null,
+    "session_id": "c7783652-0f30-51a8-b3fa-7773cb6c24fa",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The bar in the real lab binary, not a harness",
+  "question": "Same bar, rendered by the actual app through a real window: the PLANTS page was opened by a scripted mouse click and the note is a real hover. Does it hold up here?",
+  "context_md": "Taken with `xvfb-run ./target/release/lab` and the framebuffer dump hook -- so this is the real binary's own swapchain, not the contact-sheet harness. The page was opened by a synthetic left click at the button's actual coordinates and the note is the cursor resting on the TREND row. A second run (not shown) drove the speed dial to 256X by mouse alone, which the title bar and the top-left readout both confirmed.\n\nCount: 2 scripted clicks, 1 consumed correctly before any frame had been painted (there is no layout to hit yet), 1 opened the page.",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "",
+      "files": [
+        "20260830T180709546Z-ebc1ab/000-real2.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
