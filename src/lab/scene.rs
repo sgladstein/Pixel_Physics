@@ -83,21 +83,29 @@ pub struct LabBox {
 ///
 /// §2a: 40 → 240 rows costs **1.9x the frame for a byte-identical stand**,
 /// because herb's roots never reach past 40 — so a deep bed is 1.9x for
-/// decoration and the obligation is that something reaches the depth being
-/// paid for. Measured in *this* bed with `labshot roots=1`, 10,800 frames,
-/// eight founders: the deepest root cell in the stand sits **26 rows** below
-/// the surface, and the deepest of the whole run is what this is set from.
+/// decoration, and the obligation the owner's soil decision creates is that
+/// something reaches the depth being paid for. That is reproduced exactly in
+/// *this* bed: 48 rows and 80 rows give the identical stand, cell for cell
+/// and organism for organism, at every frame sampled.
 ///
-/// 48 is that measurement plus room for the two consumers that are not the
-/// founder herb: a deeper-rooting mutant, which §2a wants to be a visible
-/// evolutionary win rather than a purchase, and a burrow, which §2a calls
-/// the stronger consumer because it needs no evolution to arrive. Both need
-/// somewhere to go that the shipped herb is not already using.
+/// Measured here, `labshot soil=240 height=460` to 43,200 frames: the
+/// deepest root cell in the stand reaches **12 rows** below the surface, and
+/// it plateaus there by 21,600 — 9 at 3,600, 10 at 10,800, 12 at 21,600, 12
+/// at 43,200. So the founder herb uses twelve rows and no more, however many
+/// it is given.
 ///
-/// It is deliberately **not** 80, which is what this scene shipped with:
-/// that was 54 rows of soil nothing in the box has ever entered, at the
-/// frame cost §2a measured and with nothing to show for it.
-pub const DEFAULT_SOIL_DEPTH: i32 = 48;
+/// 40 is that measurement with the headroom §2a asks for, and the parts are
+/// nameable rather than rounded: **12** the herb actually uses, **12** again
+/// so a deeper-rooting mutant has somewhere to win, and **16** under that for
+/// a burrow — §2a's stronger consumer, because it needs no evolution to
+/// arrive. It is deliberately not 80, which is rows nothing in the box has
+/// ever entered at the frame cost §2a measured.
+///
+/// Making it deeper is not free and making it shallower is not either: what
+/// the soil does not fill, the stone base does (see `FLOOR_ROWS`), and a row
+/// of soil runs `update_soil_water` where a row of confined stone runs
+/// nothing.
+pub const DEFAULT_SOIL_DEPTH: i32 = 40;
 
 impl Default for LabBox {
     fn default() -> Self {
@@ -116,17 +124,37 @@ impl Default for LabBox {
     }
 }
 
-/// Rows of stone under the soil, so the bed has a floor to sit on rather
-/// than falling out of the world — the scene error `PlantScene` records
-/// having paid for twice.
+/// Smallest number of stone rows under the soil, so the bed has a floor to
+/// sit on rather than falling out of the world — the scene error
+/// `PlantScene` records having paid for twice.
+///
+/// A **minimum**, not the thickness: the base runs from under the soil to
+/// the bottom of the world, so the box fills the frame it is drawn in. Left
+/// at a fixed 8 it did not, and the shortfall was not cosmetic — everything
+/// below the bed is space *outside* the box, which the interior draws as dug
+/// earth, so a third of the screen was flat near-black with nothing in it
+/// and no way to reach it.
 const FLOOR_ROWS: i32 = 8;
 /// Thickness of the side walls and the floor edges.
 const SHELL: i32 = 4;
-/// Thickness of the ceiling, which is thicker than the walls **so that a
-/// fixture can be recessed into it and still be a fixture**. At the wall's
-/// four rows a lamp bar is two pixels tall at the very top of the frame,
-/// which is not something anyone reads as a light.
-const CEILING: i32 = 7;
+/// Thickness of the ceiling.
+///
+/// **Four, and it is not a free choice: the shell's thickness is a light
+/// knob.** `field.rs` casts sky light down each CA column and passes
+/// `SKY_TRANSMISSION^(depth / FIELD_SCALE)` — `0.2^(depth/8)` — so a ceiling
+/// four rows deep passes **0.447** of what falls on it and one seven rows
+/// deep passes **0.245**. This was found the expensive way: a ceiling
+/// thickened from 4 to 7 rows to make room for a recessed lamp took the
+/// light at the bench from 0.40 to **0.22** of `field::MAX_LIGHT` and the
+/// stand at frame 3,600 from 474 plant cells to **286**, seed set 12 to
+/// **0**. Nothing failed, nothing germinated late and no test went red — the
+/// crop simply grew less, which reads exactly like a species problem.
+///
+/// So the shell is as thin as it can be while still being a shell, and
+/// thickening it is a decision about how much light the crop gets rather
+/// than about how solid the box looks.
+/// `the_ceiling_is_thin_enough_to_grow_under` is the guard.
+const CEILING: i32 = 4;
 /// Half-width of a grow-light fixture, in columns.
 const LAMP_HALF: i32 = 7;
 /// Rows of the ceiling a fixture is recessed into. Recessed rather than
@@ -163,9 +191,10 @@ impl LabBox {
         self.ceiling_y() + CEILING
     }
 
-    /// The row the bed's stone floor ends at.
+    /// The row the bed's stone base ends at — the bottom of the world, or
+    /// `FLOOR_ROWS` under the soil if the world is shallower than that.
     fn bed_bottom(&self) -> i32 {
-        self.ground_y + self.soil_depth + FLOOR_ROWS
+        self.height.max(self.ground_y + self.soil_depth + FLOOR_ROWS)
     }
 
     /// Columns the partition walls stand in, left to right. Empty for an
@@ -280,14 +309,17 @@ impl LabBox {
         let ceiling = self.ceiling_y();
         let bed_bottom = self.bed_bottom();
 
-        // Soil, then the stone floor under it.
+        // Soil, then the stone the bed stands on — which runs to the bottom
+        // of the world, so the box fills the frame rather than floating over
+        // a band of nothing. Confined stone: `structural` anchors a cell
+        // walled in on every side outright, so this is a foundation and not
+        // a slab waiting to come down.
         for x in 0..self.width {
             for y in self.ground_y..(self.ground_y + self.soil_depth) {
                 w.set(x, y, Cell::new(soil, (crate::sim::rng::jitter(x, y) * 255.0) as u8)
                     .with_aux(material::SOIL_FIELD_CAPACITY));
             }
-            let floor = self.ground_y + self.soil_depth;
-            for y in floor..(floor + FLOOR_ROWS) {
+            for y in (self.ground_y + self.soil_depth)..bed_bottom {
                 w.set(x, y, Cell::new(material::STONE, 0));
             }
         }
@@ -320,13 +352,25 @@ impl LabBox {
             }
         }
 
-        // **The grow lights, as objects.** Recessed into the underside of the
-        // ceiling rather than painted on: a fixture is something the player
-        // will eventually move, switch and pay for, and `Material::glow`
-        // means these seed the light channel the plants actually
-        // photosynthesise from. `crystal` is the shipped glowing solid
+        // **The grow lights, as objects.** Recessed into the ceiling rather
+        // than painted on: a fixture is something the player will eventually
+        // move, switch and pay for. `crystal` is the shipped glowing solid
         // (`glow: 1.8` against `field::MAX_LIGHT` 4.0) and reads at this
         // scale as a cold bar of light in the ceiling.
+        //
+        // **What they are not, measured: the crop's light source.** Replacing
+        // every fixture with plain stone — `labshot lamps=0`, which is the
+        // control — leaves the light at the bench and the whole stand
+        // *byte-identical* at every frame sampled. `Material::glow` seeds the
+        // light channel of its own field block and then decays at
+        // `LIGHT_DECAY` per step, which `field.rs` describes as reaching "a
+        // handful of blocks"; the bench is about nineteen blocks below the
+        // ceiling. So the crop lives on sky light coming through the shell,
+        // and the fixtures are how the room *reads* the schedule rather than
+        // how it is lit. Both are driven by the same held frame, so the
+        // picture and the physics agree about how much light there is and
+        // disagree only about where it comes from -- worth closing, and not
+        // by making one lamp brighter.
         let (lamps, lamp_reach) = self.lamp_columns();
         let walls = self.partition_columns();
         if let Some(crystal) = w.materials.id_of("crystal") {
@@ -512,6 +556,51 @@ mod tests {
     }
 
     #[test]
+    fn the_ceiling_is_thin_enough_to_grow_under() {
+        // **The shell's thickness is a light knob, and this is the only
+        // thing that says so.** `field.rs` passes `0.2^(depth/8)` down a
+        // column, so three extra rows of ceiling cost 45% of the light and
+        // the only symptom is a smaller stand — no failure, no late
+        // germination, nothing red. Measured on this build: 4 rows gives
+        // 0.40 of `MAX_LIGHT` at the bench and 7 rows gives 0.22.
+        //
+        // Asserted as a *paired* comparison against a deliberately thicker
+        // shell rather than against a remembered constant, so it survives
+        // a retune of `SKY_TRANSMISSION` and still catches the thing it is
+        // named for. The thick arm is the positive control: if it does not
+        // come out dimmer, this test cannot see ceiling thickness at all.
+        let thin = LabBox::default();
+        let thick = LabBox { ground_y: thin.ground_y + 3, ..thin.clone() };
+
+        let bench_light = |b: &LabBox, extra: i32| {
+            let mut w = b.build();
+            if extra > 0 {
+                // Three more rows of stone under the ceiling, and nothing
+                // else changed.
+                for x in 0..b.width {
+                    for y in b.room_top()..(b.room_top() + extra) {
+                        w.set(x, y, Cell::new(material::STONE, 0));
+                    }
+                }
+            }
+            for _ in 0..240 {
+                w.step_fields();
+            }
+            let cols = b.founder_columns();
+            let sum: f32 = cols.iter().map(|&x| w.field_at(x, b.ground_y - 2).light).sum();
+            sum / cols.len().max(1) as f32 / field::MAX_LIGHT
+        };
+
+        let open = bench_light(&thin, 0);
+        let buried = bench_light(&thick, 3);
+        assert!(buried < open * 0.8, "the control failed: three more rows of ceiling must measurably dim the bench ({buried:.3} against {open:.3})");
+        assert!(
+            open > 0.30,
+            "the bench is at {open:.3} of full light -- the shell has been thickened, and the only symptom is a smaller stand"
+        );
+    }
+
+    #[test]
     fn the_crop_is_actually_lit_where_the_founders_stand() {
         // **The channel has a writer and a reader, and this checks the pair.**
         // A sealed box has a stone ceiling, and sky light is stopped by
@@ -536,12 +625,26 @@ mod tests {
                 lit >= threshold,
                 "the bed is dark at x={x}: light {lit} against herb's germination threshold {threshold}"
             );
+            // **And the shell is really in the way.** Bounded on both sides
+            // because a one-sided "bright enough" passes just as happily on a
+            // field pinned at its maximum everywhere, which is what a broken
+            // sky walk looks like.
+            //
+            // The obvious control — "no light under the stone floor" — is
+            // *wrong here*, and it was written and watched fail before this
+            // was: solid field blocks carry the light arriving at them on
+            // purpose (`dead-ends.md`, the occluder-light reversal: "the
+            // light arriving at an occluder is what it intercepts, and a leaf
+            // is an occluder"), so a reading inside rock is neither zero nor
+            // meaningless. Sensitivity to the shell is
+            // `the_ceiling_is_thin_enough_to_grow_under`'s job, and it is a
+            // paired comparison rather than a bound.
+            assert!(
+                lit < 0.9 * field::MAX_LIGHT,
+                "the bed at x={x} reads {lit} of {} — a sealed box under a stone ceiling cannot be at full daylight, so this is a constant rather than a measurement",
+                field::MAX_LIGHT
+            );
         }
-        let buried = w.field_at(b.width / 2, b.ground_y + b.soil_depth + 4).light;
-        assert!(
-            buried < threshold,
-            "light reached under the bed's stone floor ({buried}) — the reading above is a constant, not a measurement"
-        );
     }
 
     #[test]

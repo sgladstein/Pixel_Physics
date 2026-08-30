@@ -16,6 +16,10 @@ use pixel_physics::lab::scene::LabBox;
 use pixel_physics::render::Renderer;
 use pixel_physics::sim::explosion::Blasts;
 use pixel_physics::sim::frame;
+use pixel_physics::sim::cell::Cell;
+use pixel_physics::sim::enclosure::Enclosure;
+use pixel_physics::sim::field;
+use pixel_physics::sim::material;
 use pixel_physics::sim::organism::{self, CellType};
 use pixel_physics::sim::particle::ParticleSystem;
 use pixel_physics::sim::player;
@@ -115,6 +119,25 @@ fn main() {
     if let Some(fraction) = arg::<f32>("light") {
         world.set_sky_hold(Some(pixel_physics::sky::frame_for_daylight(fraction)));
     }
+    // **The fixtures, off** — the control for "do the grow lights help or
+    // hurt". They are `crystal`, which both *blocks* the ceiling like stone
+    // and *emits* into the light channel, so their net effect on the crop is
+    // a measurement rather than an assumption. Done from the example rather
+    // than as a `LabBox` knob because a scene the harness can turn off is
+    // still the game's scene, where a second builder would not be.
+    if arg::<i32>("lamps") == Some(0) {
+        let crystal = world.materials.id_of("crystal");
+        if let Some(crystal) = crystal {
+            for y in 0..spec.room_top() {
+                for x in 0..spec.width {
+                    if world.get(x, y).material == crystal {
+                        world.set(x, y, Cell::new(material::STONE, 0));
+                    }
+                }
+            }
+        }
+        world.set_enclosure(Some(Enclosure::new(spec.room_top(), spec.ground_y)));
+    }
     // The counter half of "five founders of eight are visible", printed
     // before a single frame runs. A seed that was never planted and a plant
     // too small to see look identical on a contact sheet and mean opposite
@@ -151,9 +174,26 @@ fn main() {
             let seeds: u32 =
                 ids.iter().filter_map(|id| world.organism(*id)).map(|s| s.seeds_set).sum();
             let (ungerminated, biggest, deepest) = census(&world, spec.ground_y);
+            // **The light the crop is actually standing in**, as a fraction
+            // of `field::MAX_LIGHT`. A sealed ceiling stops sky light, so
+            // how much reaches the bench is a property of the *shell* — its
+            // thickness, and whether the fixtures are emitting more than the
+            // stone they replaced is blocking. Nothing else in the lane
+            // would notice this being wrong: a dim box germinates and then
+            // simply grows less, which reads as a species problem.
+            let cols = spec.founder_columns();
+            let mut lit = 0.0f32;
+            let mut dimmest = f32::INFINITY;
+            for &x in &cols {
+                let v = world.field_at(x, spec.ground_y - 2).light / field::MAX_LIGHT;
+                lit += v;
+                dimmest = dimmest.min(v);
+            }
+            let mean = lit / cols.len().max(1) as f32;
             println!(
                 "  frame {f:>6}: cells {cells:>6}  orgs {:>5}  seeds {seeds:>5}  \
-                 still a seed {ungerminated:>3}  biggest {biggest:>4}  roots reach {deepest:>3} rows",
+                 still a seed {ungerminated:>3}  biggest {biggest:>4}  roots reach {deepest:>3} rows  \
+                 light at the bench {mean:.3} (dimmest {dimmest:.3})",
                 ids.len()
             );
             tiles.push(buf);
