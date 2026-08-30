@@ -1114,9 +1114,10 @@ pub fn step(world: &mut World) {
     // tile: a solved tile beside a *sleeping* one still holding velocity
     // would take real divergence from it, and a skip keyed on the solve set
     // alone would silently drop that.
-    let skip_momentum = sky_fast()
-        && !any_fluid
-        && read_coords.iter().all(|c| world.fields_ref().get(c).is_some_and(|t| t.momentum_zero));
+    let skip_momentum = !momentum_enabled()
+        || (sky_fast()
+            && !any_fluid
+            && read_coords.iter().all(|c| world.fields_ref().get(c).is_some_and(|t| t.momentum_zero)));
     let momentum: &[ChunkCoord] = if skip_momentum { &[] } else { &solve };
 
     // Old state stays untouched in `world` until the very end, so every phase
@@ -1328,6 +1329,36 @@ fn sky_fast() -> bool {
     use std::sync::OnceLock;
     static ON: OnceLock<bool> = OnceLock::new();
     *ON.get_or_init(|| std::env::var("FIELD_SKYFAST").map(|v| v != "0").unwrap_or(true))
+}
+
+/// **Whether the three momentum passes run at all**; `FIELD_MOMENTUM=0`
+/// switches them off for the whole run. A measurement control, **never a
+/// setting** — it is not bit-identical, it is not bounded divergence, and it
+/// is not an optimisation. It exists to answer one question that nothing else
+/// here can: *does the air's own motion change what grows?*
+///
+/// The question is not idle. `skip_momentum` above already skips these
+/// passes, but only when nothing is awake anywhere **and** every tile in
+/// range holds exactly zero pressure and velocity — so in any world with
+/// something alive and growing in it, the passes run permanently, and
+/// `Reports/evolution-lab-feasibility-2026-08-30.md` §4a first read their
+/// cost as work no organism consumes. That reading was wrong and this knob
+/// is what corrected it: `step_advection` transports `temperature`,
+/// `sky_temperature`, `light` and `moisture` along the velocity field, so
+/// the momentum passes are *how heat, light and humidity move on the air*,
+/// not a separate air toy beside the biology.
+///
+/// So switch it off and read the **stand census**, not the timing. A cheaper
+/// frame with an unchanged stand says this world has nothing driving air
+/// motion worth transporting; a changed stand says the air is load-bearing
+/// and the cost is the biosphere's, not overhead. `CLAUDE.md`: *a cost that
+/// vanishes may be work that vanished.*
+///
+/// One `OnceLock` read per `step`, not per tile.
+fn momentum_enabled() -> bool {
+    use std::sync::OnceLock;
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| std::env::var("FIELD_MOMENTUM").map(|v| v != "0").unwrap_or(true))
 }
 
 /// Whether the carry-forward above is enabled; `FIELD_CARRY=0` turns it off.
