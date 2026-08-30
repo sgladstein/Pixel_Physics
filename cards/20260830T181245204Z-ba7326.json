@@ -1,0 +1,46 @@
+{
+  "id": "20260830T181245204Z-ba7326",
+  "created": "2026-08-30T18:12:45Z",
+  "board": "ants",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/evolution-lab-gui-physics-dhkblx",
+    "commit": "7287349",
+    "agent": null,
+    "session_id": "c7783652-0f30-51a8-b3fa-7773cb6c24fa",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "An ant nest dug into a soil bank, against the same bank with no nest in it",
+  "question": "Ants now line the tunnels they dig, so a burrow stands instead of closing in five frames. One of these banks has 130 roofed tunnel cells and 125 cells of packed wall worked into it after 8,000 frames; the other has none at all — the ants dug twice as much there and every hole closed behind them. Can you tell which is which? And does the worked nest read as architecture, or as nothing? I made the packed wall DARKER than loose soil, which may be the wrong call: the inside of a bank is already dark, so the lining and the void it lines are the same brown. A pale wall like the nest material would read the opposite way.",
+  "context_md": "Four stops per column, top to bottom: frames 0, 500, 2000, 8000. Held at noon, cropped to the face the colony works. Discrete events — lined: 278 digs, 384 wall cells packed, 130 roofed void standing. Ablated (PIXEL_PHYSICS_BURROW_LINING=off, same binary): 610 digs, 0 packed, 0 roofed void. The mechanic fires; the question is only whether it shows.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "no lining (ablated)",
+      "files": [
+        "20260830T181245204Z-ba7326/000-colony_bare.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "ants line their tunnels",
+      "files": [
+        "20260830T181245204Z-ba7326/001-colony_lined.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
