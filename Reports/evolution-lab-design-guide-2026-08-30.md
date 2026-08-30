@@ -1,6 +1,9 @@
 # The evolution lab: a design guide
 
-**Status: design guide. Not a plan, not a schedule, and not a decision.**
+**Status: design guide, and the design of record for the lab concept. Not a
+plan and not a schedule.** Carries five owner decisions taken 2026-08-30
+(§2a soil, §2b collapse, §7b-i mutation progression, plus three questions
+deliberately deferred in §7b-ii) and ten open questions in §8.
 Downstream of `evolution-lab-feasibility-2026-08-30.md`, which asked whether a
 second game could live on this engine and answered yes. This asks *how you
 would build it*, and its job is to stop the same questions being re-derived.
@@ -67,6 +70,71 @@ can be told the result is exact, and it will be.
 **What the player is optimising** is deliberately left open here — §6 and §8.
 
 ---
+
+## 1a. The opening, and the deadlock hiding in it
+
+The owner's opening is a seed, the most basic plant, and *"the most basic
+creature that cannot even feed itself"*, which the player keeps alive and
+pushes toward complexity. **That premise is already true of the shipped ant,
+and its arithmetic contains a trap worth designing around rather than into.**
+
+**The ant is already the creature that cannot support itself**, measured:
+
+| | |
+|---|---|
+| birth cost | **1,041** — the grant (80) plus the body stamp (480 × 2 cells) |
+| richest bank ever measured | **219** |
+| why it cannot get there | it stops eating above `hunger_fraction × start_energy` and carries the rest home, so its bank ceiling is the hunger line **plus one mouthful** |
+| what one mouthful is worth | a neutral gut draws **120** from a 480-unit leaf, through `diet_yield`'s matched filter |
+
+**So more food does not fix it, and this is the trap.** The intuitive opening —
+*the player hand-feeds the helpless creature until it can stand on its own* —
+does not work, because the ant refuses food above its hunger line. Piling
+leaves in front of it changes nothing. The ceiling is the blocker, not the
+supply.
+
+**And the way out is closed from both ends.** `gut_bias` is heritable, and a
+gut specialised enough to draw a full 480 from a leaf would clear the bar. But
+reaching it needs mutation, mutation needs reproduction, and reproduction is
+what the gut is blocking. **You need to breed to evolve the gut, and you need
+the gut to breed.** That is a genuine deadlock, not a tuning problem, and it
+is the same one Gate 0 names from the engineering side.
+
+**(Call, and it is the strongest design idea in this guide.)** The deadlock is
+the opening's *content* rather than its obstacle, because breaking it is
+exactly what a player is for. The player's first machine should **pay the
+birth cost the creature cannot pay** — an incubator, a nursery, a hatchery,
+whatever it ends up called — subsidising the ~820-unit shortfall so a first
+generation exists at all.
+
+That gives the opening a shape the rest of the game inherits:
+
+1. **The creature cannot reproduce.** The player sees this immediately: a
+   population that only shrinks.
+2. **The first machine makes reproduction possible** — expensively, and only
+   while it is running and fed.
+3. **Generations begin, and with them variation.** Selection-only (§7b-i) now
+   has something to select from: 400 random genomes span survival
+   **0.103–0.541**, so the gradient is real and measured.
+4. **The player selects toward guts that draw more per mouthful** — or toward
+   any of the three strategies random genomes already produce (a short-range
+   forager, a directed commuter, a sessile grazer that never moves a cell and
+   still feeds itself).
+5. **Eventually a lineage does not need the incubator.** That is the first
+   real win, and it is legible without a tutorial: *you can switch the machine
+   off and they keep going.*
+
+**Why this is worth preferring to fixing the ant in the engine**: the two
+engineering fixes named at the source (a child born at one cell that grows
+into its plan, or a gut that draws 480) both make the shipped ant
+self-sufficient — which *deletes the opening*. A creature that can already
+reproduce has no first problem for the player to solve. **The lab wants the
+deadlock; the outdoor game wants it fixed.** They can have both, because the
+difference is a species file and a machine, not engine code (§7a).
+
+**What this does not settle**, and Gate 0 still owns it: whether the subsidy
+is a player machine, a species-file difference, or the engine change. Only
+the last one is expensive, and it is the one the outdoor game needs anyway.
 
 ## 2. What the measurements already decide
 
@@ -235,6 +303,15 @@ be done. A gate that cannot be measured is not a gate.
 heredity, and the shipped ant has never produced a child. The gate is
 `creature_probe` reporting non-zero `births` and `deepest generation >= 2` in
 a bed a player would recognise.
+
+**§1a changes what this gate asks for, and the change matters.** Read
+naively, Gate 0 says "make the ant self-sufficient" — which would delete the
+lab's opening, because a creature that already reproduces has no first problem
+for the player to solve. What the lab actually needs is that **a first
+generation is reachable**, by whatever route: a player machine that pays the
+shortfall, a lab-only species file with a cheaper body, or the engine fix. The
+outdoor game needs the engine fix regardless. Gate 0 is satisfied by any of
+the three; §8.4b is which one to build.
 
 **It is not a tuning problem** (`ant.ron`, `creature-birth-grant-2026-08-30.md`):
 a birth costs the grant plus a 960-unit body stamp, the stamp is invariant to
@@ -516,6 +593,60 @@ and `MAX_REACH == CHUNK_SIZE / 2` is load-bearing for `parallel.rs`'s
 write-safety proof, so any of those would be a genuine second engine rather
 than a second game.
 
+## 7b. The vision, as the owner states it — and where it is decided
+
+Owner, 2026-08-30, in his own framing:
+
+> *"You start with a seed that grows the most basic plant and the most basic
+> creature that cannot even feed itself. You have to take care of it and create
+> an environment that will keep it alive and push it towards evolving more
+> complex behavior. You grow plants to feed your creatures, and for sale or to
+> create objects to sell or maybe options for the environment. You evolve your
+> plants to be able to make more money and create new objects and a more
+> complex environment for your biosphere. As you progress you get better
+> equipment, better test environment, while creating your own unique
+> interesting ecology, behaviors, species."*
+
+**One decision came out of putting the layers to him, and three deliberately
+did not.** That split is itself the finding and is recorded as such: an
+attempt to settle the economy produced *"these decisions are all way down the
+line"* three times. The guide should not pretend to have resolved them.
+
+### 7b-i. Decided: how the player influences mutation
+
+**A progression, not a choice** — owner decision, 2026-08-30:
+
+| stage | the player's lever |
+|---|---|
+| **opening** | **selection only.** Cull, isolate, breed, set conditions. The environment is the whole lever |
+| **mid** | **mutagens, bought or acquired.** The `mutation_rate` and `FATE_MUTATION_CHANCE` dials already exist as data, so this is equipment that writes a number, not a new system |
+| **late** | **rare directed splicing — a maybe**, explicitly not committed |
+
+This ordering is worth more than any single option would have been, because
+it makes the *opening* the emergent one and buys legibility later, when the
+player already understands what they are looking at. It also costs almost
+nothing: the mutagen tier is a slider on an existing constant.
+
+### 7b-ii. Deferred, with what would decide them
+
+Three questions were put and three came back as premature. Recorded with the
+owner's reasoning and, more usefully, with **what has to exist before each can
+be answered** — so that a later session reaching them knows they are open by
+decision rather than by oversight.
+
+| question | owner, 2026-08-30 | what would decide it |
+|---|---|---|
+| **When you sell a specimen, what leaves the lab?** (the organism / a harvested product / nothing, money as score) | *"This decision is very far away. All of the above are possible"* | Gate 3. Whether removing an individual from a bed is felt at all depends on how much a single organism matters, which is a function of population size and turnover — both unknown until the loop runs |
+| **What sets a specimen's price?** (rotating demands / novelty / fixed list) | *"My best guess is value scales with novelty maybe with demands added, but again these decisions are all way down the line"* | Gate 5. Novelty pricing is the §5 score wearing a currency; it cannot be designed before the score exists, and if the score turns out illegible the pricing inherits that |
+| **How graded is failure?** (lab persists / full restart / nothing lost) | *"All are possible. This needs playtesting. Again too early to decide"* | Playtesting, explicitly. §6's argument from the first law still stands as an argument, but it is a prediction about feel and this project has had three models overturned by the owner's own playtests |
+
+**The novelty-pricing note is the one to carry forward**: the owner's instinct
+(value scales with novelty) and §5's proposed score (separation,
+specialisation, persistence) are the same quantity seen from two sides. If
+that holds, the economy is not a second system bolted onto the biology — it is
+the biology's own score with a price on it. That is a strong result if it
+survives, and it is worth checking early rather than discovering late.
+
 ## 8. Open questions for the owner
 
 Real ones — each changes what gets built.
@@ -523,7 +654,9 @@ Real ones — each changes what gets built.
 1. **What is the player optimising?** §5 proposes separation + specialisation
    + persistence, which rewards *diversity*. The alternative is a directed
    goal ("evolve something that survives condition X"), which is more legible
-   and much less open-ended. These want different games.
+   and much less open-ended. These want different games. **Partially answered
+   2026-08-30**: the owner's instinct on pricing is *"value scales with
+   novelty"*, which is §5's score with a currency on it — see §7b-ii.
 2. **Is the grow light's 2.4x free?** Today constant full light strictly beats
    a cycle. A lever with no downside is not a decision. Should darkness buy
    something — rest, a night-active species, lower heat?
@@ -531,8 +664,14 @@ Real ones — each changes what gets built.
    collapsing tunnels."* The 16% is declined; §2b records what replaces the
    drama. The follow-on that is still open: **what does threaten a burrow
    instead** — water, decay, or the colony's own growth?
-4. **How graded is failure?** §6 proposes the lab persists and the population
-   does not. The brief's wording suggests something harsher.
+4. ~~**How graded is failure?**~~ **Deferred by the owner, 2026-08-30** —
+   *"All are possible. This needs playtesting."* §6's argument from the first
+   law stands as an argument; it is a prediction about feel, and three models
+   in this project have been overturned by playtest. §7b-ii records what would
+   decide it.
+4b. **Is the incubator a machine, a species file, or an engine change?**
+   §1a's deadlock has three exits and only one is expensive. This is the first
+   real build decision after Gate 0.
 5. **Is the score legible?** A behaviour-space coverage number is a good metric
    and possibly an unreadable readout. What does the player *see*?
 6. **One lab or many?** Partitioned beds are the cheapest source of divergence
@@ -545,6 +684,14 @@ Real ones — each changes what gets built.
 8. **Does the lab feed the main game?** §0 says the export path exists. Whether
    lab-evolved species should actually appear in the outdoor world is a
    decision with content implications, not just a plumbing one.
+9. **What does the player watch during a Running phase?** Measured and
+   uncomfortable: `creature_look` and `motion_look` found an ant is two dark
+   cells at play zoom, findable only because it *moves* — and a dead one has
+   stopped moving, so it is unfindable by the very channel that finds a live
+   one. A phase whose whole content is "watch evolution happen" has a
+   legibility problem this repo has already measured and not solved.
+10. **What threatens a burrow, now that collapse is declined?** §2b offers
+   water, decay, or the colony's own growth. None is built.
 
 ---
 

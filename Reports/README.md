@@ -888,7 +888,10 @@ drift that two of these documents still reflect.**
   sky, population as the frame budget, depth as an honestly-priced upgrade,
   equipment as what switches the idle air simulation on. §3 is five gates,
   of which Gate 0 is "an ant reaches generation 2". §5 answers "reward
-  interesting behaviour" without naming a behaviour.
+  interesting behaviour" without naming a behaviour. §1a finds the deadlock in
+  the owner's own opening premise — the ant *cannot* be fed over its birth
+  cost, because its bank ceiling is the hunger line — and argues the lab wants
+  that deadlock as its first puzzle where the outdoor game wants it fixed.
 - [plant-evolution-design.md](plant-evolution-design.md) — **design, all
   nine §8 calls signed off 2026-08-19; partly implemented.** The plant
   ecology: litter, decay, grass and the creeper; §4a's register holds the

@@ -4010,3 +4010,56 @@ contradicts the thing under test looks exactly like a weak effect. The harness
 now offsets each fan by a third of a spacing.
 
 New `labbox_cost` args: `fans=N`, `fan_radius=`, `fan_force=`, `walls=N`.
+
+## 2026-08-30 — the lab's opening is a deadlock, and the deadlock is the point
+
+Design guide finalised with the owner's vision put to him directly. One
+decision, three deliberate deferrals, and one finding that came out of taking
+the premise literally.
+
+**The owner's opening is "the most basic creature that cannot even feed
+itself", and the shipped ant already is that.** But the intuitive mechanic --
+hand-feed it until it can stand on its own -- **does not work, and the
+arithmetic says why**: birth cost 1,041 against a richest measured bank of
+219, and the bank has a *ceiling* (the hunger line plus one mouthful, a
+neutral gut drawing 120 from a 480 leaf) rather than a supply problem. Piling
+food in front of it changes nothing.
+
+**And the exit is closed from both ends.** `gut_bias` is heritable and a
+specialised gut would clear the bar, but mutation needs reproduction and
+reproduction is what the gut blocks. You need to breed to evolve the gut and
+the gut to breed.
+
+**The call: that deadlock is the opening's content, not its obstacle.** The
+player's first machine pays the birth cost the creature cannot -- an incubator
+subsidising the ~820 shortfall -- so a first generation exists, selection has
+something to act on (400 random genomes span survival 0.103-0.541), and the
+first real win is legible without a tutorial: *switch the machine off and they
+keep going.*
+
+**This reframes Gate 0.** Read naively it says "make the ant self-sufficient",
+which would delete the opening. What the lab needs is that a first generation
+is *reachable* -- by a player machine, a lab-only species file, or the engine
+fix. Only the last is expensive and the outdoor game needs it anyway. The lab
+wants the deadlock; the outdoor game wants it fixed; §7a says they can have
+both, because the difference is a species file and a machine rather than
+engine code.
+
+**Decided (§7b-i): mutation is a progression, not a choice.** Selection only
+at the opening; mutagens bought or acquired mid-game (the `mutation_rate` and
+`FATE_MUTATION_CHANCE` dials already exist as data, so it is equipment writing
+a number); rare directed splicing a late-game maybe, explicitly not committed.
+
+**Deferred by the owner, with what would decide each recorded (§7b-ii)**: what
+leaves the lab on a sale, what sets a price, and how graded failure is. All
+three came back as "way down the line" or "needs playtesting". Worth carrying:
+the owner's pricing instinct (*"value scales with novelty"*) and §5's proposed
+score are the same quantity from two sides -- if that holds, the economy is
+the biology's own score with a price on it rather than a second system.
+
+**New open question §8.9, and it is uncomfortable**: what does the player
+watch during a Running phase? `creature_look` and `motion_look` measured that
+an ant is two dark cells at play zoom, findable only because it moves -- and a
+dead one has stopped moving, so it is unfindable by the very channel that
+finds a live one. A phase whose whole content is "watch evolution happen" has
+a legibility problem this repo has measured and not solved.
