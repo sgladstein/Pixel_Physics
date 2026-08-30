@@ -548,6 +548,30 @@ drift that two of these documents still reflect.**
   construction** (exactly 50.0%, an algebraic identity), and three arms were
   silent before they were real — `lateral: None` is not "no lateral", and a
   herb shoot never places a lateral at all while its root does.
+- [plant-water-scarcity-2026-08-30.md](plant-water-scarcity-2026-08-30.md)
+  — **the teeth report's one untested prediction, tested and refuted: a dry
+  bed does not bring root architecture under selection.** `norootbranch` reads
+  **50.8%, 8 of 18 seeds, p=0.49** in a bed with **5.5x less plant-available
+  water**, and 50.8%, 8 of 18, p=0.93 in a further bed where water genuinely
+  limits — against 49.7%, 10 of 18, p=0.86 in the wet one; paired over shared
+  seeds the beds differ by **+0.0 points**. Not an inert world — `nobranch`
+  loses 13 points on **12 of 12** seeds and 10 points on **18 of 18** in those
+  same dry beds. The three findings behind the null are the value. **A bed cannot be dried into
+  drought**: every species' `Germinate` floor (`soil_water_threshold`) sits
+  *above* the availability at which its own uptake becomes limiting — moisture
+  246 against 191 for `herb`, 290 against 234 for `tree` — so below the floor
+  you get an empty bed, and `tree` at 260 goes from 6 organisms to zero.
+  **The lever that does bite is rooting volume**: same moisture, `soil=4`
+  instead of 34, and water status falls **1.000 → 0.678** with uptake halved
+  and the stand losing plants — a plant in a deep dry bed escapes downward
+  into soil it has not drunk. And **root branching does not buy water here**:
+  income is `rate x available` per *wet neighbour*, so contact with wet soil
+  is what earns and in a drawn-down bed the bed sets it — the handicap costs
+  23% of root cells and **3%** of uptake surface. Lands `sky=` and `bed=1` on
+  `selection_arena`: a bed under live weather is rained on for **30% of the
+  run** and ponds 74,674 units of free water, so "dry" needed a pinned sky
+  before it meant anything. Its §5c names what would put roots under selection
+  and why "wetter or drier" is the axis this rules out.
 - [plant-mutation-counted-at-source-2026-08-29.md](plant-mutation-counted-at-source-2026-08-29.md)
   — **§4 closed: the 2.6x was the model, not a loss.** Counts fate mutations
   where they happen (`World::fate_mutation_rolls` / `_fired` / `_applied`) and
@@ -586,15 +610,43 @@ drift that two of these documents still reflect.**
   measured against. **Its §0 is the part to quote**: at the shipped mutation
   rate this is a **no-op** — 88,909 fate queries over 60,000 frames of `herb`
   with the net catching **0** of them, and `genome_drift` byte-identical
-  between the old and new depths at both 0 and 10x. The net first bites at
-  **90x**. Generation turnover (mean depth 2.04 at 60,000 frames), not the
-  fallback depth, is the bottleneck. **Withdraws one standing claim**:
+  between the old and new depths at both 0 and 10x. **Mutation volume**, not
+  generation turnover and not the fallback depth, is the bottleneck — this
+  line said "generation turnover (mean depth 2.04)" until 2026-08-30 and that
+  attribution was withdrawn by the report itself in `ba3f723`, which corrected
+  every other document and missed this one. The net's first bite is bracketed
+  to `(0.1, 0.3]` by `plant-mutation-rate-2026-08-30.md`, below.
+  **Withdraws one standing claim**:
   `builtin_fate` is *not* the absorber — at 90x all 1,305 saves went to the
   **species** layer and `builtin_fate` took 0; the two layers agree, which is
   why dropping the middle one measured identical. Also records why `moss`
   (empty fate table, 0 calls — it only `Divide`s) and `(RootTip, Node)`
   (unreachable at `plastochron: 0`) are safe, and that an emptied `Grow` slot
   makes a tip that **never retires** rather than one that cannot grow.
+- [plant-mutation-rate-2026-08-30.md](plant-mutation-rate-2026-08-30.md)
+  — **`FATE_MUTATION_CHANCE` re-derived, 0.01 → 0.30**, closing the item the
+  fork report above leaves open. The old value was not low, it was **inert**:
+  at 60,000 frames of `herb` the *whole log* is identical to the same world
+  with mutation switched off — 873 live, 74 established, 5,858 births, same
+  body sizes and slot means — while 45 mutations fired and **none of the 28
+  individuals that carried one ever reached 20 cells**. The genome moved and
+  no plant did. **The trade it was supposed to balance is nearly empty**:
+  across 3 seeds and 7 rates, establishment, throughput and body size never
+  consistently decline, *including at rate 1.0 where every birth mutates*
+  (establishment there runs −13%, +13%, +28% — no sign). So the four-way
+  trade collapses to "how much variation should a species carry", and 0.30 is
+  the smallest rate that both puts variation in plants (29–40% of *bodied*
+  plants, against **0%** at 0.01 on every seed and both budgets) and makes the
+  owner's no-safety-net ruling non-vacuous — `GenomeOnly` and `Full` are
+  byte-identical at 0.10 and differ at 0.30, bracketing the net's first bite
+  to `(0.1, 0.3]`. **Its §5 is the method value**: a plausible 2x2 reported a
+  **3x establishment penalty for drifted plants in a run whose stand was
+  bit-identical to no-mutation at all** — confounded by age, kept in the
+  harness with the caption rewritten, because the next reader would derive the
+  same wrong number. Also records that `tree` is invariant to the entire
+  ladder (generation 1, every mutant a seed that never germinates), so the two
+  species do not want different rates, and corrects the stale attribution in
+  the entry above.
 - [plant-fate-operator-gate-2026-08-29.md](plant-fate-operator-gate-2026-08-29.md)
   — **all four mutation operators now have a viability gate**, closing §3a of
   the handoff below, and the answer is not the one its weighting hedged
