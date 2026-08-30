@@ -1,0 +1,47 @@
+{
+  "id": "20260830T013624498Z-30fa06",
+  "created": "2026-08-30T01:36:24Z",
+  "board": "fracture",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/gnome-mining-mechanic-obm7j4",
+    "commit": "e7b72e7",
+    "agent": null,
+    "session_id": "7e6d7527-9f19-5475-bb25-535b32238ac6",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The hammer, rebuilt to your description",
+  "question": "You were right and I had it wrong: the blow was still taking a disc of rock out of the wall on every swing, with cracks drawn around the hole. That whole disc is gone. A swing now does exactly two things — open joints, and release any block the cracks have completely surrounded — so the only rock that ever leaves the wall comes off along a line you watched appear. First image is it animated, second is the same run swing by swing. Is this the mechanic?",
+  "context_md": "Swing-by-swing on a solid stone face, hammer radius 7 (cracked = cells carrying a fissure, reach = how far from the impact, freed = cells released as whole blocks): swing 1 cracks 37 cells and releases NOTHING. Swing 2 releases 137 cells as 2 blocks. Swing 3 spreads the cracks to 61 cells, reach 25, releases nothing. Swing 4 releases another 131. Swing 5 spreads to 80 cells, reach 29. Swing 6 releases another 134. So the rhythm is crack, crack, block out, crack, crack, block out. Blocks are ~130 cells each; the gnome is 9x16 = 144, so these are about his size. Two things I had to fix to get there, both found by printing the swing-by-swing table rather than by looking: stone's grain is 13 cells but a swing only opened joints fully within 7, so a block's outline was ALWAYS partly outside the cracked zone and could never close; and growth read off current damage saturates — the front reached ring 3 and sat there for ever, freeing nothing after swing 2. The front now advances a ring per swing. NOT yet done, and I have not pretended otherwise: hitting a released block to break it smaller.",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "item 1",
+      "files": [
+        "20260830T013624498Z-30fa06/000-hammer_v2.gif"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null,
+      "gif_frames": 110
+    },
+    {
+      "label": "item 2",
+      "files": [
+        "20260830T013624498Z-30fa06/001-hammer_v2_strip.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
