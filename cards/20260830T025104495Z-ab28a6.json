@@ -1,0 +1,48 @@
+{
+  "id": "20260830T025104495Z-ab28a6",
+  "created": "2026-08-30T02:51:04Z",
+  "board": "caves",
+  "origin": {
+    "worktree": "/home/user/wg-caves",
+    "branch": "claude/worldgen-caves",
+    "commit": "47d6209",
+    "agent": null,
+    "session_id": "2cb39797-d076-5699-b8bf-4494224deffe",
+    "user": null,
+    "cwd": "/home/user/wg-caves"
+  },
+  "title": "A different world, for the spread question",
+  "question": "The same generator, another world, framed the same way. This one came out as several rooms on different levels rather than one big chamber -- its biggest is 473 across where the last card's was 467, and three of its six rooms are in the smallest band. Two rooms differ because their rock differs and nothing else: how easily the rock dissolves, where the roof stops falling and how far apart the pillars stand are all read off one number per bed, which runs from 42 cells of span in mudstone to 308 in basalt. Is this enough difference between two caves, and is this one a size you would want to find often?",
+  "context_md": "",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "rolling seed 6",
+      "files": [
+        "20260830T025104495Z-ab28a6/000-ctx_s6.png"
+      ],
+      "caption": "",
+      "meta": {
+        "view": "1200 x 760 cells of world",
+        "systems": 2,
+        "rooms": 6,
+        "rooms by size band (small/med/large/huge)": "3/2/1/0",
+        "biggest room": "473 x 259 cells",
+        "pillars": 8,
+        "passages": 7,
+        "mouths": 1,
+        "cells the roofs lost": 89194,
+        "gnome": "7 x 14 cells"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
