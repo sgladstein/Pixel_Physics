@@ -103,6 +103,12 @@ MANAGED = [
     "world-review-2026-08.md",
     "liquid-simulation-research.md",
     "prior-art-destruction.md",
+    # Added 2026-08-29 on the same criterion as the block above: 9 `##`
+    # sections over ~10,300 tokens, so a table is a real read unit. It is a
+    # decision document the owner reads to rule on a fork, and §0's findings
+    # list and §4's recommendation are what a returning reader wants to
+    # `sed` straight to.
+    "creature-reproduction-economics.md",
 ]
 
 # Never eligible: they carry their own generated index already.

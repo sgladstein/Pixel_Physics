@@ -704,6 +704,25 @@ drift that two of these documents still reflect.**
   material rather than on the eater, corpse worth in `Cell::aux`, and the
   edible forest floor. Its "As built" notes carry the measurements; every
   S4 number in them predates the litter merge and is superseded by it.
+- [creature-reproduction-economics.md](creature-reproduction-economics.md) —
+  **design research, 2026-08-29; nothing built, nothing timed. Awaiting an
+  owner ruling.** Why S6's budding never fires on the shipped ant, and what
+  a reproductive economy that *can* fire would look like. Corrects the
+  standing account in two places: the bank ceiling is **570, not 930** (the
+  neutral gut draws 120 from a 480 leaf through S5's matched filter), and
+  there are **two independent gaps** — the body stamp, and a grant term that
+  is unreachable even with a free body, so fixing the birth cost alone
+  leaves a 3.75x shortfall. Nature's answer in four parts (Smith–Fretwell
+  offspring size, mass versus progressive provisioning, the claustral queen
+  metabolising her own flight muscles, trophallaxis and repletes), five
+  candidates scored against this engine's arithmetic and its ledger, and a
+  recommendation that is a **fork**: `birth_grant` first in both arms, then
+  either a solitary altricial income breeder (E5's own ancestor) or a
+  colonial mass provisioner (E8's other half). Names three genes with
+  two-sided trade-offs and **refuses a fourth** — heritable body size
+  ratchets to one end whichever way it is priced, because `idle_cost` and
+  `move_cost` are flat per organism, which corrects **E10**'s premise that a
+  longer body is already priced. Six experiments named and none run.
 - [creature-export-design.md](creature-export-design.md) — **built and
   landed 2026-08-29.** The dev-tool exit decision **E8** asks for and nothing
   implemented: an evolved individual written back out as a species `.ron` the
