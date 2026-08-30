@@ -1,0 +1,37 @@
+{
+  "id": "20260830T034958576Z-185236",
+  "created": "2026-08-30T03:49:58Z",
+  "board": "structural",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/gnome-mining-mechanic-obm7j4",
+    "commit": "e635078",
+    "agent": null,
+    "session_id": "7e6d7527-9f19-5475-bb25-535b32238ac6",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "A shelf cut free of the cliff, hanging in the air — bug or the rule?",
+  "question": "Six frames after six blows at the root of a stone shelf. The root is completely gone — you can see the gap and the rubble in it — a 306-cell piece near the break has given way, and the rest of the shelf just hangs there for the whole run. Should a shelf severed from the wall come down? Or is 'natural rock holds itself up' the rule you want, and only what the hammer physically reaches falls?",
+  "context_md": "This is 's **worked** case, and it is currently the one red gate on this branch — it wants at least 3 overload failures and gets 1.\n\n**Why it changed:** the old hammer removed a disc of rock by radius on every swing, which you rejected (*\"this looks like the hammer is digging\"*). That disc was also, by accident, what brought the shelf down — it stripped a wide band of rock of its *terrain* flag, and terrain is the bit that means \"I am the mountain, I need no support\". Cutting the root out along the joints removes far less, so the far shelf keeps declaring itself terrain and the load model never asks whether it is held up.\n\n**I have not touched the bar.** I can make the shelf fall by having severed terrain lose its terrain flag, but that is a change to the *load model*, not to the hammer, and it would reach every cliff and overhang in the world — so it is your call rather than mine.",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "",
+      "files": [
+        "20260830T034958576Z-185236/000-acceptance-worked.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
