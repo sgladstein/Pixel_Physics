@@ -1906,13 +1906,14 @@ pub struct CreatureDef {
     /// separates a solitary forager from a social one.
     pub hunger_fraction: f32,
     /// **The ancestral value of every heritable body trait**, indexed by
-    /// `CREATURE_TRAITS`' slot map. Slot 0 is `gut_bias`.
+    /// `CREATURE_TRAITS`' slot map: slot 0 is `gut_bias`, slot 1 is
+    /// `birth_grant`.
     ///
     /// Authored per species because two ancestors one number apart, living
     /// in different parts of the world and coloured differently, *is* the
     /// first half of guided divergence — no reproduction required for the
     /// stage to be worth shipping (`creature-evolution-plan.md` §2.5).
-    #[serde(default)]
+    #[serde(default = "default_creature_traits")]
     pub traits: [f32; CREATURE_TRAITS],
     /// **The bank an individual must reach before it buds**, in the same
     /// units as `start_energy`. Zero — the default — means this species
@@ -3093,11 +3094,12 @@ pub const GENOTYPE_TRAITS: usize = 10;
 /// (`creature-evolution-plan.md` §6).
 ///
 ///   0 gut_bias — where this animal's digestion sits on the diet axis
+///   1 birth_grant — how much of `start_energy` a newborn is handed
 ///
 /// **Positional forever, on the same terms as `GENOTYPE_TRAITS`**: a slot
 /// dead by measurement in every species may be re-purposed once with the
 /// measurement record re-baselined; a live slot, never.
-pub const CREATURE_TRAITS: usize = 1;
+pub const CREATURE_TRAITS: usize = 2;
 
 /// Slot 0 of `CREATURE_TRAITS`: **diet as one heritable number**, `-1`
 /// (plant matter) to `+1` (flesh), scored against `MaterialDef::food_class`
@@ -3109,6 +3111,48 @@ pub const CREATURE_TRAITS: usize = 1;
 /// histogram of its alleles measures its own drift and reads as a result.
 /// A scalar on a bounded axis has no such dimension.
 pub const TRAIT_GUT_BIAS: usize = 0;
+
+/// Slot 1 of `CREATURE_TRAITS`: **how much of `start_energy` a newborn is
+/// handed**, `-1` (nothing) to `+1` (a full species budget), read through
+/// `creature::grant_fraction`.
+///
+/// **The point of the slot is that `start_energy` was doing two jobs.** It
+/// was the founder's budget *and* the endowment every bud was given, and
+/// those are different quantities: §2.6's anti-freeloading rule is that
+/// the reproduction bar must exceed **what a newborn is given**, and that
+/// was only the same number as the species budget by accident. Decoupling
+/// them is what makes the rule expressible at all
+/// (`Reports/creature-reproduction-economics.md` §1.3, §4 Step 1).
+///
+/// **It is Smith–Fretwell's offspring-size gene**, and its trade-off is
+/// real in both directions only because a badly-provisioned newborn can
+/// now die (E14): high grant buys the child a long grace period to find
+/// its first meal and costs the parent more per birth, low grant is cheap
+/// and frequent and stakes the child on finding food almost at once.
+/// **Without starvation low grant is strictly better and the allele goes
+/// to its floor on the first generation** — so this slot and the
+/// `start_energy` cut are one change, not two.
+///
+/// **Read off the *parent*, not the child.** The provisioning decision
+/// belongs to the animal paying for it; `try_bud` mutates the child's own
+/// copy after placement, so what this individual inherited governs what it
+/// will give to *its* children, not what it was given. That is the
+/// biology, and it is also what the existing draw order already does.
+pub const TRAIT_BIRTH_GRANT: usize = 1;
+
+/// The ancestral trait vector for a species file that authors no `traits`
+/// line at all.
+///
+/// **Not `[0.0; N]`, and the difference is load-bearing for slot 1**: zero
+/// on the birth-grant axis is a *half* grant, so a plain `Default` would
+/// silently halve every unauthored species' endowment the day this slot
+/// landed. `+1.0` is a full `start_energy`, which is exactly what every
+/// newborn got before the slot existed.
+fn default_creature_traits() -> [f32; CREATURE_TRAITS] {
+    let mut t = [0.0; CREATURE_TRAITS];
+    t[TRAIT_BIRTH_GRANT] = 1.0;
+    t
+}
 
 /// **Discrete genes, and why a continuous genome cannot produce species.**
 ///
