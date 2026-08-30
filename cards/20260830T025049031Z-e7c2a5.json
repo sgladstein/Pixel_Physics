@@ -1,0 +1,43 @@
+{
+  "id": "20260830T025049031Z-e7c2a5",
+  "created": "2026-08-30T02:50:49Z",
+  "board": "caves",
+  "origin": {
+    "worktree": "/home/user/wg-caves",
+    "branch": "claude/worldgen-caves",
+    "commit": "47d6209",
+    "agent": null,
+    "session_id": "2cb39797-d076-5699-b8bf-4494224deffe",
+    "user": null,
+    "cwd": "/home/user/wg-caves"
+  },
+  "title": "The way in, in context",
+  "question": "The opening you said was fine, now shown with the ground it comes out of. The gnome is standing on the dune above; the passage zig-zags down through the beds and reaches the chamber at bottom left, where the crystal is. It is an incline rather than a shaft -- one row down for every two along -- so it can be walked. Everything is smoother than the version you saw: the walls are filtered rather than left as the collapse cut them. Is it smooth enough, and does the descent read as somewhere you would go?",
+  "context_md": "",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "arid seed 2",
+      "files": [
+        "20260830T025049031Z-e7c2a5/000-ctx_mouth.png"
+      ],
+      "caption": "",
+      "meta": {
+        "view": "1200 x 760 cells of world",
+        "mouth at": "x 5540, y 198",
+        "entrance slope": "1 row in 2",
+        "gnome": "7 x 14 cells",
+        "worlds with a cave and no way in": "0 of 16, every preset"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
