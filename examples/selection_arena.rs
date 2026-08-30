@@ -83,6 +83,8 @@ mod common;
 use pixel_physics::sim::organism::{CellType, FateGenome, FateWhen};
 use pixel_physics::sim::parallel;
 use pixel_physics::sim::plant;
+use pixel_physics::sim::world::World;
+use pixel_physics::sim::{material, update, weather};
 
 fn arg<T: std::str::FromStr>(name: &str) -> Option<T>
 where
@@ -343,8 +345,47 @@ fn logit_slope(traj: &[(f64, f64)]) -> Option<(f64, f64)> {
     (sxx.abs() > 1e-9).then(|| (sxy / sxx, my - (sxy / sxx) * mx))
 }
 
+/// **One bed, built once, used by both the arms and the census that checks
+/// them.**
+///
+/// Factored out of `run_world` rather than duplicated, for the reason
+/// `examples/common/mod.rs` was created to end: two independently written
+/// scenes drift apart, and a census taken of a bed that is not the bed the
+/// arms compete in measures nothing. Anything that reports on the bed goes
+/// through here.
+///
+/// # `sky` is a water-supply switch, not a cosmetic one
+///
+/// **A bed under live weather gets *wetter*, not drier**, and that is what
+/// makes "a dry bed" a different thing from "a bed whose `moisture=` is
+/// low". Two mechanisms, both already recorded in the engine:
+///
+/// - **Nothing dries a synthetic bed.** `evaporation::schedule_damp_soil`
+///   is called where soil is *wetted* — `weather::step`'s rain soak and
+///   `update::update_soil_water`'s infiltration — and never from the sweep,
+///   deliberately, because a settled damp bed sleeps like a dry one and a
+///   sweep hook there would fire exactly never. A bed written straight into
+///   the grid by `PlantScene::build` was never wetted by either path, so no
+///   soil cell in it is ever scheduled to dry.
+/// - **Rain is a one-way supply.** `evaporation.rs`'s own `SOIL_DRY_FLOOR`
+///   doc records a plantless bed measured over ten weather epochs with soil
+///   `aux` **monotone non-decreasing on every seed**, one of them climbing
+///   230,400 -> 463,927.
+///
+/// So under `Pin::Live` the only thing that removes water from this bed is
+/// the plants, and the only thing that adds it is rain — which arrives on
+/// the seeded weather clock and is therefore a *different amount of water
+/// per world seed*. `Pin::Clear` closes the supply: `Weather::CLEAR` is
+/// intensity 0, `Precipitation::None`, wind 0, chill 0, so the bed holds a
+/// finite store that only roots can spend. That is the difference between
+/// varying a resource and making it scarce.
+///
+/// **`Pin::Live` is byte-identical to not calling this at all** —
+/// `World::set_weather_pin` returns early when the override is already
+/// `None` — so every arena number taken before this parameter existed is
+/// still comparable.
 #[allow(clippy::too_many_arguments)]
-fn run_world(
+fn build_bed(
     species: &str,
     founders: usize,
     width: i32,
@@ -352,11 +393,8 @@ fn run_world(
     moisture: u16,
     relief_varied: bool,
     worldseed: u64,
-    frames: u64,
-    every: u64,
-    handicap: Handicap,
-    mirror: bool,
-) -> Outcome {
+    sky: weather::Pin,
+) -> (World, i32, i32) {
     let base_scene =
         if relief_varied { common::PlantScene::varied() } else { common::PlantScene::default() };
     let scene = common::PlantScene {
@@ -370,6 +408,225 @@ fn run_world(
     let (w_width, w_height) = (scene.width, scene.height);
     let mut w = scene.build();
     w.seed = worldseed;
+    // Pinning wakes the world and unsettles the field, which is why it is
+    // done here rather than mid-run: a pin applied after growth has started
+    // is a disturbance as well as a sky.
+    w.set_weather_pin(sky);
+    (w, w_width, w_height)
+}
+
+/// **Is this bed actually dry, are the plants in it actually thirsty, and
+/// does the arm actually change the plant?**
+///
+/// The census that has to come *before* any arm is raced in a bed whose
+/// resource has been changed. Three standing traps, one column group each:
+///
+/// **1. A bed nobody can grow in is not a scarce bed, it is an empty one**,
+/// and it reads as a null for the wrong reason. So the supply side is
+/// reported as `update::plant_available_fraction` -- *the same quantity a
+/// root drinks and a seed germinates on*, zero at or below
+/// `material::SOIL_WILTING_POINT` and one at field capacity.
+///
+/// **Read `dryT%`, not `avail`.** The whole-bed mean is the wrong
+/// denominator and it took a run to see it: the flat bed is ~34,000 soil
+/// cells 34 rows deep, a herb's roots reach the top few, and 855 plants
+/// drying the ground under themselves moved the whole-bed mean from 0.998 to
+/// 0.976. The rooting zone is the top `ROOT_ZONE_ROWS` rows, and that is
+/// where scarcity would show if there were any.
+///
+/// **2. "Smaller plants" is not "water-stressed plants."** The demand side
+/// is `OrganismState::water_status` -- `drawn / demand`, the fraction of
+/// transpiration demand met, and the number that multiplies every
+/// photosynthetic credit. **It is the whole coupling between having roots
+/// and being able to grow.** It is already below 1 in the wettest bed
+/// (`plant.rs`'s own closure census puts mature plants under the stomatal
+/// reserve line 83.5% of the time at field capacity), so the dry claim is a
+/// **paired contrast against the wet bed**, never an absolute threshold.
+///
+/// **3. A genome that changed is not a plant that changed.** `arm=` is
+/// applied to **every** founder here rather than to alternate ones, so
+/// `bed=1 arm=same` against `bed=1 arm=norootbranch` is a phenotype A/B in
+/// one bed rather than a competition. `spread` and `depth` are the root
+/// system's lateral width and its depth below the soil surface, which is
+/// what a root-branching handicap is *supposed* to move. If it does not move
+/// them, no bed will make it selectable and the share it produces means
+/// nothing.
+///
+/// Statistics are taken over **established** plants (`ESTABLISHED_CELLS` and
+/// up), not over the whole population, and that is not tidying. Measured
+/// here: the bed carries 855 organisms at 9,538 cells by frame 10,000 -- a
+/// mean of 11 cells, so an unfiltered mean is a statistic about seedlings,
+/// and a seedling has no architecture to differ in.
+///
+/// # `estab` is the sanity check on the whole run
+///
+/// A drought that takes `estab` to zero has produced an empty bed, and every
+/// number beside it is then a statistic over nothing. Read that column
+/// first.
+const ROOT_ZONE_ROWS: i32 = 8;
+
+/// Cells at which a plant is counted as established rather than a seedling
+/// -- see `bed_census`. A herb whose whole axis is 8 metamers is a small
+/// plant, so this is deliberately low; it is a "has it got going" line, not
+/// a maturity one.
+const ESTABLISHED_CELLS: usize = 20;
+
+#[allow(clippy::too_many_arguments)]
+fn bed_census(
+    species: &str,
+    founders: usize,
+    width: i32,
+    soil_depth: i32,
+    moisture: u16,
+    relief_varied: bool,
+    worldseed: u64,
+    frames: u64,
+    every: u64,
+    sky: weather::Pin,
+    handicap: Handicap,
+) {
+    let (mut w, w_width, w_height) =
+        build_bed(species, founders, width, soil_depth, moisture, relief_varied, worldseed, sky);
+    let ground_y = common::PlantScene::default().ground_y;
+    let soil = w.materials.id_of("soil").expect("soil is a compiled-in material");
+    let water = w.materials.id_of("water").expect("water is a compiled-in material");
+
+    // **Every founder, not alternate ones.** This is a phenotype comparison,
+    // not a race: two beds each carrying one genome, so a difference in root
+    // shape is the arm's and nothing else's.
+    let species_id = w.species.id_of(species).expect("species is compiled in");
+    let base = FateGenome::from_table(w.species.get(species_id).fate_table());
+    let (arm, applied) = handicap.apply(base);
+    assert!(
+        applied || handicap == Handicap::Same,
+        "arm matched no rule, so this census would describe the unmutated plant"
+    );
+    let mut founder_ids: Vec<u16> = Vec::new();
+    for y in 0..w_height {
+        for x in 0..w_width {
+            let id = w.get(x, y).organism_id();
+            if id != 0 && !founder_ids.contains(&id) {
+                founder_ids.push(id);
+            }
+        }
+    }
+    for id in founder_ids {
+        assert!(w.set_organism_fates(id, arm), "the founder must be live when its genome is set");
+    }
+
+    println!(
+        "  {:>7} {:>6} {:>6} {:>7} {:>5} {:>6} {:>7} {:>6} {:>6} {:>6} {:>6} {:>6} {:>7} {:>7} {:>6} {:>5}",
+        "frame", "avail", "dryT%", "free", "orgs", "estab", "cells", "root", "croot", "spread",
+        "depth", "wstat", "demand", "uptake", "seeds", "rain"
+    );
+    let mut rain_frames = 0u64;
+    for f in 0..frames {
+        if w.weather().is_precipitating() {
+            rain_frames += 1;
+        }
+        parallel::step(&mut w);
+        w.step_active_sites();
+        w.step_fields();
+        if !(f + 1).is_multiple_of(every) && f + 1 != frames {
+            continue;
+        }
+        // The supply side. A full-grid scan at a coarse interval, never per
+        // frame -- `update::liquid_volume`'s own doc makes the same call.
+        let (mut soil_cells, mut avail_sum) = (0u64, 0.0f64);
+        let (mut zone_cells, mut zone_dry) = (0u64, 0u64);
+        let mut plant_cells = 0u64;
+        for y in 0..w_height {
+            for x in 0..w_width {
+                let cell = w.get(x, y);
+                if cell.material == soil {
+                    soil_cells += 1;
+                    let a = update::plant_available_fraction(cell);
+                    avail_sum += a as f64;
+                    if y < ground_y + ROOT_ZONE_ROWS {
+                        zone_cells += 1;
+                        if a <= 0.0 {
+                            zone_dry += 1;
+                        }
+                    }
+                }
+                if cell.organism_id() != 0 {
+                    plant_cells += 1;
+                }
+            }
+        }
+        let free = update::liquid_volume(&w, water);
+        // The demand side, over established plants only -- see the doc.
+        let (mut orgs, mut estab, mut seeds) = (0u64, 0u64, 0u64);
+        let (mut st, mut dem, mut upt) = (0.0f64, 0.0f64, 0.0f64);
+        let (mut root, mut croot, mut spread, mut depth) = (0.0f64, 0.0f64, 0.0f64, 0.0f64);
+        for id in w.live_organism_ids() {
+            let Some(s) = w.organism(id) else { continue };
+            orgs += 1;
+            seeds += s.seeds_set as u64;
+            if s.cells.len() < ESTABLISHED_CELLS {
+                continue;
+            }
+            estab += 1;
+            st += s.water_status as f64;
+            dem += s.water_demand as f64;
+            upt += s.water_uptake as f64;
+            root += s.root_cells as f64;
+            croot += s.contact_root_cells as f64;
+            // **Geometry, read off the cell set rather than off a material
+            // flag.** Everything at or below the soil surface is the root
+            // system; the arm under test is supposed to make that one
+            // descending axis instead of a spreading one, so its width is
+            // the quantity that says whether it did.
+            let below: Vec<(i32, i32)> = s.cells.keys().copied().filter(|&(_, y)| y >= ground_y).collect();
+            if let (Some(min_x), Some(max_x), Some(max_y)) = (
+                below.iter().map(|&(x, _)| x).min(),
+                below.iter().map(|&(x, _)| x).max(),
+                below.iter().map(|&(_, y)| y).max(),
+            ) {
+                spread += (max_x - min_x + 1) as f64;
+                depth += (max_y - ground_y + 1) as f64;
+            }
+        }
+        let n = estab.max(1) as f64;
+        println!(
+            "  {:>7} {:>6.3} {:>6.1} {:>7} {:>5} {:>6} {:>7} {:>6.1} {:>6.1} {:>6.1} {:>6.1} {:>6.3} {:>7.3} {:>7.3} {:>6} {:>5}",
+            f + 1,
+            avail_sum / soil_cells.max(1) as f64,
+            100.0 * zone_dry as f64 / zone_cells.max(1) as f64,
+            free,
+            orgs,
+            estab,
+            plant_cells,
+            root / n,
+            croot / n,
+            spread / n,
+            depth / n,
+            st / n,
+            dem / n,
+            upt / n,
+            seeds,
+            rain_frames,
+        );
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_world(
+    species: &str,
+    founders: usize,
+    width: i32,
+    soil_depth: i32,
+    moisture: u16,
+    relief_varied: bool,
+    worldseed: u64,
+    frames: u64,
+    every: u64,
+    handicap: Handicap,
+    mirror: bool,
+    sky: weather::Pin,
+) -> Outcome {
+    let (mut w, w_width, w_height) =
+        build_bed(species, founders, width, soil_depth, moisture, relief_varied, worldseed, sky);
 
     let species_id = w.species.id_of(species).expect("species is compiled in");
     let base = FateGenome::from_table(w.species.get(species_id).fate_table());
@@ -587,7 +844,20 @@ fn main() {
     // a slope is only a fair summary of a straight one.
     let dump = arg_str("dump").as_deref() == Some("1");
     let soil_depth: i32 = arg("soil").unwrap_or(common::SOIL_DEPTH);
-    let moisture: u16 = arg("moisture").unwrap_or(pixel_physics::sim::material::SOIL_FIELD_CAPACITY);
+    let moisture: u16 = arg("moisture").unwrap_or(material::SOIL_FIELD_CAPACITY);
+    // **`sky=clear` is what makes a bed dry** -- see `build_bed`. `live`
+    // (the default) leaves the seeded weather running and is byte-identical
+    // to every arena run taken before this argument existed.
+    let sky = match arg_str("sky").as_deref() {
+        None | Some("live") => weather::Pin::Live,
+        Some("clear") => weather::Pin::Clear,
+        Some(other) => panic!("sky={other} is not one of live|clear"),
+    };
+    // `bed=1` runs **one** world and censuses the bed instead of racing two
+    // arms in it. Always run this before believing any arm measured in a bed
+    // whose resources have been changed: a bed nobody can grow in reads as a
+    // null for the wrong reason.
+    let bed_only = arg_str("bed").as_deref() == Some("1");
     let width: i32 = arg("width").unwrap_or_else(|| {
         let d = common::PlantScene::default();
         d.width * (founders as i32).max(1) / d.trees as i32
@@ -595,15 +865,39 @@ fn main() {
 
     println!(
         "selection_arena: species={species} arm={handicap_name} seeds={seeds} founders={founders} \
-         frames={frames} every={every} relief={} mirror={} width={width} soil={soil_depth} moisture={moisture}",
+         frames={frames} every={every} relief={} mirror={} width={width} soil={soil_depth} moisture={moisture} sky={}",
         if relief_varied { "varied" } else { "flat" },
-        if mirrored { "on" } else { "OFF" }
+        if mirrored { "on" } else { "OFF" },
+        sky.label()
     );
     println!(
         "selection_arena: fate_mutation_chance={} fate_lookup={:?}",
         plant::fate_mutation_chance(),
         plant::fate_lookup_mode()
     );
+
+    // **The bed census comes before the arms, not after them.** One world,
+    // no handicap, no mirror -- what is being asked is what the resource
+    // actually does over the run, and an arm in it would only make that
+    // harder to read.
+    if bed_only {
+        println!(
+            "\nbed census, seed {} -- supply (soil) and demand (plants) side by side:",
+            seed0 + 1
+        );
+        bed_census(
+            &species, founders, width, soil_depth, moisture, relief_varied, seed0 + 1, frames,
+            every, sky, handicap,
+        );
+        println!("\n  avail  = mean plant-available fraction over ALL soil cells (0 at the wilting point, 1 at field capacity)");
+        println!("  dryT%  = share of soil cells in the top {ROOT_ZONE_ROWS} rows -- the rooting zone -- at or below the wilting point");
+        println!("  free   = free liquid water volume in the world (rain that ponded)");
+        println!("  estab  = organisms of {ESTABLISHED_CELLS} cells or more; every plant statistic right of it is over those only");
+        println!("  root/croot/spread/depth = root cells, root cells touching soil, root-system width, root-system depth");
+        println!("  wstat  = water_status: the fraction of transpiration demand met, which multiplies every carbon credit");
+        println!("  rain   = frames spent precipitating, cumulative");
+        return;
+    }
 
     // **The edit has to have bitten.** An arm-B genome identical to arm-A
     // reads as a clean 50/50, which is exactly what "no teeth" looks like --
@@ -665,7 +959,7 @@ fn main() {
         for &mirror in assignments {
             let o = run_world(
                 &species, founders, width, soil_depth, moisture, relief_varied, s + 1, frames, every,
-                handicap, mirror,
+                handicap, mirror, sky,
             );
             a.organisms += o.a.organisms;
             a.cells += o.a.cells;
