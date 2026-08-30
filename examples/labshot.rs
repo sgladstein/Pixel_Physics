@@ -7,9 +7,22 @@
 //! thing. A hand-built scene is exactly where that bites, because a scene
 //! that contradicts the code looks identical to a bug in the code.
 //!
+//! **Every stop prints its counts beside the picture**, because a picture
+//! cannot say whether the thing you built is what produced it — `CLAUDE.md`'s
+//! standing rule, learned when a collapse rendered as coherent falling slabs
+//! was read as "chunks are working" while the body count was zero for the
+//! whole run. The same trap is live in this bed twice over: a box full of
+//! green that is reproducing and one that is not are the same photograph, and
+//! **a founder that never germinated and one too small to draw are the same
+//! photograph too**. So the per-stop line carries the ant count, the standing
+//! fruit, and each founder's cell count by the id it was given before the
+//! first tick — a founder whose id no longer resolves is dead, one at three
+//! cells is merely invisible, and only the id can tell them apart.
+//!
 //! ```text
 //! cargo run --release --example labshot
 //! cargo run --release --example labshot -- frames=0,600,3000,9000 out=lab.png
+//! cargo run --release --example labshot -- founders=8 walls=4 frames=0,3000,12000,30000
 //! ```
 
 use pixel_physics::lab::scene::LabBox;
@@ -17,6 +30,7 @@ use pixel_physics::render::Renderer;
 use pixel_physics::sim::explosion::Blasts;
 use pixel_physics::sim::frame;
 use pixel_physics::sim::particle::ParticleSystem;
+use pixel_physics::sim::organism::{cell_type, CellType};
 use pixel_physics::sim::player;
 
 fn arg<T: std::str::FromStr>(key: &str) -> Option<T> {
@@ -57,6 +71,11 @@ fn main() {
         renderer.adjust_zoom(1);
     }
 
+    // Before a single tick: every organism the scene builder placed. This is
+    // the only moment the founders are distinguishable from their offspring.
+    let founders = world.live_organism_ids();
+    println!("  {} organism(s) placed by the builder before the first tick", founders.len());
+
     let mut tiles: Vec<Vec<u8>> = Vec::new();
     let last = *stops.last().expect("at least one stop");
     let mut next = 0usize;
@@ -66,11 +85,55 @@ fn main() {
             let touched = world.take_touched_chunks();
             renderer.draw(&world, &particles, &touched, &mut buf, (vw, vh), true);
             let ids = world.live_organism_ids();
-            let cells: usize =
-                ids.iter().filter_map(|id| world.organism(*id)).map(|s| s.cells.len()).sum();
-            let seeds: u32 =
-                ids.iter().filter_map(|id| world.organism(*id)).map(|s| s.seeds_set).sum();
-            println!("  frame {f:>6}: cells {cells:>6}  orgs {:>5}  seeds {seeds:>5}", ids.len());
+            let (mut cells, mut seeds, mut plants, mut ants) = (0usize, 0u32, 0usize, 0usize);
+            for id in &ids {
+                let Some(s) = world.organism(*id) else { continue };
+                if world.species.get(s.species).creature.is_some() {
+                    ants += 1;
+                } else {
+                    plants += 1;
+                    cells += s.cells.len();
+                    seeds += s.seeds_set;
+                }
+            }
+            // Standing reproductive organs, counted as *cells in the grid*
+            // rather than as `seeds_set`. They are not the same quantity and
+            // the difference is the whole of
+            // `Reports/creature-stamp-routes-2026-08-30.md` §5: seeds set is
+            // a plant's own tally, standing fruit is what an ant can walk to.
+            let (mut fruit, mut flower) = (0usize, 0usize);
+            for y in 0..spec.height {
+                for x in 0..spec.width {
+                    let c = world.get(x, y);
+                    if c.organism_id() == 0 {
+                        continue;
+                    }
+                    match cell_type(c.aux()) {
+                        Some(CellType::Fruit) => fruit += 1,
+                        Some(CellType::Flower) => flower += 1,
+                        _ => {}
+                    }
+                }
+            }
+            let st = world.creature_stats;
+            let (alloc, _) = world.organism_slot_usage();
+            println!(
+                "  frame {f:>6}: plants {plants:>4} cells {cells:>6} seeds {seeds:>5} \
+                 fruit {fruit:>4} flower {flower:>4} | ants {ants:>4} births {:>4} deaths {:>4} \
+                 | slots {alloc:>4}/4095",
+                st.births, st.deaths,
+            );
+            // Each founder by the id it was given before the first tick — the
+            // germination-versus-invisibility readout. `dead` means the id no
+            // longer resolves; a small number means alive and unrenderable.
+            let founder_line: Vec<String> = founders
+                .iter()
+                .map(|id| match world.organism(*id) {
+                    Some(s) => format!("{}", s.cells.len()),
+                    None => "dead".to_string(),
+                })
+                .collect();
+            println!("            founders (cells): {}", founder_line.join(" "));
             tiles.push(buf);
             next += 1;
         }

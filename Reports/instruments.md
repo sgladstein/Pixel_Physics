@@ -53,6 +53,13 @@ Not an `examples/` binary — these read what an agent run already wrote down.
 | `camera_snap` | Whether the camera moves discontinuously through the path the **app** actually uses | Drives `App::update`/`App::draw` as `main.rs` does, rather than calling `Renderer::follow` directly -- so it catches what a harness calling the API itself cannot |
 | `weather_duty` | How often it is raining, swept across seeds and a long window | Built because a single 1,200-frame run measured 89% and that was a sample from inside one wet epoch, not a duty cycle. Generalises to any "is this a duty cycle or one epoch" question |
 
+## The evolution lab
+
+| instrument | answers | notes |
+|---|---|---|
+| `labshot` | **What the lab box looks like**, as a contact sheet through the real `Renderer`, with each stop's counts printed beside it | The *look before you measure* half of Gate 1. Its per-stop line carries ants, births, standing fruit and **each founder's cell count by the id it held before the first tick** — which is what separates "this founder never germinated" from "this founder is three cells and unrenderable", two readings of the same photograph that mean opposite things. Generalises to any question of the form *is the thing in this picture the thing I think it is*, because the founder-id trick works for any organism the scene builder places |
+| `lab_cost` | **Does the lab box live, and what does it cost?** — the plant and creature census over a long run, the organism-slot ceiling, the Gate 0 birth arithmetic in *this* bed, and whole-frame cost as the stand grows, with the achievable simulated-seconds-per-real-second at 60 Hz and 20 Hz | Gate 1 and Gate 3 of the evolution-lab design guide in one command. Three things it answers past its own question: `selftest=1` is a **positive-control suite over its own counters** (does the split tick reproduce `frame::step`, does a fan actually wake the box, does the leaf census read zero in an unplanted bed) and is the model for any harness that must not publish a null it cannot have moved; `walls=1,2,4,8,16 reps=N` runs **paired, round-robin** arms rather than arm-after-arm, which is the only timing shape that survives a loud machine; and `gut=` overrides the ant's diet gene *before the colony is founded*, so it can construct the case whose answer is known non-zero rather than only measuring the shipped one |
+
 ## Plants
 
 | instrument | answers | notes |
