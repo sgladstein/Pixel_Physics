@@ -418,11 +418,26 @@ the awake set is, and outdoors the awake set is the sky-lit surface band.
 
 **The lab is a different regime and this is the whole point of the concept.**
 The box holds its sky (`set_sky_hold`), so `sky_drifted` does not wake every
-surface tile every frame, and cost follows living biomass rather than world
-size — a 2048-wide box measured *cheaper* than a 512-wide one at fixed
-founders. The box is already a runtime parameter (`LabBox { width, height }`,
-default 512x320, hardcoded at `bin/lab.rs:92`). So the lab can plausibly
+surface tile every frame, and a 2048-wide box measured *cheaper* than a
+512-wide one at fixed founders. The box is already a runtime parameter
+(`LabBox { width, height }`, default 512x320). So the lab can plausibly
 afford a cell density the outdoor game cannot.
+
+**But not because cost follows biomass — that is the part PR #170
+overturned, and it changes what a resolution budget should be built on.**
+Measured in the lab bed: the frame's correlation with **biomass is +0.03**,
+with the field's **solve set +0.92**, and with **awake chunks +0.93**. The
+guide's *"cost follows living biomass"* and its Gate 3 corollary *"a mature
+box is the expensive one"* are **backwards in this bed** — the multiplier
+**rises** through a session, **9.0x fresh to 17.8x settled**, because the box
+*quiets* as it fills.
+
+The consequence for resolution is direct and it is the useful half: **more
+cells cost what they cost by being awake, not by being alive.** A bigger bed
+that mostly sleeps is cheap; the same bed with weather or a fan in it is not.
+That is a much better budget to design against than a per-plant-cell figure,
+and it puts the emphasis back on the sealed box and the held sky rather than
+on the population.
 
 ### 3f. The field: the owner's hypothesis, and the pairing that makes it work
 
@@ -488,17 +503,47 @@ growing record of every decision the colony has ever made. It is legible at
 any zoom, it is legible when nothing is moving, and it is a *history* rather
 than an instant. Cost: zero, it is §2's fix.
 
-### 4.2 — Partitions, as a verb (§2c of the guide; the strongest unbuilt idea in it)
+### 4.2 — Partitions, as a verb — but not for the speed-up
 
-Measured: one wall in a fanned bed takes the speed-up from **4.1x to 7.6x** at
-a stand held to within 0.2%. It simultaneously buys **evolutionary
-isolation** (asexual isolation is where clusters come from) and the **§5
-score** (separation, specialisation, persistence are all measured *across*
-compartments). One object, three payoffs, and the guide calls it *"the
-strongest single design finding"*.
+**Corrected 2026-08-30 by PR #170, and the correction matters.** §2c of the
+guide measured one wall taking a fanned bed's speed-up from **4.1x to 7.6x**
+and called it *"the strongest single design finding"*. Run in the lab's own
+bed, **the containment reproduces and the speed-up does not**: `solved/f`
+falls 39.4 -> 25.1 over 1 -> 16 compartments (**-36%**, exactly §2c's
+mechanism), while the frame goes 1.69 -> 1.41 -> **1.92 ms** — non-monotone,
+because the field is only 54% of a 1.5 ms tick at 512 wide. §2c's 7.6x was
+measured on a **fanned 2048-wide** bed, and the lab is neither.
+
+So partitions stay, for **evolutionary isolation** (asexual isolation is
+where clusters come from) and for the **§5 score** (separation,
+specialisation and persistence are all measured *across* compartments) —
+**and no speed-up should be budgeted at lab scale.** Two payoffs, not three.
+This is the guide's own trap about an isolated harness overstating what the
+app will see, landing on the guide's own headline finding.
 
 In interface terms it is a drag to place a wall and a click to open a door.
 It is the single highest-value verb the lab does not have.
+
+### 4.2a — The grow lamps do not light the crop, and that has to be said
+
+Not an idea — a correction, filed here because every equipment idea below
+inherits it. Measured PR #170: `labshot lamps=0` replaces every fixture with
+stone and **the stand is byte-identical**. The glow decays over a handful of
+field blocks and the bench is nineteen below it. **The room reads the
+schedule; the shell passes the light.**
+
+And the shell is the real knob: thickening the ceiling 4 -> 7 rows cost
+**45% of the light on the bench and half the stand** — 468 plant cells to
+286, **12 seeds to 0** — with **no gate going red**, because light travels a
+column as `0.2^(depth / 8)` and optical depth is counted in *field blocks*.
+One extra block between sky and bench is a factor of five.
+
+Two consequences worth acting on. **A light schedule as a strategic lever
+(§4.4 below, and the guide's open question #2) is a lever on the sky hold,
+not on the fixtures** — building a lamp UI would be building a control for
+something that does nothing. And **any change to the bed's geometry is a
+change to the crop's light**, silently, with every gate green. That is the
+mechanism to suspect first whenever a bed change reads as a biology result.
 
 ### 4.3 — A water table (cheap; closes two open questions at once)
 
