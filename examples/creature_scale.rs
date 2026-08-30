@@ -99,7 +99,16 @@ fn main() {
     println!("creature_scale: mode={mode} species={species} scales={scales:?} frames={frames} seed={seed} preset={preset} count={count} control={control} crop={crop} zoom={zoom} out={out:?}");
 
     match mode.as_str() {
-        "size" => size_mode(&species, &scales, seed, &preset, &out, control, crop, zoom),
+        "size" => size_mode(&Sheet {
+            species: &species,
+            scales: &scales,
+            seed,
+            preset: &preset,
+            out: &out,
+            control,
+            crop,
+            zoom_px: zoom,
+        }),
         "walk" => walk_mode(&species, &scales, seed, &preset, count, frames),
         other => panic!("unknown mode {other}; expected size or walk"),
     }
@@ -175,7 +184,19 @@ fn arms(scales: &[i32], control: bool) -> Vec<(i32, bool)> {
 /// **`species=` takes a comma list**, because the question the owner sent
 /// back -- *"both are smudges"* -- is a comparison between body plans at one
 /// resolution, and a sheet that can only vary the grid cannot ask it.
-fn size_mode(species: &str, scales: &[i32], seed: u64, preset: &str, out: &str, control: bool, crop: i32, zoom_px: i32) {
+struct Sheet<'a> {
+    species: &'a str,
+    scales: &'a [i32],
+    seed: u64,
+    preset: &'a str,
+    out: &'a str,
+    control: bool,
+    crop: i32,
+    zoom_px: i32,
+}
+
+fn size_mode(sheet: &Sheet) {
+    let &Sheet { species, scales, seed, preset, out, control, crop, zoom_px } = sheet;
     let panel = (2 * crop * zoom_px) as usize;
     let species_list: Vec<&str> = species.split(',').map(str::trim).filter(|s| !s.is_empty()).collect();
     let mut panels: Vec<Vec<u8>> = Vec::new();
