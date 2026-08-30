@@ -268,17 +268,36 @@ fn census(frames: usize, every: usize, seeds: u64, plant: usize) {
     // Six seeds is not a sweep (measured: 1.64x over six, 1.08x over the
     // next twelve, pooled median zero), so the headline is a distribution
     // and never a mean.
-    println!("--- settled pile at frame {}, over {} seed(s): order statistics ---", frames.saturating_sub(1) / every * every, seeds);
+    // **The label is `frames`, not a multiple of `every`.** `run` pushes a
+    // final sample at `frames` on top of the cadence, so `last()` is that
+    // sample; the first version of this line computed the last *cadence*
+    // frame and printed 15000 over a table read at 18000. A table headed
+    // with a frame it was not taken at is the same defect as a metric
+    // measuring the wrong quantity, wearing a smaller hat.
+    println!("--- settled pile at frame {frames}, over {seeds} seed(s): order statistics ---");
     println!("{:>18} {:>26} {:>6} {:>6} {:>6} {:>6} {:>6} {:>8} {:>8}",
         "arm", "quantity", "min", "p10", "med", "p90", "max", "peak med", "n>0");
     for &(arm, _, _) in &arms {
         let rows: Vec<&Row> = all.iter().filter(|r| r.arm == arm).collect();
+        // **The world-wide row is in the same table on purpose.** It is the
+        // number a careless census would have quoted as the larder, and
+        // reading it beside the banded rows is what makes the banded ones
+        // mean anything -- quoting that contrast off one seed would have
+        // been the same single-sample weakness this table exists to avoid.
         for (label, pick) in [
             ("free cells <=2 of nest", 0usize),
             ("free cells <=8 of nest", 2usize),
+            ("free cells WORLD-WIDE (not the larder)", 9usize),
         ] {
-            let mut v: Vec<f64> = rows.iter().map(|r| r.last().free_cells[pick] as f64).collect();
-            let peaks: Vec<f64> = rows.iter().map(|r| if pick == 0 { r.peak_tight() } else { r.peak_wide() } as f64).collect();
+            let mut v: Vec<f64> = rows.iter().map(|r| if pick == 9 { r.last().world_free_cells as f64 } else { r.last().free_cells[pick] as f64 }).collect();
+            let peaks: Vec<f64> = rows
+                .iter()
+                .map(|r| match pick {
+                    0 => r.peak_tight() as f64,
+                    9 => r.samples.iter().map(|s| s.world_free_cells).max().unwrap_or(0) as f64,
+                    _ => r.peak_wide() as f64,
+                })
+                .collect();
             let nonzero = v.iter().filter(|&&x| x > 0.0).count();
             v.sort_by(|a, b| a.partial_cmp(b).unwrap());
             let q = |f: f64, s: &[f64]| s[((s.len() as f64 - 1.0) * f).round() as usize];
@@ -323,20 +342,56 @@ fn census(frames: usize, every: usize, seeds: u64, plant: usize) {
     }
 
     // --- the paired difference the arms exist for ----------------------
-    let med = |arm: &str, pick: usize| -> f64 {
-        let mut v: Vec<f64> = all.iter().filter(|r| r.arm == arm).map(|r| r.last().free_cells[pick] as f64).collect();
-        v.sort_by(|a, b| a.partial_cmp(b).unwrap());
-        if v.is_empty() { 0.0 } else { v[(v.len() - 1) / 2] }
+    // **Paired means per-seed, and this line got it wrong once.** The first
+    // version differenced the two arms' *medians*, printed it under the
+    // heading "paired, per-seed", and was neither: a difference of medians
+    // discards the pairing that the shared seed exists to provide, and on
+    // a distribution this wide (colony <=2 ranges 0 to 47 across seeds) the
+    // two statistics need not even agree in sign. The seed is what cancels
+    // the terrain, so the difference has to be taken inside the seed and
+    // the order statistic taken over those differences.
+    let per_seed = |a: &str, b: &str, pick: usize| -> Vec<f64> {
+        (0..seeds)
+            .filter_map(|s| {
+                let seed = SEED_BASE + s;
+                let ra = all.iter().find(|r| r.arm == a && r.seed == seed)?;
+                let rb = all.iter().find(|r| r.arm == b && r.seed == seed)?;
+                Some(ra.last().free_cells[pick] as f64 - rb.last().free_cells[pick] as f64)
+            })
+            .collect()
+    };
+    let stat = |mut v: Vec<f64>| -> (f64, f64, f64, usize, usize) {
+        v.sort_by(|x, y| x.partial_cmp(y).unwrap());
+        let q = |f: f64, s: &[f64]| s[((s.len() as f64 - 1.0) * f).round() as usize];
+        let up = v.iter().filter(|&&d| d > 0.0).count();
+        let down = v.iter().filter(|&&d| d < 0.0).count();
+        (q(0.1, &v), q(0.5, &v), q(0.9, &v), up, down)
     };
     println!(
-        "\npaired, per-seed medians at the last sample (same seed, same frame, so the water and day cycles are common-mode):\n  \
-         colony minus no-ants, free cells <=2 of nest: {:+.0}\n  \
-         colony minus no-ants, free cells <=8 of nest: {:+.0}\n  \
-         planted+colony minus planted-no-ants, <=2:    {:+.0}   (negative = the colony ate the granary)",
-        med("colony", 0) - med("no ants", 0),
-        med("colony", 2) - med("no ants", 2),
-        med("planted + colony", 0) - med("planted, no ants", 0),
+        "\ntruly paired: the difference taken WITHIN each seed, then the order statistic over those {seeds} differences.\n\
+         (same seed, same frame, so terrain, the water cycle and the day cycle all cancel.)"
     );
+    println!("{:>44} {:>7} {:>7} {:>7} {:>18}", "comparison", "p10", "med", "p90", "seeds up/down");
+    for (label, a, b, pick) in [
+        ("colony - no ants, free cells <=2 of nest", "colony", "no ants", 0usize),
+        ("colony - no ants, free cells <=8 of nest", "colony", "no ants", 2),
+        ("planted+colony - planted-no-ants, <=2", "planted + colony", "planted, no ants", 0),
+    ] {
+        let (p10, med, p90, up, down) = stat(per_seed(a, b, pick));
+        println!("{label:>44} {p10:>+7.0} {med:>+7.0} {p90:>+7.0} {:>18}", format!("{up} up / {down} down"));
+    }
+
+    // The per-seed rows behind those differences, printed so the paired
+    // statistic never has to be re-derived by re-running an hour of sweep --
+    // which is exactly what fixing this line cost the first time.
+    println!("\nper-seed, free cells <=2 of nest at frame {frames}:");
+    println!("{:>6} {:>9} {:>9} {:>7} {:>18} {:>18}", "seed", "colony", "no ants", "delta", "planted+colony", "planted, no ants");
+    for s in 0..seeds {
+        let seed = SEED_BASE + s;
+        let at = |arm: &str| all.iter().find(|r| r.arm == arm && r.seed == seed).map_or(0, |r| r.last().free_cells[0]);
+        println!("{:>6} {:>9} {:>9} {:>+7} {:>18} {:>18}",
+            s, at("colony"), at("no ants"), at("colony") as i64 - at("no ants") as i64, at("planted + colony"), at("planted, no ants"));
+    }
 
     // --- and the only conversion that answers the brief ----------------
     // **The question is not "are there cells", it is "could a birth be paid
