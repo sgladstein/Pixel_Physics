@@ -32,8 +32,20 @@
         body: Rigid([(-1, 0), (0, -1), (-1, -1)]),
         tick_interval: 8,
         start_energy: 1600.0,
-        idle_cost: 0.15,
-        move_cost: 0.4,
+        // **Per body cell** (`organism.rs`'s `idle_cost_per_cell`),
+        // re-derived 2026-08-30 to leave this animal's bill exactly where it
+        // was: 0.0375 x 4 cells = the 0.15 authored here before, and 0.10 x 4
+        // = the 0.4. A beetle is a different species from an ant rather than
+        // an ant at another size, so its *total* is what carries meaning and
+        // is what was preserved.
+        //
+        // That leaves it cheaper per cell than an ant (0.0375 against 0.05),
+        // which is inherited from the two species' authored totals rather
+        // than chosen. It happens to point the way real metabolism scales --
+        // bigger animals cost less per unit mass -- but nothing here measured
+        // that, and it should not be read as a model.
+        idle_cost_per_cell: 0.0375,
+        move_cost_per_cell: 0.10,
         // Per active synapse per tick, as a fraction of start_energy (see
         // `CreatureDef::synapse_fraction`). 1.2500000821e-6 * 1600 is the
         // 0.002 this was authored as, *exactly* in f32 -- the obvious
@@ -53,8 +65,8 @@
         // mouthful it took before. It also makes the beetle blind to every
         // plant food in the world for free, which the name-list was doing
         // by omission.
-        traits: (1.0,),
-        trait_variance: (0.15,),
+        traits: (1.0, 1.0),
+        trait_variance: (0.15, 0.15),
 
         nest: "nest",
         dig_force: 0.3,

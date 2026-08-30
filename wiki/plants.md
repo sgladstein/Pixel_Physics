@@ -641,9 +641,20 @@ be untouched. Roughly a quarter of trees are living close to that line at any
 moment; most have room to spare.
 
 **What it looks like.** One place gives way, not the whole trunk at once.
-There is a splintered stub left where it went, and everything that was beyond
-that point — the limb, its branches, its leaves — comes down as a piece and
-falls. It is not a tree dissolving; it is a tree losing an arm.
+There is a splintered stub left where it went, and everything beyond that
+point — the limb, its branches, its leaves — comes down and falls. It is not
+a tree dissolving; it is a tree losing an arm.
+
+**Nothing crumbles to dust.** Whatever comes off a plant lands as a solid
+piece — a big limb as a big piece, a twig as a small one, and a spray of
+leaves that no branch carried down still falls together as a clump rather
+than scattering into powder. What is left on the ground is wood you can stand
+on and walk over, not a heap of sawdust.
+
+**A fallen limb is in your way.** It lies where it landed and it is genuinely
+solid, so you can be caught under one if it comes down on top of you. Jump and
+you heave yourself out on top of it — and the limb carries on falling either
+way, because it does not stop for you.
 
 **What pushes one over.** Its own weight, as the crown grows out. Wind, which
 leans on everything above ground and leans hardest on a tree standing in the
