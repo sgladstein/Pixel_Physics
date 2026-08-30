@@ -14,8 +14,52 @@ Division of labour with the two working files: `open-bugs-handoff.md` owns
 *"is this broken?"*; [`dead-ends.md`](dead-ends.md) owns *"was this
 tried?"*.
 
-## Method and architecture — read these first
+## Which game a report is about
 
+**Two games run on this engine** — the outdoor sandbox and the evolution lab
+(`two-games-one-repo-2026-08-30.md`) — and this index is one of the two
+routing layers every session is sent to before it opens anything. So each
+section below is tagged:
+
+| tag | meaning |
+|---|---|
+| **`engine`** | **shared by both games, and most of this index.** That sharing is the whole argument for one repository: plants, creatures, fire, liquids and the sweep are the same code either side |
+| **`outdoor`** | the lab builds no scene that reaches it — it has no rock, no worldgen and no gnome |
+| **`lab`** | the sealed box, which the outdoor game has no equivalent of |
+
+**It is a hint about where your time goes, not a rule about what you may
+read**, and it is deliberately coarse: a whole section at a time, no file
+moved, reversible in one commit. Getting one wrong costs a reader one
+section. The alternative considered and *not* taken was moving the files into
+`Reports/{engine,outdoor,lab}/`, which would take five non-recursive
+`Reports/*.md` globs in `scripts/docscheck.sh` with it — including the one
+that enforces this index — and would do it **silently**.
+
+**`dead-ends.md` and `open-bugs-handoff.md` carry no tag on purpose.** Both
+are grepped rather than read, both are explicitly cross-subsystem, and the
+property that makes them work is that a mechanism tried on plants is findable
+by somebody about to try it on creatures.
+
+## Method and architecture — read these first  ·  `engine`
+
+- [two-games-one-repo-2026-08-30.md](two-games-one-repo-2026-08-30.md) —
+  **proposal, not yet built; revised after an adversarial review found its
+  central recommendation was a no-op.** Answers whether two games on one
+  engine means everything shared or everything separate. Neither — but the
+  first draft proposed moving `CLAUDE.md`'s evidence into a `.claude/rules/`
+  file with no `paths:` frontmatter, **which loads at launch exactly as
+  `CLAUDE.md` does and saves nothing**, the same failure it had correctly
+  named for `@imports` two paragraphs earlier. **And `contextbudget.py` would
+  have certified it**: it counts `CLAUDE.md` only, so the CI gate would have
+  gone green for a change that moved no context — this file's worst-recurring
+  failure arriving *prospectively*. The revision carries the four places the
+  evidence could actually go, the precedent this repo already set
+  (`session-programs.md`, moved out for exactly this reason), two live Claude
+  Code bugs that would void the saving **inside a git worktree, which
+  `CLAUDE.md` mandates**, and the correction that `Reports/` is neither flat
+  nor 14 MB of prose. Names the largest miss: **`README.md` is 71,561 tokens,
+  the biggest document in the repo, overwhelmingly outdoor, and every agent is
+  routed to it first.**
 - [why-changes-cost-so-much-2026-08-27.md](why-changes-cost-so-much-2026-08-27.md)
   — **method finding, from a live instance.** Why every change here seems to
   demand a global retune: most large levers have **no counterweight**, so
@@ -123,7 +167,7 @@ tried?"*.
   question they were built for. **Grep this before building a measurement
   harness** — the file exists because they were being rebuilt.
 
-## Destruction and structure
+## Destruction and structure  ·  `outdoor`
 
 - [fracture-mechanics-design.md](fracture-mechanics-design.md) — **design;
   its load/torque step has since landed** (`load.rs`). Why rock breaks the
@@ -246,7 +290,7 @@ tried?"*.
   Carries the instrument (`examples/support_census.rs`) and the cheapest
   falsifying experiment for what is left standing.
 
-## Liquids and granular
+## Liquids and granular  ·  `engine`
 
 - [liquid-simulation-research.md](liquid-simulation-research.md) —
   **research, round 1.** Why poured water piled like sand; SPH → PBF →
@@ -265,7 +309,7 @@ tried?"*.
   four).** Rigid body ↔ grid coupling for M8; §4 is why chunk bodies run
   serially.
 
-## Plants and trees
+## Plants and trees  ·  `engine`
 
 **Start here, not from the list below.** Plants are 42 of this directory's
 110 reports and about **269,000 tokens** — no session reads them, and the
@@ -751,7 +795,7 @@ drift that two of these documents still reflect.**
   1.0 accumulates and buries, 0.05 depletes to half the world's soil and
   stalls.
 
-## Creatures and ecology
+## Creatures and ecology  ·  `engine`
 
 - [creature-motion-design.md](creature-motion-design.md) — **built
   2026-08-29; all four of §6's calls answered, §7's five guards green.**
@@ -1056,7 +1100,7 @@ drift that two of these documents still reflect.**
   a flame body, a fuel-wetness gate, and `examples/fire_probe.rs`; costs the
   three §X desert levers, two of which have changed since the record.
 
-## Worldgen and world
+## Worldgen and world  ·  `outdoor`
 
 **The 2026-08-29 revamp program** — six audits and a plan, written the day
 the owner said six rounds had not made the world interesting and asked for a
@@ -1267,7 +1311,7 @@ revamp rather than another round:
   round 6 [caves](worldgen-implementation-tasks-round6-caves.md) and
   [formations](worldgen-implementation-tasks-round6-formations.md).
 
-## Character
+## Character  ·  `outdoor`
 
 - [m9-gnome-character-plan.md](m9-gnome-character-plan.md) — **build plan;
   shipped** (`player.rs`, wiki/the-gnome.md). Historical.
@@ -1359,6 +1403,41 @@ revamp rather than another round:
   before trusting anything the draft said. Owner rulings recorded in the
   header: growth and the carbon economy are out of scope, every plant
   participates, and leaves must never become a powder.
+
+## The evolution lab  ·  `lab`
+
+The second game: a sealed box of soil under a grow light, run at speed, where
+the shipped plants and creatures live under conditions a player sets. Design
+of record is the design guide (in flight, below); `two-games-one-repo-2026-08-30.md`
+above says what the two games share.
+
+**A report here is about the box, not about the biology in it.** Plant and
+creature findings stay in their own sections even when the lab measured them
+— the whole premise is that those are the same organisms either side, and
+filing them by which game happened to observe them would hide that.
+
+- [evolution-lab-gate-1-2026-08-30.md](evolution-lab-gate-1-2026-08-30.md) —
+  **measured, nothing built beyond the two harnesses.** Gate 1 of the
+  evolution-lab program: the census and the frame cost of `lab::scene::LabBox`,
+  the first scene in this repo running plants and creatures together.
+  **The box lives** — plants reach generation 5, 285 born against 266 dead in
+  90,000 frames — **and the colony is the biggest thing acting on it**: a bed
+  with no ants holds all eight founders and 2.9x the organisms, **12 seeds of
+  12, every column**. Three corrections. **The founders that go missing are
+  eaten, not ungerminated and not merely too small to draw.** **Gate 0 is a
+  reach problem, not an economy one**: the matched gut that
+  [creature-stamp-routes-2026-08-30.md](creature-stamp-routes-2026-08-30.md)
+  prices takes the margin from −820 to **+500** and produces **zero births**
+  over 48,000 frames, because the flower it unlocks stands **22 to 40 rows up
+  a stem** and the ground-level form of it, `windfall`, stands at 1–2 cells
+  for two census tiles out of sixteen. And **frame cost in the lab is the
+  field's solve set, not biomass** — correlation with plant cells **−0.02**,
+  with tiles solved **+0.90** — so the box gets *cheaper* as it runs, 5.1x
+  real time early to 11.5x settled, which is the opposite of the sizing rule
+  it was measured against. The organism ceiling is a footnote: 66 slots of
+  4,095 used, 0 refused. Timings taken under five-to-nine-times
+  oversubscription and labelled as such; the render term is reported as
+  **not measurable** rather than guessed.
 
 ## Licensing and distribution
 

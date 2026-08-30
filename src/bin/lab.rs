@@ -23,6 +23,7 @@
 //! | `Up` / `Down` | the speed dial, through the presets |
 //! | `1`-`6` | jump straight to a preset |
 //! | `F1` / `F2` / `F3` | the plants, ants and box pages |
+//! | `F` | display rate: 60 / 30 / 20 / 10 Hz |
 //! | `Tab` | the stats page |
 //! | `WASD` / drag | pan; `-` / `=` zoom |
 //! | `R` | rebuild the box |
@@ -40,6 +41,17 @@
 //! the hook that makes this binary checkable on a headless box, where
 //! `labshot` can only render the world and never the interface drawn over
 //! it.
+//!
+//! Two more of the same kind, and for the same reason — a framebuffer dump has
+//! no pointer in it, so the bar's hover state and everything a click opens are
+//! invisible to the only instrument this binary has on a headless box:
+//!
+//! - `PIXEL_PHYSICS_LAB_CURSOR=x,y` holds the pointer at one framebuffer pixel;
+//! - `PIXEL_PHYSICS_LAB_CLICK=x,y;x,y` clicks each position in turn, one per
+//!   rendered frame, before the shot is taken.
+//!
+//! Both are debug hooks. A real pointer overrides the first the moment it
+//! moves, and the second is spent after its last click.
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -55,6 +67,13 @@ use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::window::{Window, WindowId};
 
+/// `"x,y"` as a framebuffer position, for the two debug hooks above.
+fn parse_at(v: impl AsRef<str>) -> Option<(i32, i32)> {
+    let v = v.as_ref();
+    let (x, y) = v.split_once(',')?;
+    Some((x.trim().parse().ok()?, y.trim().parse().ok()?))
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let event_loop = EventLoop::new()?;
     event_loop.set_control_flow(ControlFlow::Poll);
@@ -69,7 +88,16 @@ struct Handler {
     lab: Lab,
     last_frame: Instant,
     last_title: Instant,
+    /// Frames actually *drawn* per second, not passes through the loop.
+    ///
+    /// The distinction appeared the moment the display rate was decoupled:
+    /// with draws gated, the loop runs many passes per displayed frame, so a
+    /// per-pass figure reports a number nobody ever sees — and would read as
+    /// a healthy 300 fps on a lab drawing at 10 Hz. Measured against
+    /// `last_drawn`, which only advances on a pass that drew.
     fps: f32,
+    /// When a frame was last actually drawn. `None` until the first one.
+    last_drawn: Option<Instant>,
     cursor: Option<(i32, i32)>,
     held: Held,
     /// Real rendered frames left before a one-shot framebuffer dump, from
@@ -86,6 +114,9 @@ struct Handler {
     /// headless screenshot can show the bar's hover state. Debug only; a real
     /// pointer overwrites it the moment it moves.
     forced_cursor: Option<(i32, i32)>,
+    /// `PIXEL_PHYSICS_LAB_CLICK=x,y;x,y` — clicks to play back, one per
+    /// rendered frame. Stored reversed so the next one is a `pop`.
+    scripted_clicks: Vec<(i32, i32)>,
     result: Result<(), Box<dyn std::error::Error>>,
 }
 
@@ -106,6 +137,7 @@ impl Handler {
             last_frame: Instant::now(),
             last_title: Instant::now(),
             fps: 0.0,
+            last_drawn: None,
             cursor: None,
             held: Held::default(),
             screenshot_countdown: std::env::var("PIXEL_PHYSICS_SCREENSHOT_AFTER_FRAMES")
@@ -115,10 +147,14 @@ impl Handler {
             // hover explanation are invisible to the one instrument this
             // binary can be checked with on a headless box. This puts the
             // cursor somewhere without a hand.
-            forced_cursor: std::env::var("PIXEL_PHYSICS_LAB_CURSOR").ok().and_then(|v| {
-                let (x, y) = v.split_once(',')?;
-                Some((x.trim().parse().ok()?, y.trim().parse().ok()?))
-            }),
+            forced_cursor: std::env::var("PIXEL_PHYSICS_LAB_CURSOR").ok().and_then(parse_at),
+            // ...and this presses it. Oldest first, one per rendered frame, so
+            // a headless shot can show what a click actually opened rather
+            // than only what the bar looks like unpressed.
+            scripted_clicks: std::env::var("PIXEL_PHYSICS_LAB_CLICK")
+                .ok()
+                .map(|v| v.split(';').filter_map(parse_at).rev().collect())
+                .unwrap_or_default(),
             result: Ok(()),
         }
     }
@@ -133,7 +169,6 @@ impl Handler {
         let elapsed = now.duration_since(self.last_frame);
         self.last_frame = now;
         let dt = elapsed.as_secs_f32().max(1e-6);
-        self.fps += (1.0 / dt - self.fps) * 0.1;
 
         // The view pans on the same keys the sandbox scrolls with. Read from
         // held state rather than edges, and applied here rather than in
@@ -152,10 +187,30 @@ impl Handler {
         if let Some(at) = self.forced_cursor {
             self.lab.set_cursor(Some(at));
         }
+        // After the layout of at least one drawn frame exists, because that is
+        // what a click is tested against — the same order a real pointer sees.
+        if let Some((x, y)) = self.scripted_clicks.pop() {
+            self.lab.set_cursor(Some((x, y)));
+            self.lab.press(x, y);
+            self.lab.release(x, y);
+            if let Some(at) = self.forced_cursor {
+                self.lab.set_cursor(Some(at));
+            }
+        }
 
-        self.lab.advance(elapsed);
+        let advance = self.lab.advance(elapsed);
 
-        let render_error = match &mut self.pixels {
+        // **The display rate is decoupled from the frame loop**, and this is
+        // the mechanism behind the top of the dial. In Running, `advance`
+        // says which passes draw; the ones that do not spend their whole
+        // budget on ticks instead. Gate 3's call, and measured: dropping 60
+        // Hz to 20 Hz buys **2.6x** the world per second on a loaded box and
+        // 1.4x on a quiet one, because what it reclaims is the render's share
+        // of a contended frame.
+        let render_error = if !advance.draw {
+            None
+        } else {
+            match &mut self.pixels {
             Some(pixels) => {
                 self.lab.draw(pixels.frame_mut(), self.fps);
                 if let Some(n) = self.screenshot_countdown {
@@ -179,9 +234,26 @@ impl Handler {
                 pixels.render().err().map(|e| format!("render failed: {e}"))
             }
             None => None,
+            }
         };
         if let Some(message) = render_error {
             return self.fail(event_loop, message);
+        }
+
+        // Skipping the draw also skips the vsync that was throttling this
+        // loop, so a dial the box can easily meet would spin a core between
+        // displayed frames. `idle` is non-zero only when no tick and no frame
+        // is due, and is capped at `time::MAX_IDLE` so a keypress is still
+        // answered promptly.
+        if advance.draw {
+            if let Some(prev) = self.last_drawn.replace(now) {
+                let gap = now.duration_since(prev).as_secs_f32().max(1e-6);
+                self.fps += (1.0 / gap - self.fps) * 0.1;
+            }
+        }
+
+        if !advance.idle.is_zero() {
+            std::thread::sleep(advance.idle);
         }
 
         if now.duration_since(self.last_title) >= Duration::from_millis(250) {
@@ -223,21 +295,29 @@ impl Handler {
         }
         match code {
             KeyCode::Escape => event_loop.exit(),
-            KeyCode::Slash => self.lab.show_help = !self.lab.show_help,
-            KeyCode::Space => self.lab.time.toggle_phase(),
-            KeyCode::ArrowUp => self.lab.time.faster(),
-            KeyCode::ArrowDown => self.lab.time.slower(),
-            KeyCode::Digit1 => self.lab.time.set_preset(0),
-            KeyCode::Digit2 => self.lab.time.set_preset(1),
-            KeyCode::Digit3 => self.lab.time.set_preset(2),
-            KeyCode::Digit4 => self.lab.time.set_preset(3),
-            KeyCode::Digit5 => self.lab.time.set_preset(4),
-            KeyCode::Digit6 => self.lab.time.set_preset(5),
+            KeyCode::Slash => self.lab.act(Action::Help),
+            // Every one of these is also a button on the bar, and both routes
+            // go through `Lab::act` so there is one definition of what each
+            // control does rather than two that can drift.
+            KeyCode::Space => self.lab.act(Action::TogglePhase),
+            KeyCode::ArrowUp => self.lab.act(Action::Faster),
+            KeyCode::ArrowDown => self.lab.act(Action::Slower),
+            KeyCode::Digit1 => self.lab.act(Action::Preset(0)),
+            KeyCode::Digit2 => self.lab.act(Action::Preset(1)),
+            KeyCode::Digit3 => self.lab.act(Action::Preset(2)),
+            KeyCode::Digit4 => self.lab.act(Action::Preset(3)),
+            KeyCode::Digit5 => self.lab.act(Action::Preset(4)),
+            KeyCode::Digit6 => self.lab.act(Action::Preset(5)),
+            // The ladder grew a seventh stop and this key did not exist for
+            // it, so `1024X` was reachable by the bar and by `UP` and by no
+            // digit at all.
+            KeyCode::Digit7 => self.lab.act(Action::Preset(6)),
             KeyCode::F1 => self.lab.act(Action::Panel(Panel::Plants)),
             KeyCode::F2 => self.lab.act(Action::Panel(Panel::Ants)),
             KeyCode::F3 => self.lab.act(Action::Panel(Panel::Box)),
-            KeyCode::Tab => self.lab.stats.toggle(),
-            KeyCode::KeyR => self.lab.reset(),
+            KeyCode::KeyF => self.lab.time.cycle_display_rate(),
+            KeyCode::Tab => self.lab.act(Action::Stats),
+            KeyCode::KeyR => self.lab.act(Action::Reset),
             KeyCode::Minus => self.lab.renderer.adjust_zoom(-1),
             KeyCode::Equal => self.lab.renderer.adjust_zoom(1),
             _ => {}

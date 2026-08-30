@@ -92,7 +92,11 @@ impl Lab {
             stats: stats::Stats::new(),
             ui: ui::Ui::new(),
             spec,
-            show_help: true,
+            // Down only when something explicitly asks for it. The one caller
+            // is a headless capture wanting to photograph what is *under* the
+            // key list, which is otherwise unreachable without a keypress and
+            // so unphotographable on a box with no keyboard.
+            show_help: std::env::var("PIXEL_PHYSICS_LAB_HELP").as_deref() != Ok("0"),
         }
     }
 
@@ -175,7 +179,6 @@ impl Lab {
             force_full,
         );
         self.time.draw(frame_buf, &self.world);
-        self.stats.draw(frame_buf, &self.world);
         let state = ui::BarState {
             running: self.time.phase == time::Phase::Running,
             requested: self.time.requested,
@@ -186,11 +189,28 @@ impl Lab {
             help: self.show_help,
         };
         self.ui.draw(frame_buf, &self.world, &self.spec, &state, &self.renderer, fps);
-        // Last, because the key page is modal: it covers the box *and* the
-        // bar, and a control you can see but not reach is worse than one that
-        // is plainly behind a page.
+        // The pages last, because they are modal: a page covers the box *and*
+        // the bar, and a control you can see but not reach is worse than one
+        // that is plainly behind a page.
+        //
+        // **One page at a time.** The key list and the biosphere page are both
+        // full-height overlays, and drawn together they interleave into
+        // something neither of them is -- caught by looking at a capture of
+        // the real window, not by any test, since both draw exactly what they
+        // were asked to. The key list wins because it is transient: it is up
+        // on a fresh lab and gone on the next keypress, where the page is
+        // where you live.
+        //
+        // `draw_at` rather than `draw`: the hover explanation is the half of
+        // the page that makes it readable cold, so the page needs the cursor.
+        // `ui::Ui` owns it now -- the bar hit-tests the same position on the
+        // same frame -- so it is read back from there rather than passed down
+        // a second path. One owner, because two positions that disagree by a
+        // frame is exactly the class of bug the retained bar exists to avoid.
         if self.show_help {
             draw_help(frame_buf);
+        } else {
+            self.stats.draw_at(frame_buf, &self.world, self.ui.cursor());
         }
     }
 
@@ -255,16 +275,17 @@ impl Lab {
 /// have draws as a silent blank rather than as anything you would notice. That
 /// gap has shipped three times in this repo, so every line here is checked
 /// against `hud::has_glyph` by `every_help_line_is_drawable`.
-const HELP: [&str; 13] = [
+const HELP: [&str; 14] = [
     "THE EVOLUTION LAB",
     "",
     "EVERY CONTROL IS ALSO A BUTTON",
     "ON THE BAR ALONG THE BOTTOM.",
     "",
     "SPACE    TENDING / RUNNING",
-    "UP DOWN  SPEED    1-6  PRESET",
+    "UP DOWN  SPEED    1-7  PRESET",
     "F1 F2 F3 PLANTS / ANTS / BOX",
     "TAB      STATS",
+    "F        DISPLAY RATE",
     "WASD     PAN     - =  ZOOM",
     "R        REBUILD THE BOX",
     "?        THIS PAGE",
