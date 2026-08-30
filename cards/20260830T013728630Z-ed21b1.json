@@ -1,0 +1,54 @@
+{
+  "id": "20260830T013728630Z-ed21b1",
+  "created": "2026-08-30T01:37:28Z",
+  "board": "worldgen",
+  "origin": {
+    "worktree": "/home/user/wg-relief",
+    "branch": "claude/worldgen-relief",
+    "commit": "47d6209",
+    "agent": null,
+    "session_id": "2cb39797-d076-5699-b8bf-4494224deffe",
+    "user": null,
+    "cwd": "/home/user/wg-relief"
+  },
+  "title": "Does the rock still read as stripes?",
+  "question": "You said the bedding 'very clearly reads as stripes'. In B the layers dip, roll over, and step at faults. Is that enough, or is it still wallpaper?",
+  "context_md": "Your verdict on the rock vocabulary was that the rocks are right and the geometry is wrong -- *'the perfect stripped bands are too uniform and look bad'*. This is that, addressed. Same seed, same preset, same binary, one switch.\n\n**What changed in the rock.** The layers had a dip of about 3.5 degrees across a whole screen, which reads as level, and no breaks anywhere. Now they **dip** properly and the dip rolls over as you travel, and the ground is cut by **faults** -- at one the whole stack jumps a few beds and the pale layer you were following carries on at a different height. Some breaks are a sharp line, others a bend a few paces wide.\n\n**Two things I could not do and want to name.** Bed *thickness* is still the same everywhere -- varying it means changing how six different passes cut the rock, not one. And there are no unconformities, where a whole stack is truncated and a differently-tilted one sits on top. Say if either of those is what is still bothering you and I will scope it.\n\nRead the **cut face**, not the skyline -- that is where the stripes were.",
+  "kind": "before_after",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A -- shipped today",
+      "files": [
+        "20260830T013728630Z-ed21b1/000-rolling_off.png"
+      ],
+      "caption": "rolling, seed 4",
+      "meta": {
+        "dip across one screen (cells)": 31,
+        "faults in the world": 0,
+        "distinct rock hardnesses in a world": 340
+      },
+      "focus": null
+    },
+    {
+      "label": "B -- dipping, folded, faulted",
+      "files": [
+        "20260830T013728630Z-ed21b1/001-rolling_on.png"
+      ],
+      "caption": "rolling, seed 4",
+      "meta": {
+        "dip across one screen (cells)": "31 plus a fold of up to 45",
+        "faults in the world": 22,
+        "largest step at a fault (beds)": 6
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
