@@ -136,6 +136,17 @@ State at 2026-08-30 17:20 UTC: no merge conflict, no review comments, base
 version; `docscheck` clean; `mode=control`'s four assertions pass on every
 run.
 
+**This wants landing now, and the reason is arithmetic.** Within minutes of
+the fifth re-measure being pushed, `main` was **71 commits ahead again —
+`BxF` 355, back over the 300 bar**. `main` is moving faster than an 95-minute
+sweep can track it, so the merge-then-re-measure loop does not converge: each
+pass buys numbers that are stale before the gates finish. The landing rule's
+own two options are *merge main in* **or** *land what you have*, and on this
+branch only the second one terminates. Everything is ready — CI green through
+five heads, gates clean, no conflict, no review comments — so please merge
+rather than asking for another refresh. I have stopped re-measuring, by the
+argument in the report's own §8a.
+
 **If you merge `main` in before landing, do not assume the figures still
 hold.** `git diff HEAD origin/main -- src/sim/creature.rs src/sim/organism.rs
 src/sim/brain.rs assets/species` is the check; if it is non-empty the census
