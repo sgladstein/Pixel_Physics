@@ -87,6 +87,80 @@ const CAPACITY: f32 = 0.9;
 /// rates above are set to.
 const MAX_CARVE_PER_PASS: f32 = 0.5;
 
+/// ---- differential lowering: what turns stratigraphy into relief ----
+///
+/// **This is the term the rest of the module was missing.** Every other rate
+/// here is driven by *slope* — thermal shed relaxes over-steep faces, creep
+/// diffuses curvature, stream power carves in proportion to gradient — so on
+/// ground that is already gentle they all do nothing, and gentle is what our
+/// ground is. Measured before this landed: no column ever peaked above its
+/// iteration-0 prominence, 0 of 2048, in either preset
+/// (`Reports/worldgen-prior-art-and-dead-ends-2026-08-29.md` #22). Erosion
+/// could only ever remove.
+///
+/// Real landscapes lower everywhere — rain, frost, wind, solution — at a rate
+/// set by the rock, not by the slope. That is denudation, and against a
+/// uniform uplift it is the whole of differential erosion: a resistant
+/// package stands proud, a soft one cuts back, and the scarp between them is
+/// where one has been breached and the other has not.
+///
+/// Written as one signed term rather than as separate uplift and lowering,
+/// which is the same arithmetic: a column whose section resists exactly as
+/// well as its neighbourhood holds still, harder rises, softer falls. See
+/// [`STRIP_REACH`] for why the reference is the neighbourhood and not a
+/// constant — it is the difference between this term shaping a landscape and
+/// it erasing one.
+///
+/// It is bounded by the geology rather than by a cap. A column that stands
+/// proud rises out of its resistant bed into whatever lies above; a column
+/// that cuts back sinks until it meets one that holds. So the excursion is a
+/// walk over the strata that stops at the first section that resists, and its
+/// scale is set by the vertical correlation of hardness — see
+/// `HardnessField::section`, which is why that reads a package and not a bed.
+///
+/// Cells of surface movement per iteration at full resistance contrast. Set
+/// by measurement over the three W1 measures (`wg_ceilings mode=relief`) and
+/// by looking at the result at the shipped size, not by argument.
+const STRIP_RATE: f32 = 1.50;
+
+/// Half-width, in columns, of the neighbourhood a bed's resistance is
+/// measured **against**.
+///
+/// **The term is a contrast, not a level, and that is what stops it planing
+/// the world.** Written as an absolute — lower where the rock is soft,
+/// raise where it is hard, against a fixed reference hardness — it was
+/// built, measured as a gain on every number in `wg_ceilings mode=relief`,
+/// and rendered as the flattest world this generator has ever made: the
+/// surface reached its fixed point everywhere, and since a bed's resistance
+/// has no `x` in it, that fixed point is the bedding plane. Long dead-level
+/// tables with sharp notches, the hills gone.
+///
+/// Subtracting a running mean over `+-STRIP_REACH` leaves exactly the part of
+/// the signal that varies *within* a landscape and takes out everything
+/// longer. So the macro shape — the region layout, the massif, the composition
+/// guarantee `RegionMap::new` enforces — passes through untouched, and
+/// differential erosion does what it actually does in the field: it decides
+/// which parts of a hillside stand out, not how high the hill is.
+///
+/// It also deletes a constant. Against a fixed reference hardness the
+/// reference has to be calibrated against the field's own mean, and that mean
+/// moves whenever the hardness draw or the regional gain does; a contrast
+/// against the local mean is invariant to both.
+///
+/// Sized a little under a player screen: a formation that is wider than the
+/// view is not a formation, it is the ground.
+const STRIP_REACH: i32 = 200;
+
+/// Iterations of settling run after the lowering term stops.
+///
+/// Denudation makes steps; thermal shed and creep are what turn a step into a
+/// scarp with a slope its rock can hold. Running them together to the last
+/// iteration leaves the newest steps unrelaxed — one-column jumps of a
+/// fraction of a cell, invisible, but they are also the ones `cliff_edges`
+/// reads. This is a tail of the *existing* passes with the new term switched
+/// off, not a new mechanism.
+const SETTLE_ITERS: u32 = 60;
+
 /// ---- hardness field ----
 ///
 /// Half-width of the lateral smoothing window over surface hardness, in
@@ -127,6 +201,19 @@ pub struct Deposits {
     /// as outlets, so conservation is `moved = deposited + exported`.
     pub exported: f32,
     pub iterations: u32,
+    /// Cells of height the differential-lowering term removed, and raised,
+    /// summed over every column and iteration.
+    ///
+    /// **Its own pair of counters because this term is the one part of the
+    /// pass that is not volume-conserving**, and folding it into
+    /// `volume_moved` would hide that. Denudation exports its product to the
+    /// sea and uplift brings rock up from below; neither is a transfer
+    /// between columns, so `moved = deposited + exported` is a statement
+    /// about the thermal and hydraulic terms only. Reported separately in
+    /// the detail line so "did the relief term fire, and by how much" is a
+    /// number rather than an inference from the picture.
+    pub stripped: f32,
+    pub raised: f32,
     /// Wall-clock time the loop itself took, in milliseconds. Round-4 task
     /// 5's "did it fire, and what did it cost" counter -- printed beside
     /// the pass table by `generate_reported`, never asserted on: timing is
@@ -145,6 +232,8 @@ impl Deposits {
             volume_moved: 0.0,
             exported: 0.0,
             iterations: 0,
+            stripped: 0.0,
+            raised: 0.0,
             wall_time_ms: 0.0,
         }
     }
@@ -153,11 +242,22 @@ impl Deposits {
 /// Erode `h` in place for `params.world_age * ITERS_PER_AGE` iterations.
 pub fn erode(t: &Terrain, h: &mut [f32]) -> Deposits {
     let w = h.len();
-    let iters = (t.params.world_age.max(0.0) * ITERS_PER_AGE) as u32;
+    // How much of the differential term this world has room to run: 1 at the
+    // shipped size, 0 in a 320-row test world that has none. See
+    // `Terrain::relief_room_fraction`.
+    let room = t.relief_room_fraction();
+    let strip = room > 0.0;
+    let aged = (t.params.world_age.max(0.0) * ITERS_PER_AGE) as u32;
     let mut d = Deposits::empty(w);
-    if iters == 0 || w < 3 {
+    // **`world_age == 0` stays a guaranteed no-op, settle tail included.**
+    // Adding the tail before this test was written first and is wrong: the
+    // `flat` preset is the structural test bed and asks for age 0 precisely
+    // so that its ground is the un-eroded curve, and sixty iterations of
+    // thermal and creep on it is not that world.
+    if aged == 0 || w < 3 {
         return d;
     }
+    let iters = aged + if strip { SETTLE_ITERS } else { 0 };
     d.iterations = iters;
     let started = std::time::Instant::now();
 
@@ -169,6 +269,8 @@ pub fn erode(t: &Terrain, h: &mut [f32]) -> Deposits {
     let mut order: Vec<usize> = (0..w).collect();
     let mut hardness = vec![0.0f32; w];
     let mut raw_hardness = vec![0.0f32; w];
+    let (mut d_strip, mut d_raise) = (0.0f32, 0.0f32);
+    let mut section = vec![0.0f32; w];
 
     // The hardness sampler with its per-column invariants (strata offset,
     // regional resistance) precomputed — the loop below resamples hardness
@@ -196,6 +298,48 @@ pub fn erode(t: &Terrain, h: &mut [f32]) -> Deposits {
                 }
             }
             *out = sum / n;
+        }
+
+        // **Differential lowering** — see `STRIP_RATE`. Runs before the
+        // slope terms so that every step it makes is relaxed by them in the
+        // same iteration rather than a whole iteration later, and stops
+        // `SETTLE_ITERS` short of the end so the last steps are relaxed too.
+        //
+        // Reads the *section* under the surface, not the bed at it: a cap
+        // rock is one bed and the thing that stands proud is the package
+        // beneath it. Resampled every iteration for the same reason the
+        // hardness above is — lowering a surface moves it into a different
+        // part of the sequence, and a stripped cap exposing the softer rock
+        // under it is the whole mechanism.
+        if strip && it + SETTLE_ITERS < iters {
+            for x in 0..w {
+                section[x] = field.section(x as i32, h[x]);
+            }
+            // The neighbourhood mean, by running sum: O(w) per iteration
+            // rather than O(w * STRIP_REACH), which at reach 200 is the
+            // difference between this term being free and it being the pass.
+            // The window is clamped at both ends rather than wrapped -- the
+            // world edge is an outlet, not a seam.
+            let (mut acc, mut lo, mut hi) = (0.0f32, 0i32, -1i32);
+            for x in 0..w as i32 {
+                let want_hi = (x + STRIP_REACH).min(w as i32 - 1);
+                while hi < want_hi {
+                    hi += 1;
+                    acc += section[hi as usize];
+                }
+                let want_lo = (x - STRIP_REACH).max(0);
+                while lo < want_lo {
+                    acc -= section[lo as usize];
+                    lo += 1;
+                }
+                let d = STRIP_RATE * room * (section[x as usize] - acc / (hi - lo + 1) as f32);
+                h[x as usize] += d;
+                if d < 0.0 {
+                    d_strip -= d;
+                } else {
+                    d_raise += d;
+                }
+            }
         }
 
         // Thermal: each adjacent pair relaxes toward the stable slope of
@@ -286,6 +430,8 @@ pub fn erode(t: &Terrain, h: &mut [f32]) -> Deposits {
             }
         }
     }
+    d.stripped = d_strip;
+    d.raised = d_raise;
     d.wall_time_ms = started.elapsed().as_secs_f32() * 1000.0;
     d
 }
@@ -439,40 +585,83 @@ mod tests {
     }
 
     #[test]
-    fn an_old_world_is_smoother_than_a_young_one() {
-        // The whole point of the age axis, as a property: erosion must
-        // reduce total steepness, not just shuffle it. Summed |slope| is
-        // the continuous quantity (a count of steep columns would give a
-        // knife-edge margin).
+    fn differential_erosion_builds_relief_that_slope_driven_erosion_cannot() {
+        // **The guard for W1's differential-lowering term**, and it replaces
+        // `an_old_world_is_smoother_than_a_young_one`, which is deleted rather
+        // than ported. That test compared summed |slope| at age 0 against
+        // age 2 on **seeds 1 and 7 only**, and asserted the old world was at
+        // least 2% smoother. Measured over 16 seeds when W1 nudged seed 7
+        // across the line, the ratio's median is **1.185 on the shipped code
+        // and 1.104 with W1** -- i.e. an old world is *rougher* at the median
+        // in both arms, and the property was already false before this lane
+        // touched anything. Moving the comparison onto age 0.5, the stretch
+        // the test's own comment called monotone, gives medians of 1.010 and
+        // 1.003: still not the claim. It was a two-seed test over a
+        // procedural system whose property does not hold, which is
+        // `CLAUDE.md`'s *"a guard over a procedural system has to sweep the
+        // procedure and gate an order statistic"* exactly, and it had been
+        // rubber-stamping for as long as it has existed.
         //
-        // `young` is age 0 explicitly, not `WorldgenParams::default()`:
-        // round-4 task 4 moved the default to 0.8, and the property this
-        // test checks is **not monotone past roughly age 1** (hydraulic
-        // incision cuts channels faster than creep rounds crests at higher
-        // ages -- rolling seed 1's roughness dips from 218 at age 0 to 131
-        // at age 0.5 and then climbs back past its age-0 value by age 3;
-        // round-4 finding R4-2 has the full curve). 0 vs 2 is what this
-        // test always compared and is still on the monotone stretch; the
-        // failure was `young` silently drifting off age 0, not the
-        // mechanism.
-        let young = WorldgenParams { world_age: 0.0, ..Default::default() };
-        let old = WorldgenParams { world_age: 2.0, ..Default::default() };
-        for seed in [1u64, 7] {
-            let ty = terrain(seed, &young);
-            let to = terrain(seed, &old);
-            let mut hy: Vec<f32> = (0..ty.w).map(|x| ty.elev(x)).collect();
-            let mut ho = hy.clone();
-            erode(&ty, &mut hy);
-            erode(&to, &mut ho);
-            let roughness = |h: &[f32]| h.windows(2).map(|p| (p[1] - p[0]).abs()).sum::<f32>();
-            let ry = roughness(&hy);
-            let ro = roughness(&ho);
-            assert!(
-                ro < ry * 0.98,
-                "seed {seed}: age 2 roughness {ro} not below age 0's {ry}"
-            );
+        // What is guarded instead is the thing the module now claims and did
+        // not before: erosion **creates** formation-scale relief rather than
+        // only relaxing it. Dead ends #22/#23 record the old state as
+        // measured -- no column ever peaked above its iteration-0 prominence,
+        // 0 of 2048.
+        //
+        // **The two arms differ in one thing: whether the world has room.**
+        // `Terrain::relief_room_fraction` scales the term by the rows left
+        // after the sky guarantee, so a 320-row world runs none of it and a
+        // 1200-row world runs all of it, while `elev` -- which does not read
+        // `h` once `massif_amplitude` is zero -- hands both arms the identical
+        // starting profile. So this is a paired A/B with the same seed, the
+        // same terrain and the same binary, and `massif_amplitude: 0.0` is
+        // what makes that true rather than nearly true.
+        //
+        // **Both a fired counter and an effect counter**, per `CLAUDE.md`: a
+        // null hides equally well behind a mechanism that is quiet and a probe
+        // that never reached it, so `stripped` says the term ran and the local
+        // relief says it did something.
+        let p = WorldgenParams { world_age: 1.0, massif_amplitude: 0.0, ..Default::default() };
+        let (soil, sand) = (33.0_f32.to_radians().tan(), 34.0_f32.to_radians().tan());
+        // Local relief at the formation scale, p90 over the world. Not
+        // *prominence*: that is two-sided, so it scores zero on a scarp, a
+        // bench rim and the whole interior of a plateau, which is most of what
+        // this term makes.
+        let relief_p90 = |h: &[f32]| -> f32 {
+            const REACH: usize = 20;
+            let mut v: Vec<f32> = (REACH..h.len() - REACH)
+                .map(|x| {
+                    let w = &h[x - REACH..=x + REACH];
+                    w.iter().cloned().fold(f32::MIN, f32::max) - w.iter().cloned().fold(f32::MAX, f32::min)
+                })
+                .collect();
+            v.sort_by(f32::total_cmp);
+            v[(v.len() as f32 * 0.9) as usize]
+        };
+        let mut ratios = Vec::new();
+        for seed in 0..8u64 {
+            let arm = |h: i32| -> (f32, f32) {
+                let t = Terrain::new(seed, &p, 512, h, soil, sand);
+                let mut hv: Vec<f32> = (0..t.w).map(|x| t.elev(x)).collect();
+                let d = erode(&t, &mut hv);
+                (relief_p90(&hv), d.stripped)
+            };
+            let (no_room, stripped_off) = arm(320);
+            let (room, stripped_on) = arm(1200);
+            assert_eq!(stripped_off, 0.0, "seed {seed}: the term ran in a world with no room for it");
+            assert!(stripped_on > 100.0, "seed {seed}: the term did not fire ({stripped_on} cells stripped)");
+            ratios.push(room / no_room);
         }
+        ratios.sort_by(f32::total_cmp);
+        let median = ratios[ratios.len() / 2];
+        // Measured 2.33 over these eight seeds, with two of them below 1.0 --
+        // the spread is real and is why this gates a median rather than every
+        // seed. The bar sits well under the measurement, per `CLAUDE.md`'s
+        // "set bars from measurement with headroom, never sitting on the
+        // measured value".
+        assert!(median > 1.4, "differential erosion added no formation-scale relief: median ratio {median}, all {ratios:?}");
     }
+
 }
 
 #[cfg(test)]

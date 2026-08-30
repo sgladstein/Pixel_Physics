@@ -1030,6 +1030,53 @@ revamp rather than another round:
   it makes overlapping cave systems' independent waterlines fire — that goes
   to the cave lane. Corrects two errors in the revamp plan: `springs` was
   never at zero, and the shipped world is 128x the small one, not 256x.
+- [worldgen-relief-2026-08-30.md](worldgen-relief-2026-08-30.md) — **W1;
+  shipped.** The centrepiece: the ground gets a surface. A slope-free lowering
+  term coupled to the *section* resistance under the surface, taken as a
+  contrast against a running mean over +/-200 columns, plus a `ridged_1d`
+  massif and a long fold with horst-and-graben faults in `strata_offset`.
+  **The formation-scale band roughly doubled** — local relief at reach 30,
+  p90 over 6 seeds: arid 21→46, canyon 54→83, rolling 27→50, terraced 30→47,
+  wetland 14→26 — and the starved passes switched on with it (brows 4.9–55x,
+  talus 3.2–66x, `boulders` writing at all on four of five presets).
+  Generation +290 ms on ~2.1 s; no per-frame code changed.
+  **Two traps recorded.** A mountain does not fit in a 320-row world, so
+  `filmstrip` and every 512x320 scene are **bit-identical to before** — do not
+  judge this from a filmstrip. And the obvious form of the erosion term
+  improved every number while rendering as the flattest world this generator
+  has made; looking at it is what caught that.
+  Also deletes a **blind guard** (`an_old_world_is_smoother_than_a_young_one`
+  was false at the median on both arms and passed on two hand-picked seeds),
+  replacing it with a paired eight-seed guard watched going red, and adds a
+  test three comments had cited by name without it existing.
+- [worldgen-caves-rebuilt-2026-08-29.md](worldgen-caves-rebuilt-2026-08-29.md)
+  — **W3; shipped** (`src/worldgen/cave.rs`, new). The cave generator replaced
+  rather than retuned: **nothing in it reads a noise field to decide where
+  rock is absent.** A room is a dissolution lens flooded through a removal
+  cost built from the strata, then a roof that falls in until it reaches a bed
+  strong enough to hold its span; conduits are paths through an anisotropic
+  cost field; systems are given a way in — **though not all of them get one:
+  6 of 11 over 8 `rolling` seeds, corrected 2026-08-30, pre-existing and not
+  moved by the guard work.** `bed_span` is read off the material —
+  42 cells in mudstone to 308 in basalt — so two rooms differ by a factor of
+  seven with no parameter moving.
+  Census over 16 seeds x 5 presets: worlds with **no cave 2–4 → 0**, largest
+  connected walkable region **36–39% → 98%**, median open column **13–16 → 60–72**
+  against a 14-cell gnome, and systems with a way in **0 → all of them**.
+  Margin came *down*, 802 → 780.
+  **Two corrections the programme needs.** `cave_probe`'s census window was
+  `WORLD_HEIGHT/2`, below most of the depth band — the earlier "8 or 9 of 16
+  worlds have no cave" is really **2 to 4**. And the pillar question the
+  revamp plan flagged as its largest open risk is **answered and the risk does
+  not exist**: `support_census` could not see it (it reads the field and never
+  cuts a hole), so `cave_probe` gained a `span=1` mode, and the roof does not
+  come down at any width up to 2,048 cells — `load::capacity` is quadratic in
+  section and multiplied by `attached_span_bonus`, so `max_unsupported_span:
+  16` never reaches the scale the plan assumed. Positive control (`lid=6`)
+  reads 0 → 207, so the instrument is not blind. Pillars stay as a design
+  choice, not a structural necessity.
+  Also: the owner's "sky is coming into the cave" was **the renderer, not
+  geometry**.
 
 - [worldgen-design.md](worldgen-design.md) — **direction agreed,
   implemented** (`src/worldgen/`). The M10 redesign: 2D play through 3D
