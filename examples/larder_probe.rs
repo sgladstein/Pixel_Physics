@@ -666,7 +666,13 @@ fn render(frames: usize, every: usize) {
             sheet[dst..dst + (tw * 4) as usize].copy_from_slice(&tile[src..src + (tw * 4) as usize]);
         }
     }
-    let out = "larder_nest.png";
+    // **Under `target/`, which `.gitignore` already covers.** Written to the
+    // repo root the first time, where four regenerable PNGs sat as untracked
+    // clutter in every `git status` until a stop hook complained about them.
+    // The house pattern is `target/` or `/tmp` (`filmstrip`'s own hint line
+    // says `out=/tmp/w.png`); tracked images live under `Reports/img/` and
+    // get there deliberately.
+    let out = "target/larder_nest.png";
     image::save_buffer(out, &sheet, sw as u32, sh as u32, image::ColorType::Rgba8).expect("write sheet");
     println!("wrote {out} ({sw}x{sh}), crop={crop_x},{crop_y},{CROP_W},{CROP_H} zoom={ZOOM}, tiles left-to-right then down:");
     for c in &captions {
@@ -746,11 +752,14 @@ fn pair(frames: usize) {
             sheet[dst..dst + (tw * 4) as usize].copy_from_slice(&tile[src..src + (tw * 4) as usize]);
         }
     }
+    // Same reason as `mode=render`: `target/` is ignored, the repo root is
+    // not. The per-panel files are the ones a review card wants -- one file
+    // per item, because several files in one item become a frame sequence.
     for (i, (tile, _)) in panels.iter().enumerate() {
-        image::save_buffer(format!("larder_pair_{i}.png"), tile, tw as u32, th as u32, image::ColorType::Rgba8).expect("write panel");
+        image::save_buffer(format!("target/larder_pair_{i}.png"), tile, tw as u32, th as u32, image::ColorType::Rgba8).expect("write panel");
     }
-    image::save_buffer("larder_pair.png", &sheet, sw as u32, sh as u32, image::ColorType::Rgba8).expect("write pair");
-    println!("wrote larder_pair.png ({sw}x{sh}) and larder_pair_0/1.png ({tw}x{th} each), crop={crop_x},{crop_y},{CROP_W},{CROP_H} zoom={ZOOM}, top then bottom:");
+    image::save_buffer("target/larder_pair.png", &sheet, sw as u32, sh as u32, image::ColorType::Rgba8).expect("write pair");
+    println!("wrote target/larder_pair.png ({sw}x{sh}) and target/larder_pair_0/1.png ({tw}x{th} each), crop={crop_x},{crop_y},{CROP_W},{CROP_H} zoom={ZOOM}, top then bottom:");
     for (_, c) in &panels {
         println!("  {c}");
     }
