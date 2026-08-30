@@ -19,6 +19,34 @@ plainly which pressure is missing.
 ./target/release/examples/selection_arena arm=<same|lethal|early|nobranch|norootbranch> seeds=18
 ```
 
+## 0. A caveat on every number below, found after they were taken
+
+**The arms in §1 ran 20,000 frames, and the system does not settle until
+around frame 50,000-75,000.** They are therefore mid-transient readings, not
+equilibria.
+
+Found by a 150,000-frame run whose purpose was something else entirely.
+Arm B's share over its last eighteen samples:
+
+```
+58.4 58.2 58.1 57.9 56.1 55.7 55.4 55.9 55.5 55.9 55.8 55.6 55.7 55.6 55.5 55.7 55.6 55.6
+```
+
+It rises, flattens, and then holds ~55.6% for the whole second half. This is
+`CLAUDE.md`'s censused-before-it-settles trap, whose remedy is stated there and
+was not applied here: *the tell that works is that the quantity being censused
+has stopped moving* -- never a frame budget that looks generous.
+
+**What this does and does not put in doubt.** The *direction* is safe: 18 of 18
+seeds is not going to reverse on a longer run, and the ladder's ordering
+(`lethal` < `early` < `nobranch` < `norootbranch` ~ control) is a large,
+consistent signal. The *magnitudes* are provisional -- 38.9% for `nobranch` is
+a value on the way to an equilibrium, not the equilibrium. A re-run at 90,000
+frames is under way and this section will be replaced by its numbers.
+
+`selection_arena` now reports how many world-runs ended while the share was
+still moving, so this cannot recur silently.
+
 ## 1. The ladder
 
 `herb`, 8 founders, 20,000 frames, flat bed. Arm B's share of the final
@@ -199,8 +227,20 @@ opposite of what §3 promised. The harness now detects a span under 3
 generations and says so rather than fitting a slope against an axis that does
 not move.
 
-**The design is not dead; its clock is wrong.** What is needed is a
-*cumulative* generation count — deepest generation reached, or cumulative
+**Third, and it supersedes the second: the share equilibrates too.** Even a
+correct clock would not rescue this, because there is no ongoing signal to
+integrate -- log-odds stops moving because the *system* settles, not because
+the axis does. The arms reach a stable coexistence rather than one displacing
+the other, which is what every arm in §1 already showed and nobody read that
+way: `nobranch` sits at 38.9% and `early` at 7.1%, neither heading for zero.
+
+**So selection here is equilibrium-seeking, not directional**, and an endpoint
+share is the right observable after all -- provided it is read *at* the
+equilibrium (§0), which these runs were not. The cumulative-clock fix below is
+recorded because it was the obvious next move and it is wrong; do not build it.
+
+**~~The design is not dead; its clock is wrong.~~** ~~What is needed is a
+*cumulative* generation count~~ — deepest generation reached, or cumulative
 births over standing population — both of which do keep rising
 (`plant-throughput-herb-2026-08-29.md` measured deepest established generation
 5, 7 and 3 across seeds). That is the next build, and it is not validated

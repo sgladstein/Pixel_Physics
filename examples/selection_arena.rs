@@ -250,6 +250,20 @@ struct Outcome {
     /// trajectory's slope is measured against, carried out so the two halves
     /// of this harness can be checked against each other.
     final_gen: f64,
+    /// Whether arm B's share had **stopped moving** by the end of the run.
+    ///
+    /// An endpoint share read before the system settles is a mid-transient
+    /// value wearing an equilibrium's name -- `CLAUDE.md`'s
+    /// censused-before-it-settles trap, whose remedy is that the tell which
+    /// works is the censused quantity holding still, never the frame budget
+    /// looking generous.
+    ///
+    /// Measured 2026-08-30: over 150,000 frames arm B's share rises, flattens
+    /// at ~55.6% and holds it for the whole second half, so equilibrium
+    /// arrives around frame 50,000-75,000. The arms first reported in
+    /// `Reports/plant-selection-teeth-2026-08-29.md` ran **20,000** frames and
+    /// are therefore mid-transient readings.
+    settled: bool,
 }
 
 /// **Least-squares slope of `logit(freq)` against generation** -- the
@@ -414,7 +428,14 @@ fn run_world(
         last = (a, b);
     }
     let final_gen = traj.last().map_or(0.0, |&(g, _)| g);
-    Outcome { a: last.0, b: last.1, ever: (ever_a.len(), ever_b.len()), traj, final_gen }
+    // Settled iff the last sample agrees with one a quarter of the run
+    // earlier. Reaching back over a span rather than comparing two adjacent
+    // samples, which can agree by luck in the middle of a transient.
+    let settled = {
+        let n = traj.len();
+        n >= 4 && (traj[n - 1].1 - traj[n - 1 - n / 4].1).abs() < 0.01
+    };
+    Outcome { a: last.0, b: last.1, ever: (ever_a.len(), ever_b.len()), traj, final_gen, settled }
 }
 
 /// **Wilcoxon signed-rank against a 50% null, two-sided.**
@@ -584,6 +605,8 @@ fn main() {
     let mut intercepts: Vec<f64> = Vec::new();
     // Every sample's generation, pooled, so the axis's own span can be read.
     let mut traj_span: Vec<f64> = Vec::new();
+    // How many individual world-runs ended while the share was still moving.
+    let (mut unsettled, mut runs_total) = (0usize, 0usize);
     for s in 0..seeds {
         // The mirror pair: same world, arm assignment inverted, pooled.
         let mut a = Tally::default();
@@ -612,6 +635,10 @@ fn main() {
                 println!();
             }
             traj_span.extend(o.traj.iter().map(|&(g, _)| g));
+            if !o.settled {
+                unsettled += 1;
+            }
+            runs_total += 1;
             if let Some((sl, ic)) = logit_slope(&o.traj) {
                 pair_slopes.push(sl);
                 pair_intercepts.push(ic);
@@ -691,6 +718,16 @@ fn main() {
              50/50 above as an absence of selection; fix the arm and re-run.\n  \
              (Confirm with: `arm={handicap_name} mirror=off` against `arm=same mirror=off` at the same\n  \
              seeds -- byte-identical output is the proof.)"
+        );
+    }
+
+    if runs_total > 0 && unsettled > 0 {
+        println!(
+            "\n  *** {unsettled} of {runs_total} world-runs ended while arm B's share was STILL MOVING. ***\n  \
+             An endpoint read before the system settles is a mid-transient value wearing an\n  \
+             equilibrium's name. Measured: over 150,000 frames the share flattens around frame\n  \
+             50,000-75,000, so a 20,000-frame run does not reach it. Lengthen `frames` until this\n  \
+             line disappears before quoting any share above as a settled result."
         );
     }
 
