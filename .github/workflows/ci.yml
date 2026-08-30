@@ -293,6 +293,39 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.98
       - run: bash scripts/acceptance.sh
 
+  worldgen:
+    # Is any generation pass eating another pass's output, and has any of
+    # them stopped firing? `scripts/worldgencheck.sh`, over
+    # `examples/pass_ablation.rs`.
+    #
+    # **This job is the answer to a measured process failure, not a new
+    # idea.** The instrument found `brows` deleting 100% of boulders on
+    # 2026-08-20 and it was written up the same day
+    # (`Reports/pass-interference-2026-08.md`, finding R4-1). Nothing ran it,
+    # so the feature -- a paragraph of `wiki/the-world.md` -- was still
+    # missing from every world nine days later, with every test green,
+    # because a pass whose cells another pass already took reports the same
+    # zero a failed noise draw reports. That is exactly `acceptance`'s own
+    # origin one job below: a check nobody runs is a check that does not
+    # exist.
+    #
+    # Gating, and only on things that cannot be a matter of degree: no pass
+    # "APPEARS" when another is switched off, and every pass writes cells on
+    # at least one preset. Suppression *magnitudes* are printed and not
+    # barred -- several are the generator working, and a bar on those would
+    # make this the permanently-red gate `scripts/acceptance.sh` has a
+    # paragraph about.
+    #
+    # Two seeds, which is not a sweep and is not meant to be: the two claims
+    # are structural rather than statistical, and every seed pays for a whole
+    # 8192x2560 world per pass per preset. `SEEDS=6` is what a report quotes.
+    name: worldgen pass interference
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.98
+      - run: bash scripts/worldgencheck.sh
+
   fmt:
     # Informational only, not gating: the codebase predates rustfmt.toml
     # (added alongside this workflow) and has not yet had a full `cargo

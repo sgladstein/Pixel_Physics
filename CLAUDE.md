@@ -131,6 +131,7 @@ cargo run --release --example filmstrip -- scene=fall zoom=2 crop=0,140,256,110
 python3 scripts/review.py serve --open      # the owner's review queue; see below
 python3 scripts/review.py serve --lan       # ...also reachable from a phone on the same Wi-Fi
 bash scripts/acceptance.sh                  # the structural acceptance cases; CI gates this
+bash scripts/worldgencheck.sh               # is a generation pass eating another's output, or has one stopped firing; CI gates this. --selftest puts the defect back
 bash scripts/seedsweep.sh                   # the order-statistic seed sweep; run BEFORE changing any model over procedural content
 bash scripts/docscheck.sh                   # documentation checks: links, map-vs-tree, freshness notes, report index
 python3 scripts/contextbudget.py            # what every session, agent and subagent pays before it starts; --gate is the ceiling, --check is gated by docscheck

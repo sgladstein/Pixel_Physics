@@ -705,19 +705,46 @@ fn main() {
             q(0.99),
             all[all.len() - 1]
         );
-        // Seated or not: the pass writes cap-rock-family stone above the
-        // plan surface, so a marker whose crown is not that has been
-        // rejected (round-4 finding R4-1: a `brows` lip usually got there
-        // first). Reported per marker, because "the pass fired" and "you can
-        // see it" are different questions and the counter answers only one.
+        // Seated or not, **asked by ablation rather than by recognising a
+        // material**. Build the same world once more with `boulders` skipped
+        // and take the difference: a cell that changed above the plan
+        // surface at a marker column is a cell this pass wrote, and nothing
+        // else can be.
+        //
+        // Three material tests came before this one and each was wrong in a
+        // way that read as a finding. *"The most prominent stone bump"* found
+        // an ordinary outcrop. *"A run of cap-rock at the surface"* found
+        // 6-16 candidates per world where one or two boulders exist, because
+        // cap-rock beds outcrop in the same family (open bug 0b). And the
+        // third -- `stone` in the cap-rock family -- stopped matching
+        // anything the day the rock vocabulary landed and `boulders` began
+        // painting **limestone**, so it would have reported `NO SEATED
+        // BOULDER` for a world that had two. Widening it to accept limestone
+        // as well was tried here and is worse in the other direction:
+        // limestone is one of the six ordinary beds, and a `brows` lip
+        // continuing a limestone face is exactly a rock cell above the plan
+        // surface. Measured on `canyon` seed 1 with the fix switched off, the
+        // widened test reported **1 seated** where the pass's own counter
+        // said **0**.
+        //
+        // The ablation cannot be fooled by any of that, and it costs one
+        // extra world build in a harness that already builds one. Same design
+        // as `world_look mode=passes` and `pass_ablation`: to find out what a
+        // pass contributed, run the world without it.
+        let mut bare = World::new(world.bounds().expect("bounded"));
+        pixel_physics::worldgen::generate_ablated(
+            &mut bare,
+            pixel_physics::worldgen::Spec::Generated { params, seed: a.seed as u64 },
+            "boulders",
+        );
         let seated: Vec<i32> = centres
             .iter()
             .copied()
             .filter(|&cx| {
                 let ground = plans[cx as usize].surface_y;
                 (1..=4).any(|row| {
-                    let c = world.get(cx, ground - row);
-                    Some(c.material) == world.materials.id_of("stone") && c.shade / 4 == 3
+                    let y = ground - row;
+                    y >= 0 && world.get(cx, y).material != bare.get(cx, y).material
                 })
             })
             .collect();

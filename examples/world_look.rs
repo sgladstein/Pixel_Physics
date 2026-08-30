@@ -21,7 +21,16 @@
 //! cargo run --release --example world_look -- mode=colour seeds=4
 //! cargo run --release --example world_look -- mode=distance seeds=4
 //! cargo run --release --example world_look -- mode=passes seeds=3 views=16
+//! cargo run --release --example world_look -- mode=strip presets=rolling out=/tmp/w.png
 //! ```
+//!
+//! **`mode=strip` is the worldgen review sheet, and it exists because the one
+//! everybody used was not one.** `filmstrip`'s `scene=worldgen` calls itself
+//! *"the thing worldgen is judged on"* and builds a 512x320 world; the game
+//! ships 8192x2560. Six rounds were judged on the small one, where `boulders`,
+//! `vaults` and `springs` cannot fire at all. `mode=strip` lays several player
+//! viewports of the **shipped** world out as a contact sheet and prints the
+//! pass table under it, naming any pass that wrote nothing.
 //!
 //! **The unit is a rendered pixel in a player viewport, never a cell.** A
 //! world is 8192x2560 and a viewport is 512x320 — 1/128th of it — so a pass
@@ -365,7 +374,7 @@ fn shot(presets: &worldgen::WorldgenPresets, a: &Args) {
     for preset in &a.presets {
         let Some(params) = presets.get(preset) else { panic!("no preset {preset}") };
         for seed in 1..=a.seeds {
-            let world = build_settled(params, seed, "", a.settle);
+            let (world, report) = build_reported(params, seed, a.settle);
             let cams = camera_positions(&world, a.views);
             let cam = cams[a.view.min(cams.len() - 1)];
             let v = render_view(&world, cam);
@@ -383,8 +392,120 @@ fn shot(presets: &worldgen::WorldgenPresets, a: &Args) {
             }
             image::save_buffer(&path, &rgb, WIDTH, HEIGHT, image::ColorType::Rgb8).expect("write png");
             println!("  {path}  {preset} seed {seed} view {} camera {:?} settle {}", a.view, cam, a.settle);
+            print_report(&report);
         }
     }
+}
+
+/// **The worldgen contact sheet, at the size the game ships.** `mode=strip`.
+///
+/// `filmstrip`'s `scene=worldgen` calls itself *"the thing worldgen is judged
+/// on"* and builds a **512x320** world; the app ships 8192x2560, **128 times
+/// the area** (16x wider, 8x deeper -- not the 256x the revamp plan states).
+/// Measured on `rolling` seed 1, the same generator on the two sizes:
+/// `boulders` 0 / `vaults` 0 / `springs` 0 / `talus` 2 at 512x320 against
+/// features that do fire at the shipped size. So six rounds of
+/// worldgen were judged on pictures of a world the player never sees, and
+/// *"the feature reads as dead"* was a fact about the harness.
+///
+/// This is the same idea as a filmstrip -- several tiles, one image, judged
+/// at a glance -- with time replaced by **place**: `views` player viewports
+/// spread across one world's width, at 1:1, laid out in a grid. A worldgen
+/// sheet does not want frames, because a generated world is meant to arrive
+/// at rest and the interesting variation is along x.
+///
+/// **The pass report prints under it**, which is the house rule a contact
+/// sheet cannot satisfy on its own: a picture cannot say whether the feature
+/// that produced it is the one you built, and `boulders 0` beside the image
+/// is the only thing that says a pass never fired.
+///
+/// ```text
+/// cargo run --release --example world_look -- mode=strip presets=rolling out=/tmp/rolling.png
+/// cargo run --release --example world_look -- mode=strip presets=canyon seeds=2 views=6 cols=2 out=/tmp/c/
+/// ```
+fn strip(presets: &worldgen::WorldgenPresets, a: &Args) {
+    assert!(!a.out.is_empty(), "mode=strip needs out=PATH (one world) or out=DIR/ (several)");
+    let gap = 2i32;
+    let grey = 90u8;
+    for preset in &a.presets {
+        let Some(params) = presets.get(preset) else { panic!("no preset {preset}") };
+        for seed in 1..=a.seeds {
+            let (world, report) = build_reported(params, seed, a.settle);
+            let cams = camera_positions(&world, a.views);
+            let cols = a.cols.max(1);
+            let rows = a.views.div_ceil(cols) as i32;
+            let cols = cols as i32;
+            let (sw, sh) = (
+                cols * WIDTH as i32 + (cols - 1) * gap,
+                rows * HEIGHT as i32 + (rows - 1) * gap,
+            );
+            // Mid-grey gutters, `filmstrip`'s convention: a tile that is
+            // legitimately all-black must stay distinguishable from the
+            // space between tiles.
+            let mut sheet = vec![grey; (sw * sh * 3) as usize];
+            for (i, &cam) in cams.iter().enumerate() {
+                let v = render_view(&world, cam);
+                let (gx, gy) = (i as i32 % cols, i as i32 / cols);
+                let (ox, oy) = (gx * (WIDTH as i32 + gap), gy * (HEIGHT as i32 + gap));
+                for y in 0..HEIGHT as i32 {
+                    for x in 0..WIDTH as i32 {
+                        let src = ((y * WIDTH as i32 + x) * 4) as usize;
+                        let dst = (((oy + y) * sw + ox + x) * 3) as usize;
+                        sheet[dst..dst + 3].copy_from_slice(&v.frame[src..src + 3]);
+                    }
+                }
+            }
+            let path = if a.out.ends_with('/') {
+                format!("{}{preset}-s{seed}.png", a.out)
+            } else {
+                a.out.clone()
+            };
+            if let Some(dir) = std::path::Path::new(&path).parent() {
+                std::fs::create_dir_all(dir).ok();
+            }
+            image::save_buffer(&path, &sheet, sw as u32, sh as u32, image::ColorType::Rgb8)
+                .expect("write png");
+            println!(
+                "  {path}  {preset} seed {seed}: {} viewports of {WIDTH}x{HEIGHT} across a {WORLD_WIDTH}x{WORLD_HEIGHT} world, settle {}",
+                a.views, a.settle
+            );
+            print_report(&report);
+        }
+    }
+}
+
+/// Build one world at the shipped size and keep what every pass wrote.
+fn build_reported(
+    params: &worldgen::WorldgenParams,
+    seed: u64,
+    settle: usize,
+) -> (World, Vec<(&'static str, usize)>) {
+    let bounds = Rect::new(0, 0, WORLD_WIDTH as i32 - 1, WORLD_HEIGHT as i32 - 1);
+    let mut world = World::new(bounds);
+    let report = worldgen::generate_reported(&mut world, worldgen::Spec::Generated { params, seed });
+    for _ in 0..settle {
+        pixel_physics::sim::parallel::step(&mut world);
+        world.step_active_sites();
+        world.step_fields();
+    }
+    (world, report)
+}
+
+/// The pass table, with **the passes that wrote nothing named first**.
+///
+/// Sorting by count and printing the zeroes at the top is the whole point:
+/// `pass_ablation`'s module doc records five features found absent one per
+/// round, every one by accident, because a zero sat in the middle of a long
+/// table nobody read to the end.
+fn print_report(report: &[(&'static str, usize)]) {
+    let dead: Vec<&str> = report.iter().filter(|(_, n)| *n == 0).map(|(n, _)| *n).collect();
+    if dead.is_empty() {
+        println!("    every pass wrote at least one cell.");
+    } else {
+        println!("    WROTE NOTHING: {}", dead.join(", "));
+    }
+    let line: Vec<String> = report.iter().map(|(n, c)| format!("{n} {c}")).collect();
+    println!("    {}", line.join("  "));
 }
 
 /// **The rock-vocabulary A/B, in pixels.** `mode=vocab`.
@@ -535,6 +656,8 @@ struct Args {
     settle: usize,
     /// Which of the `views` viewports `mode=shot` writes.
     view: usize,
+    /// `mode=strip`: tiles per row on the contact sheet.
+    cols: usize,
 }
 
 fn main() {
@@ -546,6 +669,7 @@ fn main() {
         out: String::new(),
         settle: 0,
         view: 4,
+        cols: 2,
     };
     for arg in std::env::args().skip(1) {
         let Some((k, v)) = arg.split_once('=') else { continue };
@@ -557,6 +681,7 @@ fn main() {
             "out" => a.out = v.to_string(),
             "settle" => a.settle = v.parse().expect("settle=N"),
             "view" => a.view = v.parse().expect("view=N"),
+            "cols" => a.cols = v.parse().expect("cols=N"),
             _ => panic!("unknown argument {arg:?}"),
         }
     }
@@ -590,6 +715,7 @@ fn main() {
         "colour" => colour(&presets, &a),
         "distance" => distance(&presets, &a),
         "passes" => passes(&presets, &a),
+        "strip" => strip(&presets, &a),
         "shot" => shot(&presets, &a),
         "vocab" => vocab(&presets, &a),
         m => panic!("unknown mode {m:?}"),
