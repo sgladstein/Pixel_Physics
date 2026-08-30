@@ -534,6 +534,23 @@ drift that two of these documents still reflect.**
   *"the 4,095-organism ceiling is nowhere near binding"* (herb runs at 44–61%
   of it). Also records that `grass.ron`'s fate table is **byte-identical** to
   `tree.ron`'s, so switching to grass would never have bought mutability.
+- [plant-fate-fallback-fork-2026-08-30.md](plant-fate-fallback-fork-2026-08-30.md)
+  — **the fallback fork is decided and landed**: the owner answered *"No safety
+  net"*, so `fate_for` reads the individual's genome and stops. A mutation that
+  vacates a slot vacates it for real, which is what makes `delete` and
+  `recondition` real operators; the gate report below is the baseline it is
+  measured against. **Its §0 is the part to quote**: at the shipped mutation
+  rate this is a **no-op** — 88,909 fate queries over 60,000 frames of `herb`
+  with the net catching **0** of them, and `genome_drift` byte-identical
+  between the old and new depths at both 0 and 10x. The net first bites at
+  **90x**. Generation turnover (mean depth 2.04 at 60,000 frames), not the
+  fallback depth, is the bottleneck. **Withdraws one standing claim**:
+  `builtin_fate` is *not* the absorber — at 90x all 1,305 saves went to the
+  **species** layer and `builtin_fate` took 0; the two layers agree, which is
+  why dropping the middle one measured identical. Also records why `moss`
+  (empty fate table, 0 calls — it only `Divide`s) and `(RootTip, Node)`
+  (unreachable at `plastochron: 0`) are safe, and that an emptied `Grow` slot
+  makes a tip that **never retires** rather than one that cannot grow.
 - [plant-fate-operator-gate-2026-08-29.md](plant-fate-operator-gate-2026-08-29.md)
   — **all four mutation operators now have a viability gate**, closing §3a of
   the handoff below, and the answer is not the one its weighting hedged
@@ -714,6 +731,81 @@ drift that two of these documents still reflect.**
   already the best of the values tested, and a nine-cell pale body puts less
   on screen than the shipped two-cell dark one. The creature-side answer to
   `plant-appearance-design.md`.
+- [creature-motion-decoys-2026-08-30.md](creature-motion-decoys-2026-08-30.md)
+  — **measured study, and a qualification of the report above.**
+  `creature-appearance-design.md`'s whole body-size case rests on `decoys`,
+  which is computed on a **single still**, and a decoy is a rock edge or a
+  leaf — something that holds still, while the animal does not. Adding the
+  motion axis (`examples/motion_look.rs`: a decoy that does not change
+  between two frames is not competing for the eye) finds the decoy field is
+  **entirely static**: a body that moves has **0–2** competitors at every
+  size from 1 to 16 cells, so a walking two-cell ant is already better off
+  than a stationary sixteen-cell one, in every sky measured and on four
+  seeds. Does not overturn the recommendation so much as split it — **22–42%
+  of ants never move across a 384-frame horizon**, and for those the static
+  ladder is the whole story, which is the owner's *"ants are mostly visible
+  with there motion"* arriving as a number.
+- [creature-birth-grant-2026-08-30.md](creature-birth-grant-2026-08-30.md) —
+  **built and landed 2026-08-30.** `birth_grant` as a heritable slot, E14's
+  `start_energy` cut (900 -> 200), and the measured finding that **the two
+  together cannot make the shipped ant breed and no setting of either
+  closes it**: the binding term is the 960-point body stamp, which is
+  invariant to both, and cutting the budget lowers the bank ceiling faster
+  than it lowers the bar. What E14 buys is not what it was authorised on:
+  **`deaths` did not read "0 everywhere" before** — the uncut ant dies at
+  36,000 frames and keeps dying, and the cut converts that unbounded
+  run-down into an early cull that settles (§4a). Sharpens
+  `creature-reproduction-economics.md` §3.6 and corrects the direction
+  `ant.ron`'s own comment stated.
+- [creature-body-extent-2026-08-30.md](creature-body-extent-2026-08-30.md) —
+  **built and landed 2026-08-30.** The body is priced per cell at last:
+  nothing in the cost path read `chain.len()`, so **E10's premise that
+  "per-cell metabolic cost already prices a longer body" was false** and a
+  longer body was strictly free — measured at a difference of *exactly zero*
+  by injecting the old behaviour back into this change's own guard. Also
+  ships `ShadeRule::Countershade`, the appearance report's §7 seam, off by
+  default. **The finding that reframes the extent lever**: at the shipped
+  seed and horizon **no chain above two cells leaves a living colony**, at
+  the old flat bill as much as the new one and on a flat slab as much as on
+  the world — so the collapse is upstream of both the pricing and the
+  palette, and the blind A/B `creature-appearance-design.md` §6 asks for is
+  held until it is understood. Prices the arms that report measured.
+- [creature-chain-head-loss-2026-08-30.md](creature-chain-head-loss-2026-08-30.md)
+  — **diagnosis, 2026-08-30. Closes `open-bugs-handoff.md` §R3, and the
+  answer is neither of the two effects that entry named.** The colony above
+  two cells never dies: `built - deaths = registry` exactly in every arm, so
+  nothing was ever unaccounted for. A `Chain(n >= 3)` loses its
+  `CellType::Head` marking — `body_after_step` can put one position in the
+  next body twice when a head steps into its own tail, and `relocate_chain`
+  writes a trailing Segment over the Head — so every instrument that finds
+  an ant by looking for a head reports an empty world over a living,
+  feeding, delivering population. **Cannibalism is ruled out with both
+  controls**: `kinfood=off` is byte-identical to shipped, while
+  `eatskin=on` moves `meat_lost` 0 -> 40,320, so the null is a real one and
+  not a blind instrument. The `food in reach: ant 480` dump §R3 rests on
+  never applied the kin gate, and three of its four entries are the
+  animal's own tail. Placement is real but is the harness on the slab (a
+  two-cell founder pitch: 28 bodies at `pitch=2`, **46** at `pitch=4`).
+  **The extent lever is recoverable.** No fix attempted — `creature.rs` was
+  another lane's.
+- [creature-stamp-routes-2026-08-30.md](creature-stamp-routes-2026-08-30.md) —
+  **priced, nothing built; a decision document.** The three routes past the
+  960-point body stamp, each with a number against it, over 12 pre-registered
+  seeds. **What decides a birth is one number — `ceiling - bar`** — and it
+  governs regardless of mechanism: every negative margin gave *exactly zero*
+  births and every positive one bred, with two arms sharing no mechanism but
+  the same +99 margin breeding at the same rate. Three corrections to the
+  standing account: economics §3 prices every route against a satiety line of
+  **450** that E14 has since cut to **100**, which reverses two verdicts;
+  **neither stamp route removes the stamp, both defer it** (480 against a
+  220 bank), so **route 3 is the precondition for routes 1 and 2 rather than
+  an alternative** — and **creatures cannot grow**, so both stamp routes need
+  a verb the engine does not have. The recommendation is **none of the
+  three first**: `fruit` (960) and `flower` (1,440) exist and no world
+  contains one, because worldgen sows `creeper`/`shrub`/`conifer`/`tree` and
+  the only fruiting species, `herb` and `scrambler`, **are never planted** —
+  which answers the experiment economics §7 calls its cheapest. Route 2 is
+  reported as **unpriced**, with the reason.
 - [creature-direction.md](creature-direction.md) — **direction agreed
   (2026-08-17).** Cell-chain ants, the caged brain, the heritable genome;
   decision record plus implementation plan.
@@ -792,6 +884,49 @@ drift that two of these documents still reflect.**
   work packages with file anchors, steps, measurements and landing
   checklists; the scope guard on what must not start before the owner's
   verdicts (S6, S7's larder, new channels).
+- [creature-vision-sizing-2026-08-30.md](creature-vision-sizing-2026-08-30.md)
+  — **measured pre-flight, 2026-08-30; instrument `examples/vision_probe.rs`,
+  no behaviour changed.** Sizes **E15**'s sight sense before anyone builds it,
+  by tracing the geometry that already exists: **build it at radius 64,
+  all-round, seeing over the floor litter**, and it costs **~0.005 ms of a
+  frame** — 0.15–0.22% of `ascii`'s 2.94 ms mean, below what a wall clock
+  resolves, and under 10% of a frame only past a few hundred predators. Every
+  geometry number in it was measured on **four different trees** as `main`
+  landed underneath — worldgen, tree-breaking, the creature economy. The first
+  three were byte-identical; the fourth moved only in the third decimal and
+  **every median and p10 the recommendation rests on held**. The radius argument is
+  the **p10 seed** rather than the median: the stranded beetle sees prey
+  0.108–0.260 of the time at r32 and 0.240–0.389 at r64, over three presets
+  and 18 seeds each. Two findings the design has to carry: what blocks a
+  sight line is **floor clutter, not landscape** (seed, litter, corpse, soil
+  — 28.1% of pairs on `wetland`, 8.6% with the eye one cell up), and making
+  **foliage a binary blocker costs half the sense** (0.667 → 0.350) with no
+  eye height buying it back, which is `CLAUDE.md`'s *an outcome is a
+  distribution, not a binary* arriving on the creature line. Does not answer
+  whether a beetle acts on a sighting; `predation_probe`'s control already
+  says the kill works at contact.
+- [creature-sight-sense-2026-08-30.md](creature-sight-sense-2026-08-30.md)
+  — **the build of the report above, shipped 2026-08-30.** Two brain inputs,
+  `PreyNear` and `PreyBearing`, written by a 16-ray fan at radius 64 from one
+  cell above the head; the beetle authors `sight_range: 64` and one weight,
+  and **nothing else in the world has eyes**. The pre-flight transferred:
+  predicted 0.572 of samples with prey in sight, built sense reads **0.50**
+  over 8 generated seeds. Over that sweep pursuit moves two independent
+  far-side counters together — mean sighted range **15.2 → 12.5 cells** and
+  prey caught **302 → 323**. It costs about **twice** what the pre-flight
+  priced — 1,020–1,100 cells read per cast against 485, because prey must be
+  tested in the un-lifted frame and blockers in the lifted one — which is
+  still 0.3% of a frame and is an honest correction to §5 of the report
+  above. Three things to carry: the obvious
+  effect counter (**did it move closer this tick**) *cannot* fire on the
+  ticks the sense exists for and falls where catches rise — a number that is
+  arithmetically correct and about the wrong question; the stronger pursuit
+  lever, releasing straight-ahead persistence, is **measured, better on the
+  field, worse in a corridor and deliberately not shipped**, with the
+  question put to the owner; and **`BrainOutput::Turn` is nearly inert for a
+  surface walker on level ground** — both turning candidates fail, one on
+  passability and one on foothold — which is a movement finding filed as
+  `open-bugs-handoff.md` §R4, not a perception one.
 - [foraging-range-measurement.md](foraging-range-measurement.md) —
   **measured record, instrument landed via `da252dc`;** §0 and §5 corrected
   on landing, **§3 corrected 2026-08-23** by WP-9 arm 1's re-test. Why

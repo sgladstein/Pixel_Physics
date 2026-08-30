@@ -3,7 +3,10 @@
 *What plants do, and what it looks like when they are working. No code, no
 file names — see `Reports/` for why any of it is built the way it is.*
 
-*Current as of: 2026-08-29 (most of a felled tree's leaves now stay on the
+*Current as of: 2026-08-30 (a plant's inherited growth program has no fallback
+any more: a mutation that deletes a rule deletes the behaviour, rather than the
+plant quietly reverting to its species' version -- see **Individuals of one
+species differ too**. Before that: most of a felled tree's leaves now stay on the
 branch rather than only the layer touching it -- see **Cutting a plant down**;
 what breaks off a plant turns as it falls and goes over where it lands, instead of dropping in the pose it
 grew in; stems draw a line instead of wandering into one --
@@ -326,6 +329,17 @@ Individuals of one species differ too. Every plant carries a genome drawn when
 it germinates and inherited by its seed, so a population drifts and can be
 selected on.
 
+**A plant's growth program is part of that genome, and there is no longer a
+safety net under it.** The rules that say what a growing tip turns into, what
+it puts out sideways, and when an axis stops are inherited and can mutate like
+anything else — and a mutation that *removes* one removes it for good. The
+lineage does not quietly fall back on the way its species used to grow. That
+is what lets a line of plants reach a shape its species never had; it is also
+what lets a line inherit a body plan that does not work, which is a thing that
+can now happen. In practice you will not see it yet: plants breed slowly
+enough that a stand rarely gets past its great-grandchildren, so almost every
+plant on screen is still growing to its species' original program.
+
 ## Plants that stop, and what they stop in
 
 **Every plant described above grows until something stops it** — it runs out
@@ -599,6 +613,51 @@ breaking is not built yet. Meanwhile the wind is already pushing on the trunk
 and the number is already being kept; nothing is reading it. Foliage in a
 thick canopy is also packed too tightly to move much: there is simply nowhere
 for it to go.
+
+## When a tree breaks
+
+**New on 2026-08-30.** A tree that is carrying more than it can hold breaks,
+and the break is somewhere specific rather than anywhere.
+
+**It is about proportion, not size.** A big tree with a trunk to match is
+fine. What fails is a heavy top on a thin base — a crown that grew out further
+than the wood under it can carry. So the trees that come down are the badly
+grown ones, and a well-built tree of the same age standing next to one will
+be untouched. Roughly a quarter of trees are living close to that line at any
+moment; most have room to spare.
+
+**What it looks like.** One place gives way, not the whole trunk at once.
+There is a splintered stub left where it went, and everything beyond that
+point — the limb, its branches, its leaves — comes down and falls. It is not
+a tree dissolving; it is a tree losing an arm.
+
+**Nothing crumbles to dust.** Whatever comes off a plant lands as a solid
+piece — a big limb as a big piece, a twig as a small one, and a spray of
+leaves that no branch carried down still falls together as a clump rather
+than scattering into powder. What is left on the ground is wood you can stand
+on and walk over, not a heap of sawdust.
+
+**A fallen limb is in your way.** It lies where it landed and it is genuinely
+solid, so you can be caught under one if it comes down on top of you. Jump and
+you heave yourself out on top of it — and the limb carries on falling either
+way, because it does not stop for you.
+
+**What pushes one over.** Its own weight, as the crown grows out. Wind, which
+leans on everything above ground and leans hardest on a tree standing in the
+open — one tucked in a wood or behind a hill feels much less. And anything
+that lands on it: snow piling on a crown through a storm is enough to bring
+down a limb that was managing fine the day before, and no one has to do
+anything for that to happen.
+
+**It should get rarer.** Breaking kills off the badly-proportioned trees, and
+the ones left are the ones that build a thicker trunk for the crown they
+carry. Their seedlings inherit that. A wood that has been standing a long
+time should be losing fewer limbs than a young one — that is the intent, and
+it is not yet proven over a long enough run to state as fact.
+
+**What you will not see yet.** A trunk does not buckle — a very tall thin
+tree does not fold under its own height, it only breaks if something is
+hanging off it wrongly. And roots do not break at all.
 
 ## Fire and death
 

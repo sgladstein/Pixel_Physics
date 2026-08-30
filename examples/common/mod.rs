@@ -211,6 +211,19 @@ pub struct PlantScene {
     /// independent scenes drifting apart is the exact failure this module
     /// was created to end.
     pub soil_moisture: u16,
+    /// The world seed this bed is built with.
+    ///
+    /// **Added because every plant sheet in the repo was one seed**, and a
+    /// guard over a procedural system that sweeps nothing is blind by
+    /// construction (`CLAUDE.md`: eight acceptance scenes stayed green
+    /// through a change that made one seed lose 26x more material). Outcomes
+    /// here are chaotic in the seed, so a bar wants an order statistic over
+    /// several rather than a number from whichever one happened to be the
+    /// default.
+    ///
+    /// `None` leaves `World::new`'s own seed alone, so every stored sheet
+    /// keeps meaning exactly what it meant.
+    pub seed: Option<u64>,
     /// **The frame the world starts on**, which pins the weather.
     ///
     /// `weather::at` is a pure function of `(seed, frame)` and both CA
@@ -292,6 +305,9 @@ impl Default for PlantScene {
             start_frame: 0,
             relief: Relief::Flat,
             species_ron: None,
+            // `None`, so the default bed is byte-identical to every sheet
+            // taken before this field existed.
+            seed: None,
         }
     }
 }
@@ -320,6 +336,9 @@ impl PlantScene {
     pub fn build(&self) -> World {
         let mut w = World::new(Rect::new(0, 0, self.width - 1, self.height - 1));
         w.frame = self.start_frame;
+        if let Some(seed) = self.seed {
+            w.seed = seed;
+        }
         if let Some(source) = &self.species_ron {
             w.species.register_ron(source).expect("the runtime species parses");
         }

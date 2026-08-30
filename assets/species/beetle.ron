@@ -32,8 +32,20 @@
         body: Rigid([(-1, 0), (0, -1), (-1, -1)]),
         tick_interval: 8,
         start_energy: 1600.0,
-        idle_cost: 0.15,
-        move_cost: 0.4,
+        // **Per body cell** (`organism.rs`'s `idle_cost_per_cell`),
+        // re-derived 2026-08-30 to leave this animal's bill exactly where it
+        // was: 0.0375 x 4 cells = the 0.15 authored here before, and 0.10 x 4
+        // = the 0.4. A beetle is a different species from an ant rather than
+        // an ant at another size, so its *total* is what carries meaning and
+        // is what was preserved.
+        //
+        // That leaves it cheaper per cell than an ant (0.0375 against 0.05),
+        // which is inherited from the two species' authored totals rather
+        // than chosen. It happens to point the way real metabolism scales --
+        // bigger animals cost less per unit mass -- but nothing here measured
+        // that, and it should not be read as a model.
+        idle_cost_per_cell: 0.0375,
+        move_cost_per_cell: 0.10,
         // Per active synapse per tick, as a fraction of start_energy (see
         // `CreatureDef::synapse_fraction`). 1.2500000821e-6 * 1600 is the
         // 0.002 this was authored as, *exactly* in f32 -- the obvious
@@ -53,12 +65,24 @@
         // mouthful it took before. It also makes the beetle blind to every
         // plant food in the world for free, which the name-list was doing
         // by omission.
-        traits: (1.0,),
-        trait_variance: (0.15,),
+        traits: (1.0, 1.0),
+        trait_variance: (0.15, 0.15),
 
         nest: "nest",
         dig_force: 0.3,
         nest_memory: 3000,
+        // **The eye, and it is the whole of what this animal was missing.**
+        // 64 cells, all-round, sized before it was built by
+        // `Reports/creature-vision-sizing-2026-08-30.md` -- see
+        // `organism.rs`'s `CreatureDef::sight_range`. The ant does not
+        // author this field and so has no eyes at all, which is what keeps
+        // the cost off every species but this one.
+        //
+        // A beetle could already kill: the pre-flight's own control put a
+        // hungry beetle beside an ant and the ant went 24 -> 22 -> 21 cells.
+        // What it could not do was *find* one, and the two lines below are
+        // what turn a sighting into a pursuit.
+        sight_range: 64,
         sensor_offset: 6,
         instincts: [
             (Bias, Move, 2.0),
@@ -69,6 +93,28 @@
             // world. Same weight, so it hunts exactly as it did.
             (FoodAdjacent, Feed, 2.0),
             (TempAboveAmb, Turn, -0.8),
+            // **Steer at what it can see.** `PreyBearing` is positive to
+            // the right and `Turn` biases *left* when positive, so pursuit
+            // is a negative weight -- the same sign `(PheroALateral, Turn,
+            // ..)` carries in `ant.ron` for the same reason.
+            (PreyBearing, Turn, -2.5),
+            // **`(PreyNear, Persist, w)` is measured, better on the
+            // field, worse in a corridor, and deliberately NOT shipped.**
+            // Releasing straight-ahead persistence in proportion to how
+            // near the prey is lets the turn win against a `Persist`
+            // default that otherwise matches it, and over 8 seeds it is
+            // the strongest lever in the sweep: mean sighted range 12.5 ->
+            // 12.2 -> 9.1 and prey caught 323 -> 345 -> 355 at w = 0, -3,
+            // -6. In a sealed 20-cell chamber it cost the head-bite 6/8 ->
+            // 4/8 at the same total of one catch per run, which is a
+            // chaotic tie-break rather than a worse predator -- and that
+            // is exactly the sort of disagreement this project settles by
+            // eye rather than by picking the number it likes.
+            //
+            // So the shipped animal turns and nothing else, the knob lives
+            // in `predation_probe`'s `release=`, and the question is with
+            // the owner. Full sweep in
+            // `Reports/creature-sight-sense-2026-08-30.md`.
         ],
     )),
 )

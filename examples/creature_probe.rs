@@ -56,6 +56,100 @@ fn main() {
     let mut threshold = -1.0f32;
     let mut hunger = -1.0f32;
     let mut mutation_rate = -1.0f32;
+    // The ancestral `TRAIT_BIRTH_GRANT` allele, taken as a **fraction of
+    // `start_energy`** rather than as its `-1..=1` axis position, because
+    // the fraction is the quantity the arithmetic is written in. Negative
+    // means "leave the species file alone".
+    let mut grant = -1.0f32;
+    // **Chain length, and the reason it is a knob rather than a species
+    // file.** Extent is the only measured lever on whether a creature can
+    // be found in the picture (`creature-appearance-design.md` §2: decoys
+    // fall 127 -> 15 -> 0 across 2, 9 and 16 cells), and since 2026-08-30 it
+    // is also the thing `idle_cost_per_cell` and `move_cost_per_cell` are
+    // charged against. Nothing could vary it in-process before, so the
+    // economics of a bigger body had never been measured at all -- the
+    // `ant_long` species file exists but is `include_str!`ed, which is the
+    // gotcha that has produced whole invalid sweeps here. 0 means "leave
+    // the species file alone".
+    let mut body = 0usize;
+    // **The two prices, per cell, so `body=` can be run against the bill it
+    // used to pay.** Without these a `body=6` run confounds two changes at
+    // once -- the body got bigger *and* it started paying for itself -- and
+    // `CLAUDE.md`'s rule about a sweep whose settings all fail the same way
+    // is precisely that a rider travelling with the mechanism is part of
+    // every data point. Setting `idle=0.016667` at `body=6` reproduces the
+    // pre-2026-08-30 total of 0.10 per tick, which is the control.
+    // Negative means "leave the species file alone".
+    let mut idle = -1.0f32;
+    let mut mv = -1.0f32;
+    // **§R3's isolating control: is living ant flesh what is eating the
+    // colony?** `open-bugs-handoff.md` §R3 records that no `Chain` above two
+    // cells leaves a survivor, that the per-cell bill and the terrain are
+    // both ruled out by paired arms, and that 22 of 34 animals go missing
+    // without the death counter moving. Its leading hypothesis is
+    // cannibalism, on the strength of a frame-0 dump reading `food in reach:
+    // ant 480` — the richest food in the world — and of a longer chain
+    // having proportionally more contact surface with its neighbours.
+    //
+    // **That dump is `food_value` alone and never applies the kin gate**
+    // (`report` above), so it cannot distinguish flesh that is edible from
+    // flesh that merely *would* be if the eater were a beetle. This knob is
+    // the control that can: `kinfood=off` sets the living-ant materials'
+    // `food_energy` to zero, which takes them under `EAT_YIELD_THRESHOLD`
+    // for every gut, so no ant can draw anything from another ant's body
+    // however the kin gate behaves.
+    //
+    // **Living flesh only — `corpse` is deliberately left alone.** The
+    // question is whether ants eat *each other*, not whether they scavenge,
+    // and carrion is the food an ant colony is supposed to run on. Zeroing
+    // both would confound the control with a famine.
+    //
+    // In-process rather than in `assets/species/*.ron` for two reasons: the
+    // assets are `include_str!`ed, so an edited `.ron` against a prebuilt
+    // binary produces bit-identical "runs" (the gotcha that has already
+    // produced whole invalid sweeps here), and `beetle.ron` eats ants
+    // *deliberately* — a committed change to ant flesh would silently
+    // disarm the only predator in the world. Nothing in this scene is a
+    // beetle, so the override cannot reach one.
+    let mut kinfood = true;
+    // **The positive control for the knob above, and it is not optional.**
+    // `kinfood=off` answers "does the colony live once kin cannot be eaten".
+    // A null from it — the colony dies anyway — is only worth something if
+    // the instrument could have reported the other answer, and `CLAUDE.md`
+    // is explicit that a null is exactly where a counter hides: *"run the
+    // positive control... construct the case whose answer you know is
+    // non-zero and check the instrument reports it."*
+    //
+    // `eatskin=on` flips `CreatureDef::eats_kin`, which is the gate
+    // `adjacent_food` gives living kin. It makes cannibalism *actually
+    // happen*, so the arms read:
+    //
+    //     eatskin=on    cannibalism forced on   — must look catastrophic
+    //     (default)     shipped behaviour       — the arm under test
+    //     kinfood=off   kin flesh worthless     — the isolating control
+    //
+    // If the first and the last do not differ, this probe cannot see
+    // cannibalism at all and no null it reports means anything.
+    let mut eats_kin = false;
+    // **The spacing the harness lays its founders out on, and the reason
+    // it is suddenly a variable.** Both scenes below plant 55 founders at
+    // `x = base + i * 2` — a **two-cell pitch** — and a `Chain(n)` is laid
+    // out as *n* cells running left from its head. So at `body=2` the
+    // bodies tile the row exactly, and at `body=3` every consecutive pair
+    // overlaps by a cell and the second of each pair has nowhere to go.
+    //
+    // That is arithmetic, not ecology: the pitch was calibrated against the
+    // shipped two-cell ant and silently became a *body-size filter* the
+    // moment `body=` existed. §R3 reads the resulting 55 -> 28 on the slab
+    // as "the site predicate gets harder as *n* grows" and files it as a
+    // property of the engine; it is a property of this scene's founder
+    // loop, which is `CLAUDE.md`'s "a scene that contradicts the code will
+    // look like a bug in the code".
+    //
+    // `pitch=` is what tells the two apart. Default 2 reproduces every
+    // number already filed; `pitch=4` gives a three-cell body the same
+    // clearance a two-cell one has always had.
+    let mut pitch = 2usize;
     for arg in std::env::args().skip(1) {
         let Some((k, v)) = arg.split_once('=') else { continue };
         match k {
@@ -63,14 +157,35 @@ fn main() {
             "every" => every = v.parse().expect("every"),
             "ants" => ants = v.parse().expect("ants"),
             "terrain" => world_terrain = v == "world",
-            "seed" => seed = v.parse().expect("seed"),
+            // **Hex as well as decimal, because this probe echoes hex.**
+            // The parameter line prints `seed={seed:#x}`, so a report
+            // quoting its own output writes `seed=0xA17` -- which
+            // `str::parse::<u64>` rejects outright. `open-bugs-handoff.md`
+            // §R3 does exactly that, and its headline reproduction command
+            // panicked on the argument rather than running. Accepting the
+            // form the harness prints is the fix; the alternative is a
+            // readout that cannot be pasted back in.
+            "seed" => {
+                seed = v
+                    .strip_prefix("0x")
+                    .or_else(|| v.strip_prefix("0X"))
+                    .map_or_else(|| v.parse::<u64>(), |hex| u64::from_str_radix(hex, 16))
+                    .expect("seed: decimal, or hex with an 0x prefix")
+            }
             "start_energy" => start_energy = v.parse().expect("start_energy"),
             "body_energy" => body_energy = v.parse().expect("body_energy"),
             "threshold" => threshold = v.parse().expect("threshold"),
             "hunger" => hunger = v.parse().expect("hunger"),
             "mutation_rate" => mutation_rate = v.parse().expect("mutation_rate"),
+            "grant" => grant = v.parse().expect("grant"),
+            "body" => body = v.parse().expect("body"),
+            "idle" => idle = v.parse().expect("idle"),
+            "move" => mv = v.parse().expect("move"),
+            "kinfood" => kinfood = v != "off",
+            "eatskin" => eats_kin = v == "on",
+            "pitch" => pitch = v.parse::<usize>().expect("pitch").max(1),
             other => panic!(
-                "unknown arg {other:?}; known: frames, every, ants, terrain, seed, start_energy, body_energy, threshold, hunger, mutation_rate"
+                "unknown arg {other:?}; known: frames, every, ants, terrain, seed, start_energy, body_energy, threshold, hunger, mutation_rate, grant, body, idle, move, kinfood, eatskin, pitch"
             ),
         }
     }
@@ -112,13 +227,41 @@ fn main() {
         if threshold >= 0.0 {
             def.reproduce_threshold = threshold;
         }
+        if grant >= 0.0 {
+            def.traits[pixel_physics::sim::organism::TRAIT_BIRTH_GRANT] = grant * 2.0 - 1.0;
+        }
         if hunger >= 0.0 {
             def.hunger_fraction = hunger;
         }
         if mutation_rate >= 0.0 {
             def.mutation_rate = mutation_rate;
         }
+        if body > 0 {
+            def.body = pixel_physics::sim::organism::BodyPlan::Chain(body as u8);
+        }
+        if idle >= 0.0 {
+            def.idle_cost_per_cell = idle;
+        }
+        if mv >= 0.0 {
+            def.move_cost_per_cell = mv;
+        }
+        // The positive control. Left as the species file has it unless asked.
+        if eats_kin {
+            def.eats_kin = true;
+        }
         world.species.set_creature(species, def);
+        // **Every living-ant material, not just `ant`.** The chain bodies
+        // (`ant_long`, `ant_wide`, `ant_block`) and the two chitins are the
+        // same living flesh wearing a different palette, and a control that
+        // zeroed only `ant` would leave a hole exactly where a longer body
+        // puts its extra cells. `corpse` is absent on purpose — see above.
+        if !kinfood {
+            for name in ["ant", "ant_long", "ant_wide", "ant_block", "chitin_mid", "chitin_pale"] {
+                if let Some(id) = world.materials.id_of(name) {
+                    world.materials.get_mut(id).food_energy = 0.0;
+                }
+            }
+        }
     }
     let def = world.species.get(species).creature.clone().expect("ant is a creature");
     // Echo every parameter, so a log that does not name its terrain or its
@@ -152,12 +295,33 @@ fn main() {
         .fold(0.0f32, f32::max);
     let ceiling = def.hunger_fraction * def.start_energy + best_mouthful;
     println!(
-        "creature probe: {frames} frames, reporting {ants} ants every {every} | terrain={} seed={seed:#x}",
-        if world_terrain { "world" } else { "slab" }
+        "creature probe: {frames} frames, reporting {ants} ants every {every} | terrain={} seed={seed:#x} body={} cells pitch={pitch} | kin flesh {} eats_kin {}",
+        if world_terrain { "world" } else { "slab" },
+        def.body.len(),
+        // Echoed because a knob nobody can see the value of is a knob
+        // nobody can tell is disconnected (`CLAUDE.md`) -- and these two
+        // are the whole of §R3's control, so a log that does not name them
+        // cannot be read as either arm.
+        if kinfood { "edible" } else { "WORTHLESS" },
+        if def.eats_kin { "ON" } else { "off" }
     );
     println!(
-        "  economy: start_energy {:.0} body_energy {:.0} hunger_fraction {:.2} reproduce_threshold {:.0} mutation_rate {:.3}",
-        def.start_energy, def.body_energy, def.hunger_fraction, def.reproduce_threshold, def.mutation_rate
+        "  metabolism: idle {:.4}/cell x {} cells = {:.4} per tick, move {:.4}/cell = {:.4} per step",
+        def.idle_cost_per_cell,
+        def.body.len(),
+        def.idle_cost_per_cell * def.body.len() as f32,
+        def.move_cost_per_cell,
+        def.move_cost_per_cell * def.body.len() as f32
+    );
+    println!(
+        "  economy: start_energy {:.0} body_energy {:.0} hunger_fraction {:.2} reproduce_threshold {:.0} mutation_rate {:.3} birth_grant {:.2} (= {:.0} energy)",
+        def.start_energy,
+        def.body_energy,
+        def.hunger_fraction,
+        def.reproduce_threshold,
+        def.mutation_rate,
+        pixel_physics::sim::creature::grant_fraction(def.traits[pixel_physics::sim::organism::TRAIT_BIRTH_GRANT]),
+        pixel_physics::sim::creature::birth_grant(&def, &def.traits)
     );
     println!(
         "  reachability: birth costs {:.0}, and an ant banks at most about {:.0} (hunger_fraction * start_energy + best digestible mouthful {best_mouthful:.0}) -- {}",
@@ -238,7 +402,7 @@ fn main() {
             world.set(x, sy, Cell::new(nest, 0).with_attached(true));
         }
         for i in 0..55 {
-            let ax = 100 + i * 2;
+            let ax = 100 + (i * pitch) as i32;
             let sy = surface_of(&world, ax);
             world.plant_ant(ax, sy - 1);
         }
@@ -260,7 +424,7 @@ fn main() {
             }
         }
         for i in 0..55 {
-            world.plant_ant(20 + i * 2, floor - 1);
+            world.plant_ant(20 + (i * pitch) as i32, floor - 1);
         }
     }
 
@@ -354,6 +518,137 @@ fn main() {
         world.live_creature_energy(),
         world.energy_ledger.expected_live_total(),
         world.live_creature_energy() - world.energy_ledger.expected_live_total()
+    );
+    // **Where the bodies went, as accounts rather than as a death count.**
+    // §R3's open question is that 22 of 34 animals disappear while `deaths`
+    // moves by 12, and `CLAUDE.md` names that counter as one that has
+    // already failed here — so the outcome measure has to come from
+    // somewhere else. The ledger is that somewhere, and it partitions the
+    // question three ways instead of leaving it as one absence:
+    //
+    // * `stamped` is meat created when a body is *built*, so
+    //   `stamped / body_energy` is **how many animals were ever placed** —
+    //   a direct read on §R3's effect 1 that does not go through peak
+    //   population, which is a max over a trajectory and conflates
+    //   placement with survival.
+    // * `harvested_corpse` is meat **eaten off a corpse**: scavenging, the
+    //   thing the colony is supposed to live on.
+    // * `meat_lost` is meat **destroyed without being eaten** — the sweep
+    //   burying or crushing it, and (since S6) the stamp of living flesh
+    //   bitten off an animal that is still alive. A cannibalism story has
+    //   to show up here or it is not happening.
+    //
+    // Printed unconditionally: these cost nothing, and a number nobody can
+    // see is a number nobody can tell is flat.
+    // **Two counts of "how many animals are left", and they are not the
+    // same question.** `live` above counts **head cells standing in the
+    // world**; `live_creature_count` counts **entries in the organism
+    // registry**. A healthy colony has them equal. They come apart exactly
+    // when a body is removed from the world without its organism being
+    // retired — or the reverse — and §R3's "22 animals unaccounted for"
+    // is that gap being read through a death counter that never sees it.
+    //
+    // Censusing the standing flesh alongside them closes the third corner:
+    // `ant` cells with no head are a body that lost its head, and a
+    // registry entry with no cells is a ghost. Which of the three numbers
+    // moves says which of those it is, and no one of them can say it alone
+    // (`CLAUDE.md`: pair every "it fired" counter with an effect counter
+    // from the far side of the call).
+    let registry = world.live_creature_count();
+    let mut ant_cells = 0usize;
+    let mut headless_ant_cells = 0usize;
+    for x in 0..w {
+        for y in 0..h {
+            let cell = world.get(x, y);
+            if cell.material != ant {
+                continue;
+            }
+            ant_cells += 1;
+            if world.organism(cell.organism_id()).is_none() {
+                headless_ant_cells += 1;
+            }
+        }
+    }
+    println!(
+        "population: {live} head cells vs {registry} registry entries (gap {}) | standing ant cells {ant_cells}, of which {headless_ant_cells} belong to no organism",
+        registry as i64 - live as i64
+    );
+    // **Which cell type the standing flesh actually carries**, because
+    // "no head cells" has two readings and they call for opposite fixes:
+    // the heads were destroyed (a body-integrity bug), or they are standing
+    // there wearing a different label (a marking bug, and every consumer
+    // keyed on `CellType::Head` is then looking straight past a live
+    // animal). A histogram separates them in one line; the population
+    // counts above cannot.
+    let mut types: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
+    for x in 0..w {
+        for y in 0..h {
+            let cell = world.get(x, y);
+            if cell.material != ant {
+                continue;
+            }
+            let label = match pixel_physics::sim::organism::cell_type(cell.aux()) {
+                Some(t) => format!("{t:?}"),
+                None => format!("unrecognised(aux={})", cell.aux()),
+            };
+            *types.entry(label).or_default() += 1;
+        }
+    }
+    // **The mechanism check, and it is a claim about `chain` rather than
+    // about the world.** If the head is being *overwritten* by its own
+    // trailing segment, the cause is visible in the position list itself:
+    // `body_after_step` builds a chain's next body as `[head, chain[0],
+    // ..., chain[n-2]]`, so a head that steps into a cell its own body
+    // already occupies puts the **same position twice** in that list, and
+    // `relocate_chain` writes it twice -- last write wins, and the last
+    // write is a Segment.
+    //
+    // That needs three cells: at `Chain(2)` the list is `[head, chain[0]]`
+    // and the two are distinct however the animal turns, which is exactly
+    // the length threshold the histogram above shows. So a duplicate in a
+    // live chain is the signature, and its absence would refute this.
+    let mut dup_chains = 0usize;
+    let mut headless_chains = 0usize;
+    let mut chained = 0usize;
+    for id in 1..4096u16 {
+        let Some(state) = world.organism(id) else { continue };
+        if world.species.get(state.species).creature.is_none() || state.chain.is_empty() {
+            continue;
+        }
+        chained += 1;
+        let mut seen = std::collections::HashSet::new();
+        if !state.chain.iter().all(|p| seen.insert(*p)) {
+            dup_chains += 1;
+        }
+        if let Some(&(hx, hy)) = state.chain.first() {
+            if pixel_physics::sim::organism::cell_type(world.get(hx, hy).aux()) != Some(pixel_physics::sim::organism::CellType::Head) {
+                headless_chains += 1;
+            }
+        }
+    }
+    println!("chain integrity: {chained} chains | {dup_chains} contain a repeated position | {headless_chains} have a non-Head cell at chain[0]");
+    println!(
+        "standing ant cell types: {}",
+        if types.is_empty() { "none".to_string() } else { types.iter().map(|(k, v)| format!("{k} {v}")).collect::<Vec<_>>().join("  ") }
+    );
+    let l = &world.energy_ledger;
+    println!(
+        "ledger: granted {:.0} stamped {:.0} | harvested plant {:.0} corpse {:.0} | metabolized {:.0} moved {:.0} synapse {:.0} | stored_in_meat {:.0} meat_lost {:.0} dissipated {:.0} overdrawn {:.0}",
+        l.granted, l.stamped, l.harvested_plant, l.harvested_corpse, l.metabolized, l.moved, l.synapse_tax, l.stored_in_meat, l.meat_lost, l.dissipated, l.overdrawn
+    );
+    // `stamped` is in joules; a body is `body_energy` per cell times its
+    // length, so this divides out both and reports **animals**. It is the
+    // placement counter §R3 asks for, and it is independent of
+    // `births_denied_no_space` above rather than a restatement of it: that
+    // one counts refusals, this one counts bodies that made it into the
+    // world, and a founder placed by the harness is in this and not in that.
+    let per_body = (def.body_energy as f64) * def.body.len() as f64;
+    println!(
+        "bodies ever built (stamped / body_energy / cells): {:.1} at {:.0} J each ({} cells x {:.0} J)",
+        l.stamped / per_body.max(1.0),
+        per_body,
+        def.body.len(),
+        def.body_energy
     );
 }
 

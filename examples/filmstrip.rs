@@ -1325,6 +1325,7 @@ fn build_scene(args: &Args) -> World {
             return common::PlantScene {
                 species: args.species.clone(),
                 trees: plants,
+                seed: args.seed_given.then_some(args.seed),
                 soil_moisture: args.soil_moisture,
                 soil_depth: args.soil_depth,
                 start_frame: args.frame0,
@@ -1464,6 +1465,126 @@ fn build_scene(args: &Args) -> World {
             for dx in 0..2 {
                 w.set(24 + 5 * 24 + dx, floor - 1, Cell::new(corpse, 0));
             }
+        }
+        // **A beetle finding an ant it did not bump into** — E15's whole
+        // claim, on screen, in the one form it can be read in: motion.
+        //
+        // **The beetle starts facing away from its prey, and that is the
+        // scene.** Founders face east; the ants stand to the *west*, 60-odd
+        // cells off, outside every contact-range sense in the engine and
+        // inside the 64-cell eye. A blind beetle walks east and leaves the
+        // picture. An eyed one turns round. Nothing else differs between
+        // the two arms — `blind=1` sets `sight_range: 0` and touches
+        // nothing else — which is what makes the turn attributable to the
+        // sense rather than to the weather.
+        //
+        // **Litter on the floor is part of the scene, not decoration.** The
+        // sizing study found floor clutter, not landscape, is what stops a
+        // sight line at head height (25% seed, 21% litter, 17% corpse of
+        // all blockers), and the whole of the answer was to put the eye one
+        // cell up. A bare floor would demonstrate a sense that has never
+        // met the thing it was designed around.
+        //
+        //   cargo run --release --example filmstrip -- scene=hunt gif=1 \
+        //     out=hunt.gif start=0 every=40 count=40 zoom=3 crop=0,270,220,44
+        "hunt" => {
+            use pixel_physics::sim::creature::plant_creature_seed;
+            stone_floor(&mut w);
+            let base = HEIGHT - FLOOR_THICKNESS;
+            // **Relief, and it is not scenery.** A walking creature changes
+            // heading by *stepping* — its three candidates are ahead-left,
+            // ahead and ahead-right — so on a dead-level slab one of the two
+            // turning candidates is into the floor (impassable) and the
+            // other is into thin air (no foothold), and a `Turn` output has
+            // nothing to act on. Measured on the first draft of this scene,
+            // which was `stone_floor` alone: the eyed and blind arms came
+            // back with byte-identical `moves 898 blocked 28 falls 167`
+            // while the eye itself reported `seen 139 of 195 casts`. The
+            // sense fired perfectly and could not steer, because the
+            // *terrain* forbade turning. See
+            // `Reports/creature-sight-sense-2026-08-30.md` §5.
+            //
+            // A shallow ramp either side of the colony gives both diagonals
+            // a foothold, which is what almost all real ground does and is
+            // why this was invisible until a scene was built without it.
+            // A **one-cell ripple**, not a ramp. The first attempt was a
+            // shallow ramp and it traded one failure for another: sight
+            // lines then ran *along* a littered slope and `seen` fell from
+            // 139 of 195 casts to 15. What turning needs is a step under
+            // the diagonal, not a gradient — one cell every seven is
+            // enough, and it leaves the line of sight near-horizontal.
+            let surface = |x: i32| base - (x / 7) % 2;
+            for x in 0..WIDTH {
+                for y in surface(x)..base {
+                    w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+                }
+            }
+
+            let seed_mat = w.materials.id_of("seed").expect("seed is compiled in");
+            let litter = w.materials.id_of("litter").unwrap_or(seed_mat);
+            // **The colony first, then the clutter.** Placed the other way
+            // round the litter sat on the cells the ants need and
+            // `plant_ant` refused half of them silently — 4 of 8, in the
+            // first run of this scene.
+            let mut ants = 0;
+            for i in 0..8i32 {
+                let ax = 40 + i * 4;
+                w.plant_ant(ax, surface(ax) - 1);
+                if w.get(ax, surface(ax) - 1).organism_id() != 0 {
+                    ants += 1;
+                }
+            }
+            assert!(ants >= 6, "scene=hunt stood up only {ants} ants; there is not enough to hunt");
+            // Clutter, in the gap between the two, which is where it has to
+            // be for the eye height to be doing anything. Deterministic: a
+            // hand-placed run is still a scene and this one has to
+            // reproduce.
+            for i in 0..24i32 {
+                let x = 74 + i;
+                let mat = if i % 3 == 0 { litter } else { seed_mat };
+                w.set(x, surface(x) - 1, Cell::new(mat, (i % 4) as u8));
+            }
+            // **One beetle, 37 cells east of the nearest ant and facing
+            // further east**, which is inside the 64-cell eye and outside
+            // every contact-range sense in the engine. The first draft put
+            // it at x=150, **98 cells out** — past the reach — so the eyed
+            // and blind arms came back with byte-identical counters and the
+            // scene read as a sense that does not work. A scene that
+            // contradicts the code looks exactly like a bug in the code
+            // (`CLAUDE.md`), and the tell was the identity.
+            let beetle_x = 105;
+            let species = w.species.id_of("beetle").expect("beetle species");
+            {
+                let mut def = w.species.get(species).creature.clone().expect("beetle is a creature");
+                if args.blind {
+                    def.sight_range = 0;
+                }
+                // **`hunger_fraction: 1.0` so the catch is a *swallow*, and
+                // it is the scene's only other departure from `beetle.ron`.**
+                // A beetle starts at 1600 and burns about 0.4 a tick, so it
+                // does not cross its authored 0.8 threshold for roughly
+                // 6,000 frames — longer than any strip anyone will render —
+                // and until then a catch takes the one form the picture
+                // cannot distinguish from foraging: it picks the mouthful up
+                // and carries it. The ant loses the cell either way; only
+                // the swallow moves `feeds`. Applied to both arms, so it
+                // cannot be what separates them.
+                def.hunger_fraction = 1.0;
+                w.species.set_creature(species, def);
+            }
+            let beetle = match plant_creature_seed(&mut w, beetle_x, surface(beetle_x) - 1, "beetle") {
+                Some(site) => {
+                    w.schedule_active_site(site);
+                    w.get(beetle_x, surface(beetle_x) - 1).organism_id()
+                }
+                None => 0,
+            };
+            assert_ne!(beetle, 0, "scene=hunt placed no beetle -- the scene is not showing what it claims to");
+            let def = w.species.get(species).creature.clone().expect("creature");
+            println!(
+                "scene=hunt blind={} : 1 beetle at x={beetle_x} facing east, {ants} ants at x=40..68, sight_range={}",
+                args.blind, def.sight_range
+            );
         }
         "colony" => {
             let (presets, err) = pixel_physics::worldgen::WorldgenPresets::load();
@@ -1788,6 +1909,57 @@ fn build_scene(args: &Args) -> World {
                 }
             }
             w.player = Some(pixel_physics::sim::player::Player::at(260, 120));
+        }
+        // `swim`'s pool, entered at the waterline and crossed rather than
+        // dived into — the other half of what a gnome does to water, and
+        // the half `scene=swim` is blind to by construction: its script
+        // holds `down` and then `jump` and never once presses a direction,
+        // so he has never swum *along* a surface in this harness at all.
+        //
+        // Wider than `swim`'s pool and shallower, because what is read here
+        // is a length of waterline rather than a depth: the question is
+        // whether the line he is crossing stays a razor-straight line.
+        "surf" => {
+            stone_floor(&mut w);
+            for y in 150..floor_y {
+                for x in 100..110 {
+                    w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+                }
+            }
+            // A **shelving beach** on the far side rather than another
+            // wall, and it is the whole reason this scene can answer the
+            // second half of the question. `scene=swim`'s pool is walled
+            // from above the waterline to the floor on both sides, so its
+            // gnome has never once left the water: it reported `1 in /
+            // 0 out` across a 450-frame run with the exit path in place and
+            // working, which is a guard blind by construction rather than a
+            // mechanism that does not fire.
+            //
+            // A beach and not a lip, because the haul-out is `step_up`
+            // (4 cells) rather than `mantle_reach` while he is in the
+            // water — his own comment at that branch says so — and a
+            // swimmer floats far enough down that a lip he can see is a lip
+            // he cannot reach. Shelving out at 1:2 he grounds, wades, and
+            // the stroke buffer he has been holding fires as `surface_hop`
+            // the tick his head clears: he *hops* out, which is the verb the
+            // exit crown is sized against.
+            for x in 380..430 {
+                let top = 210 - (x - 380) / 2;
+                for y in top..floor_y {
+                    w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+                }
+            }
+            for x in 110..410 {
+                for y in 200..floor_y {
+                    if w.get(x, y).material == material::EMPTY {
+                        w.set(x, y, water_at(x, y));
+                    }
+                }
+            }
+            // At the waterline, not above it: an entry crown would be the
+            // first thing on the sheet and this scene is about what comes
+            // after one.
+            w.player = Some(pixel_physics::sim::player::Player::at(140, 200));
         }
         // M9's other acceptance line: "stands on a tumbling rigid body".
         // The `undercut` recipe with a passenger -- a shelf cut off its
@@ -2307,6 +2479,7 @@ fn build_scene(args: &Args) -> World {
             let w = common::PlantScene {
                 species: args.species.clone(),
                 trees: 1,
+                seed: args.seed_given.then_some(args.seed),
                 soil_moisture: args.soil_moisture,
                 start_frame: args.frame0,
                 ..common::PlantScene::default()
@@ -2344,6 +2517,12 @@ fn build_scene(args: &Args) -> World {
 
 struct Args {
     scene: String,
+    /// `blind=1` -- force `scene=hunt`'s beetle to `sight_range: 0`, which
+    /// is the **control arm** of that scene and not a debugging switch.
+    /// The claim the scene makes is that the beetle turns round because it
+    /// can see; a blind beetle on the identical world is the only thing
+    /// that makes that a claim rather than an anecdote.
+    blind: bool,
     /// `day=`/`weather=`/`growth=`/`creatures=`/`gnome=` — the world-speed
     /// knobs (`sim::clock`), each "N times slower than baseline".
     ///
@@ -2358,12 +2537,19 @@ struct Args {
     clock: pixel_physics::sim::clock::Clock,
     /// `seed=N` -- which generated world `scene=worldgen` builds.
     seed: u64,
+    seed_given: bool,
     /// `yield=F` -- the gnome's `dig_yield`, for comparing the spoil
     /// modes the app cycles with `F2`. Whether a bore actually opens is
     /// decided entirely by this number (see `player::Tuning::dig_yield`),
     /// so a harness that could not vary it could not show the difference
     /// between "you cannot dig" and "rock simply goes".
     dig_yield: f32,
+    /// `Tuning::splash_force` — the whole water-surface effect behind one
+    /// multiplier, and `splash=0` is the A/B control: the gnome the pool
+    /// used to ignore. Present as an argument because the effect is judged
+    /// by eye and a remembered impression of the old behaviour is exactly
+    /// the comparison `CLAUDE.md` says not to make.
+    splash: f32,
     /// `shoulder=N` -- the gnome's `shoulder_grains`, for sweeping how many
     /// loose grains above the wade line he pushes past. 0 is the old veto,
     /// under which one stray soil cell in a canopy was an impassable wall.
@@ -3057,9 +3243,11 @@ fn parse() -> Args {
     let mut a = Args {
         scene: "pour".into(),
         dig_yield: pixel_physics::sim::player::Tuning::default().dig_yield,
+        splash: pixel_physics::sim::player::Tuning::default().splash_force,
         shoulder_grains: pixel_physics::sim::player::Tuning::default().shoulder_grains,
         dig_style: pixel_physics::sim::player::DigStyle::default(),
         seed: 1,
+        seed_given: false,
         species: "tree".into(),
         soil_moisture: pixel_physics::sim::material::SOIL_FIELD_CAPACITY,
         frame0: 0,
@@ -3075,6 +3263,7 @@ fn parse() -> Args {
         cols: 3,
         zoom: 1,
         genome: String::from("authored"),
+        blind: false,
         impulse: HOP_IMPULSE_WEIGHT,
         hop_body: String::new(),
         crop: Rect::new(0, 0, WIDTH - 1, HEIGHT - 1),
@@ -3151,8 +3340,16 @@ fn parse() -> Args {
         let Some((k, v)) = arg.split_once('=') else { continue };
         match k {
             "scene" => a.scene = v.into(),
-            "seed" => a.seed = v.parse().expect("seed"),
+            "seed" => {
+                a.seed = v.parse().expect("seed");
+                // Tracked separately because `Args::seed` defaults to 1
+                // while `World::new` uses `DEFAULT_WORLD_SEED`: passing it
+                // through unconditionally would silently move every plant
+                // sheet ever taken. Only an explicit `seed=` overrides.
+                a.seed_given = true;
+            }
             "yield" => a.dig_yield = v.parse().expect("yield"),
+            "splash" => a.splash = v.parse().expect("splash"),
             "shoulder" => a.shoulder_grains = v.parse().expect("shoulder"),
             // `digstyle=`, because **both shorter names were already
             // taken**: `dig=` is `scene=room`'s cut radius and `cut=` is a
@@ -3195,6 +3392,7 @@ fn parse() -> Args {
             "cols" => a.cols = v.parse().expect("cols"),
             "zoom" => a.zoom = v.parse().expect("zoom"),
             "genome" => a.genome = v.to_string(),
+            "blind" => a.blind = v.parse::<i32>().expect("blind=0|1") != 0,
             "impulse" => a.impulse = v.parse().expect("impulse=WEIGHT"),
             "body" => a.hop_body = v.to_string(),
             "driver" => a.parallel_driver = v != "serial",
@@ -3907,6 +4105,10 @@ struct Gnome {
     /// read for — see `Script::Climb`.
     grabbed: bool,
     grabbed_at: f32,
+    /// Where the walking scripts last saw him, and for how many ticks he has
+    /// been there — the state behind `blocked_jump` below.
+    walked_to: f32,
+    stalled: u16,
     highest: f32,
     shakes: usize,
     dislodged_by_shaking: usize,
@@ -3946,6 +4148,10 @@ enum Script {
     Bury,
     /// `scene=swim`: sink, float, pull under with `S`, then jump clear.
     Swim,
+    /// `scene=surf`: cross a pool at the waterline, stroking to stay up —
+    /// the one thing `Swim` never does, since it presses no direction at
+    /// all.
+    Surf,
     /// `scene=ride`: no input at all — the shelf under him gives way and
     /// the only question is whether he goes with it.
     Ride,
@@ -3981,11 +4187,12 @@ const WOOD_WALK_FROM: usize = 6000;
 const CLIMB_WALK_TICKS: usize = 60;
 
 impl Gnome {
-    fn for_scene(scene: &str, dig_yield: f32, shoulder_grains: u8) -> Self {
+    fn for_scene(scene: &str, dig_yield: f32, shoulder_grains: u8, splash_force: f32) -> Self {
         let script = match scene {
             "tunnel" => Script::Tunnel,
             "bury" => Script::Bury,
             "swim" => Script::Swim,
+            "surf" => Script::Surf,
             "ride" => Script::Ride,
             "wood" => Script::Wood,
             "climb" => Script::Climb,
@@ -3996,11 +4203,13 @@ impl Gnome {
         };
         Self {
             script,
-            tuning: pixel_physics::sim::player::Tuning { dig_yield, shoulder_grains, ..Default::default() },
+            tuning: pixel_physics::sim::player::Tuning { dig_yield, shoulder_grains, splash_force, ..Default::default() },
             bites: 0,
             start_x: None,
             grabbed: false,
             grabbed_at: 0.0,
+            walked_to: f32::NAN,
+            stalled: 0,
             highest: 0.0,
             shakes: 0,
             dislodged_by_shaking: 0,
@@ -4029,6 +4238,16 @@ impl Gnome {
         use pixel_physics::sim::player::{self, PlayerInput};
         let tuning = self.tuning;
         let phase = step_no % 60;
+        // How long a walking script goes nowhere before it tries a jump. See
+        // `Script::Wood`. Measured in ticks and deliberately not one: a gnome
+        // shoving into a bank makes slow progress rather than none, and
+        // jumping on the first stalled frame would have him hopping the whole
+        // way across a world instead of walking it.
+        const STALL_BEFORE_JUMP: u16 = 12;
+        if let Some(here) = world.player.as_ref().map(|p| p.x) {
+            self.stalled = if (here - self.walked_to).abs() < 0.25 { self.stalled.saturating_add(1) } else { 0 };
+            self.walked_to = here;
+        }
         let input = match self.script {
             Script::Course => PlayerInput {
                 right: true,
@@ -4054,8 +4273,37 @@ impl Gnome {
                 jump_pressed: step_no >= 260,
                 ..Default::default()
             },
+            // Swim right, stroking to stay up. `jump_held` rather than
+            // `jump_pressed` because a stroke fires off the held key on its
+            // own cooldown (`Tuning::stroke_cooldown`), and the default
+            // `DIVER` feel has *positive* buoyancy — he sinks unless he
+            // pulls, so holding `W` is what keeps him at the surface rather
+            // than what lifts him out of it.
+            Script::Surf => PlayerInput { right: true, jump_held: true, ..Default::default() },
             Script::Ride => PlayerInput::default(),
-            Script::Wood => PlayerInput { right: step_no >= WOOD_WALK_FROM, ..Default::default() },
+            // **He jumps when he stops making progress, because a player
+            // would.**
+            //
+            // This script pressed nothing but `right`, which was fine while
+            // a forest floor was flat. It is not a fair driver of a world
+            // where limbs fall across the path: a grounded walk mounts
+            // `Tuning::step_up` (4 cells) and a fallen limb is taller than
+            // the gnome, so a walk-only script reads "the forest is
+            // impassable" where a person would simply hop over it. Measured
+            // when severed tissue started landing as pieces: 296 cells of a
+            // 400 bar, and 8 of 40 on `woodalt`, with him walled in three
+            // cells from where he spawned.
+            //
+            // The bar is untouched -- he still has to cover the same ground.
+            // What changed is that the driver now does the obvious thing
+            // when it stops working, which is also what exercises the
+            // buried-jump escape `player::step` gained for the same reason.
+            Script::Wood => PlayerInput {
+                right: step_no >= WOOD_WALK_FROM,
+                jump_pressed: self.stalled > STALL_BEFORE_JUMP,
+                jump_held: self.stalled > STALL_BEFORE_JUMP,
+                ..Default::default()
+            },
             // Walk until he has a handhold, then hold `W` and nothing
             // else. Holding a direction *while* climbing shimmies him
             // sideways out of the trunk, which is how you leave a tree and
@@ -4224,7 +4472,7 @@ impl Gnome {
         // Aim: straight ahead at his own height for the tunnel, and
         // anywhere at all while buried, since a buried bite auto-aims.
         let digging = match self.script {
-            Script::Course | Script::Swim | Script::Ride | Script::Wood | Script::Climb => false,
+            Script::Course | Script::Swim | Script::Surf | Script::Ride | Script::Wood | Script::Climb => false,
             // Handled below rather than through the dig path: the same
             // left button, a different verb.
             Script::Shake | Script::Smash | Script::Chop => false,
@@ -4288,6 +4536,23 @@ impl Gnome {
             self.displaced
         );
         s.push_str(&format!(", {} dusted", self.dusted));
+        // The water surface's three "did it fire at all" counters, on the
+        // scene that exists to show it. A crown is six one-pixel droplets
+        // that land within a few frames and a wake is a quarter-cell hump
+        // on the waterline, so a tile can show both mechanisms working, one
+        // of them working, or neither, and read identically -- which is the
+        // exact trap `CLAUDE.md` opens by warning about. `water_shoved` is
+        // in `LIQUID_FULL` units, so it is quoted in whole cells.
+        if self.script == Script::Swim || self.script == Script::Surf {
+            let p = world.player.as_ref().expect("reported inside the gnome block");
+            s.push_str(&format!(
+                ", water: {} in / {} out, {:.1} cells shoved, {} strokes sprayed",
+                p.water_entries,
+                p.water_exits,
+                p.water_shoved as f64 / pixel_physics::sim::material::LIQUID_FULL as f64,
+                p.strokes_splashed
+            ));
+        }
         // **Only when the tool that produces them is in his hands.** A row
         // of zeroes on every gnome sheet is a row nobody reads, and these
         // are exactly the "did it fire at all" counters the picture cannot
@@ -4448,25 +4713,47 @@ fn bend_census(world: &World) {
     // carries almost nothing, so its own numbers are two orders of magnitude
     // down and invisible in the pooled quantiles that a stiffness was being
     // read off.
-    let mut by_material: std::collections::BTreeMap<String, Vec<f32>> = Default::default();
+    let mut by_material: std::collections::BTreeMap<String, Vec<(f32, f32)>> = Default::default();
     for id in world.live_organism_ids() {
         for (at, s) in pixel_physics::sim::plant::stress_field(world, id) {
             let name = world.materials.get(world.get(at.0, at.1).material).name.clone();
-            by_material.entry(name).or_default().push(s.moment.abs());
+            by_material.entry(name).or_default().push((s.moment.abs(), s.stress));
         }
     }
     for (name, mut v) in by_material {
-        v.sort_by(f32::total_cmp);
-        let q = |f: f32| v.get(((v.len() as f32 - 1.0) * f) as usize).copied().unwrap_or(0.0);
-        let stiffness = world.materials.id_of(&name).map_or(f32::INFINITY, |m| world.materials.get(m).stiffness);
-        let want = v.iter().filter(|&&m| m >= stiffness).count();
+        let id = world.materials.id_of(&name);
+        let stiffness = id.map_or(f32::INFINITY, |m| world.materials.get(m).stiffness);
+        v.sort_by(|a, b| a.0.total_cmp(&b.0));
+        let q = |v: &[f32], f: f32| v.get(((v.len() as f32 - 1.0) * f) as usize).copied().unwrap_or(0.0);
+        let moments: Vec<f32> = v.iter().map(|&(m, _)| m).collect();
+        let want = moments.iter().filter(|&&m| m >= stiffness).count();
         println!(
-            "        {name:<12} {:5} cells: p50 {:.2}, p90 {:.2}, p99 {:.2}, max {:.2}; stiffness {stiffness}, so {want} want to lean",
+            "        {name:<12} {:5} cells  moment p50 {:.2}, p90 {:.2}, p99 {:.2}, max {:.2}; stiffness {stiffness}, so {want} want to lean",
             v.len(),
-            q(0.50),
-            q(0.90),
-            q(0.99),
-            q(1.0)
+            q(&moments, 0.50),
+            q(&moments, 0.90),
+            q(&moments, 0.99),
+            q(&moments, 1.0)
+        );
+        // **The stress line beside the moment line, because they fit
+        // different constants.** `stiffness` is compared against a moment (a
+        // cell leans when the torque on it beats what it can hold);
+        // `strength` is compared against `stress`, which is that torque
+        // divided by the square of the section carrying it. A thick trunk and
+        // a twig can share a moment and be nowhere near each other in stress,
+        // which is the whole reason breaking reads the second one.
+        let mut stresses: Vec<f32> = v.iter().map(|&(_, s)| s).collect();
+        stresses.sort_by(f32::total_cmp);
+        let strength = id.map_or(f32::INFINITY, |m| world.materials.get(m).strength);
+        let over = stresses.iter().filter(|&&s| s >= strength).count();
+        println!(
+            "        {:<12} {:5} cells  stress p50 {:.2}, p90 {:.2}, p99 {:.2}, max {:.2}; strength {strength}, so {over} over it",
+            "",
+            v.len(),
+            q(&stresses, 0.50),
+            q(&stresses, 0.90),
+            q(&stresses, 0.99),
+            q(&stresses, 1.0)
         );
     }
     moments.sort_by(f32::total_cmp);
@@ -4488,6 +4775,54 @@ fn bend_census(world: &World) {
         "      ...of which actually leaned: {} cells moved, {} refused (cumulative; {} cross-sections blocked, {} would have torn)",
         f.bends_applied, f.bends_refused, f.bends_blocked, f.bends_would_tear
     );
+    // **The break counter beside the bend one, because they are the same
+    // arithmetic read through two constants** -- and because "an intact
+    // healthy stand loses zero cells" is a bar nothing else in this census
+    // can report. `severed_organism_cells` already folds in limbs that lost
+    // an anchor and cells that over-reached their span, so a snap hidden
+    // inside it is invisible.
+    println!("      ...and snapped under load: {} cells (cumulative)", f.snapped_under_load);
+    // **Peak stress per *plant*, not over the stand**, and the difference is
+    // a constant that was set wrong once already.
+    //
+    // A stand's maximum is one cell out of thousands, and it belongs to the
+    // single worst-grown individual in the wood -- exactly the tree that
+    // ought to fail. A `strength` fitted above that number is fitted above
+    // the whole failure mode, so nothing ever breaks and the outcome is
+    // binary. What the constant wants is the shape of this distribution: the
+    // typical tree well under it, the badly-grown tail over.
+    let mut peaks: Vec<f32> = Vec::new();
+    for id in world.live_organism_ids() {
+        let field = pixel_physics::sim::plant::stress_field(world, id);
+        let peak = field
+            .iter()
+            .filter(|(at, _)| world.materials.get(world.get(at.0, at.1).material).name == "wood")
+            .map(|(_, s)| s.stress)
+            .fold(0.0f32, f32::max);
+        if peak > 0.0 {
+            peaks.push(peak);
+        }
+    }
+    if !peaks.is_empty() {
+        peaks.sort_by(f32::total_cmp);
+        let q = |f: f32| peaks[((peaks.len() as f32 - 1.0) * f) as usize];
+        println!(
+            "      peak wood stress per plant over {} plants: p50 {:.0}, p75 {:.0}, p90 {:.0}, p95 {:.0}, p99 {:.0}, max {:.0}",
+            peaks.len(),
+            q(0.50),
+            q(0.75),
+            q(0.90),
+            q(0.95),
+            q(0.99),
+            q(1.0)
+        );
+        // The values themselves, because a quantile over eight plants is not
+        // a quantile -- p90 and max are the same order statistic at that
+        // sample size, and a constant fitted between them would be fitted to
+        // noise. Pooling the raw lists across seeds is what gives the tail
+        // enough plants to be a tail.
+        println!("      ...each plant's peak: {}", peaks.iter().map(|v| format!("{v:.0}")).collect::<Vec<_>>().join(" "));
+    }
     // **What wind was blowing while that was measured**, because half the
     // moment now comes from it and a bend sheet read in a calm hour is a
     // different experiment from one read in a gale. This is the
@@ -5525,6 +5860,24 @@ fn report_colony(world: &World, render: bool) {
         st.deliveries,
         st.deaths
     );
+    // **The sight counters, and all three of them.** `CLAUDE.md` asks for
+    // the discrete event count beside any picture, and here one number is
+    // not enough: an eye that never ran, an eye that ran over an empty
+    // world and an eye wired to nothing are three different failures that
+    // `sightings` alone cannot tell apart. Printed only when a species in
+    // the scene actually has eyes, so every existing sheet is unchanged.
+    if st.sight_casts > 0 {
+        println!(
+            "  creatures: sight casts {} seen {} ({:.3}) | facing {} approached {} | mean sighted range {:.1} cells | {:.0} cells read per cast",
+            st.sight_casts,
+            st.sightings,
+            st.sightings as f64 / st.sight_casts as f64,
+            st.sight_facing,
+            st.sight_approaches,
+            st.sight_dist_sum as f64 / st.sightings.max(1) as f64,
+            st.sight_cells_read as f64 / st.sight_casts as f64
+        );
+    }
     println!(
         "  creatures: forage trips {} (bar {}) deepest {} | reach {:?}",
         st.forage_trips,
@@ -5632,7 +5985,7 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, (usize, usize), (i
     if let Some(v) = args.smoke {
         blasts.tuning.smoke_fraction = v;
     }
-    let mut gnome = Gnome::for_scene(&args.scene, args.dig_yield, args.shoulder_grains);
+    let mut gnome = Gnome::for_scene(&args.scene, args.dig_yield, args.shoulder_grains, args.splash);
     // Set on the character rather than passed to `dig`: the style is his
     // state, exactly as it is in the app, so the harness and the game reach
     // the mechanism through the same door.

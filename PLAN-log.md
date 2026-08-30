@@ -3615,3 +3615,122 @@ through `step_chain`'s own branch at one cell per tick — 0.167 cells/frame at
 `tick_interval` 6. Unifying them means editing the walk, which is precisely
 what got the two earlier attempts reverted, so it is a decision rather than a
 drive-by fix.
+
+## 2026-08-30 — the pond answers him: a crown going in, a wake crossing it
+
+Reported as a gap rather than a bug: *"the gnome jumping in/out of the water
+should cause a splash and swimming at the surface should disturb water
+surface"*. Rendering the baseline first said how complete the gap was — a
+gnome falling into a pond at terminal velocity moved the surface by **not one
+pixel**, and one swimming across it left the waterline straight to the pixel.
+He is a ghost to the CA sweep, water is `Footing::Free`, and nothing anywhere
+connected the two.
+
+**The character writes cells now, in exactly one place**, and the module doc
+says so rather than being quietly falsified: `disturb_water`, gated on
+`Player::floating`, so a dry gnome still wakes zero chunks and still costs the
+dirty-rect skip nothing. Three events off one waterline scan — entry at the
+rim, exit over his own columns, and a per-tick wake — all routed through
+`CellSurface::report_splash` and `particle::throw_splashes`, so the water is
+debited from the pool it came out of and a caller with no `ParticleSystem`
+loses nothing. `Tuning::splash_force` is one live knob over all three, with `0`
+restoring the old behaviour exactly.
+
+**Both laws of the ethos are load-bearing here, and both had to be argued for
+twice.** The distribution is in the *speed*: below a quarter of `fall_clamp`
+crossing the surface reports nothing at all, above two thirds it throws four
+sites instead of two, and a step off a bank gets two droplets against twelve
+for a fall from height. The verb is the **stroke** — the only thing a swimmer
+actively does, and before this it moved him and left the world exactly as it
+found it.
+
+**Two obvious versions were built and were wrong, both measured:**
+
+- **the exit as the mirror of the entry** — the whole body leaving the water.
+  `surface_hop` lifts him `v^2 / 2g` = 12.4 cells and he is 14 tall, so a
+  gnome hopping out of open water *cannot* get his boots clear at any setting
+  of the hop. `scene=swim` reported **`1 in / 0 out` across 450 frames** with
+  the path in place and working. It keys on his head clearing now, which is
+  the moment `surface_hop` is itself sized against;
+- **the wake spread thin** — a fifth of a cell on each of four rim columns
+  every tick. Arithmetically the same water and visually nothing:
+  `Material::fill_dimming` draws a part-full cell dark and the sweep drops it
+  back before the next frame. **203 cells shoved across a 300-cell crossing
+  against a waterline still flat to the pixel.** That is the
+  counter-without-a-consequence failure from the *far* side — a mechanism
+  firing every frame and not finished — and it is the one this project's
+  method is least set up to catch, because every number said it worked. It
+  carries a remainder now and spends it in whole cells: the rate stays
+  continuous while every cell that goes up is water rather than a shadow.
+
+**`scene=swim` was blind by construction to half of this and nobody had
+noticed.** Its script holds `S`, then `W`, and presses no direction at any
+point, so the gnome has never swum *along* a surface in this harness; its pool
+is also walled above the waterline on both sides, so he has never left the
+water either. `scene=surf` crosses a wide pool at the waterline and shelves
+out to a beach. Both take `splash=0` for the paired control.
+
+Six guards, all watched failing with `disturb_water` stubbed out, and each
+carrying its own control: the gentle entry that must *not* splash, the still
+gnome that must not disturb, the knob-off run compared to the pool cell for
+cell, and a conservation check that the water shoved is water taken. The
+owner's verdict on the two review cards: *"B looks good"* on the entry and
+*"B looks great"* on the wake.
+## 2026-08-30 — the growth program loses its safety net, and the net turns out never to have caught anything
+
+**The owner's answer came back on the fallback fork, and it was "No safety
+net".** Review card `20260829T204941423Z-880e13` was the one item
+`Reports/lanes/plant-evolution-handoff-2026-08-30.md` §3 marked *open, waiting
+on the owner*, with the instruction not to touch shipped behaviour until it
+was answered. `plant::fate_for` now reads the individual's `FateGenome` and
+stops: a mutation that vacates a slot vacates it for real, which is what turns
+`delete` and `recondition` from near-inert operators into real ones. `Full` and
+`NoSpecies` stay reachable behind `PIXEL_PHYSICS_FATE_LOOKUP` so the fork's
+measurements can be re-run.
+
+**And the net had never fired.** Counted at the source, inside
+`fate_for_under`, on the pre-flip build: over 60,000 frames of `herb` at the
+shipped 0.01 rate there were **88,909 fate queries and 0 saves** — not one
+occasion where the genome had no answer and a lower layer supplied one.
+`genome_drift` logs came back **byte-identical** between the two depths for
+`moss`, `tree` and `herb` at both 0 and 10x mutation. The net first bites at
+**90x** (1,305 saves in 39,340 queries). So this is a licence rather than a
+behaviour change.
+
+**What stands between it and a visible effect is mutation volume, and the
+first version of this entry blamed the wrong thing.** It said generation
+turnover, citing a mean depth of 2.04 -- a mean over *living* organisms, which
+`Reports/lanes/plant-evolution-handoff-2026-08-30.md` §2 warns equilibrates and
+is not a clock. Counted at the source instead, the same 60,000-frame run has
+**6,533 births reaching the draw, 56 firing, 55 changing a genome, and 9
+drifted genomes standing** in a population of 934. About **14** of those 55 are
+the operators that can vacate a slot at all. Fourteen relevant mutations per
+run is why 88,909 queries found nothing to catch; depth is fine (max 4 here,
+and `plant-throughput-herb-2026-08-29.md` reports deepest established
+generation 5, 7 and 3). `FATE_MUTATION_CHANCE = 0.01` is the lever.
+
+**The zeros only mean something because a call counter sat beside them.** The
+first version of the probe printed three zeros and could not tell "the net
+never fires" from "the counter is not on the path" — `CLAUDE.md`'s null that
+looks the same whether the mechanism is quiet or the probe never arrived.
+Adding `calls` separated them in one run, and incidentally settled the one real
+hazard: `moss.ron` authors no fate table at all, so under a genome-only lookup
+every query would return `None` — but moss makes **0 calls**, because its only
+behaviour is `Divide`, which never consults a fate.
+
+**One standing claim is withdrawn.** `FateLookup`'s doc said `builtin_fate` was
+"the real absorber", inferred from `NoSpecies` and `Full` measuring identical.
+Counted directly, **all 1,305 saves went to the species layer and
+`builtin_fate` took 0**: the two layers *agree*, which is why deleting the
+middle one changed nothing. A/B equality says two layers agree; it cannot say
+which is load-bearing. Both that and the withdrawn fallback are in
+`Reports/dead-ends.md`.
+
+**What an emptied slot actually does, since the phrase in circulation was "a
+plant that cannot grow".** At the `Grow` site a missing fate leaves
+`self_type_after_grow` as the cell's own type, so the tip never *retires* — the
+lineage grows as a frontier of tips that never become `MatureBody`, never
+thickens and never anchors. Deformed rather than dead, which is the graded
+outcome the ethos asks for.
+
+Full account: `Reports/plant-fate-fallback-fork-2026-08-30.md`.

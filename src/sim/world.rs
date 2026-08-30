@@ -250,6 +250,61 @@ pub struct CreatureStats {
     /// It also separates two colonies a mean cannot: a hundred short hops
     /// and ten real trips average the same as a hundred medium ones.
     pub forage_reach: [u64; 8],
+    /// **Sight casts made** — one per tick of a species that has eyes
+    /// (`CreatureDef::sight_range`). Exactly zero for the whole world until
+    /// a species authors the field, which is the guard that says the sense
+    /// is opt-in rather than merely quiet.
+    pub sight_casts: u64,
+    /// Casts that found prey. `/ sight_casts` is the duty cycle — how often
+    /// the eye has anything to report — and it is the quantity
+    /// `Reports/creature-vision-sizing-2026-08-30.md` §3 sized the radius
+    /// from (median 0.44–0.57 at r64 across three presets).
+    pub sightings: u64,
+    /// **Sightings the animal then moved toward** — the effect counter, and
+    /// the only one of the three that can tell a sense that steers from a
+    /// sense that is merely wired. A rise in `sightings` with this flat is
+    /// an eye connected to nothing.
+    ///
+    /// Booked when the head ends its tick strictly closer to the prey cell
+    /// it saw at the start of it, so a refused step does not count and a
+    /// creature that simply drifted the right way on its own is the null
+    /// this is read against rather than a false positive it manufactures —
+    /// compare a run with the pursuit weights authored against one without.
+    pub sight_approaches: u64,
+    /// **Sightings taken with the prey inside 45 degrees of the heading** —
+    /// is the animal *facing* what it can see.
+    ///
+    /// **This exists because `sight_approaches` cannot answer the question
+    /// on the ticks the sense is for.** A walking creature steps only
+    /// ahead-left, ahead or ahead-right, so when prey is *behind* it no
+    /// available step reduces the distance however hard it turns — the
+    /// tick where steering matters most is a tick `sight_approaches`
+    /// structurally cannot count, and a harder turn therefore *lowers* it.
+    /// Measured, before this counter existed: the pursuit weights moved
+    /// `approaches/sightings` from 0.137 at a zero-weight control to
+    /// 0.118, while prey actually caught went **up**. A number that is
+    /// arithmetically correct and answers a different question than the one
+    /// asked looks exactly like a result (`CLAUDE.md`).
+    ///
+    /// Facing is what turning buys, and it is defined for every bearing.
+    pub sight_facing: u64,
+    /// Summed distance, in whole cells, from each sighting to the prey it
+    /// found. `/ sightings` is the **mean sighted range** — the other thing
+    /// pursuit should move, and in the opposite direction: a beetle that
+    /// closes on what it sees spends more of its sighted time near it.
+    pub sight_dist_sum: u64,
+    /// **Cells the sense actually read**, summed over every cast.
+    ///
+    /// The cost counter, and it is deterministic where a wall clock is not:
+    /// the sizing study's whole cost argument runs through this quantity
+    /// (`Reports/creature-vision-sizing-2026-08-30.md` §5 predicted **485**
+    /// per beetle per cast at r64, and priced one `World::get` at 14-16 ns
+    /// directly), because a 0.004 ms/frame charge is below what a clock on
+    /// a shared box can resolve. `/ sight_casts` is the number to compare
+    /// against that 485, and it is also the guard `CLAUDE.md` asks for
+    /// beside any cost claim: a sense that timed as free while probing
+    /// nothing would read here as a bargain and be a bug.
+    pub sight_cells_read: u64,
     pub deaths: u64,
     /// Creatures that lost a body cell and survived it.
     pub injuries: u64,
@@ -1661,6 +1716,16 @@ pub struct FailureCounts {
     /// which is the mechanism refusing itself.
     pub bends_blocked: u32,
     pub bends_would_tear: u32,
+    /// **Cells that snapped because the load on them beat their strength**,
+    /// as distinct from every other way a plant cell comes apart.
+    ///
+    /// The "did it fire at all" counter for breaking, and it has to be its
+    /// own field: `severed_organism_cells` already counts a limb that lost
+    /// its anchor and a cell that over-reached its span, so a snap folded
+    /// into it is invisible. A crown that came down because the wind broke
+    /// its trunk and one that came down because someone cut it are the same
+    /// picture and a different mechanism.
+    pub snapped_under_load: u32,
     pub settled_lying: u32,
     pub settled_upright: u32,
     pub settled_square: u32,
@@ -1815,6 +1880,11 @@ impl FailureCounts {
         } else {
             self.bends_refused = self.bends_refused.saturating_add(1);
         }
+    }
+
+    /// One cell gave way under load. See `snapped_under_load`.
+    pub fn record_snapped_under_load(&mut self) {
+        self.snapped_under_load = self.snapped_under_load.saturating_add(1);
     }
 
     /// Why the last hinge could not swing. See `bends_blocked`.

@@ -1836,6 +1836,53 @@ impl BodyPlan {
     }
 }
 
+/// **How a creature's body cells pick their palette entry.**
+///
+/// The seam this exists for is one line in `creature::plant_creature_seed`:
+/// the `CellType` of every body cell is computed there and then *thrown
+/// away* as far as appearance goes, because the shade beside it is an
+/// independent random draw. `Reports/creature-appearance-design.md` §7 calls
+/// deriving one from the other "the smallest change that opens any of this",
+/// and it costs no per-cell state — the shade byte is already there.
+///
+/// **Assigned once, at the hatch, and it stays correct for ever.**
+/// `creature::relocate_chain` moves whole `Cell` values rather than
+/// rebuilding them, and position `to[i]` always receives the cell from
+/// `from[i]`: a chain's head cell stays the head cell, and a rigid body's
+/// facing mirror flips `dx` but never `dy`. So a cell's index — and its
+/// height within the body — is invariant under motion, and nothing has to
+/// be recomputed per step.
+///
+/// **Never widen a palette to get variety instead of this.** That is
+/// `dead-ends.md`'s `log.ron` entry: a wide spread makes a field of cells
+/// draw randomly across a range, which is *speckle*, and speckle destroys
+/// the one thing a small body has — its shape. Both rules below choose from
+/// the palette the species already has.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Deserialize, Serialize)]
+pub enum ShadeRule {
+    /// One independent draw per cell, from the whole palette. **What every
+    /// creature ships with**, and the default so that adding this enum
+    /// changed no existing animal — `ant.ron`'s three shades exist so that
+    /// "a column of them does not read as a drawn line", and at two cells
+    /// there is no top or bottom for anything cleverer to use.
+    #[default]
+    Random,
+    /// **Head palest, then graded away from it.** Where the body has
+    /// vertical extent the grade runs top-to-bottom — pale above, dark
+    /// below — which is countershading, and is the only thing that holds
+    /// contrast against *both* the sky an animal is silhouetted on and the
+    /// ground it tunnels in; §3 of the appearance report measures that no
+    /// single flat value serves both.
+    ///
+    /// A `Chain` is one cell thick and so has no top or bottom at all, so
+    /// there the grade runs **along the body** instead, head to tail. That
+    /// is not a fallback for its own sake: E10's note on chain length is
+    /// that "a long chain reads as a worm", and what makes it read as an
+    /// animal is having a visible front and a segmented flank rather than
+    /// being one flat smear.
+    Countershade,
+}
+
 /// A creature species' body plan, instincts and metabolism.
 ///
 /// Separate from `cell_types` because these are properties of the
@@ -1848,10 +1895,41 @@ pub struct CreatureDef {
     /// Frames between decisions.
     pub tick_interval: u64,
     pub start_energy: f32,
-    /// Charged every tick regardless of what the creature does.
-    pub idle_cost: f32,
-    /// Charged per cell moved.
-    pub move_cost: f32,
+    /// Charged every tick regardless of what the creature does, **per cell
+    /// of the body the animal still has**.
+    ///
+    /// **Per cell, and it was not until 2026-08-30.** Both this and
+    /// `move_cost_per_cell` were flat per *animal*, so nothing anywhere in
+    /// the cost path read `chain.len()` and a longer body was strictly free:
+    /// more ink on screen, less blocked movement (a chain is blocked 2-6% of
+    /// its moves against 25-43% for a rigid body), and an identical bill.
+    /// `creature-evolution-plan.md` E10 authorised chain *length* as the
+    /// cheap route to a visible animal on the stated grounds that "per-cell
+    /// metabolic cost already prices a longer body, so no cost system is
+    /// owed" — and that premise was false. An unpriced size lever ratchets
+    /// to its maximum and expresses nothing, which is the degenerate
+    /// codomain that took plant reproduction to zero
+    /// (`CLAUDE.md`, *Fixing a bug often exposes a constant that was
+    /// compensating for it*).
+    ///
+    /// **The name carries the meaning change on purpose.** Re-deriving the
+    /// authored numbers without renaming would leave every species file
+    /// reading `idle_cost: 0.05` where it used to read `0.10`, with nothing
+    /// on the page to say the two are the same animal — and the next person
+    /// to author a species would write the whole-animal cost.
+    ///
+    /// Charged against the **live** chain, not `body.len()`: an animal that
+    /// has lost a cell to a predator is smaller and burns less, which fell
+    /// out of reading the right quantity rather than being designed.
+    pub idle_cost_per_cell: f32,
+    /// Charged on every step the creature takes, **per cell of the body it
+    /// still has**. See `idle_cost_per_cell` for why this is per cell.
+    ///
+    /// Not to be confused with the free function `creature::move_cost`,
+    /// which prices the *terrain* a cell is entering. This is the animal's
+    /// side of that transaction; renaming it apart from the function was a
+    /// small side benefit of the change above.
+    pub move_cost_per_cell: f32,
     /// Charged per **active** synapse per tick, as a fraction of
     /// `start_energy`.
     ///
@@ -1890,6 +1968,11 @@ pub struct CreatureDef {
     /// rather than conjured. When reproduction lands (S6) the parent pays
     /// this for every cell of its child, which is what keeps a lineage from
     /// minting meat by breeding.
+    /// How body cells pick their palette entry. See `ShadeRule`; the
+    /// default is the independent per-cell draw every creature shipped
+    /// with, so this field changed no existing animal when it landed.
+    #[serde(default)]
+    pub shade_rule: ShadeRule,
     #[serde(default)]
     pub body_energy: f32,
     /// Fraction of `start_energy` below which a creature eats what it finds
@@ -1906,13 +1989,14 @@ pub struct CreatureDef {
     /// separates a solitary forager from a social one.
     pub hunger_fraction: f32,
     /// **The ancestral value of every heritable body trait**, indexed by
-    /// `CREATURE_TRAITS`' slot map. Slot 0 is `gut_bias`.
+    /// `CREATURE_TRAITS`' slot map: slot 0 is `gut_bias`, slot 1 is
+    /// `birth_grant`.
     ///
     /// Authored per species because two ancestors one number apart, living
     /// in different parts of the world and coloured differently, *is* the
     /// first half of guided divergence — no reproduction required for the
     /// stage to be worth shipping (`creature-evolution-plan.md` §2.5).
-    #[serde(default)]
+    #[serde(default = "default_creature_traits")]
     pub traits: [f32; CREATURE_TRAITS],
     /// **The bank an individual must reach before it buds**, in the same
     /// units as `start_energy`. Zero — the default — means this species
@@ -2013,6 +2097,32 @@ pub struct CreatureDef {
     /// Ticks over which nest-scent deposit falls to nothing. See
     /// `OrganismState::since_nest`.
     pub nest_memory: u16,
+    /// **How far this animal can see another animal, in cells. Zero — the
+    /// default — means it has no eyes at all**, which is every species in
+    /// the world except the beetle and is what keeps the sense off the
+    /// sweep for them entirely.
+    ///
+    /// **The opt-in is on the species rather than inside the sense**, which
+    /// is `CLAUDE.md`'s standing rule and not a preference: gating inside
+    /// `creature::sight` would still pay the call, and testing it here — at
+    /// a dispatch site that already holds the `CreatureDef` — is a `f32`
+    /// compare against a field that is already in cache. An eyeless species
+    /// pays one branch per tick, not one `World::get` per cell.
+    ///
+    /// **64, and it is measured rather than picked**
+    /// (`Reports/creature-vision-sizing-2026-08-30.md` §3). The p10 seed —
+    /// the beetle stranded away from the colony, which is precisely the
+    /// animal a distal sense exists for — sees prey 0.108–0.260 of the time
+    /// at radius 32 and 0.240–0.389 at 64, and 32 -> 64 is the largest
+    /// single step at every preset measured. The curve was still climbing
+    /// at 64; where 128 lands is not measured and is the honest gap.
+    ///
+    /// The cost is a function of this and of `SIGHT_RAYS`, **not** of how
+    /// many prey exist — which is what makes it shippable without a prey
+    /// index the engine does not have. §5 prices a radius-64 fan at 0.004
+    /// ms/frame at five beetles, 0.14% of a mean `ascii` frame.
+    #[serde(default)]
+    pub sight_range: i32,
     /// Sensor offset in cells for the forward/lateral sampling.
     ///
     /// 6, measured: `pheromone::tests::trail_following_sweep` puts on-trail
@@ -3093,11 +3203,12 @@ pub const GENOTYPE_TRAITS: usize = 10;
 /// (`creature-evolution-plan.md` §6).
 ///
 ///   0 gut_bias — where this animal's digestion sits on the diet axis
+///   1 birth_grant — how much of `start_energy` a newborn is handed
 ///
 /// **Positional forever, on the same terms as `GENOTYPE_TRAITS`**: a slot
 /// dead by measurement in every species may be re-purposed once with the
 /// measurement record re-baselined; a live slot, never.
-pub const CREATURE_TRAITS: usize = 1;
+pub const CREATURE_TRAITS: usize = 2;
 
 /// Slot 0 of `CREATURE_TRAITS`: **diet as one heritable number**, `-1`
 /// (plant matter) to `+1` (flesh), scored against `MaterialDef::food_class`
@@ -3109,6 +3220,48 @@ pub const CREATURE_TRAITS: usize = 1;
 /// histogram of its alleles measures its own drift and reads as a result.
 /// A scalar on a bounded axis has no such dimension.
 pub const TRAIT_GUT_BIAS: usize = 0;
+
+/// Slot 1 of `CREATURE_TRAITS`: **how much of `start_energy` a newborn is
+/// handed**, `-1` (nothing) to `+1` (a full species budget), read through
+/// `creature::grant_fraction`.
+///
+/// **The point of the slot is that `start_energy` was doing two jobs.** It
+/// was the founder's budget *and* the endowment every bud was given, and
+/// those are different quantities: §2.6's anti-freeloading rule is that
+/// the reproduction bar must exceed **what a newborn is given**, and that
+/// was only the same number as the species budget by accident. Decoupling
+/// them is what makes the rule expressible at all
+/// (`Reports/creature-reproduction-economics.md` §1.3, §4 Step 1).
+///
+/// **It is Smith–Fretwell's offspring-size gene**, and its trade-off is
+/// real in both directions only because a badly-provisioned newborn can
+/// now die (E14): high grant buys the child a long grace period to find
+/// its first meal and costs the parent more per birth, low grant is cheap
+/// and frequent and stakes the child on finding food almost at once.
+/// **Without starvation low grant is strictly better and the allele goes
+/// to its floor on the first generation** — so this slot and the
+/// `start_energy` cut are one change, not two.
+///
+/// **Read off the *parent*, not the child.** The provisioning decision
+/// belongs to the animal paying for it; `try_bud` mutates the child's own
+/// copy after placement, so what this individual inherited governs what it
+/// will give to *its* children, not what it was given. That is the
+/// biology, and it is also what the existing draw order already does.
+pub const TRAIT_BIRTH_GRANT: usize = 1;
+
+/// The ancestral trait vector for a species file that authors no `traits`
+/// line at all.
+///
+/// **Not `[0.0; N]`, and the difference is load-bearing for slot 1**: zero
+/// on the birth-grant axis is a *half* grant, so a plain `Default` would
+/// silently halve every unauthored species' endowment the day this slot
+/// landed. `+1.0` is a full `start_energy`, which is exactly what every
+/// newborn got before the slot existed.
+fn default_creature_traits() -> [f32; CREATURE_TRAITS] {
+    let mut t = [0.0; CREATURE_TRAITS];
+    t[TRAIT_BIRTH_GRANT] = 1.0;
+    t
+}
 
 /// **Discrete genes, and why a continuous genome cannot produce species.**
 ///
@@ -3339,6 +3492,11 @@ const EMBEDDED: &[&str] = &[
     include_str!("../../assets/species/ant_wide.ron"),
     // The palette arm: `ant_block`'s body in `chitin_pale`'s colours.
     include_str!("../../assets/species/chitin_pale.ron"),
+    // **Appended at the end so no existing species' position moves.**
+    // `ant_block` with `shade_rule: Countershade` and nothing else
+    // changed -- the blind A/B on the shade rule needs arms that differ
+    // in one thing, and its material is a byte-copy of `ant_block`'s.
+    include_str!("../../assets/species/ant_block_shaded.ron"),
 ];
 
 /// Where the loader looks for species files, relative to the working
