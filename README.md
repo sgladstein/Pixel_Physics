@@ -45,16 +45,16 @@ whole, then run `python3 scripts/readmetoc.py`.
 | [Rendering performance — overnight run, section 11](#rendering-performance--overnight-run-section-11) | 2413 |
 | [M8 status — started, not complete](#m8-status--started-not-complete) | 2433 |
 | [M9 status — the gnome](#m9-status--the-gnome) | 2546 |
-| [M10 status — the worldgen half](#m10-status--the-worldgen-half) | 2931 |
-| [Weather status](#weather-status) | 3046 |
-| [The ant colony — status](#the-ant-colony--status) | 3063 |
-| [M19 status — started](#m19-status--started) | 3172 |
-| [Felling status — the verb works, and what it produces is pieces](#felling-status--the-verb-works-and-what-it-produces-is-pieces) | 3244 |
-| [Bending status — soft tissue lies over, and the wind is what pushes it](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) | 3481 |
-| [Performance](#performance) | 3558 |
-| [World speed — five independent time axes](#world-speed--five-independent-time-axes) | 3755 |
-| [Status](#status) | 3838 |
-| [License](#license) | 3949 |
+| [M10 status — the worldgen half](#m10-status--the-worldgen-half) | 2986 |
+| [Weather status](#weather-status) | 3101 |
+| [The ant colony — status](#the-ant-colony--status) | 3118 |
+| [M19 status — started](#m19-status--started) | 3227 |
+| [Felling status — the verb works, and what it produces is pieces](#felling-status--the-verb-works-and-what-it-produces-is-pieces) | 3299 |
+| [Bending status — soft tissue lies over, and the wind is what pushes it](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) | 3536 |
+| [Performance](#performance) | 3613 |
+| [World speed — five independent time axes](#world-speed--five-independent-time-axes) | 3810 |
+| [Status](#status) | 3893 |
+| [License](#license) | 4004 |
 
 ### Milestones, in numeric order
 
@@ -68,14 +68,14 @@ order they were written.
 | 7 | [M7 status](#m7-status) | 916 |
 | 8 | [M8 status — started, not complete](#m8-status--started-not-complete) | 2433 |
 | 9 | [M9 status — the gnome](#m9-status--the-gnome) | 2546 |
-| 10 | [M10 status — the worldgen half](#m10-status--the-worldgen-half) | 2931 |
+| 10 | [M10 status — the worldgen half](#m10-status--the-worldgen-half) | 2986 |
 | 12 | [M12/M13 status](#m12m13-status) | 715 |
 | 14 | [M14 status](#m14-status) | 768 |
 | 15 | [M15 status](#m15-status) | 945 |
 | 16 | [M16 status](#m16-status) | 1553 |
 | 17 | [M17 status](#m17-status) | 1739 |
 | 18 | [M18 status](#m18-status) | 1966 |
-| 19 | [M19 status — started](#m19-status--started) | 3172 |
+| 19 | [M19 status — started](#m19-status--started) | 3227 |
 
 ### By topic
 
@@ -88,24 +88,24 @@ them is named "plants". A section can appear twice; felling is honestly both
 plant work and structural work.
 
 **Known limitations for every topic are collected in one place**:
-[Status](#status), line 3838 — the *last* section in the
+[Status](#status), line 3893 — the *last* section in the
 file, not the first. Read it before concluding something is broken.
 
 | Topic | Sections, primary first |
 |---|---|
-| **plants, trees and moss** | [M16 status](#m16-status) 1553, [Plant lines merged](#plant-lines-merged-the-genome-and-the-ecology) 1181, [The economy re-derived](#the-economy-re-derived-standing-tissue-costs-something) 1303, [Plants that stop](#plants-that-stop-organs-determinacy-and-a-price-on-both) 1485, [The generation loop](#the-generation-loop-plants-die-seeds-expire-slots-come-back) 1251, [Stems draw a line](#stems-draw-a-line-the-growth-walk-renders-its-heading) 1403, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 3244, [Bending status](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) 3481 |
-| **creatures — worms and the ant colony** | [M18 status](#m18-status) 1966, [The ant colony](#the-ant-colony--status) 3063 |
-| **structural collapse, felling and rigid bodies** | [M17 status](#m17-status) 1739, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 3244, [Bending status](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) 3481, [M8 status](#m8-status--started-not-complete) 2433 |
+| **plants, trees and moss** | [M16 status](#m16-status) 1553, [Plant lines merged](#plant-lines-merged-the-genome-and-the-ecology) 1181, [The economy re-derived](#the-economy-re-derived-standing-tissue-costs-something) 1303, [Plants that stop](#plants-that-stop-organs-determinacy-and-a-price-on-both) 1485, [The generation loop](#the-generation-loop-plants-die-seeds-expire-slots-come-back) 1251, [Stems draw a line](#stems-draw-a-line-the-growth-walk-renders-its-heading) 1403, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 3299, [Bending status](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) 3536 |
+| **creatures — worms and the ant colony** | [M18 status](#m18-status) 1966, [The ant colony](#the-ant-colony--status) 3118 |
+| **structural collapse, felling and rigid bodies** | [M17 status](#m17-status) 1739, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 3299, [Bending status](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) 3536, [M8 status](#m8-status--started-not-complete) 2433 |
 | **fire, heat and phase change** | [M14 status](#m14-status) 768, [Materials](#materials) 222 |
 | **explosions, particles and debris** | [M15 status](#m15-status) 945, [M7 status](#m7-status) 916 |
 | **liquids and gases** | [Liquid physics](#liquid-physics-compressible-volume-not-discrete-occupied-cells) 742, [The coarse field grid](#the-coarse-field-grid) 453 |
 | **powders and granular flow** | [Materials](#materials) 222, [Architecture](#architecture) 296 |
 | **the coarse field grid — pressure, heat, light** | [The coarse field grid](#the-coarse-field-grid) 453, [M12/M13 status](#m12m13-status) 715 |
-| **worldgen and world structure** | [M10 status](#m10-status--the-worldgen-half) 2931, [Architecture](#architecture) 296 |
+| **worldgen and world structure** | [M10 status](#m10-status--the-worldgen-half) 2986, [Architecture](#architecture) 296 |
 | **the gnome (player character)** | [M9 status](#m9-status--the-gnome) 2546, [Controls](#controls) 157 |
-| **weather, sky and the clock** | [Weather status](#weather-status) 3046, [M19 status](#m19-status--started) 3172, [World speed](#world-speed--five-independent-time-axes) 3755 |
+| **weather, sky and the clock** | [Weather status](#weather-status) 3101, [M19 status](#m19-status--started) 3227, [World speed](#world-speed--five-independent-time-axes) 3810 |
 | **rendering, UI and tunables** | [UI improvements](#ui-improvements--overnight-run-section-9) 2300, [Live tunables panel](#live-tunables-panel--overnight-run-section-10) 2345, [Rendering performance](#rendering-performance--overnight-run-section-11) 2413, [M6 deferral](#m6-deferral) 1076 |
-| **performance and the parallel sweep** | [Performance](#performance) 3558, [M5 status](#m5-status) 1086, [Architecture](#architecture) 296, [Rendering performance](#rendering-performance--overnight-run-section-11) 2413 |
+| **performance and the parallel sweep** | [Performance](#performance) 3613, [M5 status](#m5-status) 1086, [Architecture](#architecture) 296, [Rendering performance](#rendering-performance--overnight-run-section-11) 2413 |
 | **materials and the data schema** | [Materials](#materials) 222, [M12/M13 status](#m12m13-status) 715 |
 
 <!-- END GENERATED TOC -->
@@ -2544,6 +2544,61 @@ coupling and §5's buoyancy both remain unbuilt, so a body currently sits on
 sand as though it were stone.
 
 ## M9 status — the gnome
+
+### Water answers him: entry crown, stroke spray, and a wake — 2026-08-30
+
+**The gnome writes cells for the first time, in exactly one place.** The
+character is a ghost to the CA sweep and that is the whole performance
+story (`player.rs`'s module doc); `player::disturb_water` is its single
+exception, gated on `Player::floating` so a dry gnome still wakes zero
+chunks. It buys the thing the ethos names outright: before it, a gnome
+falling into a pond at terminal velocity moved the surface by **not one
+pixel**, and one swimming across it left the waterline straight.
+
+Three events, one waterline scan, all graded rather than switched:
+
+| event | trigger | what it does |
+|---|---|---|
+| entry | his feet break the surface | a crown at the **rim**, two sites, four above `SPLASH_WIDE_STRENGTH` |
+| exit | his **head** clears it going up, or the last of him leaves | a crown over his own columns |
+| wake | any tick he is in water and moving | a whole cell shoved from under him onto each flank, plus spray on each stroke |
+
+Speeds are read as fractions of `Tuning::fall_clamp` and `run_max` rather
+than as bare cells per tick, so the effect survives `Tuning::scaled` and
+`dilated` without a second scaling rule. Everything routes through
+`CellSurface::report_splash` and `particle::throw_splashes`, so the water
+is debited from the pool it came out of and a caller with no
+`ParticleSystem` (`examples/ascii.rs`, every unit test) loses nothing.
+`Tuning::splash_force` is one live knob over all three, and `0` restores
+the old behaviour exactly for A/B.
+
+**Two things were built the obvious way first and were wrong:**
+
+- **the exit was the mirror of the entry** — the whole body leaving the
+  water. `surface_hop` lifts him `v^2 / 2g` = 12.4 cells and he is 14
+  tall, so a gnome hopping out of open water *cannot* get his boots clear:
+  `scene=swim` reported `1 in / 0 out` over 450 frames with the path in
+  place and working. No setting of the hop fixes that. It keys on his head
+  clearing now, which is also the moment `surface_hop` itself is sized
+  against;
+- **the wake spread its budget thin** — a fifth of a cell on each of four
+  rim columns every tick. Arithmetically the same water, visually nothing:
+  `Material::fill_dimming` draws a part-full cell dark and the sweep drops
+  it back before the next frame. Measured **203 cells shoved across a
+  300-cell crossing against a waterline still flat to the pixel** — the
+  counter-with-no-consequence failure from the far side, a mechanism firing
+  every frame and not finished. It carries a remainder now and spends it in
+  whole cells, so the *rate* stays continuous while every cell that goes up
+  is water rather than a shadow.
+
+**Known limitation.** The heap is capped one row above the undisturbed
+line (measured `SURFACE_REFERENCE` columns out, past his own disturbance),
+because without that bound a gnome treading water in one place builds a
+tower out of the pool he is in — conserving every cell of it.
+
+`scene=surf` is the instrument: `scene=swim` presses no direction at all,
+so it has never swum *along* a surface and was blind by construction to
+half of this. Both scenes take `splash=0` for the paired control.
 
 ### The belt, and a dig that cuts passages — 2026-08-29
 

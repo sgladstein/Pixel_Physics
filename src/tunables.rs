@@ -530,6 +530,11 @@ pub fn from_player(t: &Player) -> Vec<Tunable> {
         Tunable::float(g, c, "shake_seed", t.shake_seed, 0.0, 1.0, 0.05),
         Tunable::float(g, c, "climb_speed", t.climb_speed, 0.2, 2.0, 0.05),
         Tunable::float(g, c, "surface_hop", t.surface_hop, 0.0, 1.5, 0.05),
+        // 0 is the off-switch and it is the point of the low end: it
+        // restores the surface the gnome used to leave behind him, which
+        // is none at all, so the effect can be A/B'd against itself with
+        // the world running.
+        Tunable::float(g, c, "splash_force", t.splash_force, 0.0, 2.0, 0.05),
         Tunable::float(g, c, "dig_yield", t.dig_yield, 0.0, 1.0, 0.05),
         // Capped at the bore box's own short side (`PLAYER_WIDTH + 2` = 9):
         // past that a stroke is the whole box, which `bore_slice` clamps to
@@ -593,6 +598,7 @@ pub fn apply_player(t: &mut Player, name: &str, value: f32) {
         "shake_seed" => t.shake_seed = value,
         "climb_speed" => t.climb_speed = value,
         "surface_hop" => t.surface_hop = value,
+        "splash_force" => t.splash_force = value.max(0.0),
         "dig_yield" => t.dig_yield = value.clamp(0.0, 1.0),
         _ => {}
     }

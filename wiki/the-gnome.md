@@ -1,6 +1,9 @@
 # The Gnome
 
-*Current as of: 2026-08-29. New since the last pass: **he carries three
+*Current as of: 2026-08-30. New since the last pass: **water answers
+him** — going in throws a crown sized by how hard he hit it, a stroke
+flicks spray, surfacing sheets water off him, and swimming along the top
+leaves a churned wake behind. Before that — 2026-08-29: **he carries three
 tools** — a pick, a hammer and an axe — swapped with `1`/`2`/`3` or the
 middle mouse button, named in a small HUD in the top-left corner while he
 exists, and visible in his hand on the sprite. **The pick's default dig is
@@ -181,15 +184,33 @@ Deep banks in a forest floor are still a wall he has no way over: he
 sinks to the knee and stops, and he cannot climb *onto* loose material
 the way he steps up onto rock. Dig through it, or go round.
 
-Water he swims in. Falling in, he goes under with whatever speed he
-arrived with, the water eats that speed quickly, and how he behaves after
-that is the water feel you've picked — by default he sinks unless you swim.
-Under water `W` is a stroke upward and `S` pulls him down — each a distinct
-pull with a beat between, not a continuous thrust.
+Water he swims in, and it answers him. Falling in throws a crown of
+droplets up off the surface, sized by how hard he hit it: step off a bank
+and a couple of drops come up, drop from a cliff and the pond throws a
+proper skirt of water either side of him. Below a gentle slide there is
+nothing at all, which is what a gentle slide should do. He goes under with
+whatever speed he arrived with, the water eats that speed quickly, and how
+he behaves after that is the water feel you've picked — by default he
+sinks unless you swim. Under water `W` is a stroke upward and `S` pulls him
+down — each a distinct pull with a beat between, not a continuous thrust,
+and each one flicks spray if he is near enough to the top for it to reach.
+
+**Swimming along the surface leaves a wake.** He shoves water out from
+under him onto either side, so the line he crosses breaks up behind him
+into a churned band that settles back over the next few seconds, and the
+faster he swims the more of it there is. Drifting still in a pond disturbs
+nothing — the water goes flat around him, which is the other half of it.
+None of this creates or loses a drop: everything thrown up or heaped aside
+came out of the pool it is beside and goes back into it.
+
+Water this used to be silent. A gnome falling into a pond at full speed
+moved the surface by not one pixel, and one swimming across it left the
+waterline as straight as he found it.
 
 **Getting out is one continuous press.** Hold `W` to stroke up, and the
-moment his head breaks the surface that same held key becomes a hop that
-puts him on the bank — a smaller thing than a standing jump, sized to
+moment his head breaks the surface — which is also the moment the water
+sheets off him and throws its own splash — that same held key becomes a
+hop that puts him on the bank — a smaller thing than a standing jump, sized to
 clear a lip rather than to launch him out of the pond. He can also pull
 himself up a low bank while still in the water, without jumping at all.
 This used not to work: holding `W` was the only way to surface and was the
@@ -418,7 +439,9 @@ explosions are tuned.
 Underneath that, climb speed, how far he can reach to shake something, how
 readily a shaken tree sheds and sows, how big a hop leaving the water is,
 and how high a lip he can mantle are all individual numbers in the same
-panel.
+panel, along with how hard he hits the water — one number covering the
+crown going in, the spray coming out and the wake he pushes, with zero
+turning the lot off.
 
 **Cave formations are walk-through too**, on the same principle as the
 trees and for the same reason: a gallery hung with stalactites should read
