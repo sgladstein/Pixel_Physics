@@ -1,0 +1,68 @@
+{
+  "id": "20260830T202323557Z-0e0f32",
+  "created": "2026-08-30T20:23:23Z",
+  "board": "lab",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/lab-lamps-light-the-bed",
+    "commit": "51597408",
+    "agent": null,
+    "session_id": "b16b670c-0220-5253-91c2-582c01e166e5",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Moving a grow light moves what grows under it",
+  "question": "The only change between these two is which column one fixture is bolted at. Does the bed read as being lit by the lamps now — and is the difference big enough to be worth dragging one?",
+  "context_md": "The lab had a ceiling **and** a sky, and the sky was doing the work: four rows of stone pass 0.447 of full daylight, which was the crop's entire light budget, and replacing every fixture with plain stone left the stand byte-identical. So the picture said grow lights and the physics said sunshine through the roof.\n\nThe box is now sunless and the fixtures are the light. Each one throws a pool straight down its own column, so **where a lamp sits decides what thrives under it** — and dragging one off a plant station kills that plant.\n\nBoth beds are the same seed, same founders, same 3,600 frames. In **B** the leftmost fixture has been dragged 84 columns to the right, into the next bay. Its founder dies; nothing else was touched.\n\nTwo things I am unsure of and would rather you told me:\n\n- **The pool is visible on the back wall but not on the ground.** The bench light is real — the plants respond to it — but the renderer only reads it near the ceiling, so the bright patch you can see is the backdrop rather than the ground. Making the ground show it is a small change in a file another lane is rewriting this week. Worth doing?\n- **The bed is dimmer between lamps than it was.** That is the mechanic working, but it may have gone too far.",
+  "kind": "ab",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A — fixtures as built, one over each plant station",
+      "files": [
+        "20260830T202323557Z-0e0f32/000-pair_a.png"
+      ],
+      "caption": "eight fixtures, evenly spread; every founder has a light over it",
+      "meta": {
+        "plant cells in the bed": 676,
+        "seeds set": 26,
+        "founders still alive": "7 of 8",
+        "light on the bench, dimmest station": "0.13 of full daylight",
+        "light on the bench, average": "0.37 of full daylight"
+      },
+      "focus": [
+        0,
+        0,
+        512,
+        200
+      ]
+    },
+    {
+      "label": "B — the leftmost fixture dragged into the next bay",
+      "files": [
+        "20260830T202323557Z-0e0f32/001-pair_b.png"
+      ],
+      "caption": "one lamp moved 84 columns right; nothing else changed",
+      "meta": {
+        "plant cells in the bed": 580,
+        "seeds set": 23,
+        "founders still alive": "6 of 8",
+        "light on the bench, dimmest station": "0.00 of full daylight",
+        "light on the bench, average": "0.31 of full daylight"
+      },
+      "focus": [
+        0,
+        0,
+        512,
+        200
+      ]
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
