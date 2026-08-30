@@ -870,6 +870,15 @@ drift that two of these documents still reflect.**
 - [ecological-lod-design.md](ecological-lod-design.md) — **recommendation,
   not settled.** How an ecology survives a world that is not simulated
   (off-camera catch-up).
+- [evolution-lab-feasibility-2026-08-30.md](evolution-lab-feasibility-2026-08-30.md)
+  — **feasibility measurement, not a plan.** Could a second game live on this
+  engine with the gnome, worldgen, rock and destruction stripped out — a
+  sealed lab box of plants and creatures under grow lights, run fast enough
+  to watch evolution? Yes, and not for the expected reason: an empty box
+  costs 0.001 ms/frame, cost is ~0.7 µs per living plant cell and **not** a
+  function of world size, and the phases the concept deletes already measure
+  0.000–0.001 ms. 5–7 herb generations measured at 4 min 17 s. The blocker is
+  biological — the shipped ant reaches **generation 0**.
 - [plant-evolution-design.md](plant-evolution-design.md) — **design, all
   nine §8 calls signed off 2026-08-19; partly implemented.** The plant
   ecology: litter, decay, grass and the creeper; §4a's register holds the

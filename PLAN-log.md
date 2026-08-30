@@ -3674,3 +3674,59 @@ thickens and never anchors. Deformed rather than dead, which is the graded
 outcome the ethos asks for.
 
 Full account: `Reports/plant-fate-fallback-fork-2026-08-30.md`.
+
+## 2026-08-30 — the evolution lab: an empty box is free, and the ant is the blocker
+
+Feasibility question from the owner: could a second game live on this engine
+with the gnome, worldgen, rock, tunnelling, explosions and collapse stripped
+out — a sealed lab box of soil under grow lights, plants and creatures only,
+run fast enough that a player watches several generations in a sitting?
+
+**Yes, and the performance argument the concept rests on is backwards.**
+Measured with a new instrument, `examples/labbox_cost.rs`, four arms over one
+hand-built bed:
+
+- **An empty sealed box costs 0.001 ms/frame** — 18,000x real time, 0 tiles
+  solved, 0 chunks awake. The sleeping machinery is already perfect, so every
+  millisecond in this game is bought by something being alive.
+- **Cost is ~0.7 µs per living plant cell per tick and is not a function of
+  world size.** A 2048-wide bed measured **cheaper** than a 512-wide one at
+  fixed founders (2.505 vs 3.232 ms), because the same stand spread thinner.
+  Shrinking the box concentrates the stand, which is the expensive direction.
+- **Everything the concept deletes already costs nothing**: `player 0.001`,
+  `rigid bodies 0.001`, `blasts 0.000`, `particles 0.000`, `liquid bodies
+  0.000` ms. The case for stripping them is scope, risk and *cadence
+  freedom*, not frame time.
+- **The plants' and creatures' own biology is 7% of the frame.** The other
+  93% is the CA sweep and the coarse air field — the substrate that exists to
+  carry an outdoor world.
+- **Soil depth costs and, at this stand size, buys nothing**: 40 → 240 rows is
+  2.294 → 4.380 ms for a byte-identical stand, because herb's roots never
+  reach past 40.
+
+**The generation clock is already fast enough.** 45,000 frames of herb —
+`plant-throughput-herb-2026-08-29.md`'s generation 5–7 run — took **4 min 17 s**
+headless, about 1.4 generations per wall-clock minute, unoptimised. And the
+grow light is a *throughput* lever rather than a performance one: holding the
+sky at full amplitude produced **1,037 seeds against 435** over the same 6,000
+frames, 2.4x the reproduction, at 12% more cost per frame.
+
+**The blocker is biological.** `creature_probe terrain=world frames=12000
+ants=45` reports `births 0`, `deepest generation 0`, richest bank **219**
+against a birth cost of **1,040** — which is what `ant.ron`'s own comment says,
+written the same morning. Plants breed (`herb`); ants have never reached
+generation 1. A game about evolving creatures cannot start there.
+
+Two instrument corrections came out of it. The `floor` arm (field not called)
+reads 0.007 ms and a stand of **14 cells / 0 seeds** — light is delivered
+through the field, so it measures a dead lab rather than a cheap one, which is
+the *work that vanished* trap firing on the first run. And the `lab` arm first
+held the sky at `DAY_NIGHT_PERIOD_FRAMES / 4` on the assumption that a quarter
+of the cycle is noon; it is not, the phase belongs to `sun_elevation`, and the
+dim pin reversed the sign of the grow-light result. The harness now finds noon
+by maximising `sky_light_amplitude` and prints what it held.
+
+`instruments.md`'s own count was stale by thirteen (36 claimed, 49 actual) and
+is recounted from `ls` rather than incremented.
+
+Full account: `Reports/evolution-lab-feasibility-2026-08-30.md`.
