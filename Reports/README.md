@@ -757,6 +757,19 @@ drift that two of these documents still reflect.**
   run-down into an early cull that settles (§4a). Sharpens
   `creature-reproduction-economics.md` §3.6 and corrects the direction
   `ant.ron`'s own comment stated.
+- [creature-body-extent-2026-08-30.md](creature-body-extent-2026-08-30.md) —
+  **built and landed 2026-08-30.** The body is priced per cell at last:
+  nothing in the cost path read `chain.len()`, so **E10's premise that
+  "per-cell metabolic cost already prices a longer body" was false** and a
+  longer body was strictly free — measured at a difference of *exactly zero*
+  by injecting the old behaviour back into this change's own guard. Also
+  ships `ShadeRule::Countershade`, the appearance report's §7 seam, off by
+  default. **The finding that reframes the extent lever**: at the shipped
+  seed and horizon **no chain above two cells leaves a living colony**, at
+  the old flat bill as much as the new one and on a flat slab as much as on
+  the world — so the collapse is upstream of both the pricing and the
+  palette, and the blind A/B `creature-appearance-design.md` §6 asks for is
+  held until it is understood. Prices the arms that report measured.
 - [creature-stamp-routes-2026-08-30.md](creature-stamp-routes-2026-08-30.md) —
   **priced, nothing built; a decision document.** The three routes past the
   960-point body stamp, each with a number against it, over 12 pre-registered
@@ -857,9 +870,13 @@ drift that two of these documents still reflect.**
   — **measured pre-flight, 2026-08-30; instrument `examples/vision_probe.rs`,
   no behaviour changed.** Sizes **E15**'s sight sense before anyone builds it,
   by tracing the geometry that already exists: **build it at radius 64,
-  all-round, seeing over the floor litter**, and it costs **0.004 ms of a
-  frame** — 0.14% of `ascii`'s 2.98 ms mean, below what a wall clock resolves,
-  and under 10% of a frame only past ~358 predators. The radius argument is
+  all-round, seeing over the floor litter**, and it costs **~0.005 ms of a
+  frame** — 0.15–0.22% of `ascii`'s 2.94 ms mean, below what a wall clock
+  resolves, and under 10% of a frame only past a few hundred predators. Every
+  geometry number in it was measured on **four different trees** as `main`
+  landed underneath — worldgen, tree-breaking, the creature economy. The first
+  three were byte-identical; the fourth moved only in the third decimal and
+  **every median and p10 the recommendation rests on held**. The radius argument is
   the **p10 seed** rather than the median: the stranded beetle sees prey
   0.108–0.260 of the time at r32 and 0.240–0.389 at r64, over three presets
   and 18 seeds each. Two findings the design has to carry: what blocks a
