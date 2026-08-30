@@ -1,0 +1,37 @@
+{
+  "id": "20260830T180655251Z-f7e10e",
+  "created": "2026-08-30T18:06:55Z",
+  "board": "lab",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/evolution-lab-gui-physics-dhkblx",
+    "commit": "7d7062e",
+    "agent": null,
+    "session_id": "c7783652-0f30-51a8-b3fa-7773cb6c24fa",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The lab gets a button bar you can drive with the mouse",
+  "question": "Does the bottom bar read as an instrument panel rather than a smudge along the edge? And is the play/pause button's wording the right way round -- it names what the press will DO, so it says RUN while the box is stopped. Anything unreadable at this size?",
+  "context_md": "Nine states, left to right, top to bottom: at rest; hovering PLANTS; REBUILD held down (nothing has happened yet -- it fires on release); the three pages, each with one row explained on hover; the dial latched at 64X; a clicked ant with the inspector on it; STATS toggled. Every control still has its keyboard shortcut, printed under the button.\n\n**Counts, so the picture is not read alone.** Clicks that fired: 3 pages opened, dial set to 64X, inspector opened on a live ant cell (energy 159.5). Clicks that correctly did *not* fire: press-alone on REBUILD (world frame unchanged at 864), a release slid off the button, a click on the bar leaking through into the world. The box was warmed to frame 864 and holds 59 organisms, 52 of them ants. 16 unit tests over the bar, clippy 1.98 clean.",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "",
+      "files": [
+        "20260830T180655251Z-f7e10e/000-sheet6.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
