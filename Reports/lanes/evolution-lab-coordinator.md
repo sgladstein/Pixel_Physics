@@ -146,4 +146,16 @@ measured in it.
 - **Four agents in one container makes every timing untrustworthy.** Two
   byte-identical `ascii` runs have disagreed 2.42x under load here before
   (`Reports/measurement-under-contention.md`). Later rounds should run as
-  separate cloud sessions, one machine each.
+  separate cloud sessions, one machine each. Measured by the dial lane on
+  this very box: the same bed reached **1.7-2.0x at 60 Hz under load 16 and
+  3.4-4.0x under load 5**.
+- **This container is suspended between tool calls, so a background job
+  makes no progress while the session is idle.** Found by the dial lane
+  after it cost hours, and it explains a failure this session spent three
+  attempts on: `cargo test --lib` completed in 1,420 s when run alongside
+  active work and then hit the wall at 1,800 s and 2,400 s when left to run
+  while nothing else was happening. **A long job has to run in a foreground
+  call, or CI has to be the gate.** CI runs on branch pushes as well as on
+  pull requests, so pushing and reading the run is the reliable route --
+  and it is the *only* route for the full suite, which does not fit in one
+  foreground call at this build's `codegen-units = 1`.
