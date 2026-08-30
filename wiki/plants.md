@@ -3,7 +3,9 @@
 *What plants do, and what it looks like when they are working. No code, no
 file names — see `Reports/` for why any of it is built the way it is.*
 
-*Current as of: 2026-08-30 (growth programs now actually mutate often enough to
+*Current as of: 2026-08-30 (stands are bushier: the light grid is half as fine,
+so plants shade each other and themselves less. Also: growth programs now
+actually mutate often enough to
 see: a stand of one species carries a real minority running a different program,
 where before it was the species' program and nothing else -- see **Individuals
 of one species differ too**. Before that: a plant's inherited growth program
@@ -171,7 +173,18 @@ The visible consequences:
 Trunks are bare at the bottom and foliage sits at the top — plants shed
 leaves that are too shaded to pay for themselves, so a crowded stand lifts its
 own crowns. Neighbouring crowns stay mostly separate rather than merging into
-one green slab. Big plants set more seed than small ones, without any rule
+one green slab.
+
+**A stand is markedly bushier since 2026-08-30**, and that was a deliberate
+choice rather than a drift. The light grid was made half as fine, and because
+a leaf shades by how many grid blocks it fills rather than by how many cells,
+a thin canopy in a taller block now blocks less of the sky. Plants shade each
+other less and shade *themselves* less, so the same seed in the same bed grows
+about twice the leaf and sets several times the seed. Judged by eye and picked
+that way — the sparser stand it replaced read as a row of whips. The thing to
+watch, if a stand ever looks like one green slab again, is that this moved the
+balance rather than removing shade: shade still kills leaves, it is just no
+longer cheap to cast. Big plants set more seed than small ones, without any rule
 saying so: seed is set per mature cell, so size buys offspring.
 
 Growth is fastest when young and tails off — a plant stops when its income
