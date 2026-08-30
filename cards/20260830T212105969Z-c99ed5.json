@@ -1,0 +1,103 @@
+{
+  "id": "20260830T212105969Z-c99ed5",
+  "created": "2026-08-30T21:21:06Z",
+  "board": "lab",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/lab-parameter-access",
+    "commit": "dcf1d670",
+    "agent": null,
+    "session_id": "aa16b4bd-40f0-5596-a440-028ea60c22b4",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The lab's parameters panel: the numbers behind the six verbs",
+  "question": "Is this the right set of numbers to have your hands on -- and is there one you would reach for that is missing?",
+  "context_md": "You said: *\"Give me the tools, data, access to necessary parameters that need to be tweaked and I do that testing myself in the game. That is the game.\"* This is the access half. **P**, or the PARAMS button on the tool row.\n\nFour pages, mouse-driven: click a name to pick it, `-`/`+` to move it, the bar under each name shows how far along its range it sits, and every row explains itself on hover. **Nothing was tuned** -- every value in these shots is what ships today.\n\nWhat I could not give you, and why:\n\n- **Three plant rows are shown and not changeable** (LIGHT WEIGHT, BRANCH CHANCE, UPWARD WEIGHT). Each is four numbers, one per branch order -- a tree's is `0.15/0.30/0.50/0.60`. One row can only write one number, and writing it would flatten all four to the same value, which is a change to three things dressed up as a change to one.\n- **SAVE writes 27 of the 42 rows back to their file.** The five plant growth rows it refuses because the same name appears twice in a species file -- once for the shoot, once for the root -- and it would edit the wrong one. GUT BIAS and BIRTH GRANT it refuses because they are half of a pair on one line. The seven BOX rows have no file at all; they are the spec a REBUILD is built from, and each says so.\n\nThe last two shots are the other half: click any living thing with LOOK and the cell page now carries **that individual's** own numbers under the cell's -- what generation it is, what it has set in seed, and for a plant the ten inherited multipliers that make two seeds of one species grow into different plants.",
+  "kind": "gallery",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "GROUND -- soil, packed soil, water",
+      "files": [
+        "20260830T212105969Z-c99ed5/000-t-params--ground-2x.png"
+      ],
+      "caption": "Soil's dig resistance is 0.80 and an ant's dig force is 1.00; put one above the other and the colony stops tunnelling.",
+      "meta": {
+        "rows on this page": 9,
+        "rows you can move": 9,
+        "rows SAVE can keep": 9
+      },
+      "focus": null
+    },
+    {
+      "label": "PLANT -- whichever the chip has armed",
+      "files": [
+        "20260830T212105969Z-c99ed5/001-t-params--plant-2x.png"
+      ],
+      "caption": "Follows the species chip on the bar, so the page is always about the plant you are holding.",
+      "meta": {
+        "rows on this page": 13,
+        "rows you can move": 10,
+        "rows SAVE can keep": 5,
+        "rows shown but not changeable": 3
+      },
+      "focus": null
+    },
+    {
+      "label": "ANTS -- the colony species",
+      "files": [
+        "20260830T212105969Z-c99ed5/002-t-params--ants-2x.png"
+      ],
+      "caption": "Dig force, hunger, what a birth costs, and how much a newborn's brain differs from its parent's.",
+      "meta": {
+        "rows on this page": 12,
+        "rows you can move": 12,
+        "rows SAVE can keep": 10
+      },
+      "focus": null
+    },
+    {
+      "label": "BOX -- the lamps and the bed",
+      "files": [
+        "20260830T212105969Z-c99ed5/003-t-params--box-2x.png"
+      ],
+      "caption": "The lamp is live. The rest is what a REBUILD builds, and every row of it says so.",
+      "meta": {
+        "rows on this page": 8,
+        "rows you can move": 8,
+        "rows SAVE can keep": 1
+      },
+      "focus": null
+    },
+    {
+      "label": "A plant, clicked",
+      "files": [
+        "20260830T212105969Z-c99ed5/004-t-specimen--plant-2x.png"
+      ],
+      "caption": "Its own generation, what it has rooted and shot, and the ten multipliers it drew when it germinated.",
+      "meta": {
+        "lines about this individual": 19
+      },
+      "focus": null
+    },
+    {
+      "label": "An ant, clicked",
+      "files": [
+        "20260830T212105969Z-c99ed5/005-t-specimen--ant-2x.png"
+      ],
+      "caption": "Its own diet and birth grant -- inherited, so not its species' -- and what it has in its jaws.",
+      "meta": {
+        "lines about this individual": 8
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
