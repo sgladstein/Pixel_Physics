@@ -37,10 +37,19 @@ choice.
    world at any frame** — and the reason is not the horizon: worldgen sows
    `creeper`, `shrub`, `conifer` and `tree`, and the only two species that
    bear fruit at all, `herb` and `scrambler`, **are never planted**. That
-   makes "sow a fruiting plant" the cheapest lead in this document, and §5
-   treats it as a real fourth option rather than a footnote.
+   makes "sow a fruiting plant" the cheapest lead in this document — and it
+   is the recommendation.
 
-The recommendation is in §5.
+**What decides a birth is one number: `ceiling − bar`.** Every arm with a
+negative margin gave **exactly zero births over 12 seeds**; every arm with a
+positive one bred. Two arms sharing no mechanism but the same +99 margin bred
+at the same rate (96 and 92). So a proposal can be priced before it is built.
+
+**The recommendation is to sow a fruiting plant first** — no creature code at
+all, and the arm that models it breeds on **12 of 12 seeds**. Route 1 with
+route 3's gut is the fallback if the fruit turns out to be out of foraging
+range; route 2 stays last, because this report could not price it. §5 has the
+ordering and what each step costs.
 
 ---
 
@@ -237,6 +246,211 @@ engine does not have**, on top of the birth-cost change. That is not a
 line-item in either §3.1 or §3.2, and it is the larger half of both. Route 3
 needs no new mechanism at all, which was always its stated advantage; what
 this report adds is that route 3 cannot be *used* on its own.
+
+---
+
+## 4. Measured
+
+12 pre-registered seeds, 24,000 frames, `terrain=world`, one binary.
+
+| arm | seeds that bred | births (median / max) | ants alive at the end (median) | seeds with any ant left | bank / bar (median) | `denied-no-space` (median) |
+|---|---|---|---|---|---|---|
+| **S** — the shipped ant, untouched | **0/12** | 0 / 0 | 15 | 12/12 | 0.200 | 0 |
+| **R3** — route 3 alone — `gut=-1`, `g=0` | **0/12** | 0 / 0 | 12 | 10/12 | 0.571 | 0 |
+| **R3b** — route 3 at the pre-E14 budget (`start_energy=900`) | **0/12** | 0 / 0 | 22 | 12/12 | 0.869 | 0 |
+| **R3c** — route 3 with the headroom a fruit would give | **12/12** | 96 / 440 | 9 | 10/12 | 1.014 | 662 |
+| **R1** — route 1's stamp alone (480), `g=0` | **0/12** | 0 / 0 | 14 | 10/12 | 0.444 | 0 |
+| **R13** — routes 1+3 together, shipped grant | **11/12** | 22 / 79 | 22 | 10/12 | 0.958 | 31 |
+| **R13b** — routes 1+3, `g=0` — margin 99, not 19 | **11/12** | 92 / 685 | 14 | 10/12 | 1.016 | 1318 |
+| **R2** — route 2's stamp, no anti-freeloading margin | **12/12** | 946 / 2430 | 0 | 3/12 | 0.000 | 21458 |
+| **R2b** — route 2's stamp, `threshold=200` | **11/12** | 1354 / 13614 | 228 | 7/12 | 6.021 | 44219 |
+
+**"bank / bar" is the median over seeds of the richest ant's bank divided by
+the bar it had to clear.** It is the continuous quantity behind the binary
+`births` column, and it is the one to read when a route fails: it says *how
+far* short, not merely that it fell short.
+
+Four things to take off that table.
+
+**The zeros are energy, not room.** Every arm that failed to breed reports
+`denied-no-space` of **0** — not a small number, zero. `births_denied_no_space`
+counts a birth that was attempted and refused for want of a cell to put the
+child in, so a zero means **no ant in twelve worlds ever reached its
+threshold at all**. Lane A's grant sweep ran that counter at 159k–563k and
+read the column; this one reads it too, and it says the opposite thing. The
+arms that *do* breed prove the counter is live in this harness: R2 runs it to
+27,429.
+
+**The negatives cannot be blind, because the same binary produces the
+positives.** R3 and R13b differ in exactly one knob — `body_energy`, 480
+against 240 — and nothing else: same gut, same grant, same threshold rule,
+same seeds. One breeds and one does not. That is the positive control the
+house rule asks for, and it is inside the experiment rather than beside it:
+the stamp is isolated as the binding term by a single-variable comparison
+rather than by argument.
+
+**Route 3 is not close, and it is not close at either budget.** Alone at the
+shipped budget it banks a median **0.571** of its bar. At the pre-E14 budget
+the earlier arithmetic says it should reach 0.968 and it measures **0.869** —
+so the ceiling model is optimistic here, and even the version of route 3 that
+looked like a near miss on paper is short by more than the paper says. Twelve
+seeds, no births at either.
+
+**Route 2's proxy breeds and the colony dies.** 11 of 11 seeds produce
+births — a median of 826, up to 2,430 — and only 3 of 11 have a single ant
+left standing at the end. That is not fission failing; it is the arm being
+mis-specified, and the mis-specification is instructive. With
+`reproduce_threshold` at its floor the bar is 81 against a grant of 80, so a
+newborn needs **one** unit of energy to breed again. Economics §1.3's
+condition (a) — the threshold must exceed what a newborn is *given* — is
+violated by one point, and what comes out is a birth-death treadmill with
+`denied-no-space` at 27,429: a space-limited explosion, then nothing. **R2b
+is the same route with a real margin** (threshold 200 against a grant of 80,
+so an ant must earn a whole leaf above its endowment before spending it). It
+breeds on 11 of 12 seeds and holds a median of **228 ants** against the
+shipped 15 — and `denied-no-space` runs to **44,219**, so that scene is
+space-limited and its births column says nothing about energy.
+
+
+### 4.1 The margin governs the outcome, not the mechanism
+
+Put each arm's **margin** — `ceiling − bar`, how much headroom the arithmetic
+gives it — beside what it did:
+
+| arm | margin | seeds that bred | births (median) |
+|---|---|---|---|
+| S | −880 | 0/12 | 0 |
+| R3 | −381 | 0/12 | 0 |
+| R1 | −261 | 0/12 | 0 |
+| R3b | −31 | 0/12 | 0 |
+| R13 | **+19** | 11/12 | 22 |
+| R13b | **+99** | 11/12 | 92 |
+| R3c | **+99** | **12/12** | 96 |
+
+**Every negative margin gives exactly zero births and every positive one
+breeds, with no exceptions and no near misses in between** — including R3b at
+−31, which is the closest any failing arm comes and still never once fires.
+And the two arms at **+99 land on top of each other**: 92 and 96 births,
+`bank / bar` of 1.016 and 1.014, from routes that share no mechanism at all —
+R13b halves the stamp, R3c raises the budget. Their per-seed spreads are wide
+and different (R13b 0–685, R3c 44–440), so this is agreement in aggregate
+rather than a suspiciously clean coincidence.
+
+**So what decides whether an ant can breed is one number**, and neither the
+route nor the gene it goes through changes the answer. That is worth more
+than any single route's verdict: it means a proposal can be *priced before it
+is built*, by computing `hunger_fraction * start_energy + Y − birth_cost` and
+asking whether it is positive.
+
+**Two arms sit outside that model and must not be read against it.** R2 and
+R2b set `body_energy=0`, which does not merely zero the stamp — it changes
+what a body is *worth*, and a corpse's worth is `(body_energy * cells +
+leftover) / cells`, so with the stamp term gone a corpse is made entirely of
+the dead ant's unspent bank. R2b's richest ant banks **6.0x its bar**, over
+five times the ceiling the model prints for it. Lane A already recorded that
+this ceiling is not a hard bound (616 measured against 540 printed, a 14%
+overshoot); **5.5x is a different order of thing and this report does not
+explain it.** It is flagged rather than smoothed over, and it is the second
+reason — after the free regrowth in §2 — that **no number in the R2 rows is
+evidence about fission.**
+
+
+---
+
+## 5. What to build
+
+**Cheapest first, and the cheapest is not one of the three routes.**
+
+### Step 1 — sow a plant that fruits. No creature code at all.
+
+Route 3's own escape hatch is a `fruit` worth 960 and a `flower` worth 1,440.
+Both exist, both are already grown by `plant.rs`, and **the world never
+contains one**, because `LIFE_SPECIES` in `src/worldgen/passes.rs` sows
+`creeper`, `shrub`, `conifer` and `tree` — and the only two species that bear
+fruit, `herb` and `scrambler`, are not in that list. So the reason no ant has
+ever reached a flower is not that ants forage badly. It is that there are
+none.
+
+Give a matched gut a 960-point fruit and its ceiling is `100 + 960 = 1060`
+against a 961 bar — **margin +99**, which is exactly the margin R3c measures,
+and R3c breeds on **12 of 12 seeds**, the only arm in this report that never
+fails, at `denied-no-space` of 662 rather than tens of thousands. Route 3
+then works *alone*, which is what it always promised and could not deliver on
+an empty larder.
+
+This is also the version the owner's own objection permits. The refusal on
+record is to **a richer uniform floor** — *"I don't want ants sitting in one
+spot eating fallen leaves"* — and a fruit crop is the opposite of uniform: it
+ripens, it falls as `windfall` to where the ants walk, and it is gone.
+Reproduction riding a fruit crop is masting, and it is the ecologically real
+version of this mechanic.
+
+**What is not established, and must be measured before this is called done:**
+R3c delivers its margin by raising `start_energy`, not by putting a fruit in
+the world. The two give the same *ceiling*; they do not give the same
+*problem*, because a fruit has to be **found**. Ants are on record as poor at
+finding food far away. So the experiment is: add `herb` to `LIFE_SPECIES`,
+census fruit cells with `stamp_probe` (it already prints standing food per
+material), and re-run R3. **If fruit cells stand in the world and R3 still
+reads 0 births, the fruit is out of foraging range and this step is dead** —
+which is a foraging problem, not an economy one, and a different lane's.
+
+### Step 2, if step 1 fails — route 1, and route 3 with it, as one change
+
+Not route 1 *or* route 3: **both, together**. Route 1 alone is 0/12 and route
+3 alone is 0/12; together they are 11/12. The reason is §3 — route 1 leaves
+the newborn a second cell to buy at 480, and only the specialised gut lifts
+the bank ceiling (220 → 580) past that.
+
+Build it at **`birth_grant` near zero** rather than at the shipped 80. R13
+(grant 80, margin 19) breeds a median of 22; R13b (grant 0, margin 99) breeds
+**92**, four times as many, because 19 points of headroom is less than one
+mutation step of `trait_variance` (0.15 on the gut axis) and half the
+children fall back out of solvency at birth. The trade is real and visible in
+the data — R13b's colonies lose more ants (deaths 123 against 38) and hold a
+smaller standing population (14 against 22) — which is the offspring
+number-versus-quality trade-off arriving on its own, and it is a **graded**
+outcome rather than a binary, which is what the ethos asks for.
+
+Its costs, none of which §3.1 lists:
+
+- **A growth verb for creatures, which does not exist.** Nothing in
+  `creature.rs` appends a body cell to a live organism. This is the larger
+  half of the work.
+- **The ancestral gut has to be moved by hand** in `ant.ron`, from 0.0 toward
+  −1.0. Selection will not find it: the positive control ends at a mean gut of
+  −0.66 from a neutral ancestor, so the pressure is real, but at gut 0 nothing
+  breeds and there is no differential reproduction to select through.
+- **A one-cell newborn is at the bottom of the findable range**
+  (`creature-appearance-design.md`), so the species will read as a scatter of
+  dots until its members grow.
+
+### Step 3, last — route 2
+
+Not because fission is wrong. Because **this report could not price it**, and
+says so: the `body_energy=0` proxy makes the parent's regrowth free, which is
+precisely the constraint §3 identifies as binding, and it moves the corpse
+economy so far that R2b's ants bank 6x their bar against a ceiling the model
+cannot account for. Everything route 2 needs — the growth verb, the
+specialised gut — route 1 needs too, and §3.2's own recommendation is to
+build it second. That ordering survives this pricing unchanged.
+
+### What not to do
+
+- **Do not tune `reproduce_threshold` downward.** `reproduce_at` floors it at
+  `birth_cost + 1`, so the edit does nothing and reads exactly like the change
+  having been made.
+- **Do not lower `body_energy`.** It is pinned to the flesh-pricing invariant
+  against `ant`, `chitin_*` and `corpse`, and breaking it re-opens the corpse
+  pump (dead-ends §13l).
+- **Do not raise `leaf`, `litter` or `moss`.** That is the uniform richer
+  floor the owner refused, and it is a different thing from a fruit crop.
+- **Do not read the material table's ceiling as reachable.** It quotes a
+  flower that no world contains.
+- **Do not expect `start_energy` to help.** Cutting it lowers the ceiling by
+  `0.5 dS` and the bar by only `grant_fraction * dS`; raising it is what R3c
+  does, and R3c is a *stand-in* for a fruit rather than a proposal to double
+  the budget.
 
 ---
 

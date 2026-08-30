@@ -726,6 +726,24 @@ drift that two of these documents still reflect.**
   run-down into an early cull that settles (§4a). Sharpens
   `creature-reproduction-economics.md` §3.6 and corrects the direction
   `ant.ron`'s own comment stated.
+- [creature-stamp-routes-2026-08-30.md](creature-stamp-routes-2026-08-30.md) —
+  **priced, nothing built; a decision document.** The three routes past the
+  960-point body stamp, each with a number against it, over 12 pre-registered
+  seeds. **What decides a birth is one number — `ceiling - bar`** — and it
+  governs regardless of mechanism: every negative margin gave *exactly zero*
+  births and every positive one bred, with two arms sharing no mechanism but
+  the same +99 margin breeding at the same rate. Three corrections to the
+  standing account: economics §3 prices every route against a satiety line of
+  **450** that E14 has since cut to **100**, which reverses two verdicts;
+  **neither stamp route removes the stamp, both defer it** (480 against a
+  220 bank), so **route 3 is the precondition for routes 1 and 2 rather than
+  an alternative** — and **creatures cannot grow**, so both stamp routes need
+  a verb the engine does not have. The recommendation is **none of the
+  three first**: `fruit` (960) and `flower` (1,440) exist and no world
+  contains one, because worldgen sows `creeper`/`shrub`/`conifer`/`tree` and
+  the only fruiting species, `herb` and `scrambler`, **are never planted** —
+  which answers the experiment economics §7 calls its cheapest. Route 2 is
+  reported as **unpriced**, with the reason.
 - [creature-direction.md](creature-direction.md) — **direction agreed
   (2026-08-17).** Cell-chain ants, the caged brain, the heritable genome;
   decision record plus implementation plan.
