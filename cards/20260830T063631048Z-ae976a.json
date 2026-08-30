@@ -1,0 +1,56 @@
+{
+  "id": "20260830T063631048Z-ae976a",
+  "created": "2026-08-30T06:36:31Z",
+  "board": "creatures",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/creature-lane-d-body-extent",
+    "commit": "edf2582",
+    "agent": null,
+    "session_id": "e3549c81-a9ad-5c1b-ad2d-6639de2967bb",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Nine-cell ant: does structured shade read better than random shade?",
+  "question": "Which body reads more like an animal with a front and a top, rather than a block?",
+  "context_md": "Both panes are the **same simulation** — same seed, same flat preset, same 600 frames, 15 ants placed, 135 body cells on screen, 9.00 cells per creature in both. **Only the paint differs.**\n\nEach body cell picks a shade from `ant`'s existing **three-colour palette** — the palette is *not* widened, because a wide spread makes a field of cells draw randomly across a range, which is speckle, and speckle destroys the one thing a small body has (its shape).\n\n- One arm gives every cell an **independent random draw**, which is what ships today.\n- The other **derives the shade from the cell's place in the body**: palest on the head, then graded pale-on-top to dark-underneath. That is countershading, and it is the only thing that holds contrast against *both* the sky an animal is silhouetted on and the ground it tunnels in.\n\n**What I already measured, and what I am unsure of.** The structured arm puts very slightly *less* luminance on screen (1,270 against 1,295 per creature) — expected, since it deliberately puts pale cells on top where they contrast less with sky. So this is not a contrast win and I am not claiming one. The question is whether the body reads as having an anatomy. I could not judge it myself and the difference may simply be too small to see.\n\nThis is a **nine-cell** body because countershading needs a top and a bottom. On the two-cell ant that ships, and on a long single-file chain, there is no underside for the rule to use and the effect is barely visible — measured, and not proposed for the shipped ant.\n\nSeparately: nine-cell colonies currently die out within 12,000 frames for reasons unrelated to this, so nothing here is a proposal to ship this body.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A - random shade (ships today)",
+      "files": [
+        "20260830T063631048Z-ae976a/000-card_ant_block.png"
+      ],
+      "caption": "every cell draws its shade independently",
+      "meta": {
+        "ants standing": 15,
+        "body cells on screen": 135,
+        "cells per ant": 9.0,
+        "brightness the ground would not have, per ant": 1295
+      },
+      "focus": null
+    },
+    {
+      "label": "B - shade by place in the body",
+      "files": [
+        "20260830T063631048Z-ae976a/001-card_ant_block_shaded.png"
+      ],
+      "caption": "palest head, pale top, dark underside",
+      "meta": {
+        "ants standing": 15,
+        "body cells on screen": 135,
+        "cells per ant": 9.0,
+        "brightness the ground would not have, per ant": 1270
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
