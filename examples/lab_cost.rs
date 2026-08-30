@@ -485,13 +485,23 @@ fn multiplier(tick_ms: f64, render_ms: f64, hz: f64) -> f64 {
 fn main() {
     let frames: u64 = arg("frames").unwrap_or(20_000);
     let every: u64 = arg("every").unwrap_or(2_000);
-    let width: i32 = arg("width").unwrap_or(512);
-    let height: i32 = arg("height").unwrap_or(320);
-    let soil: i32 = arg("soil").unwrap_or(80);
-    let founders: usize = arg("founders").unwrap_or(8);
-    let colonies: usize = arg("colonies").unwrap_or(1);
-    let species: String = arg("species").unwrap_or_else(|| "herb".to_string());
-    let seed: u64 = arg("seed").unwrap_or(1);
+    // **Every bed knob defaults to `LabBox`'s own, never to a literal.**
+    // Written with literals first, and that was a real bug for a day: this
+    // harness pinned `soil` at 80 while the scene's `DEFAULT_SOIL_DEPTH` was
+    // re-derived to 40 from a measurement of where herb's roots actually
+    // stop, so every "the lab box costs X" figure was taken on a bed the game
+    // does not build. It is the `include_str!` gotcha wearing a different
+    // hat: a knob nobody can see the value of is a knob nobody can tell is
+    // disconnected, and a *defaulted* knob is worse, because it looks
+    // connected. The echo line below prints all of them for the same reason.
+    let d = LabBox::default();
+    let width: i32 = arg("width").unwrap_or(d.width);
+    let height: i32 = arg("height").unwrap_or(d.height);
+    let soil: i32 = arg("soil").unwrap_or(d.soil_depth);
+    let founders: usize = arg("founders").unwrap_or(d.founders);
+    let colonies: usize = arg("colonies").unwrap_or(d.colonies);
+    let species: String = arg("species").unwrap_or_else(|| d.species.clone());
+    let seed: u64 = arg("seed").unwrap_or(d.seed);
     let walls: String = arg("walls").unwrap_or_else(|| "1".to_string());
     let fans: usize = arg("fans").unwrap_or(0);
     let fan_radius: i32 = arg("fan_radius").unwrap_or(12);
@@ -512,7 +522,7 @@ fn main() {
         colonies,
         species: species.clone(),
         seed,
-        ..LabBox::default()
+        ..d
     };
 
     // Echoes its own parameters, first line, `instruments.md`'s standing rule
@@ -521,10 +531,12 @@ fn main() {
     println!(
         "lab_cost: {width}x{height} soil={soil} ground_y={} founders={founders} species={species} \
          colonies={colonies} seed={seed} walls={walls:?} fans={fans} reps={reps} frames={frames} \
-         every={every} phases={} render_every={render_every} gut={}",
+         every={every} phases={} render_every={render_every} gut={} \
+         (bed defaults from LabBox::default(), soil {} rows)",
         base.ground_y,
         if split { 1 } else { 0 },
         gut.map_or("(ant.ron)".to_string(), |g| format!("{g:+.2}")),
+        LabBox::default().soil_depth,
     );
     println!(
         "  grow light held at frame {} of {}, amplitude {:.3}",
