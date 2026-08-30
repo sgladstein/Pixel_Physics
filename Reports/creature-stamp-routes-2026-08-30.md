@@ -512,11 +512,14 @@ report quietly stand in for.
 ## 7. Provenance
 
 Everything here is `examples/stamp_probe.rs` at 24,000 frames on
-`terrain=world`, on the branch `claude/creature-lane-i-stamp-routes` — which
-is `origin/main` with `origin/claude/creature-lane-a-birth-grant` merged in,
-because **PR #142 was open and conflicted rather than landed** when this lane
-ran, so `origin/main` has no `birth_grant` at all. The lane note records that
-and how it was resolved.
+`terrain=world`. **PR #142 was open, and conflicted against `main`, for the
+whole of the measurement** — its `mergeable_state` was `dirty` and
+`origin/main` carried no `birth_grant` at all — so the sweep was run on
+`origin/main` with `origin/claude/creature-lane-a-birth-grant` merged in,
+which is the tree the brief intends. #142 landed while this report was being
+written, and `main` has since been merged in; **no number here was re-taken
+against it**, and nothing in those commits touches `ant.ron` or the birth
+path. The lane note records the original state.
 
 Seeds are the 18 of the first 30 that seat at least 30 of their 55 founders,
 screened at `frames=1` before any arm was run. Arms differ from the shipped

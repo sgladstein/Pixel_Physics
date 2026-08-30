@@ -15,6 +15,11 @@ merged, and GitHub reports it `mergeable_state: "dirty"` — it has a conflict
 against main. The brief says to re-fetch until the grep is non-zero; that
 would never have terminated.
 
+**#142 landed later the same session**, while this lane's report was being
+written; `main` has since been merged in and the workaround is now redundant
+rather than load-bearing. It is recorded because the sweep ran before that,
+and because "re-fetch until the grep is non-zero" would not have terminated.
+
 Resolved by standing on Lane A's branch rather than on main: this lane's
 branch is cut from `origin/main` with
 `origin/claude/creature-lane-a-birth-grant` merged in (one conflict, two
