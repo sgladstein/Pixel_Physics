@@ -32,8 +32,12 @@
 //!
 //! At 1:1 a one-pixel-tall dark line across a 512-wide world — the size a
 //! filmstrip scene builds at (`WIDTH`x`HEIGHT`, viewport-sized on purpose;
-//! see `viewshot.rs`'s own doc for why the *shipped*, now much larger, world
-//! is a separate question this tool does not answer) — is genuinely easy to
+//! the *shipped* world is 8192x2560 and **`scene=worldgen` here does not
+//! build it**, which is a live trap rather than a footnote: that scene calls
+//! itself the thing worldgen is judged on and six rounds were judged on a
+//! world 1/128th the area, where `boulders`, `vaults` and `springs` cannot
+//! fire. It now says so in its own output; `world_look mode=strip` is the
+//! sheet that builds the shipped world) — is genuinely easy to
 //! miss — that is exactly how the horizontal chunk-seam tearing went
 //! unnoticed until it was pointed out. `crop` and `zoom` are the difference
 //! between "I looked at it" and "I saw it".
@@ -1900,6 +1904,39 @@ fn build_scene(args: &Args) -> World {
             println!("worldgen {name} seed {}", args.seed);
             for (pass, cells) in &report {
                 println!("  {pass:<14} {cells:>7} cells");
+            }
+            // **Say which world this is, every time, unprompted.**
+            //
+            // This scene's own comment above calls it "the thing worldgen is
+            // judged on", and for six rounds it was -- at 512x320, which is
+            // **1/128th of the area the game ships** -- 16x wider and 8x
+            // deeper, not the 256x the revamp plan states. Features that need room
+            // read as dead here and the sheet cannot say so: measured on
+            // `rolling` seed 1, this world reports `boulders 0`, `vaults 0`,
+            // `springs 0` and `talus 2`, while the same generator at
+            // 8192x2560 seats boulders, carves cave systems and cuts spring
+            // basins. Three separate review cards asked the owner to judge a
+            // retune of a pass that writes nothing at this size.
+            //
+            // The scene is *not* grown to the shipped size, deliberately:
+            // `blastsweep.sh` steps it 5,000 frames and every whole-world
+            // census in this file loops the frame's own `WIDTH`/`HEIGHT`, so
+            // a 256x world would make thirty counters silently describe the
+            // top-left viewport. `world_look mode=strip` builds the shipped
+            // world and renders player viewports across it; this line is
+            // what stops a small-world sheet being mistaken for one.
+            let (sw, sh) = (pixel_physics::app::WORLD_WIDTH as i32, pixel_physics::app::WORLD_HEIGHT as i32);
+            if WIDTH != sw || HEIGHT != sh {
+                let dead: Vec<&str> =
+                    report.iter().filter(|(_, c)| *c == 0).map(|(n, _)| *n).collect();
+                println!(
+                    "  !! this is a {WIDTH}x{HEIGHT} world -- 1/{}th of the area the game ships ({sw}x{sh}).",
+                    (sw as i64 * sh as i64) / (WIDTH as i64 * HEIGHT as i64)
+                );
+                if !dead.is_empty() {
+                    println!("  !! wrote nothing here: {}. That may be the world size, not the pass.", dead.join(", "));
+                }
+                println!("  !! to judge the world the game ships: cargo run --release --example world_look -- mode=strip presets={name} out=/tmp/w.png");
             }
         }
         // The payoff mechanic, and the one M17 "was built for and has never

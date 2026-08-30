@@ -831,6 +831,71 @@ drift that two of these documents still reflect.**
 
 ## Worldgen and world
 
+**The 2026-08-29 revamp program** — six audits and a plan, written the day
+the owner said six rounds had not made the world interesting and asked for a
+revamp rather than another round:
+
+- [worldgen-revamp-plan-2026-08-29.md](worldgen-revamp-plan-2026-08-29.md) —
+  **the plan.** What the four audits below add up to, the workstreams in
+  priority order, the sequencing and the stop gate. Start here; the audits
+  are its evidence.
+- [worldgen-appearance-audit-2026-08-29.md](worldgen-appearance-audit-2026-08-29.md)
+  — **audit; measured.** What the player actually sees, in rendered pixels:
+  the landform passes are at most 0.6% of the view and the palette passes are
+  90%. Killed the "every world looks the same" premise (presets differ 4.76x
+  in colour) and replaced it with a sharper one — they differ by repainting,
+  not reshaping. Its distance matrix is **owner-calibrated**: it predicted
+  "identical" and "2, maybe 3 kinds of country" before either verdict existed.
+- [worldgen-architecture-ceilings-2026-08-29.md](worldgen-architecture-ceilings-2026-08-29.md)
+  — **audit; structural.** What no tuning inside this pipeline can produce.
+  The root: the generator has no representation of a feature — a heightfield
+  and a cell grid with nothing in between. Also refutes the "hard boundary at
+  1/3 and 2/3" reading, and finds that every sharp vertical face in the world
+  is a residual.
+- [worldgen-prior-art-and-dead-ends-2026-08-29.md](worldgen-prior-art-and-dead-ends-2026-08-29.md)
+  — **audit; research.** The do-not-retry list with each rejection's
+  *condition* (and whether a revamp voids it), the six-round ledger, and the
+  outside prior art. Records that the 3D coarse map of `worldgen-design.md`
+  §0 was designed in detail and never built.
+- [worldgen-visual-interest-2026-08-29.md](worldgen-visual-interest-2026-08-29.md)
+  — **audit; measured.** How our world differs from beautiful landscape,
+  ranked and split into worldgen/render/content. Killed the "shading terrain
+  is the cheapest large win" hypothesis with a positive control — a shading
+  term needs a surface and 95% of the ground on screen is interior — and the
+  owner then killed it in his own words (*"it is the build"*). Carries the
+  cutaway reframing: most of the screen is a cross-section through rock, so
+  landscape photography is the wrong referent for it.
+- [cave-redesign-2026-08-29.md](cave-redesign-2026-08-29.md) — **design.**
+  Why six of the owner's eight cave verdicts are one fact (a cave is a Worley
+  field thresholded in a box, and retuning can only zoom the lattice), the
+  replacement (rooms grown by roof collapse, conduits routed through the
+  strata), and the finding that **there is no cave entrance in this game** —
+  so every cave verdict on record was given on a place the player cannot
+  reach. Also repairs two instruments that could not see a cave at the
+  shipped world size.
+- [rock-vocabulary-design-2026-08-29.md](rock-vocabulary-design-2026-08-29.md)
+  — **design; prototyped and measured.** The ground made of six rocks instead
+  of one rock with tints painted on it. Six rocks move **24.89%** of the
+  player's view — more than `soil_blanket`, and ~40x the whole landform
+  programme of six rounds — while running **2.2x faster**, because the old
+  region tint sampled two 2-D fBm fields per cell over 18.7M cells. Finds that
+  tint as a blob *cutting across the bedding* (why the underground reads as
+  camouflage), and that `pockets` and `boulders` both tested for grey stone by
+  identity and so silently did nothing. Overturns the revamp plan's own
+  demotion of rock: the case is strength, not colour.
+- [worldgen-drains-2026-08-29.md](worldgen-drains-2026-08-29.md) —
+  **Phase 0; shipped.** The pass conflicts that were deleting other passes'
+  output. Fixes R4-1 (`brows` taking the air `boulders` needed, recorded
+  2026-08-20 and live for nine days) — **boulders exist for the first time**,
+  3 cells across all presets to 777, median over 6 seeds at the shipped size —
+  and makes `talus` realise 2.5–3.5x more. Adds `scripts/worldgencheck.sh`, a
+  CI gate that fails when a pass writes nothing or appears only when another
+  is switched off, with a selftest that restores R4-1 and requires the gate to
+  *name* it. Withdraws its own `pockets`→`vaults` fix with a control, because
+  it makes overlapping cave systems' independent waterlines fire — that goes
+  to the cave lane. Corrects two errors in the revamp plan: `springs` was
+  never at zero, and the shipped world is 128x the small one, not 256x.
+
 - [worldgen-design.md](worldgen-design.md) — **direction agreed,
   implemented** (`src/worldgen/`). The M10 redesign: 2D play through 3D
   coarse worldgen.

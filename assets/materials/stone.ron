@@ -64,6 +64,42 @@
         (166, 164, 158),
         (192, 190, 183),
         (154, 153, 147),
+        // 4: **weathered grey** -- the rock-vocabulary prototype's second
+        // axis (`Reports/rock-vocabulary-design-2026-08-29.md` §4). Families
+        // 1-3 above are *region tints*; this one is not. It is what open air
+        // has done to the rock, applied to cells within a few cells of a
+        // free face, and it is what makes a fresh cut read as a fresh cut:
+        // mine into a hillside and the colour steps once, at the depth the
+        // weather stops.
+        //
+        // **Appended rather than replacing families 1-3**, deliberately, and
+        // only because this is a prototype: the old families are what
+        // `PIXEL_PHYSICS_ROCK_VOCAB=0` restores, so keeping them makes the
+        // control arm byte-identical to the shipped world. Landing the
+        // vocabulary for real deletes 1-3 -- sandstone and cap-rock become
+        // `sandstone.ron` and `limestone.ron` -- and weathered moves to
+        // index 4..8.
+        //
+        // Cooler and duller than fresh, and a touch darker: grey rock does
+        // not gain colour with exposure, it loses it.
+        (114, 116, 116),
+        (104, 106, 107),
+        (126, 127, 126),
+        (96, 99, 100),
+        // 5: **damp** -- rock below the water table, and rock a pond or a
+        // stream is standing against.
+        //
+        // Derived rather than eyeballed, and stated so it can be re-derived:
+        // family 0 multiplied by (0.78, 0.79, 0.83). Wet rock is darker
+        // because the water film kills the diffuse scatter off the grain,
+        // and it is *cooler* because the loss is smallest at the blue end --
+        // so a single multiplier per channel says the whole thing, and no
+        // rock in the set needs its own artistic judgement about being wet.
+        // It is one byte, written at genesis, exactly like the other two.
+        (100, 101, 110),
+        (92, 93, 103),
+        (108, 107, 116),
+        (86, 88, 98),
     ],
     // Random picks (brush, decay) stay in family 0. See the note above.
     base_colors: 4,
@@ -169,4 +205,12 @@
     support_cost_below: 1,
     support_cost_beside: 1,
     support_cost_above: 3,
+
+    // Intact country rock. The generator's cave, vault and pocket passes
+    // used to ask `material == ctx.stone` to mean "is this the massif";
+    // with a rock vocabulary that question has six answers, so it became a
+    // flag on the material read at the call site that already holds the
+    // `Cell` -- `CLAUDE.md`'s hot-path rule, a `Vec` index rather than a
+    // string hash. See `Material::rock`.
+    rock: true,
 )
