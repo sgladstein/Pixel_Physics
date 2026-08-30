@@ -1,0 +1,52 @@
+{
+  "id": "20260830T102746414Z-f7d8df",
+  "created": "2026-08-30T10:27:46Z",
+  "board": "lab",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics/.claude/worktrees/agent-abb92253707067bd5",
+    "branch": "worktree-agent-abb92253707067bd5",
+    "commit": "11cc546",
+    "agent": null,
+    "session_id": "6546762f-3714-56a2-a0a4-47f13872ea63",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics/.claude/worktrees/agent-abb92253707067bd5"
+  },
+  "title": "The grow lights, on and off",
+  "question": "With the lights at zero, is the room too dark to watch — or is that the right amount of drama for the biggest lever in the game?",
+  "context_md": "The design guide calls the light schedule **the largest single lever in the game**: a grow light held at full amplitude gives 1,037 seeds against 435 in the same frames, about 2.4x the generations per minute. Until now nothing on screen said so — the box was lit and looked identical either way.\n\nNow the room dims with it. Both images are frame 900 of the same bed; the only difference is where the held light sits on the day's curve.\n\n**What I am unsure about** is how far down the dark end should go. At zero the walls are nearly black and the crop is hard to make out. That is dramatic, and it may be too dramatic to watch a night phase through — the plants are the thing you are meant to be reading. There is a floor under the wall's brightness and I can raise it in one line; I would rather you set it than me.\n\n**Not asking about**: the fixtures still show as pale bars when the lights are off, because they are made of glowing crystal and that is what the material looks like unlit.",
+  "kind": "ab",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "lights on",
+      "files": [
+        "20260830T102746414Z-f7d8df/000-lab_lit_900.png"
+      ],
+      "caption": "held at the brightest frame of the day",
+      "meta": {
+        "light at the bench": "0.42 of full",
+        "plant cells at frame 900": 274
+      },
+      "focus": null
+    },
+    {
+      "label": "lights off",
+      "files": [
+        "20260830T102746414Z-f7d8df/001-lab_dark.png"
+      ],
+      "caption": "the same frame with the schedule at zero",
+      "meta": {
+        "light at the bench": "0.02 of full",
+        "plant cells at frame 900": 258
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
