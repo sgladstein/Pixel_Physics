@@ -525,15 +525,32 @@ asserted.
 frames show rock on every side of the affected chambers, so the void was not
 breaching to open air -- the cells were being *drawn* as sky.
 
-The cause is §6's own fix, one level down. `freeze_underground_map` treats a
+The cause is §6's own fix, one level down. `freeze_underground_map` treated a
 cell as uncovered when it is at or above **its own column's** topmost ground,
 and a shaft cut down from the surface has no ground above it -- so every cell
 of the shaft answered "uncovered", the flood spent none of its budget
 descending, and it arrived at a chamber hundreds of rows down with the whole
-allowance intact. The test is now the shallowest ground within **24 columns
-either side**: open country still reads as open, a valley floor is still its
-own surface, and a hole in the ground stops being one the moment it is
-narrower than the window. `SKY_PENETRATION` came down from 48 to 32 with it.
+allowance intact.
+
+**Two rules were written before the right one, and they are wrong in opposite
+directions.** The obvious repair is to ask about the ground *around* the
+column instead -- the shallowest within twenty-four either side -- and that
+blackens a **deep valley**, because a valley floor is far below the ridge
+beside it and has perfectly good sky over it. `render.rs`'s
+`the_per_cell_map_never_turns_open_sky_into_cave` exists for exactly that
+trade and goes red for it.
+
+What separates a canyon from a shaft is neither depth nor the neighbours: it
+is the **aperture**. At a given row, how wide is the run of columns open at
+that row? A canyon is hundreds and is open country however deep it is; a shaft
+is a dozen and is a hole. So a cell is uncovered when the opening it sits in
+is at least `World::SKY_APERTURE` (20) columns across, and past that the cover
+budget starts running. `SKY_PENETRATION` came down from 48 to 32 with it.
+
+**The guard was watched going red before its green was cited**: with
+`SKY_APERTURE` set absurdly high -- nothing counts as open -- the test fails,
+and at the shipped value all 78 render tests pass. A guard whose green is the
+default state is not evidence.
 
 **That is the second time this session a rule keyed on a column has been wrong
 about a hole in that column**, and it is worth stating as a shape:

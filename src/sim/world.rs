@@ -4423,6 +4423,15 @@ impl World {
     /// that measurement with headroom, per `CLAUDE.md`, never sitting on it.
     pub const SKY_PENETRATION: i32 = 32;
 
+    /// How wide an opening has to be, in columns, before the sky counts as
+    /// being over it rather than merely reachable from it.
+    ///
+    /// Above the widest entrance this generator cuts (thirteen across) and
+    /// far below any valley or canyon the terrain makes, which is the gap the
+    /// number has to sit in. See [`World::freeze_underground_map`] for the
+    /// two rules this replaces and how each was wrong.
+    pub const SKY_APERTURE: i32 = 20;
+
     /// Record which positions were inside the ground when the world was
     /// made, once. See `underground`.
     ///
@@ -4488,35 +4497,59 @@ impl World {
         // sky reaches by definition -- and a lake's own surface sits *below*
         // it (water does not block), which is why the liquid exemption is
         // here and not an afterthought.
-        // **The column's own topmost ground is not the test, and using it was
-        // a bug with a picture attached.** A shaft cut down from the surface
-        // has no ground above it, so every cell of it answered "uncovered",
-        // the flood spent none of its budget descending, and it arrived at a
-        // chamber hundreds of rows down with the whole allowance intact --
-        // which the renderer then drew as **sky inside the cave**, reported
-        // from a review card as *"some spots where it looks like background
+        // **The test is how wide the opening overhead is, not how deep the
+        // ground is**, and two simpler rules were tried and are wrong in
+        // opposite directions.
+        //
+        // The column's own topmost ground says a shaft cut down from the
+        // surface is open all the way to its foot -- true, and it means the
+        // flood spends none of its budget descending one and arrives at a
+        // chamber hundreds of rows down with the whole allowance intact,
+        // which the renderer then draws as **sky inside the cave**. Reported
+        // from a review card: *"some spots where it looks like background
         // (sky) is coming into the cave"*.
         //
-        // So the test is the ground *around* the column, not in it: the
-        // shallowest ground within `SKY_WINDOW` columns either side. Open
-        // country still reads as open, a valley floor is still its own
-        // surface, and a hole in the ground stops being one the moment it is
-        // narrower than the window.
-        const SKY_WINDOW: i32 = 24;
+        // The shallowest ground *around* the column fixes that and blackens a
+        // deep valley, because a valley floor is far below the ridge beside
+        // it and has perfectly good sky over it. `render.rs`'s
+        // `the_per_cell_map_never_turns_open_sky_into_cave` is the guard that
+        // says so, and it fails for that rule.
+        //
+        // What separates them is the **aperture**: at a given row, how wide a
+        // run of columns is open at that row. A canyon is hundreds of columns
+        // wide and is open country however deep it is; a shaft is a dozen and
+        // is a hole. So a cell is uncovered when the opening it sits in is at
+        // least [`Self::SKY_APERTURE`] columns across -- and past that the
+        // cover budget starts running, which is what makes a cave a cave.
         let w_i = b.width() as usize;
-        let mut around = vec![i32::MAX; w_i];
-        for (i, a) in around.iter_mut().enumerate() {
-            let x = b.min_x + i as i32;
-            *a = ((x - SKY_WINDOW).max(b.min_x)..=(x + SKY_WINDOW).min(b.max_x))
-                .filter_map(|j| self.sky_surface.get((j - b.min_x) as usize).copied())
-                .min()
-                .unwrap_or(i32::MAX);
+        let open_at = |world: &Self, x: i32, y: i32| {
+            world.sky_surface.get((x - b.min_x) as usize).is_none_or(|&g| y <= g)
+        };
+        let mut lit = vec![false; w_i * b.height() as usize];
+        for y in b.min_y..=b.max_y {
+            let mut x = b.min_x;
+            while x <= b.max_x {
+                if !open_at(self, x, y) {
+                    x += 1;
+                    continue;
+                }
+                let a = x;
+                while x <= b.max_x && open_at(self, x, y) {
+                    x += 1;
+                }
+                if x - a >= Self::SKY_APERTURE {
+                    for xx in a..x {
+                        lit[idx(xx, y)] = true;
+                    }
+                }
+            }
         }
         let uncovered = |world: &Self, x: i32, y: i32| {
-            if matches!(world.materials.kind(world.get(x, y).material), MaterialKind::Liquid) {
-                return true;
-            }
-            around.get((x - b.min_x) as usize).is_none_or(|&g| y <= g)
+            // A lake is outdoors and its level moves, which is the property
+            // `freeze_sky_surface`'s own doc protects -- and its water sits
+            // *below* that array's answer, because water does not block.
+            matches!(world.materials.kind(world.get(x, y).material), MaterialKind::Liquid)
+                || lit[idx(x, y)]
         };
 
         const UNREACHED: u8 = u8::MAX;
