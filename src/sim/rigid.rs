@@ -270,6 +270,39 @@ const MIN_STRIKE_RADIUS: i32 = 6;
 /// span rather than having to chew through it.
 pub const CRACK_REACH: i32 = 3;
 
+/// Cracked cells at a site that buy one more cell of fully-parted radius.
+///
+/// The mechanism is in `strike`; this is the rate. Sized so a swing on
+/// sound rock (~42 cracked cells) buys about one ring, and three or four
+/// swings on one spot widen the full-density zone past stone's 13-cell
+/// grain — which is the point at which a block's whole outline is inside
+/// the reveal and it can come away.
+const JOINT_GROWTH_PER_RING: usize = 10;
+
+/// The most rings prior damage can buy. Bounds *work*, and deliberately
+/// not the outcome (`CLAUDE.md`'s cap rule): past the cap a swing still
+/// opens whatever its neighbours left shut, it simply stops reaching
+/// further out, so working one spot for ever cannot crack the world.
+const JOINT_GROWTH_MAX: i32 = 12;
+
+/// Cracked cells within `reach` of `(cx, cy)` — how worked this rock
+/// already is, which is what `strike` grows its reveal from.
+fn damage_near(world: &World, cx: i32, cy: i32, reach: i32) -> usize {
+    let mut n = 0;
+    for dy in -reach..=reach {
+        for dx in -reach..=reach {
+            if dx * dx + dy * dy > reach * reach {
+                continue;
+            }
+            let (x, y) = (cx + dx, cy + dy);
+            if world.in_bounds(x, y) && world.get(x, y).cracked() {
+                n += 1;
+            }
+        }
+    }
+    n
+}
+
 /// How far past its own radius a blow opens the rock's joints.
 ///
 /// **2, where the rays ran to `CRACK_REACH` (3), and the difference is
@@ -2266,75 +2299,73 @@ pub fn strike(world: &mut World, cx: i32, cy: i32, radius: i32, force: f32) -> u
     // knocked loose does literally nothing — see that function's doc for
     // why the grid says the cell is empty.
     let dusted_bodies = burst_bodies_at(world, cx, cy, radius);
-    // **No pulverized core.** Owner's instruction, 2026-08-29: *"maybe as
-    // a first step just no dust, it forms cracks and then large pieces
-    // fall specifically from the existing crack line."* A blow used to
-    // `shatter_to_rubble` a `radius / 3` disc outright, which is grit made
-    // by fiat rather than by anything breaking, and it is the first thing
-    // the eye sees -- it appears on the swing frame, where a piece has to
-    // wait for its outline to close. What is left is the honest ladder:
-    // the whole disc is *loosened*, and whatever comes off it below
-    // `MIN_BODY_CELLS` is grit as a **consequence** of the draw, which is
-    // the distinction `fracture`'s own doc draws.
+    // **Nothing is pulverized and nothing is loosened by radius.** Both
+    // were removed in the same pass, and the second is the one that
+    // mattered — see the note below `let chip`. `chip` survives only as
+    // the radius the joint reveal holds at full density, which is what
+    // makes the near ring of blocks the ones that can complete.
     //
-    // Zero rather than deleted, so the three zones are still legible and
-    // putting a core back is one number.
-    let core = 0;
-    // **The chip zone is the blow's whole radius**, and it used to be two
-    // thirds of it. Reported from playtest of the gnome's hammer: *"it
-    // mostly makes big strike lines instead of breaking rock into
-    // pieces"*, and the sheet said exactly that -- a starburst of five
-    // thin black rays across a couple of dozen cells of untouched grey
-    // rock, with no visible wound at the middle of it.
+    // **A blow does not remove rock. It cracks it.**
     //
-    // The arithmetic is the whole complaint. At the gnome's `hammer_
-    // radius: 7` the old split gave a chip of 4 against cracks running
-    // `radius * CRACK_REACH` = 21, so the *visible line* was 17 cells long
-    // and the *visible damage* was 4 -- a bit over four to one, in favour
-    // of the thing that is only a mark. Taking the chip to the full radius
-    // makes it 14 against 7, and it does it by growing the half that is
-    // rock coming apart rather than by shortening the half that reads as
-    // force reaching past the wound (`CRACK_REACH`'s own doc, and the
-    // reason it was left alone).
+    // Owner, 2026-08-29, on the sheet of the version that did: *"This
+    // looks like the hammer is digging and it shouldn't. swing 1 of the
+    // hammer should cause the rock to crack along the patterns that we
+    // saw before, the same ones the explosions create. then swing again
+    // should make the cracks spread and hits should continue until the
+    // cracks fully surround a piece of stone. Then that stone should
+    // release from the wall as one whole piece."*
     //
-    // It also fixes the *count* of pieces, which is the other half of
-    // "into pieces". The loosened ring was ~37 cells at r7, against a
-    // fragment ladder that draws 4..64 at `size_bias(7) == 1` -- so one
-    // seed routinely swallowed the lot and a blow calved a single lump.
-    // Measured on `scene=smash`: 20 cells as chunks over 2 bodies at two
-    // blows. The full-radius ring is ~140 cells, which is several draws
-    // off the same ladder: a few blocks, more cobbles, a lot of grit,
-    // which is `CLAUDE.md`'s first law and was the one thing the old
-    // split could not produce.
-    let chip = radius.max(core + 1);
-    let mut loosened = Vec::new();
-    let mut pulverized = 0;
+    // What used to be here was the whole of the old blow: a disc of every
+    // cell within `chip` collected, unattached, and thrown by
+    // `fracture_with_impulse` on the swing frame. Removing the pulverized
+    // *core* was not enough, and this is why -- the disc took a
+    // fifteen-cell bite out of the wall whatever the cracks did, so the
+    // cracks were decoration beside a hole. The piece and the pattern had
+    // nothing to do with each other, which is what *"looks weird like a
+    // glitch"* was.
+    //
+    // So a blow is now exactly two things, and neither removes rock by
+    // radius:
+    //
+    // 1. **open the joints** (`structural::shatter_joints_around`) -- the
+    //    same fabric a blast reads, densest where it landed, and reopened
+    //    where the rock is already damaged so repeat swings spread it;
+    // 2. **release what the cracks have completely surrounded**
+    //    (`calve_free_blocks`) -- a block whose whole outline has parted,
+    //    whole, and nothing else.
+    //
+    // Everything a blow takes off the wall therefore comes off along a
+    // line the player watched appear. **A first swing on sound rock takes
+    // nothing**, which is the mechanic rather than a shortfall.
+    let chip = radius;
+    // **Rock with no grain has nothing to crack along, so it keeps the
+    // old blow.** `fracture_field`'s fabric is a property of a *jointed*
+    // material: `joint_spacing` is `0.0` on wood, deadwood, sand, soil and
+    // everything else without a grain, so a joint reveal over them writes
+    // nothing and releases nothing. Left at that, a hammer stopped
+    // affecting a tree at all -- caught by
+    // `a_blow_cuts_living_wood`/`a_blow_cuts_inert_wood_too` and by
+    // `acceptance.sh`'s `fell` case, which severed **13 cells of tissue
+    // against a bar of 1,000**.
+    //
+    // So the split is the material's own: **a blow on jointed rock cracks
+    // and releases whole blocks; a blow on anything ungrained breaks it
+    // the way it always did.** That is not a compatibility shim -- a
+    // material with no grain genuinely has no line to part along, and
+    // "break it into pieces by radius" is the honest fallback for it.
+    //
+    // The gate is a `Vec` index on the resolved material at a site that
+    // already holds the cell, per `CLAUDE.md`'s rule about hot-path work,
+    // never an `id_of("wood")` string hash in a loop.
+    let mut ungrained = Vec::new();
     for dy in -chip..=chip {
         for dx in -chip..=chip {
             let (x, y) = (cx + dx, cy + dy);
-            let d2 = dx * dx + dy * dy;
-            if d2 > chip * chip || !world.in_bounds(x, y) {
+            if dx * dx + dy * dy > chip * chip || !world.in_bounds(x, y) || !is_tool_target(world, x, y) {
                 continue;
             }
-            // Living tissue too -- see `mine_swept`'s note on why the
-            // `organism_id() != 0` exclusion that used to be here went.
-            // This is the axe: without it the pick could break a mountain
-            // and not a twig, and `design-philosophy.md` §0a's "no verb
-            // behind the effect" applied to every plant in the world.
-            if !is_tool_target(world, x, y) {
-                continue;
-            }
-            if core > 0 && d2 <= core * core {
-                // Counted by **what changed**, not by what was attempted:
-                // `shatter_to_rubble` declines a material with no
-                // `breaks_into` and leaves the cell exactly as it was, and
-                // a count that included the declines would report a blow
-                // on unbreakable rock as a hit.
-                let was = world.get(x, y).material;
-                shatter_to_rubble(world, x, y); // the bite
-                pulverized += usize::from(world.get(x, y).material != was);
-            } else {
-                loosened.push((x, y));
+            if world.materials.get(world.get(x, y).material).joint_spacing <= 0.0 {
+                ungrained.push((x, y));
             }
         }
     }
@@ -2367,7 +2398,61 @@ pub fn strike(world: &mut World, cx: i32, cy: i32, radius: i32, force: f32) -> u
     // radius, and under a pure ramp they part at well under 1 and enclose
     // nothing. Held at full density, the ring of domains around the wound
     // closes and falls out.
-    super::structural::shatter_joints_around(world, (cx, cy), (radius * BLOW_JOINT_REACH) as f32, chip as f32);
+    // **The cracked zone grows with the damage already at the site**, and
+    // without this a blow can never free anything — measured, swing by
+    // swing, on a solid stone face at `hammer_radius: 7`:
+    //
+    // ```
+    // swing  cracked  reach  bodies      swing  cracked  reach  bodies
+    //     1       42     13       0          5       46     13       0
+    //     2       46     13       0          6       46     13       0
+    //     3       46     13       0          7       46     13       0
+    //     4       46     13       0          8       46     13       0
+    // ```
+    //
+    // Dead from swing three, and no block ever completes. The reason is
+    // arithmetic, not tuning: stone's `joint_spacing` is **13 cells**, so
+    // a block at the impact has boundary running out to ~20 — while the
+    // full-density zone was `chip` (7) and the whole reveal stopped at 14.
+    // Part of every outline was always outside the reveal, or inside the
+    // thin end of its ramp, so no outline could close however many times
+    // it was hit. `JOINT_REPEAT_BONUS` reopens the boundaries a previous
+    // swing *declined*, which is a different thing and saturates after one
+    // repeat — hence the flat 46.
+    //
+    // So the full-density radius grows by `JOINT_GROWTH_PER_RING` cells'
+    // worth of prior damage, and the ramp beyond it grows with it. Swing 1
+    // cracks a patch; each further swing widens the fully-parted zone
+    // until it has swallowed a whole block of the grain, and that block
+    // comes away. That is the player-facing rule — *"swing again should
+    // make the cracks spread and hits should continue until the cracks
+    // fully surround a piece"* — expressed as the one quantity that makes
+    // it true.
+    //
+    // Capped at `JOINT_GROWTH_MAX` rings so working a single spot for ever
+    // cannot crack the whole world; past the cap a swing still opens what
+    // its neighbours left shut, it simply stops reaching further.
+    let prior = damage_near(world, cx, cy, radius * BLOW_JOINT_REACH);
+    // **Plus one ring beyond whatever it found**, and that `+ 1` is the
+    // difference between a mechanic and a fixed point. Growth read off
+    // current damage alone *saturates*: measured swing by swing, the front
+    // reached ring 3 and stayed there for ever, re-parting joints that
+    // were already open and freeing nothing after the second swing
+    // (`prior 39, grow 3, flat 10, acted 0` from swing four onward). The
+    // increment makes each blow reach past the damage it inherits, so the
+    // cracked front advances a ring per swing until `JOINT_GROWTH_MAX`
+    // stops it -- which is *"swing again should make the cracks spread and
+    // hits should continue until the cracks fully surround a piece"* as an
+    // advancing front rather than a standing patch.
+    let grow = if prior == 0 { 0 } else { ((prior / JOINT_GROWTH_PER_RING) as i32 + 1).min(JOINT_GROWTH_MAX) };
+    let flat = chip + grow;
+    // **The count includes the cracking**, and that is not bookkeeping.
+    // `player::smash` gates the recoil on this being non-zero, so with
+    // only released cells counted a swing that cracked a face and freed
+    // nothing gave no recoil at all -- the common swing, and the one that
+    // most needs to feel like it hit something. A swing at open air still
+    // reports zero, which is the distinction the gate exists for.
+    let scored = super::structural::shatter_joints_around(world, (cx, cy), (flat * BLOW_JOINT_REACH) as f32, flat as f32) as usize;
     // **And now take out whatever the cracks have completely surrounded,
     // as whole blocks along the outline the player can see.**
     //
@@ -2390,33 +2475,30 @@ pub fn strike(world: &mut World, cx: i32, cy: i32, radius: i32, force: f32) -> u
     //
     // Each block goes through `promote` directly rather than through
     // `fracture_with_impulse`: the ladder is what would break it up again.
-    let freed = calve_free_blocks(world, (cx, cy), (radius * BLOW_JOINT_REACH) as f32, force);
-    // Loosen first, so the fracture below sees rock that is no longer
-    // claiming to be braced by the massif.
-    for &(x, y) in &loosened {
+    let freed = calve_free_blocks(world, (cx, cy), (flat * BLOW_JOINT_REACH) as f32, force);
+    // The ungrained half, taken the old way: unattach, then fracture and
+    // throw on the fragment ladder. See `let ungrained` above for why this
+    // is the honest treatment of a material with no line to part along
+    // rather than a leftover.
+    for &(x, y) in &ungrained {
         let cell = world.get(x, y);
         if cell.attached() {
             world.set(x, y, cell.with_attached(false));
         }
     }
-    // No upper bound here, deliberately. `MAX_BODY_CELLS` exists to stop a
-    // *single* body being enormous; `fracture` splits whatever it is given
-    // into fragments of at most 32 cells, so a wide blow just yields more
-    // pieces. Gating on it meant a big strike loosened several hundred cells
-    // and then threw nothing at all -- the larger the swing, the less
-    // happened, which is exactly backwards.
-    if loosened.len() >= MIN_FRACTURE_CELLS {
-        fracture_with_impulse(world, &loosened, Some(((cx as f32, cy as f32), force)), size_bias(radius), Some((cx, cy)), false, None);
+    if ungrained.len() >= MIN_FRACTURE_CELLS {
+        fracture_with_impulse(world, &ungrained, Some(((cx as f32, cy as f32), force)), size_bias(radius), Some((cx, cy)), false, None);
     }
     // Every destructive event owes feedback (`Reports/design-philosophy.md`
     // §0a). A blow shoves the air as well as the rock, which is what makes
-    // smoke and loose grit near the impact react instead of a hit landing in
-    // total silence.
+    // smoke and loose grit near the impact react instead of a hit landing
+    // in total silence — and on sound *jointed* rock it is now the only
+    // thing a first swing produces, so it is carrying more than it used to.
     world.add_pressure_impulse(cx, cy, radius.max(2), force * STRIKE_PRESSURE);
-    for &(x, y) in &loosened {
+    for &(x, y) in &ungrained {
         world.schedule_structural_check_around(x, y);
     }
-    pulverized + loosened.len() + dusted_bodies + freed
+    dusted_bodies + freed + ungrained.len() + scored
 }
 
 /// Break the loosened rock around a blast into chunks and throw them.
@@ -5493,24 +5575,35 @@ mod tests {
     #[test]
     fn even_the_smallest_brush_lands_a_blow_worth_seeing() {
         // Reported from play: "striking a cliff does nothing", with the
-        // brush at R2. The swing scales off the brush, and at radius 2 that
-        // is a core of 1 and a chip of 2 -- about five cells removed on the
-        // face of a cliff, which is invisible. Asserts the floor: the
-        // smallest possible brush still takes a real bite and throws
-        // something.
+        // brush at R2. `MIN_STRIKE_RADIUS` is the floor that answers it,
+        // and this guards the floor.
+        //
+        // **The assertion changed with the mechanic and the complaint did
+        // not.** It used to demand a single blow remove >= 20 cells and
+        // throw pieces, which is the digging the owner ruled out; what it
+        // is really for is that the smallest brush must not be *inert*. So
+        // it now asks the two things that mean the same in the new blow:
+        // one swing leaves visible damage, and working the spot frees a
+        // block. Set `MIN_STRIKE_RADIUS` to 1 and this goes red.
         let mut w = test_world();
-        for y in 10..60 {
-            for x in 10..60 {
+        for y in 4..60 {
+            for x in 4..60 {
                 w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
             }
         }
-        let before = count_material(&w, material::STONE);
+        strike(&mut w, 32, 32, 1, 6.0);
+        let cracked = (4..60).flat_map(|y| (4..60).map(move |x| (x, y))).filter(|&(x, y)| w.get(x, y).cracked()).count();
+        assert!(cracked >= 10, "the smallest brush left {cracked} cracked cells -- invisible on a cliff face");
 
-        strike(&mut w, 35, 35, 1, 6.0);
-
-        let removed = before - count_material(&w, material::STONE);
-        assert!(removed >= 20, "the smallest brush should still take a real bite out of a cliff, removed {removed}");
-        assert!(!w.chunk_bodies.is_empty(), "a blow should throw pieces, not just make a hole");
+        let mut freed = false;
+        for _ in 0..8 {
+            strike(&mut w, 32, 32, 1, 6.0);
+            if !w.chunk_bodies.is_empty() {
+                freed = true;
+                break;
+            }
+        }
+        assert!(freed, "the smallest brush never frees anything however long you work it");
     }
 
     #[test]
@@ -5788,34 +5881,58 @@ mod tests {
     }
 
     #[test]
-    fn a_strike_throws_pieces_out_of_solid_rock() {
-        // The verb. Erasing removes support but delivers no load, so before
-        // this nothing could fail from being *hit* -- a mechanic that worked
-        // and still felt inert (`Reports/design-philosophy.md` §0a).
+    fn working_solid_rock_frees_whole_blocks_and_the_first_swing_frees_none() {
+        // **This replaces `a_strike_throws_pieces_out_of_solid_rock`, and
+        // it failed rather than quietly passing** — which is why it is
+        // rewritten rather than deleted. That test asserted a *single*
+        // blow into solid rock throws pieces immediately and pulverizes
+        // the cell it lands on, and both halves are exactly what the owner
+        // ruled out: *"This looks like the hammer is digging and it
+        // shouldn't. swing 1 of the hammer should cause the rock to crack
+        // ... hits should continue until the cracks fully surround a piece
+        // of stone. Then that stone should release from the wall as one
+        // whole piece."*
         //
-        // Struck into the middle of a solid attached mass, so nothing here
-        // is failing for structural reasons: any piece that leaves is
-        // leaving because it was hit.
+        // So the property has two halves and they pull against each other,
+        // which is the point: **the first swing must free nothing** (or the
+        // hammer is digging again) and **repeated swings must free
+        // something** (or it is inert). A test with only the second half
+        // passes for the old mechanic too.
         let mut w = test_world();
-        for y in 10..50 {
-            for x in 10..50 {
+        for y in 4..60 {
+            for x in 4..60 {
                 w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
             }
         }
         assert!(w.chunk_bodies.is_empty());
 
-        strike(&mut w, 30, 30, 8, 6.0);
+        strike(&mut w, 30, 30, 7, 12.0);
+        assert!(
+            w.chunk_bodies.is_empty(),
+            "the first swing into sound rock freed {} piece(s) — it is digging, not cracking",
+            w.chunk_bodies.len()
+        );
+        assert!(w.get(30, 30).cracked() || (25..36).any(|x| (25..36).any(|y| w.get(x, y).cracked())), "the first swing cracked nothing at all");
 
-        assert!(!w.chunk_bodies.is_empty(), "a strike into solid rock threw no pieces at all");
-        // Thrown *outward*: every body should be moving away from where it
-        // was hit, not merely dropped.
-        for body in &w.chunk_bodies {
-            let (dx, dy) = (body.x - 30.0, body.y - 30.0);
-            let outward = body.vx * dx + body.vy * dy;
-            assert!(outward > 0.0, "a fragment at ({}, {}) was thrown toward the blow, not away from it", body.x, body.y);
+        // Work the same face. The front advances a ring a swing, and when
+        // it has swallowed a whole block of the grain that block comes
+        // away — whole, which is the half `free_blocks_around` guarantees.
+        let mut freed_any = false;
+        for _ in 0..6 {
+            strike(&mut w, 30, 30, 7, 12.0);
+            if !w.chunk_bodies.is_empty() {
+                freed_any = true;
+                break;
+            }
         }
-        // And it left a wound rather than only loosening things.
-        assert_ne!(w.get(30, 30).material, material::STONE, "the strike did not pulverize the cells it landed on");
+        assert!(freed_any, "working one spot for seven swings freed nothing — the crack front is not advancing");
+        for body in &w.chunk_bodies {
+            assert!(
+                body.cells.len() >= MIN_BODY_CELLS,
+                "a freed block is {} cells, below the size a piece has to be",
+                body.cells.len()
+            );
+        }
     }
 
     #[test]
@@ -6843,5 +6960,51 @@ mod tool_target_tests {
         w.chain_reach = 8;
         w.paint_capsule((2, 2), (6, 2), 2, material::EMPTY, 1.0);
         assert!(!w.within_disturbance(4, 2), "erasing empty sky recorded a disturbance");
+    }
+}
+
+#[cfg(test)]
+mod swing_probe {
+    use super::*;
+    use crate::sim::Rect;
+
+    /// Not a guard — a probe, printed. Swing by swing: how much rock is
+    /// cracked, how far the cracking reaches, and what comes away.
+    #[test]
+    #[ignore = "probe: prints the swing-by-swing census for the hammer"]
+    fn swing_by_swing() {
+        let mut w = World::new(Rect::new(0, 0, 255, 255)).without_chain_limit();
+        for y in 4..252 {
+            for x in 100..252 {
+                w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+            }
+        }
+        let stone_at_start = (0..256).flat_map(|y| (0..256).map(move |x| (x, y))).filter(|&(x, y)| w.get(x, y).material == material::STONE).count();
+        println!("swing  face  prior  grow  flat  acted  cracked  reach  bodies  stone_gone");
+        for swing in 1..=8 {
+            // Aim at the face, the way `player::face_toward` does for a
+            // real swing -- a fixed point walks into its own hole after
+            // the first release and every later swing lands in air.
+            let face = (100..250).find(|&x| w.get(x, 128).material == material::STONE).unwrap_or(104);
+            let prior = damage_near(&w, face, 128, 7 * BLOW_JOINT_REACH);
+            let grow = if prior == 0 { 0 } else { ((prior / JOINT_GROWTH_PER_RING) as i32 + 1).min(JOINT_GROWTH_MAX) };
+            let acted = strike(&mut w, face, 128, 7, 12.0);
+            let cracked: Vec<(i32, i32)> = (0..256)
+                .flat_map(|y| (0..256).map(move |x| (x, y)))
+                .filter(|&(x, y)| w.get(x, y).cracked())
+                .collect();
+            let reach = cracked.iter().map(|&(x, y)| (((x - 100) as f32).hypot((y - 128) as f32)) as i32).max().unwrap_or(0);
+            let bodies = w.chunk_bodies.len();
+            let in_bodies: usize = w.chunk_bodies.iter().map(|b| b.cells.len()).sum();
+            let stone = (0..256).flat_map(|y| (0..256).map(move |x| (x, y))).filter(|&(x, y)| w.get(x, y).material == material::STONE).count();
+            let _ = (bodies, in_bodies);
+            println!(
+                "{swing:5}  {face:4}  {prior:5}  {grow:4}  {:4}  {acted:5}  {:7}  {reach:5}  {:6}  {:10}",
+                7 + grow,
+                cracked.len(),
+                w.chunk_bodies.len(),
+                stone_at_start - stone
+            );
+        }
     }
 }
