@@ -2217,7 +2217,7 @@ mod tests {
     }
 
     /// Capillary flow must respect the *receiver's* capacity, not the
-    /// sender's."""
+    /// sender's.
     ///
     /// Needs two water-holding powders with different capacities to be
     /// observable at all: with equal capacities the drier cell is by

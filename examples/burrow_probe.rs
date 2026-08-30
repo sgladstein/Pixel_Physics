@@ -417,7 +417,13 @@ fn colony_arm(seeds: u64, ants: i32, frames: u64, png: Option<&str>) {
     let lining_on = std::env::var("PIXEL_PHYSICS_BURROW_LINING").as_deref() != Ok("off");
     println!("\n=== arm colony ===  lining {}", if lining_on { "ON" } else { "OFF (ablated)" });
     println!("  55 ants on a soil bank over stone; `void` is standing empty cells inside the bank");
-    println!("{:>6}  {:>7}  {:>10}  {:>8}  {:>8}  {:>10}  {:>10}", "seed", "frame", "void", "digs", "packed", "soil", "packedsoil");
+    println!(
+        "  `void` is every empty cell in the bank footprint -- **erosion moves it**; \n           `roofed` is empty with ground standing above it, which erosion cannot produce. Read `roofed`."
+    );
+    println!(
+        "{:>6}  {:>7}  {:>8}  {:>8}  {:>8}  {:>7}  {:>7}  {:>9}  {:>10}",
+        "seed", "frame", "void", "roofed", "roofed3", "digs", "packed", "soil", "packedsoil"
+    );
 
     for seed in 1..=seeds {
         let (w, h) = (200i32, 120i32);
@@ -453,23 +459,62 @@ fn colony_arm(seeds: u64, ants: i32, frames: u64, png: Option<&str>) {
             world.plant_ant(20 + off + i % 10 * 2, floor - 1 - (i / 10));
         }
 
+        // **`void` alone cannot say a nest happened, and the first version of
+        // this arm shipped believing it could.** Measured 2026-08-30: with the
+        // lining ablated, 610 digs left **788** standing empty cells inside the
+        // bank footprint -- against 803 cells of soil gone from it. The two
+        // numbers are the same number. Digging *destroys* its spoil
+        // (`creature.rs`'s dig, "spoil is destroyed in v1"), so every cell an
+        // ant removes lowers the bank by one cell somewhere, and the empty
+        // rows that opens up at the **top** of the footprint are counted by a
+        // rectangle census exactly as if they were a chamber. A colony that
+        // eats a bank down from above and one that hollows it out score
+        // identically, which is `CLAUDE.md`'s "ask what your number counts
+        // when nothing is wrong" with the answer *it counts erosion*.
+        //
+        // `roofed` is the column that states the claim: an empty cell with
+        // **ground standing above it**, which is the one thing lowering a
+        // surface can never produce. `roofed3` requires three cells of it, so
+        // a crumb bridging a pit does not read as a chamber. Neither can be
+        // moved by erosion at all, which is what makes them the pair to read.
         let census = |world: &World| {
             let mut void = 0usize;
+            let mut roofed = 0usize;
+            let mut roofed3 = 0usize;
             let mut soil = 0usize;
             let mut packed = 0usize;
             for x in bank_x0..bank_x1 {
-                for y in bank_y0..bank_y1 {
+                // Walk the column downward carrying how much ground is
+                // standing above the current row -- one pass, and it counts
+                // the roof rather than merely detecting it.
+                let mut above = 0usize;
+                for y in 0..bank_y1 {
                     let m = world.get(x, y).material;
-                    if m == material::EMPTY {
-                        void += 1;
-                    } else if m == soil_id {
-                        soil += 1;
-                    } else if m == packed_id {
-                        packed += 1;
+                    let ground = matches!(
+                        world.materials.kind(m),
+                        MaterialKind::Powder | MaterialKind::Solid
+                    );
+                    if y >= bank_y0 {
+                        if m == material::EMPTY {
+                            void += 1;
+                            if above > 0 {
+                                roofed += 1;
+                            }
+                            if above >= 3 {
+                                roofed3 += 1;
+                            }
+                        } else if m == soil_id {
+                            soil += 1;
+                        } else if m == packed_id {
+                            packed += 1;
+                        }
+                    }
+                    if ground {
+                        above += 1;
                     }
                 }
             }
-            (void, soil, packed)
+            (void, roofed, roofed3, soil, packed)
         };
 
         // The sheet is written for the first seed only: it is there to show
@@ -492,10 +537,10 @@ fn colony_arm(seeds: u64, ants: i32, frames: u64, png: Option<&str>) {
                 world.step_pheromones();
             }
             if marks.contains(&f) {
-                let (void, soil, packed) = census(&world);
+                let (void, roofed, roofed3, soil, packed) = census(&world);
                 let st = world.creature_stats;
                 println!(
-                    "{seed:>6}  {f:>7}  {void:>10}  {:>8}  {:>8}  {soil:>10}  {packed:>10}",
+                    "{seed:>6}  {f:>7}  {void:>8}  {roofed:>8}  {roofed3:>8}  {:>7}  {:>7}  {soil:>9}  {packed:>10}",
                     st.digs, st.packed
                 );
                 if shoot {
@@ -507,21 +552,63 @@ fn colony_arm(seeds: u64, ants: i32, frames: u64, png: Option<&str>) {
             }
         }
 
+        // **An ASCII dump of the bank, because a contact sheet cannot answer
+        // the question the roofed count raises.** `roofed` says *how much*
+        // enclosed void there is; it cannot say whether that is one gallery,
+        // forty disconnected pockets, or a rind of overhang along one face --
+        // and those are different findings with the same number
+        // (`CLAUDE.md`: an image tells you what and where, a metric how much).
+        // At three pixels a cell a one-cell gallery is invisible in the sheet,
+        // so this is the channel that shows the shape.
+        if std::env::args().any(|a| a == "map=1") && seed == 1 {
+            println!("  bank at frame {frames}: '.' loose soil, '#' packedsoil, ' ' void, ',' other");
+            for y in bank_y0..bank_y1 {
+                let mut row = String::new();
+                for x in bank_x0..bank_x1 {
+                    let m = world.get(x, y).material;
+                    row.push(if m == material::EMPTY {
+                        ' '
+                    } else if m == soil_id {
+                        '.'
+                    } else if m == packed_id {
+                        '#'
+                    } else {
+                        ','
+                    });
+                }
+                println!("  |{row}|");
+            }
+        }
+
         if shoot {
-            // Nearest-neighbour magnification done here rather than through
-            // the renderer's own zoom, which moves the *camera* rather than
-            // the scale of the output: at zoom 3 a world-sized buffer would
-            // show a third of the bank and the sheet would silently be a
-            // crop. This keeps the whole bank in frame and each cell a 3x3
-            // block, which is what makes a one-cell gallery visible at all.
-            const Z: u32 = 3;
-            let (sw, sh) = (vw * Z, vh * Z * tiles.len() as u32);
+            // **Crop to the bank, then magnify.** The first version of this
+            // sheet rendered the whole 200x120 world at zoom 3 and was
+            // unreadable for the thing it exists to show: the world is mostly
+            // sky, the galleries are one to three cells across, and the ants
+            // work the bank's left face. Rendered whole, the lined bank and
+            // the ablated one look like the same brown mound -- which would
+            // have had the picture contradict a `roofed` count of 130 against
+            // 0 and the ASCII map that shows a warren, and the picture is what
+            // this project settles arguments with.
+            //
+            // Done here rather than through the renderer's own zoom, which
+            // moves the *camera* rather than the scale of the output.
+            // Steerable, because "is there a nest in there" and "what does
+            // the bank look like" want different framings and the second one
+            // cannot answer the first: at zoom 6 over the whole bank a
+            // one-cell gallery is six pixels of dark brown inside dark brown.
+            let zoom: u32 = arg("zoom").unwrap_or(6);
+            let crop: String =
+                arg("crop").unwrap_or_else(|| format!("{},{},96,38", bank_x0 - 26, bank_y0 - 4));
+            let c: Vec<u32> = crop.split(',').map(|v| v.parse().expect("crop=x,y,w,h")).collect();
+            let (cx0, cy0, cw, ch) = (c[0], c[1], c[2], c[3]);
+            let (sw, sh) = (cw * zoom, ch * zoom * tiles.len() as u32);
             let mut sheet = vec![0u8; (sw * sh * 4) as usize];
             for (i, tile) in tiles.iter().enumerate() {
-                let y0 = i as u32 * vh * Z;
-                for y in 0..vh * Z {
+                let y0 = i as u32 * ch * zoom;
+                for y in 0..ch * zoom {
                     for x in 0..sw {
-                        let src = (((y / Z) * vw + x / Z) * 4) as usize;
+                        let src = (((cy0 + y / zoom) * vw + cx0 + x / zoom) * 4) as usize;
                         let dst = (((y0 + y) * sw + x) * 4) as usize;
                         sheet[dst..dst + 4].copy_from_slice(&tile[src..src + 4]);
                     }
