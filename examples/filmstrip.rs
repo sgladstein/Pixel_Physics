@@ -1466,6 +1466,126 @@ fn build_scene(args: &Args) -> World {
                 w.set(24 + 5 * 24 + dx, floor - 1, Cell::new(corpse, 0));
             }
         }
+        // **A beetle finding an ant it did not bump into** — E15's whole
+        // claim, on screen, in the one form it can be read in: motion.
+        //
+        // **The beetle starts facing away from its prey, and that is the
+        // scene.** Founders face east; the ants stand to the *west*, 60-odd
+        // cells off, outside every contact-range sense in the engine and
+        // inside the 64-cell eye. A blind beetle walks east and leaves the
+        // picture. An eyed one turns round. Nothing else differs between
+        // the two arms — `blind=1` sets `sight_range: 0` and touches
+        // nothing else — which is what makes the turn attributable to the
+        // sense rather than to the weather.
+        //
+        // **Litter on the floor is part of the scene, not decoration.** The
+        // sizing study found floor clutter, not landscape, is what stops a
+        // sight line at head height (25% seed, 21% litter, 17% corpse of
+        // all blockers), and the whole of the answer was to put the eye one
+        // cell up. A bare floor would demonstrate a sense that has never
+        // met the thing it was designed around.
+        //
+        //   cargo run --release --example filmstrip -- scene=hunt gif=1 \
+        //     out=hunt.gif start=0 every=40 count=40 zoom=3 crop=0,270,220,44
+        "hunt" => {
+            use pixel_physics::sim::creature::plant_creature_seed;
+            stone_floor(&mut w);
+            let base = HEIGHT - FLOOR_THICKNESS;
+            // **Relief, and it is not scenery.** A walking creature changes
+            // heading by *stepping* — its three candidates are ahead-left,
+            // ahead and ahead-right — so on a dead-level slab one of the two
+            // turning candidates is into the floor (impassable) and the
+            // other is into thin air (no foothold), and a `Turn` output has
+            // nothing to act on. Measured on the first draft of this scene,
+            // which was `stone_floor` alone: the eyed and blind arms came
+            // back with byte-identical `moves 898 blocked 28 falls 167`
+            // while the eye itself reported `seen 139 of 195 casts`. The
+            // sense fired perfectly and could not steer, because the
+            // *terrain* forbade turning. See
+            // `Reports/creature-sight-sense-2026-08-30.md` §5.
+            //
+            // A shallow ramp either side of the colony gives both diagonals
+            // a foothold, which is what almost all real ground does and is
+            // why this was invisible until a scene was built without it.
+            // A **one-cell ripple**, not a ramp. The first attempt was a
+            // shallow ramp and it traded one failure for another: sight
+            // lines then ran *along* a littered slope and `seen` fell from
+            // 139 of 195 casts to 15. What turning needs is a step under
+            // the diagonal, not a gradient — one cell every seven is
+            // enough, and it leaves the line of sight near-horizontal.
+            let surface = |x: i32| base - (x / 7) % 2;
+            for x in 0..WIDTH {
+                for y in surface(x)..base {
+                    w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+                }
+            }
+
+            let seed_mat = w.materials.id_of("seed").expect("seed is compiled in");
+            let litter = w.materials.id_of("litter").unwrap_or(seed_mat);
+            // **The colony first, then the clutter.** Placed the other way
+            // round the litter sat on the cells the ants need and
+            // `plant_ant` refused half of them silently — 4 of 8, in the
+            // first run of this scene.
+            let mut ants = 0;
+            for i in 0..8i32 {
+                let ax = 40 + i * 4;
+                w.plant_ant(ax, surface(ax) - 1);
+                if w.get(ax, surface(ax) - 1).organism_id() != 0 {
+                    ants += 1;
+                }
+            }
+            assert!(ants >= 6, "scene=hunt stood up only {ants} ants; there is not enough to hunt");
+            // Clutter, in the gap between the two, which is where it has to
+            // be for the eye height to be doing anything. Deterministic: a
+            // hand-placed run is still a scene and this one has to
+            // reproduce.
+            for i in 0..24i32 {
+                let x = 74 + i;
+                let mat = if i % 3 == 0 { litter } else { seed_mat };
+                w.set(x, surface(x) - 1, Cell::new(mat, (i % 4) as u8));
+            }
+            // **One beetle, 37 cells east of the nearest ant and facing
+            // further east**, which is inside the 64-cell eye and outside
+            // every contact-range sense in the engine. The first draft put
+            // it at x=150, **98 cells out** — past the reach — so the eyed
+            // and blind arms came back with byte-identical counters and the
+            // scene read as a sense that does not work. A scene that
+            // contradicts the code looks exactly like a bug in the code
+            // (`CLAUDE.md`), and the tell was the identity.
+            let beetle_x = 105;
+            let species = w.species.id_of("beetle").expect("beetle species");
+            {
+                let mut def = w.species.get(species).creature.clone().expect("beetle is a creature");
+                if args.blind {
+                    def.sight_range = 0;
+                }
+                // **`hunger_fraction: 1.0` so the catch is a *swallow*, and
+                // it is the scene's only other departure from `beetle.ron`.**
+                // A beetle starts at 1600 and burns about 0.4 a tick, so it
+                // does not cross its authored 0.8 threshold for roughly
+                // 6,000 frames — longer than any strip anyone will render —
+                // and until then a catch takes the one form the picture
+                // cannot distinguish from foraging: it picks the mouthful up
+                // and carries it. The ant loses the cell either way; only
+                // the swallow moves `feeds`. Applied to both arms, so it
+                // cannot be what separates them.
+                def.hunger_fraction = 1.0;
+                w.species.set_creature(species, def);
+            }
+            let beetle = match plant_creature_seed(&mut w, beetle_x, surface(beetle_x) - 1, "beetle") {
+                Some(site) => {
+                    w.schedule_active_site(site);
+                    w.get(beetle_x, surface(beetle_x) - 1).organism_id()
+                }
+                None => 0,
+            };
+            assert_ne!(beetle, 0, "scene=hunt placed no beetle -- the scene is not showing what it claims to");
+            let def = w.species.get(species).creature.clone().expect("creature");
+            println!(
+                "scene=hunt blind={} : 1 beetle at x={beetle_x} facing east, {ants} ants at x=40..68, sight_range={}",
+                args.blind, def.sight_range
+            );
+        }
         "colony" => {
             let (presets, err) = pixel_physics::worldgen::WorldgenPresets::load();
             if let Some(e) = err {
@@ -2346,6 +2466,12 @@ fn build_scene(args: &Args) -> World {
 
 struct Args {
     scene: String,
+    /// `blind=1` -- force `scene=hunt`'s beetle to `sight_range: 0`, which
+    /// is the **control arm** of that scene and not a debugging switch.
+    /// The claim the scene makes is that the beetle turns round because it
+    /// can see; a blind beetle on the identical world is the only thing
+    /// that makes that a claim rather than an anecdote.
+    blind: bool,
     /// `day=`/`weather=`/`growth=`/`creatures=`/`gnome=` — the world-speed
     /// knobs (`sim::clock`), each "N times slower than baseline".
     ///
@@ -3079,6 +3205,7 @@ fn parse() -> Args {
         cols: 3,
         zoom: 1,
         genome: String::from("authored"),
+        blind: false,
         impulse: HOP_IMPULSE_WEIGHT,
         hop_body: String::new(),
         crop: Rect::new(0, 0, WIDTH - 1, HEIGHT - 1),
@@ -3206,6 +3333,7 @@ fn parse() -> Args {
             "cols" => a.cols = v.parse().expect("cols"),
             "zoom" => a.zoom = v.parse().expect("zoom"),
             "genome" => a.genome = v.to_string(),
+            "blind" => a.blind = v.parse::<i32>().expect("blind=0|1") != 0,
             "impulse" => a.impulse = v.parse().expect("impulse=WEIGHT"),
             "body" => a.hop_body = v.to_string(),
             "driver" => a.parallel_driver = v != "serial",
@@ -5644,6 +5772,24 @@ fn report_colony(world: &World, render: bool) {
         st.deliveries,
         st.deaths
     );
+    // **The sight counters, and all three of them.** `CLAUDE.md` asks for
+    // the discrete event count beside any picture, and here one number is
+    // not enough: an eye that never ran, an eye that ran over an empty
+    // world and an eye wired to nothing are three different failures that
+    // `sightings` alone cannot tell apart. Printed only when a species in
+    // the scene actually has eyes, so every existing sheet is unchanged.
+    if st.sight_casts > 0 {
+        println!(
+            "  creatures: sight casts {} seen {} ({:.3}) | facing {} approached {} | mean sighted range {:.1} cells | {:.0} cells read per cast",
+            st.sight_casts,
+            st.sightings,
+            st.sightings as f64 / st.sight_casts as f64,
+            st.sight_facing,
+            st.sight_approaches,
+            st.sight_dist_sum as f64 / st.sightings.max(1) as f64,
+            st.sight_cells_read as f64 / st.sight_casts as f64
+        );
+    }
     println!(
         "  creatures: forage trips {} (bar {}) deepest {} | reach {:?}",
         st.forage_trips,

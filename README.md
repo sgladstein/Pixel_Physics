@@ -48,15 +48,15 @@ whole, then run `python3 scripts/readmetoc.py`.
 | [M10 status — the worldgen half](#m10-status--the-worldgen-half) | 2933 |
 | [Weather status](#weather-status) | 3048 |
 | [The ant colony — status](#the-ant-colony--status) | 3065 |
-| [Inheritance status — the growth program has no fallback under it](#inheritance-status--the-growth-program-has-no-fallback-under-it) | 3174 |
-| [M19 status — started](#m19-status--started) | 3253 |
-| [Felling status — the verb works, and what it produces is pieces](#felling-status--the-verb-works-and-what-it-produces-is-pieces) | 3325 |
-| [Bending status — soft tissue lies over, and the wind is what pushes it](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) | 3562 |
-| [Breaking status — a badly grown tree comes down on its own](#breaking-status--a-badly-grown-tree-comes-down-on-its-own) | 3639 |
-| [Performance](#performance) | 3765 |
-| [World speed — five independent time axes](#world-speed--five-independent-time-axes) | 3962 |
-| [Status](#status) | 4045 |
-| [License](#license) | 4156 |
+| [Inheritance status — the growth program has no fallback under it](#inheritance-status--the-growth-program-has-no-fallback-under-it) | 3222 |
+| [M19 status — started](#m19-status--started) | 3301 |
+| [Felling status — the verb works, and what it produces is pieces](#felling-status--the-verb-works-and-what-it-produces-is-pieces) | 3373 |
+| [Bending status — soft tissue lies over, and the wind is what pushes it](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) | 3610 |
+| [Breaking status — a badly grown tree comes down on its own](#breaking-status--a-badly-grown-tree-comes-down-on-its-own) | 3687 |
+| [Performance](#performance) | 3813 |
+| [World speed — five independent time axes](#world-speed--five-independent-time-axes) | 4010 |
+| [Status](#status) | 4093 |
+| [License](#license) | 4204 |
 
 ### Milestones, in numeric order
 
@@ -77,7 +77,7 @@ order they were written.
 | 16 | [M16 status](#m16-status) | 1555 |
 | 17 | [M17 status](#m17-status) | 1741 |
 | 18 | [M18 status](#m18-status) | 1968 |
-| 19 | [M19 status — started](#m19-status--started) | 3253 |
+| 19 | [M19 status — started](#m19-status--started) | 3301 |
 
 ### By topic
 
@@ -90,14 +90,14 @@ them is named "plants". A section can appear twice; felling is honestly both
 plant work and structural work.
 
 **Known limitations for every topic are collected in one place**:
-[Status](#status), line 4045 — the *last* section in the
+[Status](#status), line 4093 — the *last* section in the
 file, not the first. Read it before concluding something is broken.
 
 | Topic | Sections, primary first |
 |---|---|
-| **plants, trees and moss** | [M16 status](#m16-status) 1555, [Plant lines merged](#plant-lines-merged-the-genome-and-the-ecology) 1183, [Inheritance status](#inheritance-status--the-growth-program-has-no-fallback-under-it) 3174, [The economy re-derived](#the-economy-re-derived-standing-tissue-costs-something) 1305, [Plants that stop](#plants-that-stop-organs-determinacy-and-a-price-on-both) 1487, [The generation loop](#the-generation-loop-plants-die-seeds-expire-slots-come-back) 1253, [Stems draw a line](#stems-draw-a-line-the-growth-walk-renders-its-heading) 1405, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 3325, [Bending status](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) 3562, [Breaking status](#breaking-status--a-badly-grown-tree-comes-down-on-its-own) 3639 |
+| **plants, trees and moss** | [M16 status](#m16-status) 1555, [Plant lines merged](#plant-lines-merged-the-genome-and-the-ecology) 1183, [Inheritance status](#inheritance-status--the-growth-program-has-no-fallback-under-it) 3222, [The economy re-derived](#the-economy-re-derived-standing-tissue-costs-something) 1305, [Plants that stop](#plants-that-stop-organs-determinacy-and-a-price-on-both) 1487, [The generation loop](#the-generation-loop-plants-die-seeds-expire-slots-come-back) 1253, [Stems draw a line](#stems-draw-a-line-the-growth-walk-renders-its-heading) 1405, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 3373, [Bending status](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) 3610, [Breaking status](#breaking-status--a-badly-grown-tree-comes-down-on-its-own) 3687 |
 | **creatures — worms and the ant colony** | [M18 status](#m18-status) 1968, [The ant colony](#the-ant-colony--status) 3065 |
-| **structural collapse, felling and rigid bodies** | [M17 status](#m17-status) 1741, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 3325, [Bending status](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) 3562, [Breaking status](#breaking-status--a-badly-grown-tree-comes-down-on-its-own) 3639, [M8 status](#m8-status--started-not-complete) 2435 |
+| **structural collapse, felling and rigid bodies** | [M17 status](#m17-status) 1741, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 3373, [Bending status](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) 3610, [Breaking status](#breaking-status--a-badly-grown-tree-comes-down-on-its-own) 3687, [M8 status](#m8-status--started-not-complete) 2435 |
 | **fire, heat and phase change** | [M14 status](#m14-status) 770, [Materials](#materials) 224 |
 | **explosions, particles and debris** | [M15 status](#m15-status) 947, [M7 status](#m7-status) 918 |
 | **liquids and gases** | [Liquid physics](#liquid-physics-compressible-volume-not-discrete-occupied-cells) 744, [The coarse field grid](#the-coarse-field-grid) 455 |
@@ -105,9 +105,9 @@ file, not the first. Read it before concluding something is broken.
 | **the coarse field grid — pressure, heat, light** | [The coarse field grid](#the-coarse-field-grid) 455, [M12/M13 status](#m12m13-status) 717 |
 | **worldgen and world structure** | [M10 status](#m10-status--the-worldgen-half) 2933, [Architecture](#architecture) 298 |
 | **the gnome (player character)** | [M9 status](#m9-status--the-gnome) 2548, [Controls](#controls) 159 |
-| **weather, sky and the clock** | [Weather status](#weather-status) 3048, [M19 status](#m19-status--started) 3253, [World speed](#world-speed--five-independent-time-axes) 3962 |
+| **weather, sky and the clock** | [Weather status](#weather-status) 3048, [M19 status](#m19-status--started) 3301, [World speed](#world-speed--five-independent-time-axes) 4010 |
 | **rendering, UI and tunables** | [UI improvements](#ui-improvements--overnight-run-section-9) 2302, [Live tunables panel](#live-tunables-panel--overnight-run-section-10) 2347, [Rendering performance](#rendering-performance--overnight-run-section-11) 2415, [M6 deferral](#m6-deferral) 1078 |
-| **performance and the parallel sweep** | [Performance](#performance) 3765, [M5 status](#m5-status) 1088, [Architecture](#architecture) 298, [Rendering performance](#rendering-performance--overnight-run-section-11) 2415 |
+| **performance and the parallel sweep** | [Performance](#performance) 3813, [M5 status](#m5-status) 1088, [Architecture](#architecture) 298, [Rendering performance](#rendering-performance--overnight-run-section-11) 2415 |
 | **materials and the data schema** | [Materials](#materials) 224, [M12/M13 status](#m12m13-status) 717 |
 
 <!-- END GENERATED TOC -->
@@ -3139,6 +3139,54 @@ deposit, because `creature_tick` returns before `sense`. That also makes the
 extra frames cheap: there is no `eval_brain` on any of them. One flat price
 against a body-dependent benefit is what makes hopping a bargain at 2 cells
 and worse than walking at 9.
+
+**A beetle can see across the room (E15, 2026-08-30).** Until this landed,
+**not one of the fourteen `BrainInput` variants reported another animal at a
+distance** — `FoodAdjacent` and `AtNest` are the head's 8-neighbourhood,
+`Crowding` is r=2 and cannot say *what* is near, and the two pheromone planes
+were measured unusable for hunting (mean beetle-to-nearest-trail **46 cells**
+against a **6-cell** sensor span, the beetle's two sensor reads differing
+**1.3%** of the time). The kill already worked at contact; the *search* was
+the whole of what was missing, which is why `beetles=0` and `beetles=9` ran
+**bit-identical** over 6,000 frames. (That null had already been broken by
+other landings before this arrived, so it is not the evidence here; the
+evidence is the 8-seed sweep below.)
+
+Two appended inputs, `PreyNear` and `PreyBearing`, written by a fan of **16
+rays at radius 64**, cast all round from **one cell above the head**, each
+marched to the first `Solid`/`Powder` cell. Every parameter was measured
+before it was built
+([`Reports/creature-vision-sizing-2026-08-30.md`](Reports/creature-vision-sizing-2026-08-30.md)),
+and the pre-flight transferred: it predicted prey in sight on **0.572** of
+samples and the built sense reads **0.50** over 8 generated seeds. The eye
+sits one cell up because floor clutter, not landscape, is what stops a sight
+line between two ground-huggers — **28.1%** of prey pairs blocked at head
+height against **8.5%** one cell up. Foliage deliberately does not block:
+making it opaque costs half the sense, and what a bush should do is
+*attenuate*, which nobody has priced.
+
+**The opt-in is `CreatureDef::sight_range`, and it is zero everywhere but
+`beetle.ron`** — the gate is at the dispatch site that already holds the def,
+so an eyeless species pays one `i32` compare per tick and the shipped ant is
+unchanged. The genome append is the one S2 reserved the dimensions for:
+`BRAIN_INPUTS` 16 → 18 lights up two columns of a 64-wide reserve that were
+already zero, `GENOME_LEN` does not move, and no existing weight is
+renumbered.
+
+Wired to `Turn`, it moves both clean far-side counters over 8 generated
+seeds — mean sighted range **15.2 → 12.5 cells** and prey caught **302 →
+323**. It costs about **twice** what the pre-flight priced: 1,020–1,100
+cells read per cast against a predicted 485, because prey must be tested in
+the un-lifted frame and blockers in the lifted one. That is 0.3% of a mean
+frame, and `ascii` is unchanged by construction — no scene in it runs an
+eyed species, and a guard asserts an eyeless world casts zero rays. **Known limitation, and it is not about seeing:** a walking creature
+changes heading by stepping diagonally, so on *level* ground both turning
+candidates fail — one on passability, one on foothold — and a beetle that
+sees perfectly will walk past its dinner on a stone slab. Filed as
+`open-bugs-handoff.md` **§R4**. Build, sweep and the counters that lie:
+[`Reports/creature-sight-sense-2026-08-30.md`](Reports/creature-sight-sense-2026-08-30.md).
+Play-facing: [`wiki/ants.md`](wiki/ants.md). **Predation is still not
+authorised as a milestone** — this is eyes, not teeth.
 
 **Nothing shipped hops.** `ant.ron` authors no weight into the new row, an
 unwired output reads exactly `squash(0.0) == 0.0`, and the gate

@@ -1,6 +1,9 @@
 # Ants
 
-*Current as of: 2026-08-30, when the size of an animal's body started to
+*Current as of: 2026-08-30, when a beetle got eyes — the first animal here
+that can tell there is something worth eating on the far side of the room,
+rather than only what it is already touching. Before that: 2026-08-30, when
+the size of an animal's body started to
 cost it something to carry around, and when a body became able to shade
 itself — a paler head, a darker underside — instead of every cell of it
 picking a colour out of a hat. Before that: 2026-08-30, when ants started running out of food early
@@ -210,6 +213,60 @@ better ends up with everything the same size.
 The ant you place is unchanged — the price was worked out from the animal
 that already ships, so a two-cell ant pays today precisely what it paid
 yesterday. What changed is that the bigger bodies now pay their way.
+
+## A beetle can see
+
+Everything in this world used to find its food by touch or by smell. An ant
+knows about food when food is *next to it*; the two scents carry further, but
+they are trails the ants themselves lay, and a beetle does not lay them —
+which is why, for a long time, a beetle and an empty room were the same
+thing. You could put nine of them in with fifty ants and the ants would live
+exactly as long as if the beetles were not there.
+
+**A beetle now looks around.** It can pick out an ant about sixty cells off —
+most of a screen at play zoom — in any direction, not just ahead of it, and
+it does not need the ant to have done anything. What it can see it will turn
+toward.
+
+Three things about how it sees are worth knowing, because you can watch all
+of them happen:
+
+**It sees over the mess on the floor, but not through the ground.** Both
+animals walk on the floor, so a line of sight between them skims it the whole
+way, and a two-cell pile of seed was enough to hide an ant forty cells away.
+A beetle looks from a little above its head instead, which clears the litter
+and the seed and the fallen leaves; a boulder, a bank of soil or a wall still
+stops it dead. Stand a beetle behind a rock and it is blind on that side.
+
+**Leaves do not stop it.** Foliage is see-through as far as a beetle is
+concerned, which is not quite right and is deliberate: making a bush solid
+took away half of everything a beetle could ever see, and a bush that is
+either perfectly transparent or perfectly opaque is the wrong answer in both
+directions. What a thicket ought to do is *shorten* how far you can see
+through it, and nothing does that yet.
+
+**It only sees what it could eat.** A beetle looking at another beetle sees
+nothing at all, and neither does it see its own body. This is the same rule
+its mouth uses: an animal that steered toward food it cannot digest would be
+running on bookkeeping rather than on appetite.
+
+**Nothing else in the world has eyes.** Ants do not, and the ant you place
+behaves exactly as it did before this existed.
+
+### What it does not yet do well
+
+Seeing and *getting there* are not the same problem, and the second one is
+only half solved. An animal here changes direction by stepping diagonally, so
+on genuinely flat ground it has nowhere to put its foot when it tries to turn
+— the step down is into the floor and the step up is into the air. On a stone
+slab a beetle that can see perfectly well will still walk past its dinner.
+Give it real ground with slopes and steps and it turns and closes; on
+generated terrain a beetle now spends its time about a third nearer to the
+ants it can see than one that cannot see at all, and catches noticeably more
+of them.
+
+That is a walking problem rather than a seeing problem, and it is written
+down as one.
 
 ## Placing a colony, and watching what they smell
 
