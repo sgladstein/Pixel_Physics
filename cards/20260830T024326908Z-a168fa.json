@@ -1,0 +1,54 @@
+{
+  "id": "20260830T024326908Z-a168fa",
+  "created": "2026-08-30T02:43:26Z",
+  "board": "fracture",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/explosion-effects-menu-isljo5",
+    "commit": "d046e29",
+    "agent": null,
+    "session_id": "59c041f8-0d1c-593e-b4e4-5d71a4ffff4c",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Crack weight, animated -- the GIF you asked for",
+  "question": "Which crack weight do you want: the landed one, or heavier still?",
+  "context_md": "You asked for an animated version of this rather than stills. Same charge, same seed, one blast -- the only difference is how wide the boldest cracks open (`joint_seam_width`, in the menu under `cracks`).\n\nBoth are the version you already picked over the old uniform hairline: a crack is bold where it leaves the crater, holds that weight for about half its run, then narrows to a hairline and gives out. **3** is what is live now. **5** is near the top of the range.\n\nOne integer either way, and it changes only the weight -- the same joints wake in both, so the pattern is identical and only its boldness differs.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A -- cap 3 (landed default)",
+      "files": [
+        "20260830T024326908Z-a168fa/000-w3.gif"
+      ],
+      "caption": "bold near the crater, tapering to a score",
+      "meta": {
+        "joints woken": 785,
+        "seams opened": 425
+      },
+      "focus": null,
+      "gif_frames": 28
+    },
+    {
+      "label": "B -- cap 5",
+      "files": [
+        "20260830T024326908Z-a168fa/001-w5.gif"
+      ],
+      "caption": "same pattern, heavier near seams",
+      "meta": {
+        "joints woken": 785,
+        "seams opened": 443
+      },
+      "focus": null,
+      "gif_frames": 28
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
