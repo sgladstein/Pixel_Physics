@@ -158,4 +158,87 @@
     // `MIN_BODY_CELLS`, so the outcome is graded by the size of what broke
     // rather than by a switch.
     severs_into: "log",
+
+    // **What it takes to snap a limb**, fitted to the *shape* of the stand
+    // rather than to its worst cell -- which is the distinction that got
+    // this constant wrong the first time.
+    //
+    // Censused on `scene=grove` with `BREAK=off`, so nothing could break
+    // while it was being measured. Eight world seeds at 12,000 frames, the
+    // peak wood stress of **each plant** pooled into one distribution --
+    // **71 plants**:
+    //
+    //     p50 6,735   p75 10,094   p90 21,032   p95 22,925   max 31,160
+    //
+    // 21000 is that distribution's **p90**, so about a tenth of plants stand
+    // over the line at any moment.
+    //
+    // **p75 was tried first and the stand did not survive it.** The owner
+    // asked for p75 on a selection argument -- *"I expect plants to evolve
+    // to be stronger and the damage rate will drop over time"* -- which is
+    // sound and needs the population to live long enough to select. It does
+    // not. One seed, 160,000 frames, `scene=grove`, living plant tissue,
+    // against a `BREAK=off` control on the same seed:
+    //
+    //     frames    control    p90 (this)      p75
+    //      20,000    17,336        17,476   16,898
+    //      60,000    19,194        17,085    8,790
+    //     100,000    18,583        15,858    7,763
+    //     160,000    19,123        14,859    4,057
+    //     snaps           -            16      278
+    //     plants          9             7        5
+    //
+    // At p75 the wood loses **79%** of itself and the stand falls from nine
+    // plants to five. That is not the lifecycle -- the control holds flat at
+    // ~19,000 -- and evolution cannot answer it, because **a population
+    // culled faster than it breeds crashes before selection can operate**.
+    // The owner's mechanism requires the stand to persist, so this is an
+    // argument for the gentler constant rather than against the idea.
+    //
+    // At p90 the stand holds at ~78% of the control and still loses sixteen
+    // limbs over the run. The per-plant peak drifts down across it (p90
+    // 15,306 -> 10,446), which is *consistent with* selection on
+    // `pipe_ratio` and is not evidence of it: culling the worst-proportioned
+    // trees produces the same trend, and separating the two needs the
+    // genotype tracked across generations rather than the phenotype
+    // censused.
+    //
+    // **Flat per material, with no wood-density term, and that is what aims
+    // the pressure at growth patterns.** Scaling it by
+    // `organism::wood_density` was built and removed on the owner's call:
+    // *"I care more about mechanics impacting growth patterns so I don't
+    // want density dominating this evolutionary pressure."* Density is a
+    // **discrete** allele worth a straight 1.8x on the threshold
+    // (`WOOD_DENSITY_ALLELES` 0.75..1.35), so one mutation buys the whole
+    // escape and shape never has to change.
+    //
+    // Section is the steeper gradient anyway: doubling a trunk's girth
+    // *quarters* its stress. Girth is `pipe_ratio` at genome slot 4 --
+    // "nodes of foliage per cell of stem width" -- whose `genotype_variance`
+    // is **0.7, the widest of any trait in `tree.ron`'s tuple**. Density
+    // keeps a job regardless: it still scales `max_cantilever_reach` on the
+    // span rule in `structural.rs`.
+    //
+    // **The first version of this number was 60,000 and it was fitted to the
+    // wrong statistic.** It came from the *stand* maximum -- one cell out of
+    // eight thousand, which belongs to the single worst-grown individual in
+    // the wood, i.e. exactly the tree that ought to fail. A strength set
+    // above that is set above the whole failure mode: nothing ever breaks,
+    // wind can never break anything either (the ceiling it was measured
+    // against already had a gust in it), and the outcome is the binary
+    // `CLAUDE.md`'s ethos forbids. Owner's correction: *"a tree that grows
+    // poorly then that it's a heavy top should be able to break on its
+    // own"*.
+    //
+    // **What the criterion actually discriminates.** `stress` is
+    // `|moment| / section^2`, so a heavy crown on a narrow base reads high
+    // and a big *well-proportioned* tree does not -- girth is in the
+    // denominator, squared. That is what makes "poorly grown" a measurable
+    // thing rather than a synonym for "large".
+    //
+    // `rootwood` and `leaf` are deliberately left without one. Roots are
+    // underground and take no wind, and a leaf that snapped under load would
+    // be a leaf falling off its branch -- the exact complaint the foliage
+    // work exists to answer.
+    strength: 21000.0,
 )

@@ -1430,6 +1430,49 @@ fn detached_organism_piece(world: &World, x: i32, y: i32, organism_id: u16) -> V
 /// re-evaluating too. This is what turns one broken branch into a real
 /// cascade for a tree, the same way the aux-cached path already does for
 /// stone.
+/// One cell of living tissue snaps under the load on it — the outcome half
+/// of `plant::break_under_load`, kept here because every other way a plant
+/// cell fails is here and the bookkeeping is easy to get half-right.
+///
+/// **Why this converts one cell rather than felling a limb.** The load
+/// model's two verdicts are *holds* and *fails*, and failing means
+/// `breaks_into` — convert where you stand. `Reports/dead-ends.md` records
+/// what happens when that verdict is aimed at a whole piece: giving landed
+/// logs the bearing test *crushed* them, 833 cells of `log` down to 716,
+/// because the pieces it condemned were the ones with a footing. So the snap
+/// is exactly one cell of splintered stub, and the limb outboard of it
+/// becomes detached on the next `plant::anchor_support` pass and arrives at
+/// `organism_structural_tick`'s `detached` branch, which brings it down as a
+/// **piece**. The graded outcome falls out of the chain rather than being
+/// authored into it — the same argument `over_span` already makes one
+/// function up.
+///
+/// **And why it records a disturbance.** `organism_structural_tick` refuses
+/// to fail anything outside `within_disturbance`, so a limb snapped by wind
+/// or its own weight in the middle of a quiet wood would be left hanging at
+/// every `chain_reach` setting but the default. A snap *is* an event — the
+/// thing the leash exists to require — so it reports itself as one, with the
+/// wound it actually does: a single cell.
+pub(crate) fn snap_organism_cell(world: &mut World, x: i32, y: i32) -> Vec<ActiveSite> {
+    let organism_id = world.get(x, y).organism_id();
+    // **`SNAP_PROBE=1` says where and when**, because the counter alone
+    // cannot aim a camera. A review card of three snaps rendered across the
+    // whole 512-cell world was read as "nothing falls over or breaks" -- at
+    // that scale a limb coming down is a few pixels, and no count printed
+    // beside it can fix a crop that cannot show the event. Prints the frame,
+    // the cell, and how far over its strength it went.
+    if std::env::var("SNAP_PROBE").as_deref() == Ok("1") {
+        eprintln!("[snap] frame {} at ({x},{y}) organism {organism_id}", world.frame);
+    }
+    record_damage_reach_over(world, &[(x, y)]);
+    world.record_disturbance(x, y, 1);
+    if break_free(world, x, y) {
+        world.structural_failures.record_severed_organism(1);
+        world.structural_failures.record_snapped_under_load();
+    }
+    schedule_organism_neighbours(world, x, y, organism_id)
+}
+
 fn schedule_organism_neighbours(world: &World, x: i32, y: i32, organism_id: u16) -> Vec<ActiveSite> {
     // **Eight, because `Grow` places at eight.** This walked four, so a
     // cascade through a crown -- which is mostly diagonal twigs -- skipped
