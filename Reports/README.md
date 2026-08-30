@@ -17,31 +17,23 @@ tried?"*.
 ## Method and architecture — read these first
 
 - [two-games-one-repo-2026-08-30.md](two-games-one-repo-2026-08-30.md) —
-  **proposal, not yet built.** Answers the owner's question of whether two
-  games on one engine means everything shared or everything separate. It
-  means neither: **six layers separate, and three of them are shared today
-  only because the mechanisms that would scope them are unused.** The engine
-  stays shared permanently (a lab-evolved creature is a `.ron` the outdoor
-  game can plant); game code already is separate; but `.claude/rules/` with
-  `paths:` frontmatter — which loads a rule only when a matching file is read
-  — does not exist here at all, `Reports/` is **165 files in one flat
-  directory** an agent greps, and CI gates every push identically. Carries the
-  numbers behind that (`CLAUDE.md` is **25,635 always-loaded tokens, 63% of it
-  consulted by lookup, and of that 86% is evidence rather than rule**), a
-  build order, and the argument **against** the naive cut: the rules that
-  saved the lab's two rounds fired *unprompted* and match no path, so it has
-  to be *rule stays, evidence moves*. Names the divergence risk nothing
-  currently guards — a shared constant edited for one game's benefit.
-- [why-changes-cost-so-much-2026-08-27.md](why-changes-cost-so-much-2026-08-27.md)
-  — **method finding, from a live instance.** Why every change here seems to
-  demand a global retune: most large levers have **no counterweight**, so
-  every constant is calibrated against every other constant's current
-  behaviour and any change reallocates a fixed budget. Costs are not a feature
-  competing with features — they are what makes features composable. Also
-  names the bias that compounds it (judging a change before its retune
-  systematically rejects the changes worth making, ratcheting toward a local
-  optimum the owner has already rejected), and proposes a `CLAUDE.md` rule
-  rather than making one.
+  **proposal, not yet built; revised after an adversarial review found its
+  central recommendation was a no-op.** Answers whether two games on one
+  engine means everything shared or everything separate. Neither — but the
+  first draft proposed moving `CLAUDE.md`'s evidence into a `.claude/rules/`
+  file with no `paths:` frontmatter, **which loads at launch exactly as
+  `CLAUDE.md` does and saves nothing**, the same failure it had correctly
+  named for `@imports` two paragraphs earlier. **And `contextbudget.py` would
+  have certified it**: it counts `CLAUDE.md` only, so the CI gate would have
+  gone green for a change that moved no context — this file's worst-recurring
+  failure arriving *prospectively*. The revision carries the four places the
+  evidence could actually go, the precedent this repo already set
+  (`session-programs.md`, moved out for exactly this reason), two live Claude
+  Code bugs that would void the saving **inside a git worktree, which
+  `CLAUDE.md` mandates**, and the correction that `Reports/` is neither flat
+  nor 14 MB of prose. Names the largest miss: **`README.md` is 71,561 tokens,
+  the biggest document in the repo, overwhelmingly outdoor, and every agent is
+  routed to it first.**
 - [agent-communication.md](agent-communication.md) — **rule landed
   2026-08-29.** How sessions write to the owner, censused over 158 review
   cards, 347 image panes and 283 commit subjects: 56% of PR subjects need a
