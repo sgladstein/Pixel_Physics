@@ -54,10 +54,10 @@ whole, then run `python3 scripts/readmetoc.py`.
 | [Bending status — soft tissue lies over, and the wind is what pushes it](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) | 3787 |
 | [Breaking status — a badly grown tree comes down on its own](#breaking-status--a-badly-grown-tree-comes-down-on-its-own) | 3864 |
 | [Lab lighting status — the fixtures are what light the crop](#lab-lighting-status--the-fixtures-are-what-light-the-crop) | 3990 |
-| [Performance](#performance) | 4050 |
-| [World speed — five independent time axes](#world-speed--five-independent-time-axes) | 4247 |
-| [Status](#status) | 4330 |
-| [License](#license) | 4441 |
+| [Performance](#performance) | 4052 |
+| [World speed — five independent time axes](#world-speed--five-independent-time-axes) | 4249 |
+| [Status](#status) | 4332 |
+| [License](#license) | 4443 |
 
 ### Milestones, in numeric order
 
@@ -91,7 +91,7 @@ them is named "plants". A section can appear twice; felling is honestly both
 plant work and structural work.
 
 **Known limitations for every topic are collected in one place**:
-[Status](#status), line 4330 — the *last* section in the
+[Status](#status), line 4332 — the *last* section in the
 file, not the first. Read it before concluding something is broken.
 
 **Which game a topic belongs to** is the third column. `engine` is shared
@@ -112,9 +112,9 @@ about what you may read.
 | **the coarse field grid — pressure, heat, light** | engine | [The coarse field grid](#the-coarse-field-grid) 485, [M12/M13 status](#m12m13-status) 747, [Lab lighting status](#lab-lighting-status--the-fixtures-are-what-light-the-crop) 3990 |
 | **worldgen and world structure** | outdoor | [M10 status](#m10-status--the-worldgen-half) 3018, [Architecture](#architecture) 307 |
 | **the gnome (player character)** | outdoor | [M9 status](#m9-status--the-gnome) 2578, [Controls](#controls) 167 |
-| **weather, sky and the clock** | engine | [Weather status](#weather-status) 3188, [M19 status](#m19-status--started) 3478, [World speed](#world-speed--five-independent-time-axes) 4247 |
+| **weather, sky and the clock** | engine | [Weather status](#weather-status) 3188, [M19 status](#m19-status--started) 3478, [World speed](#world-speed--five-independent-time-axes) 4249 |
 | **rendering, UI and tunables** | engine | [UI improvements](#ui-improvements--overnight-run-section-9) 2332, [Live tunables panel](#live-tunables-panel--overnight-run-section-10) 2377, [Rendering performance](#rendering-performance--overnight-run-section-11) 2445, [M6 deferral](#m6-deferral) 1108 |
-| **performance and the parallel sweep** | engine | [Performance](#performance) 4050, [M5 status](#m5-status) 1118, [Architecture](#architecture) 307, [Rendering performance](#rendering-performance--overnight-run-section-11) 2445 |
+| **performance and the parallel sweep** | engine | [Performance](#performance) 4052, [M5 status](#m5-status) 1118, [Architecture](#architecture) 307, [Rendering performance](#rendering-performance--overnight-run-section-11) 2445 |
 | **materials and the data schema** | engine | [Materials](#materials) 233, [M12/M13 status](#m12m13-status) 747 |
 | **the evolution lab — the box and its lights** | lab | [Lab lighting status](#lab-lighting-status--the-fixtures-are-what-light-the-crop) 3990 |
 
@@ -4021,12 +4021,14 @@ have lit a shaft under every geode in the massif, and it carries no `glow`:
 `render.rs` splats a radius-14 disc per glowing *cell*, and the interior
 renderer already paints the pool.
 
-**What it buys.** The stand at frame 3,600 goes 468 plant cells to **676** and
-12 seeds to **26**. Dragging one fixture off a plant station **kills that
-plant** — the bench under it reads 0.13 of full daylight before the move and
-0.00 after. The machinery costs **+0.002 ms/frame** measured on an empty box;
-the +0.42 ms on a planted one is the 44% bigger crop it grew, at the ~0.7 µs
-per plant cell per tick the box already charges.
+**What it buys.** The stand at frame 3,600 goes 459 plant cells to **613** and
+12 seeds to **24**, both arms measured on the same tree. Dragging one fixture
+off a plant station **kills that plant** — the bench under it reads 0.215 of
+full daylight before the move and 0.001 after. The machinery costs **+0.001
+ms/frame**, measured on an empty box because that is the only arm that prices
+it; the +0.80 ms on a planted one is the bigger, busier biosphere it grew, and
+lab frame cost is known to track tiles solved (r = +0.90) rather than plant
+cells (r = −0.02).
 
 **Known limitations, both stated rather than tidied away.** The light pool
 draws on the back wall and not on the ground: `render.rs`'s field-light read is

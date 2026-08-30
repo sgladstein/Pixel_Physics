@@ -1430,15 +1430,16 @@ filing them by which game happened to observe them would hide that.
   below — so the roof's 0.447 leak was the entire light budget and the shell's
   thickness was the crop's light knob. `Material::beam` rides the sun's own
   column descent instead, and the box declares itself sunless
-  (`World::set_sky_lighting`). The stand grows **44% larger and sets 2.2x the
+  (`World::set_sky_lighting`). The stand grows **34% larger and sets 2.0x the
   seed**; dragging a fixture off a plant station **kills that plant**. **The
   granularity question is answered at both `FIELD_SCALE` 8 and 16, with its
   positive control**: at 8 every one of 32 columns moves the pool (the
   block-quantised control sits still for six and then jumps 4.0), and at 16
   there are **ten dead columns and a 4.9-cell lurch** — cured by one line,
   because a fixture narrower than a light block cannot be positioned more
-  finely than the block. Frame cost is **+0.002 ms for the machinery** and
-  +0.42 ms for the bigger crop it grew, separated by an empty-box control. Two
+  finely than the block. Frame cost is **+0.001 ms for the machinery** and
+  +0.80 ms for the bigger, busier biosphere it grew, separated by an empty-box
+  control. Two
   things left open and stated: the pool draws on the back wall rather than on
   the ground (a `render.rs` gate, and that file is being rewritten elsewhere),
   and the pool's total flux ripples ±11% with sub-block phase.

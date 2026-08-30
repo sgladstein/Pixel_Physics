@@ -104,17 +104,24 @@ default; making it *not* work by dragging a fixture off its bed is the mechanic.
 
 | | bench light (mean) | dimmest station | plant cells | orgs | seeds |
 |---|---|---|---|---|---|
-| leaky roof, inert fixtures (before) | 0.367 | 0.207 | 468 | 65 | 12 |
-| **sunless, lamps (after)** | **0.373** | **0.126** | **676** | **78** | **26** |
+| leaky roof, inert fixtures (before) | 0.367 | 0.215 | 459 | 66 | 12 |
+| **sunless, lamps (after)** | **0.419** | **0.215** | **613** | **77** | **24** |
 
-Frame 3,600. The stand is **44% larger and sets 2.2x the seed**, which is the
+Frame 3,600, both arms re-measured on this branch after `main` was merged in —
+`main` moved the soil in the same window, and a before/after where only one
+side is current is not a before/after.
+
+The stand is **34% larger and sets 2.0x the seed**, which is the
 light-as-a-lever payoff the design guide already priced from the other side
 (1,037 seeds against 435 at full amplitude, for 12% more cost). `beam: 2.4` was
 chosen to land the bench a little above the 0.42 the leak used to give it, so
 that switching the fiction did not quietly shrink the crop.
 
-The **dimmest** column falls, 0.207 → 0.126, and that is the mechanic rather
-than a regression: light is now a place rather than a level.
+The mean above is the founders' mean, and it hides the half that is the
+mechanic. **Drag one fixture 84 columns into the next bay and its founder
+dies** — that column's bench light goes 0.215 → **0.001**, the bed goes 613
+cells to 551, and nothing else in the scene is touched. Light is a place now,
+not a level.
 
 ## 4. Granularity — the constraint, measured at both `FIELD_SCALE` 8 and 16
 
@@ -205,17 +212,24 @@ by stone); `lamps` is the lab as it ships.
 
 | box | roof | lamps | delta | stand, roof → lamps |
 |---|---|---|---|---|
-| planted (8 founders, 1 colony) | 2.272 ms | 2.693 ms | **+0.421 ms (+18.5%)** | 468 → 676 cells, 12 → 26 seeds |
-| **empty (the machinery alone)** | 0.014 ms | **0.016 ms** | **+0.002 ms** | 0 → 0 |
+| planted (8 founders, 1 colony) | 2.638 ms | 3.435 ms | **+0.798 ms (+30.2%)**, dearer in 3 of 3 | 459 → 613 cells, 12 → 24 seeds |
+| **empty (the machinery alone)** | 0.016 ms | **0.017 ms** | **+0.001 ms** | 0 → 0 |
 
-**The light model is free; what costs is the crop it grew.** The empty-box arm
-is the control that separates them, and it is necessary rather than tidy: a
-larger stand costs about 0.7 µs per plant cell per tick
-([`evolution-lab-feasibility-2026-08-30.md`](evolution-lab-feasibility-2026-08-30.md)
-§2a), so 208 more plant cells and 13 more organisms account for essentially all
-of the planted delta. Reported this way because `CLAUDE.md`'s rule cuts both
-directions: a cost that vanishes may be work that vanished, and a cost that
-*grows* may be work that was bought.
+**The light model is free; what costs is the biosphere it grew.** The
+empty-box arm is the control that separates them, and it is necessary rather
+than tidy — without it the honest headline is "+30% of the lab's frame", which
+is true and about the wrong thing.
+
+Note what the planted delta is *not*, because the obvious account does not
+close: 154 more plant cells at the ~0.7 µs per cell per tick this box charges
+is 0.11 ms, against 0.80 ms measured. That is expected rather than a
+discrepancy —
+[`evolution-lab-gate-1-2026-08-30.md`](evolution-lab-gate-1-2026-08-30.md)'s
+own finding is that **frame cost in the lab tracks tiles solved (r = +0.90)
+and not plant cells (r = −0.02)**, so what a bigger, busier stand buys is a
+larger awake set, which is exactly the term that moves. Reported this way
+because `CLAUDE.md`'s rule cuts both directions: a cost that vanishes may be
+work that vanished, and a cost that *grows* may be work that was bought.
 
 Worst-frame figures are not quoted. The ratio test says they should not be:
 mean × frames is three orders above the worst here, so the worst is an order
