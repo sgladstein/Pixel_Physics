@@ -513,6 +513,11 @@ fn main() {
     // `mirror=off` runs a single assignment instead of the cancelling pair.
     // The only reason to want it is the control above -- see the module doc.
     let mirrored = arg_str("mirror").as_deref() != Some("off");
+    // `dump=1` prints the first seed's raw (generation, share) trajectory.
+    // **Look at the curve before trusting any summary of it** -- the fitted
+    // intercept said this trajectory is not a straight line in log-odds, and
+    // a slope is only a fair summary of a straight one.
+    let dump = arg_str("dump").as_deref() == Some("1");
     let soil_depth: i32 = arg("soil").unwrap_or(common::SOIL_DEPTH);
     let moisture: u16 = arg("moisture").unwrap_or(pixel_physics::sim::material::SOIL_FIELD_CAPACITY);
     let width: i32 = arg("width").unwrap_or_else(|| {
@@ -596,6 +601,14 @@ fn main() {
             b.organisms += o.b.organisms;
             b.cells += o.b.cells;
             b.seeds_set += o.b.seeds_set;
+            if dump && s == 0 && !mirror {
+                println!("\n  raw trajectory, seed 1 (generation -> arm B share -> log-odds):");
+                for &(g, f) in &o.traj {
+                    let lo = if f > 1e-6 && f < 1.0 - 1e-6 { (f / (1.0 - f)).ln() } else { f64::NAN };
+                    println!("    gen {g:>5.2}   share {:>5.1}%   logit {lo:+.3}", 100.0 * f);
+                }
+                println!();
+            }
             if let Some((sl, ic)) = logit_slope(&o.traj) {
                 pair_slopes.push(sl);
                 pair_intercepts.push(ic);
