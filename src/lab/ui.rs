@@ -283,6 +283,13 @@ impl Bar {
         self.widgets.iter().find(|wid| wid.rect.contains(x, y)).and_then(|wid| wid.action)
     }
 
+    /// Whether every widget landed inside the screen. The separator is forced
+    /// to `MIN_SEPARATOR` before this is asked, so a bar that only fits by
+    /// closing the gaps between its groups reports that it does not.
+    fn fits(&self) -> bool {
+        self.widgets.iter().all(|wid| wid.rect.x >= MARGIN && wid.rect.right() <= W as i32 - MARGIN)
+    }
+
     fn hovered(&self, at: Option<(i32, i32)>) -> Option<&Widget> {
         let (x, y) = at?;
         self.widgets.iter().find(|wid| wid.rect.contains(x, y))
@@ -309,8 +316,8 @@ pub struct BarState {
 /// is `sub`. The caption is often the wider of the two (`SPACE` against
 /// `RUN`), and a button narrower than its own caption is the sort of thing
 /// that only shows up in a screenshot.
-fn cell_width(label_px: i32, sub: &str) -> i32 {
-    label_px.max(hud::text_width(sub)) + PAD * 2
+fn cell_width(label_px: i32, sub: &str, pad: i32) -> i32 {
+    label_px.max(hud::text_width(sub)) + pad * 2
 }
 
 struct Spec {
@@ -330,9 +337,10 @@ fn button(
     action: Action,
     latched: bool,
     note: &'static str,
+    pad: i32,
 ) -> Spec {
     Spec {
-        width: cell_width(hud::text_width(label), sub),
+        width: cell_width(hud::text_width(label), sub, pad),
         line1: label.to_string(),
         line2: sub.to_string(),
         action: Some(action),
@@ -343,6 +351,19 @@ fn button(
     }
 }
 
+/// The spacings the bar will try, loosest first.
+///
+/// **A bar that does not fit loses its last button off the right edge, and
+/// only a screenshot ever shows it.** That is not hypothetical: this bar was
+/// built against a six-stop speed ladder, the ladder grew a seventh stop
+/// (`1024X`) the same day, and `REBUILD` was immediately half off the screen.
+/// So the natural spacing is an attempt rather than an assumption, and a bar
+/// too wide for the screen tightens instead of overflowing.
+const SPACINGS: [(i32, i32); 2] = [(PAD, GAP), (1, 1)];
+/// The smallest gap between two groups that still reads as a gap. A bar packed
+/// tighter than this is one row of undifferentiated buttons.
+const MIN_SEPARATOR: i32 = 8;
+
 /// Lay the whole bar out. Pure: same state in, same rectangles out.
 ///
 /// **Widths are measured, never written down.** Every label goes through
@@ -350,6 +371,21 @@ fn button(
 /// narrower than its own text — which is the failure a hand-tuned pixel table
 /// produces and only a screenshot catches.
 pub fn layout(state: &BarState) -> Bar {
+    for (pad, gap) in SPACINGS {
+        let bar = lay_out(state, pad, gap);
+        if bar.fits() {
+            return bar;
+        }
+    }
+    // Nothing fit. Draw the tightest rather than nothing, and let
+    // `the_bar_fits_the_screen_and_no_two_widgets_overlap` be the thing that
+    // says so — a bar that silently dropped a control would be worse than one
+    // that visibly does not fit.
+    let (pad, gap) = SPACINGS[SPACINGS.len() - 1];
+    lay_out(state, pad, gap)
+}
+
+fn lay_out(state: &BarState, pad: i32, gap: i32) -> Bar {
     // Group 1 — transport. The phase button's face is sized to the *wider* of
     // its two captions so that pressing it does not shove the rest of the bar
     // sideways; a control that moves when you use it is a control you miss on
@@ -365,7 +401,7 @@ pub fn layout(state: &BarState) -> Bar {
     // the readout two cells to its right says `TENDING`, which is the state.
     // Verb on the button, state on the readout.
     let phase = Spec {
-        width: cell_width(phase_px, "SPACE"),
+        width: cell_width(phase_px, "SPACE", pad),
         line1: phase_label.to_string(),
         line2: "SPACE".to_string(),
         action: Some(Action::TogglePhase),
@@ -374,15 +410,15 @@ pub fn layout(state: &BarState) -> Bar {
         ratio: None,
         note: "START OR STOP THE EXPERIMENT. TENDING RUNS THE BOX AT REAL TIME SO YOU CAN WORK IN IT; RUNNING FAST-FORWARDS IT AT THE SPEED THE DIAL ASKS FOR.",
     };
-    let step_width = cell_width(hud::text_width("<<"), "DOWN")
-        .max(cell_width(hud::text_width(">>"), "UP"));
+    let step_width = cell_width(hud::text_width("<<"), "DOWN", pad)
+        .max(cell_width(hud::text_width(">>"), "UP", pad));
     let slower = Spec {
         width: step_width,
-        ..button("<<", "DOWN", Action::Slower, false, "ONE STOP DOWN THE SPEED LADDER.")
+        ..button("<<", "DOWN", Action::Slower, false, "ONE STOP DOWN THE SPEED LADDER.", pad)
     };
     let faster = Spec {
         width: step_width,
-        ..button(">>", "UP", Action::Faster, false, "ONE STOP UP THE SPEED LADDER. ASKING FOR SPEED FROM A STOPPED BOX ALSO STARTS THE RUN.")
+        ..button(">>", "UP", Action::Faster, false, "ONE STOP UP THE SPEED LADDER. ASKING FOR SPEED FROM A STOPPED BOX ALSO STARTS THE RUN.", pad)
     };
     // **The achieved figure is only shown while it means something.** In
     // Running it is ticks-per-wall-second over the requested multiple, which
@@ -407,7 +443,7 @@ pub fn layout(state: &BarState) -> Bar {
         // Sized to the widest thing it can ever say, not to what it says now:
         // a readout that changes width as the number changes shoves the bar
         // sideways once a second.
-        width: hud::text_width("GOT 999.9X").max(hud::text_width("REAL TIME")) + PAD * 2 + 2,
+        width: hud::text_width("GOT 999.9X").max(hud::text_width("REAL TIME")) + pad * 2 + 2,
         line1,
         line2,
         action: None,
@@ -418,17 +454,20 @@ pub fn layout(state: &BarState) -> Bar {
     };
 
     // Group 2 — the speed ladder, one chip per stop.
-    let subs = ["1", "2", "3", "4", "5", "6"];
+    // The caption is derived from the position, not from a list that has to
+    // be kept the same length as the ladder: the ladder gained a seventh stop
+    // and a hand-written list of six would have left that chip captionless.
     let presets: Vec<Spec> = state
         .presets
         .iter()
         .enumerate()
         .map(|(i, mult)| {
             let label = format!("{mult}X");
+            let key = if i < 9 { (i + 1).to_string() } else { String::new() };
             Spec {
-                width: cell_width(hud::text_width(&label), subs.get(i).copied().unwrap_or("")),
+                width: cell_width(hud::text_width(&label), &key, pad),
                 line1: label,
-                line2: subs.get(i).copied().unwrap_or("").to_string(),
+                line2: key,
                 action: Some(Action::Preset(i)),
                 latched: state.requested == *mult,
                 icon: None,
@@ -446,6 +485,7 @@ pub fn layout(state: &BarState) -> Bar {
             Action::Panel(Panel::Plants),
             state.panel == Some(Panel::Plants),
             "THE FLORA: HOW MANY ARE STANDING, HOW MANY HAVE EVER GERMINATED, AND WHETHER THE STAND IS CLIMBING OR DYING BACK.",
+            pad,
         ),
         button(
             "ANTS",
@@ -453,6 +493,7 @@ pub fn layout(state: &BarState) -> Bar {
             Action::Panel(Panel::Ants),
             state.panel == Some(Panel::Ants),
             "THE COLONY: HOW MANY ANIMALS ARE ALIVE, WHAT THE POPULATION IS DOING, AND HOW CLOSE THE BOX IS TO ITS ORGANISM CEILING.",
+            pad,
         ),
         button(
             "BOX",
@@ -460,6 +501,7 @@ pub fn layout(state: &BarState) -> Bar {
             Action::Panel(Panel::Box),
             state.panel == Some(Panel::Box),
             "THE BED ITSELF: HOW LONG IT HAS RUN, HOW BIG IT IS, AND WHAT IT IS COSTING TO SIMULATE.",
+            pad,
         ),
         button(
             "STATS",
@@ -467,6 +509,7 @@ pub fn layout(state: &BarState) -> Bar {
             Action::Stats,
             state.stats,
             "THE CENSUS LINE ACROSS THE TOP OF THE SCREEN.",
+            pad,
         ),
         button(
             "HELP",
@@ -474,6 +517,7 @@ pub fn layout(state: &BarState) -> Bar {
             Action::Help,
             state.help,
             "THE KEY LIST. EVERY BUTTON ON THIS BAR ALSO HAS A KEY, AND THE KEY IS PRINTED UNDER THE BUTTON.",
+            pad,
         ),
         button(
             "REBUILD",
@@ -481,6 +525,7 @@ pub fn layout(state: &BarState) -> Bar {
             Action::Reset,
             false,
             "TEAR THE BOX DOWN AND BUILD THE SAME ONE AGAIN FROM ITS SPEC. THE VIEW AND THE DIAL ARE KEPT; EVERYTHING LIVING IN IT IS NOT.",
+            pad,
         ),
     ];
 
@@ -497,11 +542,11 @@ pub fn layout(state: &BarState) -> Bar {
     let content: i32 = groups
         .iter()
         .map(|g| {
-            g.iter().map(|s| s.width).sum::<i32>() + GAP * (g.len() as i32 - 1).max(0)
+            g.iter().map(|s| s.width).sum::<i32>() + gap * (g.len() as i32 - 1).max(0)
         })
         .sum();
-    let slack = (W as i32 - MARGIN * 2 - content).max(12);
-    let separator = slack / 2;
+    let slack = W as i32 - MARGIN * 2 - content;
+    let separator = (slack / 2).max(MIN_SEPARATOR);
 
     let mut widgets = Vec::new();
     let mut dividers = Vec::new();
@@ -514,7 +559,7 @@ pub fn layout(state: &BarState) -> Bar {
         }
         for (wi, spec) in group.iter().enumerate() {
             if wi > 0 {
-                x += GAP;
+                x += gap;
             }
             widgets.push(Widget {
                 rect: Rect { x, y, w: spec.width, h: BTN_HEIGHT },
@@ -1276,7 +1321,20 @@ impl Ui {
             let (x0, y0) = (x0 - 3, y0 - 3);
             let (x1, y1) = (x1 + 3, y1 + 3);
             if y1 < bar_top() {
-                outline(frame, Rect { x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1 }, MARKER);
+                let ring = Rect { x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1 };
+                outline(frame, ring, MARKER);
+                // Four ticks outside the ring. A bare 7x7 outline is a smudge
+                // at this scale -- and the cell it marks is often an ant, which
+                // is two dark cells you can only find because they move. The
+                // reticle is what makes a *stopped* box's inspected cell
+                // findable at all.
+                for t in 2..5 {
+                    let (cx, cy) = (ring.x + ring.w / 2, ring.y + ring.h / 2);
+                    render::put(frame, W, H, cx, ring.y - t, MARKER);
+                    render::put(frame, W, H, cx, ring.bottom() - 1 + t, MARKER);
+                    render::put(frame, W, H, ring.x - t, cy, MARKER);
+                    render::put(frame, W, H, ring.right() - 1 + t, cy, MARKER);
+                }
             }
         }
 
@@ -1284,13 +1342,14 @@ impl Ui {
 
         if let Some(panel) = self.panel {
             let rows = self.panel_rows(panel, world, spec, fps);
-            let anchor = self
-                .bar
-                .widgets
-                .iter()
-                .find(|wid| wid.action == Some(Action::Panel(panel)))
-                .map_or(MARGIN, |wid| wid.rect.x);
-            let rect = page_rect(&rows, anchor, bar_top() - 4);
+            // **Bottom-left, not under the button that opened it.** Anchoring
+            // a page to its own button is the better affordance and it is not
+            // available here: `lab::stats` draws its biosphere page down the
+            // whole right-hand column, the page buttons are the bar's
+            // right-hand group, and a page opening under its own button lands
+            // on top of it. Caught by looking at a contact sheet with both
+            // open, which is the only thing that would have shown it.
+            let rect = page_rect(&rows, MARGIN, bar_top() - 4);
             self.panel_box = Some(rect);
             if let Some((text, y)) = paint_page(frame, rect, panel.title(), &rows, self.cursor) {
                 note = Some((text, rect, y, Note::BesidePage));
@@ -1301,7 +1360,10 @@ impl Ui {
 
         if let Some(at) = self.inspect {
             let rows = self.inspect_rows(world, at);
-            let rect = page_rect(&rows, MARGIN, bar_top() - 4);
+            // Beside the open page rather than under it, so opening a page
+            // does not hide the cell you are inspecting.
+            let anchor = self.panel_box.map_or(MARGIN, |r| r.right() + 6);
+            let rect = page_rect(&rows, anchor, bar_top() - 4);
             self.inspect_box = Some(rect);
             if let Some((text, y)) = paint_page(frame, rect, "CELL", &rows, self.cursor) {
                 note = Some((text, rect, y, Note::BesidePage));

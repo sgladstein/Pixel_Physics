@@ -55,6 +55,27 @@
 //! a vertical face (the repose rule), a gallery has a roof (the straight-down
 //! rule), and a chamber is both with a longer span.
 //!
+//! # The `colony` arm — the one that is not a hand-carved cavity
+//!
+//! Every arm above answers *does a lined tunnel stand*. It cannot answer *do
+//! ants produce one*, and those need separating: a hand-written lining is a
+//! claim about `update_powder`, and a colony is a claim about
+//! `creature::line_burrow` and about whether digging reaches soil at all.
+//! `arms=colony` puts 55 ants on a soil bank over stone and censuses the
+//! **standing void inside the bank** — the quantity a player would call a
+//! nest — with `digs` and `packed` printed beside it every time, because a
+//! bank with no holes in it and a colony that never dug are the same picture
+//! (`CLAUDE.md`: "did it fire at all" needs a counter, not a picture).
+//!
+//! **Its baseline is the same binary with the lining switched off**, which is
+//! what `PIXEL_PHYSICS_BURROW_LINING=off` is for. A standing quantity has no
+//! baseline of its own; run both and read the pair:
+//!
+//! ```text
+//! cargo run --release --example burrow_probe -- arms=colony seeds=4
+//! PIXEL_PHYSICS_BURROW_LINING=off cargo run --release --example burrow_probe -- arms=colony seeds=4
+//! ```
+//!
 //! ```text
 //! cargo run --release --example burrow_probe
 //! cargo run --release --example burrow_probe -- frames=3600 seeds=4
@@ -130,6 +151,12 @@ fn main() {
     let seeds: u64 = arg("seeds").unwrap_or(1);
     let want: String =
         arg("arms").unwrap_or_else(|| "soil,sand,stone,lined,flooded,watertable".to_string());
+    let ants: i32 = arg("ants").unwrap_or(55);
+    let colony_frames: u64 = arg("colonyframes").unwrap_or(8_000);
+
+    if want.split(',').any(|w| w == "colony") {
+        colony_arm(seeds, ants, colony_frames);
+    }
 
     println!(
         "burrow_probe: frames={frames} width={width}x{height} soil={soil} seeds={seeds} arms={want}"
@@ -358,6 +385,105 @@ fn main() {
                 if marks.contains(&f) {
                     report(&world, f);
                 }
+            }
+        }
+    }
+}
+
+/// **Do real ants leave a standing tunnel?**
+///
+/// The bank, the floor and the founder count are `examples/ascii.rs`'s
+/// excavation scene, deliberately: that scene is CI-gated and already
+/// establishes that 55 ants chew soil at 0.8 and are stopped by stone, so
+/// reusing its geometry means the only new claim here is what is *left*
+/// afterwards. What it adds is the census that scene never had — standing
+/// void inside the bank footprint — plus a seed loop, because outcomes here
+/// are chaotic in the seed and one run is a sample from a wide distribution.
+///
+/// **Three numbers on every row and none of them is optional.** `void` is the
+/// spatial claim. `digs` is the near-side counter — did the verb fire at all
+/// — and `packed` is the far-side effect counter on the same call, which is
+/// the pairing `CLAUDE.md` requires after a mining harness reported 200 cuts
+/// that removed 0 cells. A renamed `packedsoil`, a dropped `packs_into`, or a
+/// dig that only ever lands in stone all read as `packed 0` here and are
+/// invisible in `digs`.
+fn colony_arm(seeds: u64, ants: i32, frames: u64) {
+    use pixel_physics::sim::chunk::Rect;
+    use pixel_physics::sim::parallel;
+
+    let lining_on = std::env::var("PIXEL_PHYSICS_BURROW_LINING").as_deref() != Ok("off");
+    println!("\n=== arm colony ===  lining {}", if lining_on { "ON" } else { "OFF (ablated)" });
+    println!("  55 ants on a soil bank over stone; `void` is standing empty cells inside the bank");
+    println!("{:>6}  {:>7}  {:>10}  {:>8}  {:>8}  {:>10}  {:>10}", "seed", "frame", "void", "digs", "packed", "soil", "packedsoil");
+
+    for seed in 1..=seeds {
+        let (w, h) = (200i32, 120i32);
+        let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
+        world.set_weather_pin(Pin::Clear);
+        let soil_id = world.materials.id_of("soil").expect("soil");
+        let packed_id = world.materials.id_of("packedsoil").expect("packedsoil");
+        let nest_id = world.materials.id_of("nest").expect("nest");
+        let floor = h - 8;
+        let (bank_x0, bank_x1) = (40i32, 160i32);
+        let (bank_y0, bank_y1) = (floor - 30, floor);
+
+        for x in 0..w {
+            for y in floor..h {
+                world.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+            }
+        }
+        for x in bank_x0..bank_x1 {
+            for y in bank_y0..bank_y1 {
+                world.set(x, y, Cell::new(soil_id, 0).with_attached(true));
+            }
+        }
+        for x in 16..bank_x0 {
+            world.set(x, floor, Cell::new(nest_id, 0).with_attached(true));
+        }
+        // Founder placement is seeded by shifting the row start, so the four
+        // seeds are genuinely different colonies rather than one colony four
+        // times -- `World::new` alone does not vary here the way `PlantScene`
+        // does, and a "seed sweep" over identical worlds is the tidy,
+        // meaningless result `CLAUDE.md` warns is the tell of an artifact.
+        let off = (seed as i32 - 1) * 3;
+        for i in 0..ants {
+            world.plant_ant(20 + off + i % 10 * 2, floor - 1 - (i / 10));
+        }
+
+        let census = |world: &World| {
+            let mut void = 0usize;
+            let mut soil = 0usize;
+            let mut packed = 0usize;
+            for x in bank_x0..bank_x1 {
+                for y in bank_y0..bank_y1 {
+                    let m = world.get(x, y).material;
+                    if m == material::EMPTY {
+                        void += 1;
+                    } else if m == soil_id {
+                        soil += 1;
+                    } else if m == packed_id {
+                        packed += 1;
+                    }
+                }
+            }
+            (void, soil, packed)
+        };
+
+        let marks = [0u64, 500, 2_000, frames];
+        for f in 0..=frames {
+            if f > 0 {
+                parallel::step(&mut world);
+                world.step_active_sites();
+                world.step_fields();
+                world.step_pheromones();
+            }
+            if marks.contains(&f) {
+                let (void, soil, packed) = census(&world);
+                let st = world.creature_stats;
+                println!(
+                    "{seed:>6}  {f:>7}  {void:>10}  {:>8}  {:>8}  {soil:>10}  {packed:>10}",
+                    st.digs, st.packed
+                );
             }
         }
     }
