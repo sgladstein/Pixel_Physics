@@ -2814,15 +2814,62 @@ fn step_velocity(
 /// determinism requirement and `mark_converged` already rest on; it is
 /// stated once here rather than re-argued at every pass.
 ///
-/// **The parallel path requires `coords` to be exactly `next`'s key set.**
-/// That is how `step` builds them -- `next` is populated by iterating
-/// `solve`, and every caller here passes either `solve` itself or an empty
-/// slice (`momentum`, when the momentum passes are being skipped). Checked
-/// rather than assumed, with a serial fallback: a future caller handing a
-/// genuine *subset* would otherwise silently gain the tiles it meant to
-/// leave out, and no timing would ever show it -- the pass would simply be
-/// correct-looking and wrong, which is this file's own recorded failure mode
-/// for the momentum skip.
+/// **A genuine subset is threaded too, and that is a fix rather than a
+/// tidy-up.** `coords` is exactly `next`'s key set for every caller today --
+/// `next` is populated by iterating `solve`, and each caller passes either
+/// `solve` itself or an empty slice -- so the equal-length case is the fast
+/// path and stays free of any membership test. What a subset must not do is
+/// silently *gain* the tiles it meant to leave out, which is this file's own
+/// recorded failure mode for the momentum skip; that is why the subset is
+/// gathered by name rather than filtered by luck.
+///
+/// **It used to fall back to a serial loop, and that quietly set a trap for
+/// exactly the optimisation this file wants most.** Any caller narrowing the
+/// tile set -- which is the whole point of a gate like `skip_momentum` --
+/// dropped its pass from every core onto one. `step_pressure`,
+/// `step_velocity` and `step_advection` are 57-60% of the field's cost
+/// (measured 2026-08-30 at 2048x640: pressure 0.40, velocity 0.98,
+/// advection 1.60 of a 5.19 ms step), so a gate that removed most of their
+/// *arithmetic* could still lose on wall clock by giving up the threading.
+///
+/// That is not hypothetical. This helper landed 2026-08-24; the per-tile
+/// `skip_momentum` gate was measured and reverted **2026-08-26** -- bit-
+/// identical, firing correctly, 91% of momentum tiles skipped, per-pass
+/// timings way down, and the whole frame **0.59 ms slower**. Its
+/// `dead-ends.md` entry attributes that to memory traffic relocating to a
+/// colder pass. It narrowed `momentum` from `&solve` to a strict subset,
+/// which under the old fallback also serialised three of the four stencil
+/// passes.
+///
+/// **Measured 2026-08-30, and the fallback alone is large enough to have
+/// caused that regression.** Two builds differing *only* in this function,
+/// both given the same deliberately-wrong `momentum = &solve[..len/2]` so
+/// the work is identical and only the threading varies, `field_cost` at
+/// 2048x640, alternating:
+///
+/// | | serial fallback | this |
+/// |---|---|---|
+/// | run 1 | 3.63 ms | 2.46 ms |
+/// | run 2 | 3.34 ms | 2.20 ms |
+/// | run 3 | 3.38 ms | 2.45 ms |
+/// | mean | **3.45 ms** | **2.37 ms** |
+///
+/// **31% of the field's amortised cost, on 3 of 3 paired runs**, purely from
+/// the threading. That does not prove the memory-traffic account wrong --
+/// both could be true -- but it does mean the momentum gate was never tested
+/// against a build that could thread it, so its rejection is not safe to
+/// treat as settled. `dead-ends.md` records the condition.
+///
+/// **This change buys nothing today, and that is not a disappointment --
+/// it is the point.** The only production caller currently handing a subset
+/// is `rebuild_blocked`, and carrying the derived arrays forward already took
+/// that pass to 0.00 ms. Measured the same way on the *real* semantics:
+/// 3.03 ms against 3.04 ms amortised, slower in 2 of 3 runs -- no effect,
+/// as expected. Do not read this as a speedup and do not "restore" the
+/// serial branch on the grounds that the parallel one is not paying for
+/// itself. It is a trap removed from in front of the next person who tries
+/// to solve fewer tiles, which is the field's most promising remaining
+/// direction and the one thing this fallback quietly punished.
 ///
 /// Threading is left to rayon's global pool, the same one `parallel.rs`
 /// uses, so `RAYON_NUM_THREADS` controls both and a scaling curve can be
@@ -2837,12 +2884,26 @@ fn par_solve_tiles(
     }
     if coords.len() == next.len() {
         next.par_iter_mut().for_each(|(&coord, tile)| body(coord, tile));
-    } else {
-        for &coord in coords {
-            let tile = next.get_mut(&coord).expect("next holds every coord of the solve set");
-            body(coord, tile);
-        }
+        return;
     }
+    // **Gathered by name, so a subset cannot gain a tile.** One serial walk
+    // of `next` to collect `&mut` for the named tiles -- disjoint borrows out
+    // of one map, which `iter_mut` already guarantees -- and then rayon over
+    // exactly those. Threading the gathered `Vec` rather than filtering
+    // inside `par_iter_mut` keeps the load balanced: rayon splits work it can
+    // see, and a map walk whose items mostly do nothing is not work it can
+    // see.
+    let wanted: HashSet<ChunkCoord> = coords.iter().copied().collect();
+    let subset: Vec<(ChunkCoord, &mut FieldTile)> =
+        next.iter_mut().filter(|(c, _)| wanted.contains(*c)).map(|(&c, t)| (c, t)).collect();
+    debug_assert_eq!(
+        subset.len(),
+        wanted.len(),
+        "next must hold every coord of the subset -- {} of {} found",
+        subset.len(),
+        wanted.len()
+    );
+    subset.into_par_iter().for_each(|(coord, tile)| body(coord, tile));
 }
 
 fn step_diffusion(world: &World, coords: &[ChunkCoord], next: &mut HashMap<ChunkCoord, FieldTile>) {
@@ -3120,6 +3181,80 @@ fn step_advection(
 
 #[cfg(test)]
 mod tests {
+
+    /// **A subset must touch exactly the tiles it named, and no others.**
+    ///
+    /// `par_solve_tiles` has two paths -- a fast one when `coords` is all of
+    /// `next`, and a gathered one for a genuine subset -- and the subset path
+    /// is the one that is easy to get silently wrong. Its whole reason for
+    /// existing is that a caller narrowing the tile set must not *gain* the
+    /// tiles it meant to leave out, which this file's own history records as
+    /// the momentum skip's failure mode: correct-looking, wrong, and
+    /// invisible to any timing.
+    ///
+    /// So this asserts the property rather than the speed: every named tile
+    /// visited exactly once, every unnamed tile untouched, on a map big
+    /// enough that rayon actually splits it.
+    #[test]
+    fn a_subset_solve_touches_exactly_the_tiles_it_named() {
+        let coords: Vec<ChunkCoord> = (0..64).map(|i| ChunkCoord::new(i % 8, i / 8)).collect();
+        let mut next: HashMap<ChunkCoord, FieldTile> =
+            coords.iter().map(|&c| (c, FieldTile::new())).collect();
+
+        // Every third tile, so the subset is neither contiguous nor the whole
+        // map -- a filter keyed on hash order would pass a contiguous one.
+        let wanted: Vec<ChunkCoord> = coords.iter().copied().step_by(3).collect();
+        assert!(wanted.len() < next.len(), "the subset must be a strict subset or this proves nothing");
+
+        // `pressure` is a scratch channel here, standing in for "was this
+        // tile visited": 0 means untouched, and the body writes 1.
+        par_solve_tiles(&wanted, &mut next, |_, tile| {
+            for i in 0..(FIELD_TILE_SIZE * FIELD_TILE_SIZE) as usize {
+                tile.cells[i].pressure += 1.0;
+            }
+        });
+
+        for &c in &coords {
+            let touched = next[&c].cells[0].pressure;
+            let expected = f32::from(wanted.contains(&c));
+            assert_eq!(
+                touched, expected,
+                "tile {c:?} was visited {touched} times, expected {expected} -- \
+                 a subset solve must touch exactly the tiles it named"
+            );
+        }
+    }
+
+    /// The fast path and the gathered path must agree, since which one runs
+    /// is an implementation detail of how the caller happened to build its
+    /// slice.
+    #[test]
+    fn the_whole_set_and_the_gathered_path_agree() {
+        let coords: Vec<ChunkCoord> = (0..32).map(|i| ChunkCoord::new(i % 8, i / 8)).collect();
+        let build = || -> HashMap<ChunkCoord, FieldTile> {
+            coords.iter().map(|&c| (c, FieldTile::new())).collect()
+        };
+        let body = |c: ChunkCoord, tile: &mut FieldTile| {
+            tile.cells[0].pressure = c.x as f32 * 100.0 + c.y as f32;
+        };
+
+        // Fast path: coords is all of next.
+        let mut whole = build();
+        par_solve_tiles(&coords, &mut whole, body);
+
+        // Gathered path: same tiles, but reached one short of the fast
+        // path's equality test, so the other branch runs.
+        let mut gathered = build();
+        gathered.insert(ChunkCoord::new(99, 99), FieldTile::new());
+        par_solve_tiles(&coords, &mut gathered, body);
+
+        for &c in &coords {
+            assert_eq!(
+                whole[&c].cells[0].pressure, gathered[&c].cells[0].pressure,
+                "the two paths disagree at {c:?}"
+            );
+        }
+    }
     use super::*;
     use crate::sim::cell;
     use crate::sim::cell::Cell;
