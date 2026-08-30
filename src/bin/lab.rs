@@ -138,10 +138,11 @@ impl Handler {
     }
 
     fn key(&mut self, event_loop: &ActiveEventLoop, code: KeyCode, pressed: bool) {
+        // Held state first, and only `WASD` — the arrow keys drive the dial,
+        // so a pan reading of them would scroll the view every time the
+        // player changed speed.
         match code {
-            KeyCode::KeyA | KeyCode::ArrowLeft if !matches!(code, KeyCode::ArrowLeft) => {
-                self.held.left = pressed
-            }
+            KeyCode::KeyA => self.held.left = pressed,
             KeyCode::KeyD => self.held.right = pressed,
             KeyCode::KeyW => self.held.up = pressed,
             KeyCode::KeyS => self.held.down = pressed,
@@ -150,8 +151,17 @@ impl Handler {
         if !pressed {
             return;
         }
+        // Any key dismisses the opening key list, so it is never in the way —
+        // except `?`, which toggles it, and `Escape`, which quits.
+        if self.lab.show_help && code != KeyCode::Escape {
+            self.lab.show_help = false;
+            if code == KeyCode::Slash {
+                return;
+            }
+        }
         match code {
             KeyCode::Escape => event_loop.exit(),
+            KeyCode::Slash => self.lab.show_help = !self.lab.show_help,
             KeyCode::Space => self.lab.time.toggle_phase(),
             KeyCode::ArrowUp => self.lab.time.faster(),
             KeyCode::ArrowDown => self.lab.time.slower(),
