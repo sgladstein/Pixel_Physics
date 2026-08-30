@@ -52,6 +52,39 @@ of a frame to a few dozen predators and under 10% to **two or three
 hundred**, which is the number to carry into a streamed world. §5 says why
 that is a range rather than a figure.
 
+### How stale is this, and what to re-take
+
+`main` moves fast enough that this report was re-measured **six times** while
+it was being written. Rather than leave the next reader guessing which
+figures survived, here is what six trees actually showed.
+
+| finding | stability |
+|---|---|
+| **eye=1 recovers the whole transparent-world ceiling** | **never moved.** The most robust thing here |
+| **radius 64 beats 32 on the p10, at every preset** | **never moved.** The ordering is stable even where the values are not |
+| the cost conclusion (free at this scale) | **never moved**, at either end of a per-read cost that itself spans 13.8–22.1 ns |
+| `dense` costs about half the sense | never moved |
+| absolute `los` medians | **drift.** `wetland` r8 has read 0.383 and 0.283; r64, 0.572 and 0.622 |
+| absolute blocking percentages | **drift.** `wetland` has read 28.1%, 28.0%, 24.3%, 24.2% |
+| the blocker census composition | **drifts with the floor.** Litter has run 21% → 10% of blockers as plant work landed |
+| *"32 → 64 is the largest step in the median"* | **was true, then false.** Corrected to the p10, which is what the house rule gates on anyway |
+
+**So: trust the orderings and the recommendations; re-take any absolute
+percentage you intend to quote.** One command, three minutes:
+
+```
+cargo build --release --example vision_probe   # NOT --release alone
+./target/release/examples/vision_probe mode=survey seeds=18 preset=wetland
+```
+
+**A re-take is worth it when `main` has touched `src/sim/creature.rs`,
+`organism.rs`, `plant.rs`, `assets/species/*.ron` or `src/worldgen/`** — the
+population, the floor, or the terrain. It is not worth it for anything else;
+six trees' worth of evidence says a landing that touches none of those moves
+nothing. Two of the six landings moved the numbers materially, and both were
+plant-side — because what blocks a sight line here is what is lying on the
+ground.
+
 **What this does not say.** Whether a beetle that can see an ant will catch
 one. That is movement and brain work; `predation_probe`'s control already
 settled that the kill itself works at contact range. This sizes the sense

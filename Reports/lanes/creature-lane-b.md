@@ -150,7 +150,7 @@ cargo run --release --example ascii                                          # t
 ```
 
 **Everything here was re-measured on every tree `main` landed underneath —
-five in all.** Each landing could plausibly have moved the result, so each
+six in all.** Each landing could plausibly have moved the result, so each
 got a full re-take rather than a wave-through: the worldgen revamp (716 lines
 of `passes.rs`, five new rock materials), tree-breaking (355 lines of
 `plant.rs`), the creature-economy rework (`ant.ron`, `beetle.ron`,
@@ -163,6 +163,7 @@ further plant landing which changed what lies on the floor.
 | 2 → 3 | nothing; byte-identical |
 | 3 → 4 | third decimal only — `arid` r64 median 0.440 → 0.420, some p90s, blocking by a tenth of a point |
 | **4 → 5** | **materially** — `wetland` r8 median 0.383 → 0.283, r64 0.572 → 0.622, blocking 28% → 24%, litter 21% → 11% of blockers, a new `gravel` appears |
+| 5 → 6 | nothing that matters — a blocked-pair count by 7 in 17,190, one blocker percentage by a point. The beetle's own code changed 245 lines and moved no order statistic |
 
 **The early identity is what makes the later movement informative.** Three
 byte-identical runs could equally have meant the instrument was insensitive
@@ -187,6 +188,15 @@ own control spread was twice any other's, on the tree where `ascii`'s worst
 frame read 78 ms against a usual 27 — a loud box, not slow code. The
 conclusion is identical at either end (0.15% vs 0.24% of a frame), which is
 why the range is quoted rather than a pick.
+
+**The report now carries its own staleness guidance**, which is the durable
+fix for all of this: a table of which findings never moved across six trees
+(the eye height, the radius ordering on the p10, the cost conclusion) against
+which drift (every absolute percentage), the one command that re-takes them,
+and the rule for when it is worth doing — `main` touching `creature.rs`,
+`organism.rs`, `plant.rs`, `assets/species/*.ron` or `src/worldgen/`. Both
+landings that moved the numbers materially were plant-side, because what
+blocks a sight line here is what is lying on the ground.
 
 **And the cost moved in a way that confirms the mechanism.** `cells read` at
 r64 went 909,763 → 898,619 → 977,415. The last jump is the same landing that
