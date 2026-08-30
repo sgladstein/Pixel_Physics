@@ -106,32 +106,32 @@ point.
 | -- | historic | 6031 | R2 (original). An ant put down on open water stands on the surface for ever, and found_co... |
 | S | closed | 6093 | Every destructive verb but the brush leaves the structural scheduler pinned at its cap fo... |
 | S2 | **OPEN** | 7090 | The brush's anchor rule destroys structures the other two rules leave standing |
-| R3 | **OPEN** | 7254 | No creature body above two cells leaves a living colony |
-| S4 | **OPEN** | 7342 | Rock still crushes itself on an idle world |
-| S5 | closed | 7414 | A fully-cracked chunk stays welded because the load model never finishes asking |
-| T | **OPEN** | 7535 | A starving plant strands a cell: growth races dieback |
-| S3 | closed | 7579 | A world nobody has touched pulls its own ground apart |
-| -- | closed | 7628 | The plant model bounds height and does not bound width FIXED |
-| 1 | note | 7719 | MAX_ROOT_FRACTION feeds the staleness counter, permanently retiring roots |
-| 2 | note | 7733 | Grow into soil destroys the soil's stored water |
-| 3 | note | 7745 | Capillary exchange can push a neighbour above its own capacity |
-| U | note | 7758 | A crown hangs on by its leaves, so a snapped limb never falls |
-| W1a | note | 7877 | creeper.ron's root tips still run the superseded in-tick branch path |
-| W1b | note | 7898 | A material-counting guard cannot see a species |
-| W1c | note | 7911 | generated_terrain_is_already_at_rest went red on main |
-| T1a | note | 8045 | load::grain_is_footing reads *attachment* where it means *supported* |
-| T1b | note | 8123 | The structural opt-out did not hold against bearing |
-| T1d | note | 8134 | acceptance.sh's lavadrop sits close enough to its frame budget to flake, and is over it o... |
-| T1e | note | 8168 | "The pieces hit the ground and turn to dust" was not settle, and the measurement says so |
-| T1f | note | 8222 | The felled pile is 74% powder because the tree is 56% leaves. The piece ladder cannot fix... |
-| T1g | note | 8276 | A "refixed" claim went out over a settled state that had barely moved |
-| T1c | note | 8305 | §1c's settle loss is now a counter |
-| -- | note | 8322 | What landed |
-| -- | note | 8345 | Do not re-derive these |
-| -- | note | 8373 | Measurements that contradict something written |
-| -- | note | 8393 | Open |
-| -- | note | 8428 | Unmerged at close, and one of it is a fix main needs anyway |
-| 1n | note | 8446 | grass sets zero seeds on main |
+| R3 | **OPEN** | 7254 | A creature chain above two cells overwrites its own head |
+| S4 | **OPEN** | 7390 | Rock still crushes itself on an idle world |
+| S5 | closed | 7462 | A fully-cracked chunk stays welded because the load model never finishes asking |
+| T | **OPEN** | 7583 | A starving plant strands a cell: growth races dieback |
+| S3 | closed | 7627 | A world nobody has touched pulls its own ground apart |
+| -- | closed | 7676 | The plant model bounds height and does not bound width FIXED |
+| 1 | note | 7767 | MAX_ROOT_FRACTION feeds the staleness counter, permanently retiring roots |
+| 2 | note | 7781 | Grow into soil destroys the soil's stored water |
+| 3 | note | 7793 | Capillary exchange can push a neighbour above its own capacity |
+| U | note | 7806 | A crown hangs on by its leaves, so a snapped limb never falls |
+| W1a | note | 7925 | creeper.ron's root tips still run the superseded in-tick branch path |
+| W1b | note | 7946 | A material-counting guard cannot see a species |
+| W1c | note | 7959 | generated_terrain_is_already_at_rest went red on main |
+| T1a | note | 8093 | load::grain_is_footing reads *attachment* where it means *supported* |
+| T1b | note | 8171 | The structural opt-out did not hold against bearing |
+| T1d | note | 8182 | acceptance.sh's lavadrop sits close enough to its frame budget to flake, and is over it o... |
+| T1e | note | 8216 | "The pieces hit the ground and turn to dust" was not settle, and the measurement says so |
+| T1f | note | 8270 | The felled pile is 74% powder because the tree is 56% leaves. The piece ladder cannot fix... |
+| T1g | note | 8324 | A "refixed" claim went out over a settled state that had barely moved |
+| T1c | note | 8353 | §1c's settle loss is now a counter |
+| -- | note | 8370 | What landed |
+| -- | note | 8393 | Do not re-derive these |
+| -- | note | 8421 | Measurements that contradict something written |
+| -- | note | 8441 | Open |
+| -- | note | 8476 | Unmerged at close, and one of it is a fix main needs anyway |
+| 1n | note | 8494 | grass sets zero seeds on main |
 
 <!-- END GENERATED INDEX -->
 
@@ -7251,69 +7251,117 @@ takes this should decide the rule on its own merits and against the brush,
 with the `paint_capsule` case rendered, not deduce it from a frame timing.
 
 
-### R3. **No creature body above two cells leaves a living colony** — OPEN, creatures
+### R3. **A creature chain above two cells overwrites its own head** — OPEN, creatures
 
-Filed 2026-08-30 by lane D, while pricing the body per cell. **It is not the
-pricing** — that control is the first thing below, because the obvious
-reading of these numbers is that the new bill starves them and it is wrong.
+Filed 2026-08-30 by lane D as *"no creature body above two cells leaves a
+living colony"*. **Diagnosed 2026-08-30 by lane K, and that headline is
+wrong: the colony is alive.** Full account in
+`Reports/creature-chain-head-loss-2026-08-30.md`. Retitled to the defect
+that is actually here, and left OPEN because that defect is unfixed.
 
-`creature_probe terrain=world seed=0xA17 frames=12000`, one seed:
+**The answer, in one line.** A `Chain(n >= 3)` loses its `CellType::Head`
+marking, so every instrument that finds an ant by looking for a head reports
+an empty world over a living, feeding, delivering population — **the extent
+lever is recoverable**, and neither candidate effect this entry named is the
+cause.
 
-| body | peak pop | moves | deliveries | deaths | **live @12k** |
-|---|---|---|---|---|---|
-| `Chain(2)` — ships today | 45 | 20,351 | 733 | 16 | **29** |
-| `Chain(3)` | 34 | 10,083 | 339 | 18 | **0** |
-| `Chain(4)` | 30 | 8,840 | 624 | 15 | **0** |
-| `Chain(6)` | 29 | 5,917 | 352 | 17 | **0** |
-| `Chain(9)` | 26 | 5,547 | 457 | 15 | **0** |
+**Nothing was ever unaccounted for.** The entry's *"peak 34 against deaths 12
+leaves 22 animals unaccounted for"* differences a head-cell count against a
+death count. `World::live_creature_count` — the organism registry — closes
+the books exactly, in every arm:
 
-**Ruled out by measurement, not by argument:**
+| arm, 12,000 frames | bodies built | deaths | registry | head cells |
+|---|---|---|---|---|
+| world `Chain(2)` | 45 | 18 | **27** | 27 |
+| world `Chain(3)` | 34 | 18 | **16** | **0** |
+| world `Chain(6)` | 29 | 18 | **11** | **0** |
+| slab `Chain(2)` | 55 | 31 | **24** | 24 |
+| slab `Chain(3)` | 28 | 16 | **12** | **0** |
 
-- **The per-cell metabolic price is not the cause.** `creature_probe`'s
-  `idle=`/`move=` knobs exist to run a body against the bill it used to pay.
-  At the pre-2026-08-30 flat total, `Chain(3)` gives peak 34 / deaths 12 /
-  **live 0** and `Chain(6)` gives peak 29 / deaths 6 / **live 0**. Peak
-  population is *identical* within each body size across both bills, so the
-  arms are properly paired and both die.
-- **It is not the terrain.** On the hand-built flat slab — the easiest ground
-  a chain could be asked to stand on — `Chain(2)` gives peak 55 / live 24 and
-  `Chain(3)` gives peak 28 / **live 0**.
+`built - deaths = registry` on every row. `deaths` was telling the truth; the
+number it was differenced against was not. The `Chain(3)` survivors stand as
+47 ant cells all owned by a live organism, and the run logs `moves 11440 ...
+eats 62 ... deliveries 619`.
 
-**Two effects, and they may be independent:**
+**The mechanism.** `body_after_step` builds a chain's next body as
+`[head, chain[0], ..., chain[n-2]]`. A head that steps into a cell its own
+body occupies therefore puts **one position in that list twice**, and
+`relocate_chain` writes the carried cells in order — so the trailing Segment
+lands on top of the Head and last write wins. At `Chain(2)` the list is
+`[head, chain[0]]` and those are distinct however the animal turns, which is
+exactly the length threshold. `reconcile_chain` then sees an unchanged
+`chain.first()` over still-owned cells and books **no death, no injury and no
+`meat_lost`** — the silent disappearance this entry described.
 
-1. **Placement roughly halves at three cells**, 45 → 34 on the world and
-   55 → 28 on a slab. A `Chain(n)` is laid down as *n* cells in a straight
-   horizontal line, every one of which must be empty at the hatch, so the
-   site predicate gets much harder as *n* grows. This one is understood; it
-   is the *size* of it that is surprising, since the appearance study placed
-   22 of 40 at six cells against 31 of 40 at two.
-2. **The rest are then consumed, and the death counter does not see it.** At
-   `Chain(3)` on the old bill, peak 34 against deaths 12 leaves **22 animals
-   unaccounted for**. The leading hypothesis is that ants eat each other: a
-   frame-0 dump reads `food in reach: ant 480 ant 480 ant 480 ant 480`, ant
-   flesh at 480 is the richest food in the world, and a longer chain has
-   proportionally more contact surface with its neighbours. **Hypothesis, not
-   result** — it has a mechanism and an observation and no isolating control.
+Verified, `terrain=slab seed=0xA17 body=3`: chains carrying a repeated
+position are present throughout while non-Head-at-`chain[0]` climbs 2 -> 10
+-> 26 -> **17 of 17** at frames 20 / 100 / 500 / 3,000. The `body=2` control
+over the same 3,000 frames: **0 duplicates, 0 headless, `Head 55 Segment
+55`.** The damage is permanent — a head once overwritten is never re-marked —
+which is why it is total by 12,000 frames and invisible at the 600 that
+`creature-appearance-design.md`'s decoys were measured over.
 
-**The cheap next step**, which is why this is filed rather than chased: make
-ant flesh inedible to ants and re-run `Chain(3)`. If the colony lives, it is
-cannibalism and the question becomes whether that is a bug or an ecology; if
-it dies, the placement half is the whole story and the fix is the site
-predicate.
+**Cannibalism is ruled out, with both controls.** This entry's prescribed
+experiment was run through new `creature_probe` knobs, `terrain=world
+seed=0xA17 frames=12000 body=3`:
 
-**Why it matters more than a probe species usually would.**
-`creature-evolution-plan.md` E10 authorises chain *length* as the cheap route
-to a creature the player can actually see, on the strength of
-`creature-appearance-design.md`'s decoy measurements. Those measurements are
-sound and were taken over 600-frame renders. This says the same bodies do not
-hold a colony over 12,000 frames, and did not before anything was repriced —
-so the extent lever is blocked on this, and the blind A/B that report asks
-for should not be posted until it is understood.
+| arm | `meat_lost` | registry | |
+|---|---|---|---|
+| shipped | 0 | 16 | the arm under test |
+| `kinfood=off` | 0 | 16 | **byte-identical to shipped** |
+| `eatskin=on` | **40,320** | — | positive control: the instrument sees it |
+| `eatskin=on kinfood=off` | 0 | 16 | knob validity: back to shipped |
 
-**Provenance and its limit.** One seed, one horizon. The paired structure is
-what carries the claim — every arm is matched against itself at the other
-bill — but no seed sweep was run, and no bar should be set on these numbers
-until one is.
+Rows 3 and 4 are why the null is worth something: forced cannibalism is
+enormous and unmistakable, and `kinfood=off` suppresses it. **The
+`food in reach: ant 480` evidence never applied the kin gate** — `report`
+calls `food_value`, while `adjacent_food` refuses living kin through
+`is_living_kin`, and `ant.ron` does not set `eats_kin`. Three of its four
+entries are the animal's **own tail**, since a `Chain(3)` head is
+permanently adjacent to its own segments; that is also why the count grew
+with chain length.
+
+**Placement is real, and on the slab it is the harness.** Both
+`creature_probe` scenes plant 55 founders at a **two-cell pitch**,
+calibrated to the shipped two-cell ant, so a three-cell body overlaps its
+neighbour. With the new `pitch=` knob, slab `body=3`: **28** bodies built at
+`pitch=2` against **46** at `pitch=4`. On the generated world it is *not* the
+pitch (34 -> 35, and `body=2` gets *worse* at 40) — that half is a real
+interaction between a longer body and real terrain and is unexplained.
+Neither changes the reported extinction, which is the head counter.
+
+**The seed sweep, which this entry asked for and did not have.** 18 seeds x
+3 arms x 12,000 frames, `terrain=world`, every arm paired on the same seeds:
+
+| arm | built (med) | registry (med) | reg p10 | reg max | survival (med) | seeds at reg 0 |
+|---|---|---|---|---|---|---|
+| `Chain(2)` | 33.0 | 14.0 | 2 | 38 | **0.48** | 2 / 18 |
+| `Chain(3)` | 20.0 | 9.5 | 0 | 24 | **0.48** | 4 / 18 |
+| `Chain(3)` `pitch=4` | 21.5 | 9.0 | 3 | 22 | 0.44 | **0 / 18** |
+
+Three things it settles, and one it does not.
+
+- **`built - deaths = registry` held on all 54 runs, zero exceptions.** The
+  identity is not an artefact of one seed; the books close everywhere.
+- **The head loss is universal, not seed-dependent.** `head == registry` on
+  **every** `Chain(2)` seed and `head == 0` on **every** `Chain(3)` seed, in
+  both pitch arms. There is no seed on which a three-cell ant keeps a head.
+- **A three-cell colony survives at the same rate as a two-cell one** — the
+  median survival fraction is 0.48 in both arms. This entry's headline claim
+  does not survive the sweep once the population is counted by registry
+  rather than by heads.
+- **What it does not settle: the tail.** `Chain(3)` reaches registry 0 on
+  **4** seeds against `Chain(2)`'s 2, so a longer body is genuinely less
+  robust even though its median is unchanged — and the spread is enormous in
+  both arms (registry 0 to 38). That is a real remaining cost of extent,
+  most of it downstream of placing fewer founders (median 33 -> 20), and no
+  bar should be set on it from these numbers alone. Note the `pitch=4` arm
+  reaches zero on **no** seed, which is the one thing wider spacing clearly
+  buys.
+
+**Provenance.** One horizon (12,000 frames) and one preset. Counters only —
+nothing here is gated on wall clock.
+
 
 ## Closed this session
 
