@@ -1,0 +1,56 @@
+{
+  "id": "20260830T191417521Z-7b5a08",
+  "created": "2026-08-30T19:14:17Z",
+  "board": "lab",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/evolution-lab-gui-physics-dhkblx",
+    "commit": "5a5cf9f",
+    "agent": null,
+    "session_id": "c7783652-0f30-51a8-b3fa-7773cb6c24fa",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Thicker dirt, and the cement bottom becomes the bar",
+  "question": "Is this the bed you asked for -- enough dirt, and no cement left over? Or should the dirt go deeper still and take height off the room?",
+  "context_md": "Your note today: *\"we need a thicker layer of dirt, we don't need the giant cement bottom (although a lot of that should become the interface).\"*\n\nSame binary, same box, one number different: rows of soil under the surface. Everything above the ground line is untouched.\n\n**Where the cement went.** The bed's floor now stops exactly where the button bar starts, so the stone left over is the eight-row lip you can see and everything below it is behind the bar.\n\n**What it cost the crop: nothing measurable.** The worry was that a deeper bed starves the plants, and one earlier run said it did (725 plant cells down to 578). Over 12 worlds run side by side it does not reproduce -- the deep bed is ahead in 7 of 12 and behind in 5, and the light on the bench is identical to three decimals at every depth. What *does* use the extra depth is the ants: their tunnels were already reaching 35 rows into a 40-row bed, five rows off the stone.\n\nIt costs about a fifth more time per tick, paired and alternating, 5 runs of 5.\n\nShown paused at the start, before anything has grown, so the ground is the whole picture.",
+  "kind": "ab",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A -- before",
+      "files": [
+        "20260830T191417521Z-7b5a08/000-real_before.png"
+      ],
+      "caption": "40 rows of dirt on 64 visible rows of stone",
+      "meta": {
+        "rows of dirt": 40,
+        "rows of bare stone you can see": 64,
+        "plant cells after 9,000 frames, middle of 12 worlds": 504,
+        "deepest ant tunnel, rows down": 35
+      },
+      "focus": null
+    },
+    {
+      "label": "B -- after",
+      "files": [
+        "20260830T191417521Z-7b5a08/001-real_after.png"
+      ],
+      "caption": "96 rows of dirt, an 8-row stone lip, the rest behind the bar",
+      "meta": {
+        "rows of dirt": 96,
+        "rows of bare stone you can see": 8,
+        "plant cells after 9,000 frames, middle of 12 worlds": 553,
+        "deepest ant tunnel, rows down": 57
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
