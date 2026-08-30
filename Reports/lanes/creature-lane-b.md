@@ -120,9 +120,14 @@ clean with it and would not have been without it.
 Card `20260830T021057007Z-18900e`, board `creatures`, **verified on the
 `review-queue` remote branch** (`cards/` and both images present) — a
 labelled A/B of the sight lines at eye=0 against eye=1, asking which reads
-right for an insect on a forest floor. Fire-and-forget; the verdict bears on
-the occlusion recommendation, not on the radius one. Collect with
-`python3 scripts/review.py inbox`.
+right for an insect on a forest floor. **Answered 2026-08-30:** *"I don't think there is a clear good
+answer. Just pick one that makes sense to you."* No preference between the
+two eye heights, so that choice is delegated and rests on the measurement —
+eye=1, because it recovers the transparent-world ceiling on `wetland` and
+~70% of the gap on `rolling` at a third of the blocking. Recorded in §4 of
+the report so a later reader knows the recommendation was put to the owner
+and where the decision actually came from. The radius recommendation never
+depended on this card.
 
 ## Gates, on the merged tree
 

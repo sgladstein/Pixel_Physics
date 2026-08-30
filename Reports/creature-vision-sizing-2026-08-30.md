@@ -266,6 +266,18 @@ clutter, which the blocker census agrees with: stone is 19% of `rolling`'s
 blockers against 13% of `wetland`'s. **Eye height is still the setting to
 build; it is not a complete fix on hilly ground.**
 
+**The owner was asked and declined to pick, so this one is settled on the
+measurement.** Card `20260830T021057007Z-18900e` put the two eye heights side
+by side as a labelled A/B — the same world and instant, sight lines drawn by
+the tracer under test — and asked which reads right for an insect on a forest
+floor. The verdict, 2026-08-30: *"I don't think there is a clear good answer.
+Just pick one that makes sense to you."* So **eye=1 is recommended on the
+numbers above and nothing else**: it is the setting that recovers the ceiling
+on `wetland` and ~70% of the gap on `rolling`, at a third of the blocking. A
+later playtest may overturn it, and if it does, the thing to change is one
+parameter rather than the model — which is part of why the eye is a knob here
+and not baked in.
+
 **`eye=3` is not better than `eye=1`, and this is the row not to smooth
 over.** Its pooled blocking is lower (4.8% against 8.5%) while its median
 `los` at r64 is *worse* (0.613 against 0.667). The two columns are different
