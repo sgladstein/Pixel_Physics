@@ -10,6 +10,16 @@ cargo run --release --example selection_arena -- bed=1 arm=same moisture=260 sky
 cargo run --release --example selection_arena -- arm=norootbranch moisture=260 sky=clear founders=8 seeds=18
 ```
 
+**Provenance, because it is the first thing to doubt.** Every number here was
+taken on `83bd4c47`, which is `main` *before* the fate-lookup default flipped
+from `Full` to `GenomeOnly` — so the runs print `fate_lookup=Full`, matching
+the bed the teeth report's 49.7% was measured in, which is what makes that
+comparison apples-to-apples. The flip is not a confound: its own doc records
+the measurement, **0 net saves out of 88,909 fate queries at the shipped
+`fate_mutation_chance=0.01`** for `herb`, `tree` and `moss` alike, and calls
+itself *"a licence, not a behaviour change"*. Every run below printed
+`fate_mutation_chance=0.01`.
+
 **The prediction did not hold, and the reason is more useful than the
 prediction was.** `norootbranch` reads **50.8%, 8 of 18 seeds, p=0.49** in a
 bed carrying **5.5x less plant-available water** than the one the teeth report
