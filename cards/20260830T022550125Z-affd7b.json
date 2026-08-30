@@ -1,0 +1,47 @@
+{
+  "id": "20260830T022550125Z-affd7b",
+  "created": "2026-08-30T02:25:50Z",
+  "board": "caves",
+  "origin": {
+    "worktree": "/home/user/wg-caves",
+    "branch": "claude/worldgen-caves",
+    "commit": "47d6209",
+    "agent": null,
+    "session_id": "2cb39797-d076-5699-b8bf-4494224deffe",
+    "user": null,
+    "cwd": "/home/user/wg-caves"
+  },
+  "title": "A second system, for the variety question",
+  "question": "The same generator, a different world. Two rooms differ because their rock differs and nothing else: the removal cost, where the roof stops falling, and how far apart the pillars stand are all read off one number per bed, which runs from 42 cells of span in mudstone to 308 in basalt. This one came out as ledges and shelves at several levels rather than one big room. Is the difference between this and the previous card enough variety, and is either of them close to what you meant by rooms 3-7x bigger chained together?",
+  "context_md": "",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "rolling seed 5",
+      "files": [
+        "20260830T022550125Z-affd7b/000-cave_s5.png"
+      ],
+      "caption": "",
+      "meta": {
+        "systems": 2,
+        "rooms": 6,
+        "pillars": 6,
+        "passages": 7,
+        "mouths": 2,
+        "cells the roofs lost": 135630,
+        "biggest room": "638 x 332 cells",
+        "separate walkable pieces": 2,
+        "gnome": "7 x 14 cells"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
