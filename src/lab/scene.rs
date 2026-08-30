@@ -26,8 +26,10 @@
 //!   Plants grow roots into it and creatures need to dig into it and ideally
 //!   create homes."* 40 → 240 rows costs **1.9x the frame**, so §2a's
 //!   obligation is that something actually reaches the depth being paid for.
-//!   `DEFAULT_SOIL_DEPTH` is set from a measurement of where the founder
-//!   species' roots actually stop, not from a round number.
+//!   `DEFAULT_SOIL_DEPTH` is that obligation discharged against a *measured*
+//!   consumer — the colony's galleries, which were already digging to within
+//!   five rows of the stone — and its value is the arithmetic that puts the
+//!   floor exactly on top of the control bar, not a round number.
 //! - **Partitions are the strongest single finding in the guide** (§2c):
 //!   walling a fanned 2048-wide bed into 16 compartments took it from 4.1x to
 //!   7.6x real time at a stand held to within 0.2%, and the same wall buys
@@ -91,31 +93,84 @@ pub struct LabBox {
 
 /// **Rows of soil, and why this number and not a round one.**
 ///
-/// §2a: 40 → 240 rows costs **1.9x the frame for a byte-identical stand**,
-/// because herb's roots never reach past 40 — so a deep bed is 1.9x for
-/// decoration, and the obligation the owner's soil decision creates is that
-/// something reaches the depth being paid for. That is reproduced exactly in
-/// *this* bed: 48 rows and 80 rows give the identical stand, cell for cell
-/// and organism for organism, at every frame sampled.
+/// Owner, 2026-08-30: *"we need a thicker layer of dirt, we don't need the
+/// giant cement bottom (although a lot of that should become the
+/// interface)."* At 40 rows the bed was 40 of soil against **120 of stone**,
+/// and 64 of that stone was on screen above the control bar — more visible
+/// cement than dirt, in a box whose whole subject is what lives in the dirt.
 ///
-/// Measured here, `labshot soil=240 height=460` to 43,200 frames: the
-/// deepest root cell in the stand reaches **12 rows** below the surface, and
-/// it plateaus there by 21,600 — 9 at 3,600, 10 at 10,800, 12 at 21,600, 12
-/// at 43,200. So the founder herb uses twelve rows and no more, however many
-/// it is given.
+/// **The number is arithmetic, not a preference:** `ground_y` (160) + 96 +
+/// `FLOOR_ROWS` (8) = **264**, which is the top of the control bar at the
+/// two-row height the interface lane is building it to (`BAR_HEIGHT` 56 of
+/// a 320-row window). The soil runs down to the last row the player can
+/// see, the stone floor is the eight-row rim directly above the bar, and
+/// every remaining row of the base is *behind* the interface — the owner's
+/// "a lot of that should become the interface" taken literally rather than
+/// approximately.
 ///
-/// 40 is that measurement with the headroom §2a asks for, and the parts are
-/// nameable rather than rounded: **12** the herb actually uses, **12** again
-/// so a deeper-rooting mutant has somewhere to win, and **16** under that for
-/// a burrow — §2a's stronger consumer, because it needs no evolution to
-/// arrive. It is deliberately not 80, which is rows nothing in the box has
-/// ever entered at the frame cost §2a measured.
+/// The two-row bar landed the same day and the floor is flush with it. It
+/// was **not** flush against the one-row bar this was written on — that left
+/// a 34-row rim of stone above the bar rather than 8 — and choosing 96
+/// anyway is the deliberate direction to be wrong in: a rim is stone the
+/// player can see, where a *buried* floor is soil the box pays
+/// `update_soil_water` for and nobody can look at, which is exactly the
+/// waste §2a names. If the bar grows a third row, that is the direction it
+/// goes, and the guard below is what says so.
 ///
-/// Making it deeper is not free and making it shallower is not either: what
-/// the soil does not fill, the stone base does (see `FLOOR_ROWS`), and a row
-/// of soil runs `update_soil_water` where a row of confined stone runs
+/// It is deliberately **not** written as a call into `ui::bar_top()`. The
+/// bar is expected to keep growing, and a soil depth that moved when it did
+/// would be a light, water and frame-cost change arriving as a UI commit
+/// with nobody measuring it. The relationship is guarded instead, by
+/// `the_visible_bed_is_mostly_soil_and_its_floor_clears_the_control_bar`.
+///
+/// # This was measured before it was changed, and the first measurement said not to
+///
+/// One paired run at 96 rows read plant cells 725 → 578, biggest 135 → 76
+/// and roots 12 rows → 7 — a regression, in the direction nobody predicts.
+/// **It was one seed.** Swept properly (`examples/labsoil`, 4 depths × 12
+/// world seeds × 9,000 frames, paired per seed, equal *ticks* so the deep
+/// arm's larger frame cost cannot masquerade as a smaller stand):
+///
+/// | rows | plant cells, median | vs 40 rows, paired per seed |
+/// |---|---|---|
+/// | 40 | 504 | — |
+/// | 64 | 560 | 9 better / 3 worse, median ratio **1.117** |
+/// | 96 | 553 | 7 better / 5 worse, median ratio **1.046** |
+/// | 128 | 533 | 7 better / 5 worse, median ratio **1.057** |
+///
+/// Deeper soil does not cost the stand; per-seed ratios at 96 rows span
+/// **0.81–1.57**, and the single run that condemned it sits at 0.80 — inside
+/// its own arm's spread. Light is the reason it cannot: the sky walk
+/// attenuates through what is *above* the bench, soil is below it, and the
+/// light at the bench after warmup reads **0.447 in all 48 runs**, identical
+/// to three decimals at every depth. Soil depth is not a light knob; the
+/// **shell's** thickness is, and that one is real (see `CEILING`).
+///
+/// # What earns the depth is the ants, not the roots
+///
+/// §2a's standing obligation is that something reaches the depth being paid
+/// for. The founder herb does not: over all 48 runs the deepest root cell in
+/// any stand reached **13 rows**, median 7, exactly as the 40-row bed's own
+/// note said. **Burrows do, and they were already hitting the floor.** Dug
+/// void below the surface, at 9,000 frames:
+///
+/// | rows of soil | deepest dug void | deepest ant |
+/// |---|---|---|
+/// | 40 | 17, 17, 20, **35** | 11–16 |
+/// | 96 | 15, 16, 44, **57** | 12–29 |
+/// | 128 | 16, 17, 18, **44** | 10–18 |
+///
+/// At 40 rows the colony's deepest gallery was 35 rows into a 40-row bed —
+/// **five rows off the stone**, which is a bed the ants had run out of. So
+/// this is not depth bought for a mutant that may never arrive: it is depth
+/// the shipped colony was already asking for, and `packedsoil` is what now
+/// lets the gallery it digs stand.
+///
+/// Making it deeper still is not free and making it shallower is not either:
+/// what the soil does not fill, the stone base does (see `FLOOR_ROWS`), and
+/// a row of soil runs `update_soil_water` where a row of confined stone runs
 /// nothing.
-pub const DEFAULT_SOIL_DEPTH: i32 = 40;
+pub const DEFAULT_SOIL_DEPTH: i32 = 96;
 
 impl Default for LabBox {
     fn default() -> Self {
@@ -144,6 +199,13 @@ impl Default for LabBox {
 /// below the bed is space *outside* the box, which the interior draws as dug
 /// earth, so a third of the screen was flat near-black with nothing in it
 /// and no way to reach it.
+///
+/// **At the shipped depth the eight rows are the whole of the visible
+/// floor**, and the padding below them has stopped being decoration: it
+/// fills the rows the control bar covers. It still costs nothing — confined
+/// stone runs no pass — and it is what keeps the bed correct if the bar is
+/// ever moved, hidden or made shorter, which is the one change that would
+/// otherwise expose a strip of void along the bottom of the screen.
 const FLOOR_ROWS: i32 = 8;
 /// Thickness of the side walls and the floor edges.
 const SHELL: i32 = 4;
@@ -904,5 +966,48 @@ mod tests {
         let moved = w.enclosure().expect("still a room").lamps.clone();
         assert!(!moved.contains(&home), "the room is still lit where the fixture used to be: {moved:?}");
         assert!(moved.contains(&(home + 24)), "the room is not lit where the fixture went: {moved:?}");
+    }
+
+    /// **The bed's floor has to clear the control bar, and the visible bed
+    /// has to be mostly dirt.** Nothing else in the tree relates the bed's
+    /// geometry to the interface's, and the owner's complaint was precisely
+    /// a ratio he could see: 40 rows of soil under 90 visible rows of stone.
+    ///
+    /// **Two assertions rather than an equality, because the bar is moving.**
+    /// It is one row today and two rows on the interface lane's branch — 30
+    /// rows against 56 — so an equality would be green against whichever copy
+    /// of `ui.rs` happened to be in the tree and red against the other, which
+    /// is how a guard ends up asserting another lane's unlanded work. What
+    /// does not depend on which bar is in the tree is: the floor must not be
+    /// *under* the bar (soil the box simulates and nobody can see, §2a's own
+    /// waste), and dirt must outweigh visible cement.
+    ///
+    /// If this fails, someone has to decide whether the soil or the stone
+    /// gives up the rows, and re-run `examples/labsoil` if it is the soil.
+    #[test]
+    fn the_visible_bed_is_mostly_soil_and_its_floor_clears_the_control_bar() {
+        let b = LabBox::default();
+        let bar_top = crate::lab::ui::bar_top();
+        let floor_bottom = b.ground_y + b.soil_depth + FLOOR_ROWS;
+        assert!(
+            floor_bottom <= bar_top,
+            "the bed's floor ends at row {floor_bottom}, below the bar at {bar_top}: the box is \
+             running `update_soil_water` over rows the interface covers. The bar has grown — \
+             take the rows off the soil"
+        );
+
+        // The ratio the owner was actually looking at, off the built world
+        // rather than off the constants: everything from the surface to the
+        // bar, split into dirt and cement.
+        let w = b.build();
+        let soil = w.materials.id_of("soil").expect("soil is compiled in");
+        let x = b.width / 4; // clear of the colony founded at the centre.
+        let dirt = (b.ground_y..bar_top).filter(|&y| w.get(x, y).material == soil).count();
+        let cement = (b.ground_y..bar_top).count() - dirt;
+        assert!(
+            dirt >= cement * 2,
+            "{dirt} rows of dirt against {cement} of visible cement between the surface and the \
+             bar. The owner's complaint was that this was 40 against 90"
+        );
     }
 }

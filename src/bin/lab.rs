@@ -19,33 +19,88 @@
 //!
 //! | | |
 //! |---|---|
-//! | `Space` | Tending ⇄ Running |
+//! | `Space` | pause ⇄ run — paused, nothing ticks at all |
 //! | `Up` / `Down` | the speed dial, through the presets |
-//! | `1`-`6` | jump straight to a preset |
+//! | `1`-`7` | jump straight to a preset |
+//! | `Z` `X` `C` `V` `B` `N` | the tools: look, plant, colony, cull, soil, water |
+//! | `.` | which species the planting tool puts in |
+//! | `[` / `]` | the brush, narrower and wider |
+//! | `O` / `L` | the field and organism overlays |
+//! | `F1` / `F2` / `F3` | the plants, ants and box pages |
 //! | `F` | display rate: 60 / 30 / 20 / 10 Hz |
 //! | `Tab` | the stats page |
-//! | `WASD` / drag | pan; `-` / `=` zoom |
+//! | `WASD` | pan; `-` / `=` zoom |
+//! | left / right mouse | the armed tool / the eraser |
 //! | `R` | rebuild the box |
 //! | `Esc` | quit |
+//!
+//! **And none of them is the only way in.** `lab::ui` draws every one of the
+//! above as a button along the bottom of the screen with its key printed
+//! under it, so the lab can be driven with the mouse alone — owner request,
+//! 2026-08-30, *"It shouldn't all be keyboard shortcuts."* The keys are
+//! unchanged; the bar is additive. Both routes go through `Lab::act`, so
+//! there is one definition of what each control does.
 //!
 //! `PIXEL_PHYSICS_SCREENSHOT_AFTER_FRAMES=N` dumps the framebuffer to
 //! `%TEMP%/pixel_physics_lab.png` after N rendered frames and exits nothing —
 //! the hook that makes this binary checkable on a headless box, where
 //! `labshot` can only render the world and never the interface drawn over
 //! it.
+//!
+//! Two more of the same kind, and for the same reason — a framebuffer dump has
+//! no pointer in it, so the bar's hover state and everything a click opens are
+//! invisible to the only instrument this binary has on a headless box:
+//!
+//! - `PIXEL_PHYSICS_LAB_CURSOR=x,y` holds the pointer at one framebuffer pixel;
+//! - `PIXEL_PHYSICS_LAB_CLICK=x,y;x,y` clicks each position in turn, one per
+//!   rendered frame, before the shot is taken.
+//!
+//! Both are debug hooks. A real pointer overrides the first the moment it
+//! moves, and the second is spent after its last click.
+//!
+//! **The box opens empty** — see [`empty_bed`]. Owner request, 2026-08-30.
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use pixel_physics::lab::time::Phase;
+use pixel_physics::lab::ui::{Action, Panel, Tool};
 use pixel_physics::lab::{scene::LabBox, Lab, HEIGHT, WIDTH};
 use pixels::{Pixels, SurfaceTexture};
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
-use winit::event::{ElementState, MouseScrollDelta, WindowEvent};
+use winit::event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::window::{Window, WindowId};
+
+/// `"x,y"` as a framebuffer position, for the two debug hooks above.
+fn parse_at(v: impl AsRef<str>) -> Option<(i32, i32)> {
+    let v = v.as_ref();
+    let (x, y) = v.split_once(',')?;
+    Some((x.trim().parse().ok()?, y.trim().parse().ok()?))
+}
+
+/// **The bed the game opens on: built, lit, and with nothing living in it.**
+///
+/// Owner, 2026-08-30: *"the game should start with no plants or creatures. I
+/// add them."* So the box, the soil, the walls and the grow lights are all
+/// still `LabBox::default()`'s — only the two population fields go to zero.
+/// The empty box is a real state, not an error: the census says `TRACKING
+/// FROM NOW`, the pages read zero, and the strips draw an honest flat line
+/// on the floor.
+///
+/// **Only the binary is emptied.** `LabBox::default()` still plants its eight
+/// founders and founds its colony, because every harness in `examples/` is
+/// built on it and a sheet of an empty bed answers nothing —
+/// `examples/labui.rs` photographs pages that need numbers in them, and
+/// `labdial` measures a dial against a box that costs something to run.
+///
+/// `Lab::reset` rebuilds from this same spec, so `REBUILD` empties the box
+/// rather than restocking it.
+fn empty_bed() -> LabBox {
+    LabBox { founders: 0, colonies: 0, ..LabBox::default() }
+}
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let event_loop = EventLoop::new()?;
@@ -83,6 +138,16 @@ struct Handler {
     /// the key page and the stats panel**, which is most of what this binary
     /// is. Cleared once fired, so it never repeats.
     screenshot_countdown: Option<u32>,
+    /// `PIXEL_PHYSICS_LAB_CURSOR=x,y` — a pointer position held fixed, so a
+    /// headless screenshot can show the bar's hover state. Debug only; a real
+    /// pointer overwrites it the moment it moves.
+    forced_cursor: Option<(i32, i32)>,
+    /// `PIXEL_PHYSICS_LAB_CLICK=x,y;x,y` — clicks to play back, one per
+    /// rendered frame. Stored reversed so the next one is a `pop`.
+    scripted_clicks: Vec<(i32, i32)>,
+    /// Whether a frame has been painted yet, which is what a click is tested
+    /// against. Only the scripted-click hook reads it.
+    drawn: bool,
     result: Result<(), Box<dyn std::error::Error>>,
 }
 
@@ -99,7 +164,7 @@ impl Handler {
         Self {
             window: None,
             pixels: None,
-            lab: Lab::new(LabBox::default()),
+            lab: Lab::new(empty_bed()),
             last_frame: Instant::now(),
             last_title: Instant::now(),
             fps: 0.0,
@@ -109,6 +174,19 @@ impl Handler {
             screenshot_countdown: std::env::var("PIXEL_PHYSICS_SCREENSHOT_AFTER_FRAMES")
                 .ok()
                 .and_then(|v| v.parse().ok()),
+            // A screenshot has no pointer in it, so a hover highlight and a
+            // hover explanation are invisible to the one instrument this
+            // binary can be checked with on a headless box. This puts the
+            // cursor somewhere without a hand.
+            forced_cursor: std::env::var("PIXEL_PHYSICS_LAB_CURSOR").ok().and_then(parse_at),
+            // ...and this presses it. Oldest first, one per rendered frame, so
+            // a headless shot can show what a click actually opened rather
+            // than only what the bar looks like unpressed.
+            scripted_clicks: std::env::var("PIXEL_PHYSICS_LAB_CLICK")
+                .ok()
+                .map(|v| v.split(';').filter_map(parse_at).rev().collect())
+                .unwrap_or_default(),
+            drawn: false,
             result: Ok(()),
         }
     }
@@ -138,6 +216,25 @@ impl Handler {
             self.lab.renderer.pan(dir, dt.min(0.1), (WIDTH, HEIGHT), bounds);
         }
 
+        if let Some(at) = self.forced_cursor {
+            self.lab.set_cursor(Some(at));
+        }
+        // **Only once a frame has actually been drawn.** A click is tested
+        // against the retained layout of the last painted frame, so a scripted
+        // click on the very first pass hits an empty bar and is correctly
+        // consumed as nothing — which reads as "the hook does not work" rather
+        // than as "there was no bar yet". Real pointers cannot hit this,
+        // because a person cannot click before the window has drawn.
+        if self.drawn && !self.scripted_clicks.is_empty() {
+            let (x, y) = self.scripted_clicks.pop().expect("just checked");
+            self.lab.set_cursor(Some((x, y)));
+            self.lab.press(x, y);
+            self.lab.release(x, y);
+            if let Some(at) = self.forced_cursor {
+                self.lab.set_cursor(Some(at));
+            }
+        }
+
         let advance = self.lab.advance(elapsed);
 
         // **The display rate is decoupled from the frame loop**, and this is
@@ -152,7 +249,7 @@ impl Handler {
         } else {
             match &mut self.pixels {
             Some(pixels) => {
-                self.lab.draw(pixels.frame_mut(), self.cursor);
+                self.lab.draw(pixels.frame_mut(), self.fps);
                 if let Some(n) = self.screenshot_countdown {
                     if n <= 1 {
                         self.screenshot_countdown = None;
@@ -171,6 +268,7 @@ impl Handler {
                         self.screenshot_countdown = Some(n - 1);
                     }
                 }
+                self.drawn = true;
                 pixels.render().err().map(|e| format!("render failed: {e}"))
             }
             None => None,
@@ -202,7 +300,7 @@ impl Handler {
                 window.set_title(&format!(
                     "Evolution Lab — {} — {:.0} fps",
                     match self.lab.time.phase {
-                        Phase::Tending => "tending".to_string(),
+                        Phase::Paused => "paused".to_string(),
                         Phase::Running => format!("running {:.1}x", self.lab.time.achieved.max(0.0)),
                     },
                     self.fps
@@ -235,19 +333,54 @@ impl Handler {
         }
         match code {
             KeyCode::Escape => event_loop.exit(),
-            KeyCode::Slash => self.lab.show_help = !self.lab.show_help,
-            KeyCode::Space => self.lab.time.toggle_phase(),
-            KeyCode::ArrowUp => self.lab.time.faster(),
-            KeyCode::ArrowDown => self.lab.time.slower(),
-            KeyCode::Digit1 => self.lab.time.set_preset(0),
-            KeyCode::Digit2 => self.lab.time.set_preset(1),
-            KeyCode::Digit3 => self.lab.time.set_preset(2),
-            KeyCode::Digit4 => self.lab.time.set_preset(3),
-            KeyCode::Digit5 => self.lab.time.set_preset(4),
-            KeyCode::Digit6 => self.lab.time.set_preset(5),
+            KeyCode::Slash => self.lab.act(Action::Help),
+            // Every one of these is also a button on the bar, and both routes
+            // go through `Lab::act` so there is one definition of what each
+            // control does rather than two that can drift.
+            KeyCode::Space => self.lab.act(Action::TogglePhase),
+            KeyCode::ArrowUp => self.lab.act(Action::Faster),
+            KeyCode::ArrowDown => self.lab.act(Action::Slower),
+            KeyCode::Digit1 => self.lab.act(Action::Preset(0)),
+            KeyCode::Digit2 => self.lab.act(Action::Preset(1)),
+            KeyCode::Digit3 => self.lab.act(Action::Preset(2)),
+            KeyCode::Digit4 => self.lab.act(Action::Preset(3)),
+            KeyCode::Digit5 => self.lab.act(Action::Preset(4)),
+            KeyCode::Digit6 => self.lab.act(Action::Preset(5)),
+            // The ladder grew a seventh stop and this key did not exist for
+            // it, so `1024X` was reachable by the bar and by `UP` and by no
+            // digit at all.
+            KeyCode::Digit7 => self.lab.act(Action::Preset(6)),
+            // The tools, in one unbroken run of the keyboard's bottom row and
+            // in the same left-to-right order the bar draws them. The obvious
+            // initials are not available -- `S` and `W` are the pan -- and six
+            // scattered near-misses are harder to learn than one run you can
+            // read off the bar. See `lab::ui::Tool`.
+            KeyCode::KeyZ => self.lab.act(Action::Tool(Tool::Look)),
+            KeyCode::KeyX => self.lab.act(Action::Tool(Tool::Plant)),
+            KeyCode::KeyC => self.lab.act(Action::Tool(Tool::Colony)),
+            KeyCode::KeyV => self.lab.act(Action::Tool(Tool::Cull)),
+            KeyCode::KeyB => self.lab.act(Action::Tool(Tool::Soil)),
+            KeyCode::KeyN => self.lab.act(Action::Tool(Tool::Water)),
+            KeyCode::Period => self.lab.act(Action::NextSpecies),
+            KeyCode::BracketLeft => self.lab.act(Action::Brush(-1)),
+            KeyCode::BracketRight => self.lab.act(Action::Brush(1)),
+            KeyCode::KeyO => self.lab.act(Action::CycleOverlay),
+            // The organism overlay keeps the sandbox's `L` and stays off the
+            // bar: its channels are plant-internal scalars with names up to
+            // `VEIN CONDUCTANCE`, and a chip sized to hold that would take a
+            // fifth of the row for a debug view. The field overlay -- which is
+            // where the pheromones are -- is the one that earned the button.
+            KeyCode::KeyL => {
+                self.lab.renderer.cycle_organism_overlay();
+                let label = self.lab.renderer.organism_overlay.label();
+                self.lab.ui.say(format!("LIFE OVERLAY {label}"));
+            }
+            KeyCode::F1 => self.lab.act(Action::Panel(Panel::Plants)),
+            KeyCode::F2 => self.lab.act(Action::Panel(Panel::Ants)),
+            KeyCode::F3 => self.lab.act(Action::Panel(Panel::Box)),
             KeyCode::KeyF => self.lab.time.cycle_display_rate(),
-            KeyCode::Tab => self.lab.stats.toggle(),
-            KeyCode::KeyR => self.lab.reset(),
+            KeyCode::Tab => self.lab.act(Action::Stats),
+            KeyCode::KeyR => self.lab.act(Action::Reset),
             KeyCode::Minus => self.lab.renderer.adjust_zoom(-1),
             KeyCode::Equal => self.lab.renderer.adjust_zoom(1),
             _ => {}
@@ -294,8 +427,44 @@ impl ApplicationHandler for Handler {
                     .as_ref()
                     .and_then(|p| p.window_pos_to_pixel(position.into()).ok())
                     .map(|(x, y)| (x as i32, y as i32));
+                self.lab.set_cursor(self.cursor);
+                // ...and a live brush stroke follows it. `Lab::drag` no-ops
+                // unless a button is actually down, so this is unconditional
+                // here rather than gated on a second copy of the button state.
+                if let Some((x, y)) = self.cursor {
+                    self.lab.drag(x, y);
+                }
             }
-            WindowEvent::CursorLeft { .. } => self.cursor = None,
+            WindowEvent::CursorLeft { .. } => {
+                self.cursor = None;
+                self.lab.set_cursor(None);
+            }
+            // The one event this binary did not handle at all until the bar
+            // existed. Press and release are kept apart deliberately: a button
+            // fires on release over itself, so a press can be taken back by
+            // sliding off it, and `REBUILD` cannot throw the box away on the
+            // way past.
+            WindowEvent::MouseInput { state, button, .. } => {
+                let down = state == ElementState::Pressed;
+                match (button, down, self.cursor) {
+                    (MouseButton::Left, true, Some((x, y))) => self.lab.press(x, y),
+                    (MouseButton::Left, false, Some((x, y))) => self.lab.release(x, y),
+                    // Released with the pointer outside the window: the
+                    // gesture is abandoned, not aimed at whatever it was
+                    // last over.
+                    (MouseButton::Left, false, None) => {
+                        self.lab.end_stroke();
+                        self.lab.ui.cancel_press();
+                    }
+                    // **The right button is the eraser, whatever tool is
+                    // armed** -- the sandbox's rule and the owner's request.
+                    // It never reaches the bar: a right-click on a button
+                    // would be a press nothing can take back.
+                    (MouseButton::Right, true, Some((x, y))) => self.lab.press_erase(x, y),
+                    (MouseButton::Right, false, _) => self.lab.end_stroke(),
+                    _ => {}
+                }
+            }
             WindowEvent::MouseWheel { delta, .. } => {
                 let up = match delta {
                     MouseScrollDelta::LineDelta(_, y) => y > 0.0,

@@ -200,6 +200,16 @@ pub struct CreatureStats {
     pub eats: u64,
     pub pickups: u64,
     pub digs: u64,
+    /// **Cells of loose ground converted to a tunnel lining** by those digs
+    /// — the effect counter on the far side of `digs`, which is a call
+    /// counter and nothing more.
+    ///
+    /// `CLAUDE.md`'s standing pairing rule, and it is load-bearing here
+    /// rather than decorative: the lining is resolved through
+    /// `Material::packs_into`, so a renamed or missing `packedsoil` leaves
+    /// every dig firing exactly as before and every wall unlined. `digs`
+    /// cannot see that; this reads 0 the moment it happens.
+    pub packed: u64,
     pub drops: u64,
     /// Drops that happened at the nest — food actually delivered home.
     /// **The number that proves the loop rather than its parts.**
