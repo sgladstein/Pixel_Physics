@@ -3904,3 +3904,63 @@ half today and the lab's partitions give the second for free.
 §6 puts the brief's "keep them alive or start all over" against the first law
 -- an outcome is a distribution, not a binary -- and proposes the graded form
 the plant line already uses for senescence.
+
+## 2026-08-30 — it is the wind, not the sun, and the lab is not a fork
+
+Two owner questions, both answered by measurement, and the first overturns a
+claim this session made twice.
+
+**1. "Can we fake the sun a little in the main game and get a big boost?"
+No -- because the sun is not what is costing.** Three arms at width 4096,
+matched stands, 320 field tiles in the world:
+
+  live  (sun + weather)   7.045 ms   solved 320.0  (every tile)  1247 cells
+  calm  (sun only)        4.176 ms   solved 141.6                1227 cells
+  lab   (neither)         4.021 ms   solved 123.2                1653 cells
+
+Removing the **weather** saves 41% of the frame and 56% of the solve set at a
+stand matched to within 2%. Removing the **sun's drift** on top saves a further
+4%, from an arm carrying *more* biomass. In tiles: weather wakes 178 of 320,
+the sun wakes 18.
+
+**And slowing the sun buys nothing at all.** `Clock::day_minutes` is the
+shipped, player-facing lever, and `field.rs`'s own comment claims a longer day
+is "proportionally cheaper here". Swept with weather running:
+
+  daymin  1   7.081 ms   solved 320.0   1247 cells
+  daymin  4   7.076 ms   solved 320.0   1499 cells
+  daymin 16   7.156 ms   solved 320.0   1598 cells
+  daymin 64   7.323 ms   solved 320.0   1661 cells
+
+A **64x longer day** changes the frame 3% and the solve set not at all, while
+the stand grows 33% -- so the flat cost is against rising biomass, which makes
+the null stronger. The comment is true of the global `amplitude_changed` flag
+and irrelevant to the solve set, because the weather already has every tile
+unsettled before the sun is consulted. **You cannot see the sun underneath the
+wind.** Feasibility report gains section 3d; two earlier statements that named
+the sun are corrected in place.
+
+**2. "Can the two games share the plant and animal code instead of forking?"
+Yes, and the reason is a measurement rather than an abstraction: you do not
+have to remove anything to get the lab's speed.** Every system the concept
+strips already costs ~0 with nothing to do -- blasts 0.000, particles 0.000,
+rigid 0.001, player 0.001 ms, and the structural scheduler 0.028 ms in a bed
+with no rock against 3.389 ms shipped. The lab's speed comes from what is not
+in the *box*, not from what is not in the *binary*.
+
+`Cargo.toml` declares neither `[lib]` nor `[[bin]]`, so a second binary is
+`src/bin/lab.rs` against the same library -- a pattern already proven 49 times
+over, since every `examples/` harness is exactly that. The real coupling risk
+is **constants, not code**: the plant economy is calibrated against the
+outdoor world, and a lab at constant light with no wind is a different
+operating point for the same weighted sums. Held at the species file first,
+`tunables.rs` second, a per-world block only if those fail. Design guide gains
+section 7a.
+
+**Two owner decisions recorded** (design guide sections 2a, 2b): **soil is
+required** -- plants root into it, creatures dig homes in it -- so the 1.9x
+depth cost is accepted and the obligation flips to making sure something
+reaches the depth being paid for; and **collapsing tunnels are removed**, so
+the 16% structural purchase is declined and a burrow is permanent once dug.
+What threatens a burrow instead -- water, decay, or the colony's own growth --
+is now an open question rather than a settled one.

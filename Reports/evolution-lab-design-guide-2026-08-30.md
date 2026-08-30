@@ -78,13 +78,73 @@ design choice. This table is the guide's centre of gravity.
 | An empty sealed box costs **0.001 ms/frame**; all cost is bought by life | **Unused lab space is free.** Expansion costs nothing until it is planted. The player can be given a large facility from the start without paying for it |
 | Under a **moving sun**, the field solves every tile in the world every frame; under a **held light** it does not (§2, §3b) | **The lab has a ceiling, not a sky.** This is simultaneously the fiction, the single largest performance decision, and free — it is not an optimisation to build, it is a thing not to have |
 | Cost follows **living biomass**, not world size — a 2048-wide bed measured cheaper than a 512-wide one at fixed founders | **Population is the performance budget, and it is diegetic.** "How many growth beds is your lab running" *is* the frame-time dial. Do not hide it in a settings menu; it is a resource-management quantity already |
-| Soil depth: 40 → 240 rows costs **1.9x** for a **byte-identical stand**, because herb's roots never reach past 40 | **Depth is a purchase that only pays once you own something that reaches it.** A genuinely honest upgrade: it costs real frame time and returns nothing until a deep-rooted species exists. Most upgrade trees have to fake this |
+| Soil depth: 40 → 240 rows costs **1.9x** for a **byte-identical stand**, because herb's roots never reach past 40 | **Deep soil is required — owner decision, 2026-08-30**: *"We need soil. Plants grow roots into it and creatures need to dig into it and ideally create homes."* So the 1.9x is **accepted, not optional**, and the design obligation flips: something must actually reach the depth being paid for. See §2a — as measured, the shipped herb does not, and paying 1.9x for rows nothing touches is the failure mode to avoid |
 | A grow light held at full amplitude: **1,037 seeds against 435** in the same frames, for 12% more cost | **The light schedule is a real strategic lever with a measured payoff.** 24-hour light is ~2.4x the generations per minute against a day/night cycle. Whether that has a downside is **open** — today it does not, and a lever with no cost is not a decision |
 | The air simulation runs permanently but has **nothing driving it** in a sealed box: 11–20% of frame, stand comes out *slightly larger* without it | **Equipment switches on a simulation that is otherwise idle.** A fan, a heater, a humidifier, a fire are not set dressing — they are what makes pressure/velocity/advection do work. This is the strongest mechanical argument for the equipment layer |
-| The structural scheduler is **16% of the shipped frame** and ~0 in a bed with no rock (§3c) | **Diggable, collapsible rock is a 16% purchase.** If ant tunnels should cave in, that is what it costs, and it should be chosen deliberately rather than inherited. Soil that holds its shape is free |
+| The structural scheduler is **16% of the shipped frame** and ~0 in a bed with no rock (§3c) | **Declined — owner decision, 2026-08-30**: *"We can remove collapsing tunnels."* The 16% is not spent. Soil holds whatever shape is dug into it, so a burrow is permanent once made. §2b records what that costs in drama and what replaces it |
 | Empty sky is **27.4 ns/px** against stone's 6.7 | **Whatever fills the air above the soil must not draw as sky.** A lab interior is cheap to draw; a gradient with a star hash is not |
 | `herb` reaches generation 5 in 45,000 frames; `tree` reaches generation 1 in 200,000 | **The starting plant must have a herb's life cycle.** Trees are a late-game unlock and are not a substrate evolution can act on today |
 | The ant reaches **generation 0** — richest bank 219 against a birth cost of 1,040 | §3, Gate 0. Nothing else matters first |
+
+### 2a. Soil is required, so something must use its depth
+
+**Owner decision, 2026-08-30**: soil is not optional — plants root into it,
+creatures dig into it, and ideally build homes in it. That settles the
+question the measurement raised and reverses its burden.
+
+The measurement stands: 40 → 240 rows costs **1.9x the frame** for a
+byte-identical stand of 2,071 cells, 117 organisms, 109 seeds. Herb's roots
+stop above 40. **So the cost is now a commitment rather than a choice, and the
+thing to guard against is paying it for rows nothing reaches.**
+
+Three consequences (**calls**):
+
+- **Depth has to be earned by a species, not by a slider.** If the starting
+  plant roots to 40 rows, a 240-row bed is 1.9x for decoration. Either the
+  founder species roots deeper, or depth is what a *deeper-rooting mutant*
+  unlocks — which makes root depth a visible evolutionary win rather than a
+  purchase.
+- **Creatures give depth a second consumer, and it is the stronger one.** A
+  burrow is dug space, and dug space is what a colony's nest and larder live
+  in. Unlike roots, that use is immediate and does not have to wait for
+  evolution.
+- **Measure "is the depth reached" as a standing number.** `root_contact`
+  already answers how much of a root system touches soil; the burrow half has
+  no instrument. A bed whose bottom third is never entered is a bed paying
+  1.9x for nothing, and nothing today would report it.
+
+### 2b. Tunnels do not collapse — what that buys and what it costs
+
+**Owner decision, 2026-08-30**: *"We can remove collapsing tunnels."*
+
+**What it buys**: the 16% structural purchase is declined (§3c of the
+feasibility report — the scheduler runs 3.389 ms in the shipped world and
+0.197 ms with its load walks off). Soil in the lab holds whatever shape is dug
+into it.
+
+**What it costs, said plainly** (**call**, and worth revisiting once the lab
+plays): a burrow becomes permanent the moment it is dug, so the excavation has
+no ongoing stake in it. `CLAUDE.md`'s first law asks for a middle, and
+"structure stands forever" is the same binary as "structure vanishes" seen
+from the other end. The drama collapse would have provided has to come from
+somewhere else.
+
+Cheaper places it could come from, none needing the load model:
+
+- **Water.** Flooding a burrow needs only the liquid rules, which already run.
+  A tunnel dug below the water table filling up is a hazard with no structural
+  simulation in it at all.
+- **Decay and disuse.** `rot_remains` already carries dead plant matter out at
+  a species half-life. Soil creeping back into an unused passage is the same
+  shape of rule.
+- **The colony itself.** A nest that outgrows its chambers, or a larder that
+  spoils, is pressure that needs no rock at all.
+
+**What this does not decide**: whether *any* structural behaviour survives in
+the lab. Declining collapse is not the same as declining a repose angle —
+loose soil sliding to its angle of rest is in the CA sweep, not the structural
+scheduler, and costs nothing extra. A dug wall that slumps a little is
+available and free; a roof that falls in is what was declined.
 
 **One number to design against**: in a grow-lit box, roughly **1–2 µs per
 living plant cell per tick**, falling as the stand grows (2.25 µs/cell at 497
@@ -313,6 +373,80 @@ for this concept.
 
 ---
 
+## 7a. One library, two binaries — the lab must not be a fork
+
+Asked directly by the owner: *"Is it possible to develop this game and have
+the plant and animal code cross over between the two instead of fully forking?
+So much of it will be the same."*
+
+**Yes, and the structure for it already exists — but the answer is stronger
+than "share a library".** The thing that makes a fork unnecessary is a
+measurement, not an abstraction:
+
+**You do not have to remove anything to get the lab's performance.** Every
+system the concept proposes to strip already costs ~0 when there is nothing
+for it to do — blasts 0.000 ms, particles 0.000 ms, rigid bodies 0.001 ms, the
+player 0.001 ms, and the structural scheduler 0.028 ms in a bed with no rock
+against 3.389 ms in the shipped world. **The lab's speed comes from what is
+not in the box, not from what is not in the binary.** So "strip the gnome,
+worldgen, rock, explosions" is a scope and UI decision. It is not a code
+decision, and treating it as one is what would produce a fork nobody can
+merge.
+
+**The mechanics.** `Cargo.toml` declares neither `[lib]` nor `[[bin]]`, so
+cargo auto-detects `src/lib.rs` and `src/main.rs`. A second binary is
+`src/bin/lab.rs` against the same `pixel_physics` library — and the pattern is
+already proven forty-nine times over, because every harness in `examples/`
+is exactly that: a standalone binary building its own world out of the shared
+library. `labbox_cost` builds a soil box, lights it, and steps it in about
+two hundred lines. **The lab game is that, with a UI.**
+
+What each binary owns:
+
+| | shared library | `main.rs` (outdoor) | `bin/lab.rs` |
+|---|---|---|---|
+| `sim/plant`, `organism`, `creature`, `brain`, `field`, `update`, `material`, `liquid`, `decay` | **all of it** | — | — |
+| `assets/species/*.ron` | **the format** | plants what worldgen sows | plants what the player sows |
+| `worldgen/`, `structural`, `rigid`, `explosion`, `load`, `player` | present, linked, unused by the lab | uses | never builds a scene that needs them |
+| scene construction | — | `worldgen::generate` | a hand-built box |
+| UI, camera, input | — | gnome, belt, tools | placement and settings |
+
+**The one real coupling risk is constants, not code** (**call**, and it is the
+part to design for now rather than discover later). `CLAUDE.md`'s rule — *a
+term in a weighted sum is not an independent knob* — bites hardest exactly
+here: the plant economy is calibrated against the outdoor world, and a lab
+that runs constant light, no wind and a hand-built bed is a different
+operating point for the same weighted sums. If the two games start wanting
+different values for `seed_maturity`, `light_weight` or `crowding_weight`,
+**that is where a silent fork begins**, because it will be done by editing
+shared constants and noticing later.
+
+Three ways to hold that seam, cheapest first:
+
+1. **Push the difference into the species file, never the engine.** A lab
+   herb is a different `.ron`, not a different constant. This is already how
+   five species differ and it costs nothing.
+2. **Make the scene carry its own tuning.** `tunables.rs` is a generic
+   registry — `(category, name, value, min, max, step)` — and materials plus
+   explosion constants already register. A lab preset is a set of registered
+   values, not a code branch.
+3. **Only if 1 and 2 fail: a per-world parameter block**, passed at world
+   construction. Expensive, and it should be resisted until a real case
+   forces it.
+
+**And the export path closes the loop the other way** (§0). A creature evolved
+in the lab is an `assets/species/<name>.ron` the outdoor game can plant, via
+`species_export`, round-trip verified. The two games exchange **species
+files**, not types — which is the loosest coupling that still shares
+everything that matters.
+
+**What would make this a fork after all**, worth naming so it can be watched
+for: the lab wanting a different `Cell` layout, a different chunk size, or a
+different `MAX_REACH`. None is currently implied by anything in this document,
+and `MAX_REACH == CHUNK_SIZE / 2` is load-bearing for `parallel.rs`'s
+write-safety proof, so any of those would be a genuine second engine rather
+than a second game.
+
 ## 8. Open questions for the owner
 
 Real ones — each changes what gets built.
@@ -324,8 +458,10 @@ Real ones — each changes what gets built.
 2. **Is the grow light's 2.4x free?** Today constant full light strictly beats
    a cycle. A lever with no downside is not a decision. Should darkness buy
    something — rest, a night-active species, lower heat?
-3. **Do tunnels collapse?** That is the 16% structural purchase (§2), and it
-   decides whether soil is a material or a substrate.
+3. ~~**Do tunnels collapse?**~~ **Answered 2026-08-30: no** — *"We can remove
+   collapsing tunnels."* The 16% is declined; §2b records what replaces the
+   drama. The follow-on that is still open: **what does threaten a burrow
+   instead** — water, decay, or the colony's own growth?
 4. **How graded is failure?** §6 proposes the lab persists and the population
    does not. The brief's wording suggests something harsher.
 5. **Is the score legible?** A behaviour-space coverage number is a good metric
@@ -333,7 +469,11 @@ Real ones — each changes what gets built.
 6. **One lab or many?** Partitioned beds are the cheapest source of divergence
    and the strongest scoring move — but they are also a UI and a camera
    problem.
-7. **Does the lab feed the main game?** §0 says the export path exists. Whether
+7. **What reaches the bottom of a deep bed?** Soil is now required (§2a) and
+   depth costs 1.9x, but the shipped herb roots to 40 rows and stops. Is deep
+   soil there for burrows, for a deeper-rooting species the player evolves, or
+   for both — and should depth be a purchase or an unlock?
+8. **Does the lab feed the main game?** §0 says the export path exists. Whether
    lab-evolved species should actually appear in the outdoor world is a
    decision with content implications, not just a plumbing one.
 

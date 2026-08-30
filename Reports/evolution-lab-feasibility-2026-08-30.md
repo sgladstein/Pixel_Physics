@@ -179,8 +179,10 @@ of the world.
 
 So the correct statement is conditional, and both halves matter:
 
-- **Under a moving sun, world width is the dominant cost term.** This is what
-  the shipped game runs, and §3b is what it costs there.
+- **Outdoors, world width is the dominant cost term.** This is what the
+  shipped game runs, and §3b is what it costs there. **The driver is the
+  weather rather than the sun** — measured in §3d, which corrects an earlier
+  reading of this very table.
 - **Under a held grow light, it is not** — a wider bed is *cheaper* at fixed
   founders (2.679 against 5.092 ms), because the same stand spreads thinner
   and cost follows the stand rather than the grid. A small box *concentrates*
@@ -294,11 +296,12 @@ live organisms: 325   chunks: 5120   awake chunks: 24
 1087 of 1800 frames (60.4%) exceeded the 16.6 ms budget
 ```
 
-1. **The sun makes the world's size a per-frame cost.** 5,120 chunks resident,
-   **24 awake** — under half a percent of the world has anything moving in it
-   — and the field still costs 13.95 ms, 69% of the frame. §2's table is the
-   controlled version of the same effect. This is the largest of the three and
-   the lab removes it outright.
+1. **The world's size is a per-frame cost — and the driver is the weather,
+   not the sun.** 5,120 chunks resident, **24 awake** — under half a percent
+   of the world has anything moving in it — and the field still costs
+   13.95 ms, 69% of the frame. §3d decomposes which oscillator is
+   responsible, and **corrects an earlier draft of this very list, which
+   named the sun and was wrong by a factor of ten.**
 2. **The game renders and the harness does not.** `render_cost` measures a
    full 512x320 redraw at 2.407 ms on this tree, and the renderer redraws
    essentially every frame while the gnome walks, because a camera move
@@ -368,6 +371,61 @@ does not have anyway. So:
 Both are true and they answer different questions. The first is what the
 owner feels when playing; the second is what a lab-box budget looks like. The
 earlier draft quoted the second as though it answered the first.
+
+### 3d. It is the wind, not the sun — a third correction
+
+**An earlier draft of §3b's list said "the sun makes the world's size a
+per-frame cost" and called it the largest of the three multipliers. That is
+wrong, and the owner's question — "can we just fake the sun a little in the
+main game?" — is what forced it to be measured rather than asserted.**
+
+Three arms, `width=4096 soil=120 trees=16 species=herb frames=2000`, 320 field
+tiles in the world:
+
+| arm | what runs | ms/tick | solved/f | plant cells |
+|---|---|---|---|---|
+| `live` | sun + weather | **7.045** | **320.0** (every tile) | 1,247 |
+| `calm` | sun only, `Pin::Clear` | **4.176** | 141.6 (44%) | 1,227 |
+| `lab` | neither, grow light | 4.021 | 123.2 (39%) | 1,653 |
+
+**`live` → `calm` removes the weather and saves 41% of the frame and 56% of
+the solve set, at a stand matched to within 2%** (1,247 against 1,227 cells,
+45 against 46 organisms). **`calm` → `lab` removes the sun's drift on top and
+saves a further 4%** — and that arm carries *more* biomass, so the sun's own
+saving is if anything understated. Counted in tiles: **weather wakes 178 of
+320, the sun wakes 18.**
+
+**And slowing the sun buys nothing at all.** `Clock::day_minutes` divides the
+sky clock so the amplitude steps N times less often — the shipped, player-
+facing "fake the sun" lever, and `field.rs`'s own comment claims a longer day
+is *"proportionally cheaper here"*. Swept with the weather left running:
+
+| `daymin` | ms/tick | solved/f | plant cells |
+|---|---|---|---|
+| 1 | 7.081 | **320.0** | 1,247 |
+| 4 | 7.076 | **320.0** | 1,499 |
+| 16 | 7.156 | **320.0** | 1,598 |
+| 64 | 7.323 | **320.0** | 1,661 |
+
+**A 64x longer day changes the frame by 3% and the solve set not at all** —
+and the stand grows 33% across the sweep, so the flat cost is against *rising*
+biomass, which makes the null stronger rather than weaker. The comment is true
+of the global `amplitude_changed` flag and irrelevant to the solve set,
+because the weather already has every tile unsettled before the sun is
+consulted. **You cannot see the sun underneath the wind.**
+
+**So the main game's lever is the weather, and the mechanism is already
+named** (§4a): `any_fluid |= chunk_awake` is a *global* gate, so a gust
+anywhere runs the momentum passes over the whole solve set, and momentum is
+what leaves every tile unsettled. Per-tile gating is the repair. Whether the
+shipped game should also calm its weather is a *design* question with a 41%
+price tag on it, not a performance one — wind is visible, it leans trees and
+moves smoke, and `Pin::Clear` is already in the WORLD menu.
+
+**For the lab this changes nothing** — a sealed box has neither — but it
+changes what the feasibility of the *main* game looks like, and it is the
+third claim in this report to be overturned by asking for a measurement
+instead of a reason.
 
 ## 4. Where the speed actually is
 

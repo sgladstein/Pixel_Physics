@@ -84,12 +84,21 @@ fn main() {
     let species: String = arg("species").unwrap_or_else(|| "herb".to_string());
     let worldseed: u64 = arg("worldseed").unwrap_or(1);
     let want: String = arg("arms").unwrap_or_else(|| "live,calm,lab,floor".to_string());
+    // **`daymin=N` lengthens the day without removing it** -- the shipped
+    // `Clock::day_minutes`, which divides the sky clock so the sun's
+    // amplitude steps N times less often. This is *not* the `lab` arm's
+    // grow light: the cycle still runs, still reaches the night floor, and
+    // still looks like a day. It is the "fake the sun a little" lever for a
+    // world that must keep its day/night, and the reason it is here is that
+    // `field.rs`'s own comment claims a longer day is "proportionally
+    // cheaper" and nothing had measured it.
+    let daymin: u32 = arg("daymin").unwrap_or(1);
 
     // Echoes its own parameters -- `instruments.md`'s standing rule, and the
     // reason a 3.5-hour study once produced eight identical logs.
     println!(
         "labbox_cost: frames={frames} warm={warm} width={width}x{height} soil={soil} \
-         trees={trees} species={species} worldseed={worldseed} arms={want}"
+         trees={trees} species={species} worldseed={worldseed} daymin={daymin} arms={want}"
     );
 
     println!(
@@ -109,6 +118,10 @@ fn main() {
         scene.seed = Some(worldseed);
         let mut world = scene.build();
 
+        if daymin > 1 {
+            let f = world.frame;
+            world.clock.set_rates(f, |c| c.day_minutes = daymin);
+        }
         if arm.calm {
             world.set_weather_pin(Pin::Clear);
         }
