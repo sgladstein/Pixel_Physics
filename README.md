@@ -50,13 +50,13 @@ whole, then run `python3 scripts/readmetoc.py`.
 | [The ant colony — status](#the-ant-colony--status) | 3200 |
 | [Inheritance status — the growth program has no fallback under it](#inheritance-status--the-growth-program-has-no-fallback-under-it) | 3394 |
 | [M19 status — started](#m19-status--started) | 3473 |
-| [Felling status — the verb works, and what it produces is pieces](#felling-status--the-verb-works-and-what-it-produces-is-pieces) | 3545 |
-| [Bending status — soft tissue lies over, and the wind is what pushes it](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) | 3782 |
-| [Breaking status — a badly grown tree comes down on its own](#breaking-status--a-badly-grown-tree-comes-down-on-its-own) | 3859 |
-| [Performance](#performance) | 3985 |
-| [World speed — five independent time axes](#world-speed--five-independent-time-axes) | 4182 |
-| [Status](#status) | 4265 |
-| [License](#license) | 4376 |
+| [Felling status — the verb works, and what it produces is pieces](#felling-status--the-verb-works-and-what-it-produces-is-pieces) | 3549 |
+| [Bending status — soft tissue lies over, and the wind is what pushes it](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) | 3786 |
+| [Breaking status — a badly grown tree comes down on its own](#breaking-status--a-badly-grown-tree-comes-down-on-its-own) | 3863 |
+| [Performance](#performance) | 3989 |
+| [World speed — five independent time axes](#world-speed--five-independent-time-axes) | 4186 |
+| [Status](#status) | 4269 |
+| [License](#license) | 4380 |
 
 ### Milestones, in numeric order
 
@@ -90,7 +90,7 @@ them is named "plants". A section can appear twice; felling is honestly both
 plant work and structural work.
 
 **Known limitations for every topic are collected in one place**:
-[Status](#status), line 4265 — the *last* section in the
+[Status](#status), line 4269 — the *last* section in the
 file, not the first. Read it before concluding something is broken.
 
 **Which game a topic belongs to** is the third column. `engine` is shared
@@ -101,9 +101,9 @@ about what you may read.
 
 | Topic | Game | Sections, primary first |
 |---|---|---|
-| **plants, trees and moss** | engine | [M16 status](#m16-status) 1580, [Plant lines merged](#plant-lines-merged-the-genome-and-the-ecology) 1208, [Inheritance status](#inheritance-status--the-growth-program-has-no-fallback-under-it) 3394, [The economy re-derived](#the-economy-re-derived-standing-tissue-costs-something) 1330, [Plants that stop](#plants-that-stop-organs-determinacy-and-a-price-on-both) 1512, [The generation loop](#the-generation-loop-plants-die-seeds-expire-slots-come-back) 1278, [Stems draw a line](#stems-draw-a-line-the-growth-walk-renders-its-heading) 1430, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 3545, [Bending status](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) 3782, [Breaking status](#breaking-status--a-badly-grown-tree-comes-down-on-its-own) 3859 |
+| **plants, trees and moss** | engine | [M16 status](#m16-status) 1580, [Plant lines merged](#plant-lines-merged-the-genome-and-the-ecology) 1208, [Inheritance status](#inheritance-status--the-growth-program-has-no-fallback-under-it) 3394, [The economy re-derived](#the-economy-re-derived-standing-tissue-costs-something) 1330, [Plants that stop](#plants-that-stop-organs-determinacy-and-a-price-on-both) 1512, [The generation loop](#the-generation-loop-plants-die-seeds-expire-slots-come-back) 1278, [Stems draw a line](#stems-draw-a-line-the-growth-walk-renders-its-heading) 1430, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 3549, [Bending status](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) 3786, [Breaking status](#breaking-status--a-badly-grown-tree-comes-down-on-its-own) 3863 |
 | **creatures — worms and the ant colony** | engine | [M18 status](#m18-status) 1993, [The ant colony](#the-ant-colony--status) 3200 |
-| **structural collapse, felling and rigid bodies** | outdoor | [M17 status](#m17-status) 1766, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 3545, [Bending status](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) 3782, [Breaking status](#breaking-status--a-badly-grown-tree-comes-down-on-its-own) 3859, [M8 status](#m8-status--started-not-complete) 2460 |
+| **structural collapse, felling and rigid bodies** | outdoor | [M17 status](#m17-status) 1766, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 3549, [Bending status](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) 3786, [Breaking status](#breaking-status--a-badly-grown-tree-comes-down-on-its-own) 3863, [M8 status](#m8-status--started-not-complete) 2460 |
 | **fire, heat and phase change** | engine | [M14 status](#m14-status) 795, [Materials](#materials) 231 |
 | **explosions, particles and debris** | outdoor | [M15 status](#m15-status) 972, [M7 status](#m7-status) 943 |
 | **liquids and gases** | engine | [Liquid physics](#liquid-physics-compressible-volume-not-discrete-occupied-cells) 769, [The coarse field grid](#the-coarse-field-grid) 480 |
@@ -111,9 +111,9 @@ about what you may read.
 | **the coarse field grid — pressure, heat, light** | engine | [The coarse field grid](#the-coarse-field-grid) 480, [M12/M13 status](#m12m13-status) 742 |
 | **worldgen and world structure** | outdoor | [M10 status](#m10-status--the-worldgen-half) 3013, [Architecture](#architecture) 305 |
 | **the gnome (player character)** | outdoor | [M9 status](#m9-status--the-gnome) 2573, [Controls](#controls) 165 |
-| **weather, sky and the clock** | engine | [Weather status](#weather-status) 3183, [M19 status](#m19-status--started) 3473, [World speed](#world-speed--five-independent-time-axes) 4182 |
+| **weather, sky and the clock** | engine | [Weather status](#weather-status) 3183, [M19 status](#m19-status--started) 3473, [World speed](#world-speed--five-independent-time-axes) 4186 |
 | **rendering, UI and tunables** | engine | [UI improvements](#ui-improvements--overnight-run-section-9) 2327, [Live tunables panel](#live-tunables-panel--overnight-run-section-10) 2372, [Rendering performance](#rendering-performance--overnight-run-section-11) 2440, [M6 deferral](#m6-deferral) 1103 |
-| **performance and the parallel sweep** | engine | [Performance](#performance) 3985, [M5 status](#m5-status) 1113, [Architecture](#architecture) 305, [Rendering performance](#rendering-performance--overnight-run-section-11) 2440 |
+| **performance and the parallel sweep** | engine | [Performance](#performance) 3989, [M5 status](#m5-status) 1113, [Architecture](#architecture) 305, [Rendering performance](#rendering-performance--overnight-run-section-11) 2440 |
 | **materials and the data schema** | engine | [Materials](#materials) 231, [M12/M13 status](#m12m13-status) 742 |
 
 <!-- END GENERATED TOC -->
@@ -205,7 +205,7 @@ here is a cross-repo edit, not a cosmetic one.
 | `'` | Cycle the **glow shape**. On an apostrophe for the same reason as the two above: every letter and digit is spoken for and macOS owns F9–F12 |
 | `F10` / `;` | Cycle how a **solid cell's** light reads: `Depth` (dims from the skyline down to `DEPTH_LIGHT_FLOOR`) vs the flat default that depth does not change — the default was reversed here by a playtest, against the 2026-08 world review's own finding; see `render::TerrainLight`. **The `;` alias is a reachability fix, not a convenience: macOS owns F9–F12 at the system level (F11 is Show Desktop, F10 is often Exposé), so on a Mac the app never sees them and `;` is the *only* way to reach this. Keep any future binding off F9–F12 for the same reason** — `main.rs` records this from a real playtest |
 | `F11` / `0` | Reveal voids — draw empty space as itself rather than as cave dark, so a dig's true extent is visible. See `render::reveal_voids` |
-| `F12` | Cycle where the dark **behind a void** comes from — four ways, not two: `DEPTH` (the old cave fade, a pure function of depth below the frozen skyline, so a dug pit is uniformly black however wide) → `PROPAGATED /4` (**the default**, ~0.13 ms) → `PROPAGATED /2` (~0.55 ms) → `PROPAGATED /1` (~4.4 ms). **The last is a reference, not a shipping option** — its own doc calls it "far too slow for a frame" — and pressing `F12` three times lands on it, so read the title bar, which names the active mode whenever it is not the default. See `render::SkyLight`. Has **no punctuation alias, so it is unreachable on macOS** |
+| `F12` | Cycle where the dark **behind a void** comes from — four ways, not two: `DEPTH` (the old cave fade, a pure function of depth below the frozen skyline, so a dug pit is uniformly black however wide) → `PROPAGATED /4` (**the default**, ~3.2 ms to rebuild and ~0.2 ms to hold) → `PROPAGATED /2` (4x the blocks to solve) → `PROPAGATED /1` (16x). **The last is a reference, not a shipping option** — its own doc calls it "far too slow for a frame" — and pressing `F12` three times lands on it, so read the title bar, which names the active mode whenever it is not the default. See `render::SkyLight`. Has **no punctuation alias, so it is unreachable on macOS** |
 | `K` | **A/B key.** Flips whatever is being evaluated right now between its baseline and candidate value, so a comparison is one keypress rather than a scroll through a panel. Deliberately reassigned whenever the question changes, with the previous experiment deleted rather than accumulated — see `App::toggle_experiment` for what it currently does. |
 | `Tab` | Toggle the material palette (swatch row, current selection outlined) |
 | `/` (shown as `?`) | Toggle the keybind help overlay |
@@ -3499,9 +3499,13 @@ That darkness is now **propagated rather than assumed**: sky light is seeded
 only where a cell was outdoors at genesis and spreads at Terraria's
 0.91-per-air-cell, 0.56-per-solid over a 4-cell block grid, so a dug shaft
 goes dark at any width — the property no rule based on shape could hold.
-`F12` cycles it against the old depth-based fade for comparison. Costs +2.3 ms
-on a frame where the world or camera changed, and nothing at all on a settled
-one. Design, prior art and the measurements in
+`F12` cycles it against the old depth-based fade for comparison. A rebuild
+costs ~3.2 ms at 512x320, and **since 2026-08-30 a rebuild is not what most
+frames pay**: the per-block occupancy is cached and only the blocks a touched
+chunk covers are rescanned, so a frame where the world moved but the light did
+not costs ~0.2 ms and a settled frame costs nothing at all. That took the
+evolution lab's whole draw from 4.80 to 2.56 ms with the picture
+byte-identical -- [`Reports/lab-sky-light-cost-2026-08-30.md`](Reports/lab-sky-light-cost-2026-08-30.md). Design, prior art and the measurements in
 [`Reports/sky-light-design.md`](Reports/sky-light-design.md) and
 [`Reports/prior-art-underground-lighting.md`](Reports/prior-art-underground-lighting.md).
 
