@@ -1,0 +1,56 @@
+{
+  "id": "20260830T002409226Z-461358",
+  "created": "2026-08-30T00:24:09Z",
+  "board": "worldgen",
+  "origin": {
+    "worktree": "/home/user/wg-drains",
+    "branch": "claude/worldgen-drains",
+    "commit": "47d6209",
+    "agent": null,
+    "session_id": "2cb39797-d076-5699-b8bf-4494224deffe",
+    "user": null,
+    "cwd": "/home/user/wg-drains"
+  },
+  "title": "The first boulder: a lip stops being hung over the ground it wanted",
+  "question": "Does the pale mass on the shoulder read as a boulder lying on the slope, or as a streak of rock in it?",
+  "context_md": "`wiki/the-world.md` has given boulders a paragraph for weeks -- *\"an event, not a decoration\"*. **No world had one.** Erosion marks where a hard band shed enough to leave one, then an overhanging lip gets hung at the same cliff edge four passes earlier and takes the air the boulder needed, so the boulder is refused whole. Recorded 2026-08-20 and still doing it nine days later.\n\nSame world, same seed, same camera. The only difference is that a lip now yields at a column where erosion left a socket.\n\n**What I am unsure of, and why you are looking at it:** the pass draws the dome per column above *that column's own ground*, so on a slope it comes out slanted rather than round. It may read as a rock band in the hillside instead of a rock sitting on it. The pale vertical stripe lower down is in **both** panes -- that is an ordinary limestone bed, not the boulder.",
+  "kind": "ab",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A -- shipped today",
+      "files": [
+        "20260830T002409226Z-461358/000-card-off.png"
+      ],
+      "caption": "an overhanging lip at the site",
+      "meta": {
+        "boulder sockets erosion left": 2,
+        "boulders standing in the world": 0,
+        "sockets refused because the air was taken": 2,
+        "boulder cells in the whole world": 0
+      },
+      "focus": null
+    },
+    {
+      "label": "B -- the lip yields",
+      "files": [
+        "20260830T002409226Z-461358/001-card-on.png"
+      ],
+      "caption": "the boulder erosion asked for",
+      "meta": {
+        "boulder sockets erosion left": 2,
+        "boulders standing in the world": 2,
+        "sockets refused because the air was taken": 0,
+        "boulder cells in the whole world": 171
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
