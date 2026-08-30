@@ -1,0 +1,47 @@
+{
+  "id": "20260830T075404107Z-fb5f12",
+  "created": "2026-08-30T07:54:04Z",
+  "board": "creatures",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/creature-lane-j-sight-sense",
+    "commit": "c2a419c",
+    "agent": null,
+    "session_id": "7df35dab-ff82-53a3-a53f-06b00e058721",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "A beetle with eyes",
+  "question": "Does this beetle read as an animal that has *noticed* something, or just one that is wandering? It is 37 cells from the ants at the start and facing away from them.",
+  "context_md": "**Beetles could never find prey.** Until tonight nothing in the engine reported another animal at a distance at all — food is sensed in the 8 cells around the head, and the only long-range senses are the ants' own scent trails, which a beetle does not lay. A beetle could always *kill*; it could never *search*, which is why nine beetles and no beetles ran bit-identical.\n\nIt can now see about 60 cells in every direction, over the litter on the floor but not through rock or soil, and only things it could actually eat.\n\n**One thing I could not settle by measuring, and it is the reason for this card.** How hard it should chase. Turning harder makes it end up closer to what it sees (15.2 → 9.1 cells) and catch more (302 → 355 over 8 worlds) — but in a narrow corridor the harder-chasing beetle got *worse* at finishing the kill. The shipped animal takes the gentle setting. If this looks too casual to you, that is the number to move.",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "sight_range 64, gentle pursuit (shipped)",
+      "files": [
+        "20260830T075404107Z-fb5f12/000-hunt_0.gif"
+      ],
+      "caption": "",
+      "meta": {
+        "sight casts": 195,
+        "sightings": 177,
+        "seen per cast": 0.908,
+        "approaches": 32,
+        "mean sighted range (cells)": 9.3,
+        "ant cells taken": 6,
+        "ants killed": 2,
+        "same scene, blind beetle": "byte-identical movement"
+      },
+      "focus": null,
+      "gif_frames": 40
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
