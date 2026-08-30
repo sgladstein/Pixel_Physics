@@ -1,7 +1,7 @@
 # Re-deriving `FATE_MUTATION_CHANCE`: the shipped rate is not a small effect, it is no effect
 
-**Status: measurement, 3 world seeds x 7 rates x 2 species, plus four
-controls.** Run to answer the question
+**Status: measurement, 4 world seeds x 7 rates x 2 species, 35 runs, plus
+five controls and one blind A/B with the owner.** Run to answer the question
 `Reports/plant-fate-fallback-fork-2026-08-30.md` §7 leaves open — *"that
 `FATE_MUTATION_CHANCE = 0.01` is right"* is not established — now that
 `FateLookup::GenomeOnly` ships and the operators the old per-query fallback
@@ -10,7 +10,7 @@ suppressed are real.
 ```
 PIXEL_PHYSICS_FATE_MUTATION_CHANCE=<rate> \
   ./target/release/examples/genome_drift species=<herb|tree> founders=8 \
-  frames=<20000|60000> every=5000 worldseed=<1..3>
+  frames=<20000|60000> every=5000 worldseed=<1..3>      # omit for a 4th, default bed
 ```
 
 ## 0. The answer, and the one number that decides it
@@ -62,7 +62,9 @@ below; §8 says what that does and does not license.
 That collapses a four-way trade into a one-sided question: *how much variation
 should a species carry?* Three measured facts answer it.
 
-- **0.01 carries none.** Not "a little" — none. §0's diff.
+- **0.01 carries none**, on three seeds and at both budgets. A fourth seed
+  (§2b) puts it at 3% and those are two 17-cell *seedlings*, below the
+  establishment bar, against seventeen full plants at 0.30.
 - **Below 0.30 the owner's own decision is a dead letter.** `GenomeOnly` and
   `Full` — the no-safety-net flip and the behaviour it replaced — produce
   **byte-identical worlds at 0.10** on both seeds tested, and **different**
@@ -189,6 +191,35 @@ seed (+9%). The reproductive engine keeps running with every birth mutating.
 
 **The one cost that does appear** is mean body size at 1.0: 0.87, 0.85, 1.01
 of each seed's own control. Two of three, and only at the extreme.
+
+### 2b. A fourth seed, and what it takes off the claim
+
+The review card in §9a renders `filmstrip scene=grove`, which does not set a
+world seed, so the pair was censused on that **default** bed too — a fourth
+seed, arrived at for a different reason and therefore not chosen to suit.
+21,600 frames:
+
+| rate | live | drift% | expr% | distinct | estab | cells drifted / rest | births |
+|---|---|---|---|---|---|---|---|
+| 0.01 | 912 | 1.1 | **3.0** (2 of 66) | 8 | 64 | 17.0 / 105.9 | 1,789 |
+| 0.30 | 868 | 42.5 | **32.1** (17 of 53) | 153 | 56 | 97.6 / 127.8 | 1,788 |
+
+It refines two things and overturns neither.
+
+- **"0.01 carries no expressed variation" is 0% on three seeds and 3% here.**
+  The honest statement is *0–3%*, and what appears at 0.01 on this bed is two
+  plants averaging **17 cells** — below the 20-cell establishment bar, i.e.
+  seedlings, against 66 ordinary plants at 105.9. At 0.30 the same column is
+  17 plants at 97.6 against 36 at 127.8. The difference between the two rates
+  is not 3% against 32%, it is *two seedlings* against *seventeen plants*.
+- **Establishment at 0.30 gets its first negative**: 56 against 64, −13%,
+  where seeds 1–3 gave +3%, +4%, +6%. Four seeds now read **+3, +4, +6, −13**.
+  That is a wider spread than the first three suggested and it is the right
+  correction to make — a three-seed run of same-signed results was tidier than
+  this engine usually is. It does not move the recommendation (throughput is
+  untouched at 1,788 against 1,789, and body size is *up*), but "no cost at
+  0.30" should be read as *no consistent cost across four seeds*, not as *no
+  seed loses anything*.
 
 **`empty` is 0 in all 35 runs**, including rate 1.0 on both species.
 `FateGenome::mutate`'s delete floor holds: no lineage ever deleted its way to a
@@ -400,6 +431,16 @@ them as part of the work.* Named, and each disposed of:
   0.750 on tree's five-cell mutants — but no run isolates a lineage whose
   `Grow` slot is provably empty, so the column is currently evidence that
   *something* differs, not that it is that something.
+
+## 9a. The judgement this cannot make, put to the owner
+
+Everything above is counted. Whether a stand with a third of its plants running
+their own program **looks** like one species or like a mess is not a number,
+and `CLAUDE.md` is explicit that this is the bar. Two herb stands — same world,
+same seed, same frame (noon at 21,600), differing only in the rate — are on the
+review queue as a blind A/B, card `20260830T073610061Z-a89324`, with §2b's
+counts under each image. If it reads as broken rather than as variation, that
+is the answer and the rate comes back down.
 
 ## 9. One correction to a neighbouring document
 
