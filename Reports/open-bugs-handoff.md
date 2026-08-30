@@ -108,30 +108,30 @@ point.
 | S2 | **OPEN** | 7090 | The brush's anchor rule destroys structures the other two rules leave standing |
 | S4 | **OPEN** | 7278 | Rock still crushes itself on an idle world |
 | S5 | closed | 7350 | A fully-cracked chunk stays welded because the load model never finishes asking |
-| S7 | **OPEN** | 7471 | Small fragments hang in the air after heavy blasting: they drain for ~3,000 frames and th... |
-| S8 | **OPEN** | 7537 | scene=worldcrack is not deterministic run to run; scene=boom_stone is |
-| T | **OPEN** | 7571 | A starving plant strands a cell: growth races dieback |
-| S3 | closed | 7615 | A world nobody has touched pulls its own ground apart |
-| -- | closed | 7664 | The plant model bounds height and does not bound width FIXED |
-| 1 | note | 7755 | MAX_ROOT_FRACTION feeds the staleness counter, permanently retiring roots |
-| 2 | note | 7769 | Grow into soil destroys the soil's stored water |
-| 3 | note | 7781 | Capillary exchange can push a neighbour above its own capacity |
-| W1a | note | 7799 | creeper.ron's root tips still run the superseded in-tick branch path |
-| W1b | note | 7820 | A material-counting guard cannot see a species |
-| W1c | note | 7833 | generated_terrain_is_already_at_rest went red on main |
-| T1a | note | 7967 | load::grain_is_footing reads *attachment* where it means *supported* |
-| T1b | note | 8045 | The structural opt-out did not hold against bearing |
-| T1d | note | 8056 | acceptance.sh's lavadrop sits close enough to its frame budget to flake, and is over it o... |
-| T1e | note | 8090 | "The pieces hit the ground and turn to dust" was not settle, and the measurement says so |
-| T1f | note | 8144 | The felled pile is 74% powder because the tree is 56% leaves. The piece ladder cannot fix... |
-| T1g | note | 8198 | A "refixed" claim went out over a settled state that had barely moved |
-| T1c | note | 8227 | §1c's settle loss is now a counter |
-| -- | note | 8244 | What landed |
-| -- | note | 8267 | Do not re-derive these |
-| -- | note | 8295 | Measurements that contradict something written |
-| -- | note | 8315 | Open |
-| -- | note | 8350 | Unmerged at close, and one of it is a fix main needs anyway |
-| 1n | note | 8368 | grass sets zero seeds on main |
+| S7 | **OPEN** | 7471 | Small fragments hang in the air after heavy blasting |
+| S8 | **OPEN** | 7585 | scene=worldcrack is not deterministic run to run; scene=boom_stone is |
+| T | **OPEN** | 7619 | A starving plant strands a cell: growth races dieback |
+| S3 | closed | 7663 | A world nobody has touched pulls its own ground apart |
+| -- | closed | 7712 | The plant model bounds height and does not bound width FIXED |
+| 1 | note | 7803 | MAX_ROOT_FRACTION feeds the staleness counter, permanently retiring roots |
+| 2 | note | 7817 | Grow into soil destroys the soil's stored water |
+| 3 | note | 7829 | Capillary exchange can push a neighbour above its own capacity |
+| W1a | note | 7847 | creeper.ron's root tips still run the superseded in-tick branch path |
+| W1b | note | 7868 | A material-counting guard cannot see a species |
+| W1c | note | 7881 | generated_terrain_is_already_at_rest went red on main |
+| T1a | note | 8015 | load::grain_is_footing reads *attachment* where it means *supported* |
+| T1b | note | 8093 | The structural opt-out did not hold against bearing |
+| T1d | note | 8104 | acceptance.sh's lavadrop sits close enough to its frame budget to flake, and is over it o... |
+| T1e | note | 8138 | "The pieces hit the ground and turn to dust" was not settle, and the measurement says so |
+| T1f | note | 8192 | The felled pile is 74% powder because the tree is 56% leaves. The piece ladder cannot fix... |
+| T1g | note | 8246 | A "refixed" claim went out over a settled state that had barely moved |
+| T1c | note | 8275 | §1c's settle loss is now a counter |
+| -- | note | 8292 | What landed |
+| -- | note | 8315 | Do not re-derive these |
+| -- | note | 8343 | Measurements that contradict something written |
+| -- | note | 8363 | Open |
+| -- | note | 8398 | Unmerged at close, and one of it is a fix main needs anyway |
+| 1n | note | 8416 | grass sets zero seeds on main |
 
 <!-- END GENERATED INDEX -->
 
@@ -7468,7 +7468,7 @@ the release mechanism goes.
 
 
 
-### S7. Small fragments hang in the air after heavy blasting: they drain for ~3,000 frames and then stop dead — **OPEN, found 2026-08-30 from the owner's screenshot**
+### S7. Small fragments hang in the air after heavy blasting — **HALF FIXED 2026-08-30 (the blast now sweeps its own stranded chips); the attached half is OPEN**
 
 Reported from play, with a screenshot of a mountainside carved out by dozens
 of charges: *"lots of single pixel or small clumps that stay floating. Those
@@ -7533,6 +7533,54 @@ face") is the first place to look for the half that survives re-checking.
 
 Also present, probably the same family: `afloat`, one-cell groups of stone
 with 8 liquid faces — single pixels floating in water.
+
+**What was fixed, 2026-08-30: the blast sweeps up its own stranded chips.**
+`Blast::sweep_stranded` runs once when a blast has finished everything that
+moves rock, scans its own `damage_extent`, and converts to rubble any
+connected run of solid at or under `chip_sweep_cells` (default 6) whose every
+non-solid neighbour is empty or gas.
+
+**It needs no support model, and that is the point.** Such a run is touching
+nothing that could hold it up — not rock, not grain, not liquid, not the
+world edge — so no anchor rule, distance field, per-frame budget or cache
+staleness can argue with the answer; it is decided by looking. That is what
+lets it live entirely in `explosion.rs` while `structural.rs` and `load.rs`
+were held by another lane.
+
+The cap is a **boundary rather than a tuning**: at or above
+`rigid::MIN_FRACTURE_CELLS` a fragment already has a route through the
+fragmenter, and below it there is none, which is exactly why that population
+accumulates. `chip_sweep_cells: 0` is the control and restores the old
+behaviour precisely.
+
+Paired A/B, same build, `scene=boom_stone`, five charges, matched frames,
+counting cells floating by inspection:
+
+| frame | 600 | 1,800 | 3,000 | 4,200 | 5,400 |
+|---|---|---|---|---|---|
+| `chip_sweep_cells: 0` | **507** (217 pieces) | 110 | 20 | 20 | 20 |
+| `chip_sweep_cells: 6` | **102** (15 pieces) | 66 | 19 | 19 | 19 |
+
+**Five times fewer floating specks in the phase the player is actually
+looking at**, for 9,142 -> 10,358 rock (+13%, and `cells lost` *falls* 7,408
+-> 6,933 because a swept chip becomes rubble rather than vanishing).
+
+**What it does not fix, stated plainly: the permanent residue.** 20 -> 19.
+The sweep runs once when the blast dies, and the residue forms over the
+following thousands of frames as the structural cascade proceeds — by then
+the blast is long gone. The remaining ~19 cells are mostly *attached* to the
+massif rather than floating, so they need the load model and are still
+§S7's open half. The `recheck` control still takes them 35 -> 18, so roughly
+half of that remainder is a scheduling orphan.
+
+**A guard caught this being too eager, which is worth recording.**
+`the_shockwave_does_not_uproot_solid_material_beyond_the_crater` went red on
+the first version. It was not a false alarm and it was not a bug either: the
+shell fracture promotes rim cells into bodies, which leaves one- and two-cell
+chips touching nothing but air *in that annulus*, and the sweep correctly
+takes them — 11 cells swept in that scene, 2 of them inside the annulus. The
+guard stands the sweep down with `chip_sweep_cells: 0`, exactly as it already
+stands down `joint_open_fraction`, and says why.
 
 ### S8. `scene=worldcrack` is not deterministic run to run; `scene=boom_stone` is — **OPEN, found 2026-08-30 while measuring §S7**
 

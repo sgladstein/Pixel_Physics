@@ -111,6 +111,7 @@ Three more in this section, all about timing rather than shape:
 | `crack_stagger` | how ragged the arrival is, in frames. `0` sends every crack out on the same frame — a synchronised starburst. |
 | `crack_glow_temperature` | how hot the crack tips run as they travel. `0` is off. |
 | `calve_depth` | how deep a collar the finished web breaks off the crater rim, in cells. **This is the beat where the cracks stop being a picture and pieces come away** — `0` turns it off entirely and the star becomes decoration. |
+| `chip_sweep_cells` | the largest fragment a finished blast sweeps up, in cells, when it is left touching nothing but air. `0` is off and restores the pre-2026-08-30 behaviour. Reported from play as *"lots of single pixel or small clumps that stay floating"* — measured, they drain for ~3,000 frames and then stop dead, so they were permanent. Five times fewer floating specks at the default `6` (507 → 102 cells at frame 600), for +13% rock. Raising it past 6 puts the sweep in competition with the fragmenter over the same rock and makes grit where pieces belong. |
 
 ---
 

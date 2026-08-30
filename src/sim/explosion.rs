@@ -389,6 +389,17 @@ pub struct Tuning {
     /// carries the arithmetic). Past 4 a seam is a corridor, not a crack.
     #[serde(default = "default_joint_seam_width")]
     pub joint_seam_width: u32,
+    /// The largest **stranded chip** a finished blast sweeps up, in cells.
+    /// `0` turns the sweep off. See `Blast::sweep_stranded`.
+    ///
+    /// A cap rather than a flag because it is a real boundary: at or above
+    /// `rigid::MIN_FRACTURE_CELLS` a fragment already has a route through the
+    /// fragmenter, and below it there is none, which is why that population
+    /// and only that population accumulates. Raising this past the floor puts
+    /// the sweep in competition with the fragmenter over the same rock and
+    /// makes grit where pieces belong.
+    #[serde(default = "default_chip_sweep_cells")]
+    pub chip_sweep_cells: u32,
 }
 
 /// `2.4` — a radius-20 charge wakes joints out to about 48 cells, a little
@@ -457,6 +468,14 @@ fn default_joint_seam_width() -> u32 {
     3
 }
 
+/// `6`, which is `rigid::MIN_FRACTURE_CELLS` — the fragmenter's own floor,
+/// and therefore exactly the population with no other way out of the world.
+/// Not a tuned number: one above it and this competes with the fragmenter,
+/// one below and chips it alone can reach are left hanging.
+fn default_chip_sweep_cells() -> u32 {
+    super::rigid::MIN_FRACTURE_CELLS as u32
+}
+
 impl Default for Tuning {
     fn default() -> Self {
         Self {
@@ -496,6 +515,7 @@ impl Default for Tuning {
             joint_open_fraction: default_joint_open_fraction(),
             joint_density: default_joint_density(),
             joint_seam_width: default_joint_seam_width(),
+            chip_sweep_cells: default_chip_sweep_cells(),
         }
     }
 }
@@ -1162,13 +1182,23 @@ pub struct BlastReport {
     /// being eaten by its own crater, which is the tell for `joint_reach`
     /// being set short against `radius`.
     pub joints_overtaken: u32,
+    /// Cells of **stranded debris** the blast swept up after it finished:
+    /// solid fragments left touching nothing but air, below the fragmenter's
+    /// own floor, which no other path would ever have removed. See
+    /// `Blast::sweep_stranded`.
+    ///
+    /// The "did it fire at all" counter for that sweep, and it needs one for
+    /// the usual reason: a world with the sweep and a world without it differ
+    /// by a scatter of single pixels, which is exactly the difference a
+    /// contact sheet cannot show and the player notices immediately.
+    pub swept_stranded: u32,
 }
 
 impl std::fmt::Display for BlastReport {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "cleared {} cells, {} held by containment, {} fissured, {} calved, joints {} activated ({} opened, {} scored, {} overtaken), sectors open {}/{} contained {}/{}",
+            "cleared {} cells, {} held by containment, {} fissured, {} calved, joints {} activated ({} opened, {} scored, {} overtaken), {} stranded chips swept, sectors open {}/{} contained {}/{}",
             self.cells_cleared,
             self.cells_held_by_containment,
             self.cells_fissured,
@@ -1177,6 +1207,7 @@ impl std::fmt::Display for BlastReport {
             self.joints_opened,
             self.joints_scored,
             self.joints_overtaken,
+            self.swept_stranded,
             self.open_sectors,
             CONFINEMENT_SECTORS,
             self.contained_sectors,
@@ -1233,6 +1264,10 @@ pub struct Blast {
     /// its afterglow — without this it would re-scan and re-fracture the rim
     /// once a frame for the rest of the fade.
     calved: bool,
+    /// The stranded-debris sweep runs **once**, like `calved`, and for the
+    /// same reason: the blast stays alive through its afterglow, and a scan
+    /// per frame for the rest of the fade would be pure cost.
+    swept: bool,
     /// Frames of afterglow already run, against `AFTERGLOW_MAX_FRAMES`. The
     /// hard bound on a blast's life: no setting of `afterglow_retention` can
     /// make a `Blast` immortal, the same way `crack_growth` is clamped where
@@ -1589,8 +1624,10 @@ impl Blast {
                 joints_scored: 0,
                 joints_activated,
                 joints_overtaken: 0,
+                swept_stranded: 0,
             },
             calved: false,
+            swept: false,
             afterglow_frames: 0,
             damage_extent,
         }
@@ -1658,11 +1695,132 @@ impl Blast {
             self.calved = true;
             self.report.calved += self.calve(world, tuning);
         }
+        // The third beat, once everything that moves rock has finished: the
+        // chips this blast stranded in mid-air come down. Gated on *both*
+        // crack systems being done as well as the cavity, because a fragment
+        // is only stranded once nothing further is going to be removed from
+        // around it -- swept while the front is still travelling, a piece
+        // about to be joined to a calving collar would be turned to grit
+        // instead.
+        if !self.swept && !growing && !spreading && self.stage >= stages {
+            self.swept = true;
+            self.report.swept_stranded += self.sweep_stranded(world, tuning);
+        }
         // Only after the last stage: while the front is still expanding,
         // `scorch` is writing the ring this would be taking back down, and
         // the two would fight over the same cells every frame.
         let cooling = self.stage >= stages && self.afterglow(world, tuning);
         self.stage < stages || growing || spreading || cooling
+    }
+
+    /// **Sweep up the chips this blast left hanging in mid-air.**
+    ///
+    /// # The complaint, and why it is the blast's job
+    ///
+    /// Reported from play over a mountainside carved out with dozens of
+    /// charges: *"lots of single pixel or small clumps that stay floating.
+    /// Those should all fall. It is very slow and not clear if all of them
+    /// ever will."* Measured on `scene=boom_stone` with five charges, the
+    /// cells the load model itself calls unsupported *and* which have air
+    /// beside them run 715 -> 102 -> 35 over three thousand frames and then
+    /// **stop dead**: frames 3,000, 4,200 and 5,400 are identical. The
+    /// residue is permanent, not slow (`open-bugs-handoff.md` §S7).
+    ///
+    /// The owner's own framing of the difference that matters: *"there should
+    /// be a difference between I dig a tunnel and it isn't well supported and
+    /// the tunnel collapses after a delay, versus I explode out a mountainside
+    /// and there are rocks hanging in the air. Any small rocks fully
+    /// unsupported should fall instantly."* So the delay that makes a
+    /// collapsing span *good* is exactly what makes a detached chip look
+    /// broken, and the two want different paths rather than one constant.
+    /// This is the second path, and it belongs to the event that made the
+    /// mess.
+    ///
+    /// # It needs no support model at all, which is the whole point
+    ///
+    /// A connected run of solid whose every non-solid neighbour is empty or
+    /// gas is touching **nothing that could hold it up** — not rock, not
+    /// grain, not liquid, not the world edge. No anchor rule, no distance
+    /// field, no per-frame budget and no cache staleness can argue with that;
+    /// it is decided by looking. Measured on the scene above, 20 of the 35
+    /// permanent free-face cells are in components of that kind, so this
+    /// catches the majority of the visible residue without touching
+    /// `structural.rs` or `load.rs` at all.
+    ///
+    /// # Bounded to the population nothing else will ever take
+    ///
+    /// Capped at `MIN_FRACTURE_CELLS`, deliberately, and that is a *boundary*
+    /// rather than a tuning: a region at or above that floor already has a
+    /// route — `rigid::fracture_failing_region` accepts it, and a
+    /// crack-bounded block of any size now calves on its own. Below the floor
+    /// there is no route, which is why this population and only this
+    /// population accumulates. Widening the cap would put this in competition
+    /// with the fragmenter over the same rock and produce grit where pieces
+    /// belong, which is a complaint this engine has already had once.
+    ///
+    /// Scanned only inside `damage_extent` — this blast cleans up after
+    /// itself and takes no view on rock it never touched.
+    fn sweep_stranded(&mut self, world: &mut World, tuning: &Tuning) -> u32 {
+        let cap = tuning.chip_sweep_cells as usize;
+        if cap == 0 {
+            return 0;
+        }
+        let reach = self.damage_extent.max(1);
+        let mut seen: std::collections::HashSet<(i32, i32)> = std::collections::HashSet::new();
+        let mut swept = 0;
+        for y in (self.cy - reach)..=(self.cy + reach) {
+            for x in (self.cx - reach)..=(self.cx + reach) {
+                if seen.contains(&(x, y)) || !is_sweepable_solid(world, x, y) {
+                    continue;
+                }
+                // Flood this fragment. `isolated` goes false the moment the
+                // walk meets anything that is not empty or gas, and the walk
+                // is abandoned the moment it grows past the floor -- so the
+                // cost is bounded by the cap and not by the size of whatever
+                // it wandered into.
+                let mut queue = std::collections::VecDeque::from([(x, y)]);
+                let mut member = vec![(x, y)];
+                seen.insert((x, y));
+                let mut isolated = true;
+                while let Some((cx, cy)) = queue.pop_front() {
+                    if member.len() > cap {
+                        isolated = false;
+                        break;
+                    }
+                    for (dx, dy) in structural::NEIGHBOURS_4 {
+                        let (nx, ny) = (cx + dx, cy + dy);
+                        if is_sweepable_solid(world, nx, ny) {
+                            if seen.insert((nx, ny)) {
+                                member.push((nx, ny));
+                                queue.push_back((nx, ny));
+                            }
+                            continue;
+                        }
+                        // Out of bounds reads as bedrock (`Cell::OUT_OF_BOUNDS`),
+                        // so the world edge correctly holds a fragment up
+                        // rather than reading as open air.
+                        let cell = world.get(nx, ny);
+                        let open = cell.material == super::material::EMPTY
+                            || world.materials.kind(cell.material) == material::MaterialKind::Gas;
+                        if !open {
+                            isolated = false;
+                        }
+                    }
+                }
+                if !isolated {
+                    continue;
+                }
+                // Grit, not a body: at this size a piece is a grain, and
+                // `rigid` declines it as a body anyway. It falls on the next
+                // sweep like any other loose material, which is what
+                // "instantly" means here.
+                for &(fx, fy) in &member {
+                    super::rigid::shatter_to_rubble(world, fx, fy);
+                    swept += 1;
+                }
+            }
+        }
+        swept
     }
 
     /// Break the crater rim off along the cracks, once, when the star is
@@ -2775,6 +2933,21 @@ fn seam_cells(x: i32, y: i32, down: bool, width: u32, out: &mut Vec<(i32, i32)>)
         let step = if k % 2 == 0 { -(k / 2) } else { (k + 1) / 2 };
         out.push((x + ax * step, y + ay * step));
     }
+}
+
+/// Whether `(x, y)` is rock the stranded sweep may consider part of a
+/// fragment.
+///
+/// `Solid` only, and **not** `structural::is_body_material`, which also
+/// admits `Plant`: a chip resting against a stem is not floating, and a stem
+/// is not the blast's to convert. Organism cells are excluded for the same
+/// reason -- `plant.rs` owns what happens to living tissue.
+fn is_sweepable_solid(world: &World, x: i32, y: i32) -> bool {
+    if !world.in_bounds(x, y) {
+        return false;
+    }
+    let cell = world.get(x, y);
+    world.materials.kind(cell.material) == material::MaterialKind::Solid && cell.organism_id() == 0
 }
 
 /// Open one joint into a seam: the boundary cell becomes void, or grit.
@@ -3955,6 +4128,74 @@ mod tests {
         assert!(gone2 < gone3, "seam width 3 removed no more stone than 2 ({gone2} -> {gone3}) -- the ladder has only one rung");
     }
 
+    /// **A chip touching nothing but air is swept; one resting on something
+    /// is not.** The whole justification for `sweep_stranded` living in the
+    /// blast rather than in the support model is that its test needs no model
+    /// -- so the guard is that it removes the genuinely isolated fragment and
+    /// leaves its neighbour, which differs only in having one grain under it.
+    ///
+    /// Written as a pair on purpose. A test that only checked the removal
+    /// would pass just as well for "sweep everything small near a blast",
+    /// which is the version that eats the world.
+    #[test]
+    fn the_sweep_takes_a_floating_chip_and_leaves_a_resting_one() {
+        let swept_and_kept = |support: bool| {
+            let mut w = test_world();
+            // Rock for the charge to work on, well away from the two probes.
+            for y in 40..90 {
+                for x in 10..60 {
+                    w.set(x, y, Cell::new(material::STONE, 0));
+                }
+            }
+            // A lone stone cell in open air, inside the blast's damage
+            // extent, touching nothing at all.
+            w.set(80, 60, Cell::new(material::STONE, 0));
+            // The control: the same lone cell with one grain of sand beneath
+            // it, which is the only difference between the two arms.
+            w.set(90, 60, Cell::new(material::STONE, 0));
+            if support {
+                w.set(90, 61, Cell::new(material::SAND, 0));
+            }
+            let (_f, _p, report) = run_staged(&mut w, Tuning::default(), 35, 65, 20, 600);
+            (report.swept_stranded, w.get(80, 60).material == material::STONE, w.get(90, 60).material == material::STONE)
+        };
+
+        let (swept, floating_kept, resting_kept) = swept_and_kept(true);
+        assert!(swept > 0, "the sweep never fired -- no chip was taken at all");
+        assert!(!floating_kept, "a stone cell touching nothing but air survived the sweep");
+        assert!(resting_kept, "a stone cell resting on a grain of sand was swept -- the sweep is not reading support");
+
+        // And with the grain removed, the formerly-resting cell goes too:
+        // the difference really is the support and not the position.
+        let (_swept, _floating, resting_kept_unsupported) = swept_and_kept(false);
+        assert!(!resting_kept_unsupported, "with its grain removed the same cell survived -- the arms differ by something other than support");
+    }
+
+    /// **The cap is a real control, watched turning the mechanism off** --
+    /// `CLAUDE.md`'s rule about citing a guard's green. Without this, every
+    /// assertion about the sweep could be passing because the sweep is
+    /// inert.
+    #[test]
+    fn the_chip_sweep_stands_down_at_zero() {
+        let swept_at = |cap: u32| {
+            let mut w = test_world();
+            for y in 40..90 {
+                for x in 10..60 {
+                    w.set(x, y, Cell::new(material::STONE, 0));
+                }
+            }
+            w.set(80, 60, Cell::new(material::STONE, 0));
+            let tuning = Tuning { chip_sweep_cells: cap, ..Tuning::default() };
+            let (_f, _p, report) = run_staged(&mut w, tuning, 35, 65, 20, 600);
+            (report.swept_stranded, w.get(80, 60).material == material::STONE)
+        };
+        let (on, taken_on) = swept_at(default_chip_sweep_cells());
+        let (off, taken_off) = swept_at(0);
+        assert!(on > 0 && !taken_on, "the sweep did not fire at its default cap");
+        assert_eq!(off, 0, "chip_sweep_cells: 0 still swept {off} cells");
+        assert!(taken_off, "the chip was taken with the sweep switched off");
+    }
+
     /// **Did it fire at all.** Not a look at a sheet: a walked crack star
     /// and a Worley boundary web draw the same grey scratches at the zoom a
     /// contact sheet is read at, and `CLAUDE.md` records a whole feature
@@ -4302,7 +4543,16 @@ mod tests {
         // bug in the code" from the other side. The shockwave itself, and
         // the `Powder`-only rule this asserts, are untouched: scoring still
         // happens, the fabric still runs, only the removal is stood down.
-        let tuning = Tuning { joint_open_fraction: 0.0, ..Tuning::default() };
+        //
+        // **`chip_sweep_cells` is stood down for the same reason**, and it is
+        // the same kind of reason rather than a convenience: the shell
+        // fracture promotes rim cells into bodies, which can leave a chip of
+        // one or two cells touching nothing but air in this very annulus, and
+        // `Blast::sweep_stranded` legitimately takes those. Measured in this
+        // exact scene: 11 cells swept in total, **2** of them inside the
+        // annulus. Leaving it on would fail this test for a mechanism it is
+        // not about, which is what the paragraph above says about the fabric.
+        let tuning = Tuning { joint_open_fraction: 0.0, chip_sweep_cells: 0, ..Tuning::default() };
         trigger_tuned(&mut w, &mut particles, 40, 40, radius, 200.0, &tuning);
 
         let shockwave_radius = (radius as f32 * tuning.shockwave_multiplier).round() as i32;

@@ -460,6 +460,12 @@ pub fn from_explosion(t: &Explosion) -> Vec<Tunable> {
         // The collar the finished web calves off the rim -- the beat where
         // the cracks stop being a picture and pieces come away.
         Tunable::integer(g, crack, "calve_depth", t.calve_depth as f32, 0.0, 32.0, 1.0),
+        // The chip sweep's cap. Range stops at 12 rather than running on:
+        // past `rigid::MIN_FRACTURE_CELLS` this competes with the fragmenter
+        // over the same rock, so the useful travel is the couple of rungs
+        // either side of the default, and a slider to 60 would imply headroom
+        // that makes the web worse.
+        Tunable::integer(g, crack, "chip_sweep_cells", t.chip_sweep_cells as f32, 0.0, 12.0, 1.0),
         // What flies, what is left burning, and what is left standing in the
         // air afterwards.
         Tunable::float(g, debris, "debris_fraction", t.debris_fraction, 0.0, 1.0, 0.05),
@@ -770,6 +776,10 @@ pub fn apply_explosion(t: &mut Explosion, name: &str, value: f32) {
         // a score, which `joint_open_fraction` already expresses and which
         // reads here as the fabric having broken.
         "joint_seam_width" => t.joint_seam_width = value.max(1.0).round() as u32,
+        // Floored at 0 rather than 1: 0 is the documented off, and the only
+        // way to put a blast's aftermath back the way it was before the
+        // sweep existed.
+        "chip_sweep_cells" => t.chip_sweep_cells = value.max(0.0).round() as u32,
         _ => {}
     }
 }
@@ -1104,6 +1114,7 @@ mod tests {
             joint_open_fraction,
             joint_density,
             joint_seam_width,
+            chip_sweep_cells,
         );
         let listed = from_explosion(&base);
         for field in fields {
