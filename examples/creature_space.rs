@@ -166,7 +166,7 @@ fn main() {
         DEFAULT_ECONOMY.preset,
         DEFAULT_ECONOMY.trees,
         DEFAULT_ECONOMY.moss,
-        DEFAULT_ECONOMY.move_cost,
+        DEFAULT_ECONOMY.move_cost_per_cell,
         DEFAULT_ECONOMY.food_energy,
     );
 
@@ -376,11 +376,16 @@ fn economy_sweep(seeds: u64, frames: usize) {
     // monotone; `beetles` because the arms came out bit-identical over
     // 6,000 frames -- a beetle cannot find an ant, so the predator is not
     // yet part of the loop (§13o).
-    let (trees, move_cost, beetles) = (2i32, 0.08f32, BEETLES);
+    // **0.04, not 0.08, and that is a unit change rather than a retune.**
+    // `move_cost_per_cell` is charged per body cell since 2026-08-30; this
+    // harness runs a two-cell ant, so half the old whole-animal 0.08 is the
+    // same bill. The §13k mapping quoted above is in the old units --
+    // multiply its numbers by two cells to read them here.
+    let (trees, move_cost_per_cell, beetles) = (2i32, 0.04f32, BEETLES);
     for &moss in &[false, true] {
         for &food_energy in &[120.0f32, 700.0] {
             {
-                let econ = Economy { food_energy, move_cost, trees, moss, preset: PRESET, beetles };
+                let econ = Economy { food_energy, move_cost_per_cell, trees, moss, preset: PRESET, beetles };
                 let fs = mean_of((0..seeds).map(|s| run_one(&authored, frames, BASE_SEED + s, econ)).collect());
                 let f = fs.survival;
                 let z = mean_of((0..seeds).map(|s| run_one(&zero, frames, BASE_SEED + s, econ)).collect()).survival;
@@ -391,11 +396,11 @@ fn economy_sweep(seeds: u64, frames: usize) {
                 // as a column of identical numbers; a count of actual
                 // meals says which of the two is happening, and it is what
                 // makes `eat_energy` falsifiable as a knob at all.
-                println!("{beetles:<8} {:<6} {food_energy:<8.0} {move_cost:>10.2} {f:>10.3} {z:>9.3} {adv:>11.3} {:>11.2}   placed {:.0}", if moss { "yes" } else { "no" }, fs.eats, fs.placed);
+                println!("{beetles:<8} {:<6} {food_energy:<8.0} {move_cost_per_cell:>10.2} {f:>10.3} {z:>9.3} {adv:>11.3} {:>11.2}   placed {:.0}", if moss { "yes" } else { "no" }, fs.eats, fs.placed);
                 // Scarcity guard: an advantage bought by making food
                 // abundant is not the band we are looking for.
                 if f < 0.9 && best.as_ref().is_none_or(|(b, _)| adv > *b) {
-                    best = Some((adv, format!("moss {moss}, eat {food_energy:.0}, move {move_cost:.2} (forager {f:.3})")));
+                    best = Some((adv, format!("moss {moss}, eat {food_energy:.0}, move/cell {move_cost_per_cell:.2} (forager {f:.3})")));
                 }
             }
         }
@@ -769,7 +774,7 @@ fn authored_genome() -> Vec<f32> {
     reg.get(reg.id_of("ant").expect("ant species")).genome.clone()
 }
 
-const DEFAULT_ECONOMY: Economy = Economy { food_energy: 120.0, move_cost: 0.25, trees: 2, moss: true, preset: "wetland", beetles: BEETLES };
+const DEFAULT_ECONOMY: Economy = Economy { food_energy: 120.0, move_cost_per_cell: 0.125, trees: 2, moss: true, preset: "wetland", beetles: BEETLES };
 
 /// Named because the "did this ant ever eat" detector reads against it.
 /// The first world seed every mode sweeps from (`BASE_SEED + i`).
@@ -803,7 +808,7 @@ const BEETLES: usize = 9;
 #[derive(Clone, Copy)]
 struct Economy {
     food_energy: f32,
-    move_cost: f32,
+    move_cost_per_cell: f32,
     trees: i32,
     moss: bool,
     /// **Which world, because that turned out to be the knob that
@@ -879,7 +884,7 @@ fn run_one(genome: &[f32], frames: usize, seed: u64, econ: Economy) -> Sample {
         }
     }
     def.body_energy = econ.food_energy;
-    def.move_cost = econ.move_cost;
+    def.move_cost_per_cell = econ.move_cost_per_cell;
     // **Scale the synapse tax with the budget, or the control is not a
     // control.** `ant.ron` sets 0.002 per active synapse against a starting
     // energy of 900 -- "a dense brain costs about as much as standing

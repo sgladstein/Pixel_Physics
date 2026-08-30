@@ -14,14 +14,14 @@
 // something a species composes onto a cell type from data, and none of
 // this is that.
 (
-    name: "chitin_pale",
+    name: "ant_block_shaded",
     cell_types: [
         (Head, []),
         (Segment, []),
     ],
     creature: Some((
         // **A candidate body plan for the appearance question, not a
-        // shipped species.** **The palette arm.** `ant_block`'s body exactly, in a pale palette instead of the shipped dark one, so the pair isolates value from extent. A filled 3x3, head at the bottom-front corner (the same place `beetle.ron` puts it, and for the same reason -- the head is what senses and it belongs against the ground). Nine cells in the most compact arrangement nine cells have.
+        // shipped species.** A filled 3x3, head at the bottom-front corner (the same place `beetle.ron` puts it, and for the same reason -- the head is what senses and it belongs against the ground). Nine cells in the most compact arrangement nine cells have.
         //
         // Everything else in this file is `ant.ron` unchanged, including
         // the palette: the arms of this comparison differ in extent and in
@@ -30,6 +30,10 @@
         // `Reports/creature-appearance-design.md`.
         body: Rigid([(-1, 0), (-2, 0), (0, -1), (-1, -1), (-2, -1), (0, -2), (-1, -2), (-2, -2)]),
         tick_interval: 6,
+        // **The only line that differs from `ant_block.ron`.** The pair is a
+        // blind A/B on one variable: same nine-cell body, same palette (the
+        // material is a byte-copy), so whatever shows is the shade rule.
+        shade_rule: Countershade,
 
         // Scaled from the worm's researched numbers (creature.rs's WORM_*
         // block): idle 0.3, open-ground move 1.0. An ant is smaller and

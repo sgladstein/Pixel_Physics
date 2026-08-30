@@ -318,8 +318,8 @@ mod tests {
         assert_eq!(out.body.is_rigid(), src.body.is_rigid());
         assert_eq!(out.tick_interval, src.tick_interval);
         assert_eq!(out.start_energy, src.start_energy);
-        assert_eq!(out.idle_cost, src.idle_cost);
-        assert_eq!(out.move_cost, src.move_cost);
+        assert_eq!(out.idle_cost_per_cell, src.idle_cost_per_cell);
+        assert_eq!(out.move_cost_per_cell, src.move_cost_per_cell);
         assert_eq!(out.synapse_fraction, src.synapse_fraction, "the synapse tax is a 7-digit exponent literal; a lossy float write shows up here first");
         assert_eq!(out.body_energy, src.body_energy);
         assert_eq!(out.hunger_fraction, src.hunger_fraction);
