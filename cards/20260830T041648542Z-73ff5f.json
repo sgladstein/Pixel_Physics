@@ -1,0 +1,83 @@
+{
+  "id": "20260830T041648542Z-73ff5f",
+  "created": "2026-08-30T04:16:48Z",
+  "board": "gnome",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/gnome-water-splash-effects-exl4go",
+    "commit": "b828294",
+    "agent": null,
+    "session_id": "2741f63b-b6da-5267-b059-8b5079de3dda",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Falling into a pond",
+  "question": "Does going in read as hitting water, or as a few dots appearing over a line that never moves?",
+  "context_md": "The gnome is a ghost to the CA sweep, so until now a pond answered him with **nothing**: he fell in at terminal velocity and the waterline did not move by one pixel.\n\n- **A** is that, today.\n- **B** throws a crown at the rim, sized by how fast he arrived — a step off a bank gets two droplets, this fall from 40 cells gets twelve.\n\nSame seed, same fall, same frames; the only difference is the effect being on. The water is conserved exactly — every droplet is debited from the pool it came out of.\n\nWhat I am unsure of is **size**: one cell of water per droplet may be too little to read at play zoom. There is a live knob for it (`splash_force` in the PLAYER panel, 0 = off).",
+  "kind": "frames",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A — today",
+      "files": [
+        "20260830T041648542Z-73ff5f/000-entry_0_00.png",
+        "20260830T041648542Z-73ff5f/001-entry_0_01.png",
+        "20260830T041648542Z-73ff5f/002-entry_0_02.png",
+        "20260830T041648542Z-73ff5f/003-entry_0_03.png",
+        "20260830T041648542Z-73ff5f/004-entry_0_04.png",
+        "20260830T041648542Z-73ff5f/005-entry_0_05.png",
+        "20260830T041648542Z-73ff5f/006-entry_0_06.png",
+        "20260830T041648542Z-73ff5f/007-entry_0_07.png",
+        "20260830T041648542Z-73ff5f/008-entry_0_08.png",
+        "20260830T041648542Z-73ff5f/009-entry_0_09.png",
+        "20260830T041648542Z-73ff5f/010-entry_0_10.png",
+        "20260830T041648542Z-73ff5f/011-entry_0_11.png",
+        "20260830T041648542Z-73ff5f/012-entry_0_12.png",
+        "20260830T041648542Z-73ff5f/013-entry_0_13.png",
+        "20260830T041648542Z-73ff5f/014-entry_0_14.png",
+        "20260830T041648542Z-73ff5f/015-entry_0_15.png"
+      ],
+      "caption": "the pool ignores him",
+      "meta": {
+        "droplets thrown out of the pool": 0,
+        "times he broke the surface": 0
+      },
+      "focus": null
+    },
+    {
+      "label": "B — with the splash",
+      "files": [
+        "20260830T041648542Z-73ff5f/016-entry_1_00.png",
+        "20260830T041648542Z-73ff5f/017-entry_1_01.png",
+        "20260830T041648542Z-73ff5f/018-entry_1_02.png",
+        "20260830T041648542Z-73ff5f/019-entry_1_03.png",
+        "20260830T041648542Z-73ff5f/020-entry_1_04.png",
+        "20260830T041648542Z-73ff5f/021-entry_1_05.png",
+        "20260830T041648542Z-73ff5f/022-entry_1_06.png",
+        "20260830T041648542Z-73ff5f/023-entry_1_07.png",
+        "20260830T041648542Z-73ff5f/024-entry_1_08.png",
+        "20260830T041648542Z-73ff5f/025-entry_1_09.png",
+        "20260830T041648542Z-73ff5f/026-entry_1_10.png",
+        "20260830T041648542Z-73ff5f/027-entry_1_11.png",
+        "20260830T041648542Z-73ff5f/028-entry_1_12.png",
+        "20260830T041648542Z-73ff5f/029-entry_1_13.png",
+        "20260830T041648542Z-73ff5f/030-entry_1_14.png",
+        "20260830T041648542Z-73ff5f/031-entry_1_15.png"
+      ],
+      "caption": "crown at the rim, graded by arrival speed",
+      "meta": {
+        "droplets thrown out of the pool": 11,
+        "times he broke the surface": 1,
+        "water lost from the world": "none"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
