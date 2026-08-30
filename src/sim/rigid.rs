@@ -7587,8 +7587,20 @@ mod swing_probe {
             strike(&mut w, 100, 157, 7, 6.0);
         }
         report(&w, "after six blows");
+        // **The whole frame, not just the CA sweep.** The first version of
+        // this probe stepped `parallel::step` alone and reported the field
+        // frozen for 600 frames with zero failures -- and that was the
+        // probe, not the engine: the structural system ticks inside
+        // `scheduler::step`, which the sweep does not call, so nothing
+        // structural ran at all. It read exactly like a stale-field bug and
+        // was `CLAUDE.md`'s "a scene that contradicts the code will look
+        // like a bug in the code", with the scene being the driver.
         for f in 1..=6 {
             for _ in 0..100 {
+                w.begin_step();
+                crate::sim::scheduler::step(&mut w);
+                w.end_step();
+                step_chunk_bodies(&mut w);
                 crate::sim::parallel::step(&mut w);
             }
             report(&w, &format!("after {} frames", f * 100));
