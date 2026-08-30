@@ -1,0 +1,37 @@
+{
+  "id": "20260830T203214131Z-d133c8",
+  "created": "2026-08-30T20:32:14Z",
+  "board": "creatures",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/creature-scale-and-shape",
+    "commit": "51597408",
+    "agent": null,
+    "session_id": "414eca57-1caf-509f-a056-1b37e01751e9",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "An animal at double cell density is finally the same size",
+  "question": "Left to right: does the third panel show the same animal as the first, just drawn finer? If not, what is off - size, shape, or colour?",
+  "context_md": "Nothing alive read the world's cell scale. So a world built at double density scaled the gnome and left every animal and plant at its authored cell count -- at **half its physical size**. This is that closed, for creatures.\n\nAll three panels show the same number of *physical units* of ground, so a body that reads smaller **is** smaller.\n\n| panel | grid | body, on screen |\n|---|---|---|\n| left | 1x -- today's world | 9 cells, **3.0 x 3.0** physical |\n| middle | 2x, scaling **off** -- the defect | 9 cells, **1.5 x 1.5** physical |\n| right | 2x, scaling on | 36 cells, **3.0 x 3.0** physical |\n\nMiddle and right share a world, so they differ by the scaling pass and by nothing else.\n\nSpecies is `ant_block`, a 3x3 rigid body, standing still. A still is the harder test: a body that *moves* is findable at any size.",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "",
+      "files": [
+        "20260830T203214131Z-d133c8/000-scale_block.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
