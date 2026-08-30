@@ -104,14 +104,19 @@ default; making it *not* work by dragging a fixture off its bed is the mechanic.
 
 | | bench light (mean) | dimmest station | plant cells | orgs | seeds |
 |---|---|---|---|---|---|
-| leaky roof, inert fixtures (before) | 0.367 | 0.215 | 459 | 66 | 12 |
-| **sunless, lamps (after)** | **0.419** | **0.215** | **613** | **77** | **24** |
+| leaky roof, inert fixtures (before) | 0.372 | 0.219 | 474 | 65 | 12 |
+| **sunless, lamps (after)** | **0.421** | **0.219** | **595** | **74** | **23** |
 
-Frame 3,600, both arms re-measured on this branch after `main` was merged in —
-`main` moved the soil in the same window, and a before/after where only one
-side is current is not a before/after.
+Frame 3,600, **both arms measured on this branch's head**, off one binary. That
+matters more than it sounds: `main` moved the soil and then the ants' satiety
+gate inside the window this branch was open, and each time it moved the *stand*
+in both arms. A before/after where only the treatment side is current is not a
+before/after, so the pair has been re-taken on every merge. The granularity
+sweep in §4 has come back byte-identical each time, which is the expected
+answer — it is a property of the emitter and the field, and neither the soil
+nor the ants is in either.
 
-The stand is **34% larger and sets 2.0x the seed**, which is the
+The stand is **26% larger and sets 1.9x the seed**, which is the
 light-as-a-lever payoff the design guide already priced from the other side
 (1,037 seeds against 435 at full amplitude, for 12% more cost). `beam: 2.4` was
 chosen to land the bench a little above the 0.42 the leak used to give it, so
@@ -119,8 +124,8 @@ that switching the fiction did not quietly shrink the crop.
 
 The mean above is the founders' mean, and it hides the half that is the
 mechanic. **Drag one fixture 84 columns into the next bay and its founder
-dies** — that column's bench light goes 0.215 → **0.001**, the bed goes 613
-cells to 551, and nothing else in the scene is touched. Light is a place now,
+dies** — that column's bench light goes 0.219 → **0.002**, the bed goes 595
+cells to 530, and nothing else in the scene is touched. Light is a place now,
 not a level.
 
 ## 4. Granularity — the constraint, measured at both `FIELD_SCALE` 8 and 16
@@ -212,8 +217,12 @@ by stone); `lamps` is the lab as it ships.
 
 | box | roof | lamps | delta | stand, roof → lamps |
 |---|---|---|---|---|
-| planted (8 founders, 1 colony) | 2.638 ms | 3.435 ms | **+0.798 ms (+30.2%)**, dearer in 3 of 3 | 459 → 613 cells, 12 → 24 seeds |
+| planted (8 founders, 1 colony) | 2.570 ms | 3.387 ms | **+0.817 ms (+31.8%)**, dearer in 3 of 3 | 474 → 595 cells, 12 → 23 seeds |
 | **empty (the machinery alone)** | 0.016 ms | **0.017 ms** | **+0.001 ms** | 0 → 0 |
+
+Every row carries the bench light too (`roof` 0.372, `lamps` 0.421), for the
+reason `labbox_cost`'s `floor` arm exists: a cost table with no light in it
+cannot say whether the cheaper arm was simply darker.
 
 **The light model is free; what costs is the biosphere it grew.** The
 empty-box arm is the control that separates them, and it is necessary rather
@@ -221,8 +230,8 @@ than tidy — without it the honest headline is "+30% of the lab's frame", which
 is true and about the wrong thing.
 
 Note what the planted delta is *not*, because the obvious account does not
-close: 154 more plant cells at the ~0.7 µs per cell per tick this box charges
-is 0.11 ms, against 0.80 ms measured. That is expected rather than a
+close: 121 more plant cells at the ~0.7 µs per cell per tick this box charges
+is 0.08 ms, against 0.82 ms measured. That is expected rather than a
 discrepancy —
 [`evolution-lab-gate-1-2026-08-30.md`](evolution-lab-gate-1-2026-08-30.md)'s
 own finding is that **frame cost in the lab tracks tiles solved (r = +0.90)

@@ -130,12 +130,24 @@ fn main() {
     if let Some(fraction) = arg::<f32>("light") {
         world.set_sky_hold(Some(pixel_physics::sky::frame_for_daylight(fraction)));
     }
-    // **The fixtures, off** — the control for "do the grow lights help or
-    // hurt". They are `crystal`, which both *blocks* the ceiling like stone
-    // and *emits* into the light channel, so their net effect on the crop is
-    // a measurement rather than an assumption. Done from the example rather
-    // than as a `LabBox` knob because a scene the harness can turn off is
-    // still the game's scene, where a second builder would not be.
+    // **The fixtures, off** — and since 2026-08-30 this arm answers a
+    // different question, which is worth stating rather than leaving to be
+    // rediscovered. It used to be "do the grow lights help or hurt", and the
+    // answer was *neither*: the fixtures were `crystal`, whose glow never
+    // reached the bench, so pulling them left the stand byte-identical and
+    // the crop lived on sky light through the shell.
+    //
+    // The box is sunless now and the fixtures are `growlamp`, so this is the
+    // direct inversion: **a bed with no lights, which is a dark bed** (0.000
+    // at the bench, nothing sets seed). That makes it the positive control
+    // for "the lamps are what light the crop" rather than an A/B of their
+    // value. **It is not the old world** — for that arm, which needs the sun
+    // switched back on as well, use `lamp_probe mode=cost`, whose `roof` arm
+    // is exactly it.
+    //
+    // Done from the example rather than as a `LabBox` knob because a scene
+    // the harness can turn off is still the game's scene, where a second
+    // builder would not be.
     if arg::<i32>("lamps") == Some(0) {
         for cx in spec.lamps_in(&world) {
             spec.remove_lamp(&mut world, cx);

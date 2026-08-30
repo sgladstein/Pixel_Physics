@@ -4068,14 +4068,14 @@ have lit a shaft under every geode in the massif, and it carries no `glow`:
 `render.rs` splats a radius-14 disc per glowing *cell*, and the interior
 renderer already paints the pool.
 
-**What it buys.** The stand at frame 3,600 goes 459 plant cells to **613** and
-12 seeds to **24**, both arms measured on the same tree. Dragging one fixture
-off a plant station **kills that plant** — the bench under it reads 0.215 of
-full daylight before the move and 0.001 after. The machinery costs **+0.001
-ms/frame**, measured on an empty box because that is the only arm that prices
-it; the +0.80 ms on a planted one is the bigger, busier biosphere it grew, and
-lab frame cost is known to track tiles solved (r = +0.90) rather than plant
-cells (r = −0.02).
+**What it buys.** The stand at frame 3,600 goes 474 plant cells to **595** and
+12 seeds to **23**, both arms measured off one binary on the same tree.
+Dragging one fixture off a plant station **kills that plant** — the bench under
+it reads 0.219 of full daylight before the move and 0.002 after. The machinery
+costs **+0.001 ms/frame**, measured on an empty box because that is the only
+arm that prices it; the +0.82 ms on a planted one is the bigger, busier
+biosphere it grew, and lab frame cost is known to track tiles solved
+(r = +0.90) rather than plant cells (r = −0.02).
 
 **Known limitations, both stated rather than tidied away.** The light pool
 draws on the back wall and not on the ground: `render.rs`'s field-light read is

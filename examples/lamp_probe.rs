@@ -95,8 +95,12 @@ fn settle(world: &mut World, steps: u32) {
 
 /// One timed run of the lab, with the census that says whether it was alive.
 ///
-/// Returns `(mean ms, worst ms, cells, orgs, seeds)`.
-fn timed_run(spec: &LabBox, sunlit: bool, frames: u64) -> (f64, f64, usize, usize, u32) {
+/// Returns `(mean ms, worst ms, cells, orgs, seeds, bench light)`.
+///
+/// **The light is in the tuple rather than left to a second harness**, because
+/// the two arms differ in *where the light comes from* and a cost table with
+/// no light in it cannot say whether the cheaper arm was simply darker.
+fn timed_run(spec: &LabBox, sunlit: bool, frames: u64) -> (f64, f64, usize, usize, u32, f32) {
     let mut world = spec.build();
     if sunlit {
         // The lab as it was: daylight through four rows of stone, and the
@@ -121,7 +125,11 @@ fn timed_run(spec: &LabBox, sunlit: bool, frames: u64) -> (f64, f64, usize, usiz
     let ids = world.live_organism_ids();
     let cells: usize = ids.iter().filter_map(|id| world.organism(*id)).map(|s| s.cells.len()).sum();
     let seeds: u32 = ids.iter().filter_map(|id| world.organism(*id)).map(|s| s.seeds_set).sum();
-    (total / frames as f64, worst, cells, ids.len(), seeds)
+    let cols = spec.founder_columns();
+    let lit = cols.iter().map(|&x| world.field_at(x, spec.ground_y - 2).light).sum::<f32>()
+        / cols.len().max(1) as f32
+        / field::MAX_LIGHT;
+    (total / frames as f64, worst, cells, ids.len(), seeds, lit)
 }
 
 fn main() {
@@ -155,7 +163,10 @@ fn main() {
             colonies: arg("colonies").unwrap_or(LabBox::default().colonies),
             ..LabBox::default()
         };
-        println!("  {:>4}  {:>6}  {:>9}  {:>9}  {:>7} {:>5} {:>5}", "rep", "arm", "mean ms", "worst ms", "cells", "orgs", "seeds");
+        println!(
+            "  {:>4}  {:>6}  {:>9}  {:>9}  {:>7} {:>5} {:>5}  {:>5}",
+            "rep", "arm", "mean ms", "worst ms", "cells", "orgs", "seeds", "light"
+        );
         let mut means: Vec<(f64, f64)> = Vec::new();
         for rep in 0..reps {
             // Alternating within the rep, not two blocks of runs: a machine
@@ -165,8 +176,8 @@ fn main() {
             let b = timed_run(&spec, false, frames);
             for (name, r) in [("roof", a), ("lamps", b)] {
                 println!(
-                    "  {rep:>4}  {name:>6}  {:>9.3}  {:>9.3}  {:>7} {:>5} {:>5}",
-                    r.0, r.1, r.2, r.3, r.4
+                    "  {rep:>4}  {name:>6}  {:>9.3}  {:>9.3}  {:>7} {:>5} {:>5}  {:>5.3}",
+                    r.0, r.1, r.2, r.3, r.4, r.5
                 );
             }
             means.push((a.0, b.0));
