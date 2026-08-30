@@ -314,11 +314,9 @@ fn drive(lab: &mut Lab, buf: &mut [u8], seconds: f32) -> (u64, u64, Duration) {
         let advance = lab.advance(elapsed);
         ticks += advance.ticks as u64;
         if advance.draw {
-            // `Lab::draw` took `Option<f32>` when this harness was written and
-            // takes a plain rate now (`src/lab/mod.rs`, the button-bar work).
-            // 0.0 is the honest value here rather than a placeholder: this is a
-            // headless timing harness with no window, so there is no window
-            // rate to report, and the page's own reading is what it shows.
+            // `Lab::draw` takes the measured frame rate now (the bar prints
+            // it); this harness has no display loop, so it has no rate to
+            // report and says so rather than inventing one.
             lab.draw(buf, 0.0);
             draws += 1;
         }

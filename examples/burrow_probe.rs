@@ -429,6 +429,14 @@ fn colony_arm(seeds: u64, ants: i32, frames: u64, png: Option<&str>) {
         let (w, h) = (200i32, 120i32);
         let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
         world.set_weather_pin(Pin::Clear);
+        // **Held at noon.** The day/night cycle is the largest visual signal
+        // in the engine, and a contact sheet whose stops fall at 0/500/2,000/
+        // 8,000 frames lands two of them after dark: the first sheet taken
+        // here had a moon in it and the bank was unreadable. That is
+        // `CLAUDE.md`'s designed-oscillator rule applied to a picture rather
+        // than to a number -- the light must be divided out, or every stop is
+        // its own phase plus the thing being looked at.
+        world.set_sky_hold(Some(pixel_physics::sky::frame_for_daylight(1.0)));
         let soil_id = world.materials.id_of("soil").expect("soil");
         let packed_id = world.materials.id_of("packedsoil").expect("packedsoil");
         let nest_id = world.materials.id_of("nest").expect("nest");
@@ -585,7 +593,7 @@ fn colony_arm(seeds: u64, ants: i32, frames: u64, png: Option<&str>) {
             // sheet rendered the whole 200x120 world at zoom 3 and was
             // unreadable for the thing it exists to show: the world is mostly
             // sky, the galleries are one to three cells across, and the ants
-            // work the bank's left face. Rendered whole, the lined bank and
+            // work the bank's near face. Rendered whole, the lined bank and
             // the ablated one look like the same brown mound -- which would
             // have had the picture contradict a `roofed` count of 130 against
             // 0 and the ASCII map that shows a warren, and the picture is what
@@ -593,13 +601,21 @@ fn colony_arm(seeds: u64, ants: i32, frames: u64, png: Option<&str>) {
             //
             // Done here rather than through the renderer's own zoom, which
             // moves the *camera* rather than the scale of the output.
-            // Steerable, because "is there a nest in there" and "what does
-            // the bank look like" want different framings and the second one
-            // cannot answer the first: at zoom 6 over the whole bank a
-            // one-cell gallery is six pixels of dark brown inside dark brown.
-            let zoom: u32 = arg("zoom").unwrap_or(6);
-            let crop: String =
-                arg("crop").unwrap_or_else(|| format!("{},{},96,38", bank_x0 - 26, bank_y0 - 4));
+            //
+            // **The default window is the near third, not the whole bank.**
+            // The colony enters from the nest at x=16..40 and works into the
+            // face it meets, so the excavation is a pocket at that end and the
+            // other two thirds are undisturbed ground -- a window over the
+            // whole bank spends 70% of its pixels on soil nothing happened to,
+            // and at that scale a three-cell gallery is three pixels.
+            //
+            // Steerable all the same, because "is there a nest in there" and
+            // "what does the bank look like" want different framings and
+            // neither answers the other.
+            let zoom: u32 = arg("zoom").unwrap_or(10);
+            let crop: String = arg("crop").unwrap_or_else(|| {
+                format!("{},{},56,{}", bank_x0 - 26, bank_y0 - 6, bank_y1 - bank_y0 + 12)
+            });
             let c: Vec<u32> = crop.split(',').map(|v| v.parse().expect("crop=x,y,w,h")).collect();
             let (cx0, cy0, cw, ch) = (c[0], c[1], c[2], c[3]);
             let (sw, sh) = (cw * zoom, ch * zoom * tiles.len() as u32);

@@ -269,7 +269,79 @@ Three outcomes where there was one. `CLAUDE.md`'s first law asks for a middle;
 this is the middle, and it arrives as a distribution over *who did the
 digging* rather than as a tuning constant.
 
-Full results in §2g.
+### 2g. Results — it works, and the middle exists
+
+`burrow_probe`, seed 1, gallery column. Every run carries both controls.
+
+| arm | f0 | f1 | f5 | f30 | f1,800 |
+|---|---|---|---|---|---|
+| **soil** — control | 100% | 67.2% | **0%** | 0% | 0% |
+| **sand** — control | 100% | 67.2% | **0%** | 0% | 0% |
+| **stone** — positive control | 100% | 100% | **100%** | 100% | 100% |
+| **lined** | 100% | 100% | **100%** | 100% | **100%** |
+| **flooded** — water in the shaft | 100% | 98.3% | 92.8% | 85.6% | **84.4%** |
+| **watertable** — bank saturated | 100% | 100% | **0%** | 0% | 0% |
+
+`soil` and `sand` are **identical to the digit** against the pre-change
+binary, so loose soil has not become more stable anywhere — which is the
+condition §2f says the change had to meet.
+
+**The middle is real and it is local.** Flooding caves the shaft **90.7%**,
+the gallery **15.6%** and the chamber **0%** — the tunnel comes down where
+the water reaches and nowhere else. Saturate the whole bank and it returns to
+93–100%, i.e. to the unlined baseline. That last arm doubles as the
+**in-binary ablation**: the same 367 lined cells, reverted by water, and the
+collapse reproduces `soil` to within a percentage point.
+
+**And real ants leave a standing tunnel.** One binary, one env switch
+(`PIXEL_PHYSICS_BURROW_LINING=off`), 55 ants, 8,000 frames:
+
+| seed | roofed void | digs | packed | | roofed | digs | packed |
+|---|---|---|---|---|---|---|---|
+| 1 | **130** | 278 | 384 | | 0 | 610 | 0 |
+| 2 | **146** | 283 | 439 | | 0 | 601 | 0 |
+| 3 | **151** | 272 | 388 | | 0 | 588 | 0 |
+
+**130 against 0**, three seeds. The verb fires in both arms — *harder* in the
+ablated one — and not one roofed cell survives it.
+
+### 2h. Five things in §2e's design that were wrong
+
+Recorded because they cost the lane real time and because four of the five
+are general.
+
+- **"Census standing void" reverses the result.** A colony quarries the open
+  face of a bank as well as tunnelling into it, and a pit *is* standing void:
+  ablated **788** against lined **472**. Read that way the change scores as a
+  regression. What a player calls a nest is **roofed** void — empty cells
+  with ground above them. Now in `CLAUDE.md`'s metric traps.
+- **A material flag was not enough.** Converting the ring needs
+  `Material::packs_into` on `soil`; §2e's `id_of("packedsoil")` at the dig
+  site is a name whitelist, and it would have packed **snow** — the other
+  diggable material — into packed *soil*.
+- **`decay.rs` was the wrong un-pack site**, for two concrete reasons: it
+  schedules on *awake -> settled* and a flooding tunnel is awake, and it reads
+  the **coarse field**, which is block-nearest and cannot see one cell. Done
+  instead in `update_powder` off the cell's own `aux`, one frame after the
+  water arrives.
+- **`0.95` has a second consumer.** Every species' root `penetration_force`
+  is 1.0–1.2, so roots still thread a nest wall at 1.19x the carbon. At the
+  1.0 §2e proposed it would have locked three species out of worked ground —
+  a constant read by two systems, which is the shape `CLAUDE.md` warns about.
+- **The palette call is probably backwards.** Darker packed soil against an
+  already-dark bank interior makes the tunnels *invisible*: from any distance
+  the two arms are the same picture. What does separate on sight is the
+  **face** — stepped and undercut against a clean repose ramp. Posted blind
+  to the owner rather than argued.
+
+### 2i. What is still not fixed
+
+**Spoil is still deleted rather than carried out.** The dig writes
+`Cell::EMPTY` and the material leaves the world. That was one of the two
+things making a nest impossible; only the other one is fixed. A colony that
+carried its spoil would build tailings, which is the visible half of
+excavation and is what makes a nest read as *built* rather than as *absent*.
+
 
 ---
 
@@ -397,12 +469,36 @@ means "screen pixels per cell", `screen_to_world` and `sub_cell` already do
 the mapping, and `cell_colour` already takes the sub-cell offset with exactly
 one thing reading it today.
 
-So **more pixels per creature is available now, costs ~13% of a redraw, and
-touches no simulation.** `Reports/subpixel-rendering-2026-08-29.md` prototyped
-the reconstruction half of this for plants and got a specific owner verdict
-worth honouring: *"could it be more flat or cartoony"* and *"the smooth
-circular shape/edges look fake"* — so the direction is flat fill with a drawn
-edge, not shading, not smoothing.
+**That 1.13x does not transfer to the lab, and this is a correction to an
+earlier draft of this section.** Measured 2026-08-30 by `lab_resolution
+mode=render`, best-of-N with the visible region asserted rather than assumed:
+
+| lab box | px/cell | framebuffer | pixels | ms | ns/px |
+|---|---|---|---|---|---|
+| 512x320 | 1 | 512x320 | 164k | 3.255 | 19.9 |
+| 512x320 | **2** | 1024x640 | 655k | **12.930** | 19.7 |
+| 1024x640 | 1 | 1024x640 | 655k | 12.565 | 19.2 |
+| 1024x640 | 2 | 2048x1280 | 2.6M | 52.155 | 19.9 |
+
+**Four times the pixels costs 3.97x, not 1.13x.** The rate is flat at
+**19.2-19.9 ns/px across a 36x range and two different worlds**, which is the
+mechanism: the sandbox's 1.13x came from a large per-*draw* fixed cost — the
+sky-light grid, the horizon rebuild, the glow-tile scan — that a finer lattice
+does not repeat. **A lab box has almost none of that**, so there is nothing to
+amortise and cost is strictly per pixel. The 1.13x was a true number about a
+different world.
+
+Worse for the original claim: rebuilt and re-run today, `subpixel_cost` itself
+reads **2.38x and 3.55x** at 4x pixels, against the 1.13x its own report
+records. That wants re-checking on a quiet box before either figure is
+trusted, but it is not the lab's number either way.
+
+So **more pixels per creature is available and it is not free** — it is the
+single most expensive item in this report. `Reports/subpixel-rendering-2026-08-29.md`
+prototyped the reconstruction half for plants and got an owner verdict worth
+honouring: *"could it be more flat or cartoony"* and *"the smooth circular
+shape/edges look fake"* — so the direction is flat fill with a drawn edge, not
+shading and not smoothing.
 
 ### 3e. Raising the *simulation* resolution: expensive outdoors, plausible in the lab
 
@@ -466,6 +562,82 @@ Two second-order effects that are easy to miss and are not theoretical:
   every recorded dead end about coarse-field gradients
   (`dead-ends.md:981, 993, 743, 635`) carries a re-test condition keyed
   explicitly to `FIELD_SCALE` exceeding the sensor spacing.
+
+### 3g. `FIELD_SCALE` 16, measured — the hypothesis holds and the cost is not where anyone was looking
+
+`examples/lab_resolution.rs`, on the real `LabBox` bed (which has a ceiling,
+where `labbox_cost`'s open-topped `PlantScene` does not — a different field
+workload), scaling `ground_y` and `soil_depth` with height so a bigger box is
+*the same physical bed at more cells*. Timings taken under container load and
+marked provisional; the counters are the evidence.
+
+| box | `FIELD_SCALE` | p50 ms | field ms | field cells/f | plant cells | x real time |
+|---|---|---|---|---|---|---|
+| 512x320 — **ships today** | 8 | 2.431 | 2.207 | 2,036 | 436 | 6.86x |
+| 512x320 | 16 | 2.181 | 1.506 | 538 | 570 | 7.64x |
+| 1024x640 | 8 | 5.903 | 5.126 | 4,660 | 445 | 2.82x |
+| **1024x640** | **16** | **2.739** | **1.925** | 820 | 763 | **6.08x** |
+| 2048x1280 | 8 | 9.231 | 10.723 | 12,014 | 457 | 1.81x |
+| 2048x1280 | 16 | 4.943 | 4.242 | 4,006 | 578 | 3.37x |
+
+**The owner's hypothesis is confirmed.** A 1024x640 box at `FIELD_SCALE` 16
+costs **2.739 ms against the shipped 512x320-at-8's 2.431** — *four times the
+cells for 13% more frame*, with the field itself **cheaper** than today's.
+
+**Read `field cells/frame`, never `solved/frame`.** There is exactly one
+`FieldTile` per `Chunk` at any `FIELD_SCALE`, so the tile count **cannot
+move** — it is invariant by construction, and reading it as "the work did not
+move" or "the work vanished" are both wrong. The quantity that moves is
+`solved/f x FIELD_TILE_AREA`, and it falls **3.96x against a 4.00x
+prediction**. The positive control (one fan, which wakes the box) pins the two
+arms at a matched solve set — 142.6 against 144.0 — which is the clean
+apples-to-apples arm.
+
+**But the field time only falls 2.35x, not 4x, and the reason is a floor.**
+Per-pass, at a pinned solve set:
+
+| pass | fs 8 | fs 16 | ratio |
+|---|---|---|---|
+| diffusion | 1.360 | 0.350 | **3.89x** |
+| advection | 1.265 | 0.360 | **3.51x** |
+| velocity | 0.615 | 0.255 | 2.41x |
+| **blocked** | 0.335 | 0.310 | **1.08x** |
+| **sky** | 0.240 | 0.250 | **0.96x** |
+
+`rebuild_blocked` scans `CHUNK_SIZE^2` = 4,096 **CA** cells per chunk whatever
+`FIELD_SCALE` is, and the sky cast is per-column. Those two do not scale at
+all, and **they get relatively worse the coarser you go** — so they are the
+next thing to look at, and they are the same two passes the `sky_light` lane
+is already in.
+
+**The real cost is behavioural, and it is large.** Attenuation is
+`0.2^(depth / FIELD_SCALE)` per block, so one leaf in a 16-cell column passes
+**0.904** where the same leaf across two 8-cell blocks passes **0.818**.
+Coarser blocks shade a sparse canopy *less*, plants self-shade less, and the
+stand runs away — **6 of 6 seeds, median 2.82x biomass and 6.5x seed set**:
+
+| seed | 1 | 2 | 3 | 4 | 5 | 6 |
+|---|---|---|---|---|---|---|
+| plant cells 8 -> 16 | 490->1367 | 661->1518 | 402->1263 | 507->1187 | 517->1577 | 392->1117 |
+| seeds set 8 -> 16 | 14->103 | 28->133 | 13->112 | 5->111 | 17->95 | 13->69 |
+
+That is systematic, not chaos, and it is exactly `CLAUDE.md`'s rule about a
+term in a weighted sum: **every plant constant in the engine is calibrated
+against the current shade**, so this is a change that reallocates a shared
+budget and re-deriving those constants is part of the work rather than scope
+creep. **`FIELD_SCALE` is a game-design decision wearing a performance
+costume**, and it should be taken as one.
+
+Two practical notes for whoever does it. It **does not compile at 16**:
+`field.rs`'s `COLUMN_TRANSMISSION` is a hand-written nine-float table declared
+`[f32; FIELD_SCALE + 1]`, and it has to be regenerated from the Beer-Lambert
+formula its own test asserts. And `cargo test --lib` at 16 gives **1,117
+passed / 8 failed**, all eight verified passing at 8 in the same worktree —
+two are assertions about the constant itself (hardcoded 7/8/-9 literals), one
+is the `frame::step` golden hash, and **five are behaviour tests on
+hand-built scenes sized for an 8-cell block** (a puddle that filled one block
+now fills a quarter of one). The five are the honest signal: the scenes, not
+the code, are what a `FIELD_SCALE` change invalidates.
 
 ### 3g. What must not move
 

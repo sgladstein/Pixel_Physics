@@ -92,6 +92,23 @@ struct Census {
     /// separates "the bed is drier" from "the water went somewhere the
     /// roots are not".
     avail_all: f32,
+    /// Rows below the surface the deepest **ant** sits at, and rows below the
+    /// surface the deepest **dug void** reaches.
+    ///
+    /// §2a of the design guide makes soil depth conditional: a bed pays 1.9x
+    /// the frame from 40 to 240 rows and the obligation is that something
+    /// reaches the depth being paid for. Roots are one consumer and are
+    /// already measured (`roots`); **burrows are the other and the stronger
+    /// one**, because a gallery needs no evolution to arrive. Without these
+    /// two columns the depth question can only be answered for plants, and
+    /// answering it for plants alone is how a deep bed gets rejected for the
+    /// wrong reason.
+    ant_depth: i32,
+    dug_depth: i32,
+    /// Cells of dug void inside the soil — the volume half of the same
+    /// question, because one ant one row down and a gallery system reach the
+    /// same `dug_depth`.
+    dug: usize,
 }
 
 fn census(world: &World, spec: &LabBox) -> Census {
@@ -101,6 +118,9 @@ fn census(world: &World, spec: &LabBox) -> Census {
         let Some(state) = world.organism(*id) else { continue };
         if world.species.get(state.species).creature.is_some() {
             c.ants += 1;
+            for &(_, y) in state.cells.keys() {
+                c.ant_depth = c.ant_depth.max(y - spec.ground_y + 1);
+            }
             continue;
         }
         c.plants += 1;
@@ -159,7 +179,16 @@ fn census(world: &World, spec: &LabBox) -> Census {
     let mut all = (0.0f32, 0usize);
     for y in spec.ground_y..(spec.ground_y + spec.soil_depth) {
         for x in 0..spec.width {
-            all.0 += update::plant_available_fraction(world.get(x, y));
+            let cell = world.get(x, y);
+            // Raw `EMPTY`, never `Cell::is_empty`, which is managed-aware and
+            // answers "is this position available" rather than "is there
+            // material here" — `burrow_probe`'s own note, and the two differ
+            // exactly where a body has been promoted.
+            if cell.material == pixel_physics::sim::material::EMPTY {
+                c.dug += 1;
+                c.dug_depth = c.dug_depth.max(y - spec.ground_y + 1);
+            }
+            all.0 += update::plant_available_fraction(cell);
             all.1 += 1;
         }
     }
@@ -287,7 +316,7 @@ fn main() {
             println!(
                 "  soil {soil:>4} seed {seed:>3}: cells {:>6} biggest {:>5} roots {:>4} \
                  plants {:>3} ants {:>4} seeds {:>5} fruit {:>4} | light {:.3} dim {:.3} \
-                 | avail {:.3} all {:.3} | early light {:.3} avail {:.3} | {secs:.1}s",
+                 | avail {:.3} all {:.3} | ant {:>3} dug {:>3}/{:<5} | early light {:.3} avail {:.3} | {secs:.1}s",
                 last.cells,
                 last.biggest,
                 last.roots,
@@ -299,6 +328,9 @@ fn main() {
                 last.dim,
                 last.avail,
                 last.avail_all,
+                last.ant_depth,
+                last.dug_depth,
+                last.dug,
                 first.light,
                 first.avail,
             );
@@ -307,14 +339,18 @@ fn main() {
     }
 
     // Per-depth order statistics.
-    println!("\n  depth |  cells (med)   biggest    roots   seeds |  light   dim  avail |  s/run");
+    println!(
+        "\n  depth |  cells (med)   biggest    roots   seeds |  light   dim  avail | \
+         ant  dug  dug cells |  s/run"
+    );
     for &soil in &soils {
         let of = |f: &dyn Fn(&Census) -> f64| -> f64 {
             median(rows.iter().filter(|r| r.0 == soil).map(|r| f(&r.3)).collect())
         };
         let secs = median(rows.iter().filter(|r| r.0 == soil).map(|r| r.4).collect());
         println!(
-            "  {soil:>5} | {:>11.0} {:>9.0} {:>8.0} {:>7.0} | {:>6.3} {:>5.3} {:>6.3} | {secs:>6.1}",
+            "  {soil:>5} | {:>11.0} {:>9.0} {:>8.0} {:>7.0} | {:>6.3} {:>5.3} {:>6.3} | \
+             {:>3.0} {:>4.0} {:>10.0} | {secs:>6.1}",
             of(&|c| c.cells as f64),
             of(&|c| c.biggest as f64),
             of(&|c| c.roots as f64),
@@ -322,6 +358,9 @@ fn main() {
             of(&|c| c.light as f64),
             of(&|c| c.dim as f64),
             of(&|c| c.avail as f64),
+            of(&|c| c.ant_depth as f64),
+            of(&|c| c.dug_depth as f64),
+            of(&|c| c.dug as f64),
         );
     }
 

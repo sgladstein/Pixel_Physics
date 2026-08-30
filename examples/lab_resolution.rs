@@ -99,6 +99,13 @@ fn spec_from_args() -> LabBox {
         founders: arg("founders").unwrap_or(8),
         colonies: arg("colonies").unwrap_or(1),
         compartments: arg("walls").unwrap_or(1),
+        // Scaled with `width` for the same reason `ground_y` and `soil_depth`
+        // are scaled with `height`: a fixture every 128 cells is one fixture
+        // every quarter-width on the shipped 512 bed, and holding *that* is
+        // what keeps a bigger box the same physical room. Copying the literal
+        // 128 would light a 2048-wide box four times as densely and the
+        // resolution ladder would be measuring the lamps.
+        lamp_spacing: arg("lamps").unwrap_or(width / 4),
         species: arg("species").unwrap_or_else(|| "herb".to_string()),
         seed: arg("seed").unwrap_or(1),
         // **Struct update rather than an exhaustive list**, and that is the
