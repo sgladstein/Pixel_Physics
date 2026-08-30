@@ -125,6 +125,23 @@ enum Handicap {
     /// a much smaller plant that reproduces much sooner. **Direction
     /// unknown**, which is why it is here.
     Early,
+    /// **A real mutation, drawn from the shipped operator.**
+    ///
+    /// Every other arm is a handicap authored by hand, which measures whether
+    /// the world *can* select. This measures whether the mutations the engine
+    /// actually makes are things it can select *on* — the question
+    /// `plant-fate-operator-gate-2026-08-29.md` §6 leaves open and the one the
+    /// whole evolvability programme is for.
+    ///
+    /// **Calls `FateGenome::mutate` rather than imitating it.** That harness's
+    /// §1 is a whole measurement invalidated by a second implementation of
+    /// this operator that had quietly diverged from the engine's, and the
+    /// rule it left is that a harness must route through the shipped call.
+    ///
+    /// The draw is keyed on the arm index, so mutation `k` is the same
+    /// mutation on every world seed — which is what lets one mutation be
+    /// measured across seeds and the mutations be compared with each other.
+    Mutant(u64),
 }
 
 impl Handicap {
@@ -135,7 +152,8 @@ impl Handicap {
             "nobranch" => Self::NoBranch,
             "norootbranch" => Self::NoRootBranch,
             "early" => Self::Early,
-            _ => return None,
+            // `arm=mutantK` is the K'th draw from the shipped operator.
+            _ => Self::Mutant(s.strip_prefix("mutant")?.parse().ok()?),
         })
     }
 
@@ -151,12 +169,29 @@ impl Handicap {
         if self == Self::Same {
             return (base, true);
         }
+        if let Self::Mutant(k) = self {
+            // Keyed on the arm index alone, so this mutation is identical
+            // across world seeds. `applied` is the operator's own report of
+            // whether it changed the genome -- a declined draw is not a
+            // mutation and must not be counted as a neutral one.
+            let mut g = base;
+            let mut rng = pixel_physics::sim::rng::stream(0x4D75_7461_6E74_5F41, 0x4D75_7461_6E74_5F42, 0x4D75_7461_6E74_5F43, k);
+            let applied = g.mutate(&mut rng).is_some_and(|m| m.applied);
+            return (g, applied);
+        }
         let mut table = base.to_table();
         let mut applied = false;
         for (owner, rules) in table.iter_mut() {
             for f in rules.iter_mut() {
                 let hit = match self {
                     Self::Same => false,
+                    // Handled by the early return above, which draws from the
+                    // shipped operator instead of editing the table here.
+                    // `unreachable!` rather than `false` deliberately: if that
+                    // return is ever removed, a mutant arm would silently
+                    // become a no-op edit and read as a clean 50/50 -- which
+                    // is exactly what "no fitness effect" looks like.
+                    Self::Mutant(_) => unreachable!("a Mutant arm returns before the table edit"),
                     Self::Lethal => *owner == CellType::GrowingTip && f.when == FateWhen::Grew,
                     // **The bud, not the shoot's lateral.** Two vacuous
                     // arms were spent before this was measured: a `herb`
@@ -177,6 +212,7 @@ impl Handicap {
                 }
                 match self {
                     Self::Same => {}
+                    Self::Mutant(_) => unreachable!("a Mutant arm returns before the table edit"),
                     Self::Lethal => f.child = Some(CellType::Seed),
                     // **A lateral made of mature tissue, not `None`.**
                     // `None` is not "no lateral" and this cost two vacuous

@@ -131,7 +131,62 @@ than filing:**
 - **Do not merge PR #134** on the strength of these numbers alone; the report
   text needs updating with them first.
 
-## 8. Context, if wanted
+## 8. Second job, if the machine is free — the distribution of fitness effects
+
+**Only after §3.** This is the question the whole evolvability programme is
+for, and it is now runnable: every arm above is a handicap authored by hand,
+which shows the world *can* select and says nothing about whether the
+mutations the engine actually makes are things it can select *on*.
+
+`arm=mutantK` draws the K'th mutation from the **shipped** operator
+(`FateGenome::mutate`, not a copy of it), keyed so mutation K is the same
+mutation on every world seed.
+
+```
+A=./target/release/examples/selection_arena
+for k in $(seq 0 23); do
+  $A arm=mutant$k seeds=6 founders=8 frames=90000 every=5000
+done > /tmp/mutants.log 2>&1
+python3 scripts/dfe.py /tmp/mutants.log /tmp/control.log
+```
+
+24 mutations x 6 seeds is the useful minimum; more of either is better, and
+the loop is resumable by editing the range. `/tmp/control.log` is the one §3
+already produced — it sets the noise floor and cannot be skipped.
+
+**Why this is answerable when a per-mutation verdict is not.** §3 of the
+report puts the resolution floor at ~9.3 share-points per seed, so pinning one
+mutation needs hundreds of worlds. But variance decomposes:
+
+```
+Var(observed across mutations) = Var(true effects) + Var(noise)
+```
+
+and the control measures `Var(noise)` directly, so the real spread follows by
+subtraction even when no single mutation is resolvable. `scripts/dfe.py` does
+that arithmetic and prints the reasoning.
+
+- **Var(true) ~ 0** -> mutations are effectively neutral, selection has nothing
+  to sort, and the bottleneck is the genotype->phenotype map, not the
+  environment. Report it as an **upper bound**, never as proof of neutrality;
+  the script prints the bound.
+- **Var(true) > 0** -> heritable fitness variation exists and evolution can
+  proceed.
+
+**Expect a large silent fraction, and do not read it as neutrality.** A quick
+8-mutation probe at one seed had five arms land on *identical* shares, which is
+the signature of the genome changing and the plant not — the per-query
+fallback absorbing the operator, exactly what
+`plant-fate-operator-gate-2026-08-29.md` measured. `dfe.py` counts those
+separately and refuses to pool them, because pooling drags the spread toward
+the noise floor and reads as "mutations are neutral" when the truth is "those
+mutations never happened, phenotypically". **The silent count is itself a
+result** — it is the live-population version of the operator gate, and it bears
+directly on the fallback fork the owner has not yet decided.
+
+Send back the `dfe.py` output plus the tail of `/tmp/mutants.log`.
+
+## 9. Context, if wanted
 
 - `Reports/plant-selection-teeth-2026-08-29.md` — the report being corrected;
   §0 is the caveat, §2 the controls, §3 the power limits.
