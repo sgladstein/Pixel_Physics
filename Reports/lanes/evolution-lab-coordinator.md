@@ -87,13 +87,32 @@ things in it point straight at this bed:
    `scrambler`, are never planted by `LIFE_SPECIES`.
 
 **The lab plants `herb`.** So the cheapest route past the deadlock — a
-fruiting crop, no creature code — may already be sitting in this bed
-unmeasured. What is not established: that fruit actually *stands* (seeds set
-is a different quantity), that the lab's ants have a matched rather than a
-neutral gut, and that they can *find* it. #162 says plainly that the failure
-case there is a foraging problem rather than an economy one. Being measured
-by the measurement lane; the fix, if one is needed, belongs in a lab-only
-species file rather than in engine code, per guide §7a.
+fruiting crop, no creature code — may already be sitting in this bed.
+
+**And it is. Corrected 2026-08-30 by the stats lane, which measured it
+rather than inferring it from worldgen.** #162's *"no fruit or flower cell
+stands in any sampled world"* is a statement about **worldgen worlds**,
+where `LIFE_SPECIES` plants no fruiting species. It does not transfer to a
+hand-built herb bed, and the lab's own breeding-margin row says so:
+
+| bed | `ceiling − bar` | what the best standing mouthful is |
+|---|---|---|
+| ants only | **−880** | 120, the ant's own flesh — reproduces #162 exactly |
+| the lab bed | **−640** | **360**, which at a neutral gut implies a 1,440-worth flower standing |
+
+**So the deadlock in this bed is one heritable step wide.** `diet_yield`
+squares the gut mismatch, so a `gut_bias` drifted to −1 draws the whole
+1,440 from a single mouthful and clears the 1,100 bar outright — no engine
+change, no machine, not even a species file. One mutation.
+
+**What is still open, and it is the half that decides whether this is real**:
+a direct census of *standing* flower and fruit cells (the 1,440 is inferred
+from a margin, and this repo has measured a stand at 1,126 organs *built*
+with no fruit standing on any plant), the squaring arithmetic read off
+`diet_yield` rather than relayed, and whether an ant walking the floor can
+actually reach a flower at the top of a herb. #162's own caveat is that the
+failure case there is foraging rather than economy. With the measurement
+lane.
 
 ## Deliberately not being built yet
 

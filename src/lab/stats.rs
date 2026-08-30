@@ -478,12 +478,10 @@ impl Stats {
 
     /// The page, with the row under `cursor` explaining itself beside it.
     ///
-    /// **`lab::mod` calls [`Stats::draw`] today**, which passes `None`, so
-    /// the hover is built and not yet reachable in the binary. Turning it on
-    /// is one line — `self.stats.draw_at(frame_buf, &self.world, cursor)` in
-    /// `Lab::draw`, which already holds the cursor and passes it to the
-    /// renderer. It is written this way rather than by editing `mod.rs`
-    /// because that file belongs to the coordinator.
+    /// **This is what `Lab::draw` calls**, passing the cursor it already
+    /// holds for the renderer. [`Stats::draw`] is the cursor-less form, kept
+    /// for harnesses (`examples/labstats.rs`) that render the page with no
+    /// pointer in the world.
     pub fn draw_at(&self, frame: &mut [u8], world: &World, cursor: Option<(i32, i32)>) {
         if !self.show {
             return;

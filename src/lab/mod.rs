@@ -82,7 +82,11 @@ impl Lab {
             time: time::TimeControl::new(),
             stats: stats::Stats::new(),
             spec,
-            show_help: true,
+            // Down only when something explicitly asks for it. The one caller
+            // is a headless capture wanting to photograph what is *under* the
+            // key list, which is otherwise unreachable without a keypress and
+            // so unphotographable on a box with no keyboard.
+            show_help: std::env::var("PIXEL_PHYSICS_LAB_HELP").as_deref() != Ok("0"),
         }
     }
 
@@ -151,9 +155,21 @@ impl Lab {
             force_full,
         );
         self.time.draw(frame_buf, &self.world);
-        self.stats.draw(frame_buf, &self.world);
+        // **One page at a time.** The key list and the biosphere page are both
+        // full-height overlays, and drawn together they interleave into
+        // something neither of them is -- caught by looking at a capture of
+        // the real window, not by any test, since both draw exactly what they
+        // were asked to. The key list wins because it is transient: it is up
+        // on a fresh lab and gone on the next keypress, where the page is
+        // where you live.
+        //
+        // `draw_at` rather than `draw`: the hover explanation is the half of
+        // the page that makes it readable cold, and `Lab::draw` is the only
+        // place holding the cursor.
         if self.show_help {
             draw_help(frame_buf);
+        } else {
+            self.stats.draw_at(frame_buf, &self.world, cursor);
         }
     }
 }
