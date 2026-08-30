@@ -1,7 +1,6 @@
 # Lane G — the colony panel
 
-*Branch `claude/creature-lane-g-panel`, cut from `main` at `6d5cbcf`.
-Written 2026-08-30.*
+*Written 2026-08-30. Landed; see the last section.*
 
 ## What landed
 
@@ -13,94 +12,76 @@ lines. Play-facing account in `wiki/ants.md` §*Reading the colony*.
 
 **Where it sits.** Every number this project tracks about creatures lived in
 `examples/creature_probe.rs` and its siblings — logs the owner never runs — so
-on screen a colony was fifty dots and no way to tell a thriving one from a
-dying one. This closes that: the same quantities, in the running game, in the
-words `wiki/ants.md` uses. It is the readout half of the creature line; it
-does not change a single thing an ant does.
+on screen a colony was fifty dots with no way to tell a thriving one from a
+dying one. This is the readout half of the creature line: the same quantities,
+in the running game, in the words `wiki/ants.md` uses. It does not change a
+single thing an ant does.
 
-Cost fork: **built**. Everything the panel needed was reachable from
-`World`, so Lane D's files were not touched. The one thing that was not
-reachable is named under *What is missing* below.
+Cost fork: **built**. Everything the panel needed was reachable from `World`,
+so Lane D's files were not touched; what was not reachable is under *What is
+missing*.
 
 ## The key
 
-`SHIFT+Y`. Every plain letter was already bound — `main.rs`'s own `KeyY` arm
-calls `Y` "the last free letter" — and a modifier on the key that *founds* a
-colony is the one binding nobody has to be told twice. Shift is `held.grab`,
-the single source of truth the gnome's tree-grip already reads. `Shift+Y` no
-longer founds a colony; plain `Y` still does.
+`SHIFT+Y`. Every plain letter was bound — `main.rs`'s own `KeyY` arm calls `Y`
+"the last free letter" — and a modifier on the key that *founds* a colony is
+the one binding nobody has to be told twice. Shift is `held.grab`, the single
+source of truth the gnome's tree-grip already reads; plain `Y` still founds.
 
-The help page (`/`) had no room for it: both its columns held exactly 30 rows
-and both were full, so `HELP_MARGIN` came down from 20 to 14 to buy a 31st.
+**The help page had no room for it**: both columns held exactly 30 rows and
+both were full, so `HELP_MARGIN` came down 20 -> 14 to buy a 31st.
 `the_help_page_fits_inside_its_own_panel` reads that constant, so the row
-budget stays in one place.
+budget stays in one place — worth knowing before the next lane needs a key.
 
-## What is on it, and why that and not more
+## What is on it, and why that
 
-Two questions before any detail, because a panel of twenty counters is a wall:
+**Read `README.md`'s *The ant colony — status* for the full account** and
+`wiki/ants.md` §*Reading the colony* for the play-facing one — those are the
+documents a reader finds without being told this lane existed. In short: four
+sections answering *is this colony doing well* / *can it afford to keep going*
+/ *what is it doing right now* / *is there anything left to select on*, with
+distributions rather than means, rates rather than totals, and a rate window
+(3,840 frames) a little longer than a day.
 
-| section | answers |
-|---|---|
-| headline, trend strip, placed/born/died, births+deaths per 1k | **is this colony doing well** |
-| ENERGY: hungry count, histogram, low/mid/high, the bud gauge | **can it afford to keep going** |
-| OUT AND ABOUT: carrying, airborne, excursion depth, work rates | **what is it doing right now** |
-| LINEAGE: generation, lines, top share, one row per trait slot | **is there anything left to select on** |
+Two things only here:
 
-Three rules decided the content:
+- **`nest_visits` is deliberately absent.** Its own doc records that it counts
+  loitering, not trips — one ant, a nest and no food scores `moves 648,
+  nest_visits 389`. `forage_trips` is on the panel instead.
+- **Two rows appear only when they have something to say**, both otherwise
+  silent: `BIRTHS REFUSED NO ROOM / NO SLOT` (a birth the terrain refused and
+  one the address space refused both read as "nothing is breeding", which is
+  also what a colony too poor to try reads as, and they want opposite fixes),
+  and `RATES ABOVE COUNT EVERY CREATURE` — see *What is missing* below.
 
-- **Distributions, not means.** Energy is a histogram; energy, excursion depth
-  and every trait are low / middle / high. A colony half starving and half
-  comfortable has the same mean as one uniformly mediocre and is not the same
-  colony. The histogram's split is `hunger_fraction * start_energy` — the line
-  `creature::act`'s own `hungry` tests, marked on the axis, not a display
-  threshold invented for the picture.
-- **Rates, not totals**, for anything cumulative. `moves` climbs for ever and
-  says nothing after the first minute. Placed / born / died stay totals
-  because that is what they are.
-- **The rate window is 3,840 frames** — 128 samples 30 apart, just over
-  `field::DAY_NIGHT_PERIOD_FRAMES` (3,600). Every rate a colony produces rides
-  the day/night cycle, so a short window reports the hour. This is
-  `CLAUDE.md`'s divide-out-the-oscillator rule applied to a readout rather
-  than to a measurement.
-
-Two rows appear only when they have something to say, both of them silent
-failure modes otherwise invisible: **BIRTHS REFUSED NO ROOM / NO SLOT** (a
-birth the terrain refused and one the engine's address space refused both read
-as "nothing is breeding", which is also what a colony too poor to try reads
-as, and they want opposite fixes), and **RATES ABOVE COUNT EVERY CREATURE**
-when a second creature species is in the world — see *What is missing*.
-
-Deliberately **not** shown: `nest_visits`, whose own doc records that it
-counts loitering rather than trips (one ant, a nest and no food scores
-`moves 648, nest_visits 389`). `forage_trips` is on the panel instead.
+The one approach withdrawn — a fixed-size panel painted with a running cursor
+— is in `Reports/dead-ends.md` under *rendering*.
 
 ## What it costs
-
-Measured on one binary in one process, 200 alternating pairs, on a **settled**
-world — the sim held still after 3,000 frames, because a world still settling
-redraws every pixel anyway and the closed arm would then not be measuring the
-render skip at all. `report_the_colony_panel_frame_cost_when_asked`
-(`COLONY_COST=1`), which is a measurement and not a gate.
 
 | | ms/frame |
 |---|---|
 | panel shut | **0.086** |
 | panel open | **3.880** |
 | difference | **+3.794** |
-| one census of the whole colony | 0.0128, taken twice a second while open |
+| one census of the whole colony | 0.0128, twice a second while open |
 
-**Shut, the panel adds one boolean test per frame** — the census and the trend
-sample are both behind `show_colony`, and nothing else in the frame changed —
-so a settled world keeps the dirty-rect skip, which is what the 0.086 is. Open
-it costs a full redraw, which is the same bargain the help page, the options
-panel and the palette already make and is why they are all in `force_full`.
+**How it was measured matters more than the numbers**, and it is the part
+`README.md` does not carry: one binary, one process, 200 alternating pairs,
+and the sim **held still** after 3,000 frames. A world still settling redraws
+every pixel anyway, so the closed arm would not have been measuring the render
+skip at all and the delta would have flattered the panel. Held still, the
+closed arm takes the skip and the open arm pays a full redraw, which is the
+worst case and the one worth quoting.
+`report_the_colony_panel_frame_cost_when_asked` (`COLONY_COST=1`) is a
+measurement and **not a gate** — a wall-clock assertion is a flake generator.
 
-The census itself is cheap because it walks `World::live_organism_ids` and
-filters to species with a `creature` — not the 163,840-cell grid scan
-`creature_probe` uses.
-
-`cargo run --release --example ascii` is unaffected: nothing in the simulation
-changed, and `ascii` never calls `App::draw`.
+Shut, the panel adds one boolean test per frame: the census and the trend
+sample are both behind `show_colony`, so a settled world keeps the dirty-rect
+skip, which is what the 0.086 is. Open it costs a full redraw, the same
+bargain the help page, the options panel and the palette already make, which
+is why they are all in `force_full`. `ascii` is unaffected — nothing in the
+simulation changed, and it never calls `App::draw`.
 
 ## What is missing, for whoever owns `creature.rs`
 
@@ -126,129 +107,117 @@ Named rather than added, because Lane D holds those files.
 
 ## Guards
 
-- `a_closed_colony_panel_does_no_work_and_an_open_one_does` — both halves,
-  because a closed-only check passes for a panel that never works.
-- `the_colony_census_counts_creatures_and_not_the_forest` — every generated
-  world's moss and trees own `OrganismState`s in the table the census walks;
-  the negative half asserts a plant-filled world with no ants censuses as *no
-  census at all*, not a colony of zero.
-- `the_colony_census_reports_one_spread_per_trait_slot` — sized by
-  `organism::CREATURE_TRAITS`, so a slot added by another lane appears without
-  an edit here (as `TRAIT n` until someone names it in `colony_trait_label`).
-- `the_colony_panel_stays_inside_its_own_border` — drawn onto a zeroed frame,
-  every lit pixel must be inside the rect, the rect must equal the rows' own
-  height, and **more than 2,000 pixels must be lit**: the containment half
-  passes for a panel that draws nothing, which is the blind-guard shape
-  `CLAUDE.md` says to put the fault back for.
-- `colony_rates_need_a_window_before_they_report_anything`.
-- Every string the panel draws goes through `App::colony_text`, which
-  `debug_assert`s the font has a glyph for each character. The help page guards
-  this with a test over its literals; this panel cannot, because most of its
-  text is built at run time out of species names and formatted numbers.
+Six, all named `*colony*` in `src/app.rs`'s test module. What is worth
+carrying is *which direction* three of them assert, because the obvious half
+of each is the blind one:
+
+- `a_closed_colony_panel_does_no_work_and_an_open_one_does` — a
+  closed-does-nothing check alone passes for a panel that never works.
+- `hovering_a_colony_row_explains_it_and_hovering_a_gap_does_not` — a
+  note-appears check alone passes for a panel that draws a box wherever the
+  cursor is.
+- `the_colony_panel_stays_inside_its_own_border` also asserts **over 2,000
+  pixels lit**; containment alone passes for a panel that draws nothing.
+
+And every string goes through `App::colony_text`, which `debug_assert`s the
+font has a glyph for each character — the help page guards that over its
+literals and this panel cannot, since most of its text is built at run time.
 
 ## One thing that cost time and is worth carrying
 
 **A 5x7 glyph read off a downscaled screenshot is not evidence about what the
-panel said.** Reading a card image, I saw `PICKED 0` beside `FOOD HOME 13.9`
-and spent a while establishing that deliveries cannot exceed pickups and that
-digging destroys its spoil, i.e. hunting a bug in the simulation. The panel had
-said `PICKED 30`; the `3` was one glyph wide at 1x. `dump_the_colony_panel_when_asked`
-now prints every row as text beside the PNG, and the raw counters over the
-window with it. Look at the picture for *what and where*; read the text for
-*how much*.
+panel said.** I read `PICKED 0` beside `FOOD HOME 13.9` off a card image and
+went hunting a contradiction in the simulation — deliveries cannot exceed
+pickups, digging destroys its spoil. The panel had said `PICKED 30`; the `3`
+was one glyph wide at 1x. `dump_the_colony_panel_when_asked` now prints every
+row as text beside the PNG. The picture is for *what and where*; the text is
+for *how much*.
 
 ## Gates
 
 | | |
 |---|---|
-| `cargo test --lib` | 1114 passed, 0 failed, 54 ignored (re-run after each `main` merge and after the hover) |
+| `cargo test --lib` | 1114 passed, 0 failed, 54 ignored |
 | `cargo +1.98.0 clippy --all-targets -- -D warnings` | clean |
-| `cargo run --release --example ascii` | 31 scenes run, 0 skipped; worst frame 37.54 ms / mean 3.64 ms on the 166-organism scene |
+| `cargo run --release --example ascii` | 31 scenes, 0 skipped |
 | `bash scripts/acceptance.sh` | all cases met their expectations |
 | `bash scripts/docscheck.sh` | clean |
 
-## The owner's verdict, and what it asked for next
+Re-run in full after each `main` merge and after the hover, not once at the
+start.
 
-Both cards were answered within minutes. `…a172fe`: **"looks good"**.
-`…7ae046`, the superseded one, carried the substance:
+## What the owner said, and the one thing still open
 
-> *"This look good. more better graphs might be interesting. For whichever
-> you think it might be necessary, the user should be able to mouse hover
-> over some of the words and get and explaination of what it means and this
-> could also be a way to access more details data."*
+**All three cards answered, all three approved.**
 
-**The hover is built, both halves of it.** Every row carries a
-`ColonyRow::note` drawn by `App::draw_colony_note`, and a note is not a
-glossary entry: it says what the row means *and carries what did not fit on
-it* — the raw counts behind each rate, the exact hunger threshold behind the
-histogram's colours, what each trait is and which way its axis runs. The box
-sits **beside the panel, level with the row**, not under the pointer, because
-a box that follows the cursor covers the line it is explaining.
+| card | asked | answered |
+|---|---|---|
+| `20260830T052805753Z-7ae046` | the panel, first version | *"This look good. more better graphs might be interesting… the user should be able to mouse hover over some of the words and get and explaination of what it means and this could also be a way to access more details data."* |
+| `20260830T060547213Z-a172fe` | the same panel post-merge, on a hungry colony — right things on it? rate rows earning their space? too wide? | *"looks good"* |
+| `20260830T070742689Z-1ae70e` | the hover, and what he would want graphed | *"looks good"* |
 
-Guarded by `hovering_a_colony_row_explains_it_and_hovering_a_gap_does_not`,
-which asserts both directions (a check that only looks for the note appearing
-passes for a panel that draws a box wherever the cursor is) and, in passing,
-drives every note through `colony_text`'s glyph assert — the only thing that
-can see a character the font would draw as a blank gap, since the notes are
-built at run time.
+**The hover was the actionable half of the first answer, and it shipped in the
+same PR.** Every row carries a `ColonyRow::note` drawn by
+`App::draw_colony_note`, and a note is not a glossary entry: it says what the
+row means *and carries what did not fit on it* — the raw counts behind each
+rate, the exact hunger threshold behind the histogram's colours, what each
+trait is and which way its axis runs. The box sits beside the panel, level
+with the row, not under the pointer, because a box that follows the cursor
+covers the line it is explaining.
 
-**Not done: "more better graphs".** Put back to the owner on card
-`20260830T070742689Z-1ae70e` with two concrete proposals — food delivered over time beside
-the population strip, and the energy histogram as a moving band rather than a
-snapshot — rather than guessed at. Whoever picks this up should read that
-card's answer first.
+**Still open: which graph.** *"More better graphs might be interesting"* was
+put back to him rather than guessed at, with two concrete proposals — food
+delivered over time beside the population strip, and the energy histogram as a
+moving band rather than a snapshot. He answered **"looks good" and named
+neither**, so read that as approval of the hover and *no direction on graphs*,
+which is not the same as a request for them. Both proposals are still unpriced.
+Anyone building one should post the picture before the code: "more better
+graphs" is exactly the ambiguous complaint `CLAUDE.md` says to resolve by
+rendering both readings rather than spending the detour on the wrong one.
 
-## Review
+Card `…a172fe` supersedes `…7ae046`, whose *picture* is not worth reading (it
+predates the `main` merge, so every ant sat at the same energy and the
+histogram was one bar). Its *text* is where the hover was asked for.
 
-Card **`20260830T060547213Z-a172fe`** on board `creatures`, posted
-2026-08-30: the panel over a hungry 40-ant colony, asking whether the right
-things are on it, whether the three rate rows earn their space, and whether
-it should be narrower. Verdict not yet collected —
-`python3 scripts/review.py inbox`.
+## Landing it, and the conflict every creature lane will hit
 
-It supersedes `20260830T052805753Z-7ae046`, posted half an hour earlier and
-**not worth reading**: that shot predates the merge with `main`, so its ants
-were on the old full-size food budget and every one of them sat at the same
-energy — the histogram was a single bar, which is the worst possible
-advertisement for the reason it is a histogram. Post-merge the same panel
-reads `HUNGRY 37 OF 40` with the mass piled against the empty end and one ant
-still nearly full, which is the case the shape exists for.
+**Merged as `c4bb564` (PR #157), 2026-08-30.** The branch was deleted on
+merge, so the SHAs are history rather than somewhere to push: `29501b8`
+(second `main` merge) over `80ec04f` (the hover) over `b07847b` over
+`322ea66` (first `main` merge) over `a25584f` (the panel).
 
-## Pulled in
-
-`main` came in **twice**, at `322ea66` (33 commits) and `29501b8` (17 more),
-because the creature line landed three PRs while this one was open. Both
-merges conflicted in exactly the same two places, and the shape is worth
-recording for whoever is next: **`README.md`'s generated table of contents
-and `wiki/ants.md`'s freshness note conflict on every landing**, by
-construction rather than by bad luck — the TOC carries a line number for
-every section so any insertion moves all of them, and every creature PR
-writes a dated line at the top of the wiki page.
+`main` came in **twice** — 33 commits, then 17 more — because the creature
+line landed several PRs while this one was open. Both merges conflicted in
+exactly the same two places, and the shape is worth recording because it is
+**structural rather than bad luck**: `README.md`'s generated table of contents
+carries a line number for every section, so any insertion anywhere moves all
+of them; and every creature PR writes a dated line at the top of
+`wiki/ants.md`. Every creature lane will hit both.
 
 Neither needs judgement. The TOC is resolved by taking main's side and
-re-running `scripts/readmetoc.py` — but check first that every conflict is
-*inside* the generated block before resolving blind, which is three lines of
-python and the difference between a merge and a silent loss. The freshness
+re-running `scripts/readmetoc.py` — but **check first that every conflict is
+inside the generated block**, which is three lines of python and the
+difference between a merge and a silent loss of real content. The freshness
 note is resolved by keeping both dates in one sentence, newest first.
 
-That merge is also the trait guard paying for itself: `CREATURE_TRAITS` went
-1 -> 2 while this branch was open, and the panel grew a `DOWRY` row with no
-edit to the layout — only a name added to `colony_trait_label`, which is one
-line and optional (it would have drawn `TRAIT 1` and been correct). It also
-made the panel a much better demonstration of itself: with main's smaller
-food budget and its starvation path, the same colony reads `HUNGRY 37 OF 40`
-with the energy piled against the empty end and one ant still nearly full,
-where before the merge all forty sat on one bar.
+**A clean merge is not a safe one here.** At merge time `main` was 14 commits
+further on and GitHub reported `clean`, which is the state `CLAUDE.md` records
+twice as having broken the tree anyway. So the merge was simulated first —
+`git worktree add --detach` at the then-current `origin/main`, merge the
+branch into it, and run `docscheck`, the build and the colony guards there.
+Clean, then merged, then `docscheck` re-run against the real landed `main`.
+Clean both times. That whole check costs about a minute and is the only thing
+that sees a stale generated file.
 
-## Head
+## The trait guard paying for itself
 
-`29501b8c766ec74b19a99487ddc10f3ae5b95554` on
-`claude/creature-lane-g-panel` — the second `main` merge, over
-`80ec04fc222f59f9618bd1250a999057f47c711f` (the hover) and
-`b07847b815f8a8ac11f1cb72ec9ec4ea4242a275` on
-`claude/creature-lane-g-panel`, which is `322ea66`'s merge of `main`
-(`3a86ff5`) plus `a25584f` (the panel) plus this note.
+`organism::CREATURE_TRAITS` went 1 -> 2 in the first `main` merge, while this
+branch was open. The panel grew a `DOWRY` row with **no layout edit** — only a
+name and a one-line meaning added, both optional (it would have drawn
+`TRAIT 1` and been correct). That is the whole reason the trait section is
+sized by the constant.
 
-Files touched: `src/app.rs`, `src/main.rs` (the `SHIFT+Y` arm only),
-`README.md`, `wiki/ants.md`, `Reports/lanes/creature-lane-g.md`. Nothing in
-`src/sim/`, nothing in `assets/`, nothing in `examples/`.
+It also made the panel a far better demonstration of itself: with `main`'s
+smaller food budget and its new starvation path, the same colony reads
+`HUNGRY 37 OF 40` with the energy piled against the empty end and one ant
+still nearly full, where before the merge all forty sat on one bar.
