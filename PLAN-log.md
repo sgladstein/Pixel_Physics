@@ -3782,3 +3782,57 @@ permanently. A per-tile gate is the repair and is worth ~1.1x.
 `Reports/evolution-lab-feasibility-2026-08-30.md` §3a records the wrong version
 beside the right one rather than overwriting it, because the wrong one is the
 intuitive reading and someone will arrive at it again.
+
+## 2026-08-30 — three claims in the feasibility report do not survive being attacked
+
+The owner asked why the shipped game is nowhere near the 1.4 generations per
+minute the headless bed measured, and then asked for anything contradicting
+the analysis to be validated. Three of the report's claims failed.
+
+**1. "World size is not a term in the cost" — true only with the sky held.**
+The width sweep behind it was run on the `lab` arm alone. Re-run with both,
+founders fixed at 16:
+
+  width   live ms   live solved/f   lab ms   lab solved/f   tiles in world
+    512     4.818            40.0    5.092           24.7               40
+   1024     5.133            80.0    3.897           40.3               80
+   2048     5.484           160.0    2.679           53.4              160
+   4096     7.178           320.0    4.082          123.2              320
+
+With the sun running, `solved/frame` is **exactly every tile in the world,
+every frame**, and the field's cost is linear in width (2.32 -> 6.52 ms). The
+mechanism is `sky_drifted`, which `frame-cost-audit-2026-08.md` named in
+August: a lit tile with a stale amplitude solves whether or not anything in it
+moved. So under a moving sun width IS the dominant term -- which is why the
+shipped game is slow -- and the lab's saving is real but conditional on there
+being no sun.
+
+**2. "Deleting rock and collapse saves essentially nothing" — wrong, and
+wrong circularly.** It was measured in a hand-built bed with nothing to
+collapse, so the collapse system idled by construction. Asked of the shipped
+world with `PROBE_NO_LOAD=1`:
+
+  active sites: scheduler   3.389 ms (16.7%)  ->  0.197 ms (1.4%)
+  whole frame              20.262 ms          -> 14.263 ms
+
+**3.19 ms directly, 15.7% of the frame, a 17x drop.** The whole-frame 30% is
+one unpaired pair and is a direction, not a figure. The conclusion survives
+(a lab box is fast) but the reason was wrong: you collect that 16% by not
+having rock, not by deleting code.
+
+**3. "~0.7 us per living plant cell" — not a constant.** The three arms it was
+read off all ran at the same width and the same founder count, so they could
+not test a per-cell model at all -- this file's own *ask what your number
+counts* rule, applied to a ratio. On the sweep that does vary the stand it is
+strongly sublinear (2.25 us/cell at 497 cells, 0.91 at 5,684 -- an 11x stand
+for 4.6x the cost), and in the `live` arm it breaks outright.
+
+Also recorded: the shipped world on this machine measures **20.262 ms/frame
+with no render and nobody playing**, 60.4% of frames over budget, 5,120 chunks
+resident and **24 awake**. Report gains section 3b, which decomposes the
+game-versus-harness gap into the sun, the renderer and the 60 Hz fixed
+timestep, and section 3c for the destruction correction.
+
+`Reports/frame-cost-the-render-half-2026-08-29.md` is another session's, not
+this one's; its glow-halo fix is already in this tree, so the render figures
+quoted here are post-fix.

@@ -24,16 +24,24 @@ the biology: **plants breed and ants do not**, measured today.
    real time.** The engine's sleeping machinery is already perfect. Every
    frame of cost in this game is bought by something being alive.
 
-2. **Cost is proportional to living biomass, at ~0.7 µs per plant cell per
-   tick, and is very nearly independent of world size.** A 2048-wide box
-   measured *cheaper* than a 512-wide one holding founders fixed. Shrinking
-   the world buys nothing; that is the first thing the concept gets wrong.
+2. **Under a held grow light, cost follows living biomass rather than world
+   size** — a 2048-wide box measured *cheaper* than a 512-wide one at fixed
+   founders, so shrinking the world buys nothing. **Under a moving sun the
+   opposite holds and world width is the dominant term**, which is why the
+   shipped game is slow (§2, §3b). The per-cell figure is **not a constant**:
+   it runs 2.25 µs/cell at a 497-cell stand down to 0.91 at 5,684, and the
+   model breaks entirely once the sun is running.
 
-3. **Deleting rock, collapse, explosions, the gnome and rigid bodies saves
-   essentially zero frame time — they measure 0.000–0.001 ms already.** What
-   deletion buys is scope, risk and *the freedom to change the sweep's
-   cadence*, which is the largest untaken lever (§4). It is worth doing for
-   those reasons and not for speed.
+3. **Deleting rock and collapse is worth ~16% of the shipped frame** — the
+   structural scheduler runs at 3.389 ms and falls to 0.197 ms when its load
+   walks are switched off, a 17x drop no machine noise explains. The whole
+   frame falls 30% in the same pair, but that half is one unpaired
+   comparison and is a direction rather than a figure. **An earlier
+   draft of this report said it was worth "approximately nothing", from a
+   measurement taken in a bed with no rock in it; §3c is the correction.**
+   You do not collect that 30% by deleting code, you collect it by not having
+   rock — which is the same thing from the player's side and a different
+   thing from the budget's.
 
 4. **The organisms are 7% of the frame and the biosphere is 93%** — and the
    93% is not overhead, which is the correction §3a records. The CA sweep
@@ -118,23 +126,63 @@ varying only the number of founders:
 
 **An empty sealed box is free.** Not cheap — free, at a thousandth of a
 millisecond, with the field solving nothing and no chunk awake. Everything
-after that is bought by life, at roughly **0.6–0.8 µs per living plant cell
-per tick**, a figure that holds across all three `live`/`calm`/`lab` arms
-(0.813 / 0.743 / 0.635 µs per cell).
+after that is bought by life.
 
-**And world size is not a term in it.** Holding founders at 16 and widening
-the bed:
+**But "0.7 µs per living plant cell" is not a constant, and an earlier draft
+quoted it as one.** The three arms it was read off (`live` 0.813, `calm`
+0.743, `lab` 0.635 µs/cell) all ran at the *same* width and the *same* founder
+count, so they cannot test a per-cell model at all — that is this file's own
+*ask what your number counts* rule, applied to a ratio. Read off the sweep
+that does vary the stand, it is strongly **sublinear**:
 
-| width | ms/tick | plant cells |
+| plant cells | ms/tick | µs per cell |
 |---|---|---|
-| 512 | 3.232 | 2,322 |
-| 1024 | 2.936 | 1,932 |
-| 2048 | **2.505** | 1,780 |
+| 497 | 1.118 | **2.25** |
+| 1,932 | 2.942 | 1.52 |
+| 5,684 | 5.156 | **0.91** |
 
-Four times the cells, **22% less cost** — because the same 16 founders spread
-thinner, and cost follows the stand rather than the grid. The intuition that a
-small box is a fast box is measurably backwards. What a small box does is
-*concentrate* the stand, which is the expensive direction.
+An 11x stand costs 4.6x. And in the `live` arm the model breaks outright —
+1,622 cells at 4.818 ms (2.97 µs/cell) against 1,247 cells at 7.178 ms (5.76),
+because there the sun's width-driven cost dominates and biomass is not the
+term at all. **So: use ~1–2 µs/cell as a sizing rule for a grow-lit box, know
+it falls as the stand grows, and do not use it under a moving sun.**
+
+**World size is not a term in it — but only once the sun stops moving, and
+that qualifier is the whole reason the shipped game is slow.** An earlier
+draft of this section stated the first half flatly, from a sweep run on the
+`lab` arm alone. Re-run with both arms, founders held at 16:
+
+| width | `live` ms/tick | `live` solved/f | `lab` ms/tick | `lab` solved/f | tiles in world |
+|---|---|---|---|---|---|
+| 512 | 4.818 | **40.0** | 5.092 | 24.7 | 40 |
+| 1024 | 5.133 | **80.0** | 3.897 | 40.3 | 80 |
+| 2048 | 5.484 | **160.0** | 2.679 | 53.4 | 160 |
+| 4096 | 7.178 | **320.0** | 4.082 | 123.2 | 320 |
+
+**With the sun running, `solved/frame` is exactly every tile in the world,
+every frame** — 40, 80, 160, 320 against worlds holding 40, 80, 160 and 320 —
+and the field's cost tracks it linearly: 2.32 → 3.59 → 4.75 → 6.52 ms. With
+the sky held it is 24.7 → 123.2 for the same widths, sublinear, and the field
+runs 2.04 → 3.30 ms.
+
+The mechanism is `sky_drifted`, and `frame-cost-audit-2026-08.md` named it in
+2026-08-24: *"the sun wakes tiles over rock that has not moved in ten thousand
+years"* — a lit tile whose stored amplitude is stale goes into the solve set
+whether or not anything in it moved. At 8192 wide that is the entire surface
+of the world.
+
+So the correct statement is conditional, and both halves matter:
+
+- **Under a moving sun, world width is the dominant cost term.** This is what
+  the shipped game runs, and §3b is what it costs there.
+- **Under a held grow light, it is not** — a wider bed is *cheaper* at fixed
+  founders (2.679 against 5.092 ms), because the same stand spreads thinner
+  and cost follows the stand rather than the grid. A small box *concentrates*
+  the stand, which is the expensive direction.
+
+The lab concept sits on the second row by construction: a sealed box has no
+sun to drift. That is not an optimisation to be built, it is the arm measured
+above.
 
 **Soil depth is a real cost and, at this stand size, buys nothing.**
 Same bed at 1024x512, founders fixed:
@@ -217,6 +265,103 @@ number is the game.
 **One part is separable, and it is much narrower than the earlier draft
 claimed** — see §4a, which is rewritten around the measurement that settled
 it.
+
+### 3b. Why the shipped game is so much slower than any of this
+
+The owner asked it directly: *"you are saying headless you can grow plants at
+1.4 generations per minute, but I cannot do that in the actual game."*
+Correct, and the gap is three separate multipliers, none of which the lab bed
+pays.
+
+**The shipped world, this machine, `scale_probe size=8192x2560 phases=1
+warm=600 frames=1800`:**
+
+```
+                   phase       mean        p90      worst     share
+                   field   13.950ms   25.774ms   39.572ms     68.9%
+ active sites: scheduler    3.389ms    7.558ms   21.575ms     16.7%
+ active sites: organisms    1.486ms    3.125ms   10.648ms      7.3%
+  sweep (parallel::step)    1.403ms    2.308ms    5.690ms      6.9%
+      (the other seven)     <0.02ms                            0.1%
+             WHOLE FRAME   20.262ms   32.768ms   51.301ms
+live organisms: 325   chunks: 5120   awake chunks: 24
+1087 of 1800 frames (60.4%) exceeded the 16.6 ms budget
+```
+
+1. **The sun makes the world's size a per-frame cost.** 5,120 chunks resident,
+   **24 awake** — under half a percent of the world has anything moving in it
+   — and the field still costs 13.95 ms, 69% of the frame. §2's table is the
+   controlled version of the same effect. This is the largest of the three and
+   the lab removes it outright.
+2. **The game renders and the harness does not.** `render_cost` measures a
+   full 512x320 redraw at 2.407 ms on this tree, and the renderer redraws
+   essentially every frame while the gnome walks, because a camera move
+   invalidates every pixel. `frame-cost-the-render-half-2026-08-29.md` is the
+   record for that half and puts the shipped world's full redraw at ~7.5 ms
+   after its glow-halo fix (from ~42 ms before it). Nothing in this report's
+   own timings includes a draw.
+3. **The game is capped at 60 ticks per second by design, and does not reach
+   it.** `main.rs` runs a fixed timestep with `MAX_TICKS_PER_FRAME = 5`, so a
+   real-time session advances the simulation 60 times a second at best — where
+   the headless bed runs as fast as it can and measured 175–256. With 60% of
+   frames over budget it lands nearer 35–50.
+
+**Multiplied out**: the shipped game advances maybe 40 ticks a second against
+the bed's 175–256, so the same herb generation that takes 43 seconds headless
+takes **four to seven minutes** in the app. That is the discrepancy, and none
+of it is a mystery — it is a 21-million-cell world under a moving sun, drawn
+every frame, advancing at wall-clock speed.
+
+**Every one of the three is removed by the concept rather than optimised
+away.** No sun (§2), a box small enough to draw cheaply and a wall instead of
+a sky (§4d), and an experiment phase that is explicitly not real-time (§4c).
+That is the strongest argument in this report for the lab being a different
+*game* rather than a smaller world: the shipped game's cost is dominated by
+things a lab does not have.
+
+### 3c. Deleting the destruction half is *not* free — a second correction
+
+**The §3 paragraph above says the phases the concept deletes measure
+0.000–0.003 ms, and concludes that deleting them is worth "approximately
+nothing in frame time". That conclusion is wrong, and it is wrong
+circularly**: it was measured in a hand-built bed of soil and stone that has
+nothing to collapse, so the collapse system idles by construction. Asking a
+bed with no rock in it what the rock system costs is not a measurement.
+
+Asked of the shipped world instead — `scale_probe size=8192x2560 phases=1`,
+`PROBE_NO_LOAD=1` zeroing `load_budget` so the structural checks stop walking
+load — the answer is large:
+
+| | default | `PROBE_NO_LOAD=1` |
+|---|---|---|
+| `active sites: scheduler` | **3.389 ms** (16.7%) | **0.197 ms** (1.4%) |
+| field | 13.950 ms | 11.309 ms |
+| **whole frame** | **20.262 ms** | **14.263 ms** |
+| awake chunks | 24 | 22 |
+
+`scheduler::step` is the structural-check scheduler — its own code names the
+load walks as *"the expensive half of this phase"*. **The direct saving is
+3.19 ms, 15.7% of the frame, and a 17x drop is not something machine state
+explains.** The whole-frame figure is weaker evidence and should be read as
+indicative: it is **one unpaired pair**, not the alternating paired runs this
+file's own rules ask for on a whole-frame delta, and the field's 2.6 ms of it
+is a knock-on that cannot be separated anyway — with nothing collapsing fewer
+chunks wake, and the two runs' worlds genuinely diverge (325 organisms against
+326). Quote the 16%; treat the 30% as a direction.
+
+**What this changes and what it does not.** The concept's conclusion survives
+— a lab box is fast — but the reason given for it was wrong. You do not get
+the 30% by *deleting code*; you get it by **not having rock**, which a lab bed
+does not have anyway. So:
+
+- Against the shipped game, the destruction half is ~16% of the frame
+  directly and ~30% with its knock-on.
+- Against a lab bed, deleting it saves ~0.03 ms, because there is nothing
+  left to save.
+
+Both are true and they answer different questions. The first is what the
+owner feels when playing; the second is what a lab-box budget looks like. The
+earlier draft quoted the second as though it answered the first.
 
 ## 4. Where the speed actually is
 
@@ -379,9 +524,16 @@ to every knob in the file, so lowering `start_energy` lowers the ceiling
 faster than the cost: bank-over-bar goes 0.30 → 0.21 → 0.16 as the budget is
 cut from 900 to 200 to 90.
 
-**This is the single thing standing between the concept and its premise.** A
-game about evolving creatures across generations, on a creature that has never
-produced a second generation. The fixes named at the source are structural,
+**Read the provenance honestly.** What was measured *here* is one scene —
+`terrain=world`, 45 founders, 12,000 frames, one seed — reporting zero births.
+The general claim ("at any grant and at any budget") is `ant.ron`'s, from a
+sweep this session did not re-run, and the arithmetic above is what makes it
+credible rather than the single run. A reader wanting to overturn it should
+attack the bank ceiling, not the birth count.
+
+**Subject to that, it is the single thing standing between the concept and its
+premise.** A game about evolving creatures across generations, on a creature
+that has never produced a second generation. The fixes named at the source are structural,
 not tuning: a child born at one cell that grows into its plan, or a gut
 specialised enough to draw a full leaf's 480. Full arithmetic in
 `creature-birth-grant-2026-08-30.md`.
@@ -444,6 +596,11 @@ for.
 
 - **Whether it is fun.** Nothing here is a judgement about play. The engine
   can carry it; that is a different claim.
+- **Whether generations arrive evenly.** §5's "1.4 per minute" divides total
+  generations by total wall clock, and generation depth is not linear in
+  time — the founding cohort has to mature before anything can be a second
+  generation, so the early minutes are slower than the figure and the later
+  ones faster. Nothing here measured the curve.
 - **What a mature stand costs.** Cost is per living cell and the stand grows,
   so a box at equilibrium has never been measured — the 45,000-frame run was
   still growing at the end. The relevant number for a long experiment is the
