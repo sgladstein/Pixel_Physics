@@ -1,6 +1,6 @@
 # Explosions
 
-*Current as of: 2026-08-29. A blast breaks rock along the grain the rock
+*Current as of: 2026-08-30. A blast breaks rock along the grain the rock
 already has, rather than drawing a star of fissures across it, and so does
 every collapse that follows it; see also the note at the top of
 [Structural Collapse](structural-collapse.md), and confinement, the crack
@@ -101,6 +101,15 @@ into the grain, cracking rock several blast-widths out. Between them sits the
 ordinary stick of dynamite. A blasting cap is barely more than a pockmark and
 a tight little web, and a demolition shot is the spectacle — a wide crater,
 a long throw and a real fireball.
+
+**A blast tidies up after itself.** Heavy work — a mountainside taken apart
+with charge after charge — used to leave a haze of single stones and small
+clumps hanging in the empty air where the rock had been, and they mostly
+stayed there. Anything the blast strands that is small enough and touching
+nothing at all now simply falls, at once, as loose grit. Bigger pieces still
+take their time and come down when whatever was holding them gives way, which
+is the difference that matters: a chip with nothing under it has no reason to
+hesitate, and a sagging roof does.
 
 Materials also differ in how much a blast chews through: loose ground
 like sand and soil gives way much further than solid stone under the same

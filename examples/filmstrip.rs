@@ -2700,6 +2700,17 @@ struct Args {
     /// rectangle including the rock, which changes the thing under test;
     /// this erases only what is loose.
     depowder: Option<usize>,
+    /// `recheck=frame` -- **the control for "is a hanging fragment declined,
+    /// or never asked?"** At `frame`, schedule a structural check on every
+    /// solid cell in the world, once. Nothing else changes: same rules, same
+    /// budget, same everything, only the queue is refilled.
+    ///
+    /// If the hanging count falls afterwards, the model would have removed
+    /// those cells all along and the queue never reached them -- a
+    /// scheduling bug. If it does not move, the rule is declining them and
+    /// the queue is innocent. Those are opposite fixes, and no counter
+    /// already in the harness separates them.
+    recheck: Option<usize>,
     /// `poke=x,y,frame` -- schedule a structural check on that cell and its
     /// four neighbours at the given frame, changing nothing else.
     /// Repeatable.
@@ -3034,6 +3045,11 @@ struct Args {
     /// before the ladder, and is the control any before/after over the crack
     /// pattern's *weight* has to be run against.
     joint_seam_width: Option<u32>,
+    /// `chipsweep=` -- `explosion::Tuning::chip_sweep_cells`, the cap on the
+    /// stranded-chip sweep. `0` is the control: a blast that leaves its
+    /// floating debris exactly where the engine left it before the sweep
+    /// existed.
+    chip_sweep_cells: Option<u32>,
     /// `crack_rays=` -- the hybrid knob. `0` (the default) is pure fabric;
     /// 4-6 puts the old radial walker back on top of it for an A/B.
     crack_rays: Option<u32>,
@@ -3099,6 +3115,7 @@ fn parse() -> Args {
         chops: Vec::new(),
         fell: None,
         depowder: None,
+        recheck: None,
         pokes: Vec::new(),
         probes: Vec::new(),
         loadmap: false,
@@ -3130,6 +3147,7 @@ fn parse() -> Args {
         joint_open: None,
         joint_density: None,
         joint_seam_width: None,
+        chip_sweep_cells: None,
         charge: None,
         crack_rays: None,
         smoke: None,
@@ -3355,6 +3373,7 @@ fn parse() -> Args {
             "jopen" => a.joint_open = Some(v.parse().expect("jopen")),
             "jdensity" => a.joint_density = Some(v.parse().expect("jdensity")),
             "jwidth" => a.joint_seam_width = Some(v.parse().expect("jwidth=<max seam cells 1..4>")),
+            "chipsweep" => a.chip_sweep_cells = Some(v.parse().expect("chipsweep=<max stranded chip cells, 0 = off>")),
             "charge" => a.charge = Some(v.into()),
             "crack_rays" => a.crack_rays = Some(v.parse().expect("crack_rays")),
             "smoke" => a.smoke = Some(v.parse().expect("smoke=<fraction 0..1>")),
@@ -3406,6 +3425,7 @@ fn parse() -> Args {
                 a.chops.push((n[0] as i32, n[1] as i32, n[2] as i32, n[3], n[4] as usize));
             }
             "depowder" => a.depowder = Some(v.parse().expect("depowder")),
+            "recheck" => a.recheck = Some(v.parse().expect("recheck=<frame>")),
             "poke" => {
                 let n: Vec<i32> = v.split(',').map(|s| s.parse().expect("poke")).collect();
                 assert_eq!(n.len(), 3, "poke=x,y,frame");
@@ -3557,6 +3577,26 @@ fn fire_due_cuts(world: &mut World, pending: &mut Vec<(i32, i32, i32, i32, usize
 /// The cave-volume and cells-lost lines are **not comparable across this
 /// flag** -- vacuuming rubble empties cells the census would otherwise still
 /// count. Compare a vacuumed run only against another vacuumed run.
+/// Refill the structural queue with every solid cell in the world, once.
+/// See `Args::recheck`.
+fn fire_due_recheck(world: &mut World, pending: &mut Option<usize>, now: usize) {
+    match *pending {
+        Some(frame) if frame <= now => {}
+        _ => return,
+    }
+    *pending = None;
+    let mut asked = 0;
+    for y in 0..HEIGHT {
+        for x in 0..WIDTH {
+            if matches!(world.materials.kind(world.get(x, y).material), MaterialKind::Solid) {
+                world.schedule_structural_check_around(x, y);
+                asked += 1;
+            }
+        }
+    }
+    println!("  recheck: at frame {now}, {asked} solid cells re-queued for a structural check");
+}
+
 fn fire_due_depowder(world: &mut World, pending: &mut Option<usize>, first: &mut bool, now: usize) {
     match *pending {
         Some(frame) if frame <= now => {}
@@ -5596,6 +5636,7 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, (usize, usize), (i
     let mut pending_cuts = args.cuts.clone();
     let mut pending_chops = args.chops.clone();
     let mut pending_fell = args.fell;
+    let mut pending_recheck = args.recheck;
     let mut pending_depowder = args.depowder;
     let mut depowder_first = true;
     let mut pending_pokes = args.pokes.clone();
@@ -5622,6 +5663,9 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, (usize, usize), (i
     }
     if let Some(v) = args.joint_seam_width {
         blasts.tuning.joint_seam_width = v.max(1);
+    }
+    if let Some(v) = args.chip_sweep_cells {
+        blasts.tuning.chip_sweep_cells = v;
     }
     if let Some(v) = args.joint_density {
         blasts.tuning.joint_density = v;
@@ -5689,6 +5733,7 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, (usize, usize), (i
                 fire_due_chops(&mut world, &mut pending_chops, step_no);
                 fire_due_fell(&mut world, &mut pending_fell, step_no);
                 fire_due_depowder(&mut world, &mut pending_depowder, &mut depowder_first, step_no);
+                fire_due_recheck(&mut world, &mut pending_recheck, step_no);
                 fire_due_pokes(&mut world, &mut pending_pokes, step_no);
                 fire_due_dries(&mut world, &mut pending_dries, step_no);
                 fire_due_ignitions(&mut world, &mut pending_ignitions, step_no);
@@ -5711,6 +5756,7 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, (usize, usize), (i
             fire_due_chops(&mut world, &mut pending_chops, step_no);
             fire_due_fell(&mut world, &mut pending_fell, step_no);
             fire_due_depowder(&mut world, &mut pending_depowder, &mut depowder_first, step_no);
+                fire_due_recheck(&mut world, &mut pending_recheck, step_no);
             fire_due_pokes(&mut world, &mut pending_pokes, step_no);
             fire_due_dries(&mut world, &mut pending_dries, step_no);
                 fire_due_ignitions(&mut world, &mut pending_ignitions, step_no);
@@ -5878,6 +5924,7 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, (usize, usize), (i
             fire_due_chops(&mut world, &mut pending_chops, step_no);
             fire_due_fell(&mut world, &mut pending_fell, step_no);
             fire_due_depowder(&mut world, &mut pending_depowder, &mut depowder_first, step_no);
+                fire_due_recheck(&mut world, &mut pending_recheck, step_no);
             fire_due_pokes(&mut world, &mut pending_pokes, step_no);
             fire_due_dries(&mut world, &mut pending_dries, step_no);
                 fire_due_ignitions(&mut world, &mut pending_ignitions, step_no);
@@ -5934,6 +5981,7 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, (usize, usize), (i
         fire_due_chops(&mut world, &mut pending_chops, step_no);
         fire_due_fell(&mut world, &mut pending_fell, step_no);
         fire_due_depowder(&mut world, &mut pending_depowder, &mut depowder_first, step_no);
+                fire_due_recheck(&mut world, &mut pending_recheck, step_no);
         fire_due_pokes(&mut world, &mut pending_pokes, step_no);
         fire_due_dries(&mut world, &mut pending_dries, step_no);
                 fire_due_ignitions(&mut world, &mut pending_ignitions, step_no);
@@ -6434,6 +6482,71 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, (usize, usize), (i
         let hanging = hanging_cells.len() as u32;
         if hanging > 0 {
             println!("    hanging: {hanging} unattached solid cells the load model says reach no anchor");
+            // **§S7: how many of them can actually go anywhere.** The census
+            // above is the model's verdict; this is the split that decides
+            // what to do about it. A hanging cell with an air face is one the
+            // player sees floating and is the bug; one walled in by solid on
+            // all four faces has nowhere to fall, and `crush_in_place` scoring
+            // a fissure is arguably the right answer for it. Printed together
+            // because the two totals call for different fixes and the
+            // undivided number reads as one problem.
+            let free = hanging_cells
+                .iter()
+                .filter(|&&(x, y)| {
+                    [(1, 0), (-1, 0), (0, 1), (0, -1)].iter().any(|&(dx, dy)| {
+                        let c = world.get(x + dx, y + dy);
+                        c.material == material::EMPTY || matches!(world.materials.kind(c.material), MaterialKind::Gas)
+                    })
+                })
+                .count();
+            println!("      of those, {free} have a free face (can fall) and {} are walled in by solid", hanging as usize - free);
+            // **Feasibility check for a fix that needs no support model at
+            // all**: how many are in a solid component touching *nothing*
+            // but air and gas. Such a piece is floating by inspection --
+            // no anchor rule, no distance field and no budget can talk it
+            // out of the answer -- so it can be dealt with locally by
+            // whatever made it. A fragment still joined to the massif by a
+            // thread is a different problem and needs the load model.
+            {
+                use std::collections::VecDeque;
+                let solid = |x: i32, y: i32| {
+                    world.in_bounds(x, y) && matches!(world.materials.kind(world.get(x, y).material), MaterialKind::Solid)
+                };
+                let mut seen: std::collections::HashSet<(i32, i32)> = std::collections::HashSet::new();
+                let (mut islands, mut island_cells) = (0usize, 0usize);
+                for &(sx, sy) in &hanging_cells {
+                    if seen.contains(&(sx, sy)) || !solid(sx, sy) {
+                        continue;
+                    }
+                    let mut queue = VecDeque::from([(sx, sy)]);
+                    let mut member = vec![(sx, sy)];
+                    seen.insert((sx, sy));
+                    let mut isolated = true;
+                    while let Some((cx, cy)) = queue.pop_front() {
+                        if member.len() > 256 {
+                            isolated = false;
+                            break;
+                        }
+                        for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
+                            let (nx, ny) = (cx + dx, cy + dy);
+                            let c = world.get(nx, ny);
+                            if solid(nx, ny) {
+                                if seen.insert((nx, ny)) {
+                                    member.push((nx, ny));
+                                    queue.push_back((nx, ny));
+                                }
+                            } else if !(c.material == material::EMPTY || matches!(world.materials.kind(c.material), MaterialKind::Gas)) {
+                                isolated = false; // powder, liquid, plant or the world edge could hold it
+                            }
+                        }
+                    }
+                    if isolated {
+                        islands += 1;
+                        island_cells += member.len();
+                    }
+                }
+                println!("      and {island_cells} cells in {islands} component(s) touch nothing but air -- floating by inspection, no support rule needed");
+            }
             for line in describe_hanging(&world, &hanging_cells) {
                 println!("      {line}");
             }
@@ -6999,6 +7112,7 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, (usize, usize), (i
             fire_due_chops(&mut world, &mut pending_chops, step_no);
             fire_due_fell(&mut world, &mut pending_fell, step_no);
             fire_due_depowder(&mut world, &mut pending_depowder, &mut depowder_first, step_no);
+                fire_due_recheck(&mut world, &mut pending_recheck, step_no);
             if let Some(p) = panels.as_mut() {
                 p.capture(&world, &particles, &fired, step_no);
             }
@@ -7018,6 +7132,7 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, (usize, usize), (i
         fire_due_chops(&mut world, &mut pending_chops, step_no);
         fire_due_fell(&mut world, &mut pending_fell, step_no);
         fire_due_depowder(&mut world, &mut pending_depowder, &mut depowder_first, step_no);
+                fire_due_recheck(&mut world, &mut pending_recheck, step_no);
         if let Some(p) = panels.as_mut() {
             p.capture(&world, &particles, &fired, step_no);
         }
