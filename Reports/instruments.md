@@ -393,6 +393,26 @@ stiffness read off the pooled line is fitted to the wrong tissue. Each row
 prints its own material's stiffness and how many of its cells want to lean,
 which is the "did this constant connect to anything" reading.
 
+**The break census is three lines, and the third is the one that fits the
+constant.** `snapped under load` is the "did it fire" counter, kept separate
+from `severed_organism_cells` because that already folds in limbs that lost
+an anchor and cells that over-reached their span — a snap hidden inside it is
+invisible. The per-material `stress` line says how many cells are over their
+`strength`. And **`peak wood stress per plant`** is the one to fit against: a
+*stand* maximum is one cell in eight thousand belonging to the single
+worst-grown tree in the wood, so a threshold set above it is set above the
+whole failure mode. That mistake was made, shipped a constant of 60,000 that
+could not break anything even in a gale, and passed its own negative control
+while doing it. The per-plant list is printed raw beside the quantiles
+because a quantile over eight plants is not a quantile — p90 and max are the
+same order statistic at that sample size — so pooling the raw lists across
+seeds is what gives the tail enough plants to be a tail.
+
+**`BREAK=off` holds every plant unbreakable by load**, the sibling of
+`BEND=off` below and used the same way. It has a second use the bend switch
+does not: it is how the fitting census is taken at all, since a strength
+being *measured* must not be breaking the stand it is measured on.
+
 **`BEND=off` holds every plant rigid** and is the control for all of the
 above. It exists because both errors in this mechanism were found by holding
 the semantics fixed and changing nothing else. Comparing two *binaries*
