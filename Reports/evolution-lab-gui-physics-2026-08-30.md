@@ -20,6 +20,81 @@ valuable ones:
 
 ---
 
+## 1. The interface
+
+*"There should be buttons at the bottom of the screen to play ants, plants,
+pop up info panels, control the speed, what else should we have. It shouldn't
+all be keyboard shortcuts."*
+
+### 1a. What the lab had
+
+Everything was a key, and there were thirteen of them: WASD pan, `Esc`, `/`
+help, `Space` phase, arrows and `1`-`6` for speed, `Tab` stats, `R` reset,
+`-`/`=` zoom. Mouse handling existed but did nothing — `CursorMoved` stored a
+position that was read **only as a boolean** to force a full redraw, and
+`WindowEvent::MouseInput` was not handled at all; `MouseButton` was not even
+imported. The one on-screen readout was `ORGS 42` in the top-right corner.
+
+There is no widget toolkit in this repo and there was no `fill_rect`. What
+exists is `hud::draw_text` over a hand-authored 5x7 bitmap font, and
+`render::put`/`blend` for single pixels. Everything above those is written
+here.
+
+**Two traps the font carries**, both already paid for: `draw_text` upper-cases
+internally, and **any character outside its glyph set draws as a silent
+blank** — a trap that has shipped three times, which is why `lab/mod.rs`
+carries a standing test that every help line is drawable. There are no arrow
+or play/pause glyphs.
+
+### 1b. What else the lab should have
+
+The design guide's §4 already lists the verbs and what each produces. Sorted
+by what the interface can reach today, that gives three tiers — and the
+ordering is itself the answer, because tier 1 is exposing things that already
+run and tier 2 is where the engine work is.
+
+**Tier 1 — a control for something that already runs.** Nothing to build but
+the button.
+
+| control | what it drives |
+|---|---|
+| **transport** — play/pause, faster, slower, presets | `TimeControl`, shipped. The readout must keep **requested against achieved**; that pairing is the honesty mechanism the dial was built around |
+| **display rate** | 60/30/20/10 Hz. Lane D measures 20 Hz buying **2.6x** world-per-second on a loaded box, and the watchable crossover at **12 ticks per displayed frame** — so the rate is a player control, not a constant somebody picks |
+| **info panels** — plants, ants, the box | Every number is already on `World`; nothing needs simulating |
+| **inspector** — click a cell | `Renderer::screen_to_world` is built and the lab already holds a `Renderer`. This is the difference between an instrument and a screensaver |
+| **overlays** — light, moisture, temperature, pheromone | `FieldOverlay`/`OrganismOverlay` exist and are keys in the sandbox. **Pheromone is the interesting one**: it is at full cell resolution, and it is the colony's own map |
+| **export** — keep this specimen | `species_export` is built and round-trip verified |
+
+**Tier 2 — the verbs with no engine support.** The guide names `cull` and
+`partition` as the only two, *"and the two the premise most depends on"*.
+
+| control | why it is the expensive tier |
+|---|---|
+| **cull** — click an individual or a lineage, remove it | §7b-i's decided progression puts **selection only** in the opening. So the opening's entire lever is this verb, and it does not exist |
+| **partition / door** — drag a wall in, open a gap | Measured at **4.1x -> 7.6x** speed-up with the stand held to 0.2%, *and* evolutionary isolation, *and* the §5 score. One object, three payoffs |
+| **plant / release** — sow a seed, drop founders | Placement exists (`plant_tree_species`, colony founding). What is missing is the **choice**: the guide's own note is that planting must show the individual's traits *"or planting is a slot machine"* |
+| **equipment** — light, fan, heater, humidifier | The air simulation runs idle in a sealed box; equipment is what switches it on. §2c: the first fan costs, the rest are free, so the control is **"does this compartment have moving air"** and never "how many fans" |
+
+**Tier 3 — instruments the Running phase needs.** Open question #9 is that a
+fast-forward phase whose whole content is *watch evolution happen* has a
+legibility problem, and the owner has confirmed it directly: shown a colony
+that breeds beside one that cannot, same world, same moment, the verdict was
+*"no, not without motion at least"*.
+
+- **A run log** — births, deaths, first seed set, a lineage ending. A phase
+  that fast-forwards 45,000 frames must be able to say what happened while
+  the player was not looking.
+- **Hover explanations on every quantity.** This is an explicit owner
+  request, not an inference: *"the user should be able to mouse hover over
+  some of the words and get an explanation of what it means and this could
+  also be a way to access more details data"* — and the follow-up that built
+  it was answered *"looks good"*.
+- **A scrub bar.** Determinism is required same-build and fast-forward runs
+  the identical tick sequence, so a run is exactly reproducible from a seed
+  and a frame count. Rewinding is a replay, not a save format.
+
+---
+
 ## 2. Soil: the flaw, measured
 
 ### 2a. What was already believed
