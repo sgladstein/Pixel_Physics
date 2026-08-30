@@ -66,6 +66,23 @@ the owner one static frame where a sequence played), with the still and the
 moving decoy counts in `meta`. Fire-and-forget; collect with
 `review.py inbox`.
 
+## Re-taken after main was merged in
+
+Another session merged `main` into this branch at `9323e2e`, bringing **#142**
+(ants starve, a birth grant), #145, #146 and #149. My three files were not
+touched by it. Every figure in the report was **re-taken on the merged head
+and is identical** — ladder, ambient motion, all four live seeds, the
+never-moved fractions.
+
+Identical output across a merge is the stale-binary tell, so it was checked
+rather than assumed: rebuilt after the merge (binary 05:43:34 against
+`creature.rs` 05:39:03) and the binary carries `birth_grant`, which exists
+only in the merged `ant.ron`. It is unmoved because this harness runs 600
+frames of founders — nothing hatches and nothing starves in that window, so
+#142's ledger changes cannot reach it. Recorded in the report as §7a,
+including that a colony run long enough to starve is where the never-moved
+fraction would be expected to move.
+
 ## Landing
 
 - **Head SHA** `c997c58` — *The decoy field is static, and an ant is not:

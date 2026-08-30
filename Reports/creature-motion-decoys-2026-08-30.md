@@ -266,6 +266,35 @@ Three further boundaries, stated rather than buried:
   texture grain and stable across worldgen changes (§2 of the appearance
   report); the moving ladder has not been tested that way.
 
+## 7a. Re-taken after the merge, and why nothing moved
+
+`main` landed **#142** (ants starve; a birth grant), **#145**, **#146** and
+**#149** underneath this branch while the report was open, and #142 is
+creature code. Every figure above was re-taken on the merged head
+(`9323e2e`) rather than carried forward — `CLAUDE.md`'s rule that a baseline
+measured on a tree nobody else has does not transfer.
+
+**Every number is identical.** The whole probe ladder (371 / 141 / 57 / 36 /
+15 / 0 still, 1 / 0 / 0 / 0 / 0 / 0 moving), the ambient motion figure, and
+all four live seeds to the last percent — 148/1, 190/2, 277/2, 290/0, and the
+never-moved fractions 42 / 41 / 33 / 22%.
+
+**Identical output across a change that must have moved something is this
+repo's tell for a stale binary, so that was checked before the result was
+believed**: the example was rebuilt after the merge (binary 05:43:34 against
+`src/sim/creature.rs` at 05:39:03) and the built binary contains
+`birth_grant`, a field that exists only in the merged `assets/species/ant.ron`.
+The binary is the merged code.
+
+The reason it is unmoved is a **regime** difference worth stating, because it
+also bounds this report. #142 governs the colony's energy ledger — who
+starves, what a hatch costs — over long horizons. This harness places
+founders and runs **600 frames**, in which nothing hatches and nothing
+starves; it measures how a body *appears and moves*, and the merged changes
+touch neither. A colony run long enough to starve is a different question,
+and the fraction of ants that never move is exactly the number that would be
+expected to shift there.
+
 ## 8. What is on this branch
 
 Nothing here changes a shipped creature or any engine behaviour.
