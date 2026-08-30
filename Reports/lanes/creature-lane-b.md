@@ -164,6 +164,7 @@ further plant landing which changed what lies on the floor.
 | 3 → 4 | third decimal only — `arid` r64 median 0.440 → 0.420, some p90s, blocking by a tenth of a point |
 | **4 → 5** | **materially** — `wetland` r8 median 0.383 → 0.283, r64 0.572 → 0.622, blocking 28% → 24%, litter 21% → 11% of blockers, a new `gravel` appears |
 | 5 → 6 | nothing that matters — a blocked-pair count by 7 in 17,190, one blocker percentage by a point. The beetle's own code changed 245 lines and moved no order statistic |
+| 6 → 7 | **nothing at all** — byte-identical. A new species (`ant_block_shaded`) plus small `organism.rs`/`material.rs` additions; the new species is never planted in this scene |
 
 **The early identity is what makes the later movement informative.** Three
 byte-identical runs could equally have meant the instrument was insensitive
