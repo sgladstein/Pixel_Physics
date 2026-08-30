@@ -8356,10 +8356,10 @@ suite to a panic. `main` does not trigger it at 0.35 today, but the bug is
 still there and the next thing that puts vegetation on those columns hits it.
 Fixed by asking for ground — skip cells carrying an `organism_id`.
 
-### 1n. `grass` sets zero seeds on `main` — it reproduced two days ago
+### 1n. `grass` sets zero seeds on `main` — **OPEN; bisected 2026-08-30 to `19b87d8e`, diagnosed and not fixed**
 
-**OPEN, filed 2026-08-29.** The species the whole evolution programme is
-directed at does not reproduce at all on current `main`.
+**Filed 2026-08-29, cause found 2026-08-30.** The species the whole evolution
+programme is directed at does not reproduce at all on current `main`.
 
 ```
 ./target/release/examples/plant_probe species=grass trees=16 frames=45000 worldseed=1
@@ -8368,46 +8368,173 @@ directed at does not reproduce at all on current `main`.
      lineage turnover: 16 born, 0 died; germinations 16 (all founders)
 ```
 
-**It worked on 2026-08-27.** `plant-recruitment-measurement-2026-08-27.md`
-ran the *identical command* over eight seeds and reported grass at **19–32
-seeds set**, 6–12 established, and **generation 2 in seven of eight seeds** —
-the finding that produced the standing advice *"run evolution experiments on
-grass, not tree"*. That advice is currently false.
+**The first bad commit is `19b87d8e` (2026-08-27), *"Charge carbon to build a
+leaf, and fund reproduction from the surplus pool"*** — §9 steps 3a and 4 of
+`plant-equilibrium-costs-2026-08-27.md`, which reached `main` inside PR #84
+(`8e231757`). Its parent is `885eb013`. Both were rebuilt and run with today's
+command:
 
-**Ruled out by measurement, not by argument.** Two scene parameters changed
-between then and now — the default world doubled to 1024 wide, and PR #94
-deepened the soil blanket about 4x to 34 rows. Neither is the cause:
+| arm | commit | seeds set | established | generations | born / died |
+|---|---|---|---|---|---|
+| **good** | `885eb013` (the parent) | **24** | 12 of 16 | 0:16, 1:14, **2:1** | 40 / 9 |
+| **bad** | `19b87d8e` | **0** | 8 of 16 | 0:16 | 16 / 0 |
+| `main` today (`83bd4c47`) | | **0** | 8 of 16 | 0:16 | 16 / 0 |
+| `herb` on `main` — positive control | | 10,926 | 125 | to **gen 6** | 11,139 / 8,636 |
 
-| width | soil | seeds set | deepest generation |
-|---|---|---|---|
-| 1024 (today's default) | 34 | **0** | 0 |
-| 512 (the 2026-08-27 scene) | 34 | **0** | 0 |
-| 1024 | 9 (pre-#94) | **0** | 0 |
-| 512 | 9 | **0** | 0 |
+All four rows are `trees=16 frames=45000 worldseed=1` at the default scene.
+The `herb` row is the control that the probe, the harness and the whole
+reproduction path still work on `main`: **0 is a property of grass, not of the
+instrument.** The bad arm and today's `main` agree on every population and
+turnover figure, so nothing landed after `19b87d8e` contributes to this.
 
-All four are zero, so this is not scene drift. Establishment does move with
-the scene (4 to 8 plants of 16), which is the control that the arms varied at
-all: the bed changed, the reproduction did not.
+**What the commit changed.** `Behavior::Reproduce` stopped spending the
+bearing cell's own carbon and started spending the organism's account:
 
-**Not established: which commit.** Not bisected. The window is 2026-08-27 to
-2026-08-29, which carries the organ package, the heritable `FateGenome`, the
-sky/soil worldgen change and the render lane.
+```
+before:  let carbon = world.organism_cell(cx, cy).map_or(0.0, |c| c.carbon);
+         if carbon >= seed_cost && rng.chance(seed_chance) && set_seed(..)
+after:   let budget = world.organism(organism_id).map_or(0.0, |s| s.reproductive_budget);
+         if budget >= seed_cost && rng.chance(..)          && set_seed(..)
+```
 
-**Why it matters beyond grass.** Two documents route future work at this
-species on the strength of the 2026-08-27 numbers — the recruitment report
-itself and `plant-heritable-fates-handoff-2026-08-29.md` §3c. Anyone
-following either will measure a population that never turns over and read it
-as an evolution result.
+That swap is deliberate and it is right: a mature cell sits pinned at
+`RESOURCE_SCALE`, so the old test passed essentially always and `seed_cost`
+priced nothing. It is fatal for `grass` because of what funds the new account:
 
-**Where to go instead, measured the same day.** `herb` reaches deepest
-*established* generation **5, 7 and 3** over three seeds, with 88% of
-established plants carrying an inherited genome and 8,000–11,000 seeds set
-per run — an order of magnitude past anything grass managed even when it
-worked. See `plant-throughput-herb-2026-08-29.md`. So this bug does not block
-the evolution programme; it blocks *grass*, and it means a shipped species
-silently stopped reproducing with no gate catching it.
+```
+allocate_to_frontier:  intercepted += ...        // ONLY for Some(CellType::Leaf)
+                       income_noon  = intercepted / l_node(leaf_cluster) * INCOME_PER_NODE
+                       surplus      = (income - maintenance).max(0.0).min(stock)
+                       reproductive_budget += surplus * reproductive_allocation
+```
 
-**One loose end worth recording.** An earlier run of the same command exited
-**101** after printing the soil census; a later identical run exited 0, and
-the panic has not reproduced since. Not chased. If `plant_probe` on grass
-panics again, that is this entry's second half.
+`grass.ron` declares **no `Leaf` cell type at all** — a grass earns from
+`GrowingTip` and `MatureBody`, which is that species' entire design. So
+`intercepted` is 0, `income` is 0, `surplus` is 0, and the reproductive budget
+is **0 for the whole life of every grass plant that will ever exist**. The
+counter says so without ambiguity: **`reproductive budget binds: 259,662 of
+259,662 eligible cell-ticks had no budget for a seed (100.0%)`** — the gate is
+reached a quarter of a million times and fails every one, so it is not
+`seed_maturity`, not the placement roll and not `set_seed`. `plant_probe`'s
+carbon book prints the upstream half on the same run: *"income NOT MEASURABLE
+for a species with no `Leaf` stage"*. `herb`, which has leaves, binds 73.1% —
+carbon limiting three times in four, which is exactly what PR #84 was built to
+achieve.
+
+**This is not new knowledge. It is §V2 fix 2 arriving in a fourth place.**
+"`CellType::Leaf` is not foliage" has now cost, in order: shade and drought
+death for leafless species (§F4), `break_buds`' `supportable` (0 for grass for
+ever), the starvation rule (which exempts leafless species as an explicit
+*workaround*, recorded as such at the site) — and now reproduction. §0-z is the
+umbrella entry and its closing lesson is the one that applies: *when several
+packages report unrelated inertness in the same subsystem, ask what quantity
+they all read.* This is the fifth symptom of that one fact.
+
+**Grass was never measured by the change that broke it.** Every number in
+`plant-equilibrium-costs-2026-08-27.md` §13–§14 is `tree` in a dense bed. §14
+then authored `reproductive_allocation` for five species at once — `grass` got
+**0.30**, the largest, as the ruderal of the flora — and §13c had already
+written down the risk: *"making `tree` carbon-limited while `grass`, `shrub`,
+`conifer` and `creeper` stay roll-limited would leave the economy inconsistent
+across the flora."* The inconsistency it did not anticipate is that one of the
+five cannot earn the currency the new price is denominated in, so its strategy
+trait was authored against an income of exactly zero.
+
+**Two corrections to this entry as it was filed.**
+
+1. **Scene drift was not merely ruled out — the scene never changed.** The
+   table above varied width 1024/512 and soil 34/9 on the premise that the
+   2026-08-27 scene was 512 wide with 9 rows of soil. It was not. The archived
+   log `Reports/data/recruitment-2026-08-27-grass/seed1.log` echoes its own
+   parameters — `width=1024 soil=34 growth=1` — which is exactly today's
+   default, and today's runs echo the same line. Rebuilt at `885eb013` and run
+   with today's command, the good arm reproduces that archived log **number
+   for number**: 31 organisms, 12 established, 24 seeds, 40 born / 9 died,
+   `[gen 0: 16, gen 1: 14, gen 2: 1]`. The two logs differ in **13 lines,
+   every one of them a probe readout added between the two commits** — a
+   `germinations:` line, and the carbon book's income wording. Not one
+   simulation number moved. So harness, scene and world are unchanged between
+   then and now; only the engine is. The four zeros in that table are real,
+   and the arms it varied were never the live variable.
+2. **The exit-101 loose end did not reproduce.** Four 45,000-frame runs here —
+   grass on `main`, grass at `885eb013`, grass at `19b87d8e`, herb on `main` —
+   all exited 0.
+
+**What a repair costs, and why one was not made here.** The fix named twice
+already in this file — make `allocate_to_frontier`'s `intercepted` ask
+`plant::is_foliage` instead of `cell_type == CellType::Leaf` — is one
+predicate, and it is **bit-identical for every species that has a `Leaf`
+stage**, because `is_foliage` returns `cell_type == Leaf` whenever
+`has_leaf_stage`. It is still not a small change, and that is **measured
+rather than argued**: the predicate was applied, rebuilt and run at the same
+scene and world seed.
+
+| grass, 45,000 frames, `worldseed=1` | seeds set | established | deepest generation | budget binds |
+|---|---|---|---|---|
+| `885eb013`, before the break | 24 | 12 | 2 | — |
+| `main` today | 0 | 8 | 0 | **100.0%** |
+| `main` + `intercepted` asks `is_foliage` | **3,380** | 74 | **11** | **0.2%** |
+
+**It does not restore the old behaviour; it overshoots it by 140x**, and the
+0.2% is the diagnosis. Carbon has stopped being the constraint on grass
+altogether — which is the *"a price sitting behind a rate fence is not a
+price"* state PR #84 was built to remove, arrived at from the other side.
+`reproductive_allocation: 0.30` was authored blind against an income of
+exactly zero, and §13a of that same report measured that anything above
+roughly 0.15 does not bind at all. So the predicate is the correct repair and
+the allocation has to be re-derived with it, by that report's own method:
+sweep the allocation and read where the budget starts binding.
+
+The reason it is not a patch is broader than the one constant. `income`
+becoming non-zero makes `surplus` non-zero, so the **growth** pool
+`allocate_to_frontier` distributes becomes non-zero for the first time — grass
+today grows entirely on per-cell carbon credited by `Photosynthesize`, with
+the organism-level pool inert — and the starvation rule's leafless exemption
+becomes a stale workaround the same day. That is `CLAUDE.md`'s *"a term in a
+weighted sum is not an independent knob"*: every constant downstream of
+grass's income was calibrated against a grass that does not have one, so
+re-deriving them is part of the work rather than a follow-up.
+
+So the choice belongs to the owner, and it is between **(a)** taking §V2 fix 2
+with a budget for re-deriving grass's economy — one predicate plus a sweep,
+and the sweep is the larger half — and **(b)** leaving grass sterile and
+deleting the standing advice that points evolution work at it. There is no
+third option that is only a patch: the one-line version is above, and its
+numbers are why it was not landed.
+
+**The standing advice is currently false, and that is the live risk.**
+`plant-recruitment-measurement-2026-08-27.md` §6 conclusion 3 (*"run evolution
+experiments on grass, not tree"*) and `plant-heritable-fates-handoff-2026-08-29.md`
+§3c both route future work at grass on numbers that no longer reproduce.
+`herb` is the throughput species — see `plant-throughput-herb-2026-08-29.md`
+and the control row above.
+
+**And the defect underneath the defect is that nothing caught it.** A shipped
+species went sterile inside a package that had a full report behind it, and
+every gate stayed green. The nearest guard,
+`reproduction_spends_the_budget_and_not_the_cell_it_runs_on`, *injects*
+`reproductive_budget` directly — so it can only ever see the spend, never
+whether a species can fund one. `plant.rs`'s
+`a_lit_sward_funds_a_reproductive_budget` is the missing half, added
+`#[ignore]`d with this entry's address on it. It stands a lit sod for 100
+organism ticks and asserts the plant's own books, behind three positive
+controls — the sod still standing, its blades holding carbon they earned, and
+`organism_upkeep` having billed it — so a zero income cannot be an inert
+scene. Un-ignoring it is the acceptance test for whichever repair is chosen.
+
+**Watched going red and going green**, both arms printed by the test itself,
+and the pair is the sharpest statement of the bug there is:
+
+```
+main today:  12 blades standing holding 47.998203 carbon; income 0,         budget 0   FAILS
++ is_foliage: 12 blades standing holding 47.998203 carbon; income 0.9192157, budget 4   passes
+```
+
+**The carbon held is identical to the last digit.** The plant earns exactly
+the same in both arms — the whole difference is whether the organism's books
+can see it. A first draft of the control was invalid and is recorded on the
+test: relabelling the identical blades `CellType::Leaf` looks like the obvious
+paired arm and cannot work, because `grass.ron` declares `StructuralAnchor` on
+`MatureBody` and not on `Leaf`, so the relabelled sod is unanchored and the
+structural pass takes it from 12 blades to 6 inside 600 frames — which reads
+as a dead economy and is a dead scene.
