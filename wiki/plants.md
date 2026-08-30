@@ -600,6 +600,40 @@ and the number is already being kept; nothing is reading it. Foliage in a
 thick canopy is also packed too tightly to move much: there is simply nowhere
 for it to go.
 
+## When a tree breaks
+
+**New on 2026-08-30.** A tree that is carrying more than it can hold breaks,
+and the break is somewhere specific rather than anywhere.
+
+**It is about proportion, not size.** A big tree with a trunk to match is
+fine. What fails is a heavy top on a thin base — a crown that grew out further
+than the wood under it can carry. So the trees that come down are the badly
+grown ones, and a well-built tree of the same age standing next to one will
+be untouched. Roughly a quarter of trees are living close to that line at any
+moment; most have room to spare.
+
+**What it looks like.** One place gives way, not the whole trunk at once.
+There is a splintered stub left where it went, and everything that was beyond
+that point — the limb, its branches, its leaves — comes down as a piece and
+falls. It is not a tree dissolving; it is a tree losing an arm.
+
+**What pushes one over.** Its own weight, as the crown grows out. Wind, which
+leans on everything above ground and leans hardest on a tree standing in the
+open — one tucked in a wood or behind a hill feels much less. And anything
+that lands on it: snow piling on a crown through a storm is enough to bring
+down a limb that was managing fine the day before, and no one has to do
+anything for that to happen.
+
+**It should get rarer.** Breaking kills off the badly-proportioned trees, and
+the ones left are the ones that build a thicker trunk for the crown they
+carry. Their seedlings inherit that. A wood that has been standing a long
+time should be losing fewer limbs than a young one — that is the intent, and
+it is not yet proven over a long enough run to state as fact.
+
+**What you will not see yet.** A trunk does not buckle — a very tall thin
+tree does not fold under its own height, it only breaks if something is
+hanging off it wrongly. And roots do not break at all.
+
 ## Fire and death
 
 Wood burns, and a burnt plant becomes ash. Ash decays into soil if it is damp,

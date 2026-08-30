@@ -475,13 +475,102 @@ Two corrections the build forced:
   orders of magnitude below it; `filmstrip`'s moment line is now split per
   material for exactly this reason.
 
-**Stage 3 — break.** Bending and buckling, constants from a seed sweep with
-headroom. `powder_surcharge` replaces `supported_load`. Foliage's opt-out
-survives.
-*Bars:* a hand-built over-reaching branch breaks **at its root, not its
-tip**; a snow-loaded crown snaps its trunk; and **an intact healthy stand
-loses zero cells over 12,000 frames** — the negative control, and the best
-bar in this document.
+**Stage 3 — break.** **LANDED 2026-08-30.** `MaterialDef::strength`,
+`plant::break_under_load`, `structural::snap_organism_cell`, and `BREAK=off`
+as the control. Only `wood` opts in.
+
+*Bars, met:* a hand-built over-reaching branch breaks **at its root, not its
+tip**; a snow-loaded crown snaps its trunk, paired against a bare crown that
+holds. *Cost:* nil — `ascii scene=foraging`, three alternating pairs, mean
+3.61–3.84 ms off against 3.44–3.81 on, the arms overlapping.
+
+**The third bar was withdrawn by the owner and the reason matters more than
+the bar did.** It read *"an intact healthy stand loses zero cells over 12,000
+frames"*, and it was met — zero across three seeds. It was still wrong:
+> *"a tree that grows poorly then that it's a heavy top should be able to
+> break on its own... eventually wind or self weight should break a poorly
+> grown tree"*
+
+A stand where nothing ever breaks is the binary outcome this project's ethos
+forbids, and the bar as written selects for it. Replaced by: **a healthy
+stand survives**, a badly-proportioned minority does not.
+
+**How the constant was got wrong, because the shape of the error is the
+transferable part.** Fitted first from the *stand maximum* — 60,000, above
+every reading of a 15-sample sweep. That statistic is one cell out of eight
+thousand, and it belongs to the single worst-grown individual in the wood:
+**exactly the tree that ought to fail**. So the constant was set above the
+whole failure mode. Nothing broke, and — the owner's own question, which the
+measurement had not been asked — *wind could not break anything either*,
+because the ceiling it was fitted against already had a gust in it. A number
+can be measured, headroomed and defensible and still be fitted to the wrong
+population.
+
+The fit that works is the **per-plant** peak, pooled across eight seeds,
+71 plants:
+
+| p50 | p75 | p90 | p95 | max |
+|---|---|---|---|---|
+| 6,735 | 10,094 | 21,032 | 22,925 | 31,160 |
+
+Set at **21,000** — p90. The owner asked for p75 on a selection argument,
+*"I expect plants to evolve to be stronger and the damage rate will drop over
+time"*, and **the stand does not survive p75 long enough to select**. One
+seed, 160,000 frames, against a `BREAK=off` control on the same seed:
+
+| frames | control | p90 (shipped) | p75 |
+|---|---|---|---|
+| 20,000 | 17,336 | 17,476 | 16,898 |
+| 60,000 | 19,194 | 17,085 | 8,790 |
+| 100,000 | 18,583 | 15,858 | 7,763 |
+| 160,000 | **19,123** | **14,859** | **4,057** |
+| snaps | — | 16 | 278 |
+| plants | 9 | 7 | 5 |
+
+At p75 the wood loses 79% of itself and the stand falls from nine plants to
+five. The control holds flat, so that is the rule and not the lifecycle — and
+**a population culled faster than it breeds crashes before selection can
+operate**, so the owner's own mechanism is an argument *for* the gentler
+constant. At p90 the stand holds at ~78% of the control while still losing
+sixteen limbs, and the per-plant peak drifts down (p90 15,306 → 10,446) —
+consistent with selection on `pipe_ratio`, though culling the
+worst-proportioned trees produces the same trend and separating the two needs
+the genotype tracked across generations.
+
+**And the pressure is aimed at shape, not at density.** Scaling `strength`
+by `organism::wood_density` was built and removed:
+> *"I care more about mechanics impacting growth patterns so I don't want
+> density dominating this evolutionary pressure."*
+
+Density is a *discrete* allele worth a straight 1.8x on the threshold, so one
+mutation buys the whole escape and shape never changes. With it absent the
+only ways out are a smaller moment or a bigger section — and section is the
+steeper gradient anyway, since `stress` is `|moment| / section²` and doubling
+girth *quarters* it. Girth is `pipe_ratio` at genome slot 4, whose
+`genotype_variance` is **0.7, the widest of any trait in `tree.ron`'s
+tuple**. Density keeps its job on the span rule.
+
+Three findings the build forced:
+
+- **The trigger problem in §4 dissolved rather than being solved.** That
+  section worries that growth raises the moment and never raises `support`,
+  so a load criterion has no trigger. True of the *reactive per-cell* path;
+  `break_under_load` runs at organism cadence over the whole stress field, so
+  a load rise is picked up by construction. Scheduling is still needed for
+  the **consequence** — the detached limb coming down — which
+  `snap_organism_cell` handles by recording a disturbance and fanning out.
+- **A snap is its own disturbance, which is what answers §4's last line.**
+  `organism_structural_tick` refuses anything outside `within_disturbance`,
+  so a limb snapped by wind in a quiet wood would hang at every `chain_reach`
+  setting but the default. A snap is an event, so it reports itself as one,
+  with the wound it does: a single cell.
+- **`supported_load` is not replaced.** §4 asks for it because it assumed the
+  new criterion would *supersede* `effective_span`; breaking is added
+  alongside, so the span rule and its snow term are untouched. What ask 1
+  needed instead was for snow to raise the **moment**, which is
+  `plant::surcharge_mass` — the same idea in the plant's own mass units,
+  sharing `POWDER_SURCHARGE_CAP` so the two rules never disagree about how
+  far up a column they look.
 
 **Stage 4 — the fall.** §Q's measurement first; then `α`-seeded rotation,
 rotation about the centroid, and the tipping test §Q says is missing.
