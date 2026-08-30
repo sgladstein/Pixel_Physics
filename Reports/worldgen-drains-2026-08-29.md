@@ -10,9 +10,14 @@ is still deleting every boulder pays into a pass whose output is thrown away.
 Of the five pass interactions the plan names: **one was the defect it looked
 like and is fixed** (`brows` deleting every boulder); **one is fixed, measured
 and deliberately not landed** (`pockets` eating cave systems — §3, and it is
-the most useful section here); **two are the generator working** and are
-recorded rather than changed; **one belongs to lane 0b**. A sixth loss, the
-talus deposit, was two losses stacked and the smaller one is fixed.
+the most useful section here); **three are the generator working** and are
+measured and recorded rather than changed, one of them under a standing owner
+ruling (§7). A sixth loss, the talus deposit, was two losses stacked and the
+smaller one is fixed.
+
+**Nothing in this branch changes how many seeds a world contains**, per that
+ruling — no file under `src/sim/plant.rs`, `assets/species/` or `life_scatter`
+is touched. §7 carries the measurement instead.
 
 Everything below is measured at the **shipped 8192x2560**, which is itself
 one of the findings.
@@ -294,7 +299,7 @@ seen the defect. Blind injection, not blind check — the trap
 
 ---
 
-## 7. Three "eaters" that are the generator working
+## 7. Three "eaters" that are the generator working, and one the owner has ruled on
 
 Named in the plan alongside the two real ones. Each was traced to the code
 that produces it rather than left as a number.
@@ -304,22 +309,64 @@ that produces it rather than left as a number.
   surface. So scree in a hollow displaces water and pokes out of the pool —
   which is what scree does. The pond's *level* is computed from the plan and
   is untouched. Correct by construction; leaving it.
-- **`without ponds: springs +44%` (rolling).** `springs` refuses to cut a
-  basin whose flanks hold standing water within a bowl-depth of the lip,
-  because two pools at different levels touching is a head difference and the
-  world stops being at rest. That guard is what
-  `every_pool_has_a_level_surface` exists to check, and it caught a real
-  case (*"steps from 176 to 163 between x 406 and 407"*). Removing it trades a
-  spring for a moving world.
+- **`without ponds: springs +44%` (rolling).** Briefed as mine to fix; it is
+  measured and **should not be fixed**, and the evidence is at the call site.
+  `springs` refuses to cut a basin whose flanks hold standing water within a
+  bowl-depth of the lip, because two pools at different levels touching is a
+  head difference and the world stops being at rest. That guard is exactly
+  what `every_pool_has_a_level_surface` exists to check, and it caught a real
+  case on the way in (*"steps from 176 to 163 between x 406 and 407"*, in the
+  check's own comment). Removing it trades a spring for a moving world, and
+  the same defect has just cost this lane a withdrawn reorder (§3) — two
+  pools at different levels is the failure mode of the day. Left alone.
+
+  **It is a different change from the `life_scatter` half below**, and that
+  matters because the two were briefed as one row. `springs` is gated by
+  `clean`, a flank scan for `ctx.water` around the basin it is about to cut;
+  `life_scatter` sites seeds against the finished ground. They share no code
+  and no constant, so nothing here forces a choice between them.
 - **`without soil_blanket: residuals −97%`.** Negative is *feeding*, not
   eating: a residual digs its socket through cover, so with no cover there are
   no socket cells to write.
 
-**`without ponds: life_scatter +23%..+80%` is real and is not mine.** Standing
-water covers ground seeds would go into — on `wetland`, the preset whose whole
-identity is lushness, it is 80%. Whether the answer is shore planting or
-shallow-water species is a design question about what grows where, which is
-W4 and lane 0b's file. Recorded, not touched.
+### `without ponds: life_scatter +23%..+80%` — measured, and deliberately not fixed
+
+**Owner ruling, 2026-08-30, before this lane finished:** *"Don't change
+anything. Keep it how it is today. Your job is not to manage plant growth
+rates. Right now the world starts with no plants, just seeds and they grow as
+I play. Don't change that."* So this is a measurement and nothing else. No
+file under `src/sim/plant.rs`, `assets/species/` or `life_scatter` is touched
+by this branch — checked, the diff against the merge base is empty for all
+three.
+
+**What `ponds` is doing.** `life_scatter` runs last, so it sees the finished
+world including standing water, and a column under water is not a column it
+sows. Standing water is therefore a direct subtraction from the seed count,
+and the size of it is a fact about how much of a preset is flooded rather than
+about plants.
+
+Median over 6 seeds at the shipped size, `life_scatter` cells with `ponds`
+ablated against the baseline:
+
+| preset | seeds sown | without `ponds` | `ponds` cells |
+|---|---|---|---|
+| wetland | 766 | **+80%** (~+613) | 45,186 |
+| rolling | 342 | **+72%** (~+246) | 75,863 |
+| terraced | 567 | **+23%** (~+130) | 23,163 |
+| canyon | 163 | under the 5% floor | 487 |
+| arid, flat | 0 | — | 0 |
+
+So a change that let seeds sit where shallow water stands would add roughly
+**989 seeds across the three wet presets**, and it would land hardest on
+`wetland` — the preset whose whole identity is lushness, and which a world
+review called *"a mud flat with a pond"*. That is what a fix would have been
+worth. It is not made.
+
+**And a note for whoever reads a review card next.** The world is sown, not
+grown: at genesis it holds seeds and no plants, and they come up as the game
+is played. A card rendered at settle therefore shows **no vegetation at all**,
+and that is the design working rather than a bug. It has been filed as one
+before.
 
 ---
 
