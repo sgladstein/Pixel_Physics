@@ -106,6 +106,17 @@ Not an `examples/` binary — these read what an agent run already wrote down.
 | `gnome_depth` | Does the gnome weave *through* a formation, or get sliced *by* it? | |
 | `species_export` | **Can this individual be kept?** Writes a genome + traits out as `assets/species/<name>.ron` and reads it back through the loader | Not a measurement — the dev-tool exit for E8. `genome=rNNN` takes the same labels `creature_space` ranks, so a good row in that sweep can be saved as a species. `verify=1` (default) is the round trip |
 
+## The evolution lab
+
+`labshot` is the other half of this pair and is listed under *Rendering and
+judging by eye* above: it answers **what the bed looks like**, this answers
+**what is happening in it**. Reach for both — a founder that never germinated
+and one too small to see are the same picture and opposite findings.
+
+| instrument | answers | notes |
+|---|---|---|
+| `labstats` | **Is anything in the box being born, and how deep have the generations got?** Runs `lab::scene::LabBox` and dumps the biosphere page (`src/lab/stats.rs`) as one greppable line per stop *and* as the page's own text, then renders it over the bed | **It is a control harness first and a renderer second**, because a page of counters over a living box is the exact shape `CLAUDE.md` says lies most readily. Six `control=` modes, each a box whose answer is known before the run: `empty` is the specificity half (nothing alive, every figure must be 0), `plants` and `ants` are each other's positive and negative halves in one box (a plants-only bed must report `animals 0` **and** `plants > 0`, or "no animals" is a test of the census being blind), `cull` is the sensitivity half nothing else gives — half the stand killed through `World::mark_organism_senescent` mid-run, and the strip must fall (measured: 26 killed, plants peak 14 → 3, plant biomass 394 → 3). `steady` is the **divide-out-the-oscillator check for any sealed box**, not just this page: it reads the same quantity at successive nominal day boundaries and again half a day later, and a systematic gap between the two rows is a cycle to remove. Measured on the standard bed, there is none — the lab holds its sky at noon and pins the weather clear, so the biggest oscillator in the engine is gone by construction and this is the run that says so rather than assuming it. `cost` times the census against the bare organism walk, paired and alternating in one process. **Generalises past the lab**: `cull` is a ready-made graded-die-back disturbance for anything that reads a population, and the page's text dump is the reason a 5x7 glyph in a downscaled screenshot never has to be guessed at again (`Reports/lanes/creature-lane-g.md` records an hour lost to a `3` one glyph wide). Echoes its own parameters; `zoom=` is a nearest-neighbour integer upscale for the review queue, `hover=` puts the page's own explanation of a row into the picture |
+
 ## The ones that generalise past what they were built for
 
 **`divergence` is axis-agnostic, and this is the entry that stops it being
