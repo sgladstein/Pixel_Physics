@@ -1385,26 +1385,47 @@ const FATE_MUTATION_STREAM: u64 = 201;
 
 /// **How often a seed's production rule takes a point mutation.**
 ///
-/// **Unmeasured, and deliberately below `DISCRETE_MUTATION_CHANCE` (0.03)
-/// rather than equal to it.** Gate 1 measured what *one* mutation does to a
-/// fresh table — 92% of effective ones still produce a living plant on the
-/// woody base, 97% on the determinate one — and that is not the same quantity
-/// as a rate compounding over generations, which nobody has measured. Two
-/// things say to start low rather than high:
+/// **Measured 2026-08-30, and the measurement is why this is 0.30 and not the
+/// 0.01 it shipped as** — `Reports/plant-mutation-rate-2026-08-30.md`, 39
+/// runs of `genome_drift` over 3 world seeds, 7 rates and both `herb` and
+/// `tree`. The old value was not "a little low". It did **nothing**:
 ///
-/// - the failures are concentrated: `child` on a frontier type killed 5 of 6,
-///   because it decides what carries growth forward, so roughly a third of
-///   mutations land on the field that is ~83% lethal;
-/// - a rule table is a *program*. An allele that jumps is one of three values
-///   on a designed axis; a retargeted rule can make a lineage that never
-///   grows, and there is no counterweight pulling it back.
+/// ```text
+/// herb, 60,000 frames, seed 1, rate 0.01 against the same world at rate 0:
+///   every line of the log identical -- 873 live, 74 established,
+///   309 germinations, 5,858 births, same body sizes, same slot means
+///   45 mutations fired, 28 individuals ever carried one, NONE ever
+///   reached 20 cells, ZERO drifted plants standing with a body
+/// ```
 ///
-/// 0.01 is one plant in a hundred per birth. **The number to replace this
-/// with comes from a run, not from an argument** — the measurement is a
-/// lineage census over generations at several rates, and it cannot be taken
-/// until turnover exists to take it on: measured, a tree reaches generation 1
-/// in 8 of 8 seeds and never more, so on the woody species this rate has
-/// almost nothing to act on yet.
+/// The genome moved and no plant did. At 0.30, 29–40% of plants **with a
+/// body** carry a rule table that is no longer their species' (44.6% at
+/// 60,000 frames), and the four quantities that were expected to trade
+/// against it do not move: median across three seeds against each seed's own
+/// rate-0 control, establishment **1.04**, births **1.00**, body size
+/// **0.96**. Nothing consistent breaks even at rate **1.0**, where every
+/// birth mutates — establishment there runs −13%, +13%, +28%, without a sign.
+///
+/// **Why 0.30 rather than the equally free 0.10**, both measured: at 0.10 the
+/// variation is thin (three plants in sixty-four on one seed), and the
+/// shipped no-safety-net lookup is a **dead letter** — `GenomeOnly` and
+/// `Full` give byte-identical worlds at 0.10 on two seeds and different ones
+/// at 0.30 on two, so the fallback the owner declined would never have fired
+/// below 0.30 anyway.
+///
+/// **What it is *not* calibrated against, and the trigger to re-derive.** The
+/// rate is per birth, so what a population carries is set by how deep its
+/// pedigree gets: `1 - (1-r)^g` at the run's own mean generation predicts the
+/// standing figure to within a tenth of a point (56.5% predicted, 56.4%
+/// observed). `herb` sits near g = 2.34 here. **Re-derive when herb's mean
+/// generation passes ~4** — M10 streaming raises it.
+///
+/// **On `tree` this constant does nothing at any setting**, and that is not a
+/// reason to split it per species: the whole ladder from 0 to 0.30 leaves a
+/// tree stand bit-identical, because tree reaches generation 1 and its
+/// mutants are all seeds that never germinate. It is `herb`'s knob until the
+/// woody species turns over.
+///
 /// **`pub` so a harness reads the engine's rate instead of carrying its own
 /// copy.** `Reports/plant-fate-operator-gate-2026-08-29.md` §1 is what this
 /// guards against: `fate_viability` held a second implementation of the
@@ -1412,7 +1433,19 @@ const FATE_MUTATION_STREAM: u64 = 201;
 /// noticed the two had diverged. A rate is the same hazard in miniature — a
 /// harness that hardcodes 0.01 keeps reporting against 0.01 after this line
 /// moves.
-pub const FATE_MUTATION_CHANCE: f32 = 0.01;
+///
+/// The argument this replaces, kept because it is the bar the measurement had
+/// to clear rather than a mistake: the rate was set *below*
+/// `DISCRETE_MUTATION_CHANCE` (0.03) on the reasoning that a rule table is a
+/// *program* and its failures are concentrated — `child` on a frontier type
+/// killed 5 of 6 in gate 1, so roughly a third of mutations land on a field
+/// that is ~83% lethal. That reasoning is sound about **one mutation to one
+/// plant grown alone**, which is what the gate measured. In a living stand
+/// the mutants overwhelmingly die as seeds before expressing anything, and
+/// the population-level cost of even a 100% rate is not detectable in
+/// establishment or throughput. The two are not the same quantity, and it
+/// took a population census to tell them apart.
+pub const FATE_MUTATION_CHANCE: f32 = 0.30;
 
 /// **The rate actually in effect**, which is `FATE_MUTATION_CHANCE` unless
 /// `PIXEL_PHYSICS_FATE_MUTATION_CHANCE` overrides it.
