@@ -15421,6 +15421,121 @@ floor {ROOT_INVERSION_BAR}. Measured 0.994 (SE 0.046) when this bar was set -- s
         assert!(dark < lit, "the dark arm must lose more than the lit one: {dark} against {lit}");
     }
 
+    /// **A species that prices reproduction must be able to earn the
+    /// currency the price is denominated in.**
+    ///
+    /// `Reports/open-bugs-handoff.md` §1n, and the guard that did not exist
+    /// when `19b87d8e` moved `Behavior::Reproduce` off the bearing cell's
+    /// carbon and onto `OrganismState::reproductive_budget`. That account is
+    /// funded from `allocate_to_frontier`'s `surplus`, and `surplus` is
+    /// driven by `intercepted`, which sums over `CellType::Leaf` **only** --
+    /// so a species with no `Leaf` stage has income, surplus and
+    /// reproductive budget all structurally zero, and `grass` went sterile
+    /// on `main` with every gate green.
+    ///
+    /// **`#[ignore]`d because it is red today.** It is the reproduction for
+    /// an open bug rather than a claim about working code, and un-ignoring
+    /// it is the acceptance test for whichever repair §1n's closing block is
+    /// settled on -- `CLAUDE.md`'s rule that a diagnosis keeps its
+    /// reproduction and gets an address. Confirmed to go **green** with
+    /// `intercepted` asking `is_foliage`, and red without it, which is the
+    /// only thing that makes it a guard rather than a wish.
+    ///
+    /// **Three positive controls, because a zero here has three innocent
+    /// explanations and only one guilty one.** The sward could be dead, the
+    /// organism tick could never have run, or the plant could genuinely be
+    /// earning nothing. So this asserts, before it asserts anything else,
+    /// that the sod is still standing, that its cells are *holding carbon
+    /// they earned* through `Photosynthesize`, and that `organism_upkeep`
+    /// has charged it maintenance. With those three green, `income == 0` is
+    /// a statement about the predicate and nothing else -- the plant is
+    /// demonstrably earning and the organism-level books say it is not.
+    ///
+    /// A fourth control was tried and is recorded here because it is the
+    /// obvious one: relabel the identical blades `CellType::Leaf` and
+    /// compare. It cannot work in this scene -- `grass.ron` declares
+    /// `StructuralAnchor` on `MatureBody`, not on `Leaf`, so the relabelled
+    /// sod is unanchored and the structural pass takes half of it down
+    /// inside 600 frames (measured: 6 blades of 12). That reads as "the
+    /// economy is dead" and is `CLAUDE.md`'s "a scene that contradicts the
+    /// code will look like a bug in the code".
+    #[test]
+    #[ignore = "red on main -- open-bugs-handoff.md 1n: grass declares no CellType::Leaf, so its income and its reproductive budget are structurally zero"]
+    fn a_lit_sward_funds_a_reproductive_budget() {
+        const BLADES: i32 = 12;
+        const FRAMES: usize = 4_500; // 100 organism ticks
+
+        let mut w = World::new(Rect::new(0, 0, 63, 63));
+        let soil = w.materials.id_of("soil").expect("soil is compiled in");
+        for x in 0..64 {
+            w.set(x, 40, Cell::new(material::STONE, 0));
+            for y in 32..40 {
+                w.set(x, y, Cell::new(soil, 0).with_aux(material::SOIL_FIELD_CAPACITY));
+            }
+        }
+        let id = place_grass(&mut w, 10, 32, BLADES, 3);
+        let blade = w.materials.id_of("grassblade").expect("grassblade");
+        // Blades standing, and the carbon they are holding. Both come off
+        // one scan because both are controls on the same run.
+        let census = |w: &World| {
+            let b = w.bounds().expect("a non-empty world");
+            let (mut standing, mut carbon) = (0usize, 0.0f32);
+            for y in b.min_y..=b.max_y {
+                for x in b.min_x..=b.max_x {
+                    let c = w.get(x, y);
+                    if c.material == blade && c.organism_id() == id {
+                        standing += 1;
+                        carbon += w.organism_cell(x, y).map_or(0.0, |oc| oc.carbon);
+                    }
+                }
+            }
+            (standing, carbon)
+        };
+        // The settle `a_shaded_sward_thins_and_a_lit_one_does_not` also
+        // does, and for the same reason: an unanchored sod is taken apart
+        // by the structural pass, which reads as a dead economy.
+        run(&mut w, 600);
+        assert_eq!(
+            census(&w).0,
+            BLADES as usize,
+            "test setup: the sod came apart before the measurement started -- check it is anchored, not that the economy is wrong"
+        );
+        run_with_fields(&mut w, FRAMES);
+
+        let (standing, carbon) = census(&w);
+        let s = w.organism(id).expect("the sod should still be alive");
+        let (income, budget, maintenance) = (s.income, s.reproductive_budget, s.maintenance);
+        println!(
+            "lit sward after {FRAMES} frames: {standing} blades standing holding {carbon} carbon; \
+             organism income {income}, maintenance {maintenance}, reproductive budget {budget}"
+        );
+        assert!(
+            standing as i32 == BLADES,
+            "positive control: the sward must still be there for its books to mean anything -- {standing} of {BLADES}"
+        );
+        assert!(
+            carbon > 0.0,
+            "positive control: the blades must be holding carbon they earned through `Photosynthesize`, \
+             or `income == 0` below is honest rather than a defect -- got {carbon}"
+        );
+        assert!(
+            maintenance > 0.0,
+            "positive control: `organism_upkeep` must have run and billed this plant, \
+             or nothing downstream of it was ever evaluated -- got {maintenance}"
+        );
+        assert!(
+            income > 0.0,
+            "a fully lit sward earns carbon from every blade it owns -- the control above shows the carbon is there -- \
+             and `OrganismState::income` reads {income}. `allocate_to_frontier`'s `intercepted` asks `CellType::Leaf` \
+             where it should ask `is_foliage`"
+        );
+        assert!(
+            budget > 0.0,
+            "a species whose `Reproduce` declares `reproductive_allocation: 0.30` must be able to fund a seed, \
+             and this one banks {budget} -- so `budget >= seed_cost` can never hold and grass is sterile for ever"
+        );
+    }
+
     /// **A plant that cannot earn again is dead, its remains rot, and its
     /// slot comes back.**
     ///
