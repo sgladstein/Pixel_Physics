@@ -819,6 +819,31 @@ drift that two of these documents still reflect.**
 
 ## Creatures and ecology  ·  `engine`
 
+- [mechanism-vs-behaviour-audit-2026-08-31.md](mechanism-vs-behaviour-audit-2026-08-31.md)
+  — **audit and staged plan, 2026-08-31; nothing built and nothing measured
+  by it.** Where the engine hardcodes a *behaviour* instead of building a
+  *mechanism*, on the owner's line **the mechanism is code, the policy is
+  genome**. Scoped to the evolution lab and read off `943ace17`. Eighteen
+  findings, a ranking, and — the half worth as much — **fourteen things
+  checked and cleared as legitimate substrate**, each with the reason so it
+  is not re-audited. The three that are one story: `creature::moisture_
+  gradient` reads **air humidity** where §T2's larder failure needs soil
+  water (the same bug PR #185 fixed for roots twelve hours earlier, one file
+  over, still open here — and `ascii` records that its own guard passed
+  *harder* with the mechanism deleted, so there is no assertion over it
+  today); `hunger_fraction` is a constant chosen to make foraging appear and
+  is now the bank ceiling blocking reproduction; and **`CREATURE_TRAITS = 2`**
+  — a `CreatureDef` has 25 fields and a child inherits two scalars and a
+  wiring matrix, so body size, dig force, sight range and when to breed are
+  species constants that cannot mutate. The plant genome, by contrast, is
+  **exemplary** and the staging copies it: ten continuous slots, six discrete
+  loci with paired-trade allele tables, heritable fates. Also names two more
+  **unpriced ratchets** of PR #188's shape (digging and pheromone deposition
+  are free), the `Feed` output re-conflating eat with take exactly as it once
+  conflated eat with dig, and the fact that `sight_fraction` is armed in code
+  and **unarmed in `beetle.ron`**, so the ratchet that PR closed is still open
+  for the one animal it applies to. §5 stages it behind Gate 0 and Gate 2;
+  §6 says what it did not cover.
 - [creature-motion-design.md](creature-motion-design.md) — **built
   2026-08-29; all four of §6's calls answered, §7's five guards green.**
   `BrainOutput::Impulse` ships: one verb, and the *body* decides what it
@@ -1544,6 +1569,16 @@ above says what the two games share.
 creature findings stay in their own sections even when the lab measured them
 — the whole premise is that those are the same organisms either side, and
 filing them by which game happened to observe them would hide that.
+
+That routing is why [mechanism-vs-behaviour-audit-2026-08-31.md](mechanism-vs-behaviour-audit-2026-08-31.md)
+is filed under **Creatures and ecology** despite being scoped to this game and
+staged against its gates: fourteen of its eighteen findings are about the
+animal, not the box. The four that *are* about the box are worth knowing here —
+the `COLONY` verb can only place the species literally named `"ant"` (which
+`dead-ends.md` names as the blocker for the grazer that clears Gate 0), there
+is **no food verb** although hand-placed food is the one intervention measured
+to separate generation 13 from generation 0, and the plant mutation rates the
+design guide's §7b-i calls "already data" are Rust `const`s.
 
 - [lab-lamps-light-the-bed-2026-08-30.md](lab-lamps-light-the-bed-2026-08-30.md)
   — **built and measured.** The fixtures are what light the crop, and moving
