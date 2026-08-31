@@ -102,6 +102,101 @@ fn row_y(row: usize) -> i32 {
     bar_top() + BTN_TOP + row as i32 * (BTN_HEIGHT + ROW_GAP)
 }
 
+// ------------------------------------------------------------------ tabs
+
+// **The rack's tab strip sits against the top edge of the bar**, and the
+// reasoning that put it there is worth keeping because it is measured.
+//
+// **The bar cannot simply take another cell.** Measured with the bar's own
+// `PIXEL_PHYSICS_BAR_TRACE` on the shipped layout: row 0 has **1 pixel**
+// spare and row 1 has **0**, at the tightest of the three spacings `layout`
+// tries — the bar is already running compressed to fit what is on it, so
+// five tabs at ~34 px do not go in it at any spacing. A tab is therefore a
+// strip *beside* the bar, and the only question was which edge it eats.
+//
+// **Three placements were built and rendered rather than argued** —
+// `CLAUDE.md`: *for "does this look right", ship a runtime selector rather
+// than choosing* — and the owner chose this one by eye, 2026-08-31. The
+// other two are in `Reports/dead-ends.md` with the defect that sank the
+// nearest rival: a strip at the screen's top edge covers the ceiling and the
+// grow-light fixtures, which is where you look to see what is lit, and it
+// paints over the first line of the `PAUSED` readout.
+//
+// This edge is the one with least in it: the bed's stone floor already sits
+// flush with the bar by `scene.rs`'s own arithmetic.
+
+/// Height of the tab strip, including its rule.
+///
+/// One glyph plus two pixels either side plus the rule. A tab is a number, so
+/// this is as short as a legible strip gets.
+pub const TAB_H: i32 = hud::GLYPH_HEIGHT + 5;
+
+/// How many tabs the strip shows before it stops.
+///
+/// The owner's call: *"numbered tabs on the bar (for your top 5)"*, with the
+/// whole rack behind its own page. A strip that grew with the rack would be
+/// the control that breaks at the fiftieth chamber, which is exactly the size
+/// a batch produces.
+pub const TABS_SHOWN: usize = 5;
+
+/// The strip's top row, or `None` when there is nothing to draw.
+///
+/// **A rack of one draws no strip at all.** A facility with a single box has
+/// no switching to offer, so the tabs would be chrome that costs paint and
+/// says nothing — and the lab opens on exactly that, so this is the common
+/// case rather than an edge one.
+fn tab_strip_y(chambers: usize) -> Option<i32> {
+    (chambers >= 2).then(|| bar_top() - TAB_H)
+}
+
+/// Lay the tabs out, left to right, and say where each one is.
+///
+/// Widths come from the label rather than a fixed cell, so a two-digit
+/// chamber is not clipped — a rack reaches double figures the first time a
+/// batch finishes.
+fn lay_out_tabs(chambers: &[super::ChamberSummary], y: i32) -> Bar {
+    let mut widgets = Vec::new();
+    let mut x = MARGIN;
+    for ch in chambers.iter().take(TABS_SHOWN) {
+        let w = hud::text_width(&ch.label) + 8;
+        widgets.push(Widget {
+            rect: Rect { x, y: y + 1, w, h: TAB_H - 2 },
+            line1: ch.label.clone(),
+            line2: String::new(),
+            action: Some(Action::Chamber(ch.index)),
+            latched: ch.active,
+            icon: None,
+            ratio: None,
+            note: String::new(),
+        });
+        x += w + GAP;
+    }
+    // **The way into the whole rack, and it lives here because the bar has
+    // nowhere to put it** — 0-1 px of slack, as above. The strip has room to
+    // spare at five tabs, so the page that holds the other forty-five opens
+    // from the strip that admits it is only showing five.
+    //
+    // It carries the count of what is hidden rather than a bare label: a
+    // strip that silently stopped at five would tell you your rack is five
+    // chambers long. And it is a *verb* rather than the `+N` label it
+    // replaced — `CLAUDE.md`'s second law, a control that only informs is a
+    // control the player is a spectator of.
+    let hidden = chambers.len().saturating_sub(TABS_SHOWN);
+    let label = if hidden > 0 { format!("ALL +{hidden}") } else { "ALL".to_string() };
+    let w = hud::text_width(&label) + 8;
+    widgets.push(Widget {
+        rect: Rect { x, y: y + 1, w, h: TAB_H - 2 },
+        line1: label,
+        line2: String::new(),
+        action: Some(Action::Panel(Panel::Chambers)),
+        latched: false,
+        icon: None,
+        ratio: None,
+        note: "EVERY CHAMBER, WITH WHAT IS ALIVE IN IT AND HOW DEEP ITS GENERATIONS GOT. THE TABS REACH THE FIRST FIVE; THIS IS HOW A RACK OF FIFTY IS READ.".into(),
+    });
+    Bar { widgets, dividers: Vec::new() }
+}
+
 // ---------------------------------------------------------------- palette
 //
 // Opaque, not a blend. The bar is an instrument panel bolted over the world,
@@ -297,6 +392,28 @@ pub enum Action {
     /// Re-read the shelf directory, for a jar added or removed outside the
     /// running game.
     ShelfReload,
+    /// Put one chamber of the rack on screen — an index into
+    /// `Lab::chamber_summaries`.
+    Chamber(usize),
+    /// Highlight one row of the rack page, which is also what asks for its
+    /// picture. Separate from [`Action::Chamber`] because looking at a
+    /// chamber and walking into one are different decisions: a rack is read
+    /// by comparing rows, and a click that switched on contact would run the
+    /// box you were only inspecting.
+    ChamberSelect(usize),
+    /// Add a chamber: the box on screen again, at the next unused seed.
+    ChamberAdd,
+    /// Close the highlighted chamber. Refused for the one on screen.
+    ChamberClose(usize),
+    /// Run a rack of copies of the box on screen, headless, in the
+    /// background.
+    BatchRun,
+    /// Ask a running rack to stop. Copies already finished are kept.
+    BatchStop,
+    /// How many copies the next rack runs, by `-1` or `+1` steps of its own.
+    BatchCopies(i32),
+    /// How many ticks each copy runs for, same.
+    BatchFrames(i32),
 }
 
 /// **What a left-click on the world does.**
@@ -421,6 +538,12 @@ pub enum Panel {
     /// [`Panel`] for the same two: the one-page-at-a-time rule and the
     /// latch on the bar.
     Shelf,
+    /// **The rack: every chamber, with the numbers you would compare them
+    /// by.** Draws itself for `Params`' and `Shelf`'s reason — a row is a
+    /// chamber with two verbs attached, not a label — and the tabs above the
+    /// bar only reach the first five, so this is the page a rack of fifty is
+    /// read through.
+    Chambers,
 }
 
 impl Panel {
@@ -431,6 +554,7 @@ impl Panel {
             Panel::Box => "THE BOX",
             Panel::Params => "PARAMETERS",
             Panel::Shelf => "THE SHELF",
+            Panel::Chambers => "THE RACK",
         }
     }
 }
@@ -519,6 +643,20 @@ pub struct BarState<'a> {
     /// would be the stale side table that argument is about.
     pub jar: &'a str,
     pub jar_note: &'a str,
+    /// One row per chamber, in rack order. Borrowed for the species chip's
+    /// reason: a tab strip that named a chamber from its own copy would be
+    /// the stale side table that argument is about.
+    pub chambers: &'a [super::ChamberSummary],
+    /// How many copies and how many ticks the next rack will use, and how a
+    /// running one is getting on. `None` when nothing is running.
+    pub batch: super::BatchBar,
+    /// The highlighted chamber's picture, if one has been taken.
+    ///
+    /// Rendered by `Lab` rather than here, and only when a row is clicked:
+    /// `Renderer::draw` needs `&mut` and this page has it borrowed shared,
+    /// but more to the point a picture per frame of a box that is *frozen*
+    /// would be the same picture, repainted sixty times a second.
+    pub rack_thumb: Option<&'a super::Thumb>,
 }
 
 /// Width of a cell whose label is `label_px` wide and whose shortcut caption
@@ -1108,8 +1246,18 @@ struct Sample {
     germinations: u64,
 }
 
+/// The bar's short population strip for **one** chamber.
+///
+/// `pub` and parked in `Chamber` rather than kept on `Ui`, because a strip
+/// that follows the viewer instead of the box draws chamber B's population
+/// over chamber A's bed. `observe` below already recognises this failure in
+/// its narrow form — a rebuild putting the frame counter back — and parking
+/// is the same fix generalised to a switch, where the frame moves *forward*
+/// and the reset it relies on therefore never fires.
+///
+/// Fields stay private: the strip is drawn by `Ui` and read by nobody else.
 #[derive(Default)]
-struct History {
+pub struct History {
     samples: VecDeque<Sample>,
     last_frame: u64,
     next_at: u64,
@@ -1235,7 +1383,7 @@ pub struct Ui {
     notice: Option<(String, std::time::Instant)>,
     /// The world cell the player last clicked, re-read every frame.
     inspect: Option<(i32, i32)>,
-    history: History,
+    pub(crate) history: History,
     /// Last frame's layout. See the module doc: a click arrives between
     /// frames, so this is the bar the player was looking at.
     bar: Bar,
@@ -1289,6 +1437,23 @@ pub struct Ui {
     broods: u32,
     /// The shelf page's own clickable rectangles, for `params_bar`'s reason.
     shelf_bar: Bar,
+    /// The rack's tab strip, laid out last frame and retained for the same
+    /// reason `bar` is: a click landing between two frames is tested against
+    /// the strip the player was actually looking at.
+    tabs: Bar,
+    /// The rack page's own buttons, retained for `params_bar`'s reason.
+    rack_bar: Bar,
+    /// Where the rack page was drawn, so a click on it does not also reach
+    /// the world behind it.
+    rack_box: Option<Rect>,
+    /// Which row is highlighted, and therefore which chamber's picture the
+    /// page is showing. An index into the rack, **re-clamped every draw**:
+    /// closing a chamber renumbers the ones after it, and a selection held
+    /// across that would highlight a different box than the one you picked.
+    rack_selected: Option<usize>,
+    /// First visible row. A batch makes fifty chambers and the page shows
+    /// twelve.
+    rack_scroll: usize,
     shelf_box: Option<Rect>,
 }
 
@@ -1349,9 +1514,14 @@ impl Ui {
     /// marker every time you try to read the panel.
     pub fn covers(&self, x: i32, y: i32) -> bool {
         y >= bar_top()
+            // The strip stands over the world, so without this a click on a
+            // tab would switch chamber *and* drop the inspector on whatever
+            // cell was behind it.
+            || self.tabs.widgets.iter().any(|wid| wid.rect.contains(x, y))
             || self.panel_box.is_some_and(|r| r.contains(x, y))
             || self.params_box.is_some_and(|r| r.contains(x, y))
             || self.shelf_box.is_some_and(|r| r.contains(x, y))
+            || self.rack_box.is_some_and(|r| r.contains(x, y))
             || self.inspect_box.is_some_and(|r| r.contains(x, y))
     }
 
@@ -1479,6 +1649,13 @@ impl Ui {
             .iter()
             .chain(self.params_bar.widgets.iter())
             .chain(self.shelf_bar.widgets.iter())
+            // The strip and the rack page belong here for this accessor's
+            // whole reason: it is what a harness aims a synthetic click with,
+            // so a control missing from it is a control no test and no
+            // contact sheet can press. `labui` found this by panicking on
+            // `ALL` the first time it was asked to open the rack.
+            .chain(self.tabs.widgets.iter())
+            .chain(self.rack_bar.widgets.iter())
             .find(|wid| wid.action == Some(action))
             .map(|wid| wid.rect)
     }
@@ -1488,7 +1665,22 @@ impl Ui {
     /// above `bar_top`), so the order is documentation rather than a rule: the
     /// bar is painted over everything and must win any seam.
     pub fn hit(&self, x: i32, y: i32) -> Option<Action> {
-        self.bar.hit(x, y).or_else(|| self.params_bar.hit(x, y)).or_else(|| self.shelf_bar.hit(x, y))
+        self.bar
+            .hit(x, y)
+            .or_else(|| self.params_bar.hit(x, y))
+            .or_else(|| self.shelf_bar.hit(x, y))
+            .or_else(|| self.rack_bar.hit(x, y))
+            .or_else(|| self.tabs.hit(x, y))
+    }
+
+    /// Highlight one row of the rack page.
+    pub fn select_chamber(&mut self, i: usize) {
+        self.rack_selected = Some(i);
+    }
+
+    /// Which row of the rack page is highlighted.
+    pub fn selected_chamber(&self) -> Option<usize> {
+        self.rack_selected
     }
 
     /// Which parameters page is showing, and where its list is scrolled to.
@@ -1659,7 +1851,7 @@ impl Ui {
             // and a range, so they are not `Row`s; `draw` branches away before
             // this is called, and the arm is here so that a page added to
             // `Panel` cannot be silently left out of both.
-            Panel::Params | Panel::Shelf => Vec::new(),
+            Panel::Params | Panel::Shelf | Panel::Chambers => Vec::new(),
             Panel::Plants => {
                 let (d, tint) = delta_text(self.history.delta(|s| s.plants as i64));
                 let (gd, gtint) = delta_text(self.history.delta(|s| s.germinations as i64));
@@ -2051,6 +2243,72 @@ const SHELF_STRIP_GAP: i32 = 10;
 /// the generation, plus a gap so a long name does not run into them.
 const SHELF_RIGHT: i32 = 96;
 
+/// The rack page's geometry.
+///
+/// **Twelve rows and one picture.** The same frame-cost argument as
+/// `PARAM_ROWS` below: this page has no dirty-rect skip, so every row is
+/// repainted on every drawn frame it is open. Twelve rows plus a 128x80
+/// picture is about 39,000 pixels, well under the parameters page, and it is
+/// only paid while somebody has deliberately opened it. Past twelve the page
+/// scrolls, which is the case a batch makes rather than an unusual one.
+const RACK_ROWS: usize = 12;
+const RACK_ROW: i32 = 11;
+/// The column header's own band.
+const RACK_HEAD: i32 = 11;
+/// The fixed column a batch dial's value sits in, wide enough for five
+/// digits — `TICKS` reaches 45,000. Fixed rather than fitted so a value that
+/// gains a digit cannot shove its own `+` button sideways under the cursor.
+const BATCH_VALUE_W: i32 = 34;
+
+/// **Every fixed string the rack page draws, in one list.**
+///
+/// Named rather than inlined so `every_string_the_bar_can_draw_is_drawable`
+/// can reach them: this page paints itself, so nothing in `panel_rows`
+/// covers it, and `hud::draw_text` renders a character outside its 5x7 set as
+/// a **silent blank**. The column header read `  SEED` in its first contact
+/// sheet because it began `  # SEED` and `#` has no glyph.
+const RACK_LITERALS: [&str; 12] = [
+    "    SEED",
+    "  FRAME",
+    "PLT",
+    "ANI",
+    "GEN",
+    " SOWN",
+    "  -    -    -/-      -",
+    "CLICK A ROW FOR ITS PICTURE",
+    "-- THE BOX YOU ARE IN",
+    "-- KEPT AS NUMBERS ONLY, THE WORLD WAS NOT HELD",
+    "HERE",
+    "RECORD",
+];
+/// The picture is the world at a quarter scale in each axis.
+const RACK_THUMB_SHRINK: u32 = 4;
+const RACK_THUMB_H: i32 = (H / RACK_THUMB_SHRINK) as i32;
+
+/// Wide enough for the widest row this page can produce, measured through
+/// `hud::text_width` rather than counted by hand — `layout`'s rule, for
+/// `layout`'s reason. The picture sets the floor: a page narrower than its own
+/// thumbnail would clip it.
+fn rack_page_width() -> i32 {
+    let row = 16 + hud::text_width("SEED 9999") + 46 + hud::text_width("999 999 9/9 99999") + 24 + hud::text_width("HERE");
+    (PAGE_PAD * 2 + row).max((W / RACK_THUMB_SHRINK) as i32 + PAGE_PAD * 2)
+}
+
+/// Draw a chamber's picture at `(x, y)`.
+///
+/// Clipped rather than assumed to fit: the page is placed against the bar and
+/// a short window can push it off the top, and a blit that ran past the
+/// framebuffer would be a panic in a page nobody opens on a small screen.
+fn blit(frame: &mut [u8], x: i32, y: i32, thumb: &super::Thumb) {
+    for ty in 0..thumb.h as i32 {
+        for tx in 0..thumb.w as i32 {
+            let i = ((ty * thumb.w as i32 + tx) * 4) as usize;
+            let px = [thumb.rgba[i], thumb.rgba[i + 1], thumb.rgba[i + 2], 255];
+            render::put(frame, W, H, x + tx, y + ty, px);
+        }
+    }
+}
+
 /// How many rows are on screen at once.
 ///
 /// **Thirteen, and it is a frame-cost number as much as a legibility one.**
@@ -2155,6 +2413,294 @@ impl Ui {
     /// whichever jar is armed, and a per-row dial would be eight copies of
     /// one number that can disagree with each other — and would say, wrongly,
     /// that drift is a property of the specimen rather than of the release.
+    /// **The rack: one row per chamber, and the numbers you compare them by.**
+    ///
+    /// The tabs above the bar reach the first five. This is the page a rack of
+    /// fifty is read through, so the columns are chosen for *comparing* rather
+    /// than for describing: what is alive, how deep the generations got, and
+    /// how much has been born. `stats::Census` already carries every one of
+    /// them, so a row is a read rather than a walk of a frozen box.
+    ///
+    /// **`FRAME` is a column and not a debug aid.** A frozen chamber and a
+    /// running one look identical in any picture of a rack, so the number that
+    /// separates them is on every row — `CLAUDE.md`, *"did it fire at all"
+    /// needs a counter, not a picture*.
+    ///
+    /// **A chamber that has never been stepped shows dashes, not zeroes.** Its
+    /// census has never run, and a row of zeroes would say *nothing lives
+    /// here* where the truth is *nobody has looked yet* — which is the
+    /// difference between a dead box and a fresh one, and the whole question a
+    /// batch is read to answer.
+    fn paint_rack(&mut self, frame: &mut [u8], chambers: &[super::ChamberSummary], thumb: Option<&super::Thumb>, state: &BarState) -> Option<(String, Rect, i32)> {
+        let mut widgets: Vec<Widget> = Vec::new();
+        let thumb_batch_running = state.batch.progress.is_some();
+        let mut note: Option<(String, Rect, i32)> = None;
+
+        // Re-clamped here rather than trusted: closing a chamber renumbers
+        // the ones after it, and a selection held across that would highlight
+        // a different box than the one that was picked.
+        self.rack_selected = self.rack_selected.filter(|&i| i < chambers.len());
+        let shown = chambers.len().min(RACK_ROWS);
+        self.rack_scroll = self.rack_scroll.min(chambers.len().saturating_sub(shown));
+
+        let w = rack_page_width();
+        let picture_h = if thumb.is_some() { RACK_THUMB_H + 4 } else { 0 };
+        let batch_h = 16 + if thumb_batch_running { 11 } else { 0 };
+        let h = PAGE_HEADER + RACK_HEAD + RACK_ROW * shown.max(1) as i32 + picture_h + batch_h + PARAM_TABS + PAGE_PAD;
+        let bottom = bar_top() - 4;
+        let rect = Rect { x: MARGIN, y: (bottom - h).max(MARGIN), w, h };
+        self.rack_box = Some(rect);
+
+        fill(frame, rect, PANEL_BG);
+        outline(frame, rect, PANEL_EDGE);
+        let left = rect.x + PAGE_PAD;
+        let right = rect.right() - PAGE_PAD;
+        text(frame, left, rect.y + 6, "THE RACK", TITLE);
+
+        // NEW, in the header. The rack's own verb, and it reseeds: at the same
+        // seed every draw in the engine is a pure function of `(world.seed,
+        // identity, position)`, so an unseeded copy is a bit-identical box and
+        // a rack of them is one sample wearing many labels.
+        let new_w = cell_width(hud::text_width("NEW"), "", PAD);
+        widgets.push(Widget {
+            rect: Rect { x: right - new_w, y: rect.y + 3, w: new_w, h: 11 },
+            line1: "NEW".into(),
+            line2: String::new(),
+            action: Some(Action::ChamberAdd),
+            latched: false,
+            icon: None,
+            ratio: None,
+            note: "ANOTHER CHAMBER: THIS BOX'S RECIPE AGAIN, AT THE NEXT UNUSED SEED. THE SEED IS WHAT MAKES IT A REPLICATE RATHER THAN A COPY -- AT THE SAME SEED IT WOULD BE THE SAME WORLD, CELL FOR CELL.".into(),
+        });
+        for x in rect.x + 1..rect.right() - 1 {
+            render::put(frame, W, H, x, rect.y + PAGE_HEADER - 4, DIVIDER);
+        }
+
+        // ---- the column header.
+        //
+        // **Not decoration.** The row `864 6 52 0/0 0` is unreadable without
+        // it — which is the whole failure of a comparison page, since a
+        // column you cannot name is a column you cannot compare on. Caught by
+        // looking at the first render rather than by any test.
+        let mut y = rect.y + PAGE_HEADER;
+        text(frame, left, y, RACK_LITERALS[0], FAINT);
+        text(frame, left + 62, y, RACK_LITERALS[1], FAINT);
+        text(frame, left + 108, y, RACK_LITERALS[2], GOOD);
+        text(frame, left + 128, y, RACK_LITERALS[3], FAIR);
+        text(frame, left + 150, y, RACK_LITERALS[4], FAINT);
+        text(frame, left + 178, y, RACK_LITERALS[5], FAINT);
+        y += RACK_HEAD;
+        for x in rect.x + 1..rect.right() - 1 {
+            render::put(frame, W, H, x, y - 2, DIVIDER);
+        }
+
+        // ---- the rows.
+        for (row, ch) in chambers.iter().enumerate().skip(self.rack_scroll).take(shown) {
+            let selected = self.rack_selected == Some(row);
+            let band = Rect { x: rect.x + 1, y, w: rect.w - 2, h: RACK_ROW };
+            // **Before the text, not after.** A hover fill painted over the
+            // row it highlights erases the line you are pointing at, which
+            // looks exactly like a row that has no data.
+            let hovered = self.cursor.is_some_and(|(cx, cy)| band.contains(cx, cy));
+            if selected {
+                fill(frame, band, FACE_ON);
+            } else if hovered {
+                fill(frame, band, FACE_HOVER);
+            }
+            // The whole row is the button. A four-pixel-wide number is not a
+            // click target, and a row that only responds on its label is a row
+            // players think is broken.
+            widgets.push(Widget {
+                rect: band,
+                line1: String::new(),
+                line2: String::new(),
+                action: Some(Action::ChamberSelect(row)),
+                latched: false,
+                icon: None,
+                ratio: None,
+                note: String::new(),
+            });
+
+            let tint = if ch.active { SUB_ON } else if selected { TITLE } else { FAINT };
+            text(frame, left, y + 2, &format!("{:>2}", ch.label), tint);
+            text(frame, left + 16, y + 2, &format!("SEED {:<4}", ch.seed), FAINT);
+            // The counter that says whether it is frozen.
+            text(frame, left + 62, y + 2, &format!("{:>7}", ch.frame), if ch.active { SUB_ON } else { FAINT });
+
+            match &ch.census {
+                Some(c) => {
+                    text(frame, left + 108, y + 2, &format!("{:>3}", c.plants), GOOD);
+                    text(frame, left + 128, y + 2, &format!("{:>3}", c.animals), FAIR);
+                    text(frame, left + 150, y + 2, &format!("{}/{}", c.plant_generation, c.animal_generation), FAINT);
+                    text(frame, left + 178, y + 2, &format!("{:>5}", c.seeds_borne), FAINT);
+                }
+                // Never looked at, which is not the same as empty.
+                None => text(frame, left + 108, y + 2, RACK_LITERALS[6], FAINT),
+            }
+            if ch.active {
+                text(frame, right - hud::text_width("HERE"), y + 2, RACK_LITERALS[10], SUB_ON);
+            } else if ch.on_record {
+                text(frame, right - hud::text_width(RACK_LITERALS[11]), y + 2, RACK_LITERALS[11], FAINT);
+            }
+            y += RACK_ROW;
+        }
+
+        // ---- the picture of whichever row is highlighted.
+        if let Some(t) = thumb {
+            let ty = y + 2;
+            blit(frame, rect.x + (rect.w - t.w as i32) / 2, ty, t);
+            y = ty + RACK_THUMB_H;
+        }
+
+        // ---- the rack's own verb: run copies of this box, headless.
+        //
+        // **Two dials and a button, not a hidden default.** The owner's
+        // standing direction for the lab is *"give me the tools, data, access
+        // to the parameters and I do that testing myself"* — a batch size
+        // and a run length chosen in the source are two decisions taken away
+        // from the person the feature is for.
+        let by = y + 3;
+        let mut dial = |label: &str, value: String, minus: Action, plus: Action, note: &'static str, x: i32, w: &mut Vec<Widget>| -> i32 {
+            let step = cell_width(hud::text_width("W"), "", PAD);
+            text(frame, x, by + 2, label, FAINT);
+            let mut cx = x + hud::text_width(label) + 4;
+            for (face, action) in [("-", minus), ("+", plus)] {
+                if face == "+" {
+                    // The value sits between the two faces, in a **fixed**
+                    // column: a value that gains a digit would otherwise
+                    // shove its own `+` sideways under the cursor, which is
+                    // the failure the parameters page already sizes against.
+                    text(frame, cx + 3, by + 2, &value, VALUE);
+                    cx += BATCH_VALUE_W;
+                }
+                w.push(Widget {
+                    rect: Rect { x: cx, y: by, w: step, h: 11 },
+                    line1: face.into(),
+                    line2: String::new(),
+                    action: Some(action),
+                    latched: false,
+                    icon: None,
+                    ratio: None,
+                    note: note.into(),
+                });
+                cx += step + 2;
+            }
+            cx
+        };
+        let mut bx = left;
+        bx = dial("COPIES", format!("{}", state.batch.copies), Action::BatchCopies(-1), Action::BatchCopies(1),
+            "HOW MANY COPIES OF THIS BOX TO RUN. EACH ONE GETS ITS OWN SEED, WHICH IS WHAT MAKES THEM DIFFERENT WORLDS RATHER THAN THE SAME WORLD N TIMES -- MEASURED, THE SEED ALONE MOVES THE FINAL CENSUS BY 2.4 TO 3.1 TIMES.", bx, &mut widgets);
+        // The return is the next free x, unused after the last dial — kept as
+        // a return rather than dropped so a third dial slots in beside these
+        // two without re-deriving the arithmetic.
+        let _ = dial("TICKS", format!("{}", state.batch.frames), Action::BatchFrames(-1), Action::BatchFrames(1),
+            "HOW LONG EACH COPY RUNS, IN SIMULATED TICKS. THE FIRST INHERITED PLANT APPEARS AROUND 1,800 AND THE FOURTH GENERATION AROUND 10,000. RUNNING IT HEADLESS IS EXACT -- IT IS THE SAME SIMULATION YOU WOULD HAVE WATCHED, NOT AN APPROXIMATION.", bx + 6, &mut widgets);
+
+        let running = state.batch.progress.is_some();
+        let (face, action, why) = if running {
+            ("STOP", Action::BatchStop, "STOP THE RACK. COPIES THAT HAVE ALREADY FINISHED ARE KEPT -- STOPPING LOSES ONLY THE ONES STILL IN FLIGHT.")
+        } else {
+            ("RUN", Action::BatchRun, "RUN THE COPIES NOW, IN THE BACKGROUND. THE BOX ON SCREEN KEEPS WORKING WHILE THEY GO, AND EACH ONE APPEARS IN THIS LIST AS IT LANDS.")
+        };
+        let bw = cell_width(hud::text_width(face), "", PAD) + 8;
+        widgets.push(Widget {
+            rect: Rect { x: right - bw, y: by, w: bw, h: 11 },
+            line1: face.into(),
+            line2: String::new(),
+            action: Some(action),
+            latched: running,
+            icon: None,
+            ratio: None,
+            note: why.into(),
+        });
+        y = by + 13;
+
+        if let Some(p) = state.batch.progress {
+            // **The counter beside the work.** A rack of rows filling in
+            // looks the same whether four copies are running or none are, so
+            // the count and the clock are on screen rather than inferred.
+            let left_note = match p.remaining() {
+                Some(d) => format!("{}M{:02}S LEFT", d.as_secs() / 60, d.as_secs() % 60),
+                None => "ESTIMATING".to_string(),
+            };
+            let line = format!(
+                "{}/{} DONE  {}M{:02}S  {}  {} HELD",
+                p.finished + p.failed,
+                p.total,
+                p.elapsed.as_secs() / 60,
+                p.elapsed.as_secs() % 60,
+                left_note,
+                p.held
+            );
+            text(frame, left, y, &line, SUB_ON);
+            if p.failed > 0 {
+                text(frame, left, y + 9, &format!("{} FAILED TO BUILD", p.failed), POOR);
+                y += 9;
+            }
+            y += 11;
+        }
+
+        // ---- the two verbs on the highlighted row.
+        if let Some(i) = self.rack_selected {
+            let vy = y + 3;
+            let mut vx = left;
+            let here = chambers.get(i).is_some_and(|c| c.active);
+            // An on-record row's world was dropped for the memory budget, so
+            // there is nothing to walk into. Its verbs are drawn dead rather
+            // than hidden, and the row itself says which it is.
+            let on_record = chambers.get(i).is_some_and(|c| c.on_record);
+            for (label, action, on, why) in [
+                ("ENTER", Action::Chamber(i), !here && !on_record,
+                 "PUT THIS CHAMBER ON SCREEN. THE ONE YOU LEAVE IS HELD EXACTLY WHERE IT IS -- IT RESUMES ON THE TICK IT STOPPED AT, NOT FROM THE START."),
+                ("CLOSE", Action::ChamberClose(i), !here && !on_record,
+                 "THROW THIS CHAMBER AWAY. THE BOX YOU ARE IN CANNOT BE CLOSED: STEP INTO ANOTHER ONE FIRST, SO THAT CLOSING NEVER ALSO MOVES YOU SOMEWHERE YOU DID NOT ASK TO GO."),
+            ] {
+                let bw = cell_width(hud::text_width(label), "", PAD) + 6;
+                if on {
+                    widgets.push(Widget {
+                        rect: Rect { x: vx, y: vy, w: bw, h: 11 },
+                        line1: label.into(),
+                        line2: String::new(),
+                        action: Some(action),
+                        latched: false,
+                        icon: None,
+                        ratio: None,
+                        note: why.into(),
+                    });
+                } else {
+                    // Drawn dead rather than hidden. A verb that vanishes when
+                    // it does not apply teaches nothing; one that is visibly
+                    // unavailable says why when you hover it.
+                    text(frame, vx + PAD, vy + 2, label, SUB);
+                }
+                vx += bw + 4;
+            }
+            if here {
+                text(frame, vx + 4, vy + 2, RACK_LITERALS[8], FAINT);
+            } else if on_record {
+                text(frame, vx + 4, vy + 2, RACK_LITERALS[9], FAINT);
+            }
+        } else {
+            text(frame, left, y + 5, RACK_LITERALS[7], FAINT);
+        }
+
+        // Only the real buttons get a face. A row is a band, not a button:
+        // painting it as one would put a bevel round every line of the table,
+        // and its highlight is already drawn above, under its own text.
+        for wid in widgets.iter().filter(|w| !w.line1.is_empty()) {
+            let hover = self.cursor.is_some_and(|(x, y)| wid.rect.contains(x, y));
+            let down = hover && self.pressed.is_some() && self.pressed == wid.action;
+            paint_widget(frame, wid, hover, down);
+        }
+        self.rack_bar = Bar { widgets, dividers: Vec::new() };
+        if let Some(wid) = self.rack_bar.hovered(self.cursor) {
+            if !wid.note.is_empty() {
+                note = Some((wid.note.clone(), wid.rect, wid.rect.y - 4));
+            }
+        }
+        note
+    }
+
     fn paint_shelf(&mut self, frame: &mut [u8]) -> Option<(String, Rect, i32)> {
         let mut widgets: Vec<Widget> = Vec::new();
         let mut note: Option<(String, Rect, i32)> = None;
@@ -2689,6 +3235,17 @@ impl Ui {
             self.panel_box = None;
             self.shelf_box = None;
             self.shelf_bar = Bar::default();
+        } else if self.panel == Some(Panel::Chambers) {
+            // Its own painter, for `Params`' and `Shelf`'s reason: a row here
+            // is a chamber with two verbs attached, not a label.
+            if let Some((body, avoid, y)) = self.paint_rack(frame, state.chambers, state.rack_thumb, state) {
+                note = Some((body, avoid, y, Note::BesidePage));
+            }
+            self.panel_box = None;
+            self.params_box = None;
+            self.params_bar = Bar::default();
+            self.shelf_box = None;
+            self.shelf_bar = Bar::default();
         } else if self.panel == Some(Panel::Shelf) {
             // The same deal, and the same reason: a jar row is a verb.
             if let Some((body, avoid, y)) = self.paint_shelf(frame) {
@@ -2697,11 +3254,15 @@ impl Ui {
             self.panel_box = None;
             self.params_box = None;
             self.params_bar = Bar::default();
+            self.rack_box = None;
+            self.rack_bar = Bar::default();
         } else if let Some(panel) = self.panel {
             self.params_box = None;
             self.params_bar = Bar::default();
             self.shelf_box = None;
             self.shelf_bar = Bar::default();
+            self.rack_box = None;
+            self.rack_bar = Bar::default();
             let rows = self.panel_rows(panel, world, spec, fps);
             // Anchored under the button that opened it, which is only
             // available because `Lab::act` closes the biosphere page when one
@@ -2760,6 +3321,29 @@ impl Ui {
             let hover = self.cursor.is_some_and(|(x, y)| wid.rect.contains(x, y));
             let down = hover && self.pressed.is_some() && self.pressed == wid.action;
             paint_widget(frame, wid, hover, down);
+        }
+
+        // **The rack's tabs.** Laid out here rather than in `layout` because
+        // the strip is not part of the bar — the bar has 0-1 pixels spare and
+        // cannot take another cell at any spacing (see `tab_strip_y`). Drawn after
+        // the bar so that `AboveBar` sits against its top edge rather than
+        // under it.
+        self.tabs = match tab_strip_y(state.chambers.len()) {
+            Some(y) => lay_out_tabs(state.chambers, y),
+            None => Bar::default(),
+        };
+        if let Some(y) = tab_strip_y(state.chambers.len()) {
+            fill(frame, Rect { x: 0, y, w: W as i32, h: TAB_H }, BAR_BG);
+            // The rule along the strip's own top, so the strip and the bar
+            // read as one panel rather than two stacked ones.
+            for x in 0..W as i32 {
+                render::put(frame, W, H, x, y, BAR_EDGE);
+            }
+            for wid in &self.tabs.widgets {
+                let hover = self.cursor.is_some_and(|(x, y)| wid.rect.contains(x, y));
+                let down = hover && self.pressed.is_some() && self.pressed == wid.action;
+                paint_widget(frame, wid, hover, down);
+            }
         }
         // A bar button explains itself too, and its note wins over a page's:
         // the cursor can only be over one of them, and the bar is on top.
@@ -2881,11 +3465,105 @@ mod tests {
             overlay: "OFF",
             jar: "NO JARS",
             jar_note: "THE RACK OF KEPT GENETICS: EVERY JAR IS ONE INDIVIDUAL'S GENOME.",
+            // A rack of one, which is what the lab opens with and what the
+            // bar's own fit test must be measured against: the tab strip is
+            // not drawn below two chambers, so it can never be the thing that
+            // makes the bar not fit.
+            chambers: &[],
+            rack_thumb: None,
+            batch: super::super::BatchBar { copies: 8, frames: 9_000, progress: None },
         }
     }
 
     fn world() -> World {
         World::new(WorldRect::new(0, 0, 63, 63))
+    }
+
+    fn rack(n: usize) -> Vec<super::super::ChamberSummary> {
+        (0..n)
+            .map(|i| super::super::ChamberSummary {
+                on_record: false,
+                index: i,
+                active: i == 0,
+                label: format!("{}", i + 1),
+                seed: i as u64 + 1,
+                frame: 0,
+                census: None,
+            })
+            .collect()
+    }
+
+    /// **A rack of one draws no strip, and a rack of two does.**
+    ///
+    /// Both halves, at every style. The first alone is green for a strip that
+    /// never draws at all — which is the failure that matters, because the lab
+    /// opens on one chamber and a strip that is broken there looks exactly
+    /// like a strip that is correctly absent.
+    #[test]
+    fn a_rack_of_one_draws_no_tabs_and_a_rack_of_two_does() {
+        assert_eq!(tab_strip_y(0), None, "an empty rack");
+        assert_eq!(tab_strip_y(1), None, "the lab's own opening");
+        assert!(tab_strip_y(2).is_some(), "two chambers must show a strip");
+        assert!(tab_strip_y(50).is_some(), "and so must fifty, which is what a batch makes");
+    }
+
+    /// **The strip never overlaps the bar, and never leaves the screen.**
+    ///
+    /// A strip that ran under the bar would be invisible and still take the
+    /// clicks aimed at the bar's top row — a control stealing another
+    /// control's presses, which is the sort of thing only a screenshot ever
+    /// finds.
+    #[test]
+    fn the_tab_strip_clears_the_bar_and_the_screen() {
+        let y = tab_strip_y(5).expect("five chambers");
+        assert!(y + TAB_H <= bar_top(), "the strip ran into the bar: {y} + {TAB_H} > {}", bar_top());
+        assert!(y >= 0, "the strip ran off the top of the screen");
+    }
+
+    /// **A tab is clickable where it is drawn.**
+    ///
+    /// Aimed through the retained layout rather than at where a tab "ought to
+    /// be", for `widget_rect`'s reason: a test that computes the rectangle
+    /// itself is a test of its own arithmetic. The last tab is checked as well
+    /// as the first, because an off-by-one in the advance only shows at the
+    /// end of the strip.
+    #[test]
+    fn every_tab_is_clickable_where_it_is_drawn() {
+        let chambers = rack(5);
+        let y = tab_strip_y(chambers.len()).expect("a rack of five");
+        let bar = lay_out_tabs(&chambers, y);
+        assert_eq!(bar.widgets.len(), 6, "five chambers, five tabs, and the way into the rack");
+        for (i, wid) in bar.widgets.iter().take(5).enumerate() {
+            let (cx, cy) = (wid.rect.x + wid.rect.w / 2, wid.rect.y + wid.rect.h / 2);
+            assert_eq!(bar.hit(cx, cy), Some(Action::Chamber(i)), "tab {i} is not clickable at its own centre");
+            assert!(wid.rect.right() <= W as i32 - MARGIN, "tab {i} ran off the right edge");
+        }
+        assert!(bar.widgets[0].latched, "the chamber on screen is not marked as such");
+    }
+
+    /// **A rack longer than the strip says so.**
+    ///
+    /// The owner's call is five tabs with the rest behind the menu, and a
+    /// batch produces fifty — so the case that matters is the one where the
+    /// strip is *not* the whole rack. A strip that silently stopped at five
+    /// would tell you your rack is five chambers long.
+    #[test]
+    fn a_rack_past_five_shows_what_it_is_not_showing() {
+        let chambers = rack(12);
+        let y = tab_strip_y(chambers.len()).expect("a rack of twelve");
+        let bar = lay_out_tabs(&chambers, y);
+        assert_eq!(bar.widgets.len(), TABS_SHOWN + 1, "five tabs and the way into the rest");
+        let all = bar.widgets.last().expect("the ALL button");
+        assert_eq!(all.line1, "ALL +7", "it must count the chambers the strip is not showing");
+        assert_eq!(all.action, Some(Action::Panel(Panel::Chambers)), "it is a verb, not a label -- and not a switch to chamber 7");
+
+        // And at five or fewer it is still there, still a verb, with nothing
+        // to count: the rack page is where a chamber is closed, so a rack of
+        // three must be able to reach it.
+        let small = lay_out_tabs(&rack(3), tab_strip_y(3).expect("three"));
+        let all = small.widgets.last().expect("the ALL button");
+        assert_eq!(all.line1, "ALL");
+        assert_eq!(all.action, Some(Action::Panel(Panel::Chambers)));
     }
 
     /// **The font cannot draw everything, and what it cannot draw it draws as
@@ -2915,6 +3593,70 @@ mod tests {
                 }
             }
         }
+        // **The rack page's own strings**, including its column header —
+        // which is how `#` was caught: it has no 5x7 glyph, `draw_text`
+        // renders it as a silent blank, and the header read `  SEED` in the
+        // first contact sheet. `CLAUDE.md` records that trap as having
+        // shipped three times, and this page had no guard over it because it
+        // paints itself rather than going through `panel_rows`.
+        {
+            let mut page = Ui::new();
+            page.select_chamber(0);
+            let mut buf = vec![0u8; (W * H * 4) as usize];
+            let world = world();
+            let spec = LabBox::default();
+            let st = state(false, 1);
+            let _ = (&world, &spec);
+            page.paint_rack(&mut buf, &rack(7), None, &st);
+            for wid in &page.rack_bar.widgets {
+                check(&wid.line1, "rack button");
+                check(&wid.note, "rack explanation");
+            }
+            for wid in &lay_out_tabs(&rack(7), tab_strip_y(7).expect("seven")).widgets {
+                check(&wid.line1, "tab face");
+                check(&wid.note, "tab explanation");
+            }
+            check(Panel::Chambers.title(), "rack title");
+            // The header and the never-censused row, neither of which is a
+            // widget and so neither of which the loops above reach.
+            for literal in RACK_LITERALS {
+                check(literal, "rack literal");
+            }
+        }
+
+        // **The parameters page's own rows, and this was a blind spot.**
+        //
+        // Its 42 knobs each carry a hover note and **none of them was
+        // covered**: proven by injecting `~#~` into one and watching this
+        // test stay green. `CLAUDE.md` is explicit that a guard which does
+        // not go red for the fault it is named for is not weak but blind, and
+        // is to be replaced rather than argued with. The page is reached
+        // through `params::registry` rather than `panel_rows`, which is how
+        // it slipped past.
+        //
+        // It found a live defect immediately: the bed notes had been given
+        // markdown emphasis, and the 5x7 set has **no `*`** -- it would have
+        // drawn as gaps mid-sentence.
+        {
+            let w = world();
+            let sp = LabBox::default();
+            // With a plant selected and without, because the plant rows are
+            // only built when one is — half the page is otherwise unreached.
+            // The same accessor the page itself uses, so the guard covers
+            // the rows a player actually sees rather than a second guess at
+            // which species is selected.
+            for plant in [None, Ui::new().species_of(&w)] {
+                for p in params::registry(&w, &sp, plant) {
+                    check(&param_label(&p.tunable.name), "parameter name");
+                    check(&p.tunable.category.to_uppercase(), "parameter category");
+                    check(&p.note, "parameter explanation");
+                    if let Some(shown) = &p.shown {
+                        check(shown, "parameter value");
+                    }
+                }
+            }
+        }
+
         let (world, spec, ui) = (world(), LabBox::default(), Ui::new());
         for panel in [Panel::Plants, Panel::Ants, Panel::Box] {
             check(panel.title(), "page title");
