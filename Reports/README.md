@@ -928,6 +928,38 @@ drift that two of these documents still reflect.**
   to 40 rows up a stem and `windfall` never exceeds 1. A *reach* problem, which
   is the failure case §5 names; the margin model holds, and what it does not
   contain is whether the mouthful can be got at.
+- [creature-cell-scale-2026-08-30.md](creature-cell-scale-2026-08-30.md) —
+  **landed, 2026-08-30.** `World::cell_scale` had **no reader anywhere in the
+  living half of the engine**, so a world at double density scaled the gnome
+  and left every animal at its authored cell count — at *half its physical
+  size*, which is the "our gnome shouldn't have shrunk" defect arriving for
+  everything that is not the gnome. `CreatureDef::scaled` closes it for
+  creatures, on `Tuning::scaled`'s four classes, and the report says which
+  constants were deliberately **not** scaled: `body_energy` (pinned to the
+  materials' `food_energy`, another lane's files) and the flight constants (a
+  named gap). Three findings beyond the fix. **A chain cannot scale in
+  width** — a path has no width — so "creatures should be more than chains of
+  pixels" and the resolution step are one problem. **Supersampling makes a
+  rigid body less mobile**, blocked 62.1% -> 72.8% against `Chain(2)`'s 5.2%,
+  which is the blocker between "more cells" and "looks like an animal"; §6 is
+  a `Ribbon` design for it, with the self-overlap problem that decides it.
+  And the birth economy is **measured on `main` rather than inherited** — PR
+  #174 had not landed when this branch was cut (births 0) and **merged
+  mid-lane**, so §5b re-measures against it: births 0 -> **1**, richest bank
+  203 -> **500**, birth cost **1,040 unchanged** — it moves the ceiling and
+  not the bar — with the resolution interaction the lane owns: the stamp `body_energy * cells` multiplies by
+  the cell ratio, taking a 36-cell body's birth cost to 17,360 against a bank
+  ceiling of ~460. **Both verdicts are in and §5a carries them**: the size
+  proof rates **5, "Yes"**, and the silhouette A/B comes back *"Both are
+  smudges but A is closer"* — so **36 cells does not buy an animal**, and the
+  reason is visible at 28 px per unit: the `ant` palette is three near-black
+  browns spanning fourteen units of luma, `Countershade` grades *within* it
+  and is invisible, and the body is a solid rectangle with nothing breaking
+  its outline. `plant-appearance-design.md` arriving on the creature line.
+  The fork is asked rather than assumed (card `…a6b871`, colour at fixed
+  outline), and §5a records what it already rules in: a creature is painted
+  from **one** `material_id`, so a pale head on a dark thorax is not
+  authorable today
 - [creature-direction.md](creature-direction.md) — **direction agreed
   (2026-08-17).** Cell-chain ants, the caged brain, the heritable genome;
   decision record plus implementation plan.

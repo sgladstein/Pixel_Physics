@@ -193,6 +193,27 @@ const WORM_ENERGY_FROM_EATING: f32 = 8.0;
 /// slightly warm ground.
 const WORM_HEAT_THRESHOLD_ABOVE_AMBIENT: f32 = 25.0;
 
+/// **A length authored in cells, in a world built at a finer resolution.**
+///
+/// The module-level companion to `CreatureDef::scaled`, for the lengths
+/// that live in the *source* rather than in a species file -- a
+/// neighbourhood radius, a colony's spacing, a telemetry bucket edge.
+/// `CLAUDE.md`'s rule is that reading `World::cell_scale` is the only
+/// supported way for such a constant to find out the world got finer, and
+/// this is that read, in one place, so a site cannot get the rounding
+/// subtly different from its neighbour.
+///
+/// Floors at 1: a length authored as at least one cell must not round away
+/// to zero, which would turn a neighbourhood into a single cell and read as
+/// the sense being dead rather than as being mis-scaled.
+#[inline]
+fn scaled_cells(world: &World, authored: i32) -> i32 {
+    if authored == 0 {
+        return 0;
+    }
+    ((authored as f32 * world.cell_scale()).round() as i32).max(1)
+}
+
 /// How strongly a worm is allowed to pick the *wrong* neighbour.
 ///
 /// The additive term `k` in `choose_weighted`'s `(k + s)²`. At `0.1`, a
@@ -1275,9 +1296,17 @@ impl World {
         // deliberate and is the ratio the foraging scene measured 414
         // deliveries at: home has to be a *place*, not everywhere, or there
         // is no gradient to walk up.
-        let span = (COLONY_ANTS - 1) * COLONY_ANT_SPACING;
+        // **Both are lengths in cells and both scale.** The comment above
+        // says why the spacing is 4 -- "four cells apart *for a two-cell
+        // body*" -- so it is denominated in bodies, and a body that is twice
+        // as many cells across needs twice the corridor or the colony
+        // gridlocks exactly as the 27,386 blocked ticks did. The ant *count*
+        // is not a length and stays put; the band widens under it.
+        let spacing = scaled_cells(self, COLONY_ANT_SPACING);
+        let half_width = scaled_cells(self, COLONY_HALF_WIDTH);
+        let span = (COLONY_ANTS - 1) * spacing;
         let left = x - span / 2;
-        for cx in (x - COLONY_HALF_WIDTH)..=(x + COLONY_HALF_WIDTH) {
+        for cx in (x - half_width)..=(x + half_width) {
             if let Some(sy) = colony_surface(self, cx, y) {
                 let cell = self.get(cx, sy);
                 // Only ground gets converted -- painting over water or a
@@ -1289,7 +1318,7 @@ impl World {
         }
         let mut placed = 0;
         for i in 0..COLONY_ANTS {
-            let cx = left + i * COLONY_ANT_SPACING;
+            let cx = left + i * spacing;
             if let Some(sy) = colony_ant_site(self, cx, y) {
                 let before = self.get(cx, sy - 1).organism_id();
                 self.plant_ant(cx, sy - 1);
@@ -1700,9 +1729,21 @@ fn sense(
     // would be measuring a hidden behavioural change. `CLAUDE.md`'s "fixing
     // a bug exposes a constant that was compensating for it", caught before
     // the bug rather than after.
+    //
+    // **The radius is a length and the divisor below is not free to stay
+    // put when it moves.** At `cell_scale` 2 the same physical
+    // neighbourhood is 9x9 rather than 5x5, and the fraction of cells in it
+    // that are flesh is unchanged -- so a fixed `CROWDING_SCALE` would read
+    // 3.3x the crowding for the same physical crush and pin
+    // `(Crowding, Move, -0.3)` at its floor. `CLAUDE.md`'s "fixing a bug
+    // exposes a constant that was compensating for it" in its second shape:
+    // changing what a term can express reallocates the whole weighted sum.
+    let crowd_radius = scaled_cells(world, CROWDING_RADIUS);
+    let neighbourhood = |r: i32| ((2 * r + 1) * (2 * r + 1) - 1) as f32;
+    let crowd_scale = CROWDING_SCALE * neighbourhood(crowd_radius) / neighbourhood(CROWDING_RADIUS);
     let mut crowd = 0;
-    for dy in -CROWDING_RADIUS..=CROWDING_RADIUS {
-        for dx in -CROWDING_RADIUS..=CROWDING_RADIUS {
+    for dy in -crowd_radius..=crowd_radius {
+        for dx in -crowd_radius..=crowd_radius {
             if dx == 0 && dy == 0 {
                 continue;
             }
@@ -1715,7 +1756,7 @@ fn sense(
             }
         }
     }
-    inputs[I::Crowding as usize] = (crowd as f32 / CROWDING_SCALE).min(1.0);
+    inputs[I::Crowding as usize] = (crowd as f32 / crowd_scale).min(1.0);
 
     // **The distal sense, and the reason E15 exists.** Everything above
     // this line is contact range or a field read; nothing in it reports
@@ -2010,7 +2051,7 @@ fn sight(world: &World, x: i32, y: i32, organism: u16, def: &CreatureDef, gut: G
 
     // The eye, lifted only through cells that do not themselves block.
     let mut ey = y;
-    for _ in 0..SIGHT_EYE_LIFT {
+    for _ in 0..scaled_cells(world, SIGHT_EYE_LIFT) {
         if blocks_sight(world, world.get(x, ey - 1)) {
             break;
         }
@@ -2635,12 +2676,17 @@ fn step_chain(
             // The profile is booked for *every* excursion, including the
             // one-cell ones — it is the distribution that makes the bar
             // below defensible, so it must not be filtered by that bar.
+            // **The ruler is in cells, so it moves with the grid.** Left
+            // fixed, the same physical excursion books one bucket higher in
+            // a 2x world and two colonies at different resolutions cannot be
+            // compared at all -- the histogram would be reporting the cell
+            // size rather than the foraging.
             for (i, &edge) in FORAGE_REACH_BUCKETS.iter().enumerate() {
-                if depth >= edge {
+                if depth as i32 >= scaled_cells(world, edge as i32) {
                     world.creature_stats.forage_reach[i] += 1;
                 }
             }
-            if depth >= FORAGE_TRIP_MIN {
+            if depth as i32 >= scaled_cells(world, FORAGE_TRIP_MIN as i32) {
                 world.creature_stats.forage_trips += 1;
                 world.creature_stats.forage_depth_sum += depth as u64;
             }

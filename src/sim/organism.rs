@@ -1834,6 +1834,74 @@ impl BodyPlan {
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
+
+    /// **This same body, at the same physical size, in a world built at `k`
+    /// times the cell resolution.**
+    ///
+    /// The gap this closes: nothing alive read `World::cell_scale`, so a
+    /// world generated at 2x gave the gnome a body twice as many cells
+    /// across (`player::Player::at_scaled`) and left every animal at its
+    /// authored cell count -- i.e. at **half its physical size**. That is
+    /// the "our gnome shouldn't have shrunk" defect
+    /// (`Reports/resolution-step-2026-08-29.md`) arriving for everything
+    /// else in the world.
+    ///
+    /// **A `Rigid` plan supersamples and a `Chain` can only stretch, and
+    /// the asymmetry is the plan's, not this function's.** A rigid cell is
+    /// an *area*, so at `k` it becomes the `k`x`k` block it covers and the
+    /// silhouette is preserved exactly. A chain is a *path*, and this
+    /// module's own doc says why: "it is exactly one cell wide -- a path
+    /// has no width". So `Chain(n)` scales to `Chain(n*k)`, which is the
+    /// right physical *length* and still one cell wide -- half its physical
+    /// width at `k=2`. **A chain cannot be made physically identical at a
+    /// finer resolution**, and that is not a bug to fix here: it is the
+    /// reason the owner's "creatures should be more than chains of pixels"
+    /// and the resolution step are the same piece of work.
+    ///
+    /// Offsets are `i8`, so a plan wide enough to overflow at `k` is
+    /// clamped rather than wrapped -- a body that silently folded through
+    /// itself would draw as a scatter of cells with no shape at all.
+    pub fn scaled(&self, k: i32) -> BodyPlan {
+        if k <= 1 {
+            return self.clone();
+        }
+        match self {
+            BodyPlan::Chain(n) => BodyPlan::Chain((*n as i32 * k).clamp(1, u8::MAX as i32) as u8),
+            BodyPlan::Rigid(cells) => {
+                // The head's own cell is implicit in `offsets`, and it is an
+                // area like any other: at `k` it becomes the `k`x`k` block it
+                // covers. Authored cell `d` maps to `[d*k - (k-1) ..= d*k]`
+                // on each axis, which is contiguous with its neighbour's
+                // block and keeps `(0, 0)` inside the head's.
+                //
+                // **The `-(k-1)` is the whole of the placement bug this cost
+                // an hour to find.** Written the obvious way -- `d*k ..=
+                // d*k + (k-1)`, growing away from the origin in `+x`/`+y` --
+                // the geometry is *physically identical* and the body still
+                // will not stand anywhere: `ant_block` is authored with the
+                // head at `(0, 0)` and every other cell at negative offsets,
+                // so growing the head block downward put two rows of flesh
+                // *below* the cell a placer had picked as standing room, and
+                // `plant_creature_seed` refused every site in the world. The
+                // anchor has to keep meaning what it meant -- the head cell
+                // is where the animal stands -- and that fixes the corner the
+                // block grows from.
+                let mut out = Vec::with_capacity(cells.len().saturating_add(1) * (k * k) as usize);
+                let clamp = |v: i32| v.clamp(i8::MIN as i32, i8::MAX as i32) as i8;
+                for &(dx, dy) in std::iter::once(&(0i8, 0i8)).chain(cells.iter()) {
+                    for j in 0..k {
+                        for i in 0..k {
+                            let p = (clamp(dx as i32 * k - (k - 1) + i), clamp(dy as i32 * k - (k - 1) + j));
+                            if p != (0, 0) && !out.contains(&p) {
+                                out.push(p);
+                            }
+                        }
+                    }
+                }
+                BodyPlan::Rigid(out)
+            }
+        }
+    }
 }
 
 /// **How a creature's body cells pick their palette entry.**
@@ -2153,6 +2221,149 @@ pub struct CreatureDef {
     /// unable to describe.
     #[serde(default)]
     pub recurrence: Vec<super::brain::Recurrence>,
+}
+
+impl CreatureDef {
+    /// **This same animal, at the same physical size and the same physical
+    /// behaviour, in a world built at `k` times the cell resolution.**
+    ///
+    /// The sibling of `player::Tuning::scaled`, and deliberately the same
+    /// four classes -- because that is what a tuning struct is:
+    ///
+    /// | | factor | |
+    /// |---|---|---|
+    /// | a length in cells | `k` | `body`, `sensor_offset`, `sight_range` |
+    /// | a time in ticks per decision | `1/k` | `tick_interval` |
+    /// | a rate charged per body cell per decision | `1/(cells x k)` | `idle_cost_per_cell`, `move_cost_per_cell` |
+    /// | dimensionless, or an energy in joules | `1` | everything else |
+    ///
+    /// **`tick_interval` is the row that is easy to miss.** A creature
+    /// steps one cell per decision (`creature::step_chain`), so at `k=2` a
+    /// decision carries it *half* as far physically. Leaving the interval
+    /// alone gives an animal the right size moving at half speed, which is
+    /// the same class of error as the gnome's -- right shape, wrong
+    /// character.
+    ///
+    /// **The per-cell energy row is the one that has to be derived rather
+    /// than guessed, and it is why `cells` appears in the divisor.** Idle
+    /// burn per frame is `idle_cost_per_cell * cells / tick_interval`. At
+    /// `k` the cell count goes up by `R` (2x for a chain, 4x for a rigid
+    /// plan) and the interval goes down by `k`, so the burn per frame would
+    /// go up by `R*k` -- a supersampled ant at `k=2` would starve **eight
+    /// times as fast as itself**. Dividing by the same `R*k` holds physical
+    /// metabolism invariant, which is the only reading under which this is
+    /// the same animal.
+    ///
+    /// **This is not the Kleiber question and must not be confused with
+    /// it.** `Reports/dead-ends.md` records that scaling `start_energy`
+    /// with *body size* was identified and deliberately not built, because
+    /// an n-cell animal burning per cell out of a flat tank has `1/n` of a
+    /// two-cell animal's starvation horizon. That entry is about an animal
+    /// that is genuinely **bigger**. This is an animal that is exactly the
+    /// same size, drawn on a finer grid -- so its tank must stay flat and
+    /// its per-cell rate must fall, and its horizon comes out unchanged.
+    /// Scaling the tank here would be the double-count.
+    ///
+    /// **`body_energy` is deliberately not scaled, and it is the one place
+    /// this pass is knowingly wrong.** It is per-cell flesh pricing, so it
+    /// wants the same `1/R` -- but it is pinned to the `ant`/`chitin_*`/
+    /// `corpse` materials' `food_energy` by the equality `EnergyLedger`
+    /// documents ("`ant.ron`'s `food_energy == body_energy`"), and those
+    /// live in `assets/materials/**`. Halving it here without them would
+    /// let a predator eat a cell of flesh for more than the flesh cost to
+    /// build, which is energy creation in a ledger that is asserted closed.
+    /// The consequence is real and is measured rather than hidden: the
+    /// birth stamp is `body_energy * cells`, so at `k=2` a rigid animal's
+    /// child costs **four times** what its authored form's did. See
+    /// `Reports/creature-cell-scale-2026-08-30.md`.
+    pub fn scaled(&self, k: f32) -> Self {
+        let ki = k.round() as i32;
+        if ki <= 1 {
+            return self.clone();
+        }
+        // Exhaustive, no `..`, for the reason `player::Tuning::scaled` and
+        // `WorldgenParams::scaled` both give: a field added later stops
+        // compiling here until somebody says which class it is, and nothing
+        // else in the tree would catch getting it wrong.
+        let Self {
+            body,
+            tick_interval,
+            start_energy,
+            idle_cost_per_cell,
+            move_cost_per_cell,
+            synapse_fraction,
+            shade_rule,
+            body_energy,
+            hunger_fraction,
+            traits,
+            reproduce_threshold,
+            mutation_rate,
+            trait_variance,
+            climbs_over_kin,
+            eats_kin,
+            nest,
+            dig_force,
+            nest_memory,
+            sight_range,
+            sensor_offset,
+            instincts,
+            hidden_wiring,
+            hidden_outputs,
+            recurrence,
+        } = self;
+
+        let body_scaled = body.scaled(ki);
+        // **The achieved factors, not the requested ones.** `tick_interval`
+        // is a whole number of ticks and floors at 1, so an animal already
+        // deciding every tick cannot decide faster; the energy divisor has
+        // to read what actually happened or it over-discounts a species
+        // whose interval could not move.
+        let interval = ((*tick_interval as f32 / k).round() as u64).max(1);
+        let time_factor = *tick_interval as f32 / interval as f32;
+        let cell_factor = body_scaled.len() as f32 / body.len().max(1) as f32;
+        let burn = (cell_factor * time_factor).max(f32::EPSILON);
+
+        Self {
+            // ---- lengths in cells: x k ----
+            body: body_scaled,
+            sight_range: (*sight_range as f32 * k).round() as i32,
+            sensor_offset: (*sensor_offset as f32 * k).round() as i32,
+
+            // ---- ticks per decision: / k ----
+            tick_interval: interval,
+
+            // ---- per-cell-per-decision rates: / (cells x k) ----
+            idle_cost_per_cell: idle_cost_per_cell / burn,
+            move_cost_per_cell: move_cost_per_cell / burn,
+
+            // ---- energies in joules, and everything dimensionless: x 1 ----
+            // `start_energy` and `reproduce_threshold` are joules held by
+            // one animal, `hunger_fraction` and `synapse_fraction` are
+            // fractions *of* `start_energy`, and `nest_memory` is a decay
+            // time in ticks that describes the world's chemistry rather than
+            // this animal's gait. `dig_force` is compared against a
+            // material's `penetration_resistance`, which does not move with
+            // resolution either.
+            start_energy: *start_energy,
+            synapse_fraction: *synapse_fraction,
+            shade_rule: *shade_rule,
+            body_energy: *body_energy,
+            hunger_fraction: *hunger_fraction,
+            traits: *traits,
+            reproduce_threshold: *reproduce_threshold,
+            mutation_rate: *mutation_rate,
+            trait_variance: *trait_variance,
+            climbs_over_kin: *climbs_over_kin,
+            eats_kin: *eats_kin,
+            nest: nest.clone(),
+            dig_force: *dig_force,
+            nest_memory: *nest_memory,
+            instincts: instincts.clone(),
+            hidden_wiring: hidden_wiring.clone(),
+            hidden_outputs: hidden_outputs.clone(),
+            recurrence: recurrence.clone(),
+        }
+    }
 }
 
 impl SpeciesDef {
@@ -3435,6 +3646,16 @@ pub const BRAIN_HIDDEN_FOR_STATE: usize = super::brain::BRAIN_HIDDEN;
 pub struct SpeciesRegistry {
     species: Vec<Species>,
     by_name: HashMap<String, SpeciesId>,
+    /// **The resolution every creature def in here has been scaled to**, so
+    /// that a species arriving *later* -- an F5 reload, a harness calling
+    /// `register_ron` -- lands at the same size as the ones already here.
+    ///
+    /// It lives on the registry rather than being applied at each read
+    /// because `Species::creature` is read from forty-odd call sites that
+    /// have no business knowing about resolution, and because the scale is
+    /// fixed for a world's whole life (`World::cell_scale`). Scaling once,
+    /// at the funnel, is the version that cannot be forgotten at a site.
+    cell_scale: f32,
 }
 
 const EMBEDDED: &[&str] = &[
@@ -3543,7 +3764,38 @@ impl std::error::Error for SpeciesError {}
 
 impl SpeciesRegistry {
     fn empty() -> Self {
-        Self { species: Vec::new(), by_name: HashMap::new() }
+        Self { species: Vec::new(), by_name: HashMap::new(), cell_scale: 1.0 }
+    }
+
+    /// What resolution the creature defs in here are built for. `1.0` is
+    /// the size every `.ron` in `assets/species` is authored at.
+    pub fn cell_scale(&self) -> f32 {
+        self.cell_scale
+    }
+
+    /// **Build every animal in here for a world at `k` cells per authored
+    /// cell.** Set once, at generation, by `World::set_cell_scale`.
+    ///
+    /// Re-scaling an already-scaled registry is refused rather than
+    /// composed: `CreatureDef::scaled` rounds a tick interval and clamps a
+    /// body offset, so 2 then 2 is not 4, and a caller that wants 4 wants
+    /// to say so. `World::cell_scale`'s own doc has the same rule for the
+    /// same reason -- a world is built at one resolution and stays there.
+    pub fn set_cell_scale(&mut self, k: f32) {
+        debug_assert!(
+            (self.cell_scale - 1.0).abs() < f32::EPSILON || (self.cell_scale - k).abs() < f32::EPSILON,
+            "species registry is already at cell_scale {}, refusing to re-scale to {k}",
+            self.cell_scale
+        );
+        if (self.cell_scale - k).abs() < f32::EPSILON {
+            return;
+        }
+        self.cell_scale = k;
+        for species in &mut self.species {
+            if let Some(def) = species.creature.as_ref() {
+                species.creature = Some(def.scaled(k));
+            }
+        }
     }
 
     /// The species files compiled into the binary, so the engine always has
@@ -3626,7 +3878,17 @@ impl SpeciesRegistry {
     }
 
     fn upsert(&mut self, def: SpeciesDef) {
-        let species = Species::from(def);
+        let mut species = Species::from(def);
+        // **A species arriving after the world was generated still has to be
+        // the right size.** F5 re-reads `assets/species` into here, and a
+        // harness registering a probe species mid-run goes through the same
+        // door; without this both land at the authored resolution and draw
+        // half-size next to everything else.
+        if let Some(creature) = species.creature.as_ref() {
+            if (self.cell_scale - 1.0).abs() > f32::EPSILON {
+                species.creature = Some(creature.scaled(self.cell_scale));
+            }
+        }
         match self.by_name.get(&species.name) {
             Some(id) => self.species[id.0 as usize] = species,
             None => {
@@ -3713,6 +3975,16 @@ impl SpeciesRegistry {
     /// survival — including one with no connections at all, which cannot
     /// move. An environment where the outcome is identical for every
     /// behaviour measures nothing.
+    ///
+    /// **A second caller, and a second reason, since 2026-08-30**: it is how
+    /// the resolution work above gets a control. `set_cell_scale` rebuilds
+    /// every creature def for a finer grid, and the only comparison
+    /// available without this would be a 2x world against a 1x world --
+    /// which differs in the grid *and* in the terrain that grid generated,
+    /// the two-differences A/B `CLAUDE.md` names by example.
+    /// `examples/creature_scale` instead reads the authored def out of a 1x
+    /// world and writes it into a 2x one, so the arms differ by the scaling
+    /// pass and by nothing else.
     pub fn set_creature(&mut self, id: SpeciesId, def: CreatureDef) {
         self.species[id.0 as usize].creature = Some(def);
     }
@@ -4927,6 +5199,128 @@ mod tests {
     fn every_embedded_species_parses() {
         let reg = SpeciesRegistry::builtin();
         assert_eq!(reg.len(), EMBEDDED.len(), "a species failed to load");
+    }
+
+    // --- resolution: does a finer grid reach the living? -----------------
+
+    fn ant_block_def() -> CreatureDef {
+        let reg = SpeciesRegistry::builtin();
+        reg.get(reg.id_of("ant_block").expect("ant_block")).creature.clone().expect("a creature")
+    }
+
+    fn bbox(plan: &BodyPlan) -> (i32, i32) {
+        let cells = plan.offsets(false);
+        let (x0, x1) = (cells.iter().map(|c| c.0).min().unwrap(), cells.iter().map(|c| c.0).max().unwrap());
+        let (y0, y1) = (cells.iter().map(|c| c.1).min().unwrap(), cells.iter().map(|c| c.1).max().unwrap());
+        (x1 - x0 + 1, y1 - y0 + 1)
+    }
+
+    /// **The claim the whole resolution pass exists to make**, stated as
+    /// the only thing that means anything: the box the body occupies,
+    /// *divided by the grid*, does not move.
+    ///
+    /// Asserted in physical units rather than as "twice as many cells",
+    /// because the cell count is what a wrong version gets right -- a body
+    /// with four times the cells at half the size is exactly the defect
+    /// this is guarding against, and it passes a cell-count assertion.
+    #[test]
+    fn a_scaled_rigid_body_is_the_same_physical_size() {
+        let plan = ant_block_def().body;
+        let (w1, h1) = bbox(&plan);
+        for k in [2, 3, 4] {
+            let (wk, hk) = bbox(&plan.scaled(k));
+            assert_eq!((wk, hk), (w1 * k, h1 * k), "ant_block at k={k} is {wk}x{hk} cells, wanted {}x{}", w1 * k, h1 * k);
+        }
+    }
+
+    /// **The head cell stays the anchor, and this is a regression guard
+    /// for a bug that hid behind correct geometry.**
+    ///
+    /// `ant_block` is authored with its head at `(0, 0)` and every other
+    /// cell at a negative offset -- it extends up and behind the cell it
+    /// stands on. Supersampled the obvious way, growing each authored cell
+    /// into the block at `[d*k ..= d*k + k-1]`, the body is *physically
+    /// identical* and two rows of flesh end up **below** the standing cell,
+    /// so `plant_creature_seed` refuses every site in the world. The size
+    /// test above passes throughout: the box is the right size, in the
+    /// wrong place.
+    #[test]
+    fn scaling_a_body_does_not_move_it_off_its_anchor() {
+        let plan = ant_block_def().body;
+        for k in [2, 3] {
+            for &(dx, dy) in &plan.scaled(k).offsets(false) {
+                assert!(dx <= 0 && dy <= 0, "ant_block at k={k} put a body cell at ({dx}, {dy}), on the far side of the cell it stands on");
+            }
+        }
+    }
+
+    /// **The same animal, not a bigger one**: physical metabolism per frame
+    /// is invariant, so the starvation horizon does not move.
+    ///
+    /// This is the arithmetic `CreatureDef::scaled`'s doc derives, put back
+    /// as a check, because getting it wrong is silent -- a supersampled ant
+    /// at `k=2` burning per authored cell starves **eight times as fast as
+    /// itself** and reads as "the resolution change killed the colony".
+    #[test]
+    fn metabolism_per_frame_does_not_move_with_resolution() {
+        let d1 = ant_block_def();
+        let burn = |d: &CreatureDef| d.idle_cost_per_cell * d.body.len() as f32 / d.tick_interval as f32;
+        for k in [2.0, 3.0] {
+            let dk = d1.scaled(k);
+            let (a, b) = (burn(&d1), burn(&dk));
+            assert!((a - b).abs() < a * 1e-3, "idle burn per frame is {b} at k={k} against {a} authored");
+            assert_eq!(dk.start_energy, d1.start_energy, "the tank is a physical joule count and must not scale");
+            assert_eq!(dk.reproduce_threshold, d1.reproduce_threshold, "the bar is joules and must not scale");
+        }
+    }
+
+    /// **Nothing shipped moves.** `cell_scale` is 1.0 in every world the
+    /// app builds today, so the pass must be the identity there -- and the
+    /// cheapest way for this whole change to be wrong is for it to be
+    /// subtly *not* the identity at 1.
+    #[test]
+    fn scaling_to_one_changes_nothing() {
+        let d = ant_block_def();
+        let s = d.scaled(1.0);
+        assert_eq!(s.body.len(), d.body.len());
+        assert_eq!(s.body.offsets(false), d.body.offsets(false));
+        assert_eq!(s.tick_interval, d.tick_interval);
+        assert_eq!(s.sensor_offset, d.sensor_offset);
+        assert_eq!(s.idle_cost_per_cell, d.idle_cost_per_cell);
+        assert_eq!(s.move_cost_per_cell, d.move_cost_per_cell);
+    }
+
+    /// **A chain scales in length and cannot scale in width**, and that is
+    /// a property of `Chain`, not a shortfall of the pass.
+    ///
+    /// Pinned as a test because it is the finding a later session would
+    /// otherwise have to rediscover: at `k=2` the shipped ant is the right
+    /// physical *length* and half its physical *width*, because a chain is
+    /// a path and a path has no width. It is also why "creatures should be
+    /// more than chains of pixels" and the resolution step are one problem.
+    #[test]
+    fn a_chain_scales_in_length_only() {
+        let plan = BodyPlan::Chain(2);
+        let (w1, h1) = bbox(&plan);
+        let (w2, h2) = bbox(&plan.scaled(2));
+        assert_eq!((w2, h2), (w1 * 2, h1), "a chain got taller, which it has no way to do");
+    }
+
+    /// **The channel has a writer and a reader**, which is the check
+    /// `CLAUDE.md` demands of any per-world scalar: `World::set_cell_scale`
+    /// writes it and the registry reads it, and a species registered
+    /// *after* that call gets the same treatment as one registered before.
+    #[test]
+    fn a_registry_scales_species_that_arrive_late() {
+        let mut reg = SpeciesRegistry::builtin();
+        let authored = reg.get(reg.id_of("ant_block").unwrap()).creature.clone().unwrap().body.len();
+        reg.set_cell_scale(2.0);
+        assert_eq!(reg.get(reg.id_of("ant_block").unwrap()).creature.as_ref().unwrap().body.len(), authored * 4);
+        // The F5 path: re-registering the authored source over a scaled
+        // registry must not put an authored-size animal back in the world.
+        let source = EMBEDDED.iter().find(|s| s.contains("name: \"ant_block\"")).expect("ant_block is embedded");
+        let id = reg.register_ron(source).expect("re-register");
+        assert_eq!(reg.get(id).creature.as_ref().unwrap().body.len(), authored * 4, "a species reloaded after generation came back at the authored resolution");
     }
 
     /// **The authored gut arrives, and is not the serde default.**

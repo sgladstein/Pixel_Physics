@@ -1688,7 +1688,7 @@ pub fn step(world: &mut World, input: PlayerInput, tuning: &Tuning) {
     // site so the tunables panel keeps showing the numbers a human authored
     // -- 27 float multiplies once a tick, against a sweep that walks
     // thousands of cells.
-    let scaled = tuning.scaled(world.cell_scale);
+    let scaled = tuning.scaled(world.cell_scale());
     let tuning = &scaled;
     let wade = tuning.wade_rows as i32;
     let shoulder = tuning.shoulder_grains as i32;
@@ -3964,7 +3964,7 @@ mod tests {
                     world.set(x, y, Cell::new(material::SAND, 0));
                 }
             }
-            world.cell_scale = k as f32;
+            world.set_cell_scale(k as f32);
             world.end_step();
             world
         }
