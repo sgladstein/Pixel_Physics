@@ -1,6 +1,7 @@
 # Day, Night, and Decay
 
-*Current as of: 2026-08-30. New since the last pass: a world can now be a
+*Current as of: 2026-08-30 (the light grid is now half as fine, so caves stay
+lit about twice as deep). New since the last pass: a world can now be a
 room instead of a landscape — the air inside a sealed box is drawn as a lit
 interior, with grow lights you can see in the ceiling and pools of light on
 the wall beneath them, and it dims when the light schedule does.*
@@ -200,6 +201,16 @@ or two and keeps falling for about the height of a small room before it is
 properly dark. So a shallow scrape stays a lit place you can see into, the
 mouth of a cave reads as an opening rather than a hole cut out of the
 picture, and only depth is actually black.
+
+**That lit depth doubled on 2026-08-30**, when the light grid was made half
+as fine. Light is dimmed by how many *grid blocks* of rock it has crossed
+rather than by how many cells, so making a block twice as tall makes a given
+thickness of rock half as opaque. Measured straight down through solid stone,
+what used to be dark at about forty cells is now dark at about eighty: a
+shallow cave is a brighter place than it was, a deep one is unchanged because
+it was black either way, and the mouth of a tunnel now reads as an opening
+for roughly twice as far in. Nothing about the shape of the falloff changed —
+it is the same curve stretched.
 
 Trees do shade each other, and plants respond to that, but it is not
 something the picture shows yet: nothing on screen darkens because a tree is

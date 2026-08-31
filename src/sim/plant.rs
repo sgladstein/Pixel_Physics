@@ -12382,14 +12382,29 @@ The night factor belongs on income only -- see NIGHT_INCOME_FLOOR"
         // outward as a wave that passes, reflects and oscillates) keeps
         // driving flow in the same direction every step, the way an actual
         // prevailing wind would.
-        for _ in 0..20 {
-            windy.add_pressure_impulse(110, 150, 6, 20.0);
+        //
+        // **The step count is derived from the gap in *field cells*, not
+        // written as 20.** The solver moves pressure one field cell per
+        // step, so how long the front takes to cross from source to probe
+        // -- and how long until it has reflected off the world edge and
+        // come back -- both scale as `1 / FIELD_SCALE`. At `FIELD_SCALE` 8
+        // the 40-cell gap is 5 field cells and 20 steps sat in the settled
+        // rightward flow; at 16 it is 2.5 field cells, everything happened
+        // twice as fast, and by step 20 the reflection had already turned
+        // the probe around (vx +11.7 at step 9, -3.0 at step 20). Four
+        // steps per field cell of separation is the same point on the
+        // curve at either scale: 20 steps at 8, 10 at 16.
+        const SOURCE_X: i32 = 110;
+        const PROBE_X: i32 = 150;
+        let steps = 4 * (PROBE_X - SOURCE_X) / field::FIELD_SCALE;
+        for _ in 0..steps {
+            windy.add_pressure_impulse(SOURCE_X, 150, 6, 20.0);
             field::step(&mut windy);
         }
-        let vx = windy.field_at_bilinear(150.0, 150.0).vx;
+        let vx = windy.field_at_bilinear(PROBE_X as f32, 150.0).vx;
         assert!(vx > 0.01, "test setup should have produced real rightward wind at the probe: vx={vx}");
 
-        let lean = organism::wind_lean_dir(&windy, 150.0, 150.0);
+        let lean = organism::wind_lean_dir(&windy, PROBE_X as f32, 150.0);
         assert!(lean.0 > 0.0, "a rightward breeze should lean downwind (positive x), got {lean:?}");
     }
 

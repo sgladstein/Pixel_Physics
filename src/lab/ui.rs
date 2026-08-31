@@ -48,6 +48,7 @@ use crate::hud;
 use crate::render;
 use crate::sim::world::World;
 
+use super::params;
 use super::scene::LabBox;
 use super::{HEIGHT as H, WIDTH as W};
 
@@ -267,6 +268,19 @@ pub enum Action {
     Stats,
     Help,
     Reset,
+    /// Show one page of the parameters panel — an index into
+    /// [`params::GROUPS`].
+    ParamGroup(usize),
+    /// Scroll the parameters panel by one page, `-1` or `+1`.
+    ParamScroll(i32),
+    /// Move one parameter by one of its own steps. The index is into the
+    /// **current page's** list, which is what was on screen when the click
+    /// landed; the sign is which way.
+    ParamAdjust(usize, i32),
+    /// Highlight one parameter row, so `SAVE` knows which one it means.
+    ParamSelect(usize),
+    /// Write the highlighted parameter back to its asset file.
+    ParamSave,
 }
 
 /// **What a left-click on the world does.**
@@ -354,6 +368,13 @@ pub enum Panel {
     Plants,
     Ants,
     Box,
+    /// **The numbers behind the verbs.** Drawn by [`Ui::paint_params`] rather
+    /// than through [`Ui::panel_rows`], because its rows are not labels: each
+    /// one carries two buttons and a range, and the page carries a tab strip,
+    /// a pager and a save. It is a [`Panel`] all the same so that it obeys the
+    /// one-page-at-a-time rule in `Lab::act` and latches its own button, which
+    /// are the two things a second mechanism would have had to reimplement.
+    Params,
 }
 
 impl Panel {
@@ -362,6 +383,7 @@ impl Panel {
             Panel::Plants => "PLANTS",
             Panel::Ants => "ANTS",
             Panel::Box => "THE BOX",
+            Panel::Params => "PARAMETERS",
         }
     }
 }
@@ -516,8 +538,18 @@ pub fn layout(state: &BarState<'_>) -> Bar {
     for (pad, gap) in SPACINGS {
         let bar = lay_out(state, pad, gap);
         if std::env::var("PIXEL_PHYSICS_BAR_TRACE").is_ok() {
-            let right = bar.widgets.last().map_or(0, |w| w.rect.right());
-            eprintln!("bar trace: pad={pad} gap={gap} right={right} of {} fits={}", W as i32 - MARGIN, bar.fits());
+            // **Per row, because the bar has two and only one of them is
+            // tight.** This printed the last widget's right edge alone, which
+            // is row 1's — so a row 0 that had overflowed would have been
+            // invisible here, and where to put a new button is exactly the
+            // question this trace is read to answer.
+            let limit = W as i32 - MARGIN;
+            for ri in 0..ROWS {
+                let y = row_y(ri);
+                let right = bar.widgets.iter().filter(|w| w.rect.y == y).map(|w| w.rect.right()).max().unwrap_or(0);
+                eprintln!("bar trace: pad={pad} gap={gap} row={ri} right={right} of {limit} slack={}", limit - right);
+            }
+            eprintln!("bar trace: pad={pad} gap={gap} fits={}", bar.fits());
         }
         if bar.fits() {
             return bar;
@@ -751,8 +783,24 @@ fn lay_out(state: &BarState<'_>, pad: i32, gap: i32) -> Bar {
         note: "FALSE-COLOUR THE INVISIBLE CHANNELS: PRESSURE, TEMPERATURE, LIGHT, MOISTURE, AND THE TWO PHEROMONES. PHEROMONE IS THE ONE TO WATCH -- IT IS AT FULL CELL RESOLUTION AND IT IS THE COLONY'S OWN MAP OF ITSELF, SO YOU SEE THE TRAIL BEFORE YOU SEE THE ANT.".to_string(),
     };
 
+    // **The numbers behind all of the above.** On row 0 rather than with the
+    // pages on row 1, and that is a measurement rather than a preference: at
+    // the seven-stop ladder row 1 fits at exactly its own width, so one more
+    // button there loses `REBUILD` off the right edge (`PIXEL_PHYSICS_BAR_
+    // TRACE=1` prints both rows). Row 0 has room, and it is not a bad home —
+    // the overlay beside it is not a tool either, and row 0 has become "what
+    // you are working with and how you see it".
+    let params = button(
+        "PARAMS",
+        "P",
+        Action::Panel(Panel::Params),
+        state.panel == Some(Panel::Params),
+        "THE NUMBERS BEHIND THE VERBS: WHAT SOIL COSTS TO DIG, HOW MUCH SHOOT A PLANT NEEDS BEFORE IT SETS SEED, HOW HARD AN ANT CAN DIG, HOW BRIGHT THE LAMPS ARE. GROUPED IN FOUR PAGES, EACH ROW WITH ITS OWN RANGE, AND EVERY ROW EXPLAINS ITSELF ON HOVER.",
+        pad,
+    );
+
     let rows: [Vec<Vec<Spec>>; ROWS] = [
-        vec![tools, vec![species], vec![narrower, size, wider], vec![overlay]],
+        vec![tools, vec![species], vec![narrower, size, wider], vec![overlay, params]],
         vec![vec![phase, slower, faster, readout], presets, panels.into_iter().collect()],
     ];
 
@@ -837,7 +885,13 @@ fn paint_widget(frame: &mut [u8], wid: &Widget, hover: bool, down: bool) {
     let icon_px = wid.icon.map_or(0, |_| ICON_W + ICON_GAP);
     let text_px = icon_px + hud::text_width(&wid.line1);
     let tx = r.x + (r.w - text_px) / 2;
-    let ty = r.y + 4;
+    // **A bar button is two stacked lines and a page chip is one**, so the
+    // bar's fixed inset would put a chip's only line 4 pixels down a 9-pixel
+    // face and hang two rows of it over whatever is under the button. Keyed on
+    // the height rather than on `line2` being empty, which is the same test
+    // today and would stop being one the moment a bar readout lost its
+    // caption: every widget `layout` produces is `BTN_HEIGHT` tall.
+    let ty = if r.h < BTN_HEIGHT { r.y + (r.h - hud::GLYPH_HEIGHT) / 2 } else { r.y + 4 };
     if let Some(icon) = wid.icon {
         draw_icon(frame, icon, tx, ty, label);
     }
@@ -1090,6 +1144,25 @@ pub struct Ui {
     /// module exists to avoid.
     panel_box: Option<Rect>,
     inspect_box: Option<Rect>,
+    /// Which page of the parameters panel is showing — an index into
+    /// `params::GROUPS`, wrapped at use so a shorter list can never leave it
+    /// dangling (`species`' reason).
+    param_group: usize,
+    /// First visible row of that page. Pages are short enough that most never
+    /// scroll; the two that do are clamped in `paint_params` against the list
+    /// as it actually is, not against a remembered length.
+    param_scroll: usize,
+    /// The row `SAVE` means. Set by adjusting a row or by clicking its name,
+    /// so the gesture is *turn the knob, then keep it* rather than a selection
+    /// mode you have to be in first.
+    param_selected: Option<usize>,
+    /// The parameters page's own clickable rectangles, retained for the bar's
+    /// reason: a click arrives between frames, so it is tested against the
+    /// page the player was looking at. A second `Bar` rather than a second
+    /// kind of list, so `hit`, `hovered` and `widget_rect` are the ones
+    /// already written.
+    params_bar: Bar,
+    params_box: Option<Rect>,
 }
 
 /// Every species that can be planted, in a stable order.
@@ -1150,6 +1223,7 @@ impl Ui {
     pub fn covers(&self, x: i32, y: i32) -> bool {
         y >= bar_top()
             || self.panel_box.is_some_and(|r| r.contains(x, y))
+            || self.params_box.is_some_and(|r| r.contains(x, y))
             || self.inspect_box.is_some_and(|r| r.contains(x, y))
     }
 
@@ -1157,7 +1231,7 @@ impl Ui {
     /// taken back, and a mis-click on `REBUILD` would already have thrown the
     /// box away by the time you noticed.
     pub fn press(&mut self, x: i32, y: i32) {
-        self.pressed = self.bar.hit(x, y);
+        self.pressed = self.hit(x, y);
         self.press_inside = self.covers(x, y);
     }
 
@@ -1167,7 +1241,7 @@ impl Ui {
         let inside = std::mem::take(&mut self.press_inside);
         if let Some(action) = armed {
             // Still over the button it armed, or the gesture was taken back.
-            return if self.bar.hit(x, y) == Some(action) {
+            return if self.hit(x, y) == Some(action) {
                 Release::Fired(action)
             } else {
                 Release::Consumed
@@ -1194,6 +1268,12 @@ impl Ui {
 
     pub fn inspecting(&self) -> Option<(i32, i32)> {
         self.inspect
+    }
+
+    /// Where the cell page was drawn last frame — the retained rectangle, so a
+    /// harness hovering one of its rows is hovering a row that exists.
+    pub fn inspect_rect(&self) -> Option<Rect> {
+        self.inspect_box
     }
 
     pub fn toggle_panel(&mut self, panel: Panel) {
@@ -1255,12 +1335,68 @@ impl Ui {
     /// so a test that clicks "where `REBUILD` ought to be" is impossible to
     /// write: it can only click where `REBUILD` actually is.
     pub fn widget_rect(&self, action: Action) -> Option<Rect> {
-        self.bar.widgets.iter().find(|wid| wid.action == Some(action)).map(|wid| wid.rect)
+        self.bar
+            .widgets
+            .iter()
+            .chain(self.params_bar.widgets.iter())
+            .find(|wid| wid.action == Some(action))
+            .map(|wid| wid.rect)
     }
 
-    /// The action under `(x, y)` on the bar as it was last drawn.
+    /// The action under `(x, y)` on the interface as it was last drawn — the
+    /// bar first, then the parameters page. They never overlap (a page opens
+    /// above `bar_top`), so the order is documentation rather than a rule: the
+    /// bar is painted over everything and must win any seam.
     pub fn hit(&self, x: i32, y: i32) -> Option<Action> {
-        self.bar.hit(x, y)
+        self.bar.hit(x, y).or_else(|| self.params_bar.hit(x, y))
+    }
+
+    /// Which parameters page is showing, and where its list is scrolled to.
+    pub fn param_group(&self) -> params::Group {
+        params::GROUPS[self.param_group % params::GROUPS.len()]
+    }
+
+    /// Show one page. Resets the scroll and the selection, because both are
+    /// indices into the page you just left.
+    pub fn set_param_group(&mut self, index: usize) {
+        self.param_group = index % params::GROUPS.len();
+        self.param_scroll = 0;
+        self.param_selected = None;
+    }
+
+    /// Which line the visible window of the parameters page starts at.
+    /// Clamped in `paint_params` against the list as it actually is, so this
+    /// is a read of what was drawn rather than of what was asked for.
+    pub fn param_scroll(&self) -> usize {
+        self.param_scroll
+    }
+
+    pub fn scroll_params(&mut self, direction: i32) {
+        let page = PARAM_ROWS.saturating_sub(1).max(1);
+        self.param_scroll = (self.param_scroll as i32 + direction * page as i32).max(0) as usize;
+    }
+
+    pub fn select_param(&mut self, index: usize) {
+        self.param_selected = Some(index);
+    }
+
+    pub fn selected_param(&self) -> Option<usize> {
+        self.param_selected
+    }
+
+    /// Every parameter on the page currently showing, in row order — the list
+    /// an [`Action::ParamAdjust`] index refers to.
+    ///
+    /// Rebuilt from the world rather than retained, `App::tunables_list`'s
+    /// tradeoff: a few dozen entries off registries already in memory, against
+    /// a stored list that would have to be kept in step with a species reload
+    /// and with the bar's own species chip.
+    pub fn page_params(&self, world: &World, spec: &LabBox) -> Vec<params::Param> {
+        let group = self.param_group();
+        params::registry(world, spec, self.species_of(world))
+            .into_iter()
+            .filter(|p| p.group == group)
+            .collect()
     }
 }
 
@@ -1278,6 +1414,11 @@ impl Ui {
         let ants = world.live_creature_count();
         let plants = orgs.saturating_sub(ants);
         match panel {
+            // **Draws itself** -- see `paint_params`. Its rows carry buttons
+            // and a range, so they are not `Row`s; `draw` branches away before
+            // this is called, and the arm is here so that a page added to
+            // `Panel` cannot be silently left out of both.
+            Panel::Params => Vec::new(),
             Panel::Plants => {
                 let (d, tint) = delta_text(self.history.delta(|s| s.plants as i64));
                 let (gd, gtint) = delta_text(self.history.delta(|s| s.germinations as i64));
@@ -1436,12 +1577,23 @@ impl Ui {
             .sum()
     }
 
-    /// What the inspector says about the cell the player clicked.
+    /// What the inspector says about the cell the player clicked, **and about
+    /// the individual that owns it**.
     ///
-    /// Always five rows, present or absent, so the page does not resize under
-    /// the cursor as the cell changes underneath it — and so the rectangle the
-    /// click test uses is a function of nothing but whether the inspector is
-    /// open.
+    /// The five cell rows are always five, present or absent, so the page does
+    /// not resize under the cursor as the cell changes underneath it. Under
+    /// them, when the cell belongs to something alive, is the specimen —
+    /// `params::specimen_rows`, which is the other half of the parameters
+    /// panel: those pages are a *species*' numbers and reach every member,
+    /// this is the one you clicked and every line of it differs between two
+    /// individuals of the same species.
+    ///
+    /// **So the page does change height, and only in one way**: it is longer
+    /// while it is pointed at something alive, and the two kingdoms are
+    /// different lengths. That is a function of what is in the cell rather
+    /// than of the cursor, and the inspector is pinned by a click and not by
+    /// hover, so it moves when the world moves — an ant walking out from under
+    /// it — which is the honest reading of "what is here now".
     fn inspect_rows(&self, world: &World, at: (i32, i32)) -> Vec<Row> {
         let (x, y) = at;
         let cell = world.get(x, y);
@@ -1454,13 +1606,20 @@ impl Ui {
             ),
             None => ("NONE".to_string(), "--".to_string()),
         };
-        vec![
+        let mut rows = vec![
             Row::value("AT", format!("{x},{y}"), FAINT, "THE CELL YOU CLICKED, IN WORLD COORDINATES. CLICK IT AGAIN TO PUT THE INSPECTOR AWAY."),
             Row::value("MATERIAL", material, VALUE, "WHAT IS IN THE CELL RIGHT NOW. RE-READ EVERY FRAME, SO IT CHANGES UNDER YOU WHILE THE BOX RUNS."),
             Row::value("TEMPERATURE", format!("{}C", cell.temperature()), FAINT, "THIS CELL'S OWN TEMPERATURE IN DEGREES, NOT THE BOX AVERAGE. HEAT MOVES CELL TO CELL, SO TWO CELLS SIDE BY SIDE CAN DISAGREE AND THE DIFFERENCE IS WHAT DRIVES IT."),
             Row::value("ORGANISM", species, if organism.is_some() { GOOD } else { FAINT }, "THE SPECIES OF THE LIVING THING THIS CELL BELONGS TO, IF ANY. AN ANT IS TWO CELLS AND A TREE IS THOUSANDS; EITHER WAY THE CELL KNOWS WHICH ORGANISM OWNS IT."),
-            Row::value("ENERGY", energy, VALUE, "THAT ORGANISM'S WHOLE-BODY ENERGY, NOT THIS CELL'S SHARE. WATCH IT WHILE THE BOX RUNS: A FORAGING ANT CLIMBS AND A STARVING ONE DOES NOT."),
-        ]
+            Row::value("ENERGY", energy, VALUE, "THAT ORGANISM'S WHOLE-BODY ENERGY, NOT THIS CELL'S SHARE. WATCH IT WHILE THE BOX RUNS: A FORAGING ANT CLIMBS AND A STARVING ONE DOES NOT, AND A PLANT IN GOOD LIGHT BANKS CARBON FASTER THAN ITS BODY SPENDS IT."),
+        ];
+        if organism.is_some() {
+            rows.push(Row::gap());
+            for (label, value, note) in params::specimen_rows(world, cell.organism_id()) {
+                rows.push(Row::value(label, value, VALUE, note));
+            }
+        }
+        rows
     }
 }
 
@@ -1565,6 +1724,325 @@ fn draw_spark(frame: &mut [u8], area: Rect, series: &[u32], tint: [u8; 4]) {
     }
 }
 
+// ------------------------------------------------------- the parameters page
+//
+// **A page, not another button group.** The bar's transport row fits at
+// exactly its own width at seven speed stops, so the panel had to be
+// something you open; and what it has to show — a name, a live figure, a way
+// to move it, and the range it may move through — is four columns, which is a
+// page shape and not a button shape.
+
+/// One parameter row, tall enough for a 7-pixel label with a pixel of air
+/// either side and a 2-pixel fill track under it.
+const PARAM_ROW: i32 = 12;
+/// A `SOIL` / `WATER` / `PACKEDSOIL` subheader, drawn wherever the category
+/// changes. The sandbox's own panel does this and it is the whole reason a
+/// row can print `PENETRATION RESISTANCE` rather than
+/// `SOIL PENETRATION RESISTANCE` and still be unambiguous.
+const PARAM_HEAD: i32 = 10;
+/// The tab strip, and the pager under the rows.
+const PARAM_TABS: i32 = 14;
+/// How many rows are on screen at once.
+///
+/// **Thirteen, and it is a frame-cost number as much as a legibility one.**
+/// A lab redraw measures a flat 19.2-19.9 ns/px (the field lane, 2026-08-30)
+/// and this page has no dirty-rect skip, so every row is paid for on every
+/// drawn frame it is open. At thirteen rows the page is 295x210, which is
+/// 61,950 pixels and about **1.2 ms of a drawn frame** — five times what the
+/// bar's second row costs, and unlike the bar it is only paid while somebody
+/// has deliberately opened it. Thirteen rows shows three of the four pages
+/// whole; `PLANT` is fourteen lines and pays one press of the pager.
+const PARAM_ROWS: usize = 13;
+/// The page's width. Wide enough for the widest field name this registry can
+/// produce (`REPRODUCTIVE ALLOCATION`, 23 characters) beside the four right-
+/// hand columns, and measured through `hud::text_width` rather than counted by
+/// hand — `layout`'s rule, for `layout`'s reason.
+fn param_page_width() -> i32 {
+    PAGE_PAD * 2 + hud::text_width("REPRODUCTIVE ALLOCATION") + PARAM_RIGHT
+}
+/// How much of a row the four right-hand columns own: `[-]`, the value, `[+]`,
+/// and the range, plus a gap so the longest name does not run into the first
+/// of them. **Measured against the widest thing each column can hold** rather
+/// than eyeballed: this was 118 for one contact sheet, which put
+/// `REPRODUCTIVE ALLOCATION` through the `-` face and drew `10000.000` over
+/// it. Nothing failed; a sheet showed it.
+const PARAM_RIGHT: i32 = 142;
+/// x of the `-` face, the value's right edge and the `+` face — all relative
+/// to the row's right margin, in one place so the three cannot drift apart.
+///
+/// **The value has a fixed column and is right-aligned in it**, rather than
+/// the `-` sitting three pixels from whatever the text happens to be. Both
+/// read the same on a still frame and only the fixed column survives being
+/// used: a value that gains a digit would otherwise shove its own `-` button
+/// sideways under the cursor, which is the failure `lay_out` sizes the phase
+/// button and the species chip against.
+const PARAM_MINUS: i32 = 134;
+const PARAM_VALUE_RIGHT: i32 = 75;
+const PARAM_PLUS: i32 = 72;
+/// A `-` or `+` face.
+const PARAM_STEP_W: i32 = 9;
+
+/// How many rows the whole page is, subheaders included — what the visible
+/// window is measured against, since a subheader takes a slot on screen.
+fn param_lines(list: &[params::Param]) -> Vec<Line> {
+    let mut out = Vec::new();
+    let mut last: Option<String> = None;
+    for (i, p) in list.iter().enumerate() {
+        if last.as_deref() != Some(p.tunable.category.as_str()) {
+            last = Some(p.tunable.category.clone());
+            out.push(Line::Head(p.tunable.category.to_uppercase()));
+        }
+        out.push(Line::Row(i));
+    }
+    out
+}
+
+/// One drawn line of the parameters page.
+enum Line {
+    /// A category subheader — a material name, or the species the page is
+    /// about.
+    Head(String),
+    /// Index into the page's parameter list.
+    Row(usize),
+}
+
+impl Line {
+    fn height(&self) -> i32 {
+        match self {
+            Line::Head(_) => PARAM_HEAD,
+            Line::Row(_) => PARAM_ROW,
+        }
+    }
+}
+
+/// A field name as a player reads it: `penetration_resistance` is
+/// `PENETRATION RESISTANCE`.
+///
+/// **Every character goes through `hud::has_glyph` first.** `draw_text`
+/// renders anything outside its 5x7 set as a silent blank, and that trap has
+/// shipped three times here; a name arriving from an asset file is exactly the
+/// path a test over hardcoded strings would not cover, so an unknown character
+/// becomes a visible `?` rather than a gap in the middle of a word.
+fn param_label(name: &str) -> String {
+    name.chars()
+        .map(|c| if c == '_' { ' ' } else { c })
+        .map(|c| if hud::has_glyph(c) { c.to_ascii_uppercase() } else { '?' })
+        .collect()
+}
+
+impl Ui {
+    /// Draw the parameters page and return the note under the cursor.
+    ///
+    /// Builds `params_bar` as it paints — one pass, hover found with the same
+    /// `y` the row was drawn at. `paint_page`'s rule and `stats.rs`'s: a
+    /// second pass over the same arithmetic is how a control and the thing it
+    /// activates come to disagree.
+    fn paint_params(&mut self, frame: &mut [u8], world: &World, spec: &LabBox) -> Option<(String, Rect, i32)> {
+        let list = self.page_params(world, spec);
+        let lines = param_lines(&list);
+        let mut widgets: Vec<Widget> = Vec::new();
+        let mut note: Option<(String, Rect, i32)> = None;
+
+        // Clamp the scroll against the list as it is now. A page whose content
+        // changed under a stored offset would otherwise open blank, which
+        // reads as "this page has nothing on it".
+        let max_scroll = lines.len().saturating_sub(PARAM_ROWS);
+        if self.param_scroll > max_scroll {
+            self.param_scroll = max_scroll;
+        }
+        let first = self.param_scroll;
+        let shown: Vec<&Line> = lines.iter().skip(first).take(PARAM_ROWS).collect();
+        let paged = lines.len() > PARAM_ROWS;
+
+        let w = param_page_width();
+        let content: i32 = shown.iter().map(|l| l.height()).sum();
+        let h = PAGE_HEADER + PARAM_TABS + content + if paged { PARAM_TABS } else { 0 } + PAGE_PAD;
+        let bottom = bar_top() - 4;
+        let rect = Rect { x: MARGIN, y: (bottom - h).max(MARGIN), w, h };
+        self.params_box = Some(rect);
+
+        fill(frame, rect, PANEL_BG);
+        outline(frame, rect, PANEL_EDGE);
+        let left = rect.x + PAGE_PAD;
+        let right = rect.right() - PAGE_PAD;
+        text(frame, left, rect.y + 6, "PARAMETERS", TITLE);
+
+        // SAVE, in the header, acting on whatever row was last touched. Verb
+        // on the button and the object named beside it, so a press cannot mean
+        // something the screen did not say.
+        let save_w = cell_width(hud::text_width("SAVE"), "", PAD);
+        let save = Rect { x: right - save_w, y: rect.y + 3, w: save_w, h: 11 };
+        let armed = self.param_selected.and_then(|i| list.get(i));
+        widgets.push(Widget {
+            rect: save,
+            line1: "SAVE".into(),
+            line2: String::new(),
+            action: Some(Action::ParamSave),
+            latched: false,
+            icon: None,
+            ratio: None,
+            note: match armed {
+                Some(p) => format!(
+                    "WRITE {} = {} BACK INTO ITS ASSET FILE, SO IT SURVIVES THE NEXT RUN. THE EDIT REPLACES THAT ONE FIELD AND NOTHING ELSE -- COMMENTS ARE KEPT -- AND THE FILE IS PARSED BEFORE ANYTHING IS WRITTEN, SO A BAD EDIT IS REPORTED RATHER THAN SAVED.",
+                    param_label(&p.tunable.name),
+                    p.display()
+                ),
+                None => "WRITE A PARAMETER BACK INTO ITS ASSET FILE. NOTHING IS PICKED YET -- MOVE A ROW WITH ITS - OR + BUTTON, OR CLICK ITS NAME, AND THIS WILL SAVE THAT ONE.".to_string(),
+            },
+        });
+
+        for x in rect.x + 1..rect.right() - 1 {
+            render::put(frame, W, H, x, rect.y + PAGE_HEADER - 4, DIVIDER);
+        }
+
+        // The tab strip.
+        let mut tx = left;
+        let ty = rect.y + PAGE_HEADER;
+        for (i, group) in params::GROUPS.iter().enumerate() {
+            let tw = cell_width(hud::text_width(group.label()), "", PAD);
+            widgets.push(Widget {
+                rect: Rect { x: tx, y: ty, w: tw, h: 11 },
+                line1: group.label().into(),
+                line2: String::new(),
+                action: Some(Action::ParamGroup(i)),
+                latched: i == self.param_group,
+                icon: None,
+                ratio: None,
+                note: group.note().into(),
+            });
+            tx += tw + 2;
+        }
+
+        // The rows.
+        let mut y = rect.y + PAGE_HEADER + PARAM_TABS;
+        for line in &shown {
+            match line {
+                Line::Head(name) => {
+                    text(frame, left, y + 1, &param_label(name), SUB_ON);
+                }
+                Line::Row(i) => {
+                    let Some(p) = list.get(*i) else { continue };
+                    let hovered = self.cursor.is_some_and(|(cx, cy)| {
+                        (rect.x..rect.right()).contains(&cx) && (y..y + PARAM_ROW).contains(&cy)
+                    });
+                    let selected = self.param_selected == Some(*i);
+                    if hovered || selected {
+                        let tint = if selected { [40, 52, 44, 255] } else { [34, 40, 52, 255] };
+                        fill(frame, Rect { x: rect.x + 1, y, w: rect.w - 2, h: PARAM_ROW }, tint);
+                    }
+                    if hovered {
+                        note = Some((p.note.clone(), rect, y));
+                    }
+                    // **The fill track under the name, not a separate column.**
+                    // It says where in its own range this number sits, which
+                    // is the question a bare figure cannot answer without
+                    // reading the range column too — and it costs two pixel
+                    // rows rather than forty of width.
+                    let track = Rect { x: left, y: y + PARAM_ROW - 3, w: right - PARAM_RIGHT - left, h: 2 };
+                    if p.writable() {
+                        fill(frame, track, [30, 34, 42, 255]);
+                        let filled = (track.w as f32 * p.fraction()).round() as i32;
+                        if filled > 0 {
+                            fill(frame, Rect { w: filled, ..track }, if selected { EDGE_ON } else { [70, 96, 122, 255] });
+                        }
+                    }
+                    text(frame, left, y + 1, &param_label(&p.tunable.name), if selected { LABEL_ON } else { LABEL });
+
+                    if p.writable() {
+                        let minus = Rect { x: right - PARAM_MINUS, y: y + 1, w: PARAM_STEP_W, h: 9 };
+                        let plus = Rect { x: right - PARAM_PLUS, y: y + 1, w: PARAM_STEP_W, h: 9 };
+                        let value = p.display();
+                        text(frame, right - PARAM_VALUE_RIGHT - hud::text_width(&value), y + 1, &value, VALUE);
+                        let range = p.range();
+                        text(frame, right - hud::text_width(&range), y + 1, &range, FAINT);
+                        for (r, label, sign) in [(minus, "-", -1), (plus, "+", 1)] {
+                            widgets.push(Widget {
+                                rect: r,
+                                line1: label.into(),
+                                line2: String::new(),
+                                action: Some(Action::ParamAdjust(*i, sign)),
+                                latched: false,
+                                icon: None,
+                                ratio: None,
+                                // Empty: the row's own note is the
+                                // explanation, and a note on the button would
+                                // replace it the moment you reached for the
+                                // thing it was explaining.
+                                note: String::new(),
+                            });
+                        }
+                        // The name half of the row selects, so `SAVE` can be
+                        // aimed without moving the value first.
+                        widgets.push(Widget {
+                            rect: Rect { x: rect.x + 1, y, w: right - PARAM_RIGHT - rect.x - 2, h: PARAM_ROW },
+                            line1: String::new(),
+                            line2: String::new(),
+                            action: Some(Action::ParamSelect(*i)),
+                            latched: false,
+                            icon: None,
+                            ratio: None,
+                            note: p.note.clone(),
+                        });
+                    } else {
+                        let value = p.display();
+                        text(frame, right - hud::text_width(&value), y + 1, &value, FAINT);
+                    }
+                }
+            }
+            y += line.height();
+        }
+
+        // The pager, only when there is something off the page.
+        if paged {
+            let step_w = cell_width(hud::text_width("<"), "", PAD);
+            let up = Rect { x: left, y: y + 2, w: step_w, h: 10 };
+            let down = Rect { x: left + step_w + 2, y: y + 2, w: step_w, h: 10 };
+            let last = (first + shown.len()).min(lines.len());
+            text(frame, left + step_w * 2 + 8, y + 3, &format!("{}-{} OF {}", first + 1, last, lines.len()), FAINT);
+            for (r, label, dir) in [(up, "<", -1), (down, ">", 1)] {
+                widgets.push(Widget {
+                    rect: r,
+                    line1: label.into(),
+                    line2: String::new(),
+                    action: Some(Action::ParamScroll(dir)),
+                    latched: false,
+                    icon: None,
+                    ratio: None,
+                    note: "SCROLL THIS PAGE. THE PAGES ARE SHORT ON PURPOSE -- A PANEL WITH FOUR HUNDRED ROWS IN IT IS NOT ACCESS, IT IS A HAYSTACK.".into(),
+                });
+            }
+        }
+
+        // **Retain first, then paint from what was retained.** The bar does
+        // this the same way round for the same reason: the rectangles a click
+        // is tested against have to be the rectangles that were drawn, and a
+        // paint loop over a list that is then thrown away is the second copy
+        // of the layout this module exists to avoid.
+        self.params_bar = Bar { widgets, dividers: Vec::new() };
+        for wid in &self.params_bar.widgets {
+            // The invisible select strip is a hit target and nothing else --
+            // painting it would put a second highlight over the row's own.
+            if wid.line1.is_empty() {
+                continue;
+            }
+            let hover = self.cursor.is_some_and(|(x, y)| wid.rect.contains(x, y));
+            let down = hover && self.pressed.is_some() && self.pressed == wid.action;
+            paint_widget(frame, wid, hover, down);
+        }
+        // A chip's note wins over the row's: the cursor can only be over one
+        // of them, and the chip is the smaller, more specific target.
+        if let Some(wid) = self.params_bar.hovered(self.cursor).filter(|w| !w.note.is_empty()) {
+            note = Some((wid.note.clone(), rect, wid.rect.y));
+        }
+        note
+    }
+}
+
+/// Narrowest a hover explanation may be squeezed to. Below about fifteen
+/// columns a sentence becomes a vertical strip of words, which is unreadable
+/// in a different way from being covered up.
+const NOTE_MIN_WIDTH: i32 = 96;
+
 /// Where a hover explanation goes relative to what it explains.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Note {
@@ -1581,7 +2059,17 @@ enum Note {
 /// explanation having lost the thing it was about. Lane A's `stats.rs` reached
 /// this the same way and opens its note to the left for the same reason.
 fn draw_note(frame: &mut [u8], note: &str, avoid: Rect, row_y: i32, place: Note) {
-    let width = 210.min(W as i32 - MARGIN * 2);
+    // **Sized to the gap it is going into, not to a constant.** At a fixed
+    // 210 the parameters page — the widest thing that opens here — left 209
+    // pixels beside it, so the box missed by *one pixel*, fell through to the
+    // left edge, and was drawn straight over the page it was explaining. That
+    // is precisely the failure this function exists to avoid, arriving through
+    // its own fallback; a contact sheet showed it and no test could have.
+    let gap = match place {
+        Note::AboveBar => W as i32 - MARGIN * 2,
+        Note::BesidePage => (W as i32 - MARGIN - (avoid.right() + 6)).max(avoid.x - 6 - MARGIN),
+    };
+    let width = 210.min(gap).min(W as i32 - MARGIN * 2).max(NOTE_MIN_WIDTH);
     let columns = ((width - 12) / (hud::GLYPH_WIDTH + 1)).max(8) as usize;
     let lines = wrap_words(note, columns);
     let height = lines.len() as i32 * LINE + 10;
@@ -1693,7 +2181,16 @@ impl Ui {
 
         let mut note: Option<(String, Rect, i32, Note)> = None;
 
-        if let Some(panel) = self.panel {
+        if self.panel == Some(Panel::Params) {
+            // Its own painter: the rows carry buttons, so they are not `Row`s
+            // and the page is not a `paint_page`.
+            if let Some((body, avoid, y)) = self.paint_params(frame, world, spec) {
+                note = Some((body, avoid, y, Note::BesidePage));
+            }
+            self.panel_box = None;
+        } else if let Some(panel) = self.panel {
+            self.params_box = None;
+            self.params_bar = Bar::default();
             let rows = self.panel_rows(panel, world, spec, fps);
             // Anchored under the button that opened it, which is only
             // available because `Lab::act` closes the biosphere page when one
@@ -1713,13 +2210,15 @@ impl Ui {
             }
         } else {
             self.panel_box = None;
+            self.params_box = None;
+            self.params_bar = Bar::default();
         }
 
         if let Some(at) = self.inspect {
             let rows = self.inspect_rows(world, at);
             // Beside the open page rather than under it, so opening a page
             // does not hide the cell you are inspecting.
-            let anchor = self.panel_box.map_or(MARGIN, |r| r.right() + 6);
+            let anchor = self.panel_box.or(self.params_box).map_or(MARGIN, |r| r.right() + 6);
             let rect = page_rect(&rows, anchor, bar_top() - 4);
             self.inspect_box = Some(rect);
             if let Some((text, y)) = paint_page(frame, rect, "CELL", &rows, self.cursor) {
@@ -2004,14 +2503,14 @@ mod tests {
             }
             buttons += usize::from(wid.action.is_some());
         }
-        // Row 0: one chip per tool, the species chip, two brush steps and the
-        // overlay. Row 1: three transport buttons (the readout is not one),
-        // one chip per stop on the ladder, and six pages. Written as the sum
-        // rather than as a literal so that growing either list does not have
-        // to come here.
+        // Row 0: one chip per tool, the species chip, two brush steps, the
+        // overlay and the parameters page. Row 1: three transport buttons (the
+        // readout is not one), one chip per stop on the ladder, and six pages.
+        // Written as the sum rather than as a literal so that growing either
+        // list does not have to come here.
         assert_eq!(
             buttons,
-            TOOLS.len() + 1 + 2 + 1 + 3 + super::super::time::PRESETS.len() + 6,
+            TOOLS.len() + 1 + 2 + 1 + 1 + 3 + super::super::time::PRESETS.len() + 6,
             "the bar carried {buttons} pressable buttons"
         );
         // Nothing above the bar is pressable — that belongs to the world.

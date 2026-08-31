@@ -63,6 +63,25 @@ pub enum TunableGroup {
     /// whose effect is judged by watching the world rather than by reading a
     /// number.
     World,
+    /// **Registered by the lab (`lab::params`), and deliberately not in this
+    /// menu's cycle.**
+    ///
+    /// The lab is a second game with a second interface: its parameters page
+    /// is mouse-driven, groups by its own `lab::params::Group`, and reaches
+    /// values the sandbox has no writer for at all (a species' creature
+    /// block, a `Grow` arm's scalars, the bed's own build spec). Tagging
+    /// those entries with one of the five menus above would put rows in the
+    /// sandbox's panel that its `App::apply_adjust` would silently decline to
+    /// move — `CLAUDE.md`'s "a channel needs a writer and a reader", with the
+    /// reader alive and the writer absent, which is the shape that reads as
+    /// working code.
+    ///
+    /// So this tag exists to keep them *out*: [`Self::all`] does not list it,
+    /// [`Self::next`] and [`Self::prev`] hold it as a fixed point, and
+    /// `App::all_tunables` never registers it, so the sandbox cannot reach
+    /// this group by any number of presses. `lab_group_is_outside_the_menu_
+    /// cycle` is the guard.
+    Lab,
 }
 
 impl TunableGroup {
@@ -73,6 +92,7 @@ impl TunableGroup {
             TunableGroup::Explosion => "EXPLOSION",
             TunableGroup::Player => "PLAYER",
             TunableGroup::World => "WORLD",
+            TunableGroup::Lab => "LAB",
         }
     }
 
@@ -92,6 +112,10 @@ impl TunableGroup {
             TunableGroup::Visual => TunableGroup::Explosion,
             TunableGroup::Explosion => TunableGroup::Player,
             TunableGroup::Player => TunableGroup::World,
+            // A fixed point, not a step: see the variant's own doc. It is
+            // unreachable from the cycle, so this arm exists for
+            // exhaustiveness and asserts that fact rather than joining it up.
+            TunableGroup::Lab => TunableGroup::Lab,
         }
     }
 
@@ -115,6 +139,7 @@ impl TunableGroup {
             TunableGroup::Visual => TunableGroup::Physics,
             TunableGroup::Explosion => TunableGroup::Visual,
             TunableGroup::Player => TunableGroup::Explosion,
+            TunableGroup::Lab => TunableGroup::Lab,
         }
     }
 
@@ -222,7 +247,13 @@ pub struct Tunable {
 
 impl Tunable {
     /// A float-valued tunable — the common case.
-    fn float(group: TunableGroup, category: &str, name: &str, value: f32, min: f32, max: f32, step: f32) -> Self {
+    ///
+    /// `pub` since the lab registers its own parameters (`lab::params`) into
+    /// this same type rather than growing a second registry beside it — the
+    /// registrations live there because their *writers* do, and a constructor
+    /// only reachable from this module would have forced exactly the second
+    /// `(name, value, min, max, step)` struct this one exists to be.
+    pub fn float(group: TunableGroup, category: &str, name: &str, value: f32, min: f32, max: f32, step: f32) -> Self {
         Self {
             group,
             category: category.into(),
@@ -237,8 +268,8 @@ impl Tunable {
     }
 
     /// An integer-valued one, whose `.ron` field must never be written with
-    /// a decimal point — see `integral`.
-    fn integer(group: TunableGroup, category: &str, name: &str, value: f32, min: f32, max: f32, step: f32) -> Self {
+    /// a decimal point — see `integral`. `pub` for [`Self::float`]'s reason.
+    pub fn integer(group: TunableGroup, category: &str, name: &str, value: f32, min: f32, max: f32, step: f32) -> Self {
         Self {
             group,
             category: category.into(),
@@ -950,6 +981,23 @@ mod tests {
     use super::*;
     use crate::sim::weather::Precipitation;
     use crate::sim::material;
+
+    /// **The lab's tag must stay out of the sandbox's menu.** Its whole
+    /// reason for existing is that `App::apply_adjust` has no writer for a
+    /// species field or a bed spec, so a row of them reachable by pressing
+    /// `Tab` would draw, highlight, and refuse to move.
+    ///
+    /// Written before it could fail and watched failing: dropping
+    /// `TunableGroup::Lab` into `all()` reds this immediately, which is the
+    /// half of `CLAUDE.md`'s put-the-fault-back rule this guard is here for.
+    #[test]
+    fn lab_group_is_outside_the_menu_cycle() {
+        assert!(!TunableGroup::all().contains(&TunableGroup::Lab), "the lab tag is in the sandbox's tab strip");
+        for g in TunableGroup::all() {
+            assert_ne!(g.next(), TunableGroup::Lab, "{g:?}.next() reaches the lab tag");
+            assert_ne!(g.prev(), TunableGroup::Lab, "{g:?}.prev() reaches the lab tag");
+        }
+    }
 
     /// **`next` and `prev` must be exact inverses, in both directions and
     /// over every variant.** The bug this replaces is the one a `match` over

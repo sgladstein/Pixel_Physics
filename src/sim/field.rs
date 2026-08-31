@@ -44,8 +44,8 @@ use super::world::World;
 /// World cells per field cell. A chunk is `CHUNK_SIZE / FIELD_SCALE` field
 /// cells on a side. Coarser than the CA grid because pressure and light are
 /// smooth, low-frequency fields — simulating them at CA resolution would cost
-/// 64x the work for detail nothing reads.
-pub const FIELD_SCALE: i32 = 8;
+/// 256x the work for detail nothing reads.
+pub const FIELD_SCALE: i32 = 16;
 
 /// Field cells per side of one tile. `CHUNK_SIZE` must stay a multiple of
 /// `FIELD_SCALE`, checked by `chunk_size_is_a_multiple_of_field_scale` below —
@@ -353,6 +353,30 @@ pub struct FieldTile {
     /// Whether any block of this tile glows — the renderer's cheap gate
     /// for "is it worth sampling the field under this pixel".
     pub has_glow: bool,
+    /// Light each block throws **down its own column** — `Material::beam`,
+    /// gathered in the same scan `blocked`/`glow` already run.
+    ///
+    /// **Averaged across the block's CA columns, exactly as `transmission`
+    /// is, and for the same reason turned around.** `transmission` averages
+    /// because a downward ray cares about horizontal extent, not about how
+    /// many cells are filled; a downward *emitter* cares about the same
+    /// thing. A fixture covering three of the block's eight columns lights
+    /// three-eighths of what a full block does.
+    ///
+    /// That averaging is also what makes a lamp's position a **continuous**
+    /// control rather than a block-quantised one. `glow` is a max over the
+    /// block, so one glowing cell and sixty-four read identically and a
+    /// fixture's influence can only ever change when it crosses a
+    /// `FIELD_SCALE` boundary — a lamp you drag that does nothing for seven
+    /// cells and then jumps. Averaged per column, sliding the fixture one
+    /// cell moves an eighth of a block's worth of light from the trailing
+    /// edge to the leading one. `Reports/lab-lamps-light-the-bed-2026-08-30.md`
+    /// has the measured step profile at `FIELD_SCALE` 8 and 16.
+    beam: Box<[f32]>,
+    /// Whether any block of this tile beams — the descent's cheap gate. A
+    /// world with no lamp in it takes `apply_sky_to`'s original loop
+    /// verbatim, which is what makes this free for the outdoor game.
+    pub has_beam: bool,
     /// A lower bound on moisture that evaporation may not take a cell below.
     ///
     /// The saturated ground beneath the water table. Worldgen writes it once
@@ -435,6 +459,8 @@ impl FieldTile {
             moisture_floor: vec![0.0; FIELD_TILE_AREA].into_boxed_slice(),
             glow: vec![0.0; FIELD_TILE_AREA].into_boxed_slice(),
             has_glow: false,
+            beam: vec![0.0; FIELD_TILE_AREA].into_boxed_slice(),
+            has_beam: false,
             // False, so a tile nobody has scanned is always scanned rather
             // than carried. See the field's own doc.
             derived_valid: false,
@@ -530,6 +556,17 @@ impl FieldTile {
     }
 
     #[inline]
+    fn beam_local(&self, lx: i32, ly: i32) -> f32 {
+        self.beam[Self::local_index(lx, ly)]
+    }
+
+    fn set_beam_local(&mut self, lx: i32, ly: i32, beam: f32) {
+        self.beam[Self::local_index(lx, ly)] = beam;
+        if beam > 0.0 {
+            self.has_beam = true;
+        }
+    }
+
     fn set_glow_local(&mut self, lx: i32, ly: i32, glow: f32) {
         self.glow[Self::local_index(lx, ly)] = glow;
         if glow > 0.0 {
@@ -620,6 +657,13 @@ impl FieldTile {
         self.moisture_source.copy_from_slice(&previous.moisture_source);
         self.glow.copy_from_slice(&previous.glow);
         self.has_glow = previous.has_glow;
+        // Carried for the same reason `has_glow` is, and with the same
+        // failure if it is not: `set_beam_local` can only latch the flag on,
+        // so a tile that inherits a lamp's block values without its flag
+        // reports no beam and the fixture below it goes dark for as long as
+        // its chunk stays settled -- which, in a lab, is for ever.
+        self.beam.copy_from_slice(&previous.beam);
+        self.has_beam = previous.has_beam;
         self.derived_valid = true;
     }
 }
@@ -977,7 +1021,7 @@ pub fn step(world: &mut World) {
     // Identical at the default `day_minutes: 1`, where the two spellings are
     // the same number.
     let amplitude_changed =
-        sky_light_amplitude(world.sky_frame()) != sky_light_amplitude(world.prev_sky_frame());
+        sky_light_amplitude_of(world) != sky_light_amplitude_prev_of(world);
     // The same argument, one channel over, and it needs its own term rather
     // than riding on the light one: the two halves of the cycle do not line
     // up. Light is flat all night (`sky_light_amplitude` clips at the night
@@ -1002,7 +1046,7 @@ pub fn step(world: &mut World) {
 
     let coords: Vec<ChunkCoord> = world.chunks().map(|c| c.coord).collect();
     let bounds = world.bounds();
-    let amplitude = sky_light_amplitude(world.sky_frame());
+    let amplitude = sky_light_amplitude_of(world);
 
     // **Which tiles actually need solving.**
     //
@@ -1361,6 +1405,26 @@ fn momentum_enabled() -> bool {
     *ON.get_or_init(|| std::env::var("FIELD_MOMENTUM").map(|v| v != "0").unwrap_or(true))
 }
 
+/// **The control for "is a lamp's position a continuous knob or a block-sized
+/// one".** `LAMP_BLOCK_QUANTISED=1` makes a block's `beam` the *max* over its
+/// cells — `Material::glow`'s convention — instead of the mean over its
+/// columns.
+///
+/// A control and never a setting, like `FIELD_MOMENTUM` and `FIELD_CARRY`
+/// above. It exists because "the averaged emitter is what makes dragging a
+/// lamp smooth" is exactly the kind of claim `CLAUDE.md` says to establish by
+/// putting the fault back rather than by reading the diff: with it set, the
+/// bench's light centroid must sit still for `FIELD_SCALE` cells and then
+/// jump, and if it does not then `examples/lamp_probe.rs` cannot see
+/// quantisation at all and its clean result means nothing.
+///
+/// One `OnceLock` read per `step`, not per tile.
+fn beam_block_quantised() -> bool {
+    use std::sync::OnceLock;
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| std::env::var("LAMP_BLOCK_QUANTISED").map(|v| v != "0").unwrap_or(false))
+}
+
 /// Whether the carry-forward above is enabled; `FIELD_CARRY=0` turns it off.
 ///
 /// Exists so the paired run that proves it costs nothing in correctness is
@@ -1389,10 +1453,17 @@ fn carry_derived() -> bool {
 /// cycle is the claim worth making, and it is the only one that catches a
 /// fast path that is *nearly* right.
 ///
-/// Covers the six channels, all four arrays `rebuild_blocked` derives, the
+/// Covers the six channels, all five arrays `rebuild_blocked` derives, the
 /// authored moisture floor, and the three per-tile solve flags. Chunk order
 /// is sorted rather than `HashMap` order, so the number is reproducible
 /// within a build as `PLAN.md` requires.
+///
+/// **It covers `beam` too, so this number moved across the grow-light change
+/// even where nothing in the field did.** Every tile outdoors has a zero beam
+/// array and a false `has_beam`, and hashing a constant still moves the
+/// digest — so a hash taken before 2026-08-30 does not compare with one taken
+/// after, and a mismatch across that boundary is not evidence of a behaviour
+/// change. Within a build it is exactly as strong as it ever was.
 pub fn field_hash(world: &World) -> u64 {
     let mut coords: Vec<ChunkCoord> = world.fields_ref().keys().copied().collect();
     coords.sort_unstable_by_key(|c| (c.y, c.x, c.slice));
@@ -1413,10 +1484,12 @@ pub fn field_hash(world: &World) -> u64 {
                 eat(u64::from(t.transmission_local(lx, ly).to_bits()), &mut acc);
                 eat(u64::from(t.moisture_source_local(lx, ly).to_bits()), &mut acc);
                 eat(u64::from(t.glow_local(lx, ly).to_bits()), &mut acc);
+            eat(u64::from(t.beam_local(lx, ly).to_bits()), &mut acc);
                 eat(u64::from(t.moisture_floor_local(lx, ly).to_bits()), &mut acc);
             }
         }
         eat(u64::from(t.has_glow), &mut acc);
+        eat(u64::from(t.has_beam), &mut acc);
         eat(u64::from(t.derived_valid), &mut acc);
         eat(u64::from(t.momentum_zero), &mut acc);
         eat(u64::from(t.settled()), &mut acc);
@@ -1574,7 +1647,7 @@ fn debug_drift(world: &World, coords: &[ChunkCoord], next: &HashMap<ChunkCoord, 
     // "555 tiles solved, 0 of them unsettled" is a contradiction until you
     // can say which of the three seeds put them there, and the halo turns
     // every seed into up to nine.
-    let amplitude = sky_light_amplitude(world.sky_frame());
+    let amplitude = sky_light_amplitude_of(world);
     let (mut no_tile, mut unsettled_seed, mut chunk_seed, mut sky_seed) = (0, 0, 0, 0);
     for chunk in world.chunks() {
         let tile = old.get(&chunk.coord);
@@ -1738,6 +1811,25 @@ const NIGHT_LIGHT_FLOOR: f32 = 0.2;
 /// above the floor. Real daylight is roughly this shape — a smooth rise
 /// from sunrise, a peak at noon, a smooth fall to sunset, then flat dark
 /// until the next sunrise — not a pure sinusoid with no true night.
+/// [`sky_light_amplitude`] for the sun this *world* has, which is none at all
+/// when [`World::sky_lighting`] is off.
+///
+/// The whole of what "the lab has a ceiling, not a sky" costs to enforce: the
+/// descent starts at zero, so `apply_sky_to`'s `*c <= 0.0` early-outs fire on
+/// the first block of every column and the only thing that writes light is a
+/// `Material::beam` fixture. Gating here rather than at the call sites is
+/// what keeps `amplitude_changed` honest -- a world with no sun does not
+/// drift, so its tiles are allowed to sleep, which the sunlit world's tiles
+/// are not.
+fn sky_light_amplitude_of(world: &World) -> f32 {
+    if world.sky_lighting() { sky_light_amplitude(world.sky_frame()) } else { 0.0 }
+}
+
+/// [`sky_light_amplitude_of`] one frame back, for the drift check.
+fn sky_light_amplitude_prev_of(world: &World) -> f32 {
+    if world.sky_lighting() { sky_light_amplitude(world.prev_sky_frame()) } else { 0.0 }
+}
+
 pub fn sky_light_amplitude(frame: u64) -> f32 {
     let daylight = sun_elevation(frame).max(0.0);
     // Quantised on the 0..1 *daylight fraction* rather than on the amplitude
@@ -1998,7 +2090,7 @@ pub(crate) fn noon_equivalent_temperature(cell: FieldCell) -> f32 {
 /// would defeat field sleeping (issue #4) for every open-sky scene, all day.
 /// What fraction of direct sunlight survives one blocked field block.
 ///
-/// A field block is `FIELD_SCALE` (8) world cells square, so one blocked
+/// A field block is `FIELD_SCALE` (16) world cells square, so one blocked
 /// block is a substantial thickness of canopy or rock — but not an absolute
 /// wall, which matters: a hard zero makes shade a binary stencil with a
 /// visible edge at field resolution, and
@@ -2008,7 +2100,10 @@ pub(crate) fn noon_equivalent_temperature(cell: FieldCell) -> f32 {
 /// graded leaves room for that mechanism to work later.
 ///
 /// Rock still goes effectively black after two blocks (0.04), which is what
-/// keeps caves dark.
+/// keeps caves dark -- but note a block is `FIELD_SCALE` cells, so on the
+/// move to 16 that is 32 world cells of rock rather than 16. A given
+/// *physical* thickness of rock or canopy now attenuates half as much,
+/// which is the light-model half of that change and is deliberate.
 const SKY_TRANSMISSION: f32 = 0.2;
 
 /// What one CA column of a field block passes, indexed by how many opaque
@@ -2022,14 +2117,37 @@ const SKY_TRANSMISSION: f32 = 0.2;
 /// compounding through a crown) without shading like rock.
 ///
 /// A table rather than `powf` in the scan: `rebuild_blocked` runs over
-/// every CA cell of every resident chunk every field step, and this is nine
-/// floats. `the_column_transmission_table_is_beer_lambert` keeps it honest
-/// against the formula and against `SKY_TRANSMISSION` moving.
+/// every CA cell of every resident chunk every field step, and this is
+/// seventeen floats. `the_column_transmission_table_is_beer_lambert` keeps
+/// it honest against the formula and against `SKY_TRANSMISSION` moving --
+/// and it is what the table was *regenerated* from on the move to
+/// `FIELD_SCALE` 16, rather than the entries being re-tuned by hand. The
+/// even indices reproduce the old nine-entry table to within 1.1e-5,
+/// because `0.2^(2d/16)` is `0.2^(d/8)`: rock and a full canopy pass
+/// exactly what they always did, and the eight new odd entries are the
+/// half-block thicknesses the finer grid could not express.
 /// The last entry is written as `SKY_TRANSMISSION` itself rather than as
 /// its value, because that endpoint is the compatibility promise: a fully
 /// opaque column passes exactly what a blocked block always passed.
-const COLUMN_TRANSMISSION: [f32; FIELD_SCALE as usize + 1] =
-    [1.0, 0.817_765, 0.668_740, 0.546_884, 0.447_214, 0.365_697, 0.299_070, 0.244_581, SKY_TRANSMISSION];
+const COLUMN_TRANSMISSION: [f32; FIELD_SCALE as usize + 1] = [
+    1.0,
+    0.904_304,
+    0.817_765,
+    0.739_508,
+    0.668_740,
+    0.604_744,
+    0.546_873,
+    0.494_539,
+    0.447_214,
+    0.404_417,
+    0.365_716,
+    0.330_718,
+    0.299_070,
+    0.270_450,
+    0.244_569,
+    0.221_165,
+    SKY_TRANSMISSION,
+];
 
 /// Direct sunlight, cast **down each column** from open sky.
 ///
@@ -2157,13 +2275,28 @@ fn apply_sky_to(
                     // value (max-write no-op) or is dark (nothing to
                     // write). No tile at all is genuinely open sky.
                     if let Some(sleeping) = old.get(&coord) {
-                        for lx in 0..FIELD_TILE_SIZE {
-                            let c = &mut carried[lx as usize];
-                            for ly in 0..FIELD_TILE_SIZE {
-                                if *c <= 0.0 {
-                                    break;
+                        // Two loops, and the beam-free one is the original
+                        // byte for byte. A world with no lamp in it must
+                        // take exactly the walk it took before this existed
+                        // -- `has_beam` is what buys that, and it is false
+                        // for every tile of the outdoor game.
+                        if sleeping.has_beam {
+                            for lx in 0..FIELD_TILE_SIZE {
+                                let c = &mut carried[lx as usize];
+                                for ly in 0..FIELD_TILE_SIZE {
+                                    *c = (*c * sleeping.transmission_local(lx, ly))
+                                        .max(sleeping.beam_local(lx, ly));
                                 }
-                                *c *= sleeping.transmission_local(lx, ly);
+                            }
+                        } else {
+                            for lx in 0..FIELD_TILE_SIZE {
+                                let c = &mut carried[lx as usize];
+                                for ly in 0..FIELD_TILE_SIZE {
+                                    if *c <= 0.0 {
+                                        break;
+                                    }
+                                    *c *= sleeping.transmission_local(lx, ly);
+                                }
                             }
                         }
                     }
@@ -2172,13 +2305,31 @@ fn apply_sky_to(
                 // Recorded *before* attenuating: this is what arrives at
                 // the tile's top row, which is what phase 2 needs.
                 out.push((coord, carried));
-                for lx in 0..FIELD_TILE_SIZE {
-                    let c = &mut carried[lx as usize];
-                    for ly in 0..FIELD_TILE_SIZE {
-                        if *c <= 0.0 {
-                            continue;
+                if tile.has_beam {
+                    for lx in 0..FIELD_TILE_SIZE {
+                        let c = &mut carried[lx as usize];
+                        for ly in 0..FIELD_TILE_SIZE {
+                            // **Attenuate first, re-seed second**, and that
+                            // order is the whole point of `Material::beam`:
+                            // a fixture does not shade its own light, so a
+                            // lamp recessed into a ceiling throws what it
+                            // throws however thick the ceiling is. The other
+                            // order re-couples the crop's light to the
+                            // shell, which is the knob `lab::scene::CEILING`
+                            // was found to be the expensive way.
+                            *c = (*c * tile.transmission_local(lx, ly))
+                                .max(tile.beam_local(lx, ly));
                         }
-                        *c *= tile.transmission_local(lx, ly);
+                    }
+                } else {
+                    for lx in 0..FIELD_TILE_SIZE {
+                        let c = &mut carried[lx as usize];
+                        for ly in 0..FIELD_TILE_SIZE {
+                            if *c <= 0.0 {
+                                continue;
+                            }
+                            *c *= tile.transmission_local(lx, ly);
+                        }
                     }
                 }
             }
@@ -2192,6 +2343,31 @@ fn apply_sky_to(
         };
         let mut carried = *entry;
         let mut any_lit = false;
+        // The beam-aware replay, split out for the same reason phase 1 is:
+        // the fast path below must stay the walk it always was.
+        if tile.has_beam {
+            for lx in 0..FIELD_TILE_SIZE {
+                let c = &mut carried[lx as usize];
+                for ly in 0..FIELD_TILE_SIZE {
+                    // What this block *reads* includes its own emission --
+                    // the fixture is lit by itself -- while what leaves it
+                    // downward is the attenuate-then-re-seed of phase 1.
+                    let beam = tile.beam_local(lx, ly);
+                    let here = c.max(beam);
+                    if here > 0.0 {
+                        let mut cell = tile.get_local(lx, ly);
+                        if here > cell.light {
+                            cell.light = here;
+                            tile.set_local(lx, ly, cell);
+                        }
+                    }
+                    *c = (*c * tile.transmission_local(lx, ly)).max(beam);
+                }
+                any_lit |= *c > 0.0;
+            }
+            tile.sky_lit = any_lit || tile.sky_lit;
+            return;
+        }
         for lx in 0..FIELD_TILE_SIZE {
             let c = &mut carried[lx as usize];
             for ly in 0..FIELD_TILE_SIZE {
@@ -2388,7 +2564,7 @@ fn apply_sky_temperature_to(offset: f32, coords: &[ChunkCoord], next: &mut HashM
 /// Unlike `apply_sky`, this does **not** skip blocked field cells. A
 /// shallow puddle resting on a thin floor — the overwhelmingly common case,
 /// not an edge case — routinely shares its own coarse field block with the
-/// ground right underneath it (`FIELD_SCALE` is 8 world cells; a 1-cell-deep
+/// ground right underneath it (`FIELD_SCALE` is 16 world cells; a 1-cell-deep
 /// puddle and the floor it sits on are almost always within 8 cells of each
 /// other), which is enough for `rebuild_blocked`'s over-blocking bias to
 /// mark that whole block impassable. Gating on `!blocked` the way `apply_
@@ -2504,7 +2680,11 @@ fn rebuild_blocked(world: &World, coords: &[ChunkCoord], next: &mut HashMap<Chun
         // the last of a lining would leave the renderer sampling the field
         // under that tile forever.
         tile.has_glow = false;
-        // This scan is what makes the four arrays below real, and the flag is
+        // Same reset, same reason (`set_beam_local` only latches on): pull
+        // the fixture out of the ceiling and the block under it must stop
+        // beaming, not beam for ever.
+        tile.has_beam = false;
+        // This scan is what makes the five arrays below real, and the flag is
         // what lets the next frame trust them.
         tile.derived_valid = true;
         let (ox, oy) = coord.origin();
@@ -2555,6 +2735,13 @@ fn rebuild_blocked(world: &World, coords: &[ChunkCoord], next: &mut HashMap<Chun
                 // the local-light floor, gathered in the scan that is
                 // already happening rather than a pass of its own.
                 let mut glow_level = 0.0f32;
+                // The strongest downward emitter in each CA *column* of this
+                // block (`Material::beam`), averaged below. Per column and
+                // not maxed over the block, for `FieldTile::beam`'s two
+                // reasons: a downward emitter's horizontal extent is what
+                // reaches the floor, and averaging is what makes a fixture's
+                // position continuous instead of block-quantised.
+                let mut column_beam = [0.0f32; FIELD_SCALE as usize];
                 // How many opaque cells deep each CA *column* of this block
                 // is, counted in the scan that is already happening -- see
                 // `FieldTile::transmission` for why depth per column, and
@@ -2639,6 +2826,7 @@ fn rebuild_blocked(world: &World, coords: &[ChunkCoord], next: &mut HashMap<Chun
                             }
                         }
                         glow_level = glow_level.max(mat.glow);
+                        column_beam[dx as usize] = column_beam[dx as usize].max(mat.beam);
                     }
                 }
                 tile.set_blocked_local(lx, ly, blocked);
@@ -2651,6 +2839,17 @@ fn rebuild_blocked(world: &World, coords: &[ChunkCoord], next: &mut HashMap<Chun
                 tile.set_transmission_local(lx, ly, transmission);
                 tile.set_moisture_source_local(lx, ly, moisture_level);
                 tile.set_glow_local(lx, ly, glow_level);
+                // The block emits what its columns emit, averaged -- the
+                // mirror image of the transmission line above.
+                tile.set_beam_local(
+                    lx,
+                    ly,
+                    if beam_block_quantised() {
+                        column_beam.iter().copied().fold(0.0f32, f32::max)
+                    } else {
+                        column_beam.iter().sum::<f32>() / FIELD_SCALE as f32
+                    },
+                );
                 // Seed the light channel here, before diffusion runs, so a
                 // glowing block gets its halo bled into the neighbouring
                 // blocks by the same pass that softens every other light
@@ -3444,20 +3643,31 @@ mod tests {
     #[test]
     fn field_coord_floors_toward_negative_infinity() {
         // The same truncating-division trap as ChunkCoord::containing.
+        //
+        // Derived from `FIELD_SCALE` rather than written as literals: this
+        // test asserted 7/8/-9 until 2026-08-30 and went red on the move to
+        // 16 having found no bug at all. The property is floor division, and
+        // the negative rows are the whole point -- truncation would give
+        // `field_coord_of(-1, -1) == (0, 0)`.
+        let s = FIELD_SCALE;
         assert_eq!(field_coord_of(0, 0), (0, 0));
-        assert_eq!(field_coord_of(7, 7), (0, 0));
-        assert_eq!(field_coord_of(8, 8), (1, 1));
-        assert_eq!(field_coord_of(-1, -1), (-1, -1));
-        assert_eq!(field_coord_of(-8, -8), (-1, -1));
-        assert_eq!(field_coord_of(-9, -9), (-2, -2));
+        assert_eq!(field_coord_of(s - 1, s - 1), (0, 0), "the last cell of block 0 is still block 0");
+        assert_eq!(field_coord_of(s, s), (1, 1), "one past it is block 1");
+        assert_eq!(field_coord_of(-1, -1), (-1, -1), "truncating division would say (0, 0) here");
+        assert_eq!(field_coord_of(-s, -s), (-1, -1), "the first cell of block -1");
+        assert_eq!(field_coord_of(-s - 1, -s - 1), (-2, -2), "one before it is block -2");
     }
 
     #[test]
     fn tile_and_local_round_trips_across_chunk_boundaries() {
-        // Field coordinate 7 (last cell of chunk 0's tile) and 8 (first cell
-        // of chunk 1's tile) must land in different chunks.
-        let (t0, ..) = tile_and_local(7, 0);
-        let (t1, ..) = tile_and_local(8, 0);
+        // The last field cell of chunk 0's tile and the first of chunk 1's
+        // must land in different chunks. Derived from `FIELD_TILE_SIZE`, not
+        // written as 7 and 8 -- those literals were a restatement of
+        // `FIELD_SCALE == 8` and went red on the move to 16 without finding
+        // anything.
+        let last_in_tile_0 = FIELD_TILE_SIZE - 1;
+        let (t0, ..) = tile_and_local(last_in_tile_0, 0);
+        let (t1, ..) = tile_and_local(FIELD_TILE_SIZE, 0);
         assert_ne!(t0, t1);
         assert_eq!(t0, ChunkCoord::new(0, 0));
         assert_eq!(t1, ChunkCoord::new(1, 0));
@@ -3934,10 +4144,24 @@ mod tests {
         // field cell, *positive at noon and negative at midnight*. That is a
         // taxis signal of the sky's own making, twice the size of anything a
         // real heat source leaves at that range, and it reverses twice a day.
+        //
+        // **The sample points are derived from `FIELD_SCALE`, not written as
+        // 71 and 72.** Sky temperature attenuates once per *field block*
+        // (`apply_sky_temperature_to` multiplies by `transmission_local`
+        // per block), so the steep step is at a block boundary and nowhere
+        // else -- and `field_at_bilinear` spreads that step smoothly across
+        // the block's full width. At `FIELD_SCALE = 8` the literals 71 and
+        // 72 straddled the first/second rock-block boundary at 7/8 and 8/8
+        // of a block; at 16 they both landed *inside* the first block and
+        // the test went red having found no bug. Below, the pair straddles
+        // that same boundary at the same fractional offsets, so the
+        // quantity measured -- an eighth of the per-block step -- is
+        // identical at any `FIELD_SCALE` and the 4.0 bar is untouched.
+        const ROCK_TOP: i32 = 64;
         let profile = |frame: u64| -> (f32, f32) {
             let mut w = test_world();
             w.frame = frame;
-            for y in 64..256 {
+            for y in ROCK_TOP..256 {
                 for x in 0..256 {
                     w.set(x, y, Cell::new(material::STONE, 0));
                 }
@@ -3947,9 +4171,15 @@ mod tests {
                 step(&mut w);
             }
             // Just under the rock surface, where a worm burrows and where
-            // the attenuation is steepest.
-            let here = w.field_at_bilinear(128.0, 72.0);
-            let above = w.field_at_bilinear(128.0, 71.0);
+            // the attenuation is steepest: the boundary between the first
+            // and second rock field blocks. Measured 2026-08-30: this
+            // pair reads 4.799999 at noon at `FIELD_SCALE` 8 *and* 16 --
+            // the same value to the last digit, which is what "the scene
+            // was resized, the bar was not moved" means here.
+            let boundary = (ROCK_TOP + FIELD_SCALE) as f32;
+            let straddle = FIELD_SCALE as f32 / 8.0;
+            let here = w.field_at_bilinear(128.0, boundary);
+            let above = w.field_at_bilinear(128.0, boundary - straddle);
             (
                 above.temperature - here.temperature,
                 noon_equivalent_temperature(above) - noon_equivalent_temperature(here),

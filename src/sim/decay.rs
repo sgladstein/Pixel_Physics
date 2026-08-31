@@ -304,15 +304,24 @@ mod tests {
         w.schedule_active_site(ActiveSite { x: 14, y: 100, kind: ActiveKind::Decay, next_frame: DECAY_TICK_INTERVAL });
 
         // Dry platform, far away, no water anywhere near it.
-        for x in 60..70 {
+        //
+        // **"Far away" is five field blocks of clear ground, not the literal
+        // x = 60 this used to say.** Moisture spreads by diffusion *between
+        // field blocks*, so how dry this platform is depends on its distance
+        // in blocks, not in world cells -- and the literal put it 5 blocks
+        // clear at `FIELD_SCALE` 8 and only 2.5 at 16, where the damp end's
+        // moisture reached it and it decayed. `5 * FIELD_SCALE` reproduces
+        // x = 60 exactly at 8, so the original scene is unchanged there.
+        let dry_x0 = 20 + 5 * crate::sim::field::FIELD_SCALE;
+        for x in dry_x0..dry_x0 + 10 {
             w.set(x, 100, Cell::new(ash, 0));
         }
-        w.schedule_active_site(ActiveSite { x: 64, y: 100, kind: ActiveKind::Decay, next_frame: DECAY_TICK_INTERVAL });
+        w.schedule_active_site(ActiveSite { x: dry_x0 + 4, y: 100, kind: ActiveKind::Decay, next_frame: DECAY_TICK_INTERVAL });
 
         run(&mut w, 20_000);
 
         assert_eq!(w.get(14, 100).material, soil, "damp ash never decayed into soil");
-        assert_eq!(w.get(64, 100).material, ash, "dry ash decayed as readily as damp ash");
+        assert_eq!(w.get(dry_x0 + 4, 100).material, ash, "dry ash decayed as readily as damp ash");
     }
 
     /// **The generalisation, tested on the material it was made for.**

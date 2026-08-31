@@ -113,6 +113,7 @@ GAME = {
     "rendering, UI and tunables": "engine",
     "performance and the parallel sweep": "engine",
     "materials and the data schema": "engine",
+    "the evolution lab — the box and its lights": "lab",
 }
 
 TOPICS = {
@@ -162,6 +163,9 @@ TOPICS = {
     "the coarse field grid — pressure, heat, light": [
         "The coarse field grid",
         "M12/M13 status",
+        # The light channel's second writer: `Material::beam`, the emitter the
+        # lab's fixtures use, lives in `apply_sky_to`'s column descent.
+        "Lab lighting status — the fixtures are what light the crop",
     ],
     "worldgen and world structure": [
         "M10 status — the worldgen half",
@@ -191,6 +195,12 @@ TOPICS = {
     "materials and the data schema": [
         "Materials",
         "M12/M13 status",
+    ],
+    # **The lab's first topic row.** The routing table had none, so an agent
+    # sent to the second game had nothing here to route by and the `lab` tag
+    # on the GAME map above pointed at nothing.
+    "the evolution lab — the box and its lights": [
+        "Lab lighting status — the fixtures are what light the crop",
     ],
 }
 

@@ -6361,7 +6361,9 @@ mod tests {
             w.set(x, 30, Cell::new(material::STONE, 0));
         }
         let (tx, ty) = (span + 6, 30); // the tip, past the span, will break
-        assert_eq!(w.field_at(tx, ty).pressure, 0.0, "test setup should start at ambient pressure");
+        let peak_pressure =
+            |w: &World| (0..=(span + 6)).map(|x| w.field_at(x, ty).pressure.abs()).fold(0.0f32, f32::max);
+        assert_eq!(peak_pressure(&w), 0.0, "test setup should start at ambient pressure");
 
         w.schedule_structural_check(tx, ty);
         run(&mut w, 200);
@@ -6375,10 +6377,33 @@ mod tests {
         let debris = stone_debris(&w);
         let broke = w.get(tx, ty).material == debris || w.get(tx, ty).material == material::EMPTY;
         assert!(broke, "test setup should have broken the tip, found {:?}", w.get(tx, ty).material);
+        // **This test does not reach `break_free`, and did not before the
+        // move to `FIELD_SCALE` 16 either.** Proven 2026-08-30 by putting a
+        // `panic!` in `break_free`'s body and running this test: it stayed
+        // green, at `FIELD_SCALE` 8 and 16 alike, and the pressure it reads
+        // was byte-identical (peak 32.07803) with `break_free`'s
+        // `add_pressure_impulse` deleted outright. The overhang fails as a
+        // whole and leaves as a chunk body, so what this observes is
+        // `rigid.rs`'s launch impulse (`rigid.rs:1012`/`:4129`), not
+        // `structural::break_free`'s. `open-bugs-handoff.md` carries it as
+        // an open blind guard; the name overstates what is covered, and
+        // widening the assertion here would only bury that further.
+        //
+        // What it *does* still guard is architecture §5c's actual claim --
+        // that a structural collapse has a field footprint at all, where
+        // before it was the one destructive event in the engine with none.
+        //
+        // The read is along the beam rather than at the tip's own field
+        // block, because which block a break site bins into is an accident
+        // of the geometry: at `FIELD_SCALE` 8 this 23-cell beam spans three
+        // field blocks and the tip's (16..=23) caught one, at 16 it spans
+        // two, every site lands in the first (0..=15), and the tip's block
+        // reads exactly zero. That is the same thing the "either outcome
+        // counts" note above already declined to pin.
         assert!(
-            w.field_at(tx, ty).pressure.abs() > 0.5,
-            "a structural break should have written a pressure impulse into the field, found {}",
-            w.field_at(tx, ty).pressure
+            peak_pressure(&w) > 0.5,
+            "a structural collapse should have written a pressure impulse into the field, found {} across the beam",
+            peak_pressure(&w)
         );
     }
 
