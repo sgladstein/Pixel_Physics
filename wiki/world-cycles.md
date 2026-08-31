@@ -1,10 +1,13 @@
 # Day, Night, and Decay
 
-*Current as of: 2026-08-30 (the light grid is now half as fine, so caves stay
-lit about twice as deep). New since the last pass: a world can now be a
+*Current as of: 2026-08-31 (broken branches rot now — they used to be the one
+thing a dead plant left that stayed on the ground for ever).*
+
+*Before that: a world can now be a
 room instead of a landscape — the air inside a sealed box is drawn as a lit
 interior, with grow lights you can see in the ceiling and pools of light on
-the wall beneath them, and it dims when the light schedule does.*
+the wall beneath them, and it dims when the light schedule does; and the light
+grid is half as fine, so caves stay lit about twice as deep.*
 
 *Before that: a world whose pace knobs
 are not at normal now says so on screen when it starts, instead of only on the
@@ -287,3 +290,40 @@ has no way to weather back out of the world. Growing roots eat into it and
 soil at the world's edge can spill away, but neither is a match for a
 canopy. If you leave a forest running long enough, expect the ground under
 it to creep upward.
+
+## What a dead plant leaves, and how long it lies there
+
+A plant does not go all at once, and the pieces it leaves behind do not go at
+the same speed as each other. That spread is the point: a wood that has just
+been through a bad season should look different from one that went through
+it a year ago, and it does, because the floor is made of different things at
+each stage.
+
+Shed leaves are the fastest. Damp ones are among the quickest things in the
+world to disappear; dry ones sit and are what carries a ground fire from one
+stand to the next. **Broken branches are next, and they take roughly ten
+times as long as the leaves around them** — long enough that a snapped limb
+is still recognisably a limb while the leaf fall of two seasons has come and
+gone over it. A fallen bole is slowest of all, and will lie for what is
+effectively for ever unless something burns it.
+
+A branch does not turn into soil directly. It crumbles into the same leaf
+litter that falls from above, and *that* rots on into ground — so a branch
+pile passes through being leaf mould on its way to being earth, and is worth
+eating to an ant for the whole of that middle stretch, which it was not
+while it was still wood. If you clear a bed and come back much later, the
+brown you find is not the brown you left.
+
+**Branches used to be the exception, and it read as one.** Everything else a
+plant left behind went somewhere eventually; a broken branch simply stayed
+put, for the whole life of the world. After a die-back — a hard winter, a
+fire, or you cutting a stand down yourself — roughly a third of everything
+that died would still be lying exactly where it fell no matter how long you
+waited, and in a sealed box it was matter that could never be used again.
+Now every part of a dead plant is on its way somewhere, even if most of it is
+on its way to nothing.
+
+**Most of it is still on its way to nothing, and that is on purpose.** Only
+about a twentieth of what rots leaves any ground behind; the rest is breathed
+away. So "everything decays now" does not mean "everything comes back" — it
+means the floor keeps moving instead of silting up with something permanent.
