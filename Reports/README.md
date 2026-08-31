@@ -820,9 +820,10 @@ drift that two of these documents still reflect.**
 ## Creatures and ecology  ·  `engine`
 
 - [mechanism-vs-behaviour-audit-2026-08-31.md](mechanism-vs-behaviour-audit-2026-08-31.md)
-  — **audit and staged plan, 2026-08-31; nothing built and nothing measured
-  by it. Independently reviewed and corrected in eleven places, one of them
-  load-bearing — the corrections are left visible in place.** Where the engine
+  — **audit and staged plan, baseline `943ace17`, 2026-08-31; nothing built and
+  nothing measured by it. Independently reviewed and corrected in eleven
+  places, one load-bearing; then re-based and **two findings closed by other
+  lanes inside the same day** — read §7 before §1.** Where the engine
   hardcodes a *behaviour* instead of building a *mechanism*, on the owner's
   line **the mechanism is code, the policy is genome**. Scoped to the evolution
   lab and read off `943ace17`. **Twenty-one findings**, a ranking, and — the
@@ -842,6 +843,23 @@ drift that two of these documents still reflect.**
   eat with dig, `sight_fraction` armed in code and **unarmed in `beetle.ron`**,
   and — found only in review — **the worm, an entire shipped animal implemented
   as nine constants and a hand-written branch with no genome at all**.
+
+  **§7 is worth more than most of the findings.** The audit was read off
+  `943ace17`; by the time its corrections landed `main` was **+41**, and PR
+  #190 had built **the crop** — F2, its top-ranked economy finding, whose
+  `hunger_fraction` field is now *gone* rather than unread — while PR #192 made
+  when-to-breed a heritable trait (F7). Both were in the top seven of its own
+  ranking, **because a finding that matters is one somebody else is also
+  looking at**. Landed as first written it would have sent the next session to
+  build a crop that existed. `CLAUDE.md` already carries this rule filed under
+  *files*; §7 is it applied to *findings*, where it bites harder — a duplicate
+  bug entry shows up in a merge conflict and a stale finding merges cleanly and
+  reads as work to do. The remedy is one `grep` per finding against `main`
+  before landing, which took a single call for nineteen of them.
+
+  **One consequence for anyone acting on it:** F1's cost rests on a §T2 figure
+  measured against the **pre-crop** economy, so that number needs re-taking
+  before F1 is worth building.
 
   **Read §1's F1 and F3 before citing either.** F1 shipped with a defect that
   is **false** (soil is `Powder`, so the moisture field is not "blocked" there

@@ -7,8 +7,10 @@ engine it runs on: `creature.rs`, `brain.rs`, `organism.rs`, `plant.rs`,
 `src/lab/`, `assets/species/*.ron`. The outdoor-only systems are scoped out
 and §6 says which and why.
 
-**Independently reviewed 2026-08-31, and corrected in eleven places — one of
-them load-bearing.** The corrections are left visible in place rather than
+**Re-based on `main` 2026-08-31 and two findings closed by other lanes while
+this was being written — see §7, which is the part worth more than either
+finding.** Before that, **independently reviewed and corrected in eleven
+places, one of them load-bearing.** The corrections are left visible in place rather than
 edited away, per `CLAUDE.md`'s standing rule that a revert keeps the
 knowledge. The largest: **F1 shipped with a defect that is false** (soil is
 `Powder`, so the moisture field is not "blocked" there and does carry a
@@ -19,9 +21,12 @@ withdrawn from the cleared list.
 
 **Everything below is read off the source at the commit named, or cited from
 a report that measured it.** Nothing here was measured by this session, and
-where a claim is arithmetic rather than a run it says so. Baseline:
-`943ace17` (PR #188, *hauling and looking cost something*), `main`,
-2026-08-31.
+where a claim is arithmetic rather than a run it says so. **Baseline: `943ace17`** (PR #188, *hauling and looking cost something*),
+read 2026-08-31; **re-verified against `main` after +41 commits later the same
+day**, which closed two findings — §7. Every finding below carries its status
+against that re-verification, and a reader picking this up later should redo
+that check before acting: it is one `grep` per finding and it took a single
+call for nineteen of them.
 
 ---
 
@@ -229,7 +234,47 @@ files, not one**: `ant`, `ant_long`, `ant_block`, `ant_block_shaded`,
 
 ### The economy: three thresholds and three unpriced verbs
 
-#### F2. `hunger_fraction` decides eat-versus-carry with a species constant
+#### F2. `hunger_fraction` decides eat-versus-carry with a species constant — **CLOSED 2026-08-31 by PR #190, not by this audit**
+
+`src/sim/creature.rs`. **Shape 1. Filed open; closed by another lane the same
+day, and the audit did not know until it re-based.**
+
+**What shipped.** `CreatureDef::hunger_fraction` **no longer exists** — the
+field is gone, not merely unread. `OrganismState` carries a `Crop { material,
+shade, unit, cells, digesting }`, `CreatureDef` carries `crop_capacity`
+(1,440 on `beetle.ron`), and an animal now takes what it finds and digests it
+as it walks. `BrainInput::Carrying` was a boolean and is now **crop fill**, so
+the input is graded rather than binary. The call site says it plainly:
+
+> *"Nothing here decides between eating and carrying, because there is no such
+> decision any more. What stood here was three hand-authored gates in a trench
+> coat: eat below `hunger_fraction * start_energy`, carry above it, and — Gate
+> 0 — eat again if this exact mouthful would close the gap to a birth bar, or
+> if you happened to be standing at the nest. Each was added because a
+> behaviour we wanted did not emerge, and the last of them had an ant doing
+> arithmetic about the price of its own children."*
+
+That is this finding's own diagnosis and its own proposed mechanism, arrived at
+independently. **Nothing in the analysis below is retracted; it is simply no
+longer work.** It is kept in full because the re-derivation list is the part
+that outlives the finding — thirteen readers of the deleted ceiling, two of
+them measurement harnesses, and a lib guard — and because a later session
+asking *why* the crop exists should find the argument, not just the code.
+
+**What did not close with it.** The crop deletes the *ceiling*; it does not
+make `crop_capacity` heritable. `CREATURE_TRAITS` went 2 → 3, and the new slot
+is `TRAIT_REPRODUCE_AT`, not crop capacity. So the trade this finding names —
+a big crop hauls more and pays for it every step, now that PR #188 prices
+carriage — is available and unspent. **That is F14's Stage 4, and it is now
+cheaper than when this was written**, because the mechanism it needed exists.
+
+---
+
+<details>
+<summary>The original entry, kept for its re-derivation list and its
+argument (click to expand)</summary>
+
+**F2 as originally filed:**
 
 `src/sim/creature.rs:2263`, the `provisioning` clause at `:2364`, the
 carry-home `else` at `:2407`. `organism.rs:2086` for the field. **Shape 1.**
@@ -297,6 +342,9 @@ removes the gate; a crop keeps a gate and moves it to a *capacity*, so an
 animal with a full crop still cannot take more. The re-test condition at
 :1001 names this route explicitly. Proceed, but the control arm that has to
 be run is *deliveries* — the quantity the dead end destroyed.
+
+
+</details>
 
 #### F3. Reproduction is opt-in, and `reproduce_threshold: 0` means sterile
 
@@ -469,7 +517,47 @@ which this report files as F13, not F14; the first draft cited F14 here and in
 F9, and both were wrong.** A sight cost lands in the same weighted sum that
 sweep was measured in, so the two must not be changed in one diff.
 
-#### F7. Budding has no verb
+#### F7. Budding has no verb — **PARTLY CLOSED 2026-08-31 by PR #192**
+
+`src/sim/creature.rs`, `src/sim/organism.rs`. **Shapes 1 and 2. Filed open;
+half of it closed by another lane the same day.**
+
+**What shipped.** `TRAIT_REPRODUCE_AT` (`CREATURE_TRAITS` slot 2, taking the
+count 2 → 3): **when to breed is now a heritable trait**, scaling the species'
+authored `reproduce_threshold`. Its doc resolves Cole's paradox the way nature
+does — *"the low allele is very nearly a suicide pact and the high one is a
+survival buffer bought by breeding less often"* — which is a real trade in both
+directions, and it satisfies the half of this finding that said *when to breed
+is a threshold, not a policy*.
+
+**What survives, and it is a real difference rather than a quibble.** This
+entry proposed `BrainOutput::Reproduce` — a **per-tick probability**, rolled
+after affordability. A trait is a *constant for the life of the individual*. So
+the strategies still out of reach are exactly the conditional ones:
+
+- hold back through a lean patch and spend in a rich one;
+- decline to breed while carrying a load;
+- breed at the nest rather than wherever the animal happens to be standing.
+
+Every one of those needs the decision to read the world at the moment it is
+made, and a trait cannot. **The trait is the better first half** — it is
+cheaper, it has no shared-budget cost, and it gives selection something to act
+on immediately. An output remains available as a lawful append and is now a
+smaller change, because the trait already supplies the scale it would modulate.
+
+**One thing the new trait's own doc settles, in F3's favour.** It states that
+*"a species that does not reproduce (threshold 0) still does not, whatever this
+slot says, so making reproduction universal stays S5c's decision to take
+deliberately."* **F3 is therefore explicitly still open, acknowledged at the
+source** — the beetle remains sterile by omission, and that was left as a
+decision rather than an oversight.
+
+---
+
+<details>
+<summary>The original entry (click to expand)</summary>
+
+**F7 as originally filed:**
 
 `src/sim/creature.rs:1720` — `try_bud` is called unconditionally at the end
 of every surviving tick, and fires whenever the bank clears the bar.
@@ -510,6 +598,9 @@ breed-margin gauge needs the second term.
 ---
 
 ### The senses
+
+
+</details>
 
 #### F8. `FoodAdjacent` is a boolean over a quantity that is already continuous
 
@@ -827,31 +918,46 @@ bed that number is the finding.
 
 ### The umbrella finding
 
-#### F14. `CREATURE_TRAITS = 2`: the species file is the policy layer, and it does not mutate
+#### F14. `CREATURE_TRAITS = 3`: the species file is the policy layer, and it barely mutates
 
-`src/sim/organism.rs:3499`. **This is F2, F3, F6 and half the rest seen from
-one level up, and for the lab it is the most important entry in the
-document.**
+`src/sim/organism.rs`. **This is F3, F6 and half the rest seen from one level
+up, and for the lab it is the most important entry in the document.**
 
-`CreatureDef` has **25 fields**. A child inherits exactly two things
+**Re-measured 2026-08-31 after re-basing: `CREATURE_TRAITS` is now 3, not 2**,
+and `CreatureDef` has **26** fields, not 25. PR #192 added
+`TRAIT_REPRODUCE_AT` and PR #190 added `crop_capacity`. The ratio moved from
+2-of-25 to **3-of-26** — the finding is unchanged in kind and the arithmetic
+below is restated at the new numbers.
+
+`CreatureDef` has **26 fields**. A child inherits exactly two things
 (`creature.rs:1291`–`1301` and `:1316`–`1324`): the brain genome, mutated at `def.mutation_rate`,
-and `traits`, jittered at `def.trait_variance`. `traits` is **two scalars** —
-`gut_bias` and `birth_grant`. Everything else comes off the `def`, which is
-the species file, shared by every individual of that species for ever:
+and `traits`, jittered at `def.trait_variance`. `traits` is **three scalars** —
+`gut_bias`, `birth_grant` and `reproduce_at`. Everything else comes off the
+`def`, which is the species file, shared by every individual of that species
+for ever:
 
 > `body`, `tick_interval`, `start_energy`, `idle_cost_per_cell`,
 > `move_cost_per_cell`, `synapse_fraction`, `sight_fraction`, `shade_rule`,
-> `body_energy`, `hunger_fraction`, `reproduce_threshold`, `mutation_rate`,
+> `body_energy`, `crop_capacity`, `reproduce_threshold`, `mutation_rate`,
 > `trait_variance`, `climbs_over_kin`, `eats_kin`, `nest`, `dig_force`,
 > `nest_memory`, `sight_range`, `sensor_offset`.
 
+**`crop_capacity` is the one to look at**, because it is *newly* on that list.
+It arrived with the crop (PR #190) as a species constant, and it is the exact
+shape this finding is about: how much an animal can carry before it must eat
+or turn for home is a **strategy**, it is priced in both directions since PR
+#188 charges for carriage per step, and it is fixed for every individual of a
+species for ever. **A mechanism landed and its policy knob was authored rather
+than inherited** — which is this finding recurring, one day later, in the code
+written to close its neighbour.
+
 **What it costs.** The lab's premise is *evolve a creature, keep it, breed it
-forward*. What can actually evolve is a wiring matrix and two body scalars.
-Body size, metabolic rate, digging strength, how far it sees, how long it
-remembers home, how often it thinks, when it breeds and how fast it mutates
+forward*. What can actually evolve is a wiring matrix and three body scalars.
+Body size, metabolic rate, digging strength, how far it sees, how much it can
+carry, how long it remembers home, how often it thinks and how fast it mutates
 are all **fixed at the species level**, which means the lab's specimen shelf
 can keep a genome that differs from its ancestor only in synapse weights and
-those two numbers. Every visible property of an animal — the thing the owner
+those three numbers. Every visible property of an animal — the thing the owner
 looks at, and the thing `Reports/creature-appearance-design.md` says is
 already hard to see — is outside the genome.
 
@@ -869,13 +975,15 @@ the creature genome for clusters it is structurally incapable of producing.
 is a shared-budget reallocation nobody could cost. The order that has a
 measurement at each step:
 
-1. `TRAIT_DIG_FORCE` (slot 2) — but **only after F4 prices digging**, or it
+0. **`TRAIT_CROP_CAPACITY` first**, and it moved to the front of this list on
+   2026-08-31: PR #188 already prices carriage per step and PR #190 already
+   built the crop, so the trade is priced and the mechanism exists. It is the
+   one slot on this list whose preconditions are *both* already met.
+1. `TRAIT_DIG_FORCE` — but **only after F4 prices digging**, or it
    is a ratchet the day it lands.
 2. `TRAIT_SIGHT_RANGE` (slot 3) — **only after F6 arms the sight cost**, same
    reason. Its own doc already says so.
-3. `TRAIT_CROP_CAPACITY` (slot 4) — arrives with F2 and is priced by PR
-   #188's hauling cost on the day it lands.
-4. Discrete loci for the creature, mirroring the plant's: body plan, whether
+3. Discrete loci for the creature, mirroring the plant's: body plan, whether
    it climbs kin, whether it eats kin. These are *categorical* and are what
    clusters need.
 
@@ -1180,9 +1288,9 @@ effort order.
 
 | # | Finding | Unlocks | Cost |
 |---|---|---|---|
-| **1** | **F2** `hunger_fraction` decides eat-versus-carry | The bank ceiling, which is the arithmetic blocking reproduction. Turns a threshold into a distribution over trip lengths | Large, and **larger than first costed**: thirteen-plus readouts depend on the ceiling, including two of this audit's own instruments and a lib guard |
-| **2** | **F1** `moisture_gradient` is magnitude-only, coarse, and un-genomed | The route-drop rule, which is what §T2 measured. **Demoted from #1 in review**: one of its four defects was false, and the step it ranked first (the per-cell read) is the one least likely to move `deliveries` | Small code, real re-derivation across six species files |
-| **3** | **F14** `CREATURE_TRAITS = 2` | Everything the lab claims to be about. Nothing else on this list makes an *animal* evolvable; this is what does | Must be staged behind F4 and F6 or each new trait lands as a ratchet. **Add `body_energy`** — see below |
+| — | ~~**F2** `hunger_fraction` decides eat-versus-carry~~ | **CLOSED by PR #190** — the crop. Was ranked #1 | — |
+| **1** | **F1** `moisture_gradient` is magnitude-only, coarse, and un-genomed | The route-drop rule, which is what §T2 measured. **Demoted from #1 in review**: one of its four defects was false, and the step it ranked first (the per-cell read) is the one least likely to move `deliveries` | Small code, real re-derivation across six species files |
+| **2** | **F14** `CREATURE_TRAITS = 3` | Everything the lab claims to be about. Nothing else on this list makes an *animal* evolvable; this is what does | Must be staged behind F4 and F6 or each new trait lands as a ratchet. **Add `body_energy`**, and take `crop_capacity` first — it is the one slot whose preconditions are both already met |
 | **4** | **F18** no food verb | The player's own experiments, and the control arm that separates "foraging is broken" from "the economy is broken" | Trivial — it reuses the `Soil`/`Water` paint path and touches no simulation code |
 | **5** | **F11** `Feed` conflates eat with take | A grazer against a hoarder; the granary stops being self-consuming | Cheap, because the append is lawful |
 | **13** | **F3** reproduction is opt-in | Predator-prey population dynamics, which is the biosphere's first real feedback loop. **Dropped from #6 in review**: the finding stands, but its one-line fix is a recorded dead end (`dead-ends.md`:1543), violates the field's own invariant, and does not give the beetle a child | A species-file change with a sweep behind it, read on `live` and never on `births` |
@@ -1194,7 +1302,7 @@ effort order.
 | **12** | **F17** `COLONY` is hardcoded to `"ant"` | A measured route to Gate 0 that is blocked by a string literal | Engine: trivial. Interface: the bar is full |
 | **13** | **F6** `sight_fraction` unarmed | Closes a ratchet the code already prices | One authored number, derived like `idle_cost_per_cell` |
 | **14** | **F5** emitting is free | Quiet scouting as a strategy | Small, **but it can delete homing** — default to 0 |
-| **15** | **F7** budding has no verb | Holding back through a lean patch | Cheap; lawful append |
+| — | ~~**F7** budding has no verb~~ | **PARTLY CLOSED by PR #192** — `TRAIT_REPRODUCE_AT`. What survives is the *conditional* half: a trait cannot hold back through a lean patch, only breed later on average | Cheap; lawful append, and smaller now |
 | **16** | **F16** plant mutation rates are `const` | The mid-game mutagen tier the owner has already decided on | Trivial, plus a correction to the design guide |
 | **17** | **F10** `EAT_YIELD_THRESHOLD` | Removes a hard edge from a continuous model; currently decides whether an omnivore is viable | **Blocked on WP-8's sweep.** Do not touch before it |
 | **18** | **F12** `CHOICE_EXPLORATION_K` | Boldness as a gene | **Larger than first costed** — it reallocates against `PERSIST_MAX`, `FOOTING_MAX` and a bare `0.5`, none of which is a gene. Most likely entry here to break something that works. Last |
@@ -1202,14 +1310,19 @@ effort order.
 | — | **F20** the worm has no genome | Nothing, until it is retrofitted — but it is why F17 delivers less than it promises | A scoped migration, not a stage. Named only |
 | — | **F21** `SIGHT_RAYS` / `CROWDING_RADIUS` | Nothing on its own; it stops F14's `sight_range` trait meaning two things at once | Absorbed into Stage 4 |
 
-**The top three are still one story, in a corrected order.** F1 makes the
-route-drop rule sane, F2 makes a larder convertible into a child, and F14 makes
-the child able to differ from its parent in something a player can see. The
-first draft ranked F1 first on the strength of a defect that turned out to be
-false; with that removed, **F2 is the entry with the measured, unambiguous
-mechanism** and F1 is the one whose diagnosis needed correcting. They remain
-close, and Stage 0's control arm is what will separate them — which is the
-argument for doing Stage 0 first regardless.
+**The story is now two entries, not three, because the middle one shipped.**
+It was: F1 makes the route-drop rule sane, F2 makes a larder convertible into a
+child, F14 makes the child able to differ from its parent in something a player
+can see. **PR #190 built F2**, so what remains either side of it is F1 and F14
+— and F14 is the cheaper of the two for the first time, because the crop it
+needed now exists.
+
+**Stage 0's control arm still comes first regardless**, and more so than
+before: with the crop landed, nobody has yet measured whether the colony can
+maintain a larder *now*, and F1's whole cost argument rests on a §T2 figure
+taken against the pre-crop economy. **That number needs re-taking before F1 is
+worth building.** It is the clearest instance of this document's own rule —
+size a problem at the moment it starts, not after the system has responded.
 
 ---
 
@@ -1413,3 +1526,56 @@ by reading, and **not** a claim about what would happen if it were changed —
 which is what the stages exist to establish. The distinction matters most for
 F1 and F2, where the arithmetic is compelling and the arithmetic has been
 compelling and wrong in this area before.
+
+
+---
+
+## 7. The audit was overtaken while it was being written
+
+**Recorded because it is the most transferable thing in the document, and
+because it happened to the report that warns about it.**
+
+This audit was read off `943ace17`. By the time it was reviewed and corrected,
+`main` was **33 commits ahead**; by the time the corrections landed, **41**.
+Two of the twenty-one findings had been closed by other lanes in that window,
+and **both were in the top seven of §4's own ranking**:
+
+| | closed by | what shipped |
+|---|---|---|
+| **F2** the eat-versus-carry threshold | **PR #190**, same day | the crop. `hunger_fraction` is not merely unread — the field is **gone** |
+| **F7** when to breed | **PR #192**, same day | `TRAIT_REPRODUCE_AT`, a heritable trait rather than the brain output proposed here |
+
+**Nobody did anything wrong, and that is the point.** Two lanes were working
+the creature economy concurrently; the audit's own §1 says so, and
+`branchcheck` printed the branch list at the start of every session. What was
+missing is that **a finding is a claim about a moment**, and this document did
+not carry the date of its own baseline anywhere a reader would trip over it.
+Had #191 landed as first written, it would have sent the next session to build
+a crop that already existed — which is exactly the waste `Reports/dead-ends.md`
+exists to prevent, arriving through a document rather than through a retry.
+
+**`CLAUDE.md` already has this rule and it is filed under files, not
+findings.** *"A file-ownership split is only as current as your last look at
+the branch list… read once at session start it is stale within the hour, and
+nothing prompts a re-read."* Measured there on a three-lane creature split
+where Lane A filed four bug entries Lane B had already filed, better. **The
+same decay applies to an audit's findings**, and it is worse there, because a
+duplicate bug entry is visible in a merge conflict and a stale finding is not:
+it merges cleanly and reads as work to do.
+
+**So, for any document that inventories the state of the code:**
+
+- **Stamp the baseline commit in the status block**, not just the date. This
+  one now does.
+- **Re-verify before landing, not before writing.** The check is one `grep`
+  per finding against `origin/main` and it took a single tool call for
+  nineteen of them. Cheap enough that there is no excuse for skipping it, and
+  the only step that would have caught this.
+- **Expect the overlap to be highest exactly where the document is most
+  useful.** The two findings that were closed were ranked #1 and #6 — because
+  a finding that matters is a finding somebody else is also looking at.
+
+Three of §4's remaining entries are cheaper than when they were written, for
+the same reason: the crop makes `TRAIT_CROP_CAPACITY` a priced trade with a
+built mechanism (F14 step 0), and `TRAIT_REPRODUCE_AT`'s own doc settles F3's
+status explicitly rather than leaving it inferred.
