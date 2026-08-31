@@ -1100,10 +1100,49 @@ impl Lab {
             ui::Tool::Cull => self.cull_at(x, y),
             ui::Tool::Keep => self.keep_at(x, y),
             ui::Tool::Release => self.release_at(x, y),
+            ui::Tool::Wall => self.wall_at(x),
             // The brushes never arrive here: they paint from `press`, so a
             // release that also painted would double the last dab.
             ui::Tool::Soil | ui::Tool::Water => {}
         }
+    }
+
+    /// Drop a wall in column `x`, or take out the one already there.
+    ///
+    /// **A toggle rather than two tools**, because the undo for "I put that
+    /// in the wrong place" has to be the same gesture as the mistake — a
+    /// separate remove-wall tool is a second thing to find at the moment you
+    /// already feel stupid.
+    ///
+    /// The wall goes into the live world **and** into the spec, so it is
+    /// there now *and* still there after a rebuild. Every other bed knob
+    /// takes effect only on rebuild; a wall that behaved that way would be a
+    /// verb whose effect you can only see by restarting, which is
+    /// `CLAUDE.md`'s second law being broken.
+    fn wall_at(&mut self, x: i32) {
+        // A little slack, because a one-cell column is not something a mouse
+        // hits exactly and the near-miss should remove the wall you were
+        // aiming at rather than build a second one beside it.
+        const REACH: i32 = 3;
+        if let Some(w) = self.spec.wall_near(x, REACH) {
+            self.spec.extra_walls.retain(|c| *c != w);
+            let spec = self.spec.clone();
+            spec.clear_wall(&mut self.world, w);
+            self.ui.say(format!("WALL AT {w} REMOVED"));
+            return;
+        }
+        let computed = self.spec.compartments > 1 && self.spec.partition_columns().contains(&x);
+        if computed {
+            // A computed partition belongs to `compartments`, and pulling one
+            // out from under that number would leave the two disagreeing.
+            self.ui.say("THAT WALL COMES FROM THE COMPARTMENTS SETTING -- CHANGE IT ON THE PARAMS PAGE".to_string());
+            return;
+        }
+        let spec = self.spec.clone();
+        spec.paint_wall(&mut self.world, x);
+        self.spec.extra_walls.push(x);
+        let n = self.spec.partition_columns().len();
+        self.ui.say(format!("WALL AT {x} -- {} COMPARTMENTS", n + 1));
     }
 
     /// Put one seed of the selected species in at `(x, y)`.
@@ -1725,7 +1764,7 @@ const MAX_PLANT_LIFT: i32 = 12;
 /// have draws as a silent blank rather than as anything you would notice. That
 /// gap has shipped three times in this repo, so every line here is checked
 /// against `hud::has_glyph` by `every_help_line_is_drawable`.
-const HELP: [&str; 27] = [
+const HELP: [&str; 28] = [
     "THE EVOLUTION LAB",
     "",
     "THE BOX STARTS EMPTY. YOU STOCK IT.",
@@ -1749,6 +1788,7 @@ const HELP: [&str; 27] = [
     "G          THE SHELF -- KEPT GENETICS",
     "; \x27        DRIFT A RELEASE, IN BROODS",
     "F1 F2 F3 F4   PLANTS ANTS BOX RACK   TAB STATS",
+    "M KEEP   , FREE   K WALL (NO BUTTON: THE BAR IS FULL)",
     "SHIFT+1..5   SWITCH CHAMBER    ALL   THE WHOLE RACK",
     "F RATE   WASD PAN   - = ZOOM   R REBUILD",
     "?          THIS PAGE",
@@ -1971,6 +2011,49 @@ mod tests {
             "the rebuild is not the run it replaced -- the record's spec, seed or length did not survive being kept"
         );
         assert!(lab.on_record.iter().all(|r| !r.rebuilding), "a row left stuck saying REBUILDING can never be pressed again");
+    }
+
+    /// **A hand-placed wall is there now, survives a rebuild, and comes out
+    /// with the same gesture that put it in.**
+    ///
+    /// Three claims, and the middle one is the reason the wall lives on the
+    /// *spec* rather than only in the world: every other bed knob takes
+    /// effect on rebuild, so a wall that a rebuild silently removed would put
+    /// the two halves of the same idea in a fight.
+    ///
+    /// The last assertion is the one that makes it a wall rather than a
+    /// decoration: `compartment_spans` — the function every founder, colony
+    /// and lamp is placed through — must see it, or the box looks divided and
+    /// is not.
+    #[test]
+    fn a_hand_placed_wall_holds_now_survives_a_rebuild_and_toggles_off() {
+        let mut lab = Lab::new(rack_bed(1));
+        let x = lab.spec.width / 3;
+        let spans_before = lab.spec.compartment_spans().len();
+
+        lab.ui.set_tool(ui::Tool::Wall);
+        lab.wall_at(x);
+        assert!(lab.spec.extra_walls.contains(&x), "the wall is not in the spec, so a rebuild would lose it");
+        assert_eq!(
+            lab.spec.compartment_spans().len(),
+            spans_before + 1,
+            "the placement machinery cannot see the wall -- founders and colonies would be spread straight across it"
+        );
+        // Standing in the world *now*, not on the next rebuild.
+        let mid = (lab.spec.ceiling_y() + lab.spec.bed_bottom_for_test()) / 2;
+        assert_eq!(lab.world.get(x, mid).material, crate::sim::material::STONE, "the wall was written to the spec and not to the box");
+
+        // ...and it is still there after the rebuild every bed knob triggers.
+        lab.reset();
+        assert!(lab.spec.extra_walls.contains(&x), "the rebuild dropped the wall from the spec");
+        assert_eq!(lab.world.get(x, mid).material, crate::sim::material::STONE, "the rebuild did not paint the wall back");
+
+        // The same gesture takes it out: the undo for a misplaced wall has to
+        // be the mistake repeated, not a second tool to go and find.
+        lab.wall_at(x + 1);
+        assert!(!lab.spec.extra_walls.contains(&x), "clicking near the wall did not remove it");
+        assert_eq!(lab.spec.compartment_spans().len(), spans_before, "the span did not close back up");
+        assert_ne!(lab.world.get(x, mid).material, crate::sim::material::STONE, "the stone is still standing in the box");
     }
 
     /// **A batch fills the rack, and the copies are different worlds.**

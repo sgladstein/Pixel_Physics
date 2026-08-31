@@ -483,10 +483,28 @@ pub enum Tool {
     /// the world uses — you keep a specimen in a jar and you free it back
     /// into the box — and it reads as a verb in a row of verbs.
     Release,
+    /// Drop a wall, floor to ceiling, in the column you click. Click a wall
+    /// you placed to take it out again.
+    Wall,
 }
 
-/// Every tool, in bar order. One list, so the row, the key table and the
-/// tests cannot disagree about what exists.
+/// Every tool **that has a cell on the bar**, in bar order. One list, so the
+/// row, the key table and the tests cannot disagree about what exists.
+///
+/// **`Tool::Wall` is deliberately not in it, and that is a measured
+/// constraint rather than an oversight.** The bar runs at **1 px of slack on
+/// row 0 and 0 on row 1** at the tightest of the three spacings `layout`
+/// tries — measured with its own `PIXEL_PHYSICS_BAR_TRACE`, and recorded in
+/// `Reports/dead-ends.md` when the chamber tabs hit the same wall. A ninth
+/// cell is ~40 px and there is nowhere to put it;
+/// `the_bar_fits_the_screen_and_no_two_widgets_overlap` said so immediately
+/// when one was tried.
+///
+/// So the wall verb is reachable by its key and from the help page, and
+/// **giving it a face is a layout decision for the owner** — it needs a third
+/// bar row or a shorter label somewhere, and both change proportions they
+/// chose by eye. Flagged rather than forced: squeezing it in is how the
+/// overlapping columns on the rack page happened.
 pub const TOOLS: [Tool; 8] =
     [Tool::Look, Tool::Plant, Tool::Colony, Tool::Cull, Tool::Soil, Tool::Water, Tool::Keep, Tool::Release];
 
@@ -499,6 +517,7 @@ impl Tool {
             Tool::Cull => "CULL",
             Tool::Soil => "SOIL",
             Tool::Water => "WATER",
+            Tool::Wall => "WALL",
             Tool::Keep => "KEEP",
             Tool::Release => "FREE",
         }
@@ -511,11 +530,15 @@ impl Tool {
             Tool::Cull => "V",
             Tool::Soil => "B",
             Tool::Water => "N",
-            // The run continues: `M` is the next key along the bottom row,
-            // and `,` the one after it. See the enum's own note on why the
-            // set is positional rather than mnemonic.
+            // The run continues along the bottom row: `M`, then `,`.
             Tool::Keep => "M",
             Tool::Release => ",",
+            // **Off the run, because it is off the bar.** The positional rule
+            // is "one unbroken run in *bar* order", and the wall verb has no
+            // bar cell — the bar is full, see `TOOLS`. Taking the next key in
+            // the run would have moved `NextSpecies` off `.` for a control
+            // that is not in the row the rule is about.
+            Tool::Wall => "K",
         }
     }
     /// Whether this tool paints continuously while the button is held. The
@@ -532,6 +555,7 @@ impl Tool {
             Tool::Cull => "KILL THE ORGANISM YOU CLICK. IT IS MARKED SENESCENT, NOT DELETED, SO IT ROTS DOWN OVER ITS SPECIES HALF-LIFE AND FEEDS WHATEVER IS STILL ALIVE. THIS IS THE SELECTION LEVER: WHAT YOU CULL DOES NOT BREED.",
             Tool::Soil => "PAINT SOIL, AT FIELD CAPACITY -- DAMP ENOUGH FOR A ROOT, NOT SO WET IT SLUMPS. IT WILL NOT PAINT OVER STONE OR OVER A LIVING PLANT.",
             Tool::Water => "PAINT WATER, FULL. IT RUNS, IT SOAKS INTO SOIL, AND TOO MUCH OF IT DROWNS ROOTS -- WHICH IS AN EXPERIMENT, NOT A MISTAKE.",
+            Tool::Wall => "DROP A WALL FLOOR TO CEILING IN THE COLUMN YOU CLICK, OR CLICK ONE YOU PLACED TO TAKE IT OUT. A WALL IS WHAT MAKES TWO POPULATIONS IN ONE BOX INTO TWO POPULATIONS: THEY CANNOT MIX, SO THEY CAN DRIFT APART. IT CUTS WHATEVER IS IN THE WAY, WHICH IS THE POINT -- A WALL THROUGH A STAND IS A STAND SPLIT IN HALF. IT SURVIVES A REBUILD.",
             Tool::Keep => "TAKE THE GENETICS OF THE PLANT OR ANIMAL YOU CLICK AND PUT THEM IN A JAR ON THE SHELF. IT IS A COPY -- THE ONE YOU CLICKED GOES ON LIVING. A JAR HOLDS EVERYTHING THAT INDIVIDUAL WOULD HAVE PASSED TO ITS OWN OFFSPRING AND NOTHING ELSE, SO IT IS SMALL AND IT SURVIVES A RESET OF THE BOX.",
             Tool::Release => "PUT THE ARMED JAR BACK IN THE BOX WHERE YOU CLICK. AT 0 BROODS IT IS THAT EXACT INDIVIDUAL AGAIN; AT 1 IT IS AS DIFFERENT AS ITS OWN CHILD WOULD HAVE BEEN, AND SO ON UP. OPEN THE SHELF WITH G TO PICK A JAR AND SET THE DIAL.",
         }
@@ -946,9 +970,9 @@ fn lay_out(state: &BarState<'_>, pad: i32, gap: i32) -> Bar {
     // the row sideways.
     let species_px = species_face_px().max(hud::text_width(state.species));
     let species = Spec {
-        width: cell_width(species_px, ".", pad),
+        width: cell_width(species_px, ";", pad),
         line1: state.species.to_string(),
-        line2: ".".to_string(),
+        line2: ";".to_string(),
         action: Some(Action::NextSpecies),
         latched: state.tool == Tool::Plant,
         icon: None,

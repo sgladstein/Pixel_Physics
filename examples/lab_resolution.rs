@@ -108,6 +108,9 @@ fn spec_from_args() -> LabBox {
         lamp_spacing: arg("lamps").unwrap_or(width / 4),
         species: arg("species").unwrap_or_else(|| "herb".to_string()),
         seed: arg("seed").unwrap_or(1),
+        // None: this harness varies geometry, and a hand-placed wall would be
+        // a second axis in a ladder that exists to isolate one.
+        extra_walls: Vec::new(),
         // **Exhaustive on purpose -- no `..LabBox::default()`.** Two lanes
         // repaired the same red build here at once, one by adding
         // `lamp_spacing` and one by adding a struct update, and together they

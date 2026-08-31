@@ -89,6 +89,19 @@ pub struct LabBox {
     /// dragging a fixture off its bed is the mechanic.
     pub lamp_spacing: i32,
     pub seed: u64,
+    /// **Walls the player dropped by hand**, as column numbers.
+    ///
+    /// Kept on the *spec* rather than only painted into the world, because
+    /// every other bed knob takes effect on rebuild — and a rebuild that
+    /// silently removed the walls you placed would make the two halves of the
+    /// same idea fight each other.
+    ///
+    /// `compartments` remains the arithmetic, evenly-spaced version; these are
+    /// added to it. Both go through [`LabBox::partition_columns`], which is
+    /// still the one place wall positions are decided, so founders, colonies
+    /// and lamps avoid a hand-placed wall exactly as they avoid a computed
+    /// one.
+    pub extra_walls: Vec<i32>,
 }
 
 /// **Rows of soil, and why this number and not a round one.**
@@ -185,6 +198,7 @@ impl Default for LabBox {
             colonies: 1,
             lamp_spacing: 64,
             seed: 1,
+            extra_walls: Vec::new(),
         }
     }
 }
@@ -302,12 +316,58 @@ impl LabBox {
     /// to avoid them reads this rather than recomputing it — the guide's
     /// §2c scene error is what a second copy of this arithmetic costs.
     pub fn partition_columns(&self) -> Vec<i32> {
-        if self.compartments <= 1 {
-            return Vec::new();
+        let mut out: Vec<i32> = if self.compartments <= 1 {
+            Vec::new()
+        } else {
+            (1..self.compartments).map(|k| (self.width * k as i32) / self.compartments as i32).collect()
+        };
+        // Hand-placed walls join the computed ones here, so everything that
+        // avoids a wall — `compartment_spans`, and through it every founder,
+        // colony and lamp — avoids these too without knowing they exist.
+        out.extend(self.extra_walls.iter().copied().filter(|x| *x > SHELL && *x < self.width - SHELL));
+        out.sort_unstable();
+        out.dedup();
+        out
+    }
+
+    /// Paint one wall column into a world that is already running.
+    ///
+    /// **The verb has to deliver now, not on rebuild.** `CLAUDE.md`'s second
+    /// law: a control whose effect you can only see by restarting is one the
+    /// player is a spectator of. So the column goes into the live world *and*
+    /// into the spec, and the two agree.
+    ///
+    /// It cuts whatever is in the way. That is the point rather than a
+    /// side-effect — a wall through a stand is a population split in half,
+    /// which is the thing isolation is for.
+    pub fn paint_wall(&self, world: &mut World, x: i32) {
+        let (ceiling, bottom) = (self.ceiling_y(), self.bed_bottom());
+        for y in ceiling..bottom {
+            world.set(x, y, Cell::new(material::STONE, 0));
         }
-        (1..self.compartments)
-            .map(|k| (self.width * k as i32) / self.compartments as i32)
-            .collect()
+    }
+
+    /// `bed_bottom` for tests, which need the span the wall occupies.
+    #[cfg(test)]
+    pub fn bed_bottom_for_test(&self) -> i32 {
+        self.bed_bottom()
+    }
+
+    /// Take a wall column back out of a running world.
+    ///
+    /// Beside `paint_wall` rather than in `Lab`, so the two ends of the same
+    /// geometry stay in one file: a remove that used a different span than
+    /// the paint would leave a stub of stone at the top or the bottom.
+    pub fn clear_wall(&self, world: &mut World, x: i32) {
+        let (ceiling, bottom) = (self.ceiling_y(), self.bed_bottom());
+        for y in ceiling..bottom {
+            world.set(x, y, Cell::EMPTY);
+        }
+    }
+
+    /// The nearest hand-placed wall to `x`, within `reach` columns.
+    pub fn wall_near(&self, x: i32, reach: i32) -> Option<i32> {
+        self.extra_walls.iter().copied().filter(|w| (w - x).abs() <= reach).min_by_key(|w| (w - x).abs())
     }
 
     /// The open interior of each compartment, as `[lo, hi)` column ranges
