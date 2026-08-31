@@ -216,9 +216,10 @@ fn main() {
         placed.planted, placed.asked, placed.ants, spec.colonies, spec.seed
     );
     println!(
-        "  ant: start_energy {:.0} hunger_fraction {:.2} body_energy {:.0} x {} cells | bar {bar:.0} (buds at {:.0}) | gut {:+.2} (founder reads {})",
+        "  ant: start_energy {:.0} crop {:.0} digest {:.2}/tick body_energy {:.0} x {} cells | bar {bar:.0} (buds at {:.0}) | gut {:+.2} (founder reads {})",
         def.start_energy,
-        def.hunger_fraction,
+        def.crop_capacity,
+        def.digest_rate,
         def.body_energy,
         def.body.len(),
         reproduce_at(&def).unwrap_or(f32::NAN),
@@ -230,11 +231,19 @@ fn main() {
         if let Some(id) = world.materials.id_of(name) {
             let cell = Cell::new(id, 0);
             let y = diet_yield(&world, cell, bias);
+            // **A rate and a time, not a ceiling.** The bank has no roof
+            // since the crop landed -- an ant digests what it carries at
+            // `digest_rate` and what limits it is how long it can keep
+            // feeding. So the readable question is how many ticks of this
+            // food a child costs, and whether the animal out-eats its own
+            // upkeep at all.
+            let face = food_value(&world, cell);
+            let quality = if face > 0.0 { y / face } else { 0.0 };
+            let upkeep = def.idle_cost_per_cell * def.body.len() as f32;
+            let net = def.digest_rate * quality - upkeep;
             println!(
-                "    {name:<9} face {:>6.0}  to this gut {y:>6.0}  -> bank ceiling {:>6.0} against a bar of {bar:.0}  {}",
-                food_value(&world, cell),
-                def.hunger_fraction * def.start_energy + y,
-                if def.hunger_fraction * def.start_energy + y >= bar + 1.0 { "PAYS FOR A CHILD" } else { "short" },
+                "    {name:<9} face {face:>6.0}  to this gut {y:>6.0}  -> net {net:>+7.3}/tick  {}",
+                if net > 0.0 { format!("a child in {:.0} ticks of feeding", bar / net) } else { "never: upkeep outruns it".to_string() },
             );
         }
     }
