@@ -1336,6 +1336,77 @@ when he counted all four. §Z is cards-only. Reports/open-bugs-handoff.md §Z ha
             );
             println!("  seeds standing: {surface_seeds} above the surface, {buried_seeds} buried (buried can never germinate)");
 
+            // **Can a root actually smell water from where it is standing?**
+            //
+            // The readout that would have caught `Reports/evolution-lab-gui-
+            // physics-2026-08-30.md` §6a years earlier, and the one that
+            // says whether `MIZ_THRESHOLD` is set anywhere near the real
+            // distribution. `organism::moisture_pull` returns the soil-water
+            // gradient a `RootTip` steers on; below `MIZ_THRESHOLD` the tip
+            // ignores it and grows straight down on gravitropism alone.
+            //
+            // **`steering` is the number, not `sensed`.** A gradient that
+            // exists but never clears the threshold is a channel with a
+            // reader and no effect -- `CLAUDE.md`'s "a channel needs a
+            // writer and a reader" seen from the far side. Reading 0%
+            // steering means hydrotropism is off however healthy the
+            // gradients look, and reading 100% means gravitropism has been
+            // switched off by accident, which is the failure in the other
+            // direction: roots that chase damp sideways and never go down.
+            //
+            // Sampled at live `RootTip`s only, because those are the cells
+            // the rule is evaluated at -- `CLAUDE.md`'s "which object does
+            // this rule evaluate". A census over all root tissue would
+            // average in mature cells that will never grow again.
+            {
+                let miz = pixel_physics::sim::plant::MIZ_THRESHOLD;
+                let mut mags: Vec<f32> = Vec::new();
+                let mut steering = 0usize;
+                let mut downward = 0usize;
+                for y in 0..height {
+                    for x in 0..width {
+                        let c = w.get(x, y);
+                        if c.organism_id() == 0 || organism::cell_type(c.aux()) != Some(organism::CellType::RootTip) {
+                            continue;
+                        }
+                        match organism::moisture_pull(&w, x as f32, y as f32) {
+                            Some((dir, mag)) => {
+                                mags.push(mag);
+                                if mag >= miz {
+                                    steering += 1;
+                                    if dir.1 > 0.0 {
+                                        downward += 1;
+                                    }
+                                }
+                            }
+                            None => mags.push(0.0),
+                        }
+                    }
+                }
+                if mags.is_empty() {
+                    println!("
+hydrotropism: no live root tips to sample");
+                } else {
+                    mags.sort_by(|a, b| a.partial_cmp(b).expect("no NaN"));
+                    let n = mags.len();
+                    println!("
+hydrotropism at {n} live root tips (soil-water gradient, 0..1 scale):");
+                    println!(
+                        "  gradient magnitude  median {:.4}  p75 {:.4}  p90 {:.4}  max {:.4}",
+                        mags[n / 2],
+                        mags[n * 3 / 4],
+                        mags[n * 9 / 10],
+                        mags[n - 1]
+                    );
+                    println!(
+                        "  clearing MIZ_THRESHOLD ({miz}): {} of {n} tips ({}%) -- the rest grow straight down",
+                        steering,
+                        steering * 100 / n
+                    );
+                    println!("  of those, {} ({}%) are being pulled downward", downward, downward * 100 / steering.max(1));
+                }
+            }
+
             // **The water balance, per organism, as a standing state.**
             // `CLAUDE.md`: when the complaint is about something visible
             // and persistent, measure the standing state rather than the

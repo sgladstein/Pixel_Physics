@@ -512,7 +512,6 @@ fn absorb_water(world: &mut World, x: i32, y: i32, rate: f32) {
                                 water += taken as f32 / SOIL_UPTAKE_PER_TICK as f32 * rate;
                                 let left = fill - taken;
                                 world.set(nx, ny, if left == 0 { Cell::EMPTY } else { n.with_aux(left) });
-                                world.deplete_moisture(nx, ny, 1, ROOT_MOISTURE_DEPLETION);
                             }
                         }
                     }
@@ -549,12 +548,48 @@ fn absorb_water(world: &mut World, x: i32, y: i32, rate: f32) {
                                 water += drawn;
                                 // Take the water actually drunk out of
                                 // the soil, so the loop closes: a root
-                                // dries the ground around itself, and
-                                // the moisture field notices.
+                                // dries the ground around itself, and the
+                                // next root to reach for it finds less.
+                                //
+                                // **This per-cell write is the whole of the
+                                // drink, and it used to be paired with a
+                                // `deplete_moisture` that was the owner's
+                                // dry band** (`Reports/evolution-lab-gui-
+                                // physics-2026-08-30.md` §6a): *"plants seem
+                                // to suck water from the soil in a narrow
+                                // band near the top of the soil ever
+                                // extending out from the left side of the
+                                // plant... not down at all and not to the
+                                // right."*
+                                //
+                                // That call painted `radius / FIELD_SCALE`
+                                // -- one whole block of **air humidity** --
+                                // to represent a root drinking **soil**. Two
+                                // different quantities, and the wrong one is
+                                // both coarse and mobile: it could not spread
+                                // *down* because `field::step_diffusion`
+                                // skips blocked blocks, and it spread
+                                // *sideways* because field moisture is
+                                // advected by wind (`field.rs`'s advection
+                                // pass), which is why the band always ran off
+                                // to one side. It also mostly did not
+                                // persist where it was true --
+                                // `apply_moisture_sources` recomputes
+                                // humidity from the CA grid every frame and
+                                // forces it straight back up wherever a
+                                // source remains -- so what survived was
+                                // precisely the part with no water under it:
+                                // a dry stripe across the top of the bed,
+                                // drifting, blocking germination.
+                                //
+                                // Nothing is lost by dropping it. The soil
+                                // write below *is* the record of the drink,
+                                // and air humidity over drying ground falls
+                                // out of `apply_moisture_sources` on its own,
+                                // at the resolution the field actually has.
                                 let taken = (drawn / rate.max(f32::EPSILON) * SOIL_UPTAKE_PER_TICK as f32) as u16;
                                 let left = update::soil_moisture(n).saturating_sub(taken);
                                 world.set(nx, ny, n.with_aux(left));
-                                world.deplete_moisture(nx, ny, 1, ROOT_MOISTURE_DEPLETION);
                             }
                         }
                     }
@@ -1895,13 +1930,27 @@ const ORGANISM_STALE_LIMIT: u8 = 4;
 /// `roots_steer_toward_off_axis_water_via_hydrotropism` is the actual
 /// authority on whether it's set right, same as every other threshold on
 /// this channel.
-const MIZ_THRESHOLD: f32 = 0.05;
+///
+/// **Public so a harness reads the real value rather than re-deriving it**
+/// — `examples/plant_probe.rs` reports what fraction of live root tips
+/// clear it, and a probe carrying its own copy of a threshold is how the
+/// two silently drift apart.
+pub const MIZ_THRESHOLD: f32 = 0.05;
 
-/// Local moisture drained per drink by `Behavior::Absorb` — architecture
-/// §5g, the write that turns the moisture channel from read-only into a
-/// loop. Not tied numerically to `Absorb`'s own `rate` (different units:
-/// resource vs. this channel's own 0..4-ish scale) — a separate, freely
-/// tunable amount.
+/// Air humidity **vented per transpiring root cell**, on the field
+/// channel's own 0..4-ish scale. Not tied numerically to any behaviour's
+/// `rate` (different units: resource against this channel) — a separate,
+/// freely tunable amount.
+///
+/// **It used to be a drain as well as a vent, and the drain was a bug**
+/// (`Reports/evolution-lab-gui-physics-2026-08-30.md` §6a). `Behavior::
+/// Absorb` subtracted this from the field every time a root drank, which
+/// painted a block of *air humidity* to represent water leaving *soil* —
+/// see `absorb_water`'s own note for what the owner saw on screen. Only
+/// the vent survives, and the vent is the one that was always right:
+/// `transpire` moves water out of the ground and into the air, so the air
+/// is the correct channel and up is the correct direction. A stand of
+/// plants humidifies the air above it.
 const ROOT_MOISTURE_DEPLETION: f32 = 1.0;
 
 /// How much held water a root takes from one soil cell in a tick at full
@@ -1982,7 +2031,31 @@ const GROW_CANOPY_DEPOSIT: f32 = 1.5;
 /// over_dry` is the actual authority on whether it's set right.
 const DAMP_MOISTURE_THRESHOLD: f32 = 0.3;
 
-fn is_damp(world: &World, x: i32, y: i32) -> bool {
+/// Whether the **air** at `(x, y)` is humid — `Behavior::Divide`'s
+/// damp/dry split, which today is moss and only moss.
+///
+/// **This one is air on purpose, and it is the exception that proves
+/// §6a's rule.** `Reports/evolution-lab-gui-physics-2026-08-30.md` §6a
+/// names four sites that confuse air humidity with soil water, and lists
+/// this among them as a germination gate. It is neither: `Behavior::
+/// Germinate` reads `update::plant_available_fraction` off the cell a seed
+/// is resting on and has done for a long time, and this function's only
+/// caller is `Divide`, whose only user is `moss.ron`.
+///
+/// Moss grows on **stone**, whose `water_capacity` is 0 — it holds no
+/// per-cell water at all, so there is no soil reading to prefer and air
+/// humidity is the only quantity that exists. That is also the real
+/// mechanic: `moss_spreads_over_damp_stone_and_not_over_dry` seeps water
+/// into a sealed pocket *under* the rock and lets the field carry the damp
+/// up through it, which is a better story for damp stone than a puddle
+/// sitting on one. Converting this to soil water would make the damp arm
+/// permanently false and moss would spread at `dry_chance` (0.002)
+/// everywhere.
+///
+/// Renamed from `is_damp` for exactly the reason the overlays were
+/// (`render.rs`'s `AIR HUMIDITY` against `SOIL MOISTURE`): the bare word
+/// "damp" is what let a reader assume the ground.
+fn is_humid_air(world: &World, x: i32, y: i32) -> bool {
     world.field_at(x, y).moisture > DAMP_MOISTURE_THRESHOLD
 }
 
@@ -2241,7 +2314,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 }
                 found_candidate = true;
                 let (tx, ty) = candidates[rng.below(candidates.len() as u32) as usize];
-                let mut chance = if is_damp(world, tx, ty) { damp_chance } else { dry_chance };
+                let mut chance = if is_humid_air(world, tx, ty) { damp_chance } else { dry_chance };
                 if shade_sensitive {
                     chance *= shade_factor(world, tx, ty);
                 }
@@ -12902,25 +12975,174 @@ where the soil arm's exchange makes that {expected:.0} (before the fix: 1,000 of
         // session's other tree.ron findings), not a reason to weaken what
         // this test is actually supposed to verify -- whether hydrotropism
         // steering itself points the right way.
+        //
+        // **The pocket is sealed, and it has to be.** This scene used to
+        // leave the water open to the chamber and then run 200 frames "to
+        // let the moisture field diffuse" -- fine for a read of diffused
+        // *humidity*, which is what it was written against, and wrong for
+        // a read of the water itself: water falls. By the time the field
+        // had settled, so had the pond, into the bottom of the chamber
+        // *directly beneath the probe*, and a per-cell read correctly
+        // answers `(0.0, 1.0)` -- down -- because that is genuinely where
+        // the water went. The old channel could not tell, since it was
+        // reading a chamber-wide average whose centroid still sat right of
+        // a probe placed left of centre.
+        //
+        // Giving the pocket its own floor and inner wall keeps the water
+        // where the test says it is, which is what the test always meant:
+        // water **off to one side**, at the probe's own height, so a
+        // horizontal pull can only be hydrotropism.
         let mut w = test_world();
         for x in 47..63 {
-            w.set(x, 35, Cell::new(material::STONE, 0)); // floor
+            w.set(x, 35, Cell::new(material::STONE, 0)); // chamber floor
         }
         for y in 21..35 {
-            w.set(47, y, Cell::new(material::STONE, 0)); // walls
+            w.set(47, y, Cell::new(material::STONE, 0)); // chamber walls
             w.set(62, y, Cell::new(material::STONE, 0));
         }
+        for x in 51..62 {
+            w.set(x, 32, Cell::new(material::STONE, 0)); // the pocket's own floor
+        }
+        for y in 22..32 {
+            w.set(51, y, Cell::new(material::STONE, 0)); // ...and its inner wall
+        }
         for x in 52..60 {
-            for y in 22..32 {
+            for y in 23..32 {
                 w.set(x, y, Cell::new(material::WATER, 0));
             }
         }
-        run_with_fields(&mut w, 200); // let the moisture field actually diffuse into the open interior
+        run_with_fields(&mut w, 200); // and it still holds after the world has run
 
-        let pull = organism::moisture_pull(&w, 50.0, 25.0);
+        let pull = organism::moisture_pull(&w, 50.0, 27.0);
         let (dir, strength) = pull.expect("a real off-axis water pocket should produce a nonzero moisture gradient");
         assert!(strength >= MIZ_THRESHOLD, "moisture gradient too weak to trigger hydrotropism: {strength}");
         assert!(dir.0 > 0.0, "the gradient should point right, toward the off-axis water pocket, got {dir:?}");
+    }
+
+    /// **The guard the test above could not be**, and the one whose
+    /// absence let `Reports/evolution-lab-gui-physics-2026-08-30.md` §6a
+    /// stand until the owner found it by eye from a screenshot.
+    ///
+    /// Its sibling probes an *open chamber*: air with a pond off to one
+    /// side. The coarse field diffuses freely through open air, so that
+    /// scene passed for the whole time hydrotropism was reading the wrong
+    /// quantity — it exercised the one place the old channel worked.
+    /// Roots do not live there. **Below the surface `field::step_diffusion`
+    /// skips blocked blocks outright**, so the humidity channel carries no
+    /// gradient through solid ground at all, and a root tip twenty rows
+    /// down asking "which way is wetter" got nothing back. That is why
+    /// roots stopped at a depth no amount of extra bed could move.
+    ///
+    /// So this scene is *entirely buried*: no air, no standing water, no
+    /// block boundary to lean on — just soil that is dry on one side and
+    /// wet on the other, which is the only thing a real root ever has to
+    /// go on. It fails outright against a `moisture_pull` that reads
+    /// `field_at_bilinear(...).moisture` (verified by putting that read
+    /// back: `None`, no gradient at all), and that is the point of it.
+    #[test]
+    fn roots_steer_toward_buried_water_through_solid_ground() {
+        let mut w = test_world();
+        let soil = w.materials.id_of("soil").expect("soil");
+        // Dry on the left, wet on the right, one continuous slab. Both
+        // sides are *soil* -- the difference is only what is in `aux`,
+        // which is exactly the difference a root has to be able to read.
+        for y in 40..60 {
+            for x in 20..80 {
+                let held = if x < 60 { material::SOIL_WILTING_POINT } else { material::SOIL_SATURATED };
+                w.set(x, y, Cell::new(soil, 0).with_aux(held));
+            }
+        }
+
+        // Probed in the middle of the slab, deliberately away from every
+        // edge: 10 rows down with 10 more below, and the sensor's own
+        // reach (`MOISTURE_SENSOR_OFFSET`) landing on soil at both ends.
+        let (px, py) = (57.0, 50.0);
+        let (dir, strength) = organism::moisture_pull(&w, px, py).expect("buried soil with a wet half must produce a gradient");
+        assert!(strength >= MIZ_THRESHOLD, "buried gradient too weak to steer a root: {strength}");
+        assert!(dir.0 > 0.0, "the gradient should point right, toward the wet half of the slab, got {dir:?}");
+        // Horizontally, not vertically: the slab is uniform in y, so any
+        // vertical component here would mean the read is picking up
+        // something other than the water it is being asked about.
+        assert!(dir.0.abs() > dir.1.abs(), "the pull should be dominated by the wet half, got {dir:?}");
+    }
+
+    /// **A root drinking soil must not dry the *air*** — the write that
+    /// was the owner's dry band (`Reports/evolution-lab-gui-physics-2026-
+    /// 08-30.md` §6a): *"plants seem to suck water from the soil in a
+    /// narrow band near the top of the soil ever extending out from the
+    /// left side of the plant... the dry area will spread far to the left
+    /// of the plant but not down at all and not to the right."*
+    ///
+    /// `absorb_water` used to call `World::deplete_moisture` beside its
+    /// per-cell write, painting a whole `FIELD_SCALE` block of humidity to
+    /// represent one soil cell being drunk from. Air humidity is advected
+    /// by wind and cannot diffuse into blocked ground, which is exactly
+    /// why the artifact drifted sideways and never downward.
+    ///
+    /// **Asserted against `absorb_water` directly rather than against a
+    /// running world, and that is the whole design of this test.** The
+    /// first version ran the sim and counted columns whose humidity fell,
+    /// which measured the wrong thing: soil at field capacity is itself a
+    /// moisture *source* (`field::apply_moisture_sources` grades damp
+    /// soil), the field is still equilibrating over the first few hundred
+    /// frames, and `transpire` vents humidity upward on purpose. It
+    /// reported 28 dried columns against a fix that is correct —
+    /// `CLAUDE.md`'s "ask what your number counts when nothing is wrong".
+    ///
+    /// The claim that is actually wanted is narrow, exact and has no
+    /// confound in it: **a drink moves soil water and does not touch the
+    /// field at all.** Both halves are asserted, because either alone
+    /// passes for the wrong reason — a drink that did nothing would
+    /// satisfy the field clause, and the soil clause is what proves the
+    /// root really drank.
+    #[test]
+    fn a_root_drinking_soil_does_not_touch_air_humidity() {
+        const RATE: f32 = 1.5;
+        let mut w = test_world();
+        let soil = w.materials.id_of("soil").expect("soil");
+        for y in 40..60 {
+            for x in 20..80 {
+                w.set(x, y, Cell::new(soil, 0).with_aux(material::SOIL_FIELD_CAPACITY));
+            }
+        }
+        // Planted and then hand-posed, the same idiom (and for the same
+        // reason) as `a_root_leaves_the_water_it_did_not_drink`: what is
+        // under test is one function, and a grown plant would bring
+        // upkeep, transpiration and growth in with it.
+        w.plant_tree(50, 20);
+        let id = w.get(50, 20).organism_id();
+        assert_ne!(id, 0, "test setup: the planted seed should own its cell");
+        w.organism_mut(id).expect("just planted").root_cells = 200;
+        let rootwood = w.materials.id_of("rootwood").expect("rootwood is compiled in");
+        place(&mut w, (50, 45), rootwood, id, CellType::MatureBody, (0.0, 0.0));
+
+        // **Humidity has to be put there first, and finding that out is
+        // the reason this test can be trusted.** The first version
+        // snapshotted an unstepped field and drank against it, and it
+        // passed with the `deplete_moisture` call *put back* -- because
+        // `FieldCell::AMBIENT` reads 0.0 and `deplete_moisture` floors at
+        // zero, so the bug had nothing to subtract from. A guard that
+        // cannot go red for the fault it is named for is blind, not weak
+        // (`CLAUDE.md`), and it was caught only by putting the fault back.
+        //
+        // So: give the block a real reading, assert it took, and only then
+        // ask whether drinking moves it. That assert is the test's own
+        // positive control and must not be deleted as redundant.
+        w.add_moisture(50, 45, 2 * crate::sim::field::FIELD_SCALE, 1.0);
+        assert!(w.field_at(50, 45).moisture > 0.5, "test setup: the block around the root must carry humidity for this test to be able to fail");
+
+        // Now drink, with nothing else running, so only `absorb_water` can
+        // move either quantity.
+        let field_before: Vec<f32> = (20..80).map(|x| w.field_at(x, 45).moisture).collect();
+        let soil_before: u32 = (20..80).map(|x| update::soil_moisture(w.get(x, 45)) as u32).sum();
+        for _ in 0..40 {
+            absorb_water(&mut w, 50, 45, RATE);
+        }
+        let field_after: Vec<f32> = (20..80).map(|x| w.field_at(x, 45).moisture).collect();
+        let soil_after: u32 = (20..80).map(|x| update::soil_moisture(w.get(x, 45)) as u32).sum();
+
+        assert!(soil_after < soil_before, "the root never drank, so this test proves nothing: soil water {soil_before} -> {soil_after}");
+        assert_eq!(field_before, field_after, "drinking soil moved air humidity -- the dry band is back");
     }
 
     #[test]

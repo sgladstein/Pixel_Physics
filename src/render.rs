@@ -1029,7 +1029,7 @@ impl FieldOverlay {
             FieldOverlay::Pressure => "PRESSURE",
             FieldOverlay::Temperature => "TEMPERATURE",
             FieldOverlay::Light => "LIGHT",
-            FieldOverlay::Moisture => "MOISTURE",
+            FieldOverlay::Moisture => "AIR HUMIDITY",
             FieldOverlay::PheromoneA => "PHEROMONE A",
             FieldOverlay::PheromoneB => "PHEROMONE B",
         }
