@@ -104,41 +104,26 @@ fn row_y(row: usize) -> i32 {
 
 // ------------------------------------------------------------------ tabs
 
-/// **Where the rack's numbered tabs go — and it is a switch rather than a
-/// decision, deliberately.**
-///
-/// `CLAUDE.md`: *for "does this look right", ship a runtime selector rather
-/// than choosing.* Five grain modes behind one key once settled in minutes a
-/// question that no amount of argument or still images had, and this is the
-/// same shape of question: three placements, each with a different visible
-/// cost, and no way to rank them from a description.
-///
-/// **The bar cannot simply grow a row.** Measured with the bar's own
-/// `PIXEL_PHYSICS_BAR_TRACE` on the shipped layout: row 0 has **1 pixel**
-/// spare and row 1 has **0**, at the tightest of the three spacings — the bar
-/// is already running compressed to fit what is on it. So a tab is a strip
-/// beside the bar, never a cell in it, and the only question is which edge it
-/// eats.
-///
-/// Selected by `PIXEL_PHYSICS_LAB_TABS`. Read once per process: this is a
-/// look, not a setting, and re-reading it per frame would be a syscall in the
-/// draw path.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum TabStyle {
-    /// A strip along the top edge of the bar. Reads as part of the bar, which
-    /// is what "tabs on the bar" means from the player's side, and eats the
-    /// bed's stone floor — which `scene.rs` deliberately sits flush with the
-    /// bar, so this is the edge with least in it.
-    AboveBar,
-    /// A strip along the top edge of the screen. Costs the same pixels and
-    /// eats the ceiling shell and the grow-light fixtures instead — which is
-    /// where you look to see what is lit.
-    TopOfScreen,
-    /// No tabs. `SHIFT+1..5` switches and `F4` opens the rack. Zero pixels and
-    /// zero paint, at the price that a stopped box does not say which chamber
-    /// it is.
-    Off,
-}
+// **The rack's tab strip sits against the top edge of the bar**, and the
+// reasoning that put it there is worth keeping because it is measured.
+//
+// **The bar cannot simply take another cell.** Measured with the bar's own
+// `PIXEL_PHYSICS_BAR_TRACE` on the shipped layout: row 0 has **1 pixel**
+// spare and row 1 has **0**, at the tightest of the three spacings `layout`
+// tries — the bar is already running compressed to fit what is on it, so
+// five tabs at ~34 px do not go in it at any spacing. A tab is therefore a
+// strip *beside* the bar, and the only question was which edge it eats.
+//
+// **Three placements were built and rendered rather than argued** —
+// `CLAUDE.md`: *for "does this look right", ship a runtime selector rather
+// than choosing* — and the owner chose this one by eye, 2026-08-31. The
+// other two are in `Reports/dead-ends.md` with the defect that sank the
+// nearest rival: a strip at the screen's top edge covers the ceiling and the
+// grow-light fixtures, which is where you look to see what is lit, and it
+// paints over the first line of the `PAUSED` readout.
+//
+// This edge is the one with least in it: the bed's stone floor already sits
+// flush with the bar by `scene.rs`'s own arithmetic.
 
 /// Height of the tab strip, including its rule.
 ///
@@ -149,45 +134,19 @@ pub const TAB_H: i32 = hud::GLYPH_HEIGHT + 5;
 /// How many tabs the strip shows before it stops.
 ///
 /// The owner's call: *"numbered tabs on the bar (for your top 5)"*, with the
-/// whole rack behind `F4`. A strip that grew with the rack would be the
-/// control that breaks at the fiftieth chamber, which is exactly the size a
-/// batch produces.
+/// whole rack behind its own page. A strip that grew with the rack would be
+/// the control that breaks at the fiftieth chamber, which is exactly the size
+/// a batch produces.
 pub const TABS_SHOWN: usize = 5;
-
-pub fn tab_style() -> TabStyle {
-    static STYLE: std::sync::OnceLock<TabStyle> = std::sync::OnceLock::new();
-    *STYLE.get_or_init(|| match std::env::var("PIXEL_PHYSICS_LAB_TABS").as_deref() {
-        Ok("top") => TabStyle::TopOfScreen,
-        Ok("off") | Ok("none") => TabStyle::Off,
-        _ => TabStyle::AboveBar,
-    })
-}
 
 /// The strip's top row, or `None` when there is nothing to draw.
 ///
 /// **A rack of one draws no strip at all.** A facility with a single box has
 /// no switching to offer, so the tabs would be chrome that costs paint and
-/// says nothing — and the lab opens on exactly that.
+/// says nothing — and the lab opens on exactly that, so this is the common
+/// case rather than an edge one.
 fn tab_strip_y(chambers: usize) -> Option<i32> {
-    tab_strip_y_for(tab_style(), chambers)
-}
-
-/// The geometry, with the style passed in.
-///
-/// Split from `tab_strip_y` so it can be tested at every style: `tab_style`
-/// caches in a `OnceLock`, so a test *process* is stuck with whichever one it
-/// read first — the same trap `plant.rs`'s `fate_lookup` records, and a guard
-/// that silently only ever exercised one arm is exactly the blind guard
-/// `CLAUDE.md` is about.
-fn tab_strip_y_for(style: TabStyle, chambers: usize) -> Option<i32> {
-    if chambers < 2 {
-        return None;
-    }
-    match style {
-        TabStyle::AboveBar => Some(bar_top() - TAB_H),
-        TabStyle::TopOfScreen => Some(0),
-        TabStyle::Off => None,
-    }
+    (chambers >= 2).then(|| bar_top() - TAB_H)
 }
 
 /// Lay the tabs out, left to right, and say where each one is.
@@ -2919,7 +2878,7 @@ impl Ui {
 
         // **The rack's tabs.** Laid out here rather than in `layout` because
         // the strip is not part of the bar — the bar has 0-1 pixels spare and
-        // cannot take another cell at any spacing (`TabStyle`). Drawn after
+        // cannot take another cell at any spacing (see `tab_strip_y`). Drawn after
         // the bar so that `AboveBar` sits against its top edge rather than
         // under it.
         self.tabs = match tab_strip_y(state.chambers.len()) {
@@ -2928,9 +2887,10 @@ impl Ui {
         };
         if let Some(y) = tab_strip_y(state.chambers.len()) {
             fill(frame, Rect { x: 0, y, w: W as i32, h: TAB_H }, BAR_BG);
-            let rule = if tab_style() == TabStyle::TopOfScreen { y + TAB_H - 1 } else { y };
+            // The rule along the strip's own top, so the strip and the bar
+            // read as one panel rather than two stacked ones.
             for x in 0..W as i32 {
-                render::put(frame, W, H, x, rule, BAR_EDGE);
+                render::put(frame, W, H, x, y, BAR_EDGE);
             }
             for wid in &self.tabs.widgets {
                 let hover = self.cursor.is_some_and(|(x, y)| wid.rect.contains(x, y));
@@ -3091,12 +3051,10 @@ mod tests {
     /// like a strip that is correctly absent.
     #[test]
     fn a_rack_of_one_draws_no_tabs_and_a_rack_of_two_does() {
-        for style in [TabStyle::AboveBar, TabStyle::TopOfScreen] {
-            assert_eq!(tab_strip_y_for(style, 0), None, "{style:?}: an empty rack");
-            assert_eq!(tab_strip_y_for(style, 1), None, "{style:?}: the lab's own opening");
-            assert!(tab_strip_y_for(style, 2).is_some(), "{style:?}: two chambers must show a strip");
-        }
-        assert_eq!(tab_strip_y_for(TabStyle::Off, 9), None, "OFF draws no strip at any rack size");
+        assert_eq!(tab_strip_y(0), None, "an empty rack");
+        assert_eq!(tab_strip_y(1), None, "the lab's own opening");
+        assert!(tab_strip_y(2).is_some(), "two chambers must show a strip");
+        assert!(tab_strip_y(50).is_some(), "and so must fifty, which is what a batch makes");
     }
 
     /// **The strip never overlaps the bar, and never leaves the screen.**
@@ -3107,11 +3065,9 @@ mod tests {
     /// finds.
     #[test]
     fn the_tab_strip_clears_the_bar_and_the_screen() {
-        let above = tab_strip_y_for(TabStyle::AboveBar, 5).expect("five chambers");
-        assert!(above + TAB_H <= bar_top(), "the strip ran into the bar: {above} + {TAB_H} > {}", bar_top());
-        assert!(above >= 0, "the strip ran off the top of the screen");
-        let top = tab_strip_y_for(TabStyle::TopOfScreen, 5).expect("five chambers");
-        assert!(top >= 0 && top + TAB_H < bar_top(), "the top strip is off-screen or in the bar");
+        let y = tab_strip_y(5).expect("five chambers");
+        assert!(y + TAB_H <= bar_top(), "the strip ran into the bar: {y} + {TAB_H} > {}", bar_top());
+        assert!(y >= 0, "the strip ran off the top of the screen");
     }
 
     /// **A tab is clickable where it is drawn.**
@@ -3124,7 +3080,7 @@ mod tests {
     #[test]
     fn every_tab_is_clickable_where_it_is_drawn() {
         let chambers = rack(5);
-        let y = tab_strip_y_for(TabStyle::AboveBar, chambers.len()).expect("a rack of five");
+        let y = tab_strip_y(chambers.len()).expect("a rack of five");
         let bar = lay_out_tabs(&chambers, y);
         assert_eq!(bar.widgets.len(), 5, "five chambers, five tabs");
         for (i, wid) in bar.widgets.iter().enumerate() {
@@ -3144,7 +3100,7 @@ mod tests {
     #[test]
     fn a_rack_past_five_shows_what_it_is_not_showing() {
         let chambers = rack(12);
-        let y = tab_strip_y_for(TabStyle::AboveBar, chambers.len()).expect("a rack of twelve");
+        let y = tab_strip_y(chambers.len()).expect("a rack of twelve");
         let bar = lay_out_tabs(&chambers, y);
         assert_eq!(bar.widgets.len(), TABS_SHOWN + 1, "five tabs and one overflow marker");
         let overflow = bar.widgets.last().expect("the marker");

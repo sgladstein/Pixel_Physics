@@ -44,7 +44,8 @@ fn main() {
             // chrome and is not drawn below two chambers, so a sheet taken at
             // the default 1 photographs a lab that has no tabs — which is a
             // picture of the wrong thing when the tabs are the question.
-            // Pair with `PIXEL_PHYSICS_LAB_TABS=abovebar|top|off`.
+            // The strip's placement was chosen off this harness's own
+            // output (owner, 2026-08-31).
             Some(("chambers", v)) => chambers = v.parse().expect("chambers=N"),
             _ => eprintln!("ignoring unknown argument {arg:?}"),
         }
