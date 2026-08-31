@@ -139,14 +139,22 @@ pub const TAB_H: i32 = hud::GLYPH_HEIGHT + 5;
 /// a batch produces.
 pub const TABS_SHOWN: usize = 5;
 
-/// The strip's top row, or `None` when there is nothing to draw.
+/// The strip's top row. Always drawn.
 ///
-/// **A rack of one draws no strip at all.** A facility with a single box has
-/// no switching to offer, so the tabs would be chrome that costs paint and
-/// says nothing — and the lab opens on exactly that, so this is the common
-/// case rather than an edge one.
-fn tab_strip_y(chambers: usize) -> Option<i32> {
-    (chambers >= 2).then(|| bar_top() - TAB_H)
+/// **It was hidden below two chambers and that was a circular bug**, reported
+/// by the owner as *"how do i access the rack, I don't see it in the menu"*.
+/// The reasoning was that a facility with one box has no switching to offer —
+/// true, and irrelevant, because the strip does not only *switch* between
+/// chambers, it carries `ALL`, which is the only way to reach the page where
+/// chambers are **made**. So the way to get a second chamber was inside the
+/// page you could only open once you already had two, and the lab opens on
+/// one.
+///
+/// `F4` was the sole remaining route and was not on the key list either. Both
+/// halves are fixed; this is the half that matters, because a control nobody
+/// can find is a control that does not exist.
+fn tab_strip_y(_chambers: usize) -> i32 {
+    bar_top() - TAB_H
 }
 
 /// Lay the tabs out, left to right, and say where each one is.
@@ -405,6 +413,9 @@ pub enum Action {
     ChamberAdd,
     /// Close the highlighted chamber. Refused for the one on screen.
     ChamberClose(usize),
+    /// Re-run an on-record row back into a world. See
+    /// `Lab::rebuild_record`.
+    ChamberRebuild(usize),
     /// Run a rack of copies of the box on screen, headless, in the
     /// background.
     BatchRun,
@@ -2267,7 +2278,7 @@ const BATCH_VALUE_W: i32 = 34;
 /// covers it, and `hud::draw_text` renders a character outside its 5x7 set as
 /// a **silent blank**. The column header read `  SEED` in its first contact
 /// sheet because it began `  # SEED` and `#` has no glyph.
-const RACK_LITERALS: [&str; 12] = [
+const RACK_LITERALS: [&str; 13] = [
     "    SEED",
     "  FRAME",
     "PLT",
@@ -2280,6 +2291,7 @@ const RACK_LITERALS: [&str; 12] = [
     "-- KEPT AS NUMBERS ONLY, THE WORLD WAS NOT HELD",
     "HERE",
     "RECORD",
+    "REBUILDING",
 ];
 /// The picture is the world at a quarter scale in each axis.
 const RACK_THUMB_SHRINK: u32 = 4;
@@ -2539,6 +2551,8 @@ impl Ui {
             }
             if ch.active {
                 text(frame, right - hud::text_width("HERE"), y + 2, RACK_LITERALS[10], SUB_ON);
+            } else if ch.rebuilding {
+                text(frame, right - hud::text_width(RACK_LITERALS[12]), y + 2, RACK_LITERALS[12], SUB_ON);
             } else if ch.on_record {
                 text(frame, right - hud::text_width(RACK_LITERALS[11]), y + 2, RACK_LITERALS[11], FAINT);
             }
@@ -2649,11 +2663,16 @@ impl Ui {
             // there is nothing to walk into. Its verbs are drawn dead rather
             // than hidden, and the row itself says which it is.
             let on_record = chambers.get(i).is_some_and(|c| c.on_record);
+            let rebuilding = chambers.get(i).is_some_and(|c| c.rebuilding);
             for (label, action, on, why) in [
                 ("ENTER", Action::Chamber(i), !here && !on_record,
                  "PUT THIS CHAMBER ON SCREEN. THE ONE YOU LEAVE IS HELD EXACTLY WHERE IT IS -- IT RESUMES ON THE TICK IT STOPPED AT, NOT FROM THE START."),
                 ("CLOSE", Action::ChamberClose(i), !here && !on_record,
                  "THROW THIS CHAMBER AWAY. THE BOX YOU ARE IN CANNOT BE CLOSED: STEP INTO ANOTHER ONE FIRST, SO THAT CLOSING NEVER ALSO MOVES YOU SOMEWHERE YOU DID NOT ASK TO GO."),
+                // Only ever on an on-record row: a chamber that still has its
+                // world has nothing to rebuild.
+                ("REBUILD", Action::ChamberRebuild(i), on_record && !rebuilding,
+                 "RUN THIS ROW AGAIN AND KEEP THE WORLD THIS TIME. ITS NUMBERS WERE KEPT BUT ITS WORLD WAS NOT, AND THE RECIPE PLUS ITS SEED REPRODUCES THE RUN EXACTLY -- SO WHAT COMES BACK IS THE SAME BOX, NOT A SIMILAR ONE. IT RUNS IN THE BACKGROUND."),
             ] {
                 let bw = cell_width(hud::text_width(label), "", PAD) + 6;
                 if on {
@@ -2677,6 +2696,8 @@ impl Ui {
             }
             if here {
                 text(frame, vx + 4, vy + 2, RACK_LITERALS[8], FAINT);
+            } else if rebuilding {
+                text(frame, vx + 4, vy + 2, RACK_LITERALS[12], SUB_ON);
             } else if on_record {
                 text(frame, vx + 4, vy + 2, RACK_LITERALS[9], FAINT);
             }
@@ -3328,11 +3349,9 @@ impl Ui {
         // cannot take another cell at any spacing (see `tab_strip_y`). Drawn after
         // the bar so that `AboveBar` sits against its top edge rather than
         // under it.
-        self.tabs = match tab_strip_y(state.chambers.len()) {
-            Some(y) => lay_out_tabs(state.chambers, y),
-            None => Bar::default(),
-        };
-        if let Some(y) = tab_strip_y(state.chambers.len()) {
+        self.tabs = lay_out_tabs(state.chambers, tab_strip_y(state.chambers.len()));
+        {
+            let y = tab_strip_y(state.chambers.len());
             fill(frame, Rect { x: 0, y, w: W as i32, h: TAB_H }, BAR_BG);
             // The rule along the strip's own top, so the strip and the bar
             // read as one panel rather than two stacked ones.
@@ -3483,6 +3502,7 @@ mod tests {
         (0..n)
             .map(|i| super::super::ChamberSummary {
                 on_record: false,
+                rebuilding: false,
                 index: i,
                 active: i == 0,
                 label: format!("{}", i + 1),
@@ -3501,10 +3521,22 @@ mod tests {
     /// like a strip that is correctly absent.
     #[test]
     fn a_rack_of_one_draws_no_tabs_and_a_rack_of_two_does() {
-        assert_eq!(tab_strip_y(0), None, "an empty rack");
-        assert_eq!(tab_strip_y(1), None, "the lab's own opening");
-        assert!(tab_strip_y(2).is_some(), "two chambers must show a strip");
-        assert!(tab_strip_y(50).is_some(), "and so must fifty, which is what a batch makes");
+        // **The way into the rack is reachable at every rack size, and one is
+        // the size that matters.** This replaces a guard that asserted the
+        // opposite — that no strip is drawn below two chambers — which was
+        // the bug rather than the behaviour: `ALL` lives in the strip and is
+        // the only route to the page where chambers are *made*, so hiding it
+        // at one chamber made a second chamber unreachable. The lab opens on
+        // one. Reported by the owner as "I don't see it in the menu".
+        for n in [1usize, 2, 5, 50] {
+            let bar = lay_out_tabs(&rack(n), tab_strip_y(n));
+            let all = bar.widgets.iter().find(|w| w.action == Some(Action::Panel(Panel::Chambers)));
+            assert!(all.is_some(), "a rack of {n} has no way into the rack page");
+            assert!(
+                bar.widgets.iter().any(|w| w.action == Some(Action::Chamber(0))),
+                "a rack of {n} draws no tab for its first chamber"
+            );
+        }
     }
 
     /// **The strip never overlaps the bar, and never leaves the screen.**
@@ -3515,7 +3547,7 @@ mod tests {
     /// finds.
     #[test]
     fn the_tab_strip_clears_the_bar_and_the_screen() {
-        let y = tab_strip_y(5).expect("five chambers");
+        let y = tab_strip_y(5);
         assert!(y + TAB_H <= bar_top(), "the strip ran into the bar: {y} + {TAB_H} > {}", bar_top());
         assert!(y >= 0, "the strip ran off the top of the screen");
     }
@@ -3530,7 +3562,7 @@ mod tests {
     #[test]
     fn every_tab_is_clickable_where_it_is_drawn() {
         let chambers = rack(5);
-        let y = tab_strip_y(chambers.len()).expect("a rack of five");
+        let y = tab_strip_y(chambers.len());
         let bar = lay_out_tabs(&chambers, y);
         assert_eq!(bar.widgets.len(), 6, "five chambers, five tabs, and the way into the rack");
         for (i, wid) in bar.widgets.iter().take(5).enumerate() {
@@ -3550,7 +3582,7 @@ mod tests {
     #[test]
     fn a_rack_past_five_shows_what_it_is_not_showing() {
         let chambers = rack(12);
-        let y = tab_strip_y(chambers.len()).expect("a rack of twelve");
+        let y = tab_strip_y(chambers.len());
         let bar = lay_out_tabs(&chambers, y);
         assert_eq!(bar.widgets.len(), TABS_SHOWN + 1, "five tabs and the way into the rest");
         let all = bar.widgets.last().expect("the ALL button");
@@ -3560,7 +3592,7 @@ mod tests {
         // And at five or fewer it is still there, still a verb, with nothing
         // to count: the rack page is where a chamber is closed, so a rack of
         // three must be able to reach it.
-        let small = lay_out_tabs(&rack(3), tab_strip_y(3).expect("three"));
+        let small = lay_out_tabs(&rack(3), tab_strip_y(3));
         let all = small.widgets.last().expect("the ALL button");
         assert_eq!(all.line1, "ALL");
         assert_eq!(all.action, Some(Action::Panel(Panel::Chambers)));
@@ -3612,7 +3644,7 @@ mod tests {
                 check(&wid.line1, "rack button");
                 check(&wid.note, "rack explanation");
             }
-            for wid in &lay_out_tabs(&rack(7), tab_strip_y(7).expect("seven")).widgets {
+            for wid in &lay_out_tabs(&rack(7), tab_strip_y(7)).widgets {
                 check(&wid.line1, "tab face");
                 check(&wid.note, "tab explanation");
             }
