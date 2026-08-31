@@ -322,7 +322,7 @@ the question you arrived with. This table is: *what am I about to do?*
 | **change the economy** — income, maintenance, what kills a plant | `plant-economy-rederivation-2026-08-23.md`. §7 and §9 are its two *negative* results, and it records six mechanisms built, measured and withdrawn |
 | **make species look different from each other** | `plant-appearance-design.md` **first, before designing anything**. Three architectural levers were built, fired 46–2,750 times each, and moved nothing: a lever that relabels a cell cannot move a silhouette that texture and colour set |
 | **author or change a species** | `plant-species-authoring.md` → `plant-genome-design.md` for the slot map. Slots are **positional forever** |
-| **touch litter, the forest floor, or where a plant's mass goes when it dies** | `soil-accumulation-and-the-carbon-cycle.md` — it is a source with no sink, and the 5% yield only changes the slope |
+| **touch litter, the forest floor, or where a plant's mass goes when it dies** | `where-a-dead-plant-goes-2026-08-31.md` for the ledger — **~9% of a dead plant reaches soil**, and its §2a is why `rotted_to_solid` overstates that fourfold — then `soil-accumulation-and-the-carbon-cycle.md` for the yield itself: a source with no sink, and 5% only changes the slope |
 | **change roots** | `root-morphology-findings.md` (what the engine structurally cannot express, and that thickening is why) → `root-blob-and-uptake-surface-2026-08-23.md` (sizes the cost before building) |
 | **put plants into the generated world** | `world-flora-sowing-2026-08-23.md` (woody) → `grass-sowing-and-divergence-2026-08-23.md`, whose §11 is the postmortem of a review card that came back a null because the rendered window held 125 grass cells against 7,853 woody |
 | **fell, cut or break a plant** | README's `Felling status` → `physical-trees-design-2026-08-23.md` §8 (T1, built) and §11 (wind-throw, not) |
@@ -780,6 +780,21 @@ drift that two of these documents still reflect.**
   protect), and the clade-as-inventory / program-as-genome split. §5a
   withdraws its own first draft's loci recommendation and says why. Four
   gates in §7, three open owner calls in §8.
+- [where-a-dead-plant-goes-2026-08-31.md](where-a-dead-plant-goes-2026-08-31.md)
+  — **measured and landed.** The owner's question — does every part of a dead
+  plant degrade to soil — answered with a ledger over the lab bed: **~9%
+  reaches soil, ~55% rots to nothing, and ~33% was locked in `deadwood` for
+  ever**, the only plant-derived debris material with no `decays_into` at all.
+  Landed the missing edge (`deadwood → litter`) and says why that is an
+  omission closed rather than a default tuned — `corpse`'s identical silence
+  **is** deliberate and was left alone. **§3a is the part to read before
+  quoting it**: the fix does *not* raise the return (9.42% → 9.39%), it
+  removes the permanent tombstone, and the sealed box ends one cycle slightly
+  emptier for it. §2a is a reusable instrument failure — `rotted_to_solid`
+  counts `deadleaf → litter` as a return and overstated it **fourfold**. §4
+  closes the carbon-cycle report's own next-measurement question: an
+  undisturbed bed plateaus and creeps back up; **die-back is what costs**, and
+  a graded cull is a button on the lab's bar.
 - [soil-accumulation-and-the-carbon-cycle.md](soil-accumulation-and-the-carbon-cycle.md)
   — **yield landed 2026-08-27; the sink is not built.** Why trees were being
   buried in their own leaf litter: a plant fixes carbon out of light into a

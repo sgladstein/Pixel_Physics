@@ -1238,6 +1238,28 @@ pub struct World {
     pub rotted_to_solid: u32,
     /// Counterpart to `rotted_to_solid`; see it.
     pub rotted_to_nothing: u32,
+    /// Of `rotted_to_solid`, the ones that only took a **step along** the
+    /// chain rather than reaching the end of it — the product is itself a
+    /// material with a `decays_into`.
+    ///
+    /// **Split out because `rotted_to_solid` alone cannot answer "how much
+    /// came back as soil", and reads as though it can.** `deadleaf` decays
+    /// into `litter` at the default yield of 1.0, so every shed leaf on its
+    /// way down the chain scores a `rotted_to_solid` that produced no soil
+    /// whatever; measured on a lab bed at 2026-08-31, **450 of 620** solid-
+    /// leaving decays in a rot phase were that intermediate step, and reading
+    /// the total as soil production overstated the return **fourfold** (34%
+    /// against 8%). That is `CLAUDE.md`'s "ask what your number counts",
+    /// caught by a ledger that also censused the grid — the counter was
+    /// arithmetically correct throughout and answering a different question.
+    ///
+    /// **Terminal-or-not is read off the product's own `decays_into`, not
+    /// off a material name.** `decay.rs` stopped hardcoding `ash` and `soil`
+    /// for exactly this reason, and a name test here would go stale the first
+    /// time a material at the end of a chain is given one — which is a change
+    /// currently under consideration for `deadwood`. Read the pair as
+    /// `rotted_to_solid - rotted_onward` for "reached the end of the chain".
+    pub rotted_onward: u32,
     /// Leaves shed by the graded shade pressure (`tree.ron`'s
     /// `shade_death`), the upstream half of §O's decay count. Split by
     /// *cause* for the same reason the decay counters are split by rate:
@@ -2150,6 +2172,7 @@ impl World {
             decayed_dry: 0,
             rotted_to_solid: 0,
             rotted_to_nothing: 0,
+            rotted_onward: 0,
             shed_shade: 0,
             shed_drought: 0,
             shed_stranded: 0,
