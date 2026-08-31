@@ -92,6 +92,7 @@ pub mod rigid;
 pub mod rng;
 pub mod scheduler;
 pub mod species_export;
+pub mod specimen;
 pub mod spring;
 pub mod structural;
 pub mod surface;

@@ -114,6 +114,11 @@ GAME = {
     "performance and the parallel sweep": "engine",
     "materials and the data schema": "engine",
     "the evolution lab — the box and its lights": "lab",
+    # `lab`, though `sim::specimen` is engine code and the sandbox could
+    # perfectly well call it: the tag says which *game builds a scene that
+    # reaches it*, and only the lab has the tools. Re-tag `engine` the day the
+    # outdoor game grows a way to keep an individual.
+    "keeping, cloning and mutating an individual": "lab",
 }
 
 TOPICS = {
@@ -128,10 +133,12 @@ TOPICS = {
         "Felling status — the verb works, and what it produces is pieces",
         "Bending status — soft tissue lies over, and the wind is what pushes it",
         "Breaking status — a badly grown tree comes down on its own",
+        "Specimen shelf status — an individual's genetics outlive the box",
     ],
     "creatures — worms and the ant colony": [
         "M18 status",
         "The ant colony — status",
+        "Specimen shelf status — an individual's genetics outlive the box",
     ],
     "structural collapse, felling and rigid bodies": [
         "M17 status",
@@ -201,6 +208,13 @@ TOPICS = {
     # on the GAME map above pointed at nothing.
     "the evolution lab — the box and its lights": [
         "Lab lighting status — the fixtures are what light the crop",
+    ],
+    # The second lab row, and the first that is about what the *player* does
+    # in the box rather than about the box. Also listed under creatures and
+    # under plants: a jar holds either kingdom, and an agent sent to one of
+    # them has no reason to look under "the evolution lab" for it.
+    "keeping, cloning and mutating an individual": [
+        "Specimen shelf status — an individual's genetics outlive the box",
     ],
 }
 

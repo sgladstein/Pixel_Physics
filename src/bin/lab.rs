@@ -361,6 +361,11 @@ impl Handler {
             KeyCode::KeyV => self.lab.act(Action::Tool(Tool::Cull)),
             KeyCode::KeyB => self.lab.act(Action::Tool(Tool::Soil)),
             KeyCode::KeyN => self.lab.act(Action::Tool(Tool::Water)),
+            // The run continues past the six: `M` then `,`. Keeping and
+            // releasing are tools like the rest -- what a click on the world
+            // does -- so they belong on the same row and the same run.
+            KeyCode::KeyM => self.lab.act(Action::Tool(Tool::Keep)),
+            KeyCode::Comma => self.lab.act(Action::Tool(Tool::Release)),
             KeyCode::Period => self.lab.act(Action::NextSpecies),
             KeyCode::BracketLeft => self.lab.act(Action::Brush(-1)),
             KeyCode::BracketRight => self.lab.act(Action::Brush(1)),
@@ -383,6 +388,15 @@ impl Handler {
             // and it sits with the tools on the bar's top row for the same
             // reason.
             KeyCode::KeyP => self.lab.act(Action::Panel(Panel::Params)),
+            // The shelf. `G` for genetics, and beside `P` for the same
+            // reason: the two pages you open to *do* something rather than
+            // to read something.
+            KeyCode::KeyG => self.lab.act(Action::Panel(Panel::Shelf)),
+            // The brood dial, on the keys either side of `.` -- which is
+            // already the species cycle, so the three chips you change
+            // without looking sit together.
+            KeyCode::Semicolon => self.lab.act(Action::Broods(-1)),
+            KeyCode::Quote => self.lab.act(Action::Broods(1)),
             KeyCode::KeyF => self.lab.time.cycle_display_rate(),
             KeyCode::Tab => self.lab.act(Action::Stats),
             KeyCode::KeyR => self.lab.act(Action::Reset),

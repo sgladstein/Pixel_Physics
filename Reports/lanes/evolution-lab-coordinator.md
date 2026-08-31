@@ -169,13 +169,55 @@ expect it, resolve keep-both.
   itself produce an animal** — `plant-appearance-design.md`'s lesson arriving
   on the creature line. Read it before trying again.
 
-### Two gaps the owner will hit
+### Two gaps the owner will hit — the first is now half closed
 
 **There is no save** — a parameter he changes and cannot keep is a toy. And
 **species parameters are not in `tunables.rs` at all**: `dig_force`,
 `hunger_fraction`, `gut_bias`, `reproduce_threshold`, `mutation_rate` are
 compiled in via `include_str!` and unreachable at runtime. That is the
 largest single gap between the lab and *"I can figure it out myself"*.
+
+## Round four, 2026-08-31 — the specimen shelf
+
+*Brief: "save genetics of creatures and animals, clone them or mutate."
+Branch `claude/evolution-lab-genetics-gw4cv3`. **Everything below is
+compressed; the account is
+[`../evolution-lab-genetics-2026-08-31.md`](../evolution-lab-genetics-2026-08-31.md),
+and the shipped behaviour is README's "Specimen shelf status".***
+
+`KEEP` (`M`) jars the genetics of anything alive, plant or animal; the rack
+behind the bar's jar chip (`G`) is what you kept; `FREE` (`,`) puts the armed
+jar back, at a dial counted in **broods** — one brood is the engine's own
+per-birth mutation applied once, so `mutation_rate` on the parameters page is
+what a brood is worth and nothing new was calibrated. Jars are files under
+`assets/shelf/` (gitignored; `PIXEL_PHYSICS_SHELF_DIR` overrides).
+
+**What it overturned** — the part a later session cannot reconstruct:
+
+- **"No save" was two gaps and only one was a parameter.** A box that throws
+  away the one good forager it produced is the same defect and was on nobody's
+  list. The parameter half is untouched and is still the larger.
+- **An experiment in this bed could not be repeated, and nobody had said so.**
+  A founder's genome is keyed on `(world seed, germination coordinate)`, so two
+  runs of "the same" experiment start from different plants. **This is what
+  Gate 2 was missing**: a null there is a statement about the world rather than
+  the genome, and separating those needs the genome held while the world
+  changes. Run Gate 2 now rather than later.
+- **`Origin::Founder` reads the *species* genome**, so nothing could put a
+  *specific* animal in the world except `Origin::Bud`, which needs a live
+  parent and charges it. `Origin::Stock` is the third origin; a release books
+  as a spawn, never a birth.
+- **The bar is full.** Row 1 was already at exactly its own width; row 0's 76 px
+  of slack is now gone, and both rows fit only at the tightest `SPACINGS`, 1 px
+  spare. **The next lab control cannot just be added** — it needs a third row,
+  a page, or a removal. Three attempts and the measurement are in
+  `dead-ends.md`.
+
+**Next:** `CROSS` (breed two jars — D4 caged the brain's topology on one shared
+scaffold *precisely* so crossover is possible, and there is still no verb);
+then Gate 2, now that it can have a control arm; then `PROMOTE` for plants,
+which refuses today because `individual_as_species` copies the parent
+*species'* fates rather than the individual's; then the parameter half.
 
 ## Deliberately not being built yet
 

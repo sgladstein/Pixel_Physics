@@ -1172,6 +1172,22 @@ drift that two of these documents still reflect.**
   good-looking-creature problem and Gate 0 are **the same problem**, and
   §1a's incubator with a bigger dial is the answer to both. The render half
   is separately free: 4x the pixels costs 1.13x.
+- [evolution-lab-genetics-2026-08-31.md](evolution-lab-genetics-2026-08-31.md)
+  — **design + built and landed 2026-08-31.** The specimen shelf: keeping an
+  individual's genetics in a file that outlives the box, and putting it back
+  as itself or bred forward. Owner brief *"save genetics of creatures and
+  animals, clone them or mutate"*. **Clone and mutate are one dial counted in
+  broods** — one brood applies the engine's own per-birth mutation once, so no
+  new rate is invented and none is calibrated. Names the two exits and why
+  both are wanted (`species_export` writes a species, this writes a genome),
+  and corrects its own first draft: the *size* difference between them does
+  not exist (a plant jar 2,929 bytes against a generated ant species 2,280 —
+  `ant.ron`'s 37 KB is its comments). §5 is the part worth more than the
+  feature: **an experiment in this bed can now be repeated**, because a
+  founder's genome is otherwise keyed on where its seed landed, which is what
+  Gate 2 needs. §6.1 names `CROSS` as the cheapest real expansion — the brain's
+  topology is caged on one shared scaffold precisely so crossover is possible
+  and there is still no verb for it. §7 records the bar running out of room.
 - [plant-evolution-design.md](plant-evolution-design.md) — **design, all
   nine §8 calls signed off 2026-08-19; partly implemented.** The plant
   ecology: litter, decay, grass and the creeper; §4a's register holds the

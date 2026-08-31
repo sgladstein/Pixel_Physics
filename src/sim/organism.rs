@@ -3282,6 +3282,20 @@ pub struct OrganismState {
     /// the whole difference between a population that evolves and one that
     /// re-rolls itself every generation.
     pub inherited: bool,
+    /// **This individual was released from the specimen shelf**
+    /// (`sim::specimen`) rather than founded by a scene or borne by a
+    /// parent.
+    ///
+    /// A stocked individual is a founder in every economic respect — fresh
+    /// lineage, generation zero, a founder's endowment — so `inherited`
+    /// stays false and this is what separates the two kinds of founder.
+    /// Read by the lab's cell readout, which would otherwise report a
+    /// player's own release as a plant or animal the box produced, and by
+    /// the plant path, where `inherited` is additionally load-bearing:
+    /// `plant::seed_genotype` redraws a genotype from the germination
+    /// coordinate unless told not to, so a released seed sets **both**
+    /// flags and a released creature only this one.
+    pub stocked: bool,
     /// How many ancestors deep this individual is. 0 for anything planted;
     /// a seed's parent's value plus one otherwise.
     ///
@@ -3638,6 +3652,40 @@ pub fn bark_band_for_density(bands: PaletteBands, allele: u8) -> u8 {
 /// the discrete loci smear into just another continuous axis, which is the
 /// exact failure this whole construction exists to avoid.
 pub const DISCRETE_MUTATION_CHANCE: f32 = 0.03;
+
+/// **One generation's jumping on the discrete loci**, in place.
+///
+/// The operator of record for [`DISCRETE_MUTATION_CHANCE`], extracted from
+/// `plant::bear_seed_at` so that the shelf's brood dial
+/// (`sim::specimen::drift`) mutates a kept plant by exactly the rule a
+/// borne seed is mutated by. Two copies of five lines is two lineages of
+/// inheritance that can drift apart, which is a failure this file's
+/// neighbours already record paying for.
+///
+/// **The draw sequence is load-bearing and is unchanged by the
+/// extraction**: one `chance` per locus, in slot order, plus one `below`
+/// only where it fires. `bear_seed_at` hands this its caller's `Rng`, and
+/// the caller's position on return is asserted by
+/// `set_seed_leaves_the_callers_rng_position_alone`.
+///
+/// Returns how many loci actually landed on a *different* allele — a jump
+/// may redraw the allele it already had, and a counter that called that a
+/// mutation would overstate the dial on the shelf's readout. The count is
+/// not read by the breeding path.
+pub fn jump_alleles(alleles: &mut [u8; DISCRETE_LOCI], rng: &mut super::rng::Rng) -> u32 {
+    let mut moved = 0;
+    for (locus, allele) in alleles.iter_mut().enumerate() {
+        if rng.chance(DISCRETE_MUTATION_CHANCE) {
+            let n = LOCUS_ALLELES[locus].max(1);
+            let next = rng.below(n as u32) as u8;
+            if next != *allele {
+                moved += 1;
+            }
+            *allele = next;
+        }
+    }
+    moved
+}
 
 /// Re-exported so `world.rs` can size `OrganismState::brain_state`
 /// without importing `brain` for one constant.
