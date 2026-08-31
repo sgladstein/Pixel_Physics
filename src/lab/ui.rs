@@ -416,6 +416,8 @@ pub enum Action {
     /// Re-run an on-record row back into a world. See
     /// `Lab::rebuild_record`.
     ChamberRebuild(usize),
+    /// Throw away every chamber and record except the one on screen.
+    ChamberClear,
     /// Run a rack of copies of the box on screen, headless, in the
     /// background.
     BatchRun,
@@ -2271,6 +2273,48 @@ const RACK_HEAD: i32 = 11;
 /// gains a digit cannot shove its own `+` button sideways under the cursor.
 const BATCH_VALUE_W: i32 = 34;
 
+/// **The rack page's columns: a heading and the widest thing it can hold.**
+///
+/// The offsets were hand-counted at first and they overlapped — reported as
+/// *"seed and batch text overlap in the menu"*. `SEED 9999` is 53 px and the
+/// FRAME column started 62 px in from a seed column that started at 16, so
+/// the two collided by 8 px, and by more once a batch pushed a seed to five
+/// digits. `layout` and `param_page_width` both already say why: **measure
+/// through `hud::text_width`, never count by hand.** This is that rule
+/// applied to a table.
+///
+/// The second string is the **widest value the column can ever hold**, not a
+/// typical one. A column sized to what it usually shows is a column that
+/// breaks the first time a run gets big, which is the run you most want to
+/// read.
+const RACK_COLS: [(&str, &str); 6] = [
+    ("SEED", "SEED 999999"),
+    ("FRAME", "9999999"),
+    ("PLT", "9999"),
+    ("ANI", "9999"),
+    ("GEN", "99/99"),
+    ("SOWN", "999999"),
+];
+
+/// Gap between columns.
+const RACK_GAP: i32 = 6;
+
+/// Where each column starts, relative to the page's left margin.
+///
+/// Derived once and read by both the header and the rows, so the two cannot
+/// drift apart — which is its own bug class: a header that no longer sits
+/// over its column is worse than no header.
+fn rack_col_x() -> [i32; RACK_COLS.len()] {
+    let mut out = [0i32; RACK_COLS.len()];
+    // The row number sits first, outside the table.
+    let mut x = hud::text_width("99") + RACK_GAP;
+    for (i, (_, widest)) in RACK_COLS.iter().enumerate() {
+        out[i] = x;
+        x += hud::text_width(widest) + RACK_GAP;
+    }
+    out
+}
+
 /// **Every fixed string the rack page draws, in one list.**
 ///
 /// Named rather than inlined so `every_string_the_bar_can_draw_is_drawable`
@@ -2278,14 +2322,7 @@ const BATCH_VALUE_W: i32 = 34;
 /// covers it, and `hud::draw_text` renders a character outside its 5x7 set as
 /// a **silent blank**. The column header read `  SEED` in its first contact
 /// sheet because it began `  # SEED` and `#` has no glyph.
-const RACK_LITERALS: [&str; 13] = [
-    "    SEED",
-    "  FRAME",
-    "PLT",
-    "ANI",
-    "GEN",
-    " SOWN",
-    "  -    -    -/-      -",
+const RACK_LITERALS: [&str; 6] = [
     "CLICK A ROW FOR ITS PICTURE",
     "-- THE BOX YOU ARE IN",
     "-- KEPT AS NUMBERS ONLY, THE WORLD WAS NOT HELD",
@@ -2302,7 +2339,11 @@ const RACK_THUMB_H: i32 = (H / RACK_THUMB_SHRINK) as i32;
 /// `layout`'s reason. The picture sets the floor: a page narrower than its own
 /// thumbnail would clip it.
 fn rack_page_width() -> i32 {
-    let row = 16 + hud::text_width("SEED 9999") + 46 + hud::text_width("999 999 9/9 99999") + 24 + hud::text_width("HERE");
+    let col = rack_col_x();
+    let last = col[RACK_COLS.len() - 1] + hud::text_width(RACK_COLS[RACK_COLS.len() - 1].1);
+    // Plus room for the right-hand state marker, which is drawn from the
+    // right margin inward and would otherwise sit on the last column.
+    let row = last + RACK_GAP + hud::text_width("REBUILDING");
     (PAGE_PAD * 2 + row).max((W / RACK_THUMB_SHRINK) as i32 + PAGE_PAD * 2)
 }
 
@@ -2484,6 +2525,20 @@ impl Ui {
             ratio: None,
             note: "ANOTHER CHAMBER: THIS BOX'S RECIPE AGAIN, AT THE NEXT UNUSED SEED. THE SEED IS WHAT MAKES IT A REPLICATE RATHER THAN A COPY -- AT THE SAME SEED IT WOULD BE THE SAME WORLD, CELL FOR CELL.".into(),
         });
+        // CLEAR, beside NEW. A rack of fifty is made by one click and has to
+        // be unmade by one too -- clearing it a row at a time is fifty clicks
+        // and a verb nobody would use.
+        let clear_w = cell_width(hud::text_width("CLEAR"), "", PAD);
+        widgets.push(Widget {
+            rect: Rect { x: right - new_w - clear_w - 4, y: rect.y + 3, w: clear_w, h: 11 },
+            line1: "CLEAR".into(),
+            line2: String::new(),
+            action: Some(Action::ChamberClear),
+            latched: false,
+            icon: None,
+            ratio: None,
+            note: "THROW AWAY EVERY CHAMBER AND EVERY RECORD EXCEPT THE BOX YOU ARE IN. THE ONE ON SCREEN IS KEPT, SO CLEARING NEVER ALSO MOVES YOU SOMEWHERE YOU DID NOT ASK TO GO.".into(),
+        });
         for x in rect.x + 1..rect.right() - 1 {
             render::put(frame, W, H, x, rect.y + PAGE_HEADER - 4, DIVIDER);
         }
@@ -2495,12 +2550,15 @@ impl Ui {
         // column you cannot name is a column you cannot compare on. Caught by
         // looking at the first render rather than by any test.
         let mut y = rect.y + PAGE_HEADER;
-        text(frame, left, y, RACK_LITERALS[0], FAINT);
-        text(frame, left + 62, y, RACK_LITERALS[1], FAINT);
-        text(frame, left + 108, y, RACK_LITERALS[2], GOOD);
-        text(frame, left + 128, y, RACK_LITERALS[3], FAIR);
-        text(frame, left + 150, y, RACK_LITERALS[4], FAINT);
-        text(frame, left + 178, y, RACK_LITERALS[5], FAINT);
+        let col = rack_col_x();
+        for (i, (head, _)) in RACK_COLS.iter().enumerate() {
+            let tint = match i {
+                2 => GOOD,
+                3 => FAIR,
+                _ => FAINT,
+            };
+            text(frame, left + col[i], y, head, tint);
+        }
         y += RACK_HEAD;
         for x in rect.x + 1..rect.right() - 1 {
             render::put(frame, W, H, x, y - 2, DIVIDER);
@@ -2534,27 +2592,33 @@ impl Ui {
             });
 
             let tint = if ch.active { SUB_ON } else if selected { TITLE } else { FAINT };
-            text(frame, left, y + 2, &format!("{:>2}", ch.label), tint);
-            text(frame, left + 16, y + 2, &format!("SEED {:<4}", ch.seed), FAINT);
+            text(frame, left, y + 2, &ch.label, tint);
+            text(frame, left + col[0], y + 2, &format!("SEED {}", ch.seed), FAINT);
             // The counter that says whether it is frozen.
-            text(frame, left + 62, y + 2, &format!("{:>7}", ch.frame), if ch.active { SUB_ON } else { FAINT });
+            text(frame, left + col[1], y + 2, &format!("{}", ch.frame), if ch.active { SUB_ON } else { FAINT });
 
             match &ch.census {
                 Some(c) => {
-                    text(frame, left + 108, y + 2, &format!("{:>3}", c.plants), GOOD);
-                    text(frame, left + 128, y + 2, &format!("{:>3}", c.animals), FAIR);
-                    text(frame, left + 150, y + 2, &format!("{}/{}", c.plant_generation, c.animal_generation), FAINT);
-                    text(frame, left + 178, y + 2, &format!("{:>5}", c.seeds_borne), FAINT);
+                    text(frame, left + col[2], y + 2, &format!("{}", c.plants), GOOD);
+                    text(frame, left + col[3], y + 2, &format!("{}", c.animals), FAIR);
+                    text(frame, left + col[4], y + 2, &format!("{}/{}", c.plant_generation, c.animal_generation), FAINT);
+                    text(frame, left + col[5], y + 2, &format!("{}", c.seeds_borne), FAINT);
                 }
-                // Never looked at, which is not the same as empty.
-                None => text(frame, left + 108, y + 2, RACK_LITERALS[6], FAINT),
+                // Never looked at, which is not the same as empty. One dash
+                // per column, on the column, rather than one run of text
+                // guessed into position.
+                None => {
+                    for x in col.iter().skip(2) {
+                        text(frame, left + x, y + 2, "-", FAINT);
+                    }
+                }
             }
             if ch.active {
-                text(frame, right - hud::text_width("HERE"), y + 2, RACK_LITERALS[10], SUB_ON);
+                text(frame, right - hud::text_width("HERE"), y + 2, RACK_LITERALS[3], SUB_ON);
             } else if ch.rebuilding {
-                text(frame, right - hud::text_width(RACK_LITERALS[12]), y + 2, RACK_LITERALS[12], SUB_ON);
+                text(frame, right - hud::text_width(RACK_LITERALS[5]), y + 2, RACK_LITERALS[5], SUB_ON);
             } else if ch.on_record {
-                text(frame, right - hud::text_width(RACK_LITERALS[11]), y + 2, RACK_LITERALS[11], FAINT);
+                text(frame, right - hud::text_width(RACK_LITERALS[4]), y + 2, RACK_LITERALS[4], FAINT);
             }
             y += RACK_ROW;
         }
@@ -2695,14 +2759,14 @@ impl Ui {
                 vx += bw + 4;
             }
             if here {
-                text(frame, vx + 4, vy + 2, RACK_LITERALS[8], FAINT);
+                text(frame, vx + 4, vy + 2, RACK_LITERALS[1], FAINT);
             } else if rebuilding {
-                text(frame, vx + 4, vy + 2, RACK_LITERALS[12], SUB_ON);
+                text(frame, vx + 4, vy + 2, RACK_LITERALS[5], SUB_ON);
             } else if on_record {
-                text(frame, vx + 4, vy + 2, RACK_LITERALS[9], FAINT);
+                text(frame, vx + 4, vy + 2, RACK_LITERALS[2], FAINT);
             }
         } else {
-            text(frame, left, y + 5, RACK_LITERALS[7], FAINT);
+            text(frame, left, y + 5, RACK_LITERALS[0], FAINT);
         }
 
         // Only the real buttons get a face. A row is a band, not a button:

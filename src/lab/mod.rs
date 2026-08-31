@@ -525,10 +525,19 @@ impl Lab {
         // explores new worlds rather than re-running the ones on the bench.
         self.batch_spec.seed0 = self.next_unused_seed();
         let spec = self.batch_spec.clone();
-        let n = spec.runs().len();
+        let runs = spec.runs();
+        let n = runs.len();
         let frames = spec.frames;
-        self.batch = Some(batch::Batch::start(spec));
-        format!("RUNNING {n} COPIES FOR {frames} TICKS EACH")
+        // **Copies of the box as it stands, not of its recipe.** The recipe
+        // says `founders: 0` on the shipped opening, so a recipe-built copy of
+        // a bed you planted by hand comes out empty -- which is exactly what
+        // the owner hit. The world carries the plants, the ants, their
+        // positions and their genomes; the seed change reaches only what
+        // happens next.
+        let template = batch::Start::Copy(Box::new(self.world.clone()));
+        self.batch = Some(batch::Batch::start_runs_from(runs, frames, spec.keep_bytes, template));
+        let alive = self.world.live_organism_count();
+        format!("RUNNING {n} COPIES OF THIS BOX ({alive} ALIVE) FOR {frames} TICKS EACH")
     }
 
     /// **Re-run an on-record row back into a world you can walk into.**
@@ -566,6 +575,9 @@ impl Lab {
         self.on_record[k].rebuilding = true;
         // `u64::MAX` — the whole point of a rebuild is to get the world back,
         // so it must not be dropped by the same budget that dropped it once.
+        // Recipe-built on purpose, unlike `start_batch`: this reproduces a
+        // run that was *itself* recipe-built, and its spec plus its seed is
+        // exactly what makes that reproduction exact.
         self.batch = Some(batch::Batch::start_runs(vec![run], ticks, u64::MAX));
         format!("REBUILDING {ticks} TICKS -- THE BOX ON SCREEN KEEPS RUNNING")
     }
@@ -746,6 +758,42 @@ impl Lab {
             Some(ch) => ch.thumb.as_ref(),
             None => self.thumb.as_ref(),
         }
+    }
+
+    /// **Throw away every chamber and record except the one on screen.**
+    ///
+    /// A rack of fifty is made by one click, so it needs to be unmade by one
+    /// click too — clearing it a row at a time is fifty clicks and a verb
+    /// nobody uses. The box on screen survives for `remove_chamber`'s reason:
+    /// clearing must never also move you somewhere you did not ask to go.
+    pub fn clear_rack(&mut self) -> String {
+        let chambers = self.rack.len() - 1;
+        let records = self.on_record.len();
+        if chambers == 0 && records == 0 {
+            return "NOTHING TO CLEAR -- THIS IS THE ONLY BOX".to_string();
+        }
+        // Keep only the hole the inline fields live in, and rebase `active`
+        // onto it: the rack invariant is that exactly one slot is `None`.
+        self.rack.retain(|slot| slot.is_none());
+        self.active = 0;
+        self.on_record.clear();
+        format!("CLEARED {chambers} CHAMBERS AND {records} RECORDS -- THIS BOX KEPT")
+    }
+
+    /// Discard one on-record row. Returns whether it went.
+    ///
+    /// Separate from [`Lab::remove_chamber`] because the two address
+    /// different things behind one row number: chambers first, records after
+    /// them. A record being deletable at all is the owner's ask — a run you
+    /// have read and finished with is clutter, and ~10 KB of it is still a
+    /// row you have to scroll past.
+    pub fn remove_record(&mut self, i: usize) -> bool {
+        let Some(k) = i.checked_sub(self.rack.len()) else { return false };
+        if k >= self.on_record.len() || self.on_record[k].rebuilding {
+            return false;
+        }
+        self.on_record.remove(k);
+        true
     }
 
     /// Close chamber `i`. Returns whether it went.
@@ -1304,8 +1352,14 @@ impl Lab {
                 let said = self.rebuild_record(i);
                 self.ui.say(said);
             }
+            ui::Action::ChamberClear => {
+                let said = self.clear_rack();
+                self.ui.say(said);
+            }
             ui::Action::ChamberClose(i) => {
-                if self.remove_chamber(i) {
+                if self.remove_record(i) {
+                    self.ui.say("RECORD DISCARDED".to_string());
+                } else if self.remove_chamber(i) {
                     self.ui.say(format!("CHAMBER {} CLOSED", i + 1));
                 } else {
                     // Says why rather than doing nothing. `CLAUDE.md`'s second
@@ -1783,6 +1837,87 @@ mod tests {
         for _ in 0..n {
             lab.tick();
         }
+    }
+
+    /// **A copy carries what you planted, and the copies still differ.**
+    ///
+    /// The owner's report, on the merged code: *"I added some plants and ants
+    /// to my chamber, hit F4, tried to run copies of the same room, but all
+    /// of the copies were empty."* Exactly right. A copy was built from the
+    /// chamber's **recipe**, and the shipped binary opens on `founders: 0,
+    /// colonies: 0` — the box starts empty and you stock it — so everything
+    /// planted by hand lived in the *world*, which the recipe has never heard
+    /// of.
+    ///
+    /// The bed here is founded through the spec so the test can run headless,
+    /// but the mechanism is the one that was broken: the batch is started
+    /// from a spec with **no founders at all**, so any life in a copy can only
+    /// have arrived by cloning the live world.
+    ///
+    /// Both halves again, because either alone is green on a broken build:
+    /// the copies must **carry the stand**, and they must still **differ from
+    /// each other** — a clone that also copied the seed would satisfy the
+    /// first and make the rack one world wearing N labels.
+    #[test]
+    fn copies_carry_what_was_planted_and_still_diverge() {
+        // **A colony, and that is load-bearing rather than incidental.**
+        // Reseeding a clone changes only draws keyed on `world.seed`, and the
+        // two halves of the biosphere read it very differently:
+        //
+        //   - **creatures read it every tick** (`creature.rs`'s
+        //     `RNG_SLOT_MOVE`, `:458` and `:1695`), so ants diverge on the
+        //     next step;
+        //   - **plants read it only at seeding** (`plant.rs`'s
+        //     `seed_genotype`, `:1178`; growth is keyed on `(organism, x, y,
+        //     frame)` instead), so an established stand grows *identically*
+        //     in every copy until something new germinates or breeds.
+        //
+        // That is worth knowing rather than working around: copy a settled
+        // plant-only box and the copies hold still together until the next
+        // generation starts. A plants-only bed here made this test fail on
+        // its divergence half for a reason that was about the engine and not
+        // about the batch.
+        let mut lab = Lab::new(scene::LabBox { colonies: 1, ..rack_bed(1) });
+        run(&mut lab, 400);
+        let alive = lab.world.live_organism_count();
+        assert!(alive > 0, "the bed never germinated, so this test cannot see the thing it is about");
+
+        // **The recipe is emptied.** Anything alive in a copy now has to have
+        // come from the world, which is the whole claim.
+        lab.batch_spec.base = scene::LabBox { founders: 0, colonies: 0, ..rack_bed(1) };
+        lab.batch_spec.replicates = 3;
+        lab.batch_spec.frames = 600;
+        lab.start_batch();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(180);
+        while lab.batch.is_some() && std::time::Instant::now() < deadline {
+            lab.poll_batch();
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        assert!(lab.batch.is_none(), "the batch never finished");
+
+        let rows = lab.chamber_summaries();
+        let landed: Vec<&ChamberSummary> = rows.iter().filter(|r| r.label.starts_with("BATCH")).collect();
+        assert_eq!(landed.len(), 3, "three copies");
+        for r in &landed {
+            let c = r.census.as_ref().expect("a census");
+            assert!(
+                c.plants > 0,
+                "a copy came out EMPTY -- it was built from the recipe (0 founders) instead of copied \
+                 from the box, which is exactly the bug this test is named for"
+            );
+        }
+        // Read on the animals, for the reason at the top: they are the half
+        // that reads the seed every tick.
+        let distinct: std::collections::HashSet<(usize, usize, usize)> = landed
+            .iter()
+            .filter_map(|r| r.census.as_ref())
+            .map(|c| (c.animals, c.animal_cells, c.plant_cells))
+            .collect();
+        assert!(
+            distinct.len() > 1,
+            "the copies carry the stand but are identical -- the seed is not reaching them, so the \
+             rack is one world wearing three labels. Got {distinct:?}"
+        );
     }
 
     /// **REBUILD gives back the same box, not a similar one.**
