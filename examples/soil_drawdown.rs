@@ -14,7 +14,15 @@
 //! cargo run --release --example soil_drawdown                 # one plant
 //! cargo run --release --example soil_drawdown -- founders=0   # the control: nothing alive
 //! cargo run --release --example soil_drawdown -- frames=24000 every=4000
+//! cargo run --release --example soil_drawdown -- png=after zoom=2   # the owner's own overlay
 //! ```
+//!
+//! `png=` writes the bed through the shipped renderer with
+//! `OrganismOverlay::SoilMoisture` switched on -- **the same picture the
+//! report came from**, which is the point: the numbers below say how much and
+//! whether it came back, and only the overlay says the profile looks like
+//! what the owner is looking at. Off by default, because it costs a frame of
+//! rendering and every other use of this probe is numeric.
 //!
 //! # What it reports, and why these three views
 //!
@@ -78,10 +86,15 @@ fn main() {
     let frames: u64 = arg("frames").unwrap_or(24_000);
     let every: u64 = arg("every").unwrap_or(4_000);
     let seed: u64 = arg("seed").unwrap_or(1);
+    let png: Option<String> = arg("png");
     let spec = LabBox { founders, colonies: 0, seed, ..LabBox::default() };
+    // Echo every parameter, including the ones that default -- `CLAUDE.md`'s
+    // megastudy gotcha, where a knob added after the binary was built was
+    // silently ignored and produced 24 logs of 3 populations.
     println!(
         "soil_drawdown: founders={founders} frames={frames} every={every} seed={seed} \
-         (field capacity {}, wilting point {}, saturated {})",
+         png={} (field capacity {}, wilting point {}, saturated {})",
+        png.as_deref().unwrap_or("-"),
         material::SOIL_FIELD_CAPACITY,
         material::SOIL_WILTING_POINT,
         material::SOIL_SATURATED
@@ -166,4 +179,37 @@ fn main() {
             tick(&mut lab);
         }
     }
+
+    if let Some(prefix) = png {
+        shoot(&mut lab, &format!("{prefix}.png"), arg("zoom").unwrap_or(2));
+    }
+}
+
+/// One frame of the bed with the soil-moisture overlay on, through the
+/// shipped renderer and with no window.
+///
+/// **A full replace on the overlay's own ramp, which is `render.rs`'s job
+/// here and not this file's** -- `CLAUDE.md`'s rule is that a debug readout
+/// must not be a function of the thing it debugs, and `apply_organism_
+/// overlay` already obeys it. All this does is switch the channel on, so the
+/// card and the game show the identical picture; a bespoke ramp here would
+/// be a second implementation to disagree with the one the owner is reading.
+fn shoot(lab: &mut Lab, path: &str, zoom: u32) {
+    let (w, h) = (pixel_physics::lab::WIDTH, pixel_physics::lab::HEIGHT);
+    let mut buf = vec![0u8; (w * h * 4) as usize];
+    lab.renderer.organism_overlay = pixel_physics::render::OrganismOverlay::SoilMoisture;
+    let touched = lab.world.take_touched_chunks();
+    lab.renderer.draw(&lab.world, &lab.particles, &touched, &mut buf, (w, h), true);
+    let zoom = zoom.max(1);
+    let (zw, zh) = (w * zoom, h * zoom);
+    let mut out = vec![0u8; (zw * zh * 4) as usize];
+    for y in 0..zh {
+        for x in 0..zw {
+            let src = (((y / zoom) * w + (x / zoom)) * 4) as usize;
+            let dst = ((y * zw + x) * 4) as usize;
+            out[dst..dst + 4].copy_from_slice(&buf[src..src + 4]);
+        }
+    }
+    image::save_buffer(path, &out, zw, zh, image::ColorType::Rgba8).expect("write png");
+    println!("  wrote {path} ({zw}x{zh}, soil-moisture overlay)");
 }

@@ -107,10 +107,44 @@
 //! which is the difference between an accounting identity and a leak
 //! proportional to how often puddles finish.
 //!
-//! Nothing about the *rate* changed, and nothing here reads the bank: a
-//! puddle dries at the same speed over a full sky as over an empty one,
-//! because what stops evaporation is the humidity above it, which is a local
-//! reading and not a global balance.
+//! Nothing here reads the bank, and that is still true: a puddle dries at
+//! the same speed over a full sky as over an empty one. What stops
+//! evaporation is the humidity above it — a local reading, not a global
+//! balance. The section below is about making that local reading answer.
+//!
+//! # The ground was drying itself
+//!
+//! **The humidity that stops evaporation was a reading of the ground, not a
+//! state of the air**, and that made the whole mechanism a positive feedback
+//! loop. `field::apply_moisture_sources` rebuilds `moisture_source` from the
+//! CA grid every step, so as soil dried its source fell, the air above it
+//! read drier, `dryness` rose, and the soil dried *faster*. Nothing anywhere
+//! pushed back.
+//!
+//! It stayed hidden because it needs a trigger. A bed at field capacity
+//! reads 2.48 humidity — over `HUMID_STOP` — so drying is switched off and
+//! the bed is stable indefinitely. Measured in the sealed lab: one plant is
+//! enough. It pulls a few cells below field capacity, `update::update_soil_
+//! water` spreads that deficit, blocks cross under half saturation, the gate
+//! opens, and the front travels outward across the whole world. Over 16,000
+//! frames the bed lost **285,280** fill of which the plant had drunk
+//! **1,569** — 0.55%. The rest was the sun, and none of it was coming back.
+//!
+//! The fix is one line and it is the *local* half of the water cycle:
+//! evaporated water is added to the air block it evaporated into, so drying
+//! ground damps the air it is drying into and throttles itself. Same run
+//! afterwards: **2,348** lost, of which the plant drank 1,917. The bed's
+//! total is byte-identical at 20,000, 40,000 and 60,000 frames — a fixed
+//! point rather than a slower leak.
+//!
+//! **Two things about it are easy to get wrong and both were, first time.**
+//! It must go into the block `dryness` actually reads, one `FIELD_SCALE`
+//! *above* the cell — humidifying the ground the water left moves no gauge
+//! anyone consults, and measured as no brake at all. And it must go into the
+//! **diffusing** moisture channel rather than a floor beside it: vapour
+//! mixes, and a floor that sits where it was made saturates its own block
+//! and still lets the front travel. Both are recorded in
+//! `Reports/dead-ends.md`.
 //!
 //! # Warm days dry, cool nights barely do
 //!
@@ -176,7 +210,10 @@ pub(crate) const CHECK_INTERVAL: u64 = 60;
 const HUMID_STOP: f32 = 2.0;
 
 /// Humidity one whole cell-equivalent of evaporated water adds to the block
-/// it left. See `vapour_of`, which is where this is argued.
+/// of *air* it evaporated into. See `vapour_of`, which is where this is
+/// argued, and note it is the block above the cell rather than the cell's
+/// own -- `dryness` reads the one above, and a brake has to move the gauge
+/// that governs it.
 const VAPOUR_PER_CELL_EQUIVALENT: f32 = 260.0;
 
 /// Fill removed from one exposed surface cell per check in perfectly dry
@@ -592,9 +629,9 @@ fn tick_soil(world: &mut World, x: i32, y: i32, stale_ticks: u8) -> Vec<ActiveSi
     world.credit_atmosphere(loss);
     // ...and damp the air it went into. `credit_atmosphere` books the water
     // globally so the sky can rain it back; this is the *local* half, which
-    // did not exist. See `field::FieldTile::vapour` for the runaway it
-    // closes -- without it, ground that starts drying makes its own air
-    // drier and so dries faster still.
+    // did not exist. The runaway it closes is in the module doc above
+    // (*The ground was drying itself*): without it, ground that starts
+    // drying makes its own air drier and so dries faster still.
     // **Into the air above, which is the block `dryness` reads.** Not the
     // cell the water left: that is ground, and humidifying ground does
     // nothing to the reading that governs drying. `dryness` samples
@@ -612,19 +649,30 @@ fn tick_soil(world: &mut World, x: i32, y: i32, stale_ticks: u8) -> Vec<ActiveSi
 /// What a fill reduction is worth as humidity, on the field's own
 /// `0..MAX_MOISTURE` scale.
 ///
-/// **The two scales have no physical bridge, so this is an exchange rate and
-/// is sized rather than derived.** A cell's fill runs to
-/// `material::LIQUID_FULL`; a field block spans `FIELD_SCALE` squared world
-/// cells and reads `0..4`. The bar it has to clear is `HUMID_STOP` (2.0),
-/// the humidity at which drying stops: one exposed cell giving up
-/// `SOIL_DRY_PER_CHECK` should raise its block noticeably without silencing
-/// a whole block's drying in a single check, or one puff would stop a
-/// desert.
+/// **The order of magnitude is physical; only the landing point inside it is
+/// sized.** A cell's fill runs to `material::LIQUID_FULL`; a field block
+/// spans `FIELD_SCALE` squared -- 256 -- world cells and reads `0..4`. The
+/// bridge between the two is the one number that actually decides this:
+/// **liquid water holds on the order of 10,000 times more water than the
+/// same volume of saturated air**, so one cell of water evaporating is worth
+/// *thousands* of cells of saturated air, which is tens of blocks, not a
+/// fraction of one.
 ///
-/// At this rate a full `SOIL_DRY_PER_CHECK` of 100 adds 0.2 -- a tenth of
-/// the way to `HUMID_STOP` -- so closing the gate takes ten checks of
-/// sustained drying in one block, and `field::VAPOUR_PERSISTENCE` is what
-/// holds the earlier puffs while the later ones arrive.
+/// **The first version of this constant was 2.0, and it had that ratio
+/// backwards** -- it valued a whole cell of liquid at half a block of
+/// humidity, i.e. some four orders of magnitude short. It measured as no
+/// brake whatever: one plant still dried a 512-wide bed to the wilting
+/// point. 20.0 runs away too. 260 holds, and the bed reaches a fixed point.
+///
+/// So the clamp in `field::add_vapour_at` is load-bearing rather than
+/// defensive: at this rate one check's `SOIL_DRY_PER_CHECK` of 100 is worth
+/// 26.0 against a `MAX_MOISTURE` of 4.0, so a drying block pins its own air
+/// to saturation and **diffusion decides what happens next**. That is the
+/// intended reading. Vapour is not stored where it was made; it is released
+/// there and mixed outward, and what holds a block over `HUMID_STOP` (2.0)
+/// is sustained release outrunning the dilution -- which is why this cannot
+/// silence a desert. Stop drying and the humidity disperses on the ordinary
+/// moisture solve, and the ground goes back to being read for what it is.
 fn vapour_of(fill: u16) -> f32 {
     fill as f32 / crate::sim::material::LIQUID_FULL as f32 * VAPOUR_PER_CELL_EQUIVALENT
 }

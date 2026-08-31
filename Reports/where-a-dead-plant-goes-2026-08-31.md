@@ -220,7 +220,22 @@ available water 0.000). Fresh ground is created dry and does not wet from the
 damp soil below in time, so the sterilising agent is **dryness rather than
 material** and converting debris to soil would not help. The real repair is
 whatever lets fresh ground wet up, which lives in the soil-water code rather
-than in the material files, and is not this lane's to make.
+than in the material files.
+
+**That repair has since been made, in two further changes, and it needed a
+third thing nobody had asked for.** Capillary rest was made conditional on the
+drainable band so unsaturated soil equalises finely (#189) — but that alone
+drains the bed to the wilting point, because the evaporative sink was
+unbounded. Bounding it took making drying scale with how much water is left
+(#189) *and* closing the local half of the water cycle (#191): evaporated
+water is now added to the air block above the cell, so drying ground damps the
+air it is drying into. Until that last one, humidity was a *reading of the
+ground* rather than a state of the air, so soil that began to dry made its own
+air drier and dried faster still — one plant was enough to parch a 512-wide
+bed, 99.4% of it evaporation rather than the plant's own draw. The mechanism
+and its numbers are in `src/sim/evaporation.rs`'s module doc under *The ground
+was drying itself*; the three ways of getting it wrong are in
+`Reports/dead-ends.md`.
 
 ## 5. What is deliberately not done
 

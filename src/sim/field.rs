@@ -598,7 +598,6 @@ impl FieldTile {
         self.moisture_floor.copy_from_slice(&previous.moisture_floor);
     }
 
-
     /// Carry the four CA-derived arrays across instead of rescanning for
     /// them — see the caller in `step` for when that is sound.
     ///
