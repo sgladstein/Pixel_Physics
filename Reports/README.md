@@ -852,7 +852,27 @@ drift that two of these documents still reflect.**
   36,000 frames and keeps dying, and the cut converts that unbounded
   run-down into an early cull that settles (§4a). Sharpens
   `creature-reproduction-economics.md` §3.6 and corrects the direction
-  `ant.ron`'s own comment stated.
+  `ant.ron`'s own comment stated. **§6 superseded the same day** by
+  `creature-gate0-births-2026-08-30.md`: the gap closed without the stamp
+  term, because the "one mouthful" in this report's ceiling was a property of
+  the feeding rule rather than of the animal. §2's arithmetic stands.
+- [creature-gate0-births-2026-08-30.md](creature-gate0-births-2026-08-30.md) —
+  **built and landed 2026-08-30. Ants breed.** The block was neither the
+  economy nor the gut: `act` fed an animal only below its satiety line and
+  made it carry everything after, so **the largest bank any ant could hold
+  was the satiety line plus one mouthful** — 1,060 against a 1,041 birth cost
+  and an 1,100 bud threshold. An animal short of a child's price now finishes
+  the meal (out on the route only for a mouthful that pays by itself, at the
+  nest for as long as the larder lasts), and `adjacent_food` returns the
+  **best** neighbour rather than the first. With food on the ground the
+  shipped ant at the shipped neutral gut reaches **generation 13**; the
+  worldgen colony goes 0 -> 1 birth against `origin/main` in a paired A/B.
+  **Supersedes `creature-birth-grant-2026-08-30.md` §6** — closing the gap
+  did not need the stamp term after all. What still blocks the unfed lab bed
+  is measured to the cell: **1,651 pickups, 4 deliveries, an empty larder**,
+  isolated to `act`'s out-of-nest drop rule with a controlled probe and filed
+  as a bug. Ships `best_offer` / `best_bite` / `peak_bank` and
+  `examples/windfall_probe.rs`.
 - [creature-body-extent-2026-08-30.md](creature-body-extent-2026-08-30.md) —
   **built and landed 2026-08-30.** The body is priced per cell at last:
   nothing in the cost path read `chain.len()`, so **E10's premise that
@@ -1422,6 +1442,27 @@ creature findings stay in their own sections even when the lab measured them
 — the whole premise is that those are the same organisms either side, and
 filing them by which game happened to observe them would hide that.
 
+- [lab-lamps-light-the-bed-2026-08-30.md](lab-lamps-light-the-bed-2026-08-30.md)
+  — **built and measured.** The fixtures are what light the crop, and moving
+  one moves what grows under it. **They used to contribute nothing**: `labshot
+  lamps=0` came back byte-identical, because `Material::glow` seeds its own
+  field block and dies within a handful of them while the bench is nineteen
+  below — so the roof's 0.447 leak was the entire light budget and the shell's
+  thickness was the crop's light knob. `Material::beam` rides the sun's own
+  column descent instead, and the box declares itself sunless
+  (`World::set_sky_lighting`). The stand grows **26% larger and sets 1.9x the
+  seed**; dragging a fixture off a plant station **kills that plant**. **The
+  granularity question is answered at both `FIELD_SCALE` 8 and 16, with its
+  positive control**: at 8 every one of 32 columns moves the pool (the
+  block-quantised control sits still for six and then jumps 4.0), and at 16
+  there are **ten dead columns and a 4.9-cell lurch** — cured by one line,
+  because a fixture narrower than a light block cannot be positioned more
+  finely than the block. Frame cost is **+0.001 ms for the machinery** and
+  +0.82 ms for the bigger, busier biosphere it grew, separated by an empty-box
+  control. Two
+  things left open and stated: the pool draws on the back wall rather than on
+  the ground (a `render.rs` gate, and that file is being rewritten elsewhere),
+  and the pool's total flux ripples ±11% with sub-block phase.
 - [evolution-lab-gate-1-2026-08-30.md](evolution-lab-gate-1-2026-08-30.md) —
   **measured, nothing built beyond the two harnesses.** Gate 1 of the
   evolution-lab program: the census and the frame cost of `lab::scene::LabBox`,
@@ -1444,6 +1485,26 @@ filing them by which game happened to observe them would hide that.
   4,095 used, 0 refused. Timings taken under five-to-nine-times
   oversubscription and labelled as such; the render term is reported as
   **not measurable** rather than guessed.
+
+- [lab-sky-light-cost-2026-08-30.md](lab-sky-light-cost-2026-08-30.md) —
+  **built and landed.** The follow-up to Gate 1 §5.3: half the lab's draw was
+  `Renderer::rebuild_sky_light`, in a box whose whole premise is a ceiling
+  instead of a sky. **The sky being held was never what kept it awake** — the
+  rebuild fires on any touched chunk, and a bed with fifty walking ants
+  touches one every frame — and the cost inside it is a **per-cell scan**
+  (build 1.55 ms against a 0.90 ms fan and a 0.72 ms sweep), not the
+  propagation everyone assumes. Caching the per-block occupancy and rescanning
+  only the touched chunks' blocks takes the draw **4.80 -> 2.56 ms fresh and
+  2.97 -> 1.34 ms settled**, paired and alternating, 7 of 7 pairs; the whole
+  frame falls 32–38% and the renderer's tax on the speed dial goes from 18% to
+  8%. The picture is **byte-identical** in the lab and on the generated
+  outdoor world, and **0 pixels differ** across 3,000 per-frame comparisons
+  against a from-scratch renderer. Two findings past its own question: **a
+  frame hash is a positive control only where the change can reach a pixel** —
+  the deliberately broken cache drew a byte-identical lab sheet, so the light
+  grid is the discriminating comparison — and **half the remaining pass still
+  solves for movements of at most 20 bytes in 18,193**, which is the headroom
+  nobody has taken and is a harder change than this one.
 
 ## Licensing and distribution
 

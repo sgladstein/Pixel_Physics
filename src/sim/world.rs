@@ -346,6 +346,53 @@ pub struct CreatureStats {
     /// terrain around the parent and the other is a property of the
     /// engine's address space.
     pub births_denied_no_space: u64,
+    /// **The biggest single mouthful any creature in this world ever
+    /// swallowed**, in the units the eater received — `diet_yield`, after
+    /// the gut's matched filter, not the cell's face value.
+    ///
+    /// The reach counter for Gate 0, and it exists because `eats` cannot
+    /// answer the question it looks like it answers. A colony that grazes
+    /// leaf all day and a colony that once found a 1,440 flower report the
+    /// same `eats`; what decides whether an ant can ever afford a child is
+    /// `hunger_fraction * start_energy + one mouthful` against the birth
+    /// bar, and *which* mouthful is the whole of it. Flowers and fruit
+    /// stand twenty to forty rows up a stem, so "the food exists in this
+    /// world" and "an animal got its mandibles on it" are different claims
+    /// and only this one is about the animal.
+    ///
+    /// Paired with `peak_bank` below, the two split the deadlock three
+    /// ways: a best bite stuck at the leaf value is *cannot reach*; a big
+    /// bite with a bank that still never clears the bar is *the ceiling
+    /// blocks*; both clear and `births` still zero is something else again.
+    pub best_bite: f32,
+    /// **The largest mouthful any creature was ever *offered***, in the same
+    /// units as `best_bite`: the best cell in some animal's own
+    /// 8-neighbourhood, whether or not it took it.
+    ///
+    /// The near side of the pair, and it is what separates the two readings
+    /// of a colony that never eats well. `best_bite` alone cannot: a bite
+    /// stuck at the leaf value means *the good food was never within reach*
+    /// if this counter is stuck there too, and *the animal was standing next
+    /// to it and walked away* if this one is not. Those want opposite fixes —
+    /// grow more food where the animals are, against change what the animal
+    /// does when it is in front of food — and `CLAUDE.md`'s standing rule is
+    /// that a counter saying a thing fired is only worth what a counter from
+    /// the far side of the call says about it.
+    ///
+    /// Sampled where the eat verb looks, so it sees exactly what the animal
+    /// saw — including the fact that a laden animal is not offered anything
+    /// at all.
+    pub best_offer: f32,
+    /// **The highest bank any creature in this world ever held**, sampled
+    /// every time energy is charged or credited.
+    ///
+    /// `richest bank`, as every harness here reports it, is a census of the
+    /// *survivors at the end of the run* — an animal that reached 1,059 and
+    /// spent it back down, or reached it and died, is invisible in that
+    /// number. Against a birth bar this is exactly the wrong way round: the
+    /// question is whether anything ever got close, not whether anything is
+    /// close right now.
+    pub peak_bank: f32,
 }
 
 /// Where every joule went. See `World::energy_ledger`.
@@ -1439,6 +1486,32 @@ pub struct World {
     /// the renderer instead needs every call site changed, and draws a lab
     /// as open country wherever one is missed.
     enclosure: Option<crate::sim::enclosure::Enclosure>,
+    /// **Whether the sun reaches this world at all.**
+    ///
+    /// `true` everywhere but the evolution lab, where it is the one-line
+    /// statement of the design of record's §2: *the lab has a ceiling, not a
+    /// sky.* It had both, and the sky was winning — `field::apply_sky_to`
+    /// casts daylight down every column through `SKY_TRANSMISSION^(depth /
+    /// FIELD_SCALE)`, and a four-row ceiling passes **0.447** of it, which
+    /// is precisely the 0.447 the bench measured. The fixtures bolted into
+    /// that ceiling contributed nothing (`labshot lamps=0` came back
+    /// byte-identical at every stop), so the picture said grow lights and
+    /// the physics said sunshine through the roof.
+    ///
+    /// **A flag rather than a thicker or blacker shell, and it is the
+    /// cheapest of the three.** Thickening the ceiling is the same fiction
+    /// dimmer — 4 rows to 7 took the bench from 0.40 to 0.22 and halved the
+    /// stand, with no gate going red — and it leaves the crop's light a
+    /// function of how solid the box looks. An opaque *material* still pays
+    /// the whole descent to arrive at zero. This makes the sun's amplitude
+    /// zero at the top of the world, so the descent starts dark, every
+    /// `*c <= 0.0` early-out fires immediately, and the only thing left
+    /// writing light is a lamp.
+    ///
+    /// It is deliberately **not** folded into [`World::enclosure`], which is
+    /// documented as read by nothing in the simulation and is set by three
+    /// render tests that want a room drawn without their world going dark.
+    sky_lighting: bool,
 }
 
 /// The seed a world has when nothing has given it one. Arbitrary, fixed,
@@ -2102,6 +2175,7 @@ impl World {
             splashes_thrown: 0,
             seed: DEFAULT_WORLD_SEED,
             enclosure: None,
+            sky_lighting: true,
         };
         world.ensure_chunks_for(bounds);
         world
@@ -4430,6 +4504,27 @@ impl World {
     /// The room this world is inside, if it is inside one.
     pub fn enclosure(&self) -> Option<&crate::sim::enclosure::Enclosure> {
         self.enclosure.as_ref()
+    }
+
+    /// **Cut the sun out of this world, or let it back in** — see
+    /// [`World::sky_lighting`].
+    ///
+    /// Clears the settled flag so the change is visible on the next step
+    /// rather than whenever something else happens to wake a tile, exactly
+    /// as [`World::set_sky_hold`] does and for the same reason: a settled
+    /// world would otherwise keep the light it had.
+    pub fn set_sky_lighting(&mut self, lit: bool) {
+        if self.sky_lighting == lit {
+            return;
+        }
+        self.sky_lighting = lit;
+        self.fields_settled = false;
+    }
+
+    /// Whether the sun reaches this world. `true` unless something declared
+    /// otherwise; see the field's own doc for why the lab declares it.
+    pub fn sky_lighting(&self) -> bool {
+        self.sky_lighting
     }
 
     /// **Pin the weather to a named sky, or let it run again** — the

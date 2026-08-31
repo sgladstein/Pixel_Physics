@@ -1,7 +1,10 @@
 # Ants
 
-*Current as of: 2026-08-30, when a dug tunnel first stayed dug — and when a
-beetle got eyes — the first animal here
+*Current as of: 2026-08-30, when ants bred for the first time — an animal
+close to affording young now finishes the meal instead of carrying it home,
+and takes the best thing within reach rather than whatever it happens to
+turn toward first. The same day a dug tunnel first stayed dug, and a beetle
+got eyes — the first animal here
 that can tell there is something worth eating on the far side of the room,
 rather than only what it is already touching. Also 2026-08-30: the colony got
 a page of its own — how many
@@ -462,30 +465,43 @@ is right, which is what makes it worth inheriting — and it only became a
 real choice at all once an ant that fails to eat can actually die, which is
 the change described further up.
 
-**In the world as it currently stands, no ant ever breeds, and the reason is
-worth understanding rather than treating as a bug.** An ant only eats when it
-is genuinely hungry — otherwise it carries what it finds home, which is what
-makes it a forager rather than a grazer. That rule puts a hard ceiling on
-what an ant can be carrying: it stops eating once it is comfortable, so its
-store never climbs much above that line. The richest ant in a colony sits at
-a couple of hundred units of store against a birth costing about a thousand.
+**For a long time no ant ever bred, and the reason turned out to be
+politeness rather than poverty.** An ant only ate when it was genuinely
+hungry; the moment it was comfortable it stopped and carried whatever it
+found home instead, which is what makes it a forager rather than a grazer.
+That put a hard lid on what any ant could ever be holding — comfortable, plus
+the single mouthful that made it so — and a birth costs several times that.
+The richest ant in a colony would stall just short of the price and stand
+there, full, next to more food than it needed.
 
-**Cutting what a newcomer is given does not fix it, and this is the part that
-is easy to get backwards.** Most of what a birth costs is not the newcomer's
-starting store at all — it is the meat the newcomer's body is made of, and
-that price does not move however little the parent hands over. A two-cell ant
-is nearly a thousand units of body before a single unit of starting store is
-added. Worse, making ants live on less also lowers the ceiling on what they
-can carry, so shortening their lives moves the finish line and the runner
-in the same direction. An ant handed *nothing at all* still could not
-afford a child.
+**Now an animal that is close to affording young finishes the meal.** Out on
+the route it only does this for a mouthful big enough to pay for the whole
+child by itself, so everything smaller still goes back to the nest and the
+colony still feeds itself. **At the nest it keeps eating for as long as the
+stores last**, which is what a colony's stores were always supposed to be
+for and what nothing in the game had ever read back. So how many young a
+colony raises is now a question about how well it forages, and a well-stocked
+nest is worth something beyond looking well stocked.
 
-So what has to change is the body, not the endowment: either an ant is born
-as a single cell and grows the rest later, paying for it as it goes, or a
-parent splits and gives up part of its own body, which costs nothing to
-build because it is already built. The third way out is a specialist — an ant
-whose gut is properly tuned to leaves gets four times as much out of one, and
-that alone very nearly closes the gap. Ordinary ants are generalists and get
-a quarter of what a leaf is worth.
+Ants also **take the best thing in reach** rather than the first thing they
+happen to turn toward. Standing between a leaf and a flower they now take the
+flower, which is worth three times as much — before, which one they got
+depended on nothing more meaningful than which direction the animal checked
+first.
+
+**What still holds a colony back is getting the food home, not affording the
+child.** Put food on the ground beside a nest and a colony breeds hard —
+thirteen generations deep inside a single session, and the bed visibly thins
+as it does, because every new ant is made of something that used to be a
+plant. Leave it to forage for itself in the sealed lab bed and it picks food
+up sixteen hundred times and brings it home four. That is the next thing to
+fix, and it is a foraging problem rather than an economy one.
+
+The other half is supply. A herb's fruit ripens, hangs there ready to fall,
+and mostly never does — the plant cannot pay the last instalment. Over a long
+session a whole bed of herbs puts about twenty pieces of fruit on the ground,
+and at any moment there is well under one lying there. Ants climb the stems
+happily, thirty rows and more, so it is not that the food is out of their
+reach; there is simply almost none of it.
 
 Colonies still have no queens and no eggs.

@@ -77,6 +77,16 @@ pub struct LabBox {
     /// that a 4096-wide bed is lit like a 512-wide one instead of being lit
     /// eight times more thinly, and so every compartment gets at least one
     /// fixture however many compartments there are.
+    ///
+    /// **64 rather than 128 since the fixtures became the light source.** A
+    /// lamp's pool is its own width plus what `field::LIGHT_DECAY` bleeds
+    /// sideways -- about 55 columns all told, measured -- so at 128 the bed
+    /// was lit in four islands with dark ground between them and the founders
+    /// stood in the dark half. At 64 over a 512 bed this places one fixture
+    /// per founder station, from the same `spread` the founders use, and
+    /// adjacent pools overlap the way `LAMP_REACH_FRACTION` always claimed
+    /// they did. A working grow room is the default; making it *not* work by
+    /// dragging a fixture off its bed is the mechanic.
     pub lamp_spacing: i32,
     pub seed: u64,
 }
@@ -173,7 +183,7 @@ impl Default for LabBox {
             founders: 8,
             species: "herb".to_string(),
             colonies: 1,
-            lamp_spacing: 128,
+            lamp_spacing: 64,
             seed: 1,
         }
     }
@@ -201,24 +211,50 @@ const FLOOR_ROWS: i32 = 8;
 const SHELL: i32 = 4;
 /// Thickness of the ceiling.
 ///
-/// **Four, and it is not a free choice: the shell's thickness is a light
-/// knob.** `field.rs` casts sky light down each CA column and passes
-/// `SKY_TRANSMISSION^(depth / FIELD_SCALE)` — `0.2^(depth/8)` — so a ceiling
-/// four rows deep passes **0.447** of what falls on it and one seven rows
-/// deep passes **0.245**. This was found the expensive way: a ceiling
-/// thickened from 4 to 7 rows to make room for a recessed lamp took the
-/// light at the bench from 0.40 to **0.22** of `field::MAX_LIGHT` and the
-/// stand at frame 3,600 from 474 plant cells to **286**, seed set 12 to
-/// **0**. Nothing failed, nothing germinated late and no test went red — the
-/// crop simply grew less, which reads exactly like a species problem.
+/// **It used to be a light knob, and deliberately is not one any more.**
+/// `field.rs` casts sky light down each CA column through
+/// `SKY_TRANSMISSION^(depth / FIELD_SCALE)`, so a four-row ceiling passed
+/// **0.447** of the daylight above it and a seven-row one **0.245** — and
+/// that was the crop's entire light budget. It was found the expensive way:
+/// thickening the shell from 4 to 7 rows to make room for a recessed lamp
+/// took the bench from 0.40 to **0.22** of `field::MAX_LIGHT` and the stand
+/// at frame 3,600 from 474 plant cells to **286**, seed set 12 to **0**,
+/// with nothing failing and no test going red.
 ///
-/// So the shell is as thin as it can be while still being a shell, and
-/// thickening it is a decision about how much light the crop gets rather
-/// than about how solid the box looks.
-/// `the_ceiling_is_thin_enough_to_grow_under` is the guard.
+/// The box now declares itself sunless (`World::set_sky_lighting`) and is lit
+/// by its fixtures, so this number decides how solid the box *looks* and
+/// nothing else. Two guards replace the one that made this constant
+/// untouchable: `the_lamps_are_what_light_the_bed` (pull the fixtures and the
+/// bed goes dark, where it used to be byte-identical) and
+/// `a_fixture_does_not_shade_its_own_light` (pack the fixture's own block
+/// with stone and the bench must not notice).
 const CEILING: i32 = 4;
+/// The fixture material. Named rather than numbered, like every other
+/// material this scene places -- an id is a position in
+/// `material::MATERIAL_FILES` and nothing in the world should depend on one.
+const LAMP_MATERIAL: &str = "growlamp";
 /// Half-width of a grow-light fixture, in columns.
-const LAMP_HALF: i32 = 7;
+///
+/// **Never narrower than a light block, and that is a measurement rather
+/// than a preference.** Light lives on the coarse field at one value per
+/// `FIELD_SCALE` cells, so a fixture that fits *inside* one block emits from
+/// exactly one block-column however you slide it, and dragging it changes how
+/// bright the pool is without moving where it is. Measured on
+/// `examples/lamp_probe.rs` at `FIELD_SCALE` 16 with a fixed 15-cell bar: the
+/// bench's light centroid sits at 263.500 for **ten consecutive columns** of
+/// drag, dimming from 0.562 to 0.412 of `MAX_LIGHT` as it goes, and then
+/// jumps 4.9 cells at once. That is the control a player calls broken —
+/// nothing happens, and then it lurches.
+///
+/// Widening the bar to a block either side closes it outright: the same sweep
+/// moves the centroid at **every one of 32 columns**, minimum step 0.444, at
+/// a peak pinned flat at 0.600. So the rule is the fixture spans at least two
+/// block-columns whatever `FIELD_SCALE` is.
+///
+/// 7 at today's `FIELD_SCALE` of 8 — a 15-cell bar, unchanged, and the sweep
+/// at 8 has no dead cell in it either. The expression only bites if the field
+/// is coarsened, which is a live proposal.
+const LAMP_HALF: i32 = if field::FIELD_SCALE - 1 > 7 { field::FIELD_SCALE - 1 } else { 7 };
 /// Rows of the ceiling a fixture is recessed into. Recessed rather than
 /// hung: a bar bolted under the ceiling has a span to support and would be
 /// the one thing in the box that can fall on the crop, which is a mechanic
@@ -340,16 +376,140 @@ impl LabBox {
     /// nothing to do with isolation.
     pub fn lamp_columns(&self) -> (Vec<i32>, i32) {
         let spacing = self.lamp_spacing.max(8);
-        let mut out = Vec::new();
-        for (lo, hi) in self.compartment_spans() {
-            let n = (((hi - lo) as f32 / spacing as f32).round() as i32).max(1);
-            for j in 0..n {
-                out.push(lo + (hi - lo) * (2 * j + 1) / (2 * n));
+        let usable: i32 = self.compartment_spans().iter().map(|(lo, hi)| hi - lo).sum();
+        // **The same `spread` the founders get, not a placement of its own.**
+        // Two independent even spacings across one bed interleave rather than
+        // coincide: at eight of each, the old midpoint formula put every
+        // fixture 3 to 25 columns off a founder, which did not matter while
+        // the fixtures lit nothing and decides the stand now that they do.
+        // One function means a plant station and a light station are the same
+        // place by construction.
+        let n = ((usable as f32 / spacing as f32).round() as usize).max(self.compartments.max(1));
+        let reach = ((spacing as f32 * LAMP_REACH_FRACTION).round() as i32).max(4);
+        (self.spread(n), reach)
+    }
+
+    /// The rows a fixture is recessed into.
+    pub fn lamp_rows(&self) -> std::ops::Range<i32> {
+        let ceiling = self.ceiling_y();
+        (ceiling + CEILING - LAMP_ROWS)..(ceiling + CEILING)
+    }
+
+    /// Write one fixture's bar into the ceiling at `cx`, or take it out
+    /// again, and say whether anything was written.
+    ///
+    /// **The one place a fixture's geometry is expressed**, so the builder
+    /// and [`LabBox::move_lamp`] cannot drift apart -- a moved lamp that is
+    /// one row shallower than a built one is a light difference nothing in
+    /// the box would report.
+    fn paint_lamp(&self, w: &mut World, cx: i32, on: bool) -> bool {
+        let Some(lamp) = w.materials.id_of(LAMP_MATERIAL) else { return false };
+        let walls = self.partition_columns();
+        let mut wrote = false;
+        for y in self.lamp_rows() {
+            for x in (cx - LAMP_HALF)..=(cx + LAMP_HALF) {
+                // A bar is centred in its compartment but is wider than a
+                // narrow compartment, so at high wall counts its ends reach
+                // the walls either side. Skipping them rather than clamping
+                // the bar keeps the fixture the same size everywhere and
+                // keeps every wall one unbroken column of stone — §2c's whole
+                // point is that a wall is a wall.
+                if x < SHELL || x >= self.width - SHELL || walls.contains(&x) {
+                    continue;
+                }
+                if on {
+                    w.set(x, y, Cell::new(lamp, ((x * 5 + y * 3) % 4) as u8));
+                } else if w.get(x, y).material == lamp {
+                    w.set(x, y, Cell::new(material::STONE, 0));
+                }
+                wrote = true;
             }
         }
-        out.sort_unstable();
-        let reach = ((spacing as f32 * LAMP_REACH_FRACTION).round() as i32).max(4);
-        (out, reach)
+        wrote
+    }
+
+    /// Columns the fixtures currently stand at, **read off the world** rather
+    /// than off the spec.
+    ///
+    /// The spec says where the builder put them; this says where they are
+    /// now, which is the only one of the two a player can change. Contiguous
+    /// runs of fixture cells in the ceiling, reported by their centre.
+    pub fn lamps_in(&self, world: &World) -> Vec<i32> {
+        let Some(lamp) = world.materials.id_of(LAMP_MATERIAL) else { return Vec::new() };
+        let y = self.lamp_rows().start;
+        let mut out = Vec::new();
+        let mut run: Option<(i32, i32)> = None;
+        for x in 0..=self.width {
+            let lit = x < self.width && world.get(x, y).material == lamp;
+            match (&mut run, lit) {
+                (None, true) => run = Some((x, x)),
+                (Some(r), true) => r.1 = x,
+                (Some(r), false) => {
+                    out.push((r.0 + r.1) / 2);
+                    run = None;
+                }
+                (None, false) => {}
+            }
+        }
+        out
+    }
+
+    /// The fixture nearest `x`, if one is within half a bay of it — what a
+    /// click on the ceiling should pick up.
+    pub fn lamp_near(&self, world: &World, x: i32) -> Option<i32> {
+        let reach = self.lamp_spacing.max(8) / 2;
+        self.lamps_in(world).into_iter().filter(|c| (c - x).abs() <= reach).min_by_key(|c| (c - x).abs())
+    }
+
+    /// Take the fixture centred at `cx` out of the ceiling, leaving stone --
+    /// the `lamps=0` control, and what a player uninstalling one does.
+    pub fn remove_lamp(&self, world: &mut World, cx: i32) -> bool {
+        let out = self.paint_lamp(world, cx, false);
+        self.resync_enclosure(world);
+        out
+    }
+
+    /// **Move the fixture centred at `from` so its centre lands at `to`.**
+    ///
+    /// This is the whole of the mechanic the owner asked for — *adjust plant
+    /// growth by moving lights* — and it is one call: the light under the bed
+    /// follows on the next field step, because `Material::beam` is gathered
+    /// in `field::rebuild_blocked`'s existing scan and writing cells wakes
+    /// the chunk that holds them.
+    ///
+    /// Returns `false` and changes nothing if `to` would put the bar outside
+    /// the shell, so a drag can be attempted every frame and simply refuse at
+    /// the wall. Sub-`FIELD_SCALE` moves are real: the block a fixture emits
+    /// from is averaged across its CA columns, so a one-cell drag moves an
+    /// eighth of a block's worth of light rather than nothing at all.
+    pub fn move_lamp(&self, world: &mut World, from: i32, to: i32) -> bool {
+        if to - LAMP_HALF < SHELL || to + LAMP_HALF >= self.width - SHELL {
+            return false;
+        }
+        if !self.lamps_in(world).contains(&from) {
+            return false;
+        }
+        self.paint_lamp(world, from, false);
+        let moved = self.paint_lamp(world, to, true);
+        self.resync_enclosure(world);
+        moved
+    }
+
+    /// Point the room's declared fixture list at where the fixtures actually
+    /// are.
+    ///
+    /// **The picture does not follow the physics on its own, and this is the
+    /// join.** `Enclosure::lamps` is what the interior renderer paints its
+    /// pools from, and the builder set it once; without this a moved fixture
+    /// beams from its new column while the room stays lit under its old one —
+    /// the same picture-says-one-thing-physics-says-another the whole change
+    /// exists to close, reintroduced by the fix for it.
+    fn resync_enclosure(&self, world: &mut World) {
+        let lamps = self.lamps_in(world);
+        let (_, reach) = self.lamp_columns();
+        world.set_enclosure(Some(
+            Enclosure::new(self.room_top(), self.ground_y).with_lamps(lamps, reach),
+        ));
     }
 
     pub fn build(&self) -> World {
@@ -414,44 +574,28 @@ impl LabBox {
             }
         }
 
-        // **The grow lights, as objects.** Recessed into the ceiling rather
-        // than painted on: a fixture is something the player will eventually
-        // move, switch and pay for. `crystal` is the shipped glowing solid
-        // (`glow: 1.8` against `field::MAX_LIGHT` 4.0) and reads at this
-        // scale as a cold bar of light in the ceiling.
+        // **The grow lights, as objects, and now as the light.** Recessed
+        // into the ceiling rather than painted on: a fixture is something the
+        // player buys, places and moves.
         //
-        // **What they are not, measured: the crop's light source.** Replacing
-        // every fixture with plain stone — `labshot lamps=0`, which is the
-        // control — leaves the light at the bench and the whole stand
-        // *byte-identical* at every frame sampled. `Material::glow` seeds the
-        // light channel of its own field block and then decays at
-        // `LIGHT_DECAY` per step, which `field.rs` describes as reaching "a
-        // handful of blocks"; the bench is about nineteen blocks below the
-        // ceiling. So the crop lives on sky light coming through the shell,
-        // and the fixtures are how the room *reads* the schedule rather than
-        // how it is lit. Both are driven by the same held frame, so the
-        // picture and the physics agree about how much light there is and
-        // disagree only about where it comes from -- worth closing, and not
-        // by making one lamp brighter.
+        // **What they used to be, measured: nothing.** Replacing every
+        // fixture with plain stone — `labshot lamps=0`, which is the control
+        // — left the light at the bench and the whole stand *byte-identical*
+        // at every frame sampled. They were `crystal`, whose `Material::glow`
+        // seeds the light channel of its own field block and then relies on
+        // `LIGHT_DECAY` to spread it, which `field.rs` holds to "a handful of
+        // blocks"; the bench is nineteen blocks below the ceiling. So the
+        // crop lived on sky light through the shell while the picture said
+        // grow lights.
+        //
+        // `growlamp` closes that: `Material::beam` rides the sun's own column
+        // descent, so a fixture lights the bed under it and clear air passes
+        // it undimmed. Together with the sunless declaration below, the
+        // picture and the physics now agree about *where* the light comes
+        // from as well as how much of it there is.
         let (lamps, lamp_reach) = self.lamp_columns();
-        let walls = self.partition_columns();
-        if let Some(crystal) = w.materials.id_of("crystal") {
-            for &cx in &lamps {
-                for y in (ceiling + CEILING - LAMP_ROWS)..(ceiling + CEILING) {
-                    for x in (cx - LAMP_HALF)..=(cx + LAMP_HALF) {
-                        // A bar is centred in its compartment but is wider
-                        // than a narrow compartment, so at high wall counts
-                        // its ends reach the walls either side. Skipping
-                        // them rather than clamping the bar keeps the
-                        // fixture the same size everywhere and keeps every
-                        // wall one unbroken column of stone — §2c's whole
-                        // point is that a wall is a wall.
-                        if x >= SHELL && x < self.width - SHELL && !walls.contains(&x) {
-                            w.set(x, y, Cell::new(crystal, ((x * 5 + y * 3) % 4) as u8));
-                        }
-                    }
-                }
-            }
+        for &cx in &lamps {
+            self.paint_lamp(&mut w, cx, true);
         }
 
         // **This is a room, and the renderer is to draw it as one.** Purely
@@ -463,7 +607,17 @@ impl LabBox {
             Enclosure::new(self.room_top(), self.ground_y).with_lamps(lamps, lamp_reach),
         ));
 
-        // A grow light, not a sun, and calm air.
+        // **A grow light, not a sun** — and since 2026-08-30 that is a
+        // statement about the physics and not only about the picture. The
+        // design of record's §2 is "the lab has a ceiling, not a sky"; it had
+        // both, and the sky was winning, passing 0.447 of full daylight
+        // through four rows of stone to do the whole job the fixtures were
+        // drawn doing. `set_sky_lighting(false)` is that sentence.
+        //
+        // The hold stays, and is not vestigial: it pins `sky_temperature` and
+        // the renderer's own day tint, and it is what `noon_equivalent_light`
+        // normalises the crop's readings by. Calm air.
+        w.set_sky_lighting(false);
         w.set_sky_hold(Some(Self::noon()));
         w.set_weather_pin(Pin::Clear);
 
@@ -618,29 +772,33 @@ mod tests {
     }
 
     #[test]
-    fn the_ceiling_is_thin_enough_to_grow_under() {
-        // **The shell's thickness is a light knob, and this is the only
-        // thing that says so.** `field.rs` passes `0.2^(depth/8)` down a
-        // column, so three extra rows of ceiling cost 45% of the light and
-        // the only symptom is a smaller stand — no failure, no late
-        // germination, nothing red. Measured on this build: 4 rows gives
-        // 0.40 of `MAX_LIGHT` at the bench and 7 rows gives 0.22.
+    fn a_fixture_does_not_shade_its_own_light() {
+        // **The half of "the shell is no longer a light knob" that can
+        // actually fail.** The first version of this guard buried the box
+        // under three more blocks of stone and asserted the bench did not
+        // move — and it passed with the sun switched back *on*, because the
+        // fixtures out-shine the leak either way, so it could not see the
+        // fault it was named for. `CLAUDE.md`: if a guard does not go red
+        // when you put the fault back it is blind, not weak, and the fix is
+        // to replace it rather than widen its assertion.
         //
-        // Asserted as a *paired* comparison against a deliberately thicker
-        // shell rather than against a remembered constant, so it survives
-        // a retune of `SKY_TRANSMISSION` and still catches the thing it is
-        // named for. The thick arm is the positive control: if it does not
-        // come out dimmer, this test cannot see ceiling thickness at all.
-        let thin = LabBox::default();
-        let thick = LabBox { ground_y: thin.ground_y + 3, ..thin.clone() };
-
-        let bench_light = |b: &LabBox, extra: i32| {
+        // What decides whether shell thickness is a light knob is one line in
+        // `field::apply_sky_to`: the descent attenuates *then* re-seeds the
+        // beam, so a fixture emits from its face rather than through its
+        // housing. Reverse that and a lamp set into four rows of stone loses
+        // 55% of its output, and every extra row costs again. So: fill the
+        // rest of the fixture's own light block with stone and require the
+        // bench not to notice. Injecting the reversed order takes this arm to
+        // roughly a fifth of the other, which is the sensitivity the buried
+        // version never had.
+        let b = LabBox::default();
+        let bench_light = |encase: bool| {
             let mut w = b.build();
-            if extra > 0 {
-                // Three more rows of stone under the ceiling, and nothing
-                // else changed.
+            if encase {
+                // From under the bar to the bottom of the block it sits in.
+                let block_end = (b.lamp_rows().start / field::FIELD_SCALE + 1) * field::FIELD_SCALE;
                 for x in 0..b.width {
-                    for y in b.room_top()..(b.room_top() + extra) {
+                    for y in b.lamp_rows().end..block_end {
                         w.set(x, y, Cell::new(material::STONE, 0));
                     }
                 }
@@ -649,16 +807,89 @@ mod tests {
                 w.step_fields();
             }
             let cols = b.founder_columns();
-            let sum: f32 = cols.iter().map(|&x| w.field_at(x, b.ground_y - 2).light).sum();
-            sum / cols.len().max(1) as f32 / field::MAX_LIGHT
+            cols.iter().map(|&x| w.field_at(x, b.ground_y - 2).light).sum::<f32>()
+                / cols.len().max(1) as f32
+                / field::MAX_LIGHT
         };
-
-        let open = bench_light(&thin, 0);
-        let buried = bench_light(&thick, 3);
-        assert!(buried < open * 0.8, "the control failed: three more rows of ceiling must measurably dim the bench ({buried:.3} against {open:.3})");
+        let bare = bench_light(false);
+        let encased = bench_light(true);
+        assert!(bare > 0.30, "the bench is at {bare:.3} of full light -- the fixtures are not delivering");
         assert!(
-            open > 0.30,
-            "the bench is at {open:.3} of full light -- the shell has been thickened, and the only symptom is a smaller stand"
+            (encased - bare).abs() < 0.01,
+            "packing the fixture's own block with stone moved the bench {bare:.3} -> {encased:.3}; \
+             the lamps are shining through their own housing, so how thick the shell is decides \
+             how much light the crop gets again"
+        );
+    }
+
+    #[test]
+    fn the_lamps_are_what_light_the_bed() {
+        // **The measurement that started this work, run the other way
+        // round.** `labshot lamps=0` used to come back *byte-identical*: the
+        // fixtures contributed nothing and the shell's leak was the whole
+        // light budget. Pulling every fixture out must now put the bed in the
+        // dark, and this is the only thing in the lane that would notice if
+        // it stopped being true.
+        //
+        // The lit arm is the positive control the same assertion needs: a
+        // bench that reads dark in both arms passes "dark without lamps" for
+        // the wrong reason.
+        let b = LabBox::default();
+        let bench = |lamps: bool| {
+            let mut w = b.build();
+            if !lamps {
+                for cx in b.lamps_in(&w) {
+                    b.paint_lamp(&mut w, cx, false);
+                }
+            }
+            for _ in 0..240 {
+                w.step_fields();
+            }
+            let cols = b.founder_columns();
+            cols.iter().map(|&x| w.field_at(x, b.ground_y - 2).light).sum::<f32>()
+                / cols.len().max(1) as f32
+                / field::MAX_LIGHT
+        };
+        let lit = bench(true);
+        let dark = bench(false);
+        assert!(lit > 0.30, "the fixtures are not lighting the bench ({lit:.3} of full light)");
+        assert!(dark < 0.02, "the bed is still lit with every fixture removed ({dark:.3}) -- something other than the lamps is lighting it");
+    }
+
+    #[test]
+    fn a_lamp_lights_the_bed_under_it_and_moving_it_moves_the_light() {
+        // **The mechanic, as an assertion.** Owner, 2026-08-30: *it would be
+        // fun to adjust plant growth by moving lights.* That is only true if
+        // where a fixture sits decides what is bright, so: one fixture, one
+        // reading under it and one a bay away, then move it and the two swap.
+        //
+        // A paired swap rather than two absolute thresholds, because the
+        // claim is *the light followed the lamp* and a box that simply got
+        // brighter or dimmer everywhere would satisfy thresholds.
+        let b = LabBox { founders: 0, colonies: 0, lamp_spacing: 512, ..LabBox::default() };
+        let mut w = b.build();
+        let lamps = b.lamps_in(&w);
+        assert_eq!(lamps.len(), 1, "this test wants exactly one fixture, got {lamps:?}");
+        let (home, away) = (lamps[0], lamps[0] + 128);
+        let settle = |w: &mut World| {
+            for _ in 0..240 {
+                w.step_fields();
+            }
+        };
+        settle(&mut w);
+        let under_before = w.field_at(home, b.ground_y - 2).light;
+        let away_before = w.field_at(away, b.ground_y - 2).light;
+        assert!(b.move_lamp(&mut w, home, away), "the fixture refused to move");
+        settle(&mut w);
+        let under_after = w.field_at(home, b.ground_y - 2).light;
+        let away_after = w.field_at(away, b.ground_y - 2).light;
+        assert!(
+            under_before > away_before * 4.0,
+            "the bed is not brighter under the fixture than a bay away ({under_before:.3} against {away_before:.3})"
+        );
+        assert!(
+            away_after > under_after * 4.0,
+            "moving the fixture did not move the light ({under_after:.3} under where it was, {away_after:.3} where it went)"
         );
     }
 
@@ -712,18 +943,29 @@ mod tests {
     #[test]
     fn the_box_declares_itself_a_room_and_says_where_its_lights_are() {
         let b = LabBox::default();
-        let w = b.build();
-        let e = w.enclosure().expect("a sealed box is an enclosure or it draws as sky");
+        let mut w = b.build();
+        let e = w.enclosure().expect("a sealed box is an enclosure or it draws as sky").clone();
         assert_eq!(e.ceiling_y, b.room_top());
         assert_eq!(e.floor_y, b.ground_y);
         assert_eq!(e.lamps, b.lamp_columns().0);
         // ...and the fixtures are really in the ceiling, not just in the
         // table. A painted lamp over an empty ceiling is the channel with a
         // reader and no writer.
-        let crystal = w.materials.id_of("crystal").expect("crystal is compiled in");
+        let lamp = w.materials.id_of(LAMP_MATERIAL).expect("the fixture material is compiled in");
         for &x in &e.lamps {
-            assert_eq!(w.get(x, b.room_top() - 1).material, crystal, "no fixture over the pool at x={x}");
+            assert_eq!(w.get(x, b.room_top() - 1).material, lamp, "no fixture over the pool at x={x}");
         }
+        // **And the table follows the fixture when it moves**, which is the
+        // half a build-time check cannot see: `Enclosure::lamps` is set once
+        // by the builder, so a moved lamp beaming from its new column while
+        // the room stays lit under its old one is exactly the
+        // picture-disagrees-with-physics defect this whole change closes,
+        // reintroduced by the fix for it.
+        let home = e.lamps[0];
+        assert!(b.move_lamp(&mut w, home, home + 24));
+        let moved = w.enclosure().expect("still a room").lamps.clone();
+        assert!(!moved.contains(&home), "the room is still lit where the fixture used to be: {moved:?}");
+        assert!(moved.contains(&(home + 24)), "the room is not lit where the fixture went: {moved:?}");
     }
 
     /// **The bed's floor has to clear the control bar, and the visible bed

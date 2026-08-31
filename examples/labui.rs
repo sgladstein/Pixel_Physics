@@ -26,10 +26,19 @@ const COLS: usize = 3;
 fn main() {
     let mut frames = 900u32;
     let mut out = "labui.png".to_string();
+    let mut split = false;
+    let mut only: Option<String> = None;
     for arg in std::env::args().skip(1) {
         match arg.split_once('=') {
             Some(("frames", v)) => frames = v.parse().expect("frames=N"),
             Some(("out", v)) => out = v.to_string(),
+            // **One tile per file, at full size.** A twenty-tile sheet is
+            // 1536 pixels wide and every viewer that opens it scales it down,
+            // which is exactly the wrong thing to do to a page of 5x7 glyphs:
+            // the sheet answers "is the bar right" and cannot answer "can you
+            // read this row". `only=` picks the tiles whose title contains it.
+            Some(("split", v)) => split = v == "1",
+            Some(("only", v)) => only = Some(v.to_string()),
             _ => eprintln!("ignoring unknown argument {arg:?}"),
         }
     }
@@ -337,6 +346,159 @@ fn main() {
     click(&mut lab, at);
     }
 
+    // **The parameters page**, and the count beside every tile is the point:
+    // a row that paints its figure correctly and refuses to move looks
+    // identical here to one that works. So every arm below reads the value
+    // back out of the registry after the click and prints both.
+    //
+    // `draw` between the click and the aim, every time: the page's rectangles
+    // are retained from the last painted frame — deliberately, so a click is
+    // tested against what the player was looking at — so a harness that
+    // clicked and immediately aimed would be aiming at the page before it
+    // existed.
+    let at = centre(&lab, Action::Panel(Panel::Params));
+    click(&mut lab, at);
+    let _ = shot(&mut lab);
+    fired.push(format!("click opened PARAMS: {}", lab.ui.panel == Some(Panel::Params)));
+
+    let (mut moved, mut stuck): (u32, Vec<String>) = (0, Vec::new());
+    let mut at_ceiling: Vec<String> = Vec::new();
+    for (i, group) in pixel_physics::lab::params::GROUPS.iter().enumerate() {
+        let at = centre(&lab, Action::ParamGroup(i));
+        click(&mut lab, at);
+        let _ = shot(&mut lab);
+        let list = lab.ui.page_params(&lab.world, &lab.spec);
+        fired.push(format!(
+            "PARAMS page {}: {} rows, {} writable, {} shown-only",
+            group.label(),
+            list.len(),
+            list.iter().filter(|p| p.writable()).count(),
+            list.iter().filter(|p| !p.writable()).count()
+        ));
+
+        // A row hovered, so the tile carries a page *and* the explanation the
+        // owner asked every label to have. **Before anything is adjusted**:
+        // these tiles are the page as it ships, and a sheet of values a
+        // harness had just walked upward would be a picture of the harness.
+        if let Some(r) = lab.ui.widget_rect(Action::ParamAdjust(2, 1)).or_else(|| lab.ui.widget_rect(Action::ParamAdjust(0, 1))) {
+            lab.set_cursor(Some((r.x - 60, r.y + 4)));
+        }
+        tiles.push((format!("PARAMS: {}", group.label()), shot(&mut lab)));
+    }
+    lab.set_cursor(None);
+
+    // **Now** every writable row on every page, moved by a real click on its
+    // own `+` face, and the value read back. This runs after the tiles above
+    // because it walks every number in the box upward, and a picture of that
+    // is a picture of the harness rather than of the game.
+    for (i, group) in pixel_physics::lab::params::GROUPS.iter().enumerate() {
+        let at = centre(&lab, Action::ParamGroup(i));
+        click(&mut lab, at);
+        let _ = shot(&mut lab);
+        // Every writable row, moved by a real click on its own `+` face, in
+        // as many pagefuls as the page has. `params::write` returning `false`
+        // is a knob with a reader and no writer — the failure that looks
+        // exactly like working code from outside — so the names of any that
+        // did not move are printed rather than counted.
+        let mut seen = 0usize;
+        loop {
+            let mut aimed = false;
+            for row in 0..lab.ui.page_params(&lab.world, &lab.spec).len() {
+                let Some(r) = lab.ui.widget_rect(Action::ParamAdjust(row, 1)) else { continue };
+                aimed = true;
+                seen += 1;
+                let before = lab.ui.page_params(&lab.world, &lab.spec)[row].display();
+                click(&mut lab, (r.x + r.w / 2, r.y + r.h / 2));
+                let _ = shot(&mut lab);
+                let after = lab.ui.page_params(&lab.world, &lab.spec)[row].display();
+                let p = &lab.ui.page_params(&lab.world, &lab.spec)[row];
+                // **A row already at its ceiling is a clamp, not a stuck
+                // knob**, and calling it stuck would be a false positive that
+                // hides a real one. `water.flow_rate` ships at 1000 of 1000.
+                let clamped = p.tunable.value >= p.tunable.max;
+                if before == after && !clamped {
+                    stuck.push(format!("{}.{} stuck at {before}", p.tunable.category, p.tunable.name));
+                } else if before != after {
+                    moved += 1;
+                } else {
+                    at_ceiling.push(format!("{}.{}", p.tunable.category, p.tunable.name));
+                }
+            }
+            let Some(down) = lab.ui.widget_rect(Action::ParamScroll(1)) else { break };
+            let was = lab.ui.param_scroll();
+            click(&mut lab, (down.x + down.w / 2, down.y + down.h / 2));
+            let _ = shot(&mut lab);
+            if lab.ui.param_scroll() == was || !aimed {
+                break;
+            }
+        }
+
+        // Back to the top, then hover a row so the tile carries a page *and*
+        // the explanation the owner asked every label to have.
+        while lab.ui.param_scroll() > 0 {
+            let Some(up) = lab.ui.widget_rect(Action::ParamScroll(-1)) else { break };
+            click(&mut lab, (up.x + up.w / 2, up.y + up.h / 2));
+            let _ = shot(&mut lab);
+        }
+        if let Some(r) = lab.ui.widget_rect(Action::ParamAdjust(2, 1)).or_else(|| lab.ui.widget_rect(Action::ParamAdjust(0, 1))) {
+            lab.set_cursor(Some((r.x - 60, r.y + 4)));
+        }
+        fired.push(format!("PARAMS page {}: {seen} clicks on a +/- face landed on one", group.label()));
+    }
+    fired.push(format!(
+        "PARAMS: {moved} rows moved by their own + face; already at their ceiling: {at_ceiling:?}; STUCK: {stuck:?}"
+    ));
+
+    // The save path, **reported and not run**: it writes into `assets/`, and a
+    // contact-sheet harness that edited the repository's own species files
+    // would be a harness nobody could run twice.
+    for (i, _) in pixel_physics::lab::params::GROUPS.iter().enumerate() {
+        let at = centre(&lab, Action::ParamGroup(i));
+        click(&mut lab, at);
+        let _ = shot(&mut lab);
+        for p in lab.ui.page_params(&lab.world, &lab.spec) {
+            if !p.writable() {
+                continue;
+            }
+            // A dry run: everything `save` checks except the write itself.
+            fired.push(format!("SAVEABLE {}.{}: {}", p.tunable.category, p.tunable.name, pixel_physics::lab::params::save_check(&p)));
+        }
+    }
+
+    let at = centre(&lab, Action::Panel(Panel::Params));
+    click(&mut lab, at);
+    let _ = shot(&mut lab);
+
+    // **The specimen**, both kingdoms. The cell page grows the individual's
+    // own rows under the cell's, and the two kingdoms carry different state —
+    // a plant has a genotype and an allele set, an animal has body traits and
+    // an errand — so one tile could not show the feature.
+    let at = centre(&lab, Action::Tool(Tool::Look));
+    click(&mut lab, at);
+    for (what, animal) in [("PLANT", false), ("ANT", true)] {
+        let Some((wx, wy)) = living_cell_of(&lab, animal) else {
+            fired.push(format!("SPECIMEN {what}: nothing alive to aim at"));
+            continue;
+        };
+        let rows = pixel_physics::lab::params::specimen_rows(&lab.world, lab.world.get(wx, wy).organism_id());
+        fired.push(format!("SPECIMEN {what} at ({wx},{wy}): {} rows -- {}", rows.len(),
+            rows.iter().map(|(l, v, _)| format!("{l} {v}")).collect::<Vec<_>>().join(", ")));
+        let (sx, sy) = lab.renderer.world_to_screen(wx, wy).unwrap_or((wx, wy));
+        if lab.ui.inspecting().is_some() {
+            let prev = lab.ui.inspecting().unwrap();
+            let (px, py) = lab.renderer.world_to_screen(prev.0, prev.1).unwrap_or(prev);
+            click(&mut lab, (px, py));
+        }
+        click(&mut lab, (sx, sy));
+        let _ = shot(&mut lab);
+        // Hover one of the individual's own rows, so the tile carries the
+        // explanation as well as the figure.
+        if let Some(r) = lab.ui.inspect_rect() {
+            lab.set_cursor(Some((r.x + 20, r.y + 60)));
+        }
+        tiles.push((format!("SPECIMEN: {what}"), shot(&mut lab)));
+    }
+
     // 9. A click that lands on the bar must not also inspect the cell behind
     //    it. Nothing to see; the count is the whole result.
     let before = lab.ui.inspecting();
@@ -368,6 +530,7 @@ fn main() {
         Action::Panel(Panel::Plants),
         Action::Panel(Panel::Ants),
         Action::Panel(Panel::Box),
+        Action::Panel(Panel::Params),
         Action::Stats,
         Action::Help,
         Action::Reset,
@@ -382,6 +545,19 @@ fn main() {
         lab.world.live_creature_count()
     );
 
+    let tiles: Vec<(String, Vec<u8>)> = match &only {
+        Some(want) => tiles.into_iter().filter(|(t, _)| t.contains(want.as_str())).collect(),
+        None => tiles,
+    };
+    if split {
+        let stem = out.strip_suffix(".png").unwrap_or(&out);
+        for (title, frame) in &tiles {
+            let name = format!("{stem}-{}.png", title.to_lowercase().replace([' ', ':', '/'], "-"));
+            image::save_buffer(&name, frame, WIDTH, HEIGHT, image::ColorType::Rgba8).expect("write a tile");
+            println!("wrote {name}");
+        }
+        return;
+    }
     write_sheet(&tiles, &out);
     println!("wrote {out}");
 }

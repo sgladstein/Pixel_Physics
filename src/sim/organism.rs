@@ -2278,6 +2278,27 @@ impl Species {
             .unwrap_or(&[])
     }
 
+    /// The same list, mutable — **so a player can turn a growth knob while
+    /// watching the box**, which is the whole of `lab::params`' plant page.
+    ///
+    /// Narrower than a `pub` field on purpose: the caller has to name the
+    /// cell type, because every scalar the panel exposes exists twice in a
+    /// species file — once on `GrowingTip` and once on `RootTip` — and a
+    /// writer that did not say which one it meant would edit whichever came
+    /// first. `CLAUDE.md` records that exact trap from the other side, where
+    /// a blind `sed` on `crowding_weight` dragged the root's deliberate `0.0`
+    /// along with the shoot's through a whole sweep.
+    ///
+    /// Every consumer inside the tick reads this table live through
+    /// [`Self::behaviors`], so an edit is felt on the next tick by plants
+    /// that are already standing, not only by the next seed.
+    pub fn behaviors_mut(&mut self, cell_type: CellType) -> &mut [Behavior] {
+        match self.cell_types.iter_mut().find(|(ct, _)| *ct == cell_type) {
+            Some((_, b)) => b.as_mut_slice(),
+            None => &mut [],
+        }
+    }
+
     /// The authored production rule for this cell type at this moment, or
     /// `None` if the species declares none and the built-in rule applies.
     ///
@@ -3619,6 +3640,24 @@ impl SpeciesRegistry {
     #[inline]
     pub fn get(&self, id: SpeciesId) -> &Species {
         &self.species[id.0 as usize]
+    }
+
+    /// The same species, mutable — **for a live parameter panel, not for the
+    /// sweep.**
+    ///
+    /// Exists because the lab's parameters page (`lab::params`) is the
+    /// player's access to the numbers behind the verbs, and a species field
+    /// with no writer is a knob that reads correctly and does nothing.
+    /// Deliberately narrow in what it usefully reaches: the two half-lives
+    /// and the palette bands are `pub` on [`Species`], and everything inside
+    /// the cell-type table stays behind [`Species::behaviors_mut`] so that
+    /// the one caller has to name the cell type it means.
+    ///
+    /// Nothing in `sim` calls this, and nothing in `sim` should: every read
+    /// of a species inside the tick goes through [`Self::get`], which is what
+    /// lets an edit here be felt on the very next tick with no reload path.
+    pub fn get_mut(&mut self, id: SpeciesId) -> &mut Species {
+        &mut self.species[id.0 as usize]
     }
 
     /// Overwrite a species' starting genome — **for ablation harnesses

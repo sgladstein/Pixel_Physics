@@ -1866,16 +1866,52 @@ fn is_living_kin(world: &World, cell: Cell, species: SpeciesId) -> bool {
     world.organism(cell.organism_id()).is_some_and(|s| s.species == species)
 }
 
-/// The first cell in the head's 8-neighbourhood this gut will take, with
+/// **The best cell in the head's 8-neighbourhood this gut will take**, with
 /// what it is worth to *this* animal.
-fn adjacent_food(world: &World, x: i32, y: i32, gut: Gut) -> Option<(i32, i32, material::MaterialId)> {
-    NEIGHBOURS_8.iter().find_map(|&(dx, dy)| {
+///
+/// **Best, not first, and the difference is Gate 0.** This used to
+/// short-circuit on the first neighbour over the threshold, in `NEIGHBOURS_8`
+/// order — so an animal standing on a stem between a leaf and a flower ate
+/// whichever the array happened to reach first. That is not a preference, it
+/// is an artifact of a loop, and it is expensive here in a way it would not
+/// be in most engines: what decides whether an ant can ever afford a child is
+/// `hunger_fraction * start_energy + one mouthful` against the birth bar, so
+/// **which** mouthful is the whole of the arithmetic. A leaf pays 480 and a
+/// flower pays 1,440; taking the leaf because it sorts earlier costs the
+/// animal two thirds of the best meal it will ever be offered.
+///
+/// Measured 2026-08-30 on the lab bed at `gut_bias = -1.0`: the largest
+/// mouthful any ant swallowed over 24,000 frames was **480** — a leaf —
+/// while flowers and fruit stood in the bed throughout and ants climbed 28
+/// rows up the stems. First-match is why.
+///
+/// It costs eight `World::get` and eight `diet_yield` per creature tick
+/// instead of a short-circuit. `diet_yield` is a multiply and an absolute
+/// value over a material lookup the loop was already doing, and the loop is
+/// bounded at eight either way; a creature ticks once every
+/// `tick_interval` frames, not every frame.
+///
+/// Ties go to the earlier neighbour — `max_by` keeps the last maximum, so
+/// the comparison is written strictly to keep the first, which makes the
+/// choice a function of the neighbourhood rather than of the iteration
+/// order. (`CLAUDE.md`: an unstable tie order is a behaviour change wearing
+/// an optimisation.)
+fn adjacent_food(world: &World, x: i32, y: i32, gut: Gut) -> Option<(f32, i32, i32, material::MaterialId)> {
+    let mut best: Option<(f32, i32, i32, material::MaterialId)> = None;
+    for &(dx, dy) in NEIGHBOURS_8.iter() {
         let cell = world.get(x + dx, y + dy);
         if !gut.eats_kin && is_living_kin(world, cell, gut.species) {
-            return None;
+            continue;
         }
-        (diet_yield(world, cell, gut.bias) > EAT_YIELD_THRESHOLD).then_some((x + dx, y + dy, cell.material))
-    })
+        let gain = diet_yield(world, cell, gut.bias);
+        if gain <= EAT_YIELD_THRESHOLD {
+            continue;
+        }
+        if best.is_none_or(|(b, ..)| gain > b) {
+            best = Some((gain, x + dx, y + dy, cell.material));
+        }
+    }
+    best
 }
 
 /// One prey animal, seen: where it is and how far away.
@@ -2070,12 +2106,28 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
     // grazer while the two share a gene.
     let feed_urge = outputs[O::Feed as usize].clamp(0.0, 1.0);
     let drop_urge = outputs[O::Drop as usize].clamp(0.0, 1.0);
-    let hungry = world.organism(organism).is_some_and(|s| s.energy < def.start_energy * def.hunger_fraction);
+    let bank = world.organism(organism).map_or(0.0, |s| s.energy);
+    let hungry = bank < def.start_energy * def.hunger_fraction;
+    // **The bar this individual actually has to clear to bud**, read through
+    // the same two functions `try_bud` reads it through so the feeding rule
+    // and the birth cannot disagree — the standing house rule that a readout
+    // derived separately from the mechanism it describes is a readout that
+    // can be wrong on its own. `None` for a species that does not reproduce,
+    // which is what makes the provisioning branch below byte-identical for
+    // everything that does not breed.
+    let bud_bar = world.organism(organism).and_then(|s| {
+        reproduce_at(def).map(|t| t.max(birth_cost_of(def, birth_grant(def, &s.traits)) + 1.0))
+    });
 
     // --- eat / pick up --------------------------------------------------
     let gut = gut_of(world, organism, def);
     if carrying.is_none() {
-        if let Some((fxx, fyy, food)) = adjacent_food(world, x, y, gut) {
+        if let Some((offer, fxx, fyy, food)) = adjacent_food(world, x, y, gut) {
+            // **The near side of `best_bite`, recorded before the roll.** An
+            // animal that was offered a flower and failed its feed roll, and
+            // one that never came near a flower, are the same `best_bite` and
+            // opposite findings.
+            world.creature_stats.best_offer = world.creature_stats.best_offer.max(offer);
             if draw.unit_f32() < feed_urge {
                 // **What the mouthful is worth, read off the mouthful.**
                 // This is the keystone: it used to be `def.eat_energy`, a
@@ -2108,6 +2160,58 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
                 let gain = diet_yield(world, bite, gut.bias);
                 let banked = world.materials.get(bite.material).worth_in_aux;
                 let shade = bite.shade;
+                // **Provisioning: an animal that can turn this mouthful into
+                // a child swallows it instead of carrying it home.**
+                //
+                // Without this the bank has a hard roof at `hunger_fraction *
+                // start_energy + one mouthful` — an ant stops eating the
+                // instant it is over the satiety line and ferries everything
+                // after that to the nest — and Gate 0 dies against it by
+                // **40 points**: measured 2026-08-30 on the lab bed at
+                // `gut_bias = -1.0` with windfall on the floor, the highest
+                // bank any ant ever held was **1,060** against a bud bar of
+                // 1,100. The animal was not short of food. It was full, and
+                // being full is what stopped it.
+                //
+                // **Gated on this single bite finishing the job, which is
+                // what keeps the colony's delivery loop intact.** The obvious
+                // rule — *keep eating while below the birth bar* — is the
+                // recorded `hunger_fraction` dead end in a new costume: every
+                // ant is below the bar essentially always, so nothing would
+                // ever be carried home again (deliveries 1,733 -> 3 when that
+                // was tried directly). Restricted to the mouthful that alone
+                // reaches the bar, the ladder is at most one rung longer than
+                // satiety already allows, it fires only in front of the best
+                // food in the world, and everything smaller still goes to the
+                // nest.
+                //
+                // It needs no new constant, and it is the same trade a real
+                // forager makes: the meal that buys a brood is the one you do
+                // not bring back.
+                //
+                // **Two ways it fires, and the second is the colony's own
+                // loop finally being load-bearing.** Out on the route, the
+                // mouthful has to finish the job by itself. *At the nest* it
+                // does not: an animal standing in its own larder, short of
+                // the bar, keeps eating — which is what a colony's stores
+                // are *for*, and until now nothing in the engine ever read
+                // them back. Foragers still carry everything home; what
+                // changes is that the pile at the nest can become an ant
+                // instead of only ever being a pile.
+                //
+                // The nest clause is also what takes the knife-edge out.
+                // With the first clause alone the ladder is exactly two
+                // rungs — satiety, then one mouthful big enough to bridge —
+                // and on this bed that leaves a 19-point window between what
+                // an ant can hold and what a child costs. At the nest the
+                // ladder is as long as the larder, so whether a colony
+                // breeds is a question about how well it forages rather
+                // than about whether one ant was standing at the right
+                // energy when it met the right cell.
+                let provisioning = !hungry
+                    && bud_bar.is_some_and(|barrier| {
+                        bank < barrier && (bank + gain >= barrier || adjacent_nest(world, x, y, def))
+                    });
                 // If the mouthful belonged to somebody, tell them. Without
                 // this the victim keeps running on a chain that includes
                 // the cell just removed from it.
@@ -2116,7 +2220,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
                 if victim != 0 && victim != organism {
                     reconcile_chain(world, victim);
                 }
-                if hungry {
+                if hungry || provisioning {
                     if let Some(state) = world.organism_mut(organism) {
                         state.energy += gain;
                     }
@@ -2145,6 +2249,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
                         world.energy_ledger.harvested_plant += gain as f64;
                     }
                     world.creature_stats.eats += 1;
+                    world.creature_stats.best_bite = world.creature_stats.best_bite.max(gain);
                 } else {
                     // Full: carry it home instead of eating it. This is the
                     // whole reason a colony accumulates stores rather than
@@ -2202,6 +2307,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
                 world.energy_ledger.harvested_plant += gain as f64;
             }
             world.creature_stats.eats += 1;
+            world.creature_stats.best_bite = world.creature_stats.best_bite.max(gain);
             return;
         }
     }
@@ -3240,6 +3346,12 @@ fn apply_creature_energy(world: &mut World, x: i32, y: i32, organism: u16, delta
     };
     state.energy += delta;
     let energy = state.energy;
+    // **The high-water mark, taken here because this is the one place every
+    // credit and every charge passes through.** Sampling it at the end of a
+    // run instead — which is what every harness's `richest bank` does —
+    // cannot see an animal that reached the bar and then spent back down or
+    // died, and that is precisely the animal a birth question is about.
+    world.creature_stats.peak_bank = world.creature_stats.peak_bank.max(energy);
     if energy <= 0.0 {
         creature_dies(world, organism);
         return Vec::new();
@@ -6933,5 +7045,138 @@ mod tests {
         for pair in ranked.windows(2) {
             assert!(luma(pair[0]) <= luma(pair[1]), "ranked darkest first: {ranked:?}");
         }
+    }
+
+    // --- Gate 0: what an animal is offered, and what stops it eating ------
+
+    /// **An animal takes the best thing in reach, not the first thing the
+    /// neighbour array reaches.**
+    ///
+    /// The scene is the whole assertion: a leaf at `(-1, -1)`, which is
+    /// `NEIGHBOURS_8[0]`, and a flower at `(1, 1)`, which is
+    /// `NEIGHBOURS_8[7]`. Under the old first-match scan the leaf wins by
+    /// position alone and the animal never learns the flower is there —
+    /// which on the lab bed is the difference between a 480 mouthful and a
+    /// 1,440 one, and therefore between a colony that can afford a child
+    /// and one that cannot.
+    ///
+    /// Both foods clear `EAT_YIELD_THRESHOLD` at the gut under test, so
+    /// this cannot pass by the flower being invisible; the third arm is the
+    /// sensitivity control that says the scan finds the leaf at all when
+    /// the leaf is the only thing standing.
+    #[test]
+    fn an_animal_is_offered_the_best_mouthful_in_reach_not_the_first() {
+        let bed = |flower: bool| -> Option<(f32, i32, i32)> {
+            let mut w = test_world();
+            for x in 90..112 {
+                w.set(x, 101, Cell::new(material::STONE, 0));
+            }
+            let ant = spawn(&mut w, "ant", 100, 100);
+            let leaf = w.materials.id_of("leaf").expect("leaf");
+            w.set(99, 99, Cell::new(leaf, 0));
+            if flower {
+                let f = w.materials.id_of("flower").expect("flower");
+                w.set(101, 101, Cell::new(f, 0));
+            }
+            let def = w.species.get(w.organism(ant).expect("live").species).creature.clone().expect("creature");
+            let gut = gut_of(&w, ant, &def);
+            // The head, not the placement position: a chain lays its tail
+            // out at placement and the head is what `act` scans from.
+            let (hx, hy) = w.organism(ant).expect("live").chain[0];
+            assert_eq!((hx, hy), (100, 100), "the scene must put the head where the two foods were placed around it");
+            adjacent_food(&w, hx, hy, gut).map(|(gain, fx, fy, _)| (gain, fx, fy))
+        };
+
+        let (gain, fx, fy) = bed(true).expect("both foods are edible to this gut, so something must be offered");
+        assert_eq!((fx, fy), (101, 101), "the flower is the better mouthful and must be the one offered, though it sorts last");
+        let leaf_only = bed(false).expect("a leaf alone must still be found");
+        assert_eq!((leaf_only.1, leaf_only.2), (99, 99), "sensitivity: with nothing better standing, the scan must still return the leaf");
+        assert!(gain > leaf_only.0, "and the flower must be worth strictly more, or this scene proves nothing: {gain} vs {}", leaf_only.0);
+    }
+
+    /// **A full animal short of a child's price keeps eating at the nest,
+    /// and the roof that used to stop it was the bug.**
+    ///
+    /// Before provisioning, an animal stopped eating the instant it crossed
+    /// `hunger_fraction * start_energy` and carried everything after that
+    /// home — so the most any bank could ever hold was **the satiety line
+    /// plus one mouthful**, whatever the colony had in store. Measured on
+    /// the lab bed 2026-08-30, that roof lands at 1,060 against a birth bar
+    /// of 1,041 and an authored bud threshold of 1,100: the colony was not
+    /// short of food, it was *full*, and being full is what stopped it.
+    ///
+    /// Three arms on one scene, and the middle one is what makes the first
+    /// mean anything:
+    ///
+    /// * **at the nest** — the bank must climb past the old roof;
+    /// * **away from the nest** — the same larder, the same ant, no nest
+    ///   cells: the roof must hold, because out on the route only a
+    ///   mouthful that finishes the job by itself is swallowed, and a leaf
+    ///   is not one;
+    /// * **a species that does not reproduce** — `reproduce_threshold: 0`,
+    ///   so `reproduce_at` is `None` and the branch cannot fire at all. The
+    ///   roof must hold there too, which is the guarantee that nothing in
+    ///   the world that does not breed pays for this.
+    #[test]
+    fn an_ant_at_the_nest_eats_past_satiety_to_pay_for_a_child() {
+        let peak_bank = |at_nest: bool, breeds: bool| -> (f32, f32) {
+            let mut w = test_world();
+            let soil = w.materials.id_of("soil").expect("soil");
+            for x in 70..150 {
+                for y in 111..120 {
+                    w.set(x, y, Cell::new(soil, 0).with_attached(true));
+                }
+            }
+            // A larder: leaf packed around the ant's row, exactly as
+            // `the_eat_verb_pays_the_filter_not_the_face_value` builds it,
+            // with row 109 left clear so the animal is standing in the
+            // scene rather than buried in it.
+            let leaf = w.materials.id_of("leaf").expect("leaf");
+            for x in 100..122 {
+                for y in [104, 105, 106, 107, 108, 110] {
+                    w.set(x, y, Cell::new(leaf, 0).with_attached(true));
+                }
+            }
+            let id = w.species.id_of("ant").expect("ant");
+            let mut def = w.species.get(id).creature.as_ref().expect("creature").clone();
+            if !breeds {
+                def.reproduce_threshold = 0.0;
+            }
+            w.species.set_creature(id, def.clone());
+            if at_nest {
+                // **Under the animal's row, never on it.** Row 109 is where
+                // the ant stands, and `plant_creature_seed` refuses an
+                // occupied cell -- paving the ant's own row with nest cells
+                // makes the founder fail to place, which reads as the
+                // mechanism being dead. Row 110 was larder; it is nest now,
+                // and rows 104-108 still are.
+                let nest = w.materials.id_of(&def.nest).expect("nest material");
+                for x in 100..122 {
+                    w.set(x, 110, Cell::new(nest, 0).with_attached(true));
+                }
+            }
+            run(&mut w, 2_000);
+            let ant = spawn(&mut w, "ant", 110, 109);
+            assert_ne!(ant, 0, "the grazer was not placed; the scene does not contain the situation this test is about");
+            w.creature_stats.peak_bank = 0.0;
+            run(&mut w, 20_000);
+            assert!(w.creature_stats.eats > 0, "no bite was taken, so this arm measures nothing");
+            // The old hard roof, computed rather than hardcoded so an
+            // economy retune moves the bar with the mechanism.
+            let roof = def.hunger_fraction * def.start_energy
+                + diet_yield(&w, Cell::new(leaf, 0), def.traits[TRAIT_GUT_BIAS]);
+            (w.creature_stats.peak_bank, roof)
+        };
+
+        let (nest_peak, roof) = peak_bank(true, true);
+        let (route_peak, _) = peak_bank(false, true);
+        let (sterile_peak, _) = peak_bank(true, false);
+
+        assert!(nest_peak > roof, "at the nest a breeding animal must climb past the old satiety roof of {roof}: reached {nest_peak}");
+        assert!(route_peak <= roof, "out on the route the roof must still hold for a leaf-sized mouthful: reached {route_peak} against {roof}");
+        assert!(
+            sterile_peak <= roof,
+            "a species that does not reproduce must not provision at all -- reached {sterile_peak} against {roof}"
+        );
     }
 }
