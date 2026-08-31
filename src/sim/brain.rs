@@ -562,15 +562,15 @@ pub enum BrainOutput {
 /// not something anyone can review, and the whole value of authored
 /// instincts is that a human can see what the animal starts out believing.
 /// Anything not listed is 0.0, which under `W_EPS` means "no connection".
-#[derive(Clone, Copy, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 pub struct Instinct(pub BrainInput, pub BrainOutput, pub f32);
 
 /// One authored connection into a hidden unit: `(Carrying, 0, 5.0)`.
-#[derive(Clone, Copy, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 pub struct HiddenWire(pub BrainInput, pub u8, pub f32);
 
 /// One authored connection out of a hidden unit: `(0, Turn, 1.0)`.
-#[derive(Clone, Copy, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 pub struct OutputWire(pub u8, pub BrainOutput, pub f32);
 
 /// One hidden unit's **self-recurrence** weight: `(0, 0.8)` — how much of
@@ -589,7 +589,7 @@ pub struct OutputWire(pub u8, pub BrainOutput, pub f32);
 ///
 /// Authored by **index**, not by name, because a hidden unit has no name —
 /// see `SpeciesDef::genome_manifest` for what guards that.
-#[derive(Clone, Copy, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 pub struct Recurrence(pub u8, pub f32);
 
 /// Expand sparse wiring lists into the dense genome.

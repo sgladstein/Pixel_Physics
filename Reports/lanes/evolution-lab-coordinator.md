@@ -9,115 +9,251 @@ Branch `claude/evolution-lab-game-interface-9vf0fl`, PR #166.*
 **Read this before picking the lab up.** It says who owns which file, what
 the owner has already decided, and what is deliberately not being built yet.
 
-## What landed first, and why that order
+## Round one, compressed
 
-The skeleton is one commit and the load-bearing part of it is **not** the
-binary. `sim::frame::step` is the tick sequence moved out of `App::update`
-so both games call one copy. The guide's §7a names the fork risk from the
-other end — the lab's speed comes from what is not in the *box*, not from
-what is not in the *binary* — so nothing is stripped, and the thing to
-prevent is a second copy of a phase order whose every line records an
-ordering constraint.
+Superseded, but two things still bind. `sim::frame::step` is the tick
+sequence shared by both binaries; its guard
+`frame_step_matches_the_sequence_app_update_ran_before_extraction` holds a
+hash taken from the other side of the extraction, so **if it goes red either
+a phase moved deliberately (re-take the number and say what moved) or a phase
+was added to one binary's loop and not to `frame::step`** — the failure the
+module exists to prevent. And **round one's file-ownership table is no longer
+in force**: PR #170 landed all of it and later rounds have edited every one of
+those files. Re-derive ownership from the open PR list, never from here. The
+first bed's census is in
+[`../evolution-lab-gate-1-2026-08-30.md`](../evolution-lab-gate-1-2026-08-30.md).
 
-**The move has a positive control, not a self-comparison.** Two copies of a
-sequence agreeing proves nothing (`CLAUDE.md`: a superseded mechanism's
-tests keep passing while testing nothing), so 120 ticks of a mixed
-sand/water/stone scene were hashed on `origin/main`, through the inline
-`App::update`, in a separate worktree, before the extraction landed:
-`15147976901438684952` both sides. The constant in
-`frame_step_matches_the_sequence_app_update_ran_before_extraction` is a
-number from the other side of the change. **If it ever goes red, either a
-phase moved deliberately — re-take the number and say what moved — or a
-phase was added to one binary's loop and not to `frame::step`, which is the
-failure the module exists to prevent.**
+## Round two of the program: what the four lanes settled, 2026-08-30
 
-## File ownership
+All four landed. PR #170. What each one *overturned* matters more than what
+it built, so that is what is recorded here; the builds are in the lane notes
+and in `Reports/evolution-lab-gate-1-2026-08-30.md`.
 
-Nothing in the concurrent round shares a file. This is the discipline
-`CLAUDE.md`'s *working alongside another session* section asks for, applied
-up front rather than after a collision.
+**Gate 0 is a reach problem, not an economy one — and this is the round's
+most important result.** The margin arithmetic above is right: a `-1.0` gut
+draws a whole 1,440 flower against a 1,040 bar. Run rather than computed, it
+gives margin **+500** and **zero births over 48,000 frames**, richest bank
+**568** — the *leaf* ceiling. Flowers and fruit stand **22-40 rows up a
+stem**, and `windfall`, the only ground-level form, never exceeds **one
+standing cell**. The ants walk the floor beneath food they cannot climb to.
+The gut buys survival (3 → 9 ants), never breeding. This is #162's own
+caveat coming true — *a fruit has to be found, and the failure case is
+foraging rather than economy* — and **the next measurement is a counter on
+fruit → windfall, which is small.**
 
-| file | owner |
+**The frame cost does not follow biomass.** Correlation **+0.03** against
+biomass, **+0.92** with the field's solve set, **+0.93** with awake chunks.
+The design guide's *"cost follows living biomass"* and its Gate 3 corollary
+*"a mature box is the expensive one"* are **backwards in this bed**: the
+multiplier **rises** through a session, **9.0x fresh to 17.8x settled**,
+because the box quiets as it fills.
+
+**The draw dominates the tick five to one** — 4.78 ms against 0.94 — and
+**2.8 ms of that is `sky_light`, running in a box that has a ceiling.**
+That is the largest single thing left for the speed dial and it is not in
+the simulation at all. **Next optimisation, and it is not where anyone was
+looking.**
+
+**Partitions: containment reproduces, the speed-up does not.** `solved/f`
+falls 39.4 → 25.1 (−36%) over 1 → 16 compartments, exactly §2c's mechanism,
+but the frame goes 1.69 → 1.41 → **1.92 ms**, non-monotone, because the
+field is only 54% of a 1.5 ms tick at 512 wide. §2c's 7.6x was measured on a
+**fanned 2048-wide** bed. Keep partitions for isolation and scoring; **do
+not budget a speed-up at lab scale.**
+
+**The founders were being eaten, and a ceiling was helping.** 8 of 8 plant
+and germinate. A colony takes the stand from 55 plants to 19 and then goes
+extinct itself (52 founded, 52 dead, 0 born, gone by frame 66,000). And
+separately, thickening the ceiling 4 → 7 rows to seat a lamp cost **45% of
+the light on the bench and half the stand** — 468 plant cells to 286, 12
+seeds to 0 — with **no gate going red**. `field.rs` passes light down a
+column as `0.2^(depth/8)`, so shell thickness is a light knob nobody knew
+they were turning.
+
+**The grow lamps are not what lights the crop.** `labshot lamps=0` replaces
+every fixture with stone and the stand is byte-identical. The glow decays
+over a handful of field blocks; the bench is nineteen below. The room
+*reads* the schedule, the shell *passes* the light. Recorded rather than
+brightened away.
+
+**The dial's crossover is 12 ticks per displayed frame**, so `M* = 12·D/60`:
+**12x at 60 Hz, 4x at 20 Hz**. The falling-grain arithmetic overstates it
+**~14x** because nothing in a sealed box is in free fall. Under **0.16%** of
+the box changes even at the top of the dial.
+
+### What to do next, in the order the evidence supports
+
+1. **The fruit → windfall counter.** Small, and it unblocks the whole
+   creature half of the game.
+2. **`sky_light` in an enclosed world.** 2.8 ms of a 4.78 ms draw, bought by
+   a check the room already knows how to answer.
+3. **Gate 2 — does selection have teeth in *this* bed.** Still never run,
+   and `selection_arena`'s whole finding is that a null there is a statement
+   about the world rather than the genome, so it invalidates every evolution
+   result measured in the bed until it is done.
+4. **Gate 4's two verbs**, cull and partition, which the premise most
+   depends on and which have no engine support.
+
+## Round three, 2026-08-30 evening — read this first
+
+### The owner's standing direction, which reframes the programme
+
+> *"Your goals are not tweaking and optimizing evolution now. **Give me the
+> tools, data, access to the parameters that need to be tweaked and I do that
+> testing myself in the game. That is the game.** If I have access to food,
+> water, can cull, can create plants, and creatures, I can figure it out."*
+
+And: *"You don't need to tweak these things. The world starts with nothing,
+but the user can add plants, creatures, water, food, soil, etc."*
+
+**So: stop balancing, start exposing.** A default that looks wrong is
+something to **register and report**, never to tune.
+
+### Landed
+
+**#176** the lab becomes drivable — two-row mouse bar (look, plant, colony,
+cull, soil, water, species, brush, overlays), `SPACE` genuinely stops the
+world, the box opens empty, a graded cull, hover readout, thicker dirt with
+the cement slab gone, no nest stripe. **#174** ants breed — the blocker was
+satiety, not the birth economy. **#178** `labnest`, the playtest report
+reproduced.
+
+### Three findings — detail in [`../evolution-lab-gui-physics-2026-08-30.md`](../evolution-lab-gui-physics-2026-08-30.md) §6
+
+1. **Roots steer by air humidity, not soil water**, found by the owner from a
+   screenshot. Hydrotropism reads the coarse *field* channel, which **does
+   not diffuse inside solid ground** — so below the surface it has no
+   gradient, which is why roots stop at 13 rows. Germination gates on it too.
+   **The fifth coarse-field occurrence.** Diffusion is double-buffered and is
+   **not** at fault — do not re-investigate. Lane:
+   `claude/roots-drink-soil-not-air`.
+2. **The tunnels were never collapsing** — `overcap` is 0 in every frame of
+   both arms, so my one-unit-margin hypothesis is measured wrong. Real:
+   **ants 52 -> 12 between frames 4,000 and 5,000**, digging stopping with
+   the colony. That run had no food; **re-run now #174 has landed**.
+3. **The dirt-depth regression does not reproduce**, and the light steer I
+   gave that lane was wrong — bench light is flat at 0.447 across 48 runs and
+   the figure that started the hunt is *downstream* of the stand. Deep soil
+   is earned by **the ants**: roots max at 13 rows, galleries already at 35
+   of a 40-row bed.
+
+### Open PRs — land one at a time, merging `main` into each first
+
+#175 and #180 both touch `field.rs`; #177 and #179 both touch `creature.rs`.
+`wiki/ants.md`'s freshness note has now conflicted on **three** branches;
+expect it, resolve keep-both.
+
+| PR | what |
 |---|---|
-| `src/lab/time.rs` | the speed dial |
-| `src/lab/scene.rs` | the bed, and the lab interior render |
-| `src/lab/stats.rs` | the census page |
-| `examples/lab_cost.rs`, `examples/labshot.rs` | measurement |
-| `src/lab/mod.rs`, `src/bin/lab.rs` | **the coordinator only** — a lane needing a signature changed asks rather than edits |
+| #177 | The ants **do** tunnel — one connected gallery, unlit rather than undug. **See the block below** |
+| #179 | `cell_scale` reaches the living. **Approved by eye** |
+| #180 | Lamps light the bed; moving one moves what grows. **Approved by eye** |
+| #181 | `FIELD_SCALE` 8 -> 16. **Approved by eye** |
+| #175 | Half the draw, picture unchanged |
+| #182 | This handoff |
 
-## Owner decisions taken here, 2026-08-30
+### Verdicts from the 21:30 batch — one BLOCKS a PR
 
-- **The speed dial spans the full range with a marked crossover.** Not
-  "watchable motion only" and not "skip-ahead only" — both halves are
-  wanted, and the readout must say which half you are in. The crossover is
-  the point where the display stops showing motion and starts showing
-  fast-forward.
-- **The lab interior gets built this round**, replacing the sky render. The
-  air inside a sealed box currently draws through `sky.rs` — a day gradient
-  with a star hash — which the guide flags at **27.4 ns/px against stone's
-  6.7**. Wrong twice: it looks like a field at dusk, and it costs 4x per
-  pixel for the privilege.
+- **#177's lighting fix is REJECTED.** He chose **the shipped lighting**,
+  *"the current light model is much better"*. **The finding stands and the
+  fix does not.** Land the measurement and counters alone, or put the
+  lighting behind a switch that is off. Making a standing gallery legible
+  needs a different answer.
+- **Parameters panel: rated 5, *"this is a great next step"***. Priority.
+- **Double cell density confirmed twice** — he chose 1024x640 with light per
+  16, and rated the same-physical-size card **5, *"Yes"***. **#179 and #181
+  together are the direction**, not an experiment.
+- **The 36-cell creature is not there yet, and the critique is shape.**
+  *"Shape. It is a perfect cube. Are there perfect cube creatures in our
+  world?"* and *"both are smudges but A is closer"*. **More cells did not by
+  itself produce an animal** — `plant-appearance-design.md`'s lesson arriving
+  on the creature line. Read it before trying again.
 
-## What the box does, as built
+### Two gaps the owner will hit — the first is now half closed
 
-`labshot`, 512x320, 80 rows of soil, 8 herb founders, one colony:
+**There is no save** — a parameter he changes and cannot keep is a toy. And
+**species parameters are not in `tunables.rs` at all**: `dig_force`,
+`hunger_fraction`, `gut_bias`, `reproduce_threshold`, `mutation_rate` are
+compiled in via `include_str!` and unreachable at runtime. That is the
+largest single gap between the lab and *"I can figure it out myself"*.
 
-| frame | plant cells | organisms | seeds |
-|---|---|---|---|
-| 0 | 112 | 60 | 0 |
-| 900 | 274 | 59 | 0 |
-| 3,600 | 474 | 65 | 12 |
-| 10,800 | 774 | 53 | 51 |
+## Round four, 2026-08-31 — the specimen shelf
 
-The stand lives and reproduces. **The organism count falling is the ants**,
-and that is expected rather than broken — see below.
+*Brief: "save genetics of creatures and animals, clone them or mutate."
+Branch `claude/evolution-lab-genetics-gw4cv3`. **Everything below is
+compressed; the account is
+[`../evolution-lab-genetics-2026-08-31.md`](../evolution-lab-genetics-2026-08-31.md),
+and the shipped behaviour is README's "Specimen shelf status".***
 
-## The finding to carry forward: the lab bed may already be Gate 0's experiment
+`KEEP` (`M`) jars the genetics of anything alive, plant or animal; the rack
+behind the bar's jar chip (`G`) is what you kept; `FREE` (`,`) puts the armed
+jar back, at a dial counted in **broods** — one brood is the engine's own
+per-birth mutation applied once, so `mutation_rate` on the parameters page is
+what a brood is worth and nothing new was calibrated. Jars are files under
+`assets/shelf/` (gitignored; `PIXEL_PHYSICS_SHELF_DIR` overrides).
 
-PR #162 merged 2026-08-30 and prices the ant-breeding deadlock. Three
-things in it point straight at this bed:
+**What it overturned** — the part a later session cannot reconstruct:
 
-1. What decides a birth is one number, `ceiling − bar`. Every negative
-   margin gives **exactly zero** births across 12 seeds; every positive one
-   breeds. The shipped ant sits at **−880**.
-2. A matched gut on a **960-point fruit** gives margin **+99** — the same
-   margin as the arm that bred on 12 of 12 seeds.
-3. **No fruit or flower cell stands in any sampled world at any frame**, and
-   not for want of time: the only two fruiting species, `herb` and
-   `scrambler`, are never planted by `LIFE_SPECIES`.
+- **"No save" was two gaps and only one was a parameter.** A box that throws
+  away the one good forager it produced is the same defect and was on nobody's
+  list. The parameter half is untouched and is still the larger.
+- **An experiment in this bed could not be repeated, and nobody had said so.**
+  A founder's genome is keyed on `(world seed, germination coordinate)`, so two
+  runs of "the same" experiment start from different plants. **This is what
+  Gate 2 was missing**: a null there is a statement about the world rather than
+  the genome, and separating those needs the genome held while the world
+  changes. Run Gate 2 now rather than later.
+- **`Origin::Founder` reads the *species* genome**, so nothing could put a
+  *specific* animal in the world except `Origin::Bud`, which needs a live
+  parent and charges it. `Origin::Stock` is the third origin; a release books
+  as a spawn, never a birth.
+- **The bar is full.** Row 1 was already at exactly its own width; row 0's 76 px
+  of slack is now gone, and both rows fit only at the tightest `SPACINGS`, 1 px
+  spare. **The next lab control cannot just be added** — it needs a third row,
+  a page, or a removal. Three attempts and the measurement are in
+  `dead-ends.md`.
 
-**The lab plants `herb`.** So the cheapest route past the deadlock — a
-fruiting crop, no creature code — may already be sitting in this bed
-unmeasured. What is not established: that fruit actually *stands* (seeds set
-is a different quantity), that the lab's ants have a matched rather than a
-neutral gut, and that they can *find* it. #162 says plainly that the failure
-case there is a foraging problem rather than an economy one. Being measured
-by the measurement lane; the fix, if one is needed, belongs in a lab-only
-species file rather than in engine code, per guide §7a.
+**Next:** `CROSS` (breed two jars — D4 caged the brain's topology on one shared
+scaffold *precisely* so crossover is possible, and there is still no verb);
+then Gate 2, now that it can have a control arm; then `PROMOTE` for plants,
+which refuses today because `individual_as_species` copies the parent
+*species'* fates rather than the individual's; then the parameter half.
 
 ## Deliberately not being built yet
 
-Verbs (cull, plant-by-hand, partition-by-hand), the score, the economy.
-Those are the guide's Gates 4 and 5, and it is right that they cannot be
-specified until 0–3 exist to test them against. **Gate 2 — does selection
-have teeth in *this* bed — is the next thing that matters**, and it has
-never been run: `selection_arena`'s whole finding is that a null there is a
-statement about the world rather than about the genome, so a bed that does
-not punish a plant known to be worse invalidates every evolution result
-measured in it.
+The score and the economy — the guide's Gate 5. **Gate 2, does selection have
+teeth in *this* bed, has still never been run**, and `selection_arena`'s whole
+finding is that a null there is a statement about the world rather than about
+the genome. Until it passes, every evolution result measured in this bed is
+unvalidated.
 
 ## Environment notes that cost time here
 
-- **The container's clippy is 0.1.94; CI runs 0.1.98**, and CI's command is
-  `cargo clippy --all-targets --release --locked -- -D warnings` — stricter
-  than the bare form. One `use super::*;` in a test module was enough to
-  turn the PR red with every other gate green.
-- **The lab window can be captured on a box with no display.**
-  `PIXEL_PHYSICS_SCREENSHOT_AFTER_FRAMES=N` under `xvfb-run` with lavapipe
-  (`VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.json`) writes
-  `%TEMP%/pixel_physics_lab.png`. `labshot` renders the *world*; only this
-  renders the interface drawn over it, which is most of what the binary is.
-- **Four agents in one container makes every timing untrustworthy.** Two
-  byte-identical `ascii` runs have disagreed 2.42x under load here before
-  (`Reports/measurement-under-contention.md`). Later rounds should run as
-  separate cloud sessions, one machine each.
+- **The container suspends between tool calls**, so a backgrounded job makes
+  no progress while the session is idle. `cargo test --lib` does not fit in
+  one foreground call. **Let CI be the gate on the full suite** — it runs on
+  branch pushes as well as pull requests.
+- **Every push cancels the in-flight suite and restarts a ~19-minute clock**,
+  so batch commits. A run whose jobs all read "cancelled" two seconds in is
+  the concurrency group superseding a push run with a pull_request run, not a
+  failure.
+- `rust-toolchain.toml` pins 1.98 and CI has a build cache, so plain
+  `cargo clippy --all-targets --release --locked -- -D warnings` matches CI.
+- **The lab window captures with no display** —
+  `PIXEL_PHYSICS_SCREENSHOT_AFTER_FRAMES=N` under `xvfb-run` with lavapipe.
+  `labshot` renders the *world* and shows no interface; `examples/labui.rs`
+  renders the bar headlessly and scripts clicks.
+- **`/tmp` is shared between agents in this container** and the screenshot
+  hook writes `$TMPDIR/pixel_physics_lab.png` — one lane captured another
+  lane's frame. **Set a private `TMPDIR`.**
+- **`review.py inbox --mark-seen` marked all 199 cards seen**, not just the
+  caller's. Use `get <id>` rather than trusting an empty inbox.
+- **Several agents in one container makes every timing untrustworthy** — two
+  byte-identical `ascii` runs have disagreed 2.42x here. Prefer counters, but
+  a counter is only load-independent at **fixed parallelism** (610 digs idle,
+  278 loaded, same binary): pin `RAYON_NUM_THREADS` or compare arms inside
+  one run. Now in `CLAUDE.md`.
+- **Cloud lanes cannot be messaged.** `SendMessage` does not resolve a
+  `create_session` child, so a brief cannot be narrowed once it is running.
+  Write briefs that degrade well: say what to land first and to report the
+  rest.

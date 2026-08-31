@@ -82,6 +82,30 @@ struct Sample {
     /// them would read as *no drift* while meaning *no genomes*. Distinct
     /// state, distinct column.
     fate_empty: usize,
+    /// **The phenotype beside the genome census, split drifted / undrifted.**
+    ///
+    /// `CLAUDE.md`, and this line's own handoff §6: *a genome that changed is
+    /// not a plant that changed* — a mistake made three times here already.
+    /// Every column above counts *tables*, so a rate sweep read off them alone
+    /// says how much the population's bookkeeping moved and nothing about what
+    /// grew. These four are the far side of the call.
+    ///
+    /// `mature` is the fraction of an individual's body cells that reached
+    /// `MatureBody`, and it is the specific readout for what an emptied `Grow`
+    /// slot does: `self_type_after_grow` falls back to the cell's own type, so
+    /// the tip never *retires* — the lineage advances as a frontier of tips
+    /// that never thickens and never anchors. Deformed, not dead, so a
+    /// cell count alone cannot see it and an establishment count barely can.
+    /// Seeds are excluded from the denominator: a plant is not less mature for
+    /// carrying seeds, and herb carries a great many.
+    cells_drifted: f32,
+    cells_base: f32,
+    mature_drifted: f32,
+    mature_base: f32,
+    /// Denominators for the four above, printed because a mean over two
+    /// individuals is not a mean.
+    n_drifted: usize,
+    n_base: usize,
 }
 
 fn arg<T: std::str::FromStr>(name: &str) -> Option<T>
@@ -148,7 +172,7 @@ fn main() {
     // from a correct one. A log that does not name its mode was written by a
     // binary that never had one.
     println!(
-        "genome_drift: fate_lookup={:?} fate_mutation_chance={} (defaults: Full, {})",
+        "genome_drift: fate_lookup={:?} fate_mutation_chance={} (defaults: GenomeOnly, {})",
         plant::fate_lookup_mode(),
         plant::fate_mutation_chance(),
         plant::FATE_MUTATION_CHANCE
@@ -207,6 +231,15 @@ fn main() {
     // quantity from the one the question needs.
     let mut ever_established: std::collections::BTreeSet<u16> = std::collections::BTreeSet::new();
     let mut ever_established_drifted: std::collections::BTreeSet<u16> = std::collections::BTreeSet::new();
+    // **The denominators the two sets above do not have**, and without which
+    // `ed / e` cannot be read as a viability rate at all: it is the share of
+    // *establishers* that carried drift, and the null it has to beat is the
+    // share of *everyone* that carried drift. Holding only the numerators
+    // makes a 2x2 look like a rate. Both are distinct-individual sets on the
+    // same footing as the two above, so the four divide cleanly into
+    // establishment rate within the drifted and within the rest.
+    let mut ever_seen: std::collections::BTreeSet<u16> = std::collections::BTreeSet::new();
+    let mut ever_drifted: std::collections::BTreeSet<u16> = std::collections::BTreeSet::new();
 
     let mut samples: Vec<Sample> = Vec::new();
     println!("\npopulation mean of each slot's unit draw (-1..=1), one row per sample:");
@@ -231,6 +264,11 @@ fn main() {
         // holds.
         let mut owners: std::collections::BTreeSet<u16> = std::collections::BTreeSet::new();
         let mut seed_owners: std::collections::BTreeSet<u16> = std::collections::BTreeSet::new();
+        // (body cells, of which MatureBody) per individual, for the phenotype
+        // columns. Read off the grid rather than off `OrganismState::cells`
+        // because `OrganismCell` carries resources and support distance and
+        // *not* the cell type -- the type lives in the grid cell's `aux`.
+        let mut body: std::collections::BTreeMap<u16, (u32, u32)> = std::collections::BTreeMap::new();
         for y in 0..height {
             for x in 0..width {
                 let c = w.get(x, y);
@@ -238,8 +276,18 @@ fn main() {
                     continue;
                 }
                 owners.insert(c.organism_id());
-                if organism::cell_type(c.aux()) == Some(organism::CellType::Seed) {
-                    seed_owners.insert(c.organism_id());
+                match organism::cell_type(c.aux()) {
+                    Some(organism::CellType::Seed) => {
+                        seed_owners.insert(c.organism_id());
+                    }
+                    Some(t) => {
+                        let e = body.entry(c.organism_id()).or_insert((0, 0));
+                        e.0 += 1;
+                        if t == organism::CellType::MatureBody {
+                            e.1 += 1;
+                        }
+                    }
+                    None => {}
                 }
             }
         }
@@ -250,6 +298,14 @@ fn main() {
         let mut sum = [0.0f64; organism::GENOTYPE_TRAITS];
         let mut sumsq = [0.0f64; organism::GENOTYPE_TRAITS];
         let (mut gen_sum, mut gen_max) = (0u64, 0u16);
+        // The phenotype accumulators, split by whether the individual's
+        // production rule is still its species'. Only individuals with a
+        // *body* enter them: a bare seed has 0 body cells, so a mature
+        // fraction is undefined for it and pooling it in would report the
+        // seed bank as immature plants.
+        let (mut pn_d, mut pn_b) = (0usize, 0usize);
+        let (mut pc_d, mut pc_b) = (0.0f64, 0.0f64);
+        let (mut pm_d, mut pm_b) = (0.0f64, 0.0f64);
         for id in &owners {
             let Some(s) = w.organism_state(*id) else { continue };
             n += 1.0;
@@ -267,6 +323,7 @@ fn main() {
             // establishment bar, reused deliberately so the three instruments
             // are answering about the same object.
             let established = s.cells.len() >= 20;
+            ever_seen.insert(*id);
             if established {
                 ever_established.insert(*id);
             }
@@ -275,7 +332,9 @@ fn main() {
                 fe += 1;
             } else {
                 fate_keys.insert(g.rules().map(|(o, r)| format!("{o:?}/{r:?};")).collect::<String>());
-                if g != base_fates {
+                let drifted = g != base_fates;
+                if drifted {
+                    ever_drifted.insert(*id);
                     fd += 1;
                     if s.generation == 0 {
                         f0 += 1;
@@ -287,6 +346,18 @@ fn main() {
                         std::cmp::Ordering::Greater => fl += 1,
                         std::cmp::Ordering::Less => fs += 1,
                         std::cmp::Ordering::Equal => fc += 1,
+                    }
+                }
+                if let Some((cells, mature)) = body.get(id).copied().filter(|(c, _)| *c > 0) {
+                    let (cells, mature) = (cells as f64, mature as f64);
+                    if drifted {
+                        pn_d += 1;
+                        pc_d += cells;
+                        pm_d += mature / cells;
+                    } else {
+                        pn_b += 1;
+                        pc_b += cells;
+                        pm_b += mature / cells;
                     }
                 }
             }
@@ -320,6 +391,12 @@ fn main() {
             fate_distinct: fate_keys.len(),
             fate_gen0_drifted: f0,
             fate_empty: fe,
+            cells_drifted: if pn_d > 0 { (pc_d / pn_d as f64) as f32 } else { f32::NAN },
+            cells_base: if pn_b > 0 { (pc_b / pn_b as f64) as f32 } else { f32::NAN },
+            mature_drifted: if pn_d > 0 { (pm_d / pn_d as f64) as f32 } else { f32::NAN },
+            mature_base: if pn_b > 0 { (pm_b / pn_b as f64) as f32 } else { f32::NAN },
+            n_drifted: pn_d,
+            n_base: pn_b,
         };
         print!(
             "  {:>8} {:>5} {:>5} {:>4.1}/{:<4}  ",
@@ -363,11 +440,17 @@ fn main() {
     // void. It is the same role slot 9 plays for the table above: a control
     // that is free because the mechanism guarantees the answer.
     //
-    // **`empty` is the second control.** An empty genome falls back to the
-    // species table (`plant::fate_for`), so a population of them would report
-    // zero drift while meaning zero genomes -- indistinguishable from a
-    // lineage that simply never mutated, which is the failure this project has
-    // shipped three times as "a channel with no writer".
+    // **`empty` is the second control.** An empty genome reports as *no
+    // drift* while meaning *no genome* -- indistinguishable from a lineage
+    // that simply never mutated, which is the failure this project has shipped
+    // three times as "a channel with no writer". What it means downstream
+    // changed on 2026-08-30 and this comment said the old thing: under the
+    // shipped `FateLookup::GenomeOnly` an empty genome no longer falls back to
+    // the species table, it answers `None` to every query, so a nonzero
+    // `empty` is now a plant with no production rule at all rather than one
+    // quietly running its species'. `FateGenome::mutate`'s delete floor is
+    // what should make it unreachable; this column is where that floor
+    // failing would show.
     println!("\nproduction-rule drift, against the founding table of {} rules:", base_fates.len());
     println!(
         "  {:>8} {:>5} {:>8} {:>8} {:>8} {:>8} {:>9} {:>6} {:>6}",
@@ -387,6 +470,33 @@ fn main() {
             s.fate_empty
         );
     }
+
+    // **The phenotype beside the genome census.** Every column above counts
+    // tables. This one asks whether the plants those tables built are
+    // different plants, which is a separate question and the one a rate sweep
+    // actually turns on -- `Reports/lanes/plant-evolution-handoff-2026-08-30.md`
+    // §6: *a genome that changed is not a plant that changed*, three arms
+    // vacuous before they were real.
+    //
+    // `mature` is the fraction of body cells that reached `MatureBody`, and it
+    // is aimed at one specific deformation: an emptied `Grow` slot leaves
+    // `self_type_after_grow` falling back to the cell's own type, so a tip
+    // never retires and the lineage runs on as a frontier of tips -- it never
+    // thickens and never anchors. That plant is deformed rather than dead, so
+    // it still has cells and can still establish; only the mature fraction
+    // separates it from a healthy one.
+    println!("\nphenotype, drifted against undrifted (body cells only; seeds excluded):");
+    println!(
+        "  {:>8} {:>7} {:>9} {:>7} {:>9} {:>7} {:>9}",
+        "frame", "n drift", "cells", "mature", "n base", "cells", "mature"
+    );
+    for s in &samples {
+        println!(
+            "  {:>8} {:>7} {:>9.1} {:>7.3} {:>9} {:>9.1} {:>7.3}",
+            s.frame, s.n_drifted, s.cells_drifted, s.mature_drifted, s.n_base, s.cells_base, s.mature_base
+        );
+    }
+    println!("  (NaN means the column had no individuals at that sample, not a value of zero.)");
     // **Does a drifted rule table cost a plant its establishment?** The
     // harness gate (`fate_viability`) asks this of one mutation at a time in a
     // constructed stand; this asks it of a living population, which is a
@@ -407,6 +517,46 @@ fn main() {
     println!("  Equal rates are the null. A lower established rate is viability selection against");
     println!("  the drifted; a higher one would mean drift is reaching establishment preferentially,");
     println!("  which nothing in the model provides for and would point at this census instead.");
+    // The 2x2 the two lines above are the numerators of -- the line above is a
+    // *composition* (what share of establishers drifted) and moves with the
+    // mutation rate whether or not viability changes at all.
+    //
+    // **And this pair is confounded by age, which was measured rather than
+    // reasoned about, so do not read it as viability either.** Drift
+    // accumulates down a lineage, so a drifted individual is on average
+    // *younger* than an undrifted one -- the undrifted set holds the founders
+    // and every early birth -- and a younger individual has had less time to
+    // reach the 20-cell bar. Measured 2026-08-30 on `herb`, seed 1, 20,000
+    // frames at rate 0.10: this pair reads **1.89% against 5.75%**, an
+    // apparent 3x penalty, in a run whose stand is **bit-identical** to the
+    // same seed at rate 0 -- same live count, same establishers, same
+    // germinations, same slot means at every sample. Drift there provably
+    // changed nothing, so a 3x cost cannot be a cost.
+    //
+    // What *is* a viability instrument is the paired same-seed comparison
+    // against rate 0: run the identical world with the rate at zero and read
+    // whether the establisher count, the body sizes and the throughput move.
+    // That cancels age, assignment and competition together.
+    let seen = ever_seen.len();
+    let dr = ever_drifted.len();
+    let base_seen = seen.saturating_sub(dr);
+    let base_est = e.saturating_sub(ed);
+    println!("  establishment rate WITHIN each group -- CONFOUNDED BY AGE, not a viability rate:");
+    println!("    drifted     {ed} established of {dr} ever seen   ({:.2}%)", pc(ed, dr));
+    println!("    undrifted   {base_est} established of {base_seen} ever seen   ({:.2}%)", pc(base_est, base_seen));
+    println!("    (drift accumulates down a lineage, so the drifted are younger and have had less");
+    println!("     time to reach 20 cells. Measured: this pair reads 1.89% vs 5.75% on a herb run");
+    println!("     whose stand is bit-identical to the same seed at rate 0. For viability, run the");
+    println!("     same seed at rate 0 and compare the establisher count and body sizes.)");
+
+    // **Throughput, cumulative over the whole run.** Everything above is a
+    // standing count at one instant; a rate that quietly shuts the
+    // reproductive engine down would show there only as a smaller `n`, which
+    // is also what a crowded stand looks like. These two are monotone, so
+    // they cannot be confused with a snapshot.
+    println!("\nthroughput over the whole run:");
+    println!("  germinations                 {}", w.germinations);
+    println!("  fruit/seeds dropped          {}", w.fruit_dropped);
 
     // **Where the drift went: the draw counted at its source.**
     //

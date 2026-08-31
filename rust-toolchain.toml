@@ -1,0 +1,32 @@
+# **The toolchain the gates are run with, so a local green means something.**
+#
+# CI pins `dtolnay/rust-toolchain@1.98` in every job. Nothing pinned it
+# locally, so `cargo clippy` used whatever rustup happened to default to --
+# 1.94.1 in the agent container -- and a lint whose heuristic widened between
+# the two passes locally and fails in CI. `CLAUDE.md` records three separate
+# red clippy runs on one branch from exactly this, and it cost two more on
+# 2026-08-30: an `unused_imports` and an `assign_op_pattern`, both of which
+# 1.94 accepted and 1.98 rejected, and neither of which reads as lint-prone
+# while you are writing it.
+#
+# The standing advice was "remember `cargo +1.98.0 clippy`". That is a
+# discipline, and this file is the command -- the same trade `CLAUDE.md`
+# already makes elsewhere, where a check that costs 1-3k tokens of prose each
+# time became `scripts/docbench.py selftest` instead.
+#
+# **This does not change what CI runs**, which pins its own toolchain per job
+# and is unaffected. It changes what *you* run, to match.
+#
+# `rustup` installs a missing toolchain on demand the first time cargo is
+# invoked here, so no setup step is needed -- at the cost of one download on
+# a fresh machine.
+#
+# **What this costs, said plainly:** `Cargo.toml` declares
+# `rust-version = "1.87"` as the real MSRV, and pinning 1.98 means nothing in
+# the repo now compiles against 1.87. That was *already* true -- CI has only
+# ever run 1.98 -- so this file records the situation rather than creating
+# it. If the MSRV claim is to mean anything it needs a job of its own, and
+# that is a separate piece of work from making the local gate honest.
+[toolchain]
+channel = "1.98.0"
+components = ["clippy", "rustfmt"]

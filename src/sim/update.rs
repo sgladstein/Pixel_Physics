@@ -528,7 +528,92 @@ fn update_powder<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: Cell, ri
     let def = surface.materials().get(cell.material);
     let holds_water = def.water_capacity > 0;
     let clings = def.clings_to_wood;
+    let self_supporting = def.self_supporting;
     let wet_changed = if holds_water { update_soil_water(surface, x, y) } else { false };
+
+    // **A worked wall holds itself up -- the whole of why a burrow can be a
+    // place rather than a five-frame event.**
+    //
+    // Measured before this existed (`examples/burrow_probe.rs`): a shaft, a
+    // gallery and a chamber cut into a bed of `soil` read 63%/67%/82% open
+    // one frame later, and the gallery is **gone by frame 5**. The same
+    // excavation in `stone` holds 100% at every frame, so it is the powder
+    // rules and not the scene. What closes it is the unconditional
+    // straight-down move below -- the roof simply falls into the hole --
+    // and *no* setting of `friction_angle` reaches that: repose governs
+    // `roll_along_slope` only, and its own doc says a pile can only get
+    // flatter, never overhanging. At 89 degrees the roll reach goes to zero
+    // and `try_move(x, y + 1)` still fires.
+    //
+    // So the difference between a bank of loose grains and a wall someone
+    // worked is stated as **data on the material**, which is `CLAUDE.md`'s
+    // "when a rule must tell apart two things that can look identical,
+    // state the difference as data" -- the same finding four successive
+    // support models produced by trying to infer it from shape.
+    //
+    // Placed above `root_reinforced` because it is strictly cheaper: a
+    // `bool` already in hand against four neighbour fetches. Placed *below*
+    // the water pass because the pass is what decides whether this cell is
+    // still packed at all -- see the waterlogging branch.
+    //
+    // Read off the material at the dispatch site that already holds the
+    // `Cell`, per the note on the water opt-in above: every other powder in
+    // the world pays one `Vec` index and a `bool` test for this, and the
+    // all-sand stress scene has no ants in it.
+    if self_supporting {
+        // **The graded half, and the reason this is not the binary
+        // `CLAUDE.md` warns about.** A packing that works by grain contact
+        // has nothing to grip with once the pore space is full, so above
+        // field capacity the wall reverts to whatever `slumps_into` names
+        // and the ordinary fall rules take the tunnel down from there. A
+        // gallery driven below the water table, or one that floods, comes
+        // in; a dry one stands.
+        //
+        // The cell is re-read rather than reusing `cell` because
+        // `update_soil_water` has just written this frame's moisture into
+        // it, and reading the stale copy would answer with last frame's
+        // water. Only a `self_supporting` cell pays this second `get`.
+        //
+        // `SOIL_FIELD_CAPACITY` rather than an authored per-material
+        // threshold: it is already the engine-wide line between water the
+        // pore space holds and water that drains through
+        // (`update_soil_water`'s drainage rule uses the same one), so a
+        // resting column sits at or below it by construction and this
+        // branch only fires where water is arriving faster than it leaves.
+        //
+        // **Chosen here rather than in `decay.rs`**, which was the other
+        // candidate: that channel is scheduled on a chunk's awake ->
+        // settled transition and re-checks every 200 frames against the
+        // *coarse field* moisture. Both halves are wrong for this. A tunnel
+        // taking on water is in an awake chunk, which is exactly when a
+        // settle-scheduled site does not exist; and a block-nearest field
+        // read cannot see one cell's water (`CLAUDE.md`'s coarse-field
+        // gotcha, four bugs and counting). Here the trigger is the cell's
+        // own `aux`, one frame after the water arrives.
+        let here = surface.get(x, y);
+        if here.aux() > material::SOIL_FIELD_CAPACITY {
+            // Copied out before the write: `slumps_into` is `Copy`, and
+            // holding the `&Material` across `surface.set` would borrow
+            // `surface` immutably and mutably at once.
+            let loose = surface.materials().get(here.material).slumps_into;
+            if let Some(loose) = loose {
+                // Everything but the material is carried across --
+                // moisture (`aux`), the palette index, the attached flag,
+                // temperature. A wall that slumps is the *same ground*,
+                // and rebuilding the cell would silently dry it out, which
+                // on a `Powder` is what `aux == 0` means.
+                let mut slumped = here;
+                slumped.material = loose;
+                surface.set(x, y, slumped);
+                // Reported as a write so the chunk stays awake and the
+                // collapse this just unlocked actually runs. The cell
+                // falls on its next visit rather than this one, which
+                // avoids acting on the stale `cell` bound above.
+                return true;
+            }
+        }
+        return wet_changed;
+    }
 
     // **Root-reinforced soil does not fall.** One check, before any of the
     // movement rules, and it is the mirror of "too much weight breaks a
@@ -2017,6 +2102,119 @@ const SPLASH_MIN_FILL: u16 = material::LIQUID_FULL;
 
 #[cfg(test)]
 mod tests {
+
+    /// **A tunnel with a lining keeps its roof; the same tunnel without one
+    /// does not.** Both halves are asserted in one test on purpose.
+    ///
+    /// A test that only checked the lined case would be green with
+    /// `self_supporting` deleted from `update_powder` in every world where
+    /// the geometry happened not to collapse, and `CLAUDE.md`'s standing
+    /// rule is that green must be evidence about the code rather than about
+    /// the test. Asserting the unlined arm collapses is that guard put in
+    /// where it cannot be skipped: the two arms are the same block, the same
+    /// carve and the same frame budget, and they differ in the material of
+    /// the shell. Deleting the early return makes the *first* assertion fail.
+    ///
+    /// The serial driver, deliberately -- this is a claim about the movement
+    /// rules, and `step` is the one that isolates them.
+    /// `examples/burrow_probe.rs` runs the same excavation through
+    /// `frame::step` (and so through `parallel::step`, which is what the app
+    /// calls), which is where the whole-engine version of this claim lives.
+    #[test]
+    fn a_lined_gallery_keeps_its_roof_and_an_unlined_one_does_not() {
+        use super::super::chunk::Rect;
+        use super::super::world::World;
+
+        // One bed, one carve, run twice -- the only difference is whether the
+        // shell around the void is worked. Returns cells still materially
+        // empty; **raw material equality, not `is_empty`**, which is
+        // managed-aware and answers a different question.
+        fn standing(lined: bool) -> usize {
+            let mut w = World::new(Rect::new(0, 0, 63, 63));
+            let soil = w.materials.id_of("soil").expect("soil is compiled in");
+            let packed = w.materials.id_of("packedsoil").expect("packedsoil is compiled in");
+            for x in 4..60 {
+                for y in 20..56 {
+                    w.set(x, y, Cell::new(soil, 0));
+                }
+            }
+            let gallery: Vec<(i32, i32)> =
+                (12..52).flat_map(|x| (36..39).map(move |y| (x, y))).collect();
+            for &(x, y) in &gallery {
+                w.set(x, y, Cell::EMPTY);
+            }
+            if lined {
+                let void: std::collections::HashSet<(i32, i32)> = gallery.iter().copied().collect();
+                for &(x, y) in &gallery {
+                    for dy in -1..=1 {
+                        for dx in -1..=1 {
+                            let n = (x + dx, y + dy);
+                            if !void.contains(&n) && w.get(n.0, n.1).material == soil {
+                                w.set(n.0, n.1, Cell::new(packed, 0));
+                            }
+                        }
+                    }
+                }
+            }
+            for _ in 0..200 {
+                step(&mut w);
+            }
+            gallery.iter().filter(|&&(x, y)| w.get(x, y).material == material::EMPTY).count()
+        }
+
+        let total = 40 * 3;
+        let lined = standing(true);
+        let bare = standing(false);
+        assert_eq!(lined, total, "a lined gallery must not close: {lined}/{total} cells left open");
+        assert!(
+            bare * 4 < total,
+            "the unlined control must collapse, or the lined arm proves nothing about the lining: \
+             {bare}/{total} cells left open"
+        );
+    }
+
+    /// **Waterlogged lining reverts to loose soil**, which is the whole of
+    /// what keeps a burrow from being immortal.
+    ///
+    /// Written against the cell's own held water rather than the coarse
+    /// moisture field, because that is what the rule reads: a block-nearest
+    /// field sample cannot see one cell (`CLAUDE.md`'s coarse-field gotcha).
+    /// The dry cell in the same block is the specificity half -- without it
+    /// this passes just as well for a rule that un-packs everything.
+    #[test]
+    fn a_lining_above_field_capacity_slumps_back_to_soil() {
+        use super::super::chunk::Rect;
+        use super::super::world::World;
+
+        let mut w = World::new(Rect::new(0, 0, 31, 31));
+        let soil = w.materials.id_of("soil").expect("soil is compiled in");
+        let packed = w.materials.id_of("packedsoil").expect("packedsoil is compiled in");
+        for x in 0..32 {
+            w.set(x, 30, Cell::new(soil, 0));
+            w.set(x, 31, Cell::new(soil, 0));
+        }
+        // Two lining cells side by side on the floor, one saturated and one
+        // dry, with nowhere to fall so the material read is unambiguous.
+        w.set(10, 29, Cell::new(packed, 0).with_aux(material::SOIL_SATURATED));
+        w.set(20, 29, Cell::new(packed, 0));
+
+        step(&mut w);
+
+        assert_eq!(
+            w.get(10, 29).material,
+            soil,
+            "a lining above SOIL_FIELD_CAPACITY should have slumped back to loose soil"
+        );
+        assert_eq!(
+            w.get(20, 29).material,
+            packed,
+            "a dry lining must stay packed -- otherwise the rule is 'un-pack everything'"
+        );
+        assert!(
+            w.get(10, 29).aux() > material::SOIL_FIELD_CAPACITY,
+            "the slumped cell must carry its water across; rebuilding it would read as dry ground"
+        );
+    }
 
     /// Capillary flow must respect the *receiver's* capacity, not the
     /// sender's.

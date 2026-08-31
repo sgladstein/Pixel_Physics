@@ -22,4 +22,63 @@
     burn_duration: 300,
     burns_into: "ash",
     heat_conductivity: 0.15,
+    // **A branch rots. It used to be the one thing a plant becomes that
+    // never left the world again.**
+    //
+    // Measured 2026-08-31 on the lab bed (`examples/labmass`, 12 seeds): of
+    // everything that died, **30-39% ended here and stopped**, against ~9%
+    // reaching soil and ~55% rotting away. One graded cull of half the stand
+    // left **963 cells of deadwood standing for the remaining 84,000 frames**
+    // and for ever after. `CLAUDE.md`'s ethos section rules that shape out in
+    // as many words -- an outcome is a distribution, not a binary -- and a
+    // third of a dead plant's mass sitting at exactly 0% return is the
+    // binary. In the lab it is worse than a loss, because the box is sealed:
+    // the matter does not leave, it silts up.
+    //
+    // **This was an omission rather than a decision, and the difference is
+    // checkable.** This file predates `Material::decays_into` -- `decay.rs`
+    // was ash-only and hardcoded when M17 wrote deadwood -- and it was never
+    // revisited when litter arrived and made the channel data. Every other
+    // debris material argues its rates at length; this one carried no decay
+    // commentary at all, and `Reports/dead-ends.md` has no entry for it, so
+    // it was never tried and rejected either. The contrast that proves the
+    // point is `corpse`, whose silence here *is* deliberate and is recorded
+    // (dead-ends.md: *"Decay needed no hook: `corpse.ron` declares no
+    // `decays_into`"*, because `EnergyLedger::meat_lost` books it instead).
+    // That one stays as it is.
+    //
+    // **`litter`, not `soil`, and the target is the point of the change.**
+    // Sending it straight to soil would return a third of the plant at a
+    // stroke and teleport a snapped branch into topsoil. Sending it to litter
+    // makes a *chain* -- wood -> deadwood -> litter -> soil, four states at
+    // four rates -- so a branch pile visibly crumbles to leaf mould before
+    // any of it is ground, which is the middle the ethos asks for. It also
+    // closes the creature half: `litter` is on `ant.ron`'s food list and
+    // `deadwood` is not, so a fallen branch becomes food eventually instead
+    // of never.
+    decays_into: "litter",
+    // **1.0, the default, and deliberately not a second loss.** The mass
+    // charge belongs once, at the terminal `litter -> soil` step where
+    // `litter.ron` argues it against real humification efficiency. Charging a
+    // fraction at every hop would make a long chain arbitrarily lossy, which
+    // is a property of the chain's length rather than of anything physical --
+    // `deadleaf -> litter` is 1.0 for the same reason.
+    //
+    // Note for anyone reading a counter downstream of this: a decay that
+    // produces litter scores `World::rotted_to_solid` while returning no soil
+    // at all, which is what `rotted_onward` was split out to say. Reading the
+    // raw total as soil production overstated the return fourfold.
+    // A branch, so: slower than a leaf and faster than a bole. `litter` runs
+    // 0.5/0.1 and `log` 0.02/0.002; these sit between, nearer the log. At
+    // `decay::DECAY_TICK_INTERVAL` of 200 frames the dry rate is a mean
+    // lifetime near 20,000 frames -- ten times a leaf's, a fifth of a bole's
+    // -- so a branch lies on the floor through a season of leaves coming and
+    // going. That spread in *time* is as much of the graded outcome as the
+    // chain is: the floor after a die-back is leaves, then branches, then
+    // bare ground, rather than one uniform brown mat that never changes.
+    decay_chance_damp: 0.08,
+    decay_chance_dry: 0.01,
+    // **No `reseed_chance`, so it defaults to 0.** Same argument `litter.ron`
+    // makes: a rotting branch should not plant a tree, and deadwood cells are
+    // produced in the hundreds by any die-back.
 )

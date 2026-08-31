@@ -193,6 +193,27 @@ const WORM_ENERGY_FROM_EATING: f32 = 8.0;
 /// slightly warm ground.
 const WORM_HEAT_THRESHOLD_ABOVE_AMBIENT: f32 = 25.0;
 
+/// **A length authored in cells, in a world built at a finer resolution.**
+///
+/// The module-level companion to `CreatureDef::scaled`, for the lengths
+/// that live in the *source* rather than in a species file -- a
+/// neighbourhood radius, a colony's spacing, a telemetry bucket edge.
+/// `CLAUDE.md`'s rule is that reading `World::cell_scale` is the only
+/// supported way for such a constant to find out the world got finer, and
+/// this is that read, in one place, so a site cannot get the rounding
+/// subtly different from its neighbour.
+///
+/// Floors at 1: a length authored as at least one cell must not round away
+/// to zero, which would turn a neighbourhood into a single cell and read as
+/// the sense being dead rather than as being mis-scaled.
+#[inline]
+fn scaled_cells(world: &World, authored: i32) -> i32 {
+    if authored == 0 {
+        return 0;
+    }
+    ((authored as f32 * world.cell_scale()).round() as i32).max(1)
+}
+
 /// How strongly a worm is allowed to pick the *wrong* neighbour.
 ///
 /// The additive term `k` in `choose_weighted`'s `(k + s)²`. At `0.1`, a
@@ -818,6 +839,37 @@ pub fn plant_creature_seed(world: &mut World, x: i32, y: i32, species_name: &str
     place_creature(world, x, y, species_id, material_id, &def, Origin::Founder)
 }
 
+/// **Release a saved individual at `(x, y)`** — `plant_creature_seed` with
+/// the genome supplied rather than read off the species.
+///
+/// Returns the organism handle, or `None` if the body does not fit, the
+/// species is not in the registry or has no creature block, or there is no
+/// material of that name. `sim::specimen::release` turns each of those into
+/// something sayable on the bar.
+///
+/// **The genome is not checked here.** `specimen::release` has already run
+/// it past `brain::genome_manifest`, which is where a stale jar is caught;
+/// `brain::eval_brain` would happily evaluate a genome of the wrong length
+/// against the current slot map and produce a plausible animal that is not
+/// the one that was saved.
+pub fn release_creature_specimen(
+    world: &mut World,
+    x: i32,
+    y: i32,
+    species_name: &str,
+    genome: Vec<f32>,
+    traits: [f32; super::organism::CREATURE_TRAITS],
+) -> Option<u16> {
+    let species_id = world.species.id_of(species_name)?;
+    let material_id = world.materials.id_of(species_name)?;
+    let def = world.species.get(species_id).creature.as_ref()?.clone();
+    let site = place_creature(world, x, y, species_id, material_id, &def, Origin::Stock { genome, traits })?;
+    match site.kind {
+        ActiveKind::Creature { organism } => Some(organism),
+        _ => None,
+    }
+}
+
 /// Where the individual `place_creature` is about to build came from.
 ///
 /// **One placement path for founders and for children, deliberately.**
@@ -837,6 +889,23 @@ enum Origin {
         generation: u16,
         lineage: u32,
     },
+    /// **A founder with a chosen genome** — one released from the specimen
+    /// shelf (`sim::specimen`).
+    ///
+    /// Economically a `Founder` in every respect: nothing in the box bore
+    /// it, so it claims a fresh lineage, starts at generation zero and is
+    /// handed the species' whole `start_energy` rather than a parent's
+    /// grant. Booking it as a birth would put energy in the ledger nobody
+    /// earned and would count a player's decision as a reproductive
+    /// success, which is exactly the number the lab exists to read.
+    ///
+    /// **The one thing it does not take from its species is its genome.**
+    /// Before this variant there was no way to put a specific animal in the
+    /// world at all: `Founder` reads `Species::genome`, the ancestral one,
+    /// so a saved individual could only come back by being written out as a
+    /// whole new species and reloaded — which is `species_export`'s job and
+    /// is far too heavy to be a click.
+    Stock { genome: Vec<f32>, traits: [f32; super::organism::CREATURE_TRAITS] },
 }
 
 /// Build one creature at `(x, y)` and return the site to schedule it at.
@@ -888,7 +957,7 @@ fn place_creature(
     // Claimed before the state is borrowed, because `claim_lineage` takes
     // `&mut World` and a founder needs the number inside the block below.
     let founder_lineage = match origin {
-        Origin::Founder => world.claim_lineage(),
+        Origin::Founder | Origin::Stock { .. } => world.claim_lineage(),
         Origin::Bud { lineage, .. } => lineage,
     };
     // Read before the state is borrowed mutably: `self.species` and
@@ -905,7 +974,7 @@ fn place_creature(
     // one expression, read twice, so the endowment and the charge cannot
     // drift apart.
     let endowment = match &origin {
-        Origin::Founder => def.start_energy,
+        Origin::Founder | Origin::Stock { .. } => def.start_energy,
         Origin::Bud { traits, .. } => birth_grant(def, traits),
     };
     if let Some(state) = world.organism_mut(organism) {
@@ -942,6 +1011,18 @@ fn place_creature(
                 // guard hashed enough state to notice.
                 state.generation = *generation;
             }
+            Origin::Stock { genome, traits } => {
+                // **The jar's genome, and the species' everything else.**
+                // `inherited` stays false and `stocked` says what actually
+                // happened: this animal was not borne in this box, and a
+                // readout that claimed it was would put a player's own
+                // release into the birth column.
+                state.genome = genome.clone();
+                state.traits = *traits;
+                state.inherited = false;
+                state.stocked = true;
+                state.generation = 0;
+            }
         }
         // Starts *at* the nest as far as scent goes: an ant that has just
         // hatched has, by construction, just been at home.
@@ -953,7 +1034,7 @@ fn place_creature(
     }
     let stamp = (def.body_energy * body_cells as f32) as f64;
     match origin {
-        Origin::Founder => {
+        Origin::Founder | Origin::Stock { .. } => {
             world.creature_stats.spawned += 1;
             // Metabolic budget plus the meat the body is made of. Both are
             // grants *here*, at the one seam where a creature appears out
@@ -1054,6 +1135,34 @@ fn body_shade(ranked: &[u8], i: usize, cells: usize, dy: i32, dy_min: i32, dy_ma
 /// `idle_cost_per_cell`'s doc has why.
 fn live_body_cells(world: &World, organism: u16, def: &CreatureDef) -> f32 {
     world.organism(organism).map_or(def.body.len(), |s| s.chain.len()).max(1) as f32
+}
+
+/// **The mass this animal is hauling, in body-cell equivalents**, so a step
+/// costs what it moves rather than only what the animal is.
+///
+/// **One cell of food weighs one cell of body, and that needs no knob of its
+/// own.** `body_energy` is pinned to `corpse`'s `food_energy` by the
+/// flesh-pricing invariant (`standing_meat`'s doc), so a load's worth divided
+/// by it is already a count of cells. Inventing a separate `carry_cost` here
+/// would be a constant nobody can derive, sitting next to one that derives
+/// itself.
+///
+/// **Without this a load is free to haul**, and every lever over how much an
+/// animal carries — crop capacity, granary against replete — is a ratchet with
+/// one reachable end. That is exactly the unpriced-size failure
+/// `idle_cost_per_cell`'s own doc records ("an unpriced size lever ratchets to
+/// its maximum and expresses nothing"), arrived at independently on the other
+/// axis: that one was the body, this is what the body is carrying.
+///
+/// Charged on **movement only**, never on idle. An animal standing still is
+/// not doing work against its load, and the honest term is the one a forager
+/// pays per step — which is also what makes load size trade against travel
+/// distance rather than against time (Kramer & Nowell's central-place result).
+fn carried_cells(world: &World, organism: u16, def: &CreatureDef) -> f32 {
+    if def.body_energy <= 0.0 {
+        return 0.0;
+    }
+    world.organism(organism).and_then(|s| s.carrying).map_or(0.0, |c| c.worth as f32 / def.body_energy)
 }
 
 /// **What one birth costs the parent**: the child's metabolic grant plus
@@ -1275,9 +1384,17 @@ impl World {
         // deliberate and is the ratio the foraging scene measured 414
         // deliveries at: home has to be a *place*, not everywhere, or there
         // is no gradient to walk up.
-        let span = (COLONY_ANTS - 1) * COLONY_ANT_SPACING;
+        // **Both are lengths in cells and both scale.** The comment above
+        // says why the spacing is 4 -- "four cells apart *for a two-cell
+        // body*" -- so it is denominated in bodies, and a body that is twice
+        // as many cells across needs twice the corridor or the colony
+        // gridlocks exactly as the 27,386 blocked ticks did. The ant *count*
+        // is not a length and stays put; the band widens under it.
+        let spacing = scaled_cells(self, COLONY_ANT_SPACING);
+        let half_width = scaled_cells(self, COLONY_HALF_WIDTH);
+        let span = (COLONY_ANTS - 1) * spacing;
         let left = x - span / 2;
-        for cx in (x - COLONY_HALF_WIDTH)..=(x + COLONY_HALF_WIDTH) {
+        for cx in (x - half_width)..=(x + half_width) {
             if let Some(sy) = colony_surface(self, cx, y) {
                 let cell = self.get(cx, sy);
                 // Only ground gets converted -- painting over water or a
@@ -1289,7 +1406,7 @@ impl World {
         }
         let mut placed = 0;
         for i in 0..COLONY_ANTS {
-            let cx = left + i * COLONY_ANT_SPACING;
+            let cx = left + i * spacing;
             if let Some(sy) = colony_ant_site(self, cx, y) {
                 let before = self.get(cx, sy - 1).organism_id();
                 self.plant_ant(cx, sy - 1);
@@ -1476,8 +1593,23 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
     // predator pays for the body it started the tick with.
     let body_cells = live_body_cells(world, organism, def);
     let idle = def.idle_cost_per_cell * body_cells;
-    let mut spent = idle + synapse_tax;
-    world.energy_ledger.metabolized += idle as f64;
+    // **Seeing costs, and until 2026-08-31 it did not.** `sight_casts` and
+    // `sight_cells_read` counted rays and nothing charged for them, so
+    // `sight_range` was a lever on which more is strictly better — the same
+    // ratchet `idle_cost_per_cell`'s doc records for body size, on the
+    // sensory axis. Eyes and brains are among the most expensive tissue per
+    // gram in real animals, and this engine already taxes the brain
+    // (`synapse_fraction`); this closes the matching hole. Charged per cell
+    // the eye actually read, so an occluded eye in a tunnel is cheaper than
+    // one sweeping open ground — which is the term that makes shelter pay
+    // for itself twice.
+    let sight_tax = def.sight_fraction * def.start_energy * sight_reads as f32;
+    let mut spent = idle + synapse_tax + sight_tax;
+    // Booked as metabolism rather than as an account of its own: it is
+    // metabolism, and a new sink would have to be added to
+    // `EnergyLedger::expected_live_total` for no attribution the
+    // `sight_cells_read` counter does not already give.
+    world.energy_ledger.metabolized += (idle + sight_tax) as f64;
     world.energy_ledger.synapse_tax += synapse_tax as f64;
 
     // --- the four verbs, before moving: an ant that is going to pick
@@ -1507,7 +1639,14 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
             // energy ledger has one owner. The flight frames themselves
             // charge only pro-rated metabolism -- ballistics is free once
             // you have paid to leave.
-            let cost = def.move_cost_per_cell * body_cells * LAUNCH_COST_IN_MOVES;
+            // **The load is read here, not with `body_cells` above, and the
+            // difference is one tick of lag in the wrong direction.** `act`
+            // runs between the two points and is exactly what picks a load up
+            // or puts it down, so a top-of-tick reading charges an ant for
+            // cargo it delivered a moment ago and lets a fresh pickup ride
+            // free. The body cannot change in that window; the load is the
+            // whole point of the window.
+            let cost = def.move_cost_per_cell * (body_cells + carried_cells(world, organism, def)) * LAUNCH_COST_IN_MOVES;
             spent += cost;
             world.energy_ledger.moved += cost as f64;
             // **Deliberately not `moved`.** `moved` gates the pheromone
@@ -1518,7 +1657,9 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
         } else {
             moved = step_chain(world, organism, heading, &outputs, def, &mut draw);
             if moved {
-                let step = def.move_cost_per_cell * body_cells;
+                // Read after the step for the reason the launch arm above
+                // gives: `act` is what changes a load, and it has already run.
+                let step = def.move_cost_per_cell * (body_cells + carried_cells(world, organism, def));
                 spent += step;
                 world.energy_ledger.moved += step as f64;
             }
@@ -1700,9 +1841,21 @@ fn sense(
     // would be measuring a hidden behavioural change. `CLAUDE.md`'s "fixing
     // a bug exposes a constant that was compensating for it", caught before
     // the bug rather than after.
+    //
+    // **The radius is a length and the divisor below is not free to stay
+    // put when it moves.** At `cell_scale` 2 the same physical
+    // neighbourhood is 9x9 rather than 5x5, and the fraction of cells in it
+    // that are flesh is unchanged -- so a fixed `CROWDING_SCALE` would read
+    // 3.3x the crowding for the same physical crush and pin
+    // `(Crowding, Move, -0.3)` at its floor. `CLAUDE.md`'s "fixing a bug
+    // exposes a constant that was compensating for it" in its second shape:
+    // changing what a term can express reallocates the whole weighted sum.
+    let crowd_radius = scaled_cells(world, CROWDING_RADIUS);
+    let neighbourhood = |r: i32| ((2 * r + 1) * (2 * r + 1) - 1) as f32;
+    let crowd_scale = CROWDING_SCALE * neighbourhood(crowd_radius) / neighbourhood(CROWDING_RADIUS);
     let mut crowd = 0;
-    for dy in -CROWDING_RADIUS..=CROWDING_RADIUS {
-        for dx in -CROWDING_RADIUS..=CROWDING_RADIUS {
+    for dy in -crowd_radius..=crowd_radius {
+        for dx in -crowd_radius..=crowd_radius {
             if dx == 0 && dy == 0 {
                 continue;
             }
@@ -1715,7 +1868,7 @@ fn sense(
             }
         }
     }
-    inputs[I::Crowding as usize] = (crowd as f32 / CROWDING_SCALE).min(1.0);
+    inputs[I::Crowding as usize] = (crowd as f32 / crowd_scale).min(1.0);
 
     // **The distal sense, and the reason E15 exists.** Everything above
     // this line is contact range or a field read; nothing in it reports
@@ -1866,16 +2019,52 @@ fn is_living_kin(world: &World, cell: Cell, species: SpeciesId) -> bool {
     world.organism(cell.organism_id()).is_some_and(|s| s.species == species)
 }
 
-/// The first cell in the head's 8-neighbourhood this gut will take, with
+/// **The best cell in the head's 8-neighbourhood this gut will take**, with
 /// what it is worth to *this* animal.
-fn adjacent_food(world: &World, x: i32, y: i32, gut: Gut) -> Option<(i32, i32, material::MaterialId)> {
-    NEIGHBOURS_8.iter().find_map(|&(dx, dy)| {
+///
+/// **Best, not first, and the difference is Gate 0.** This used to
+/// short-circuit on the first neighbour over the threshold, in `NEIGHBOURS_8`
+/// order — so an animal standing on a stem between a leaf and a flower ate
+/// whichever the array happened to reach first. That is not a preference, it
+/// is an artifact of a loop, and it is expensive here in a way it would not
+/// be in most engines: what decides whether an ant can ever afford a child is
+/// `hunger_fraction * start_energy + one mouthful` against the birth bar, so
+/// **which** mouthful is the whole of the arithmetic. A leaf pays 480 and a
+/// flower pays 1,440; taking the leaf because it sorts earlier costs the
+/// animal two thirds of the best meal it will ever be offered.
+///
+/// Measured 2026-08-30 on the lab bed at `gut_bias = -1.0`: the largest
+/// mouthful any ant swallowed over 24,000 frames was **480** — a leaf —
+/// while flowers and fruit stood in the bed throughout and ants climbed 28
+/// rows up the stems. First-match is why.
+///
+/// It costs eight `World::get` and eight `diet_yield` per creature tick
+/// instead of a short-circuit. `diet_yield` is a multiply and an absolute
+/// value over a material lookup the loop was already doing, and the loop is
+/// bounded at eight either way; a creature ticks once every
+/// `tick_interval` frames, not every frame.
+///
+/// Ties go to the earlier neighbour — `max_by` keeps the last maximum, so
+/// the comparison is written strictly to keep the first, which makes the
+/// choice a function of the neighbourhood rather than of the iteration
+/// order. (`CLAUDE.md`: an unstable tie order is a behaviour change wearing
+/// an optimisation.)
+fn adjacent_food(world: &World, x: i32, y: i32, gut: Gut) -> Option<(f32, i32, i32, material::MaterialId)> {
+    let mut best: Option<(f32, i32, i32, material::MaterialId)> = None;
+    for &(dx, dy) in NEIGHBOURS_8.iter() {
         let cell = world.get(x + dx, y + dy);
         if !gut.eats_kin && is_living_kin(world, cell, gut.species) {
-            return None;
+            continue;
         }
-        (diet_yield(world, cell, gut.bias) > EAT_YIELD_THRESHOLD).then_some((x + dx, y + dy, cell.material))
-    })
+        let gain = diet_yield(world, cell, gut.bias);
+        if gain <= EAT_YIELD_THRESHOLD {
+            continue;
+        }
+        if best.is_none_or(|(b, ..)| gain > b) {
+            best = Some((gain, x + dx, y + dy, cell.material));
+        }
+    }
+    best
 }
 
 /// One prey animal, seen: where it is and how far away.
@@ -1974,7 +2163,7 @@ fn sight(world: &World, x: i32, y: i32, organism: u16, def: &CreatureDef, gut: G
 
     // The eye, lifted only through cells that do not themselves block.
     let mut ey = y;
-    for _ in 0..SIGHT_EYE_LIFT {
+    for _ in 0..scaled_cells(world, SIGHT_EYE_LIFT) {
         if blocks_sight(world, world.get(x, ey - 1)) {
             break;
         }
@@ -2070,12 +2259,28 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
     // grazer while the two share a gene.
     let feed_urge = outputs[O::Feed as usize].clamp(0.0, 1.0);
     let drop_urge = outputs[O::Drop as usize].clamp(0.0, 1.0);
-    let hungry = world.organism(organism).is_some_and(|s| s.energy < def.start_energy * def.hunger_fraction);
+    let bank = world.organism(organism).map_or(0.0, |s| s.energy);
+    let hungry = bank < def.start_energy * def.hunger_fraction;
+    // **The bar this individual actually has to clear to bud**, read through
+    // the same two functions `try_bud` reads it through so the feeding rule
+    // and the birth cannot disagree — the standing house rule that a readout
+    // derived separately from the mechanism it describes is a readout that
+    // can be wrong on its own. `None` for a species that does not reproduce,
+    // which is what makes the provisioning branch below byte-identical for
+    // everything that does not breed.
+    let bud_bar = world.organism(organism).and_then(|s| {
+        reproduce_at(def).map(|t| t.max(birth_cost_of(def, birth_grant(def, &s.traits)) + 1.0))
+    });
 
     // --- eat / pick up --------------------------------------------------
     let gut = gut_of(world, organism, def);
     if carrying.is_none() {
-        if let Some((fxx, fyy, food)) = adjacent_food(world, x, y, gut) {
+        if let Some((offer, fxx, fyy, food)) = adjacent_food(world, x, y, gut) {
+            // **The near side of `best_bite`, recorded before the roll.** An
+            // animal that was offered a flower and failed its feed roll, and
+            // one that never came near a flower, are the same `best_bite` and
+            // opposite findings.
+            world.creature_stats.best_offer = world.creature_stats.best_offer.max(offer);
             if draw.unit_f32() < feed_urge {
                 // **What the mouthful is worth, read off the mouthful.**
                 // This is the keystone: it used to be `def.eat_energy`, a
@@ -2108,6 +2313,58 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
                 let gain = diet_yield(world, bite, gut.bias);
                 let banked = world.materials.get(bite.material).worth_in_aux;
                 let shade = bite.shade;
+                // **Provisioning: an animal that can turn this mouthful into
+                // a child swallows it instead of carrying it home.**
+                //
+                // Without this the bank has a hard roof at `hunger_fraction *
+                // start_energy + one mouthful` — an ant stops eating the
+                // instant it is over the satiety line and ferries everything
+                // after that to the nest — and Gate 0 dies against it by
+                // **40 points**: measured 2026-08-30 on the lab bed at
+                // `gut_bias = -1.0` with windfall on the floor, the highest
+                // bank any ant ever held was **1,060** against a bud bar of
+                // 1,100. The animal was not short of food. It was full, and
+                // being full is what stopped it.
+                //
+                // **Gated on this single bite finishing the job, which is
+                // what keeps the colony's delivery loop intact.** The obvious
+                // rule — *keep eating while below the birth bar* — is the
+                // recorded `hunger_fraction` dead end in a new costume: every
+                // ant is below the bar essentially always, so nothing would
+                // ever be carried home again (deliveries 1,733 -> 3 when that
+                // was tried directly). Restricted to the mouthful that alone
+                // reaches the bar, the ladder is at most one rung longer than
+                // satiety already allows, it fires only in front of the best
+                // food in the world, and everything smaller still goes to the
+                // nest.
+                //
+                // It needs no new constant, and it is the same trade a real
+                // forager makes: the meal that buys a brood is the one you do
+                // not bring back.
+                //
+                // **Two ways it fires, and the second is the colony's own
+                // loop finally being load-bearing.** Out on the route, the
+                // mouthful has to finish the job by itself. *At the nest* it
+                // does not: an animal standing in its own larder, short of
+                // the bar, keeps eating — which is what a colony's stores
+                // are *for*, and until now nothing in the engine ever read
+                // them back. Foragers still carry everything home; what
+                // changes is that the pile at the nest can become an ant
+                // instead of only ever being a pile.
+                //
+                // The nest clause is also what takes the knife-edge out.
+                // With the first clause alone the ladder is exactly two
+                // rungs — satiety, then one mouthful big enough to bridge —
+                // and on this bed that leaves a 19-point window between what
+                // an ant can hold and what a child costs. At the nest the
+                // ladder is as long as the larder, so whether a colony
+                // breeds is a question about how well it forages rather
+                // than about whether one ant was standing at the right
+                // energy when it met the right cell.
+                let provisioning = !hungry
+                    && bud_bar.is_some_and(|barrier| {
+                        bank < barrier && (bank + gain >= barrier || adjacent_nest(world, x, y, def))
+                    });
                 // If the mouthful belonged to somebody, tell them. Without
                 // this the victim keeps running on a chain that includes
                 // the cell just removed from it.
@@ -2116,7 +2373,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
                 if victim != 0 && victim != organism {
                     reconcile_chain(world, victim);
                 }
-                if hungry {
+                if hungry || provisioning {
                     if let Some(state) = world.organism_mut(organism) {
                         state.energy += gain;
                     }
@@ -2145,6 +2402,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
                         world.energy_ledger.harvested_plant += gain as f64;
                     }
                     world.creature_stats.eats += 1;
+                    world.creature_stats.best_bite = world.creature_stats.best_bite.max(gain);
                 } else {
                     // Full: carry it home instead of eating it. This is the
                     // whole reason a colony accumulates stores rather than
@@ -2202,6 +2460,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
                 world.energy_ledger.harvested_plant += gain as f64;
             }
             world.creature_stats.eats += 1;
+            world.creature_stats.best_bite = world.creature_stats.best_bite.max(gain);
             return;
         }
     }
@@ -2243,8 +2502,90 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
             // precedent) -- noted, not built.
             world.set(tx, ty, Cell::EMPTY);
             world.creature_stats.digs += 1;
+            line_burrow(world, tx, ty);
         }
     }
+}
+
+/// **Line the hole just dug** — turn the loose ground around it into the
+/// wall of a tunnel.
+///
+/// This is the half of digging that makes a burrow a *place*. Without it an
+/// ant excavates perfectly well and nothing survives it: measured with
+/// `examples/burrow_probe.rs`, a gallery cut into a bed of `soil` is **gone
+/// by frame 5**, because `update_powder`'s straight-down move is
+/// unconditional on support and the roof falls into the hole. Nothing in
+/// the repose model reaches that (`roll_along_slope`'s own doc: a pile can
+/// only get flatter, never overhanging), and the structural system never
+/// sees a `Powder` at all (`Reports/dead-ends.md`: `is_body_material` is
+/// `Solid | Plant`, so there is no anchor distance to extend).
+///
+/// It is also real behaviour rather than a physics patch: ants tamp and
+/// cement gallery walls as they cut them, which is why an abandoned nest
+/// stays legible in a soil profile.
+///
+/// **Eight neighbours, not four.** The four-neighbour rules in `update.rs`
+/// (`root_reinforced`, `on_a_branch`) are deliberately conservative because
+/// they hold *other people's* material up on a corner contact. This one is
+/// the opposite case: the diagonals of a dug cell are exactly the cells
+/// that slump into it via `try_move(x +- 1, y + 1)`, so leaving them loose
+/// would line the roof and let the shoulders fall in anyway.
+///
+/// **Which object does this rule evaluate?** One cell, and that is the
+/// right object here: a lining is a per-cell property of the surface of the
+/// excavation, and the excavation grows one cell at a time. There is no
+/// piece, span or centroid in it.
+///
+/// Nothing is whitelisted by name. The ground says what it becomes
+/// (`Material::packs_into`, unset on everything but `soil`), so `stone` is
+/// untouched because it is not diggable, `snow` because it has no packed
+/// form, plant tissue and creatures because they have none either, and a
+/// cell that is already lining because `packedsoil` does not pack further.
+fn line_burrow(world: &mut World, x: i32, y: i32) {
+    if !lining_enabled() {
+        return;
+    }
+    for (dx, dy) in NEIGHBOURS_8 {
+        let (nx, ny) = (x + dx, y + dy);
+        let cell = world.get(nx, ny);
+        let Some(packed) = world.materials.get(cell.material).packs_into else {
+            continue;
+        };
+        // Everything but the material rides across: the held water
+        // (`aux`), the palette index, the attached flag, the temperature.
+        // Writing a fresh `Cell` here would read as *dry* ground on a
+        // `Powder` (`CLAUDE.md`'s two-conventions gotcha) and would quietly
+        // destroy the moisture a plant or the un-packing rule depends on.
+        let mut lined = cell;
+        lined.material = packed;
+        world.set(nx, ny, lined);
+        world.creature_stats.packed += 1;
+    }
+}
+
+/// The ablation switch for the lining, off by default.
+///
+/// `PIXEL_PHYSICS_BURROW_LINING=off` makes `line_burrow` a no-op and changes
+/// **nothing else** -- ants dig at the same rate, into the same materials,
+/// and the sweep's rules are untouched. That is deliberately the shape
+/// `CLAUDE.md` prescribes after the `relax_region` night: *the control is to
+/// hold the semantic rule fixed, not to add another metric*, and measuring
+/// around a confound "would have taken all night and convinced nobody".
+///
+/// It exists because the claim this feature makes is about a *standing*
+/// quantity -- how much void is left in a bank after a colony has worked it
+/// -- and a standing quantity has no baseline of its own. A colony that digs
+/// vigorously into ground that closes behind it and one that never dug leave
+/// the same bank. `examples/burrow_probe.rs`'s `colony` arm runs the same
+/// binary twice across this switch, which makes the two arms differ in one
+/// thing rather than in a rebuild.
+///
+/// Read once per process through a `OnceLock`, matching `plant::fate_lookup`:
+/// an `env::var` per dig would be a syscall in a creature's decision path,
+/// and the setting cannot change mid-run anyway.
+fn lining_enabled() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_BURROW_LINING").as_deref() != Ok("off"))
 }
 
 /// Move the whole chain one cell, snake-fashion. Returns whether it moved.
@@ -2447,12 +2788,17 @@ fn step_chain(
             // The profile is booked for *every* excursion, including the
             // one-cell ones — it is the distribution that makes the bar
             // below defensible, so it must not be filtered by that bar.
+            // **The ruler is in cells, so it moves with the grid.** Left
+            // fixed, the same physical excursion books one bucket higher in
+            // a 2x world and two colonies at different resolutions cannot be
+            // compared at all -- the histogram would be reporting the cell
+            // size rather than the foraging.
             for (i, &edge) in FORAGE_REACH_BUCKETS.iter().enumerate() {
-                if depth >= edge {
+                if depth as i32 >= scaled_cells(world, edge as i32) {
                     world.creature_stats.forage_reach[i] += 1;
                 }
             }
-            if depth >= FORAGE_TRIP_MIN {
+            if depth as i32 >= scaled_cells(world, FORAGE_TRIP_MIN as i32) {
                 world.creature_stats.forage_trips += 1;
                 world.creature_stats.forage_depth_sum += depth as u64;
             }
@@ -3158,6 +3504,12 @@ fn apply_creature_energy(world: &mut World, x: i32, y: i32, organism: u16, delta
     };
     state.energy += delta;
     let energy = state.energy;
+    // **The high-water mark, taken here because this is the one place every
+    // credit and every charge passes through.** Sampling it at the end of a
+    // run instead — which is what every harness's `richest bank` does —
+    // cannot see an animal that reached the bar and then spent back down or
+    // died, and that is precisely the animal a birth question is about.
+    world.creature_stats.peak_bank = world.creature_stats.peak_bank.max(energy);
     if energy <= 0.0 {
         creature_dies(world, organism);
         return Vec::new();
@@ -3973,7 +4325,15 @@ mod tests {
         let reading = |frame: u64| -> (f32, f32) {
             let mut w = test_world();
             w.frame = frame;
-            w.add_heat(100, 100, 8, WORM_HEAT_THRESHOLD_ABOVE_AMBIENT - 3.0);
+            // **`FIELD_SCALE`, not the literal 8 it equalled.**
+            // `paint_field` divides the radius by `FIELD_SCALE`, so this is
+            // what paints the 3x3 patch of blocks that keeps the centre at
+            // the authored temperature through one diffusion step. Written
+            // as 8 it painted a *single* block at `FIELD_SCALE` 16,
+            // diffusion pulled the centre down to 16.6, and the raw noon
+            // reading no longer crossed the threshold -- the scene stopped
+            // containing the situation, not the guard stopped working.
+            w.add_heat(100, 100, field::FIELD_SCALE, WORM_HEAT_THRESHOLD_ABOVE_AMBIENT - 3.0);
             field::step(&mut w);
             let cell = w.field_at(100, 100);
             (cell.temperature - AMBIENT_TEMPERATURE as f32, field::noon_equivalent_temperature(cell) - AMBIENT_TEMPERATURE as f32)
@@ -5705,6 +6065,91 @@ mod tests {
     /// An idle lifetime is `start_energy / idle_cost` ticks of
     /// `tick_interval` frames each. 1.1 of them keeps the meaning the
     /// original number had.
+    /// **Hauling costs, and a green suite is not evidence that it does.**
+    ///
+    /// The whole 1,252-test suite stayed green when load-dependent movement
+    /// landed, which is exactly the shape `CLAUDE.md` says to distrust: an
+    /// all-green run after a real behavioural change is a claim that the
+    /// change did nothing. Almost every creature test either hand-funds its
+    /// animals or asks a question a 50% step cost does not reach, so their
+    /// greenness is evidence about *them*.
+    ///
+    /// So this asserts the arithmetic directly, paired, on one deterministic
+    /// step. A load worth exactly `body_energy` is one cell of mass on a
+    /// two-cell animal, so a step must cost exactly 1.5x the empty one --
+    /// not "more", which a rounding error also satisfies.
+    #[test]
+    fn a_laden_animal_pays_more_to_move_than_an_empty_one() {
+        let step_cost = |load: Option<u16>| -> f64 {
+            let mut w = test_world();
+            for x in 0..200 {
+                w.set(x, 101, Cell::new(material::STONE, 0).with_attached(true));
+            }
+            let ant = spawn(&mut w, "ant", 100, 100);
+            if let (Some(state), Some(worth)) = (w.organism_mut(ant), load) {
+                // The material is never put down in this scene, so what it
+                // is does not matter -- only its worth, which is the mass.
+                state.carrying = Some(Carried { material: material::EMPTY, worth, shade: 0 });
+            }
+            // Long enough to take many steps; the ratio is what is read, so
+            // the absolute frame count is not load-bearing.
+            run(&mut w, 600);
+            let moves = w.creature_stats.moves.max(1) as f64;
+            w.energy_ledger.moved / moves
+        };
+
+        let empty = step_cost(None);
+        let laden = step_cost(Some(480));
+        assert!(empty > 0.0, "the empty arm never moved, so this measures nothing");
+
+        // 2 body cells empty, 3 cell-equivalents laden: exactly 1.5x.
+        let ratio = laden / empty;
+        assert!(
+            (ratio - 1.5).abs() < 0.02,
+            "a load of one body-cell's worth must make a step cost exactly 1.5x on a two-cell animal: {laden:.4} against {empty:.4} is {ratio:.3}x"
+        );
+    }
+
+    /// **An eye costs what it reads**, and the same green-suite caveat as
+    /// above applies: `sight_fraction` defaults to 0, so nothing in the tree
+    /// exercises it until something authors a value.
+    ///
+    /// Paired on one species with the rate off and on, so everything the
+    /// beetle does apart from looking is held fixed. The far-side quantity
+    /// is `metabolized`, which is where the tax is booked.
+    #[test]
+    fn an_eye_costs_what_it_reads() {
+        let burn = |rate: f32| -> (f64, u64) {
+            let mut w = test_world();
+            for x in 0..200 {
+                w.set(x, 101, Cell::new(material::STONE, 0).with_attached(true));
+            }
+            let id = w.species.id_of("beetle").expect("beetle");
+            let mut def = w.species.get(id).creature.as_ref().expect("creature").clone();
+            def.sight_fraction = rate;
+            w.species.set_creature(id, def);
+            spawn(&mut w, "beetle", 100, 100);
+            run(&mut w, 600);
+            (w.energy_ledger.metabolized, w.creature_stats.sight_cells_read)
+        };
+
+        let (free, cells_read) = burn(0.0);
+        assert!(cells_read > 0, "the beetle never cast a ray, so a per-cell-read tax cannot be measured here");
+
+        let rate = 1.0e-6;
+        let (taxed, taxed_cells) = burn(rate);
+        assert_eq!(cells_read, taxed_cells, "the two arms must read the same cells, or this compares two different runs");
+
+        // The tax is `rate * start_energy * cells_read`, booked to
+        // `metabolized` alongside idle.
+        let start_energy = 1600.0_f64;
+        let expected = rate as f64 * start_energy * cells_read as f64;
+        assert!(
+            (taxed - free - expected).abs() < 1.0,
+            "an eye that read {cells_read} cells at {rate} of a {start_energy} budget owes {expected:.2}: {taxed:.2} against {free:.2}"
+        );
+    }
+
     fn grazer_horizon() -> usize {
         let w = test_world();
         let species = w.species.id_of("ant").expect("ant");
@@ -6843,5 +7288,138 @@ mod tests {
         for pair in ranked.windows(2) {
             assert!(luma(pair[0]) <= luma(pair[1]), "ranked darkest first: {ranked:?}");
         }
+    }
+
+    // --- Gate 0: what an animal is offered, and what stops it eating ------
+
+    /// **An animal takes the best thing in reach, not the first thing the
+    /// neighbour array reaches.**
+    ///
+    /// The scene is the whole assertion: a leaf at `(-1, -1)`, which is
+    /// `NEIGHBOURS_8[0]`, and a flower at `(1, 1)`, which is
+    /// `NEIGHBOURS_8[7]`. Under the old first-match scan the leaf wins by
+    /// position alone and the animal never learns the flower is there —
+    /// which on the lab bed is the difference between a 480 mouthful and a
+    /// 1,440 one, and therefore between a colony that can afford a child
+    /// and one that cannot.
+    ///
+    /// Both foods clear `EAT_YIELD_THRESHOLD` at the gut under test, so
+    /// this cannot pass by the flower being invisible; the third arm is the
+    /// sensitivity control that says the scan finds the leaf at all when
+    /// the leaf is the only thing standing.
+    #[test]
+    fn an_animal_is_offered_the_best_mouthful_in_reach_not_the_first() {
+        let bed = |flower: bool| -> Option<(f32, i32, i32)> {
+            let mut w = test_world();
+            for x in 90..112 {
+                w.set(x, 101, Cell::new(material::STONE, 0));
+            }
+            let ant = spawn(&mut w, "ant", 100, 100);
+            let leaf = w.materials.id_of("leaf").expect("leaf");
+            w.set(99, 99, Cell::new(leaf, 0));
+            if flower {
+                let f = w.materials.id_of("flower").expect("flower");
+                w.set(101, 101, Cell::new(f, 0));
+            }
+            let def = w.species.get(w.organism(ant).expect("live").species).creature.clone().expect("creature");
+            let gut = gut_of(&w, ant, &def);
+            // The head, not the placement position: a chain lays its tail
+            // out at placement and the head is what `act` scans from.
+            let (hx, hy) = w.organism(ant).expect("live").chain[0];
+            assert_eq!((hx, hy), (100, 100), "the scene must put the head where the two foods were placed around it");
+            adjacent_food(&w, hx, hy, gut).map(|(gain, fx, fy, _)| (gain, fx, fy))
+        };
+
+        let (gain, fx, fy) = bed(true).expect("both foods are edible to this gut, so something must be offered");
+        assert_eq!((fx, fy), (101, 101), "the flower is the better mouthful and must be the one offered, though it sorts last");
+        let leaf_only = bed(false).expect("a leaf alone must still be found");
+        assert_eq!((leaf_only.1, leaf_only.2), (99, 99), "sensitivity: with nothing better standing, the scan must still return the leaf");
+        assert!(gain > leaf_only.0, "and the flower must be worth strictly more, or this scene proves nothing: {gain} vs {}", leaf_only.0);
+    }
+
+    /// **A full animal short of a child's price keeps eating at the nest,
+    /// and the roof that used to stop it was the bug.**
+    ///
+    /// Before provisioning, an animal stopped eating the instant it crossed
+    /// `hunger_fraction * start_energy` and carried everything after that
+    /// home — so the most any bank could ever hold was **the satiety line
+    /// plus one mouthful**, whatever the colony had in store. Measured on
+    /// the lab bed 2026-08-30, that roof lands at 1,060 against a birth bar
+    /// of 1,041 and an authored bud threshold of 1,100: the colony was not
+    /// short of food, it was *full*, and being full is what stopped it.
+    ///
+    /// Three arms on one scene, and the middle one is what makes the first
+    /// mean anything:
+    ///
+    /// * **at the nest** — the bank must climb past the old roof;
+    /// * **away from the nest** — the same larder, the same ant, no nest
+    ///   cells: the roof must hold, because out on the route only a
+    ///   mouthful that finishes the job by itself is swallowed, and a leaf
+    ///   is not one;
+    /// * **a species that does not reproduce** — `reproduce_threshold: 0`,
+    ///   so `reproduce_at` is `None` and the branch cannot fire at all. The
+    ///   roof must hold there too, which is the guarantee that nothing in
+    ///   the world that does not breed pays for this.
+    #[test]
+    fn an_ant_at_the_nest_eats_past_satiety_to_pay_for_a_child() {
+        let peak_bank = |at_nest: bool, breeds: bool| -> (f32, f32) {
+            let mut w = test_world();
+            let soil = w.materials.id_of("soil").expect("soil");
+            for x in 70..150 {
+                for y in 111..120 {
+                    w.set(x, y, Cell::new(soil, 0).with_attached(true));
+                }
+            }
+            // A larder: leaf packed around the ant's row, exactly as
+            // `the_eat_verb_pays_the_filter_not_the_face_value` builds it,
+            // with row 109 left clear so the animal is standing in the
+            // scene rather than buried in it.
+            let leaf = w.materials.id_of("leaf").expect("leaf");
+            for x in 100..122 {
+                for y in [104, 105, 106, 107, 108, 110] {
+                    w.set(x, y, Cell::new(leaf, 0).with_attached(true));
+                }
+            }
+            let id = w.species.id_of("ant").expect("ant");
+            let mut def = w.species.get(id).creature.as_ref().expect("creature").clone();
+            if !breeds {
+                def.reproduce_threshold = 0.0;
+            }
+            w.species.set_creature(id, def.clone());
+            if at_nest {
+                // **Under the animal's row, never on it.** Row 109 is where
+                // the ant stands, and `plant_creature_seed` refuses an
+                // occupied cell -- paving the ant's own row with nest cells
+                // makes the founder fail to place, which reads as the
+                // mechanism being dead. Row 110 was larder; it is nest now,
+                // and rows 104-108 still are.
+                let nest = w.materials.id_of(&def.nest).expect("nest material");
+                for x in 100..122 {
+                    w.set(x, 110, Cell::new(nest, 0).with_attached(true));
+                }
+            }
+            run(&mut w, 2_000);
+            let ant = spawn(&mut w, "ant", 110, 109);
+            assert_ne!(ant, 0, "the grazer was not placed; the scene does not contain the situation this test is about");
+            w.creature_stats.peak_bank = 0.0;
+            run(&mut w, 20_000);
+            assert!(w.creature_stats.eats > 0, "no bite was taken, so this arm measures nothing");
+            // The old hard roof, computed rather than hardcoded so an
+            // economy retune moves the bar with the mechanism.
+            let roof = def.hunger_fraction * def.start_energy
+                + diet_yield(&w, Cell::new(leaf, 0), def.traits[TRAIT_GUT_BIAS]);
+            (w.creature_stats.peak_bank, roof)
+        };
+
+        let (nest_peak, roof) = peak_bank(true, true);
+        let (route_peak, _) = peak_bank(false, true);
+        let (sterile_peak, _) = peak_bank(true, false);
+
+        assert!(nest_peak > roof, "at the nest a breeding animal must climb past the old satiety roof of {roof}: reached {nest_peak}");
+        assert!(route_peak <= roof, "out on the route the roof must still hold for a leaf-sized mouthful: reached {route_peak} against {roof}");
+        assert!(
+            sterile_peak <= roof,
+            "a species that does not reproduce must not provision at all -- reached {sterile_peak} against {roof}"
+        );
     }
 }

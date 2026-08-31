@@ -1,7 +1,8 @@
-// **The basement, and the occasional sill.** The hardest and darkest rock in
-// the world, and the other end of the value range from `limestone.ron`:
-// together the two span 40..192, against the 110..138 that `stone.ron`'s own
-// note records the whole rock palette used to sit in.
+// **The basement, and the occasional sill.** The hardest rock in the world,
+// and the dark end of the value range against `limestone.ron`'s pale one --
+// though the two are much closer than they were, spanning 79..178 where they
+// once spanned 40..192. See the note above `colors` for why, and for what
+// must not be compressed further.
 //
 // Two jobs. Below a fixed fraction of the massif every bed is basalt, so a
 // shaft that goes deep enough arrives somewhere that looks different -- the
@@ -22,17 +23,37 @@
     //      fresh rock is cold -- so an exposed basalt face reads brown and a
     //      cut one reads black, which is a large hue swing for a byte
     //      written once at genesis.
+    // **These numbers are derived, not eyeballed, and the derivation is the
+    // only way to change them safely.** Shown the six-rock world the owner
+    // said twice, unprompted, *"the color changes between layers is too much.
+    // There is too much contrast. There should be more of a shared color
+    // palette"*, and on the first correction *"I would drop the contrast even
+    // more"*. So every colour here is the file's original pulled 86% onto one
+    // shared warm-grey hue -- the mean of the six rocks' fresh families,
+    // renormalised to unit brightness -- after the whole material has been
+    // shifted half way toward the global mean brightness.
+    //
+    // **The shift is per material, never per colour.** The four tones inside
+    // one rock are what make a bed legible, and `stone.ron`'s own comment
+    // records that squeezing *those* made the banding vanish from the render
+    // entirely. Shifting the material bodily leaves every internal spread at
+    // exactly its original value and compresses only the gap between rocks,
+    // which is what the complaint was about: measured, that gap went from 116
+    // brightness points to 57 while no rock's own spread moved at all.
+    //
+    // Full account and the b50 measurements either side:
+    // `Reports/worldgen-relief-2026-08-30.md` section 5.5.
     colors: [
         // 0: fresh
-        (58, 60, 68),
-        (48, 50, 58),
-        (72, 74, 84),
-        (40, 42, 50),
+        (99, 90, 84),
+        (88, 80, 75),
+        (114, 104, 97),
+        (79, 72, 68),
         // 1: weathered -- rind
-        (74, 70, 66),
-        (64, 60, 57),
-        (88, 84, 79),
-        (55, 52, 49),
+        (111, 100, 91),
+        (101, 90, 82),
+        (127, 113, 104),
+        (92, 82, 75),
         // 2: **damp** -- rock below the water table, and rock a pond or a
         // stream is standing against.
         //
@@ -43,10 +64,10 @@
         // so a single multiplier per channel says the whole thing, and no
         // rock in the set needs its own artistic judgement about being wet.
         // It is one byte, written at genesis, exactly like the other two.
-        (45, 47, 56),
-        (37, 40, 48),
-        (56, 58, 70),
-        (31, 33, 42),
+        (85, 77, 73),
+        (77, 70, 66),
+        (97, 88, 84),
+        (70, 63, 61),
     ],
     base_colors: 4,
 

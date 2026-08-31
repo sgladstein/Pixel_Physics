@@ -219,6 +219,17 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
     }
     world.set(x, y, Cell::new(into, shade));
     world.rotted_to_solid += 1;
+    // **Did this reach the end of the chain, or only take a step along it?**
+    // `deadleaf -> litter` leaves a solid and produces no soil; `litter ->
+    // soil` leaves a solid and does. `rotted_to_solid` cannot tell them apart
+    // and was read as soil production for as long as it existed -- see
+    // `World::rotted_onward`, where the 4x overstatement that caught it is
+    // recorded. Keyed on the *product's* own `decays_into` rather than on a
+    // material name, so it stays right when a material at the end of a chain
+    // is given one.
+    if world.materials.get(into).decays_into.is_some() {
+        world.rotted_onward += 1;
+    }
 
     // Reseed roll: only if there's actually room to grow into, and only ever
     // this one chance -- see `MaterialDef::reseed_chance`, which is now per
@@ -304,15 +315,24 @@ mod tests {
         w.schedule_active_site(ActiveSite { x: 14, y: 100, kind: ActiveKind::Decay, next_frame: DECAY_TICK_INTERVAL });
 
         // Dry platform, far away, no water anywhere near it.
-        for x in 60..70 {
+        //
+        // **"Far away" is five field blocks of clear ground, not the literal
+        // x = 60 this used to say.** Moisture spreads by diffusion *between
+        // field blocks*, so how dry this platform is depends on its distance
+        // in blocks, not in world cells -- and the literal put it 5 blocks
+        // clear at `FIELD_SCALE` 8 and only 2.5 at 16, where the damp end's
+        // moisture reached it and it decayed. `5 * FIELD_SCALE` reproduces
+        // x = 60 exactly at 8, so the original scene is unchanged there.
+        let dry_x0 = 20 + 5 * crate::sim::field::FIELD_SCALE;
+        for x in dry_x0..dry_x0 + 10 {
             w.set(x, 100, Cell::new(ash, 0));
         }
-        w.schedule_active_site(ActiveSite { x: 64, y: 100, kind: ActiveKind::Decay, next_frame: DECAY_TICK_INTERVAL });
+        w.schedule_active_site(ActiveSite { x: dry_x0 + 4, y: 100, kind: ActiveKind::Decay, next_frame: DECAY_TICK_INTERVAL });
 
         run(&mut w, 20_000);
 
         assert_eq!(w.get(14, 100).material, soil, "damp ash never decayed into soil");
-        assert_eq!(w.get(64, 100).material, ash, "dry ash decayed as readily as damp ash");
+        assert_eq!(w.get(dry_x0 + 4, 100).material, ash, "dry ash decayed as readily as damp ash");
     }
 
     /// **The generalisation, tested on the material it was made for.**
@@ -665,6 +685,145 @@ mod tests {
             "litter left the trough without rotting: {before} cells placed, only {resolved} decays resolved"
         );
         let _ = soil;
+    }
+
+    /// **A snapped branch rots too, and it rots into litter rather than into
+    /// soil.**
+    ///
+    /// The guard for `deadwood.ron`'s `decays_into`, which the material did
+    /// not have until 2026-08-31 — it predated `Material::decays_into` and
+    /// was never revisited when litter made the channel data. Measured on the
+    /// lab bed before the fix, **30–39% of everything a plant left behind
+    /// ended as deadwood and stayed there for ever**
+    /// (`examples/labmass`, 12 seeds), which is the binary outcome
+    /// `CLAUDE.md`'s ethos section rules out.
+    ///
+    /// **Two assertions, and the second is the one that would catch a
+    /// plausible wrong fix.** That the deadwood goes is the headline; that
+    /// what it leaves is *litter* is what keeps it a chain with a middle in
+    /// it, and a `decays_into: "soil"` would pass the first assertion and
+    /// fail the second. Watched going red with the field removed: the
+    /// deadwood count stays at its full 17.
+    #[test]
+    fn deadwood_rots_into_litter_instead_of_standing_for_ever() {
+        let mut w = test_world();
+        let Some(deadwood) = w.materials.id_of("deadwood") else { return };
+        let litter = w.materials.id_of("litter").expect("litter is a compiled-in material");
+
+        // The same sealed flooded trough `litter_rots_away_instead_of_
+        // accumulating_forever` uses, for the same reason: the debris lands
+        // damp and stays put, so the run measures the decay channel rather
+        // than measuring where a powder rolled to.
+        for x in 10..=31 {
+            w.set(x, 110, Cell::new(material::STONE, 0));
+        }
+        for y in 100..=109 {
+            w.set(10, y, Cell::new(material::STONE, 0));
+            w.set(31, y, Cell::new(material::STONE, 0));
+        }
+        for y in 106..=109 {
+            for x in 11..=30 {
+                w.set(x, y, Cell::new(material::WATER, 0));
+            }
+        }
+        for x in 12..=28 {
+            w.set(x, 101, Cell::new(deadwood, 0));
+        }
+        let before = count(&w, deadwood);
+        assert_eq!(before, 17, "scene should start with 17 deadwood cells, has {before}");
+
+        // A branch is slow on purpose — `decay_chance_dry` 0.01 against
+        // litter's 0.1 — so the budget is the long one. It is a *bound*, not
+        // a schedule: the assertion is that the pile is gone by the end, and
+        // the mid-run read is what says it was draining throughout rather
+        // than all at once at the boundary.
+        run_with_physics(&mut w, 20_000);
+        let mid = count(&w, deadwood);
+        assert!(mid < before, "deadwood is not draining at all: {before} -> {mid} in 20,000 frames");
+        run_with_physics(&mut w, 80_000);
+        let after = count(&w, deadwood);
+        assert_eq!(after, 0, "deadwood never fully rotted: {before} -> {mid} -> {after}");
+
+        // **It became litter, not soil — asserted through the counter rather
+        // than by censusing litter, and the census version was written first
+        // and thrown away.** Counting litter cells at the end reads zero
+        // against working code (the middle of a chain is transient: litter's
+        // own rate is ten times deadwood's, so it drains as fast as the
+        // branch feeds it), and sampling a running peak only turned that into
+        // a coin flip — a damp litter cell lives ~400 frames and the pile
+        // produces one roughly every 6,000, so any snapshot catches one about
+        // 7% of the time. A flaky guard is worse than none.
+        //
+        // `rotted_onward` is the assertion that actually discriminates:
+        // `decay.rs` increments it only when the *product* itself has a
+        // `decays_into`. Soil has none. So a `decays_into: "soil"` — the
+        // plausible wrong fix, and the one this test exists to reject —
+        // scores zero here while passing every assertion above it.
+        assert!(
+            w.rotted_onward >= before as u32,
+            "deadwood did not rot into something that rots on: onward {} of {} cells, \
+             which is what a decays_into pointing at soil would report",
+            w.rotted_onward,
+            before
+        );
+        // ...and the target is named, so the guard fails for a different
+        // intermediate as well as for a terminal one.
+        assert_eq!(
+            w.materials.get(deadwood).decays_into,
+            Some(litter),
+            "deadwood should decay into litter, the middle of the chain"
+        );
+    }
+
+    /// **A decay that only takes a step along the chain is counted as one.**
+    ///
+    /// The guard for `World::rotted_onward`, and it exists because the number
+    /// it splits was read as soil production for as long as it existed:
+    /// `rotted_to_solid` scores the `deadwood -> litter` and `deadleaf ->
+    /// litter` steps identically to `litter -> soil`, and reading the total
+    /// as a return overstated it **fourfold** on the first lab measurement
+    /// (34% against a true 8%).
+    ///
+    /// Watched going red with the increment removed: `onward` reads 0 while
+    /// the deadwood pile is provably gone.
+    #[test]
+    fn an_intermediate_decay_is_counted_apart_from_a_chain_ending_one() {
+        let mut w = test_world();
+        let Some(deadwood) = w.materials.id_of("deadwood") else { return };
+        for x in 10..=31 {
+            w.set(x, 110, Cell::new(material::STONE, 0));
+        }
+        for y in 100..=109 {
+            w.set(10, y, Cell::new(material::STONE, 0));
+            w.set(31, y, Cell::new(material::STONE, 0));
+        }
+        for y in 106..=109 {
+            for x in 11..=30 {
+                w.set(x, y, Cell::new(material::WATER, 0));
+            }
+        }
+        for x in 12..=28 {
+            w.set(x, 101, Cell::new(deadwood, 0));
+        }
+        run_with_physics(&mut w, 100_000);
+        assert_eq!(count(&w, deadwood), 0, "the pile has to be gone for the counters to be about anything");
+        // Every deadwood cell that rotted produced litter, and litter itself
+        // decays — so each of those is an `onward` step. The pile is 17 cells
+        // and the litter it made rots on in turn, so this is a lower bound
+        // rather than an equality.
+        assert!(
+            w.rotted_onward >= 17,
+            "the deadwood -> litter step was not counted as intermediate: onward {} of {} solid-leaving decays",
+            w.rotted_onward,
+            w.rotted_to_solid
+        );
+        // ...and the split has to be a *subset*, never a parallel tally.
+        assert!(
+            w.rotted_onward <= w.rotted_to_solid,
+            "onward {} exceeds the solid-leaving total {} it is a part of",
+            w.rotted_onward,
+            w.rotted_to_solid
+        );
     }
 
     /// **The sanity check: what does this metric say when nothing is

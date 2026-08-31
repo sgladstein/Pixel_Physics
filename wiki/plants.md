@@ -3,10 +3,21 @@
 *What plants do, and what it looks like when they are working. No code, no
 file names — see `Reports/` for why any of it is built the way it is.*
 
-*Current as of: 2026-08-30 (a plant's inherited growth program has no fallback
-any more: a mutation that deletes a rule deletes the behaviour, rather than the
-plant quietly reverting to its species' version -- see **Individuals of one
-species differ too**. Before that: most of a felled tree's leaves now stay on the
+*Current as of: 2026-08-31 (roots find water by how wet the *soil* is rather
+than by how humid the *air* is -- so they follow damp ground, turn down at
+the surface, and reach roughly twice as deep as they used to, with depth now
+set by where the water is instead of capping out a third of the way into any
+bed. And drinking no longer dries the air, which had been leaving a dry
+stripe across the top of the ground that drifted sideways, never downward,
+and stopped seed from taking.)
+Before that: 2026-08-30 (stands are bushier: the light grid is half as fine,
+so plants shade each other and themselves less. Also: growth programs now
+actually mutate often enough to
+see: a stand of one species carries a real minority running a different program,
+where before it was the species' program and nothing else -- see **Individuals
+of one species differ too**. Before that: a plant's inherited growth program
+lost its fallback, so a mutation that deletes a rule deletes the behaviour
+rather than the plant quietly reverting to its species' version. Before that: most of a felled tree's leaves now stay on the
 branch rather than only the layer touching it -- see **Cutting a plant down**;
 what breaks off a plant turns as it falls and goes over where it lands, instead of dropping in the pose it
 grew in; stems draw a line instead of wandering into one --
@@ -71,7 +82,13 @@ dark and picks up again in the morning. What a plant *decides* — whether a
 leaf is too shaded to keep, whether to open a new shoot — does not swing with
 the hour; only how much it actually earns does.
 
-**Water**, drawn from damp soil by roots. Foliage spends water continuously —
+**Water**, drawn from damp soil by roots — the water held *in the ground*,
+which is a different thing from how humid the air is. Air humidity is its
+own weather, and drinking does not change it; what a root takes, it takes
+out of the soil around it, and that patch of ground stays drier until
+something wets it again.
+
+Foliage spends water continuously —
 more in bright light, almost none at night — and the plant can only earn from
 light while it has water to spend. A plant that cannot keep up closes down:
 it stops growing first, then starts shedding leaves.
@@ -116,10 +133,24 @@ Root mass does two jobs, and they are the same number:
   puts its growth into roots until it catches up. So a tall plant in the open
   builds a wide plate and a squat one does not.
 
+**Roots grow toward water they can smell.** A root tip reads how wet the
+ground is a short way off in each direction and leans toward the wetter
+side; where the ground is evenly damp there is nothing to lean toward and it
+simply grows down. So a root system bends around a dry patch, follows damp
+ground sideways when that is where the water is, and turns down at the
+surface because the soil below always holds more than the air above. It
+senses water it cannot yet drink, too — ground drier than a root can take
+up still reads as wetter than bone-dry ground beside it, which is what lets
+a root in a dry bed find the damp instead of sitting in the dust.
+
 A plant that is short of water spends its growth on roots instead of canopy,
 and switches back once it is comfortable. So a thirsty plant looks
 root-heavy, and a well-watered one looks top-heavy. Root systems are branched
-tangles, not single taproots, and they reach most of the way down a deep bed.
+tangles, not single taproots. **How deep they go is set by where the water
+is, not by how deep the bed is**: in an evenly wet bed the typical plant
+roots about a third of the way down and the deepest reach past half, and
+giving that bed more depth on its own buys very little — what earns depth is
+water lower down to grow toward.
 
 ## What a plant pays for
 
@@ -169,7 +200,18 @@ The visible consequences:
 Trunks are bare at the bottom and foliage sits at the top — plants shed
 leaves that are too shaded to pay for themselves, so a crowded stand lifts its
 own crowns. Neighbouring crowns stay mostly separate rather than merging into
-one green slab. Big plants set more seed than small ones, without any rule
+one green slab.
+
+**A stand is markedly bushier since 2026-08-30**, and that was a deliberate
+choice rather than a drift. The light grid was made half as fine, and because
+a leaf shades by how many grid blocks it fills rather than by how many cells,
+a thin canopy in a taller block now blocks less of the sky. Plants shade each
+other less and shade *themselves* less, so the same seed in the same bed grows
+about twice the leaf and sets several times the seed. Judged by eye and picked
+that way — the sparser stand it replaced read as a row of whips. The thing to
+watch, if a stand ever looks like one green slab again, is that this moved the
+balance rather than removing shade: shade still kills leaves, it is just no
+longer cheap to cast. Big plants set more seed than small ones, without any rule
 saying so: seed is set per mature cell, so size buys offspring.
 
 Growth is fastest when young and tails off — a plant stops when its income
@@ -336,9 +378,21 @@ anything else — and a mutation that *removes* one removes it for good. The
 lineage does not quietly fall back on the way its species used to grow. That
 is what lets a line of plants reach a shape its species never had; it is also
 what lets a line inherit a body plan that does not work, which is a thing that
-can now happen. In practice you will not see it yet: plants breed slowly
-enough that a stand rarely gets past its great-grandchildren, so almost every
-plant on screen is still growing to its species' original program.
+can now happen.
+
+**And it happens often enough to see, which it did not until 2026-08-30.** A
+mature stand of a fast-breeding species carries roughly a third of its plants
+running a program that is no longer the one the species started with; the rest
+still grow the original way. That is the state to expect — a species with a
+minority of variants inside it, rather than either a stand of identical copies
+or a soup with no species left in it. It costs nothing you can see in the
+stand's health: as many plants get established, they set as many seeds, and
+they reach much the same size. The old wording here said you would not see it
+because plants breed too slowly for a lineage to get past its
+great-grandchildren; the generations were in fact there all along, and what was
+missing was the mutation. Slow-breeding species like the big trees still show
+none of this, because a run rarely gets past their first generation of children
+and a program can only change when a seed is set.
 
 ## Plants that stop, and what they stop in
 

@@ -18,17 +18,37 @@
     //      staining it, so the exposed skin goes duller and greyer -- less
     //      of a value shift than sandstone's varnish and much less than
     //      mudstone's bleach, because the rock is what is being removed.
+    // **These numbers are derived, not eyeballed, and the derivation is the
+    // only way to change them safely.** Shown the six-rock world the owner
+    // said twice, unprompted, *"the color changes between layers is too much.
+    // There is too much contrast. There should be more of a shared color
+    // palette"*, and on the first correction *"I would drop the contrast even
+    // more"*. So every colour here is the file's original pulled 86% onto one
+    // shared warm-grey hue -- the mean of the six rocks' fresh families,
+    // renormalised to unit brightness -- after the whole material has been
+    // shifted half way toward the global mean brightness.
+    //
+    // **The shift is per material, never per colour.** The four tones inside
+    // one rock are what make a bed legible, and `stone.ron`'s own comment
+    // records that squeezing *those* made the banding vanish from the render
+    // entirely. Shifting the material bodily leaves every internal spread at
+    // exactly its original value and compresses only the gap between rocks,
+    // which is what the complaint was about: measured, that gap went from 116
+    // brightness points to 57 while no rock's own spread moved at all.
+    //
+    // Full account and the b50 measurements either side:
+    // `Reports/worldgen-relief-2026-08-30.md` section 5.5.
     colors: [
         // 0: fresh -- stone.ron's retired family 3, entry for entry
-        (178, 176, 169),
-        (166, 164, 158),
-        (192, 190, 183),
-        (154, 153, 147),
+        (163, 147, 135),
+        (150, 135, 124),
+        (178, 161, 147),
+        (138, 124, 114),
         // 1: weathered -- karst
-        (156, 154, 142),
-        (144, 142, 131),
-        (170, 168, 157),
-        (132, 131, 121),
+        (139, 125, 114),
+        (126, 113, 103),
+        (154, 139, 127),
+        (114, 103, 93),
         // 2: **damp** -- rock below the water table, and rock a pond or a
         // stream is standing against.
         //
@@ -39,10 +59,10 @@
         // so a single multiplier per channel says the whole thing, and no
         // rock in the set needs its own artistic judgement about being wet.
         // It is one byte, written at genesis, exactly like the other two.
-        (139, 139, 140),
-        (129, 130, 131),
-        (150, 150, 152),
-        (120, 121, 122),
+        (123, 111, 103),
+        (113, 102, 94),
+        (135, 122, 113),
+        (103, 93, 86),
     ],
     base_colors: 4,
 

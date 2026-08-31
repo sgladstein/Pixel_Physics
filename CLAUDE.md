@@ -76,14 +76,16 @@ already changed decisions:
 
 | File | Holds |
 |---|---|
-| `README.md` | Architecture, and per-milestone status. **~46k tokens — do not read it whole**: its **By topic** table maps subsystem to owning sections with line numbers, and milestone sections are named for the *build*, not the subsystem (`M17 status` is the structural-collapse write-up) |
-| `wiki/*.md` | What a material or mechanic *does*, in plain language — no code, no file names. `Reports/*.md` is *why it's built that way*; this is *what it looks like when it's right*, which makes it **the written form of the bar your change is judged against**. ~34k tokens over 11 pages, so read the one page, not the directory. **Which page owns your file is not guessable for half of them**, and the map lives here because the wiki refuses file names by design: `field.rs`/`decay.rs`/`sky.rs` → `world-cycles.md`; `structural.rs`/`load.rs`/`rigid.rs` → `structural-collapse.md`; `explosion.rs`/`fracture_field.rs` → `explosions.md`; `plant.rs`/`organism.rs`/`assets/species` → `plants.md`; `creature.rs`/`brain.rs` → `ants.md`; `player.rs` → `the-gnome.md`; `worldgen/` → `the-world.md`; `update.rs`/`material.rs` → `powders.md` and `liquids-and-gases.md`; `liquid.rs` → `liquids-and-gases.md`; `fire.rs` → `fire-and-heat.md`; `weather.rs` → `weather.md` |
+| `README.md` | Architecture, and per-milestone status. **~72k tokens, the largest document here — do not read it whole**: its **By topic** table maps subsystem to owning sections with line numbers **and says which game each topic belongs to** (`engine` is shared and is most of them; `outdoor` and `lab` mark what the other game never reaches). Milestone sections are named for the *build*, not the subsystem — `M17 status` is the structural-collapse write-up |
+| `wiki/*.md` | What a material or mechanic *does*, in plain language — no code, no file names. `Reports/*.md` is *why it's built that way*; this is *what it looks like when it's right*, which makes it **the written form of the bar your change is judged against**. ~34k tokens over 11 pages, so read the one page, not the directory. **Which page owns your file is not guessable for half of them**, and the map lives here because the wiki refuses file names by design: `field.rs`/`decay.rs`/`sky.rs` → `world-cycles.md`; `structural.rs`/`load.rs`/`rigid.rs` → `structural-collapse.md`; `explosion.rs`/`fracture_field.rs` → `explosions.md`; `plant.rs`/`organism.rs`/`assets/species` → `plants.md`; `creature.rs`/`brain.rs` → `ants.md`; `player.rs` → `the-gnome.md`; `worldgen/` → `the-world.md`; `lab/`, `bin/lab.rs` → no page yet, read `Reports/lanes/evolution-lab-coordinator.md`; `update.rs`/`material.rs` → `powders.md` and `liquids-and-gases.md`; `liquid.rs` → `liquids-and-gases.md`; `fire.rs` → `fire-and-heat.md`; `weather.rs` → `weather.md` |
 | `PLAN.md` | Roadmap, settled decisions, the issues backlog; the append-only progress log lives beside it in `PLAN-log.md`. **~60k tokens — do not read it whole**: start from its Contents, and in any session-handoff section read the dated *(State …)* line rather than the heading, which records only what was true when written |
-| `Reports/README.md` | **The index of every design report**, with per-report status and an in-flight section for documents still on unmerged branches — check a report's standing there before trusting it or writing a new one |
+| `Reports/README.md` | **The index of every design report**, with per-report status and an in-flight section for documents still on unmerged branches — check a report's standing there before trusting it or writing a new one. **Its sections are tagged by game**, so a lab session can skip `outdoor` and vice versa; `engine` is shared and is most of the index |
 | `Reports/dead-ends.md` | **Tried-and-reverted approaches** (595 at last census, 2026-08-26), each with the condition its rejection depended on and where the full record lives. **~97k tokens — grep the *mechanism* you are about to touch or propose, never your subsystem.** Measured 2026-08-26: `thicken` returns ~2,460 tokens, `max_unsupported_span` ~650, `chunk seam` ~250, and `rot_remains` **zero** — a real answer, cheaply. Grepping an area instead costs ~12k–31k, more than this file. For a genuine survey, grep the address prefix (`^- \*\*.\?src/sim/plant`) rather than the prose: 99% of entries open with the file they apply to, which halves it |
 | `Reports/open-bugs-handoff.md` | **Open bugs.** Working reproductions and what has been ruled out *by measurement*. **~97k tokens — do not read it whole**: its generated status index is the first table in the file, so read that, then only the sections it lists for your area. (`dead-ends.md` owns "was this tried?"; this owns "is this broken?") |
 | `Reports/design-philosophy.md` | Settles arguments about constants, hardcoding, and scope boundaries |
+| **`Reports/lanes/evolution-lab-coordinator.md`** | **Working on the lab? Start here and nowhere else.** `cargo run --release --bin lab` is the second game — a sealed box of soil under grow lights where the shipped plants and ants live. This note carries who owns which file, the decisions the owner has already taken, and **what each round *overturned*, which is the part a later session cannot reconstruct**. The design of record is [`Reports/evolution-lab-design-guide-2026-08-30.md`](Reports/evolution-lab-design-guide-2026-08-30.md), with [`evolution-lab-feasibility-2026-08-30.md`](Reports/evolution-lab-feasibility-2026-08-30.md) under it — both on `main` since PR #158 |
 | `Reports/session-programs.md` | **Coordinator ↔ lane protocol** — only if you are coordinating sessions or were spawned by one |
+| `Reports/two-games-one-repo-2026-08-30.md` | **Why one repository holds two games, and what is scoped rather than shared.** Read it before proposing that anything be split, forked, or moved — it carries what the routing tables' `engine`/`outdoor`/`lab` tags mean, why `paths:`-scoped rules are **not** usable here, and which of five `docscheck` globs a `Reports/` reorganisation would silently break |
 | `Reports/instruments.md` | **What every `examples/` binary can already answer** — grep it before building a measurement harness. Several generalise well past the question they were built for, which is not guessable from their names |
 | `.claude/README.md` | **The Claude Code configuration** — the `SessionStart` check, the permission allow/deny/ask lists, and why `.claude/` is tracked rather than ignored |
 | `.claude/skills/review/SKILL.md` | How to put an artifact in front of the owner and get a verdict back — the primary feedback channel, used constantly |
@@ -125,7 +127,7 @@ something that cost effort to find.
 
 ```
 cargo test                                       # unit + integration. The --skip this line carried until 2026-08-26 is vestigial: bug A's test is #[ignore]d, so it does not run. Measured: `cargo test --lib` with no flag gives 943 passed / 0 failed / 54 ignored
-cargo clippy --all-targets -- -D warnings        # CI gates this -- but CI pins 1.98 (ci.yml) and a container may ship an older rustc, in which case a local green proves nothing about lints newer than yours. Check `cargo clippy --version` before believing it
+cargo clippy --all-targets --release --locked -- -D warnings   # exactly what CI runs. `rust-toolchain.toml` pins 1.98 so this needs no `+1.98.0`
 cargo run --release --example ascii              # headless behaviour + worst-frame timing; CI runs it
 cargo run --release --example filmstrip -- scene=fall zoom=2 crop=0,140,256,110
 python3 scripts/review.py serve --open      # the owner's review queue; see below
@@ -925,9 +927,21 @@ other reversed it. Both orderings cannot be true. Nothing in the simulation
 changed: the statistic was measuring the rest of the machine. Two rules come
 out of that, and neither depends on the machine it was measured on:
 
-- **Gate on counters, never on wall clock.** Everything `examples/ascii.rs`
-  asserts is a deterministic count, identical under any load. A wall-clock
-  assertion is a flake generator — and usually the counter above it is the
+- **Gate on counters, never on wall clock — but a counter is only
+  load-independent at fixed parallelism, and that qualifier is measured
+  rather than assumed.** This bullet read *"identical under any load"* until
+  2026-08-30, when the burrow lane got **610 digs idle and 278 loaded from
+  the same baseline binary** on `ascii`'s colony scene — a 2.2x swing in a
+  pure count, from rayon's thread count changing with the box. So the claim
+  holds for anything the serial driver decides and for a census of a settled
+  world, and **fails for any counter downstream of `parallel.rs`'s
+  checkerboard**, where how the sweep is cut across workers reaches the
+  result. The remedy is cheap and it is not "stop using counters": pin the
+  thread count (`RAYON_NUM_THREADS`) for any run whose counter you intend to
+  compare, or compare two arms **inside one run** so both see the same
+  parallelism. An A/B by env switch in a single binary — which is what
+  measured the 130-against-0 that this entry comes from — is immune either
+  way. A wall-clock assertion is still a flake generator — and usually the counter above it is the
   stronger claim anyway, because "the pass did no work at all" cannot be
   explained away by a busy box. Measured again independently 2026-08-25 by the
   perf lane: a scheduler census recompiled between two runs of one scene came
@@ -1119,6 +1133,14 @@ touching the mechanism.
   cell in it is still occupied. An occupancy metric finds literally nothing.
 - **Powder faces: measure the face, not the spreading front.** The front
   crosses seams smoothly while a vertical face persists behind it.
+- **Excavation: standing void is not *dug* void, and the difference
+  reverses the sign.** A colony quarries the open face of a bank as well as
+  tunnelling into it, and a pit is standing void — so censusing "empty cells
+  in the bank" scored a build that leaves **no roof at all** at 788 against
+  a build whose tunnels stand at 472, i.e. exactly backwards. What a player
+  calls a nest is **roofed** void: empty cells with ground above them. The
+  same shape applies to any question of the form "did this make a *space*"
+  — a hole open to the sky is not a room.
 - **Destruction: a failure count is not a damage count.** `FailureCounts`
   counts cells that *failed*; a failed cell that became rubble is still
   standing there. Two digs whose event counts look comparable removed 894 and
@@ -1374,27 +1396,20 @@ consider it at all.
   shared checkout is the cause. Force-push, rebase, amend and `reset --hard`
   are on `ask` rather than `deny`: those are forbidden *on someone else's
   branch* and fine on your own, and a conditional rule can only be asked.
-- **A green local `cargo clippy` is not evidence that CI's clippy is green.**
-  Measured 2026-08-29: the container ships **1.94.1** and CI runs **1.98.0**,
-  and a lint's heuristic can widen between them. `clippy::explicit_counter_loop`
-  accepted a `for _ in 0..N` with a counter incremented in the body on 1.94.1
-  and rejected the identical code on 1.98.0 -- so the gate that is supposed to
-  catch this locally passed, and the failure arrived as a red PR instead. The
-  fix is one command and needs no toolchain switch:
-  `rustup toolchain install 1.98.0 --component clippy --profile minimal`, then
-  `cargo +1.98.0 clippy --all-targets -- -D warnings`. It leaves the default
-  toolchain alone, so nothing else in the tree changes. `rustup check` prints
-  the two versions if you want to know whether they have drifted at all.
-  **Run it before every push, not when the diff looks lint-prone** -- this
-  bullet said "worth reaching for before pushing anything that adds a loop,
-  an iterator chain or a `match`", and that scoping is what failed. Measured
-  2026-08-29 on one branch: **three separate red CI clippy runs**, and only
-  one of the three was a loop, a chain or a `match`. The others were
-  `needless_borrows_for_generic_args` on a `&format!(..)` argument and
-  `manual_is_multiple_of` on `(n / 240) % 2 == 0` -- neither of which reads
-  as lint-prone while you are writing it, which is the whole point. A
-  conditional check is one you talk yourself out of; the command is 40
-  seconds against a CI cycle each time.
+- **A green local `cargo clippy` was not evidence that CI's clippy is green,
+  and `rust-toolchain.toml` now makes it one.** The container shipped
+  **1.94.1** while CI ran **1.98.0**, and a lint's heuristic can widen between
+  them: `explicit_counter_loop` accepted a counter incremented in a
+  `for _ in 0..N` body on 1.94.1 and rejected the identical code on 1.98.0.
+  Measured 2026-08-29, three red CI clippy runs on one branch; two more on
+  2026-08-30 (`unused_imports`, `assign_op_pattern`), and **only one of the
+  five was a loop, a chain or a `match`** -- which is why the old advice here,
+  "reach for `cargo +1.98.0` before pushing anything lint-prone", failed: it
+  is a judgement you talk yourself out of. The pin is the command instead, so
+  plain `cargo clippy` is now the right one. Kept as a gotcha rather than
+  deleted because **the class survives the fix**: any tool whose local
+  version can drift from CI's has this shape, and `rustup check` prints the
+  two if you suspect it.
 - **`cargo fmt` is all-or-nothing.** `cargo fmt -- some/file.rs` formats the
   whole project, not that file — 28 files and ~3,000 lines in one go. The
   full-format pass is deliberately deferred work (`PLAN.md` issue #10) and

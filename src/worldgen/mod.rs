@@ -38,6 +38,11 @@
 //!
 //! Caves, erosion, world age and streaming.
 
+/// **The cave generator.** Rooms made by collapse, joined by conduits found
+/// through the strata, with a passage that reaches daylight. Replaces the
+/// thresholded Worley field the `vaults` pass used to carve; see the module
+/// doc and `Reports/cave-redesign-2026-08-29.md`.
+pub mod cave;
 pub mod column;
 pub mod erosion;
 pub mod legacy;
@@ -236,6 +241,22 @@ pub struct Ctx<'a> {
     pub terrain: Terrain<'a>,
     /// One entry per column of the world, indexed by x.
     pub plans: Vec<ColumnPlan>,
+    /// **Base level**: the lowest ground within a screen-half of each column,
+    /// so `y < base_y[x]` means "this cell is standing proud of its own
+    /// neighbourhood" and `y > base_y[x]` means "this cell is below the
+    /// surrounding ground, in a cut".
+    ///
+    /// A different question from `plans[x].surface_y`, which is the ground at
+    /// *this* column, and the difference is the whole of what it is for: the
+    /// top of a mesa is `surface_y` for its own column, so a depth measured
+    /// against that says a 150-cell tower is one cell below the surface at its
+    /// summit and 150 cells below it at its foot -- which is true and useless
+    /// for the question *"is this rock standing above the landscape"*.
+    ///
+    /// Computed once, by two sweeps of a running maximum, because the realise
+    /// passes read it per cell over eighteen million cells and a windowed scan
+    /// there would be the generator's whole cost.
+    pub base_y: Vec<i32>,
     /// What plan-space erosion moved and left behind on the way to `plans`
     /// (`erosion.rs`) — talus and sediment depths per column, boulder-socket
     /// markers, and the volume counters. `plan_all` already folded the
@@ -323,6 +344,14 @@ pub struct BoulderRejects {
 }
 
 impl<'a> Ctx<'a> {
+    /// Build a context without running a pass. Test-only: the shade guard in
+    /// `passes.rs` needs the same `Ctx` the realise passes see, and building
+    /// one is otherwise private to `generate_reported_with`.
+    #[cfg(test)]
+    pub(crate) fn for_test(world: &World, params: &'a WorldgenParams, seed: u64) -> Self {
+        Self::new(world, params, seed)
+    }
+
     fn new(world: &World, params: &'a WorldgenParams, seed: u64) -> Self {
         let bounds = world.bounds().expect("worldgen needs a bounded world");
         let id = |name: &str| {
@@ -353,9 +382,11 @@ impl<'a> Ctx<'a> {
         let terrain =
             Terrain::new(seed, params, bounds.max_x + 1, bounds.max_y + 1, soil_tan, sand_tan);
         let (plans, deposits) = terrain.plan_all_with_deposits();
+        let base_y = base_levels(&plans);
         Self {
             terrain,
             plans,
+            base_y,
             deposits,
             stone,
             rocks,
@@ -385,6 +416,88 @@ impl<'a> Ctx<'a> {
 /// world would find a massif that believes it is holding itself up. Running
 /// it here means every solid has a real distance from frame one, exactly as
 /// the hand-authored terrain always has.
+/// Whether **W1's relief work** runs: the differential-lowering term in
+/// `erosion.rs`, the massif in `column::Terrain::massif`, and the fold and
+/// faults in `column::Terrain::strata_offset`.
+///
+/// `PIXEL_PHYSICS_RELIEF=0` restores the shipped pre-W1 world exactly, so the
+/// control arm is **the same binary with one predicate flipped**. That is
+/// `CLAUDE.md`'s rule for measuring a change of this shape -- *"the control is
+/// to hold the semantic rule fixed, not to add another metric"* -- and it is
+/// the reason the before/after in `Reports/worldgen-relief-2026-08-30.md` is a
+/// paired run rather than two builds on two machines.
+///
+/// **One switch for all three terms, not one each**, and that was a
+/// correction rather than the first design. Gating only the erosion term made
+/// a "control" arm that still carried the massif and the deformed bedding, so
+/// every number measured against it understated the change and the picture
+/// beside it was not the shipped world. A control that is not the baseline is
+/// worse than no control, because it looks like one.
+///
+/// Lives here rather than in `erosion.rs` because `column.rs` needs it too
+/// and a column asking the erosion module whether it has mountains reads
+/// backwards.
+pub fn relief_on() -> bool {
+    // An atomic rather than a `OnceLock`, so a harness can build both arms in
+    // one process -- the same argument `passes::rock_vocab_on` records, and
+    // the difference between an A/B that shares a binary, a world-building
+    // path and a machine and one that does not.
+    static RELIEF: std::sync::atomic::AtomicI8 = std::sync::atomic::AtomicI8::new(-1);
+    match RELIEF.load(std::sync::atomic::Ordering::Relaxed) {
+        -1 => {
+            let on = std::env::var("PIXEL_PHYSICS_RELIEF").map(|v| v != "0").unwrap_or(true);
+            RELIEF.store(i8::from(on), std::sync::atomic::Ordering::Relaxed);
+            on
+        }
+        v => v != 0,
+    }
+}
+
+/// The lowest ground (largest `surface_y`) within [`BASE_LEVEL_REACH`] columns
+/// of each one.
+///
+/// A max-filter, done as two passes of a **monotonic deque** so the whole
+/// array costs O(w) rather than O(w * reach) -- at the shipped 8,192 columns
+/// and a reach of 160 that is the difference between a rounding error and a
+/// tenth of a second.
+///
+/// The maximum rather than a mean, deliberately: what the consumer wants is
+/// *"the floor this feature stands on"*, and a mean over a neighbourhood
+/// containing a tall mesa is pulled up by the mesa itself, which is the
+/// feature it is trying to measure the height of.
+fn base_levels(plans: &[ColumnPlan]) -> Vec<i32> {
+    let w = plans.len();
+    let mut out = vec![0i32; w];
+    // Indices in increasing order whose `surface_y` is strictly decreasing:
+    // the front is always the deepest ground still inside the window.
+    let mut dq: std::collections::VecDeque<usize> = Default::default();
+    let mut next = 0usize;
+    for (x, slot) in out.iter_mut().enumerate() {
+        let want = (x + BASE_LEVEL_REACH).min(w - 1);
+        while next <= want {
+            while dq.back().is_some_and(|&b| plans[b].surface_y <= plans[next].surface_y) {
+                dq.pop_back();
+            }
+            dq.push_back(next);
+            next += 1;
+        }
+        while dq.front().is_some_and(|&f| f + BASE_LEVEL_REACH < x) {
+            dq.pop_front();
+        }
+        *slot = plans[*dq.front().expect("window is never empty")].surface_y;
+    }
+    out
+}
+
+/// How far either side a column looks for the ground it is standing on, in
+/// columns.
+///
+/// A little under half a player screen. The quantity being asked for is *"is
+/// this rock standing above the landscape"*, and the landscape is what fits
+/// in a view -- read over a whole world every mesa is level with the world's
+/// deepest canyon, and read over ten columns a mesa is level with itself.
+const BASE_LEVEL_REACH: usize = 220;
+
 pub fn generate(world: &mut World, spec: Spec) {
     generate_reporting(world, spec, &mut |_, _| {});
 }
@@ -447,7 +560,7 @@ fn generate_reported_with(
             // rather than in `WorldgenParams` -- the gnome's body, a blast
             // radius, an internode -- has a `&World` in hand and no other way
             // to find out. See `World::cell_scale`.
-            world.cell_scale = params.cell_scale;
+            world.set_cell_scale(params.cell_scale);
             // The plan phase is inside `Ctx::new` -- erosion included -- and
             // it is not a row in `PASSES`, so it has to be timed here or it
             // is invisible to any per-pass accounting.
@@ -510,11 +623,14 @@ fn generate_reported_with(
             }
             if ctx.deposits.iterations > 0 {
                 println!(
-                    "  erosion detail: moved {:.1} exported {:.1} talus {:.1} sediment {:.1} \
+                    "  erosion detail: moved {:.1} exported {:.1} stripped {:.0} raised {:.0} \
+                     talus {:.1} sediment {:.1} \
                      boulder-markers {} boulders-seated {} (refused: {} air already taken, \
                      {} buried, {} at an edge) talus-recoloured {} | {:.1}ms",
                     ctx.deposits.volume_moved,
                     ctx.deposits.exported,
+                    ctx.deposits.stripped,
+                    ctx.deposits.raised,
                     ctx.deposits.talus.iter().sum::<f32>(),
                     ctx.deposits.sediment.iter().sum::<f32>(),
                     ctx.deposits.boulder.iter().filter(|&&b| b).count(),

@@ -14,8 +14,52 @@ Division of labour with the two working files: `open-bugs-handoff.md` owns
 *"is this broken?"*; [`dead-ends.md`](dead-ends.md) owns *"was this
 tried?"*.
 
-## Method and architecture — read these first
+## Which game a report is about
 
+**Two games run on this engine** — the outdoor sandbox and the evolution lab
+(`two-games-one-repo-2026-08-30.md`) — and this index is one of the two
+routing layers every session is sent to before it opens anything. So each
+section below is tagged:
+
+| tag | meaning |
+|---|---|
+| **`engine`** | **shared by both games, and most of this index.** That sharing is the whole argument for one repository: plants, creatures, fire, liquids and the sweep are the same code either side |
+| **`outdoor`** | the lab builds no scene that reaches it — it has no rock, no worldgen and no gnome |
+| **`lab`** | the sealed box, which the outdoor game has no equivalent of |
+
+**It is a hint about where your time goes, not a rule about what you may
+read**, and it is deliberately coarse: a whole section at a time, no file
+moved, reversible in one commit. Getting one wrong costs a reader one
+section. The alternative considered and *not* taken was moving the files into
+`Reports/{engine,outdoor,lab}/`, which would take five non-recursive
+`Reports/*.md` globs in `scripts/docscheck.sh` with it — including the one
+that enforces this index — and would do it **silently**.
+
+**`dead-ends.md` and `open-bugs-handoff.md` carry no tag on purpose.** Both
+are grepped rather than read, both are explicitly cross-subsystem, and the
+property that makes them work is that a mechanism tried on plants is findable
+by somebody about to try it on creatures.
+
+## Method and architecture — read these first  ·  `engine`
+
+- [two-games-one-repo-2026-08-30.md](two-games-one-repo-2026-08-30.md) —
+  **proposal, not yet built; revised after an adversarial review found its
+  central recommendation was a no-op.** Answers whether two games on one
+  engine means everything shared or everything separate. Neither — but the
+  first draft proposed moving `CLAUDE.md`'s evidence into a `.claude/rules/`
+  file with no `paths:` frontmatter, **which loads at launch exactly as
+  `CLAUDE.md` does and saves nothing**, the same failure it had correctly
+  named for `@imports` two paragraphs earlier. **And `contextbudget.py` would
+  have certified it**: it counts `CLAUDE.md` only, so the CI gate would have
+  gone green for a change that moved no context — this file's worst-recurring
+  failure arriving *prospectively*. The revision carries the four places the
+  evidence could actually go, the precedent this repo already set
+  (`session-programs.md`, moved out for exactly this reason), two live Claude
+  Code bugs that would void the saving **inside a git worktree, which
+  `CLAUDE.md` mandates**, and the correction that `Reports/` is neither flat
+  nor 14 MB of prose. Names the largest miss: **`README.md` is 71,561 tokens,
+  the biggest document in the repo, overwhelmingly outdoor, and every agent is
+  routed to it first.**
 - [why-changes-cost-so-much-2026-08-27.md](why-changes-cost-so-much-2026-08-27.md)
   — **method finding, from a live instance.** Why every change here seems to
   demand a global retune: most large levers have **no counterweight**, so
@@ -123,7 +167,7 @@ tried?"*.
   question they were built for. **Grep this before building a measurement
   harness** — the file exists because they were being rebuilt.
 
-## Destruction and structure
+## Destruction and structure  ·  `outdoor`
 
 - [fracture-mechanics-design.md](fracture-mechanics-design.md) — **design;
   its load/torque step has since landed** (`load.rs`). Why rock breaks the
@@ -246,7 +290,7 @@ tried?"*.
   Carries the instrument (`examples/support_census.rs`) and the cheapest
   falsifying experiment for what is left standing.
 
-## Liquids and granular
+## Liquids and granular  ·  `engine`
 
 - [liquid-simulation-research.md](liquid-simulation-research.md) —
   **research, round 1.** Why poured water piled like sand; SPH → PBF →
@@ -265,7 +309,7 @@ tried?"*.
   four).** Rigid body ↔ grid coupling for M8; §4 is why chunk bodies run
   serially.
 
-## Plants and trees
+## Plants and trees  ·  `engine`
 
 **Start here, not from the list below.** Plants are 42 of this directory's
 110 reports and about **269,000 tokens** — no session reads them, and the
@@ -278,7 +322,7 @@ the question you arrived with. This table is: *what am I about to do?*
 | **change the economy** — income, maintenance, what kills a plant | `plant-economy-rederivation-2026-08-23.md`. §7 and §9 are its two *negative* results, and it records six mechanisms built, measured and withdrawn |
 | **make species look different from each other** | `plant-appearance-design.md` **first, before designing anything**. Three architectural levers were built, fired 46–2,750 times each, and moved nothing: a lever that relabels a cell cannot move a silhouette that texture and colour set |
 | **author or change a species** | `plant-species-authoring.md` → `plant-genome-design.md` for the slot map. Slots are **positional forever** |
-| **touch litter, the forest floor, or where a plant's mass goes when it dies** | `soil-accumulation-and-the-carbon-cycle.md` — it is a source with no sink, and the 5% yield only changes the slope |
+| **touch litter, the forest floor, or where a plant's mass goes when it dies** | `where-a-dead-plant-goes-2026-08-31.md` for the ledger — **~9% of a dead plant reaches soil**, and its §2a is why `rotted_to_solid` overstates that fourfold — then `soil-accumulation-and-the-carbon-cycle.md` for the yield itself: a source with no sink, and 5% only changes the slope |
 | **change roots** | `root-morphology-findings.md` (what the engine structurally cannot express, and that thickening is why) → `root-blob-and-uptake-surface-2026-08-23.md` (sizes the cost before building) |
 | **put plants into the generated world** | `world-flora-sowing-2026-08-23.md` (woody) → `grass-sowing-and-divergence-2026-08-23.md`, whose §11 is the postmortem of a review card that came back a null because the rendered window held 125 grass cells against 7,853 woody |
 | **fell, cut or break a plant** | README's `Felling status` → `physical-trees-design-2026-08-23.md` §8 (T1, built) and §11 (wind-throw, not) |
@@ -504,6 +548,30 @@ drift that two of these documents still reflect.**
   construction** (exactly 50.0%, an algebraic identity), and three arms were
   silent before they were real — `lateral: None` is not "no lateral", and a
   herb shoot never places a lateral at all while its root does.
+- [plant-water-scarcity-2026-08-30.md](plant-water-scarcity-2026-08-30.md)
+  — **the teeth report's one untested prediction, tested and refuted: a dry
+  bed does not bring root architecture under selection.** `norootbranch` reads
+  **50.8%, 8 of 18 seeds, p=0.49** in a bed with **5.5x less plant-available
+  water**, and 50.8%, 8 of 18, p=0.93 in a further bed where water genuinely
+  limits — against 49.7%, 10 of 18, p=0.86 in the wet one; paired over shared
+  seeds the beds differ by **+0.0 points**. Not an inert world — `nobranch`
+  loses 13 points on **12 of 12** seeds and 10 points on **18 of 18** in those
+  same dry beds. The three findings behind the null are the value. **A bed cannot be dried into
+  drought**: every species' `Germinate` floor (`soil_water_threshold`) sits
+  *above* the availability at which its own uptake becomes limiting — moisture
+  246 against 191 for `herb`, 290 against 234 for `tree` — so below the floor
+  you get an empty bed, and `tree` at 260 goes from 6 organisms to zero.
+  **The lever that does bite is rooting volume**: same moisture, `soil=4`
+  instead of 34, and water status falls **1.000 → 0.678** with uptake halved
+  and the stand losing plants — a plant in a deep dry bed escapes downward
+  into soil it has not drunk. And **root branching does not buy water here**:
+  income is `rate x available` per *wet neighbour*, so contact with wet soil
+  is what earns and in a drawn-down bed the bed sets it — the handicap costs
+  23% of root cells and **3%** of uptake surface. Lands `sky=` and `bed=1` on
+  `selection_arena`: a bed under live weather is rained on for **30% of the
+  run** and ponds 74,674 units of free water, so "dry" needed a pinned sky
+  before it meant anything. Its §5c names what would put roots under selection
+  and why "wetter or drier" is the axis this rules out.
 - [plant-mutation-counted-at-source-2026-08-29.md](plant-mutation-counted-at-source-2026-08-29.md)
   — **§4 closed: the 2.6x was the model, not a loss.** Counts fate mutations
   where they happen (`World::fate_mutation_rolls` / `_fired` / `_applied`) and
@@ -542,15 +610,43 @@ drift that two of these documents still reflect.**
   measured against. **Its §0 is the part to quote**: at the shipped mutation
   rate this is a **no-op** — 88,909 fate queries over 60,000 frames of `herb`
   with the net catching **0** of them, and `genome_drift` byte-identical
-  between the old and new depths at both 0 and 10x. The net first bites at
-  **90x**. Generation turnover (mean depth 2.04 at 60,000 frames), not the
-  fallback depth, is the bottleneck. **Withdraws one standing claim**:
+  between the old and new depths at both 0 and 10x. **Mutation volume**, not
+  generation turnover and not the fallback depth, is the bottleneck — this
+  line said "generation turnover (mean depth 2.04)" until 2026-08-30 and that
+  attribution was withdrawn by the report itself in `ba3f723`, which corrected
+  every other document and missed this one. The net's first bite is bracketed
+  to `(0.1, 0.3]` by `plant-mutation-rate-2026-08-30.md`, below.
+  **Withdraws one standing claim**:
   `builtin_fate` is *not* the absorber — at 90x all 1,305 saves went to the
   **species** layer and `builtin_fate` took 0; the two layers agree, which is
   why dropping the middle one measured identical. Also records why `moss`
   (empty fate table, 0 calls — it only `Divide`s) and `(RootTip, Node)`
   (unreachable at `plastochron: 0`) are safe, and that an emptied `Grow` slot
   makes a tip that **never retires** rather than one that cannot grow.
+- [plant-mutation-rate-2026-08-30.md](plant-mutation-rate-2026-08-30.md)
+  — **`FATE_MUTATION_CHANCE` re-derived, 0.01 → 0.30**, closing the item the
+  fork report above leaves open. The old value was not low, it was **inert**:
+  at 60,000 frames of `herb` the *whole log* is identical to the same world
+  with mutation switched off — 873 live, 74 established, 5,858 births, same
+  body sizes and slot means — while 45 mutations fired and **none of the 28
+  individuals that carried one ever reached 20 cells**. The genome moved and
+  no plant did. **The trade it was supposed to balance is nearly empty**:
+  across 3 seeds and 7 rates, establishment, throughput and body size never
+  consistently decline, *including at rate 1.0 where every birth mutates*
+  (establishment there runs −13%, +13%, +28% — no sign). So the four-way
+  trade collapses to "how much variation should a species carry", and 0.30 is
+  the smallest rate that both puts variation in plants (29–40% of *bodied*
+  plants, against **0%** at 0.01 on every seed and both budgets) and makes the
+  owner's no-safety-net ruling non-vacuous — `GenomeOnly` and `Full` are
+  byte-identical at 0.10 and differ at 0.30, bracketing the net's first bite
+  to `(0.1, 0.3]`. **Its §5 is the method value**: a plausible 2x2 reported a
+  **3x establishment penalty for drifted plants in a run whose stand was
+  bit-identical to no-mutation at all** — confounded by age, kept in the
+  harness with the caption rewritten, because the next reader would derive the
+  same wrong number. Also records that `tree` is invariant to the entire
+  ladder (generation 1, every mutant a seed that never germinates), so the two
+  species do not want different rates, and corrects the stale attribution in
+  the entry above.
 - [plant-fate-operator-gate-2026-08-29.md](plant-fate-operator-gate-2026-08-29.md)
   — **all four mutation operators now have a viability gate**, closing §3a of
   the handoff below, and the answer is not the one its weighting hedged
@@ -684,6 +780,28 @@ drift that two of these documents still reflect.**
   protect), and the clade-as-inventory / program-as-genome split. §5a
   withdraws its own first draft's loci recommendation and says why. Four
   gates in §7, three open owner calls in §8.
+- [where-a-dead-plant-goes-2026-08-31.md](where-a-dead-plant-goes-2026-08-31.md)
+  — **measured and landed.** The owner's question — does every part of a dead
+  plant degrade to soil — answered with a ledger over the lab bed: **~9%
+  reaches soil, ~55% rots to nothing, and ~33% was locked in `deadwood` for
+  ever**, the only plant-derived debris material with no `decays_into` at all.
+  Landed the missing edge (`deadwood → litter`) and says why that is an
+  omission closed rather than a default tuned — `corpse`'s identical silence
+  **is** deliberate and was left alone. **§3a is the part to read before
+  quoting it**: the fix does *not* raise the return (9.42% → 9.39%), it
+  removes the permanent tombstone, and the sealed box ends one cycle slightly
+  emptier for it. §2a is a reusable instrument failure — `rotted_to_solid`
+  counts `deadleaf → litter` as a return and overstated it **fourfold**. §4
+  closes the carbon-cycle report's own next-measurement question — an
+  undisturbed bed plateaus and creeps back up — and **§4a withdraws two of
+  its own claims**: `labmass`'s cull filtered creatures but not *seeds*, so
+  "die-back is what costs" was a harness deleting a seed bank. **§4b is what
+  replaced them and is the reason to read it**: a deadwood mat blocks
+  germination outright (**16/16 seeds start on bare soil, 0/16 on deadwood**),
+  the binding number is the seed bank (deadwood lasts ~20,000 frames against
+  a 14,000-frame bank; litter ~2,000), and **converting debris to soil is
+  measurably not a fix** — a fresh *soil* mat blocks identically, because the
+  sterilising agent is dryness rather than material.
 - [soil-accumulation-and-the-carbon-cycle.md](soil-accumulation-and-the-carbon-cycle.md)
   — **yield landed 2026-08-27; the sink is not built.** Why trees were being
   buried in their own leaf litter: a plant fixes carbon out of light into a
@@ -699,7 +817,7 @@ drift that two of these documents still reflect.**
   1.0 accumulates and buries, 0.05 depletes to half the world's soil and
   stalls.
 
-## Creatures and ecology
+## Creatures and ecology  ·  `engine`
 
 - [creature-motion-design.md](creature-motion-design.md) — **built
   2026-08-29; all four of §6's calls answered, §7's five guards green.**
@@ -756,7 +874,27 @@ drift that two of these documents still reflect.**
   36,000 frames and keeps dying, and the cut converts that unbounded
   run-down into an early cull that settles (§4a). Sharpens
   `creature-reproduction-economics.md` §3.6 and corrects the direction
-  `ant.ron`'s own comment stated.
+  `ant.ron`'s own comment stated. **§6 superseded the same day** by
+  `creature-gate0-births-2026-08-30.md`: the gap closed without the stamp
+  term, because the "one mouthful" in this report's ceiling was a property of
+  the feeding rule rather than of the animal. §2's arithmetic stands.
+- [creature-gate0-births-2026-08-30.md](creature-gate0-births-2026-08-30.md) —
+  **built and landed 2026-08-30. Ants breed.** The block was neither the
+  economy nor the gut: `act` fed an animal only below its satiety line and
+  made it carry everything after, so **the largest bank any ant could hold
+  was the satiety line plus one mouthful** — 1,060 against a 1,041 birth cost
+  and an 1,100 bud threshold. An animal short of a child's price now finishes
+  the meal (out on the route only for a mouthful that pays by itself, at the
+  nest for as long as the larder lasts), and `adjacent_food` returns the
+  **best** neighbour rather than the first. With food on the ground the
+  shipped ant at the shipped neutral gut reaches **generation 13**; the
+  worldgen colony goes 0 -> 1 birth against `origin/main` in a paired A/B.
+  **Supersedes `creature-birth-grant-2026-08-30.md` §6** — closing the gap
+  did not need the stamp term after all. What still blocks the unfed lab bed
+  is measured to the cell: **1,651 pickups, 4 deliveries, an empty larder**,
+  isolated to `act`'s out-of-nest drop rule with a controlled probe and filed
+  as a bug. Ships `best_offer` / `best_bite` / `peak_bank` and
+  `examples/windfall_probe.rs`.
 - [creature-body-extent-2026-08-30.md](creature-body-extent-2026-08-30.md) —
   **built and landed 2026-08-30.** The body is priced per cell at last:
   nothing in the cost path read `chain.len()`, so **E10's premise that
@@ -805,7 +943,45 @@ drift that two of these documents still reflect.**
   contains one, because worldgen sows `creeper`/`shrub`/`conifer`/`tree` and
   the only fruiting species, `herb` and `scrambler`, **are never planted** —
   which answers the experiment economics §7 calls its cheapest. Route 2 is
-  reported as **unpriced**, with the reason.
+  reported as **unpriced**, with the reason. **Corrected 2026-08-30 by
+  `evolution-lab-gate-1-2026-08-30.md` §4.3: the recommendation does not work
+  as written** — in a box that does flower and fruit the matched gut takes the
+  margin to **+500 and still gives zero births**, because the flower stands 22
+  to 40 rows up a stem and `windfall` never exceeds 1. A *reach* problem, which
+  is the failure case §5 names; the margin model holds, and what it does not
+  contain is whether the mouthful can be got at.
+- [creature-cell-scale-2026-08-30.md](creature-cell-scale-2026-08-30.md) —
+  **landed, 2026-08-30.** `World::cell_scale` had **no reader anywhere in the
+  living half of the engine**, so a world at double density scaled the gnome
+  and left every animal at its authored cell count — at *half its physical
+  size*, which is the "our gnome shouldn't have shrunk" defect arriving for
+  everything that is not the gnome. `CreatureDef::scaled` closes it for
+  creatures, on `Tuning::scaled`'s four classes, and the report says which
+  constants were deliberately **not** scaled: `body_energy` (pinned to the
+  materials' `food_energy`, another lane's files) and the flight constants (a
+  named gap). Three findings beyond the fix. **A chain cannot scale in
+  width** — a path has no width — so "creatures should be more than chains of
+  pixels" and the resolution step are one problem. **Supersampling makes a
+  rigid body less mobile**, blocked 62.1% -> 72.8% against `Chain(2)`'s 5.2%,
+  which is the blocker between "more cells" and "looks like an animal"; §6 is
+  a `Ribbon` design for it, with the self-overlap problem that decides it.
+  And the birth economy is **measured on `main` rather than inherited** — PR
+  #174 had not landed when this branch was cut (births 0) and **merged
+  mid-lane**, so §5b re-measures against it: births 0 -> **1**, richest bank
+  203 -> **500**, birth cost **1,040 unchanged** — it moves the ceiling and
+  not the bar — with the resolution interaction the lane owns: the stamp `body_energy * cells` multiplies by
+  the cell ratio, taking a 36-cell body's birth cost to 17,360 against a bank
+  ceiling of ~460. **Both verdicts are in and §5a carries them**: the size
+  proof rates **5, "Yes"**, and the silhouette A/B comes back *"Both are
+  smudges but A is closer"* — so **36 cells does not buy an animal**, and the
+  reason is visible at 28 px per unit: the `ant` palette is three near-black
+  browns spanning fourteen units of luma, `Countershade` grades *within* it
+  and is invisible, and the body is a solid rectangle with nothing breaking
+  its outline. `plant-appearance-design.md` arriving on the creature line.
+  The fork is asked rather than assumed (card `…a6b871`, colour at fixed
+  outline), and §5a records what it already rules in: a creature is painted
+  from **one** `material_id`, so a pale head on a dark thorax is not
+  authorable today
 - [creature-direction.md](creature-direction.md) — **direction agreed
   (2026-08-17).** Cell-chain ants, the caged brain, the heritable genome;
   decision record plus implementation plan.
@@ -939,6 +1115,39 @@ drift that two of these documents still reflect.**
   paired table it produced. §3's correction records that the probe's 55-ant
   scene plants at 2-cell spacing — the recorded gridlock — so its "`>=32` at
   zero" figure describes that scene rather than a founded colony.
+- [larder-reachability-2026-08-30.md](larder-reachability-2026-08-30.md) —
+  **measured pre-flight, 2026-08-30, on this lane merged with `main` at
+  `2ed5c51` — including #142's economy, #154's per-cell metabolism and
+  #167's sight sense; no code changed.** Whether
+  the *granary* end of `creature-reproduction-economics.md` §5.3's
+  `store_in_body` gene is a reachable state of the world, which the owner's
+  2026-08-30 ruling requires before the gene is written. **It is not**, and
+  the blocking fact is in the birth path rather than in the pile:
+  `creature::try_bud` charges `state.energy` and there is no second term, so
+  a granary of any size funds zero births. The pile is real and small and
+  measured anyway — a median 10 cells within 2 of the nest against 1 with no
+  colony (paired **+6, 13 seeds up / 2 down**), worth 2.21 `birth_cost`s at
+  peak against a colony-free control's 1.04 — and `mode=turnover` shows it
+  is a **flow**, not a store: entries track exits (145 against 143) while
+  nothing that was in the first pile is still there. Persistence is *not* the blocker (a hand-planted 40-cell pile
+  settles at 22-23 and holds for 18,000 frames on every seed; the litter
+  half rots, the leaf half does not) — **the colony is the sink**, taking a
+  paired 10 cells off a granary it did not build. **Its §8a is the reusable
+  part**: `main` took four creature-affecting merges while this was being
+  written, so the same study was run on **five trees**, and every sign held
+  while not one magnitude did. The plant/worldgen merge moved every figure
+  and no finding; #142's economy changed two findings; #154's per-cell
+  metabolism looked arithmetically neutral and was not (metabolism is
+  charged on `chain.len()`, not `body.len()`); #167's *beetle* sight sense
+  moved the ants' deliveries 53%. The one figure that barely moved across
+  all five is the colony-free planted pile — 23, 23, 23, 24, 25 — because it
+  measures materials and decay, which no merge touched, and that split is
+  the transferable lesson.
+  Also records a line headed "paired, per-seed" that was differencing two
+  medians until it was caught. Names the three things that would have to exist, and says
+  why writing the gene today would reproduce `light_weight`'s degenerate
+  codomain. Its instrument is `examples/larder_probe.rs`, which generalises
+  to any "is this concentrated at X or merely present in the world" question.
 - [stigmergy-research.md](stigmergy-research.md) — **research,
   implemented.** Deposit → diffuse → decay → follow; the ant colony is
   built on it.
@@ -948,6 +1157,62 @@ drift that two of these documents still reflect.**
 - [ecological-lod-design.md](ecological-lod-design.md) — **recommendation,
   not settled.** How an ecology survives a world that is not simulated
   (off-camera catch-up).
+- [evolution-lab-feasibility-2026-08-30.md](evolution-lab-feasibility-2026-08-30.md)
+  — **feasibility measurement, not a plan.** Could a second game live on this
+  engine with the gnome, worldgen, rock and destruction stripped out — a
+  sealed lab box of plants and creatures under grow lights, run fast enough
+  to watch evolution? Yes, and not for the expected reason: an empty box
+  costs 0.001 ms/frame, cost is ~0.7 µs per living plant cell and **not** a
+  function of world size, and the phases the concept deletes already measure
+  0.000–0.001 ms. 5–7 herb generations measured at 4 min 17 s. The blocker is
+  biological — the shipped ant reaches **generation 0**.
+- [evolution-lab-design-guide-2026-08-30.md](evolution-lab-design-guide-2026-08-30.md)
+  — **design guide; calls and open questions, not a plan.** How you would
+  build the lab game the feasibility report says is affordable. Its §0 is the
+  reframe: the concept **is owner decision E8** ("evolution is a dev tool as
+  well as a mechanic") with a player in it, and `species_export` already
+  ships the keep. §2 turns each measurement into a design consequence — no
+  sky, population as the frame budget, depth as an honestly-priced upgrade,
+  equipment as what switches the idle air simulation on. §3 is five gates,
+  of which Gate 0 is "an ant reaches generation 2". §5 answers "reward
+  interesting behaviour" without naming a behaviour. §1a finds the deadlock in
+  the owner's own opening premise — the ant *cannot* be fed over its birth
+  cost, because its bank ceiling is the hunger line — and argues the lab wants
+  that deadlock as its first puzzle where the outdoor game wants it fixed.
+- [evolution-lab-gui-physics-2026-08-30.md](evolution-lab-gui-physics-2026-08-30.md)
+  — **measurement + design, and it corrects the guide above in one place.**
+  Four owner questions: the lab's GUI, why ants have never dug a tunnel, how
+  far resolution can go, and a brainstorm. Two answers reverse their
+  questions. **Soil**: `burrow_probe` measures a dug gallery closing in **5
+  frames** and a chamber in **30**, against a stone control holding 100% at
+  every frame — and the guide's §2b declines the *structural scheduler*,
+  which powder never enters, while leaving `update.rs:631`'s unconditional
+  straight-down fall, which is what actually fills the tunnel. Raising
+  `friction_angle` cannot reach it. The fix is a self-supporting `packedsoil`
+  the ants lay as they dig, un-packed by water — which also answers the
+  guide's open question #10. **Resolution**: a creature is 2x1 because
+  `ant.ron` says `Chain(2)`; nine-cell bodies already ship as files and reach
+  **live 0** at 12,000 frames, because birth cost scales with the body
+  (4,400 at nine cells) and the bank ceiling does not (460). So the
+  good-looking-creature problem and Gate 0 are **the same problem**, and
+  §1a's incubator with a bigger dial is the answer to both. The render half
+  is separately free: 4x the pixels costs 1.13x.
+- [evolution-lab-genetics-2026-08-31.md](evolution-lab-genetics-2026-08-31.md)
+  — **design + built and landed 2026-08-31.** The specimen shelf: keeping an
+  individual's genetics in a file that outlives the box, and putting it back
+  as itself or bred forward. Owner brief *"save genetics of creatures and
+  animals, clone them or mutate"*. **Clone and mutate are one dial counted in
+  broods** — one brood applies the engine's own per-birth mutation once, so no
+  new rate is invented and none is calibrated. Names the two exits and why
+  both are wanted (`species_export` writes a species, this writes a genome),
+  and corrects its own first draft: the *size* difference between them does
+  not exist (a plant jar 2,929 bytes against a generated ant species 2,280 —
+  `ant.ron`'s 37 KB is its comments). §5 is the part worth more than the
+  feature: **an experiment in this bed can now be repeated**, because a
+  founder's genome is otherwise keyed on where its seed landed, which is what
+  Gate 2 needs. §6.1 names `CROSS` as the cheapest real expansion — the brain's
+  topology is caged on one shared scaffold precisely so crossover is possible
+  and there is still no verb for it. §7 records the bar running out of room.
 - [plant-evolution-design.md](plant-evolution-design.md) — **design, all
   nine §8 calls signed off 2026-08-19; partly implemented.** The plant
   ecology: litter, decay, grass and the creeper; §4a's register holds the
@@ -967,7 +1232,7 @@ drift that two of these documents still reflect.**
   a flame body, a fuel-wetness gate, and `examples/fire_probe.rs`; costs the
   three §X desert levers, two of which have changed since the record.
 
-## Worldgen and world
+## Worldgen and world  ·  `outdoor`
 
 **The 2026-08-29 revamp program** — six audits and a plan, written the day
 the owner said six rounds had not made the world interesting and asked for a
@@ -1033,6 +1298,53 @@ revamp rather than another round:
   it makes overlapping cave systems' independent waterlines fire — that goes
   to the cave lane. Corrects two errors in the revamp plan: `springs` was
   never at zero, and the shipped world is 128x the small one, not 256x.
+- [worldgen-relief-2026-08-30.md](worldgen-relief-2026-08-30.md) — **W1;
+  shipped.** The centrepiece: the ground gets a surface. A slope-free lowering
+  term coupled to the *section* resistance under the surface, taken as a
+  contrast against a running mean over +/-200 columns, plus a `ridged_1d`
+  massif and a long fold with horst-and-graben faults in `strata_offset`.
+  **The formation-scale band roughly doubled** — local relief at reach 30,
+  p90 over 6 seeds: arid 21→46, canyon 54→83, rolling 27→50, terraced 30→47,
+  wetland 14→26 — and the starved passes switched on with it (brows 4.9–55x,
+  talus 3.2–66x, `boulders` writing at all on four of five presets).
+  Generation +290 ms on ~2.1 s; no per-frame code changed.
+  **Two traps recorded.** A mountain does not fit in a 320-row world, so
+  `filmstrip` and every 512x320 scene are **bit-identical to before** — do not
+  judge this from a filmstrip. And the obvious form of the erosion term
+  improved every number while rendering as the flattest world this generator
+  has made; looking at it is what caught that.
+  Also deletes a **blind guard** (`an_old_world_is_smoother_than_a_young_one`
+  was false at the median on both arms and passed on two hand-picked seeds),
+  replacing it with a paired eight-seed guard watched going red, and adds a
+  test three comments had cited by name without it existing.
+- [worldgen-caves-rebuilt-2026-08-29.md](worldgen-caves-rebuilt-2026-08-29.md)
+  — **W3; shipped** (`src/worldgen/cave.rs`, new). The cave generator replaced
+  rather than retuned: **nothing in it reads a noise field to decide where
+  rock is absent.** A room is a dissolution lens flooded through a removal
+  cost built from the strata, then a roof that falls in until it reaches a bed
+  strong enough to hold its span; conduits are paths through an anisotropic
+  cost field; systems are given a way in — **though not all of them get one:
+  6 of 11 over 8 `rolling` seeds, corrected 2026-08-30, pre-existing and not
+  moved by the guard work.** `bed_span` is read off the material —
+  42 cells in mudstone to 308 in basalt — so two rooms differ by a factor of
+  seven with no parameter moving.
+  Census over 16 seeds x 5 presets: worlds with **no cave 2–4 → 0**, largest
+  connected walkable region **36–39% → 98%**, median open column **13–16 → 60–72**
+  against a 14-cell gnome, and systems with a way in **0 → all of them**.
+  Margin came *down*, 802 → 780.
+  **Two corrections the programme needs.** `cave_probe`'s census window was
+  `WORLD_HEIGHT/2`, below most of the depth band — the earlier "8 or 9 of 16
+  worlds have no cave" is really **2 to 4**. And the pillar question the
+  revamp plan flagged as its largest open risk is **answered and the risk does
+  not exist**: `support_census` could not see it (it reads the field and never
+  cuts a hole), so `cave_probe` gained a `span=1` mode, and the roof does not
+  come down at any width up to 2,048 cells — `load::capacity` is quadratic in
+  section and multiplied by `attached_span_bonus`, so `max_unsupported_span:
+  16` never reaches the scale the plan assumed. Positive control (`lid=6`)
+  reads 0 → 207, so the instrument is not blind. Pillars stay as a design
+  choice, not a structural necessity.
+  Also: the owner's "sky is coming into the cave" was **the renderer, not
+  geometry**.
 
 - [worldgen-design.md](worldgen-design.md) — **direction agreed,
   implemented** (`src/worldgen/`). The M10 redesign: 2D play through 3D
@@ -1131,7 +1443,7 @@ revamp rather than another round:
   round 6 [caves](worldgen-implementation-tasks-round6-caves.md) and
   [formations](worldgen-implementation-tasks-round6-formations.md).
 
-## Character
+## Character  ·  `outdoor`
 
 - [m9-gnome-character-plan.md](m9-gnome-character-plan.md) — **build plan;
   shipped** (`player.rs`, wiki/the-gnome.md). Historical.
@@ -1223,6 +1535,82 @@ revamp rather than another round:
   before trusting anything the draft said. Owner rulings recorded in the
   header: growth and the carbon economy are out of scope, every plant
   participates, and leaves must never become a powder.
+
+## The evolution lab  ·  `lab`
+
+The second game: a sealed box of soil under a grow light, run at speed, where
+the shipped plants and creatures live under conditions a player sets. Design
+of record is the design guide (in flight, below); `two-games-one-repo-2026-08-30.md`
+above says what the two games share.
+
+**A report here is about the box, not about the biology in it.** Plant and
+creature findings stay in their own sections even when the lab measured them
+— the whole premise is that those are the same organisms either side, and
+filing them by which game happened to observe them would hide that.
+
+- [lab-lamps-light-the-bed-2026-08-30.md](lab-lamps-light-the-bed-2026-08-30.md)
+  — **built and measured.** The fixtures are what light the crop, and moving
+  one moves what grows under it. **They used to contribute nothing**: `labshot
+  lamps=0` came back byte-identical, because `Material::glow` seeds its own
+  field block and dies within a handful of them while the bench is nineteen
+  below — so the roof's 0.447 leak was the entire light budget and the shell's
+  thickness was the crop's light knob. `Material::beam` rides the sun's own
+  column descent instead, and the box declares itself sunless
+  (`World::set_sky_lighting`). The stand grows **26% larger and sets 1.9x the
+  seed**; dragging a fixture off a plant station **kills that plant**. **The
+  granularity question is answered at both `FIELD_SCALE` 8 and 16, with its
+  positive control**: at 8 every one of 32 columns moves the pool (the
+  block-quantised control sits still for six and then jumps 4.0), and at 16
+  there are **ten dead columns and a 4.9-cell lurch** — cured by one line,
+  because a fixture narrower than a light block cannot be positioned more
+  finely than the block. Frame cost is **+0.001 ms for the machinery** and
+  +0.82 ms for the bigger, busier biosphere it grew, separated by an empty-box
+  control. Two
+  things left open and stated: the pool draws on the back wall rather than on
+  the ground (a `render.rs` gate, and that file is being rewritten elsewhere),
+  and the pool's total flux ripples ±11% with sub-block phase.
+- [evolution-lab-gate-1-2026-08-30.md](evolution-lab-gate-1-2026-08-30.md) —
+  **measured, nothing built beyond the two harnesses.** Gate 1 of the
+  evolution-lab program: the census and the frame cost of `lab::scene::LabBox`,
+  the first scene in this repo running plants and creatures together.
+  **The box lives** — plants reach generation 5, 285 born against 266 dead in
+  90,000 frames — **and the colony is the biggest thing acting on it**: a bed
+  with no ants holds all eight founders and 2.9x the organisms, **12 seeds of
+  12, every column**. Three corrections. **The founders that go missing are
+  eaten, not ungerminated and not merely too small to draw.** **Gate 0 is a
+  reach problem, not an economy one**: the matched gut that
+  [creature-stamp-routes-2026-08-30.md](creature-stamp-routes-2026-08-30.md)
+  prices takes the margin from −820 to **+500** and produces **zero births**
+  over 48,000 frames, because the flower it unlocks stands **22 to 40 rows up
+  a stem** and the ground-level form of it, `windfall`, stands at 1–2 cells
+  for two census tiles out of sixteen. And **frame cost in the lab is the
+  field's solve set, not biomass** — correlation with plant cells **−0.02**,
+  with tiles solved **+0.90** — so the box gets *cheaper* as it runs, 5.1x
+  real time early to 11.5x settled, which is the opposite of the sizing rule
+  it was measured against. The organism ceiling is a footnote: 66 slots of
+  4,095 used, 0 refused. Timings taken under five-to-nine-times
+  oversubscription and labelled as such; the render term is reported as
+  **not measurable** rather than guessed.
+
+- [lab-sky-light-cost-2026-08-30.md](lab-sky-light-cost-2026-08-30.md) —
+  **built and landed.** The follow-up to Gate 1 §5.3: half the lab's draw was
+  `Renderer::rebuild_sky_light`, in a box whose whole premise is a ceiling
+  instead of a sky. **The sky being held was never what kept it awake** — the
+  rebuild fires on any touched chunk, and a bed with fifty walking ants
+  touches one every frame — and the cost inside it is a **per-cell scan**
+  (build 1.55 ms against a 0.90 ms fan and a 0.72 ms sweep), not the
+  propagation everyone assumes. Caching the per-block occupancy and rescanning
+  only the touched chunks' blocks takes the draw **4.80 -> 2.56 ms fresh and
+  2.97 -> 1.34 ms settled**, paired and alternating, 7 of 7 pairs; the whole
+  frame falls 32–38% and the renderer's tax on the speed dial goes from 18% to
+  8%. The picture is **byte-identical** in the lab and on the generated
+  outdoor world, and **0 pixels differ** across 3,000 per-frame comparisons
+  against a from-scratch renderer. Two findings past its own question: **a
+  frame hash is a positive control only where the change can reach a pixel** —
+  the deliberately broken cache drew a byte-identical lab sheet, so the light
+  grid is the discriminating comparison — and **half the remaining pass still
+  solves for movements of at most 20 bytes in 18,193**, which is the headroom
+  nobody has taken and is a harder change than this one.
 
 ## Licensing and distribution
 

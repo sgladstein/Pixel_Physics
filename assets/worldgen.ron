@@ -33,6 +33,8 @@
         "rolling": (
             sky_rows: 190.0,
             relief_amplitude: 46.0,
+            massif_amplitude: 260.0,
+            massif_wavelength: 2600.0,
             hill_amplitude: 30.0,
             hill_wavelength: 150.0,
             detail_amplitude: 2.5,
@@ -85,6 +87,8 @@
         "terraced": (
             sky_rows: 190.0,
             relief_amplitude: 40.0,
+            massif_amplitude: 230.0,
+            massif_wavelength: 2400.0,
             hill_amplitude: 26.0,
             hill_wavelength: 170.0,
             detail_amplitude: 2.5,
@@ -135,6 +139,8 @@
         "canyon": (
             sky_rows: 160.0,
             relief_amplitude: 70.0,
+            massif_amplitude: 380.0,
+            massif_wavelength: 3000.0,
             hill_amplitude: 18.0,
             hill_wavelength: 200.0,
             detail_amplitude: 3.0,
@@ -186,6 +192,8 @@
         "wetland": (
             sky_rows: 220.0,
             relief_amplitude: 24.0,
+            massif_amplitude: 120.0,
+            massif_wavelength: 2200.0,
             hill_amplitude: 16.0,
             hill_wavelength: 200.0,
             detail_amplitude: 2.0,
@@ -250,6 +258,8 @@
         "arid": (
             sky_rows: 190.0,
             relief_amplitude: 18.0,
+            massif_amplitude: 170.0,
+            massif_wavelength: 2800.0,
             hill_amplitude: 9.0,
             hill_wavelength: 150.0,
             detail_amplitude: 3.0,
@@ -327,6 +337,8 @@
         "flat": (
             sky_rows: 200.0,
             relief_amplitude: 0.0,
+            massif_amplitude: 0.0,
+            massif_wavelength: 2600.0,
             hill_amplitude: 0.0,
             hill_wavelength: 150.0,
             detail_amplitude: 0.0,
