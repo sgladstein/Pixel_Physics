@@ -3735,6 +3735,76 @@ outcome the ethos asks for.
 
 Full account: `Reports/plant-fate-fallback-fork-2026-08-30.md`.
 
+## 2026-08-30 — three lanes on the plant-evolution line: the rate was inert, the dry bed was a null, and grass has been sterile since the 27th
+
+**Run as a three-lane program off the no-safety-net landing.** Each lane in its
+own worktree, disjoint file ownership, and none of them allowed to touch
+`README.md`, `PLAN.md` or this file — the collision census says
+`open-bugs-handoff.md` and `README.md` are in nearly every branch landing, so
+the integration was held back to one writer. Landed as #163, #164, #165.
+
+**The mutation rate was not low, it was inert.** `FATE_MUTATION_CHANCE` 0.01 ->
+**0.30**. Against a rate-0 control on the same world, 0.01 leaves the
+population identical at every sample (905/1159/994), 66 plants establish either
+way, and **zero of those 66 ever carry a drifted table**. The 45-56 mutations
+that fire per run live entirely in seeds that never become plants; none reaches
+20 cells. The genome moved and no plant did — which is the other half of why
+the safety net measured 0 saves in 88,909 queries earlier the same day. The
+expected lethal-load trade never binds: establishment, throughput and survival
+never consistently decline, *including at 1.0 where every birth mutates*. 0.30
+over the equally-free 0.10 because below it the owner's "No safety net" ruling
+is a dead letter — the two lookup depths are byte-identical at 0.10 and differ
+at 0.30.
+
+**A dry bed does not put roots under selection, and the null is properly
+controlled.** `norootbranch` reads 50.8% / p=0.49 in a bed with 5.5x less
+available water and p=0.93 in a water-limiting one, against 49.7% / p=0.86 wet;
+paired over shared seeds, +0.0 points. The bed is not inert — `nobranch` still
+loses 13 points on 12 of 12 and 10 on 18 of 18 in those same beds, and both
+unmirrored identical-arm controls pass. Three findings underneath it:
+`Germinate`'s `soil_water_threshold` floors a *usable* bed **above** the
+availability where uptake binds, so no bed exists in the gap (below it you get
+an extinction by germination failure, not a drought); the lever that does bite
+is rooting **volume**, not moisture; and root branching costs 23% of root cells
+but only **3%** of uptake surface, because income is per wet neighbour.
+`dead-ends.md` records the condition — it rejects *soil moisture as the lever*,
+not water as a pressure.
+
+**Grass has been sterile since 2026-08-27, at `19b87d8e`.** One commit wide,
+and `git bisect` was never needed: `git log -S'reproductive_budget'` named it
+and the adjacent pair confirmed it by measurement (parent 24 seeds, commit 0).
+`Reproduce` moved from the bearing cell's carbon to a budget fed only by
+`allocate_to_frontier`'s surplus, whose income accumulates under one match arm
+— `Some(CellType::Leaf)`. **`grass.ron` declares no `Leaf` cell type.** Income
+is structurally zero, so the budget binds on **100.0% of 259,662 eligible
+cell-ticks** against herb's 73.1%. This is the same defect in a fourth place,
+after shade/drought death, `break_buds` and the starvation rule — every one a
+rule asking `CellType::Leaf` where it means photosynthetic tissue.
+
+**The fix is proposed, not applied, and that is the interesting half.** The
+repair is one predicate (`is_foliage`), and measured it **overshoots 140x**: 0
+-> 3,380 seeds, generation 0 -> 11, the budget binding 100.0% -> 0.2%. Carbon
+stops constraining grass at all, because `reproductive_allocation: 0.30` was
+authored blind against an income of exactly zero. Shipping the correct
+mechanism at the inherited constant would trade a sterile species for an
+unconstrained one — the standing rule about re-deriving constants a fix changes
+the meaning of, arriving from a direction nobody had it pointed at.
+
+**Two things the lanes caught that the coordinator had missed or mis-stated.**
+The fork report's *index line* in `Reports/README.md` still carried the
+withdrawn "generation turnover is the bottleneck" claim after every other
+document had been corrected — the one place a session reads before deciding
+whether to open a report. And §1n's scene table was chasing a scene change that
+never happened: the archived 2026-08-27 log echoes today's default width and
+soil, and the rerun reproduces it number for number, differing only in probe
+readouts added since.
+
+**Still open**: whether a stand with a third of its plants running their own
+program *looks* like one species or a mess — blind A/B on the queue, card
+`20260830T073610061Z-a89324`. If it reads as broken the rate comes back down.
+And §1n cannot appear as OPEN in the bug register's index, because it sits
+under a "Landing notes" heading that `bugindex.py` files as a note whatever it
+says.
 ## 2026-08-30 — the evolution lab: an empty box is free, and the ant is the blocker
 
 Feasibility question from the owner: could a second game live on this engine
