@@ -3337,6 +3337,13 @@ impl World {
     /// `ChunkView`'s half of `ground_wetness_at` above -- it has to
     /// assemble the two samples itself, because during a parallel pass one
     /// of them may live in its own detached tile rather than in `self`.
+    /// Damp the air over `(x, y)` by water the ground there has just given
+    /// up. See `field::FieldTile::vapour` — the local half of what
+    /// `credit_atmosphere` books globally.
+    pub(crate) fn add_vapour(&mut self, world_x: i32, world_y: i32, amount: f32) {
+        field::add_vapour_at(&mut self.fields, self.bounds, world_x, world_y, amount);
+    }
+
     pub(crate) fn moisture_source_at(&self, world_x: i32, world_y: i32) -> f32 {
         field::moisture_source_at(&self.fields, self.bounds, world_x, world_y)
     }

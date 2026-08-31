@@ -175,6 +175,10 @@ pub(crate) const CHECK_INTERVAL: u64 = 60;
 /// roughly forty cells wide stop dead and everything narrower grades.
 const HUMID_STOP: f32 = 2.0;
 
+/// Humidity one whole cell-equivalent of evaporated water adds to the block
+/// it left. See `vapour_of`, which is where this is argued.
+const VAPOUR_PER_CELL_EQUIVALENT: f32 = 2.0;
+
 /// Fill removed from one exposed surface cell per check in perfectly dry
 /// air, on `material::LIQUID_FULL`'s 0..1000 scale. Scaled by dryness, so
 /// this is a ceiling and not the typical case: a narrow puddle's own air
@@ -586,7 +590,33 @@ fn tick_soil(world: &mut World, x: i32, y: i32, stale_ticks: u8) -> Vec<ActiveSi
     // Credit exactly what was removed, on the same 1:1 scale infiltration
     // already uses to move fill into `aux`.
     world.credit_atmosphere(loss);
+    // ...and damp the air it went into. `credit_atmosphere` books the water
+    // globally so the sky can rain it back; this is the *local* half, which
+    // did not exist. See `field::FieldTile::vapour` for the runaway it
+    // closes -- without it, ground that starts drying makes its own air
+    // drier and so dries faster still.
+    world.add_vapour(x, y + depth, vapour_of(loss));
     vec![reschedule]
+}
+
+/// What a fill reduction is worth as humidity, on the field's own
+/// `0..MAX_MOISTURE` scale.
+///
+/// **The two scales have no physical bridge, so this is an exchange rate and
+/// is sized rather than derived.** A cell's fill runs to
+/// `material::LIQUID_FULL`; a field block spans `FIELD_SCALE` squared world
+/// cells and reads `0..4`. The bar it has to clear is `HUMID_STOP` (2.0),
+/// the humidity at which drying stops: one exposed cell giving up
+/// `SOIL_DRY_PER_CHECK` should raise its block noticeably without silencing
+/// a whole block's drying in a single check, or one puff would stop a
+/// desert.
+///
+/// At this rate a full `SOIL_DRY_PER_CHECK` of 100 adds 0.2 -- a tenth of
+/// the way to `HUMID_STOP` -- so closing the gate takes ten checks of
+/// sustained drying in one block, and `field::VAPOUR_PERSISTENCE` is what
+/// holds the earlier puffs while the later ones arrive.
+fn vapour_of(fill: u16) -> f32 {
+    fill as f32 / crate::sim::material::LIQUID_FULL as f32 * VAPOUR_PER_CELL_EQUIVALENT
 }
 
 /// How dry the air above `(x, y)` is, `0.0..=1.0` — the weather half of the
@@ -910,6 +940,7 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
         // show up, months later, as a world whose sky had quietly stopped
         // being able to rain.
         world.credit_atmosphere(fill);
+        world.add_vapour(x, y, vapour_of(fill));
         // Gone. `Cell::EMPTY`, never `with_aux(0)` — on a `Liquid`, `aux ==
         // 0` means *full*, so writing a drained cell that way manufactures a
         // full one out of nothing.
@@ -934,6 +965,7 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
     // sky. The two credit sites are the only two places a fill reduction
     // happens in this file, and each credits exactly what it removed.
     world.credit_atmosphere(loss);
+    world.add_vapour(x, y, vapour_of(loss));
     world.set(x, y, cell.with_aux(fill - loss));
     vec![reschedule]
 }
