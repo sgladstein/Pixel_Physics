@@ -1,0 +1,46 @@
+{
+  "id": "20260831T034008839Z-fa887e",
+  "created": "2026-08-31T03:40:08Z",
+  "board": "plants",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/evolution-lab-soil-moisture-kllovu",
+    "commit": "b0c09ac",
+    "agent": null,
+    "session_id": "668d210a-1340-52f9-9a30-a543539f39df",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Roots drink soil water, not air humidity",
+  "question": "You reported a dry band across the top of the soil that spread left and never down, and that roots never go deeper. Both came from the same thing: hydrotropism was steering roots by AIR HUMIDITY, which does not exist below ground. One of these beds steers roots by the water actually in the soil. Which one's roots read as a root system reaching for water?",
+  "context_md": "Lab bed, 512x320, 24 founders, no colony, frame 9000, AIR HUMIDITY overlay. Deepest live root below the surface, paired on 8 identical world seeds at soil=96 (a 40-row bed floors the measurement): median 15 -> 30 rows, 7 seeds deeper, 1 unchanged, 0 worse. Max 42 -> 55. On main, giving the bed 2.4x the depth moved that median 19 -> 15, i.e. nothing -- which is the 'roots stop at 13 rows' finding reproducing. Stand at the frame shown: A 157 organisms / 1328 cells, B 169 / 1656. Seeds set and germination are unchanged-to-slightly-up, which was the regression to watch for.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "current main (roots steer by air humidity)",
+      "files": [
+        "20260831T034008839Z-fa887e/000-crop_base.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "fixed (roots steer by per-cell soil water)",
+      "files": [
+        "20260831T034008839Z-fa887e/001-crop_fixed.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
