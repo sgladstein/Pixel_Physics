@@ -2112,7 +2112,7 @@ pub struct CreatureDef {
     pub digest_rate: f32,
     /// **The ancestral value of every heritable body trait**, indexed by
     /// `CREATURE_TRAITS`' slot map: slot 0 is `gut_bias`, slot 1 is
-    /// `birth_grant`.
+    /// `birth_grant`, slot 2 is `reproduce_at`.
     ///
     /// Authored per species because two ancestors one number apart, living
     /// in different parts of the world and coloured differently, *is* the
@@ -3295,14 +3295,13 @@ pub struct OrganismState {
     /// segment stepping into its predecessor's old position, which is a
     /// question about order that a `HashMap` cannot answer.
     /// **This individual's heritable body traits** — `CREATURE_TRAITS`
-    /// holds the slot map, and `TRAIT_GUT_BIAS` is the only live slot.
+    /// holds the slot map, and all three slots are live.
     ///
-    /// A byte-copy of `CreatureDef::traits` at spawn today: nothing
-    /// reproduces, so every creature is its species' ancestral value and
-    /// the only way to move one is to author it. S6 is where a child takes
-    /// its *parent's* vector jittered by `CreatureDef::trait_variance`,
-    /// and the storage is here now because the trait has to change
-    /// behaviour before it can be worth inheriting.
+    /// A byte-copy of `CreatureDef::traits` for a founder the world placed;
+    /// for a child, its parent's vector jittered by
+    /// `CreatureDef::trait_variance` in `try_bud`, after placement, on the
+    /// child's own handle. So a founder is its species' ancestral value and
+    /// everything descended from one is not.
     ///
     /// **Not in `genome`.** See `CREATURE_TRAITS` — a gut is not a synapse,
     /// and a body block that grows independently is what keeps S8 from
@@ -3640,11 +3639,26 @@ pub const GENOTYPE_TRAITS: usize = 10;
 ///
 ///   0 gut_bias — where this animal's digestion sits on the diet axis
 ///   1 birth_grant — how much of `start_energy` a newborn is handed
+///   2 reproduce_at — how rich this animal waits to be before it buds
 ///
 /// **Positional forever, on the same terms as `GENOTYPE_TRAITS`**: a slot
 /// dead by measurement in every species may be re-purposed once with the
 /// measurement record re-baselined; a live slot, never.
-pub const CREATURE_TRAITS: usize = 2;
+///
+/// **`store_in_body` is deliberately not a slot here, and that is a
+/// correction to the plan that asked for it.** The granary-versus-replete
+/// gene was specced as slot 3 before the verb choice was rebuilt; what
+/// rebuilding it did was put `Feed` against `Drop` in
+/// `creature::act`'s `choose_weighted`, reading two *brain output* weights
+/// that are already heritable and already mutate. Those weights are
+/// conditioned on everything the brain senses — crop fill, food adjacency,
+/// both pheromone planes — so they can express "put it down when laden and
+/// near home" and "never put it down", which are exactly the two forks. A
+/// scalar trait beside them would be a second knob on one quantity and a
+/// strictly weaker one, which is `CLAUDE.md`'s *when several knobs move the
+/// same number, check what each one trades*: this one trades nothing the
+/// weight does not already trade.
+pub const CREATURE_TRAITS: usize = 3;
 
 /// Slot 0 of `CREATURE_TRAITS`: **diet as one heritable number**, `-1`
 /// (plant matter) to `+1` (flesh), scored against `MaterialDef::food_class`
@@ -3685,6 +3699,40 @@ pub const TRAIT_GUT_BIAS: usize = 0;
 /// biology, and it is also what the existing draw order already does.
 pub const TRAIT_BIRTH_GRANT: usize = 1;
 
+/// Slot 2 of `CREATURE_TRAITS`: **how rich this animal waits to be before
+/// it buds**, `-1` (the earliest the arithmetic allows) to `+1` (twice the
+/// species' authored bar), read through `creature::reproduce_fraction`.
+///
+/// **This is the one life-history axis the brain could not already
+/// express.** Budding is not a `BrainOutput` — `creature_tick` calls
+/// `try_bud` on every tick that was survived, so *when* to reproduce was
+/// the last decision in the animal still made by a species constant. The
+/// eat-versus-carry crossover moved into the hidden units' bias weights
+/// when the crop landed, and the store-versus-deliver choice into `Feed`
+/// against `Drop`; this is what was left.
+///
+/// **Two-sided today, through starvation rather than through senescence.**
+/// The plan that specced this slot said it becomes a real trade only once
+/// an age-linked hazard exists, and that was wrong about this engine:
+/// `place_creature` tops a parent up to `birth_cost + 1` and then charges
+/// `birth_cost`, so an animal that breeds the instant it can afford to is
+/// left standing on **one joule** — about three ticks of upkeep for the
+/// shipped ant. So the low allele is very nearly a suicide pact and the
+/// high one is a survival buffer bought by breeding less often, which is
+/// Cole's paradox resolved the way it is resolved in nature: by adult
+/// survival being worth something. An age-linked hazard will *sharpen*
+/// this axis; it is not what makes it exist.
+///
+/// **Read off the parent, like `TRAIT_BIRTH_GRANT`** — the decision to wait
+/// belongs to the animal doing the waiting, and `try_bud` mutates the
+/// child's copy after placement.
+///
+/// The species' authored `reproduce_threshold` stays the *scale*: a
+/// species that does not reproduce (threshold 0) still does not, whatever
+/// this slot says, so making reproduction universal stays S5c's decision
+/// to take deliberately rather than something this slot does quietly.
+pub const TRAIT_REPRODUCE_AT: usize = 2;
+
 /// The ancestral trait vector for a species file that authors no `traits`
 /// line at all.
 ///
@@ -3693,6 +3741,14 @@ pub const TRAIT_BIRTH_GRANT: usize = 1;
 /// silently halve every unauthored species' endowment the day this slot
 /// landed. `+1.0` is a full `start_energy`, which is exactly what every
 /// newborn got before the slot existed.
+///
+/// **Slot 2 is the opposite case and is left at zero deliberately**: zero
+/// on the reproduce-at axis is the species' authored `reproduce_threshold`
+/// unchanged, so an unauthored species breeds exactly where it did before
+/// the slot existed. The two slots disagree about what zero means because
+/// their axes are different — one is a fraction of a budget and the other a
+/// multiplier on a bar — and writing both out here is what stops the next
+/// slot being added by pattern-matching on the wrong one.
 fn default_creature_traits() -> [f32; CREATURE_TRAITS] {
     let mut t = [0.0; CREATURE_TRAITS];
     t[TRAIT_BIRTH_GRANT] = 1.0;
@@ -5618,10 +5674,9 @@ mod tests {
 
     /// **The authored gut arrives, and is not the serde default.**
     ///
-    /// `traits` carries `#[serde(default)]`, so a species that misspells
-    /// the field, or a RON tuple form that does not deserialize into a
-    /// fixed array, loads *silently* at `[0.0; N]` -- and neutral is a
-    /// perfectly plausible-looking gut. That is the disconnected-knob
+    /// `traits` carries `#[serde(default)]`, so a species that **misspells
+    /// or omits** the field loads *silently* at `[0.0; N]` -- and neutral is
+    /// a perfectly plausible-looking gut. That is the disconnected-knob
     /// failure `CLAUDE.md` records twice (the `include_str!` sweep whose
     /// arms came back byte-identical, and the megastudy whose eight logs
     /// were one population): the tell in both was output that could not
@@ -5629,6 +5684,18 @@ mod tests {
     /// test able to fail -- the ant's authored value *is* the default, so
     /// asserting on the ant alone would pass against a field that never
     /// parsed.
+    ///
+    /// **A wrong-*arity* tuple is not that failure and needs no guard**, and
+    /// this is worth stating because the plan that widened the block to
+    /// three slots assumed the opposite and specced tests against it.
+    /// Measured 2026-08-31 by narrowing `ant.ron` back to two: RON refuses a
+    /// present-but-malformed field outright rather than falling through to
+    /// the `serde` default, `SpeciesRegistry::builtin` panics, and the
+    /// message names the file position and both lengths -- *"317:36:
+    /// Expected an array of length 3 but found 2 elements instead"*.
+    /// `#[serde(default)]` fires only for a field that is **absent**. So the
+    /// silent case is a misspelling, and the loud case is everything about
+    /// widening a slot.
     #[test]
     fn the_authored_gut_bias_survives_the_ron_round_trip() {
         let reg = SpeciesRegistry::builtin();
@@ -5646,6 +5713,44 @@ mod tests {
         // a *parse* error any more -- 0.0 is the serde default again --
         // which is exactly why the beetle above carries this test.
         assert_eq!(ant.traits[TRAIT_GUT_BIAS], 0.0, "ant.ron authors an omnivore gut -- see that file for the food-scale sweep behind the value");
+    }
+
+    /// **Every slot of the widened tuple arrived, not just the ones the
+    /// test above happens to name.**
+    ///
+    /// **The arity itself needs no guard** -- a short tuple panics out of
+    /// `SpeciesRegistry::builtin` naming its own file position, as the test
+    /// above now records. What nothing catches is the next widening done
+    /// *correctly* at the arity and wrongly at the value: a `.ron` updated
+    /// to four fields with slot 2's number dropped, duplicated, or shifted
+    /// one place left in the edit. Every file still parses, every array is
+    /// the right width, and one gene quietly carries another's setting. So
+    /// each slot gets an assertion of its own, on a value that is **not**
+    /// the serde default, because an assertion that matches the default
+    /// cannot distinguish authored from absent.
+    ///
+    /// Slot 2's ancestral value *is* 0.0 on every shipped species and
+    /// deliberately so (`TRAIT_REPRODUCE_AT`: there is no measurement
+    /// saying the ant should be eager or patient), so the canary for it
+    /// rides on `trait_variance`, where 0.15 is authored and 0.0 is the
+    /// default. A zero width there is not cosmetic -- it is the slot
+    /// silently not mutating, which is a gene that inherits and never
+    /// varies, and every allele histogram over it would read as a
+    /// population under strong stabilising selection.
+    #[test]
+    fn every_creature_trait_slot_survives_the_ron_round_trip() {
+        let reg = SpeciesRegistry::builtin();
+        for name in ["ant", "beetle"] {
+            let def = reg.get(reg.id_of(name).unwrap_or_else(|| panic!("{name}.ron should define \"{name}\"")));
+            let def = def.creature.as_ref().expect("a creature");
+            for slot in 0..CREATURE_TRAITS {
+                assert_eq!(
+                    def.trait_variance[slot], 0.15,
+                    "{name}.ron authors 0.15 on every trait width; slot {slot} read {} -- either the tuple lost a field or that gene cannot mutate",
+                    def.trait_variance[slot]
+                );
+            }
+        }
     }
 
     #[test]

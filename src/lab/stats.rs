@@ -189,7 +189,19 @@ pub struct BreedMargin {
     /// live this tick and is small beside the two terms here; the figure is
     /// therefore mildly optimistic and is a bound rather than a prediction.
     pub gain_per_tick: f32,
-    /// `creature::reproduce_at` — the bank an individual must reach to bud.
+    /// `creature::reproduce_at` — the bank a **founder** of this species
+    /// must reach to bud.
+    ///
+    /// **The species' ancestral bar, not the population's, and that is a
+    /// choice rather than an oversight.** `TRAIT_REPRODUCE_AT` made this a
+    /// gene, so once anything has bred there is no single number here: an
+    /// eager lineage buds at `birth_cost + 1` and a patient one at twice
+    /// the authored threshold. The row this feeds answers *"what does this
+    /// animal need"* for a player looking at a box, and the honest answer
+    /// to that is the ancestral value the founders were placed with. The
+    /// spread across the living population is a different question and
+    /// wants an allele histogram, which is `genome_drift`'s shape and not a
+    /// row on this page.
     pub bar: f32,
     /// The best single mouthful, priced over the **material table**.
     pub best_mouthful: f32,
