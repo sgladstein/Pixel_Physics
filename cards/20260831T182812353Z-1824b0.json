@@ -1,0 +1,73 @@
+{
+  "id": "20260831T182812353Z-1824b0",
+  "created": "2026-08-31T18:28:12Z",
+  "board": "lab",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/evolution-lab-multiple-chambers-qw1hjz",
+    "commit": "ee903aa",
+    "agent": null,
+    "session_id": "3a441651-265c-5f10-ba8c-b584bbef1307",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Five chambers in the rack: where do the tabs go?",
+  "question": "You asked for numbered tabs on the bar. The bar turns out to have 0-1 pixels spare at its tightest spacing, so a tab has to be a strip beside the bar rather than a cell in it -- which edge should it eat? A covers the soil, B covers the ceiling and paints over the top HUD line, C spends nothing and only tells you which chamber you are in when you open the menu.",
+  "context_md": "Same rack, same warm-up, three placements. **The frame counts under each are the point**: chamber 1 has run 864 ticks and chambers 2-5 are held at 0, so the freeze is real rather than a picture of five copies of one box.\n\nA switch is a swap, not a rebuild -- a parked chamber resumes on the tick it stopped at.\n\n- **A** strip along the top of the bar. Reads as part of the bar. Eats the bed's stone floor, which `scene.rs` already sits flush with the bar, so it is the edge with least in it.\n- **B** strip at the top of the screen. Same pixels, but it covers the ceiling shell and the lamps -- and, visible in the shot, **paints over the first line of the PAUSED readout**.\n- **C** no tabs at all. `SHIFT+1..5` switches, `F4` opens the full rack. Costs nothing and shows nothing.\n\nEither strip is drawn **only when the rack holds more than one chamber**, so the lab's own opening -- one empty box -- pays nothing in all three.",
+  "kind": "gallery",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A -- above the bar",
+      "files": [
+        "20260831T182812353Z-1824b0/000-abovebar.png"
+      ],
+      "caption": "strip against the bar's top edge, over the soil",
+      "meta": {
+        "chambers in rack": 5,
+        "frame, chamber 1": 864,
+        "frame, chambers 2-5": 0,
+        "strip height px": 12,
+        "bar row slack px": 0
+      },
+      "focus": null
+    },
+    {
+      "label": "B -- top of screen",
+      "files": [
+        "20260831T182812353Z-1824b0/001-top.png"
+      ],
+      "caption": "strip at the screen's top edge, over the ceiling",
+      "meta": {
+        "chambers in rack": 5,
+        "frame, chamber 1": 864,
+        "frame, chambers 2-5": 0,
+        "strip height px": 12,
+        "HUD lines covered": 1
+      },
+      "focus": null
+    },
+    {
+      "label": "C -- no tabs",
+      "files": [
+        "20260831T182812353Z-1824b0/002-off.png"
+      ],
+      "caption": "keys and the F4 menu only",
+      "meta": {
+        "chambers in rack": 5,
+        "frame, chamber 1": 864,
+        "frame, chambers 2-5": 0,
+        "strip height px": 0,
+        "HUD lines covered": 0
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
