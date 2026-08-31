@@ -32,6 +32,7 @@
 //! second set of geometry and a screenshot from either game is comparable
 //! with one from the other.
 
+pub mod batch;
 pub mod params;
 pub mod scene;
 pub mod stats;

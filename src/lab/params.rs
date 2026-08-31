@@ -640,21 +640,55 @@ pub fn write(world: &mut World, spec: &mut LabBox, knob: &Knob, value: f32) -> b
             }
             true
         }
-        Knob::Bed { field } => {
-            let v = value.max(0.0).round();
-            match *field {
-                "lamp_spacing" => spec.lamp_spacing = v as i32,
-                "soil_depth" => spec.soil_depth = v as i32,
-                "ground_y" => spec.ground_y = v as i32,
-                "compartments" => spec.compartments = v as usize,
-                "founders" => spec.founders = v as usize,
-                "colonies" => spec.colonies = v as usize,
-                "seed" => spec.seed = v as u64,
-                _ => return false,
-            }
-            true
-        }
+        Knob::Bed { field } => write_bed(spec, field, value),
     }
+}
+
+/// **Write one field of the bed spec, by name.** The single definition of
+/// which fields of a `LabBox` are settable and how.
+///
+/// Split out of [`write`] because `batch` sweeps these fields too, and it has
+/// a spec in hand and no `World` — it is generating the specs a rebuild will
+/// be made *from*. Two copies of this table would be two answers to "which
+/// knobs can a sweep vary", and the one that drifted would be the one that
+/// silently swept nothing.
+///
+/// Returns whether anything was written, so a caller naming a field that does
+/// not exist finds out rather than sweeping a constant — the `include_str!`
+/// failure this repo already has on record, where three "runs" came back
+/// bit-identical because the knob was never connected.
+pub fn write_bed(spec: &mut LabBox, field: &str, value: f32) -> bool {
+    let v = value.max(0.0).round();
+    match field {
+        "lamp_spacing" => spec.lamp_spacing = v as i32,
+        "soil_depth" => spec.soil_depth = v as i32,
+        "ground_y" => spec.ground_y = v as i32,
+        "compartments" => spec.compartments = v as usize,
+        "founders" => spec.founders = v as usize,
+        "colonies" => spec.colonies = v as usize,
+        "seed" => spec.seed = v as u64,
+        _ => return false,
+    }
+    true
+}
+
+/// Read one field of the bed spec by the same names [`write_bed`] accepts.
+///
+/// The pair matters for a sweep: a sweep row has to *print* the setting it
+/// ran at, and reading it back through the same table is what makes the
+/// printed value the one that was actually applied rather than the one that
+/// was asked for.
+pub fn read_bed(spec: &LabBox, field: &str) -> Option<f32> {
+    Some(match field {
+        "lamp_spacing" => spec.lamp_spacing as f32,
+        "soil_depth" => spec.soil_depth as f32,
+        "ground_y" => spec.ground_y as f32,
+        "compartments" => spec.compartments as f32,
+        "founders" => spec.founders as f32,
+        "colonies" => spec.colonies as f32,
+        "seed" => spec.seed as f32,
+        _ => return None,
+    })
 }
 
 /// Whether a change to this knob is only felt after `REBUILD`.
