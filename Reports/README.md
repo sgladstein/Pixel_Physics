@@ -792,9 +792,16 @@ drift that two of these documents still reflect.**
   removes the permanent tombstone, and the sealed box ends one cycle slightly
   emptier for it. §2a is a reusable instrument failure — `rotted_to_solid`
   counts `deadleaf → litter` as a return and overstated it **fourfold**. §4
-  closes the carbon-cycle report's own next-measurement question: an
-  undisturbed bed plateaus and creeps back up; **die-back is what costs**, and
-  a graded cull is a button on the lab's bar.
+  closes the carbon-cycle report's own next-measurement question — an
+  undisturbed bed plateaus and creeps back up — and **§4a withdraws two of
+  its own claims**: `labmass`'s cull filtered creatures but not *seeds*, so
+  "die-back is what costs" was a harness deleting a seed bank. **§4b is what
+  replaced them and is the reason to read it**: a deadwood mat blocks
+  germination outright (**16/16 seeds start on bare soil, 0/16 on deadwood**),
+  the binding number is the seed bank (deadwood lasts ~20,000 frames against
+  a 14,000-frame bank; litter ~2,000), and **converting debris to soil is
+  measurably not a fix** — a fresh *soil* mat blocks identically, because the
+  sterilising agent is dryness rather than material.
 - [soil-accumulation-and-the-carbon-cycle.md](soil-accumulation-and-the-carbon-cycle.md)
   — **yield landed 2026-08-27; the sink is not built.** Why trees were being
   buried in their own leaf litter: a plant fixes carbon out of light into a

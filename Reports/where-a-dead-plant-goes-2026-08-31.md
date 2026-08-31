@@ -151,7 +151,7 @@ never be food and never change is the binary outcome the ethos rules out, and
 nothing would defend it. The bed difference is 0.3% of a 40,320-cell bed on a
 quantity that, undisturbed, plateaus and creeps back up either way (§4).
 
-## 4. The bed does not run down as feared — the disturbance is what costs
+## 4. The bed does not run down — and what actually stops a die-back recovering
 
 This closes the question
 [`soil-accumulation-and-the-carbon-cycle.md`](soil-accumulation-and-the-carbon-cycle.md)
@@ -165,17 +165,62 @@ plants. The bed goes 40,320 → **39,596**, −1.8%, and the last four stops are
 back up.** Deadwood pins at 275 cells from frame 45,000 and does not grow.
 
 So an undisturbed lab bed is not running down in any way that threatens a
-multi-generation experiment. **What produces the tombstone is die-back**, and
-before this change a single cull of half the stand left 963 deadwood cells
-standing for the remaining 84,000 frames and for ever after — which matters
-because a graded cull is a **button on the lab's own control bar**, not a
-harness invention. Every cull the owner performed silted the box permanently.
+multi-generation experiment. Before this change a single cull of half the
+stand left 963 deadwood cells standing for the remaining 84,000 frames and
+for ever after, which matters because a graded cull is a **button on the
+lab's own control bar** rather than a harness invention.
 
-**One thing measured here belongs to another lane and is not this report's
-claim.** In that repeated-disturbance run the stand went extinct — 411 plants
-at frame 12,000, 8 by 24,000, 0 by 84,000, seed bank exhausted — after one
-cull of half the stand. That is a plant-population result, not a decay one,
-and it is recorded here only so it is not lost.
+### 4a. Two claims withdrawn, 2026-08-31, and the retraction is the useful part
+
+**"Die-back is what costs" and "the stand went extinct after one cull" both
+came from one repeated-cull run, and that run is an artifact of the
+harness.** `labmass`'s `cull_half` filters *creatures* out of the organism
+list and nothing else — and a seed is an organism. At frame 12,000 the bed
+held 427 organisms of which **385 were seeds**, so "cull half the stand" was
+overwhelmingly "delete half the seed bank", and the seed count falling
+385 → 3 over the next 12,000 frames is that deletion rather than a die-back.
+
+`CLAUDE.md`'s *ask what your number counts*, on the third instrument in one
+day — and note what let it through: the cull reaches for a **shipped** seam
+(`World::mark_organism_senescent`, the lab's own bar button), so the call was
+correct and only the *selection* was wrong. Reaching for a real seam is not
+the same as reaching for the right objects.
+
+Nothing in §1–§3 depends on it: every figure there comes from the
+single-cohort arm, where the cull is `cull_all` and the denominator is
+standing plant tissue rather than an organism count.
+
+### 4b. What does stand: the owner's own diagnosis, measured directly
+
+**A deadwood mat blocks germination outright.** `seedbed_probe`, 2026-08-31:
+**16 of 16** seeds germinate on bare soil and **0 of 16** on a deadwood mat
+that is still 85% standing when they land (1,506 cells laid, 1,285 left).
+
+Two gates do it, and they have different repairs. The germination gate reads
+plant-available water in the cell beneath the seed, guarded on
+`water_capacity > 0` — deadwood sets none, so it reads bone dry however wet
+the world is. And `plant::growable` will not let a root enter it either:
+`penetration_resistance` **defaults to 100**, against a herb root's force of
+1.0.
+
+**The binding number is the seed bank, which is what makes this a rate
+question rather than a material one.** Deadwood's dry lifetime is ~20,000
+frames against herb's `seed_half_life` of **14,000**, so the ground is still
+covered when the seeds it buried expire. Litter, at ~2,000 frames, clears
+seven times over inside the same window — which is why litter has never
+caused this and deadwood does, and it is a stronger reading than "litter is
+permeable": measured, litter is **not** permeable, it has simply already
+rotted (1,506 cells laid, 436 left when the seeds land).
+
+**And the obvious fix is measurably not one.** A mat of *soil* — penetrable,
+water-holding, the thing one would convert debris into — blocks identically
+(**0 of 16**, still dry after 6,600 frames), and so does deadwood given a
+`water_capacity` of 400 and a `penetration_resistance` of 0.3 (**0 of 16**,
+available water 0.000). Fresh ground is created dry and does not wet from the
+damp soil below in time, so the sterilising agent is **dryness rather than
+material** and converting debris to soil would not help. The real repair is
+whatever lets fresh ground wet up, which lives in the soil-water code rather
+than in the material files, and is not this lane's to make.
 
 ## 5. What is deliberately not done
 
