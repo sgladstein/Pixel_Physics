@@ -1,6 +1,8 @@
 # Ants
 
-*Current as of: 2026-08-31, when how rich an ant waits to be before it
+*Current as of: 2026-08-31, when digging stopped destroying the ground it
+removed and an ant began carrying the spoil away in its jaws, and when how
+rich an ant waits to be before it
 breeds stopped being the same number for every ant of a species and became
 something each one inherits from its parent — the last decision an ant made
 that was not its own. The same day the sealed bed's colony crash was traced
@@ -160,6 +162,25 @@ it excavates presses the ground around it into packed soil, which holds
 itself up (see [Powders](powders.md)), so the tunnel is lined as fast as it
 is opened and the roof has something to rest on. The verb and the thing it
 leaves behind are the same act.
+
+**And the ground it takes out has to go somewhere, which it did not used to.**
+Digging destroyed what it removed — the cell was simply gone from the world —
+so a bed with a colony in it ran down, slowly and invisibly, until there was
+nothing left to dig. Now an ant comes away from the face with a pellet of
+ground in its jaws. It cannot cut anything else while it is holding one, so a
+burrow grows at the speed the colony can clear its own workings, not at the
+speed it can chew; and the pellet goes back into the world wherever the ant
+happens to put it down, tamped, exactly the way it puts down a crumb of food.
+A bed is now the same amount of ground it started as, rearranged.
+
+Where it puts them is not decided anywhere. An ant lets go of what it is
+carrying on the same impulse whether the load is food or spoil, so tailings
+end up wherever that impulse fires — sometimes out at the mouth of the
+burrow, often back down a gallery behind it. **The visible consequence, and it
+is a real cost, is that a nest is smaller than it used to be**: about a third
+of the standing warren for the same digging, because a good deal of what
+comes out goes back in. That is a thing about the ants rather than about the
+rule, and it is the sort of thing they can get better at.
 
 So a worked bank now has a warren in it: narrow galleries a cell or two
 across, walled in darker packed ground, branching back from the face the
