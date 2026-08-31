@@ -446,7 +446,8 @@ fn creature_value(world: &World, species: &str, field: &str) -> Option<f32> {
     let def = world.species.get(id).creature.as_ref()?;
     Some(match field {
         "dig_force" => def.dig_force,
-        "hunger_fraction" => def.hunger_fraction,
+        "digest_rate" => def.digest_rate,
+        "crop_capacity" => def.crop_capacity,
         "body_energy" => def.body_energy,
         "start_energy" => def.start_energy,
         "reproduce_threshold" => def.reproduce_threshold,
@@ -474,8 +475,10 @@ fn ant_rows(world: &World, out: &mut Vec<Param>) {
     };
     cr("dig_force", span(0.0, 3.0, 0.05), false,
         "HOW HARD AN ANT CAN DIG. IT IS COMPARED STRAIGHT AGAINST A MATERIAL'S PENETRATION RESISTANCE ON THE GROUND PAGE -- SOIL IS 0.80 AND PACKED SOIL IS 0.95, SO AN ANT BELOW 0.80 CANNOT TUNNEL AT ALL AND ONE BETWEEN THE TWO CAN DIG FRESH GROUND AND NOT RE-OPEN ITS OWN LINED GALLERIES.");
-    cr("hunger_fraction", span(0.0, 1.0, 0.02), false,
-        "HOW EMPTY AN ANT HAS TO GET BEFORE IT GOES LOOKING FOR FOOD, AS A SHARE OF ITS FULL BELLY. LOW MEANS A COLONY THAT ONLY FORAGES IN A CRISIS; HIGH MEANS ONE THAT IS ALWAYS OUT.");
+    cr("crop_capacity", span(0.0, 4000.0, 40.0), false,
+        "HOW MUCH AN ANT CAN CARRY AT ONCE, IN THE SAME UNITS AS A LEAF'S WORTH ON THE GROUND PAGE. IT MUST HOLD AT LEAST TWO OR THREE WHOLE MOUTHFULS: FOOD ONLY LEAVES THE CROP A WHOLE CELL AT A TIME, SO AN ANT THAT CAN HOLD EXACTLY ONE LEAF DIGESTS BELOW A LEAF IMMEDIATELY AND CAN NEVER PUT ANYTHING DOWN AGAIN.");
+    cr("digest_rate", span(0.0, 40.0, 0.25), false,
+        "HOW FAST AN ANT TURNS WHAT IT IS CARRYING INTO ITSELF, PER STEP. THIS IS WHAT DECIDES WHETHER FOOD REACHES THE NEST: AN ANT DIGESTS AS IT WALKS, SO A HIGH RATE FEEDS THE ANT AND A LOW ONE FEEDS THE COLONY. ZERO MEANS IT NEVER DIGESTS WHAT IT CARRIES AND WILL STARVE WITH A FULL MOUTH.");
     cr("start_energy", span(0.0, 3000.0, 25.0), false,
         "WHAT AN ANT IS BORN WITH. IT IS THE WHOLE OF ITS RUNWAY: DIVIDE IT BY THE IDLE COST BELOW AND YOU HAVE HOW MANY TICKS IT LIVES DOING NOTHING.");
     cr("body_energy", span(0.0, 500.0, 5.0), false,
@@ -567,7 +570,8 @@ pub fn write(world: &mut World, spec: &mut LabBox, knob: &Knob, value: f32) -> b
             let Some(mut def) = world.species.get(id).creature.clone() else { return false };
             match *field {
                 "dig_force" => def.dig_force = value,
-                "hunger_fraction" => def.hunger_fraction = value,
+                "digest_rate" => def.digest_rate = value,
+                "crop_capacity" => def.crop_capacity = value,
                 "body_energy" => def.body_energy = value,
                 "start_energy" => def.start_energy = value,
                 "reproduce_threshold" => def.reproduce_threshold = value,
@@ -833,11 +837,11 @@ pub fn specimen_rows(world: &World, id: u16) -> Vec<(String, String, String)> {
             "HOW MUCH THIS ONE WOULD HAND A NEWBORN, AS ITS OWN INHERITED VALUE RATHER THAN THE SPECIES'.");
         row("SINCE NEST", state.since_nest.to_string(),
             "TICKS SINCE IT LAST TOUCHED THE NEST. IT CLIMBS WHILE A FORAGER IS OUT AND RESETS WHEN IT GETS HOME, SO A NUMBER THAT ONLY EVER CLIMBS IS AN ANT THAT IS LOST.");
-        row("CARRYING", match &state.carrying {
-                Some(c) => world.materials.get(c.material).display.to_uppercase(),
-                None => "NOTHING".into(),
+        row("CROP", match &state.crop {
+                Some(c) => format!("{} x{}", world.materials.get(c.material).display.to_uppercase(), c.cells),
+                None => "EMPTY".into(),
             },
-            "WHAT IT HAS IN ITS JAWS. AN ANT ON ITS WAY HOME IS CARRYING SOMETHING; ONE ON ITS WAY OUT IS NOT.");
+            "WHAT IT IS CARRYING AND HOW MUCH OF IT IS LEFT. THE NUMBER FALLS AS IT WALKS -- AN ANT DIGESTS ITS LOAD ON THE WAY HOME, SO A LONG TRIP DELIVERS LESS THAN A SHORT ONE.");
         row("BODY", state.cells.len().to_string(),
             "HOW MANY CELLS THIS ANIMAL IS. EVERY PER-CELL COST ON THE ANTS PAGE IS MULTIPLIED BY THIS.");
         return rows;

@@ -70,10 +70,10 @@
         // what it was worth yesterday -- the pump closes because the value
         // is now finite and booked at spawn, not because meat got cheaper.
         body_energy: 480.0,
-        // Eat only when genuinely low; otherwise carry it home. See
-        // CreatureDef::hunger_fraction -- getting this wrong deletes the
-        // foraging loop while leaving a colony that looks right.
-        hunger_fraction: 0.5,
+        // See `ant.ron` for the derivation; this variant differs only in body
+        // plan, so it carries the same stomach.
+        crop_capacity: 1440.0,
+        digest_rate: 3.3,
 
         // **Detritus only, for now.** Owner open question #2: herbivory on
         // live plants from day one, or corpse/seed only until the plant

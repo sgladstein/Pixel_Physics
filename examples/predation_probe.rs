@@ -633,7 +633,7 @@ fn run(seed: u64, frames: usize, every: usize, beetles: usize, paint: Paint, ove
             // takes the mouthful and carries it. Both foods on a beetle's
             // menu are flesh, so anything a beetle holds is something it
             // caught.
-            if let Some(held) = state.carrying {
+            if let Some(held) = state.crop {
                 if held.material == ant_mat {
                     row.beetle_grabs_prey += 1;
                 } else {
@@ -830,7 +830,13 @@ fn catch_scene(gap: i32, hungry: bool) -> (u64, u64, usize, u64, u64) {
         // old def.
         let species = world.species.id_of("beetle").expect("beetle species");
         let mut def = world.species.get(species).creature.as_ref().expect("beetle is a creature").clone();
-        def.hunger_fraction = 1.0;
+        // **A predator that absorbs its catch fast rather than hauling it.**
+        // This was `hunger_fraction = 1.0` -- "always eat, never pick up" --
+        // and that gate no longer exists. The crop's equivalent is a
+        // digestion rate high enough that a mouthful is gone within a tick or
+        // two of being taken, which is what puts a catch on the `eats`
+        // counter rather than leaving it visible as cargo.
+        def.digest_rate = def.body_energy.max(1.0);
         world.species.set_creature(species, def);
     }
     let beetle = creature::plant_creature_seed(&mut world, 40, floor - 1, "beetle").expect("the beetle is placed");
@@ -862,7 +868,7 @@ fn catch_scene(gap: i32, hungry: bool) -> (u64, u64, usize, u64, u64) {
             feeds += 1;
         }
         last = s.energy;
-        if s.carrying.is_some() {
+        if s.crop.is_some() {
             grabs += 1;
         }
     }
