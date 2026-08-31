@@ -814,8 +814,14 @@ pub fn specimen_rows(world: &World, id: u16) -> Vec<(String, String, String)> {
         "HOW MANY ANCESTORS BACK TO A FOUNDER. A FOUNDER IS 0. IF THIS NEVER LEAVES 0 OR 1, NOTHING IN THE BOX IS BREEDING, WHICH IS THE ONE THING A POPULATION COUNT CANNOT TELL YOU BY ITSELF.");
     row("LINEAGE", state.lineage.to_string(),
         "WHICH FOUNDING LINE THIS INDIVIDUAL COMES FROM. TWO ANIMALS WITH THE SAME LINEAGE SHARE AN ANCESTOR IN THIS BOX; TWO WITH DIFFERENT ONES DO NOT.");
-    row("INHERITED", if state.inherited { "YES".into() } else { "NO -- FOUNDER".into() },
-        "WHETHER THIS ONE WAS BORN HERE OR PLACED. A BOX WHERE EVERYTHING SAYS FOUNDER IS A BOX THAT HAS NOT REPRODUCED YET.");
+    // **Three states, not two.** `inherited` alone would report a specimen
+    // released off the shelf as either "born here" (it was not -- nothing in
+    // the box bore it) or "founder" (true economically, and it hides the one
+    // thing the player did on purpose). A release is its own origin and says
+    // so, or the rack's whole point -- did the line I picked do better --
+    // cannot be read off a cell.
+    row("ORIGIN", if state.stocked { "RELEASED FROM A JAR".into() } else if state.inherited { "BORN HERE".into() } else { "FOUNDER".into() },
+        "WHERE THIS INDIVIDUAL CAME FROM. BORN HERE MEANS THE BOX BRED IT. FOUNDER MEANS IT WAS PLACED OUT OF NOTHING. RELEASED FROM A JAR MEANS YOU PUT IT BACK OFF THE SHELF, CARRYING A GENOME YOU KEPT. A BOX WHERE NOTHING EVER SAYS BORN HERE IS A BOX THAT HAS NOT REPRODUCED YET.");
 
     // **No energy row here.** The cell block above already prints the
     // organism's whole-body energy, and the same figure twice under one

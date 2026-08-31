@@ -43,6 +43,14 @@ fn main() {
         }
     }
 
+    // **A scratch shelf, before the `Lab` is built** — `Lab::new` reads the
+    // rack, and `KEEP` below writes to it. Without this the sheet would drop
+    // jars into `assets/shelf` in the working tree every time it ran, and
+    // would also photograph whatever a previous run had left there.
+    let shelf = std::env::temp_dir().join(format!("pixel_physics_labui_shelf_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&shelf);
+    std::env::set_var(pixel_physics::sim::specimen::SHELF_DIR_ENV, &shelf);
+
     let mut lab = Lab::new(LabBox::default());
     lab.show_help = false;
     // **Start it before warming it.** A fresh lab is paused and `advance`
@@ -329,6 +337,91 @@ fn main() {
     }
     fired.push(format!("RIGHT-DRAG ERASE: water {cells} -> {left}"));
     tiles.push(("ERASE (RIGHT BUTTON)".into(), shot(&mut lab)));
+
+    // **KEEP, the shelf, and FREE** — the three halves of the specimen rack,
+    // each fired by a real click and each with its counter beside it. A jar
+    // is a file the sheet cannot show, a freed ant is two dark cells, and a
+    // clone and a four-brood release look identical at this zoom: every one
+    // of these tiles is a picture that says nothing on its own.
+    let at = centre(&lab, Action::Tool(Tool::Keep));
+    click(&mut lab, at);
+    let kept = living_cell_of(&lab, false).or_else(|| living_cell_of(&lab, true));
+    match kept {
+        Some((wx, wy)) => {
+            let (sx, sy) = lab.renderer.world_to_screen(wx, wy).unwrap_or((wx, wy));
+            let before = lab.ui.shelf().len();
+            click(&mut lab, (sx, sy));
+            fired.push(format!(
+                "KEEP: jars {before} -> {} -- {:?}",
+                lab.ui.shelf().len(),
+                lab.ui.notice_text().unwrap_or_default()
+            ));
+            lab.set_cursor(Some((sx, sy)));
+        }
+        None => fired.push("KEEP: nothing alive to aim at".into()),
+    }
+    tiles.push(("VERB: KEEP".into(), shot(&mut lab)));
+
+    // The rack itself, opened by a real click on its own chip, with a jar
+    // row hovered so the tile carries the page *and* its explanation.
+    let at = centre(&lab, Action::Panel(Panel::Shelf));
+    click(&mut lab, at);
+    let _ = shot(&mut lab);
+    fired.push(format!("click opened THE SHELF: {}", lab.ui.panel == Some(Panel::Shelf)));
+    if let Some(r) = lab.ui.widget_rect(Action::ShelfSelect(0)) {
+        lab.set_cursor(Some((r.x + 20, r.y + 4)));
+    }
+    tiles.push(("PAGE: THE SHELF".into(), shot(&mut lab)));
+
+    // Arm the first jar by clicking its row, turn the dial up, and read back
+    // that both actually took.
+    if lab.ui.widget_rect(Action::ShelfSelect(0)).is_some() {
+        let at = centre(&lab, Action::ShelfSelect(0));
+        click(&mut lab, at);
+        let _ = shot(&mut lab);
+        fired.push(format!(
+            "CLICKING A JAR ARMED IT: {:?}, tool now {:?}",
+            lab.ui.armed_jar().map(|j| j.name.clone()),
+            lab.ui.tool()
+        ));
+        for _ in 0..3 {
+            let at = centre(&lab, Action::Broods(1));
+            click(&mut lab, at);
+            let _ = shot(&mut lab);
+        }
+        fired.push(format!("BROOD DIAL: {}", lab.ui.brood_label()));
+        tiles.push((format!("SHELF: {}", lab.ui.brood_label()), shot(&mut lab)));
+
+        // ...and DRIFT, which breeds the jar without releasing it.
+        let before = lab.ui.shelf().len();
+        let at = centre(&lab, Action::ShelfDrift);
+        click(&mut lab, at);
+        let _ = shot(&mut lab);
+        fired.push(format!(
+            "DRIFT: jars {before} -> {} -- {:?}",
+            lab.ui.shelf().len(),
+            lab.ui.notice_text().unwrap_or_default()
+        ));
+        tiles.push(("SHELF: AFTER DRIFT".into(), shot(&mut lab)));
+    }
+
+    // FREE, into the bed. **The count is the whole tile**: what lands is one
+    // seed or a two-cell body, and the notice carries how many genome slots
+    // the dial moved, which is the only thing that separates a clone from a
+    // three-brood descendant on screen.
+    let before = lab.world.live_organism_count();
+    click(&mut lab, (gx + 20, gy));
+    fired.push(format!(
+        "FREE: organisms {before} -> {} -- {:?}",
+        lab.world.live_organism_count(),
+        lab.ui.notice_text().unwrap_or_default()
+    ));
+    lab.set_cursor(Some((gx + 20, gy - 6)));
+    tiles.push(("VERB: FREE".into(), shot(&mut lab)));
+    if lab.ui.panel == Some(Panel::Shelf) {
+        let at = centre(&lab, Action::Panel(Panel::Shelf));
+        click(&mut lab, at);
+    }
 
     // The overlay, named on its own face.
     let at = centre(&lab, Action::Tool(Tool::Look));

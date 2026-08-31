@@ -839,6 +839,37 @@ pub fn plant_creature_seed(world: &mut World, x: i32, y: i32, species_name: &str
     place_creature(world, x, y, species_id, material_id, &def, Origin::Founder)
 }
 
+/// **Release a saved individual at `(x, y)`** — `plant_creature_seed` with
+/// the genome supplied rather than read off the species.
+///
+/// Returns the organism handle, or `None` if the body does not fit, the
+/// species is not in the registry or has no creature block, or there is no
+/// material of that name. `sim::specimen::release` turns each of those into
+/// something sayable on the bar.
+///
+/// **The genome is not checked here.** `specimen::release` has already run
+/// it past `brain::genome_manifest`, which is where a stale jar is caught;
+/// `brain::eval_brain` would happily evaluate a genome of the wrong length
+/// against the current slot map and produce a plausible animal that is not
+/// the one that was saved.
+pub fn release_creature_specimen(
+    world: &mut World,
+    x: i32,
+    y: i32,
+    species_name: &str,
+    genome: Vec<f32>,
+    traits: [f32; super::organism::CREATURE_TRAITS],
+) -> Option<u16> {
+    let species_id = world.species.id_of(species_name)?;
+    let material_id = world.materials.id_of(species_name)?;
+    let def = world.species.get(species_id).creature.as_ref()?.clone();
+    let site = place_creature(world, x, y, species_id, material_id, &def, Origin::Stock { genome, traits })?;
+    match site.kind {
+        ActiveKind::Creature { organism } => Some(organism),
+        _ => None,
+    }
+}
+
 /// Where the individual `place_creature` is about to build came from.
 ///
 /// **One placement path for founders and for children, deliberately.**
@@ -858,6 +889,23 @@ enum Origin {
         generation: u16,
         lineage: u32,
     },
+    /// **A founder with a chosen genome** — one released from the specimen
+    /// shelf (`sim::specimen`).
+    ///
+    /// Economically a `Founder` in every respect: nothing in the box bore
+    /// it, so it claims a fresh lineage, starts at generation zero and is
+    /// handed the species' whole `start_energy` rather than a parent's
+    /// grant. Booking it as a birth would put energy in the ledger nobody
+    /// earned and would count a player's decision as a reproductive
+    /// success, which is exactly the number the lab exists to read.
+    ///
+    /// **The one thing it does not take from its species is its genome.**
+    /// Before this variant there was no way to put a specific animal in the
+    /// world at all: `Founder` reads `Species::genome`, the ancestral one,
+    /// so a saved individual could only come back by being written out as a
+    /// whole new species and reloaded — which is `species_export`'s job and
+    /// is far too heavy to be a click.
+    Stock { genome: Vec<f32>, traits: [f32; super::organism::CREATURE_TRAITS] },
 }
 
 /// Build one creature at `(x, y)` and return the site to schedule it at.
@@ -909,7 +957,7 @@ fn place_creature(
     // Claimed before the state is borrowed, because `claim_lineage` takes
     // `&mut World` and a founder needs the number inside the block below.
     let founder_lineage = match origin {
-        Origin::Founder => world.claim_lineage(),
+        Origin::Founder | Origin::Stock { .. } => world.claim_lineage(),
         Origin::Bud { lineage, .. } => lineage,
     };
     // Read before the state is borrowed mutably: `self.species` and
@@ -926,7 +974,7 @@ fn place_creature(
     // one expression, read twice, so the endowment and the charge cannot
     // drift apart.
     let endowment = match &origin {
-        Origin::Founder => def.start_energy,
+        Origin::Founder | Origin::Stock { .. } => def.start_energy,
         Origin::Bud { traits, .. } => birth_grant(def, traits),
     };
     if let Some(state) = world.organism_mut(organism) {
@@ -963,6 +1011,18 @@ fn place_creature(
                 // guard hashed enough state to notice.
                 state.generation = *generation;
             }
+            Origin::Stock { genome, traits } => {
+                // **The jar's genome, and the species' everything else.**
+                // `inherited` stays false and `stocked` says what actually
+                // happened: this animal was not borne in this box, and a
+                // readout that claimed it was would put a player's own
+                // release into the birth column.
+                state.genome = genome.clone();
+                state.traits = *traits;
+                state.inherited = false;
+                state.stocked = true;
+                state.generation = 0;
+            }
         }
         // Starts *at* the nest as far as scent goes: an ant that has just
         // hatched has, by construction, just been at home.
@@ -974,7 +1034,7 @@ fn place_creature(
     }
     let stamp = (def.body_energy * body_cells as f32) as f64;
     match origin {
-        Origin::Founder => {
+        Origin::Founder | Origin::Stock { .. } => {
             world.creature_stats.spawned += 1;
             // Metabolic budget plus the meat the body is made of. Both are
             // grants *here*, at the one seam where a creature appears out
