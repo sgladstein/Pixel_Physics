@@ -364,8 +364,13 @@ impl Handler {
             // The run continues past the six: `M` then `,`. Keeping and
             // releasing are tools like the rest -- what a click on the world
             // does -- so they belong on the same row and the same run.
-            KeyCode::KeyM => self.lab.act(Action::Tool(Tool::Keep)),
-            KeyCode::Comma => self.lab.act(Action::Tool(Tool::Release)),
+            // **Neither of these is a tool any more**, so neither goes
+            // through `Action::Tool`. `M` keeps whatever the cell page is
+            // open on and `,` arms the armed jar for placing -- the same two
+            // actions the `KEEP` and `PLACE` buttons fire, which is the point
+            // of routing every control through `Lab::act`.
+            KeyCode::KeyM => self.lab.act(Action::KeepInspected),
+            KeyCode::Comma => self.lab.act(Action::ShelfPlace),
             KeyCode::Period => self.lab.act(Action::NextSpecies),
             KeyCode::BracketLeft => self.lab.act(Action::Brush(-1)),
             KeyCode::BracketRight => self.lab.act(Action::Brush(1)),

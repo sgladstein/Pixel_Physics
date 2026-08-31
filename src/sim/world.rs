@@ -1485,6 +1485,31 @@ pub struct World {
     /// `plant::StemMode`. `K` cycles it; `Off` is the default and is the
     /// behaviour that predates the mechanism.
     pub stem_mode: crate::sim::plant::StemMode,
+    /// **Whether a plant may come apart because of the load it is carrying.**
+    /// `true` is the shipped behaviour; `false` makes living tissue
+    /// mechanically indestructible *by its own weight and by what is piled on
+    /// it*, and changes nothing else.
+    ///
+    /// Two rules read it, and they are the two ways a plant fails under load:
+    /// `plant::break_under_load` (stress past the material's `strength` — a
+    /// stem snapping) and `structural::organism_structural_tick`'s `over_span`
+    /// branch (a limb reaching further than it can hold). Both are switched
+    /// together because a player cannot tell them apart on screen: what they
+    /// see either way is a tree coming down under its own weight.
+    ///
+    /// **Detachment is deliberately *not* switched with them.** A cell whose
+    /// support distance is `u16::MAX` is not overloaded, it is no longer
+    /// attached to anything that reaches the ground — a cut branch, or a crown
+    /// whose trunk has gone — and that must still fall however this is set, or
+    /// felling and culling would leave crowns hanging in the air.
+    ///
+    /// It is a field on the world rather than an `env::var` because the owner
+    /// asked for it as a control they can reach while the box is running, and
+    /// because the two existing ablations (`BEND=off`, `BREAK=off`) are
+    /// `OnceLock`s read once per process — a measurement instrument, not a
+    /// setting. The lab's parameters panel writes this one; see
+    /// `lab::params::Knob::Rule`.
+    pub plant_load_failure: bool,
     /// How long a disturbance keeps licensing failures near it, in frames.
     /// Generous by default: a cave-in that arrives a few seconds after you
     /// undermine something is the mechanic, not a bug.
@@ -2209,6 +2234,9 @@ impl World {
             // this is `i32::MAX` -- the literal it replaced.
             chain_reach: crate::sim::structural::CHAIN_MODES[0].reach,
             stem_mode: crate::sim::plant::StemMode::default(),
+            // On, because it is the shipped behaviour and a default that
+            // silently disables a mechanism is a mechanism nobody measures.
+            plant_load_failure: true,
             chain_window: crate::sim::structural::CHAIN_WINDOW_FRAMES,
             disturbances: std::collections::VecDeque::new(),
             staged_fractures: std::collections::VecDeque::new(),
