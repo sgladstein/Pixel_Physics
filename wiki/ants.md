@@ -1,8 +1,17 @@
 # Ants
 
-*Current as of: 2026-08-30, when ants bred for the first time — an animal
-close to affording young now finishes the meal instead of carrying it home,
-and takes the best thing within reach rather than whatever it happens to
+*Current as of: 2026-08-31, when how rich an ant waits to be before it
+breeds stopped being the same number for every ant of a species and became
+something each one inherits from its parent — the last decision an ant made
+that was not its own. The same day the sealed bed's colony crash was traced
+to the colony eating the four plants nearest its own nest, measured against
+the same bed run with no ants in it. Before that: 2026-08-30, when ants bred
+for the first time. An ant close to affording young would finish its meal
+rather than carry it home — that rule has since gone, replaced by a crop
+that digests as the animal walks, so what reaches the nest is simply what
+survived the journey. Ants
+took, and still take, the best thing within reach rather than whatever they
+happen to
 turn toward first. The same day a dug tunnel first stayed dug, and a beetle
 got eyes — the first animal here
 that can tell there is something worth eating on the far side of the room,
@@ -489,13 +498,37 @@ flower, which is worth three times as much — before, which one they got
 depended on nothing more meaningful than which direction the animal checked
 first.
 
-**What still holds a colony back is getting the food home, not affording the
-child.** Put food on the ground beside a nest and a colony breeds hard —
+**When an ant thinks it is rich enough to breed is now something it
+inherits**, rather than a number every ant of a species shares. One lineage
+will spend on a child the moment it can just afford one; another holds out
+for twice as much first. Neither is the right answer, and that is the point
+— an ant that breeds the instant it can afford to is left with almost
+nothing, so its next lean hour kills it, while one that waits survives lean
+hours and has fewer young. Which strategy wins is a question about the world
+an ant is living in, and the colony settles it by the descendants each kind
+leaves behind.
+
+**What still holds a colony back is where its food is, not what a child
+costs.** Put food on the ground beside a nest and a colony breeds hard —
 thirteen generations deep inside a single session, and the bed visibly thins
 as it does, because every new ant is made of something that used to be a
-plant. Leave it to forage for itself in the sealed lab bed and it picks food
-up sixteen hundred times and brings it home four. That is the next thing to
-fix, and it is a foraging problem rather than an economy one.
+plant. Leave it to forage for itself in the sealed lab bed and it dwindles
+from fifty-two ants to a dozen.
+
+**And the reason is one worth watching, because the colony does it to
+itself.** Eight plants are sown across the bed and the colony is founded in
+the middle of them. Run the same bed with no ants in it and all eight grow;
+run it with the colony and **the four nearest the nest are gone within the
+first few minutes, and the four furthest are untouched** — the same size, to
+the cell, as they reach without an ant in the world. Fifty-two ants against
+four seedlings is not a contest, and once those four are gone the survivors
+are further away than a laden ant can carry a load. The colony eats its
+neighbourhood bare and then starves in a bed that is filling up with food it
+cannot reach.
+
+That is an honest thing for a colony to do — it is what happens to a real
+population with nowhere else to go — but it means the sealed bed is currently
+answering a harder question than it looks like it is asking.
 
 The other half is supply. A herb's fruit ripens, hangs there ready to fall,
 and mostly never does — the plant cannot pay the last instalment. Over a long

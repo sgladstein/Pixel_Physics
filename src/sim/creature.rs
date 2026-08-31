@@ -63,7 +63,7 @@ use super::cell::{Cell, AMBIENT_TEMPERATURE};
 use super::chunk::Rect;
 use super::field;
 use super::material::{self, MaterialKind};
-use super::organism::{pack_cell_type, Carried, CellType, Crop, CreatureDef, Flight, ShadeRule, SpeciesId, CREATURE_TRAITS, TRAIT_BIRTH_GRANT, TRAIT_GUT_BIAS};
+use super::organism::{pack_cell_type, Carried, CellType, Crop, CreatureDef, Flight, ShadeRule, SpeciesId, CREATURE_TRAITS, TRAIT_BIRTH_GRANT, TRAIT_GUT_BIAS, TRAIT_REPRODUCE_AT};
 use super::pheromone::{self, Channel};
 use super::rng;
 use super::scheduler::{ActiveKind, ActiveSite};
@@ -1266,7 +1266,51 @@ pub fn grant_fraction(t: f32) -> f32 {
 /// cost is a species whose every birth kills the parent, which reads in
 /// every counter as reproduction working.
 pub fn reproduce_at(def: &CreatureDef) -> Option<f32> {
-    (def.reproduce_threshold > 0.0).then(|| def.reproduce_threshold.max(birth_cost(def) + 1.0))
+    reproduce_at_of(def, &def.traits)
+}
+
+/// `reproduce_at` for a **particular** animal rather than its species'
+/// ancestral one, because `TRAIT_REPRODUCE_AT` is heritable and two
+/// siblings do not wait for the same bank.
+///
+/// **The species' `reproduce_threshold` stays the switch, and the allele is
+/// only the scale.** A zero threshold still means "does not reproduce"
+/// whatever the trait says, so the opt-in that makes the shipped beetle
+/// exogenous is still exactly where it was and still has to be removed
+/// deliberately -- this slot must not be a back door through which every
+/// showcase species quietly starts breeding.
+///
+/// The `birth_cost + 1` floor is the individual's own, not the species',
+/// for the same reason `try_bud` takes its max against the individual's
+/// cost: an animal whose grant allele has drifted upward owes more for a
+/// child than its ancestor did, and a bar under that price is a birth that
+/// kills its parent -- which reads in every counter as reproduction
+/// working.
+pub fn reproduce_at_of(def: &CreatureDef, traits: &[f32; CREATURE_TRAITS]) -> Option<f32> {
+    (def.reproduce_threshold > 0.0).then(|| {
+        let bar = def.reproduce_threshold * reproduce_fraction(traits[TRAIT_REPRODUCE_AT]);
+        bar.max(birth_cost_of(def, birth_grant(def, traits)) + 1.0)
+    })
+}
+
+/// `TRAIT_REPRODUCE_AT`'s position on the shared `-1..=1` trait axis, as a
+/// **multiplier on the species' authored bar**: `-1` waits for nothing over
+/// the floor, `0` is the authored threshold, `+1` waits for twice it.
+///
+/// Multiplicative rather than an absolute joule offset so the axis means
+/// the same thing to a beetle and to an ant, whose banks differ by more
+/// than the axis spans -- the same reasoning that made `TRAIT_BIRTH_GRANT`
+/// a fraction of `start_energy` instead of a number of joules.
+///
+/// **The low end is bounded by arithmetic rather than by this clamp.**
+/// Zero here does not mean "breed at zero"; `reproduce_at_of` floors the
+/// product at `birth_cost + 1`, so the cheapest allele on the axis breeds
+/// the instant a child is affordable and not before. That is the end of the
+/// axis that is nearly a suicide pact, and it is reachable on purpose:
+/// `CLAUDE.md`'s rule is that a gene with one reachable end expresses
+/// nothing.
+pub fn reproduce_fraction(t: f32) -> f32 {
+    (1.0 + t).clamp(0.0, 2.0)
 }
 
 /// Bud a child off `organism` if it can afford one and there is room.
@@ -1282,19 +1326,26 @@ pub fn reproduce_at(def: &CreatureDef) -> Option<f32> {
 /// keeps the birth path independent of that, and is the same shape
 /// `apply_creature_energy` already uses for the parent's own next tick.
 fn try_bud(world: &mut World, organism: u16, def: &CreatureDef) -> Option<ActiveSite> {
-    let threshold = reproduce_at(def)?;
     let state = world.organism(organism)?;
     let parent_traits = state.traits;
-    // **The bar this individual has to clear, not the one its species
-    // was authored with.** `reproduce_at` is the species' authored
-    // threshold floored above the *ancestral* birth cost; an animal whose
-    // `TRAIT_BIRTH_GRANT` has drifted upward owes more than that, and
-    // charging it a cost it never had to reach would put the parent's bank
-    // negative -- a birth that kills its parent, which is precisely what
-    // `reproduce_at`'s floor exists to make impossible. Taking the max
-    // keeps that guarantee total under a heritable grant, and the `+ 1`
-    // matches the floor's own strictness so the two cannot disagree by a
-    // rounding step.
+    // **This animal's bar, on two counts now.** `TRAIT_REPRODUCE_AT` scales
+    // the species' authored threshold, so how rich a lineage waits to be is
+    // a gene rather than a constant -- the last decision in the animal that
+    // was still made by a number in a `.ron`.
+    let threshold = reproduce_at_of(def, &parent_traits)?;
+    // **The price this individual pays, not the one its species was
+    // authored with**: an animal whose `TRAIT_BIRTH_GRANT` has drifted
+    // upward owes more for a child than its ancestor did, and charging it a
+    // cost it never had to reach would put the parent's bank negative -- a
+    // birth that kills its parent, which reads in every counter as
+    // reproduction working.
+    //
+    // `reproduce_at_of` already floors its own product against this same
+    // expression, so the max below is a restatement rather than a second
+    // rule. It is kept because the guarantee belongs at the point that
+    // depends on it: the charge is a few lines down, and a later edit to
+    // either floor must not be able to make the two disagree silently. The
+    // `+ 1` matches on both sides for the same reason.
     let cost = birth_cost_of(def, birth_grant(def, &parent_traits));
     let bar = threshold.max(cost + 1.0);
     let (hx, hy) = *state.chain.first()?;
@@ -7377,6 +7428,97 @@ mod tests {
         assert!(at > birth_cost(&def), "threshold {at} sits at or under the birth cost {}", birth_cost(&def));
         def.reproduce_threshold = 0.0;
         assert!(reproduce_at(&def).is_none(), "a zero threshold must mean 'does not reproduce'");
+    }
+
+    /// **The reproduce-at allele actually moves the bar, and in the right
+    /// direction.**
+    ///
+    /// The failure this is written against is the one `CLAUDE.md` calls a
+    /// channel with a reader and no writer: a slot that is inherited,
+    /// jittered and printed, and that nothing downstream consults. Every
+    /// counter looks alive -- alleles spread, histograms move -- and the
+    /// phenotype is constant. The two arms here differ in slot 2 and in
+    /// nothing else, so an implementation that drops the trait gives
+    /// `low == high` and this goes red on the first assertion.
+    #[test]
+    fn the_reproduce_at_allele_moves_the_bar_it_names() {
+        let w = test_world();
+        let ant = w.species.id_of("ant").expect("ant species");
+        let def = w.species.get(ant).creature.clone().expect("ant is a creature");
+
+        let mut low = def.traits;
+        low[TRAIT_REPRODUCE_AT] = -1.0;
+        let mut high = def.traits;
+        high[TRAIT_REPRODUCE_AT] = 1.0;
+
+        let low_bar = reproduce_at_of(&def, &low).expect("the ant reproduces");
+        let high_bar = reproduce_at_of(&def, &high).expect("the ant reproduces");
+        let mid_bar = reproduce_at(&def).expect("the ant reproduces");
+
+        assert!(low_bar < mid_bar, "the eager allele must wait for less than the ancestral one ({low_bar:.0} vs {mid_bar:.0})");
+        assert!(mid_bar < high_bar, "the patient allele must wait for more than the ancestral one ({high_bar:.0} vs {mid_bar:.0})");
+        // The ancestral value is authored at 0.0, the centre of the axis,
+        // so the middle arm must be the authored threshold untouched. This
+        // is what says the multiplier is centred rather than merely
+        // monotone -- a mapping that quietly scaled everything by 2 would
+        // pass the two assertions above and silently double every shipped
+        // species' bar.
+        assert_eq!(mid_bar, def.reproduce_threshold, "slot 2 at its authored 0.0 must leave the bar exactly where the .ron puts it");
+
+        // **And the floor still holds at the eager end.** The multiplier
+        // reaches zero at `t = -1`, so without the floor an ant would bud
+        // at a bank of nothing and die doing it -- the suicide pact
+        // `a_mis_authored_threshold_is_floored_above_the_birth_cost` exists
+        // to prevent, arriving by a route that test cannot see because it
+        // never varies a trait.
+        let cost = birth_cost_of(&def, birth_grant(&def, &low));
+        assert!(low_bar > cost, "the eagerest allele budded at {low_bar:.0}, at or under the {cost:.0} a child costs it");
+    }
+
+    /// **At one bank between the two bars, the eager allele breeds and the
+    /// patient one does not.**
+    ///
+    /// The test above asserts the arithmetic; this asserts the arithmetic
+    /// is *reached*. `try_bud` could go on reading the species'
+    /// `reproduce_at` and the bar test would still pass, because it calls
+    /// `reproduce_at_of` itself -- so the phenotype has to be checked in a
+    /// world.
+    ///
+    /// **One bank, opposite outcomes, rather than "sooner".** A timing
+    /// claim would need a horizon, and a horizon over an emergent colony is
+    /// the flake generator `CLAUDE.md` warns about; funding both arms to a
+    /// point the eager bar is under and the patient bar is over makes the
+    /// difference categorical and takes no draw at all.
+    #[test]
+    fn only_the_eager_allele_breeds_at_a_bank_between_the_two_bars() {
+        fn bred_at(t: f32, bank: f32) -> u64 {
+            // Threshold as authored and no mutation: what is being varied
+            // is slot 2 and nothing else.
+            let (mut w, founders) = breeding_colony(1, 1100.0, 0.0);
+            let parent = founders[0];
+            if let Some(state) = w.organism_mut(parent) {
+                state.traits[TRAIT_REPRODUCE_AT] = t;
+            }
+            fund(&mut w, parent, bank);
+            run(&mut w, 120);
+            w.creature_stats.births
+        }
+
+        let w = test_world();
+        let ant = w.species.id_of("ant").expect("ant species");
+        let mut def = w.species.get(ant).creature.clone().expect("ant is a creature");
+        def.reproduce_threshold = 1100.0;
+        let mut low = def.traits;
+        low[TRAIT_REPRODUCE_AT] = -1.0;
+        let mut high = def.traits;
+        high[TRAIT_REPRODUCE_AT] = 1.0;
+        let low_bar = reproduce_at_of(&def, &low).expect("reproduces");
+        let high_bar = reproduce_at_of(&def, &high).expect("reproduces");
+        // Halfway between, so neither outcome is sitting on a knife edge.
+        let bank = (low_bar + high_bar) * 0.5;
+
+        assert!(bred_at(-1.0, bank) > 0, "an ant banking {bank:.0} against an eager bar of {low_bar:.0} did not breed");
+        assert_eq!(bred_at(1.0, bank), 0, "an ant banking {bank:.0} bred against a patient bar of {high_bar:.0} -- `try_bud` is not reading the individual's slot 2");
     }
 
     /// **Who gets born is decided by energy, and nothing else.**
