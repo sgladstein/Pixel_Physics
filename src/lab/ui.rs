@@ -3624,6 +3624,39 @@ mod tests {
             }
         }
 
+        // **The parameters page's own rows, and this was a blind spot.**
+        //
+        // Its 42 knobs each carry a hover note and **none of them was
+        // covered**: proven by injecting `~#~` into one and watching this
+        // test stay green. `CLAUDE.md` is explicit that a guard which does
+        // not go red for the fault it is named for is not weak but blind, and
+        // is to be replaced rather than argued with. The page is reached
+        // through `params::registry` rather than `panel_rows`, which is how
+        // it slipped past.
+        //
+        // It found a live defect immediately: the bed notes had been given
+        // markdown emphasis, and the 5x7 set has **no `*`** -- it would have
+        // drawn as gaps mid-sentence.
+        {
+            let w = world();
+            let sp = LabBox::default();
+            // With a plant selected and without, because the plant rows are
+            // only built when one is — half the page is otherwise unreached.
+            // The same accessor the page itself uses, so the guard covers
+            // the rows a player actually sees rather than a second guess at
+            // which species is selected.
+            for plant in [None, Ui::new().species_of(&w)] {
+                for p in params::registry(&w, &sp, plant) {
+                    check(&param_label(&p.tunable.name), "parameter name");
+                    check(&p.tunable.category.to_uppercase(), "parameter category");
+                    check(&p.note, "parameter explanation");
+                    if let Some(shown) = &p.shown {
+                        check(shown, "parameter value");
+                    }
+                }
+            }
+        }
+
         let (world, spec, ui) = (world(), LabBox::default(), Ui::new());
         for panel in [Panel::Plants, Panel::Ants, Panel::Box] {
             check(panel.title(), "page title");
