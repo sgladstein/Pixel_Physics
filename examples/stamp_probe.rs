@@ -234,8 +234,18 @@ fn main() {
     let rate_on = |mouthful: f32, face: f32| -> f32 {
         def.digest_rate * if face > 0.0 { mouthful / face } else { 0.0 } - upkeep
     };
+    // The best *net* rate anything standing here offers, which is the
+    // governing number now that there is no ceiling: a non-positive one is
+    // still an exact zero-births prediction, which is the half of the old
+    // margin model that survives the crop.
+    let best_rate = standing.iter().map(|r| rate_on(r.yield_here, r.face)).fold(f32::NEG_INFINITY, f32::max);
     println!(
-        "  bar: birth costs {bar:.0} | upkeep {upkeep:.3}/tick | best mouthful on the whole table {table_best:.0}, standing in this world {world_best:.0}",
+        "  bar: birth costs {bar:.0} | upkeep {upkeep:.3}/tick | best mouthful on the whole table {table_best:.0}, standing in this world {world_best:.0} | best net {best_rate:+.3}/tick -- {}",
+        if best_rate > 0.0 {
+            format!("a child every {:.0} ticks of uninterrupted feeding", bar / best_rate)
+        } else {
+            "nothing standing here out-eats this animal's upkeep, so no amount of time produces a birth".to_string()
+        }
     );
     println!("  standing food this gut can see (>{EAT_YIELD_THRESHOLD:.0}), before the run:");
     for r in &standing {
