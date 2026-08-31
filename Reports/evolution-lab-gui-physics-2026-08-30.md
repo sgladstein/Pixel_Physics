@@ -840,6 +840,66 @@ the plant code mixes them:
 stopped by a reviewer, the sensor-offset case). It was found from a
 screenshot, by eye, by the owner.
 
+#### What building it found — three corrections to the four sites above
+
+Implemented 2026-08-31 on `claude/evolution-lab-soil-moisture-kllovu`. The
+diagnosis holds and the fix works; **three of the four call sites named above
+are not what this section says they are**, and a later reader following the
+list would spend the time twice.
+
+- **`is_damp` does not gate germination, and must not be converted.**
+  `Behavior::Germinate` already reads `update::plant_available_fraction` off
+  the cell the seed is resting on, and has since well before this report —
+  its own doc comment says so in as many words. `is_damp`'s only caller is
+  `Behavior::Divide`, whose only user is `moss.ron`, and **moss grows on
+  stone**, whose `water_capacity` is 0. There is no per-cell water on a rock
+  face to prefer; air humidity is the only quantity that exists there, and
+  `moss_spreads_over_damp_stone_and_not_over_dry` seeps water into a sealed
+  pocket *under* the platform precisely so the field can carry the damp up
+  through it. Converting it would pin moss at `dry_chance` (0.002) for ever.
+  It is renamed `is_humid_air` instead, which is what it always was.
+- **`absorb_water` was already writing per-cell soil correctly.** Its
+  `Powder` arm reads `plant_available_fraction` and writes `with_aux`; the
+  bug was only the `deplete_moisture` call sitting *beside* that write. So
+  the fix there is a deletion, not a conversion — and measured on its own it
+  **does not move root depth at all** (median reach 15 -> 16 at soil=96, 8
+  seeds). It is the fix for the *visible band*; `moisture_pull` is the fix
+  for the *depth*. Landing only one of them would have looked like a
+  failure of whichever half was tried first.
+- **"Roots stop at 13 rows" is a statement about the median, not the max.**
+  Measured on current `main`, 8 seeds, no colony: a 40-row bed gives median
+  reach 19 and max 40; a 96-row bed gives **median 15, max 42**. The finding
+  that reproduces exactly is §6c's real one — *giving the bed 2.4x the depth
+  buys nothing* — and it is the median that is pinned. Quoting a max here
+  will read as a contradiction. (With a colony present the max is confounded
+  outright: root reach tracks gallery depth, because a root will follow an
+  ant tunnel down. Census root depth with `colonies=0`.)
+
+**Result, paired on 8 identical world seeds at soil=96** — deepest live root
+below the surface, median **15 -> 30**, max **42 -> 55**, 7 seeds deeper, 1
+unchanged, **0 worse**. Germination was the regression to watch for (the
+thresholds downstream are calibrated against the old quantity) and it did not
+happen: seeds set and established plants are unchanged-to-slightly-up.
+
+**`MIZ_THRESHOLD` did not need re-deriving, and that is a measured result
+rather than an omission.** The scale genuinely changed — field moisture is
+0..4 and gradients ran ~0.05, per-cell soil water is 0..1 and gradients run
+**median 0.57, p90 0.88** (`plant_probe` now prints this distribution beside
+the root census). At the inherited 0.05, **95% of live root tips clear it**.
+But swept to **0.5, a 10x change, the outcome barely moves**: median reach 30
+-> 33, with half the seeds byte-identical. What the rule reads is what
+matters; where the threshold sits is not carrying the behaviour, so **do not
+spend a session tuning it**. 0.05 also keeps a defensible meaning on the new
+scale: `SOIL_UPTAKE_PER_TICK / SOIL_SATURATED` is 0.06, so the floor sits at
+about one tick of one root's drink.
+
+**Steering reads the raw store, not `plant_available_fraction`.** The
+available-water band clamps flat below the wilting point and above field
+capacity, which is right for drinking and deletes the gradient exactly where
+a root most needs one: in dust every cell reads 0, and the lab bed is built
+*at* `SOIL_FIELD_CAPACITY`, so brush-painted water saturating soil to 1,000
+would read identical to unwatered ground.
+
 **And the overlay invites the confusion**: `render.rs` has `FieldOverlay::
 Moisture` ("MOISTURE", the air) *and* `OrganismOverlay::SoilMoisture` ("SOIL
 MOISTURE", the real per-cell water). He was reading the first as the second.

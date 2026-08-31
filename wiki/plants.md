@@ -3,7 +3,14 @@
 *What plants do, and what it looks like when they are working. No code, no
 file names — see `Reports/` for why any of it is built the way it is.*
 
-*Current as of: 2026-08-30 (stands are bushier: the light grid is half as fine,
+*Current as of: 2026-08-31 (roots find water by how wet the *soil* is rather
+than by how humid the *air* is -- so they follow damp ground, turn down at
+the surface, and reach roughly twice as deep as they used to, with depth now
+set by where the water is instead of capping out a third of the way into any
+bed. And drinking no longer dries the air, which had been leaving a dry
+stripe across the top of the ground that drifted sideways, never downward,
+and stopped seed from taking.)
+Before that: 2026-08-30 (stands are bushier: the light grid is half as fine,
 so plants shade each other and themselves less. Also: growth programs now
 actually mutate often enough to
 see: a stand of one species carries a real minority running a different program,
@@ -75,7 +82,13 @@ dark and picks up again in the morning. What a plant *decides* — whether a
 leaf is too shaded to keep, whether to open a new shoot — does not swing with
 the hour; only how much it actually earns does.
 
-**Water**, drawn from damp soil by roots. Foliage spends water continuously —
+**Water**, drawn from damp soil by roots — the water held *in the ground*,
+which is a different thing from how humid the air is. Air humidity is its
+own weather, and drinking does not change it; what a root takes, it takes
+out of the soil around it, and that patch of ground stays drier until
+something wets it again.
+
+Foliage spends water continuously —
 more in bright light, almost none at night — and the plant can only earn from
 light while it has water to spend. A plant that cannot keep up closes down:
 it stops growing first, then starts shedding leaves.
@@ -120,10 +133,24 @@ Root mass does two jobs, and they are the same number:
   puts its growth into roots until it catches up. So a tall plant in the open
   builds a wide plate and a squat one does not.
 
+**Roots grow toward water they can smell.** A root tip reads how wet the
+ground is a short way off in each direction and leans toward the wetter
+side; where the ground is evenly damp there is nothing to lean toward and it
+simply grows down. So a root system bends around a dry patch, follows damp
+ground sideways when that is where the water is, and turns down at the
+surface because the soil below always holds more than the air above. It
+senses water it cannot yet drink, too — ground drier than a root can take
+up still reads as wetter than bone-dry ground beside it, which is what lets
+a root in a dry bed find the damp instead of sitting in the dust.
+
 A plant that is short of water spends its growth on roots instead of canopy,
 and switches back once it is comfortable. So a thirsty plant looks
 root-heavy, and a well-watered one looks top-heavy. Root systems are branched
-tangles, not single taproots, and they reach most of the way down a deep bed.
+tangles, not single taproots. **How deep they go is set by where the water
+is, not by how deep the bed is**: in an evenly wet bed the typical plant
+roots about a third of the way down and the deepest reach past half, and
+giving that bed more depth on its own buys very little — what earns depth is
+water lower down to grow toward.
 
 ## What a plant pays for
 
