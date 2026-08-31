@@ -1108,8 +1108,18 @@ struct Sample {
     germinations: u64,
 }
 
+/// The bar's short population strip for **one** chamber.
+///
+/// `pub` and parked in `Chamber` rather than kept on `Ui`, because a strip
+/// that follows the viewer instead of the box draws chamber B's population
+/// over chamber A's bed. `observe` below already recognises this failure in
+/// its narrow form — a rebuild putting the frame counter back — and parking
+/// is the same fix generalised to a switch, where the frame moves *forward*
+/// and the reset it relies on therefore never fires.
+///
+/// Fields stay private: the strip is drawn by `Ui` and read by nobody else.
 #[derive(Default)]
-struct History {
+pub struct History {
     samples: VecDeque<Sample>,
     last_frame: u64,
     next_at: u64,
@@ -1235,7 +1245,7 @@ pub struct Ui {
     notice: Option<(String, std::time::Instant)>,
     /// The world cell the player last clicked, re-read every frame.
     inspect: Option<(i32, i32)>,
-    history: History,
+    pub(crate) history: History,
     /// Last frame's layout. See the module doc: a click arrives between
     /// frames, so this is the bar the player was looking at.
     bar: Bar,

@@ -86,6 +86,80 @@ pub struct Lab {
     /// cell every frame, and the stroke would smear backwards as the view
     /// panned. `None` between strokes.
     stroke: Option<Stroke>,
+    /// **The rest of the rack — every chamber that is not the one on screen.**
+    ///
+    /// The active chamber is *not* in here: its world, spec, stats, particles
+    /// and blasts are the inline fields above, exactly as they were when the
+    /// lab held one box. That is deliberate and it is the whole reason this
+    /// change is cheap — `lab.world` still means "the box you are looking at"
+    /// at all 117 call sites in the binary and in `examples/lab*.rs`, so a
+    /// rack costs those files nothing and cannot collide with another lane
+    /// editing them.
+    ///
+    /// **Invariant: `rack[active]` is `None` and every other entry is
+    /// `Some`.** The hole is where the inline fields came from and where they
+    /// go back on a switch, which is what keeps indices stable — a chamber
+    /// keeps its number for its whole life, so a tab does not renumber itself
+    /// when you look at a different box. `chamber_count`,
+    /// `chamber_summaries` and `switch_to` are the only things that need to
+    /// know, and `rack_invariant_holds` pins it.
+    rack: Vec<Option<Chamber>>,
+    /// Which rack slot the inline fields belong to.
+    active: usize,
+    /// Set when the thing on screen changed for a reason the dirty-rect skip
+    /// cannot see — today, a chamber switch. Consumed by the next `draw`.
+    ///
+    /// `Renderer` carries the previous frame's rectangles, and those belong to
+    /// the box we just left; without this the old chamber is painted under the
+    /// new one wherever the new one happens to be settled.
+    view_dirty: bool,
+}
+
+/// **A chamber that is not currently on screen.**
+///
+/// Everything here is per-box state, and each field is in this struct rather
+/// than on `Lab` because leaving it shared produces a visible bleed on a
+/// switch rather than a compile error:
+///
+/// | field | what leaks if it stays shared |
+/// |---|---|
+/// | `world`, `spec` | the obvious one |
+/// | `stats` | one box's census drawn over another's bed |
+/// | `history` | `Ui`'s population strip, same failure one level down |
+/// | `particles`, `blasts` | a blast's debris following you into a box that never had one |
+///
+/// `Renderer` is deliberately *not* here — it is shared, because it is pure
+/// CPU state (`render.rs`) and one per chamber would multiply its caches by
+/// the rack. What it does carry is the previous frame's dirty rectangles, so
+/// `switch_to` forces a full redraw instead; a switch that skips that paints
+/// the old box under the new one.
+pub struct Chamber {
+    pub world: World,
+    pub spec: scene::LabBox,
+    pub stats: stats::Stats,
+    pub particles: ParticleSystem,
+    pub blasts: Blasts,
+    /// The population strip `Ui` keeps for the bar. Parked with its box for
+    /// the reason the table above gives.
+    pub history: ui::History,
+}
+
+/// One row of the chamber menu: enough to compare two boxes without
+/// unfreezing either.
+///
+/// **`frame` is in here on purpose.** A frozen chamber that is quietly still
+/// ticking looks identical to a correctly frozen one in any screenshot, so
+/// the number that says which it is has to be on the row —
+/// `CLAUDE.md`'s *"did it fire at all" needs a counter, not a picture*.
+pub struct ChamberSummary {
+    pub index: usize,
+    pub active: bool,
+    pub label: String,
+    pub seed: u64,
+    /// Simulated ticks this box has run. Frozen chambers hold still.
+    pub frame: u64,
+    /// `None` before the census has ever run — a box built and never stepped.
+    pub census: Option<stats::Census>,
 }
 
 /// One in-progress brush stroke.
@@ -127,6 +201,11 @@ impl Lab {
             // so unphotographable on a box with no keyboard.
             show_help: std::env::var("PIXEL_PHYSICS_LAB_HELP").as_deref() != Ok("0"),
             stroke: None,
+            // One chamber, and it is the one on screen — so the rack is a
+            // single hole. Every later chamber is pushed beside it.
+            rack: vec![None],
+            active: 0,
+            view_dirty: false,
         }
     }
 
@@ -137,6 +216,171 @@ impl Lab {
         self.particles = ParticleSystem::new();
         self.blasts = Blasts::new();
         self.stats = stats::Stats::new();
+    }
+
+    // ------------------------------------------------------------ the rack
+
+    /// How many chambers the facility holds, the one on screen included.
+    pub fn chamber_count(&self) -> usize {
+        self.rack.len()
+    }
+
+    /// Which chamber is on screen.
+    pub fn active_chamber(&self) -> usize {
+        self.active
+    }
+
+    /// **`rack[active]` is the hole, everything else is a box.**
+    ///
+    /// The one invariant this whole representation rests on, exposed so a
+    /// guard can assert it rather than a comment claiming it.
+    pub fn rack_invariant_holds(&self) -> bool {
+        self.active < self.rack.len()
+            && self.rack.iter().enumerate().all(|(i, slot)| slot.is_none() == (i == self.active))
+    }
+
+    /// One row per chamber, for the tabs and the menu, without unfreezing
+    /// anything.
+    ///
+    /// **`frame` is on every row deliberately.** A frozen chamber that is
+    /// quietly still ticking and one that is genuinely held look identical in
+    /// any picture of the rack, so the number that separates them travels with
+    /// the row — `CLAUDE.md`, *"did it fire at all" needs a counter, not a
+    /// picture*.
+    pub fn chamber_summaries(&self) -> Vec<ChamberSummary> {
+        (0..self.rack.len())
+            .map(|i| {
+                let active = i == self.active;
+                let (spec, stats, world) = match &self.rack[i] {
+                    Some(ch) => (&ch.spec, &ch.stats, &ch.world),
+                    // The hole: the box on screen lives in the inline fields.
+                    None => (&self.spec, &self.stats, &self.world),
+                };
+                ChamberSummary {
+                    index: i,
+                    active,
+                    label: format!("{}", i + 1),
+                    seed: spec.seed,
+                    frame: world.frame,
+                    census: stats.census().cloned(),
+                }
+            })
+            .collect()
+    }
+
+    /// Put chamber `i` on screen and park the one that was.
+    ///
+    /// **A swap, never a rebuild.** The outgoing box keeps its world, its
+    /// census, its particles and its strip exactly as they were, so switching
+    /// away and back is lossless and a frozen chamber resumes on the tick it
+    /// stopped at — there is nothing to restore because nothing was thrown
+    /// away. Freezing costs nothing at all: a `World` owns no threads and no
+    /// timers, so one that is not stepped is simply not stepped, and its
+    /// active-site heap and awake-chunk set are still standing when it comes
+    /// back.
+    ///
+    /// Out of range, or already active, is a no-op rather than a panic: this
+    /// is reached from a click on a tab, and a stale tab rectangle is an
+    /// ordinary thing for a click to land on.
+    pub fn switch_to(&mut self, i: usize) {
+        if i == self.active || !self.rack.get(i).is_some_and(|slot| slot.is_some()) {
+            return;
+        }
+        // Take the incoming box out first so every `replace` below has a real
+        // value to put in place — `World` has no default and no placeholder,
+        // which is what makes this a swap rather than a take-then-fill.
+        let incoming = self.rack[i].take().expect("checked Some directly above");
+        let outgoing = Chamber {
+            world: std::mem::replace(&mut self.world, incoming.world),
+            spec: std::mem::replace(&mut self.spec, incoming.spec),
+            stats: std::mem::replace(&mut self.stats, incoming.stats),
+            particles: std::mem::replace(&mut self.particles, incoming.particles),
+            blasts: std::mem::replace(&mut self.blasts, incoming.blasts),
+            history: std::mem::replace(&mut self.ui.history, incoming.history),
+        };
+        self.rack[self.active] = Some(outgoing);
+        self.active = i;
+        // A stroke belongs to the box it was started on, and a brush that
+        // carried across would draw a line from wherever the cursor was in the
+        // old chamber to wherever it is in this one.
+        self.stroke = None;
+        self.view_dirty = true;
+    }
+
+    /// Build a new chamber from `spec` and park it at the end of the rack.
+    ///
+    /// Returns its index. It is **not** switched to — adding a box and
+    /// walking into it are two decisions, and a batch adds fifty.
+    pub fn add_chamber(&mut self, spec: scene::LabBox) -> usize {
+        let mut world = spec.build();
+        earth_toned_nest(&mut world);
+        self.rack.push(Some(Chamber {
+            world,
+            spec,
+            stats: stats::Stats::new(),
+            particles: ParticleSystem::new(),
+            blasts: Blasts::new(),
+            history: ui::History::default(),
+        }));
+        self.rack.len() - 1
+    }
+
+    /// Copy the box on screen — its recipe, not its contents.
+    ///
+    /// **A world cannot be copied and this is not a limitation being worked
+    /// around, it is the right operation.** `World` is not `Clone`; `LabBox`
+    /// is, and it carries the seed, so building from the spec reproduces the
+    /// box exactly. The duplicate therefore starts at frame 0 rather than
+    /// mid-life, which is what you want from "another one of these".
+    ///
+    /// **`reseed` is the whole difference between a copy and a replicate**,
+    /// and getting it wrong is silent: at the same seed every draw in the
+    /// engine is a pure function of `(world.seed, identity, position)`, so the
+    /// duplicate is not a similar box, it is a **bit-identical** one, and a
+    /// rack of them is one sample wearing many labels. Reseeding takes the
+    /// next seed no chamber is using, so replicates cannot collide.
+    pub fn duplicate_active(&mut self, reseed: bool) -> usize {
+        let mut spec = self.spec.clone();
+        if reseed {
+            spec.seed = self.next_unused_seed();
+        }
+        self.add_chamber(spec)
+    }
+
+    /// One past the highest seed anywhere in the rack.
+    ///
+    /// Highest-plus-one rather than count-plus-one: chambers get closed, and a
+    /// counter that reuses a freed number hands two replicates the same world.
+    fn next_unused_seed(&self) -> u64 {
+        let highest = (0..self.rack.len())
+            .map(|i| match &self.rack[i] {
+                Some(ch) => ch.spec.seed,
+                None => self.spec.seed,
+            })
+            .max()
+            .unwrap_or(0);
+        highest.wrapping_add(1)
+    }
+
+    /// Close chamber `i`. Returns whether it went.
+    ///
+    /// **Refuses to close the box on screen.** Honouring that would mean
+    /// promoting some other chamber into the inline fields behind the
+    /// player's back, and "close this" and "and now you are looking at a
+    /// different experiment" are two things one click should not do. The
+    /// caller switches away first, which also means the only chamber can
+    /// never be closed — correct, since a facility with no box in it has
+    /// nothing to draw.
+    pub fn remove_chamber(&mut self, i: usize) -> bool {
+        if i == self.active || i >= self.rack.len() {
+            return false;
+        }
+        self.rack.remove(i);
+        // Closing a tab renumbers the ones after it, this one included.
+        if i < self.active {
+            self.active -= 1;
+        }
+        true
     }
 
     /// One simulated tick — the shipped sequence, nothing skipped.
@@ -199,7 +443,9 @@ impl Lab {
             || self.ui.is_dirty()
             || self.stats.showing()
             || self.time.hud_is_dirty()
-            || self.show_help;
+            || self.show_help
+            // A chamber switch. See `Lab::view_dirty`.
+            || std::mem::take(&mut self.view_dirty);
         let touched = self.world.take_touched_chunks();
         self.renderer.draw(
             &self.world,
@@ -1001,6 +1247,185 @@ fn draw_help(frame: &mut [u8]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ------------------------------------------------------- the rack
+
+    /// A small box that germinates, for the rack guards. Deliberately not
+    /// `LabBox::default()`: these tests run hundreds of frames and the
+    /// shipped bed is four times the area for no extra signal. `colonies: 0`
+    /// because a colony eats founders (Gate 1 §3: five of eight by frame
+    /// 66,000) and every guard below is about the *rack*, not about grazing.
+    fn rack_bed(seed: u64) -> scene::LabBox {
+        scene::LabBox {
+            width: 256,
+            height: 192,
+            // Scaled together. `lab_resolution` records what happens when
+            // they are not: at the default `ground_y` under a short box the
+            // soil sits in the top quarter and the rest is void — a scene
+            // error wearing a result.
+            ground_y: 96,
+            soil_depth: 48,
+            founders: 4,
+            colonies: 0,
+            seed,
+            ..scene::LabBox::default()
+        }
+    }
+
+    /// An order-sensitive digest of the whole grid, the same shape as
+    /// `tests/determinism.rs`'s and `frame.rs`'s: what these guards have to
+    /// catch moves cells, so a census of counts would miss it.
+    fn grid_hash(w: &World) -> u64 {
+        fn fnv1a(h: u64, v: u64) -> u64 {
+            (h ^ v).wrapping_mul(0x0000_0100_0000_01b3)
+        }
+        let b = w.bounds().expect("the lab bed sets bounds");
+        let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+        for y in b.min_y..=b.max_y {
+            for x in b.min_x..=b.max_x {
+                let c = w.get(x, y);
+                h = fnv1a(h, c.material.0 as u64);
+                h = fnv1a(h, c.aux() as u64);
+                h = fnv1a(h, c.organism_id() as u64);
+            }
+        }
+        // Organism state as well as the grid: a genotype difference reaches
+        // the cells only once it has grown differently, and these guards must
+        // be able to see it before then.
+        h = fnv1a(h, w.live_organism_count() as u64);
+        let (born, died) = w.organism_turnover();
+        h = fnv1a(h, born);
+        h = fnv1a(h, died);
+        fnv1a(h, w.germinations)
+    }
+
+    /// Run `n` ticks of the chamber on screen.
+    fn run(lab: &mut Lab, n: u32) {
+        for _ in 0..n {
+            lab.tick();
+        }
+    }
+
+    /// **A parked chamber does not advance, and the one on screen does.**
+    ///
+    /// Both arms in one test on purpose. The frozen arm alone is green for a
+    /// lab whose `tick` has stopped working altogether — `CLAUDE.md`'s *green
+    /// is the default state* — so the running arm is the positive control
+    /// that says the instrument can move at all.
+    #[test]
+    fn a_parked_chamber_holds_still_while_the_one_on_screen_runs() {
+        let mut lab = Lab::new(rack_bed(1));
+        let parked = lab.add_chamber(rack_bed(2));
+        let before = lab.chamber_summaries()[parked].frame;
+
+        run(&mut lab, 40);
+
+        let after = lab.chamber_summaries();
+        assert!(after[lab.active_chamber()].frame >= 40, "the positive control: the box on screen must have run, got {}", after[lab.active_chamber()].frame);
+        assert_eq!(after[parked].frame, before, "a parked chamber advanced while another was running");
+    }
+
+    /// **Switching away and back is lossless.**
+    ///
+    /// Paired with its own sensitivity half: the same digest must *change*
+    /// when the box is stepped, or "unchanged after a round trip" is a claim
+    /// about a blind hash rather than about the swap.
+    #[test]
+    fn switching_away_and_back_leaves_the_box_exactly_as_it_was() {
+        let mut lab = Lab::new(rack_bed(1));
+        let other = lab.add_chamber(rack_bed(2));
+        run(&mut lab, 30);
+
+        let before = grid_hash(&lab.world);
+        lab.switch_to(other);
+        run(&mut lab, 30);
+        lab.switch_to(0);
+        assert_eq!(grid_hash(&lab.world), before, "a round trip through another chamber changed the box");
+
+        // The sensitivity half: this digest is not a constant.
+        run(&mut lab, 30);
+        assert_ne!(grid_hash(&lab.world), before, "the digest cannot see the box changing, so the assertion above proves nothing");
+    }
+
+    /// **The seed is what makes a copy a replicate, and this is both halves
+    /// of that claim.**
+    ///
+    /// The whole premise of running a rack of copies rests on this. Every
+    /// draw in the engine is a pure function of `(world.seed, identity,
+    /// position)`, so a duplicate at the *same* seed is not a similar box, it
+    /// is a bit-identical one — a rack of them is one sample wearing many
+    /// labels, which is `CLAUDE.md`'s *3 populations wearing 24 logs*
+    /// arriving in a new costume.
+    ///
+    /// So: same seed must be **equal**, reseeded must **differ**. Either
+    /// assertion alone is green for a broken build — the first for a lab that
+    /// ignores the seed entirely, the second for one whose duplicate shares
+    /// nothing with its parent.
+    #[test]
+    fn a_reseeded_duplicate_diverges_and_an_unseeded_one_does_not() {
+        const FRAMES: u32 = 600;
+
+        let mut lab = Lab::new(rack_bed(7));
+        let twin = lab.duplicate_active(false);
+        let replicate = lab.duplicate_active(true);
+        assert_ne!(
+            lab.chamber_summaries()[replicate].seed,
+            lab.chamber_summaries()[twin].seed,
+            "reseeding handed the replicate the seed it was meant to differ by"
+        );
+
+        run(&mut lab, FRAMES);
+        let parent = grid_hash(&lab.world);
+
+        lab.switch_to(twin);
+        run(&mut lab, FRAMES);
+        assert_eq!(grid_hash(&lab.world), parent, "a duplicate at the same seed came out different — the engine is not reproducible and no comparison across a rack means anything");
+
+        lab.switch_to(replicate);
+        run(&mut lab, FRAMES);
+        assert_ne!(grid_hash(&lab.world), parent, "a duplicate at a NEW seed came out identical — the seed is not reaching the copy, so a rack of replicates is one world wearing many labels");
+    }
+
+    /// The rack's one invariant, through every verb that reshapes it.
+    #[test]
+    fn the_rack_invariant_survives_add_switch_and_close() {
+        let mut lab = Lab::new(rack_bed(1));
+        assert!(lab.rack_invariant_holds(), "a fresh lab");
+        let b = lab.add_chamber(rack_bed(2));
+        let c = lab.add_chamber(rack_bed(3));
+        assert!(lab.rack_invariant_holds(), "after adding");
+        lab.switch_to(c);
+        assert!(lab.rack_invariant_holds(), "after switching");
+        assert_eq!(lab.active_chamber(), c);
+
+        assert!(!lab.remove_chamber(lab.active_chamber()), "closing the box on screen must be refused");
+        assert!(lab.remove_chamber(b), "closing a parked box");
+        assert!(lab.rack_invariant_holds(), "after closing");
+        assert_eq!(lab.chamber_count(), 2);
+        // `b` sat before `c`, so closing it renumbers `c` down by one — the
+        // way closing a tab does.
+        assert_eq!(lab.active_chamber(), c - 1, "the active index did not follow its chamber past the closed one");
+    }
+
+    /// **A switch forces a full redraw.**
+    ///
+    /// `Renderer` carries the previous frame's dirty rectangles and they
+    /// belong to the box just left; without this the old chamber is painted
+    /// under the new one wherever the new one is settled. Nothing about that
+    /// is a compile error and nothing in a census can see it, so the flag is
+    /// asserted directly.
+    #[test]
+    fn a_switch_forces_a_full_redraw() {
+        let mut lab = Lab::new(rack_bed(1));
+        let other = lab.add_chamber(rack_bed(2));
+        lab.view_dirty = false;
+        lab.switch_to(other);
+        assert!(lab.view_dirty, "a switch left the dirty-rect skip believing the screen still holds the old chamber");
+        // A no-op switch must not claim the screen changed.
+        lab.view_dirty = false;
+        lab.switch_to(other);
+        assert!(!lab.view_dirty, "switching to the chamber already on screen forced a redraw for nothing");
+    }
 
     /// **`SPACE` stops the world, and this is the counter that says so.**
     ///
