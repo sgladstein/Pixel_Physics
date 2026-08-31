@@ -177,7 +177,7 @@ const HUMID_STOP: f32 = 2.0;
 
 /// Humidity one whole cell-equivalent of evaporated water adds to the block
 /// it left. See `vapour_of`, which is where this is argued.
-const VAPOUR_PER_CELL_EQUIVALENT: f32 = 2.0;
+const VAPOUR_PER_CELL_EQUIVALENT: f32 = 260.0;
 
 /// Fill removed from one exposed surface cell per check in perfectly dry
 /// air, on `material::LIQUID_FULL`'s 0..1000 scale. Scaled by dryness, so
@@ -595,7 +595,17 @@ fn tick_soil(world: &mut World, x: i32, y: i32, stale_ticks: u8) -> Vec<ActiveSi
     // did not exist. See `field::FieldTile::vapour` for the runaway it
     // closes -- without it, ground that starts drying makes its own air
     // drier and so dries faster still.
-    world.add_vapour(x, y + depth, vapour_of(loss));
+    // **Into the air above, which is the block `dryness` reads.** Not the
+    // cell the water left: that is ground, and humidifying ground does
+    // nothing to the reading that governs drying. `dryness` samples
+    // `field_moisture_at(x, y - FIELD_SCALE)`, so vapour has to arrive
+    // there or the brake is wired to a gauge nobody consults -- which is
+    // exactly how it was wired first, and it measured as no brake at all.
+    //
+    // `y`, not `y + depth`: the surface site speaks for the rows beneath it
+    // (`SOIL_DRY_REACH`), but the water reaches the air at the surface
+    // however deep the drying front has descended.
+    world.add_vapour(x, y - FIELD_SCALE, vapour_of(loss));
     vec![reschedule]
 }
 
@@ -940,7 +950,7 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
         // show up, months later, as a world whose sky had quietly stopped
         // being able to rain.
         world.credit_atmosphere(fill);
-        world.add_vapour(x, y, vapour_of(fill));
+        world.add_vapour(x, y - FIELD_SCALE, vapour_of(fill));
         // Gone. `Cell::EMPTY`, never `with_aux(0)` — on a `Liquid`, `aux ==
         // 0` means *full*, so writing a drained cell that way manufactures a
         // full one out of nothing.
@@ -965,7 +975,7 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
     // sky. The two credit sites are the only two places a fill reduction
     // happens in this file, and each credits exactly what it removed.
     world.credit_atmosphere(loss);
-    world.add_vapour(x, y, vapour_of(loss));
+    world.add_vapour(x, y - FIELD_SCALE, vapour_of(loss));
     world.set(x, y, cell.with_aux(fill - loss));
     vec![reschedule]
 }
