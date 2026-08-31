@@ -1814,11 +1814,17 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
             let gain = c.unit * quality;
             let left = c.cells - 1;
             if let Some(state) = world.organism_mut(organism) {
-                state.crop = if left > 0 || matured - c.unit > 0.0 {
-                    Some(Crop { cells: left, digesting: matured - c.unit, ..c })
-                } else {
-                    None
-                };
+                // **An empty crop is `None`, remainder and all.** Keeping a
+                // maturing timer on a stomach with nothing in it made
+                // `crop.is_some()` mean "has eaten recently" rather than "is
+                // carrying something", and every laden readout in the tree
+                // asks it the second question -- `ascii` reported 18 ants
+                // carrying when none of them held a cell. There is no next
+                // cell for the timer to mature into, so it has nothing to
+                // measure. It cannot be gamed by dropping just before
+                // maturity either: that forfeits the progress *and* the meal,
+                // which is starvation rather than an exploit.
+                state.crop = (left > 0).then_some(Crop { cells: left, digesting: matured - c.unit, ..c });
             }
             if world.materials.get(c.material).worth_in_aux {
                 world.energy_ledger.harvested_corpse += gain as f64;
@@ -2617,7 +2623,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
                         // and clearing it would hand the animal a free restart.
                         state.crop = state.crop.and_then(|c| {
                             let left = c.cells.saturating_sub(1);
-                            (left > 0 || c.digesting > 0.0).then_some(Crop { cells: left, ..c })
+                            (left > 0).then_some(Crop { cells: left, ..c })
                         });
                     }
                     world.creature_stats.drops += 1;
