@@ -639,26 +639,36 @@
         // and it would have read as "the crop broke foraging" rather than as
         // one missing pair of numbers.
         //
-        // f* = 0.6, so the pair is -+30*0.6 = -+18. Transition width is
-        // 12/30 = 0.4 of fill: wide enough not to be a knife edge, which is
-        // the same argument `act`'s doc makes for probabilities over
-        // thresholds. The +-30 saturation is kept, because that is what makes
-        // `Carrying` a *gate* on the +-6 pheromone term rather than an
-        // additive competitor with it.
+        // **f* = 0.6, and the weights are 75/-+45 rather than the -+18 the
+        // obvious arithmetic gives.** Scaling the old -+30 by f* was the
+        // first version and it is wrong for the reason the gate-offset note
+        // below states in advance: a symmetric pair cancels exactly only
+        // deep in saturation, and at an offset of 18 the leak is large
+        // enough to bias the run. Measured: the tunnel-walk scene put the
+        // ant at x=99 of a required 105, against 131 with the offsets left
+        // alone -- an ant that still moved 220 times and simply never
+        // committed to a direction.
+        //
+        // So the gate is written as `75*(fill - 0.6)`, which crosses zero at
+        // f* and still sits at -45 when empty and +30 when full. Both ends
+        // are at least as deep as the offsets this file was tuned with, the
+        // crossover is explicit, and it is carried in weights that mutate.
+        // Transition width is 12/75 = 0.16 of fill -- narrower than the
+        // -+18 version, which is the price of keeping the saturation.
         hidden_wiring: [
             // units 0,1 -- channel A along the heading, gated ON a full crop
-            (Bias,        0, -18.0),
-            (Carrying,    0,  30.0),
+            (Bias,        0, -45.0),
+            (Carrying,    0,  75.0),
             (PheroAAlong, 0,   6.0),
-            (Bias,        1, -18.0),
-            (Carrying,    1,  30.0),
+            (Bias,        1, -45.0),
+            (Carrying,    1,  75.0),
             (PheroAAlong, 1,  -6.0),
             // units 2,3 -- channel B along the heading, gated ON an empty one
-            (Bias,        2,  18.0),
-            (Carrying,    2, -30.0),
+            (Bias,        2,  45.0),
+            (Carrying,    2, -75.0),
             (PheroBAlong, 2,   6.0),
-            (Bias,        3,  18.0),
-            (Carrying,    3, -30.0),
+            (Bias,        3,  45.0),
+            (Carrying,    3, -75.0),
             (PheroBAlong, 3,  -6.0),
         ],
         // 2.5 against a baseline of 2.0, so the gated pair can drive the

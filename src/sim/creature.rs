@@ -5533,13 +5533,26 @@ mod tests {
                 }
             }
             set_gut(&mut w, "ant", bias);
+            // **Mutation off, because the gut is the thing being held fixed.**
+            // Over 20,000 frames this grazer breeds, and a child's gut drifts
+            // by `trait_variance` -- so part of what gets digested is absorbed
+            // at a *different* filter than the one under test. Measured: the
+            // matched arm read 0.964 instead of 1.000, which is a real
+            // reading of a scene containing two guts rather than a wrong
+            // filter. Pinning the rate makes the identity exact rather than
+            // approximate, which is the whole gain of measuring per joule.
+            {
+                let id = w.species.id_of("ant").expect("ant");
+                let mut def = w.species.get(id).creature.as_ref().expect("creature").clone();
+                def.mutation_rate = 0.0;
+                def.trait_variance = [0.0; CREATURE_TRAITS];
+                w.species.set_creature(id, def);
+            }
             run(&mut w, 2_000);
             let ant = spawn(&mut w, "ant", 110, 109);
             assert_ne!(ant, 0, "the grazer was not placed; the scene does not contain the situation this test is about");
-            // Start it hungry: `act` takes the eat branch only below
-            // `hunger_fraction`, and a full ant picks one leaf up and then
-            // has no reason to eat again.
-            w.organism_mut(ant).expect("live").energy = 300.0;
+            // No longer seeded low: an animal ingests and digests whatever its
+            // bank says, so the eat path is reachable from full.
             run(&mut w, 20_000);
             let st = w.creature_stats;
             // **Per joule absorbed, not per bite.** Digestion is continuous
@@ -5906,7 +5919,14 @@ mod tests {
         }
         let ant = spawn(&mut w, "ant", 100, 100);
         let leaf = w.materials.id_of("leaf").expect("leaf is compiled in");
-        w.organism_mut(ant).expect("live").crop = Some(Crop { material: leaf, worth: 0.0, unit: 0.0, shade: 0 });
+        // **A leaf's worth is 480 even though it never rides in `aux`.** The old
+        // fixture wrote 0 here, which was harmless when a drop placed a cell
+        // regardless; a crop puts cells back at whole *unit* worth, so a
+        // zero-unit load is one that can never be put down. That state cannot
+        // arise from the ingest path -- nothing under `EAT_YIELD_THRESHOLD` is
+        // taken at all -- so the fixture is what was unrealistic.
+        let leaf_face = w.materials.get(leaf).food_energy;
+        w.organism_mut(ant).expect("live").crop = Some(Crop { material: leaf, worth: leaf_face, unit: leaf_face, shade: 0 });
         let before = (90..115).flat_map(|x| (90..102).map(move |y| (x, y))).filter(|&(x, y)| w.get(x, y).material == leaf).count();
 
         creature_dies(&mut w, ant);
@@ -6139,6 +6159,19 @@ mod tests {
             let mut w = test_world();
             for x in 0..200 {
                 w.set(x, 101, Cell::new(material::STONE, 0).with_attached(true));
+            }
+            // **Digestion off, so the load is the only thing under test.**
+            // With the shipped rate the crop empties as the ant walks, so the
+            // measured ratio is an average over a shrinking load -- 1.33x
+            // rather than 1.5x, which is a true reading of a different
+            // question. Pinning the rate holds everything but the mass term
+            // fixed, which is what makes this a guard over that term rather
+            // than over the interaction of two.
+            {
+                let id = w.species.id_of("ant").expect("ant");
+                let mut d = w.species.get(id).creature.as_ref().expect("creature").clone();
+                d.digest_rate = 0.0;
+                w.species.set_creature(id, d);
             }
             let ant = spawn(&mut w, "ant", 100, 100);
             if let (Some(state), Some(worth)) = (w.organism_mut(ant), load) {
