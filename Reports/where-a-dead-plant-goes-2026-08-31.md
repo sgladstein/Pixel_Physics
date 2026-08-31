@@ -131,6 +131,21 @@ mostly leaves the world instead, so the sealed box ends one cycle very
 slightly emptier. That is the honest cost and it is in front of the owner on
 review card `20260831T033121764Z-872b88`.
 
+**Read the `locked` column for what it says.** It counts cells in a material
+with **no way out**, so after the change it is 0 by construction — deadwood
+now has a way out. The direct read is the standing deadwood count, and at the
+30,000-frame budget above it is **15 cells against 847**, still falling.
+
+**And the chain now takes longer to finish, which is the middle working
+rather than a defect.** `deadwood → litter → soil` is a longer road than
+`litter → soil`, so a rot budget sized before the change catches the pool
+mid-drain — the harness's plateau control fires on exactly that, and did, on
+one seed of four at 30,000 frames. Given 66,000 the same seed converges with
+every control green: **deadwood 847 → 4**, return 9.7%, bed −222 (−0.55%). A
+rot budget under about 50,000 frames is now too short to read this ledger at
+all, and the plateau control is what says so rather than the reader having to
+know it.
+
 The judgement behind landing it anyway: a material that can never be soil,
 never be food and never change is the binary outcome the ethos rules out, and
 nothing would defend it. The bed difference is 0.3% of a 40,320-cell bed on a
@@ -189,8 +204,11 @@ dead end the obvious version walks into.
 
 ## 6. Provenance
 
-Every figure from `examples/labmass` at `grow=9000 rot=30000`, `RAYON_NUM_THREADS=4`
-pinned. Twelve seeds for the fate table, one paired seed for §3a with a
+Every figure from `examples/labmass` at `grow=9000 rot=30000` (§3a's
+convergence run at `rot=66000`), `RAYON_NUM_THREADS=4` pinned. All of it
+re-run after merging `main` in, which had moved `plant.rs` and
+`organism.rs` underneath it: the fate table is unchanged to the tenth of a
+percent. Twelve seeds for the fate table, one paired seed for §3a with a
 separate release build either side of the change and the two logs diffed to
 prove the binary moved (`CLAUDE.md`'s stale-example gotcha). §4 is one seed at
 120,000 frames. Guards: `decay::tests::deadwood_rots_into_litter_instead_of_
