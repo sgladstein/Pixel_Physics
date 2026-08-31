@@ -1355,6 +1355,24 @@ fn banded_shade(world: &World, organism_id: u16, material: material::MaterialId,
 /// population runs long enough to measure allele spread per generation.
 const MUTATION_SIGMA: f32 = 0.08;
 
+/// **One generation's drift on one continuous genotype slot.**
+///
+/// Extracted so there is exactly one reader of [`MUTATION_SIGMA`] and one
+/// arithmetic for the jitter. `bear_seed_at` draws it twice — once for the
+/// sequenced slots off the caller's stream and once for the appended slots
+/// off a keyed substream — and `sim::specimen::drift` draws it again when
+/// the player turns the shelf's brood dial. Three call sites computing
+/// `(below(2_000)/1_000 - 1) * SIGMA` by hand is three places for the
+/// operator to drift apart, which is the failure `bear_seed_at`'s own doc
+/// records under "two lineages of inheritance drifting apart".
+///
+/// **Exactly one draw, always**, whatever it returns: the caller's stream
+/// position on return is a measured property with a guard over it
+/// (`set_seed_leaves_the_callers_rng_position_alone`).
+pub(crate) fn genotype_jitter(rng: &mut Rng) -> f32 {
+    (rng.below(2_000) as f32 / 1_000.0 - 1.0) * MUTATION_SIGMA
+}
+
 /// **A ripe fruit lets go.**
 ///
 /// The cell stops being the parent's and becomes a fresh child organism's
@@ -1643,8 +1661,7 @@ fn bear_seed_at(world: &mut World, sx: i32, sy: i32, parent_id: u16, seed_cost: 
         // one substream per slot — would have given every *existing* slot
         // a different jitter and broken the thing this protects.
         for (dst, src) in state.genotype_draws.iter_mut().zip(draws.iter()).take(SEQUENCED_TRAITS) {
-            let jitter = (rng.below(2_000) as f32 / 1_000.0 - 1.0) * MUTATION_SIGMA;
-            *dst = (*src + jitter).clamp(-1.0, 1.0);
+            *dst = (*src + genotype_jitter(rng)).clamp(-1.0, 1.0);
         }
         // **The discrete genes: inherited whole, mutated by jumping.** A
         // locus that drifted would be a continuous axis wearing an integer
@@ -1670,12 +1687,7 @@ fn bear_seed_at(world: &mut World, sx: i32, sy: i32, parent_id: u16, seed_cost: 
         // and what `plant-rule-drift-observed-2026-08-29.md` §5 records as
         // missing outright: "No lineage was followed individually."
         state.lineage = parent_lineage;
-        for (locus, allele) in state.alleles.iter_mut().enumerate() {
-            if rng.chance(organism::DISCRETE_MUTATION_CHANCE) {
-                let n = organism::LOCUS_ALLELES[locus].max(1);
-                *allele = rng.below(n as u32) as u8;
-            }
-        }
+        organism::jump_alleles(&mut state.alleles, rng);
         // **The appended slots, from their own keyed substream rather
         // than the shared `Rng`** -- and the substream is the whole
         // point, not an implementation detail.
@@ -1717,8 +1729,7 @@ fn bear_seed_at(world: &mut World, sx: i32, sy: i32, parent_id: u16, seed_cost: 
         // the stand guard caught it, which is what it is for.
         for (slot, (dst, src)) in state.genotype_draws.iter_mut().zip(draws.iter()).enumerate().skip(SEQUENCED_TRAITS) {
             let mut jrng = rng::stream(world_seed ^ APPENDED_JITTER_SALT, sx as u64, sy as u64, (generation as u64) << 8 | slot as u64);
-            let jitter = (jrng.below(2_000) as f32 / 1_000.0 - 1.0) * MUTATION_SIGMA;
-            *dst = (*src + jitter).clamp(-1.0, 1.0);
+            *dst = (*src + genotype_jitter(&mut jrng)).clamp(-1.0, 1.0);
         }
         // Both colours derive from the (possibly just-mutated) alleles.
         // Foliage has worked this way since the discrete-loci change;
@@ -8613,6 +8624,73 @@ impl World {
         self.schedule_active_site(site);
         true
     }
+}
+
+/// **Sow a saved plant at `(x, y)`** — `World::plant_tree_species` with the
+/// genome supplied rather than drawn from where the seed landed.
+///
+/// Returns the organism handle, or `None` if the cell is occupied, the
+/// species is unknown, or the organism table is full.
+///
+/// **`inherited` is the load-bearing line and it is not a statistic here.**
+/// `seed_genotype` runs at germination and redraws `genotype_draws` from
+/// `(world seed, germination coordinate)` unless the organism is flagged
+/// inherited — which is right for a seed the player planted and would
+/// silently erase everything a jar carries. `stocked` is what carries the
+/// *provenance*, so nothing has to read "inherited" as "borne in this box".
+///
+/// **Foliage and bark are re-derived from the alleles rather than stored**,
+/// exactly as `bear_seed_at` derives them, so a released plant's colour
+/// tracks the genome it is actually carrying. Storing them would make them
+/// heritable-but-immutable, which is the defect the bark band was fixed out
+/// of.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn sow_specimen_seed(
+    world: &mut World,
+    x: i32,
+    y: i32,
+    species_name: &str,
+    draws: [f32; organism::GENOTYPE_TRAITS],
+    alleles: [u8; organism::DISCRETE_LOCI],
+    fates: organism::FateGenome,
+    flower_band: u8,
+    fruit_band: u8,
+    endowment: f32,
+    rng: &mut Rng,
+) -> Option<u16> {
+    let seed_material = world.materials.id_of("seed").or_else(|| world.materials.id_of("wood"))?;
+    let species = world.species.id_of(species_name)?;
+    if !world.is_empty(x, y) {
+        return None;
+    }
+    let (foliage_first, foliage_count, bark_bands) = {
+        let sp = world.species.get(species);
+        (sp.foliage_bands.first, sp.foliage_bands.count, sp.bark_bands)
+    };
+    let shades = world.materials.get(seed_material).palette.len().max(1) as u32;
+    let shade = rng.below(shades) as u8;
+    // Claimed before `push_organism`, which borrows `world` -- the same
+    // ordering `plant_tree_species` and `bear_seed_at` both use.
+    let lineage = world.claim_lineage();
+    let organism_id = world.push_organism(species)?;
+    if let Some(state) = world.organism_mut(organism_id) {
+        state.genotype_draws = draws;
+        state.alleles = alleles;
+        state.fates = fates;
+        state.flower_band = flower_band;
+        state.fruit_band = fruit_band;
+        state.endowment = endowment;
+        state.foliage_band = foliage_first + alleles[organism::LOCUS_LEAF_ECONOMY].min(foliage_count.saturating_sub(1));
+        state.bark_band = organism::bark_band_for_density(bark_bands, alleles[organism::LOCUS_WOOD_DENSITY]);
+        state.lineage = lineage;
+        state.generation = 0;
+        state.inherited = true;
+        state.stocked = true;
+    }
+    let aux = organism::pack_cell_type(CellType::Seed);
+    world.set(x, y, Cell::new(seed_material, shade).with_organism_id(organism_id).with_aux(aux));
+    world.schedule_active_site(reschedule_organism(x, y, organism_id, 0, 0, world.frame + SEED_TICK_INTERVAL));
+    Some(organism_id)
 }
 
 #[cfg(test)]

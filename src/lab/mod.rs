@@ -102,6 +102,15 @@ impl Lab {
     pub fn new(spec: scene::LabBox) -> Self {
         let mut world = spec.build();
         earth_toned_nest(&mut world);
+        // **The shelf is read once, at start.** It is a directory, and a
+        // `read_dir` per frame is a syscall storm to answer a question whose
+        // answer only changes when a button is pressed -- the three that
+        // change it reload it, and `RELOAD` covers a jar added from outside.
+        // Read *here* rather than lazily on first open, so that a rack
+        // carried over from a previous session is already in the count the
+        // moment the box appears.
+        let mut ui = ui::Ui::new();
+        ui.reload_shelf();
         Self {
             world,
             particles: ParticleSystem::new(),
@@ -110,7 +119,7 @@ impl Lab {
             player_tuning: player::Tuning::default(),
             time: time::TimeControl::new(),
             stats: stats::Stats::new(),
-            ui: ui::Ui::new(),
+            ui,
             spec,
             // Down only when something explicitly asks for it. The one caller
             // is a headless capture wanting to photograph what is *under* the
@@ -206,6 +215,10 @@ impl Lab {
         // species while explaining a different one is the stale side table
         // `ui::Spec::note` was made owned to avoid.
         let (species, species_note) = self.selected_species();
+        // The jar chip's face and its explanation, for the species chip's
+        // reason and by the same route: read out of the loaded rack rather
+        // than remembered here.
+        let (jar, jar_note) = (self.ui.jar_face(), self.ui.jar_chip_note());
         let state = ui::BarState {
             running: self.time.phase == time::Phase::Running,
             requested: self.time.requested,
@@ -219,6 +232,8 @@ impl Lab {
             species_note: &species_note,
             brush: self.ui.brush(),
             overlay: self.renderer.field_overlay.label(),
+            jar: &jar,
+            jar_note: &jar_note,
         };
         self.ui.draw(frame_buf, &self.world, &self.spec, &state, &self.renderer, fps);
         // The pages last, because they are modal: a page covers the box *and*
@@ -374,6 +389,8 @@ impl Lab {
                 });
             }
             ui::Tool::Cull => self.cull_at(x, y),
+            ui::Tool::Keep => self.keep_at(x, y),
+            ui::Tool::Release => self.release_at(x, y),
             // The brushes never arrive here: they paint from `press`, so a
             // release that also painted would double the last dab.
             ui::Tool::Soil | ui::Tool::Water => {}
@@ -553,6 +570,247 @@ impl Lab {
             ui::Action::ParamSelect(i) => self.ui.select_param(i),
             ui::Action::ParamAdjust(i, sign) => self.adjust_param(i, sign),
             ui::Action::ParamSave => self.save_param(),
+            ui::Action::ShelfSelect(i) => {
+                self.ui.select_jar(i);
+                // ...and picking a jar arms the tool that uses it, which is
+                // exactly what `NextSpecies` does for the species chip. A
+                // chip that changes what a *different* button will do,
+                // silently, is the mode you forget you are in.
+                self.ui.set_tool(ui::Tool::Release);
+                match self.ui.armed_jar() {
+                    Some(jar) => {
+                        let (name, dial) = (jar.name.to_uppercase(), self.ui.brood_label());
+                        self.ui.say(format!("ARMED {name} -- {dial}"));
+                    }
+                    None => self.ui.say("THAT JAR IS NO LONGER ON THE SHELF"),
+                }
+            }
+            ui::Action::Broods(delta) => {
+                self.ui.adjust_broods(delta);
+                let dial = self.ui.brood_label();
+                self.ui.say(match self.ui.broods() {
+                    0 => "DRIFT CLONE -- A RELEASE IS THAT EXACT INDIVIDUAL".to_string(),
+                    1 => "DRIFT 1 BROOD -- AS DIFFERENT AS ITS OWN CHILD".to_string(),
+                    _ => format!("DRIFT {dial}"),
+                });
+            }
+            ui::Action::ShelfDrift => self.drift_jar(),
+            ui::Action::ShelfDiscard => self.discard_jar(),
+            ui::Action::ShelfPromote => self.promote_jar(),
+            ui::Action::ShelfReload => {
+                self.ui.reload_shelf();
+                let n = self.ui.shelf().len();
+                self.ui.say(format!("SHELF RELOADED -- {n} JAR(S)"));
+            }
+        }
+    }
+
+    // ------------------------------------------------------------ the shelf
+    //
+    // **Four verbs and one law: nothing here destroys a specimen except
+    // `DISCARD`.** Keeping never overwrites (`specimen::save_to` refuses and
+    // `next_free_name` picks the next stem), drifting writes a new jar and
+    // leaves its parent standing, and releasing does not consume the jar. A
+    // kept specimen is the one thing in this lab a player cannot regenerate
+    // -- the box moves on and the individual dies -- so the only way to lose
+    // one is to say so.
+
+    /// **Put the genetics of whatever is under `(x, y)` in a jar.**
+    ///
+    /// Named after its species, numbered up if that name is taken, so the
+    /// gesture is one click and the naming is not a dialogue box in a game
+    /// that has none.
+    fn keep_at(&mut self, x: i32, y: i32) {
+        use crate::sim::specimen;
+        let Some(id) = specimen::organism_at(&self.world, x, y) else {
+            self.ui.say("NOTHING ALIVE HERE TO KEEP");
+            return;
+        };
+        // The species name is the default stem, so a rack reads as
+        // `herb`, `herb_2`, `ant`, `ant_2` -- which is what the player will
+        // be looking for when they come back to it.
+        let stem = self
+            .world
+            .organism_state(id)
+            .map(|st| specimen::sanitise(&self.world.species.get(st.species).name))
+            .unwrap_or_else(|| "jar".to_string());
+        let name = specimen::next_free_name(specimen::shelf_dir(), &stem);
+        let spec = match specimen::capture(&self.world, id, &name) {
+            Ok(s) => s,
+            Err(e) => {
+                self.ui.say(e.say());
+                return;
+            }
+        };
+        let kingdom = spec.genetics.kingdom();
+        let generation = spec.taken.generation;
+        match specimen::save(&spec) {
+            Ok(_) => {
+                self.ui.reload_shelf();
+                // **The count and the generation, not just "kept".** A jar
+                // is a file the player cannot see, and generation is the one
+                // number that says whether this is a founder or something
+                // the box actually bred.
+                let n = self.ui.shelf().len();
+                self.ui.say(format!("KEPT {} -- {kingdom} G{generation} -- {n} ON THE SHELF", name.to_uppercase()));
+            }
+            Err(e) => self.ui.say(e.say()),
+        }
+    }
+
+    /// **Put the armed jar back in the box at `(x, y)`**, drifted by the
+    /// dial.
+    ///
+    /// A creature arrives alive; a plant arrives as a seed that still has to
+    /// fall and germinate, which is the same deal `PLANT` offers and is why
+    /// the notice says which happened.
+    fn release_at(&mut self, x: i32, y: i32) {
+        use crate::sim::specimen;
+        let Some(jar) = self.ui.armed_jar().cloned() else {
+            self.ui.say("NO JAR ARMED -- OPEN THE SHELF (G) AND CLICK ONE");
+            return;
+        };
+        let broods = self.ui.broods();
+        // A seed is a falling powder and a body needs its cells free, so a
+        // click that lands *in* the ground walks up to the first empty cell
+        // above it -- `plant_at`'s rule, for `plant_at`'s reason.
+        let mut site = y;
+        for _ in 0..MAX_PLANT_LIFT {
+            if self.world.is_empty(x, site) {
+                break;
+            }
+            site -= 1;
+        }
+        // **Its own stream, keyed on the frame and the release point.** The
+        // dial's draws must not come out of a generator the world goes on
+        // using -- `brain::mutate` takes a variable number of them, so the
+        // sweep's own draws would shift by an amount that depends on how
+        // many slots happened to mutate.
+        let mut rng = crate::sim::rng::stream(self.world.seed, x as u64, site as u64, self.world.frame);
+        match specimen::release(&mut self.world, &jar, x, site, broods, &mut rng) {
+            Ok(out) => {
+                let what = jar.genetics.kingdom();
+                let name = jar.name.to_uppercase();
+                // **The slots the dial actually moved, beside the picture.**
+                // A clone and a four-brood release are two dark cells either
+                // way at play zoom, and only the number says which one just
+                // happened.
+                self.ui.say(match out.moved {
+                    0 => format!("RELEASED {name} -- AN EXACT {what}"),
+                    n => format!("RELEASED {name} -- {} BROODS, {n} GENOME SLOTS MOVED", broods),
+                });
+            }
+            Err(e) => self.ui.say(e.say()),
+        }
+    }
+
+    /// **Breed the armed jar on the shelf**, without releasing it.
+    ///
+    /// The original stays. This is the verb that makes the rack a working
+    /// set rather than an archive: a player can carry a line forward,
+    /// compare two drifts of it side by side, and release whichever they
+    /// prefer -- and the new jar records which one it came from and how far.
+    fn drift_jar(&mut self) {
+        use crate::sim::specimen;
+        let Some(jar) = self.ui.armed_jar().cloned() else {
+            self.ui.say("NOTHING ARMED -- CLICK A JAR FIRST");
+            return;
+        };
+        let broods = self.ui.broods();
+        let name = specimen::next_free_name(specimen::shelf_dir(), &jar.name);
+        let mut rng = crate::sim::rng::stream(self.world.seed, jar.name.len() as u64, broods as u64, self.world.frame);
+        let drifted = match specimen::drift(&self.world, &jar, broods, &name, &mut rng) {
+            Ok(d) => d,
+            Err(e) => {
+                self.ui.say(e.say());
+                return;
+            }
+        };
+        match specimen::save(&drifted.specimen) {
+            Ok(_) => {
+                self.ui.reload_shelf();
+                self.ui.say(format!(
+                    "{} DRIFTED {broods} BROODS INTO {} -- {} GENOME SLOTS MOVED",
+                    jar.name.to_uppercase(),
+                    name.to_uppercase(),
+                    drifted.moved
+                ));
+            }
+            Err(e) => self.ui.say(e.say()),
+        }
+    }
+
+    /// Take the armed jar off the shelf for good.
+    fn discard_jar(&mut self) {
+        use crate::sim::specimen;
+        let Some(name) = self.ui.armed_jar().map(|j| j.name.clone()) else {
+            self.ui.say("NOTHING ARMED -- CLICK A JAR FIRST");
+            return;
+        };
+        match specimen::discard(&name) {
+            Ok(()) => {
+                self.ui.reload_shelf();
+                self.ui.say(format!("DISCARDED {}", name.to_uppercase()));
+            }
+            Err(e) => self.ui.say(e.say()),
+        }
+    }
+
+    /// **Write the armed jar out as a whole species file** — the way out of
+    /// the lab and into the game.
+    ///
+    /// A jar is small because it leans on its species for everything that is
+    /// not heritable; a species file is self-contained and is what the
+    /// game's own loader reads. `species_export` owns the format and the
+    /// refusal to overwrite a hand-authored file; this is the button.
+    ///
+    /// **Creatures only, and it says so rather than failing quietly.** A
+    /// plant's species file carries a growth program that `species_export`
+    /// has never written, so promoting one would produce a file that parses
+    /// and grows the wrong plant.
+    fn promote_jar(&mut self) {
+        use crate::sim::{species_export, specimen};
+        let Some(jar) = self.ui.armed_jar().cloned() else {
+            self.ui.say("NOTHING ARMED -- CLICK A JAR FIRST");
+            return;
+        };
+        let specimen::Genetics::Creature(g) = &jar.genetics else {
+            self.ui.say("PROMOTING A PLANT IS NOT BUILT YET -- CREATURES ONLY");
+            return;
+        };
+        let Some(parent_id) = self.world.species.id_of(&jar.species) else {
+            self.ui.say(specimen::ShelfError::NoSuchSpecies(jar.species.clone()).say());
+            return;
+        };
+        let genome = crate::sim::brain::genome_from_wiring(&g.instincts, &g.hidden, &g.outputs, &g.recurrence);
+        let mut traits = [0.0; crate::sim::organism::CREATURE_TRAITS];
+        for (dst, src) in traits.iter_mut().zip(g.traits.iter()) {
+            *dst = *src;
+        }
+        let parent = self.world.species.get(parent_id);
+        let def = match species_export::individual_as_species(parent, &genome, traits, &jar.name) {
+            Ok(d) => d,
+            Err(e) => {
+                self.ui.say(format!("{e}").to_uppercase());
+                return;
+            }
+        };
+        match species_export::save(&def) {
+            Ok(path) => {
+                // **And what is still missing**, said at the moment it
+                // matters. A species with no material of the same name
+                // resolves to no body and hatches nothing, and what a new
+                // creature looks like is the one thing E8 is explicit must
+                // not be generated.
+                let needs_material = self.world.materials.id_of(&jar.name).is_none();
+                let where_ = path.file_name().map(|f| f.to_string_lossy().to_uppercase()).unwrap_or_default();
+                self.ui.say(if needs_material {
+                    format!("PROMOTED TO {where_} -- IT STILL NEEDS A MATERIAL OF THE SAME NAME TO HATCH")
+                } else {
+                    format!("PROMOTED TO {where_}")
+                });
+            }
+            Err(e) => self.ui.say(format!("{e}").to_uppercase()),
         }
     }
 
@@ -688,7 +946,7 @@ const MAX_PLANT_LIFT: i32 = 12;
 /// have draws as a silent blank rather than as anything you would notice. That
 /// gap has shipped three times in this repo, so every line here is checked
 /// against `hud::has_glyph` by `every_help_line_is_drawable`.
-const HELP: [&str; 22] = [
+const HELP: [&str; 26] = [
     "THE EVOLUTION LAB",
     "",
     "THE BOX STARTS EMPTY. YOU STOCK IT.",
@@ -700,6 +958,7 @@ const HELP: [&str; 22] = [
     "",
     "Z X C V B N  LOOK PLANT COLONY",
     "             CULL SOIL WATER",
+    "M ,          KEEP / FREE GENETICS",
     "CLICK      USE THE ARMED TOOL",
     "RIGHT      ERASE",
     ".          WHICH SPECIES TO PLANT",
@@ -708,9 +967,12 @@ const HELP: [&str; 22] = [
     "",
     "P          PARAMETERS -- THE NUMBERS",
     "           BEHIND THE VERBS",
+    "G          THE SHELF -- KEPT GENETICS",
+    "; \x27        DRIFT A RELEASE, IN BROODS",
     "F1 F2 F3   PLANTS ANTS BOX   TAB STATS",
     "F RATE   WASD PAN   - = ZOOM   R REBUILD",
     "?          THIS PAGE",
+    "",
 ];
 
 fn draw_help(frame: &mut [u8]) {
@@ -809,12 +1071,227 @@ mod tests {
         let mut frame = vec![0u8; (WIDTH * HEIGHT * 4) as usize];
         // Every page, plus the census, plus a cursor so the hover paths run.
         lab.set_cursor(Some((40, 40)));
-        for panel in [ui::Panel::Plants, ui::Panel::Ants, ui::Panel::Box, ui::Panel::Params] {
+        for panel in [ui::Panel::Plants, ui::Panel::Ants, ui::Panel::Box, ui::Panel::Params, ui::Panel::Shelf] {
             lab.ui.panel = Some(panel);
             lab.draw(&mut frame, 60.0);
         }
         lab.ui.panel = None;
         lab.draw(&mut frame, 60.0);
+    }
+
+    /// **The bench: the first free cell above the bed's own soil.** Tests
+    /// used to build a stone shelf of their own here, which is a scene that
+    /// contradicts the box — `CLAUDE.md`'s *a scene that contradicts the code
+    /// will look like a bug in the code*. A seed needs bare soil under it and
+    /// a body needs its cells free, and the bed already has both.
+    fn bench_cell(lab: &Lab) -> (i32, i32) {
+        (lab.spec.width / 2 - 30, lab.spec.ground_y - 1)
+    }
+
+    /// **The shelf tests run one at a time**, because the directory override
+    /// is an environment variable and an environment is per *process*, not
+    /// per test. `cargo test` runs a module's tests on several threads in one
+    /// process, so two shelf tests without this would each point the override
+    /// at their own directory and then read each other's rack — a flake that
+    /// depends on thread scheduling and would reproduce about as often as it
+    /// did not.
+    ///
+    /// Poison is deliberately ignored: a panicking test leaves the lock
+    /// poisoned, and turning one real failure into four cascading ones hides
+    /// the real one.
+    static SHELF_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// A private shelf directory, held for the caller's whole test, so a test
+    /// that keeps a specimen does not write into the working tree.
+    ///
+    /// The pid is in the name because `/tmp` is shared between agents in this
+    /// project's containers — one lane has already captured another lane's
+    /// screenshot for exactly that reason
+    /// (`Reports/lanes/evolution-lab-coordinator.md`).
+    fn shelf_scratch(tag: &str) -> (std::path::PathBuf, std::sync::MutexGuard<'static, ()>) {
+        let guard = SHELF_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = std::env::temp_dir().join(format!("pixel_physics_lab_shelf_{tag}_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("scratch shelf");
+        std::env::set_var(crate::sim::specimen::SHELF_DIR_ENV, &dir);
+        (dir, guard)
+    }
+
+    /// **Keep an ant, free it, and check the released animal is the one that
+    /// was kept** — through `Lab`'s own verbs rather than through
+    /// `sim::specimen`, so the tool routing, the naming, the shelf write and
+    /// the reload are all in the path.
+    ///
+    /// `specimen`'s own tests guard the genome round trip; this guards
+    /// everything between a click and them, which is the half that has no
+    /// other cover.
+    #[test]
+    fn keeping_an_ant_and_freeing_it_puts_the_same_animal_back() {
+        let (dir, _shelf) = shelf_scratch("roundtrip");
+        let mut lab = Lab::new(scene::LabBox { founders: 0, colonies: 0, ..scene::LabBox::default() });
+        lab.show_help = false;
+
+        // Somewhere to stand, then one ant on it.
+        let (fx, fy) = bench_cell(&lab);
+        crate::sim::creature::plant_creature_seed(&mut lab.world, fx + 10, fy, "ant").expect("an ant hatches");
+        let id = lab.world.get(fx + 10, fy).organism_id();
+        assert_ne!(id, 0, "the harness placed no ant, so there is nothing to keep");
+        let genome = lab.world.organism(id).expect("live ant").genome.clone();
+
+        lab.keep_at(fx + 10, fy);
+        assert_eq!(lab.ui.shelf().len(), 1, "keeping wrote no jar: {:?}", lab.ui.notice_text());
+        assert!(dir.join("ant.ron").exists(), "the jar was not written under the species name");
+
+        // Arm it the way a player does -- by clicking the row -- and free it.
+        lab.act(ui::Action::ShelfSelect(0));
+        assert_eq!(lab.ui.tool(), ui::Tool::Release, "picking a jar did not arm the tool that uses it");
+        lab.release_at(fx + 40, fy);
+
+        let freed = lab.world.get(fx + 40, fy).organism_id();
+        assert_ne!(freed, 0, "nothing was freed: {:?}", lab.ui.notice_text());
+        assert_ne!(freed, id, "the release found the original rather than a new individual");
+        let state = lab.world.organism(freed).expect("the freed ant");
+        assert_eq!(state.genome, genome, "the freed ant is not carrying the kept genome");
+        assert!(state.stocked, "the freed ant is not flagged as coming off the shelf");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// **The dial is the graded middle, and it has to be reachable from the
+    /// bar.** `CLAUDE.md`'s first law: an outcome is a distribution, not a
+    /// binary. A shelf that could only produce *this exact animal* or nothing
+    /// has the defect the rubble had.
+    ///
+    /// Positive and negative control in one test: at `CLONE` the freed genome
+    /// must be identical, and at four broods it must not be.
+    #[test]
+    fn the_brood_dial_reaches_the_world_from_the_bar() {
+        let (dir, _shelf) = shelf_scratch("dial");
+        let mut lab = Lab::new(scene::LabBox { founders: 0, colonies: 0, ..scene::LabBox::default() });
+        lab.show_help = false;
+        let (fx, fy) = bench_cell(&lab);
+        crate::sim::creature::plant_creature_seed(&mut lab.world, fx + 10, fy, "ant").expect("an ant hatches");
+        let id = lab.world.get(fx + 10, fy).organism_id();
+        let genome = lab.world.organism(id).expect("live ant").genome.clone();
+        lab.keep_at(fx + 10, fy);
+        lab.act(ui::Action::ShelfSelect(0));
+
+        assert_eq!(lab.ui.broods(), 0, "the dial does not start at CLONE");
+        lab.release_at(fx + 40, fy);
+        let clone = lab.world.get(fx + 40, fy).organism_id();
+        assert_eq!(lab.world.organism(clone).expect("freed").genome, genome, "a CLONE release is not a clone");
+
+        for _ in 0..4 {
+            lab.act(ui::Action::Broods(1));
+        }
+        assert_eq!(lab.ui.broods(), 4);
+        lab.release_at(fx + 70, fy);
+        let drifted = lab.world.get(fx + 70, fy).organism_id();
+        assert_ne!(drifted, clone);
+        assert_ne!(lab.world.organism(drifted).expect("freed").genome, genome, "four broods produced a bit-identical genome; the dial is not reaching the world");
+
+        // ...and the dial cannot be turned past either end.
+        for _ in 0..20 {
+            lab.act(ui::Action::Broods(-1));
+        }
+        assert_eq!(lab.ui.broods(), 0);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// **Every jar keeps its own name and nothing is ever overwritten.** A
+    /// kept specimen is the one thing in this lab a player cannot regenerate,
+    /// so two keeps of the same species must produce two jars.
+    #[test]
+    fn keeping_twice_makes_two_jars_and_drifting_makes_a_third() {
+        let (dir, _shelf) = shelf_scratch("names");
+        let mut lab = Lab::new(scene::LabBox { founders: 0, colonies: 0, ..scene::LabBox::default() });
+        lab.show_help = false;
+        let (fx, fy) = bench_cell(&lab);
+        for dx in [10, 30] {
+            crate::sim::creature::plant_creature_seed(&mut lab.world, fx + dx, fy, "ant").expect("an ant hatches");
+            lab.keep_at(fx + dx, fy);
+        }
+        let names: Vec<String> = lab.ui.shelf().iter().map(|j| j.name.clone()).collect();
+        assert_eq!(names, vec!["ant".to_string(), "ant_2".to_string()], "keeping twice did not number the second jar");
+
+        lab.act(ui::Action::ShelfSelect(0));
+        lab.act(ui::Action::Broods(1));
+        lab.act(ui::Action::ShelfDrift);
+        let names: Vec<String> = lab.ui.shelf().iter().map(|j| j.name.clone()).collect();
+        assert_eq!(names.len(), 3, "drifting did not add a jar: {:?}", lab.ui.notice_text());
+        // **The jar you drifted from stays armed.** Drifting writes a file
+        // and reloads the rack, and the first version of the reload cleared
+        // the selection -- so the next FREE refused, right after a button
+        // that had visibly worked. Making siblings from one parent is the
+        // common case, so the parent keeps the arm and the notice names the
+        // child.
+        assert_eq!(lab.ui.armed_jar().map(|j| j.name.as_str()), Some("ant"), "drifting disarmed the jar it bred from");
+        // The drifted jar records where it came from, which is the shelf's
+        // own pedigree and the only record of what the player selected for.
+        let child = lab.ui.shelf().iter().find(|j| j.name == "ant_3").expect("the drifted jar");
+        assert_eq!(child.taken.from_jar, Some(("ant".to_string(), 1)));
+
+        // ...and DISCARD is the only thing that removes one.
+        lab.act(ui::Action::ShelfSelect(0));
+        lab.act(ui::Action::ShelfDiscard);
+        assert_eq!(lab.ui.shelf().len(), 2, "discard did not remove the armed jar");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// **A plant is keepable too, and that is the half `species_export` has
+    /// never been able to do.** It comes back as a seed rather than as a
+    /// grown plant, which is the same deal the `PLANT` tool offers.
+    #[test]
+    fn keeping_a_plant_and_freeing_it_sows_the_kept_genome() {
+        let (dir, _shelf) = shelf_scratch("plant");
+        let mut lab = Lab::new(scene::LabBox { founders: 0, colonies: 0, ..scene::LabBox::default() });
+        lab.show_help = false;
+        let (fx, fy) = bench_cell(&lab);
+        assert!(lab.world.plant_tree_species(fx + 10, fy, "herb"), "the harness planted nothing");
+        let id = lab.world.get(fx + 10, fy).organism_id();
+        if let Some(st) = lab.world.organism_mut(id) {
+            st.alleles = [1, 2, 1, 1, 1, 2];
+        }
+        let draws = lab.world.organism(id).expect("live plant").genotype_draws;
+
+        lab.keep_at(fx + 10, fy);
+        assert_eq!(lab.ui.shelf().len(), 1, "keeping a plant wrote no jar: {:?}", lab.ui.notice_text());
+        assert!(dir.join("herb.ron").exists());
+        lab.act(ui::Action::ShelfSelect(0));
+        lab.release_at(fx + 40, fy);
+
+        let sown = lab.world.get(fx + 40, fy).organism_id();
+        assert_ne!(sown, 0, "nothing was sown: {:?}", lab.ui.notice_text());
+        let state = lab.world.organism(sown).expect("the sown seed");
+        assert_eq!(state.genotype_draws, draws, "the sown seed is not carrying the kept genome");
+        assert_eq!(state.alleles, [1, 2, 1, 1, 1, 2], "the discrete loci did not survive the jar");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// **Every refusal is sayable, and none of them half-places anything.**
+    /// A verb that fails silently is the second law's own failure — the
+    /// player pressed a button and the box did not change.
+    #[test]
+    fn the_shelf_verbs_all_say_what_happened_when_they_refuse() {
+        let (dir, _shelf) = shelf_scratch("refuse");
+        let mut lab = Lab::new(scene::LabBox { founders: 0, colonies: 0, ..scene::LabBox::default() });
+        lab.show_help = false;
+        let (fx, fy) = bench_cell(&lab);
+
+        for (label, act) in [
+            ("keep nothing", &(|l: &mut Lab, x: i32, y: i32| l.keep_at(x, y)) as &dyn Fn(&mut Lab, i32, i32)),
+            ("free nothing armed", &|l: &mut Lab, x: i32, y: i32| l.release_at(x, y)),
+        ] {
+            act(&mut lab, fx, fy);
+            let said = lab.ui.notice_text().unwrap_or_default();
+            assert!(said.len() > 10, "{label} said nothing");
+        }
+        for action in [ui::Action::ShelfDrift, ui::Action::ShelfDiscard, ui::Action::ShelfPromote] {
+            lab.act(action);
+            let said = lab.ui.notice_text().unwrap_or_default();
+            assert!(said.contains("NOTHING ARMED"), "{action:?} with an empty shelf said {said:?}");
+        }
+        assert_eq!(lab.ui.shelf().len(), 0, "a refusal wrote a jar");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// **The parameters page, driven the way a player drives it: by clicking.**

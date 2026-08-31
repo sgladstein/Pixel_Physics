@@ -281,6 +281,22 @@ pub enum Action {
     ParamSelect(usize),
     /// Write the highlighted parameter back to its asset file.
     ParamSave,
+    /// Arm one jar on the shelf — an index into the loaded rack.
+    ShelfSelect(usize),
+    /// Turn the brood dial by `-1` or `+1`.
+    Broods(i32),
+    /// Put a drifted copy of the armed jar on the shelf, at the current
+    /// dial. The shelf's own breeding verb: it keeps the variant rather
+    /// than only releasing it.
+    ShelfDrift,
+    /// Take the armed jar off the shelf for good.
+    ShelfDiscard,
+    /// Write the armed jar out as a full species `.ron` — the way out of
+    /// the lab and into the game. See `sim::species_export`.
+    ShelfPromote,
+    /// Re-read the shelf directory, for a jar added or removed outside the
+    /// running game.
+    ShelfReload,
 }
 
 /// **What a left-click on the world does.**
@@ -316,12 +332,28 @@ pub enum Tool {
     Soil,
     /// Paint water, full.
     Water,
+    /// **Take the genetics of what you click and put them in a jar.** The
+    /// individual is unharmed — a specimen is a copy, so keeping one is not
+    /// a decision weighed against letting it breed.
+    Keep,
+    /// **Put the armed jar back in the box**, as itself or drifted by the
+    /// shelf's brood dial.
+    ///
+    /// Labelled `FREE` rather than `RELEASE`, and the reason is the bar
+    /// rather than the vocabulary — though the vocabulary agrees. Both rows
+    /// of this bar are at capacity (measured 2026-08-31 with
+    /// `PIXEL_PHYSICS_BAR_TRACE=1`: row 1 sits at exactly its own width and
+    /// row 0 had 76 px of comfortable slack left), and `RELEASE` plus a jar
+    /// chip did not fit at any spacing. `KEEP` and `FREE` is also the pair
+    /// the world uses — you keep a specimen in a jar and you free it back
+    /// into the box — and it reads as a verb in a row of verbs.
+    Release,
 }
 
 /// Every tool, in bar order. One list, so the row, the key table and the
 /// tests cannot disagree about what exists.
-pub const TOOLS: [Tool; 6] =
-    [Tool::Look, Tool::Plant, Tool::Colony, Tool::Cull, Tool::Soil, Tool::Water];
+pub const TOOLS: [Tool; 8] =
+    [Tool::Look, Tool::Plant, Tool::Colony, Tool::Cull, Tool::Soil, Tool::Water, Tool::Keep, Tool::Release];
 
 impl Tool {
     pub fn label(self) -> &'static str {
@@ -332,6 +364,8 @@ impl Tool {
             Tool::Cull => "CULL",
             Tool::Soil => "SOIL",
             Tool::Water => "WATER",
+            Tool::Keep => "KEEP",
+            Tool::Release => "FREE",
         }
     }
     fn key(self) -> &'static str {
@@ -342,6 +376,11 @@ impl Tool {
             Tool::Cull => "V",
             Tool::Soil => "B",
             Tool::Water => "N",
+            // The run continues: `M` is the next key along the bottom row,
+            // and `,` the one after it. See the enum's own note on why the
+            // set is positional rather than mnemonic.
+            Tool::Keep => "M",
+            Tool::Release => ",",
         }
     }
     /// Whether this tool paints continuously while the button is held. The
@@ -358,6 +397,8 @@ impl Tool {
             Tool::Cull => "KILL THE ORGANISM YOU CLICK. IT IS MARKED SENESCENT, NOT DELETED, SO IT ROTS DOWN OVER ITS SPECIES HALF-LIFE AND FEEDS WHATEVER IS STILL ALIVE. THIS IS THE SELECTION LEVER: WHAT YOU CULL DOES NOT BREED.",
             Tool::Soil => "PAINT SOIL, AT FIELD CAPACITY -- DAMP ENOUGH FOR A ROOT, NOT SO WET IT SLUMPS. IT WILL NOT PAINT OVER STONE OR OVER A LIVING PLANT.",
             Tool::Water => "PAINT WATER, FULL. IT RUNS, IT SOAKS INTO SOIL, AND TOO MUCH OF IT DROWNS ROOTS -- WHICH IS AN EXPERIMENT, NOT A MISTAKE.",
+            Tool::Keep => "TAKE THE GENETICS OF THE PLANT OR ANIMAL YOU CLICK AND PUT THEM IN A JAR ON THE SHELF. IT IS A COPY -- THE ONE YOU CLICKED GOES ON LIVING. A JAR HOLDS EVERYTHING THAT INDIVIDUAL WOULD HAVE PASSED TO ITS OWN OFFSPRING AND NOTHING ELSE, SO IT IS SMALL AND IT SURVIVES A RESET OF THE BOX.",
+            Tool::Release => "PUT THE ARMED JAR BACK IN THE BOX WHERE YOU CLICK. AT 0 BROODS IT IS THAT EXACT INDIVIDUAL AGAIN; AT 1 IT IS AS DIFFERENT AS ITS OWN CHILD WOULD HAVE BEEN, AND SO ON UP. OPEN THE SHELF WITH G TO PICK A JAR AND SET THE DIAL.",
         }
     }
 }
@@ -375,6 +416,11 @@ pub enum Panel {
     /// one-page-at-a-time rule in `Lab::act` and latches its own button, which
     /// are the two things a second mechanism would have had to reimplement.
     Params,
+    /// **The rack of kept genetics.** Draws itself for `Params`' reason —
+    /// its rows are jars with a verb attached, not labels — and is a
+    /// [`Panel`] for the same two: the one-page-at-a-time rule and the
+    /// latch on the bar.
+    Shelf,
 }
 
 impl Panel {
@@ -384,6 +430,7 @@ impl Panel {
             Panel::Ants => "ANTS",
             Panel::Box => "THE BOX",
             Panel::Params => "PARAMETERS",
+            Panel::Shelf => "THE SHELF",
         }
     }
 }
@@ -466,6 +513,12 @@ pub struct BarState<'a> {
     pub brush: i32,
     /// The active false-colour channel, already named.
     pub overlay: &'static str,
+    /// **What `RELEASE` will put in**: the armed jar's name, or how many
+    /// jars are on the shelf when none is armed. Owned by the caller for the
+    /// species chip's reason — a chip naming a jar that is not on the rack
+    /// would be the stale side table that argument is about.
+    pub jar: &'a str,
+    pub jar_note: &'a str,
 }
 
 /// Width of a cell whose label is `label_px` wide and whose shortcut caption
@@ -799,8 +852,30 @@ fn lay_out(state: &BarState<'_>, pad: i32, gap: i32) -> Bar {
         pad,
     );
 
+    // **The jar chip: what `RELEASE` is about to put in, and the door to the
+    // rack.** The species chip's pattern and the species chip's argument —
+    // the design guide says planting has to show what you are about to plant
+    // *"or planting is a slot machine"*, and that is true with more force
+    // here, because two jars are the same two dark cells on screen and differ
+    // only in the genome nobody can see. A bare `SHELF` page button was tried
+    // first and is worse on both counts: it says nothing about what is armed,
+    // and it costs the same width.
+    //
+    // Its face is the armed jar's name, or the dial when nothing is armed, so
+    // the chip is never blank and never lies about what a click will do.
+    let jar = Spec {
+        width: cell_width(jar_face_px().max(hud::text_width(state.jar)), "G", pad),
+        line1: state.jar.to_string(),
+        line2: "G".to_string(),
+        action: Some(Action::Panel(Panel::Shelf)),
+        latched: state.tool == Tool::Release || state.panel == Some(Panel::Shelf),
+        icon: None,
+        ratio: None,
+        note: state.jar_note.to_string(),
+    };
+
     let rows: [Vec<Vec<Spec>>; ROWS] = [
-        vec![tools, vec![species], vec![narrower, size, wider], vec![overlay, params]],
+        vec![tools, vec![species, jar], vec![narrower, size, wider], vec![overlay, params]],
         vec![vec![phase, slower, faster, readout], presets, panels.into_iter().collect()],
     ];
 
@@ -861,6 +936,35 @@ fn species_face_px() -> i32 {
 /// Width of the widest overlay name. Same reasoning as the species chip's, and
 /// the same failure it prevents: a control that changes width when you use it
 /// is a control you miss on the second press.
+/// Width of the widest thing the jar chip has to hold.
+///
+/// **A jar name can be 64 characters and the chip is not sized to that.** It
+/// is sized to what fits the bar, and a longer name is drawn clipped rather
+/// than allowed to shove the row along — the species chip's rule (*"a control
+/// that changes width when you use it is a control you miss on the second
+/// press"*), applied to a string the player types instead of one the asset
+/// table fixes. `NO JARS` and `SHELF (N)` are the two idle faces, so the
+/// measured maximum is over those and a representative name.
+fn jar_face_px() -> i32 {
+    ["NO JARS", "12 JARS", "1 JAR"].iter().map(|n| hud::text_width(n)).max().unwrap_or(0)
+}
+
+/// The longest jar name the chip can show, in characters.
+///
+/// **A jar name may be 64 characters and this is seven**, which is the width
+/// of the chip's own idle face (`12 JARS`) and is set by the bar rather than
+/// by taste — see [`Tool::Release`] for the measurement. Longer names are
+/// clipped rather than allowed to widen the chip: a control that changes
+/// width when you use it is a control you miss on the second press, and row 0
+/// has no width to give.
+///
+/// **Nothing is lost by the clip**, because the chip is not where a jar is
+/// identified: the rack behind it prints every name in full and the chip's
+/// own hover line names the armed one. Seven characters covers the default
+/// names outright — a jar is named after its species and numbered up, so
+/// `HERB`, `ANT_2` and `CONIFER` all fit whole.
+const JAR_FACE_CHARS: usize = 7;
+
 fn overlay_face_px() -> i32 {
     ["OFF", "PRESSURE", "TEMPERATURE", "LIGHT", "AIR HUMIDITY", "PHEROMONE A", "PHEROMONE B"]
         .iter()
@@ -1163,6 +1267,29 @@ pub struct Ui {
     /// already written.
     params_bar: Bar,
     params_box: Option<Rect>,
+    /// **The rack, as it was last read off disk.**
+    ///
+    /// Held here rather than re-read every frame: the shelf is a directory,
+    /// and a `read_dir` per frame is a syscall storm to answer a question
+    /// whose answer only changes when the player presses a button. The
+    /// buttons that change it reload it; `RELOAD` is on the page for a jar
+    /// added from outside the running game.
+    shelf: Vec<crate::sim::specimen::Specimen>,
+    /// Jar files in the directory that would not parse. Counted rather than
+    /// hidden — a shelf that quietly shows four of five jars is worse than
+    /// one that says so.
+    shelf_skipped: usize,
+    /// Which jar the `RELEASE` tool means. An index into `shelf`, cleared
+    /// whenever the rack is reloaded, because the row a stored index names
+    /// is not the jar it named before.
+    shelf_selected: Option<usize>,
+    /// **How far to drift a release**, counted in broods: 0 is the same
+    /// individual, 1 is as different as its own child would have been. See
+    /// `sim::specimen::drift`.
+    broods: u32,
+    /// The shelf page's own clickable rectangles, for `params_bar`'s reason.
+    shelf_bar: Bar,
+    shelf_box: Option<Rect>,
 }
 
 /// Every species that can be planted, in a stable order.
@@ -1224,6 +1351,7 @@ impl Ui {
         y >= bar_top()
             || self.panel_box.is_some_and(|r| r.contains(x, y))
             || self.params_box.is_some_and(|r| r.contains(x, y))
+            || self.shelf_box.is_some_and(|r| r.contains(x, y))
             || self.inspect_box.is_some_and(|r| r.contains(x, y))
     }
 
@@ -1320,6 +1448,17 @@ impl Ui {
     /// Whether anything this module draws needs the frame fully repainted.
     /// Always true today, and stated rather than assumed: a hover highlight
     /// leaves no footprint the dirty-rect skip knows to erase.
+    /// **What the last verb said, if it is still saying it.**
+    ///
+    /// The notice is the lab's whole answer to `CLAUDE.md`'s second law for
+    /// verbs whose effect is one or two cells — a kept jar is a file, a
+    /// freed ant is two dark pixels, and a refusal is nothing at all. A test
+    /// that asserts a verb *worked* without reading this cannot tell a
+    /// refusal from a success.
+    pub fn notice_text(&self) -> Option<String> {
+        self.notice.as_ref().map(|(t, _)| t.clone())
+    }
+
     pub fn is_dirty(&self) -> bool {
         true
     }
@@ -1339,6 +1478,7 @@ impl Ui {
             .widgets
             .iter()
             .chain(self.params_bar.widgets.iter())
+            .chain(self.shelf_bar.widgets.iter())
             .find(|wid| wid.action == Some(action))
             .map(|wid| wid.rect)
     }
@@ -1348,7 +1488,7 @@ impl Ui {
     /// above `bar_top`), so the order is documentation rather than a rule: the
     /// bar is painted over everything and must win any seam.
     pub fn hit(&self, x: i32, y: i32) -> Option<Action> {
-        self.bar.hit(x, y).or_else(|| self.params_bar.hit(x, y))
+        self.bar.hit(x, y).or_else(|| self.params_bar.hit(x, y)).or_else(|| self.shelf_bar.hit(x, y))
     }
 
     /// Which parameters page is showing, and where its list is scrolled to.
@@ -1378,6 +1518,107 @@ impl Ui {
 
     pub fn select_param(&mut self, index: usize) {
         self.param_selected = Some(index);
+    }
+
+    // ------------------------------------------------------------- the shelf
+
+    /// Re-read the shelf directory, **keeping whatever was armed armed**.
+    ///
+    /// By *name*, and the distinction is not pedantic — it was a bug. The
+    /// first version cleared the selection, on the true observation that an
+    /// index is not a name: a rack that gains or loses a jar renumbers every
+    /// row after it, and a stored index would then arm a different animal
+    /// than the one the player highlighted. But `DRIFT` writes a jar and
+    /// reloads, so it disarmed the very jar it had just bred from — and the
+    /// next `FREE` said `NO JAR ARMED`, which is a verb doing nothing in
+    /// response to a button that had visibly worked a moment earlier.
+    ///
+    /// Re-finding the name fixes both: the selection survives any change to
+    /// the rack that keeps the jar, and is dropped exactly when the jar is
+    /// gone, which is the only case where clearing is right. **Found by the
+    /// contact sheet's own counter** (`examples/labui.rs`), not by a test:
+    /// the tile showed a bed with a plant in it either way and only
+    /// `organisms 89 -> 89` said the release had refused.
+    pub fn reload_shelf(&mut self) {
+        let armed = self.armed_jar().map(|j| j.name.clone());
+        let (jars, skipped) = crate::sim::specimen::load();
+        self.shelf = jars;
+        self.shelf_skipped = skipped.len();
+        self.shelf_selected = armed.and_then(|name| self.shelf.iter().position(|j| j.name == name));
+    }
+
+    pub fn shelf(&self) -> &[crate::sim::specimen::Specimen] {
+        &self.shelf
+    }
+
+    /// The armed jar, if one is.
+    pub fn armed_jar(&self) -> Option<&crate::sim::specimen::Specimen> {
+        self.shelf_selected.and_then(|i| self.shelf.get(i))
+    }
+
+    pub fn select_jar(&mut self, index: usize) {
+        self.shelf_selected = (index < self.shelf.len()).then_some(index);
+    }
+
+    /// **What the jar chip says**, in the two states it has: the armed
+    /// jar's name, or how full the rack is when nothing is armed.
+    ///
+    /// Never blank. A chip that goes empty when nothing is armed reads as a
+    /// control that has stopped working, and this one is also the door to
+    /// the page that would explain it.
+    pub fn jar_face(&self) -> String {
+        match self.armed_jar() {
+            Some(jar) => jar.name.to_uppercase().chars().take(JAR_FACE_CHARS).collect(),
+            None if self.shelf.is_empty() => "NO JARS".to_string(),
+            // Singular at one. A chip that says `1 JARS` is a chip nobody
+            // proof-read, and this one is on screen whenever the shelf is
+            // not empty and nothing is armed.
+            None if self.shelf.len() == 1 => "1 JAR".to_string(),
+            None => format!("{} JARS", self.shelf.len()),
+        }
+    }
+
+    /// The chip's hover line: what is armed, how far a release will drift
+    /// it, and — when nothing is armed — how to arm one.
+    pub fn jar_chip_note(&self) -> String {
+        match self.armed_jar() {
+            Some(jar) => format!(
+                "{} WILL RELEASE {} -- {} OF SPECIES {}, TAKEN AT GENERATION {}. THE DIAL IS AT {}. CLICK HERE TO OPEN THE RACK AND PICK ANOTHER.",
+                if self.tool == Tool::Release { "FREE (,)" } else { "THE FREE TOOL (,)" },
+                jar.name.to_uppercase(),
+                jar.genetics.kingdom(),
+                jar.species.to_uppercase(),
+                jar.taken.generation,
+                self.brood_label()
+            ),
+            None if self.shelf.is_empty() => {
+                "THE SHELF IS EMPTY. ARM KEEP (M) AND CLICK A PLANT OR AN ANT TO PUT ITS GENETICS IN A JAR -- IT IS A COPY, SO THE ONE YOU CLICK GOES ON LIVING. CLICK HERE TO OPEN THE RACK.".to_string()
+            }
+            None => format!(
+                "{} JAR(S) ON THE SHELF AND NONE ARMED. CLICK HERE TO OPEN THE RACK AND PICK ONE; FREE (,) THEN PUTS IT BACK IN THE BOX, AS ITSELF OR DRIFTED BY A NUMBER OF BROODS.",
+                self.shelf.len()
+            ),
+        }
+    }
+
+    pub fn broods(&self) -> u32 {
+        self.broods
+    }
+
+    /// Move the dial, clamped to `0..=MAX_BROODS`.
+    pub fn adjust_broods(&mut self, delta: i32) {
+        self.broods = (self.broods as i32 + delta).clamp(0, MAX_BROODS as i32) as u32;
+    }
+
+    /// How the dial reads on the page and in a notice: `CLONE` at zero,
+    /// because *"0 BROODS"* is the one setting a player will look at and
+    /// misread as "off".
+    pub fn brood_label(&self) -> String {
+        match self.broods {
+            0 => "CLONE".to_string(),
+            1 => "1 BROOD".to_string(),
+            n => format!("{n} BROODS"),
+        }
     }
 
     pub fn selected_param(&self) -> Option<usize> {
@@ -1418,7 +1659,7 @@ impl Ui {
             // and a range, so they are not `Row`s; `draw` branches away before
             // this is called, and the arm is here so that a page added to
             // `Panel` cannot be silently left out of both.
-            Panel::Params => Vec::new(),
+            Panel::Params | Panel::Shelf => Vec::new(),
             Panel::Plants => {
                 let (d, tint) = delta_text(self.history.delta(|s| s.plants as i64));
                 let (gd, gtint) = delta_text(self.history.delta(|s| s.germinations as i64));
@@ -1742,6 +1983,74 @@ const PARAM_ROW: i32 = 12;
 const PARAM_HEAD: i32 = 10;
 /// The tab strip, and the pager under the rows.
 const PARAM_TABS: i32 = 14;
+/// **What one jar says about itself on hover.**
+///
+/// Everything a player needs to decide whether to release this one and not
+/// the one under it, in the order they would ask: what it is, where it came
+/// from, and whether they bred it themselves.
+fn jar_note(jar: &crate::sim::specimen::Specimen) -> String {
+    let mut s = format!(
+        "{} -- A {} OF SPECIES {}, TAKEN AT FRAME {} FROM GENERATION {} OF LINEAGE {}.",
+        jar.name.to_uppercase(),
+        jar.genetics.kingdom(),
+        jar.species.to_uppercase(),
+        jar.taken.frame,
+        jar.taken.generation,
+        jar.taken.lineage
+    );
+    match &jar.taken.from_jar {
+        Some((parent, 0)) => s.push_str(&format!(" AN EXACT COPY OF {}.", parent.to_uppercase())),
+        Some((parent, n)) => s.push_str(&format!(" DRIFTED {n} BROODS FROM {}.", parent.to_uppercase())),
+        None => s.push_str(" TAKEN STRAIGHT OUT OF THE BOX."),
+    }
+    s
+}
+
+/// **How far the brood dial goes.**
+///
+/// Eight, and it is a legibility bound rather than a modelling one: nothing
+/// stops the drift loop running longer, but past a handful of broods a
+/// specimen is no longer *that animal, varied* — it is a walk away from it,
+/// and the shelf's whole claim is that you can see the relationship. A
+/// player who wants more releases the drifted jar and keeps drifting it,
+/// which is the same arithmetic with the intermediate steps kept.
+const MAX_BROODS: u32 = 8;
+
+/// One jar row on the shelf page. `PARAM_ROW`'s height, deliberately: the
+/// two pages sit in the same place and a row that was a different height
+/// would read as a different kind of thing.
+const SHELF_ROW: i32 = 12;
+
+/// How many jars are on screen at once. Ten rather than `PARAM_ROWS`' 13 —
+/// this page carries a dial strip the parameters page does not, and the two
+/// have to end at the same height above the bar.
+const SHELF_ROWS: usize = 10;
+
+/// The shelf page's width: the widest jar name a player can type without the
+/// row wrapping, beside the species and generation columns. Measured through
+/// `hud::text_width` for `param_page_width`'s reason.
+fn shelf_page_width() -> i32 {
+    let rows = PAGE_PAD * 2 + hud::text_width("A_LONG_ENOUGH_JAR_NAME") + SHELF_RIGHT;
+    // **...and wide enough that the dial strip does not touch the verbs.**
+    // Measured rather than eyeballed, `param_page_width`'s rule: the rows
+    // alone gave a page on which `+` and `COPY` were flush against each
+    // other and read as one control, which a rendered tile showed and no
+    // layout assertion could. The terms are the strip left to right — the
+    // `DRIFT` label, both dial steps, the widest value it can hold, the
+    // three verb faces — plus a gap the strip must keep in the middle.
+    let step = cell_width(hud::text_width("W"), "", PAD);
+    let dial = hud::text_width("DRIFT") + 6 + step + 4 + hud::text_width("8 BROODS") + 6 + step;
+    let verbs: i32 = ["COPY", "DISCARD", "PROMOTE"].iter().map(|v| cell_width(hud::text_width(v), "", PAD) + 2).sum();
+    rows.max(PAGE_PAD * 2 + dial + SHELF_STRIP_GAP + verbs)
+}
+
+/// The gap the dial strip keeps between its `+` and the first verb.
+const SHELF_STRIP_GAP: i32 = 10;
+
+/// How much of a jar row the right-hand columns own: the species name and
+/// the generation, plus a gap so a long name does not run into them.
+const SHELF_RIGHT: i32 = 96;
+
 /// How many rows are on screen at once.
 ///
 /// **Thirteen, and it is a frame-cost number as much as a legibility one.**
@@ -1837,6 +2146,196 @@ impl Ui {
     /// `y` the row was drawn at. `paint_page`'s rule and `stats.rs`'s: a
     /// second pass over the same arithmetic is how a control and the thing it
     /// activates come to disagree.
+    /// **The rack.** Draws itself for `paint_params`' reason — its rows
+    /// carry a verb rather than a label — and builds `shelf_bar` as it
+    /// paints, so the rectangles a click is tested against are the ones
+    /// that were drawn.
+    ///
+    /// **The dial is above the rack, not beside a row.** It applies to
+    /// whichever jar is armed, and a per-row dial would be eight copies of
+    /// one number that can disagree with each other — and would say, wrongly,
+    /// that drift is a property of the specimen rather than of the release.
+    fn paint_shelf(&mut self, frame: &mut [u8]) -> Option<(String, Rect, i32)> {
+        let mut widgets: Vec<Widget> = Vec::new();
+        let mut note: Option<(String, Rect, i32)> = None;
+
+        let count = self.shelf.len();
+        let shown = count.min(SHELF_ROWS);
+        // **A tall enough page when the rack is empty**, so the first thing
+        // a player sees is the sentence that tells them how to fill it
+        // rather than an empty box that reads as broken.
+        let rows_h = SHELF_ROW * shown.max(1) as i32;
+        let w = shelf_page_width();
+        let h = PAGE_HEADER + PARAM_TABS + rows_h + PARAM_TABS + PAGE_PAD;
+        let bottom = bar_top() - 4;
+        let rect = Rect { x: MARGIN, y: (bottom - h).max(MARGIN), w, h };
+        self.shelf_box = Some(rect);
+
+        fill(frame, rect, PANEL_BG);
+        outline(frame, rect, PANEL_EDGE);
+        let left = rect.x + PAGE_PAD;
+        let right = rect.right() - PAGE_PAD;
+        text(frame, left, rect.y + 6, "THE SHELF", TITLE);
+
+        // RELOAD, in the header. The rack is read off a directory, so it can
+        // change without the game touching it.
+        let reload_w = cell_width(hud::text_width("RELOAD"), "", PAD);
+        widgets.push(Widget {
+            rect: Rect { x: right - reload_w, y: rect.y + 3, w: reload_w, h: 11 },
+            line1: "RELOAD".into(),
+            line2: String::new(),
+            action: Some(Action::ShelfReload),
+            latched: false,
+            icon: None,
+            ratio: None,
+            note: "RE-READ THE SHELF DIRECTORY. JARS ARE FILES IN ASSETS/SHELF, SO YOU CAN COPY ONE IN FROM ANOTHER RUN OR ANOTHER MACHINE AND IT WILL BE HERE.".into(),
+        });
+        for x in rect.x + 1..rect.right() - 1 {
+            render::put(frame, W, H, x, rect.y + PAGE_HEADER - 4, DIVIDER);
+        }
+
+        // ---- the dial strip, and the three verbs that act on the armed jar.
+        let ty = rect.y + PAGE_HEADER;
+        let step_w = cell_width(hud::text_width("W"), "", PAD);
+        let dial = self.brood_label();
+        text(frame, left, ty + 2, "DRIFT", SUB_ON);
+        let dial_x = left + hud::text_width("DRIFT") + 6;
+        for (dx, label, sign) in [(0, "-", -1), (step_w + 2 + hud::text_width("8 BROODS") + 6, "+", 1)] {
+            widgets.push(Widget {
+                rect: Rect { x: dial_x + dx, y: ty, w: step_w, h: 11 },
+                line1: label.into(),
+                line2: String::new(),
+                action: Some(Action::Broods(sign)),
+                latched: false,
+                icon: None,
+                ratio: None,
+                note: "HOW FAR A RELEASE DRIFTS FROM THE JAR, COUNTED IN BROODS. ZERO IS THAT EXACT INDIVIDUAL AGAIN. ONE IS AS DIFFERENT AS ITS OWN CHILD WOULD HAVE BEEN -- IT IS THE SAME MUTATION THE ENGINE APPLIES AT A BIRTH, APPLIED ONCE PER BROOD. NOTHING HERE IS A SEPARATE RATE YOU HAVE TO CALIBRATE.".into(),
+            });
+        }
+        text(frame, dial_x + step_w + 4, ty + 2, &dial, if self.broods == 0 { VALUE } else { EDGE_ON });
+
+        let armed = self.armed_jar().map(|j| (j.name.clone(), j.species.clone(), j.genetics.kingdom()));
+        let mut vx = right;
+        for (label, action, note_text) in [
+            (
+                "PROMOTE",
+                Action::ShelfPromote,
+                "WRITE THE ARMED JAR OUT AS A WHOLE SPECIES FILE IN ASSETS/SPECIES, SO THE ANIMAL BECOMES ONE OF THE GAME'S OWN AND CAN BE PLANTED BY NAME. THIS IS THE WAY OUT OF THE LAB. CREATURES ONLY SO FAR, AND IT ALSO NEEDS A MATERIAL OF THE SAME NAME BEFORE IT WILL HATCH -- WHAT A NEW CREATURE LOOKS LIKE IS A THING TO DRAW, NOT TO GENERATE.",
+            ),
+            (
+                "DISCARD",
+                Action::ShelfDiscard,
+                "TAKE THE ARMED JAR OFF THE SHELF FOR GOOD. NOTHING ELSE IN THE LAB DELETES A JAR -- KEEPING ONE NEVER OVERWRITES ANOTHER -- SO THIS IS THE ONLY WAY A SPECIMEN IS LOST.",
+            ),
+            // **`COPY`, not `DRIFT`.** The dial to its left is already
+            // labelled `DRIFT`, and a rendered page with the same word as a
+            // noun on one side and a verb on the other read as one control
+            // that had been drawn twice. Caught by looking at the sheet;
+            // nothing in the layout could have said so.
+            (
+                "COPY",
+                Action::ShelfDrift,
+                "PUT A COPY OF THE ARMED JAR ON THE SHELF, DRIFTED BY THE DIAL ON THE LEFT. THE ORIGINAL STAYS ARMED, SO YOU CAN MAKE SEVERAL SIBLINGS FROM ONE PARENT. THIS IS HOW A LINE IS BRED WITHOUT EVER RELEASING IT -- THE NEW JAR RECORDS WHICH ONE IT CAME FROM AND HOW FAR.",
+            ),
+        ] {
+            let bw = cell_width(hud::text_width(label), "", PAD);
+            vx -= bw;
+            widgets.push(Widget {
+                rect: Rect { x: vx, y: ty, w: bw, h: 11 },
+                line1: label.into(),
+                line2: String::new(),
+                action: Some(action),
+                latched: false,
+                icon: None,
+                ratio: None,
+                note: match &armed {
+                    Some((name, ..)) => format!("{note_text} ARMED: {}.", name.to_uppercase()),
+                    None => format!("{note_text} NOTHING IS ARMED YET -- CLICK A JAR BELOW."),
+                },
+            });
+            vx -= 2;
+        }
+
+        // ---- the rack.
+        let mut y = rect.y + PAGE_HEADER + PARAM_TABS;
+        if count == 0 {
+            // **The empty state carries the instruction.** A player who
+            // opens this page first has no way to guess that the shelf is
+            // filled by a tool on the bar rather than by a button here.
+            text(frame, left, y + 2, "NOTHING KEPT YET.", FAINT);
+            text(frame, left, y + 12, "ARM KEEP (M) AND CLICK A PLANT", FAINT);
+            text(frame, left, y + 22, "OR AN ANT TO PUT IT IN A JAR.", FAINT);
+            y += SHELF_ROW * shown.max(1) as i32;
+        }
+        for (i, jar) in self.shelf.iter().take(SHELF_ROWS).enumerate() {
+            let hovered = self.cursor.is_some_and(|(cx, cy)| (rect.x..rect.right()).contains(&cx) && (y..y + SHELF_ROW).contains(&cy));
+            let selected = self.shelf_selected == Some(i);
+            if hovered || selected {
+                fill(
+                    frame,
+                    Rect { x: rect.x + 1, y, w: rect.w - 2, h: SHELF_ROW },
+                    if selected { [40, 52, 44, 255] } else { [34, 40, 52, 255] },
+                );
+            }
+            let name = jar.name.to_uppercase();
+            text(frame, left, y + 1, &name, if selected { LABEL_ON } else { LABEL });
+            let species = jar.species.to_uppercase();
+            text(frame, right - SHELF_RIGHT + 4, y + 1, &species, if selected { SUB_ON } else { FAINT });
+            // **Generation, because it is the number that says whether a jar
+            // is a founder you kept or a descendant you selected for** — the
+            // one thing about a specimen that a name cannot carry and that
+            // the player chose.
+            let gen = format!("G{}", jar.taken.generation);
+            text(frame, right - hud::text_width(&gen), y + 1, &gen, FAINT);
+            let note_text = jar_note(jar);
+            if hovered {
+                note = Some((note_text.clone(), rect, y));
+            }
+            widgets.push(Widget {
+                rect: Rect { x: rect.x + 1, y, w: rect.w - 2, h: SHELF_ROW },
+                line1: String::new(),
+                line2: String::new(),
+                action: Some(Action::ShelfSelect(i)),
+                latched: false,
+                icon: None,
+                ratio: None,
+                note: note_text,
+            });
+            y += SHELF_ROW;
+        }
+
+        // ---- the footer: how much of the rack is showing, and what was
+        // unreadable. Both are counts rather than silence, for the reason
+        // every verb on this bar says what it did.
+        let mut footer = match count {
+            0 => String::new(),
+            n if n > SHELF_ROWS => format!("{SHELF_ROWS} OF {n} -- THE REST ARE IN THE DIRECTORY"),
+            n => format!("{n} KEPT"),
+        };
+        if self.shelf_skipped > 0 {
+            footer.push_str(&format!("  {} UNREADABLE", self.shelf_skipped));
+        }
+        if !footer.is_empty() {
+            text(frame, left, y + 3, &footer, FAINT);
+        }
+
+        self.shelf_bar = Bar { widgets, dividers: Vec::new() };
+        for wid in &self.shelf_bar.widgets {
+            // The invisible row strip is a hit target and nothing else --
+            // painting it would put a second highlight over the row's own.
+            if wid.line1.is_empty() {
+                continue;
+            }
+            let hover = self.cursor.is_some_and(|(x, y)| wid.rect.contains(x, y));
+            let down = hover && self.pressed.is_some() && self.pressed == wid.action;
+            paint_widget(frame, wid, hover, down);
+        }
+        if let Some(wid) = self.shelf_bar.hovered(self.cursor).filter(|w| !w.note.is_empty()) {
+            note = Some((wid.note.clone(), rect, wid.rect.y));
+        }
+        note
+    }
+
     fn paint_params(&mut self, frame: &mut [u8], world: &World, spec: &LabBox) -> Option<(String, Rect, i32)> {
         let list = self.page_params(world, spec);
         let lines = param_lines(&list);
@@ -2188,9 +2687,21 @@ impl Ui {
                 note = Some((body, avoid, y, Note::BesidePage));
             }
             self.panel_box = None;
+            self.shelf_box = None;
+            self.shelf_bar = Bar::default();
+        } else if self.panel == Some(Panel::Shelf) {
+            // The same deal, and the same reason: a jar row is a verb.
+            if let Some((body, avoid, y)) = self.paint_shelf(frame) {
+                note = Some((body, avoid, y, Note::BesidePage));
+            }
+            self.panel_box = None;
+            self.params_box = None;
+            self.params_bar = Bar::default();
         } else if let Some(panel) = self.panel {
             self.params_box = None;
             self.params_bar = Bar::default();
+            self.shelf_box = None;
+            self.shelf_bar = Bar::default();
             let rows = self.panel_rows(panel, world, spec, fps);
             // Anchored under the button that opened it, which is only
             // available because `Lab::act` closes the biosphere page when one
@@ -2212,13 +2723,15 @@ impl Ui {
             self.panel_box = None;
             self.params_box = None;
             self.params_bar = Bar::default();
+            self.shelf_box = None;
+            self.shelf_bar = Bar::default();
         }
 
         if let Some(at) = self.inspect {
             let rows = self.inspect_rows(world, at);
             // Beside the open page rather than under it, so opening a page
             // does not hide the cell you are inspecting.
-            let anchor = self.panel_box.or(self.params_box).map_or(MARGIN, |r| r.right() + 6);
+            let anchor = self.panel_box.or(self.params_box).or(self.shelf_box).map_or(MARGIN, |r| r.right() + 6);
             let rect = page_rect(&rows, anchor, bar_top() - 4);
             self.inspect_box = Some(rect);
             if let Some((text, y)) = paint_page(frame, rect, "CELL", &rows, self.cursor) {
@@ -2366,6 +2879,8 @@ mod tests {
             species_note: "WHICH PLANT THE PLANTING TOOL PUTS IN.",
             brush: 6,
             overlay: "OFF",
+            jar: "NO JARS",
+            jar_note: "THE RACK OF KEPT GENETICS: EVERY JAR IS ONE INDIVIDUAL'S GENOME.",
         }
     }
 
@@ -2504,13 +3019,13 @@ mod tests {
             buttons += usize::from(wid.action.is_some());
         }
         // Row 0: one chip per tool, the species chip, two brush steps, the
-        // overlay and the parameters page. Row 1: three transport buttons (the
-        // readout is not one), one chip per stop on the ladder, and six pages.
-        // Written as the sum rather than as a literal so that growing either
-        // list does not have to come here.
+        // overlay, the parameters page and the shelf. Row 1: three transport
+        // buttons (the readout is not one), one chip per stop on the ladder,
+        // and six pages. Written as the sum rather than as a literal so that
+        // growing either list does not have to come here.
         assert_eq!(
             buttons,
-            TOOLS.len() + 1 + 2 + 1 + 1 + 3 + super::super::time::PRESETS.len() + 6,
+            TOOLS.len() + 1 + 2 + 1 + 1 + 1 + 3 + super::super::time::PRESETS.len() + 6,
             "the bar carried {buttons} pressable buttons"
         );
         // Nothing above the bar is pressable — that belongs to the world.
