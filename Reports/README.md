@@ -1064,21 +1064,27 @@ drift that two of these documents still reflect.**
   — **measured pre-flight, 2026-08-30; instrument `examples/vision_probe.rs`,
   no behaviour changed.** Sizes **E15**'s sight sense before anyone builds it,
   by tracing the geometry that already exists: **build it at radius 64,
-  all-round, seeing over the floor litter**, and it costs **~0.005 ms of a
-  frame** — 0.15–0.22% of `ascii`'s 2.94 ms mean, below what a wall clock
-  resolves, and under 10% of a frame only past a few hundred predators. Every
-  geometry number in it was measured on **four different trees** as `main`
-  landed underneath — worldgen, tree-breaking, the creature economy. The first
-  three were byte-identical; the fourth moved only in the third decimal and
-  **every median and p10 the recommendation rests on held**. The radius argument is
-  the **p10 seed** rather than the median: the stranded beetle sees prey
-  0.108–0.260 of the time at r32 and 0.240–0.389 at r64, over three presets
-  and 18 seeds each. Two findings the design has to carry: what blocks a
-  sight line is **floor clutter, not landscape** (seed, litter, corpse, soil
-  — 28.1% of pairs on `wetland`, 8.6% with the eye one cell up), and making
-  **foliage a binary blocker costs half the sense** (0.667 → 0.350) with no
-  eye height buying it back, which is `CLAUDE.md`'s *an outcome is a
-  distribution, not a binary* arriving on the creature line. Does not answer
+  all-round, seeing over the floor litter**, and it costs **0.005–0.015 ms of
+  a frame** — 0.14–0.38% of `ascii`'s 3.89 ms mean, and under 10% of a frame
+  only past a few hundred predators. Re-taken on **each of the nine trees
+  `main` landed underneath**, the last a wholesale worldgen rewrite; four
+  moved the numbers, five did not. **The recommendation survived all nine,
+  two versions of the argument for it did not, and one headline finding no
+  longer generalises.** Both dead versions were superlatives (*"32 → 64 is the
+  largest step"*, then *"...in the p10"*) — a superlative describes a curve's
+  shape, which moves with the world. The ordering underneath, *64 beats 32 at
+  every preset on median and p10*, has never moved, and the report states it
+  that way and records both deaths. **§4a is the correction to carry**: the
+  worldgen rewrite exposed far more stone, so *"what blocks a sight line is
+  floor clutter, not landscape"* now holds only on `wetland` — bare rock is
+  **50% of blockers on `rolling` and 44% on `arid`**, against 12–34% before.
+  Eye height still reaches the transparent-world ceiling 9/9, but pays on
+  `rolling` now rather than `wetland`. §0a says which figures are stable and
+  which drift, with the command and the rule for re-taking them; §0b records
+  that the sense **was built** — perception predicted 0.572 and measured 0.50,
+  and the cost prediction was **2x low**. Making **foliage a binary blocker
+  costs most of the sense** (0.667 → 0.367), which is `CLAUDE.md`'s *an
+  outcome is a distribution, not a binary* arriving on the creature line. Does not answer
   whether a beetle acts on a sighting; `predation_probe`'s control already
   says the kill works at contact.
 - [creature-sight-sense-2026-08-30.md](creature-sight-sense-2026-08-30.md)
