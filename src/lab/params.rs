@@ -518,13 +518,13 @@ fn box_rows(world: &World, spec: &LabBox, out: &mut Vec<Param>) {
         out.push(integer(g, Knob::Bed { field }, "the bed", field, value, s, note));
     };
     bed("lamp_spacing", spec.lamp_spacing as f32, span(8.0, 512.0, 8.0),
-        "HOW FAR APART THE LAMPS ARE, IN CELLS. CLOSER IS MORE OF THEM AND A MORE EVENLY LIT BED; THERE IS ALWAYS AT LEAST ONE PER COMPARTMENT, BECAUSE A WALLED-OFF DARK BED IS A SILENT WAY TO KILL A POPULATION. TAKES EFFECT ON REBUILD.");
+        "HOW FAR APART THE LAMPS ARE, IN CELLS. CLOSER IS MORE OF THEM AND A MORE EVENLY LIT BED; THERE IS ALWAYS AT LEAST ONE PER COMPARTMENT, BECAUSE A WALLED-OFF DARK BED IS A SILENT WAY TO KILL A POPULATION. A LAMP'S POOL IS ABOUT 55 COLUMNS, SO PAST THAT THE BED IS LIT IN ISLANDS WITH DARK GROUND BETWEEN. NEARLY FREE -- EIGHT LAMPS COST WHAT ONE COSTS. TAKES EFFECT ON REBUILD.");
     bed("soil_depth", spec.soil_depth as f32, span(8.0, 240.0, 8.0),
-        "HOW MANY ROWS OF SOIL THE BED HAS. DEEP SOIL IS ROOM FOR ROOTS AND FOR TUNNELS, AND IT IS PAID FOR IN FRAME TIME -- 40 ROWS TO 240 COSTS ABOUT TWICE THE FRAME. TAKES EFFECT ON REBUILD.");
+        "HOW MANY ROWS OF SOIL THE BED HAS. DEEP SOIL IS ROOM FOR ROOTS AND FOR TUNNELS. THE MOST EXPENSIVE KNOB ON THIS PAGE: 40 ROWS TO 160 MEASURED 1.9X THE FRAME FOR AN IDENTICAL STAND, AND THE COST IS THE SOIL WATER CYCLE IN THE SWEEP RATHER THAN THE LIGHT. ROOTS ONLY REACH ABOUT 13 ROWS ON THEIR OWN -- DEEPER THAN THAT IS FOR THE ANTS TO DIG. TAKES EFFECT ON REBUILD.");
     bed("ground_y", spec.ground_y as f32, span(40.0, 300.0, 10.0),
-        "WHICH SCREEN ROW THE SOIL SURFACE SITS AT. LOWER ON THE SCREEN IS A DEEPER BED WITH LESS AIR OVER IT; HIGHER LEAVES MORE ROOM FOR A PLANT TO STAND UP IN. TAKES EFFECT ON REBUILD.");
+        "WHICH SCREEN ROW THE SOIL SURFACE SITS AT. LOWER ON THE SCREEN IS A DEEPER BED WITH LESS AIR OVER IT; HIGHER LEAVES MORE ROOM FOR A PLANT TO STAND UP IN. MOVE IT WITH THE BOX HEIGHT, NOT ON ITS OWN: LEFT AT 160 IN A 640-ROW BOX THE SOIL SITS IN THE TOP QUARTER AND 390 ROWS ARE EMPTY VOID, WHICH LOOKS LIKE A BROKEN BED RATHER THAN A TALL ONE. TAKES EFFECT ON REBUILD.");
     bed("compartments", spec.compartments as f32, span(1.0, 8.0, 1.0),
-        "HOW MANY SEALED WALLS FLOOR TO CEILING THE BED IS DIVIDED BY. THEY BUY EVOLUTIONARY ISOLATION -- SEPARATE POPULATIONS THAT CANNOT MIX -- AND THEY ALSO BUY SPEED. TAKES EFFECT ON REBUILD.");
+        "HOW MANY SEALED WALLS FLOOR TO CEILING THE BED IS DIVIDED BY. THEY BUY EVOLUTIONARY ISOLATION -- SEPARATE POPULATIONS THAT CANNOT MIX, WHICH IS WHERE DIVERGENCE COMES FROM. THEY DO NOT BUY SPEED AT THIS BED SIZE: THE 7.6X ON RECORD WAS A 2048-WIDE BED WITH A FAN IN IT, AND AT 512 THE FRAME GOES 1.69 -> 1.41 -> 1.92 MS ACROSS 1, 4 AND 16 -- NOT MONOTONE. TAKES EFFECT ON REBUILD.");
     bed("founders", spec.founders as f32, span(0.0, 64.0, 1.0),
         "HOW MANY PLANTS THE BOX IS STOCKED WITH WHEN IT IS BUILT. THE BINARY OPENS AT ZERO ON PURPOSE -- THE BOX STARTS WITH NOTHING AND YOU STOCK IT -- SO RAISE THIS ONLY IF YOU WANT A REBUILD TO HAND YOU A STAND. TAKES EFFECT ON REBUILD.");
     bed("colonies", spec.colonies as f32, span(0.0, 8.0, 1.0),
@@ -640,21 +640,55 @@ pub fn write(world: &mut World, spec: &mut LabBox, knob: &Knob, value: f32) -> b
             }
             true
         }
-        Knob::Bed { field } => {
-            let v = value.max(0.0).round();
-            match *field {
-                "lamp_spacing" => spec.lamp_spacing = v as i32,
-                "soil_depth" => spec.soil_depth = v as i32,
-                "ground_y" => spec.ground_y = v as i32,
-                "compartments" => spec.compartments = v as usize,
-                "founders" => spec.founders = v as usize,
-                "colonies" => spec.colonies = v as usize,
-                "seed" => spec.seed = v as u64,
-                _ => return false,
-            }
-            true
-        }
+        Knob::Bed { field } => write_bed(spec, field, value),
     }
+}
+
+/// **Write one field of the bed spec, by name.** The single definition of
+/// which fields of a `LabBox` are settable and how.
+///
+/// Split out of [`write`] because `batch` sweeps these fields too, and it has
+/// a spec in hand and no `World` — it is generating the specs a rebuild will
+/// be made *from*. Two copies of this table would be two answers to "which
+/// knobs can a sweep vary", and the one that drifted would be the one that
+/// silently swept nothing.
+///
+/// Returns whether anything was written, so a caller naming a field that does
+/// not exist finds out rather than sweeping a constant — the `include_str!`
+/// failure this repo already has on record, where three "runs" came back
+/// bit-identical because the knob was never connected.
+pub fn write_bed(spec: &mut LabBox, field: &str, value: f32) -> bool {
+    let v = value.max(0.0).round();
+    match field {
+        "lamp_spacing" => spec.lamp_spacing = v as i32,
+        "soil_depth" => spec.soil_depth = v as i32,
+        "ground_y" => spec.ground_y = v as i32,
+        "compartments" => spec.compartments = v as usize,
+        "founders" => spec.founders = v as usize,
+        "colonies" => spec.colonies = v as usize,
+        "seed" => spec.seed = v as u64,
+        _ => return false,
+    }
+    true
+}
+
+/// Read one field of the bed spec by the same names [`write_bed`] accepts.
+///
+/// The pair matters for a sweep: a sweep row has to *print* the setting it
+/// ran at, and reading it back through the same table is what makes the
+/// printed value the one that was actually applied rather than the one that
+/// was asked for.
+pub fn read_bed(spec: &LabBox, field: &str) -> Option<f32> {
+    Some(match field {
+        "lamp_spacing" => spec.lamp_spacing as f32,
+        "soil_depth" => spec.soil_depth as f32,
+        "ground_y" => spec.ground_y as f32,
+        "compartments" => spec.compartments as f32,
+        "founders" => spec.founders as f32,
+        "colonies" => spec.colonies as f32,
+        "seed" => spec.seed as f32,
+        _ => return None,
+    })
 }
 
 /// Whether a change to this knob is only felt after `REBUILD`.
