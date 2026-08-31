@@ -68,8 +68,8 @@
         // mouthful it took before. It also makes the beetle blind to every
         // plant food in the world for free, which the name-list was doing
         // by omission.
-        traits: (1.0, 1.0),
-        trait_variance: (0.15, 0.15),
+        traits: (1.0, 1.0, 0.0),
+        trait_variance: (0.15, 0.15, 0.15),
 
         nest: "nest",
         dig_force: 0.3,
