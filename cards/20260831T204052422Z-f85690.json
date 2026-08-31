@@ -1,0 +1,46 @@
+{
+  "id": "20260831T204052422Z-f85690",
+  "created": "2026-08-31T20:40:52Z",
+  "board": "plants",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/evolution-lab-soil-moisture-kllovu",
+    "commit": "8589cff",
+    "agent": null,
+    "session_id": "668d210a-1340-52f9-9a30-a543539f39df",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "PLANT HEALTH: which individuals are actually working",
+  "question": "New overlay on L (first press, ahead of CELL TYPE). Green = paying its upkeep, brightness is how well watered; red = failing to pay, brightness is how close to starving to death. Flat per plant, because it is one economic unit. Does this read at a glance -- and is the dark red of a just-started failure too dim to notice?",
+  "context_md": "Lab bed, 24 founders, no colony, frame 9000, same seed both panes -- the overlay is render-only so the stand is identical. Counts at the frame shown: 126 plants, 6 paying their upkeep, 120 not -- but that headline is mostly seedlings, which have no leaf yet and cannot pay anything. Of the 11 ESTABLISHED plants (20+ cells), 8 are not paying and 3 are. None of the paying ones is short of water, so what limits this bed is carbon, not water. Note what the plain pane cannot tell you: each of those four clumps is a thriving plant standing next to a failing one, and they look identical without the overlay.",
+  "kind": "ab",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "the bed as it draws now",
+      "files": [
+        "20260831T204052422Z-f85690/000-hc_off.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "PLANT HEALTH overlay",
+      "files": [
+        "20260831T204052422Z-f85690/001-hc_health.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
