@@ -1,0 +1,62 @@
+{
+  "id": "20260831T224517517Z-2903b3",
+  "created": "2026-08-31T22:45:17Z",
+  "board": "lab",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/evolution-lab-mechanics-o7i3xm",
+    "commit": "266a5b5",
+    "agent": null,
+    "session_id": "b7a8dc92-eedb-5ab7-8809-1f18a9b21417",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "KEEP and FREE come off the bar, and a switch for trees falling over",
+  "question": "Is KEEP where you would look for it -- on the page you already opened on that plant -- and is PLACE in the rack the right home for putting one back?",
+  "context_md": "Three of your four reports, all in the interface.\n\n**KEEP and FREE are gone from the tool row**, which is down from eight buttons to six. Keeping is now a button in the top-right of the cell page, so you point at a plant, read it, and jar it from the page that is already open on it -- no second click to aim a tool. Putting one back is `PLACE` in the rack, which closes the rack and hands the next click in the box to the specimen; the jar chip on the bar lights up while that is armed so you can see the mode you are in. `M` and `,` still work.\n\n**COLLAPSE UNDER LOAD, at the top of the PLANT page**, is the switch you asked for. Off holds every plant in the box together however far it leans -- both ways a plant can break under weight, since you cannot tell them apart from outside. Cutting still works either way: what you sever still falls. It survives REBUILD.\n\n**And the species chip no longer un-picks PLANT.** That was the tool button's own put-it-away toggle being reached by the chip beside it.\n\nThe third tile is a real screen with the row on it; ignore the plant numbers, they are whatever the test bed grew.",
+  "kind": "gallery",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "KEEP, on the cell page",
+      "files": [
+        "20260831T224517517Z-2903b3/000-ui-verb--keep.png"
+      ],
+      "caption": "pointed at a herb, KEEP top right, the notice says what went in the jar",
+      "meta": {
+        "jars on the shelf after the click": 1,
+        "tool buttons on the bar": 6
+      },
+      "focus": null
+    },
+    {
+      "label": "PLACE, in the rack",
+      "files": [
+        "20260831T224517517Z-2903b3/001-ui2-shelf--after-drift.png"
+      ],
+      "caption": "PLACE COPY DISCARD PROMOTE, with the drift dial on the left",
+      "meta": {
+        "jars on the shelf": 2
+      },
+      "focus": null
+    },
+    {
+      "label": "The collapse switch",
+      "files": [
+        "20260831T224517517Z-2903b3/002-ui3-params--plant.png"
+      ],
+      "caption": "first row of the PLANT page, under its own heading",
+      "meta": {
+        "rows on the plant page": 16
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
