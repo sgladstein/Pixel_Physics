@@ -2022,6 +2022,34 @@ pub struct CreatureDef {
     /// because `start_energy` becomes a function of the body then and an
     /// absolute tax would quietly re-price thinking for every size.
     pub synapse_fraction: f32,
+    /// Charged per **cell the eye actually read** per tick, as a fraction of
+    /// `start_energy` — the sensory twin of `synapse_fraction`.
+    ///
+    /// **Seeing was free until 2026-08-31, and that made `sight_range` a
+    /// ratchet.** `sight_casts` and `sight_cells_read` counted the work and
+    /// nothing billed for it, so more eye was strictly better and a
+    /// heritable sight range would have gone to its cap on the first
+    /// generation, expressing nothing — the same unpriced-lever failure
+    /// `idle_cost_per_cell`'s doc records for body size, and the one that
+    /// took plant reproduction to zero when a codomain was fixed without
+    /// re-deriving what had been calibrated against it.
+    ///
+    /// **Per cell read rather than per cast**, and the difference is the
+    /// mechanism: a ray that dies on a wall costs what it traversed, so an
+    /// animal in a tunnel pays less to look than one sweeping open ground.
+    /// Shelter then pays for itself twice — it hides you, and it makes your
+    /// own eyes cheaper — which is a consequence of pricing the work
+    /// honestly rather than a rule anybody wrote.
+    ///
+    /// A fraction of `start_energy` rather than an absolute, for the reason
+    /// `synapse_fraction` states directly above: an absolute silently
+    /// becomes a different tax every time the budget moves, which once spent
+    /// 80% of a life on thinking and invalidated a three-knob sweep.
+    ///
+    /// Defaults to 0, so a species that has authored nothing is
+    /// bit-identical to the tree before this existed.
+    #[serde(default)]
+    pub sight_fraction: f32,
     /// **What one cell of this animal's body is worth as meat**, granted at
     /// spawn alongside `start_energy` and stamped into its corpse cells when
     /// it dies.
@@ -2292,6 +2320,7 @@ impl CreatureDef {
             idle_cost_per_cell,
             move_cost_per_cell,
             synapse_fraction,
+            sight_fraction,
             shade_rule,
             body_energy,
             hunger_fraction,
@@ -2346,6 +2375,19 @@ impl CreatureDef {
             // resolution either.
             start_energy: *start_energy,
             synapse_fraction: *synapse_fraction,
+
+            // ---- a rate charged per cell *read* per decision: / (k x time) ----
+            // **Its own row, because it is the only term that scales on two
+            // axes at once.** `sight_range` is a length and grows by `k`, so
+            // a cast reads `k` times as many cells; and decisions per frame
+            // grow by `time_factor`. Perception cost per frame therefore goes
+            // as `k * time_factor`, and dividing by exactly that is what holds
+            // *physical* looking-cost invariant. `burn` is the wrong divisor
+            // here and would be an easy mistake: it carries `cell_factor`,
+            // which would say a supersampled animal's eye is cheaper because
+            // its body has more cells — and an eye is per animal, not per
+            // cell.
+            sight_fraction: sight_fraction / (k * time_factor).max(f32::EPSILON),
             shade_rule: *shade_rule,
             body_energy: *body_energy,
             hunger_fraction: *hunger_fraction,
