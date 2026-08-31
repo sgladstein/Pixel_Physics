@@ -70,6 +70,10 @@ fn tick(lab: &mut Lab) {
 
 struct Arm {
     mat: String,
+    /// Moisture and plant-available fraction at each row from just above the
+    /// mat down to just inside the bed, taken when the seeds land. Row 0 is
+    /// the bed surface; negative rows are the mat above it.
+    profile: Vec<(i32, u16, f32)>,
     /// Mat cells laid, still standing when the seeds arrive, and left at the
     /// end. A mat that has rotted away is not a mat a seed germinated
     /// through, and only these three numbers tell the two apart.
@@ -94,7 +98,7 @@ struct Arm {
     available: f32,
 }
 
-fn run(mat: &str, spec: &LabBox, depth: i32, seeds: usize, frames: u64, species: &str) -> Arm {
+fn run(mat: &str, spec: &LabBox, depth: i32, seeds: usize, frames: u64, species: &str, settle: u64) -> Arm {
     let mut lab = Lab::new(spec.clone());
     let w = &mut lab.world;
 
@@ -130,7 +134,7 @@ fn run(mat: &str, spec: &LabBox, depth: i32, seeds: usize, frames: u64, species:
     // seeded is still moving, so a seed can land in a hole that closes over
     // it -- which would make the mat look permeable for reasons that have
     // nothing to do with the gate under test.
-    for _ in 0..600 {
+    for _ in 0..settle {
         tick(&mut lab);
     }
 
@@ -153,6 +157,21 @@ fn run(mat: &str, spec: &LabBox, depth: i32, seeds: usize, frames: u64, species:
     // Litter read 16/16 germinations against deadwood's 0/16 and it is this
     // number, not permeability, that says why.
     let mat_at_sowing = count_mat(&lab.world, spec, mat);
+    // **The moisture staircase**, row by row up through the mat.
+    //
+    // A germination count says a seed did not start; this says how wet the
+    // ground it was sitting on ever got, which is the quantity the gate
+    // actually reads. Printed as raw moisture *and* as
+    // `plant_available_fraction`, because the two are not proportional --
+    // everything below the wilting point is available-zero however much
+    // water the cell nominally holds.
+    let profile: Vec<(i32, u16, f32)> = ((spec.ground_y - depth - 1)..=(spec.ground_y + 1))
+        .map(|y| {
+            let mid = spec.width / 2;
+            let c = lab.world.get(mid, y);
+            (y - spec.ground_y, update::soil_moisture(c), update::plant_available_fraction(c))
+        })
+        .collect();
     let before = lab.world.germinations;
     for _ in 0..frames {
         tick(&mut lab);
@@ -203,6 +222,7 @@ fn run(mat: &str, spec: &LabBox, depth: i32, seeds: usize, frames: u64, species:
 
     let mat_at_end = count_mat(&lab.world, spec, mat);
     Arm {
+        profile,
         mat_laid,
         mat_at_sowing,
         mat_at_end,
@@ -225,13 +245,18 @@ fn main() {
     let frames: u64 = arg("frames").unwrap_or(6_000);
     let species: String = arg("species").unwrap_or_else(|| "herb".to_string());
     let seed: u64 = arg("seed").unwrap_or(1);
+    // **How long the debris lies there before the seeds arrive**, and it is
+    // a knob because it decides the answer: a mat that is still wetting up
+    // blocks, and the same mat later does not. The default is the shortest
+    // window that lets a powder come to rest.
+    let settle: u64 = arg("settle").unwrap_or(600);
     let mats: Vec<String> = arg::<String>("mat")
         .map(|m| vec!["none".to_string(), m])
         .unwrap_or_else(|| ["none", "litter", "deadwood", "soil"].iter().map(|s| s.to_string()).collect());
 
     let spec = LabBox { founders: 0, colonies: 0, seed, ..LabBox::default() };
     println!(
-        "seedbed_probe: mats={mats:?} depth={depth} seeds={seeds} frames={frames} species={species} seed={seed}"
+        "seedbed_probe: mats={mats:?} depth={depth} seeds={seeds} frames={frames} settle={settle} species={species} seed={seed}"
     );
 
     // The species' root push, which is what `penetration_resistance` is
@@ -246,7 +271,7 @@ fn main() {
 
     let mut arms = Vec::new();
     for mat in &mats {
-        let a = run(mat, &spec, depth, seeds, frames, &species);
+        let a = run(mat, &spec, depth, seeds, frames, &species, settle);
         println!(
             "  {:<10} {:>5} {:>6} {:>7} {:>7} {:>7} | {:>9} {:>8.1} {:>9.3}  resting on {:?}",
             a.mat,
@@ -264,6 +289,9 @@ fn main() {
             "               mat cells: {} laid -> {} when the seeds landed -> {} at the end",
             a.mat_laid, a.mat_at_sowing, a.mat_at_end
         );
+        let rows: Vec<String> =
+            a.profile.iter().map(|(r, m, f)| format!("row{r:+}: {m} ({f:.3})")).collect();
+        println!("               moisture at sowing, top down: {}", rows.join("  "));
         arms.push(a);
     }
 

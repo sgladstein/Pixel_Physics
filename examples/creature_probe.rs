@@ -231,7 +231,7 @@ fn main() {
             def.traits[pixel_physics::sim::organism::TRAIT_BIRTH_GRANT] = grant * 2.0 - 1.0;
         }
         if hunger >= 0.0 {
-            def.hunger_fraction = hunger;
+            def.digest_rate = hunger;
         }
         if mutation_rate >= 0.0 {
             def.mutation_rate = mutation_rate;
@@ -293,7 +293,15 @@ fn main() {
             pixel_physics::sim::creature::diet_yield(&world, Cell::new(id, 0).with_aux(aux), gut)
         })
         .fold(0.0f32, f32::max);
-    let ceiling = def.hunger_fraction * def.start_energy + best_mouthful;
+    // The face value behind `best_mouthful`, so the gut's conversion factor
+    // can be recovered: digestion turns face into body at `quality`.
+    let best_face = (0..world.materials.len())
+        .map(|i| pixel_physics::sim::material::MaterialId(i as u16))
+        .map(|id| {
+            let aux = if world.materials.get(id).worth_in_aux { def.body_energy.round().clamp(0.0, 65535.0) as u16 } else { 0 };
+            pixel_physics::sim::creature::food_value(&world, Cell::new(id, 0).with_aux(aux))
+        })
+        .fold(0.0f32, f32::max);
     println!(
         "creature probe: {frames} frames, reporting {ants} ants every {every} | terrain={} seed={seed:#x} body={} cells pitch={pitch} | kin flesh {} eats_kin {}",
         if world_terrain { "world" } else { "slab" },
@@ -314,62 +322,46 @@ fn main() {
         def.move_cost_per_cell * def.body.len() as f32
     );
     println!(
-        "  economy: start_energy {:.0} body_energy {:.0} hunger_fraction {:.2} reproduce_threshold {:.0} mutation_rate {:.3} birth_grant {:.2} (= {:.0} energy)",
+        "  economy: start_energy {:.0} body_energy {:.0} crop {:.0} digest {:.2}/tick reproduce_threshold {:.0} mutation_rate {:.3} birth_grant {:.2} (= {:.0} energy)",
         def.start_energy,
         def.body_energy,
-        def.hunger_fraction,
+        def.crop_capacity,
+        def.digest_rate,
         def.reproduce_threshold,
         def.mutation_rate,
         pixel_physics::sim::creature::grant_fraction(def.traits[pixel_physics::sim::organism::TRAIT_BIRTH_GRANT]),
         pixel_physics::sim::creature::birth_grant(&def, &def.traits)
     );
+    // **A rate and a time, because the bound this used to print no longer
+    // exists.** It read `hunger_fraction * start_energy + best mouthful` --
+    // the roof an animal's bank could not pass because it stopped eating once
+    // comfortable. A crop has no roof: an animal digests what it carries at
+    // `digest_rate` and what limits it is how long it can keep feeding.
+    //
+    // **The old line's hard-won caveat survives the change and is why this
+    // one is worded as it is.** That bound was measured to be *exceeded* --
+    // printed 540 against a measured `richest bank` of 616 -- because it
+    // priced the founder's gut while digestion uses the organism's own
+    // heritable one, and because a corpse carries its occupant's unspent bank
+    // on top of the stamp. Both channels are still outside the arithmetic
+    // below, and it prices the best cell in the whole material table rather
+    // than the best one an ant in this world can reach. So this can say a
+    // child is a long way off and it cannot say one is close: read `richest
+    // bank` below, which is the measurement rather than the model.
+    let quality = if best_face > 0.0 { best_mouthful / best_face } else { 0.0 };
+    let upkeep = def.idle_cost_per_cell * def.body.len() as f32;
+    let net = def.digest_rate * quality - upkeep;
     println!(
-        "  reachability: birth costs {:.0}, and an ant banks at most about {:.0} (hunger_fraction * start_energy + best digestible mouthful {best_mouthful:.0}) -- {}",
+        "  reachability: birth costs {:.0}; on the best mouthful in the table ({best_mouthful:.0}) an ant nets {net:+.3}/tick after {upkeep:.3} upkeep -- {}",
         pixel_physics::sim::creature::birth_cost(&def),
-        ceiling,
-        // **This can rule out and it can never rule in**, and the wording
-        // has to say so. `best_mouthful` is the best cell in the whole
-        // material table, not the best one an ant in this world can
-        // actually reach -- 360 comes off a flower, which no ant here has
-        // ever touched. So a ceiling over the bar is only the absence of a
-        // proof: measured, arms at 495 against a 330 bar still produced
-        // zero births, because the reachable food is worth a third of the
-        // best food. Reading a bound as a verdict is the size-cap failure
-        // in a readout's clothing -- exhausting it must not produce an
-        // answer.
-        //
-        // **And the other direction is not a proof either, which this line
-        // claimed until 2026-08-29.** It said "UNREACHABLE, and this is a
-        // proof". Measured on the S6 gate control (`start_energy=200
-        // body_energy=20 threshold=241 hunger=0.9 terrain=world
-        // frames=24000`): printed ceiling **540**, measured `richest bank`
-        // **616** -- the bound exceeded by 14%, and again at **561** with
-        // `mutation_rate=0`, so it is not a one-off of a lucky lineage.
-        // Two channels widen it past this arithmetic, and neither is in the
-        // sum above:
-        //
-        // - **The gut it prices is the founder's, not the eater's.** This
-        //   reads `def.traits[TRAIT_GUT_BIAS]` -- a species constant --
-        //   while `creature.rs:1583` digests with the *organism's* own
-        //   `s.traits[TRAIT_GUT_BIAS]`, which is heritable and mutates by
-        //   `trait_variance`. A matched gut pays `worth` where the neutral
-        //   founder pays `worth/4`, so 18 generations of selection eat food
-        //   this line cannot price. Turning mutation off removed 55 of the
-        //   76 excess, which is the measurement that names this channel.
-        // - **A corpse is worth more than its stamp.** `creature.rs:3028`
-        //   writes `(body_energy * cells + leftover) / cells` -- the dead
-        //   animal's unspent bank rides into the meat -- where the probe
-        //   cell below is stamped with `body_energy` alone.
-        //
-        // The shipped ant's conclusion survives this comfortably (bank 567
-        // against a 1,860 bar, a 3.3x margin, and nothing dies in that
-        // scene), which is *why* the wording is the thing being fixed
-        // rather than the arithmetic: the number is still the most useful
-        // one to print, it just does not license the word "proof".
-        if ceiling > pixel_physics::sim::creature::birth_cost(&def) {
-            "the bar is not ruled out by this bound (which is optimistic -- read `richest bank` below)"
+        if net > 0.0 {
+            format!(
+                "about {:.0} ticks of uninterrupted feeding per child, against an idle life of {:.0}. Optimistic: read `richest bank` below",
+                pixel_physics::sim::creature::birth_cost(&def) / net,
+                def.start_energy / upkeep.max(f32::EPSILON)
+            )
         } else {
-            "the bar is above this bound -- strong evidence of unreachability, but the bound is not a ceiling (measured 616 against a printed 540; see the note above) -- read `richest bank` below"
+            "it cannot out-eat its own upkeep on any food in the table, so no amount of time produces a birth".to_string()
         }
     );
 
@@ -670,7 +662,7 @@ fn report(world: &World, frame: usize, ants: usize, ant_material: material::Mate
     // "what does a laden ant think it should do".
     let mut heads = heads;
     heads.sort_by_key(|&(x, y)| {
-        let carrying = world.organism(world.get(x, y).organism_id()).is_some_and(|s| s.carrying.is_some());
+        let carrying = world.organism(world.get(x, y).organism_id()).is_some_and(|s| s.crop.is_some());
         (!carrying, x)
     });
     let heads: Vec<(i32, i32)> = heads.into_iter().take(ants).collect();
@@ -684,7 +676,7 @@ fn report(world: &World, frame: usize, ants: usize, ant_material: material::Mate
             "  ant {organism:>5} at ({x:>3},{y:>3}) heading {} energy {:>7.1} carrying {} since_nest {:>4} | {} active synapses",
             state.heading,
             state.energy,
-            state.carrying.map_or("-", |_| "yes"),
+            state.crop.map_or("-", |_| "yes"),
             state.since_nest,
             active
         );

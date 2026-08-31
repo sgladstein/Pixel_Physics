@@ -1569,7 +1569,13 @@ fn build_scene(args: &Args) -> World {
                 // and carries it. The ant loses the cell either way; only
                 // the swallow moves `feeds`. Applied to both arms, so it
                 // cannot be what separates them.
-                def.hunger_fraction = 1.0;
+                // **A predator that absorbs its catch fast rather than hauling it.**
+                // This was `hunger_fraction = 1.0` -- "always eat, never pick up" --
+                // and that gate no longer exists. The crop's equivalent is a
+                // digestion rate high enough that a mouthful is gone within a tick or
+                // two of being taken, which is what puts a catch on the `eats`
+                // counter rather than leaving it visible as cargo.
+                def.digest_rate = def.body_energy.max(1.0);
                 w.species.set_creature(species, def);
             }
             let beetle = match plant_creature_seed(&mut w, beetle_x, surface(beetle_x) - 1, "beetle") {

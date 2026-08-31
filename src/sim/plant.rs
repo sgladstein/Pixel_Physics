@@ -4738,7 +4738,12 @@ const MAINTENANCE_PER_CELL: f32 = 1.5e-4;
 /// flag is deliberately shaped to be gated by a cause other than
 /// starvation."* `rot_remains` then carries the plant out at the species
 /// half-life, so death is graded rather than a disappearance.
-const STARVATION_DEATH_TICKS: u16 = 200;
+///
+/// **Public so a readout reads the real value rather than re-deriving it** —
+/// the lab's examine page renders `starving_ticks` against this as a death
+/// clock, and a copy of the number in the UI is one that silently stops
+/// agreeing with the rule.
+pub const STARVATION_DEATH_TICKS: u16 = 200;
 
 /// **Most of a plant that one tick of die-back may remove**, as a fraction
 /// of its cells.
@@ -15968,6 +15973,33 @@ floor {ROOT_INVERSION_BAR}. Measured 0.994 (SE 0.046) when this bar was set -- s
         for id in w.live_organism_ids() {
             let Some(state) = w.organism_state(id) else { continue };
             let name = w.species.get(state.species).name.clone();
+            // **A corpse part-way through rotting is not a living plant, and
+            // `live_organism_ids` holds one until `rot_remains` returns its
+            // slot** -- which the rule above this test *requires*, and
+            // asserts. So iterating every organism made this a second,
+            // unstated claim: that nothing in the scene ever dies. That held
+            // only while nothing did.
+            //
+            // It stopped holding when soil water started moving, and the
+            // organism that broke it was the planted tree's own seedling,
+            // germinated two cells away at (62,40) and shaded out by its
+            // parent -- **two `MatureBody` cells, both correctly non-vital**.
+            // Nothing was misclassified; the scene simply grew a death.
+            //
+            // Skipping it costs nothing this test is for, because
+            // `is_vital` being wrong cannot hide here: a living plant that
+            // it wrongly calls dead gets marked senescent and then skipped,
+            // and is therefore *not counted* below either -- so the
+            // did-it-fire counters go to zero and fail. That is the whole
+            // reason the skip is placed before the tally rather than after.
+            let species = w.species.get(state.species);
+            let has_vital = state
+                .cells
+                .keys()
+                .any(|&(x, y)| organism::cell_type(w.get(x, y).aux()).is_some_and(|t| species.is_vital(t)));
+            if state.senescent && !has_vital {
+                continue;
+            }
             assert!(!state.senescent, "a live {name} was marked senescent (cells {})", state.cells.len());
             match name.as_str() {
                 "tree" => trees += 1,
@@ -15976,9 +16008,21 @@ floor {ROOT_INVERSION_BAR}. Measured 0.994 (SE 0.046) when this bar was set -- s
             }
         }
         // The did-it-fire counter: a run where nothing established would
-        // pass the assertion above by having nothing to assert about.
-        assert!(trees > 0, "test setup: no tree organism exists to check");
-        assert!(mosses > 0, "test setup: no moss organism exists to check");
+        // pass the assertion above by having nothing to assert about -- and,
+        // since the skip above, the backstop that stops a broken `is_vital`
+        // passing vacuously.
+        assert!(
+            trees > 0,
+            "no living tree to check: either nothing established (a scene problem) or every tree was \
+             skipped as a corpse, which is `Species::is_vital` calling a living plant dead -- the \
+             defect this test exists for"
+        );
+        assert!(
+            mosses > 0,
+            "no living moss to check: either nothing established (a scene problem) or every moss was \
+             skipped as a corpse. Moss carries neither leaves nor buds nor seeds and lives on `Divide` \
+             alone, so it is the first thing a wrong `is_vital` kills"
+        );
     }
 
     /// **The seed bank thins and does not empty** — WP-D item 2.
