@@ -166,6 +166,27 @@ fn main() {
         ));
         lab.set_cursor(None);
         tiles.push(("RACK: A ROW PICKED".into(), shot(&mut lab)));
+        // The rack's own verb, with copies actually in flight -- a progress
+        // row with nothing behind it is the picture that reads as working
+        // whether or not it is. The page is still open from the tile above;
+        // clicking it again here would shut it, and the click that followed
+        // would still fire off the retained layout, which is how the first
+        // attempt produced a toast over a closed page.
+        lab.batch_spec.replicates = 6;
+        lab.batch_spec.frames = 4000;
+        let at = centre(&lab, Action::BatchRun);
+        click(&mut lab, at);
+        for _ in 0..40 {
+            lab.advance(std::time::Duration::from_millis(16));
+            std::thread::sleep(std::time::Duration::from_millis(40));
+        }
+        let p = lab.batch.as_ref().map(|b| b.progress());
+        fired.push(format!("batch running: {:?}", p.map(|p| (p.finished, p.total))));
+        lab.set_cursor(None);
+        tiles.push(("RACK: COPIES RUNNING".into(), shot(&mut lab)));
+        if let Some(b) = &lab.batch {
+            b.cancel();
+        }
         let at = centre(&lab, Action::Panel(Panel::Chambers));
         click(&mut lab, at);
     }

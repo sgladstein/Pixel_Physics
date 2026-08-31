@@ -405,6 +405,15 @@ pub enum Action {
     ChamberAdd,
     /// Close the highlighted chamber. Refused for the one on screen.
     ChamberClose(usize),
+    /// Run a rack of copies of the box on screen, headless, in the
+    /// background.
+    BatchRun,
+    /// Ask a running rack to stop. Copies already finished are kept.
+    BatchStop,
+    /// How many copies the next rack runs, by `-1` or `+1` steps of its own.
+    BatchCopies(i32),
+    /// How many ticks each copy runs for, same.
+    BatchFrames(i32),
 }
 
 /// **What a left-click on the world does.**
@@ -638,6 +647,9 @@ pub struct BarState<'a> {
     /// reason: a tab strip that named a chamber from its own copy would be
     /// the stale side table that argument is about.
     pub chambers: &'a [super::ChamberSummary],
+    /// How many copies and how many ticks the next rack will use, and how a
+    /// running one is getting on. `None` when nothing is running.
+    pub batch: super::BatchBar,
     /// The highlighted chamber's picture, if one has been taken.
     ///
     /// Rendered by `Lab` rather than here, and only when a row is clicked:
@@ -2243,6 +2255,10 @@ const RACK_ROWS: usize = 12;
 const RACK_ROW: i32 = 11;
 /// The column header's own band.
 const RACK_HEAD: i32 = 11;
+/// The fixed column a batch dial's value sits in, wide enough for five
+/// digits — `TICKS` reaches 45,000. Fixed rather than fitted so a value that
+/// gains a digit cannot shove its own `+` button sideways under the cursor.
+const BATCH_VALUE_W: i32 = 34;
 
 /// **Every fixed string the rack page draws, in one list.**
 ///
@@ -2251,7 +2267,7 @@ const RACK_HEAD: i32 = 11;
 /// covers it, and `hud::draw_text` renders a character outside its 5x7 set as
 /// a **silent blank**. The column header read `  SEED` in its first contact
 /// sheet because it began `  # SEED` and `#` has no glyph.
-const RACK_LITERALS: [&str; 9] = [
+const RACK_LITERALS: [&str; 12] = [
     "    SEED",
     "  FRAME",
     "PLT",
@@ -2261,6 +2277,9 @@ const RACK_LITERALS: [&str; 9] = [
     "  -    -    -/-      -",
     "CLICK A ROW FOR ITS PICTURE",
     "-- THE BOX YOU ARE IN",
+    "-- KEPT AS NUMBERS ONLY, THE WORLD WAS NOT HELD",
+    "HERE",
+    "RECORD",
 ];
 /// The picture is the world at a quarter scale in each axis.
 const RACK_THUMB_SHRINK: u32 = 4;
@@ -2412,8 +2431,9 @@ impl Ui {
     /// here* where the truth is *nobody has looked yet* — which is the
     /// difference between a dead box and a fresh one, and the whole question a
     /// batch is read to answer.
-    fn paint_rack(&mut self, frame: &mut [u8], chambers: &[super::ChamberSummary], thumb: Option<&super::Thumb>) -> Option<(String, Rect, i32)> {
+    fn paint_rack(&mut self, frame: &mut [u8], chambers: &[super::ChamberSummary], thumb: Option<&super::Thumb>, state: &BarState) -> Option<(String, Rect, i32)> {
         let mut widgets: Vec<Widget> = Vec::new();
+        let thumb_batch_running = state.batch.progress.is_some();
         let mut note: Option<(String, Rect, i32)> = None;
 
         // Re-clamped here rather than trusted: closing a chamber renumbers
@@ -2425,7 +2445,8 @@ impl Ui {
 
         let w = rack_page_width();
         let picture_h = if thumb.is_some() { RACK_THUMB_H + 4 } else { 0 };
-        let h = PAGE_HEADER + RACK_HEAD + RACK_ROW * shown.max(1) as i32 + picture_h + PARAM_TABS + PAGE_PAD;
+        let batch_h = 16 + if thumb_batch_running { 11 } else { 0 };
+        let h = PAGE_HEADER + RACK_HEAD + RACK_ROW * shown.max(1) as i32 + picture_h + batch_h + PARAM_TABS + PAGE_PAD;
         let bottom = bar_top() - 4;
         let rect = Rect { x: MARGIN, y: (bottom - h).max(MARGIN), w, h };
         self.rack_box = Some(rect);
@@ -2517,7 +2538,9 @@ impl Ui {
                 None => text(frame, left + 108, y + 2, RACK_LITERALS[6], FAINT),
             }
             if ch.active {
-                text(frame, right - hud::text_width("HERE"), y + 2, "HERE", SUB_ON);
+                text(frame, right - hud::text_width("HERE"), y + 2, RACK_LITERALS[10], SUB_ON);
+            } else if ch.on_record {
+                text(frame, right - hud::text_width(RACK_LITERALS[11]), y + 2, RACK_LITERALS[11], FAINT);
             }
             y += RACK_ROW;
         }
@@ -2529,15 +2552,107 @@ impl Ui {
             y = ty + RACK_THUMB_H;
         }
 
+        // ---- the rack's own verb: run copies of this box, headless.
+        //
+        // **Two dials and a button, not a hidden default.** The owner's
+        // standing direction for the lab is *"give me the tools, data, access
+        // to the parameters and I do that testing myself"* — a batch size
+        // and a run length chosen in the source are two decisions taken away
+        // from the person the feature is for.
+        let by = y + 3;
+        let mut dial = |label: &str, value: String, minus: Action, plus: Action, note: &'static str, x: i32, w: &mut Vec<Widget>| -> i32 {
+            let step = cell_width(hud::text_width("W"), "", PAD);
+            text(frame, x, by + 2, label, FAINT);
+            let mut cx = x + hud::text_width(label) + 4;
+            for (face, action) in [("-", minus), ("+", plus)] {
+                if face == "+" {
+                    // The value sits between the two faces, in a **fixed**
+                    // column: a value that gains a digit would otherwise
+                    // shove its own `+` sideways under the cursor, which is
+                    // the failure the parameters page already sizes against.
+                    text(frame, cx + 3, by + 2, &value, VALUE);
+                    cx += BATCH_VALUE_W;
+                }
+                w.push(Widget {
+                    rect: Rect { x: cx, y: by, w: step, h: 11 },
+                    line1: face.into(),
+                    line2: String::new(),
+                    action: Some(action),
+                    latched: false,
+                    icon: None,
+                    ratio: None,
+                    note: note.into(),
+                });
+                cx += step + 2;
+            }
+            cx
+        };
+        let mut bx = left;
+        bx = dial("COPIES", format!("{}", state.batch.copies), Action::BatchCopies(-1), Action::BatchCopies(1),
+            "HOW MANY COPIES OF THIS BOX TO RUN. EACH ONE GETS ITS OWN SEED, WHICH IS WHAT MAKES THEM DIFFERENT WORLDS RATHER THAN THE SAME WORLD N TIMES -- MEASURED, THE SEED ALONE MOVES THE FINAL CENSUS BY 2.4 TO 3.1 TIMES.", bx, &mut widgets);
+        // The return is the next free x, unused after the last dial — kept as
+        // a return rather than dropped so a third dial slots in beside these
+        // two without re-deriving the arithmetic.
+        let _ = dial("TICKS", format!("{}", state.batch.frames), Action::BatchFrames(-1), Action::BatchFrames(1),
+            "HOW LONG EACH COPY RUNS, IN SIMULATED TICKS. THE FIRST INHERITED PLANT APPEARS AROUND 1,800 AND THE FOURTH GENERATION AROUND 10,000. RUNNING IT HEADLESS IS EXACT -- IT IS THE SAME SIMULATION YOU WOULD HAVE WATCHED, NOT AN APPROXIMATION.", bx + 6, &mut widgets);
+
+        let running = state.batch.progress.is_some();
+        let (face, action, why) = if running {
+            ("STOP", Action::BatchStop, "STOP THE RACK. COPIES THAT HAVE ALREADY FINISHED ARE KEPT -- STOPPING LOSES ONLY THE ONES STILL IN FLIGHT.")
+        } else {
+            ("RUN", Action::BatchRun, "RUN THE COPIES NOW, IN THE BACKGROUND. THE BOX ON SCREEN KEEPS WORKING WHILE THEY GO, AND EACH ONE APPEARS IN THIS LIST AS IT LANDS.")
+        };
+        let bw = cell_width(hud::text_width(face), "", PAD) + 8;
+        widgets.push(Widget {
+            rect: Rect { x: right - bw, y: by, w: bw, h: 11 },
+            line1: face.into(),
+            line2: String::new(),
+            action: Some(action),
+            latched: running,
+            icon: None,
+            ratio: None,
+            note: why.into(),
+        });
+        y = by + 13;
+
+        if let Some(p) = state.batch.progress {
+            // **The counter beside the work.** A rack of rows filling in
+            // looks the same whether four copies are running or none are, so
+            // the count and the clock are on screen rather than inferred.
+            let left_note = match p.remaining() {
+                Some(d) => format!("{}M{:02}S LEFT", d.as_secs() / 60, d.as_secs() % 60),
+                None => "ESTIMATING".to_string(),
+            };
+            let line = format!(
+                "{}/{} DONE  {}M{:02}S  {}  {} HELD",
+                p.finished + p.failed,
+                p.total,
+                p.elapsed.as_secs() / 60,
+                p.elapsed.as_secs() % 60,
+                left_note,
+                p.held
+            );
+            text(frame, left, y, &line, SUB_ON);
+            if p.failed > 0 {
+                text(frame, left, y + 9, &format!("{} FAILED TO BUILD", p.failed), POOR);
+                y += 9;
+            }
+            y += 11;
+        }
+
         // ---- the two verbs on the highlighted row.
         if let Some(i) = self.rack_selected {
             let vy = y + 3;
             let mut vx = left;
             let here = chambers.get(i).is_some_and(|c| c.active);
+            // An on-record row's world was dropped for the memory budget, so
+            // there is nothing to walk into. Its verbs are drawn dead rather
+            // than hidden, and the row itself says which it is.
+            let on_record = chambers.get(i).is_some_and(|c| c.on_record);
             for (label, action, on, why) in [
-                ("ENTER", Action::Chamber(i), !here,
+                ("ENTER", Action::Chamber(i), !here && !on_record,
                  "PUT THIS CHAMBER ON SCREEN. THE ONE YOU LEAVE IS HELD EXACTLY WHERE IT IS -- IT RESUMES ON THE TICK IT STOPPED AT, NOT FROM THE START."),
-                ("CLOSE", Action::ChamberClose(i), !here,
+                ("CLOSE", Action::ChamberClose(i), !here && !on_record,
                  "THROW THIS CHAMBER AWAY. THE BOX YOU ARE IN CANNOT BE CLOSED: STEP INTO ANOTHER ONE FIRST, SO THAT CLOSING NEVER ALSO MOVES YOU SOMEWHERE YOU DID NOT ASK TO GO."),
             ] {
                 let bw = cell_width(hud::text_width(label), "", PAD) + 6;
@@ -2562,6 +2677,8 @@ impl Ui {
             }
             if here {
                 text(frame, vx + 4, vy + 2, RACK_LITERALS[8], FAINT);
+            } else if on_record {
+                text(frame, vx + 4, vy + 2, RACK_LITERALS[9], FAINT);
             }
         } else {
             text(frame, left, y + 5, RACK_LITERALS[7], FAINT);
@@ -3121,7 +3238,7 @@ impl Ui {
         } else if self.panel == Some(Panel::Chambers) {
             // Its own painter, for `Params`' and `Shelf`'s reason: a row here
             // is a chamber with two verbs attached, not a label.
-            if let Some((body, avoid, y)) = self.paint_rack(frame, state.chambers, state.rack_thumb) {
+            if let Some((body, avoid, y)) = self.paint_rack(frame, state.chambers, state.rack_thumb, state) {
                 note = Some((body, avoid, y, Note::BesidePage));
             }
             self.panel_box = None;
@@ -3354,6 +3471,7 @@ mod tests {
             // makes the bar not fit.
             chambers: &[],
             rack_thumb: None,
+            batch: super::super::BatchBar { copies: 8, frames: 9_000, progress: None },
         }
     }
 
@@ -3364,6 +3482,7 @@ mod tests {
     fn rack(n: usize) -> Vec<super::super::ChamberSummary> {
         (0..n)
             .map(|i| super::super::ChamberSummary {
+                on_record: false,
                 index: i,
                 active: i == 0,
                 label: format!("{}", i + 1),
@@ -3484,7 +3603,11 @@ mod tests {
             let mut page = Ui::new();
             page.select_chamber(0);
             let mut buf = vec![0u8; (W * H * 4) as usize];
-            page.paint_rack(&mut buf, &rack(7), None);
+            let world = world();
+            let spec = LabBox::default();
+            let st = state(false, 1);
+            let _ = (&world, &spec);
+            page.paint_rack(&mut buf, &rack(7), None, &st);
             for wid in &page.rack_bar.widgets {
                 check(&wid.line1, "rack button");
                 check(&wid.note, "rack explanation");

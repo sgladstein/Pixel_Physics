@@ -408,6 +408,32 @@ impl Stats {
         }
     }
 
+    /// **A `Stats` holding a run that happened somewhere else.**
+    ///
+    /// The batch runs its chambers on a worker thread with their own `Stats`;
+    /// when one is adopted into the rack its page must show the run that
+    /// actually happened rather than an empty strip that starts from the
+    /// moment you walked in.
+    ///
+    /// `interval` is restored from the history rather than reset, because the
+    /// ring **decimates**: a long run's samples are hundreds of frames apart
+    /// by the end, and a `Stats` that carried them at the fresh interval
+    /// would decimate again immediately and halve a series it was handed
+    /// intact.
+    pub fn restored(census: Census, history: Vec<Sample>) -> Self {
+        let interval = match history.as_slice() {
+            [.., a, b] => (b.frame - a.frame).max(SAMPLE_INTERVAL),
+            _ => SAMPLE_INTERVAL,
+        };
+        Self {
+            standing_at: Some(census.frame),
+            census: Some(census),
+            history,
+            interval,
+            ..Self::new()
+        }
+    }
+
     pub fn showing(&self) -> bool {
         self.show
     }

@@ -111,6 +111,26 @@ pub struct Lab {
     rack: Vec<Option<Chamber>>,
     /// Which rack slot the inline fields belong to.
     active: usize,
+    /// The label of the box on screen, inline with the rest of its state.
+    label: Option<String>,
+    /// **Runs whose world was dropped for the memory budget.**
+    ///
+    /// Nothing is lost that cannot be recomputed: the spec reproduces the run
+    /// exactly, which is what `tests/determinism.rs`'s lab bed asserts. They
+    /// are listed on the rack page rather than silently discarded, because a
+    /// batch that quietly returns fewer rows than it ran is a batch nobody
+    /// can trust the count of.
+    pub on_record: Vec<OnRecord>,
+    /// A rack of copies running headless in the background, if one is.
+    ///
+    /// **`Option`, and only ever one.** Two batches at once would contend for
+    /// the same cores and neither would finish sooner; the rack page refuses
+    /// to start a second rather than queueing it, so "how long is left" stays
+    /// a question with one answer.
+    pub batch: Option<batch::Batch>,
+    /// What the last batch asked for, kept so the page's dials hold their
+    /// setting between runs rather than resetting to the default each time.
+    pub batch_spec: batch::BatchSpec,
     /// The still of the box on screen, if one has been taken. Inline with the
     /// rest of the active chamber's state, for `world`'s reason.
     thumb: Option<Thumb>,
@@ -152,6 +172,10 @@ pub struct Chamber {
     pub history: ui::History,
     /// The last still taken of this box, if any. See [`Thumb`].
     pub thumb: Option<Thumb>,
+    /// What to call it on the rack page. `None` is "its number", which is
+    /// what a chamber you made yourself gets; a batch names its own so a rack
+    /// of fifty says where each row came from.
+    pub label: Option<String>,
 }
 
 /// **A still of one chamber, for the rack page.**
@@ -174,6 +198,28 @@ pub struct Thumb {
     pub frame: u64,
 }
 
+/// A finished run kept as numbers rather than as a world.
+///
+/// About 10 KB against a world's 2.5 MB, and it reproduces its run exactly —
+/// the spec carries the seed, and a chamber built from it and run for the
+/// same ticks is bit-identical. See `tests/determinism.rs`'s lab bed.
+pub struct OnRecord {
+    pub spec: scene::LabBox,
+    pub census: stats::Census,
+    pub label: String,
+}
+
+/// What the rack page needs to know about batches. A snapshot, because the
+/// real thing is behind a mutex on a worker thread and the page must never
+/// wait on it.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct BatchBar {
+    pub copies: u32,
+    pub frames: u64,
+    /// `None` when no rack is running.
+    pub progress: Option<batch::Progress>,
+}
+
 /// One row of the chamber menu: enough to compare two boxes without
 /// unfreezing either.
 ///
@@ -184,6 +230,12 @@ pub struct Thumb {
 pub struct ChamberSummary {
     pub index: usize,
     pub active: bool,
+    /// **A box you can walk into, or one kept only as numbers.** Not a
+    /// cosmetic distinction: an on-record row's world was dropped for the
+    /// memory budget, so `ENTER` cannot open it. Saying which is which on the
+    /// row is the difference between a rack that is honest about what it
+    /// holds and one where some rows mysteriously do nothing.
+    pub on_record: bool,
     pub label: String,
     pub seed: u64,
     /// Simulated ticks this box has run. Frozen chambers hold still.
@@ -215,6 +267,7 @@ impl Lab {
         // moment the box appears.
         let mut ui = ui::Ui::new();
         ui.reload_shelf();
+        let spec_for_batch = spec.clone();
         Self {
             world,
             particles: ParticleSystem::new(),
@@ -235,6 +288,20 @@ impl Lab {
             // single hole. Every later chamber is pushed beside it.
             rack: vec![None],
             active: 0,
+            label: None,
+            on_record: Vec::new(),
+            batch: None,
+            batch_spec: batch::BatchSpec {
+                base: spec_for_batch,
+                replicates: 8,
+                sweep: None,
+                frames: 9_000,
+                seed0: 1,
+                // ~2.5 MB a chamber at 512x320, so this holds about a hundred
+                // of them. Past it a run keeps its record and drops its world,
+                // and the row says so.
+                keep_bytes: 256 * 1024 * 1024,
+            },
             thumb: None,
             view_dirty: false,
         }
@@ -287,15 +354,33 @@ impl Lab {
                     // The hole: the box on screen lives in the inline fields.
                     None => (&self.spec, &self.stats, &self.world),
                 };
+                let label = match &self.rack[i] {
+                    Some(ch) => ch.label.clone(),
+                    None => self.label.clone(),
+                };
                 ChamberSummary {
                     index: i,
                     active,
-                    label: format!("{}", i + 1),
+                    on_record: false,
+                    label: label.unwrap_or_else(|| format!("{}", i + 1)),
                     seed: spec.seed,
                     frame: world.frame,
                     census: stats.census().cloned(),
                 }
             })
+            // Runs whose world was dropped for the budget come after the
+            // chambers, still with their numbers. They are listed rather than
+            // discarded because a batch that quietly returns fewer rows than
+            // it ran is a batch nobody can trust the count of.
+            .chain(self.on_record.iter().enumerate().map(|(k, r)| ChamberSummary {
+                index: self.rack.len() + k,
+                active: false,
+                on_record: true,
+                label: r.label.clone(),
+                seed: r.spec.seed,
+                frame: r.census.frame,
+                census: Some(r.census.clone()),
+            }))
             .collect()
     }
 
@@ -314,6 +399,8 @@ impl Lab {
     /// is reached from a click on a tab, and a stale tab rectangle is an
     /// ordinary thing for a click to land on.
     pub fn switch_to(&mut self, i: usize) {
+        // `i` can address an on-record row, which is past the rack and has no
+        // world to swap in. A no-op, like any other stale click.
         if i == self.active || !self.rack.get(i).is_some_and(|slot| slot.is_some()) {
             return;
         }
@@ -332,6 +419,7 @@ impl Lab {
             // the one moment its picture is both wanted and free, because the
             // frame just drawn *is* that picture.
             thumb: std::mem::replace(&mut self.thumb, incoming.thumb),
+            label: std::mem::replace(&mut self.label, incoming.label),
         };
         self.rack[self.active] = Some(outgoing);
         self.active = i;
@@ -357,6 +445,7 @@ impl Lab {
             blasts: Blasts::new(),
             history: ui::History::default(),
             thumb: None,
+            label: None,
         }));
         self.rack.len() - 1
     }
@@ -396,6 +485,110 @@ impl Lab {
             .max()
             .unwrap_or(0);
         highest.wrapping_add(1)
+    }
+
+    /// Start a rack of copies of the box on screen, running headless.
+    ///
+    /// Refuses while one is already running, for [`Lab::batch`]'s reason.
+    /// Returns what the interface should say about it either way — a verb
+    /// that silently does nothing is `CLAUDE.md`'s second law being broken.
+    pub fn start_batch(&mut self) -> String {
+        if self.batch.is_some() {
+            return "A RACK IS ALREADY RUNNING -- STOP IT FIRST".to_string();
+        }
+        // The base is always the box on screen: "copies of *this*" is the
+        // whole verb, and a batch of some remembered other chamber would be a
+        // button that does something different from what it says.
+        self.batch_spec.base = self.spec.clone();
+        // Start past every seed the rack already holds, so a second batch
+        // explores new worlds rather than re-running the ones on the bench.
+        self.batch_spec.seed0 = self.next_unused_seed();
+        let spec = self.batch_spec.clone();
+        let n = spec.runs().len();
+        let frames = spec.frames;
+        self.batch = Some(batch::Batch::start(spec));
+        format!("RUNNING {n} COPIES FOR {frames} TICKS EACH")
+    }
+
+    /// Ask a running rack to stop. Runs already finished keep their results.
+    pub fn stop_batch(&mut self) -> String {
+        match &self.batch {
+            Some(b) => {
+                b.cancel();
+                "STOPPING -- FINISHED COPIES ARE KEPT".to_string()
+            }
+            None => "NO RACK IS RUNNING".to_string(),
+        }
+    }
+
+    /// Adopt every run that has landed since the last call, and reap the
+    /// worker once it is done.
+    ///
+    /// **Called from `advance`, and it never blocks.** `main.rs`'s
+    /// `poll_loading` rule: a `join` in the frame loop freezes the window for
+    /// the rest of the batch, which is the whole thing the background thread
+    /// exists to avoid.
+    fn poll_batch(&mut self) {
+        // Drained into a local first, so the borrow of `self.batch` ends
+        // before `adopt_chamber` needs `&mut self`.
+        let Some(landed) = self.batch.as_ref().map(|b| b.drain()) else { return };
+        for r in landed {
+            let label = match r.setting {
+                Some(v) => format!("BATCH {} @ {v:.0}", r.index + 1),
+                None => format!("BATCH {}", r.index + 1),
+            };
+            match r.world {
+                // Held: it becomes a chamber you can walk into now.
+                Some(world) => {
+                    self.adopt_chamber(world, r.spec, r.census, r.history, label);
+                }
+                // On record only: the census is kept and the world is
+                // rebuilt from the spec on demand, which is exact.
+                None => self.on_record.push(OnRecord { spec: r.spec, census: r.census, label }),
+            }
+        }
+        let Some(b) = &self.batch else { return };
+        if b.is_finished() {
+            let p = b.progress();
+            let mut b = self.batch.take().expect("checked above");
+            let ok = b.join();
+            let note = if !ok {
+                "THE RACK'S OWN THREAD FAILED".to_string()
+            } else if p.failed > 0 {
+                format!("RACK DONE -- {} FINISHED, {} FAILED TO BUILD", p.finished, p.failed)
+            } else if p.cancelled {
+                format!("RACK STOPPED -- {} COPIES KEPT", p.finished)
+            } else {
+                format!("RACK DONE -- {} COPIES", p.finished)
+            };
+            self.ui.say(note);
+        }
+    }
+
+    /// Put an already-built world into the rack.
+    ///
+    /// The batch's counterpart to [`Lab::add_chamber`]: the world exists
+    /// already and must **not** be rebuilt, because rebuilding would discard
+    /// the run that was just paid for.
+    pub fn adopt_chamber(
+        &mut self,
+        world: World,
+        spec: scene::LabBox,
+        census: stats::Census,
+        history: Vec<stats::Sample>,
+        label: String,
+    ) -> usize {
+        self.rack.push(Some(Chamber {
+            world,
+            spec,
+            stats: stats::Stats::restored(census, history),
+            particles: ParticleSystem::new(),
+            blasts: Blasts::new(),
+            history: ui::History::default(),
+            thumb: None,
+            label: Some(label),
+        }));
+        self.rack.len() - 1
     }
 
     /// Take a still of chamber `i`, unless the one it already has is current.
@@ -538,6 +731,8 @@ impl Lab {
             }
         }
         let advance = self.time.record(ran, started.elapsed());
+        // Never blocks; see `poll_batch`.
+        self.poll_batch();
         if ran > 0 {
             // **The picture of a box that has moved is a wrong picture.** Held
             // under a live census it is the stale side table this repo keeps
@@ -621,6 +816,11 @@ impl Lab {
             jar_note: &jar_note,
             chambers: &chambers,
             rack_thumb,
+            batch: BatchBar {
+                copies: self.batch_spec.replicates,
+                frames: self.batch_spec.frames,
+                progress: self.batch.as_ref().map(|b| b.progress()),
+            },
         };
         self.ui.draw(frame_buf, &self.world, &self.spec, &state, &self.renderer, fps);
         // The pages last, because they are modal: a page covers the box *and*
@@ -988,6 +1188,29 @@ impl Lab {
                 self.ui.reload_shelf();
                 let n = self.ui.shelf().len();
                 self.ui.say(format!("SHELF RELOADED -- {n} JAR(S)"));
+            }
+            ui::Action::BatchRun => {
+                let said = self.start_batch();
+                self.ui.say(said);
+            }
+            ui::Action::BatchStop => {
+                let said = self.stop_batch();
+                self.ui.say(said);
+            }
+            ui::Action::BatchCopies(d) => {
+                // 1..=200. The floor is 1 rather than 0 because a rack of
+                // nothing is a button that reports success and does nothing;
+                // the ceiling is where ~2.5 MB a chamber meets the 256 MB
+                // the budget holds.
+                let next = (self.batch_spec.replicates as i32 + d).clamp(1, 200);
+                self.batch_spec.replicates = next as u32;
+            }
+            ui::Action::BatchFrames(d) => {
+                // Steps of 1,000, because the interesting range is 1,800 (the
+                // first inherited plant) to ~45,000 (the fifth generation) and
+                // stepping that in ones is not a control anybody would use.
+                let next = (self.batch_spec.frames as i64 + d as i64 * 1_000).clamp(1_000, 200_000);
+                self.batch_spec.frames = next as u64;
             }
             ui::Action::ChamberSelect(i) => {
                 self.ui.select_chamber(i);
@@ -1481,6 +1704,46 @@ mod tests {
         for _ in 0..n {
             lab.tick();
         }
+    }
+
+    /// **A batch fills the rack, and the copies are different worlds.**
+    ///
+    /// The whole feature end to end: start it, poll it the way the frame loop
+    /// does, and check what lands. The last assertion is the one that matters
+    /// — chambers appearing is also true of a batch that ran the same world N
+    /// times, which is the failure the runner's own control exists to catch
+    /// and which must not be able to reach the rack either.
+    #[test]
+    fn a_batch_fills_the_rack_with_different_worlds() {
+        let mut lab = Lab::new(rack_bed(1));
+        lab.batch_spec.replicates = 3;
+        lab.batch_spec.frames = 900;
+        let before = lab.chamber_count();
+        assert!(lab.start_batch().contains("RUNNING 3 COPIES"), "the verb must say what it started");
+        assert!(lab.start_batch().contains("ALREADY RUNNING"), "a second rack must be refused, not queued");
+
+        // Polled the way `advance` does it — never a blocking join.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(180);
+        while lab.batch.is_some() && std::time::Instant::now() < deadline {
+            lab.poll_batch();
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        assert!(lab.batch.is_none(), "the batch never finished inside three minutes");
+
+        assert_eq!(lab.chamber_count(), before + 3, "three copies must land as three chambers");
+        let rows = lab.chamber_summaries();
+        let landed: Vec<&ChamberSummary> = rows.iter().skip(before).collect();
+        assert!(landed.iter().all(|r| r.frame == 900), "an adopted chamber must carry the run it did, not a fresh world");
+        assert!(
+            landed.iter().all(|r| r.census.is_some()),
+            "an adopted chamber must arrive with its census -- a rack row with no numbers is a run nobody can compare"
+        );
+        let distinct: std::collections::HashSet<(usize, usize)> =
+            landed.iter().filter_map(|r| r.census.as_ref()).map(|c| (c.plants, c.plant_cells)).collect();
+        assert!(
+            distinct.len() > 1,
+            "three copies came out identical -- the batch is one world wearing three labels. Got {distinct:?}"
+        );
     }
 
     /// **A parked chamber does not advance, and the one on screen does.**
