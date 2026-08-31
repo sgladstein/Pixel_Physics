@@ -1,0 +1,54 @@
+{
+  "id": "20260831T224429408Z-bb6e1a",
+  "created": "2026-08-31T22:44:29Z",
+  "board": "creatures",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/evolution-lab-mechanics-o7i3xm",
+    "commit": "266a5b5",
+    "agent": null,
+    "session_id": "b7a8dc92-eedb-5ab7-8809-1f18a9b21417",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Ants stop eating the soil -- and stack what they dig out",
+  "question": "The spoil holds itself up, so a colony builds it into that lattice reaching out from the bank. Live with it, or should the spoil fall and pile even though that closes the tunnels?",
+  "context_md": "Your report: digging consumed the soil and a bed ran down to nothing. It does not any more -- an ant comes away from the face with a lump of ground in its jaws, cannot cut anything else while it is holding one, and puts it back down wherever its own drop impulse fires. **Nothing left the world in B.** The same bank, the same seed, 8,000 frames.\n\nWhere it puts them is the ants' decision, not a rule I wrote (two rules I wrote are in the record as failures). What I could not decide by measurement is what you are looking at:\n\n- **A lump an ant puts down is *tamped*, the way it tamps a tunnel wall.** Tamped ground holds itself up. So a pellet can be set down on top of an earlier pellet, and over seven hundred of them a colony grows the scaffold you can see in B, out into open air.\n- **Loose spoil instead falls and piles like any dirt -- and closes the tunnels.** Measured both ways: standing tunnel void went from 54-58 cells tamped to **2-3** loose. That is the whole nest, gone.\n\nSo it is a real fork and I do not think either side is obviously right.\n\nAlso worth knowing, and reported rather than tuned: **B's nest is smaller.** Tunnel void 39 against 89 here, at nearly three times the digging, because an ant that lets go underground fills in what it just cut. That is the ant's `drop` gene, so it is something a colony could get better at rather than something fixed in the engine.",
+  "kind": "ab",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A -- today: the spoil is destroyed",
+      "files": [
+        "20260831T224429408Z-bb6e1a/000-card-destroy.png"
+      ],
+      "caption": "the bank is eaten away; nothing is put back",
+      "meta": {
+        "cells of ground gone from the world": 463,
+        "holes dug": 259,
+        "standing tunnel space": 89
+      },
+      "focus": null
+    },
+    {
+      "label": "B -- the ants carry it out",
+      "files": [
+        "20260831T224429408Z-bb6e1a/001-card-keep.png"
+      ],
+      "caption": "every cell dug is put back somewhere -- including out in the air",
+      "meta": {
+        "cells of ground gone from the world": 0,
+        "holes dug": 759,
+        "standing tunnel space": 39
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
