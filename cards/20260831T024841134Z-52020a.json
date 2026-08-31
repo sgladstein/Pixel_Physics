@@ -1,0 +1,54 @@
+{
+  "id": "20260831T024841134Z-52020a",
+  "created": "2026-08-31T02:48:41Z",
+  "board": "lab",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/evolution-lab-genetics-gw4cv3",
+    "commit": "b0c09ac",
+    "agent": null,
+    "session_id": "2a809e67-ad8d-555b-83a9-24cca0bf7c3b",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The specimen shelf: keep an individual's genetics, put it back as itself or drifted",
+  "question": "Clone and mutate are one dial here, not two buttons: 0 is that exact individual again, 1 is as different as its own child would have been. Is that the right way to offer it, or do you want CLONE and MUTATE as separate verbs?",
+  "context_md": "**What it does.** You can now save the genetics of anything alive in the box, keep it in a jar that outlives the box, and put it back -- as itself, or bred forward. Plants and ants both. Two new tools on the bar (`KEEP` M, `FREE` ,) and a rack page (`G`).\n\n**Where it sits.** First of the two gaps the round-three handoff names -- *'there is no save; a parameter he changes and cannot keep is a toy'* -- and the same sentence was true of an animal. The other gap, species parameters not being reachable at runtime, is untouched.\n\n**The dial is the thing I want judged.** One brood applies the engine's own per-birth mutation once -- no new rate is invented and none is calibrated -- so the unit means something: three broods is a great-grandchild's worth of drift. The alternative is a CLONE button and a MUTATE button, which is the binary this project keeps ruling against.\n\n**Already checked, so don't spend the answer on it:** the released individual is bit-identical at 0 broods (guarded both kingdoms); a release books as a founder, never as a birth; a jar never overwrites another; a plant's whole growth program travels in the jar, not just its numbers.\n\n**Known and not fixed:** `PROMOTE` (jar -> a species file the game can load) is creatures only, and still needs a hand-drawn material before the promoted animal will hatch. Both rows of the bar are now completely full.",
+  "kind": "gallery",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "The rack, after breeding a jar",
+      "files": [
+        "20260831T024841134Z-52020a/000-shelf-shelf--after-drift.png"
+      ],
+      "caption": "HERB was kept out of the bed, then COPY made HERB_2 three broods along. The parent stays armed so you can make siblings.",
+      "meta": {
+        "jars on the shelf": 2,
+        "genome slots the dial moved": 31,
+        "broods on the dial": 3
+      },
+      "focus": null
+    },
+    {
+      "label": "One jar kept, nothing bred yet",
+      "files": [
+        "20260831T024841134Z-52020a/001-shelf-page--the-shelf.png"
+      ],
+      "caption": "The dial reads CLONE at zero. The chip on the bar (green, key G) says what FREE will put back.",
+      "meta": {
+        "jars on the shelf": 1,
+        "genome slots the dial moved": 0,
+        "broods on the dial": 0
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
