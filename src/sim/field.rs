@@ -44,8 +44,8 @@ use super::world::World;
 /// World cells per field cell. A chunk is `CHUNK_SIZE / FIELD_SCALE` field
 /// cells on a side. Coarser than the CA grid because pressure and light are
 /// smooth, low-frequency fields — simulating them at CA resolution would cost
-/// 64x the work for detail nothing reads.
-pub const FIELD_SCALE: i32 = 8;
+/// 256x the work for detail nothing reads.
+pub const FIELD_SCALE: i32 = 16;
 
 /// Field cells per side of one tile. `CHUNK_SIZE` must stay a multiple of
 /// `FIELD_SCALE`, checked by `chunk_size_is_a_multiple_of_field_scale` below —
@@ -2090,7 +2090,7 @@ pub(crate) fn noon_equivalent_temperature(cell: FieldCell) -> f32 {
 /// would defeat field sleeping (issue #4) for every open-sky scene, all day.
 /// What fraction of direct sunlight survives one blocked field block.
 ///
-/// A field block is `FIELD_SCALE` (8) world cells square, so one blocked
+/// A field block is `FIELD_SCALE` (16) world cells square, so one blocked
 /// block is a substantial thickness of canopy or rock — but not an absolute
 /// wall, which matters: a hard zero makes shade a binary stencil with a
 /// visible edge at field resolution, and
@@ -2100,7 +2100,10 @@ pub(crate) fn noon_equivalent_temperature(cell: FieldCell) -> f32 {
 /// graded leaves room for that mechanism to work later.
 ///
 /// Rock still goes effectively black after two blocks (0.04), which is what
-/// keeps caves dark.
+/// keeps caves dark -- but note a block is `FIELD_SCALE` cells, so on the
+/// move to 16 that is 32 world cells of rock rather than 16. A given
+/// *physical* thickness of rock or canopy now attenuates half as much,
+/// which is the light-model half of that change and is deliberate.
 const SKY_TRANSMISSION: f32 = 0.2;
 
 /// What one CA column of a field block passes, indexed by how many opaque
@@ -2114,14 +2117,37 @@ const SKY_TRANSMISSION: f32 = 0.2;
 /// compounding through a crown) without shading like rock.
 ///
 /// A table rather than `powf` in the scan: `rebuild_blocked` runs over
-/// every CA cell of every resident chunk every field step, and this is nine
-/// floats. `the_column_transmission_table_is_beer_lambert` keeps it honest
-/// against the formula and against `SKY_TRANSMISSION` moving.
+/// every CA cell of every resident chunk every field step, and this is
+/// seventeen floats. `the_column_transmission_table_is_beer_lambert` keeps
+/// it honest against the formula and against `SKY_TRANSMISSION` moving --
+/// and it is what the table was *regenerated* from on the move to
+/// `FIELD_SCALE` 16, rather than the entries being re-tuned by hand. The
+/// even indices reproduce the old nine-entry table to within 1.1e-5,
+/// because `0.2^(2d/16)` is `0.2^(d/8)`: rock and a full canopy pass
+/// exactly what they always did, and the eight new odd entries are the
+/// half-block thicknesses the finer grid could not express.
 /// The last entry is written as `SKY_TRANSMISSION` itself rather than as
 /// its value, because that endpoint is the compatibility promise: a fully
 /// opaque column passes exactly what a blocked block always passed.
-const COLUMN_TRANSMISSION: [f32; FIELD_SCALE as usize + 1] =
-    [1.0, 0.817_765, 0.668_740, 0.546_884, 0.447_214, 0.365_697, 0.299_070, 0.244_581, SKY_TRANSMISSION];
+const COLUMN_TRANSMISSION: [f32; FIELD_SCALE as usize + 1] = [
+    1.0,
+    0.904_304,
+    0.817_765,
+    0.739_508,
+    0.668_740,
+    0.604_744,
+    0.546_873,
+    0.494_539,
+    0.447_214,
+    0.404_417,
+    0.365_716,
+    0.330_718,
+    0.299_070,
+    0.270_450,
+    0.244_569,
+    0.221_165,
+    SKY_TRANSMISSION,
+];
 
 /// Direct sunlight, cast **down each column** from open sky.
 ///
@@ -2538,7 +2564,7 @@ fn apply_sky_temperature_to(offset: f32, coords: &[ChunkCoord], next: &mut HashM
 /// Unlike `apply_sky`, this does **not** skip blocked field cells. A
 /// shallow puddle resting on a thin floor — the overwhelmingly common case,
 /// not an edge case — routinely shares its own coarse field block with the
-/// ground right underneath it (`FIELD_SCALE` is 8 world cells; a 1-cell-deep
+/// ground right underneath it (`FIELD_SCALE` is 16 world cells; a 1-cell-deep
 /// puddle and the floor it sits on are almost always within 8 cells of each
 /// other), which is enough for `rebuild_blocked`'s over-blocking bias to
 /// mark that whole block impassable. Gating on `!blocked` the way `apply_
@@ -3617,20 +3643,31 @@ mod tests {
     #[test]
     fn field_coord_floors_toward_negative_infinity() {
         // The same truncating-division trap as ChunkCoord::containing.
+        //
+        // Derived from `FIELD_SCALE` rather than written as literals: this
+        // test asserted 7/8/-9 until 2026-08-30 and went red on the move to
+        // 16 having found no bug at all. The property is floor division, and
+        // the negative rows are the whole point -- truncation would give
+        // `field_coord_of(-1, -1) == (0, 0)`.
+        let s = FIELD_SCALE;
         assert_eq!(field_coord_of(0, 0), (0, 0));
-        assert_eq!(field_coord_of(7, 7), (0, 0));
-        assert_eq!(field_coord_of(8, 8), (1, 1));
-        assert_eq!(field_coord_of(-1, -1), (-1, -1));
-        assert_eq!(field_coord_of(-8, -8), (-1, -1));
-        assert_eq!(field_coord_of(-9, -9), (-2, -2));
+        assert_eq!(field_coord_of(s - 1, s - 1), (0, 0), "the last cell of block 0 is still block 0");
+        assert_eq!(field_coord_of(s, s), (1, 1), "one past it is block 1");
+        assert_eq!(field_coord_of(-1, -1), (-1, -1), "truncating division would say (0, 0) here");
+        assert_eq!(field_coord_of(-s, -s), (-1, -1), "the first cell of block -1");
+        assert_eq!(field_coord_of(-s - 1, -s - 1), (-2, -2), "one before it is block -2");
     }
 
     #[test]
     fn tile_and_local_round_trips_across_chunk_boundaries() {
-        // Field coordinate 7 (last cell of chunk 0's tile) and 8 (first cell
-        // of chunk 1's tile) must land in different chunks.
-        let (t0, ..) = tile_and_local(7, 0);
-        let (t1, ..) = tile_and_local(8, 0);
+        // The last field cell of chunk 0's tile and the first of chunk 1's
+        // must land in different chunks. Derived from `FIELD_TILE_SIZE`, not
+        // written as 7 and 8 -- those literals were a restatement of
+        // `FIELD_SCALE == 8` and went red on the move to 16 without finding
+        // anything.
+        let last_in_tile_0 = FIELD_TILE_SIZE - 1;
+        let (t0, ..) = tile_and_local(last_in_tile_0, 0);
+        let (t1, ..) = tile_and_local(FIELD_TILE_SIZE, 0);
         assert_ne!(t0, t1);
         assert_eq!(t0, ChunkCoord::new(0, 0));
         assert_eq!(t1, ChunkCoord::new(1, 0));
@@ -4107,10 +4144,24 @@ mod tests {
         // field cell, *positive at noon and negative at midnight*. That is a
         // taxis signal of the sky's own making, twice the size of anything a
         // real heat source leaves at that range, and it reverses twice a day.
+        //
+        // **The sample points are derived from `FIELD_SCALE`, not written as
+        // 71 and 72.** Sky temperature attenuates once per *field block*
+        // (`apply_sky_temperature_to` multiplies by `transmission_local`
+        // per block), so the steep step is at a block boundary and nowhere
+        // else -- and `field_at_bilinear` spreads that step smoothly across
+        // the block's full width. At `FIELD_SCALE = 8` the literals 71 and
+        // 72 straddled the first/second rock-block boundary at 7/8 and 8/8
+        // of a block; at 16 they both landed *inside* the first block and
+        // the test went red having found no bug. Below, the pair straddles
+        // that same boundary at the same fractional offsets, so the
+        // quantity measured -- an eighth of the per-block step -- is
+        // identical at any `FIELD_SCALE` and the 4.0 bar is untouched.
+        const ROCK_TOP: i32 = 64;
         let profile = |frame: u64| -> (f32, f32) {
             let mut w = test_world();
             w.frame = frame;
-            for y in 64..256 {
+            for y in ROCK_TOP..256 {
                 for x in 0..256 {
                     w.set(x, y, Cell::new(material::STONE, 0));
                 }
@@ -4120,9 +4171,15 @@ mod tests {
                 step(&mut w);
             }
             // Just under the rock surface, where a worm burrows and where
-            // the attenuation is steepest.
-            let here = w.field_at_bilinear(128.0, 72.0);
-            let above = w.field_at_bilinear(128.0, 71.0);
+            // the attenuation is steepest: the boundary between the first
+            // and second rock field blocks. Measured 2026-08-30: this
+            // pair reads 4.799999 at noon at `FIELD_SCALE` 8 *and* 16 --
+            // the same value to the last digit, which is what "the scene
+            // was resized, the bar was not moved" means here.
+            let boundary = (ROCK_TOP + FIELD_SCALE) as f32;
+            let straddle = FIELD_SCALE as f32 / 8.0;
+            let here = w.field_at_bilinear(128.0, boundary);
+            let above = w.field_at_bilinear(128.0, boundary - straddle);
             (
                 above.temperature - here.temperature,
                 noon_equivalent_temperature(above) - noon_equivalent_temperature(here),
