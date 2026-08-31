@@ -385,7 +385,73 @@ struct Row {
     /// skew is shown absent from the arm where nothing hunts.
     range_live: [u64; RANGE_BANDS],
     range_died: [u64; RANGE_BANDS],
+    /// **Does being under a roof already pay?** Index 0 is an ant in the
+    /// open, index 1 an ant with solid ground over its head.
+    ///
+    /// This is the owner's hoped-for outcome stated as a number -- *ants
+    /// digging homes to keep themselves safe* -- and it is a measurement
+    /// rather than a feature request because **the mechanism that would
+    /// make it pay is already shipped and already tested**.
+    /// `a_wide_body_cannot_enter_a_one_cell_tunnel_that_a_chain_walks_through`
+    /// says it outright: an ant is a one-cell following chain, a beetle is
+    /// a 2x2 rigid block, and a one-cell tunnel admits the first and
+    /// refuses the second with no hiding code anywhere. Sight is occluded
+    /// by material on the same terms.
+    ///
+    /// So the question is not whether to build shelter. It is whether the
+    /// shelter that exists produces a **survival gradient** an animal could
+    /// be selected along -- and that cannot be assumed from the mechanism
+    /// existing, because a mechanism nothing is ever in the position to use
+    /// selects exactly as much as one that does not exist.
+    ///
+    /// Read the same way as `range_*`: the lift for the roofed row against
+    /// the open row, in both arms. Shelter pays *against predation*
+    /// specifically only if the gap between the two rows is wider with
+    /// beetles than without them.
+    ///
+    /// **What "roofed" is not, and it bounds the reading.** This asks only
+    /// whether solid material stands over the head. A tree canopy, a leaf,
+    /// an overhanging bank and a dug tunnel all answer yes, and **a 2x2
+    /// beetle can walk under three of those four**. So a roofed row that
+    /// survives better is not by itself evidence that the body-size refuge
+    /// is doing the work; separating them needs a census of whether the
+    /// space an ant occupies is one a beetle could enter, which is a
+    /// different and more expensive question than a ceiling check.
+    ///
+    /// Measured 2026-08-31, and the caveat turns out not to matter for the
+    /// decision: the roofed advantage is **the same size in both arms**
+    /// (2.7x with no predator, 2.6x with nine beetles), so whatever is
+    /// producing it, predation is not. The refuge cannot be selected for as
+    /// *safety from predators* while that holds, however good a refuge it
+    /// is against everything else.
+    shelter_live: [u64; 2],
+    shelter_died: [u64; 2],
 }
+
+/// Is there solid material over this cell's head?
+///
+/// **Roofed rather than merely deep**, which is the distinction
+/// `CLAUDE.md`'s excavation metric trap is about: a pit open to the sky is
+/// standing void and scored a build that leaves *no roof at all* above one
+/// whose tunnels stand. What shelters an animal from something that cannot
+/// fit through the entrance is a ceiling, so a ceiling is what this looks
+/// for.
+///
+/// Creature cells do not count as a roof -- an ant standing under another
+/// ant is not indoors -- and the walk is capped because an answer of
+/// "nothing within `ROOF_REACH` above" is all the census needs.
+fn roofed(world: &World, x: i32, y: i32) -> bool {
+    (1..=ROOF_REACH).any(|d| {
+        let c = world.get(x, y - d);
+        c.material != pixel_physics::sim::material::EMPTY
+            && !matches!(world.materials.kind(c.material), pixel_physics::sim::material::MaterialKind::Creature)
+    })
+}
+
+/// How far above a head to look for a ceiling. Generous rather than tight:
+/// an ant three cells down a shaft it dug is sheltered from a 2x2 beetle
+/// whether the rock starts one cell up or six.
+const ROOF_REACH: i32 = 12;
 
 /// Upper edges of the distance-from-nest histogram, in cells. The nest band
 /// this scene builds is 74 cells wide, so band 0 is "standing on it".
@@ -573,7 +639,7 @@ fn run(seed: u64, frames: usize, every: usize, beetles: usize, paint: Paint, ove
     let mut beetle_energy: std::collections::HashMap<u16, f32> = std::collections::HashMap::new();
     let mut ever_fed: std::collections::HashSet<u16> = std::collections::HashSet::new();
     let mut ever_grabbed: std::collections::HashSet<u16> = std::collections::HashSet::new();
-    let mut prev_band: std::collections::HashMap<(u16, u16, u32), usize> = std::collections::HashMap::new();
+    let mut prev_band: std::collections::HashMap<(u16, u16, u32), (usize, usize)> = std::collections::HashMap::new();
 
     for frame in 0..frames {
         if paint == Paint::SaturatedTrail && frame % 60 == 0 {
@@ -600,7 +666,10 @@ fn run(seed: u64, frames: usize, every: usize, beetles: usize, paint: Paint, ove
         // the next sample can tell which ants stopped existing and where
         // they were when they did. Keyed `(id, generation, lineage)` rather
         // than on the raw slot -- see the diff below.
-        let mut ant_band: std::collections::HashMap<(u16, u16, u32), usize> = std::collections::HashMap::new();
+        // Value is (distance band, roofed) -- both dimensions come off one
+        // census in one pass, so they cannot disagree about which ant they
+        // are describing.
+        let mut ant_band: std::collections::HashMap<(u16, u16, u32), (usize, usize)> = std::collections::HashMap::new();
         for py in 0..H {
             for px in 0..W {
                 let c = world.get(px, py);
@@ -611,7 +680,7 @@ fn run(seed: u64, frames: usize, every: usize, beetles: usize, paint: Paint, ove
                     prey.push((px, py));
                     let id = c.organism_id();
                     if let Some(st) = world.organism(id) {
-                        ant_band.insert((id, st.generation, st.lineage), range_band(px));
+                        ant_band.insert((id, st.generation, st.lineage), (range_band(px), usize::from(roofed(&world, px, py))));
                     }
                 } else if c.material == beetle_mat {
                     preds.push((px, py, c.organism_id()));
@@ -646,12 +715,14 @@ fn run(seed: u64, frames: usize, every: usize, beetles: usize, paint: Paint, ove
         // That residue is real and unhandled; at four births it is not
         // worth a heavier scheme, and `births` is printed beside the
         // histogram so a reader can see when it stops being negligible.
-        for &band in ant_band.values() {
+        for &(band, roof) in ant_band.values() {
             row.range_live[band] += 1;
+            row.shelter_live[roof] += 1;
         }
-        for (key, band) in &prev_band {
+        for (key, &(band, roof)) in &prev_band {
             if !ant_band.contains_key(key) {
-                row.range_died[*band] += 1;
+                row.range_died[band] += 1;
+                row.shelter_died[roof] += 1;
             }
         }
         prev_band = ant_band;
@@ -1110,12 +1181,17 @@ fn range(frames: usize, every: usize, seeds: u64, over: Overrides) {
     for (label, beetles) in [("no predator", 0usize), ("beetles", BEETLES)] {
         let mut live = [0u64; RANGE_BANDS];
         let mut died = [0u64; RANGE_BANDS];
+        let (mut s_live, mut s_died) = ([0u64; 2], [0u64; 2]);
         let (mut deaths, mut injuries, mut prey_grabs, mut births) = (0u64, 0u64, 0u64, 0u64);
         for s in 0..seeds {
             let r = run(SEED_BASE + s, frames, every, beetles, Paint::None, over);
             for i in 0..RANGE_BANDS {
                 live[i] += r.range_live[i];
                 died[i] += r.range_died[i];
+            }
+            for i in 0..2 {
+                s_live[i] += r.shelter_live[i];
+                s_died[i] += r.shelter_died[i];
             }
             deaths += r.deaths;
             injuries += r.injuries;
@@ -1142,7 +1218,20 @@ fn range(frames: usize, every: usize, seeds: u64, over: Overrides) {
             let lift = if l > 0.0 { format!("{:>8.2}", d / l) } else { "      --".to_string() };
             println!("  {edge:>10} {:>8.1}% {:>8.1}% {lift}", l * 100.0, d * 100.0);
         }
-        println!("  totals: {} ant-samples, {} disappearances\n", live.iter().sum::<u64>(), died.iter().sum::<u64>());
+        println!("  totals: {} ant-samples, {} disappearances", live.iter().sum::<u64>(), died.iter().sum::<u64>());
+        // **Shelter, on the same census.** A roofed row whose lift is below
+        // the open row's is a survival gradient an animal could be selected
+        // along; two rows at 1.00 mean the refuge the engine already has is
+        // one no ant is ever in a position to use, which selects exactly as
+        // much as no refuge at all.
+        let (slt, sdt) = (s_live.iter().sum::<u64>().max(1) as f64, s_died.iter().sum::<u64>().max(1) as f64);
+        println!("  {:>10} {:>9} {:>9} {:>8}", "shelter", "live%", "died%", "lift");
+        for (i, name) in ["in the open", "roofed"].iter().enumerate() {
+            let (l, d) = (s_live[i] as f64 / slt, s_died[i] as f64 / sdt);
+            let lift = if l > 0.0 { format!("{:>8.2}", d / l) } else { "      --".to_string() };
+            println!("  {name:>10} {:>8.1}% {:>8.1}% {lift}", l * 100.0, d * 100.0);
+        }
+        println!();
     }
 }
 
