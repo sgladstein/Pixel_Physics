@@ -3371,15 +3371,27 @@ impl World {
         self.paint_field(cx, cy, radius, |c| c.light += amount);
     }
 
-    /// Lower moisture in a filled circle, floored at zero — architecture
-    /// §5g, a root's own write to the channel it reads. `apply_moisture_
-    /// sources` will re-force this back up next step if the drained cell
-    /// still contains a `Liquid` CA cell (a body of water big enough that
-    /// one root's sip is noise against it), so this only actually matters —
-    /// which is the point — where a root has drained the *local* water
-    /// faster than the source can replenish it, e.g. a small puddle a root
-    /// is draining cell by cell. That's the resource-competition signal a
-    /// neighbouring root's own `moisture_pull` read is meant to notice.
+    /// Lower **air humidity** in a filled circle, floored at zero — the
+    /// mirror of [`Self::add_moisture`], which is what rain writes.
+    ///
+    /// **Roots no longer call this, and the reason is worth keeping**
+    /// (`Reports/evolution-lab-gui-physics-2026-08-30.md` §6a). This doc
+    /// used to describe it as *"a root's own write to the channel it
+    /// reads"*, and both halves of that were the bug: a root does not
+    /// drink air, and `organism::moisture_pull` does not read this channel
+    /// any more — it reads per-cell soil water, which is the thing a root
+    /// actually takes up. `plant::absorb_water` wrote here on every drink,
+    /// which painted a `FIELD_SCALE`-wide block of humidity dry to
+    /// represent water leaving one soil cell; the owner saw it as a dry
+    /// band drifting sideways across the top of his soil and blocking
+    /// germination. The drink is a per-cell `aux` write now, and humidity
+    /// over drying ground falls out of `field::apply_moisture_sources`,
+    /// which recomputes it from the CA grid every frame.
+    ///
+    /// Still the right call for anything that genuinely dries *air* — and
+    /// `plant::transpire` passes a negative amount to vent humidity
+    /// upward, which is not the same as [`Self::add_moisture`]: that one
+    /// caps at `1.0`, this one has no ceiling below `MAX_MOISTURE`.
     pub fn deplete_moisture(&mut self, cx: i32, cy: i32, radius: i32, amount: f32) {
         self.paint_field(cx, cy, radius, |c| c.moisture = (c.moisture - amount).max(0.0));
     }

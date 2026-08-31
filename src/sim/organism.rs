@@ -5173,22 +5173,77 @@ pub fn wind_lean_dir(world: &World, x: f32, y: f32) -> (f32, f32) {
     }
 }
 
-/// Direction and magnitude of the moisture gradient at `(x, y)` -- ported
-/// unchanged from `plant.rs`'s own `moisture_pull` (the MIZ1 gravitropism-
-/// vs-hydrotropism antagonism's own gradient read). `None` when the
-/// gradient is flat -- open dry ground with no nearby source, or a spot
-/// exactly balanced between two sources -- which `Grow`'s `RootTip`
-/// dispatch falls through to plain gravitropism for, same as before.
-const MOISTURE_SENSOR_OFFSET: f32 = 4.0;
+/// The water actually in the ground at `(x, y)`, `0.0..=1.0` — **the
+/// quantity a root grows toward**, and deliberately not the one this
+/// function used to read.
+///
+/// `Reports/evolution-lab-gui-physics-2026-08-30.md` §6a: there are two
+/// moisture quantities in this engine and they are not interchangeable.
+/// Soil water is per cell, in `Cell::aux`, and is what a root drinks.
+/// **Field moisture is one value per `FIELD_SCALE` block and is air
+/// humidity** — and `field::step_diffusion` skips blocked blocks outright,
+/// so *below the surface that channel carries no gradient at all*. A root
+/// tip twenty rows down asked "which way is wetter" and got nothing.
+///
+/// **Raw store, not `update::plant_available_fraction`, and the difference
+/// decides the two cases that matter.** Plant-available water clamps flat
+/// at both ends of its band — exactly zero at or below the wilting point,
+/// exactly one at or above field capacity. That is right for *drinking*
+/// (`absorb_water` still uses it: water below the wilting point genuinely
+/// cannot be taken up) and wrong for *steering*, because it deletes the
+/// gradient in the two places a root most needs one. In dust, every cell
+/// reads 0 and a root cannot tell which way the damp is. And the lab bed
+/// is built at exactly `SOIL_FIELD_CAPACITY`, the top of the band, so
+/// water the owner paints in with the brush — saturating soil to 1,000 —
+/// would read identical to unwatered ground and pull nothing. Sensing
+/// water it cannot yet drink is also the biology: hydrotropism guides
+/// growth, the wilting point limits uptake.
+///
+/// A `Liquid` reads its fill on the same 0..1,000 scale, so a pond is the
+/// wettest thing there is. **`aux == 0` on a `Liquid` means FULL**, which
+/// is why this goes through `update::liquid_fill` rather than touching
+/// `aux` — `CLAUDE.md` lists getting that backwards first among its
+/// gotchas. Anything that holds no water — stone, air, a seed — reads a
+/// true `0.0`, so a root at the edge of an ant gallery is pulled back into
+/// the soil rather than out into the void.
+fn soil_water_fraction(world: &World, x: i32, y: i32) -> f32 {
+    let cell = world.get(x, y);
+    if world.materials.kind(cell.material) == MaterialKind::Liquid {
+        return crate::sim::update::liquid_fill(cell) as f32 / crate::sim::material::LIQUID_FULL as f32;
+    }
+    if world.materials.get(cell.material).water_capacity == 0 {
+        return 0.0;
+    }
+    crate::sim::update::soil_moisture(cell) as f32 / crate::sim::material::SOIL_SATURATED as f32
+}
+
+/// Direction and magnitude of the **soil water** gradient at `(x, y)` --
+/// the MIZ1 gravitropism-vs-hydrotropism antagonism's own gradient read.
+/// `None` when the gradient is flat -- uniform ground with no nearby
+/// source, or a spot exactly balanced between two -- which `Grow`'s
+/// `RootTip` dispatch falls through to plain gravitropism for.
+///
+/// **Reads per cell, not the coarse field.** See `soil_water_fraction`;
+/// this was the fifth occurrence of the coarse-field trap `CLAUDE.md`
+/// records, and the owner found it by eye from a screenshot.
+///
+/// The offset stays 4, and it means something different now. It was 4 to
+/// straddle a `FIELD_SCALE` block boundary, because two samples inside one
+/// block read the identical value and their difference is a constant zero
+/// -- the trap itself. Per-cell data has no block to straddle, so 4 is
+/// now simply **how far off-axis a root can smell water**, which is what
+/// the number should have been measuring all along.
+const MOISTURE_SENSOR_OFFSET: i32 = 4;
 pub fn moisture_pull(world: &World, x: f32, y: f32) -> Option<((f32, f32), f32)> {
-    let gx = world.field_at_bilinear(x + MOISTURE_SENSOR_OFFSET, y).moisture - world.field_at_bilinear(x - MOISTURE_SENSOR_OFFSET, y).moisture;
-    let gy = world.field_at_bilinear(x, y + MOISTURE_SENSOR_OFFSET).moisture - world.field_at_bilinear(x, y - MOISTURE_SENSOR_OFFSET).moisture;
+    let (cx, cy) = (x.round() as i32, y.round() as i32);
+    const O: i32 = MOISTURE_SENSOR_OFFSET;
+    let gx = soil_water_fraction(world, cx + O, cy) - soil_water_fraction(world, cx - O, cy);
+    let gy = soil_water_fraction(world, cx, cy + O) - soil_water_fraction(world, cx, cy - O);
     let magnitude = (gx * gx + gy * gy).sqrt();
     if magnitude <= f32::EPSILON {
         return None;
     }
-    let len = magnitude;
-    Some(((gx / len, gy / len), magnitude))
+    Some(((gx / magnitude, gy / magnitude), magnitude))
 }
 
 #[cfg(test)]

@@ -780,7 +780,7 @@ fn lay_out(state: &BarState<'_>, pad: i32, gap: i32) -> Bar {
         latched: state.overlay != "OFF",
         icon: None,
         ratio: None,
-        note: "FALSE-COLOUR THE INVISIBLE CHANNELS: PRESSURE, TEMPERATURE, LIGHT, MOISTURE, AND THE TWO PHEROMONES. PHEROMONE IS THE ONE TO WATCH -- IT IS AT FULL CELL RESOLUTION AND IT IS THE COLONY'S OWN MAP OF ITSELF, SO YOU SEE THE TRAIL BEFORE YOU SEE THE ANT.".to_string(),
+        note: "FALSE-COLOUR THE INVISIBLE CHANNELS: PRESSURE, TEMPERATURE, LIGHT, AIR HUMIDITY, AND THE TWO PHEROMONES. AIR HUMIDITY IS THE AIR, NOT THE GROUND -- SOIL WATER IS AN ORGANISM OVERLAY AND IT IS THE ONE A ROOT DRINKS. PHEROMONE IS THE ONE TO WATCH -- IT IS AT FULL CELL RESOLUTION AND IT IS THE COLONY'S OWN MAP OF ITSELF, SO YOU SEE THE TRAIL BEFORE YOU SEE THE ANT.".to_string(),
     };
 
     // **The numbers behind all of the above.** On row 0 rather than with the
@@ -862,7 +862,7 @@ fn species_face_px() -> i32 {
 /// the same failure it prevents: a control that changes width when you use it
 /// is a control you miss on the second press.
 fn overlay_face_px() -> i32 {
-    ["OFF", "PRESSURE", "TEMPERATURE", "LIGHT", "MOISTURE", "PHEROMONE A", "PHEROMONE B"]
+    ["OFF", "PRESSURE", "TEMPERATURE", "LIGHT", "AIR HUMIDITY", "PHEROMONE A", "PHEROMONE B"]
         .iter()
         .map(|n| hud::text_width(n))
         .max()
