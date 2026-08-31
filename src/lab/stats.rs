@@ -224,7 +224,14 @@ impl BreedMargin {
 /// forest as population would be the "ask what your number counts" failure
 /// in its purest form). This page is the other decision: the box *is* a
 /// biosphere, so the split is carried rather than one side dropped.
-#[derive(Clone, Debug)]
+/// `Default` is the all-zero census — a box nothing has happened in.
+///
+/// Derived rather than hand-written so a field added later starts at zero
+/// instead of silently keeping whatever a hand-written impl last knew about.
+/// It exists for tests that need a census-shaped value without a world to
+/// take one from; nothing in the running game constructs one this way, and
+/// `take_census` remains the only path that produces a *real* one.
+#[derive(Clone, Debug, Default)]
 pub struct Census {
     pub frame: u64,
     pub plants: usize,

@@ -418,6 +418,11 @@ pub enum Action {
     ChamberRebuild(usize),
     /// Throw away every chamber and record except the one on screen.
     ChamberClear,
+    /// Sort the rack on one column. Clicking the column already sorted
+    /// reverses it; there is no third state, because a click that cycled
+    /// through *unsorted* would take two more clicks to get back to the
+    /// order you wanted.
+    ChamberSort(usize),
     /// Run a rack of copies of the box on screen, headless, in the
     /// background.
     BatchRun,
@@ -1467,6 +1472,12 @@ pub struct Ui {
     /// First visible row. A batch makes fifty chambers and the page shows
     /// twelve.
     rack_scroll: usize,
+    /// Which column the rack is sorted on, and whether it is descending.
+    ///
+    /// `None` is rack order — the order chambers were made, which is the only
+    /// order that carries no opinion. A batch of fifty is read by sorting it;
+    /// a rack of three is read as it stands.
+    rack_sort: Option<(usize, bool)>,
     shelf_box: Option<Rect>,
 }
 
@@ -1684,6 +1695,23 @@ impl Ui {
             .or_else(|| self.shelf_bar.hit(x, y))
             .or_else(|| self.rack_bar.hit(x, y))
             .or_else(|| self.tabs.hit(x, y))
+    }
+
+    /// Sort the rack on a column, or reverse it if it is already the one.
+    ///
+    /// **Descending first.** Every column here is a "how much" — plants,
+    /// animals, generations, seeds — and the row worth looking at after a
+    /// batch is the biggest one, so one click puts it at the top rather than
+    /// at the bottom of fifty.
+    pub fn sort_chambers(&mut self, col: usize) {
+        self.rack_sort = match self.rack_sort {
+            Some((c, desc)) if c == col => Some((c, !desc)),
+            _ => Some((col, true)),
+        };
+        // A sort moves rows under the cursor, so the scroll goes back to the
+        // top: staying at row 30 of a list that has just been reordered shows
+        // you a window you did not choose.
+        self.rack_scroll = 0;
     }
 
     /// Highlight one row of the rack page.
@@ -2551,21 +2579,71 @@ impl Ui {
         // looking at the first render rather than by any test.
         let mut y = rect.y + PAGE_HEADER;
         let col = rack_col_x();
-        for (i, (head, _)) in RACK_COLS.iter().enumerate() {
-            let tint = match i {
-                2 => GOOD,
-                3 => FAIR,
-                _ => FAINT,
+        for (i, (head, widest)) in RACK_COLS.iter().enumerate() {
+            let sorted_on = self.rack_sort.map(|(c, _)| c) == Some(i);
+            let tint = if sorted_on {
+                TITLE
+            } else {
+                match i {
+                    2 => GOOD,
+                    3 => FAIR,
+                    _ => FAINT,
+                }
             };
-            text(frame, left + col[i], y, head, tint);
+            // The arrow is drawn *after* the heading rather than in place of
+            // a character of it, so a sorted column's name stays readable.
+            let label = match self.rack_sort {
+                Some((c, desc)) if c == i => format!("{head}{}", if desc { "\\" } else { "/" }),
+                _ => (*head).to_string(),
+            };
+            text(frame, left + col[i], y, &label, tint);
+            // The whole column width is the target: a three-character heading
+            // is not something a person can reliably hit.
+            widgets.push(Widget {
+                rect: Rect { x: left + col[i] - 2, y: y - 2, w: hud::text_width(widest) + 4, h: RACK_HEAD },
+                line1: String::new(),
+                line2: String::new(),
+                action: Some(Action::ChamberSort(i)),
+                latched: false,
+                icon: None,
+                ratio: None,
+                note: String::new(),
+            });
         }
         y += RACK_HEAD;
+
+        // **Sorted into a display order, never reordered in place.** A row
+        // carries its own `index`, and every verb below is aimed with that
+        // rather than with the position it happens to be drawn at — sorting a
+        // list and then acting on screen positions is how a click ends up
+        // opening the wrong chamber.
+        let mut order: Vec<&super::ChamberSummary> = chambers.iter().collect();
+        if let Some((c, desc)) = self.rack_sort {
+            order.sort_by(|a, b| {
+                let key = |r: &super::ChamberSummary| -> i64 {
+                    let Some(n) = r.census.as_ref() else { return -1 };
+                    match c {
+                        0 => r.seed as i64,
+                        1 => r.frame as i64,
+                        2 => n.plants as i64,
+                        3 => n.animals as i64,
+                        4 => n.plant_generation as i64,
+                        _ => n.seeds_borne as i64,
+                    }
+                };
+                // Tie broken on `index`, so the order is total and a redraw
+                // cannot shuffle equal rows under the cursor.
+                let ord = key(a).cmp(&key(b)).then(a.index.cmp(&b.index));
+                if desc { ord.reverse() } else { ord }
+            });
+        }
         for x in rect.x + 1..rect.right() - 1 {
             render::put(frame, W, H, x, y - 2, DIVIDER);
         }
 
         // ---- the rows.
-        for (row, ch) in chambers.iter().enumerate().skip(self.rack_scroll).take(shown) {
+        for ch in order.iter().skip(self.rack_scroll).take(shown) {
+            let row = ch.index;
             let selected = self.rack_selected == Some(row);
             let band = Rect { x: rect.x + 1, y, w: rect.w - 2, h: RACK_ROW };
             // **Before the text, not after.** A hover fill painted over the
@@ -3575,6 +3653,56 @@ mod tests {
                 census: None,
             })
             .collect()
+    }
+
+    /// **A sort reorders what is drawn and must not re-aim what is clicked.**
+    ///
+    /// The bug this is named for was one line from shipping: the row loop
+    /// aimed its verbs with the loop's own position, which equals the
+    /// chamber's index right up until a sort moves a row. After that, clicking
+    /// the top row opens whichever chamber happens to be *first in the rack*
+    /// — so the more useful the sort, the more wrong the click.
+    ///
+    /// Built so the two orders genuinely differ: seeds ascend with the index
+    /// and plant counts descend against it, so sorting on plants reverses the
+    /// list. A fixture where they agreed would pass with the bug in place.
+    #[test]
+    fn sorting_the_rack_reorders_the_rows_without_re_aiming_the_verbs() {
+        const N: usize = 5;
+        let mut chambers = rack(N);
+        for (i, ch) in chambers.iter_mut().enumerate() {
+            // Descending against the index, so the sorted order is reversed.
+            ch.census = Some(super::super::stats::Census { plants: (N - i) * 10, ..Default::default() });
+        }
+
+        let mut page = Ui::new();
+        let st = state(false, 1);
+        let mut buf = vec![0u8; (W * H * 4) as usize];
+
+        // Column 2 is PLT. Descending puts the *largest* first, which is
+        // chamber 0 here, so sort ascending to actually reverse the list.
+        page.sort_chambers(2);
+        page.sort_chambers(2);
+        assert_eq!(page.rack_sort, Some((2, false)), "a second click on one column reverses it");
+        page.paint_rack(&mut buf, &chambers, None, &st);
+
+        // The rows are bands with no face; their action names the chamber.
+        let aimed: Vec<usize> = page
+            .rack_bar
+            .widgets
+            .iter()
+            .filter(|w| w.line1.is_empty())
+            .filter_map(|w| match w.action {
+                Some(Action::ChamberSelect(i)) => Some(i),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            aimed,
+            vec![4, 3, 2, 1, 0],
+            "ascending on PLT must draw the smallest first AND aim each row at its own chamber; \
+             {aimed:?} in rack order would mean the verbs are aimed at screen positions"
+        );
     }
 
     /// **A rack of one draws no strip, and a rack of two does.**

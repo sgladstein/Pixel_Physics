@@ -1352,6 +1352,7 @@ impl Lab {
                 let said = self.rebuild_record(i);
                 self.ui.say(said);
             }
+            ui::Action::ChamberSort(c) => self.ui.sort_chambers(c),
             ui::Action::ChamberClear => {
                 let said = self.clear_rack();
                 self.ui.say(said);
