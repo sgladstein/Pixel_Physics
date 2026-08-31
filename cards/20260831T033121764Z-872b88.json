@@ -1,0 +1,58 @@
+{
+  "id": "20260831T033121764Z-872b88",
+  "created": "2026-08-31T03:31:21Z",
+  "board": "lab",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/evolution-lab-decay-probe-5f1vxo",
+    "commit": "b0c09ac",
+    "agent": null,
+    "session_id": "5450a5a1-0363-5c6e-adff-7bde35b87eea",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "A third of every dead plant used to stay on the floor for ever",
+  "question": "Now it rots away instead -- but rotting mostly means vanishing, so the box keeps less matter than before. Is that the right trade, or would you rather dead branches stayed as something the world can still use?",
+  "context_md": "**Your question, measured: no, not every part degrades to soil.** Lab bed, eight founders of herb, grown for 9,000 frames, everything killed, then left to rot to a standstill. 12 seeds, all controls green.\n\nOf everything that died: **about 9% reached soil, about 55% rotted away to nothing, and about a third became broken branches that never went anywhere at all.** Broken branches were the one thing a plant leaves that had no way out of the world -- not food, not soil, not fuel for anything but fire. In a sealed box that is worse than a loss: the matter stays, useless, and every die-back adds more. One cull left a crust of it across the whole floor for the rest of the run.\n\n**The magenta is an overlay**, not a colour in the game -- it marks every cell that can never change again, because deadwood and soil are the same brown to the eye at this size. B has no magenta because there is nothing left to mark.\n\n**What the fix does and does not do.** It gives a broken branch somewhere to go: it crumbles to leaf litter, which then rots to ground like any other leaf fall, and is worth eating to an ant for the whole of that middle stretch. **It does not make more soil** -- the return is 9.4% either way. What it changes is that the floor keeps moving instead of silting up.\n\n**The cost is the honest part.** Matter that used to sit on the floor for ever now mostly leaves the world, so the bed ends one cycle very slightly emptier than before. Undisturbed, the bed levels off and creeps back up either way; this only shows after a die-back.\n\n**I did not touch the one-in-twenty rule** that decides how much rot leaves ground behind -- that is your call from August and I would rather expose it as a dial you can turn in the lab than change it behind you.",
+  "kind": "before_after",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A -- now: branches stay for ever",
+      "files": [
+        "20260831T033121764Z-872b88/000-before-mark.png"
+      ],
+      "caption": "the floor after one generation lived and died",
+      "meta": {
+        "of a dead plant, still lying there for ever": "34%",
+        "of a dead plant, that became soil": "9.4%",
+        "cells of permanent debris on the floor": 847,
+        "bed left after the full cycle": "-0.25%",
+        "seeds measured": 12
+      },
+      "focus": null
+    },
+    {
+      "label": "B -- proposed: branches rot too",
+      "files": [
+        "20260831T033121764Z-872b88/001-after-mark.png"
+      ],
+      "caption": "same bed, same seed, same 39,000 frames",
+      "meta": {
+        "of a dead plant, still lying there for ever": "0%",
+        "of a dead plant, that became soil": "9.4%",
+        "cells of permanent debris on the floor": 0,
+        "bed left after the full cycle": "-0.57%",
+        "seeds measured": 12
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
