@@ -1,0 +1,56 @@
+{
+  "id": "20260831T211817263Z-883171",
+  "created": "2026-08-31T21:18:17Z",
+  "board": "lab",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/one-plant-drains-the-bed",
+    "commit": "185582c",
+    "agent": null,
+    "session_id": "5450a5a1-0363-5c6e-adff-7bde35b87eea",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "One plant used to dry the whole bed. Does the ground look right now?",
+  "question": "Left is the box today: a single plant, and the ground drying outward from it along the surface. Right is with the fix. Is a bed that holds its water the behaviour you want in a sealed box -- or should it dry a little, so watering still means something?",
+  "context_md": "Your overlay, same view, 16,000 frames, one plant at the centre column.\n\n**The plant was not drinking it.** Of the water that vanished, the plant took **1,569** and the sun took **283,711** -- 99.4%. What was happening: the humidity that stops evaporation was worked out *from the soil*, so ground that started drying read as drier air, and dried faster. One plant was enough to start it.\n\n**No rain was added.** Vapour now stays in the air under the lid, the way it does in a real terrarium, so the ground stops drying itself. Outdoors nothing changed -- puddles still dry, lakes still don't.",
+  "kind": "before_after",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A -- the box today",
+      "files": [
+        "20260831T211817263Z-883171/000-before.png"
+      ],
+      "caption": "the drying front, spreading left from the plant",
+      "meta": {
+        "water the bed lost": 285280,
+        "of that, the sun took": 283711,
+        "of that, the plant drank": 1569,
+        "driest surface reading (620 = normal)": 253
+      },
+      "focus": null
+    },
+    {
+      "label": "B -- with the fix",
+      "files": [
+        "20260831T211817263Z-883171/001-after.png"
+      ],
+      "caption": "flat at field capacity, and still flat at 60,000 frames",
+      "meta": {
+        "water the bed lost": 2348,
+        "of that, the sun took": 431,
+        "of that, the plant drank": 1917,
+        "driest surface reading (620 = normal)": 619
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
