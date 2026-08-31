@@ -63,7 +63,7 @@ use super::cell::{Cell, AMBIENT_TEMPERATURE};
 use super::chunk::Rect;
 use super::field;
 use super::material::{self, MaterialKind};
-use super::organism::{pack_cell_type, Carried, CellType, Crop, CreatureDef, Flight, ShadeRule, SpeciesId, CREATURE_TRAITS, TRAIT_BIRTH_GRANT, TRAIT_GUT_BIAS, TRAIT_REPRODUCE_AT};
+use super::organism::{pack_cell_type, Carried, CellType, Crop, CreatureDef, Flight, ShadeRule, SpeciesId, Spoil, CREATURE_TRAITS, TRAIT_BIRTH_GRANT, TRAIT_GUT_BIAS, TRAIT_REPRODUCE_AT};
 use super::pheromone::{self, Channel};
 use super::rng;
 use super::scheduler::{ActiveKind, ActiveSite};
@@ -2021,9 +2021,24 @@ fn sense(
         // Falls back to `crop_capacity` of 0 reading 0.0 rather than
         // dividing by zero, so a species that never authored a crop is
         // exactly the boolean's `false`.
-        inputs[I::Carrying as usize] = state.crop.map_or(0.0, |c| {
+        let crop_fill = state.crop.map_or(0.0, |c| {
             if def.crop_capacity > 0.0 { (c.worth() / def.crop_capacity).clamp(0.0, 1.0) } else { 1.0 }
         });
+        // **A mandible full of spoil is carrying something, and this sensor
+        // used to say it was not.** It read the crop alone, so an animal that
+        // had just dug reported empty-handed -- and `ant.ron` authors
+        // `(Carrying, Drop, 0.2)` as the whole of its away-from-nest putting-
+        // down rule, so the gene that decides when to let go of a pellet was
+        // being asked a question about food. Measured on `labnest`: **30-35 of
+        // 52 ants standing laden** at every stop, `digs` 121 against 881, and
+        // the colony reading from outside exactly like one that had lost
+        // interest in digging. It is a sensor telling the truth rather than a
+        // policy: what an animal *does* about a full mandible is still the
+        // `Drop` gene's business, and a lineage is free to evolve either way.
+        //
+        // `max` rather than a sum: this is "how full are your mandibles",
+        // and a pellet fills them however much food is also in the crop.
+        inputs[I::Carrying as usize] = crop_fill.max(state.spoil.map_or(0.0, |_| 1.0));
     }
 
     // **A creature is not crowded by itself**, and it was: this scan
@@ -2687,6 +2702,44 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
         }
     }
 
+    // --- put down the spoil ---------------------------------------------
+    //
+    // **The same verb as the drop above, on the same terms.** Owner, when the
+    // first two versions of this were hand-authored placement rules: *"is this
+    // a problem for you to solve or for the ants to solve. An ant should be
+    // able to hold and carry soil similar to how it holds and carries food."*
+    // So it is: the pellet goes in the first empty neighbour, on a roll
+    // against `drop_urge` -- a brain output, which is to say a *gene* -- times
+    // the same moisture gradient the food drop uses. Nothing here decides
+    // where a colony's tailings ought to end up.
+    //
+    // **And it is the partner the dig rule already had.** Digging rolls
+    // against `dig_urge * (1 - moisture_gradient)` and this against
+    // `drop_urge * moisture_gradient`, so an animal excavates where the
+    // humidity is flat and deposits where it changes -- the stigmergic
+    // building rule the design report asked for, now with something to
+    // deposit. What that produces is a question for the world.
+    //
+    // Two hand-written placement rules were tried first and both are in
+    // `Reports/dead-ends.md`: dropping in the first empty neighbour with
+    // clear sky above (which plugs shafts, because a shaft mouth has clear
+    // sky by definition) and requiring a clearance from the dug cell.
+    if let Some(spoil) = world.organism(organism).and_then(|s| s.spoil) {
+        if draw.unit_f32() < drop_urge {
+            if let Some((px, py)) = NEIGHBOURS_8.iter().map(|&(dx, dy)| (x + dx, y + dy)).find(|&(px, py)| world.is_empty(px, py)) {
+                world.set(px, py, spoil.cell);
+                if let Some(state) = world.organism_mut(organism) {
+                    state.spoil = None;
+                }
+                world.creature_stats.spoil_dumped += 1;
+            }
+        }
+        // Laden either way: a full mandible is a mandible that cannot cut,
+        // which is what makes a burrow grow at the rate the colony can clear
+        // it rather than at the rate a constant sets.
+        return;
+    }
+
     // --- dig --------------------------------------------------------------
     // Reached with nothing edible in reach, or with a crop that cannot yield
     // a whole cell to put down -- which since the crop landed includes a
@@ -2701,14 +2754,62 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
         let (tx, ty) = (x + dx, y + dy);
         let target = world.get(tx, ty);
         if target.material != material::EMPTY && world.materials.get(target.material).penetration_resistance <= def.dig_force {
-            // Spoil is destroyed in v1. Carrying it out is a stage-4+
-            // refinement (worms already eat their tunnels, so there is
-            // precedent) -- noted, not built.
+            // **The spoil is picked up, not destroyed.** This line read
+            // `world.set(tx, ty, Cell::EMPTY)` with a comment calling
+            // carrying it out "a stage-4+ refinement -- noted, not built",
+            // and the owner found what that costs from play: *"when ants dig,
+            // they consume the soil... over time they just consume all the
+            // soil and there is nothing left."* A bed with a colony in it was
+            // a bed running down, and nothing in the box could put material
+            // back.
+            //
+            // It also made a *measurement* backwards, which is the part that
+            // took a day to find and is written up in `dead-ends.md`:
+            // `burrow_probe`'s void census scored the arm with no lining at
+            // 788 standing void against 472 for the arm that actually built
+            // galleries, because every destroyed cell lowered the bank and
+            // erosion counted as excavation.
+            //
+            // The whole `Cell` rides into the pellet -- see `Spoil`, and
+            // `line_burrow` below for the same rule -- so the water the soil
+            // was holding, its palette entry and its heat all come back out
+            // with it.
+            let mut pellet = target;
+            if let Some(packed) = world.materials.get(target.material).packs_into {
+                pellet.material = packed;
+            }
             world.set(tx, ty, Cell::EMPTY);
+            if spoil_kept() {
+                if let Some(state) = world.organism_mut(organism) {
+                    state.spoil = Some(Spoil { cell: pellet });
+                }
+            }
             world.creature_stats.digs += 1;
             line_burrow(world, tx, ty);
         }
     }
+}
+
+/// The ablation switch for hauling, on by default.
+///
+/// `PIXEL_PHYSICS_DIG_SPOIL=destroy` puts the pre-2026-08-31 behaviour back:
+/// a dug cell leaves the world and nothing is carried. It changes **nothing
+/// else** -- ants dig at the same rate, into the same materials, and the
+/// lining is untouched -- which is the shape `CLAUDE.md` prescribes and which
+/// `lining_enabled` beside it already uses: *the control is to hold the
+/// semantic rule fixed, not to add another metric*.
+///
+/// It exists because what this feature changes is a **standing** quantity --
+/// how much ground is left in a bed after a colony has worked it -- and a
+/// standing quantity has no baseline of its own. `burrow_probe` runs the same
+/// binary across this switch, so the two arms differ in one thing rather than
+/// in a rebuild, and the counters that catch an error in the mechanism exist
+/// in both arms.
+///
+/// Read once per process through a `OnceLock`, matching `lining_enabled`.
+fn spoil_kept() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_DIG_SPOIL").as_deref() != Ok("destroy"))
 }
 
 /// **Line the hole just dug** — turn the loose ground around it into the
@@ -4063,6 +4164,42 @@ fn creature_dies(world: &mut World, organism: u16) {
     // the remainder is depends on what it was -- meat that nothing will now
     // eat is `meat_lost`; a half-digested leaf never entered the meat stock
     // and needs no booking at all.
+    // **And the pellet it was hauling, for the same reason and by the same
+    // rule.** `OrganismState::spoil`'s doc names this as one of its two exits
+    // -- the whole point of the mechanism is that ground taken out of a wall
+    // comes back, and an animal that starves mid-haul must not be a way for a
+    // cell to leave the world. Ahead of the crop below, because there is only
+    // ever one of these and it should get the nearest opening.
+    if let (Some(spoil), Some(&(cx, cy))) = (world.organism(organism).and_then(|s| s.spoil), chain.last()) {
+        // **Two rings, not one, and the second is the difference between a
+        // sink and a rounding error.** The corpse loop above has just filled
+        // this animal's own cells, so a death in a tight gallery can have no
+        // free neighbour at all -- measured on a scene that bred 96 ants into
+        // a sealed pocket, 4 pellets of 1,125 digs had nowhere in the eight.
+        // Radius two costs 16 more `is_empty` reads on a path that runs once
+        // per death.
+        let ring2 = (-2i32..=2)
+            .flat_map(|dy| (-2i32..=2).map(move |dx| (dx, dy)))
+            .filter(|&(dx, dy)| dx.abs() == 2 || dy.abs() == 2)
+            .map(|(dx, dy)| (cx + dx, cy + dy));
+        let site = NEIGHBOURS_8.iter().map(|&(dx, dy)| (cx + dx, cy + dy)).chain(ring2).find(|&(px, py)| world.is_empty(px, py));
+        match site {
+            Some((px, py)) => {
+                world.set(px, py, spoil.cell);
+                world.creature_stats.spoil_dumped += 1;
+            }
+            // **Counted rather than silent.** A cell with nowhere to go is
+            // genuinely gone, and this whole mechanism exists because a
+            // material sink nobody could see emptied the owner's bed. The
+            // crop beside it books its remainder into `meat_lost` for the
+            // same reason; there is no material ledger to book this into, so
+            // the counter *is* the book.
+            None => world.creature_stats.spoil_lost += 1,
+        }
+        if let Some(state) = world.organism_mut(organism) {
+            state.spoil = None;
+        }
+    }
     if let (Some(held), Some(&(cx, cy))) = (held, chain.last()) {
         let unit = held.unit_cell(quantise_worth);
         let mut left = held.cells;
@@ -4982,6 +5119,107 @@ mod tests {
         }
         w.plant_ant(x, 100);
         w.get(x, 100).organism_id()
+    }
+
+    /// **Digging moves ground; it does not delete it.**
+    ///
+    /// Owner, from play: *"when ants dig, they consume the soil. this is a
+    /// problem because over time they just consume all the soil and there is
+    /// nothing left."*
+    ///
+    /// The census is **the world plus the mandibles**, which is the whole
+    /// claim: a pellet in flight is still in the world's books, and counting
+    /// only what is standing would call a laden colony a leak. Ground is
+    /// `soil` and `packedsoil` together, because `line_burrow` converts
+    /// between them constantly and either alone moves for a reason that has
+    /// nothing to do with this.
+    ///
+    /// **Three assertions, and the two that are not the headline are what
+    /// keep it honest.** `digs > 0` -- a scene where nothing dug conserves
+    /// ground perfectly and proves nothing, which is exactly how the ablated
+    /// arm of `burrow_probe` came to be read backwards. `spoil_dumped > 0` --
+    /// pellets that are picked up and held for ever also conserve ground, and
+    /// that is a deadlocked colony rather than a working one.
+    ///
+    /// The box is sealed on all four sides: soil is a `Powder`, and a bed
+    /// open at an edge loses cells over the boundary for reasons that are
+    /// not this mechanism.
+    #[test]
+    fn digging_moves_the_ground_rather_than_eating_it() {
+        let mut w = test_world();
+        let soil = w.materials.id_of("soil").expect("soil");
+        let packed = w.materials.id_of("packedsoil").expect("packedsoil");
+        for x in 90..=140 {
+            for y in 96..=101 {
+                w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+            }
+        }
+        // The bank the ant works, and its floor and back wall. Laid *after*
+        // the stone so the soil is what stands in the middle of it.
+        for x in 102..=138 {
+            for y in 88..=95 {
+                w.set(x, y, Cell::new(soil, 0));
+            }
+        }
+        for y in 80..=101 {
+            w.set(90, y, Cell::new(material::STONE, 0).with_attached(true));
+            w.set(140, y, Cell::new(material::STONE, 0).with_attached(true));
+        }
+
+        let species = w.species.id_of("ant").expect("ant species");
+        let def = w.species.get(species).creature.as_ref().expect("creature").clone();
+        w.species.set_genome(
+            species,
+            brain::genome_from_wiring(
+                &[
+                    brain::Instinct(brain::BrainInput::Bias, brain::BrainOutput::Move, 2.0),
+                    brain::Instinct(brain::BrainInput::Bias, brain::BrainOutput::Dig, 3.0),
+                ],
+                &def.hidden_wiring,
+                &def.hidden_outputs,
+                &def.recurrence,
+            ),
+        );
+        w.plant_ant(100, 95);
+        let ant = w.get(100, 95).organism_id();
+        assert_ne!(ant, 0, "the ant was not placed; the scene does not contain the situation this test is about");
+        if let Some(state) = w.organism_mut(ant) {
+            state.energy = 100_000.0;
+        }
+
+        let ground = |w: &World| -> usize {
+            let standing = (0..=199)
+                .flat_map(|y| (0..=199).map(move |x| (x, y)))
+                .filter(|&(x, y)| {
+                    let m = w.get(x, y).material;
+                    m == soil || m == packed
+                })
+                .count();
+            let held = w.live_organism_ids().iter().filter(|&&id| w.organism(id).is_some_and(|s| s.spoil.is_some())).count();
+            standing + held
+        };
+
+        let before = ground(&w);
+        run(&mut w, 4_000);
+        let after = ground(&w);
+        let digs = w.creature_stats.digs;
+        let dumped = w.creature_stats.spoil_dumped;
+        let lost = w.creature_stats.spoil_lost as usize;
+        assert!(digs > 0, "nothing dug, so conservation here would be a statement about an idle ant");
+        assert!(dumped > 0, "digs {digs} and not one pellet put back -- the colony is holding its spoil, not hauling it");
+        // **`spoil_lost` is in the sum rather than asserted to be zero**, and
+        // then bounded separately. It is the one remaining way a cell can
+        // leave -- an animal dying with no free cell within two of its body
+        // -- so an identity that excluded it would be false the first time a
+        // colony died packed together, and one that demanded zero would be a
+        // test of how crowded the scene happened to get. The bound is what
+        // keeps it from becoming the old behaviour by degrees.
+        assert_eq!(
+            after + lost,
+            before,
+            "ground cells {before} -> {after} (+{lost} lost with their carriers) over {digs} digs and {dumped} dumps: digging is still eating the bed"
+        );
+        assert!(lost * 100 < digs as usize, "{lost} of {digs} pellets died with their carrier -- that is a sink, not an edge case");
     }
 
     /// One hungry ant, a bank of soil to its right and a corpse to its

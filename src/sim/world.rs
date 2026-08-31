@@ -231,6 +231,28 @@ pub struct CreatureStats {
     /// every dig firing exactly as before and every wall unlined. `digs`
     /// cannot see that; this reads 0 the moment it happens.
     pub packed: u64,
+    /// **Pellets of spoil actually put back in the world** — the far side of
+    /// `digs` on the conservation question, the way `packed` is on the
+    /// lining question.
+    ///
+    /// Digging takes exactly one cell into the mandibles and this counts the
+    /// ones that came out again, so `digs - spoil_dumped` is what is in
+    /// flight: a small number that rises and falls with how many animals are
+    /// hauling, and never a trend. A drift upward is the failure this pair
+    /// exists to make visible — matter that entered an animal and did not
+    /// leave it — and neither counter alone can see it.
+    pub spoil_dumped: u64,
+    /// **Pellets that died with their carrier and had nowhere to land** —
+    /// cells that genuinely left the world, and the only way one still can
+    /// through this path.
+    ///
+    /// It reads 0 in an open bed and single figures in a crowded one (4 of
+    /// 1,125 digs on a scene that bred a colony into a sealed pocket, where
+    /// the corpse fills every cell around the body). Named rather than
+    /// swallowed because a material sink nobody could see is what this whole
+    /// mechanism was built to remove, and one that is small today is one
+    /// nobody would notice growing.
+    pub spoil_lost: u64,
     pub drops: u64,
     /// Drops that happened at the nest — food actually delivered home.
     /// **The number that proves the loop rather than its parts.**
@@ -2804,6 +2826,7 @@ impl World {
             flight: None,
             energy: 0.0,
             crop: None,
+            spoil: None,
             since_nest: 0,
             forage_anchor: (0, 0),
             forage_max: 0,

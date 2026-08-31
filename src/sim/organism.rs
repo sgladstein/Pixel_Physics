@@ -2863,6 +2863,32 @@ pub struct Crop {
     pub digesting: f32,
 }
 
+/// **What an animal dug out and has not put down yet.**
+///
+/// The whole `Cell`, not just its material, and that is the conservation
+/// claim: the water a soil cell was holding lives in `aux`, its palette entry
+/// in the shade byte, its heat in the temperature — `line_burrow` already
+/// preserves all three when it packs a wall, for the same reason, and writing
+/// a fresh `Cell` on the way back out would read as *dry* ground on a
+/// `Powder` (`CLAUDE.md`'s two-conventions gotcha) and quietly destroy the
+/// moisture a root depends on.
+///
+/// One cell, never a stack. An animal that is already holding one cannot dig
+/// until it has put it down, which is what makes a burrow grow at the rate
+/// the colony can clear it rather than at the rate a constant sets.
+///
+/// **A cell and nothing else.** Two earlier versions carried a dig site and a
+/// patience counter, to drive hand-written rules about where a pellet was
+/// allowed to land; the owner's ruling was that where the tailings go is the
+/// ants' problem and not the author's, so the drop is now the food drop's own
+/// roll (`creature::act`) and neither field has a reader.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct Spoil {
+    /// The cell as it will be written back — already tamped, the way
+    /// `creature::line_burrow` tamps a gallery wall.
+    pub cell: Cell,
+}
+
 impl Crop {
     /// Face value standing in this crop, which is what a meat census prices.
     pub fn worth(&self) -> f32 {
@@ -3348,6 +3374,20 @@ pub struct OrganismState {
     /// cell it wants to move into is the thing it is holding?) for no payoff
     /// at all at the zoom a creature is seen at.
     pub crop: Option<Crop>,
+    /// **A lump of ground in the mandibles**, taken out of the last cell this
+    /// animal dug and looking for somewhere to put it. See [`Spoil`].
+    ///
+    /// **A second store, against the crop's own doc**, which argues that one
+    /// store is right because a second doubles every exit path. That argument
+    /// is about *food* and holds: what is in here is not food, has no worth,
+    /// cannot be digested, is invisible to `carried_meat`, and must not
+    /// consume `crop_capacity` — an ant blind to a flower because it happened
+    /// to be holding dirt would be a foraging bug wearing a conservation fix.
+    /// The exits it costs are named so the next person to add one can find
+    /// them: `creature::act`'s haul step puts it down, and
+    /// `creature::creature_dies` drops it beside the corpse. There is no
+    /// third.
+    pub spoil: Option<Spoil>,
     /// Ticks since this creature last touched nest material.
     ///
     /// **This is how an ant finds its way home without ever asking where
