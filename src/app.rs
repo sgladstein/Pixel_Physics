@@ -104,8 +104,14 @@ struct ColonyCensus {
     /// individual is created with and the scale its hunger rule is written
     /// against.
     energy_axis: f32,
-    /// `start_energy * hunger_fraction` — **the line the brain itself tests**
-    /// (`creature.rs`'s `hungry`), not a display threshold invented here.
+    /// **What this species hands a newborn** — an animal below it has less
+    /// to work with than something just born.
+    ///
+    /// It was `start_energy * hunger_fraction`, the line the brain's own
+    /// `hungry` tested, and **that gate no longer exists**: a crop digests
+    /// at a rate and nothing in the animal compares a bank against a
+    /// threshold any more. The player's question survived the mechanic, so
+    /// the line is derived rather than authored. See where it is computed.
     lean_line: f32,
     hungry: usize,
     /// What one child costs its parent, and the bank an individual has to

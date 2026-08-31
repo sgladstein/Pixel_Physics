@@ -28,6 +28,7 @@ fn main() {
     let mut out = "labui.png".to_string();
     let mut split = false;
     let mut only: Option<String> = None;
+    let mut chambers = 1usize;
     for arg in std::env::args().skip(1) {
         match arg.split_once('=') {
             Some(("frames", v)) => frames = v.parse().expect("frames=N"),
@@ -39,6 +40,13 @@ fn main() {
             // read this row". `only=` picks the tiles whose title contains it.
             Some(("split", v)) => split = v == "1",
             Some(("only", v)) => only = Some(v.to_string()),
+            // **How many chambers the rack holds.** The tab strip is bar
+            // chrome and is not drawn below two chambers, so a sheet taken at
+            // the default 1 photographs a lab that has no tabs — which is a
+            // picture of the wrong thing when the tabs are the question.
+            // The strip's placement was chosen off this harness's own
+            // output (owner, 2026-08-31).
+            Some(("chambers", v)) => chambers = v.parse().expect("chambers=N"),
             _ => eprintln!("ignoring unknown argument {arg:?}"),
         }
     }
@@ -53,6 +61,13 @@ fn main() {
 
     let mut lab = Lab::new(LabBox::default());
     lab.show_help = false;
+    // Reseeded, never copied. At the same seed every draw in the engine is a
+    // pure function of `(world.seed, identity, position)`, so a rack of
+    // unseeded duplicates is one world wearing many labels — and a sheet of
+    // it would show five tabs over five identical beds.
+    for _ in 1..chambers {
+        lab.duplicate_active(true);
+    }
     // **Start it before warming it.** A fresh lab is paused and `advance`
     // then runs no ticks at all, so warming a paused box grows nothing and
     // every page draws the numbers of a bed that has been standing still —
@@ -126,6 +141,53 @@ fn main() {
     }
     if let Some(open) = lab.ui.panel {
         let at = centre(&lab, Action::Panel(open));
+        click(&mut lab, at);
+    }
+
+    // 6b. The rack, and the rack with a row picked -- which is the half that
+    // carries the picture. Skipped on a one-chamber lab, where there is no
+    // strip to click and nothing to compare.
+    if lab.chamber_count() > 1 {
+        let at = centre(&lab, Action::Panel(Panel::Chambers));
+        click(&mut lab, at);
+        fired.push(format!("click opened THE RACK: {}", lab.ui.panel == Some(Panel::Chambers)));
+        tiles.push(("PAGE: THE RACK".into(), shot(&mut lab)));
+
+        let pick = lab.chamber_count() - 1;
+        let at = centre(&lab, Action::ChamberSelect(pick));
+        click(&mut lab, at);
+        // The counter beside the picture: an image says a row is highlighted,
+        // only this says the still was actually taken.
+        fired.push(format!(
+            "picked chamber {}: selected {:?}, picture taken: {}",
+            pick + 1,
+            lab.ui.selected_chamber(),
+            lab.ui.selected_chamber() == Some(pick)
+        ));
+        lab.set_cursor(None);
+        tiles.push(("RACK: A ROW PICKED".into(), shot(&mut lab)));
+        // The rack's own verb, with copies actually in flight -- a progress
+        // row with nothing behind it is the picture that reads as working
+        // whether or not it is. The page is still open from the tile above;
+        // clicking it again here would shut it, and the click that followed
+        // would still fire off the retained layout, which is how the first
+        // attempt produced a toast over a closed page.
+        lab.batch_spec.replicates = 6;
+        lab.batch_spec.frames = 4000;
+        let at = centre(&lab, Action::BatchRun);
+        click(&mut lab, at);
+        for _ in 0..40 {
+            lab.advance(std::time::Duration::from_millis(16));
+            std::thread::sleep(std::time::Duration::from_millis(40));
+        }
+        let p = lab.batch.as_ref().map(|b| b.progress());
+        fired.push(format!("batch running: {:?}", p.map(|p| (p.finished, p.total))));
+        lab.set_cursor(None);
+        tiles.push(("RACK: COPIES RUNNING".into(), shot(&mut lab)));
+        if let Some(b) = &lab.batch {
+            b.cancel();
+        }
+        let at = centre(&lab, Action::Panel(Panel::Chambers));
         click(&mut lab, at);
     }
 
