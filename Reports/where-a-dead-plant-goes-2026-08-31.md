@@ -206,9 +206,22 @@ dead end the obvious version walks into.
 
 Every figure from `examples/labmass` at `grow=9000 rot=30000` (§3a's
 convergence run at `rot=66000`), `RAYON_NUM_THREADS=4` pinned. All of it
-re-run after merging `main` in, which had moved `plant.rs` and
-`organism.rs` underneath it: the fate table is unchanged to the tenth of a
-percent. Twelve seeds for the fate table, one paired seed for §3a with a
+re-run after merging `main` in, twice — the second time carrying **"roots
+drink soil, not air"** (#185), which is the change most likely to move these
+numbers, since it is what decides how deep a root system goes and roots are
+the ledger's only sink on the mineral bed.
+
+It does not move them. Four seeds on the merged tree, `rot=30000`, with
+`deadwood`'s decay taken back out to reproduce the "before" state:
+
+| | reached soil | locked | rotted to nothing |
+|---|---|---|---|
+| original 12 seeds | 7.1–14.3% | 30.1–38.9% | 49.0–58.8% |
+| after #185, 4 seeds | 7.4–9.6% | 31.5–37.2% | 50.6–60.0% |
+
+The post-fix arm on the same tree reads 10.0–13.1% to soil, 0.0% locked, and
+every control green. Recorded rather than assumed, because a fate table
+measured before a root change is a table about a tree nobody has. Twelve seeds for the fate table, one paired seed for §3a with a
 separate release build either side of the change and the two logs diffed to
 prove the binary moved (`CLAUDE.md`'s stale-example gotcha). §4 is one seed at
 120,000 frames. Guards: `decay::tests::deadwood_rots_into_litter_instead_of_
