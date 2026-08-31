@@ -529,6 +529,8 @@ fn box_rows(world: &World, spec: &LabBox, out: &mut Vec<Param>) {
         "HOW MANY PLANTS THE BOX IS STOCKED WITH WHEN IT IS BUILT. THE BINARY OPENS AT ZERO ON PURPOSE -- THE BOX STARTS WITH NOTHING AND YOU STOCK IT -- SO RAISE THIS ONLY IF YOU WANT A REBUILD TO HAND YOU A STAND. TAKES EFFECT ON REBUILD.");
     bed("colonies", spec.colonies as f32, span(0.0, 8.0, 1.0),
         "HOW MANY ANT COLONIES A REBUILD RELEASES, ONE PER COMPARTMENT AT MOST. TAKES EFFECT ON REBUILD.");
+    bed("predators", spec.predators as f32, span(0.0, 8.0, 1.0),
+        "HOW MANY BEETLES A REBUILD RELEASES, SPREAD THE SAME WAY THE COLONIES ARE. ZERO BY DEFAULT, BECAUSE A PREDATOR IS THE ONE STOCKING CHOICE THAT CAN EMPTY A BOX. WHAT IT IS FOR IS A PAIR: TWO CHAMBERS ON THE SAME SEED, THIS AT 0 AND AT 4, IS AN EXPERIMENT -- ONE CHAMBER ON ITS OWN IS A STORY. IF A STOCKED BED SIMPLY EMPTIES, RAISE COMPARTMENTS BEFORE BLAMING THE BEETLE: A PREDATOR AND ITS PREY IN ONE SEALED BOX WITH NOWHERE TO HIDE GO EXTINCT IN THEORY AS WELL AS HERE. TAKES EFFECT ON REBUILD.");
     bed("seed", spec.seed as f32, span(0.0, 999.0, 1.0),
         "THE NUMBER THIS BOX IS BUILT FROM. THE SAME SEED AND THE SAME BUILD REBUILD THE SAME BOX EXACTLY, WHICH IS WHAT LETS YOU CHANGE ONE PARAMETER AND COMPARE TWO RUNS RATHER THAN TWO WORLDS. TAKES EFFECT ON REBUILD.");
 }
@@ -666,6 +668,7 @@ pub fn write_bed(spec: &mut LabBox, field: &str, value: f32) -> bool {
         "compartments" => spec.compartments = v as usize,
         "founders" => spec.founders = v as usize,
         "colonies" => spec.colonies = v as usize,
+        "predators" => spec.predators = v as usize,
         "seed" => spec.seed = v as u64,
         _ => return false,
     }
@@ -686,6 +689,7 @@ pub fn read_bed(spec: &LabBox, field: &str) -> Option<f32> {
         "compartments" => spec.compartments as f32,
         "founders" => spec.founders as f32,
         "colonies" => spec.colonies as f32,
+        "predators" => spec.predators as f32,
         "seed" => spec.seed as f32,
         _ => return None,
     })

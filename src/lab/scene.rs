@@ -73,6 +73,29 @@ pub struct LabBox {
     pub species: String,
     /// Ant colonies to found, spread across the bed.
     pub colonies: usize,
+    /// **Beetles to release, spread across the bed the same way.**
+    ///
+    /// Zero by default, and that is not timidity: a predator is the one
+    /// stocking choice that can empty a box, so a bed you did not ask to be
+    /// hunted is not hunted. Raising it is the whole point of the knob.
+    ///
+    /// **What it is for is a paired comparison, not a garnish.** Measured
+    /// 2026-08-31 on the outdoor world (`predation_probe mode=range`, twelve
+    /// seeds): the survival advantage of a cell no beetle body fits into is
+    /// about 2.8x *with no predator in the world at all*, and roughly 2.1x
+    /// with nine — so predation is not what makes shelter valuable there,
+    /// and the two shelter measures could not even agree on the sign of the
+    /// beetle term. Whether that holds in a sealed bed, where the prey
+    /// cannot walk away and the soil is deep enough to dig into, is a
+    /// different question and this is the knob that asks it. Two chambers,
+    /// same seed, this at 0 and at 4, is the experiment.
+    ///
+    /// **Gause's caveat applies and the box already has the answer to it.**
+    /// A predator and its prey in one homogeneous sealed container is the
+    /// classic extinction result; persistence needs spatial structure, which
+    /// is exactly what `compartments` is. If a stocked bed simply empties,
+    /// raise that before concluding anything about the predator.
+    pub predators: usize,
     /// Columns between grow-light fixtures. A spacing rather than a count so
     /// that a 4096-wide bed is lit like a 512-wide one instead of being lit
     /// eight times more thinly, and so every compartment gets at least one
@@ -183,6 +206,11 @@ impl Default for LabBox {
             founders: 8,
             species: "herb".to_string(),
             colonies: 1,
+            // **Zero, so the shipped bed is bit-identical to the one before
+            // this field existed.** Every measurement anyone has taken in
+            // this box was taken unhunted, and a default of 1 would silently
+            // re-baseline all of them.
+            predators: 0,
             lamp_spacing: 64,
             seed: 1,
         }
@@ -365,6 +393,20 @@ impl LabBox {
     /// Columns the ant colonies are founded at.
     pub fn colony_columns(&self) -> Vec<i32> {
         self.spread(self.colonies)
+    }
+
+    /// Columns the beetles are released at.
+    ///
+    /// **The same `spread` as everything else, and that matters here more
+    /// than it does for founders.** A predator dropped on top of the colony
+    /// it is meant to hunt is measuring its own placement rather than its
+    /// behaviour: `predation_probe` has exactly that confound on record —
+    /// two of its nine beetles start inside the nest band, so its near-nest
+    /// numbers carry a caveat its far ones do not. Round-robin across
+    /// compartments puts a predator in each isolated population instead,
+    /// which is the placement the isolation experiment wants.
+    pub fn predator_columns(&self) -> Vec<i32> {
+        self.spread(self.predators)
     }
 
     /// Columns the grow-light fixtures are bolted at, and how far each one's
@@ -629,7 +671,20 @@ impl LabBox {
         for x in self.colony_columns() {
             ants += w.found_colony(x, self.ground_y - 2);
         }
-        (w, Planted { asked: self.founders, planted, ants })
+        // **Predators last, so they are placed into a bed that already has
+        // its prey and its plants in it.** `plant_creature_seed` refuses a
+        // site its body does not fit, and a 2x2 beetle needs more clearance
+        // than a two-cell ant -- so a refusal here is a real fact about the
+        // bed rather than an ordering artifact, and `Planted::beetles` is
+        // the only place it is visible.
+        let mut beetles = 0usize;
+        for x in self.predator_columns() {
+            if let Some(site) = crate::sim::creature::plant_creature_seed(&mut w, x, self.ground_y - 2, "beetle") {
+                w.schedule_active_site(site);
+                beetles += 1;
+            }
+        }
+        (w, Planted { asked: self.founders, planted, ants, beetles })
     }
 }
 
@@ -641,6 +696,12 @@ pub struct Planted {
     /// Ants actually placed across every colony. `found_colony` refuses a
     /// site with no footing and says so only through this number.
     pub ants: usize,
+    /// Beetles actually released. Below `predators` means the bed refused a
+    /// site — a 2x2 rigid body needs clearance a two-cell chain does not,
+    /// so this can fall short where `ants` did not, and a predation result
+    /// read off a bed with no predator in it is the null wearing a result's
+    /// clothes.
+    pub beetles: usize,
 }
 
 #[cfg(test)]
@@ -1009,5 +1070,49 @@ mod tests {
             "{dirt} rows of dirt against {cement} of visible cement between the surface and the \
              bar. The owner's complaint was that this was 40 against 90"
         );
+    }
+
+    /// **The predator knob places predators, and zero places none.**
+    ///
+    /// The failure this is written against is the one `CLAUDE.md` calls a
+    /// knob with a reader and no writer: a field that parses, stores,
+    /// round-trips through `read_bed`/`write_bed` and draws a dial, while
+    /// nothing downstream ever looks at it. Every readout stays plausible
+    /// and the bed is simply never hunted -- and a predation result read off
+    /// an unhunted bed is a null wearing a result's clothes.
+    ///
+    /// So this asserts the **far side of the call**: beetle cells standing
+    /// in the built world, counted off the material table, rather than the
+    /// `Planted` figure the placer reports about itself.
+    #[test]
+    fn the_predator_knob_puts_beetles_in_the_bed() {
+        let beetle_cells = |w: &World, b: &LabBox| -> usize {
+            let id = w.materials.id_of("beetle").expect("beetle material is compiled in");
+            let mut n = 0;
+            for y in 0..b.height {
+                for x in 0..b.width {
+                    if w.get(x, y).material == id {
+                        n += 1;
+                    }
+                }
+            }
+            n
+        };
+
+        // No plants and no ants: what is varied is the predator and nothing
+        // else, so a difference cannot be something the colony did.
+        let none = LabBox { founders: 0, colonies: 0, predators: 0, ..LabBox::default() };
+        let (w0, p0) = none.build_counted();
+        assert_eq!(p0.beetles, 0, "a bed asked for no predators reported placing some");
+        assert_eq!(beetle_cells(&w0, &none), 0, "a bed asked for no predators has beetle cells standing in it");
+
+        let some = LabBox { predators: 4, ..none.clone() };
+        let (w1, p1) = some.build_counted();
+        assert!(p1.beetles > 0, "predators=4 placed nothing; the knob is stored and never read");
+        // A beetle is a four-cell rigid body, so cells outnumber animals.
+        // Asserting on cells rather than on the count is what makes this the
+        // far side of the placer rather than the placer's own claim.
+        let cells = beetle_cells(&w1, &some);
+        assert!(cells >= p1.beetles, "reported {} beetles but only {cells} beetle cells stand in the world", p1.beetles);
     }
 }

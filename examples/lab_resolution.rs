@@ -98,6 +98,7 @@ fn spec_from_args() -> LabBox {
         soil_depth: arg("soil").unwrap_or(height / 4),
         founders: arg("founders").unwrap_or(8),
         colonies: arg("colonies").unwrap_or(1),
+        predators: arg("predators").unwrap_or(0),
         compartments: arg("walls").unwrap_or(1),
         // Scaled with `width` for the same reason `ground_y` and `soil_depth`
         // are scaled with `height`: a fixture every 128 cells is one fixture
