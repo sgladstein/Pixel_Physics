@@ -1,0 +1,58 @@
+{
+  "id": "20260831T185313518Z-7c2334",
+  "created": "2026-08-31T18:53:13Z",
+  "board": "lab",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/evolution-lab-multiple-chambers-qw1hjz",
+    "commit": "d7c1fdc",
+    "agent": null,
+    "session_id": "3a441651-265c-5f10-ba8c-b584bbef1307",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The rack page: six chambers, and the one you are standing in",
+  "question": "This is the page a batch of fifty gets read through, so the columns are picked for comparing rather than describing. Are these the right six -- what is alive, how deep the generations got, how much has been sown -- or is there something you would sort a rack of fifty by that is not here?",
+  "context_md": "`F4`, or `ALL` at the end of the tab strip. Click a row for its picture; `ENTER` walks into it, `CLOSE` throws it away.\n\n**Read the FRAME column.** Chamber 1 has run 864 ticks and 2-6 are held at 0 -- that is what says the rack is genuinely frozen rather than six copies of one box, which no picture of it could show.\n\n**The dashes are deliberate and are not zeroes.** Those chambers have never been stepped, so their census has never run. A row of zeroes would say *nothing lives here* where the truth is *nobody has looked yet*, and telling a dead box from a fresh one is the whole question a batch is read to answer.\n\nTwo defects came out of looking at the first render rather than out of any test: the columns had no header at all, and the header's `#` drew as a **blank** -- it has no 5x7 glyph. Both fixed, and the second now has a guard that was proven by putting the `#` back.",
+  "kind": "gallery",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "The rack, nothing picked",
+      "files": [
+        "20260831T185313518Z-7c2334/000-rack.png"
+      ],
+      "caption": "six chambers; row 1 is the one on screen",
+      "meta": {
+        "chambers": 6,
+        "frame, chamber 1": 864,
+        "frame, chambers 2-6": 0,
+        "censused chambers": 1,
+        "stills taken": 0
+      },
+      "focus": null
+    },
+    {
+      "label": "A row picked, with its picture",
+      "files": [
+        "20260831T185313518Z-7c2334/001-final.png"
+      ],
+      "caption": "chamber 6 selected -- a fresh bed, never stepped",
+      "meta": {
+        "chambers": 6,
+        "picked": 6,
+        "frame of picked": 0,
+        "stills taken": 1,
+        "still is 1/4 scale": "128x80"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
