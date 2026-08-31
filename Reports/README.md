@@ -821,29 +821,38 @@ drift that two of these documents still reflect.**
 
 - [mechanism-vs-behaviour-audit-2026-08-31.md](mechanism-vs-behaviour-audit-2026-08-31.md)
   — **audit and staged plan, 2026-08-31; nothing built and nothing measured
-  by it.** Where the engine hardcodes a *behaviour* instead of building a
-  *mechanism*, on the owner's line **the mechanism is code, the policy is
-  genome**. Scoped to the evolution lab and read off `943ace17`. Eighteen
-  findings, a ranking, and — the half worth as much — **fourteen things
-  checked and cleared as legitimate substrate**, each with the reason so it
-  is not re-audited. The three that are one story: `creature::moisture_
-  gradient` reads **air humidity** where §T2's larder failure needs soil
-  water (the same bug PR #185 fixed for roots twelve hours earlier, one file
-  over, still open here — and `ascii` records that its own guard passed
-  *harder* with the mechanism deleted, so there is no assertion over it
-  today); `hunger_fraction` is a constant chosen to make foraging appear and
-  is now the bank ceiling blocking reproduction; and **`CREATURE_TRAITS = 2`**
-  — a `CreatureDef` has 25 fields and a child inherits two scalars and a
-  wiring matrix, so body size, dig force, sight range and when to breed are
-  species constants that cannot mutate. The plant genome, by contrast, is
-  **exemplary** and the staging copies it: ten continuous slots, six discrete
-  loci with paired-trade allele tables, heritable fates. Also names two more
-  **unpriced ratchets** of PR #188's shape (digging and pheromone deposition
-  are free), the `Feed` output re-conflating eat with take exactly as it once
-  conflated eat with dig, and the fact that `sight_fraction` is armed in code
-  and **unarmed in `beetle.ron`**, so the ratchet that PR closed is still open
-  for the one animal it applies to. §5 stages it behind Gate 0 and Gate 2;
-  §6 says what it did not cover.
+  by it. Independently reviewed and corrected in eleven places, one of them
+  load-bearing — the corrections are left visible in place.** Where the engine
+  hardcodes a *behaviour* instead of building a *mechanism*, on the owner's
+  line **the mechanism is code, the policy is genome**. Scoped to the evolution
+  lab and read off `943ace17`. **Twenty-one findings**, a ranking, and — the
+  half worth as much — **sixteen things checked and cleared as legitimate
+  substrate**, each with the reason so it is not re-audited. The two that carry
+  it: `hunger_fraction` is a constant chosen to make foraging appear and is now
+  the bank ceiling blocking reproduction (thirteen readers depend on that
+  ceiling, including two of the audit's own instruments and a lib guard that
+  would go on passing while testing nothing); and **`CREATURE_TRAITS = 2`** — a
+  `CreatureDef` has 25 fields and a child inherits two scalars and a wiring
+  matrix, so body size, dig force, sight range and when to breed are species
+  constants that cannot mutate. The plant genome, by contrast, is **exemplary**
+  and the staging copies it: ten continuous slots, six discrete loci with
+  paired-trade allele tables, heritable fates. Also two more **unpriced
+  ratchets** of PR #188's shape (digging and pheromone deposition are free),
+  the `Feed` output re-conflating eat with take exactly as it once conflated
+  eat with dig, `sight_fraction` armed in code and **unarmed in `beetle.ron`**,
+  and — found only in review — **the worm, an entire shipped animal implemented
+  as nine constants and a hand-written branch with no genome at all**.
+
+  **Read §1's F1 and F3 before citing either.** F1 shipped with a defect that
+  is **false** (soil is `Powder`, so the moisture field is not "blocked" there
+  and does carry a soil-water reading; the real defect is the coarse-field
+  trap, and the false sentence was inherited from PR #185's commit message
+  without being checked against `field.rs`). F3's proposed one-line fix is a
+  **recorded dead end** — `dead-ends.md`:1543, *"a floor is not a margin"* —
+  that a truncated grep hid behind a "clear" verdict. Both are corrected in
+  place with the mechanism of the error recorded, which is the more transferable
+  half. §5 stages the work behind Gate 0 and Gate 2; §6 says what it did not
+  cover.
 - [creature-motion-design.md](creature-motion-design.md) — **built
   2026-08-29; all four of §6's calls answered, §7's five guards green.**
   `BrainOutput::Impulse` ships: one verb, and the *body* decides what it

@@ -7,6 +7,16 @@ engine it runs on: `creature.rs`, `brain.rs`, `organism.rs`, `plant.rs`,
 `src/lab/`, `assets/species/*.ron`. The outdoor-only systems are scoped out
 and §6 says which and why.
 
+**Independently reviewed 2026-08-31, and corrected in eleven places — one of
+them load-bearing.** The corrections are left visible in place rather than
+edited away, per `CLAUDE.md`'s standing rule that a revert keeps the
+knowledge. The largest: **F1 shipped with a defect that is false** (soil is
+`Powder`, so the moisture field is not "blocked" there and does carry a
+soil-water reading), **F3's proposed fix is a recorded dead end** that a
+truncated grep hid, and **F8's re-derivation was undercounted 3.5x**. Three
+findings were added that the first pass missed (F19–F21), and one item was
+withdrawn from the cleared list.
+
 **Everything below is read off the source at the commit named, or cited from
 a report that measured it.** Nothing here was measured by this session, and
 where a claim is arithmetic rather than a run it says so. Baseline:
@@ -34,11 +44,19 @@ Two corollaries, both learned expensively and both used as tests below:
 - **Add senses and economies, never behaviours.**
 - **A sense must not pre-categorise what it senses.**
 
-This is not new doctrine. `Reports/design-philosophy.md` §2b already carries
-the owner's own version — *"the outcome is forbidden, not simple rules"* —
-and this audit is that rule applied at the level of *which quantity a rule
-reads and who is allowed to change it*, which is where §2b has not been
-enforced.
+**This extends `Reports/design-philosophy.md` §2b rather than restating it, and
+the difference matters.** §2b forbids the *outcome* — *"the outcome is
+forbidden, not simple rules"* — and **explicitly blesses tuned constants inside
+a mechanism**: *"You may absolutely use a simple, tuned, weighted local rule…
+The test for any new rule: is the resulting shape a side effect of a
+mechanism, or is it curve-fit to look a particular way? The first is always
+fine."* Shape 1 below is materially broader than that: it asks that a tuned
+quantity be a **gene** wherever it is policy, which §2b does not require. The
+owner's 2026-08-31 framing is what authorises the broader standard; §2b is
+not, and an earlier draft of this section borrowed §2b's authority for it.
+Several findings — F12 most clearly, and F2's and F10's thresholds — rest on
+the broader reading and should be weighed as new doctrine rather than as
+enforcement of settled doctrine.
 
 ### The four shapes, as used here
 
@@ -74,10 +92,11 @@ repair to `phototropism_dir`'s codomain sent reproduction to zero.
 
 ## 1. The inventory
 
-Eighteen findings. Each carries its shape, what behaviour cannot currently
-evolve because of it, the mechanism version, and what has to be re-derived
-alongside. The ranking is §4; this section is in mechanism order so that
-related entries sit together.
+Twenty-one findings — eighteen from the first pass, three (F19–F21) added in
+review. Each carries its shape, what behaviour cannot currently evolve because
+of it, the mechanism version, and what has to be re-derived alongside. The
+ranking is §4; this section is in mechanism order so that related entries sit
+together.
 
 ### The one that is four bugs stacked
 
@@ -95,27 +114,41 @@ fn moisture_gradient(world: &World, x: i32, y: i32) -> f32 {
 }
 ```
 
-Four defects, and **each one alone would be a finding**:
+Three defects, and **each one alone would be a finding**.
 
-1. **It reads the wrong quantity.** `field_at_bilinear(..).moisture` is
-   **air humidity**, not soil water — the distinction `e03c7bab` (PR #185,
-   *roots drink soil, not air*) established twelve hours before this audit,
-   after the owner found it by eye from a screenshot. `field::step_diffusion`
-   skips blocked blocks, so **inside soil this channel carries no gradient at
-   all**. The ant's dig bias — which fires only inside ground — is reading a
-   field that is constant there by construction.
-2. **It is a magnitude where the model needs a sign.** The stigmergy model it
+> **Corrected after review.** This entry shipped with a fourth defect that is
+> **false**, and the correction is worth keeping because of how it got here.
+> It read: *"`field::step_diffusion` skips blocked blocks, so inside soil this
+> channel carries no gradient at all."* That is wrong twice. `field.rs:2811`
+> sets `blocked` only for `Solid | Plant`, and **soil is `Powder`**
+> (`assets/materials/soil.ron:8`) — `field.rs:3238` says so in as many words:
+> *"soil is not `Solid`, so it never hit this in the first place."* And
+> `apply_moisture_sources` (`field.rs:2580`) **deliberately does not skip
+> blocked blocks**, forcing the reading up to `soil_moisture(cell) /
+> water_capacity` (`field.rs:2823`). So inside soil the channel *is* a soil-water
+> reading — a coarse, block-resolution, lower-bounded one. The sentence was
+> inherited verbatim from `e03c7bab`'s commit message, which overstates it the
+> same way, and was not checked against `field.rs`. **The plant-side code had
+> already corrected it**: `organism.rs:5316` gives the real reason that read was
+> broken, and it is the coarse-field trap — defect 3 below — not blocking. The
+> audit quoted that very line as its own defect 4 without noticing the two
+> contradicted each other. `CLAUDE.md`'s *a commit message is not evidence the
+> change is in the file*, one step removed: a commit message is not evidence of
+> why it was needed either.
+
+1. **It is a magnitude where the model needs a sign.** The stigmergy model it
    implements (`stigmergy-research.md` §4) says material accumulates at
    convex, *drying* sites. `|grad m|` is large at any boundary and cannot
    tell drying from wetting. This is `open-bugs-handoff.md` **§T2**'s own
    leading hypothesis.
-3. **The coupling is code, not genome.** `drop_urge * gradient` and
+2. **The coupling is code, not genome.** `drop_urge * gradient` and
    `dig_urge * (1 - gradient)` hardcode both the weight (exactly 1.0) and the
    *inversion*. There is no `MoistureGradient` brain input, so no lineage can
    express "I drop where it is wetting" or "I ignore moisture entirely" — the
    two verbs are welded to one channel with opposite signs for every species
    for all time.
-4. **The sensor offset is stale.** `±4` cells was chosen to straddle a
+3. **The sensor offset is stale, and it is the real coarse-field defect.**
+   `±4` cells was chosen to straddle a
    `FIELD_SCALE` block boundary. `FIELD_SCALE` went 8 → 16 in PR #181; the
    offset did not move, so the two samples now sit **half a block apart**.
    Bilinear interpolation is the only thing keeping it from being identically
@@ -129,7 +162,19 @@ Scaling the route-drop product by 0 gives 115 pickups, **13** deliveries,
 blocked on this and on nothing else in the creature economy. The colony
 cannot maintain a larder, so the whole social half of the game is unreachable.
 
-**And there is no guard.** `examples/ascii.rs:2465` already did the vacuity
+**Which half of the code the cost is in, because the two arms differ and the
+first draft conflated them.** `deliveries` increments **only** in the
+`at_nest` arm, which does not multiply by the gradient at all — so the
+gradient never scales a delivery directly. The measured cost comes from
+*route* drops firing too readily **above ground**, where the channel is
+ordinary diffusing air humidity and the term is **saturated**, not flat:
+§T2's own hypothesis says so — *"a soil bed under air is one continuous
+moisture boundary… so `drop_urge x gradient` is near `drop_urge` for the
+whole route."* The "constant by construction" reading applies to the *dig*
+term, which has no measured cost attached to it anywhere in this audit.
+**This reverses the order of the fix** — see the mechanism below.
+
+**And there is no guard.** `examples/ascii.rs:2473` already did the vacuity
 work honestly and records the answer: the old `wet_drops > dry_drops`
 assertion **passed harder with `moisture_gradient` deleted from the drop
 probability entirely** (steep 18/flat 0 broken against steep 6/flat 0
@@ -141,15 +186,26 @@ eighteen drops. So: *what would the guard do if the mechanism were deleted?*
 
 **Mechanism version.** `organism::moisture_pull` is already public, already
 per-cell, and already returns a **direction and a magnitude**
-(`organism.rs:5327`). Three steps, and only the first is required:
+(`organism.rs:5327`). Three steps, **and the order below is corrected from
+this report's first draft, which had the two leading steps the wrong way
+round**:
 
-- Point `creature::moisture_gradient` at `soil_water_fraction` instead of the
-  field. This is a deletion-and-a-call, and it is the same fix PR #185 made
-  one file over.
-- Take the **signed** component. A drop bias wants the gradient *along the
-  surface normal* — material accumulates where water is leaving. `moisture_
-  pull` returns the unit direction; the drop rule wants its dot product with
-  "away from ground", which the head's own footing already knows.
+- **The sign first**, because it is the one that addresses the measurement. A
+  drop bias wants the gradient *along the surface normal* — material
+  accumulates where water is leaving. `moisture_pull` returns the unit
+  direction; the drop rule wants its dot product with "away from ground",
+  which the head's own footing already knows. A signed term is not saturated
+  at a boundary the way a magnitude is, which is exactly what §T2 measured on
+  the route.
+- **Then** point `creature::moisture_gradient` at `soil_water_fraction`.
+  **Do not expect this to move `deliveries` on its own, and do not read PR
+  #185's *"the steering fix carries all of it"* as a precedent — the analogy
+  is inverted.** There the channel was **flat where it was needed** (a root
+  underground); here it is **saturated where it fires** (an ant on the
+  surface), and `soil_water_fraction` returns a true `0.0` for air against
+  `held/SOIL_SATURATED` for soil, so a per-cell read gives an *even sharper*
+  magnitude at the soil/air boundary. It is the right quantity and it is not
+  the fix for §T2.
 - Add `MoistureGradientAlong` as brain input 18 (the layout is
   append-only and reserved — `brain.rs`'s positional law) and let the
   *genome* multiply it into `Drop` and `Dig`, at the ant's currently-implied
@@ -162,8 +218,10 @@ across a 10x sweep and found *where the threshold sits is not carrying the
 behaviour; what the rule reads is*. Take that as a hypothesis to test here,
 not as a result to inherit — the creature rule is a *multiplier* on a
 probability, where the plant rule is a *gate*, and a multiplier's scale reaches
-the outcome directly. Also re-derive: `ant.ron`'s `(Bias, Dig, 0.4)` and
-`(Carrying, Drop, 0.2)`, both tuned against the current near-1.0 multiplier.
+the outcome directly. Also re-derive `(Bias, Dig, ..)` and `(Carrying, Drop, ..)`
+— tuned against the current near-1.0 multiplier and authored in **six species
+files, not one**: `ant`, `ant_long`, `ant_block`, `ant_block_shaded`,
+`ant_wide`, `chitin_pale` (`grep -rn "(Bias, Dig" assets/species/`).
 
 **Dead-ends:** `moisture_gradient` returns **zero** hits. Clear.
 
@@ -211,11 +269,19 @@ The crop capacity is the gene, and it is a **trade** rather than a ratchet
 the moment F5 (hauling cost) is live — which it now is, since PR #188 prices
 `carried_cells` per step. A big crop hauls more and pays for it every step.
 
-**Re-derive, and this is the expensive one.** `hunger_fraction` is read in
-**six** places outside `act`: `app.rs:1153`, `lab/stats.rs:1070` and `:1142`
-(the breed-margin gauge and the larder histogram's hunger line),
-`lab/params.rs:449`/`:477`/`:570` (the panel row), `world.rs:357` (the ceiling
-doc). Every one is a *readout of the ceiling this change deletes*. The
+**Re-derive, and this is the expensive one — the first draft counted six
+readers and there are at least thirteen.** In `src/`: `app.rs:1153`,
+`lab/stats.rs:1070` and `:1142` (the breed-margin gauge and the larder
+histogram's hunger line), `lab/params.rs:449`/`:477`/`:570` (the panel row),
+`world.rs:357` (the ceiling doc). **Plus seven example harnesses** —
+`creature_probe`, `windfall_probe`, `stamp_probe`, `lab_cost`,
+`creature_space`, `filmstrip`, `predation_probe` — two of which are this
+audit's own instruments (`creature_probe`'s reachability line is Stage 2's
+gate; `windfall_probe` runs §T2's reproduction). **Plus a lib guard**,
+`creature.rs:7409`, whose entire assertion is built on `roof =
+hunger_fraction * start_energy + diet_yield(..)`; a crop deletes that roof and
+the guard goes on passing while testing nothing. Every one is a *readout of the
+ceiling this change deletes*. The
 `BreedMargin` calculation — `hunger_fraction * start_energy + best_mouthful`
 against the bar — stops meaning anything and must be re-derived from crop
 capacity and digestion rate, or the lab's own colony page will report a
@@ -250,23 +316,58 @@ the hardcoded outcome. The fix is that **reproduction stops being opt-in**.
 An animal that can pay for a child has one; a species that should not breed
 should be prevented by its *economy*, not by a missing line in a file.
 
-**Mechanism version.** Default `reproduce_threshold` to `birth_cost + 1`
-rather than to 0, which is the floor `reproduce_at` already imposes
-(`creature.rs:1224`) — so the default becomes "as soon as it can afford it"
-instead of "never". A species that genuinely should not breed then has to say
-so, which is the right way round: the exception is authored, not the rule.
+**Mechanism version — and the obvious one is a recorded dead end. Withdrawn
+after review.**
 
-**Re-derive.** `mutation_rate` inherits the same argument and the same
-default question, and it is *not* the same answer — `organism.rs:2173`'s doc
-records that `0.0` is deliberately the **control arm**, the clonal null every
-selected run is read against. So default the threshold and leave the rate,
-and say why in the same commit. Also: `try_bud`'s `births_denied_no_space`
-counter becomes load-bearing the moment a rigid-body beetle starts trying to
-place three-cell children.
+This entry first proposed defaulting `reproduce_threshold` to `birth_cost + 1`,
+the floor `reproduce_at` already imposes, so the default reads "as soon as it
+can afford it" instead of "never". **`dead-ends.md`:1543 is about exactly that
+value**, and its re-test line reads *"Permanent as a shape of error"*:
 
-**Dead-ends:** five hits, all about *tuning the number downward*, which is
-dead (`reproduce_at` floors it, so every setting below the floor resolves
-identically). **None is about the default.** Clear.
+> *"A threshold one point above the grant is an anti-freeloading condition
+> satisfied by arithmetic and not in fact, and it produces a population that
+> explodes and then dies… **12 of 12 seeds breed, 3 of 12 have a single ant
+> alive at the end.** … **A floor is not a margin**, and the failure is
+> invisible in the `births` column — which reads as a spectacular success —
+> and visible only in `live`."*
+
+Two more objections found in review, either of which is on its own sufficient:
+
+- **It violates the field's own stated invariant.** `organism.rs:2102`: the
+  threshold *"must exceed `start_energy`… A threshold below the grant would
+  make every founder breed on its first tick having done nothing."*
+  `birth_cost + 1` has no relation to `start_energy`, and for a lineage whose
+  `TRAIT_BIRTH_GRANT` has drifted to its floor (`grant_fraction(-1) = 0`) it
+  falls to `stamp + 1` — 801 for a beetle against `start_energy: 1600`.
+- **It does not deliver the claimed unlock.** Beetle at shipped traits:
+  `grant = 1600`, `stamp = 200 x 4 = 800`, so the defaulted bar is **2,401**
+  against a bank ceiling of `0.8 x 1600 + one mouthful`. The default alone
+  gives the beetle **no children**. This entry should have run F2's own
+  arithmetic against its own proposal and did not.
+
+**What survives is the finding, not the fix.** Reproduction being opt-in *is*
+shape 2 and the beetle's sterility is real. But the exit is **not** a
+one-line default: it is an authored `reproduce_threshold` for the beetle
+carrying a **margin** over what a newborn is given, derived the way
+`dead-ends.md`:1543's own working arm was (200 against a grant of 80 — an
+animal must earn a whole leaf above its endowment), plus a `mutation_rate`.
+That is a species-file change with a sweep behind it, and its readout is
+**`live`, never `births`** — :1543's last sentence.
+
+**Re-derive.** `mutation_rate` inherits the opt-in argument and is *not* the
+same answer — `organism.rs`'s doc records `0.0` as deliberately the **control
+arm**, the clonal null every selected run is read against. And `try_bud`'s
+`births_denied_no_space` becomes load-bearing the moment a rigid-body beetle
+starts placing four-cell children.
+
+**Dead-ends:** five hits by the narrow grep, and **this entry originally read
+them as "all about tuning the number downward… none is about the default,
+clear". That was wrong, and the mechanism by which it was wrong is worth
+recording**: the grep output was read through a `head` window that cut off
+before :1543. `CLAUDE.md`'s *grepping a prose phrase gives false negatives* has
+a sibling — **a truncated grep gives false negatives that look like a
+complete answer**, and a "clear" verdict is exactly where that is most
+expensive.
 
 #### F4. Digging is free
 
@@ -281,6 +382,13 @@ allele goes to its cap on the first generation and expresses nothing. This
 is the identical failure `idle_cost_per_cell`'s own doc records for body
 size, and that PR #188 closed on two more axes. **It is the third of the
 same shape and it is still open.**
+
+**One qualification, in the code's favour.** `dig_force` is not entirely
+unconstrained today: `beetle.ron`'s own comment records that its `0.3` sits
+*below* soil's `0.8` deliberately, which is what makes a burrow a refuge from
+it. So the lever already carries an ecological consequence in one direction.
+The finding survives — nothing is *charged*, so within the diggable range more
+force is still free — but "more is strictly better" overstates it.
 
 **What it costs.** A burrower and a surface forager cannot trade against each
 other. There is no such thing as a lineage that digs *less* because digging
@@ -309,9 +417,14 @@ or to invert. Pricing is a different mechanism and is untried. Clear.
 
 `src/sim/creature.rs:1682`. **Ratchet.**
 
-`EmitA` and `EmitB` cost nothing. More trail is strictly better, so no
-lineage has any reason to emit less, and the two outputs are ratchets in the
-same sense `sight_range` was before yesterday. A colony cannot evolve toward
+`EmitA` and `EmitB` cost nothing, so no lineage has any reason to emit less
+and both outputs are ratchets in the same sense `sight_range` was before
+yesterday. **One qualification, in the code's favour:** `EmitA` is multiplied
+by `recency`, which decays over `nest_memory` (`creature.rs:1679`), so an ant
+far from home already lays less channel-A trail. That is a *distance* falloff
+and not a price — nothing is charged either way — but it means "more trail is
+strictly better" is not true as written for channel A. It is true as written
+for `EmitB`, which has no such term. A colony cannot evolve toward
 *quiet* — a scout that lays no trail so as not to recruit competitors to a
 poor patch is not a reachable strategy.
 
@@ -351,9 +464,10 @@ counted, so the operand exists.
 
 **Re-derive.** `beetle.ron`'s `start_energy: 1600` and `hunger_fraction: 0.8`
 were both set against a free eye. And `dead-ends.md`:1545 holds
-`(PreyNear, Persist, w)` as *"held rather than rejected"* pending F14 — a
-sight cost lands in the same weighted sum that sweep was measured in, so the
-two must not be changed in one diff.
+`(PreyNear, Persist, w)` as *"held rather than rejected"* pending **§R4 —
+which this report files as F13, not F14; the first draft cited F14 here and in
+F9, and both were wrong.** A sight cost lands in the same weighted sum that
+sweep was measured in, so the two must not be changed in one diff.
 
 #### F7. Budding has no verb
 
@@ -375,9 +489,21 @@ reserved layout: it lights a row that already exists and is already zero, so
 no other slot's weight moves. Author it at `(Bias, Reproduce, +large)` so
 generation zero is bit-identical to the current unconditional fire.
 
-**Re-derive.** Nothing, if authored saturated. The moment it is authored
-below saturation, `reproduce_threshold` stops being the whole bar and
-`lab/stats.rs`'s breed-margin gauge needs the second term.
+**Re-derive — not "nothing", which is what the first draft said.**
+`brain.rs:539` states the cost of a live append directly: *"What it does change
+is `live_slots()` — 268 -> 288 — so `random_genome` draws 20 more values and a
+sampled genome at a given seed is a **different animal** than it was. That is
+the real, unavoidable cost of a live verb."* `live_slots()` is 318 today; an
+**output** append adds `IN + HID` = 22 slots (+6.9%), an **input** append (F1's)
+adds `OUT + HID` = 15 (+4.7%). Since `brain::mutate` iterates `live_slots()` at
+a fixed per-slot rate, **the whole-brain mutation load per generation rises by
+that percentage at unchanged `mutation_rate`** — a shared-budget reallocation,
+which is the thing `CLAUDE.md` says must be named rather than discovered. One
+piece of good news the first draft also omitted: `mutate`'s own doc confirms
+every caller builds a dedicated stream, so the shared-`Rng` draw-shift gotcha
+does **not** apply. And the moment `Reproduce` is authored below saturation,
+`reproduce_threshold` stops being the whole bar and `lab/stats.rs`'s
+breed-margin gauge needs the second term.
 
 **Dead-ends:** zero hits. Clear.
 
@@ -413,14 +539,17 @@ existing slot. `REFERENCE_MOUTHFUL` (`creature.rs:3533`) already exists as
 the normaliser. Zero still means nothing edible in reach, so the input keeps
 its old meaning at the bottom of its range.
 
-**Re-derive.** `ant.ron`'s `(FoodAdjacent, Move, -1.5)`,
-`(FoodAdjacent, Dig, 0.8)`, `(FoodAdjacent, Feed, 0.8)`, and
-`beetle.ron`'s `(FoodAdjacent, Move, -2.0)`, `(FoodAdjacent, Dig, 2.0)`,
-`(FoodAdjacent, Feed, 2.0)` — **six authored weights across two species, all
-calibrated against a term that was 1.0 or 0.0 and will now spend most of its
-time near 0.3.** This is the largest re-derivation in the audit relative to
-the size of the change, and it is exactly the shape that took plant
-reproduction to zero. Do not land it without the sweep.
+**Re-derive — and this count was wrong by 3.5x in the first draft.**
+`grep -rn "FoodAdjacent" assets/species/` returns **21 authored weights across
+seven embedded species**: `ant`, `beetle`, `ant_long`, `ant_block`,
+`ant_block_shaded`, `ant_wide`, `chitin_pale` (four each, three on the
+beetle). The first draft said "six across two", having looked only at `ant.ron`
+and `beetle.ron` — while **this same report names the five ant-family variants
+in F17**. Every one is calibrated against a term that reads exactly 1.0 or 0.0
+and will now spend most of its time near 0.3. This is the largest
+re-derivation in the audit relative to the size of the change, and it is
+exactly the shape that took plant reproduction to zero. Do not land it without
+the sweep.
 
 **Dead-ends:** `FoodAdjacent` returns zero. Clear.
 
@@ -475,9 +604,13 @@ went the wrong way. `creature-sight-sense-2026-08-30.md` holds the reach,
 shape and occlusion baselines to re-take against.
 
 **Dead-ends:** one hit, `dead-ends.md`:1545, which is the `Persist` release
-sweep and is *held pending F14*, not rejected. It reads *"both arms of this
-sweep are running a lever that only half works"*. Clear, with F14 sequenced
-first.
+sweep and is *held pending §R4* — **F13, not F14; the first draft named F14 in
+both places and that error is what makes this entry's ranking wrong.** It reads
+*"both arms of this sweep are running a lever that only half works"*. So F9 is
+gated on F13, which §5 lists under *"Not staged, deliberately"* because the fix
+is a movement-model change nobody has designed. **Read correctly, F9 cannot be
+done at #7 in the ranking below**; it waits on an unsolved problem, and the
+ranking is annotated accordingly.
 
 #### F10. `EAT_YIELD_THRESHOLD` is a global binary on what counts as food
 
@@ -511,12 +644,30 @@ taken rarely rather than never. The distribution replaces the threshold, which
 is the first law again. Keep a tiny epsilon to stop the loop offering
 zero-value cells.
 
-**Re-derive.** Everything downstream of the menu: `adjacent_food`'s best-match
-scan, `FoodAdjacent`, `is_visible_prey`, and the guard
-`a_starved_nestmates_corpse_is_still_dinner`, which is a *named owner verdict*
-and must be watched going red for its own fault before and after. **Run
-WP-8's sweep first.** This entry is the one in the audit most likely to be
-worth doing *second*.
+**The cost the first draft missed, and it argues against its own proposal.**
+`EAT_YIELD_THRESHOLD`'s doc opens with the sentence this entry did not quote:
+it is *"the number that makes the gene change **behaviour** rather than only
+bookkeeping: a meat-gut animal literally stops **seeing** leaves."* Replacing
+the binary with a probability proportional to `diet_yield` makes
+`TRAIT_GUT_BIAS` — one of only **two** heritable creature scalars — a pure
+efficiency multiplier with no qualitative expression at all. That is a direct
+cost to **F14's own thesis**, and it also undercuts the `-1.0` grazer route
+this entry cites as its motivation: the reason that gut *worked*
+(`dead-ends.md`:1534) is precisely that the threshold took carrion off the
+menu. Note too that the proposal's own *"keep a tiny epsilon"* re-introduces a
+threshold on the same predicate with a smaller number, and nothing here says
+what distinguishes it semantically from the one being deleted.
+
+**So this entry is downgraded to a question rather than a proposal.** The
+finding — an unmeasured global constant is currently deciding whether an
+omnivore is viable — stands. The mechanism version does not, until WP-8's
+sweep says what the threshold is buying.
+
+**Re-derive, if it is ever done.** Everything downstream of the menu:
+`adjacent_food`'s best-match scan, `FoodAdjacent`, `is_visible_prey`, and the
+guard `a_starved_nestmates_corpse_is_still_dinner`, which is a *named owner
+verdict* and must be watched going red for its own fault before and after.
+**Run WP-8's sweep first.**
 
 **Dead-ends:** one hit, :1534, which is about the gut allele rather than the
 threshold, and its re-test condition is an owner ruling. Clear, with the
@@ -572,10 +723,16 @@ reach", `Take` gets "pick it up and carry it". Author `Take` at the weights
 is a *choice the genome loses or wins*, and a colony that evolves
 `(AtNest, Take, -)` has discovered a larder.
 
-**Re-derive.** `ant.ron`'s `(Bias, Feed, 0.4)` and `(FoodAdjacent, Feed,
-0.8)` are duplicated onto the new row, so the sum each output sees is
-unchanged — this is the cheap case, and it is cheap *because* the append is
-lawful. Watch `pickups` and `deliveries` together: the pair is the only thing
+**Re-derive.** `(Bias, Feed, ..)` and `(FoodAdjacent, Feed, ..)` are
+duplicated onto the new row, so the sum each output sees is unchanged — and
+that is **six species files, not one** (`ant`, `ant_long`, `ant_block`,
+`ant_block_shaded`, `ant_wide`, `chitin_pale`, plus the beetle's own pair).
+This is the cheap case for the *weights*, and it is cheap because the append is
+lawful — but it is **not free**: as F7 records, an output append moves
+`live_slots()` 318 -> 340 and raises every lineage's per-generation mutation
+load by ~6.9% at unchanged `mutation_rate`. Two appends (this and F7's) compound
+that; F1's input append adds a third. **Name the total before landing any of
+them, not after.** Watch `pickups` and `deliveries` together: the pair is the only thing
 that says whether the split fired.
 
 **Note this interacts with F2.** A crop changes what "carrying" means, and
@@ -613,8 +770,12 @@ authored so the shipped ant reproduces 0.1 exactly.
 `choose_weighted_is_uniform_when_every_score_is_flat`) both pass
 `CHOICE_EXPLORATION_K` explicitly and are fine. The real cost is that `k`,
 `Persist`, `Caution` and the `footing * 0.5` zeroing at `:2700` are **one
-weighted sum with four terms**, three of which are already genes. Changing
-what the fourth can express reallocates it. Sweep against `moves_blocked` and
+weighted sum**, and the first draft described the other three as "already
+genes". **They are genome outputs whose expressible range is set by three more
+Rust constants in the same sum** — `PERSIST_MAX = 2.0` (`creature.rs:808`),
+`FOOTING_MAX = 1.2` (`:801`), and the bare `0.5` multiplier at `:2700`.
+Promoting `k` reallocates against all three, and none of the three is itself a
+gene. That makes this entry *larger* than it reads, not smaller. Sweep against `moves_blocked` and
 `falls`, which are the two counters that go wrong when this sum is wrong.
 
 **Do this one last.** It is real, it is cheap to build, and it is the entry
@@ -673,7 +834,7 @@ one level up, and for the lab it is the most important entry in the
 document.**
 
 `CreatureDef` has **25 fields**. A child inherits exactly two things
-(`creature.rs:1305`–`1320`): the brain genome, mutated at `def.mutation_rate`,
+(`creature.rs:1291`–`1301` and `:1316`–`1324`): the brain genome, mutated at `def.mutation_rate`,
 and `traits`, jittered at `def.trait_variance`. `traits` is **two scalars** —
 `gut_bias` and `birth_grant`. Everything else comes off the `def`, which is
 the species file, shared by every individual of that species for ever:
@@ -758,11 +919,16 @@ Selection has nothing to sort.
 **Mechanism version.** Three appended slots, or — cheaper and better — **one**:
 `seed_cost` first, as the direct mirror of `TRAIT_BIRTH_GRANT`, since its
 trade-off is already argued out in that slot's doc and is known to be real in
-both directions only because a poorly-provisioned offspring can die. Genome
-slot 9 is currently **live-width and has no consumer** (its doc says so
-outright: *"the response curve itself is a later package"*), which is a
-writer with no reader — so either spend it here or say in the same commit why
-not.
+both directions only because a poorly-provisioned offspring can die. **It should be an append, not slot 9.** The first draft proposed spending
+genome slot 9, which is live-width with no consumer — and that contradicts this
+report's own §3. Slot 9's doc says why: it is reserved for a named purpose (a
+strain-response gain), and appending rather than re-purposing was *a deliberate
+call* that cost *"the measurement record a second time"* because *"the F4
+megastudy re-run is already queued against the current numbering."* Taking it
+re-baselines that study. **Append slot 10 instead** — `seed_genotype` keys each
+draw on `rng::stream(world_seed, x, y, slot)`, so a slot's value is a function
+of its own index and adding one draws a stream nobody had drawn before, which
+is exactly what makes an append cheap here and a re-purpose expensive.
 
 **Re-derive.** `REPRODUCTIVE_BUDGET_CAP`, `seed_maturity_met`, and
 `plant.rs:7394`'s `affordable = budget / seed_cost`, which is a *count* of
@@ -775,7 +941,10 @@ seeds and changes meaning the moment `seed_cost` varies per individual. And
 
 `src/sim/plant.rs:1356` (`MUTATION_SIGMA: f32 = 0.08`), `:1501`
 (`FATE_MUTATION_CHANCE: f32 = 0.30`). **Shape 2-adjacent, and it falsifies a
-planning assumption.**
+planning assumption.** One qualification: `FATE_MUTATION_CHANCE` does carry a
+live env override, `PIXEL_PHYSICS_FATE_MUTATION_CHANCE` (`plant.rs:1504`), so
+a harness can reach it. It is still not `.ron` data and still not on the
+parameters page, which is what the guide's claim turns on.
 
 `evolution-lab-design-guide-2026-08-30.md` §7b-i, recording an **owner
 decision** on the mid-game mutagen tier: *"The `mutation_rate` and
@@ -860,30 +1029,120 @@ paint path exactly. It changes no simulation code at all. It is also the
 "foraging is broken" from "the economy is broken", which is the split §T2
 says is still open.
 
+#### F19. `COLONY_ANTS = 52` — withdrawn from the cleared list after review
+
+`src/sim/creature.rs:1343`. **Shape 1, and it was cleared in error.**
+
+The first draft cleared this as *"a placement tool… population thereafter is
+births against deaths."* Its own doc is textbook shape 1 and the clearing row
+did not read it:
+
+> *"Grassé's threshold, in practice: **below about fifty, a colony looks
+> broken even when the code is right**."*
+
+A constant whose value was chosen so that a behaviour would *appear*. And the
+concrete cost is the same asymmetry this report files as **F16**:
+`lab/params.rs:525` exposes **`founders`** (how many plants) and
+**`colonies`** (how many colonies) as tunable lab parameters, while the number
+of ants *per* colony is a Rust constant. **A lab experimenter can set the plant
+founder count and cannot set the animal founder count.** Founder population
+size is the first independent variable Stage 5's Gate 2 ladder would want, and
+it is unreachable from the game.
+
+`design-philosophy.md` §2a settles it on the same sentence F16 quotes — *"a
+constant graduates to a hot-reloadable `.ron` value immediately if a
+non-programmer might plausibly want to tune it."*
+
+**Mechanism version.** A parameter beside `founders` and `colonies`, defaulted
+to 52. **Re-derive:** nothing, if defaulted — but see F17, since spacing must
+derive from body extent before a non-ant species can be founded at any count.
+
+#### F20. The worm is an entire animal implemented as nine constants and a hand-written branch
+
+`assets/species/worm.ron` has **no `creature:` block at all**;
+`src/sim/creature.rs:333` dispatches `None => worm_tick(..)`, and `worm_tick`
+(`:378`–`:520`) is a hardcoded rule with **no brain, no genome, no traits and
+no reproduction**. **Found in review; this is the audit's largest omission.**
+
+It carries three of the four shapes at once:
+
+- **Shape 1.** `WORM_HEAT_THRESHOLD_ABOVE_AMBIENT: f32 = 25.0`
+  (`creature.rs:194`) is a constant deciding *when an animal flees* — the
+  purest instance of shape 1 in the file. Eight more `WORM_*` constants
+  (`:133`–`:194`) are the whole of its economy: tick interval, start energy,
+  move and idle cost, burrow cost, moisture discount, energy from eating.
+- **Shape 3.** The forage arm's preference is written as *"prefer burrowing
+  into powder (**food**) over drifting through open space"* — a sense that has
+  already decided what it is looking at.
+- **Shape 4.** The flee branch precedes the forage branch unconditionally.
+
+**What it costs, and it interacts with F17.** F17's stated unlock is that the
+player could release worms and beetles as well as ants. **A released worm has
+no genome to evolve** — it is not a creature in the sense the rest of this
+report uses the word. So F17 delivers less than it promises for one of the two
+species it names.
+
+**How it was missed, which is worth recording.** This report cites
+`creature.rs:500` in F12 — a line **inside `worm_tick`** — so the function was
+read. The worm then appears nowhere else except F17's passing mention. Reading
+a function for one constant and not auditing the function is exactly the
+"expect the hardcoding one layer below where you are looking" failure the
+brief warned about, arriving inside the audit written to catch it.
+
+**Mechanism version.** Give `worm.ron` a `creature:` block and retire
+`worm_tick`, so the worm runs the same sense/brain/act path as everything else.
+That is not small: it is the migration `design-philosophy.md` §3 names as
+deliberately deferred (*"whether moss and the worm get retrofitted onto the new
+substrate immediately… or are left alone until they're touched anyway"*), so it
+is a scoped project rather than a stage here. **Named, not staged.**
+
+#### F21. Two sense constants that F14 would turn into silent trades
+
+`SIGHT_RAYS = 16` and `SIGHT_EYE_LIFT = 1` (`creature.rs:761`, `:784`);
+`CROWDING_RADIUS = 2` (`:791`). **Found in review. Neither filed nor cleared in
+the first draft.**
+
+The eye's angular *resolution* and its mounting height are Rust constants while
+its *reach* is a species field that F14 stages as a heritable trait. An eye that
+sees further at a fixed ray count sees a **coarser** world — so a heritable
+`sight_range` behind a constant `SIGHT_RAYS` buys reach and silently loses
+resolution, which is a trade nobody authored and nobody would see in a sweep of
+`sight_range` alone. `CROWDING_RADIUS` is the same shape one channel over: a
+sense's reach as a constant, in the channel whose own doc this report quotes
+approvingly as *"the negative-feedback term, and it is not optional."*
+
+**Mechanism version.** Not a gene — `SIGHT_RAYS` is a cost/resolution knob, not
+a policy. The fix is that **F14's Stage 4 must scale rays with range** (or
+state that it deliberately does not, and what that costs), so the trait means
+one thing rather than two.
+
 ---
 
 ## 2. What was checked and **cleared** as legitimate substrate
 
-This list matters as much as the findings. Each was examined against the four
-shapes and passed, and the reason is given so it is not re-audited.
+This list matters as much as the findings. Sixteen entries, each examined
+against the four shapes and passed, with the reason given so it is not
+re-audited. **One entry was withdrawn after review** — `COLONY_ANTS`, which is
+now F19 — and its neighbours in the same row survive on a narrower argument
+than the one that cleared it, so the row says which.
 
 | Cleared | Where | Why it is substrate |
 |---|---|---|
 | `FORAGE_REACH_BUCKETS`, `FORAGE_TRIP_MIN` | `creature.rs:229`, `:261` | **Telemetry, not policy.** Histogram bucket edges and a reporting bar; nothing downstream of them changes an animal's behaviour. `FORAGE_TRIP_MIN`'s doc sets its value from a measured control with headroom and explicitly says the profile, not the bar, is what to trust. Model conduct. |
-| `COLONY_ANTS`, `COLONY_HALF_WIDTH`, `COLONY_ANT_SPACING` | `creature.rs:1338`–`1343` | **A placement tool, and the spacing is physics.** How many ants a button places is not a behaviour the colony has; population thereafter is births against deaths. The spacing is a measured necessity — shoulder-to-shoulder gridlocks at 27,386 blocked ticks (dead-ends 775/829). Cleared as a *mechanism*; see F17 for the fact that it must derive from body extent once a second species can be founded. |
+| `COLONY_HALF_WIDTH`, `COLONY_ANT_SPACING` | `creature.rs:1338`–`1339` | **Placement geometry, and the spacing is physics.** Shoulder-to-shoulder gridlocks at 27,386 blocked ticks (dead-ends 775/829), so four apart for a two-cell body is a measured necessity. See F17: it must derive from body extent once a second species can be founded. **`COLONY_ANTS` was cleared here in the first draft and has been withdrawn to F19** — it failed the test this row applies, and the row did not notice. |
 | `Lab::cull_at` | `lab/mod.rs:441` | **The verb the premise most depends on, and it is graded.** A plant is marked senescent and carried out by `rot_remains` at the species half-life; an animal's energy goes to zero and becomes a corpse that falls, rots, burns and is eaten. Neither leaves a hole. This is `CLAUDE.md`'s first law implemented correctly, and the two paths differ because the kingdoms differ, not because someone wrote two rules. |
 | `choose_weighted`'s never-argmax property | `creature.rs:357` | **The noise is load-bearing** (P-10, `stigmergy-research.md` §2). Deterministic selection removes the exploration every trail-laying mechanism depends on, and removes it invisibly. Separately from F12: the *function* is right; only the fixed `k` is a finding. |
 | `line_burrow` / `Material::packs_into` | `creature.rs:2544` | **Nothing whitelisted by name.** The ground says what it becomes; stone is untouched because it is not diggable, snow because it has no packed form. This is the pattern every other verb should copy. Its own doc even answers *which object does this rule evaluate* — the question `CLAUDE.md` says to ask. |
-| `dig_force` against `penetration_resistance` | `creature.rs:2496` | **A contest, not a list.** "This is not a list of what ants may dig; it is a contest between how hard the ant pushes and how hard the material is." The *mechanism* is exemplary. Only its price is missing — F4. |
+| `dig_force` against `penetration_resistance` | `creature.rs:2500` | **A contest, not a list.** "This is not a list of what ants may dig; it is a contest between how hard the ant pushes and how hard the material is." The *mechanism* is exemplary. Only its price is missing — F4. |
 | `diet_yield`'s matched filter | `creature.rs:1933` | **A real trade with no free dimension.** One scalar on a bounded axis, squared falloff so small mis-specialisation survives and large does not; the per-class vector was considered and rejected because its magnitude would be a free dimension that drifts and reads as a result. Built on `food_value` so overlay, probe and mouth cannot disagree. |
 | `birth_cost` / the body stamp | `creature.rs:1179` | **Conservation.** A parent pays for the meat its child is made of; nothing appears from nothing. This is exactly the "something must place a child's body and conserve the matter" substrate the brief exempts. That it is *large* is an ecology finding (`creature-stamp-routes-2026-08-30.md`), not a hardcoding. |
 | `reproduce_at`'s floor at `birth_cost + 1` | `creature.rs:1224` | **A safety invariant.** A threshold below the cost is a species whose every birth kills its parent. It is not a tuning decision and `dead-ends.md`:1481 records that tuning under it does nothing at all. |
-| `body_energy` pinned to `corpse.food_energy` | `organism.rs:2114` | **A ledger invariant.** Breaking it lets a predator eat a cell of flesh for more than the flesh cost to build — energy creation in a ledger asserted closed. Not a knob. |
+| `body_energy` pinned to `corpse.food_energy` | `organism.rs:2073`, pin at `:2298` and `creature.rs:1144` | **A ledger invariant.** Breaking it lets a predator eat a cell of flesh for more than the flesh cost to build — energy creation in a ledger asserted closed. Not a knob. |
 | `MAX_ROOT_FRACTION` | `plant.rs:2018` | **Allometry, and its mirror was measured and reverted.** `MAX_SHOOT_FRACTION` cost ~13% biomass and bounded nothing (dead-ends :596). `dead-ends.md`:774 rates the root bound *"unconditional in principle; the fraction itself is a tunable"*. Cleared as substrate; making the fraction heritable is available and is not urgent. |
 | `ROOT_BIAS_AT_FULL_WATER` | `plant.rs:4981`, consumed at `:6776` | **Already heritable** — `genotype(world, organism_id, 6, alloc_variance)` scales the whole allocation term. My initial suspicion was wrong. The residual is that the genome scales the *sum* rather than the set-point, so the shape of the stress response is fixed while its gain is not; that is a narrower finding than it first looked and is not worth a stage. |
 | `LabBox` geometry (`DEFAULT_SOIL_DEPTH`, `FLOOR_ROWS`, `SHELL`, `CEILING`, `LAMP_*`) | `lab/scene.rs` | **Scene construction, exposed as parameters.** `soil_depth`, `ground_y`, `compartments`, `founders`, `colonies`, `lamp_spacing`, `seed` are all on the parameters page. Every constant carries its own measurement — `DEFAULT_SOIL_DEPTH`'s doc holds a 4×12 sweep and records that its *first* single-seed measurement said the opposite. Exemplary. |
-| The oscillator divide-outs | `creature.rs:1810` (`noon_equivalent_light`), `:1815` (`noon_equivalent_temperature`), `plant.rs:4907` | **Method, correctly applied.** *"A brain input that drifts with the hour is a brain input every evolved behaviour is silently conditioned on the time of day."* Exactly right. |
-| `scaled_cells`, `CreatureDef::scaled`, `BodyPlan::scaled` | `creature.rs:210`, `organism.rs:2320`ff | **Resolution invariance, and it is hard-won.** One read of `cell_scale` in one place; `sight_fraction` gets its own row because it is the only term scaling on two axes; the anchor bug and its two paired guards are in `dead-ends.md`:1493. Substrate. |
+| The oscillator divide-outs | `creature.rs:1808` (`noon_equivalent_light`), `:1815` (`noon_equivalent_temperature`), `plant.rs:4907` | **Method, correctly applied.** *"A brain input that drifts with the hour is a brain input every evolved behaviour is silently conditioned on the time of day."* Exactly right. |
+| `scaled_cells`, `CreatureDef::scaled`, `BodyPlan::scaled` | `creature.rs:210`, `organism.rs:2307`ff | **Resolution invariance, and it is hard-won.** One read of `cell_scale` in one place; `sight_fraction` gets its own row because it is the only term scaling on two axes; the anchor bug and its two paired guards are in `dead-ends.md`:1493. Substrate. |
 | `is_living_kin` | `creature.rs:2018` | **The difference stated as data, per `CLAUDE.md`.** The diet axis provably cannot separate a live nestmate from a starved nestmate's corpse — same class, same number — so the distinction is carried by whether the cell has an organism id. Live tissue belongs to somebody; carrion belongs to nobody. This is the rule the whole audit is asking other rules to follow. |
 | `brain.rs`'s reserved positional layout | `brain.rs:37`ff | **The thing that makes every append in this report cheap.** Slots are positional and reserved; appending lights a row that is already zero, so no other weight moves. Several findings above are affordable *only* because this exists. |
 
@@ -921,15 +1180,15 @@ effort order.
 
 | # | Finding | Unlocks | Cost |
 |---|---|---|---|
-| **1** | **F1** `moisture_gradient` reads air humidity, magnitude-only, un-genomed | **Gate 0.** The colony's larder, therefore breeding, therefore every evolution result in the lab. Also the construction mechanic, which today runs on a channel that is flat where it fires | Small code, real re-derivation. **The plant side already did this exact fix** — `organism.rs:5327` is the template |
-| **2** | **F2** `hunger_fraction` decides eat-versus-carry | The bank ceiling, which is the arithmetic blocking reproduction. Turns a threshold into a distribution over trip lengths | Large: six readouts depend on the ceiling, including the lab's own breed gauge |
-| **3** | **F14** `CREATURE_TRAITS = 2` | Everything the lab claims to be about. Nothing else on this list makes an *animal* evolvable; this is what does | Must be staged behind F4 and F6 or each new trait lands as a ratchet |
+| **1** | **F2** `hunger_fraction` decides eat-versus-carry | The bank ceiling, which is the arithmetic blocking reproduction. Turns a threshold into a distribution over trip lengths | Large, and **larger than first costed**: thirteen-plus readouts depend on the ceiling, including two of this audit's own instruments and a lib guard |
+| **2** | **F1** `moisture_gradient` is magnitude-only, coarse, and un-genomed | The route-drop rule, which is what §T2 measured. **Demoted from #1 in review**: one of its four defects was false, and the step it ranked first (the per-cell read) is the one least likely to move `deliveries` | Small code, real re-derivation across six species files |
+| **3** | **F14** `CREATURE_TRAITS = 2` | Everything the lab claims to be about. Nothing else on this list makes an *animal* evolvable; this is what does | Must be staged behind F4 and F6 or each new trait lands as a ratchet. **Add `body_energy`** — see below |
 | **4** | **F18** no food verb | The player's own experiments, and the control arm that separates "foraging is broken" from "the economy is broken" | Trivial — it reuses the `Soil`/`Water` paint path and touches no simulation code |
 | **5** | **F11** `Feed` conflates eat with take | A grazer against a hoarder; the granary stops being self-consuming | Cheap, because the append is lawful |
-| **6** | **F3** reproduction is opt-in | Predator-prey population dynamics, which is the biosphere's first real feedback loop | One default, one paragraph of reasoning |
-| **7** | **F9** the eye is a food detector | Predator *avoidance*, and every non-feeding use of vision | Medium; interacts with F6 in the opposite direction and must be measured in one run |
+| **13** | **F3** reproduction is opt-in | Predator-prey population dynamics, which is the biosphere's first real feedback loop. **Dropped from #6 in review**: the finding stands, but its one-line fix is a recorded dead end (`dead-ends.md`:1543), violates the field's own invariant, and does not give the beetle a child | A species-file change with a sweep behind it, read on `live` and never on `births` |
+| **7** | **F9** the eye is a food detector | Predator *avoidance*, and every non-feeding use of vision | Medium — **but gated on F13, not F14 as the first draft said**, and F13 is unstaged because its fix is unsolved. Treat this rank as conditional |
 | **8** | **F4** digging is free | Burrower against forager as a real trade; unblocks a heritable `dig_force` | Small, no new constant |
-| **9** | **F13** `Turn` is inert on the flat | The beetle's eye, in the lab specifically. Already filed as §R4 | Unknown — §R4 says the fix is not obvious. Start with the counter |
+| **6** | **F13** `Turn` is inert on the flat | The beetle's eye, in the lab specifically. Already filed as §R4. **Promoted from #9 in review**, because F9 and `dead-ends.md`:1545 both turn out to depend on it | Unknown — §R4 says the fix is not obvious. Start with the counter |
 | **10** | **F8** `FoodAdjacent` is a boolean | Conditioning on food quality — the quantity Gate 0's arithmetic turns on | Small code, **six authored weights** to re-derive across two species |
 | **11** | **F15** plant reproduction is a species constant | Selection on plant life history; the lab's food supply becoming a thing that can improve | Medium; `affordable` changes meaning |
 | **12** | **F17** `COLONY` is hardcoded to `"ant"` | A measured route to Gate 0 that is blocked by a string literal | Engine: trivial. Interface: the bar is full |
@@ -938,13 +1197,19 @@ effort order.
 | **15** | **F7** budding has no verb | Holding back through a lean patch | Cheap; lawful append |
 | **16** | **F16** plant mutation rates are `const` | The mid-game mutagen tier the owner has already decided on | Trivial, plus a correction to the design guide |
 | **17** | **F10** `EAT_YIELD_THRESHOLD` | Removes a hard edge from a continuous model; currently decides whether an omnivore is viable | **Blocked on WP-8's sweep.** Do not touch before it |
-| **18** | **F12** `CHOICE_EXPLORATION_K` | Boldness as a gene | Cheap to build, most likely of any entry here to break something that works. Last |
+| **18** | **F12** `CHOICE_EXPLORATION_K` | Boldness as a gene | **Larger than first costed** — it reallocates against `PERSIST_MAX`, `FOOTING_MAX` and a bare `0.5`, none of which is a gene. Most likely entry here to break something that works. Last |
+| — | **F19** `COLONY_ANTS` | The animal founder count, which Gate 2's ladder wants as its first independent variable | One parameter row. Withdrawn from the cleared list in review |
+| — | **F20** the worm has no genome | Nothing, until it is retrofitted — but it is why F17 delivers less than it promises | A scoped migration, not a stage. Named only |
+| — | **F21** `SIGHT_RAYS` / `CROWDING_RADIUS` | Nothing on its own; it stops F14's `sight_range` trait meaning two things at once | Absorbed into Stage 4 |
 
-**The top three are one story.** F1 makes a larder possible, F2 makes the
-larder convertible into a child, and F14 makes the child able to differ from
-its parent in something a player can see. None of the three is sufficient
-alone, and the order matters: measuring F2 before F1 measures an economy on a
-colony that cannot deliver food to itself.
+**The top three are still one story, in a corrected order.** F1 makes the
+route-drop rule sane, F2 makes a larder convertible into a child, and F14 makes
+the child able to differ from its parent in something a player can see. The
+first draft ranked F1 first on the strength of a defect that turned out to be
+false; with that removed, **F2 is the entry with the measured, unambiguous
+mechanism** and F1 is the one whose diagnosis needed correcting. They remain
+close, and Stage 0's control arm is what will separate them — which is the
+argument for doing Stage 0 first regardless.
 
 ---
 
@@ -982,12 +1247,16 @@ larder are both non-zero at 24,000 frames, over an order statistic across
 
 The baseline is §T2's: 1,651 pickups, **4** deliveries, **0** larder cells.
 
-Steps, in order:
-1. Point `creature::moisture_gradient` at `soil_water_fraction`. Nothing else.
-   Measure. This alone may carry most of it, exactly as PR #185's *"the
-   steering fix carries all of it"* — its band-removal half moved root depth
-   15 → 16, i.e. nothing.
-2. Only then, the signed component. Measure separately.
+Steps, in order — **reversed after review**, which found the first draft's two
+leading steps the wrong way round and its PR #185 analogy pointing the wrong
+way (there the channel was flat where it was needed; here it is saturated where
+it fires):
+1. **The signed component.** Nothing else. Measure. This is the step that
+   addresses what §T2 measured — a magnitude saturating along the whole route.
+2. Only then, point `creature::moisture_gradient` at `soil_water_fraction`.
+   Measure separately, and **do not expect it to move `deliveries`**: a
+   per-cell read returns a true `0.0` for air, so it gives a *sharper*
+   boundary magnitude, not a softer one.
 3. Only then, the brain input, authored at the ant's implied weights so
    generation zero is byte-identical.
 
@@ -1010,16 +1279,37 @@ eat-versus-carry is no longer a branch on a constant.
 `dead-ends.md`:904's naive version destroyed (14 eats, 8 pickups, **zero**
 deliveries). A crop that reproduces that number has reproduced the dead end.
 
-**Costed re-derivation, and it is the reason this stage is large:**
-`BreedMargin` (`lab/stats.rs:1142`), the larder histogram's hunger line
-(`:1070`), `app.rs:1153`, and the parameters row. All four are readouts of a
-ceiling this change deletes. Budget them into the stage or it is not scoped.
+**Costed re-derivation, and it is the reason this stage is large — the first
+draft named six consumers and there are at least thirteen.** Beyond the six
+below: **seven example harnesses** read `hunger_fraction`
+(`creature_probe`, `windfall_probe`, `stamp_probe`, `lab_cost`,
+`creature_space`, `filmstrip`, `predation_probe`) — and two of those are this
+audit's own instruments, since `creature_probe`'s reachability line **is
+Stage 2's stated gate** and `windfall_probe` is the harness §T2's reproduction
+command runs. Worse, there is a **lib guard**: `creature.rs:7409` computes
+`let roof = def.hunger_fraction * def.start_energy + diet_yield(..)` and
+asserts `route_peak <= roof` and `nest_peak > roof`. A crop deletes that roof,
+so unless the guard is rewritten it becomes `CLAUDE.md`'s *"a superseded
+mechanism's tests keep passing while testing nothing"* — it will stay green
+and assert nothing. Watch it go red for its own fault before and after.
+
+The six originally named: `BreedMargin` (`lab/stats.rs:1142`), the larder
+histogram's hunger line (`:1070`), `app.rs:1153`, the parameters row
+(`lab/params.rs:449`/`:477`/`:570`) and `world.rs:357`'s ceiling doc. **Budget
+all thirteen into the stage, or — in this report's own words — it is not
+scoped, it is merely started.**
 
 ### Stage 3 — the two ratchets, so Stage 4 has somewhere to stand (F4, F6, F5)
 
-**True when:** `dig_force` and `sight_range` each have a measured setting at
-which more is *worse*, not merely more expensive. That is the test for a
-trade against a ratchet, and it is stronger than "a cost exists".
+**True when:** `dig_force` and `sight_range` each have a measured **interior
+optimum** — a best setting that is neither the floor nor the cap.
+
+**Not "a setting at which more is worse", which is what the first draft said
+and is gameable.** `sight_tax` scales with `sight_cells_read`, which scales
+with range, so a large enough `sight_fraction` makes "more is worse" true by
+arithmetic without demonstrating any trade at all. An interior optimum cannot
+be manufactured that way, and it is the real difference between a gene and a
+ratchet.
 
 Price digging against `penetration_resistance`. Author `beetle.ron`'s
 `sight_fraction`. Add `emit_fraction`, defaulted to 0, and sweep it against
@@ -1036,7 +1326,21 @@ trait a player can *see* — and the difference persists across generations
 rather than one absorbing the other.
 
 Append `TRAIT_DIG_FORCE` and `TRAIT_SIGHT_RANGE`, each behind its Stage-3
-price. Then the first creature **discrete locus**, copying the plant side's
+price — and **scale `SIGHT_RAYS` with `sight_range` in the same change, or say
+what not doing so costs** (F21: otherwise the trait buys reach and silently
+loses angular resolution, and a sweep of the trait alone cannot see it).
+
+**Then `body_energy`, which the first draft's staging omitted and should not
+have.** `dead-ends.md`:1478 and :1517 measured it as *the invariant term* that
+blocks births — *"the stamp term (480 x 2 = 960) is invariant to both levers:
+even at a grant of zero the bar is 961 against a ceiling of 567."* It is the
+one body scalar measurement has already identified as the blocker, so on this
+report's own logic it belongs ahead of `TRAIT_SIGHT_RANGE`. It is also the
+hardest: it is pinned to `corpse.food_energy` by the ledger invariant §2
+clears, so a heritable `body_energy` needs the *material's* value to move with
+it, or flesh becomes worth more than it cost to build.
+
+Then the first creature **discrete locus**, copying the plant side's
 paired-trade discipline: one number scaling a benefit and its bill together.
 
 `CreatureDef::scaled` needs a row per trait that is a length or a rate. PR
