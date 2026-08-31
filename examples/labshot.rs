@@ -105,12 +105,13 @@ fn main() {
         soil_depth: arg("soil").unwrap_or(LabBox::default().soil_depth),
         founders: arg("founders").unwrap_or(8),
         colonies: arg("colonies").unwrap_or(1),
+        predators: arg("predators").unwrap_or(0),
         compartments: arg("walls").unwrap_or(1),
         ..LabBox::default()
     };
     println!(
-        "labshot: {}x{} soil={} founders={} colonies={} walls={} interior={interior} light={} frames={:?}",
-        spec.width, spec.height, spec.soil_depth, spec.founders, spec.colonies,
+        "labshot: {}x{} soil={} founders={} colonies={} predators={} walls={} interior={interior} light={} frames={:?}",
+        spec.width, spec.height, spec.soil_depth, spec.founders, spec.colonies, spec.predators,
         spec.compartments,
         arg::<f32>("light").map_or("held at noon".to_string(), |f| format!("{f}")),
         stops

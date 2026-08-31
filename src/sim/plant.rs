@@ -4738,7 +4738,12 @@ const MAINTENANCE_PER_CELL: f32 = 1.5e-4;
 /// flag is deliberately shaped to be gated by a cause other than
 /// starvation."* `rot_remains` then carries the plant out at the species
 /// half-life, so death is graded rather than a disappearance.
-const STARVATION_DEATH_TICKS: u16 = 200;
+///
+/// **Public so a readout reads the real value rather than re-deriving it** —
+/// the lab's examine page renders `starving_ticks` against this as a death
+/// clock, and a copy of the number in the UI is one that silently stops
+/// agreeing with the rule.
+pub const STARVATION_DEATH_TICKS: u16 = 200;
 
 /// **Most of a plant that one tick of die-back may remove**, as a fraction
 /// of its cells.

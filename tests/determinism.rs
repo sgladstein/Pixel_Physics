@@ -229,3 +229,142 @@ fn the_parallel_driver_is_deterministic_across_identical_runs() {
 fn the_serial_driver_is_deterministic_across_identical_runs() {
     assert_deterministic(false);
 }
+
+// ---------------------------------------------------------------- the lab bed
+
+// **The evolution lab's bed, which the scene above does not
+// cover at all.**
+//
+// `build_scene` is sand, water, oil, a fire, a blast and a collapse — the
+// *physics* path. It contains **no plants and no creatures**, so the whole
+// organism half of the engine, and every genome draw in it, has never been
+// under this gate. That matters now because the lab runs racks of chambers
+// and compares them: a comparison between two boxes is only a statement
+// about the boxes if a box run twice is the same box twice.
+//
+// **The vacuity guards had to be replaced rather than extended, and that is
+// the interesting part.** The ones above assert ash and rubble exist —
+// fire and fracture — and a sealed bed of soil under a grow light has
+// neither, so *both would pass on a completely dead bed*. What replaces
+// them has to prove the **heritable** path ran, not merely that something
+// grew.
+//
+// **`organisms_born` is not that proof, and this is the trap worth
+// recording**: `World::allocate_organism` increments it for *every*
+// organism including the eight founders, so `organisms_born > 0` is true of
+// a bed where nothing ever reproduced. `CLAUDE.md`'s *ask what your number
+// counts when nothing is wrong*, in the exact costume that fools you.
+//
+// The guard that does work is **`plant_generation > 0`**: founders are
+// generation 0 by construction, so any positive value means a seed set by a
+// plant in this run germinated and carried an inherited genome. Measured on
+// this bed with `labstats`, that first happens at **frame 1,800** (`borne 1
+// ... gen p1`), against 0 at frame 900 — so `LAB_FRAMES` is 2,400, which
+// clears it with a third to spare without paying for the 45,000 frames the
+// stand needs to reach generation 5.
+
+use pixel_physics::lab::scene::LabBox;
+use pixel_physics::lab::stats::Stats;
+use pixel_physics::sim::explosion::Blasts as LabBlasts;
+use pixel_physics::sim::frame;
+use pixel_physics::sim::particle::ParticleSystem as LabParticles;
+use pixel_physics::sim::player;
+
+const LAB_FRAMES: u64 = 2_400;
+const LAB_CHECKPOINT_EVERY: u64 = 600;
+
+/// The shipped bed, with its colony. **Both halves deliberately**: the ants
+/// are the creature RNG path (`creature.rs`'s six `rng::stream` sites), and
+/// a plants-only scene would leave it as unguarded as the physics scene
+/// leaves the plants.
+fn lab_bed() -> LabBox {
+    LabBox::default()
+}
+
+/// The same digest as `world_hash`, but over the bed's own bounds rather
+/// than this file's `BOUNDS` const, plus the organism counters — a genotype
+/// difference reaches the *cells* only once it has grown differently, and
+/// this has to be able to see it before then.
+fn lab_hash(w: &World) -> u64 {
+    let b = w.bounds().expect("the lab bed sets bounds");
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for y in b.min_y..=b.max_y {
+        for x in b.min_x..=b.max_x {
+            let c = w.get(x, y);
+            h = fnv1a(h, c.material.0 as u64);
+            h = fnv1a(h, c.shade as u64);
+            h = fnv1a(h, c.aux() as u64);
+            h = fnv1a(h, c.organism_id() as u64);
+            h = fnv1a(h, c.temperature() as u16 as u64);
+        }
+    }
+    let (born, died) = w.organism_turnover();
+    for v in [w.live_organism_count() as u64, w.live_creature_count() as u64, born, died, w.germinations] {
+        h = fnv1a(h, v);
+    }
+    h
+}
+
+/// One headless run of the bed through `frame::step` — the *shared* tick,
+/// the same one `Lab::tick` and `App::update` run, so this is not a second
+/// copy of the sequence.
+fn run_lab_bed() -> (Vec<u64>, World, Stats) {
+    let mut world = lab_bed().build();
+    let mut particles = LabParticles::new();
+    let mut blasts = LabBlasts::new();
+    let tuning = player::Tuning::default();
+    let mut stats = Stats::new();
+    let mut hashes = Vec::new();
+    for f in 0..LAB_FRAMES {
+        frame::step(&mut world, &mut particles, &mut blasts, player::PlayerInput::default(), &tuning);
+        // **Inside the loop, not after it.** `Stats::observe` gates on
+        // `frame >= last + interval` — a `>=`, so it never skips and never
+        // catches up: called once per N ticks it yields one sample spaced N
+        // apart rather than N/interval samples, and the strip's resolution
+        // becomes the call cadence instead of simulated time.
+        stats.observe(&world);
+        if (f + 1) % LAB_CHECKPOINT_EVERY == 0 {
+            hashes.push(lab_hash(&world));
+        }
+    }
+    (hashes, world, stats)
+}
+
+/// **A lab chamber run twice is the same chamber twice.**
+///
+/// The gate every rack comparison rests on. If this is red, a difference
+/// between two chambers is partly the engine's own noise and no batch result
+/// means anything — which is a finding to report, not a bug to route around.
+#[test]
+fn the_lab_bed_is_deterministic_across_identical_runs() {
+    let (a, world, stats) = run_lab_bed();
+    let (b, _, _) = run_lab_bed();
+    assert_eq!(
+        a, b,
+        "two identical lab chambers diverged — a rack comparison would be \
+         reporting the engine's own noise as a difference between boxes"
+    );
+
+    // Vacuity. Not the ash/rubble pair above: this bed has no fire and
+    // nothing to break, so both of those would pass on a dead box.
+    assert!(
+        a.windows(2).any(|w| w[0] != w[1]),
+        "the bed never changed between checkpoints — it has stopped exercising anything"
+    );
+    let census = stats.census().expect("a census after 2,400 frames");
+    assert!(census.plants > 0, "nothing is alive in the bed");
+    assert!(
+        world.live_creature_count() > 0,
+        "no animals — the creature RNG path is not under this test after all"
+    );
+    // **The one that proves reproduction happened**, and the reason
+    // `organisms_born` is not used: that counter includes the founders, so
+    // it is positive on a bed where nothing ever bred. Founders are
+    // generation 0, so a positive deepest generation is an inherited genome.
+    assert!(
+        census.plant_generation > 0,
+        "deepest plant generation is 0 — every plant is a founder, so this run \
+         never reached a birth and the heritable path is untested (measured: \
+         generation 1 arrives at frame 1,800 on this bed)"
+    );
+}
