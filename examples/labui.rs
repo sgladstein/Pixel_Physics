@@ -28,6 +28,7 @@ fn main() {
     let mut out = "labui.png".to_string();
     let mut split = false;
     let mut only: Option<String> = None;
+    let mut chambers = 1usize;
     for arg in std::env::args().skip(1) {
         match arg.split_once('=') {
             Some(("frames", v)) => frames = v.parse().expect("frames=N"),
@@ -39,6 +40,12 @@ fn main() {
             // read this row". `only=` picks the tiles whose title contains it.
             Some(("split", v)) => split = v == "1",
             Some(("only", v)) => only = Some(v.to_string()),
+            // **How many chambers the rack holds.** The tab strip is bar
+            // chrome and is not drawn below two chambers, so a sheet taken at
+            // the default 1 photographs a lab that has no tabs — which is a
+            // picture of the wrong thing when the tabs are the question.
+            // Pair with `PIXEL_PHYSICS_LAB_TABS=abovebar|top|off`.
+            Some(("chambers", v)) => chambers = v.parse().expect("chambers=N"),
             _ => eprintln!("ignoring unknown argument {arg:?}"),
         }
     }
@@ -53,6 +60,13 @@ fn main() {
 
     let mut lab = Lab::new(LabBox::default());
     lab.show_help = false;
+    // Reseeded, never copied. At the same seed every draw in the engine is a
+    // pure function of `(world.seed, identity, position)`, so a rack of
+    // unseeded duplicates is one world wearing many labels — and a sheet of
+    // it would show five tabs over five identical beds.
+    for _ in 1..chambers {
+        lab.duplicate_active(true);
+    }
     // **Start it before warming it.** A fresh lab is paused and `advance`
     // then runs no ticks at all, so warming a paused box grows nothing and
     // every page draws the numbers of a bed that has been standing still —

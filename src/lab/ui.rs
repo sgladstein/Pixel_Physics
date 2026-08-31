@@ -102,6 +102,136 @@ fn row_y(row: usize) -> i32 {
     bar_top() + BTN_TOP + row as i32 * (BTN_HEIGHT + ROW_GAP)
 }
 
+// ------------------------------------------------------------------ tabs
+
+/// **Where the rack's numbered tabs go — and it is a switch rather than a
+/// decision, deliberately.**
+///
+/// `CLAUDE.md`: *for "does this look right", ship a runtime selector rather
+/// than choosing.* Five grain modes behind one key once settled in minutes a
+/// question that no amount of argument or still images had, and this is the
+/// same shape of question: three placements, each with a different visible
+/// cost, and no way to rank them from a description.
+///
+/// **The bar cannot simply grow a row.** Measured with the bar's own
+/// `PIXEL_PHYSICS_BAR_TRACE` on the shipped layout: row 0 has **1 pixel**
+/// spare and row 1 has **0**, at the tightest of the three spacings — the bar
+/// is already running compressed to fit what is on it. So a tab is a strip
+/// beside the bar, never a cell in it, and the only question is which edge it
+/// eats.
+///
+/// Selected by `PIXEL_PHYSICS_LAB_TABS`. Read once per process: this is a
+/// look, not a setting, and re-reading it per frame would be a syscall in the
+/// draw path.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum TabStyle {
+    /// A strip along the top edge of the bar. Reads as part of the bar, which
+    /// is what "tabs on the bar" means from the player's side, and eats the
+    /// bed's stone floor — which `scene.rs` deliberately sits flush with the
+    /// bar, so this is the edge with least in it.
+    AboveBar,
+    /// A strip along the top edge of the screen. Costs the same pixels and
+    /// eats the ceiling shell and the grow-light fixtures instead — which is
+    /// where you look to see what is lit.
+    TopOfScreen,
+    /// No tabs. `SHIFT+1..5` switches and `F4` opens the rack. Zero pixels and
+    /// zero paint, at the price that a stopped box does not say which chamber
+    /// it is.
+    Off,
+}
+
+/// Height of the tab strip, including its rule.
+///
+/// One glyph plus two pixels either side plus the rule. A tab is a number, so
+/// this is as short as a legible strip gets.
+pub const TAB_H: i32 = hud::GLYPH_HEIGHT + 5;
+
+/// How many tabs the strip shows before it stops.
+///
+/// The owner's call: *"numbered tabs on the bar (for your top 5)"*, with the
+/// whole rack behind `F4`. A strip that grew with the rack would be the
+/// control that breaks at the fiftieth chamber, which is exactly the size a
+/// batch produces.
+pub const TABS_SHOWN: usize = 5;
+
+pub fn tab_style() -> TabStyle {
+    static STYLE: std::sync::OnceLock<TabStyle> = std::sync::OnceLock::new();
+    *STYLE.get_or_init(|| match std::env::var("PIXEL_PHYSICS_LAB_TABS").as_deref() {
+        Ok("top") => TabStyle::TopOfScreen,
+        Ok("off") | Ok("none") => TabStyle::Off,
+        _ => TabStyle::AboveBar,
+    })
+}
+
+/// The strip's top row, or `None` when there is nothing to draw.
+///
+/// **A rack of one draws no strip at all.** A facility with a single box has
+/// no switching to offer, so the tabs would be chrome that costs paint and
+/// says nothing — and the lab opens on exactly that.
+fn tab_strip_y(chambers: usize) -> Option<i32> {
+    tab_strip_y_for(tab_style(), chambers)
+}
+
+/// The geometry, with the style passed in.
+///
+/// Split from `tab_strip_y` so it can be tested at every style: `tab_style`
+/// caches in a `OnceLock`, so a test *process* is stuck with whichever one it
+/// read first — the same trap `plant.rs`'s `fate_lookup` records, and a guard
+/// that silently only ever exercised one arm is exactly the blind guard
+/// `CLAUDE.md` is about.
+fn tab_strip_y_for(style: TabStyle, chambers: usize) -> Option<i32> {
+    if chambers < 2 {
+        return None;
+    }
+    match style {
+        TabStyle::AboveBar => Some(bar_top() - TAB_H),
+        TabStyle::TopOfScreen => Some(0),
+        TabStyle::Off => None,
+    }
+}
+
+/// Lay the tabs out, left to right, and say where each one is.
+///
+/// Widths come from the label rather than a fixed cell, so a two-digit
+/// chamber is not clipped — a rack reaches double figures the first time a
+/// batch finishes.
+fn lay_out_tabs(chambers: &[super::ChamberSummary], y: i32) -> Bar {
+    let mut widgets = Vec::new();
+    let mut x = MARGIN;
+    for ch in chambers.iter().take(TABS_SHOWN) {
+        let w = hud::text_width(&ch.label) + 8;
+        widgets.push(Widget {
+            rect: Rect { x, y: y + 1, w, h: TAB_H - 2 },
+            line1: ch.label.clone(),
+            line2: String::new(),
+            action: Some(Action::Chamber(ch.index)),
+            latched: ch.active,
+            icon: None,
+            ratio: None,
+            note: String::new(),
+        });
+        x += w + GAP;
+    }
+    // What the strip is not showing. `+N` rather than nothing, because a
+    // strip that silently stops at five is a strip that tells you your rack
+    // is five chambers long.
+    if chambers.len() > TABS_SHOWN {
+        let label = format!("+{}", chambers.len() - TABS_SHOWN);
+        let w = hud::text_width(&label) + 8;
+        widgets.push(Widget {
+            rect: Rect { x, y: y + 1, w, h: TAB_H - 2 },
+            line1: label,
+            line2: String::new(),
+            action: None,
+            latched: false,
+            icon: None,
+            ratio: None,
+            note: String::new(),
+        });
+    }
+    Bar { widgets, dividers: Vec::new() }
+}
+
 // ---------------------------------------------------------------- palette
 //
 // Opaque, not a blend. The bar is an instrument panel bolted over the world,
@@ -297,6 +427,9 @@ pub enum Action {
     /// Re-read the shelf directory, for a jar added or removed outside the
     /// running game.
     ShelfReload,
+    /// Put one chamber of the rack on screen — an index into
+    /// `Lab::chamber_summaries`.
+    Chamber(usize),
 }
 
 /// **What a left-click on the world does.**
@@ -519,6 +652,10 @@ pub struct BarState<'a> {
     /// would be the stale side table that argument is about.
     pub jar: &'a str,
     pub jar_note: &'a str,
+    /// One row per chamber, in rack order. Borrowed for the species chip's
+    /// reason: a tab strip that named a chamber from its own copy would be
+    /// the stale side table that argument is about.
+    pub chambers: &'a [super::ChamberSummary],
 }
 
 /// Width of a cell whose label is `label_px` wide and whose shortcut caption
@@ -1299,6 +1436,10 @@ pub struct Ui {
     broods: u32,
     /// The shelf page's own clickable rectangles, for `params_bar`'s reason.
     shelf_bar: Bar,
+    /// The rack's tab strip, laid out last frame and retained for the same
+    /// reason `bar` is: a click landing between two frames is tested against
+    /// the strip the player was actually looking at.
+    tabs: Bar,
     shelf_box: Option<Rect>,
 }
 
@@ -1359,6 +1500,10 @@ impl Ui {
     /// marker every time you try to read the panel.
     pub fn covers(&self, x: i32, y: i32) -> bool {
         y >= bar_top()
+            // The strip stands over the world, so without this a click on a
+            // tab would switch chamber *and* drop the inspector on whatever
+            // cell was behind it.
+            || self.tabs.widgets.iter().any(|wid| wid.rect.contains(x, y))
             || self.panel_box.is_some_and(|r| r.contains(x, y))
             || self.params_box.is_some_and(|r| r.contains(x, y))
             || self.shelf_box.is_some_and(|r| r.contains(x, y))
@@ -1498,7 +1643,7 @@ impl Ui {
     /// above `bar_top`), so the order is documentation rather than a rule: the
     /// bar is painted over everything and must win any seam.
     pub fn hit(&self, x: i32, y: i32) -> Option<Action> {
-        self.bar.hit(x, y).or_else(|| self.params_bar.hit(x, y)).or_else(|| self.shelf_bar.hit(x, y))
+        self.bar.hit(x, y).or_else(|| self.params_bar.hit(x, y)).or_else(|| self.shelf_bar.hit(x, y)).or_else(|| self.tabs.hit(x, y))
     }
 
     /// Which parameters page is showing, and where its list is scrolled to.
@@ -2771,6 +2916,28 @@ impl Ui {
             let down = hover && self.pressed.is_some() && self.pressed == wid.action;
             paint_widget(frame, wid, hover, down);
         }
+
+        // **The rack's tabs.** Laid out here rather than in `layout` because
+        // the strip is not part of the bar — the bar has 0-1 pixels spare and
+        // cannot take another cell at any spacing (`TabStyle`). Drawn after
+        // the bar so that `AboveBar` sits against its top edge rather than
+        // under it.
+        self.tabs = match tab_strip_y(state.chambers.len()) {
+            Some(y) => lay_out_tabs(state.chambers, y),
+            None => Bar::default(),
+        };
+        if let Some(y) = tab_strip_y(state.chambers.len()) {
+            fill(frame, Rect { x: 0, y, w: W as i32, h: TAB_H }, BAR_BG);
+            let rule = if tab_style() == TabStyle::TopOfScreen { y + TAB_H - 1 } else { y };
+            for x in 0..W as i32 {
+                render::put(frame, W, H, x, rule, BAR_EDGE);
+            }
+            for wid in &self.tabs.widgets {
+                let hover = self.cursor.is_some_and(|(x, y)| wid.rect.contains(x, y));
+                let down = hover && self.pressed.is_some() && self.pressed == wid.action;
+                paint_widget(frame, wid, hover, down);
+            }
+        }
         // A bar button explains itself too, and its note wins over a page's:
         // the cursor can only be over one of them, and the bar is on top.
         if let Some(wid) = self.bar.hovered(self.cursor) {
@@ -2891,11 +3058,98 @@ mod tests {
             overlay: "OFF",
             jar: "NO JARS",
             jar_note: "THE RACK OF KEPT GENETICS: EVERY JAR IS ONE INDIVIDUAL'S GENOME.",
+            // A rack of one, which is what the lab opens with and what the
+            // bar's own fit test must be measured against: the tab strip is
+            // not drawn below two chambers, so it can never be the thing that
+            // makes the bar not fit.
+            chambers: &[],
         }
     }
 
     fn world() -> World {
         World::new(WorldRect::new(0, 0, 63, 63))
+    }
+
+    fn rack(n: usize) -> Vec<super::super::ChamberSummary> {
+        (0..n)
+            .map(|i| super::super::ChamberSummary {
+                index: i,
+                active: i == 0,
+                label: format!("{}", i + 1),
+                seed: i as u64 + 1,
+                frame: 0,
+                census: None,
+            })
+            .collect()
+    }
+
+    /// **A rack of one draws no strip, and a rack of two does.**
+    ///
+    /// Both halves, at every style. The first alone is green for a strip that
+    /// never draws at all — which is the failure that matters, because the lab
+    /// opens on one chamber and a strip that is broken there looks exactly
+    /// like a strip that is correctly absent.
+    #[test]
+    fn a_rack_of_one_draws_no_tabs_and_a_rack_of_two_does() {
+        for style in [TabStyle::AboveBar, TabStyle::TopOfScreen] {
+            assert_eq!(tab_strip_y_for(style, 0), None, "{style:?}: an empty rack");
+            assert_eq!(tab_strip_y_for(style, 1), None, "{style:?}: the lab's own opening");
+            assert!(tab_strip_y_for(style, 2).is_some(), "{style:?}: two chambers must show a strip");
+        }
+        assert_eq!(tab_strip_y_for(TabStyle::Off, 9), None, "OFF draws no strip at any rack size");
+    }
+
+    /// **The strip never overlaps the bar, and never leaves the screen.**
+    ///
+    /// A strip that ran under the bar would be invisible and still take the
+    /// clicks aimed at the bar's top row — a control stealing another
+    /// control's presses, which is the sort of thing only a screenshot ever
+    /// finds.
+    #[test]
+    fn the_tab_strip_clears_the_bar_and_the_screen() {
+        let above = tab_strip_y_for(TabStyle::AboveBar, 5).expect("five chambers");
+        assert!(above + TAB_H <= bar_top(), "the strip ran into the bar: {above} + {TAB_H} > {}", bar_top());
+        assert!(above >= 0, "the strip ran off the top of the screen");
+        let top = tab_strip_y_for(TabStyle::TopOfScreen, 5).expect("five chambers");
+        assert!(top >= 0 && top + TAB_H < bar_top(), "the top strip is off-screen or in the bar");
+    }
+
+    /// **A tab is clickable where it is drawn.**
+    ///
+    /// Aimed through the retained layout rather than at where a tab "ought to
+    /// be", for `widget_rect`'s reason: a test that computes the rectangle
+    /// itself is a test of its own arithmetic. The last tab is checked as well
+    /// as the first, because an off-by-one in the advance only shows at the
+    /// end of the strip.
+    #[test]
+    fn every_tab_is_clickable_where_it_is_drawn() {
+        let chambers = rack(5);
+        let y = tab_strip_y_for(TabStyle::AboveBar, chambers.len()).expect("a rack of five");
+        let bar = lay_out_tabs(&chambers, y);
+        assert_eq!(bar.widgets.len(), 5, "five chambers, five tabs");
+        for (i, wid) in bar.widgets.iter().enumerate() {
+            let (cx, cy) = (wid.rect.x + wid.rect.w / 2, wid.rect.y + wid.rect.h / 2);
+            assert_eq!(bar.hit(cx, cy), Some(Action::Chamber(i)), "tab {i} is not clickable at its own centre");
+            assert!(wid.rect.right() <= W as i32 - MARGIN, "tab {i} ran off the right edge");
+        }
+        assert!(bar.widgets[0].latched, "the chamber on screen is not marked as such");
+    }
+
+    /// **A rack longer than the strip says so.**
+    ///
+    /// The owner's call is five tabs with the rest behind the menu, and a
+    /// batch produces fifty — so the case that matters is the one where the
+    /// strip is *not* the whole rack. A strip that silently stopped at five
+    /// would tell you your rack is five chambers long.
+    #[test]
+    fn a_rack_past_five_shows_what_it_is_not_showing() {
+        let chambers = rack(12);
+        let y = tab_strip_y_for(TabStyle::AboveBar, chambers.len()).expect("a rack of twelve");
+        let bar = lay_out_tabs(&chambers, y);
+        assert_eq!(bar.widgets.len(), TABS_SHOWN + 1, "five tabs and one overflow marker");
+        let overflow = bar.widgets.last().expect("the marker");
+        assert_eq!(overflow.line1, "+7", "the marker must count the chambers the strip is not showing");
+        assert_eq!(overflow.action, None, "the marker is a label, not a switch to chamber 7");
     }
 
     /// **The font cannot draw everything, and what it cannot draw it draws as

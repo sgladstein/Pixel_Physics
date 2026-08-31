@@ -465,6 +465,10 @@ impl Lab {
         // reason and by the same route: read out of the loaded rack rather
         // than remembered here.
         let (jar, jar_note) = (self.ui.jar_face(), self.ui.jar_chip_note());
+        // Built before the state that borrows it. One row per chamber, and
+        // cheap: everything on a row is already computed — the census is the
+        // one `stats` last took, never a fresh walk of a frozen box.
+        let chambers = self.chamber_summaries();
         let state = ui::BarState {
             running: self.time.phase == time::Phase::Running,
             requested: self.time.requested,
@@ -480,6 +484,7 @@ impl Lab {
             overlay: self.renderer.field_overlay.label(),
             jar: &jar,
             jar_note: &jar_note,
+            chambers: &chambers,
         };
         self.ui.draw(frame_buf, &self.world, &self.spec, &state, &self.renderer, fps);
         // The pages last, because they are modal: a page covers the box *and*
@@ -847,6 +852,19 @@ impl Lab {
                 self.ui.reload_shelf();
                 let n = self.ui.shelf().len();
                 self.ui.say(format!("SHELF RELOADED -- {n} JAR(S)"));
+            }
+            ui::Action::Chamber(i) => {
+                if i == self.active {
+                    // Say so rather than doing nothing. `CLAUDE.md`'s second
+                    // law: a verb that produces no visible consequence is not
+                    // finished, and clicking the tab you are already on is the
+                    // commonest way to find that out.
+                    self.ui.say(format!("ALREADY IN CHAMBER {}", i + 1));
+                } else {
+                    self.switch_to(i);
+                    let frame = self.world.frame;
+                    self.ui.say(format!("CHAMBER {} -- HELD AT FRAME {frame}", i + 1));
+                }
             }
         }
     }
