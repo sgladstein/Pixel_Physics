@@ -1,7 +1,8 @@
 # Day, Night, and Decay
 
-*Current as of: 2026-08-31 (broken branches rot now — they used to be the one
-thing a dead plant left that stayed on the ground for ever).*
+*Current as of: 2026-08-31 (soil grades between wet and dry now — it used to
+show only three values with nothing in between; and broken branches rot,
+where they used to be the one thing a dead plant left that stayed for ever).*
 
 *Before that: a world can now be a
 room instead of a landscape — the air inside a sealed box is drawn as a lit
@@ -290,6 +291,38 @@ has no way to weather back out of the world. Growing roots eat into it and
 soil at the world's edge can spill away, but neither is a match for a
 canopy. If you leave a forest running long enough, expect the ground under
 it to creep upward.
+
+## Wet ground and dry ground, and the ground in between
+
+Soil holds water, and how much it holds is meant to shade smoothly from
+sodden at the water table to parched at the surface. **It did not.** Ground
+showed up as one of three things and nothing else: soaked, or the ordinary
+damp it settles to after rain, or the dry it reaches when roots have taken
+what they can. There was no in-between and no visible movement — a wet patch
+and a dry patch could sit side by side indefinitely without either affecting
+the other.
+
+Now water seeps between them, and the ground shades. Dig a hole and fill it
+in, drop a mat of anything on wet ground, or water one patch and not the
+next, and the wetness spreads and levels out over time instead of standing in
+blocks. **Fresh ground is still dry when it arrives** — a pile of anything is
+dry until the ground under it soaks in — but it now soaks, over a while,
+instead of staying dry for ever.
+
+**Sun-dried ground dries more slowly the drier it gets**, which is the other
+half of the same change and the reason the first half is safe. Damp ground
+gives water up to the air readily; ground that has already dried gives it up
+very slowly, because there is less left to give and it is held more tightly.
+Without that, ground that could now be resupplied from below would simply
+wick itself dry — the sun pulling at the surface, more water arriving to
+replace it, for ever, until the whole bed reached the parched end. With it,
+the ground settles into a standing profile: dry at the top, damper as you go
+down, holding there instead of running away.
+
+**It is a slow leak, not a closed loop.** Water taken up by the sun does not
+yet come back as anything — there is no return path in a sealed room — so a
+box with no rain and no watering will still dry out eventually, just far
+more slowly than it takes to matter. Closing that is a separate job.
 
 ## What a dead plant leaves, and how long it lies there
 
