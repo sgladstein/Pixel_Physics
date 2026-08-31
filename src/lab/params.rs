@@ -838,7 +838,7 @@ pub fn specimen_rows(world: &World, id: u16) -> Vec<(String, String, String)> {
         row("SINCE NEST", state.since_nest.to_string(),
             "TICKS SINCE IT LAST TOUCHED THE NEST. IT CLIMBS WHILE A FORAGER IS OUT AND RESETS WHEN IT GETS HOME, SO A NUMBER THAT ONLY EVER CLIMBS IS AN ANT THAT IS LOST.");
         row("CROP", match &state.crop {
-                Some(c) => format!("{} {:.0}", world.materials.get(c.material).display.to_uppercase(), c.worth),
+                Some(c) => format!("{} x{}", world.materials.get(c.material).display.to_uppercase(), c.cells),
                 None => "EMPTY".into(),
             },
             "WHAT IT IS CARRYING AND HOW MUCH OF IT IS LEFT. THE NUMBER FALLS AS IT WALKS -- AN ANT DIGESTS ITS LOAD ON THE WAY HOME, SO A LONG TRIP DELIVERS LESS THAN A SHORT ONE.");

@@ -2819,29 +2819,57 @@ pub struct Crop {
     /// Palette entry, carried so a delivered cell looks like what was picked
     /// up rather than resetting to the darkest entry.
     pub shade: u8,
-    /// **Face value of one cell of the contents**, so a drop knows what a
-    /// whole cell is worth without consulting the material table again.
+    /// **Face value of one cell of the contents.**
     ///
     /// Taken as `min` over every cell ingested: corpses carry per-cell worth
-    /// in `aux`, so a crop filled from two corpses of different richness would
-    /// otherwise be able to put back a cell worth more than the cheapest one
-    /// that went in. One-directional, in the safe direction.
+    /// in `aux`, so a crop filled from a rich corpse and a poor one could
+    /// otherwise put back a cell worth more than the cheapest that went in.
+    /// One-directional, in the safe direction.
     pub unit: f32,
-    /// **Face value remaining**, undigested. Face rather than yield, because
-    /// `carried_meat` prices in-transit meat at what `food_value` would say
-    /// about it and `standing_meat` does the same for a cell on the ground —
-    /// the two have to be the same scale or a pickup looks like matter
-    /// appearing.
-    pub worth: f32,
+    /// **How many whole cells are in there.**
+    ///
+    /// **Whole cells, and this was an `f32` of face value until it was
+    /// measured.** A continuous `worth` meant digestion ate into the single
+    /// cell an animal was carrying, so within one tick of picking a leaf up it
+    /// held 476 of a 480 leaf -- and a leaf is not a thing you can put down
+    /// 476 of. Delivery became structurally impossible rather than merely
+    /// rare: measured on `examples/ascii`'s construction scene, drops fell
+    /// 1,128 -> 125, and **neither candidate knob was the variable** (capacity
+    /// 480 against 1440 moved the scene's margin 0.098 against 0.052; digest
+    /// rate 0.8 against 3.3 moved pickups 190 against 217).
+    ///
+    /// **The engine had already solved this once, on the water line.**
+    /// `Reports/dead-ends.md` records `player::SURFACE_SHOVE` spreading a
+    /// swimming wake's budget thin across four columns -- "arithmetically
+    /// identical water and *visually nothing*" -- and its resolution is the
+    /// shape used here: *"a carried remainder spent in whole cells: the rate
+    /// stays continuous while every cell that goes up is full."*
+    ///
+    /// So the rate lives in `digesting` and the store is discrete. A drop
+    /// needs `cells >= 1` and is exact by construction; nothing rounds, so
+    /// nothing can mint a fraction of a joule per delivery.
+    pub cells: u16,
+    /// **Progress toward absorbing the next whole cell**, in face-value
+    /// joules, `0..unit`.
+    ///
+    /// A timer, not a stock: nothing is credited to the animal and nothing is
+    /// booked to the ledger until this passes `unit` and a whole cell is
+    /// consumed. That is what keeps the accounting exact -- a cell is either
+    /// standing in the crop (counted at face by `creature::carried_meat`) or
+    /// absorbed (credited at yield). There is no fractional state for a census
+    /// to disagree about, and the ~80,000 tiny `f32` additions the continuous
+    /// version would have made against the live identity's 1 J slack never
+    /// happen.
+    pub digesting: f32,
 }
 
 impl Crop {
+    /// Face value standing in this crop, which is what a meat census prices.
+    pub fn worth(&self) -> f32 {
+        self.unit * self.cells as f32
+    }
+
     /// **What one whole cell of this crop looks like on the ground.**
-    ///
-    /// The quantisation happens here and nowhere else, which is what keeps a
-    /// drop exactly conservative: the caller debits the number this returns,
-    /// not `unit`, so a cell can never land worth more than what left the
-    /// stomach.
     pub fn unit_cell(&self, quantise: impl Fn(f32) -> u16) -> Carried {
         Carried { material: self.material, worth: quantise(self.unit), shade: self.shade }
     }
