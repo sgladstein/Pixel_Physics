@@ -1,0 +1,58 @@
+{
+  "id": "20260831T195459231Z-92a87a",
+  "created": "2026-08-31T19:54:59Z",
+  "board": "lab",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/evolution-lab-multiple-chambers-qw1hjz",
+    "commit": "e6385f6",
+    "agent": null,
+    "session_id": "3a441651-265c-5f10-ba8c-b584bbef1307",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Set a box up, run 100 copies of it in the background, compare them",
+  "question": "The dials and the RUN button are on the rack page rather than anywhere else, because a batch makes chambers and this is the page chambers live on. Is that where you would look for it -- and are COPIES and TICKS the two dials you want, or is there a third?",
+  "context_md": "**Your question had an answer and it is the opposite of the worry.** The engine is deterministic by requirement, so copies made without touching the seed are *bit-identical* -- a hundred of them are one sample wearing a hundred labels. Vary the seed and there is almost too much variation.\n\nMeasured on the shipped bed, 9,000 ticks a copy:\n\n| | plants | plant cells | animals | seeds sown |\n|---|---|---|---|---|\n| 4 copies at **one seed** | 1.00x | 1.00x | 1.00x | 1.00x |\n| 12 copies at **12 seeds** | **2.42x** | **2.62x** | **3.12x** | **2.53x** |\n\nSo there is plenty to select on -- and that spread is also the bar. Two chambers differing by 2x means nothing on its own, because two chambers that differ by *nothing at all* already do.\n\nThe box on screen keeps working while the copies run. On this 4-core box a copy is about 8 seconds of wall clock per 9,000 ticks.",
+  "kind": "gallery",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "Copies in flight",
+      "files": [
+        "20260831T195459231Z-92a87a/000-batch.png"
+      ],
+      "caption": "COPIES and TICKS dials, STOP latched, live progress under it",
+      "meta": {
+        "copies requested": 6,
+        "ticks each": 4000,
+        "finished when shot": 0,
+        "worlds held": 0,
+        "seconds elapsed": 1
+      },
+      "focus": null
+    },
+    {
+      "label": "The rack the results land in",
+      "files": [
+        "20260831T195459231Z-92a87a/001-final.png"
+      ],
+      "caption": "each finished copy becomes a row you can walk into",
+      "meta": {
+        "chambers": 6,
+        "frame, chamber 1": 864,
+        "frame, the rest": 0,
+        "spread from seed alone, plants": "2.42x",
+        "spread, animals": "3.12x"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
