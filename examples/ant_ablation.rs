@@ -499,7 +499,7 @@ fn run_one(instincts: &[Instinct], frames: usize, seed: u64, rough: bool, world_
                     let e = max_range.entry(id).or_insert(0.0);
                     *e = e.max(moved);
                 }
-                if world.organism(id).is_some_and(|s| s.carrying.is_some())
+                if world.organism(id).is_some_and(|s| s.crop.is_some())
                     && ever_carried.insert(id)
                     && first_pickup < 0.0
                 {

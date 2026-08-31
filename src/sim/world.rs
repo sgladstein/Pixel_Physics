@@ -197,7 +197,28 @@ pub struct CreatureStats {
     /// the ones that produced nothing, so a rise in `impulses` with a flat
     /// `flight_frames` cannot be read as the verb working.
     pub impulses_refused: u64,
+    /// **Mouthfuls taken into the crop.** Since the crop landed this and
+    /// `pickups` count the same event, because the two actions merged: an
+    /// animal no longer chooses between swallowing a cell and carrying it,
+    /// it takes the cell and digests it as it walks. They are both kept
+    /// rather than one deleted so that every readout and report that quotes
+    /// one still means what it meant.
+    ///
+    /// **Not a count of digestion.** Digesting is continuous and has no
+    /// events to count; `digested_face` is the quantity for that, and
+    /// incrementing this per tick instead would silently turn "how many
+    /// bites did the colony take" into "how many ticks did it spend
+    /// digesting" while every reader went on reading it as the first.
     pub eats: u64,
+    /// **Face value absorbed out of crops**, in joules -- the continuous
+    /// counterpart to `eats`.
+    ///
+    /// Face rather than yield, so that dividing the ledger's `harvested_*`
+    /// by it recovers exactly the gut's conversion factor. That ratio is
+    /// what `the_eat_verb_pays_the_filter_not_the_face_value` asserts, and
+    /// it is an exact identity where the old per-bite mean was an
+    /// approximation.
+    pub digested_face: f64,
     pub pickups: u64,
     pub digs: u64,
     /// **Cells of loose ground converted to a tunnel lining** by those digs
@@ -2754,7 +2775,7 @@ impl World {
             // Nothing is born in the air. Only `creature::launch` sets this.
             flight: None,
             energy: 0.0,
-            carrying: None,
+            crop: None,
             since_nest: 0,
             forage_anchor: (0, 0),
             forage_max: 0,

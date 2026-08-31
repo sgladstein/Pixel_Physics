@@ -1067,7 +1067,7 @@ fn run_one(genome: &[f32], frames: usize, seed: u64, econ: Economy) -> Sample {
                     let e = furthest.entry(id).or_insert(0.0);
                     *e = e.max(d);
                 }
-                if world.organism(id).is_some_and(|s| s.carrying.is_some()) {
+                if world.organism(id).is_some_and(|s| s.crop.is_some()) {
                     fed.insert(id);
                 }
                 // **An ant that has ever been above its starting energy has

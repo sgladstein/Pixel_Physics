@@ -787,13 +787,17 @@ fn main() {
         }
         rows.sort_by(|a, b| b.2.total_cmp(&a.2));
         let best_here = rows.first().map_or(0.0, |r| r.2);
-        let ceiling = def.hunger_fraction * def.start_energy + best_here;
+        // A rate rather than a ceiling: see `stamp_probe`. `best_here` is a
+        // yield, so dividing by its face recovers this gut's conversion.
+        let upkeep = def.idle_cost_per_cell * def.body.len() as f32;
+        let best_face = rows.first().map_or(0.0, |r| r.2).max(best_here);
+        let net = def.digest_rate * if best_face > 0.0 { best_here / best_face } else { 0.0 } - upkeep;
         println!(
-            "  gut {gut_bias:+.2} (founder reads {}) | start_energy {:.0} hunger_fraction {:.2} \
-             grant {grant:.0} body_energy {:.0}",
+            "  gut {gut_bias:+.2} (founder reads {}) | start_energy {:.0} \
+             digest {:.2}/tick grant {grant:.0} body_energy {:.0}",
             founder_gut.map_or("NO LIVE FOUNDER".to_string(), |g| format!("{g:+.2}")),
             def.start_energy,
-            def.hunger_fraction,
+            def.digest_rate,
             def.body_energy,
         );
         println!("  standing food in this bed, and what this gut draws from a mouthful:");
@@ -812,14 +816,11 @@ fn main() {
         // §5's named failure case and a foraging finding, not an economy one.
         let ever_richest = last_run_richest;
         println!(
-            "  ceiling {ceiling:.0} (satiety {:.0} + best mouthful standing here {best_here:.0}) \
-             against a bar of {bar:.0}  =>  margin {:+.0} — {}",
-            def.hunger_fraction * def.start_energy,
-            ceiling - bar,
-            if ceiling - bar >= 0.0 {
-                "positive: a bank that reaches this ceiling can afford a child"
+            "  on the best mouthful standing here ({best_here:.0}) an ant nets {net:+.3}/tick after {upkeep:.3} upkeep, against a bar of {bar:.0}  =>  {}",
+            if net > 0.0 {
+                format!("a child every {:.0} ticks of uninterrupted feeding", bar / net)
             } else {
-                "negative: no ant in this bed can ever afford a child"
+                "negative: no ant in this bed can out-eat its own upkeep, so no amount of time produces a birth".to_string()
             }
         );
         println!(
@@ -827,7 +828,7 @@ fn main() {
              => {}",
             if ever_richest >= bar {
                 "an ant did reach the bar"
-            } else if ceiling - bar >= 0.0 {
+            } else if net > 0.0 {
                 "NO ant ever reached it, though the bed contains food that would — \
                  a foraging result, not an economy one"
             } else {

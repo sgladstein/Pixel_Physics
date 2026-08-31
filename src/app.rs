@@ -106,7 +106,7 @@ struct ColonyCensus {
     energy_axis: f32,
     /// `start_energy * hunger_fraction` — **the line the brain itself tests**
     /// (`creature.rs`'s `hungry`), not a display threshold invented here.
-    hunger_line: f32,
+    lean_line: f32,
     hungry: usize,
     /// What one child costs its parent, and the bank an individual has to
     /// reach to bud (`None` for a species that does not reproduce).
@@ -1150,7 +1150,15 @@ impl App {
 
         let mut energies: Vec<f32> = group.iter().map(|s| s.energy).collect();
         let mut reaches: Vec<f32> = group.iter().map(|s| s.forage_max as f32).collect();
-        let hunger_line = def.start_energy * def.hunger_fraction;
+        // **The line an animal is in trouble below, and it is derived rather
+        // than authored.** This was `hunger_fraction * start_energy` -- the
+        // threshold the brain itself tested -- and that gate no longer exists:
+        // a crop digests at a rate and nothing compares a bank against
+        // anything. What survives is the player's question, "how many of my
+        // ants are struggling", and the honest answer with no gate left is
+        // *poorer than a newborn*: below what this species hands a child, an
+        // animal has less to work with than something just born.
+        let lean_line = creature::birth_grant(def, &def.traits);
         let birth_cost = creature::birth_cost(def);
         let breed_at = creature::reproduce_at(def);
 
@@ -1201,13 +1209,13 @@ impl App {
             energy: Spread::of(&mut energies).unwrap_or_default(),
             energy_buckets,
             energy_axis,
-            hunger_line,
-            hungry: group.iter().filter(|s| s.energy < hunger_line).count(),
+            lean_line,
+            hungry: group.iter().filter(|s| s.energy < lean_line).count(),
             birth_cost,
             breed_at,
             ready: breed_at.map_or(0, |bar| group.iter().filter(|s| s.energy >= bar).count()),
             richest,
-            laden: group.iter().filter(|s| s.carrying.is_some()).count(),
+            laden: group.iter().filter(|s| s.crop.is_some()).count(),
             airborne: group.iter().filter(|s| s.flight.is_some()).count(),
             reach: Spread::of(&mut reaches).unwrap_or_default(),
             deepest_generation: group.iter().map(|s| s.generation).max().unwrap_or(0),
@@ -2822,7 +2830,7 @@ impl App {
             if census.hungry * 2 > census.live { wanting } else { dim },
             format!(
                 "ANTS BELOW {:.0}, WHICH IS THE LINE THE ANT'S OWN HEAD TESTS: UNDER IT IT EATS WHAT IT FINDS, OVER IT IT CARRIES THE FOOD HOME INSTEAD. HUNGRY IS THE NORMAL STATE OF A FORAGER.",
-                census.hunger_line
+                census.lean_line
             ),
         ));
         rows.push(ColonyRow {
@@ -3046,7 +3054,7 @@ impl App {
             // The bucket's own *upper* edge against the hunger line, so a bar
             // is coloured wanting only if every animal in it is.
             let top_of_bucket = census.energy_axis * (i + 1) as f32 / COLONY_ENERGY_BUCKETS as f32;
-            let colour = if top_of_bucket <= census.hunger_line { wanting } else { good };
+            let colour = if top_of_bucket <= census.lean_line { wanting } else { good };
             let h = if *count == 0 { 0 } else { ((*count as i64 * height as i64 / tallest as i64) as i32).max(1) };
             for dy in 0..h {
                 for dx in 0..bar {
@@ -3059,7 +3067,7 @@ impl App {
         }
         // The hunger line itself, as a tick through the axis: without it the
         // bar colours say *that* there is a split and not *where*.
-        let tick = x + (span as f32 * (census.hunger_line / census.energy_axis).clamp(0.0, 1.0)) as i32;
+        let tick = x + (span as f32 * (census.lean_line / census.energy_axis).clamp(0.0, 1.0)) as i32;
         for dy in 0..4 {
             render::put(frame, WIDTH, HEIGHT, tick, y + height + dy, wanting);
         }
@@ -4242,7 +4250,7 @@ mod tests {
         assert!(census.birth_cost > 0.0, "the ant authors a body, so a child costs something");
         // The hunger line is the species' own, not a display constant: an ant
         // freshly placed sits at `start_energy`, which is above it.
-        assert!(census.hunger_line > 0.0 && census.hunger_line < census.energy_axis);
+        assert!(census.lean_line > 0.0 && census.lean_line < census.energy_axis);
         assert_eq!(census.hungry, 0, "ants are placed at full store, so none is hungry on frame one");
     }
 
