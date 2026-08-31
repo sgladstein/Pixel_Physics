@@ -47,6 +47,10 @@ use crate::sim::world::World;
 
 pub use crate::app::{HEIGHT, WIDTH};
 
+/// How much a rack still is shrunk in each axis. Kept beside `Thumb` rather
+/// than in `ui`, because the downscale happens here.
+const THUMB_SHRINK: u32 = 4;
+
 /// The whole lab: a world, the systems that live beside the cell grid, a view
 /// on it, and the two things the player drives — time and what is on screen.
 pub struct Lab {
@@ -106,6 +110,9 @@ pub struct Lab {
     rack: Vec<Option<Chamber>>,
     /// Which rack slot the inline fields belong to.
     active: usize,
+    /// The still of the box on screen, if one has been taken. Inline with the
+    /// rest of the active chamber's state, for `world`'s reason.
+    thumb: Option<Thumb>,
     /// Set when the thing on screen changed for a reason the dirty-rect skip
     /// cannot see — today, a chamber switch. Consumed by the next `draw`.
     ///
@@ -142,6 +149,28 @@ pub struct Chamber {
     /// The population strip `Ui` keeps for the bar. Parked with its box for
     /// the reason the table above gives.
     pub history: ui::History,
+    /// The last still taken of this box, if any. See [`Thumb`].
+    pub thumb: Option<Thumb>,
+}
+
+/// **A still of one chamber, for the rack page.**
+///
+/// Taken when a row is clicked and kept on the chamber, rather than rendered
+/// per frame: `Renderer::draw` needs `&mut` where the page has it borrowed
+/// shared, and more to the point a frozen box repainted sixty times a second
+/// is the same picture sixty times.
+///
+/// **It is thrown away when the chamber runs.** A picture of a box as it was
+/// four thousand ticks ago, sitting under a live census, is the stale side
+/// table this repo keeps paying for — better no picture than a wrong one.
+pub struct Thumb {
+    pub w: u32,
+    pub h: u32,
+    /// RGBA, `w * h * 4` bytes.
+    pub rgba: Vec<u8>,
+    /// The chamber's frame when it was taken, so `Lab` can tell a picture
+    /// that still matches its box from one that does not.
+    pub frame: u64,
 }
 
 /// One row of the chamber menu: enough to compare two boxes without
@@ -205,6 +234,7 @@ impl Lab {
             // single hole. Every later chamber is pushed beside it.
             rack: vec![None],
             active: 0,
+            thumb: None,
             view_dirty: false,
         }
     }
@@ -297,6 +327,10 @@ impl Lab {
             particles: std::mem::replace(&mut self.particles, incoming.particles),
             blasts: std::mem::replace(&mut self.blasts, incoming.blasts),
             history: std::mem::replace(&mut self.ui.history, incoming.history),
+            // The outgoing box gets a fresh still on the way out -- this is
+            // the one moment its picture is both wanted and free, because the
+            // frame just drawn *is* that picture.
+            thumb: std::mem::replace(&mut self.thumb, incoming.thumb),
         };
         self.rack[self.active] = Some(outgoing);
         self.active = i;
@@ -321,6 +355,7 @@ impl Lab {
             particles: ParticleSystem::new(),
             blasts: Blasts::new(),
             history: ui::History::default(),
+            thumb: None,
         }));
         self.rack.len() - 1
     }
@@ -360,6 +395,89 @@ impl Lab {
             .max()
             .unwrap_or(0);
         highest.wrapping_add(1)
+    }
+
+    /// Take a still of chamber `i`, unless the one it already has is current.
+    ///
+    /// **Costs a full-size render plus a box downscale, and is therefore done
+    /// on a click rather than on a frame.** It also leaves `Renderer`'s
+    /// dirty-rect state describing a *different* world, so `view_dirty` is set
+    /// — without that the next frame of the box on screen would be an
+    /// incremental update against the picture of another chamber.
+    ///
+    /// A chamber whose picture matches its current frame keeps it: a frozen
+    /// box cannot have changed, which is the common case on this page.
+    fn take_thumb(&mut self, i: usize) {
+        let frame_now = match self.chamber_frame(i) {
+            Some(f) => f,
+            None => return,
+        };
+        if self.thumb_at(i).is_some_and(|t| t.frame == frame_now) {
+            return;
+        }
+        let mut full = vec![0u8; (WIDTH * HEIGHT * 4) as usize];
+        {
+            let world = match self.rack.get(i) {
+                Some(Some(ch)) => &ch.world,
+                _ if i == self.active => &self.world,
+                _ => return,
+            };
+            let particles = match self.rack.get(i) {
+                Some(Some(ch)) => &ch.particles,
+                _ => &self.particles,
+            };
+            // Forced full: an incremental draw of a world the renderer has
+            // never seen would leave most of the buffer black.
+            self.renderer.draw(world, particles, &Default::default(), &mut full, (WIDTH, HEIGHT), true);
+        }
+        let (tw, th) = (WIDTH / THUMB_SHRINK, HEIGHT / THUMB_SHRINK);
+        let mut rgba = vec![0u8; (tw * th * 4) as usize];
+        // A box mean, not a nearest sample. At a quarter scale nearest
+        // throws away 15 of every 16 cells, and a bed of one-cell-wide stems
+        // reads as an empty box -- which is precisely the picture this page
+        // exists to avoid showing.
+        let n = THUMB_SHRINK * THUMB_SHRINK;
+        for y in 0..th {
+            for x in 0..tw {
+                let mut acc = [0u32; 3];
+                for dy in 0..THUMB_SHRINK {
+                    for dx in 0..THUMB_SHRINK {
+                        let sx = x * THUMB_SHRINK + dx;
+                        let sy = y * THUMB_SHRINK + dy;
+                        let si = ((sy * WIDTH + sx) * 4) as usize;
+                        for c in 0..3 {
+                            acc[c] += full[si + c] as u32;
+                        }
+                    }
+                }
+                let di = ((y * tw + x) * 4) as usize;
+                for c in 0..3 {
+                    rgba[di + c] = (acc[c] / n) as u8;
+                }
+                rgba[di + 3] = 255;
+            }
+        }
+        let thumb = Thumb { w: tw, h: th, rgba, frame: frame_now };
+        match self.rack.get_mut(i) {
+            Some(Some(ch)) => ch.thumb = Some(thumb),
+            _ => self.thumb = Some(thumb),
+        }
+        // The renderer now describes another world. See the doc above.
+        self.view_dirty = true;
+    }
+
+    fn chamber_frame(&self, i: usize) -> Option<u64> {
+        match self.rack.get(i)? {
+            Some(ch) => Some(ch.world.frame),
+            None => Some(self.world.frame),
+        }
+    }
+
+    fn thumb_at(&self, i: usize) -> Option<&Thumb> {
+        match self.rack.get(i)? {
+            Some(ch) => ch.thumb.as_ref(),
+            None => self.thumb.as_ref(),
+        }
     }
 
     /// Close chamber `i`. Returns whether it went.
@@ -419,6 +537,13 @@ impl Lab {
             }
         }
         let advance = self.time.record(ran, started.elapsed());
+        if ran > 0 {
+            // **The picture of a box that has moved is a wrong picture.** Held
+            // under a live census it is the stale side table this repo keeps
+            // paying for, and no picture is better than one that disagrees
+            // with the numbers beside it. Re-taken on the next click.
+            self.thumb = None;
+        }
         self.stats.observe(&self.world);
         // Sampled here rather than in `draw` so that a frame which drew
         // nothing still advances the series -- and gated on `World::frame`
@@ -469,6 +594,15 @@ impl Lab {
         // cheap: everything on a row is already computed — the census is the
         // one `stats` last took, never a fresh walk of a frozen box.
         let chambers = self.chamber_summaries();
+        // Reached through the fields rather than through `thumb_at`, so the
+        // borrow is of `rack`/`thumb` and not of the whole `Lab` — `ui.draw`
+        // below needs `&mut self.ui`, and a method call here would hold all of
+        // `self` for as long as `state` lives.
+        let rack_thumb = self.ui.selected_chamber().and_then(|i| match self.rack.get(i) {
+            Some(Some(ch)) => ch.thumb.as_ref(),
+            Some(None) => self.thumb.as_ref(),
+            None => None,
+        });
         let state = ui::BarState {
             running: self.time.phase == time::Phase::Running,
             requested: self.time.requested,
@@ -485,6 +619,7 @@ impl Lab {
             jar: &jar,
             jar_note: &jar_note,
             chambers: &chambers,
+            rack_thumb,
         };
         self.ui.draw(frame_buf, &self.world, &self.spec, &state, &self.renderer, fps);
         // The pages last, because they are modal: a page covers the box *and*
@@ -852,6 +987,29 @@ impl Lab {
                 self.ui.reload_shelf();
                 let n = self.ui.shelf().len();
                 self.ui.say(format!("SHELF RELOADED -- {n} JAR(S)"));
+            }
+            ui::Action::ChamberSelect(i) => {
+                self.ui.select_chamber(i);
+                // The picture is what a click on a row is *for*, so it is
+                // taken here rather than lazily in `draw` — a page that shows
+                // the row highlighted and the picture one frame later reads as
+                // a stutter on every click.
+                self.take_thumb(i);
+            }
+            ui::Action::ChamberAdd => {
+                let i = self.duplicate_active(true);
+                let seed = self.chamber_summaries()[i].seed;
+                self.ui.select_chamber(i);
+                self.ui.say(format!("CHAMBER {} ADDED -- SEED {seed}", i + 1));
+            }
+            ui::Action::ChamberClose(i) => {
+                if self.remove_chamber(i) {
+                    self.ui.say(format!("CHAMBER {} CLOSED", i + 1));
+                } else {
+                    // Says why rather than doing nothing. `CLAUDE.md`'s second
+                    // law: a verb with no visible consequence is not finished.
+                    self.ui.say("CANNOT CLOSE THE BOX YOU ARE IN -- ENTER ANOTHER FIRST".to_string());
+                }
             }
             ui::Action::Chamber(i) => {
                 if i == self.active {

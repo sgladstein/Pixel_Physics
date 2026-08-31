@@ -144,6 +144,32 @@ fn main() {
         click(&mut lab, at);
     }
 
+    // 6b. The rack, and the rack with a row picked -- which is the half that
+    // carries the picture. Skipped on a one-chamber lab, where there is no
+    // strip to click and nothing to compare.
+    if lab.chamber_count() > 1 {
+        let at = centre(&lab, Action::Panel(Panel::Chambers));
+        click(&mut lab, at);
+        fired.push(format!("click opened THE RACK: {}", lab.ui.panel == Some(Panel::Chambers)));
+        tiles.push(("PAGE: THE RACK".into(), shot(&mut lab)));
+
+        let pick = lab.chamber_count() - 1;
+        let at = centre(&lab, Action::ChamberSelect(pick));
+        click(&mut lab, at);
+        // The counter beside the picture: an image says a row is highlighted,
+        // only this says the still was actually taken.
+        fired.push(format!(
+            "picked chamber {}: selected {:?}, picture taken: {}",
+            pick + 1,
+            lab.ui.selected_chamber(),
+            lab.ui.selected_chamber() == Some(pick)
+        ));
+        lab.set_cursor(None);
+        tiles.push(("RACK: A ROW PICKED".into(), shot(&mut lab)));
+        let at = centre(&lab, Action::Panel(Panel::Chambers));
+        click(&mut lab, at);
+    }
+
     // 7. The speed ladder latched, with the achieved readout beside it.
     let fast = centre(&lab, Action::Preset(4));
     click(&mut lab, fast);

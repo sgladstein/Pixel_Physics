@@ -408,6 +408,10 @@ impl Handler {
             KeyCode::F1 => self.lab.act(Action::Panel(Panel::Plants)),
             KeyCode::F2 => self.lab.act(Action::Panel(Panel::Ants)),
             KeyCode::F3 => self.lab.act(Action::Panel(Panel::Box)),
+            // The rack. Next in the F-key run the other pages already use,
+            // and the bar has no room for a fifth page button — the strip's
+            // `ALL` is the mouse route.
+            KeyCode::F4 => self.lab.act(Action::Panel(Panel::Chambers)),
             // The parameters page. `P` rather than `F4`: it is the one page
             // you open to *change* something rather than to read something,
             // and it sits with the tools on the bar's top row for the same
