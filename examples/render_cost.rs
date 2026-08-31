@@ -111,8 +111,42 @@ fn branch_split() {
     let sky = case("all empty sky", None);
     let stone = case("all stone", Some(pixel_physics::sim::material::STONE));
     let water = case("all water", Some(pixel_physics::sim::material::WATER));
-    println!("
-  sky {:.1} ns/px, stone {:.1} ns/px, water {:.1} ns/px", sky * 1e6 / PIXELS as f64, stone * 1e6 / PIXELS as f64, water * 1e6 / PIXELS as f64);
+
+    // **The lab's air**, and the reason it is measured here rather than in a
+    // harness of its own: the row above it is the number it has to beat, on
+    // the same machine, in the same run, over the same 163,840 pixels. The
+    // design guide's §2 line is *"whatever fills the air above the soil must
+    // not draw as sky"*, and "must not" is only checkable against sky's own
+    // figure from the same minute — a ns/px quoted from a report is a
+    // measurement of somebody else's machine.
+    //
+    // Same empty world as `all empty sky` above; the only difference is that
+    // this one has declared itself a room. That is the paired comparison
+    // `CLAUDE.md` asks for, with the paint path held fixed.
+    let interior = {
+        let mut world = World::new(Rect::new(0, 0, WIDTH as i32 - 1, HEIGHT as i32 - 1));
+        world.set_enclosure(Some(
+            pixel_physics::sim::enclosure::Enclosure::new(4, HEIGHT as i32 - 40)
+                .with_lamps(vec![64, 192, 320, 448], 80),
+        ));
+        world.end_step();
+        let mut r = Renderer::new();
+        let (ms, _) = best_of(20, || r.draw(&world, &particles, &touched, &mut frame, (WIDTH, HEIGHT), true) as u64);
+        println!("{:>34}  {ms:>7.3}ms  {:>7.1}", "all lab interior", ms * 1e6 / PIXELS as f64);
+        ms
+    };
+
+    let nspx = |ms: f64| ms * 1e6 / PIXELS as f64;
+    println!(
+        "
+  sky {:.1} ns/px, stone {:.1} ns/px, water {:.1} ns/px, lab interior {:.1} ns/px",
+        nspx(sky), nspx(stone), nspx(water), nspx(interior)
+    );
+    println!(
+        "  the lab interior is {:.2}x sky and {:.2}x stone",
+        interior / sky,
+        interior / stone
+    );
 }
 
 fn main() {

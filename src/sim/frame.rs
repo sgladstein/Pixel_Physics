@@ -200,5 +200,26 @@ mod tests {
     /// Recorded 2026-08-30 from `origin/main`, one commit before
     /// `sim::frame` existed. See the test above for why it is a constant
     /// rather than a second run of the code under test.
-    const PRE_EXTRACTION_HASH: u64 = 15_147_976_901_438_684_952;
+    ///
+    /// **Re-taken 2026-08-30 for `FIELD_SCALE` 8 -> 16**, which is a
+    /// deliberate simulation change and so the first of the two cases the
+    /// test's own doc names. Light, pressure, wind and moisture are all
+    /// solved on a grid with a quarter as many cells, so this scene's
+    /// water surface and settled sand differ from the first tick onward;
+    /// the sequence of phases is untouched.
+    ///
+    /// The attribution is clean rather than assumed: with `FIELD_SCALE` put
+    /// back to 8 and every other edit on this branch left in place, this
+    /// scene reproduces the old value `15_147_976_901_438_684_952`
+    /// **exactly**, so the move is `FIELD_SCALE`'s and nothing else's.
+    ///
+    /// **What this constant no longer carries is its provenance**, and that
+    /// is a real loss worth stating rather than papering over. The old value
+    /// was taken from the *inline* `App::update` on the other side of the
+    /// extraction, which is what made it a positive control instead of a
+    /// self-comparison. That binary no longer exists, so the value below
+    /// could only be taken from `frame::step` itself. It still pins the
+    /// second failure the test names -- a phase added to one loop and not
+    /// the other -- but it is a regression pin now, not a cross-check.
+    const PRE_EXTRACTION_HASH: u64 = 2_716_942_592_370_077_923;
 }

@@ -365,6 +365,33 @@ pub struct MaterialDef {
     /// another material, no new mechanism.
     #[serde(default)]
     pub glow: f32,
+    /// Light this material throws **downward**, in the same units as
+    /// [`MaterialDef::glow`]. `0.0` — the default, and every material but
+    /// the grow lamp — throws nothing.
+    ///
+    /// **`glow` is a lamp you can see; `beam` is a lamp that lights
+    /// something.** `glow` seeds the light channel of the emitter's *own*
+    /// field block and then relies on `field::LIGHT_DECAY` (0.95) to spread
+    /// it, which reaches a handful of blocks and no further — right for a
+    /// geode lining read from across a cavern, and the reason the evolution
+    /// lab's fixtures contributed *nothing* to the crop nineteen blocks
+    /// below them (`labshot lamps=0` came back byte-identical). `beam`
+    /// instead rides `field::apply_sky_to`'s column descent, the same walk
+    /// the sun already takes: it re-seeds the amplitude falling down its own
+    /// column, so clear air passes it undimmed and only occluders stop it.
+    ///
+    /// **Emitted from the fixture's face, not through its housing.** The
+    /// descent attenuates first and re-seeds second, so a lamp recessed into
+    /// a ceiling does not shade its own light. That is what decouples how
+    /// much light the crop gets from how thick the shell is — the knob
+    /// `lab::scene::CEILING` used to be, and was found to be the expensive
+    /// way.
+    ///
+    /// Zero cost for a world with no beam in it: the per-block value is
+    /// gathered in the scan `blocked`/`glow` already run, and the descent
+    /// takes its beam-aware branch only for a tile whose `has_beam` is set.
+    #[serde(default)]
+    pub beam: f32,
     /// Whether standing cells of this `Liquid` dry up into the air above
     /// them — `evaporation.rs`.
     ///
@@ -532,6 +559,37 @@ pub struct MaterialDef {
     /// the neighbour already resolves to is a `Vec` index instead.
     #[serde(default)]
     pub reinforces_powder: bool,
+    /// Whether a cell of this material holds *itself* up, so the sweep's
+    /// fall rules never run on it — the property that makes a dug tunnel
+    /// stay dug.
+    ///
+    /// **The neighbour-facing sibling is `reinforces_powder`, and the
+    /// difference is the whole reason this is a second flag rather than a
+    /// reuse of that one.** A root stabilises the soil *around* it, which
+    /// is right for a root and catastrophic for a lining: an ant packs a
+    /// ring per dig, and a lining that also froze its loose neighbours
+    /// would spread a cell outward every time until the bed could not move
+    /// at all. This says only "this cell does not fall".
+    ///
+    /// Measured need (`examples/burrow_probe.rs`): a gallery cut into a bed
+    /// of `soil` is **gone in five frames**, and no setting of
+    /// `friction_angle` reaches it, because repose governs
+    /// `roll_along_slope` and what closes a tunnel is the unconditional
+    /// straight-down move above it.
+    ///
+    /// Read at `update_powder`'s dispatch site off the `Material` the
+    /// caller already resolved — a `Vec` index and a `bool` test, for
+    /// exactly the reason `reinforces_powder`'s own doc gives at length: an
+    /// all-sand stress scene must not pay a `surface.get` per grain per
+    /// frame for a mechanic it has no ants for.
+    ///
+    /// **Binary on purpose, and paired with `slumps_into` so it is not a
+    /// binary outcome.** The cell is immobile while it is dry and reverts
+    /// to loose material the moment it is waterlogged; a burrow is not
+    /// immortal, it is dry (`CLAUDE.md`'s first law — an outcome is a
+    /// distribution, not a binary).
+    #[serde(default)]
+    pub self_supporting: bool,
     /// Whether the character walks *through* this material rather than into
     /// it, and can climb it — living foliage and stems, which read as
     /// scenery to move past the way a tree does in a 3D game.
@@ -872,6 +930,33 @@ pub struct MaterialDef {
     /// weathering, not an event. Unset means it does not happen.
     #[serde(default)]
     pub decays_into: String,
+    /// What a `self_supporting` cell becomes when it can no longer hold —
+    /// today `packedsoil` -> `soil`, and nothing else.
+    ///
+    /// The trigger is the cell's own held water crossing
+    /// `material::SOIL_FIELD_CAPACITY`: at field capacity the pore space is
+    /// full, and a packing that works by grain contact has nothing left to
+    /// grip with. So a gallery driven below the water table, or one that
+    /// floods, comes down — which is the answer to "what threatens a burrow
+    /// now that collapse is declined".
+    ///
+    /// Unset, or naming a material that does not exist, reads as "this
+    /// never happens" like every other name reference here, so a
+    /// `self_supporting` material with no `slumps_into` is simply permanent.
+    #[serde(default)]
+    pub slumps_into: String,
+    /// What this loose material becomes when a burrowing creature works it
+    /// into the wall of its own tunnel — today `soil` -> `packedsoil`, and
+    /// nothing else. The exact inverse of `slumps_into`.
+    ///
+    /// **A property of the ground, not a whitelist in the digger**, for the
+    /// same reason `creature.rs`'s dig gate compares `penetration_
+    /// resistance` against `dig_force` instead of naming materials: `snow`
+    /// is diggable too and must not become packed *soil*, and a future clay
+    /// should line itself with no code change. Unset reads as "this ground
+    /// cannot be worked", which is every other material.
+    #[serde(default)]
+    pub packs_into: String,
     /// Pairwise reactions with a specific other material — water quenching
     /// lava into stone and steam, that kind of thing. Order matters: `self`
     /// becomes `produces.0`, `with` becomes `produces.1`.
@@ -1554,6 +1639,9 @@ pub struct Material {
     /// See `MaterialDef::glow` — light emitted into the field, 0 for all
     /// but the glowing materials.
     pub glow: f32,
+    /// See `MaterialDef::beam` — light thrown down the emitter's own column,
+    /// 0 for all but the grow lamp.
+    pub beam: f32,
     /// See `MaterialDef::evaporates`.
     pub evaporates: bool,
     /// See `MaterialDef::dissipation`.
@@ -1566,6 +1654,8 @@ pub struct Material {
     pub worth_in_aux: bool,
     /// See `MaterialDef::reinforces_powder`.
     pub reinforces_powder: bool,
+    /// See `MaterialDef::self_supporting`.
+    pub self_supporting: bool,
     /// See `MaterialDef::climbable`.
     pub climbable: bool,
     /// See `MaterialDef::insubstantial`.
@@ -1654,6 +1744,8 @@ pub struct Material {
     breaks_into_name: String,
     severs_into_name: String,
     decays_into_name: String,
+    slumps_into_name: String,
+    packs_into_name: String,
     reactions_raw: Vec<ReactionDef>,
 
     /// Resolved by `resolve_references`. Unset (or naming something that
@@ -1679,6 +1771,12 @@ pub struct Material {
     /// what keeps the settle scan proportional to decayable matter rather
     /// than to world size.
     pub decays_into: Option<MaterialId>,
+    /// See `MaterialDef::slumps_into`. Read only by `update_powder`, and
+    /// only for a `self_supporting` cell.
+    pub slumps_into: Option<MaterialId>,
+    /// See `MaterialDef::packs_into`. `Some` is also the gate deciding
+    /// whether a dug cell's neighbour may be lined at all.
+    pub packs_into: Option<MaterialId>,
     /// See `MaterialDef::reseed_chance`.
     pub reseed_chance: f32,
     /// See `MaterialDef::decay_chance_damp`. Always a real rate -- unset in
@@ -1904,6 +2002,7 @@ impl From<MaterialDef> for Material {
             penetration_resistance: def.penetration_resistance,
             water_capacity: def.water_capacity,
             glow: def.glow,
+            beam: def.beam,
             evaporates: def.evaporates,
             // Clamped rather than trusted: a negative value would be a
             // silent "never" (`Rng::chance` returns false at or below 0),
@@ -1914,6 +2013,7 @@ impl From<MaterialDef> for Material {
             food_class: def.food_class,
             worth_in_aux: def.worth_in_aux,
             reinforces_powder: def.reinforces_powder,
+            self_supporting: def.self_supporting,
             climbable: def.climbable,
             insubstantial: def.insubstantial,
             falls_through_organisms: def.falls_through_organisms,
@@ -2009,6 +2109,8 @@ impl From<MaterialDef> for Material {
             flame_into_name: def.flame_into,
             flame_chance: def.flame_chance,
             decays_into_name: def.decays_into,
+            slumps_into_name: def.slumps_into,
+            packs_into_name: def.packs_into,
             breaks_into_name: def.breaks_into,
             severs_into_name: def.severs_into,
             reseed_chance: def.reseed_chance,
@@ -2023,6 +2125,8 @@ impl From<MaterialDef> for Material {
             burns_into: None,
             flame_into: None,
             decays_into: None,
+            slumps_into: None,
+            packs_into: None,
             breaks_into: None,
             severs_into: None,
             reactions: Vec::new(),
@@ -2228,6 +2332,25 @@ const EMBEDDED: &[&str] = &[
     // ids are positional in this array. A byte-copy of `ant_block`'s palette
     // under another name, so the `shade_rule` A/B differs in the rule alone.
     include_str!("../../assets/materials/ant_block_shaded.ron"),
+    // Appended at the end, per the rule stated six times above. The wall of
+    // an ant tunnel -- worked soil that holds itself up, which is what makes
+    // a burrow a place rather than a five-frame event
+    // (`examples/burrow_probe.rs`). Addressed by name through
+    // `id_of("packedsoil")` at the dig site and by the resolved
+    // `Material::slumps_into` in the sweep, never by number.
+    //
+    // **In this list rather than only on disk**, which `litter.ron`'s entry
+    // above records as the P-7 lesson: only the app's F5 reload reads
+    // `assets/materials`, so a material left out here exists in the editor
+    // and in no measurement at all.
+    include_str!("../../assets/materials/packedsoil.ron"),
+    // **The evolution lab's grow-light fixture** -- the thing that lights the
+    // crop, and the first material to carry `beam`. After `packedsoil` by
+    // this list's own trunk-first tiebreak, stated twice above: `packedsoil`
+    // was on `main` while this was on a branch, so it keeps the lower slot.
+    // Both are at the end because ids are positional, and both are addressed
+    // by name -- `id_of("growlamp")` -- never by number.
+    include_str!("../../assets/materials/growlamp.ron"),
 ];
 
 /// Where the loader looks for material files, relative to the working directory.
@@ -2279,12 +2402,14 @@ impl MaterialRegistry {
             penetration_resistance: default_penetration_resistance(),
             water_capacity: 0,
             glow: 0.0,
+            beam: 0.0,
             evaporates: false,
             dissipation: 0.0,
             food_energy: 0.0,
             food_class: 0.0,
             worth_in_aux: false,
             reinforces_powder: false,
+            self_supporting: false,
             climbable: false,
             insubstantial: false,
             falls_through_organisms: false,
@@ -2309,6 +2434,8 @@ impl MaterialRegistry {
             flame_into: String::new(),
             flame_chance: 0.0,
             decays_into: String::new(),
+            slumps_into: String::new(),
+            packs_into: String::new(),
             reseed_chance: 0.0,
             // Never read -- `decays_into` is `None` here, which is the gate.
             // Set to the shared defaults rather than 0.0 so this cannot be
@@ -2355,12 +2482,14 @@ impl MaterialRegistry {
             penetration_resistance: default_penetration_resistance(),
             water_capacity: 0,
             glow: 0.0,
+            beam: 0.0,
             evaporates: false,
             dissipation: 0.0,
             food_energy: 0.0,
             food_class: 0.0,
             worth_in_aux: false,
             reinforces_powder: false,
+            self_supporting: false,
             climbable: false,
             insubstantial: false,
             falls_through_organisms: false,
@@ -2385,6 +2514,8 @@ impl MaterialRegistry {
             flame_into: String::new(),
             flame_chance: 0.0,
             decays_into: String::new(),
+            slumps_into: String::new(),
+            packs_into: String::new(),
             reseed_chance: 0.0,
             // Never read -- `decays_into` is `None` here, which is the gate.
             // Set to the shared defaults rather than 0.0 so this cannot be
@@ -2516,6 +2647,8 @@ impl MaterialRegistry {
             material.breaks_into = resolve_if_set(&material.breaks_into_name);
             material.severs_into = resolve_if_set(&material.severs_into_name);
             material.decays_into = resolve_if_set(&material.decays_into_name);
+            material.slumps_into = resolve_if_set(&material.slumps_into_name);
+            material.packs_into = resolve_if_set(&material.packs_into_name);
             material.reactions = material
                 .reactions_raw
                 .iter()

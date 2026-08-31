@@ -1,0 +1,65 @@
+// The evolution lab's grow-light fixture — the thing that actually lights the
+// crop.
+//
+// **Why this is its own material and not `crystal` with another field.** The
+// fixtures were crystal, which glows, and the measurement that started this
+// work is that they contributed *nothing*: `labshot lamps=0` replaces every
+// one of them with plain stone and the stand comes back byte-identical at
+// every stop, bench light included. `Material::glow` seeds the light channel
+// of the emitter's own field block and leaves the rest to diffusion, which
+// `field::LIGHT_DECAY` deliberately holds to a handful of blocks — right for
+// a geode lining, useless for a bench nineteen blocks below a ceiling. So the
+// crop was living on sunlight through the roof while the picture said grow
+// lights.
+//
+// Giving `crystal` the new `beam` field instead would have lit a shaft under
+// every geode in the massif and put a germination gate in every cave, which
+// is a change to the outdoor game made in passing. A fixture is also a thing
+// the player buys, places and moves, so it wants its own entry regardless.
+//
+// **`beam`, not `glow`, and both would be wrong.** `glow` also costs the
+// render: `render.rs` splats a radius-14 disc per glowing *cell* into
+// `near_glow`, and a bar is 60 cells against a geode lining's static few —
+// `flame.ron`'s note records that same cost argument sinking fire as a light
+// source. The interior renderer already paints the pool under a fixture from
+// `Enclosure::with_lamps`, so the picture is covered without paying for it
+// twice.
+//
+// 2.4 against `field::MAX_LIGHT` 4.0. Not chosen for realism: it is what puts
+// the bench under a fixture a little above the 0.42 the leaky roof used to
+// give it, so that switching the fiction does not quietly shrink the stand —
+// `Reports/lab-lamps-light-the-bed-2026-08-30.md` §3 has the sweep it came
+// from, and the light-as-a-lever payoff it is protecting (1,037 seeds against
+// 435 at full amplitude) is why it errs bright.
+(
+    name: "growlamp",
+    display: "Grow Light",
+    kind: Solid,
+    beam: 2.4,
+    // Aluminium housing and a glass face, near enough. Only mass-based rules
+    // read this.
+    density: 2.5,
+    // **Bright, but not crystal's cold blue-white.** A fixture reads as
+    // equipment rather than as a find: warm off-white with a grey housing
+    // tone, sitting above stone's 92..192 band so it is legibly the brightest
+    // thing in the ceiling without competing with the pool it casts.
+    colors: [
+        (238, 232, 208),
+        (250, 246, 226),
+        (214, 208, 190),
+        (196, 194, 188),
+    ],
+    base_colors: 4,
+    // Inset into the ceiling, so it is exactly as solid as the ceiling and
+    // has no span of its own to hold. These match stone rather than being
+    // tuned: a fixture that behaves differently from the rock it is set into
+    // would be the one thing in a sealed box that can fall on the crop, which
+    // is a mechanic nobody asked for.
+    max_unsupported_span: 6,
+    attached_span_bonus: 10,
+    breaks_into: "rubble",
+    fragment_rungs: 4,
+    support_cost_below: 1,
+    support_cost_beside: 2,
+    support_cost_above: 3,
+)

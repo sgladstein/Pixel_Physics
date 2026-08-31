@@ -560,7 +560,7 @@ fn generate_reported_with(
             // rather than in `WorldgenParams` -- the gnome's body, a blast
             // radius, an internode -- has a `&World` in hand and no other way
             // to find out. See `World::cell_scale`.
-            world.cell_scale = params.cell_scale;
+            world.set_cell_scale(params.cell_scale);
             // The plan phase is inside `Ctx::new` -- erosion included -- and
             // it is not a row in `PASSES`, so it has to be timed here or it
             // is invisible to any per-pass accounting.

@@ -848,3 +848,268 @@ pub fn bolt(id: u64, x: i32, top_y: i32, ground_y: i32) -> Vec<BoltSegment> {
 pub fn bolt_colour() -> [f32; 3] {
     BOLT_COLOUR
 }
+
+// ---------------------------------------------------------------------------
+// The lab interior: what empty space looks like when it is a *room*.
+// ---------------------------------------------------------------------------
+
+/// Wall tone immediately under the ceiling, where the fixture housing shades
+/// it. Cool blue-grey throughout, and deliberately not a colour anything in
+/// the box wears: soil is brown, plants green, chitin near-black, so a
+/// desaturated blue reads as *manufactured surface* against all of them.
+const WALL_TOP: [f32; 3] = [28.0, 32.0, 39.0];
+/// ...at the brightest part of the wall, a little below the lamps.
+const WALL_MID: [f32; 3] = [47.0, 53.0, 62.0];
+/// ...and where it meets the bench. Darker again, so the soil reads as
+/// sitting *in* the room rather than being pasted over a backdrop.
+const WALL_BOTTOM: [f32; 3] = [24.0, 27.0, 33.0];
+/// Dug space below the bench line. Warm near-black, so a burrow reads as a
+/// hole in earth rather than as more wall — the one place the interior must
+/// not look manufactured.
+const EARTH_DARK: [f32; 3] = [21.0, 16.0, 13.0];
+/// The colour a grow light throws. Cold and slightly cyan: a horticultural
+/// lamp is the one artificial thing in the box and it should not be
+/// mistakable for daylight, which is warmer and comes from above-left.
+const LAMP_BLOOM: [f32; 3] = [196.0, 218.0, 232.0];
+/// How far down the room a lamp's pool of light carries, as a fraction of
+/// ceiling-to-bench. Past this the wall is its own colour.
+const BLOOM_FRACTION: f32 = 0.62;
+/// Rows between panel seams on the wall.
+///
+/// Structure, not decoration, and it costs nothing: the interior is a
+/// per-row table and a seam is one entry in it. `Sky`'s own note on why it
+/// is a gradient rather than a flat fill applies here for the same reason
+/// and against a different failure — a single flat tone reads as *no wall
+/// at all*, where a repeating join reads as a built surface.
+const PANEL_ROWS: i32 = 26;
+/// How much a seam row lifts, and how much the shadow row under it drops.
+const SEAM_LIFT: f32 = 11.0;
+const SEAM_SHADOW: f32 = 7.0;
+/// Floor under the wall's brightness when the lamps are off, as a fraction
+/// of full. Never zero: a room the player cannot see into is not a dark
+/// room, it is a black screen, and the point of the light schedule is that
+/// the player watches it happen.
+const DARK_FLOOR: f32 = 0.34;
+
+/// **What the air in a sealed room looks like**, precomputed as two small
+/// tables.
+///
+/// The whole reason this type exists is cost. Every empty pixel on the
+/// screen goes through here, and the thing it replaces — [`Sky::colour_at`]
+/// — is a gradient with a `powf`, a moon distance test and two position
+/// hashes per pixel, measured at **27.4 ns/px against stone's 6.7**
+/// (`Reports/evolution-lab-design-guide-2026-08-30.md` §2). In a sealed box
+/// the air is most of the screen, so that is the single most expensive
+/// picture the lab draws and it is drawing a field at dusk.
+///
+/// A room is a *separable* picture: everything that varies down the screen
+/// is in `rows`, everything that varies across it is in `cols`, and a pixel
+/// is two indexed reads and a lerp. Separable is an approximation and it is
+/// the right one here — the alternative is a viewport-sized buffer, 160,000
+/// entries to rebuild and 640 KB to walk, which is worse in cache than the
+/// thing it replaced for a difference nobody can see on a wall.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Interior {
+    /// World row of `rows[0]`.
+    top_y: i32,
+    /// Per row: the wall with no lamp over it, and the same row with a lamp
+    /// directly over it. A pixel lerps between them by its column's share.
+    rows: Vec<([u8; 3], [u8; 3])>,
+    /// World column of `cols[0]`.
+    left_x: i32,
+    /// Per column: how much of the lit tone this column gets, `0..=255`.
+    cols: Vec<u8>,
+    /// What an unlit surface in here is tinted toward. See [`Interior::ambient`].
+    ambient: [u8; 3],
+}
+
+impl Interior {
+    /// Build the tables for a room, over the world rows and columns given.
+    ///
+    /// `light` is `0.0..=1.0` — the grow light's current amplitude, which is
+    /// what makes the schedule visible. The design guide's §2 calls the
+    /// schedule *"the largest single lever in the game"* at 2.4x
+    /// reproduction; a lever that changes nothing on screen is not a lever,
+    /// so the room dims with it.
+    pub fn new(
+        enclosure: &crate::sim::enclosure::Enclosure,
+        light: f32,
+        min_x: i32,
+        max_x: i32,
+        top_y: i32,
+        bottom_y: i32,
+    ) -> Self {
+        let light = light.clamp(0.0, 1.0);
+        // The wall keeps a floor; the lamps do not. Squared, so "half light"
+        // reads as clearly dimmer rather than as a slightly greyer room —
+        // the same reason `Sky`'s gradient is eased rather than linear.
+        let wall_scale = DARK_FLOOR + (1.0 - DARK_FLOOR) * light;
+        let bloom_scale = light * light;
+
+        let ceiling = enclosure.ceiling_y;
+        let floor = enclosure.floor_y.max(ceiling + 1);
+        let room = (floor - ceiling).max(1) as f32;
+        let bloom_rows = (room * BLOOM_FRACTION).max(1.0);
+
+        let top_y = top_y.min(ceiling);
+        let bottom_y = bottom_y.max(floor);
+        let mut rows = Vec::with_capacity((bottom_y - top_y + 1).max(1) as usize);
+        for y in top_y..=bottom_y {
+            if y >= floor {
+                let c = to_u8(scale(EARTH_DARK, wall_scale));
+                rows.push((c, c));
+                continue;
+            }
+            let d = (y - ceiling).max(0) as f32;
+            // Two segments: dark under the housing, brightening into the
+            // body of the wall, then falling away toward the bench. One
+            // gradient top-to-bottom was tried first and reads as a
+            // backdrop — the eye needs the wall to be brightest somewhere
+            // other than its own edge before it will sit *behind* anything.
+            let t = d / room;
+            let mut base = if t < 0.22 {
+                lerp(WALL_TOP, WALL_MID, t / 0.22)
+            } else {
+                lerp(WALL_MID, WALL_BOTTOM, (t - 0.22) / 0.78)
+            };
+            let seam = (y - ceiling).rem_euclid(PANEL_ROWS);
+            if seam == 0 && d > 0.0 {
+                base = [base[0] + SEAM_LIFT, base[1] + SEAM_LIFT, base[2] + SEAM_LIFT];
+            } else if seam == 1 {
+                base = [base[0] - SEAM_SHADOW, base[1] - SEAM_SHADOW, base[2] - SEAM_SHADOW];
+            }
+            let base = scale(base, wall_scale);
+            let fall = (1.0 - (d / bloom_rows).clamp(0.0, 1.0)).powi(2) * bloom_scale;
+            rows.push((to_u8(base), to_u8(lerp(base, LAMP_BLOOM, fall))));
+        }
+
+        let mut cols = Vec::with_capacity((max_x - min_x + 1).max(1) as usize);
+        for x in min_x..=max_x {
+            cols.push((enclosure.lamp_weight(x) * 255.0).round().clamp(0.0, 255.0) as u8);
+        }
+        Self { top_y, rows, left_x: min_x, cols, ambient: to_u8(scale(WALL_BOTTOM, wall_scale)) }
+    }
+
+    /// The interior's colour at a world position.
+    ///
+    /// Two bounds-checked indexes and three lerps, and nothing else — no
+    /// hash, no distance test, no transcendental. Out of range clamps rather
+    /// than panicking: `cell_colour` is reachable from tests that never
+    /// called `draw`, and a room that renders as its own edge colour is a
+    /// far better failure than one that aborts the process.
+    pub fn colour_at(&self, x: i32, y: i32) -> [u8; 4] {
+        if self.rows.is_empty() {
+            return [0, 0, 0, 255];
+        }
+        let ri = (y - self.top_y).clamp(0, self.rows.len() as i32 - 1) as usize;
+        let (dim, lit) = self.rows[ri];
+        if self.cols.is_empty() {
+            return [dim[0], dim[1], dim[2], 255];
+        }
+        let ci = (x - self.left_x).clamp(0, self.cols.len() as i32 - 1) as usize;
+        let w = self.cols[ci] as u16;
+        if w == 0 {
+            return [dim[0], dim[1], dim[2], 255];
+        }
+        let mix = |a: u8, b: u8| (((a as u16) * (255 - w) + (b as u16) * w) / 255) as u8;
+        [mix(dim[0], lit[0]), mix(dim[1], lit[1]), mix(dim[2], lit[2]), 255]
+    }
+
+    /// What an unlit surface in this room is tinted toward.
+    ///
+    /// `apply_light` pulls a dimming surface toward the ambient it is given,
+    /// and outdoors that is the sky — warm at dusk, cold at night. Under a
+    /// ceiling it must not be: turning the grow lights down tinted the soil
+    /// and the walls sepia, as though a sun were setting on them through a
+    /// stone roof. A room's ambient is the room, so this is the wall's own tone
+    /// at the bench, and a dark lab reads as unlit rather than as evening.
+    ///
+    /// Stored rather than read back off `rows`, which would be one line and
+    /// the wrong colour: the last row of that table is *below* the bench and
+    /// is `EARTH_DARK`, so a "take the bottom row" ambient would tint the
+    /// whole room warm — the exact defect this exists to remove.
+    pub fn ambient(&self) -> [u8; 3] {
+        self.ambient
+    }
+
+    /// What a repaint has to notice. Same job as [`Sky::key`]: a room whose
+    /// key has not moved would repaint to the identical picture, so it does
+    /// not repaint at all — which is how a *held* grow light keeps the
+    /// dirty-rect skip that a moving sky costs.
+    pub fn key(&self) -> [i32; 4] {
+        let bright = self.rows.iter().map(|(_, l)| l[2] as i32).max().unwrap_or(0);
+        let dim = self.rows.iter().map(|(d, _)| d[2] as i32).max().unwrap_or(0);
+        [self.top_y, self.left_x, dim, bright]
+    }
+}
+
+fn scale(c: [f32; 3], k: f32) -> [f32; 3] {
+    [c[0] * k, c[1] * k, c[2] * k]
+}
+
+#[cfg(test)]
+mod interior_tests {
+    use super::*;
+    use crate::sim::enclosure::Enclosure;
+
+    fn room() -> Enclosure {
+        Enclosure::new(4, 160).with_lamps(vec![64, 192, 320, 448], 44)
+    }
+
+    #[test]
+    fn a_lit_room_is_brightest_under_a_lamp_and_at_the_ceiling() {
+        let i = Interior::new(&room(), 1.0, 0, 511, 0, 319);
+        let lum = |c: [u8; 4]| c[0] as i32 + c[1] as i32 + c[2] as i32;
+        let under_lamp = lum(i.colour_at(64, 6));
+        let between_lamps = lum(i.colour_at(128, 6));
+        let low_under_lamp = lum(i.colour_at(64, 150));
+        assert!(under_lamp > between_lamps, "the pool of light must be visible across the room: {under_lamp} vs {between_lamps}");
+        assert!(under_lamp > low_under_lamp, "and it must fall off downward: {under_lamp} vs {low_under_lamp}");
+    }
+
+    #[test]
+    fn turning_the_lights_off_darkens_the_room_everywhere() {
+        let on = Interior::new(&room(), 1.0, 0, 511, 0, 319);
+        let off = Interior::new(&room(), 0.0, 0, 511, 0, 319);
+        let lum = |c: [u8; 4]| c[0] as i32 + c[1] as i32 + c[2] as i32;
+        for (x, y) in [(64, 6), (128, 40), (300, 120), (450, 90)] {
+            assert!(
+                lum(off.colour_at(x, y)) < lum(on.colour_at(x, y)),
+                "the schedule is the game's largest lever and must be visible at ({x},{y})"
+            );
+        }
+        // ...but never to black, or the player cannot watch the dark phase.
+        assert!(lum(off.colour_at(128, 40)) > 0, "an unlit room is dim, not blank");
+        assert_ne!(on.key(), off.key(), "and the change must force a repaint");
+    }
+
+    #[test]
+    fn below_the_bench_reads_as_earth_rather_than_as_wall() {
+        let i = Interior::new(&room(), 1.0, 0, 511, 0, 319);
+        let wall = i.colour_at(64, 150);
+        let dug = i.colour_at(64, 200);
+        assert!(dug[0] > dug[2], "dug space must be warm — earth, not painted wall: {dug:?}");
+        assert!(wall[2] > wall[0], "...and the wall above it cool: {wall:?}");
+    }
+
+    #[test]
+    fn a_position_outside_the_tables_clamps_rather_than_panicking() {
+        let i = Interior::new(&room(), 1.0, 0, 511, 0, 319);
+        for (x, y) in [(-9_000, -9_000), (9_000, 9_000), (-1, 400), (600, -5)] {
+            let c = i.colour_at(x, y);
+            assert_eq!(c[3], 255, "every interior pixel is opaque, including ({x},{y})");
+        }
+    }
+
+    #[test]
+    fn an_unlit_room_is_flat_across_its_width() {
+        // The positive control for the lamp table: with no fixtures, the
+        // column term must contribute nothing, or a "pool of light" reading
+        // is measuring the wall gradient instead.
+        let i = Interior::new(&Enclosure::new(4, 160), 1.0, 0, 511, 0, 319);
+        let a = i.colour_at(10, 40);
+        for x in [64, 128, 300, 500] {
+            assert_eq!(i.colour_at(x, 40), a, "a room with no lamps must have no bright columns");
+        }
+    }
+}

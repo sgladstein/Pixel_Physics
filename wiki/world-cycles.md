@@ -1,6 +1,15 @@
 # Day, Night, and Decay
 
-*Current as of: 2026-08-29. New since the last pass: a world whose pace knobs
+*Current as of: 2026-08-31 (broken branches rot now — they used to be the one
+thing a dead plant left that stayed on the ground for ever).*
+
+*Before that: a world can now be a
+room instead of a landscape — the air inside a sealed box is drawn as a lit
+interior, with grow lights you can see in the ceiling and pools of light on
+the wall beneath them, and it dims when the light schedule does; and the light
+grid is half as fine, so caves stay lit about twice as deep.*
+
+*Before that: a world whose pace knobs
 are not at normal now says so on screen when it starts, instead of only on the
 title bar; and break the top off a hill and you now see sky through the gap
 rather than a black slab — how dark a broken-open space is depends on how much
@@ -121,8 +130,32 @@ The same rule from the other side: **nothing standing in the air makes it
 dark underneath**. A tree, a bridge, a roof, a stray block left floating —
 none of them turn the space below into a cave, because none of them are
 ground. So you see sky between the leaves of a tree, and the space under a
-platform you build reads as outdoors, because it is. Making a building read
-as *indoors* is a separate thing that does not exist yet.
+platform you build reads as outdoors, because it is.
+
+**A room, though, is now its own kind of place.** A world can say it is
+indoors rather than outdoors, and where it does, the air in it stops being
+sky altogether: you get a wall behind everything, panelled in bands down its
+height, dimmest right under the ceiling and again where it meets the bench,
+and dug space below the bench line reads as bare earth rather than as more
+wall. The **grow lights** are fixtures in the ceiling you can see, and each
+throws a pool of cold light down the wall beneath it that fades out before it
+reaches the floor, so where the lights are is something you read off the room
+rather than being told. Turn the light schedule down and the whole room dims
+with it — the pools go first and hardest, the walls keep enough to see by.
+Nothing else in the room goes warm as it dims, either: an unlit surface
+indoors settles toward the wall's own cool grey rather than toward whatever
+the sky outside is doing, so a dark laboratory reads as switched off and not
+as evening.
+
+What the fixtures are *not* is where the crop's light comes from. That still
+arrives through the shell from the world's own daylight, and how thick the
+shell is decides how much gets in — a ceiling three rows thicker than it
+needs to be costs nearly half the light on the bench, and the only sign of
+it is that everything growing there grows less.
+
+This is what the sealed laboratory of the second game is made of; the
+outdoor world never declares itself a room and is drawn exactly as it always
+was.
 
 That now holds for the landscape too, and it used to be the loudest thing
 wrong with it. **Stand under a cliff's overhanging lip and you are outdoors.**
@@ -171,6 +204,16 @@ or two and keeps falling for about the height of a small room before it is
 properly dark. So a shallow scrape stays a lit place you can see into, the
 mouth of a cave reads as an opening rather than a hole cut out of the
 picture, and only depth is actually black.
+
+**That lit depth doubled on 2026-08-30**, when the light grid was made half
+as fine. Light is dimmed by how many *grid blocks* of rock it has crossed
+rather than by how many cells, so making a block twice as tall makes a given
+thickness of rock half as opaque. Measured straight down through solid stone,
+what used to be dark at about forty cells is now dark at about eighty: a
+shallow cave is a brighter place than it was, a deep one is unchanged because
+it was black either way, and the mouth of a tunnel now reads as an opening
+for roughly twice as far in. Nothing about the shape of the falloff changed —
+it is the same curve stretched.
 
 Trees do shade each other, and plants respond to that, but it is not
 something the picture shows yet: nothing on screen darkens because a tree is
@@ -247,3 +290,40 @@ has no way to weather back out of the world. Growing roots eat into it and
 soil at the world's edge can spill away, but neither is a match for a
 canopy. If you leave a forest running long enough, expect the ground under
 it to creep upward.
+
+## What a dead plant leaves, and how long it lies there
+
+A plant does not go all at once, and the pieces it leaves behind do not go at
+the same speed as each other. That spread is the point: a wood that has just
+been through a bad season should look different from one that went through
+it a year ago, and it does, because the floor is made of different things at
+each stage.
+
+Shed leaves are the fastest. Damp ones are among the quickest things in the
+world to disappear; dry ones sit and are what carries a ground fire from one
+stand to the next. **Broken branches are next, and they take roughly ten
+times as long as the leaves around them** — long enough that a snapped limb
+is still recognisably a limb while the leaf fall of two seasons has come and
+gone over it. A fallen bole is slowest of all, and will lie for what is
+effectively for ever unless something burns it.
+
+A branch does not turn into soil directly. It crumbles into the same leaf
+litter that falls from above, and *that* rots on into ground — so a branch
+pile passes through being leaf mould on its way to being earth, and is worth
+eating to an ant for the whole of that middle stretch, which it was not
+while it was still wood. If you clear a bed and come back much later, the
+brown you find is not the brown you left.
+
+**Branches used to be the exception, and it read as one.** Everything else a
+plant left behind went somewhere eventually; a broken branch simply stayed
+put, for the whole life of the world. After a die-back — a hard winter, a
+fire, or you cutting a stand down yourself — roughly a third of everything
+that died would still be lying exactly where it fell no matter how long you
+waited, and in a sealed box it was matter that could never be used again.
+Now every part of a dead plant is on its way somewhere, even if most of it is
+on its way to nothing.
+
+**Most of it is still on its way to nothing, and that is on purpose.** Only
+about a twentieth of what rots leaves any ground behind; the rest is breathed
+away. So "everything decays now" does not mean "everything comes back" — it
+means the floor keeps moving instead of silting up with something permanent.

@@ -36,3 +36,10 @@ __pycache__/
 # prove its own check can go red, and removes it in an EXIT trap. Ignored so
 # that a selftest killed mid-run cannot leak the mutant into a commit.
 scripts/.branchcheck-selftest-mutant.sh
+
+# The specimen shelf: jars a player keeps while working, written by the lab
+# at runtime (`sim::specimen`). Ignored deliberately -- these are one player's
+# working set, not project content, and the shelf never overwrites so a shared
+# one would only ever grow. Promoting a jar into `assets/species/` is what
+# makes a specimen part of the game, and that lands as a tracked file.
+/assets/shelf/

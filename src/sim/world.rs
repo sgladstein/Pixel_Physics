@@ -200,6 +200,16 @@ pub struct CreatureStats {
     pub eats: u64,
     pub pickups: u64,
     pub digs: u64,
+    /// **Cells of loose ground converted to a tunnel lining** by those digs
+    /// — the effect counter on the far side of `digs`, which is a call
+    /// counter and nothing more.
+    ///
+    /// `CLAUDE.md`'s standing pairing rule, and it is load-bearing here
+    /// rather than decorative: the lining is resolved through
+    /// `Material::packs_into`, so a renamed or missing `packedsoil` leaves
+    /// every dig firing exactly as before and every wall unlined. `digs`
+    /// cannot see that; this reads 0 the moment it happens.
+    pub packed: u64,
     pub drops: u64,
     /// Drops that happened at the nest — food actually delivered home.
     /// **The number that proves the loop rather than its parts.**
@@ -336,6 +346,53 @@ pub struct CreatureStats {
     /// terrain around the parent and the other is a property of the
     /// engine's address space.
     pub births_denied_no_space: u64,
+    /// **The biggest single mouthful any creature in this world ever
+    /// swallowed**, in the units the eater received — `diet_yield`, after
+    /// the gut's matched filter, not the cell's face value.
+    ///
+    /// The reach counter for Gate 0, and it exists because `eats` cannot
+    /// answer the question it looks like it answers. A colony that grazes
+    /// leaf all day and a colony that once found a 1,440 flower report the
+    /// same `eats`; what decides whether an ant can ever afford a child is
+    /// `hunger_fraction * start_energy + one mouthful` against the birth
+    /// bar, and *which* mouthful is the whole of it. Flowers and fruit
+    /// stand twenty to forty rows up a stem, so "the food exists in this
+    /// world" and "an animal got its mandibles on it" are different claims
+    /// and only this one is about the animal.
+    ///
+    /// Paired with `peak_bank` below, the two split the deadlock three
+    /// ways: a best bite stuck at the leaf value is *cannot reach*; a big
+    /// bite with a bank that still never clears the bar is *the ceiling
+    /// blocks*; both clear and `births` still zero is something else again.
+    pub best_bite: f32,
+    /// **The largest mouthful any creature was ever *offered***, in the same
+    /// units as `best_bite`: the best cell in some animal's own
+    /// 8-neighbourhood, whether or not it took it.
+    ///
+    /// The near side of the pair, and it is what separates the two readings
+    /// of a colony that never eats well. `best_bite` alone cannot: a bite
+    /// stuck at the leaf value means *the good food was never within reach*
+    /// if this counter is stuck there too, and *the animal was standing next
+    /// to it and walked away* if this one is not. Those want opposite fixes —
+    /// grow more food where the animals are, against change what the animal
+    /// does when it is in front of food — and `CLAUDE.md`'s standing rule is
+    /// that a counter saying a thing fired is only worth what a counter from
+    /// the far side of the call says about it.
+    ///
+    /// Sampled where the eat verb looks, so it sees exactly what the animal
+    /// saw — including the fact that a laden animal is not offered anything
+    /// at all.
+    pub best_offer: f32,
+    /// **The highest bank any creature in this world ever held**, sampled
+    /// every time energy is charged or credited.
+    ///
+    /// `richest bank`, as every harness here reports it, is a census of the
+    /// *survivors at the end of the run* — an animal that reached 1,059 and
+    /// spent it back down, or reached it and died, is invisible in that
+    /// number. Against a birth bar this is exactly the wrong way round: the
+    /// question is whether anything ever got close, not whether anything is
+    /// close right now.
+    pub peak_bank: f32,
 }
 
 /// Where every joule went. See `World::energy_ledger`.
@@ -550,7 +607,19 @@ pub struct World {
     /// out the world got finer. Constants that ignore it come out at the
     /// wrong physical size and read as slivers, which is the round-6
     /// "1-2 pixels wide" complaint arriving from the other direction.
-    pub cell_scale: f32,
+    ///
+    /// **Private, and written only through `set_cell_scale`, because a
+    /// second thing now has to move with it.** Until 2026-08-30 this was a
+    /// plain public field and *nothing alive read it* -- so a world at 2x
+    /// scaled the gnome and left every animal and plant at its authored
+    /// cell count, at half its physical size. That is the same "our gnome
+    /// shouldn't have shrunk" defect the resolution step already fixed
+    /// once, for the player and nothing else. The species registry now
+    /// carries its own copy (`organism::SpeciesRegistry::set_cell_scale`),
+    /// and the two going out of step is exactly the silent failure the
+    /// setter exists to make unrepresentable -- a direct assignment no
+    /// longer compiles.
+    cell_scale: f32,
     pub materials: MaterialRegistry,
     pub rng: Rng,
     /// M8: coherent pieces of broken structure currently in flight
@@ -1169,6 +1238,28 @@ pub struct World {
     pub rotted_to_solid: u32,
     /// Counterpart to `rotted_to_solid`; see it.
     pub rotted_to_nothing: u32,
+    /// Of `rotted_to_solid`, the ones that only took a **step along** the
+    /// chain rather than reaching the end of it — the product is itself a
+    /// material with a `decays_into`.
+    ///
+    /// **Split out because `rotted_to_solid` alone cannot answer "how much
+    /// came back as soil", and reads as though it can.** `deadleaf` decays
+    /// into `litter` at the default yield of 1.0, so every shed leaf on its
+    /// way down the chain scores a `rotted_to_solid` that produced no soil
+    /// whatever; measured on a lab bed at 2026-08-31, **450 of 620** solid-
+    /// leaving decays in a rot phase were that intermediate step, and reading
+    /// the total as soil production overstated the return **fourfold** (34%
+    /// against 8%). That is `CLAUDE.md`'s "ask what your number counts",
+    /// caught by a ledger that also censused the grid — the counter was
+    /// arithmetically correct throughout and answering a different question.
+    ///
+    /// **Terminal-or-not is read off the product's own `decays_into`, not
+    /// off a material name.** `decay.rs` stopped hardcoding `ash` and `soil`
+    /// for exactly this reason, and a name test here would go stale the first
+    /// time a material at the end of a chain is given one — which is a change
+    /// currently under consideration for `deadwood`. Read the pair as
+    /// `rotted_to_solid - rotted_onward` for "reached the end of the chain".
+    pub rotted_onward: u32,
     /// Leaves shed by the graded shade pressure (`tree.ron`'s
     /// `shade_death`), the upstream half of §O's decay count. Split by
     /// *cause* for the same reason the decay counters are split by rate:
@@ -1413,6 +1504,48 @@ pub struct World {
     /// "same world, same trees", which `PLAN.md`'s determinism requirement
     /// wants.
     pub seed: u64,
+    /// **`Some` when this world is a sealed room rather than open country.**
+    ///
+    /// Read by the renderer, which draws the air inside it as an interior —
+    /// walls, panel seams and the pools under the grow lights — instead of
+    /// as sky. Nothing in the simulation reads it: it is a fact *about* the
+    /// scene, declared by whatever built the shell, and the geometry it
+    /// carries (`sim::enclosure::Enclosure`) has no colours in it for the
+    /// same reason `Clock::sky_hold` has none.
+    ///
+    /// It lives on the world rather than on the `Renderer` because
+    /// `Renderer::draw` takes `&World` and nothing else, so a scene that
+    /// declares itself a room is drawn as one by every caller with no wiring
+    /// at any of them — the same route `sky_frame` already takes. A flag on
+    /// the renderer instead needs every call site changed, and draws a lab
+    /// as open country wherever one is missed.
+    enclosure: Option<crate::sim::enclosure::Enclosure>,
+    /// **Whether the sun reaches this world at all.**
+    ///
+    /// `true` everywhere but the evolution lab, where it is the one-line
+    /// statement of the design of record's §2: *the lab has a ceiling, not a
+    /// sky.* It had both, and the sky was winning — `field::apply_sky_to`
+    /// casts daylight down every column through `SKY_TRANSMISSION^(depth /
+    /// FIELD_SCALE)`, and a four-row ceiling passes **0.447** of it, which
+    /// is precisely the 0.447 the bench measured. The fixtures bolted into
+    /// that ceiling contributed nothing (`labshot lamps=0` came back
+    /// byte-identical at every stop), so the picture said grow lights and
+    /// the physics said sunshine through the roof.
+    ///
+    /// **A flag rather than a thicker or blacker shell, and it is the
+    /// cheapest of the three.** Thickening the ceiling is the same fiction
+    /// dimmer — 4 rows to 7 took the bench from 0.40 to 0.22 and halved the
+    /// stand, with no gate going red — and it leaves the crop's light a
+    /// function of how solid the box looks. An opaque *material* still pays
+    /// the whole descent to arrive at zero. This makes the sun's amplitude
+    /// zero at the top of the world, so the descent starts dark, every
+    /// `*c <= 0.0` early-out fires immediately, and the only thing left
+    /// writing light is a lamp.
+    ///
+    /// It is deliberately **not** folded into [`World::enclosure`], which is
+    /// documented as read by nothing in the simulation and is set by three
+    /// render tests that want a room drawn without their world going dark.
+    sky_lighting: bool,
 }
 
 /// The seed a world has when nothing has given it one. Arbitrary, fixed,
@@ -2039,6 +2172,7 @@ impl World {
             decayed_dry: 0,
             rotted_to_solid: 0,
             rotted_to_nothing: 0,
+            rotted_onward: 0,
             shed_shade: 0,
             shed_drought: 0,
             shed_stranded: 0,
@@ -2075,6 +2209,8 @@ impl World {
             splash_sites: Vec::new(),
             splashes_thrown: 0,
             seed: DEFAULT_WORLD_SEED,
+            enclosure: None,
+            sky_lighting: true,
         };
         world.ensure_chunks_for(bounds);
         world
@@ -2133,6 +2269,27 @@ impl World {
         // their upkeep runs here, once per organism. See
         // `plant::step_organisms`.
         super::plant::step_organisms(self);
+    }
+
+    /// **How many cells this world spends per unit of ground.** `1.0` is
+    /// the size every constant in the source is authored at.
+    #[inline]
+    pub fn cell_scale(&self) -> f32 {
+        self.cell_scale
+    }
+
+    /// **Build this world at `k` cells per authored cell** -- set once, at
+    /// generation, before anything is placed in it.
+    ///
+    /// Two things move together and that is the whole reason this is a
+    /// method: the scalar the source-side constants read, and the species
+    /// registry, whose creature defs are rebuilt at `k` so an animal comes
+    /// out the same *physical* size rather than the same cell count. See
+    /// `organism::CreatureDef::scaled` for which of its fields are lengths
+    /// and which are not.
+    pub fn set_cell_scale(&mut self, k: f32) {
+        self.cell_scale = k;
+        self.species.set_cell_scale(k);
     }
 
     /// How many organism slots are currently allocated.
@@ -2611,6 +2768,7 @@ impl World {
             flower_band: 0,
             fruit_band: 0,
             inherited: false,
+            stocked: false,
             generation: 0,
             // Founders claim theirs at the `plant_creature_seed` seam;
             // `push_organism` cannot, because it does not know whether it
@@ -3237,15 +3395,27 @@ impl World {
         self.paint_field(cx, cy, radius, |c| c.light += amount);
     }
 
-    /// Lower moisture in a filled circle, floored at zero — architecture
-    /// §5g, a root's own write to the channel it reads. `apply_moisture_
-    /// sources` will re-force this back up next step if the drained cell
-    /// still contains a `Liquid` CA cell (a body of water big enough that
-    /// one root's sip is noise against it), so this only actually matters —
-    /// which is the point — where a root has drained the *local* water
-    /// faster than the source can replenish it, e.g. a small puddle a root
-    /// is draining cell by cell. That's the resource-competition signal a
-    /// neighbouring root's own `moisture_pull` read is meant to notice.
+    /// Lower **air humidity** in a filled circle, floored at zero — the
+    /// mirror of [`Self::add_moisture`], which is what rain writes.
+    ///
+    /// **Roots no longer call this, and the reason is worth keeping**
+    /// (`Reports/evolution-lab-gui-physics-2026-08-30.md` §6a). This doc
+    /// used to describe it as *"a root's own write to the channel it
+    /// reads"*, and both halves of that were the bug: a root does not
+    /// drink air, and `organism::moisture_pull` does not read this channel
+    /// any more — it reads per-cell soil water, which is the thing a root
+    /// actually takes up. `plant::absorb_water` wrote here on every drink,
+    /// which painted a `FIELD_SCALE`-wide block of humidity dry to
+    /// represent water leaving one soil cell; the owner saw it as a dry
+    /// band drifting sideways across the top of his soil and blocking
+    /// germination. The drink is a per-cell `aux` write now, and humidity
+    /// over drying ground falls out of `field::apply_moisture_sources`,
+    /// which recomputes it from the CA grid every frame.
+    ///
+    /// Still the right call for anything that genuinely dries *air* — and
+    /// `plant::transpire` passes a negative amount to vent humidity
+    /// upward, which is not the same as [`Self::add_moisture`]: that one
+    /// caps at `1.0`, this one has no ceiling below `MAX_MOISTURE`.
     pub fn deplete_moisture(&mut self, cx: i32, cy: i32, radius: i32, amount: f32) {
         self.paint_field(cx, cy, radius, |c| c.moisture = (c.moisture - amount).max(0.0));
     }
@@ -4388,6 +4558,42 @@ impl World {
         let frame = self.frame;
         self.clock.set_rates(frame, |c| c.sky_hold = hold);
         self.fields_settled = false;
+    }
+
+    /// **Declare this world a sealed room**, or open country again.
+    ///
+    /// The renderer draws the air inside a room as an interior rather than
+    /// as sky — see [`World::enclosure`] and `sim::enclosure`. Purely a
+    /// statement about the scene: no simulation pass reads it, so setting it
+    /// changes not one cell.
+    pub fn set_enclosure(&mut self, enclosure: Option<crate::sim::enclosure::Enclosure>) {
+        self.enclosure = enclosure;
+    }
+
+    /// The room this world is inside, if it is inside one.
+    pub fn enclosure(&self) -> Option<&crate::sim::enclosure::Enclosure> {
+        self.enclosure.as_ref()
+    }
+
+    /// **Cut the sun out of this world, or let it back in** — see
+    /// [`World::sky_lighting`].
+    ///
+    /// Clears the settled flag so the change is visible on the next step
+    /// rather than whenever something else happens to wake a tile, exactly
+    /// as [`World::set_sky_hold`] does and for the same reason: a settled
+    /// world would otherwise keep the light it had.
+    pub fn set_sky_lighting(&mut self, lit: bool) {
+        if self.sky_lighting == lit {
+            return;
+        }
+        self.sky_lighting = lit;
+        self.fields_settled = false;
+    }
+
+    /// Whether the sun reaches this world. `true` unless something declared
+    /// otherwise; see the field's own doc for why the lab declares it.
+    pub fn sky_lighting(&self) -> bool {
+        self.sky_lighting
     }
 
     /// **Pin the weather to a named sky, or let it run again** — the
