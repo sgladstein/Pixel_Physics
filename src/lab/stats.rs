@@ -883,7 +883,7 @@ impl Stats {
                 ),
                 if census.animal_hungry * 2 > census.animals { AMBER } else { DIM },
                 format!(
-                    "ANIMALS BELOW THEIR OWN HUNGER LINE -- UNDER IT THEY EAT WHAT THEY FIND, OVER IT THEY CARRY IT HOME. HUNGRY IS THE NORMAL STATE OF A FORAGER. STORES RUN {:.0} / {:.0} / {:.0}, AGAINST THE {} A CHILD COSTS.",
+                    "ANIMALS WITH LESS PUT BY THAN THIS SPECIES HANDS A NEWBORN -- SO THEY ARE WORSE OFF THAN SOMETHING JUST BORN. HUNGRY IS THE NORMAL STATE OF A FORAGER. AN ANT NO LONGER DECIDES BETWEEN EATING AND CARRYING: IT TAKES WHAT IT FINDS AND DIGESTS IT AS IT WALKS, SO WHAT REACHES HOME IS WHAT SURVIVED THE JOURNEY. STORES RUN {:.0} / {:.0} / {:.0}, AGAINST THE {} A CHILD COSTS.",
                     census.animal_energy.low,
                     census.animal_energy.mid,
                     census.animal_energy.high,
@@ -1136,17 +1136,28 @@ fn take_census(
 
 /// **What a birth needs against what this animal can ever hold.**
 ///
-/// The arithmetic is `examples/stamp_probe.rs`', reproduced rather than
-/// re-derived: the ceiling is `hunger_fraction * start_energy` — the line the
-/// brain's own `hungry` tests, above which it carries food home instead of
-/// eating it — plus one best mouthful, because an animal exactly at the line
-/// takes one more bite before it stops.
+/// **There is no ceiling any more, and this doc used to describe one.** It
+/// read `hunger_fraction * start_energy` plus one best mouthful — the line
+/// the brain's own `hungry` tested, above which an animal carried food home
+/// instead of eating it. That gate is gone: a crop digests at a rate, so a
+/// bank is limited by supply and by time rather than by a roof, and the
+/// question a player needs answered stops being *"can it ever get there"*
+/// and becomes **"how long does it take"**. What is computed below is a net
+/// gain per decision and the bar it has to reach; `BreedMargin::ticks_to_bar`
+/// divides them, and returns `None` for the one case the old ceiling really
+/// was about — an animal that cannot out-eat its own upkeep.
 ///
 /// **Priced on the food standing in *this box*, not on the material table**,
 /// and that is the choice that makes this row worth having rather than a
-/// constant nobody can act on. Measured, `examples/labstats.rs`:
+/// constant nobody can act on. That half of the design survived the crop
+/// intact and is the reason the census below walks the world.
 ///
-/// | bed | best mouthful | ceiling | margin |
+/// The measurement it was established on is **pre-crop and its two right-hand
+/// columns no longer exist**, kept because what it demonstrates — that a
+/// box-priced number moves where a table-priced one cannot — is exactly as
+/// true of the rate that replaced them (`examples/labstats.rs`):
+///
+/// | bed | best mouthful | ceiling *(retired)* | margin *(retired)* |
 /// |---|---|---|---|
 /// | `control=ants` — a colony, nothing planted | 120 (its own flesh) | 220 | **−880** |
 /// | the standard lab bed at 27,000 frames | 360 (a `flower`) | 460 | **−640** |
