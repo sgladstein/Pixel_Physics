@@ -213,6 +213,39 @@ const SOIL_DRAINAGE_RATE: f32 = 0.25;
 /// slower than gravity drainage, and this is what keeps a wetting front
 /// reading as a front descending through soil rather than a blob that
 /// instantly averages itself out.
+/// Gap at which capillary stops **when neither cell is in the drainable
+/// band** — see the derivation at the exchange for why that case needs its
+/// own number.
+///
+/// **A churn guard, not a rest state.** Unsaturated soil keeps equalising in
+/// nature; the only reason to stop is that a bed which never settles never
+/// sleeps, and a sleeping chunk is what the dirty-rect skip and the sweep
+/// budget rest on.
+///
+/// **60 buys the gradient; it does not buy germination, and the difference
+/// was measured rather than assumed.** The tempting derivation is a
+/// germination one — a column of fresh ground rests one `rest` lower per row
+/// than the row beneath, so the top of an `n`-row mat settles near
+/// `SOIL_FIELD_CAPACITY - n * rest`, and clearing herb's 0.15
+/// `soil_water_threshold` (246 on this scale) would need `rest <= 124`.
+/// **That reasoning does not survive contact with the sink.** The bed's own
+/// surface falls to ~330 once the evaporative sink is braked rather than
+/// blocked, so the staircase starts far below field capacity and the top of
+/// a three-row mat sits near the wilting point at any threshold worth
+/// paying for. Measured paired at `settle=12000`, 20 against 60 against
+/// baseline: germination on a soil mat is **0 of 16 in all three**, and the
+/// debris arms move by less than a seed either way.
+///
+/// So this is set as what it is — a churn guard — at the largest value that
+/// still shows a graded profile, rather than at a germination bound it
+/// cannot reach. What it delivers is the profile: `168 / 188 / 253 / 313 /
+/// 373` up through fresh ground, standing unchanged from frame 12,000 to
+/// 48,000, where before it was `0 / 0 / 128 / 492 / 620` — soil quantised
+/// onto its own three constants with nothing in between, which is what the
+/// owner reported seeing. Getting a seedbed out of debris is a materials
+/// question and a separate one; see the PR body for the decay-scheduling
+/// coupling it runs into.
+const SOIL_CAPILLARY_REST_UNSATURATED: u16 = 60;
 const SOIL_CAPILLARY_RATE: f32 = 0.06;
 
 /// Is this grain held in place by a root threading through it?
@@ -438,8 +471,47 @@ fn update_soil_water<S: CellSurface>(surface: &mut S, x: i32, y: i32) -> bool {
         // 440 gradient; a wetting front from standing water starts near
         // 1000 against dry soil. Both clear 380. What stops is the final
         // sub-band remainder, which was pure churn.
-        const SOIL_CAPILLARY_REST: u16 = material::SOIL_SATURATED - material::SOIL_FIELD_CAPACITY;
-        if wetter - drier <= SOIL_CAPILLARY_REST {
+        // **The drainable band is the rest threshold only where the drainable
+        // band exists** — the correction the paragraph above implies and did
+        // not draw.
+        //
+        // Its argument is sound and is kept exactly: a cell between field
+        // capacity and saturation, with room below, drains, and capillary
+        // would refill it from the saturated side for ever. Only a threshold
+        // spanning the drainable band stops that pump.
+        //
+        // **But the pump needs a cell that drains, and nothing at or below
+        // field capacity does** — the drainage rule below is gated on
+        // `moisture > SOIL_FIELD_CAPACITY`. Applying the wide threshold to a
+        // pair that cannot drain was what made **fresh ground permanently
+        // sterile**, and the arithmetic is exact: 380 is as wide as the whole
+        // plant-usable band (`SOIL_FIELD_CAPACITY - SOIL_WILTING_POINT`,
+        // 440), so two cells could sit "at rest" with one at field capacity
+        // and the other *below the wilting point*.
+        //
+        // Measured 2026-08-31, three rows of dry soil on a bed at field
+        // capacity: the bottom row settled at **128 against the donor's 492**
+        // — a 364 gap, just inside the old threshold — with plant-available
+        // water **0.000**, and the rows above it never left 0 because a 128
+        // gap is under 380 and capillary never ran on them at all. A seed on
+        // any fresh powder could not germinate, ever: **0 of 16 against 16 of
+        // 16** on the same bed (`examples/seedbed_probe`). It is also what
+        // the owner sees from the other side — soil reading only 100%, 62%
+        // and 18% with nothing in between, which are `SOIL_SATURATED`,
+        // `SOIL_FIELD_CAPACITY` and `SOIL_WILTING_POINT`: the profile
+        // quantised onto its own constants.
+        //
+        // Below field capacity the threshold is therefore only a churn
+        // guard. **This half must not land alone** — it opens a wick out of
+        // the bed unless the evaporative sink is braked at the same time;
+        // `evaporation::soil_wetness_factor` is the other half, and
+        // `Reports/dead-ends.md` records the run where it was missing.
+        let rest = if wetter > material::SOIL_FIELD_CAPACITY {
+            material::SOIL_SATURATED - material::SOIL_FIELD_CAPACITY
+        } else {
+            SOIL_CAPILLARY_REST_UNSATURATED
+        };
+        if wetter - drier <= rest {
             continue;
         }
         // Wetness is a *fraction of the wetter cell's own* capacity, and
@@ -2180,6 +2252,64 @@ mod tests {
     /// moisture field, because that is what the rule reads: a block-nearest
     /// field sample cannot see one cell (`CLAUDE.md`'s coarse-field gotcha).
     /// The dry cell in the same block is the specificity half -- without it
+    /// **Fresh ground wets up from the damp soil under it, and grades while
+    /// it does.**
+    ///
+    /// The guard for `SOIL_CAPILLARY_REST_UNSATURATED`. Before it, capillary
+    /// rested at a gap of `SOIL_SATURATED - SOIL_FIELD_CAPACITY` (380)
+    /// whatever the moisture, and that gap is as wide as the whole
+    /// plant-usable band — so a dry cell on soil at field capacity came to
+    /// rest **below the wilting point** and everything above it never moved
+    /// off zero. Measured on the lab bed: `0 / 0 / 128 / 492 / 620` up the
+    /// profile, which is the owner's report of soil showing only 100%, 62%
+    /// and 18% with nothing between.
+    ///
+    /// **Two assertions, and the second is the one that catches the wrong
+    /// fix.** That the fresh cell wets is the headline; that the column is
+    /// still *graded* rather than flat is what says capillary rested
+    /// somewhere rather than equalising everything into one value, which is
+    /// what a threshold of 0 would do and which is the churn the guard
+    /// exists to bound. Watched going red with the conditional removed: the
+    /// dry cell stays at 0.
+    #[test]
+    fn fresh_ground_wets_from_the_damp_soil_beneath_it() {
+        use super::super::chunk::Rect;
+        use super::super::world::World;
+
+        let mut w = World::new(Rect::new(0, 0, 31, 31));
+        let soil = w.materials.id_of("soil").expect("soil is compiled in");
+        // A bed at field capacity, and three rows of bone-dry soil laid on
+        // top of it -- what rot, a dig put back, or the brush leaves.
+        for y in 20..32 {
+            for x in 0..32 {
+                w.set(x, y, Cell::new(soil, 0).with_aux(material::SOIL_FIELD_CAPACITY));
+            }
+        }
+        for y in 17..20 {
+            for x in 0..32 {
+                w.set(x, y, Cell::new(soil, 0));
+            }
+        }
+        for _ in 0..4_000 {
+            step(&mut w);
+        }
+
+        let at = |y: i32| soil_moisture(w.get(16, y));
+        assert!(
+            at(19) > material::SOIL_WILTING_POINT,
+            "the fresh row resting on damp soil should have wetted past the wilting point, reads {}",
+            at(19)
+        );
+        // Graded, not equalised: the column still steps down going up.
+        assert!(
+            at(19) > at(18) && at(18) >= at(17),
+            "fresh ground should grade upward, reads {} / {} / {} from the bed up",
+            at(19),
+            at(18),
+            at(17)
+        );
+    }
+
     /// this passes just as well for a rule that un-packs everything.
     #[test]
     fn a_lining_above_field_capacity_slumps_back_to_soil() {

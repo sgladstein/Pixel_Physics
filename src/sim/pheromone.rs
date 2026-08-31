@@ -166,6 +166,7 @@ fn build_decay_lut(rho: f32) -> [u8; 256] {
 /// for both — allocated eagerly by `Pheromones::new` regardless of whether
 /// any creature exists, so this is a real standing cost, not a
 /// worst-case bound.
+#[derive(Clone)]
 pub struct PheromonePlane {
     w: usize,
     h: usize,
@@ -372,6 +373,7 @@ pub struct PheromoneStats {
     pub tiles_processed: u64,
 }
 
+#[derive(Clone)]
 pub struct Pheromones {
     planes: [PheromonePlane; 2],
     pub stats: PheromoneStats,

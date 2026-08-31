@@ -322,7 +322,8 @@ mod tests {
         assert_eq!(out.move_cost_per_cell, src.move_cost_per_cell);
         assert_eq!(out.synapse_fraction, src.synapse_fraction, "the synapse tax is a 7-digit exponent literal; a lossy float write shows up here first");
         assert_eq!(out.body_energy, src.body_energy);
-        assert_eq!(out.hunger_fraction, src.hunger_fraction);
+        assert_eq!(out.crop_capacity, src.crop_capacity);
+        assert_eq!(out.digest_rate, src.digest_rate);
         assert_eq!(out.trait_variance, src.trait_variance);
         assert_eq!(out.climbs_over_kin, src.climbs_over_kin);
         assert_eq!(out.eats_kin, src.eats_kin);

@@ -2071,22 +2071,48 @@ pub struct CreatureDef {
     pub shade_rule: ShadeRule,
     #[serde(default)]
     pub body_energy: f32,
-    /// Fraction of `start_energy` below which a creature eats what it finds
-    /// instead of carrying it home.
+    /// **How much face value this animal's crop holds**, in joules.
     ///
-    /// **Not "below full", which is what this was first written as and it
-    /// silently deleted the entire foraging loop.** A creature is below its
-    /// starting energy within one tick of being born and stays there
-    /// forever, so "eat if not full" means *always eat* — measured at 14
-    /// eats against 8 pickups and zero deliveries, with a colony that
-    /// looked, in the picture, exactly like one foraging correctly. This is
-    /// the number that decides whether a colony feeds itself or feeds its
-    /// nest, and it belongs in species data because that trade-off is what
-    /// separates a solitary forager from a social one.
-    pub hunger_fraction: f32,
+    /// Absolute joules rather than a fraction of `start_energy`, and the
+    /// distinction is not style: a crop holds *cells of food*, priced by the
+    /// material table, and a leaf's 480 does not move when an animal's tank
+    /// does. Expressing it as a fraction would tie the physical size of a
+    /// stomach to a knob about metabolism — the mirror of the mistake
+    /// `synapse_fraction` records, where an absolute silently became a
+    /// different tax every time the budget moved. Here the absolute is the
+    /// invariant one.
+    ///
+    /// **It must exceed one unit by a real margin or deliveries go to zero.**
+    /// A cell only leaves the crop at whole unit worth, so an animal whose
+    /// capacity is one leaf is under one leaf within a tick of ingesting and
+    /// can never put anything down again. Three units is the working floor.
+    ///
+    /// This is the knob `Crop`'s doc calls the codomain of a future capacity
+    /// gene: it needs both ends reachable, which is what
+    /// `creature::carried_cells` charging for a load is for.
+    #[serde(default)]
+    pub crop_capacity: f32,
+    /// **Face value digested per decision**, turning crop into body.
+    ///
+    /// This is what replaced `hunger_fraction`, and it is not a threshold in
+    /// disguise: nothing compares it against anything. It runs every tick, on
+    /// whatever is in the crop, and the eat-or-carry *outcome* is then a
+    /// consequence of how long the trip took rather than of a rule.
+    ///
+    /// **Keep it O(1 J) or larger.** The live-energy identity is an equality
+    /// asserted at ~1 J, and a rate model books one credit per creature tick
+    /// where the old gate booked one per meal — roughly four orders of
+    /// magnitude more f32 additions. The per-credit rounding error grows as
+    /// the addend shrinks relative to the bank, so a rate that trickles
+    /// hundredths into a 200 J tank is the configuration that eats the slack.
+    ///
+    /// Defaults to 0, which means "this species does not digest what it
+    /// carries" and is bit-identical to the behaviour before the crop existed.
+    #[serde(default)]
+    pub digest_rate: f32,
     /// **The ancestral value of every heritable body trait**, indexed by
     /// `CREATURE_TRAITS`' slot map: slot 0 is `gut_bias`, slot 1 is
-    /// `birth_grant`.
+    /// `birth_grant`, slot 2 is `reproduce_at`.
     ///
     /// Authored per species because two ancestors one number apart, living
     /// in different parts of the world and coloured differently, *is* the
@@ -2263,6 +2289,8 @@ impl CreatureDef {
     /// | a length in cells | `k` | `body`, `sensor_offset`, `sight_range` |
     /// | a time in ticks per decision | `1/k` | `tick_interval` |
     /// | a rate charged per body cell per decision | `1/(cells x k)` | `idle_cost_per_cell`, `move_cost_per_cell` |
+    /// | a rate per decision, per animal | `1/k` | `digest_rate` |
+    /// | a rate per cell *read* per decision | `1/(k x k)` | `sight_fraction` |
     /// | dimensionless, or an energy in joules | `1` | everything else |
     ///
     /// **`tick_interval` is the row that is easy to miss.** A creature
@@ -2323,7 +2351,8 @@ impl CreatureDef {
             sight_fraction,
             shade_rule,
             body_energy,
-            hunger_fraction,
+            crop_capacity,
+            digest_rate,
             traits,
             reproduce_threshold,
             mutation_rate,
@@ -2365,9 +2394,19 @@ impl CreatureDef {
             idle_cost_per_cell: idle_cost_per_cell / burn,
             move_cost_per_cell: move_cost_per_cell / burn,
 
+            // ---- a rate per decision, per animal: / time_factor ----
+            // **`burn` is the wrong divisor here and is the easy mistake.**
+            // It carries `cell_factor`, which would say a supersampled animal
+            // digests at a quarter rate because its body has more cells — and
+            // a stomach is per animal, not per cell. What has to stay
+            // invariant is joules digested per *frame*, and only the decision
+            // rate moves with resolution.
+            digest_rate: digest_rate / time_factor.max(f32::EPSILON),
+
             // ---- energies in joules, and everything dimensionless: x 1 ----
             // `start_energy` and `reproduce_threshold` are joules held by
-            // one animal, `hunger_fraction` and `synapse_fraction` are
+            // one animal, `crop_capacity` is joules of face value the crop
+            // holds, and `synapse_fraction` is a
             // fractions *of* `start_energy`, and `nest_memory` is a decay
             // time in ticks that describes the world's chemistry rather than
             // this animal's gait. `dig_force` is compared against a
@@ -2390,7 +2429,7 @@ impl CreatureDef {
             sight_fraction: sight_fraction / (k * time_factor).max(f32::EPSILON),
             shade_rule: *shade_rule,
             body_energy: *body_energy,
-            hunger_fraction: *hunger_fraction,
+            crop_capacity: *crop_capacity,
             traits: *traits,
             reproduce_threshold: *reproduce_threshold,
             mutation_rate: *mutation_rate,
@@ -2473,6 +2512,7 @@ fn default_remains_half_life() -> f32 {
     6_000.0
 }
 
+#[derive(Clone)]
 pub struct Species {
     pub name: String,
     pub foliage_bands: PaletteBands,
@@ -2734,6 +2774,108 @@ pub struct Carried {
     pub shade: u8,
 }
 
+/// **A stomach: what an animal is carrying and slowly turning into itself.**
+///
+/// Replaces the eat-or-carry *decision* with a rate. Before this, `act` asked
+/// "am I hungry enough to eat this rather than take it home", answered it
+/// against `hunger_fraction * start_energy`, and — since Gate 0 — asked a
+/// second question about whether this exact mouthful would close the gap to a
+/// birth bar the animal cannot know. Both were rules written to produce
+/// behaviour that would not emerge on its own, which is the thing this engine
+/// is meant not to do.
+///
+/// With a crop nothing decides. An animal always takes what it finds, digestion
+/// runs whether it likes it or not, and **how much arrives home is a function of
+/// trip time** rather than of a threshold. That is central-place foraging
+/// falling out of physics instead of being asserted, and it makes the
+/// theory's own prediction — delivered load falls with travel distance —
+/// something this engine can be *wrong* about.
+///
+/// # Why `worth` is `f32` while `Carried::worth` stays `u16`
+///
+/// `Cell::aux` is a `u16` at 1 J and always will be, so a cell crossing the
+/// world boundary quantises. A *rate* must not: a digestion step of 0.4 J
+/// against a `u16` either rounds to 0 and stalls for ever or to 1 and runs at
+/// a speed nobody chose. So the store is `f32` and `Carried` survives as the
+/// **transient boundary value** — built only at the moment a cell is put down,
+/// which leaves `Carried::into_cell`'s `worth_in_aux` gate exactly as honest as
+/// it was.
+///
+/// # Single-material, and that is structural rather than a preference
+///
+/// A mixed load has no honest answer for `creature::carried_meat`, which
+/// filters on `worth_in_aux`: counting a leaf-and-corpse crop entirely as meat
+/// mints meat, counting none of it hides meat. And a drop has to put back *a*
+/// material — one that returned whichever was added last would leak worth
+/// across the price table (480 in as leaf, 1,440 out as flower), which is a
+/// pump evolution finds immediately.
+///
+/// The behavioural consequence is real and is a trade rather than a rule: an
+/// animal with meat in its crop is blind to plant matter as a *load* until the
+/// meat digests down. Foragers working in runs on one resource is what that
+/// looks like from outside.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct Crop {
+    pub material: super::material::MaterialId,
+    /// Palette entry, carried so a delivered cell looks like what was picked
+    /// up rather than resetting to the darkest entry.
+    pub shade: u8,
+    /// **Face value of one cell of the contents.**
+    ///
+    /// Taken as `min` over every cell ingested: corpses carry per-cell worth
+    /// in `aux`, so a crop filled from a rich corpse and a poor one could
+    /// otherwise put back a cell worth more than the cheapest that went in.
+    /// One-directional, in the safe direction.
+    pub unit: f32,
+    /// **How many whole cells are in there.**
+    ///
+    /// **Whole cells, and this was an `f32` of face value until it was
+    /// measured.** A continuous `worth` meant digestion ate into the single
+    /// cell an animal was carrying, so within one tick of picking a leaf up it
+    /// held 476 of a 480 leaf -- and a leaf is not a thing you can put down
+    /// 476 of. Delivery became structurally impossible rather than merely
+    /// rare: measured on `examples/ascii`'s construction scene, drops fell
+    /// 1,128 -> 125, and **neither candidate knob was the variable** (capacity
+    /// 480 against 1440 moved the scene's margin 0.098 against 0.052; digest
+    /// rate 0.8 against 3.3 moved pickups 190 against 217).
+    ///
+    /// **The engine had already solved this once, on the water line.**
+    /// `Reports/dead-ends.md` records `player::SURFACE_SHOVE` spreading a
+    /// swimming wake's budget thin across four columns -- "arithmetically
+    /// identical water and *visually nothing*" -- and its resolution is the
+    /// shape used here: *"a carried remainder spent in whole cells: the rate
+    /// stays continuous while every cell that goes up is full."*
+    ///
+    /// So the rate lives in `digesting` and the store is discrete. A drop
+    /// needs `cells >= 1` and is exact by construction; nothing rounds, so
+    /// nothing can mint a fraction of a joule per delivery.
+    pub cells: u16,
+    /// **Progress toward absorbing the next whole cell**, in face-value
+    /// joules, `0..unit`.
+    ///
+    /// A timer, not a stock: nothing is credited to the animal and nothing is
+    /// booked to the ledger until this passes `unit` and a whole cell is
+    /// consumed. That is what keeps the accounting exact -- a cell is either
+    /// standing in the crop (counted at face by `creature::carried_meat`) or
+    /// absorbed (credited at yield). There is no fractional state for a census
+    /// to disagree about, and the ~80,000 tiny `f32` additions the continuous
+    /// version would have made against the live identity's 1 J slack never
+    /// happen.
+    pub digesting: f32,
+}
+
+impl Crop {
+    /// Face value standing in this crop, which is what a meat census prices.
+    pub fn worth(&self) -> f32 {
+        self.unit * self.cells as f32
+    }
+
+    /// **What one whole cell of this crop looks like on the ground.**
+    pub fn unit_cell(&self, quantise: impl Fn(f32) -> u16) -> Carried {
+        Carried { material: self.material, worth: quantise(self.unit), shade: self.shade }
+    }
+}
+
 /// **A creature that has left the ground**, and the only state that says so.
 ///
 /// Velocity in cells per *frame* plus a sub-cell accumulator, because a
@@ -2769,6 +2911,7 @@ pub struct Flight {
 /// Trees will need more here (an anchor/root-tip list, a shared energy
 /// pool) when that retrofit lands — deliberately not added speculatively
 /// ahead of a caller that would exercise it.
+#[derive(Clone)]
 pub struct OrganismState {
     pub species: SpeciesId,
     /// Every cell this organism currently owns.
@@ -3154,14 +3297,13 @@ pub struct OrganismState {
     /// segment stepping into its predecessor's old position, which is a
     /// question about order that a `HashMap` cannot answer.
     /// **This individual's heritable body traits** — `CREATURE_TRAITS`
-    /// holds the slot map, and `TRAIT_GUT_BIAS` is the only live slot.
+    /// holds the slot map, and all three slots are live.
     ///
-    /// A byte-copy of `CreatureDef::traits` at spawn today: nothing
-    /// reproduces, so every creature is its species' ancestral value and
-    /// the only way to move one is to author it. S6 is where a child takes
-    /// its *parent's* vector jittered by `CreatureDef::trait_variance`,
-    /// and the storage is here now because the trait has to change
-    /// behaviour before it can be worth inheriting.
+    /// A byte-copy of `CreatureDef::traits` for a founder the world placed;
+    /// for a child, its parent's vector jittered by
+    /// `CreatureDef::trait_variance` in `try_bud`, after placement, on the
+    /// child's own handle. So a founder is its species' ancestral value and
+    /// everything descended from one is not.
     ///
     /// **Not in `genome`.** See `CREATURE_TRAITS` — a gut is not a synapse,
     /// and a body block that grows independently is what keeps S8 from
@@ -3195,12 +3337,19 @@ pub struct OrganismState {
     /// entire contents of the parallel per-creature storage this substrate
     /// replaced.
     pub energy: f32,
-    /// What this creature is carrying, if anything. **One item, not a
-    /// stack**, and deliberately *state* rather than a cell: making the
-    /// carried grain a chain cell doubles every movement edge case (what
-    /// happens when the cell it wants to move into is the thing it is
-    /// holding?) for no payoff at all at the zoom a creature is seen at.
-    pub carrying: Option<Carried>,
+    /// What this creature is carrying and digesting, if anything. See `Crop`.
+    ///
+    /// **One store, not a mandible plus a stomach**, and the reason is exit
+    /// paths: a second field doubles every place a load can leave an animal
+    /// (`act`'s drop branch, `creature_dies`) and forces `carried_meat` to
+    /// read two stores, which is the shape that lets one of them be
+    /// forgotten by the next person to add an exit.
+    ///
+    /// Deliberately *state* rather than a cell: making the carried grain a
+    /// chain cell doubles every movement edge case (what happens when the
+    /// cell it wants to move into is the thing it is holding?) for no payoff
+    /// at all at the zoom a creature is seen at.
+    pub crop: Option<Crop>,
     /// Ticks since this creature last touched nest material.
     ///
     /// **This is how an ant finds its way home without ever asking where
@@ -3492,11 +3641,26 @@ pub const GENOTYPE_TRAITS: usize = 10;
 ///
 ///   0 gut_bias — where this animal's digestion sits on the diet axis
 ///   1 birth_grant — how much of `start_energy` a newborn is handed
+///   2 reproduce_at — how rich this animal waits to be before it buds
 ///
 /// **Positional forever, on the same terms as `GENOTYPE_TRAITS`**: a slot
 /// dead by measurement in every species may be re-purposed once with the
 /// measurement record re-baselined; a live slot, never.
-pub const CREATURE_TRAITS: usize = 2;
+///
+/// **`store_in_body` is deliberately not a slot here, and that is a
+/// correction to the plan that asked for it.** The granary-versus-replete
+/// gene was specced as slot 3 before the verb choice was rebuilt; what
+/// rebuilding it did was put `Feed` against `Drop` in
+/// `creature::act`'s `choose_weighted`, reading two *brain output* weights
+/// that are already heritable and already mutate. Those weights are
+/// conditioned on everything the brain senses — crop fill, food adjacency,
+/// both pheromone planes — so they can express "put it down when laden and
+/// near home" and "never put it down", which are exactly the two forks. A
+/// scalar trait beside them would be a second knob on one quantity and a
+/// strictly weaker one, which is `CLAUDE.md`'s *when several knobs move the
+/// same number, check what each one trades*: this one trades nothing the
+/// weight does not already trade.
+pub const CREATURE_TRAITS: usize = 3;
 
 /// Slot 0 of `CREATURE_TRAITS`: **diet as one heritable number**, `-1`
 /// (plant matter) to `+1` (flesh), scored against `MaterialDef::food_class`
@@ -3537,6 +3701,40 @@ pub const TRAIT_GUT_BIAS: usize = 0;
 /// biology, and it is also what the existing draw order already does.
 pub const TRAIT_BIRTH_GRANT: usize = 1;
 
+/// Slot 2 of `CREATURE_TRAITS`: **how rich this animal waits to be before
+/// it buds**, `-1` (the earliest the arithmetic allows) to `+1` (twice the
+/// species' authored bar), read through `creature::reproduce_fraction`.
+///
+/// **This is the one life-history axis the brain could not already
+/// express.** Budding is not a `BrainOutput` — `creature_tick` calls
+/// `try_bud` on every tick that was survived, so *when* to reproduce was
+/// the last decision in the animal still made by a species constant. The
+/// eat-versus-carry crossover moved into the hidden units' bias weights
+/// when the crop landed, and the store-versus-deliver choice into `Feed`
+/// against `Drop`; this is what was left.
+///
+/// **Two-sided today, through starvation rather than through senescence.**
+/// The plan that specced this slot said it becomes a real trade only once
+/// an age-linked hazard exists, and that was wrong about this engine:
+/// `place_creature` tops a parent up to `birth_cost + 1` and then charges
+/// `birth_cost`, so an animal that breeds the instant it can afford to is
+/// left standing on **one joule** — about three ticks of upkeep for the
+/// shipped ant. So the low allele is very nearly a suicide pact and the
+/// high one is a survival buffer bought by breeding less often, which is
+/// Cole's paradox resolved the way it is resolved in nature: by adult
+/// survival being worth something. An age-linked hazard will *sharpen*
+/// this axis; it is not what makes it exist.
+///
+/// **Read off the parent, like `TRAIT_BIRTH_GRANT`** — the decision to wait
+/// belongs to the animal doing the waiting, and `try_bud` mutates the
+/// child's copy after placement.
+///
+/// The species' authored `reproduce_threshold` stays the *scale*: a
+/// species that does not reproduce (threshold 0) still does not, whatever
+/// this slot says, so making reproduction universal stays S5c's decision
+/// to take deliberately rather than something this slot does quietly.
+pub const TRAIT_REPRODUCE_AT: usize = 2;
+
 /// The ancestral trait vector for a species file that authors no `traits`
 /// line at all.
 ///
@@ -3545,6 +3743,14 @@ pub const TRAIT_BIRTH_GRANT: usize = 1;
 /// silently halve every unauthored species' endowment the day this slot
 /// landed. `+1.0` is a full `start_energy`, which is exactly what every
 /// newborn got before the slot existed.
+///
+/// **Slot 2 is the opposite case and is left at zero deliberately**: zero
+/// on the reproduce-at axis is the species' authored `reproduce_threshold`
+/// unchanged, so an unauthored species breeds exactly where it did before
+/// the slot existed. The two slots disagree about what zero means because
+/// their axes are different — one is a fraction of a budget and the other a
+/// multiplier on a bar — and writing both out here is what stops the next
+/// slot being added by pattern-matching on the wrong one.
 fn default_creature_traits() -> [f32; CREATURE_TRAITS] {
     let mut t = [0.0; CREATURE_TRAITS];
     t[TRAIT_BIRTH_GRANT] = 1.0;
@@ -3733,6 +3939,7 @@ pub fn jump_alleles(alleles: &mut [u8; DISCRETE_LOCI], rng: &mut super::rng::Rng
 /// without importing `brain` for one constant.
 pub const BRAIN_HIDDEN_FOR_STATE: usize = super::brain::BRAIN_HIDDEN;
 
+#[derive(Clone)]
 pub struct SpeciesRegistry {
     species: Vec<Species>,
     by_name: HashMap<String, SpeciesId>,
@@ -5470,10 +5677,9 @@ mod tests {
 
     /// **The authored gut arrives, and is not the serde default.**
     ///
-    /// `traits` carries `#[serde(default)]`, so a species that misspells
-    /// the field, or a RON tuple form that does not deserialize into a
-    /// fixed array, loads *silently* at `[0.0; N]` -- and neutral is a
-    /// perfectly plausible-looking gut. That is the disconnected-knob
+    /// `traits` carries `#[serde(default)]`, so a species that **misspells
+    /// or omits** the field loads *silently* at `[0.0; N]` -- and neutral is
+    /// a perfectly plausible-looking gut. That is the disconnected-knob
     /// failure `CLAUDE.md` records twice (the `include_str!` sweep whose
     /// arms came back byte-identical, and the megastudy whose eight logs
     /// were one population): the tell in both was output that could not
@@ -5481,6 +5687,18 @@ mod tests {
     /// test able to fail -- the ant's authored value *is* the default, so
     /// asserting on the ant alone would pass against a field that never
     /// parsed.
+    ///
+    /// **A wrong-*arity* tuple is not that failure and needs no guard**, and
+    /// this is worth stating because the plan that widened the block to
+    /// three slots assumed the opposite and specced tests against it.
+    /// Measured 2026-08-31 by narrowing `ant.ron` back to two: RON refuses a
+    /// present-but-malformed field outright rather than falling through to
+    /// the `serde` default, `SpeciesRegistry::builtin` panics, and the
+    /// message names the file position and both lengths -- *"317:36:
+    /// Expected an array of length 3 but found 2 elements instead"*.
+    /// `#[serde(default)]` fires only for a field that is **absent**. So the
+    /// silent case is a misspelling, and the loud case is everything about
+    /// widening a slot.
     #[test]
     fn the_authored_gut_bias_survives_the_ron_round_trip() {
         let reg = SpeciesRegistry::builtin();
@@ -5498,6 +5716,44 @@ mod tests {
         // a *parse* error any more -- 0.0 is the serde default again --
         // which is exactly why the beetle above carries this test.
         assert_eq!(ant.traits[TRAIT_GUT_BIAS], 0.0, "ant.ron authors an omnivore gut -- see that file for the food-scale sweep behind the value");
+    }
+
+    /// **Every slot of the widened tuple arrived, not just the ones the
+    /// test above happens to name.**
+    ///
+    /// **The arity itself needs no guard** -- a short tuple panics out of
+    /// `SpeciesRegistry::builtin` naming its own file position, as the test
+    /// above now records. What nothing catches is the next widening done
+    /// *correctly* at the arity and wrongly at the value: a `.ron` updated
+    /// to four fields with slot 2's number dropped, duplicated, or shifted
+    /// one place left in the edit. Every file still parses, every array is
+    /// the right width, and one gene quietly carries another's setting. So
+    /// each slot gets an assertion of its own, on a value that is **not**
+    /// the serde default, because an assertion that matches the default
+    /// cannot distinguish authored from absent.
+    ///
+    /// Slot 2's ancestral value *is* 0.0 on every shipped species and
+    /// deliberately so (`TRAIT_REPRODUCE_AT`: there is no measurement
+    /// saying the ant should be eager or patient), so the canary for it
+    /// rides on `trait_variance`, where 0.15 is authored and 0.0 is the
+    /// default. A zero width there is not cosmetic -- it is the slot
+    /// silently not mutating, which is a gene that inherits and never
+    /// varies, and every allele histogram over it would read as a
+    /// population under strong stabilising selection.
+    #[test]
+    fn every_creature_trait_slot_survives_the_ron_round_trip() {
+        let reg = SpeciesRegistry::builtin();
+        for name in ["ant", "beetle"] {
+            let def = reg.get(reg.id_of(name).unwrap_or_else(|| panic!("{name}.ron should define \"{name}\"")));
+            let def = def.creature.as_ref().expect("a creature");
+            for slot in 0..CREATURE_TRAITS {
+                assert_eq!(
+                    def.trait_variance[slot], 0.15,
+                    "{name}.ron authors 0.15 on every trait width; slot {slot} read {} -- either the tuple lost a field or that gene cannot mutate",
+                    def.trait_variance[slot]
+                );
+            }
+        }
     }
 
     #[test]

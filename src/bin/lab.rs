@@ -128,6 +128,11 @@ struct Handler {
     last_drawn: Option<Instant>,
     cursor: Option<(i32, i32)>,
     held: Held,
+    /// Whether SHIFT is down. Tracked because the digit row is doubly booked:
+    /// `1`-`7` are the speed ladder and `SHIFT+1`-`5` are the rack's chambers.
+    /// `KeyboardInput` carries no modifier state of its own, so this comes
+    /// from `ModifiersChanged` and is the only reason this handler has any.
+    shift: bool,
     /// Real rendered frames left before a one-shot framebuffer dump, from
     /// `PIXEL_PHYSICS_SCREENSHOT_AFTER_FRAMES`. The same hook `main.rs`
     /// carries, and for the same reason: this build's swapchain is not
@@ -171,6 +176,7 @@ impl Handler {
             last_drawn: None,
             cursor: None,
             held: Held::default(),
+            shift: false,
             screenshot_countdown: std::env::var("PIXEL_PHYSICS_SCREENSHOT_AFTER_FRAMES")
                 .ok()
                 .and_then(|v| v.parse().ok()),
@@ -340,6 +346,25 @@ impl Handler {
             KeyCode::Space => self.lab.act(Action::TogglePhase),
             KeyCode::ArrowUp => self.lab.act(Action::Faster),
             KeyCode::ArrowDown => self.lab.act(Action::Slower),
+            // **SHIFT+digit is the rack, plain digit is the dial.** Checked
+            // before the ladder below, so the shifted reading wins rather than
+            // both firing. Five, matching the strip: past that the rack is
+            // reached through its own page, because a batch makes fifty and no
+            // keyboard has fifty digits.
+            KeyCode::Digit1 | KeyCode::Digit2 | KeyCode::Digit3 | KeyCode::Digit4 | KeyCode::Digit5
+                if self.shift =>
+            {
+                let i = match code {
+                    KeyCode::Digit1 => 0,
+                    KeyCode::Digit2 => 1,
+                    KeyCode::Digit3 => 2,
+                    KeyCode::Digit4 => 3,
+                    _ => 4,
+                };
+                if i < self.lab.chamber_count() {
+                    self.lab.act(Action::Chamber(i));
+                }
+            }
             KeyCode::Digit1 => self.lab.act(Action::Preset(0)),
             KeyCode::Digit2 => self.lab.act(Action::Preset(1)),
             KeyCode::Digit3 => self.lab.act(Action::Preset(2)),
@@ -367,6 +392,14 @@ impl Handler {
             KeyCode::KeyM => self.lab.act(Action::Tool(Tool::Keep)),
             KeyCode::Comma => self.lab.act(Action::Tool(Tool::Release)),
             KeyCode::Period => self.lab.act(Action::NextSpecies),
+            // **`K`, not the next key along the bottom row.** The positional
+            // run is `TOOLS` in bar order, and the wall verb has no bar cell
+            // (the bar is full -- see `TOOLS`), so it is not in that run and
+            // taking `.` from `NextSpecies` would move a control for nothing.
+            // `;` and `/` were both tried first and are the brood dial and
+            // the help page; clippy caught the collision, which is the only
+            // reason this is not a silent one.
+            KeyCode::KeyK => self.lab.act(Action::Tool(Tool::Wall)),
             KeyCode::BracketLeft => self.lab.act(Action::Brush(-1)),
             KeyCode::BracketRight => self.lab.act(Action::Brush(1)),
             KeyCode::KeyO => self.lab.act(Action::CycleOverlay),
@@ -383,6 +416,10 @@ impl Handler {
             KeyCode::F1 => self.lab.act(Action::Panel(Panel::Plants)),
             KeyCode::F2 => self.lab.act(Action::Panel(Panel::Ants)),
             KeyCode::F3 => self.lab.act(Action::Panel(Panel::Box)),
+            // The rack. Next in the F-key run the other pages already use,
+            // and the bar has no room for a fifth page button — the strip's
+            // `ALL` is the mouse route.
+            KeyCode::F4 => self.lab.act(Action::Panel(Panel::Chambers)),
             // The parameters page. `P` rather than `F4`: it is the one page
             // you open to *change* something rather than to read something,
             // and it sits with the tools on the bar's top row for the same
@@ -491,6 +528,7 @@ impl ApplicationHandler for Handler {
                 };
                 self.lab.renderer.adjust_zoom(if up { 1 } else { -1 });
             }
+            WindowEvent::ModifiersChanged(m) => self.shift = m.state().shift_key(),
             WindowEvent::KeyboardInput { event, .. } => {
                 if let PhysicalKey::Code(code) = event.physical_key {
                     self.key(event_loop, code, event.state == ElementState::Pressed);

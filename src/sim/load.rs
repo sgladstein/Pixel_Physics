@@ -891,7 +891,7 @@ pub type AnchorMemo = HashMap<(i32, i32), bool>;
 
 /// Everything `load` caches for the span of one frame. Held on `World` and
 /// handed to the walks as one borrow.
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct Cache {
     pub subtrees: SubtreeMemo,
     pub grounded: GroundMemo,

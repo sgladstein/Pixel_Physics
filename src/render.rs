@@ -1058,6 +1058,31 @@ impl FieldOverlay {
 pub enum OrganismOverlay {
     #[default]
     Off,
+    /// **Is this individual thriving or dying** — one flat colour over
+    /// every cell of one plant, because the quantity is per organism.
+    ///
+    /// The channel the other eight do not cover. Every one of them is a
+    /// per-*cell* debug scalar from the substrate work, and none of them
+    /// answers the question a player actually asks of a bed: *which of
+    /// these are working?* Asked of a stand rather than of a cell, so it
+    /// is deliberately flat across a body — a plant is one economic unit,
+    /// and a per-cell gradient here would invite reading structure into
+    /// what is a single number.
+    ///
+    /// **Two states, and the split is the point.** A plant that can pay
+    /// its upkeep is drawn on the water ramp by `water_status` — the
+    /// stomatal term, which multiplies every carbon credit it earns, so
+    /// dim means it has closed down and stopped earning. A plant that
+    /// *cannot* pay switches to the alarm ramp, scaled by how far
+    /// `starving_ticks` has run toward `plant::STARVATION_DEATH_TICKS`:
+    /// brightest is nearest death. Two different failures — thirsty and
+    /// starving — that a single ramp would have shown as the same dim
+    /// cell, which is exactly the confusion `CLAUDE.md` records for a
+    /// channel whose failures all look identical.
+    ///
+    /// Plants only. A creature has `GutBias` and `FoodValue` of its own,
+    /// and `water_status` is not a quantity an ant has.
+    PlantHealth,
     /// `Seed`/`GrowingTip`/`MatureBody`/`Leaf`/`RootTip`, one flat colour
     /// each. The only way to tell a retired `MatureBody` from a live
     /// `GrowingTip` on screen — both currently paint as plain `wood`.
@@ -1130,7 +1155,12 @@ pub enum OrganismOverlay {
 impl OrganismOverlay {
     fn next(self) -> Self {
         match self {
-            OrganismOverlay::Off => OrganismOverlay::CellType,
+            // **First in the cycle, ahead of `CellType`.** One press of
+            // `L` should land on the channel that answers "is this bed
+            // working"; the eight behind it are debug scalars you go
+            // looking for deliberately.
+            OrganismOverlay::Off => OrganismOverlay::PlantHealth,
+            OrganismOverlay::PlantHealth => OrganismOverlay::CellType,
             OrganismOverlay::CellType => OrganismOverlay::Resource,
             OrganismOverlay::Resource => OrganismOverlay::CanopyDensity,
             OrganismOverlay::CanopyDensity => OrganismOverlay::VeinConductance,
@@ -1145,6 +1175,7 @@ impl OrganismOverlay {
     pub fn label(self) -> &'static str {
         match self {
             OrganismOverlay::Off => "OFF",
+            OrganismOverlay::PlantHealth => "PLANT HEALTH",
             OrganismOverlay::CellType => "CELL TYPE",
             OrganismOverlay::Resource => "RESOURCE",
             OrganismOverlay::CanopyDensity => "CANOPY DENSITY",
@@ -1224,6 +1255,26 @@ const SCALAR_RAMP_MOISTURE: [f32; 3] = [80.0, 170.0, 255.0];
 /// it carries are different quantities on different timescales, and two
 /// green ramps would invite reading one sheet as the other.
 const SCALAR_RAMP_VEIN: [f32; 3] = [255.0, 210.0, 90.0];
+/// `PlantHealth`, the paying half — a plant that can meet its bill, ramped
+/// by its stomatal term. Green because it is the "this one is fine" end,
+/// and distinct from `SCALAR_RAMP_RESOURCE`'s mint so a health sheet and a
+/// carbon sheet are not confused at a glance.
+const SCALAR_RAMP_HEALTH: [f32; 3] = [90.0, 230.0, 120.0];
+/// The carbon margin `PlantHealth` treats as "comfortably in surplus" — the
+/// top of the green ramp, where a plant earns this many times its standing
+/// bill.
+///
+/// **Measured, not chosen**: over the default bed's established plants the
+/// night-corrected margin runs 1.4x to 6.8x with a median near 3.6x, so a
+/// top of 4 puts the median mid-ramp and leaves the healthiest plants
+/// distinguishable from the merely solvent. A reference rather than the
+/// frame's own maximum, deliberately — `world_look`'s rule, because a ramp
+/// whose scale moves with the scene makes two sheets incomparable.
+const HEALTH_COMFORTABLE_MARGIN: f32 = 4.0;
+/// `PlantHealth`, the failing half — a plant earning less than its bill,
+/// ramped by how deep the shortfall is, so the brightest cell on the sheet
+/// is the one closest to dying.
+const SCALAR_RAMP_HEALTH_STARVING: [f32; 3] = [255.0, 70.0, 60.0];
 /// Distinct from every other ramp on purpose: food value is read against
 /// moss and leaf, which are already green, and against corpse, which is
 /// already dull red.
@@ -1322,12 +1373,32 @@ const SCALAR_RAMP_COOL: [f32; 3] = [90.0, 150.0, 255.0];
 
 const SCALAR_RAMP_FLOOR: f32 = 0.18;
 
+/// The floor for an *alarm* ramp, where the dark end is a state and not an
+/// absence — see [`ramp_from`]. High enough that a plant one tick into
+/// failing is unmistakably red at a glance, while leaving most of the range
+/// to carry how close to death it has got.
+const SCALAR_RAMP_ALARM_FLOOR: f32 = 0.55;
+
 /// Maps a normalized `0..1` reading onto a channel's ramp. Deliberately
 /// linear: this is a readout, and a perceptual or log curve would make
 /// "how much" harder to judge between two tiles of a contact sheet, which
 /// is the comparison these sheets exist to support.
 fn scalar_ramp(t: f32, full: [f32; 3]) -> [f32; 3] {
-    let scale = SCALAR_RAMP_FLOOR + (1.0 - SCALAR_RAMP_FLOOR) * t.clamp(0.0, 1.0);
+    ramp_from(t, full, SCALAR_RAMP_FLOOR)
+}
+
+/// [`scalar_ramp`] with the dark end lifted — for a channel whose *floor*
+/// is itself a state worth seeing rather than an absence.
+///
+/// The general ramp floor is 0.18 because on most channels a zero reading
+/// means "nothing here" and should recede. `PlantHealth`'s alarm ramp is
+/// the opposite: `t` is how far a plant has run toward starving to death,
+/// so `t == 0` is *a plant that has just begun to fail*, which is the
+/// moment you most want to catch and the one the shared floor rendered at
+/// 18% of a dark red — near black against a dark bed. Owner, on the review
+/// card that shipped it: *"The dark red is a bit too dim."*
+fn ramp_from(t: f32, full: [f32; 3], floor: f32) -> [f32; 3] {
+    let scale = floor + (1.0 - floor) * t.clamp(0.0, 1.0);
     [full[0] * scale, full[1] * scale, full[2] * scale]
 }
 
@@ -5275,6 +5346,71 @@ impl Renderer {
             return out;
         }
 
+        if self.organism_overlay == OrganismOverlay::PlantHealth {
+            let Some(state) = world.organism(cell.organism_id()) else {
+                return base;
+            };
+            // Plants only -- an ant has no stomata and no maintenance bill
+            // of this kind, and painting one on a plant ramp would be a
+            // readout confidently reporting a quantity that does not exist.
+            if world.species.get(state.species).creature.is_some() {
+                return base;
+            }
+            // **Whether a plant is starving is `maintenance > income`, a
+            // property of the plant -- never the sum of its cells'
+            // shortfalls.** The first cut of this overlay keyed on
+            // `maintenance_unpaid > 0.0` and was wrong, exactly as
+            // `plant.rs`'s own comment beside `deficit` warns: that field
+            // counts every cell that could not meet its bill out of the
+            // carbon standing *in it*, and transport is deliberately slow,
+            // so distal cells in a perfectly healthy tree run momentarily
+            // short all the time. Measured on the default bed, it painted 8
+            // of 11 established plants red while every one of them was
+            // earning between 1.4x and 6.8x its bill. The owner saw it as
+            // "most of my plants are red".
+            //
+            // **Income is night-scaled and the bill is not**, so the
+            // comparison is against `MEAN_NIGHT_INCOME_FACTOR` -- the same
+            // correction `plant.rs` applies, and the same oscillator trap
+            // `CLAUDE.md` records: read raw, this ramp would swing four-fold
+            // between noon and midnight on a stand that had not changed.
+            let bill = state.maintenance;
+            let margin = if bill > f32::EPSILON {
+                state.income * crate::sim::plant::MEAN_NIGHT_INCOME_FACTOR / bill
+            } else {
+                // A seedling with no shoot yet has no bill. There is no
+                // economy to judge, so judge it on water alone rather than
+                // dividing by zero into a false surplus.
+                f32::INFINITY
+            };
+            let ramp = if margin < 1.0 || state.starving_ticks > 0 {
+                // **Brightest is worst.** A plant already on the starvation
+                // clock is pinned at the top; otherwise the depth of the
+                // shortfall, so breaking even is the dim end and earning
+                // nothing at all is the bright one.
+                let t = if state.starving_ticks > 0 { 1.0 } else { (1.0 - margin).clamp(0.0, 1.0) };
+                ramp_from(t, SCALAR_RAMP_HEALTH_STARVING, SCALAR_RAMP_ALARM_FLOOR)
+            } else {
+                // **Ramped on whichever resource is scarcest**, which is
+                // what "how well is this plant working" actually means. The
+                // first cut ramped on `water_status` alone and had no
+                // spectrum at all: measured over the same bed, every paying
+                // plant read *exactly* 1.000, so every green cell rendered
+                // at full brightness. Carbon is what varies here (1.4x to
+                // 6.8x), and in a bed the owner has let dry out water will
+                // be. Taking the minimum lets whichever one binds do the
+                // talking, and the examine page's INCOME/UPKEEP and
+                // UPTAKE/DEMAND rows say which it was.
+                let surplus = ((margin - 1.0) / (HEALTH_COMFORTABLE_MARGIN - 1.0)).clamp(0.0, 1.0);
+                scalar_ramp(surplus.min(state.water_status.clamp(0.0, 1.0)), SCALAR_RAMP_HEALTH)
+            };
+            let mut out = base;
+            for (c, r) in out.iter_mut().take(3).zip(ramp) {
+                *c = r.round().clamp(0.0, 255.0) as u8;
+            }
+            return out;
+        }
+
         if cell.organism_id() == 0 {
             return base;
         }
@@ -5286,7 +5422,7 @@ impl Renderer {
             // about every cell in the world -- a fallen leaf and a corpse
             // are food and belong to no organism, which is exactly the case
             // the tissue guard below would drop.
-            OrganismOverlay::Off | OrganismOverlay::SoilMoisture | OrganismOverlay::FoodValue | OrganismOverlay::GutBias => return base,
+            OrganismOverlay::Off | OrganismOverlay::PlantHealth | OrganismOverlay::SoilMoisture | OrganismOverlay::FoodValue | OrganismOverlay::GutBias => return base,
             OrganismOverlay::CellType => {
                 // An unrecognized type bit pattern is a real possibility
                 // (`organism.rs`'s own `an_unrecognized_type_bit_pattern_

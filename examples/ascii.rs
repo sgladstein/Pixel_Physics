@@ -1817,7 +1817,7 @@ fn forage_loop_scene() {
                 let c = world.get(x, y);
                 if c.material == ant {
                     if let Some(st) = world.organism(c.organism_id()) {
-                        if st.carrying.is_some() && st.chain.first() == Some(&(x, y)) {
+                        if st.crop.is_some() && st.chain.first() == Some(&(x, y)) {
                             carriers.push(x);
                         }
                     }
@@ -2369,11 +2369,37 @@ fn construction_scene() {
     let mut wet_sum = 0.0f64;
     let mut dry_sum = 0.0f64;
     let mut samples = 0u32;
+    // **The setup check reads the scene as built, not as the ants left it.**
+    //
+    // This assertion says "the scene must actually contain the gradient it is
+    // testing", and it was checked against a *run mean* -- forty samples taken
+    // while fifty-five ants rearranged the very field being measured. That is
+    // not a setup check, and it fired for the wrong reason on 2026-08-31:
+    // ants that stopped churning the same few cells and started leaving real
+    // deposits (4 cells standing before, 63 after) put water-holding powder
+    // into the dry half, which raised the flat half's own gradient from 0.89
+    // to 1.20 and closed the margin from below. The scene was working; the
+    // measurement could not tell the scene's premise from the mechanism's
+    // effect on it.
+    //
+    // **The first sample, not frame zero.** A reading taken before the run
+    // is 0.0000 on both halves: the water is placed but the moisture field
+    // has not been stepped, so there is no gradient to find yet and the check
+    // would fail on a scene that is perfectly well formed. The first sample
+    // lands at frame 249 -- field solved, colony barely started -- which is
+    // the earliest point at which the question is answerable at all. The run
+    // mean is still printed, because what the ants do to the field afterwards
+    // is the interesting half and this is the file where it gets read.
+    let mut initial_margin = f64::NAN;
     run_colony_with(&mut world, 10000, |world, frame| {
         refill_spring(world);
         if frame % GRAD_SAMPLE_EVERY == GRAD_SAMPLE_EVERY - 1 {
-            wet_sum += mean_grad(world, 20, w / 2);
-            dry_sum += mean_grad(world, w / 2, 220);
+            let (wet, dry) = (mean_grad(world, 20, w / 2), mean_grad(world, w / 2, 220));
+            if samples == 0 {
+                initial_margin = wet - dry;
+            }
+            wet_sum += wet;
+            dry_sum += dry;
             samples += 1;
         }
     });
@@ -2466,8 +2492,8 @@ fn construction_scene() {
     // predecessor turned on a difference below the sixth decimal and
     // flipped between two CI runs that printed identical numbers.
     assert!(
-        margin > MARGIN_BAR,
-        "the scene must actually contain the gradient it is testing: steep {wet_grad:.4} vs flat {dry_grad:.4}, margin {margin:.4} <= {MARGIN_BAR}"
+        initial_margin > MARGIN_BAR,
+        "the scene must actually contain the gradient it is testing, measured before the colony touches it: {initial_margin:.4} <= {MARGIN_BAR} (the run mean was steep {wet_grad:.4} vs flat {dry_grad:.4}, margin {margin:.4})"
     );
     assert!(st.drops > 0, "no ant ever dropped anything -- the verb never fired");
     // **`wet_drops > dry_drops` was here and has been demoted to the print

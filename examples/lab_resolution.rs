@@ -47,7 +47,7 @@
 //! ```
 
 use pixel_physics::lab::scene::LabBox;
-use pixel_physics::render::{FieldOverlay, Renderer};
+use pixel_physics::render::{FieldOverlay, OrganismOverlay, Renderer};
 use pixel_physics::sim::chunk::{CHUNK_SIZE, MAX_REACH};
 use pixel_physics::sim::explosion::Blasts;
 use pixel_physics::sim::particle::{self, ParticleSystem};
@@ -98,6 +98,7 @@ fn spec_from_args() -> LabBox {
         soil_depth: arg("soil").unwrap_or(height / 4),
         founders: arg("founders").unwrap_or(8),
         colonies: arg("colonies").unwrap_or(1),
+        predators: arg("predators").unwrap_or(0),
         compartments: arg("walls").unwrap_or(1),
         // Scaled with `width` for the same reason `ground_y` and `soil_depth`
         // are scaled with `height`: a fixture every 128 cells is one fixture
@@ -108,6 +109,9 @@ fn spec_from_args() -> LabBox {
         lamp_spacing: arg("lamps").unwrap_or(width / 4),
         species: arg("species").unwrap_or_else(|| "herb".to_string()),
         seed: arg("seed").unwrap_or(1),
+        // None: this harness varies geometry, and a hand-placed wall would be
+        // a second axis in a ladder that exists to isolate one.
+        extra_walls: Vec::new(),
         // **Exhaustive on purpose -- no `..LabBox::default()`.** Two lanes
         // repaired the same red build here at once, one by adding
         // `lamp_spacing` and one by adding a struct update, and together they
@@ -356,7 +360,8 @@ fn shot_mode(spec: &LabBox) {
     let at: u64 = arg("at").unwrap_or(6_000);
     let zoom: i32 = arg("zoom").unwrap_or(1);
     let overlay: String = arg("overlay").unwrap_or_else(|| "off".to_string());
-    println!("  out={out} at={at} zoom={zoom} overlay={overlay}");
+    let organism: String = arg("organism").unwrap_or_else(|| "off".to_string());
+    println!("  out={out} at={at} zoom={zoom} overlay={overlay} organism={organism}");
     let mut world = spec.build();
     let mut particles = ParticleSystem::default();
     let mut blasts = Blasts::default();
@@ -372,6 +377,93 @@ fn shot_mode(spec: &LabBox) {
     }
     let (cells, orgs, seeds, ants) = census(&world);
     println!("  stand at frame {at}: cells {cells} orgs {orgs} seeds {seeds} ants {ants}");
+    // **The count beside the picture.** `CLAUDE.md`'s standing rule: an
+    // image says what and where, and only a number says whether. A health
+    // sheet where every plant happens to be fed and one where the channel
+    // is not firing at all are the same photograph.
+    {
+        let (mut fed, mut starving, mut thirsty) = (0usize, 0usize, 0usize);
+        for id in world.live_organism_ids() {
+            let Some(st) = world.organism(id) else { continue };
+            if world.species.get(st.species).creature.is_some() {
+                continue;
+            }
+            // The same test the overlay uses -- `maintenance > income`, the
+            // plant's own book, never the sum of its cells' shortfalls.
+            let margin = if st.maintenance > f32::EPSILON {
+                st.income * pixel_physics::sim::plant::MEAN_NIGHT_INCOME_FACTOR / st.maintenance
+            } else {
+                f32::INFINITY
+            };
+            if margin < 1.0 || st.starving_ticks > 0 {
+                starving += 1;
+            } else {
+                fed += 1;
+                if st.water_status < 0.75 {
+                    thirsty += 1;
+                }
+            }
+        }
+        println!("  plant health: {fed} paying their upkeep ({thirsty} of them short of water), {starving} not");
+        // **Split by size, because the headline is dominated by seedlings.**
+        // A seed that germinated this minute has no leaf yet and cannot pay
+        // anything; counting it beside a grown plant reports a healthy bed
+        // as a dying one. `CLAUDE.md`: ask what the number counts when
+        // nothing is wrong.
+        let (mut est, mut est_starving) = (0usize, 0usize);
+        for id in world.live_organism_ids() {
+            let Some(st) = world.organism(id) else { continue };
+            if world.species.get(st.species).creature.is_some() || st.cells.len() < 20 {
+                continue;
+            }
+            est += 1;
+            let margin = if st.maintenance > f32::EPSILON {
+                st.income * pixel_physics::sim::plant::MEAN_NIGHT_INCOME_FACTOR / st.maintenance
+            } else {
+                f32::INFINITY
+            };
+            if margin < 1.0 || st.starving_ticks > 0 {
+                est_starving += 1;
+            }
+        }
+        println!("  of the {est} established (20+ cells): {est_starving} not paying");
+        // **The distributions behind the ramp, not just the counts.** The
+        // overlay maps `water_status` onto the green ramp and
+        // `starving_ticks` onto the red one; if either is degenerate the
+        // channel is a two-colour flag wearing a gradient, which is
+        // `CLAUDE.md`'s first law ("an outcome is a distribution, not a
+        // binary") failing in a readout rather than in a mechanic.
+        let q = |mut v: Vec<f32>, name: &str| {
+            if v.is_empty() {
+                println!("    {name}: none");
+                return;
+            }
+            v.sort_by(|a, b| a.partial_cmp(b).expect("finite"));
+            let at = |f: f32| v[((v.len() - 1) as f32 * f) as usize];
+            println!(
+                "    {name}: min {:.3}  p25 {:.3}  p50 {:.3}  p75 {:.3}  max {:.3}  (n={})",
+                v[0], at(0.25), at(0.5), at(0.75), v[v.len() - 1], v.len()
+            );
+        };
+        let (mut wat, mut starv, mut margin) = (Vec::new(), Vec::new(), Vec::new());
+        for id in world.live_organism_ids() {
+            let Some(st) = world.organism(id) else { continue };
+            if world.species.get(st.species).creature.is_some() || st.cells.len() < 20 {
+                continue;
+            }
+            let m = st.income * pixel_physics::sim::plant::MEAN_NIGHT_INCOME_FACTOR / st.maintenance.max(1e-6);
+            if m < 1.0 || st.starving_ticks > 0 {
+                starv.push(m);
+            } else {
+                wat.push(((m - 1.0) / 3.0).clamp(0.0, 1.0).min(st.water_status));
+            }
+            margin.push(m);
+        }
+        println!("  what the ramp actually sees, over established plants:");
+        q(wat, "green ramp input (scarcest resource, payers)");
+        q(starv, "margin of failers");
+        q(margin, "night-corrected margin (income x 0.49 / upkeep)");
+    }
 
     let (w, h) = (spec.width as u32 * zoom as u32, spec.height as u32 * zoom as u32);
     let mut buf = vec![0u8; (w * h * 4) as usize];
@@ -383,6 +475,23 @@ fn shot_mode(spec: &LabBox) {
         "temperature" => FieldOverlay::Temperature,
         "pressure" => FieldOverlay::Pressure,
         _ => FieldOverlay::Off,
+    };
+    // **The `L` channels, which `overlay=` could not reach.** The lab draws
+    // two independent overlays -- the field one on `O` and the organism one
+    // on `L` -- and this harness only ever set the first, so every question
+    // about a plant's own state had to be asked of the outdoor `filmstrip`
+    // scene instead of the bed the owner actually plays.
+    renderer.organism_overlay = match organism.as_str() {
+        "health" => OrganismOverlay::PlantHealth,
+        "celltype" => OrganismOverlay::CellType,
+        "resource" => OrganismOverlay::Resource,
+        "canopy" => OrganismOverlay::CanopyDensity,
+        "vein" => OrganismOverlay::VeinConductance,
+        "soil" => OrganismOverlay::SoilMoisture,
+        "food" => OrganismOverlay::FoodValue,
+        "gut" => OrganismOverlay::GutBias,
+        "bend" => OrganismOverlay::Stress,
+        _ => OrganismOverlay::Off,
     };
     let touched = std::collections::HashSet::new();
     renderer.draw(&world, &particles, &touched, &mut buf, (w, h), true);

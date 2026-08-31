@@ -86,8 +86,28 @@
 //! cargo run --release --example predation_probe -- mode=control
 //! cargo run --release --example predation_probe -- mode=ab frames=6000
 //! cargo run --release --example predation_probe -- mode=cost frames=600
+//! cargo run --release --example predation_probe -- mode=range frames=6000 every=30 seeds=8
 //! cargo run --release --example predation_probe -- seeds=8 every=40
 //! ```
+//!
+//! # `mode=range` asks a later question than the rest of this file
+//!
+//! Everything above is *can the predator find its prey*. `range` asks
+//! whether the predation that results **selects** anything: does a beetle's
+//! kill fall more often on an ant that had wandered far from its nest than
+//! on one standing on it. A predator that kills at random is extra
+//! mortality and nothing more -- every lineage loses the same fraction, and
+//! ranging stays free. Its own doc carries the design; the two arms and the
+//! two histograms are there so the answer has a null on both axes.
+//!
+//! **One premise of this file has expired and `range` is where it shows.**
+//! The scene was picked partly because nothing in it reproduced, which made
+//! an organism id a stable identity for the whole run. Ants breed now --
+//! measured 2026-08-31, four births in 6,000 frames on the no-predator arm,
+//! which is the crop and the heritable breeding bar arriving -- so the
+//! disappearance diff keys on `(id, generation, lineage)` instead, and
+//! prints its coverage against the engine's own death counter rather than
+//! trusting the identity to hold.
 
 use pixel_physics::sim::brain::BrainInput as I;
 use pixel_physics::sim::chunk::Rect;
@@ -214,7 +234,8 @@ fn main() {
         "ab" => ab(frames, every, seeds, over),
         "cost" => cost(frames, beetles),
         "sweep" => sweep(frames, every, seeds),
-        other => panic!("unknown mode {other:?}; known: preflight, control, ab, cost, sweep"),
+        "range" => range(frames, every, seeds, over),
+        other => panic!("unknown mode {other:?}; known: preflight, control, ab, cost, sweep, range"),
     }
 }
 
@@ -316,6 +337,10 @@ struct Row {
     deliveries: u64,
     eats: u64,
     deaths: u64,
+    /// Read only by `mode=range`, whose disappearance diff is a death count
+    /// **only while this is zero** -- a reused organism slot would hide a
+    /// death behind a birth.
+    births: u64,
     /// **The three sight counters, near side to far side.** `sight_casts`
     /// says the eye ran, `sightings` says it had something to report, and
     /// `sight_approaches` says the animal then moved toward it. All three,
@@ -333,6 +358,186 @@ struct Row {
     /// Cells read by the sense, summed. `/ sight_casts` is the number the
     /// sizing study's cost argument is built on.
     sight_cells_read: u64,
+    /// **How far from home the ants that died were, against how far from
+    /// home the ants are** -- the S5a question, and the only one that says
+    /// whether predation is a selective force or a flat tax.
+    ///
+    /// A predator that kills at random with respect to behaviour is extra
+    /// mortality that selects nothing: every lineage loses the same
+    /// fraction, and "how far do I forage" stays a free choice rather than
+    /// a trade. Real predation is encounter-biased -- the animals that
+    /// range furthest and spend longest in the open get taken -- and that
+    /// bias is what makes ranging cost something.
+    ///
+    /// **The two histograms are the measurement and its own null.** `live`
+    /// is the standing distribution over every ant at every sample; `died`
+    /// is the last known band of each ant that stopped existing between two
+    /// samples. If predation is unbiased the two have the same shape. The
+    /// comparison needs no external baseline, which matters because
+    /// `CLAUDE.md`'s recurring failure is a number that is arithmetically
+    /// correct about the wrong question -- here both numbers come off one
+    /// census, in one pass, so they cannot disagree by construction.
+    ///
+    /// **`beetles=0` is the second control and it is not optional.** Ants
+    /// die of starvation too, and starvation is *also* plausibly
+    /// distance-biased (a far-ranging ant is further from food it can
+    /// reach). So a skew in the predation arm means nothing until the same
+    /// skew is shown absent from the arm where nothing hunts.
+    range_live: [u64; RANGE_BANDS],
+    range_died: [u64; RANGE_BANDS],
+    /// **Does being under a roof already pay?** Index 0 is an ant in the
+    /// open, index 1 an ant with solid ground over its head.
+    ///
+    /// This is the owner's hoped-for outcome stated as a number -- *ants
+    /// digging homes to keep themselves safe* -- and it is a measurement
+    /// rather than a feature request because **the mechanism that would
+    /// make it pay is already shipped and already tested**.
+    /// `a_wide_body_cannot_enter_a_one_cell_tunnel_that_a_chain_walks_through`
+    /// says it outright: an ant is a one-cell following chain, a beetle is
+    /// a 2x2 rigid block, and a one-cell tunnel admits the first and
+    /// refuses the second with no hiding code anywhere. Sight is occluded
+    /// by material on the same terms.
+    ///
+    /// So the question is not whether to build shelter. It is whether the
+    /// shelter that exists produces a **survival gradient** an animal could
+    /// be selected along -- and that cannot be assumed from the mechanism
+    /// existing, because a mechanism nothing is ever in the position to use
+    /// selects exactly as much as one that does not exist.
+    ///
+    /// Read the same way as `range_*`: the lift for the roofed row against
+    /// the open row, in both arms. Shelter pays *against predation*
+    /// specifically only if the gap between the two rows is wider with
+    /// beetles than without them.
+    ///
+    /// **What "roofed" is not, and it bounds the reading.** This asks only
+    /// whether solid material stands over the head. A tree canopy, a leaf,
+    /// an overhanging bank and a dug tunnel all answer yes, and **a 2x2
+    /// beetle can walk under three of those four**. So a roofed row that
+    /// survives better is not by itself evidence that the body-size refuge
+    /// is doing the work; separating them needs a census of whether the
+    /// space an ant occupies is one a beetle could enter, which is a
+    /// different and more expensive question than a ceiling check.
+    ///
+    /// **Measured over twelve seeds, and the four-seed reading it replaces
+    /// is the reason this file says twelve.** At 4 seeds the roofed
+    /// advantage read 2.73x with no predator against 2.56x with nine, which
+    /// is a clean "predation contributes nothing". At 12 it reads **2.31x
+    /// against 2.61x** -- the same two arms, the other way round. The
+    /// tight-space table below moved the same way and kept its sign.
+    ///
+    /// The honest conclusion is the weaker one: **predation's effect on
+    /// this gradient is small and not clearly signed at this sample size**,
+    /// while the gradient itself is large and present with no predator in
+    /// the world. Do not quote a direction for the beetle term off fewer
+    /// than twelve seeds; the shelter advantage itself is solid at four.
+    shelter_live: [u64; 2],
+    shelter_died: [u64; 2],
+    /// **The sharp form of `shelter_*`**: index 0 is a prey cell a
+    /// predator's body could occupy, index 1 one it could not. See
+    /// `predator_could_stand`. Where `roofed` counts canopy, this counts
+    /// only geometry a 2x2 body is actually excluded from -- which is the
+    /// refuge the engine really implements.
+    ///
+    /// Twelve seeds, 6,000 frames: a cell no beetle fits into carries a
+    /// lift of **0.43** with no predator in the world and **0.56** with
+    /// nine, against 1.22 and 1.18 for reachable cells -- so the refuge is
+    /// worth about **2.8x** unhunted and **2.1x** hunted.
+    ///
+    /// **Both of those are large, and the difference between them is not.**
+    /// The two tables disagree in sign about what the beetle term does --
+    /// this one says predation shrinks the refuge's value, `shelter_*` says
+    /// it grows it -- which is itself the finding: at 231 deaths the beetle
+    /// contribution to either gradient is inside the noise, while the
+    /// gradients themselves are unmistakable and present without predators.
+    /// **A refuge whose value predators do not measurably set cannot be
+    /// selected for as safety from predators**, and that conclusion is the
+    /// one both tables support.
+    tight_live: [u64; 2],
+    tight_died: [u64; 2],
+}
+
+/// Is there solid material over this cell's head?
+///
+/// **Roofed rather than merely deep**, which is the distinction
+/// `CLAUDE.md`'s excavation metric trap is about: a pit open to the sky is
+/// standing void and scored a build that leaves *no roof at all* above one
+/// whose tunnels stand. What shelters an animal from something that cannot
+/// fit through the entrance is a ceiling, so a ceiling is what this looks
+/// for.
+///
+/// Creature cells do not count as a roof -- an ant standing under another
+/// ant is not indoors -- and the walk is capped because an answer of
+/// "nothing within `ROOF_REACH` above" is all the census needs.
+fn roofed(world: &World, x: i32, y: i32) -> bool {
+    (1..=ROOF_REACH).any(|d| {
+        let c = world.get(x, y - d);
+        c.material != pixel_physics::sim::material::EMPTY
+            && !matches!(world.materials.kind(c.material), pixel_physics::sim::material::MaterialKind::Creature)
+    })
+}
+
+/// How far above a head to look for a ceiling. Generous rather than tight:
+/// an ant three cells down a shaft it dug is sheltered from a 2x2 beetle
+/// whether the rock starts one cell up or six.
+const ROOF_REACH: i32 = 12;
+
+/// **Could a predator's body occupy the cell this prey is standing in?**
+///
+/// This is the sharp form of `roofed`, and the two disagree exactly where
+/// the interesting cases are: a tree canopy is a roof a 2x2 beetle walks
+/// under, and a one-cell tunnel is not. The engine already refuses the
+/// second -- `a_wide_body_cannot_enter_a_one_cell_tunnel_that_a_chain_
+/// walks_through` -- but it refuses it *behaviourally*, by a rigid body's
+/// passability covering every cell, with no predicate an example can call.
+/// So the geometry is restated here.
+///
+/// **Derived from the species' own `BodyPlan` rather than from "a beetle is
+/// 2x2".** The beetle is 2x2 today and the literal would be correct today;
+/// it would also go silently wrong the day someone authors a different
+/// predator, and a census that has quietly stopped measuring the thing the
+/// scene contains is this repo's worst-recurring failure. `offsets` is the
+/// same function the mover uses.
+///
+/// A creature cell does not block: the question is whether the *space*
+/// admits a predator's body, not whether one happens to be standing in it.
+/// Terrain does.
+fn predator_could_stand(world: &World, body: &[(i32, i32)], x: i32, y: i32) -> bool {
+    let clear = |px: i32, py: i32| {
+        if !world.in_bounds(px, py) {
+            return false;
+        }
+        let c = world.get(px, py);
+        c.material == material::EMPTY || matches!(world.materials.kind(c.material), material::MaterialKind::Creature)
+    };
+    // Every placement of the body that would cover (x, y): put each of its
+    // cells on the prey in turn and test the whole body there.
+    body.iter().any(|&(ox, oy)| {
+        let (hx, hy) = (x - ox, y - oy);
+        body.iter().all(|&(bx, by)| clear(hx + bx, hy + by))
+    })
+}
+
+/// Upper edges of the distance-from-nest histogram, in cells. The nest band
+/// this scene builds is 74 cells wide, so band 0 is "standing on it".
+const RANGE_EDGES: [i32; RANGE_BANDS] = [0, 8, 24, 56, 120, i32::MAX];
+const RANGE_BANDS: usize = 6;
+
+/// Which band a column falls in, by horizontal distance to the nest band.
+///
+/// **Horizontal only, and exact rather than a search.** `build_scene` lays
+/// the nest as one contiguous run of surface cells from `NEST_X0` to
+/// `NEST_X1`, so the distance is arithmetic and cannot drift out of step
+/// with a BFS that would have to be kept in agreement with it. An ant
+/// inside the band scores 0.
+fn range_band(x: i32) -> usize {
+    let d = if x < NEST_X0 {
+        NEST_X0 - x
+    } else if x >= NEST_X1 {
+        x - (NEST_X1 - 1)
+    } else {
+        0
+    };
+    RANGE_EDGES.iter().position(|&e| d <= e).unwrap_or(RANGE_BANDS - 1)
 }
 
 fn preflight(frames: usize, every: usize, seeds: u64, beetles: usize, over: Overrides) {
@@ -434,7 +639,7 @@ fn build_scene(seed: u64, beetles: usize, over: Overrides) -> World {
     let surface_at: Vec<i32> = (0..W).map(|x| surface(&world, x)).collect();
 
     let nest = world.materials.id_of("nest").expect("nest");
-    for x in 16..90 {
+    for x in NEST_X0..NEST_X1 {
         world.set(x, surface_at[x as usize], Cell::new(nest, 0).with_attached(true));
     }
     for i in 0..TREES {
@@ -492,12 +697,24 @@ fn run(seed: u64, frames: usize, every: usize, beetles: usize, paint: Paint, ove
         .expect("beetle is a creature")
         .clone();
     let so = beetle_def.sensor_offset;
+    // Both facings, because a rigid body authored east is mirrored west and
+    // an asymmetric one would be excluded from different spaces each way.
+    // Unioned rather than picked: "could *a* beetle stand here" is the
+    // question, not "could an east-facing one".
+    let beetle_body: Vec<(i32, i32)> = {
+        let mut v = beetle_def.body.offsets(false);
+        v.extend(beetle_def.body.offsets(true));
+        v.sort_unstable();
+        v.dedup();
+        v
+    };
 
     let mut row = Row::default();
     let mut samples = 0.0f64;
     let mut beetle_energy: std::collections::HashMap<u16, f32> = std::collections::HashMap::new();
     let mut ever_fed: std::collections::HashSet<u16> = std::collections::HashSet::new();
     let mut ever_grabbed: std::collections::HashSet<u16> = std::collections::HashSet::new();
+    let mut prev_band: std::collections::HashMap<(u16, u16, u32), (usize, usize, usize)> = std::collections::HashMap::new();
 
     for frame in 0..frames {
         if paint == Paint::SaturatedTrail && frame % 60 == 0 {
@@ -520,6 +737,14 @@ fn run(seed: u64, frames: usize, every: usize, beetles: usize, paint: Paint, ove
         // --- where the heads are ------------------------------------------
         let mut prey: Vec<(i32, i32)> = Vec::new();
         let mut preds: Vec<(i32, i32, u16)> = Vec::new();
+        // Ant identity -> the band it was standing in at this sample, so
+        // the next sample can tell which ants stopped existing and where
+        // they were when they did. Keyed `(id, generation, lineage)` rather
+        // than on the raw slot -- see the diff below.
+        // Value is (distance band, roofed) -- both dimensions come off one
+        // census in one pass, so they cannot disagree about which ant they
+        // are describing.
+        let mut ant_band: std::collections::HashMap<(u16, u16, u32), (usize, usize, usize)> = std::collections::HashMap::new();
         for py in 0..H {
             for px in 0..W {
                 let c = world.get(px, py);
@@ -528,11 +753,59 @@ fn run(seed: u64, frames: usize, every: usize, beetles: usize, paint: Paint, ove
                 }
                 if c.material == ant_mat {
                     prey.push((px, py));
+                    let id = c.organism_id();
+                    if let Some(st) = world.organism(id) {
+                        ant_band.insert(
+                            (id, st.generation, st.lineage),
+                            (range_band(px), usize::from(roofed(&world, px, py)), usize::from(!predator_could_stand(&world, &beetle_body, px, py))),
+                        );
+                    }
                 } else if c.material == beetle_mat {
                     preds.push((px, py, c.organism_id()));
                 }
             }
         }
+
+        // --- the range census, and the disappearance diff -----------------
+        //
+        // **An animal gone between two samples is a death, and its last
+        // band is where it died** -- to within `every` frames of walking,
+        // which is why the range mode runs a short interval. There is no
+        // per-death hook in the engine to read instead: `creature_dies`
+        // books a count and no position, and adding one for a measurement
+        // would put a probe's question into the simulation.
+        //
+        // **Keyed on identity rather than on the slot, because this scene
+        // now breeds.** It did not when the probe was written -- the file's
+        // premise was that `ant.ron`'s threshold is unreachable on a
+        // wetland world inside this budget, which was true and stopped
+        // being true when the crop and the heritable breeding bar landed.
+        // Measured 2026-08-31: 4 births in the no-predator arm over 6,000
+        // frames. A bare `u16` slot is then ambiguous -- an organism id is
+        // reused after its holder dies, so a newborn taking a dead ant's
+        // slot makes that death invisible, which is a *downward* bias on
+        // exactly the count being measured.
+        //
+        // `(id, generation, lineage)` separates them: a bud carries its
+        // parent's lineage and its parent's generation plus one, so it
+        // cannot match the animal whose slot it took unless that animal
+        // shared the parent's lineage *and* sat one generation below it.
+        // That residue is real and unhandled; at four births it is not
+        // worth a heavier scheme, and `births` is printed beside the
+        // histogram so a reader can see when it stops being negligible.
+        for &(band, roof, tight) in ant_band.values() {
+            row.range_live[band] += 1;
+            row.shelter_live[roof] += 1;
+            row.tight_live[tight] += 1;
+        }
+        for (key, &(band, roof, tight)) in &prev_band {
+            if !ant_band.contains_key(key) {
+                row.range_died[band] += 1;
+                row.shelter_died[roof] += 1;
+                row.tight_died[tight] += 1;
+            }
+        }
+        prev_band = ant_band;
 
         // --- both planes, measured identically ----------------------------
         for (channel, acc, front_slot, along_slot) in [
@@ -633,7 +906,7 @@ fn run(seed: u64, frames: usize, every: usize, beetles: usize, paint: Paint, ove
             // takes the mouthful and carries it. Both foods on a beetle's
             // menu are flesh, so anything a beetle holds is something it
             // caught.
-            if let Some(held) = state.carrying {
+            if let Some(held) = state.crop {
                 if held.material == ant_mat {
                     row.beetle_grabs_prey += 1;
                 } else {
@@ -670,6 +943,7 @@ fn run(seed: u64, frames: usize, every: usize, beetles: usize, paint: Paint, ove
     row.deliveries = world.creature_stats.deliveries;
     row.eats = world.creature_stats.eats;
     row.deaths = world.creature_stats.deaths;
+    row.births = world.creature_stats.births;
     row.sight_casts = world.creature_stats.sight_casts;
     row.sightings = world.creature_stats.sightings;
     row.sight_approaches = world.creature_stats.sight_approaches;
@@ -686,6 +960,13 @@ fn run(seed: u64, frames: usize, every: usize, beetles: usize, paint: Paint, ove
 /// with an empty plane walks the whole plane per beetle per sample, and the
 /// answer "further than this cap" is all the decision needs.
 const NEAR_CAP: i32 = 128;
+
+/// The nest band's columns. **Named rather than inlined because
+/// `range_band` computes distance from them arithmetically**, and a literal
+/// in two places is exactly how a census silently stops measuring the thing
+/// the scene contains.
+const NEST_X0: i32 = 16;
+const NEST_X1: i32 = 90;
 
 fn nearest_ring(world: &World, channel: Channel, cx: i32, cy: i32) -> i32 {
     if world.pheromone_at(channel, cx, cy) > 0 {
@@ -830,7 +1111,13 @@ fn catch_scene(gap: i32, hungry: bool) -> (u64, u64, usize, u64, u64) {
         // old def.
         let species = world.species.id_of("beetle").expect("beetle species");
         let mut def = world.species.get(species).creature.as_ref().expect("beetle is a creature").clone();
-        def.hunger_fraction = 1.0;
+        // **A predator that absorbs its catch fast rather than hauling it.**
+        // This was `hunger_fraction = 1.0` -- "always eat, never pick up" --
+        // and that gate no longer exists. The crop's equivalent is a
+        // digestion rate high enough that a mouthful is gone within a tick or
+        // two of being taken, which is what puts a catch on the `eats`
+        // counter rather than leaving it visible as cargo.
+        def.digest_rate = def.body_energy.max(1.0);
         world.species.set_creature(species, def);
     }
     let beetle = creature::plant_creature_seed(&mut world, 40, floor - 1, "beetle").expect("the beetle is placed");
@@ -862,7 +1149,7 @@ fn catch_scene(gap: i32, hungry: bool) -> (u64, u64, usize, u64, u64) {
             feeds += 1;
         }
         last = s.energy;
-        if s.carrying.is_some() {
+        if s.crop.is_some() {
             grabs += 1;
         }
     }
@@ -921,6 +1208,135 @@ fn sweep(frames: usize, every: usize, seeds: u64) {
          beetle achieves by walking about, and every other row has to beat it to be a pursuit rather \
          than a coincidence."
     );
+}
+
+/// **Does predation kill non-randomly with respect to how far an ant
+/// ranges?** S5a, and it is the question that decides whether the next
+/// piece of predation work is worth doing at all.
+///
+/// A predator that kills at random is extra mortality that selects nothing.
+/// Every lineage loses the same fraction, "how far do I forage" stays a
+/// free choice rather than a trade, and no amount of tuning the predator
+/// changes that -- the fix would have to be encounter bias, which is a
+/// different and larger piece of work. If kills are *already* biased
+/// outward, the selective force exists and the missing piece is the
+/// numerical response instead.
+///
+/// **Two arms and two histograms, so the answer has its own null twice
+/// over.** Within an arm, `died` against `live` says whether dying is
+/// distance-biased. Across arms, `beetles=0` says how much of that bias
+/// belongs to predation rather than to starvation -- which is the control
+/// that matters, because a far-ranging ant is also further from food it can
+/// carry home, so distance-biased *starvation* is entirely plausible and
+/// would read identically in a single arm.
+///
+/// The number to read is the **ratio of the two shares in the outer
+/// bands**. If ants beyond 56 cells are 10% of the standing population and
+/// 10% of the deaths, dying is unbiased and predation selects nothing.
+///
+/// **Run twelve seeds, and this file says so because four lied.** At four
+/// seeds the outer band read 0.47 without predators against 0.48 with them
+/// -- predation adding exactly nothing, a clean and quotable result. At
+/// twelve it reads **0.50 against 0.76**, a half-again rise in the relative
+/// risk of ranging. 83 deaths against 231; the small sample was not wrong,
+/// it was unrepresentative, and it was *tidier* than the truth, which is
+/// `CLAUDE.md`'s own tell for an artifact. Nothing below four seeds should
+/// be quoted at all, and a direction for the beetle term needs twelve.
+///
+/// **A confound this scene has, stated because it bounds what the near
+/// bands can be read to mean.** `build_scene` places beetles at
+/// `40 + i * 45` and the nest band runs `NEST_X0..NEST_X1`, so **two of the
+/// nine start inside it**. Any excess mortality in the near bands is
+/// therefore partly a fact about where the predators were put, and the
+/// honest reading of a near-band lift is "predation happens where the
+/// beetles are" rather than "beetles prefer ants at home". The **far**
+/// bands do not have this problem: no beetle starts past 400 and the
+/// question there is only whether predation reaches an ant that has walked
+/// out, which is what the S5a decision actually turns on. So read the outer
+/// rows first, and treat the inner ones as needing a placement sweep before
+/// they carry any weight.
+fn range(frames: usize, every: usize, seeds: u64, over: Overrides) {
+    println!(
+        "distance-from-nest bands, in cells from the nest strip (columns {NEST_X0}..{NEST_X1}):\n  \
+         {:?}\n\
+         live%  = share of ant-samples standing in that band (the standing distribution)\n\
+         died%  = share of disappearances whose last known band was that one\n\
+         lift   = died% / live%. 1.00 means dying there is exactly as likely as being there --\n\
+         \x20        i.e. mortality is FLAT in range and selects nothing. Above 1 in the outer\n\
+         \x20        bands is encounter bias, which is the thing that makes ranging cost something.\n\
+         The beetles=0 arm is the control: whatever lift starvation alone produces is not predation's.\n",
+        RANGE_EDGES.map(|e| if e == i32::MAX { -1 } else { e })
+    );
+    for (label, beetles) in [("no predator", 0usize), ("beetles", BEETLES)] {
+        let mut live = [0u64; RANGE_BANDS];
+        let mut died = [0u64; RANGE_BANDS];
+        let (mut s_live, mut s_died) = ([0u64; 2], [0u64; 2]);
+        let (mut t_live, mut t_died) = ([0u64; 2], [0u64; 2]);
+        let (mut deaths, mut injuries, mut prey_grabs, mut births) = (0u64, 0u64, 0u64, 0u64);
+        for s in 0..seeds {
+            let r = run(SEED_BASE + s, frames, every, beetles, Paint::None, over);
+            for i in 0..RANGE_BANDS {
+                live[i] += r.range_live[i];
+                died[i] += r.range_died[i];
+            }
+            for i in 0..2 {
+                s_live[i] += r.shelter_live[i];
+                s_died[i] += r.shelter_died[i];
+                t_live[i] += r.tight_live[i];
+                t_died[i] += r.tight_died[i];
+            }
+            deaths += r.deaths;
+            injuries += r.injuries;
+            prey_grabs += r.beetle_grabs_prey;
+            births += r.births;
+        }
+        let (lt, dt) = (live.iter().sum::<u64>().max(1) as f64, died.iter().sum::<u64>().max(1) as f64);
+        let seen = died.iter().sum::<u64>();
+        println!("--- {label} ({seeds} seeds, {frames} frames, sampled every {every}) ---");
+        println!("  engine counters: deaths {deaths}  injuries {injuries}  prey grabbed {prey_grabs}  births {births}");
+        // **The instrument's own check, printed rather than assumed.** The
+        // histogram is built by diffing identities between samples and the
+        // engine counts deaths independently, so the two must agree. They
+        // will not agree exactly -- an ant that dies in the last partial
+        // interval is never diffed, and the residual identity collision the
+        // diff's comment describes loses one occasionally -- but a coverage
+        // far off 1.0 means the diff is measuring something other than
+        // dying, which is the failure this whole file is written against.
+        println!("  disappearances seen {seen} against {deaths} engine deaths -- coverage {:.2}", seen as f64 / deaths.max(1) as f64);
+        println!("  {:>10} {:>9} {:>9} {:>8}", "band", "live%", "died%", "lift");
+        for i in 0..RANGE_BANDS {
+            let (l, d) = (live[i] as f64 / lt, died[i] as f64 / dt);
+            let edge = if RANGE_EDGES[i] == i32::MAX { "beyond".to_string() } else { format!("<={}", RANGE_EDGES[i]) };
+            let lift = if l > 0.0 { format!("{:>8.2}", d / l) } else { "      --".to_string() };
+            println!("  {edge:>10} {:>8.1}% {:>8.1}% {lift}", l * 100.0, d * 100.0);
+        }
+        println!("  totals: {} ant-samples, {} disappearances", live.iter().sum::<u64>(), died.iter().sum::<u64>());
+        // **Shelter, on the same census.** A roofed row whose lift is below
+        // the open row's is a survival gradient an animal could be selected
+        // along; two rows at 1.00 mean the refuge the engine already has is
+        // one no ant is ever in a position to use, which selects exactly as
+        // much as no refuge at all.
+        let (slt, sdt) = (s_live.iter().sum::<u64>().max(1) as f64, s_died.iter().sum::<u64>().max(1) as f64);
+        println!("  {:>10} {:>9} {:>9} {:>8}", "shelter", "live%", "died%", "lift");
+        for (i, name) in ["in the open", "roofed"].iter().enumerate() {
+            let (l, d) = (s_live[i] as f64 / slt, s_died[i] as f64 / sdt);
+            let lift = if l > 0.0 { format!("{:>8.2}", d / l) } else { "      --".to_string() };
+            println!("  {name:>10} {:>8.1}% {:>8.1}% {lift}", l * 100.0, d * 100.0);
+        }
+        // **The row the shelter table cannot give.** `roofed` counts a
+        // canopy a beetle walks under; this counts only cells no predator
+        // body fits into. If the two tables disagree, the refuge that
+        // matters is the geometric one and the canopy was carrying the
+        // shelter number.
+        let (tlt, tdt) = (t_live.iter().sum::<u64>().max(1) as f64, t_died.iter().sum::<u64>().max(1) as f64);
+        println!("  {:>12} {:>9} {:>9} {:>8}", "predator fit", "live%", "died%", "lift");
+        for (i, name) in ["could reach", "cannot fit"].iter().enumerate() {
+            let (l, d) = (t_live[i] as f64 / tlt, t_died[i] as f64 / tdt);
+            let lift = if l > 0.0 { format!("{:>8.2}", d / l) } else { "      --".to_string() };
+            println!("  {name:>12} {:>8.1}% {:>8.1}% {lift}", l * 100.0, d * 100.0);
+        }
+        println!();
+    }
 }
 
 /// **The test of E15, and the only one that matters.**

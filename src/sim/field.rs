@@ -190,6 +190,25 @@ pub const MAX_LIGHT: f32 = 4.0;
 /// are tuned against.
 pub(crate) const MAX_MOISTURE: f32 = 4.0;
 
+/// What fraction of a block's vapour survives one field solve.
+///
+/// **Sized against the thing it has to outlast, not chosen for feel**:
+/// `evaporation::CHECK_INTERVAL` is 60 frames, so a drying cell only tops
+/// its block up once every 60 solves and the vapour has to still be there
+/// when it does, or the brake flutters instead of holding. At 0.995 a
+/// block keeps 74% of a puff across that interval and half of it over ~140
+/// solves, so a patch that stops drying reads its ground again within a
+/// few hundred frames rather than staying muggy for the rest of the run.
+const VAPOUR_PERSISTENCE: f32 = 0.995;
+
+/// Vapour below this is snapped to zero, so a block that has stopped drying
+/// reaches *exactly* nothing instead of an ever-halving tail.
+///
+/// Without it `is_converged` never sees a fixed point -- the tail keeps the
+/// settle hash moving for ever, which costs the field solve the skip that
+/// `step`'s whole convergence check exists to buy.
+const VAPOUR_CUTOFF: f32 = 0.001;
+
 /// "Did it fire" counters for the field solve, in the style of
 /// `PheromoneStats` and `FailureCounts`.
 ///
@@ -396,6 +415,34 @@ pub struct FieldTile {
     /// this is the hybrid persistence `Reports/worldgen-design.md` §8 asks
     /// for, not a second moisture channel.
     moisture_floor: Box<[f32]>,
+    /// **Water the ground has just given up, sitting in the air where it
+    /// left.** Written by `evaporation::tick`, read by
+    /// `apply_moisture_sources` as one more lower bound, and decayed every
+    /// solve.
+    ///
+    /// **The channel that was missing, and the runaway it closes.**
+    /// `moisture_source` is recomputed from the CA grid every step, so
+    /// humidity was a *reading of the ground* rather than a state of the
+    /// air: as soil dried its source fell, the air above it read drier, and
+    /// `evaporation::dryness` — which is what stops drying — rose. Soil that
+    /// began to dry therefore dried faster, with nothing anywhere to push
+    /// back. `evaporation.rs`'s own doc names the gap in as many words: *"a
+    /// puddle dries at the same speed over a full sky as over an empty one,
+    /// because what stops evaporation is the humidity above it, which is a
+    /// local reading and not a global balance."*
+    ///
+    /// **Not a leak being closed — that half already works.** Evaporation
+    /// credits `World::atmospheric_bank` and the sky spends it as rain, and
+    /// `weather.rs` records that ledger holding to the unit. What did not
+    /// exist is the *local* half: the water was booked globally and left no
+    /// trace at the place it came from.
+    ///
+    /// **Authored, like `moisture_floor` and unlike everything else here**,
+    /// so `step` has to carry it forward explicitly — a fresh tile has no CA
+    /// state to rebuild it from. Unlike the floor it also **decays**, which
+    /// is what makes it air rather than an aquifer: vapour disperses, and a
+    /// block that stops giving water off returns to reading its ground.
+    vapour: Box<[f32]>,
     /// Whether every cell of this tile came out of its last solve with
     /// pressure, `vx` and `vy` at **exactly** zero.
     ///
@@ -457,6 +504,7 @@ impl FieldTile {
             transmission: vec![u8::MAX; FIELD_TILE_AREA].into_boxed_slice(),
             moisture_source: vec![0.0; FIELD_TILE_AREA].into_boxed_slice(),
             moisture_floor: vec![0.0; FIELD_TILE_AREA].into_boxed_slice(),
+            vapour: vec![0.0; FIELD_TILE_AREA].into_boxed_slice(),
             glow: vec![0.0; FIELD_TILE_AREA].into_boxed_slice(),
             has_glow: false,
             beam: vec![0.0; FIELD_TILE_AREA].into_boxed_slice(),
@@ -598,6 +646,34 @@ impl FieldTile {
         self.moisture_floor.copy_from_slice(&previous.moisture_floor);
     }
 
+    pub fn vapour_local(&self, lx: i32, ly: i32) -> f32 {
+        self.vapour[Self::local_index(lx, ly)]
+    }
+
+    /// Add water the ground has just released into the air of this block.
+    ///
+    /// Adds rather than sets: several cells in one block dry in the same
+    /// step, and a setter would keep only the last of them.
+    pub(crate) fn add_vapour_local(&mut self, lx: i32, ly: i32, amount: f32) {
+        let i = Self::local_index(lx, ly);
+        self.vapour[i] = (self.vapour[i] + amount).clamp(0.0, MAX_MOISTURE);
+    }
+
+    /// Carry the air's vapour across a solve, thinning it as it goes.
+    ///
+    /// **The decay is what stops this being a second aquifer.** A block that
+    /// has stopped giving off water must drift back to reading its own
+    /// ground, or the first dry spell would leave the world permanently
+    /// humid and evaporation would never restart — which is
+    /// `open-bugs-handoff.md` §F8 (a bed with no reachable sink) arriving by
+    /// a new route.
+    fn inherit_vapour(&mut self, previous: &FieldTile) {
+        for (dst, src) in self.vapour.iter_mut().zip(previous.vapour.iter()) {
+            let thinned = src * VAPOUR_PERSISTENCE;
+            *dst = if thinned < VAPOUR_CUTOFF { 0.0 } else { thinned };
+        }
+    }
+
     /// Carry the four CA-derived arrays across instead of rescanning for
     /// them — see the caller in `step` for when that is sound.
     ///
@@ -722,6 +798,32 @@ pub(crate) fn sample(tiles: &HashMap<ChunkCoord, FieldTile>, bounds: Option<Rect
 /// **Recomputed from the CA grid every frame and untouched by any solve
 /// pass**, which is the property `evaporation.rs` needs from it: unlike the
 /// humidity it produces, it cannot be advected away by wind.
+/// Put water the ground has just given up into the air of the block over
+/// `(world_x, world_y)`.
+///
+/// The write half of `FieldTile::vapour`; `apply_moisture_sources` is the
+/// read half. A position outside the world, or over a block whose tile is
+/// not resident, is a quiet no-op — the same shape `sample` takes, and the
+/// honest one: there is no air there to make humid.
+pub(crate) fn add_vapour_at(
+    tiles: &mut HashMap<ChunkCoord, FieldTile>,
+    bounds: Option<Rect>,
+    world_x: i32,
+    world_y: i32,
+    amount: f32,
+) {
+    if let Some(b) = bounds {
+        if !b.contains(world_x, world_y) {
+            return;
+        }
+    }
+    let (fx, fy) = field_coord_of(world_x, world_y);
+    let (tile_coord, lx, ly) = tile_and_local(fx, fy);
+    if let Some(tile) = tiles.get_mut(&tile_coord) {
+        tile.add_vapour_local(lx, ly, amount);
+    }
+}
+
 pub(crate) fn moisture_source_at(
     tiles: &HashMap<ChunkCoord, FieldTile>,
     bounds: Option<Rect>,
@@ -1225,6 +1327,9 @@ pub fn step(world: &mut World) {
         // `FieldTile::moisture_floor`.
         if let Some(previous) = previous {
             tile.inherit_moisture_floor(previous);
+            // Authored like the floor above, and thinned rather than copied
+            // -- see `FieldTile::vapour`.
+            tile.inherit_vapour(previous);
         }
         // **A sky-only tile must present its momentum channels, not zeroes.**
         // `step_velocity` and `step_advection` snapshot `next` and read one
@@ -1486,6 +1591,7 @@ pub fn field_hash(world: &World) -> u64 {
                 eat(u64::from(t.glow_local(lx, ly).to_bits()), &mut acc);
             eat(u64::from(t.beam_local(lx, ly).to_bits()), &mut acc);
                 eat(u64::from(t.moisture_floor_local(lx, ly).to_bits()), &mut acc);
+                eat(u64::from(t.vapour_local(lx, ly).to_bits()), &mut acc);
             }
         }
         eat(u64::from(t.has_glow), &mut acc);
@@ -2599,7 +2705,12 @@ fn apply_moisture_sources(coords: &[ChunkCoord], next: &mut HashMap<ChunkCoord, 
                 // pulls a reading down.
                 let level = tile.moisture_source_local(lx, ly);
                 let floor = tile.moisture_floor_local(lx, ly);
-                let forced = (MAX_MOISTURE * level).max(floor);
+                // **And the air's own vapour**, on the same "neither ever
+                // pulls a reading down" footing as the two above. This is
+                // the term that lets drying ground damp the air it is drying
+                // into, so the sink throttles itself instead of accelerating
+                // -- see `FieldTile::vapour`.
+                let forced = (MAX_MOISTURE * level).max(floor).max(tile.vapour_local(lx, ly));
                 if forced > 0.0 {
                     let mut cell = tile.get_local(lx, ly);
                     if cell.moisture < forced {

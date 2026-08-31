@@ -64,8 +64,8 @@
         // re-deriving their *totals* would put the horizon back and undo the
         // change -- and their 2.5:1 ratio is the researched worm figure,
         // which the cut preserves;
-        // `hunger_fraction` is a fraction and rescales, and raising it is a
-        // recorded dead end (deliveries 1,733 -> 3); `body_energy` is
+        // `crop_capacity` is joules of face value and does not rescale with
+        // this budget at all (a leaf is a leaf); `body_energy` is
         // pinned to the flesh pricing invariant against the `ant`,
         // `chitin_*` and `corpse` materials and cannot move from this file
         // alone. `reproduce_threshold` is the one that had to be
@@ -116,10 +116,34 @@
         // what it was worth yesterday -- the pump closes because the value
         // is now finite and booked at spawn, not because meat got cheaper.
         body_energy: 480.0,
-        // Eat only when genuinely low; otherwise carry it home. See
-        // CreatureDef::hunger_fraction -- getting this wrong deletes the
-        // foraging loop while leaving a colony that looks right.
-        hunger_fraction: 0.5,
+        // **The crop, which replaced `hunger_fraction`.** An ant no longer
+        // decides between eating and carrying: it takes what it finds and
+        // digests it as it walks, so what reaches the nest is what has not
+        // been metabolised on the way. See `CreatureDef::crop_capacity`.
+        //
+        // **1440 is three leaves at the shipped table (480 each), and three
+        // is a floor rather than a taste.** Food only leaves the crop a whole
+        // cell at a time, so an ant that can hold exactly one leaf is under
+        // one leaf within a tick of ingesting and can never deliver again --
+        // which would take `ascii`'s `deliveries > 0` red and read as the
+        // crop breaking foraging.
+        crop_capacity: 1440.0,
+        // **Derived from two brackets, not chosen**, and to be swept before
+        // it is trusted (`CreatureDef::digest_rate`):
+        //
+        // * the trip must visibly cost the load, or central-place foraging
+        //   has nothing to predict: at `forage_probe`'s 87-cell gap and
+        //   P(move) 0.67 a round trip is ~130 ticks, and losing ~30% of a
+        //   1,440 crop over it wants ~3.3;
+        // * a child must be reachable inside a lifetime: at the neutral gut's
+        //   quality of 0.25 on leaf, 3.3 nets 0.825 - 0.107 upkeep = 0.718 a
+        //   tick, so the 1,100 bar arrives in ~1,530 against an idle life of
+        //   2,000.
+        //
+        // Both brackets move if `start_energy`, the per-cell costs or the
+        // food table move, and re-deriving them is part of that change rather
+        // than after it.
+        digest_rate: 3.3,
 
         // **Detritus only, for now.** Owner open question #2: herbivory on
         // live plants from day one, or corpse/seed only until the plant
@@ -260,12 +284,37 @@
         // review card 20260823T104411499Z-963f8d in as many words: *"An
         // omnivore should be viable"*. Numbers, and the two conditions that
         // would make it re-testable, in `Reports/dead-ends.md`.
-        traits: (0.0, -0.2),
-        // The width one birth may move the gut, and the grant. Authored so it and
-        // the ancestral value it widens cannot drift apart in separate
-        // commits -- see `CreatureDef::trait_variance`. Read by nothing
-        // until S6; read by `creature::try_bud` now that S6 is in.
-        trait_variance: (0.15, 0.15),
+        //
+        // **Slot 2 is `reproduce_at`** -- a multiplier on the
+        // `reproduce_threshold` below, read by `creature::reproduce_fraction`:
+        // -1 breeds the instant a child is affordable, 0 is the authored bar,
+        // +1 waits for twice it.
+        //
+        // **Ancestral 0.0, and unlike slot 1 that is the centre rather than
+        // an offset.** There is no measurement saying the shipped ant should
+        // wait longer or less long than 1100, so authoring a lean either way
+        // would be inventing a result: the honest ancestral value is the bar
+        // the threshold already states, with the allele free to move in both
+        // directions from it. Slot 1 sits off centre because the economics
+        // report *did* have a number for it (§5.1's 0.3-0.5).
+        //
+        // What makes the axis two-sided is starvation, not senescence:
+        // `place_creature` leaves a parent standing on one joule, which is
+        // about three ticks of upkeep, so the low allele very nearly kills
+        // whoever expresses it. See `TRAIT_REPRODUCE_AT`.
+        traits: (0.0, -0.2, 0.0),
+        // The width one birth may move the gut, the grant, and the bar.
+        // Authored so it and the ancestral value it widens cannot drift apart
+        // in separate commits -- see `CreatureDef::trait_variance`. Read by
+        // nothing until S6; read by `creature::try_bud` now that S6 is in.
+        //
+        // **0.15 on slot 2 is the same width as the other two and is a
+        // choice, not a copy.** The axis is a multiplier on a bar rather
+        // than a fraction of a budget, so one step is 15% of the authored
+        // threshold -- 165 J for this ant, about half a mouthful of flower.
+        // That is a step a lineage can actually be selected on inside a run
+        // this long; a tenth of it would drift and never arrive.
+        trait_variance: (0.15, 0.15, 0.15),
 
         // **Budding: the bank an ant must reach before it makes another
         // ant** (S6, `Reports/creature-evolution-plan.md` §2.6). This is
@@ -284,13 +333,19 @@
         // **Read this next part before treating the number as a knob.**
         // The stamp is the expensive half and it does not move when the
         // grant does: whatever the endowment is cut to, a birth still
-        // needs 960 of *harvested* energy. Against that, an ant's bank has
-        // a hard ceiling -- it stops eating above `hunger_fraction *
-        // start_energy` and carries the mouthful home instead, so the most
-        // it can ever hold is the hunger line plus one mouthful, and a
-        // neutral gut draws 120 from a 480 leaf through `diet_yield`'s
-        // matched filter. Measured 2026-08-30: **richest bank 567 at a
-        // budget of 900, 219 at 200**, against a floor of 1,041.
+        // needs 960 of *harvested* energy.
+        //
+        // **The bank ceiling this paragraph used to describe is gone, and
+        // with it the whole shape of the problem.** It read: an ant stops
+        // eating above `hunger_fraction * start_energy` and carries the
+        // mouthful home, so the most it can hold is the hunger line plus one
+        // mouthful -- measured 2026-08-30 at **richest bank 567 on a budget
+        // of 900 and 219 on 200**, against a floor of 1,041. That was a real
+        // measurement of a rule that no longer exists: a crop digests at a
+        // rate, nothing compares a bank against a threshold, and what limits
+        // an ant is now how long it can keep feeding rather than arithmetic.
+        // The numbers are kept because they are what the *old* model was
+        // rejected on, not because they describe this one.
         //
         // **The ceiling paragraph above is history now, and this is what
         // replaced it.** It said the most an ant can hold is "the hunger
@@ -590,18 +645,55 @@
         // -0.971 and the leak is 0.004, while the *gated* swing is
         // unchanged at 1.5 -- deep saturation costs the gate nothing and
         // buys the cancellation.
+        // **`Carrying` is crop fill now, not a flag, and that turns these
+        // four biases into the gene that replaced `hunger_fraction`.**
+        //
+        // Read with a graded input, unit 0 is `squash(-30*f* + 30*fill +
+        // 6*g)`: the homing gate opens as the crop passes `f*`. So the
+        // crossover fill at which an ant stops foraging outward and starts
+        // heading home -- exactly what the satiety constant used to decide --
+        // is now `f*`, carried in these weights, and these weights mutate.
+        // The threshold became something selection can move.
+        //
+        // **The `Bias` entries on units 2 and 3 are new, and their absence
+        // was a latent bug that grading would have shipped.** With a boolean
+        // input it did not matter: `Carrying` was 0 or 1 and both pairs
+        // switched at the same instant. Graded, units 0/1 opened at fill 0.9
+        // while units 2/3 shut at 0.2, leaving a band from 0.2 to 0.9 in
+        // which an ant followed *neither* trail -- most of its working range,
+        // and it would have read as "the crop broke foraging" rather than as
+        // one missing pair of numbers.
+        //
+        // **f* = 0.6, and the weights are 75/-+45 rather than the -+18 the
+        // obvious arithmetic gives.** Scaling the old -+30 by f* was the
+        // first version and it is wrong for the reason the gate-offset note
+        // below states in advance: a symmetric pair cancels exactly only
+        // deep in saturation, and at an offset of 18 the leak is large
+        // enough to bias the run. Measured: the tunnel-walk scene put the
+        // ant at x=99 of a required 105, against 131 with the offsets left
+        // alone -- an ant that still moved 220 times and simply never
+        // committed to a direction.
+        //
+        // So the gate is written as `75*(fill - 0.6)`, which crosses zero at
+        // f* and still sits at -45 when empty and +30 when full. Both ends
+        // are at least as deep as the offsets this file was tuned with, the
+        // crossover is explicit, and it is carried in weights that mutate.
+        // Transition width is 12/75 = 0.16 of fill -- narrower than the
+        // -+18 version, which is the price of keeping the saturation.
         hidden_wiring: [
-            // units 0,1 -- channel A along the heading, gated ON carrying
-            (Bias,        0, -30.0),
-            (Carrying,    0,  30.0),
+            // units 0,1 -- channel A along the heading, gated ON a full crop
+            (Bias,        0, -45.0),
+            (Carrying,    0,  75.0),
             (PheroAAlong, 0,   6.0),
-            (Bias,        1, -30.0),
-            (Carrying,    1,  30.0),
+            (Bias,        1, -45.0),
+            (Carrying,    1,  75.0),
             (PheroAAlong, 1,  -6.0),
-            // units 2,3 -- channel B along the heading, gated OFF carrying
-            (Carrying,    2, -30.0),
+            // units 2,3 -- channel B along the heading, gated ON an empty one
+            (Bias,        2,  45.0),
+            (Carrying,    2, -75.0),
             (PheroBAlong, 2,   6.0),
-            (Carrying,    3, -30.0),
+            (Bias,        3,  45.0),
+            (Carrying,    3, -75.0),
             (PheroBAlong, 3,  -6.0),
         ],
         // 2.5 against a baseline of 2.0, so the gated pair can drive the
