@@ -182,6 +182,16 @@ of the standing warren for the same digging, because a good deal of what
 comes out goes back in. That is a thing about the ants rather than about the
 rule, and it is the sort of thing they can get better at.
 
+An ant *cements* the pellet as it sets it down, the same way it cements the
+wall of a tunnel, and that has a consequence you can see: worked ground holds
+itself up, so a heap of tailings does not slump into a cone the way spilled
+dirt would. It stands. A colony that has been working a bank for a while
+builds a rough scaffold of its own spoil out from the face, and that is what
+those loose-looking specks in the air above a worked bank are. Left loose
+instead, the tailings would pour straight back down the tunnels and there
+would be no nest at all — so this is the side of the trade that keeps the
+warren, not an oversight.
+
 So a worked bank now has a warren in it: narrow galleries a cell or two
 across, walled in darker packed ground, branching back from the face the
 ants entered by. It is not a cathedral — it is the size of what fifty-five

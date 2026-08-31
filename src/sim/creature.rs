@@ -2726,7 +2726,16 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
     // sky by definition) and requiring a clearance from the dug cell.
     if let Some(spoil) = world.organism(organism).and_then(|s| s.spoil) {
         if draw.unit_f32() < drop_urge {
-            if let Some((px, py)) = NEIGHBOURS_8.iter().map(|&(dx, dy)| (x + dx, y + dy)).find(|&(px, py)| world.is_empty(px, py)) {
+            // **On something, never into the void** -- the one thing this
+            // placement asks that the food drop does not, and it is not a
+            // rule about *where* a colony's tailings belong. A pellet is
+            // tamped (see the dig branch) and tamped ground holds itself up,
+            // so a cell put down with nothing beneath it stands in mid-air
+            // for ever; food is ordinary loose matter and simply falls.
+            // Reading the cell below rather than checking support properly is
+            // deliberate: an ant is placing a crumb by hand, not surveying.
+            let footed = |px: i32, py: i32| world.is_empty(px, py) && !world.is_empty(px, py + 1);
+            if let Some((px, py)) = NEIGHBOURS_8.iter().map(|&(dx, dy)| (x + dx, y + dy)).find(|&(px, py)| footed(px, py)) {
                 world.set(px, py, spoil.cell);
                 if let Some(state) = world.organism_mut(organism) {
                     state.spoil = None;
@@ -2774,6 +2783,31 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
             // `line_burrow` below for the same rule -- so the water the soil
             // was holding, its palette entry and its heat all come back out
             // with it.
+            // **A pellet is tamped, the same act `line_burrow` performs on a
+            // wall** -- an ant cements what it works, and a deposited pellet
+            // is worked ground.
+            //
+            // **Loose was tried and it is the difference between a nest and
+            // no nest.** Loose tilth put down anywhere near a gallery runs
+            // along it and closes it -- `update_powder`'s straight-down rule,
+            // which is the whole reason `line_burrow` exists. Four
+            // combinations measured on `labnest`, roofed void at frame 9,000
+            // over two seeds, against **197/179** for the old
+            // destroy-the-spoil behaviour:
+            //
+            // | pellet | placed | roofed | digs |
+            // |---|---|---|---|
+            // | loose | anywhere empty | 2/1 | 495/611 |
+            // | loose | on a floor | 2/3 | 488/540 |
+            // | tamped | anywhere empty | 54/58 | 767/887 |
+            // | **tamped** | **on a floor** | **54/58** | **767/887** |
+            //
+            // The cost is paid at the drop rather than here: tamped ground is
+            // `self_supporting`, so a pellet placed with nothing under it
+            // hangs in the air. The drop needs a floor -- see `act`. That
+            // does not stop a colony stacking spoil on its own spoil into a
+            // lattice, which a rendered bank shows and which is a standing
+            // known limitation rather than a solved problem.
             let mut pellet = target;
             if let Some(packed) = world.materials.get(target.material).packs_into {
                 pellet.material = packed;

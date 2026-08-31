@@ -2885,7 +2885,8 @@ pub struct Crop {
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub struct Spoil {
     /// The cell as it will be written back — already tamped, the way
-    /// `creature::line_burrow` tamps a gallery wall.
+    /// `creature::line_burrow` tamps a gallery wall. See `creature::act`'s
+    /// dig branch for why, and its drop for the floor that costs.
     pub cell: Cell,
 }
 
