@@ -1,24 +1,26 @@
 # Sizing a sight sense before it is built — E15
 
 **Status: measured pre-flight, 2026-08-30, re-taken in full on every tree
-`main` landed underneath it — eight in all.** `examples/vision_probe.rs` is
-the instrument; nothing here changes behaviour, and the probe is read-only
-geometry over `World::get`.
+`main` landed underneath it — nine in all, the last a wholesale worldgen
+rewrite (2026-08-31).** `examples/vision_probe.rs` is the instrument; nothing
+here changes behaviour.
 
-**Why eight.** `main` moved under this study eight times while it was being
-written, and each landing that touched the population, the floor or the
-terrain was re-measured rather than waved through. Three of the eight moved
-the numbers; five did not.
+**The recommendation has survived all nine. Two versions of the *argument*
+for it did not, and one headline finding no longer generalises.**
 
-**The recommendation has survived all eight. Two versions of the *argument*
-for it did not**, and §3 records both deaths rather than quietly replacing
-them, because the failure generalises: a claim of the form *"X is the largest
-step"* is a claim about the **shape** of a curve, and the shape moves with
-the population. A claim of the form *"64 beats 32, everywhere"* is about
-**ordering**, and the ordering has not moved once. Prefer the ordering.
-
-**What is stable and what drifts is now a table in §0a**, so the next reader
-can tell which figures to trust without re-deriving any of it.
+- **Radius 64 over 32**: held 9/9, median and p10, every preset — including
+  across the worldgen rewrite that moved every absolute number in §3. Stated
+  as an **ordering**, after two superlatives died (§3).
+- **Eye one cell up**: held 9/9, still reaches the transparent-world ceiling.
+  But **where it pays has moved** — `wetland`'s occlusion now costs almost
+  nothing, so the value is on `rolling` (§4).
+- **"Floor clutter, not landscape" is now preset-dependent** (§4a). The
+  rewrite exposes far more stone: **bare rock is 50% of what blocks a sight
+  line on `rolling` and 44% on `arid`**, against 12–34% before. On `wetland`
+  the original reading holds. **Do not carry it forward as a general claim.**
+- **Cost**: free at either end of a per-read price now measured 13.8–38.9 ns
+  — 0.14% of a frame at best, **0.38% at the worst reading on the loudest
+  box** (§5); the built sense costs twice that (§0b).
 
 Supersedes nothing. Reads forward from `predation_probe`'s pre-flight
 (`creature-evolution-plan.md` §5 / `creature-review-2026-08.md` §T6), whose
@@ -33,18 +35,18 @@ four decisions:
 
 | decision | build it as | because |
 |---|---|---|
-| **reach** | **64 cells** | **64 delivers more than 32 at every preset, on median and p10 alike, on all eight trees** — currently +0.056 to +0.100 of median and +0.067 to +0.200 of p10. An ordering, not a superlative: see §3 for the two superlatives that died |
+| **reach** | **64 cells** | **64 delivers more than 32 at every preset, on median and p10 alike, on all nine trees** — currently +0.100 to +0.156 of median and +0.053 to +0.200 of p10. An ordering, not a superlative: see §3 for the two that died |
 | **shape** | **all-round**, not a forward cone | a ±60° cone throws away **a third of every sighting** and saves nothing measurable |
-| **what stops it** | rock and soil, **never floor litter** | at head height, floor clutter blocks **24%** of sight lines; one cell higher, **6.3%** — the whole transparent-world ceiling recovered, on all eight trees |
-| **foliage** | **not a binary blocker** | making plant matter opaque costs **most of the sense** (r64 median 0.667 → 0.387) and no eye height buys it back |
+| **what stops it** | rock and soil, **never floor litter** | blocking runs **13–20%** of pairs; one cell of eye height reaches the transparent-world ceiling, on all nine trees. **What blocks it is now rock on two of three presets** — §4a |
+| **foliage** | **not a binary blocker** | making plant matter opaque costs **most of the sense** (r64 median 0.667 → 0.367) and no eye height buys it back |
 
 **And it is free at this scale.** A radius-64 fan of 16 rays, cast at the
-beetle's own `tick_interval`, reads **525 cells per beetle per cast** and
-costs **0.005–0.007 ms of a frame** — **0.14–0.23%** of the 3.16 ms mean
-`ascii` reports, and below what a wall clock can resolve. It stays under 1%
-of a frame to a few dozen predators and under 10% to **two or three
-hundred**, which is the number to carry into a streamed world. §5 says why
-that is a range rather than a figure.
+beetle's own `tick_interval`, reads **502 cells per beetle per cast** and
+costs **0.005–0.015 ms of a frame** — **0.14–0.38%** of the 3.89 ms mean
+`ascii` reports on this tree, and below what a wall clock can resolve. It
+runs 1–2% of a frame at a few dozen predators and reaches 10% only in the low
+hundreds. §5 says why those are ranges, and §0b why the built sense costs
+twice them.
 
 ### 0b. It was built, and here is how the prediction landed
 
@@ -78,32 +80,32 @@ fire on the ticks the sense exists for** and falls where catches rise.
 
 ### 0a. How stale is this, and what to re-take
 
-`main` moves fast enough that this report was re-measured **eight times**
-while it was being written. Rather than leave the next reader guessing which
-figures survived, here is what eight trees actually showed.
+Re-measured **nine times** while `main` moved under it, the last after a
+wholesale worldgen rewrite. That is enough runs to separate the load-bearing
+findings from this week's weather.
 
 | finding | stability |
 |---|---|
-| **eye=1 recovers the whole transparent-world ceiling on `wetland`** | **never moved, 8/8.** The most robust thing here by a wide margin |
-| **radius 64 beats 32 — median and p10, every preset** | **never moved, 8/8.** The ordering is stable where the values are not |
-| the cost conclusion (free at this scale) | **never moved**, at either end of a per-read cost that itself spans 13.8–22.1 ns |
-| `dense` costs roughly half the sense | never moved |
-| a ±60° cone costs a fifth to a third | never moved |
-| absolute `los` medians | **drift.** `wetland` r8 has read 0.383, 0.283, 0.360 |
-| absolute blocking percentages | **drift.** `wetland` has read 28.1%, 24.3%, 24.3% |
-| the blocker census composition | **drifts with the floor.** Litter has run 21% → 10% of blockers as plant work landed |
-| *"32 → 64 is the largest single step"* — median form | **was true, then false** (tree 5) |
-| *"...largest single step in the p10"* — corrected form | **was true, then false** (tree 8) |
+| **eye=1 reaches the transparent-world ceiling** | **9/9 — never failed**, through a worldgen rewrite |
+| **64 beats 32 — median and p10, every preset** | **9/9 — never failed**, through a worldgen rewrite |
+| the cost conclusion (free at this scale) | **never failed**, at either end of a per-read price spanning 13.8–38.9 ns |
+| `dense` costs most of the sense | never failed |
+| a ±60° cone costs a quarter to a third | never failed |
+| absolute `los` medians | **drift.** `wetland` r8 has read 0.383, 0.283, 0.360, 0.311 |
+| absolute blocking percentages | **drift.** `wetland` has read 28.1%, 24.3%, 19.6% |
+| **which materials block** | **changed character.** Rock was 12–34% of blockers, is now 41–44% on two presets — §4a |
+| **where eye height pays** | **moved.** It was worth most on `wetland`; that preset now has almost no occlusion left to recover |
+| *"32 → 64 is the largest single step"* | **was true, then false** (tree 5) |
+| *"...largest single step in the p10"* | **was true, then false** (tree 8) |
 
-**The two dead claims are the lesson, not an embarrassment.** Both were
-superlatives, and a superlative describes the *shape* of a curve, which moves
-with the population. Both survived one landing and died on the next. The
-ordering underneath them — more at 64 than at 32, everywhere — has survived
-all eight. **When a finding has to outlive a moving world, state it as an
-ordering.**
+**The two dead superlatives are the lesson.** Both described the *shape* of a
+curve, and shape moves with the world; both survived one landing and died on
+the next. The ordering underneath has survived all nine. **When a finding has
+to outlive a moving world, state it as an ordering.**
 
-**So: trust the orderings and the recommendations; re-take any absolute
-percentage you intend to quote.** One command, three minutes:
+**Trust the orderings. Re-take every percentage, and re-read §4a before
+repeating anything about what blocks a sight line** — that one did not merely
+drift, it changed character. One command, three minutes:
 
 ```
 cargo build --release --example vision_probe   # NOT --release alone
@@ -112,13 +114,12 @@ cargo build --release --example vision_probe   # NOT --release alone
 
 **A re-take is worth it when `main` has touched `src/sim/creature.rs`,
 `organism.rs`, `plant.rs`, `world.rs`, `assets/species/*.ron` or
-`src/worldgen/`** — the population, the floor, or the terrain. It is not worth
-it for anything else; eight trees say a landing touching none of those moves
-nothing at all. **Three of the eight moved the numbers materially: two
-plant-side and one creature-side** — the floor and the population, which are
-exactly the two things a ground-level sight line runs into. A hit on the rule
-is not evidence of movement, though: five landings tripped it and came back
-byte-identical.
+`src/worldgen/`** — the population, the floor, or the terrain. Nine trees say
+a landing touching none of those moves nothing at all. **Four of the nine
+moved the numbers: two plant-side, one creature-side, and the worldgen
+rewrite — which moved them furthest and changed §4a's finding outright.** A
+hit on the rule is not evidence of movement: five landings tripped it and
+came back byte-identical.
 
 **What this does not say.** Whether a beetle that can see an ant will catch
 one. That is movement and brain work; `predation_probe`'s control already
@@ -240,291 +241,233 @@ of reads to be degenerate. This is stated rather than assumed because
 ## 3. How far a sight line has to reach
 
 `mode=survey`, 18 world seeds, 3,000 frames, sampled every 100, `occl=opaque
-eye=0 cone=±60°`. Fractions are over **beetle samples** — one beetle at one
-sampled frame. **Order statistics over seeds, never a mean.**
-
-`wetland` — the scene the null was measured in:
-
-| | min | p10 | **median** | p90 | max |
-|---|---|---|---|---|---|
-| `range` r8 | 0.000 | 0.000 | 0.360 | 0.667 | 0.683 |
-| `range` r64 | 0.000 | 0.500 | 0.667 | 0.800 | 1.000 |
-| **`los` r8** | 0.000 | 0.000 | **0.360** | 0.633 | 0.667 |
-| **`los` r16** | 0.000 | 0.000 | **0.492** | 0.667 | 0.717 |
-| **`los` r32** | 0.000 | 0.267 | **0.500** | 0.667 | 0.742 |
-| **`los` r64** | 0.000 | 0.467 | **0.593** | 0.742 | 0.889 |
-| `cone` r64 | 0.000 | 0.156 | 0.467 | 0.567 | 0.644 |
-| beetle → nearest ant | 18.1 | 26.2 | 55.4 | 71.2 | 109.5 |
-| ...nearest ant it can *see* | 2.0 | 4.0 | 18.8 | 31.2 | 54.5 |
-
-Median `los`, three presets, 18 seeds each:
+eye=0 cone=±60°`, on the **rewritten worldgen**. Median `los`:
 
 | preset | r8 | r16 | r32 | **r64** | p10 r32 | **p10 r64** | pairs blocked |
 |---|---|---|---|---|---|---|---|
-| `wetland` | 0.360 | 0.492 | 0.500 | **0.593** | 0.267 | **0.467** | 24.3% |
-| `rolling` | 0.356 | 0.400 | 0.444 | **0.500** | 0.222 | **0.322** | 21.1% |
-| `arid` | 0.247 | 0.300 | 0.353 | **0.453** | 0.260 | **0.327** | 8.8% |
+| `wetland` | 0.311 | 0.483 | 0.500 | **0.656** | 0.033 | **0.233** | 19.6% |
+| `rolling` | 0.300 | 0.353 | 0.400 | **0.500** | 0.067 | **0.233** | 14.3% |
+| `arid` | 0.247 | 0.300 | 0.353 | **0.456** | 0.260 | **0.313** | 12.6% |
+
+`wetland` in full:
+
+| | min | p10 | **median** | p90 | max |
+|---|---|---|---|---|---|
+| `range` r64 | 0.000 | 0.344 | 0.667 | 0.800 | 0.967 |
+| **`los` r8** | 0.000 | 0.022 | **0.311** | 0.500 | 0.567 |
+| **`los` r16** | 0.000 | 0.022 | **0.483** | 0.561 | 0.700 |
+| **`los` r32** | 0.000 | 0.033 | **0.500** | 0.656 | 0.742 |
+| **`los` r64** | 0.000 | 0.233 | **0.656** | 0.783 | 0.889 |
+| `cone` r64 | 0.000 | 0.117 | 0.483 | 0.583 | 0.594 |
+| beetle → nearest ant | 19.2 | 32.2 | 48.7 | 75.4 | 128.0 |
+| ...nearest ant it can *see* | 3.9 | 5.6 | 15.2 | 23.7 | 60.4 |
 
 ### The radius argument, stated on the one footing that has held
 
-**Build at 64. The claim is an ordering, not a superlative, and that
-distinction is the hard-won part of this section.**
+**Build at 64. The claim is an ordering, not a superlative.**
 
-> **At every preset, on every tree measured, radius 64 delivers more than
-> radius 32 — on the median and on the p10 alike.** On this tree the median
-> gains +0.093 / +0.056 / +0.100 and the p10 gains +0.200 / +0.100 / +0.067.
-> The sign has never once gone the other way. And §5 measures the extra reach
-> at **0.14–0.23% of a frame**, so nothing trades against it.
+> **At every preset, on every one of nine trees, radius 64 delivers more than
+> radius 32 — median and p10 alike.** Here the median gains +0.156 / +0.100 /
+> +0.103 and the p10 gains +0.200 / +0.166 / +0.053. The sign has never gone
+> the other way, **including across a worldgen rewrite that moved every other
+> number on this page.** §5 prices the extra reach at 0.14–0.38% of a frame.
 
 **Two earlier versions of this argument used a superlative, and both were
-falsified by a later tree.** They are recorded rather than quietly replaced,
-because the failure has a lesson in it:
+falsified by a later tree.** Recorded rather than quietly replaced:
 
 | version | claim | how it died |
 |---|---|---|
 | first | *"32 → 64 is the largest single step at every preset"* | tree 5: on `wetland` the **median**'s largest step became 8 → 16 |
-| second | *"...the largest single step **in the p10** at every preset"* | tree 8: on `wetland` and `rolling` the p10's largest step became 16 → 32 |
+| second | *"...the largest single step **in the p10**"* | tree 8: on `wetland` and `rolling` the p10's largest step became 16 → 32 |
 
-**The lesson: the curve's *shape* moves with the population; its *ordering*
-does not.** A superlative is a claim about shape and it has a one-in-three
-chance of surviving the next landing. "More at 64 than at 32, everywhere,
-always" is a claim about ordering, and eight trees have not dented it. Prefer
-the ordering — it is what the recommendation actually needs, and it is the
-half that is true.
+**The lesson, now tested three times: the curve's *shape* moves with the
+world; its *ordering* does not.** A superlative is a claim about shape, and
+neither survived two landings. "More at 64 than at 32, everywhere, always" is
+a claim about ordering, and nine trees — the last a worldgen rewrite — have
+not dented it.
 
-**And be honest that the case has weakened as the world changed.** On tree 5
-the p10 at r32 ran 0.08–0.28 and the stranded beetle was blind five times in
-six on two presets; on tree 8 it runs 0.22–0.27 and that framing is no longer
-available. What survives is the plainer statement: **64 is strictly better
-everywhere and costs nothing measurable**, which is sufficient but is not the
-dramatic gap it once was. If a future tree ever puts r32's p10 above r64's,
-this recommendation should be re-opened — nothing else here would need to
-change.
+**The margin is not stable either, and that is worth saying.** On tree 8 the
+p10 at r32 ran 0.22–0.27 and the case for 64 was merely sufficient; the
+rewrite collapsed it to **0.033–0.260** and the case is dramatic again — the
+stranded beetle on `wetland` now sees prey a thirtieth of the time at 32 and
+a quarter of the time at 64. **The direction is what to build on; the size of
+the gap is a fact about this week's world.**
 
-**Two further readings, both stable across trees:**
+**Two further readings:**
 
 - **A short sense is a contact sense with extra steps.** At r8 the median runs
-  0.25–0.36 and the beetle is nearly on top of the ant; the median *visible*
-  ant is 19 cells away, so a radius under that discards the sightings that
-  actually happen.
-- **The curve is still climbing at 64.** The median beetle sits 55–64 cells
-  from the nearest ant. Where 128 lands is **not measured** and is the honest
-  gap in this table.
+  0.25–0.31; the median *visible* ant is 15 cells away, so a radius under that
+  discards the sightings that actually happen.
+- **The curve is still climbing at 64.** The median beetle sits 49–64 cells
+  from the nearest ant. Where 128 lands is **not measured**.
 
-**A ±60° cone costs a fifth to a third of everything** (r64 median 0.593 →
-0.467, 0.500 → 0.387, 0.453 → 0.300) for a saving §5 shows is not worth
-having. Build it all-round.
-
-### 3a. The placement confound, ruled out rather than argued away
-
-Beetles are stood up at x = 40 + 45i and ants from x = 24 upward, so at frame
-0 **every beetle is standing inside the colony** and a short-radius sighting
-would be a statement about the placement loop. `settle=` re-asks the question
-of a dispersed population by skipping the first 3,000 frames and sampling the
-next 3,000. Median `los` on `wetland`:
-
-| | r8 | r16 | r32 | r64 |
-|---|---|---|---|---|
-| from frame 0 | 0.383 | 0.450 | 0.467 | 0.572 |
-| from frame 3,000 | 0.358 | 0.483 | 0.500 | 0.622 |
-
-Within the seed spread everywhere, and slightly *higher* at long radius.
-**The placement is not driving the result.** (Taken on the second of the eight
-trees §0 names and not re-run since; it is a qualitative check that two ways
-of sampling agree, and that conclusion is insensitive to the drift the later
-trees produced.)
+**A ±60° cone costs a quarter to a third** (r64 median 0.656 → 0.483, 0.500 →
+0.342, 0.456 → 0.300) for a saving §5 shows is not worth having.
 
 ---
 
 ## 4. What terrain costs, and what is actually doing the blocking
 
-`mode=occlusion`, median `los` over 18 seeds on `wetland`. `none` is the
-**transparent-world ceiling** rather than a setting, and every other row is
-asserted at or below it in the harness — an arm above its own ceiling is an
-arithmetic bug, so the check is free and runs every time.
+`mode=occlusion`, median `los`. `none` is the **transparent-world ceiling**
+rather than a setting, and every other row is asserted at or below it.
+
+`wetland`, 18 seeds:
 
 |  occl | eye | r8 | r16 | r32 | **r64** | pairs blocked |
 |---|---|---|---|---|---|---|
-| `none` (ceiling) | 0 | 0.360 | 0.500 | 0.500 | **0.667** | 0.0% |
-| `opaque` | 0 | 0.360 | 0.492 | 0.500 | **0.593** | 24.3% |
-| **`opaque`** | **1** | 0.360 | 0.500 | 0.500 | **0.667** | **6.3%** |
-| `opaque` | 3 | 0.360 | 0.500 | 0.500 | 0.622 | 4.1% |
-| `dense` | 0 | 0.320 | 0.373 | 0.387 | **0.387** | 78.3% |
-| `dense` | 3 | 0.360 | 0.400 | 0.400 | 0.420 | 62.3% |
-| `all` | 0 | 0.320 | 0.373 | 0.387 | 0.387 | 78.8% |
+| `none` (ceiling) | 0 | 0.325 | 0.483 | 0.500 | **0.667** | 0.0% |
+| `opaque` | 0 | 0.311 | 0.483 | 0.500 | **0.656** | 19.6% |
+| **`opaque`** | **1** | 0.311 | 0.389 | 0.500 | **0.667** | **8.2%** |
+| `opaque` | 3 | 0.325 | 0.483 | 0.500 | 0.667 | 6.5% |
+| `dense` | 0 | 0.311 | 0.344 | 0.367 | **0.367** | 74.8% |
+| `dense` | 3 | 0.311 | 0.344 | 0.389 | 0.411 | 64.9% |
+| `all` | 0 | 0.311 | 0.344 | 0.367 | 0.367 | 75.0% |
 
-**Terrain relief is not the problem. Floor clutter is.** What stops the rays,
-pooled over 18 seeds:
-
-| preset | what stopped them |
-|---|---|
-| `wetland` | seed 31%, soil 24%, corpse 19%, basalt 12%, litter 10%, gravel 3% |
-| `rolling` | soil 28%, seed 23%, basalt 20%, corpse 16%, litter 7%, gravel 3% |
-| `arid` | corpse 48%, basalt 30%, seed 22% |
-
-Both animals are ground-hugging, so a sight line between two heads grazes the
-floor for its whole length and a two-cell seed pile stops a forty-cell line.
-
-**One cell of eye height recovers the entire transparent-world ceiling on
-`wetland`, and it has done so on all eight trees.** `opaque eye=1` reads 0.667
-at r64 — identical to a world with nothing in it — at 6.3% blocking against
-24.3%. **This is the most stable finding in the report by a wide margin**: the
-absolute percentages have drifted with every landing on `main`, and this
-recovery has not moved once.
-
-**On a second preset it removes most but not all.** `rolling`, 12 seeds:
+`rolling`, 12 seeds:
 
 |  occl | eye | r8 | r16 | r32 | **r64** | pairs blocked |
 |---|---|---|---|---|---|---|
-| `none` (ceiling) | 0 | 0.373 | 0.433 | 0.500 | **0.600** | 0.0% |
-| `opaque` | 0 | 0.373 | 0.433 | 0.444 | **0.500** | 22.1% |
-| `opaque` | 1 | 0.373 | 0.433 | 0.500 | **0.581** | 8.7% |
-| `opaque` | 3 | 0.373 | 0.433 | 0.500 | 0.581 | 6.5% |
-| `dense` | 0 | 0.360 | 0.429 | 0.429 | **0.444** | 50.9% |
-| `dense` | 3 | 0.360 | 0.425 | 0.438 | 0.452 | 38.2% |
-| `all` | 0 | 0.360 | 0.429 | 0.429 | 0.444 | 50.9% |
+| `none` (ceiling) | 0 | 0.313 | 0.353 | 0.400 | **0.507** | 0.0% |
+| `opaque` | 0 | 0.300 | 0.353 | 0.400 | **0.400** | 16.3% |
+| **`opaque`** | **1** | 0.307 | 0.353 | 0.400 | **0.500** | **10.8%** |
+| `opaque` | 3 | 0.307 | 0.353 | 0.400 | 0.500 | 10.1% |
+| `dense` | 0 | 0.300 | 0.353 | 0.393 | **0.400** | 41.5% |
+| `dense` | 3 | 0.293 | 0.333 | 0.380 | 0.393 | 34.5% |
+| `all` | 0 | 0.300 | 0.353 | 0.393 | 0.400 | 41.5% |
 
-Blocking falls the same way (22.1% → 8.7%) but r64 recovers to 0.581 of a
-0.600 ceiling — **about 80% of the gap, not the whole of it**. `rolling` has
-real relief, so some of what stops a line there is landscape rather than
-clutter, which the blocker census agrees with: bare rock is 20% of
-`rolling`'s blockers against 12% of `wetland`'s. **Eye height is still the
-setting to build; it is not a complete fix on hilly ground.**
+**Eye height is still the setting to build, and it is now 9/9.** `opaque
+eye=1` reaches the ceiling exactly on `wetland` (0.667) and 0.500 of a 0.507
+ceiling on `rolling`. Nine trees, one of them a worldgen rewrite, and this
+has never failed.
 
-**The owner was asked and declined to pick, so this is settled on the
-measurement.** Card `20260830T021057007Z-18900e` put the two eye heights side
-by side as a labelled A/B and asked which reads right for an insect on a
-forest floor. The verdict, 2026-08-30: *"I don't think there is a clear good
-answer. Just pick one that makes sense to you."* So **eye=1 is recommended on
-the numbers above and nothing else**. A later playtest may overturn it, and
-if it does the thing to change is one parameter rather than the model — part
-of why the eye is a knob here and not baked in.
+**But its *value* has moved, and it now pays on `rolling`, not `wetland`.**
+On the rewritten worldgen `wetland`'s occlusion barely costs anything at r64
+— 0.656 against a 0.667 ceiling, a loss of 0.011 — so there is almost nothing
+for the lift to recover. On `rolling` it turns 0.400 into 0.500, **a quarter
+more sightings**. A reader who took "eye=1 recovers the ceiling" to mean
+"eye=1 is worth a lot everywhere" would now be wrong: it is worth a lot where
+occlusion is, and occlusion has moved.
 
-**`eye=3` is not better than `eye=1`, and this is the row not to smooth
-over.** Its pooled blocking is lower (4.1% against 6.3%) while its median
-`los` at r64 is *worse* (0.622 against 0.667). The two columns are different
-statistics — pooled pairs are dominated by the seeds carrying the most pairs,
-the median is per-seed — and they genuinely disagree. Nothing in this study
-explains it; **do not read the pooled column as ranking eye heights.** It is
-`wetland`-only: on `rolling`, eye=1 and eye=3 give the identical 0.581.
+### 4a. "Floor clutter, not landscape" is now preset-dependent — a headline correction
 
-**Foliage is the biggest lever in the table, and bigger than radius.**
-Making plant matter opaque takes r64 from 0.667 to **0.387** on `wetland` and
-from 0.600 to **0.444** on `rolling`, and eye height recovers only a fraction
-(0.420 / 0.452 at eye=3). Two things follow. First, if E15 wants the sense to
-work at all, **`dense` is not a shippable setting as a binary rule.** Second,
+**This report's second-most-quoted finding no longer generalises, and the
+worldgen rewrite is why.** What stops the rays, pooled over 18 seeds:
+
+| preset | what stopped them | rock share |
+|---|---|---|
+| `wetland` | corpse 22%, basalt 22%, soil 21%, seed 18%, litter 10%, packedsoil 5% | **27%** |
+| `rolling` | **basalt 41%**, seed 19%, soil 12%, packedsoil 9%, corpse 6%, litter 6% | **50%** |
+| `arid` | **basalt 44%**, corpse 41%, seed 15% | **44%** |
+
+Against the old worldgen, where litter and seed dominated and bare rock ran
+12–34%, **rock is now half of what blocks a sight line on `rolling` and 44%
+on `arid`**. The rewrite exposes far more stone. So:
+
+- on `wetland` the original reading holds — clutter and bodies, rock a quarter;
+- on `rolling` and `arid`, **landscape is now the larger half**, and an eye
+  lift cannot see over a boulder.
+
+This is consistent with the eye-height numbers rather than in tension with
+them: total blocking *fell* (24.3% → 19.6%, 22.1% → 16.3%) while its
+*composition* shifted to rock. Less is blocked, and more of what is blocked
+is terrain. **Do not carry "it is floor clutter" forward as a general claim.**
+
+**`eye=3` is not better than `eye=1`** — on `wetland` its pooled blocking is
+lower (6.5% against 8.2%) at equal or better medians. But note `eye=1` reads
+**0.389 at r16** against `eye=0`'s 0.483: **the lift makes that one radius
+worse**, which it did not on any earlier tree. Lifting an eye can move a
+sight line *into* a blocker as easily as over one. Nothing here explains it;
+it is one radius on one preset, recorded rather than smoothed.
+
+**The owner was asked about eye height and declined to pick.** Card
+`20260830T021057007Z-18900e`: *"I don't think there is a clear good answer.
+Just pick one that makes sense to you."* So eye=1 rests on the numbers.
+
+**Foliage remains the biggest single lever.** `dense` takes r64 from 0.667 to
+**0.367** on `wetland` and 0.507 to **0.400** on `rolling`, and eye height
+recovers only a fraction. **`dense` is not shippable as a binary rule**, and
 this is the ethos law rather than a tuning note: *an outcome is a
-distribution, not a binary*. A canopy that either passes sight perfectly or
-blocks it perfectly has the same defect the old rubble had; what a bush should
-do is *attenuate* — shorten the effective radius through it — which this
-study did not price and the next lane should.
+distribution, not a binary*. A bush should *attenuate* — shorten the
+effective radius through it — which this study did not price and the next
+lane should.
 
-Water is a non-question: `all` differs from `dense` by half a point of
-blocking and nothing at all in median `los`.
+Water is a non-question: `all` differs from `dense` by 0.2 points.
 
 ---
 
 ## 5. What it costs per frame
 
-`mode=cost`. The implementation priced is the one a sensor would actually
-use: a **fan of 16 rays** swept over the circle, each marched outward until
-it hits something or reaches the radius, cast once every 8 frames — the
-beetle's own `tick_interval`. Its cost is a function of radius and ray count
-and **not** of how many prey exist, which is what makes it the shippable
-shape.
-
-**Three arms, not two, and the middle one is the whole point.** `cast_fan`
-has to find the beetles before it can cast from them, and this harness finds
-them by scanning all 81,920 cells — which an engine implementation never
-does, because the active-site scheduler dispatches a creature at its own
-position. `locate` is that scan alone.
+`mode=cost`. A **fan of 16 rays**, each marched to the first blocker or the
+radius, cast once every 8 frames. **Three arms, not two**: `cast_fan` must
+find the beetles first, and this harness does that by scanning all 81,920
+cells, which the engine never does. `locate` is that scan alone; **the sense
+costs `rN` minus `locate`.**
 
 ```
        arm     ms/frame     vs blind    vs locate     cells read  per beetle/cast
-     blind       3.0407            -            -              0                -
-    locate       3.2280            -            -       30720000              5.0
-    locate       3.1743            -            -       30720000              5.0
-    locate       3.2062            -            -       30720000              5.0
-    locate       3.2984            -            -       30720000              5.0
-    locate       3.3003            -            -       30720000              5.0
-     blind       3.1217            -            -              0                -
-        r8       3.2067       0.1255      -0.0347         173876               93
-       r16       3.2336       0.1524      -0.0078         304607              162
-       r32       3.1902       0.1090      -0.0512         549850              293
-       r64       3.2115       0.1303      -0.0299         984427              525
+     blind       3.4858            -            -              0                -
+    locate       3.7876            -            -       30720000              6.0
+    locate       3.6286            -            -       30720000              6.0
+    locate       4.0248            -            -       30720000              6.0
+    locate       3.8781            -            -       30720000              6.0
+    locate       3.7438            -            -       30720000              6.0
+     blind       3.3418            -            -              0                -
+        r8       3.6065       0.1928      -0.2060         216771               96
+       r16       3.8503       0.4365       0.0377         373215              166
+       r32       4.0383       0.6246       0.2258         642000              285
+       r64       3.8392       0.4255       0.0267        1128602              502
 ```
 
-blind spread **0.081 ms**, locate spread **0.126 ms**, arms alternating,
-every arm asserted to have started from a byte-identical world.
+**This run was taken on a loaded box, and the report says so rather than
+quietly dropping it.** The `locate` spread is **0.396 ms** — three to eight
+times any earlier run's — and `ascii` on the same tree reads mean 3.891 ms
+against ~3.0 on the quiet ones, with a 79 ms worst frame. Every `vs locate`
+is still inside that spread.
 
-**Read `vs locate`, never `vs blind`.** The `vs blind` column is almost
-entirely this harness's own whole-world scan; a reader taking it for the
-sense's cost would be off by a factor of thirty.
+**The per-read price is the loosest number here, and this run stretches it.**
+Seven readings across nine trees: **15.6, 13.8, 14.9, 22.1, 16.4, 15.6 and
+38.9 ns**, the last from the run above. The spread tracks the *control*
+spread, which is what a machine-load explanation predicts. **So take the
+whole range**, and note the conclusion survives at the far end:
 
-**The wall clock cannot resolve the sense, and this is now seven runs rather
-than an argument.** Every `vs locate` here is inside the control spread, and
-all four are *negative* — a sense that made the frame faster. Across seven
-runs on six trees, r64 has read **−0.012, +0.059, +0.029, −0.015, −0.003,
-−0.040 and −0.030 ms** against control spreads of 0.046 to 0.126. The sign
-flips four times and never leaves the noise bar.
-
-**The deterministic route is the one to quote.** `cells read` at r64 has run
-909,763 → 898,619 → 977,415 → 984,427 as the world changed; beetles located
-per cast is 5.0 on every tree. `locate` prices one `World::get` directly, and
-**that price is the loosest number here and is quoted as a range**: six
-readings give **15.6, 13.8, 14.9, 22.1, 16.4 and 15.6 ns**. The 22.1 came
-from a run whose control spread was twice the others'. Taking the range:
-
-| radius | cells read per beetle per cast | ms/frame at 5 beetles | µs per beetle per frame |
+| radius | cells read per beetle per cast | ms/frame at 6 beetles | µs per beetle per frame |
 |---|---|---|---|
-| 8 | 93 | 0.0008–0.0013 | 0.16–0.26 |
-| 16 | 162 | 0.0014–0.0022 | 0.28–0.45 |
-| 32 | 293 | 0.0025–0.0040 | 0.51–0.81 |
-| **64** | **525** | **0.0045–0.0073** | **0.91–1.45** |
+| 8 | 96 | 0.0010–0.0028 | 0.17–0.47 |
+| 16 | 166 | 0.0017–0.0048 | 0.29–0.81 |
+| 32 | 285 | 0.0030–0.0083 | 0.50–1.39 |
+| **64** | **502** | **0.0053–0.0147** | **0.88–2.44** |
 
-**The conclusion does not depend on which reading you take**: at the
-optimistic end a radius-64 sense is 0.14% of a frame, at the pessimistic end
-0.23%. Both are free.
+**At the optimistic end a radius-64 sense is 0.14% of a frame; at the
+pessimistic end — worst per-read reading, loudest box — 0.38%.** Both are
+free, which is the point of the range: the recommendation does not depend on
+which measurement you trust.
 
-**Against the whole frame.** `ascii` on this tree reports **mean 3.161 ms**
-over 12,000 frames with 143 live organisms (worst 51.773 ms). Per
-`CLAUDE.md`'s test the worst is **not** pinned by an aggregate — mean ×
-frames is 37,932 ms against a 52 ms worst — so it is one frame among
-thousands of comparable ones and is noise wearing a number. The mean is the
-figure to use; this harness's blind arm at 3.08 ms agrees with it to 3%.
+**Against the whole frame.** `ascii` reads **mean 3.891 ms** over 12,000
+frames with 179 live organisms (worst 79.097 ms). The worst is **not** pinned
+by an aggregate — mean × frames is 46,692 ms against a 79 ms worst — so it is
+noise wearing a number, and here it corroborates that the box was loud.
 
-**What it costs at scale** — the current 512x320 world is a test environment,
-not the target. At 0.9–1.5 µs per beetle per frame against a ~3.2 ms frame:
+**At scale**, at 0.9–2.4 µs per beetle per frame against a ~3.9 ms frame:
 
 | predators in the world | cost of the sense | share of a frame |
 |---|---|---|
-| 5 (measured) | 0.005–0.007 ms | 0.14–0.23% |
-| a few dozen | ~0.03 ms | ~1% |
-| **two to three hundred** | **~0.3 ms** | **10%** |
+| 6 (measured) | 0.005–0.015 ms | 0.14–0.38% |
+| a few dozen | ~0.03–0.09 ms | ~1–2% |
+| **a few hundred** | **~0.3–0.8 ms** | **10–20%** |
 
-Round numbers deliberately: the per-read cost spans 13.8–22.1 ns across six
-measurements and the frame itself has moved 2.82–3.16 ms across five, so a
-three-digit predator count would be false precision. **The honest claim is "a
-few hundred", and nothing plausible for this world sits near that bound.**
+**And the built sense costs about twice this** — §0b: 1,020–1,100 cells per
+cast against the 502 priced here, because it must test prey in the un-lifted
+frame and blockers in the lifted one. **Double this table before sizing a
+different sense off it.**
 
-**Radius buys itself cheaply, and that is not an assumption.** 8 → 64 is an
-eightfold radius for a **five-and-a-half-fold** read count (93 → 525), well
-short of the 16 × 64 = 1,024 an unobstructed fan would cost, because rays
-terminate on the first blocker. **Occlusion makes the sense cheaper as well
-as weaker** — demonstrated directly on tree 5, where a world with less litter
-cost 9% more to look at.
+**Radius buys itself cheaply.** 8 → 64 is an eightfold radius for a
+**five-fold** read count (96 → 502), because rays die on the first blocker.
+**Occlusion makes the sense cheaper as well as weaker** — the converse showed
+on tree 5, where a world with less litter cost 9% more to look at.
 
-**And the built sense costs about twice this.** §0b has the detail: the
-shipped implementation reads 1,020–1,100 cells per cast against the 525
-priced here, because it must test prey in the un-lifted frame and blockers in
-the lifted one — two walks of the fan where this probe made one. Still 0.3%
-of a frame, so nothing in the recommendation changes, but **double this
-table before sizing a different sense off it.**
-
-**Two guards on all of the above**, because a cost that vanishes may be work
-that vanished: `cells read` is asserted nonzero on every sighted arm and
-comes back from the far side of the call that does the casting, and the
-`locate` arm is asserted to have actually found a beetle.
+**Two guards**, because a cost that vanishes may be work that vanished:
+`cells read` is asserted nonzero on every sighted arm and comes back from the
+far side of the casting call, and `locate` is asserted to have found a beetle.
 
 ---
 

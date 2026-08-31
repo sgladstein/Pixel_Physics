@@ -167,7 +167,7 @@ cargo run --release --example ascii                                          # t
 ```
 
 **Everything here was re-measured on every tree `main` landed underneath —
-six in all.** Each landing could plausibly have moved the result, so each
+nine in all.** Each landing could plausibly have moved the result, so each
 got a full re-take rather than a wave-through: the worldgen revamp (716 lines
 of `passes.rs`, five new rock materials), tree-breaking (355 lines of
 `plant.rs`), the creature-economy rework (`ant.ron`, `beetle.ron`,
@@ -182,6 +182,8 @@ further plant landing which changed what lies on the floor.
 | **4 → 5** | **materially** — `wetland` r8 median 0.383 → 0.283, r64 0.572 → 0.622, blocking 28% → 24%, litter 21% → 11% of blockers, a new `gravel` appears |
 | 5 → 6 | nothing that matters — a blocked-pair count by 7 in 17,190, one blocker percentage by a point. The beetle's own code changed 245 lines and moved no order statistic |
 | 6 → 7 | **nothing at all** — byte-identical. A new species (`ant_block_shaded`) plus small `organism.rs`/`material.rs` additions; the new species is never planted in this scene |
+| 7 → 8 | **materially** — 436 lines of `creature.rs`. `wetland` r8 0.283 → 0.360, p10 at r32 0.156 → 0.267. **Killed the *corrected* superlative too** |
+| **8 → 9** | **furthest of all** — the worldgen rewrite (`cave.rs` +2,665, `passes.rs` 1,486 changed). Every absolute number moved; **the ordering did not**. And it changed §4a's finding outright: rock went from 12–34% of blockers to 41–44% on two presets |
 
 **The early identity is what makes the later movement informative.** Three
 byte-identical runs could equally have meant the instrument was insensitive
