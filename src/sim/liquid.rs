@@ -106,6 +106,7 @@ const DEMOTE_COOLDOWN_FRAMES: u64 = 120;
 /// One promoted liquid body — design doc §2b/§3a/§7/§9a. A body is always
 /// exactly one material (§3b.1) and always exactly one contiguous run of
 /// x-columns — 4-connectivity guarantees no gaps (`label_body`'s own doc).
+#[derive(Clone)]
 pub struct LiquidBody {
     pub material: MaterialId,
     pub x0: i32,

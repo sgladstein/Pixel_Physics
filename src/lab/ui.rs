@@ -139,14 +139,22 @@ pub const TAB_H: i32 = hud::GLYPH_HEIGHT + 5;
 /// a batch produces.
 pub const TABS_SHOWN: usize = 5;
 
-/// The strip's top row, or `None` when there is nothing to draw.
+/// The strip's top row. Always drawn.
 ///
-/// **A rack of one draws no strip at all.** A facility with a single box has
-/// no switching to offer, so the tabs would be chrome that costs paint and
-/// says nothing — and the lab opens on exactly that, so this is the common
-/// case rather than an edge one.
-fn tab_strip_y(chambers: usize) -> Option<i32> {
-    (chambers >= 2).then(|| bar_top() - TAB_H)
+/// **It was hidden below two chambers and that was a circular bug**, reported
+/// by the owner as *"how do i access the rack, I don't see it in the menu"*.
+/// The reasoning was that a facility with one box has no switching to offer —
+/// true, and irrelevant, because the strip does not only *switch* between
+/// chambers, it carries `ALL`, which is the only way to reach the page where
+/// chambers are **made**. So the way to get a second chamber was inside the
+/// page you could only open once you already had two, and the lab opens on
+/// one.
+///
+/// `F4` was the sole remaining route and was not on the key list either. Both
+/// halves are fixed; this is the half that matters, because a control nobody
+/// can find is a control that does not exist.
+fn tab_strip_y(_chambers: usize) -> i32 {
+    bar_top() - TAB_H
 }
 
 /// Lay the tabs out, left to right, and say where each one is.
@@ -405,6 +413,16 @@ pub enum Action {
     ChamberAdd,
     /// Close the highlighted chamber. Refused for the one on screen.
     ChamberClose(usize),
+    /// Re-run an on-record row back into a world. See
+    /// `Lab::rebuild_record`.
+    ChamberRebuild(usize),
+    /// Throw away every chamber and record except the one on screen.
+    ChamberClear,
+    /// Sort the rack on one column. Clicking the column already sorted
+    /// reverses it; there is no third state, because a click that cycled
+    /// through *unsorted* would take two more clicks to get back to the
+    /// order you wanted.
+    ChamberSort(usize),
     /// Run a rack of copies of the box on screen, headless, in the
     /// background.
     BatchRun,
@@ -465,10 +483,28 @@ pub enum Tool {
     /// the world uses — you keep a specimen in a jar and you free it back
     /// into the box — and it reads as a verb in a row of verbs.
     Release,
+    /// Drop a wall, floor to ceiling, in the column you click. Click a wall
+    /// you placed to take it out again.
+    Wall,
 }
 
-/// Every tool, in bar order. One list, so the row, the key table and the
-/// tests cannot disagree about what exists.
+/// Every tool **that has a cell on the bar**, in bar order. One list, so the
+/// row, the key table and the tests cannot disagree about what exists.
+///
+/// **`Tool::Wall` is deliberately not in it, and that is a measured
+/// constraint rather than an oversight.** The bar runs at **1 px of slack on
+/// row 0 and 0 on row 1** at the tightest of the three spacings `layout`
+/// tries — measured with its own `PIXEL_PHYSICS_BAR_TRACE`, and recorded in
+/// `Reports/dead-ends.md` when the chamber tabs hit the same wall. A ninth
+/// cell is ~40 px and there is nowhere to put it;
+/// `the_bar_fits_the_screen_and_no_two_widgets_overlap` said so immediately
+/// when one was tried.
+///
+/// So the wall verb is reachable by its key and from the help page, and
+/// **giving it a face is a layout decision for the owner** — it needs a third
+/// bar row or a shorter label somewhere, and both change proportions they
+/// chose by eye. Flagged rather than forced: squeezing it in is how the
+/// overlapping columns on the rack page happened.
 pub const TOOLS: [Tool; 8] =
     [Tool::Look, Tool::Plant, Tool::Colony, Tool::Cull, Tool::Soil, Tool::Water, Tool::Keep, Tool::Release];
 
@@ -481,6 +517,7 @@ impl Tool {
             Tool::Cull => "CULL",
             Tool::Soil => "SOIL",
             Tool::Water => "WATER",
+            Tool::Wall => "WALL",
             Tool::Keep => "KEEP",
             Tool::Release => "FREE",
         }
@@ -493,11 +530,15 @@ impl Tool {
             Tool::Cull => "V",
             Tool::Soil => "B",
             Tool::Water => "N",
-            // The run continues: `M` is the next key along the bottom row,
-            // and `,` the one after it. See the enum's own note on why the
-            // set is positional rather than mnemonic.
+            // The run continues along the bottom row: `M`, then `,`.
             Tool::Keep => "M",
             Tool::Release => ",",
+            // **Off the run, because it is off the bar.** The positional rule
+            // is "one unbroken run in *bar* order", and the wall verb has no
+            // bar cell — the bar is full, see `TOOLS`. Taking the next key in
+            // the run would have moved `NextSpecies` off `.` for a control
+            // that is not in the row the rule is about.
+            Tool::Wall => "K",
         }
     }
     /// Whether this tool paints continuously while the button is held. The
@@ -514,6 +555,7 @@ impl Tool {
             Tool::Cull => "KILL THE ORGANISM YOU CLICK. IT IS MARKED SENESCENT, NOT DELETED, SO IT ROTS DOWN OVER ITS SPECIES HALF-LIFE AND FEEDS WHATEVER IS STILL ALIVE. THIS IS THE SELECTION LEVER: WHAT YOU CULL DOES NOT BREED.",
             Tool::Soil => "PAINT SOIL, AT FIELD CAPACITY -- DAMP ENOUGH FOR A ROOT, NOT SO WET IT SLUMPS. IT WILL NOT PAINT OVER STONE OR OVER A LIVING PLANT.",
             Tool::Water => "PAINT WATER, FULL. IT RUNS, IT SOAKS INTO SOIL, AND TOO MUCH OF IT DROWNS ROOTS -- WHICH IS AN EXPERIMENT, NOT A MISTAKE.",
+            Tool::Wall => "DROP A WALL FLOOR TO CEILING IN THE COLUMN YOU CLICK, OR CLICK ONE YOU PLACED TO TAKE IT OUT. A WALL IS WHAT MAKES TWO POPULATIONS IN ONE BOX INTO TWO POPULATIONS: THEY CANNOT MIX, SO THEY CAN DRIFT APART. IT CUTS WHATEVER IS IN THE WAY, WHICH IS THE POINT -- A WALL THROUGH A STAND IS A STAND SPLIT IN HALF. IT SURVIVES A REBUILD.",
             Tool::Keep => "TAKE THE GENETICS OF THE PLANT OR ANIMAL YOU CLICK AND PUT THEM IN A JAR ON THE SHELF. IT IS A COPY -- THE ONE YOU CLICKED GOES ON LIVING. A JAR HOLDS EVERYTHING THAT INDIVIDUAL WOULD HAVE PASSED TO ITS OWN OFFSPRING AND NOTHING ELSE, SO IT IS SMALL AND IT SURVIVES A RESET OF THE BOX.",
             Tool::Release => "PUT THE ARMED JAR BACK IN THE BOX WHERE YOU CLICK. AT 0 BROODS IT IS THAT EXACT INDIVIDUAL AGAIN; AT 1 IT IS AS DIFFERENT AS ITS OWN CHILD WOULD HAVE BEEN, AND SO ON UP. OPEN THE SHELF WITH G TO PICK A JAR AND SET THE DIAL.",
         }
@@ -928,9 +970,9 @@ fn lay_out(state: &BarState<'_>, pad: i32, gap: i32) -> Bar {
     // the row sideways.
     let species_px = species_face_px().max(hud::text_width(state.species));
     let species = Spec {
-        width: cell_width(species_px, ".", pad),
+        width: cell_width(species_px, ";", pad),
         line1: state.species.to_string(),
-        line2: ".".to_string(),
+        line2: ";".to_string(),
         action: Some(Action::NextSpecies),
         latched: state.tool == Tool::Plant,
         icon: None,
@@ -1454,6 +1496,12 @@ pub struct Ui {
     /// First visible row. A batch makes fifty chambers and the page shows
     /// twelve.
     rack_scroll: usize,
+    /// Which column the rack is sorted on, and whether it is descending.
+    ///
+    /// `None` is rack order — the order chambers were made, which is the only
+    /// order that carries no opinion. A batch of fifty is read by sorting it;
+    /// a rack of three is read as it stands.
+    rack_sort: Option<(usize, bool)>,
     shelf_box: Option<Rect>,
 }
 
@@ -1671,6 +1719,23 @@ impl Ui {
             .or_else(|| self.shelf_bar.hit(x, y))
             .or_else(|| self.rack_bar.hit(x, y))
             .or_else(|| self.tabs.hit(x, y))
+    }
+
+    /// Sort the rack on a column, or reverse it if it is already the one.
+    ///
+    /// **Descending first.** Every column here is a "how much" — plants,
+    /// animals, generations, seeds — and the row worth looking at after a
+    /// batch is the biggest one, so one click puts it at the top rather than
+    /// at the bottom of fifty.
+    pub fn sort_chambers(&mut self, col: usize) {
+        self.rack_sort = match self.rack_sort {
+            Some((c, desc)) if c == col => Some((c, !desc)),
+            _ => Some((col, true)),
+        };
+        // A sort moves rows under the cursor, so the scroll goes back to the
+        // top: staying at row 30 of a list that has just been reordered shows
+        // you a window you did not choose.
+        self.rack_scroll = 0;
     }
 
     /// Highlight one row of the rack page.
@@ -2260,6 +2325,48 @@ const RACK_HEAD: i32 = 11;
 /// gains a digit cannot shove its own `+` button sideways under the cursor.
 const BATCH_VALUE_W: i32 = 34;
 
+/// **The rack page's columns: a heading and the widest thing it can hold.**
+///
+/// The offsets were hand-counted at first and they overlapped — reported as
+/// *"seed and batch text overlap in the menu"*. `SEED 9999` is 53 px and the
+/// FRAME column started 62 px in from a seed column that started at 16, so
+/// the two collided by 8 px, and by more once a batch pushed a seed to five
+/// digits. `layout` and `param_page_width` both already say why: **measure
+/// through `hud::text_width`, never count by hand.** This is that rule
+/// applied to a table.
+///
+/// The second string is the **widest value the column can ever hold**, not a
+/// typical one. A column sized to what it usually shows is a column that
+/// breaks the first time a run gets big, which is the run you most want to
+/// read.
+const RACK_COLS: [(&str, &str); 6] = [
+    ("SEED", "SEED 999999"),
+    ("FRAME", "9999999"),
+    ("PLT", "9999"),
+    ("ANI", "9999"),
+    ("GEN", "99/99"),
+    ("SOWN", "999999"),
+];
+
+/// Gap between columns.
+const RACK_GAP: i32 = 6;
+
+/// Where each column starts, relative to the page's left margin.
+///
+/// Derived once and read by both the header and the rows, so the two cannot
+/// drift apart — which is its own bug class: a header that no longer sits
+/// over its column is worse than no header.
+fn rack_col_x() -> [i32; RACK_COLS.len()] {
+    let mut out = [0i32; RACK_COLS.len()];
+    // The row number sits first, outside the table.
+    let mut x = hud::text_width("99") + RACK_GAP;
+    for (i, (_, widest)) in RACK_COLS.iter().enumerate() {
+        out[i] = x;
+        x += hud::text_width(widest) + RACK_GAP;
+    }
+    out
+}
+
 /// **Every fixed string the rack page draws, in one list.**
 ///
 /// Named rather than inlined so `every_string_the_bar_can_draw_is_drawable`
@@ -2267,19 +2374,13 @@ const BATCH_VALUE_W: i32 = 34;
 /// covers it, and `hud::draw_text` renders a character outside its 5x7 set as
 /// a **silent blank**. The column header read `  SEED` in its first contact
 /// sheet because it began `  # SEED` and `#` has no glyph.
-const RACK_LITERALS: [&str; 12] = [
-    "    SEED",
-    "  FRAME",
-    "PLT",
-    "ANI",
-    "GEN",
-    " SOWN",
-    "  -    -    -/-      -",
+const RACK_LITERALS: [&str; 6] = [
     "CLICK A ROW FOR ITS PICTURE",
     "-- THE BOX YOU ARE IN",
     "-- KEPT AS NUMBERS ONLY, THE WORLD WAS NOT HELD",
     "HERE",
     "RECORD",
+    "REBUILDING",
 ];
 /// The picture is the world at a quarter scale in each axis.
 const RACK_THUMB_SHRINK: u32 = 4;
@@ -2290,7 +2391,11 @@ const RACK_THUMB_H: i32 = (H / RACK_THUMB_SHRINK) as i32;
 /// `layout`'s reason. The picture sets the floor: a page narrower than its own
 /// thumbnail would clip it.
 fn rack_page_width() -> i32 {
-    let row = 16 + hud::text_width("SEED 9999") + 46 + hud::text_width("999 999 9/9 99999") + 24 + hud::text_width("HERE");
+    let col = rack_col_x();
+    let last = col[RACK_COLS.len() - 1] + hud::text_width(RACK_COLS[RACK_COLS.len() - 1].1);
+    // Plus room for the right-hand state marker, which is drawn from the
+    // right margin inward and would otherwise sit on the last column.
+    let row = last + RACK_GAP + hud::text_width("REBUILDING");
     (PAGE_PAD * 2 + row).max((W / RACK_THUMB_SHRINK) as i32 + PAGE_PAD * 2)
 }
 
@@ -2472,6 +2577,20 @@ impl Ui {
             ratio: None,
             note: "ANOTHER CHAMBER: THIS BOX'S RECIPE AGAIN, AT THE NEXT UNUSED SEED. THE SEED IS WHAT MAKES IT A REPLICATE RATHER THAN A COPY -- AT THE SAME SEED IT WOULD BE THE SAME WORLD, CELL FOR CELL.".into(),
         });
+        // CLEAR, beside NEW. A rack of fifty is made by one click and has to
+        // be unmade by one too -- clearing it a row at a time is fifty clicks
+        // and a verb nobody would use.
+        let clear_w = cell_width(hud::text_width("CLEAR"), "", PAD);
+        widgets.push(Widget {
+            rect: Rect { x: right - new_w - clear_w - 4, y: rect.y + 3, w: clear_w, h: 11 },
+            line1: "CLEAR".into(),
+            line2: String::new(),
+            action: Some(Action::ChamberClear),
+            latched: false,
+            icon: None,
+            ratio: None,
+            note: "THROW AWAY EVERY CHAMBER AND EVERY RECORD EXCEPT THE BOX YOU ARE IN. THE ONE ON SCREEN IS KEPT, SO CLEARING NEVER ALSO MOVES YOU SOMEWHERE YOU DID NOT ASK TO GO.".into(),
+        });
         for x in rect.x + 1..rect.right() - 1 {
             render::put(frame, W, H, x, rect.y + PAGE_HEADER - 4, DIVIDER);
         }
@@ -2483,19 +2602,72 @@ impl Ui {
         // column you cannot name is a column you cannot compare on. Caught by
         // looking at the first render rather than by any test.
         let mut y = rect.y + PAGE_HEADER;
-        text(frame, left, y, RACK_LITERALS[0], FAINT);
-        text(frame, left + 62, y, RACK_LITERALS[1], FAINT);
-        text(frame, left + 108, y, RACK_LITERALS[2], GOOD);
-        text(frame, left + 128, y, RACK_LITERALS[3], FAIR);
-        text(frame, left + 150, y, RACK_LITERALS[4], FAINT);
-        text(frame, left + 178, y, RACK_LITERALS[5], FAINT);
+        let col = rack_col_x();
+        for (i, (head, widest)) in RACK_COLS.iter().enumerate() {
+            let sorted_on = self.rack_sort.map(|(c, _)| c) == Some(i);
+            let tint = if sorted_on {
+                TITLE
+            } else {
+                match i {
+                    2 => GOOD,
+                    3 => FAIR,
+                    _ => FAINT,
+                }
+            };
+            // The arrow is drawn *after* the heading rather than in place of
+            // a character of it, so a sorted column's name stays readable.
+            let label = match self.rack_sort {
+                Some((c, desc)) if c == i => format!("{head}{}", if desc { "\\" } else { "/" }),
+                _ => (*head).to_string(),
+            };
+            text(frame, left + col[i], y, &label, tint);
+            // The whole column width is the target: a three-character heading
+            // is not something a person can reliably hit.
+            widgets.push(Widget {
+                rect: Rect { x: left + col[i] - 2, y: y - 2, w: hud::text_width(widest) + 4, h: RACK_HEAD },
+                line1: String::new(),
+                line2: String::new(),
+                action: Some(Action::ChamberSort(i)),
+                latched: false,
+                icon: None,
+                ratio: None,
+                note: String::new(),
+            });
+        }
         y += RACK_HEAD;
+
+        // **Sorted into a display order, never reordered in place.** A row
+        // carries its own `index`, and every verb below is aimed with that
+        // rather than with the position it happens to be drawn at — sorting a
+        // list and then acting on screen positions is how a click ends up
+        // opening the wrong chamber.
+        let mut order: Vec<&super::ChamberSummary> = chambers.iter().collect();
+        if let Some((c, desc)) = self.rack_sort {
+            order.sort_by(|a, b| {
+                let key = |r: &super::ChamberSummary| -> i64 {
+                    let Some(n) = r.census.as_ref() else { return -1 };
+                    match c {
+                        0 => r.seed as i64,
+                        1 => r.frame as i64,
+                        2 => n.plants as i64,
+                        3 => n.animals as i64,
+                        4 => n.plant_generation as i64,
+                        _ => n.seeds_borne as i64,
+                    }
+                };
+                // Tie broken on `index`, so the order is total and a redraw
+                // cannot shuffle equal rows under the cursor.
+                let ord = key(a).cmp(&key(b)).then(a.index.cmp(&b.index));
+                if desc { ord.reverse() } else { ord }
+            });
+        }
         for x in rect.x + 1..rect.right() - 1 {
             render::put(frame, W, H, x, y - 2, DIVIDER);
         }
 
         // ---- the rows.
-        for (row, ch) in chambers.iter().enumerate().skip(self.rack_scroll).take(shown) {
+        for ch in order.iter().skip(self.rack_scroll).take(shown) {
+            let row = ch.index;
             let selected = self.rack_selected == Some(row);
             let band = Rect { x: rect.x + 1, y, w: rect.w - 2, h: RACK_ROW };
             // **Before the text, not after.** A hover fill painted over the
@@ -2522,25 +2694,33 @@ impl Ui {
             });
 
             let tint = if ch.active { SUB_ON } else if selected { TITLE } else { FAINT };
-            text(frame, left, y + 2, &format!("{:>2}", ch.label), tint);
-            text(frame, left + 16, y + 2, &format!("SEED {:<4}", ch.seed), FAINT);
+            text(frame, left, y + 2, &ch.label, tint);
+            text(frame, left + col[0], y + 2, &format!("SEED {}", ch.seed), FAINT);
             // The counter that says whether it is frozen.
-            text(frame, left + 62, y + 2, &format!("{:>7}", ch.frame), if ch.active { SUB_ON } else { FAINT });
+            text(frame, left + col[1], y + 2, &format!("{}", ch.frame), if ch.active { SUB_ON } else { FAINT });
 
             match &ch.census {
                 Some(c) => {
-                    text(frame, left + 108, y + 2, &format!("{:>3}", c.plants), GOOD);
-                    text(frame, left + 128, y + 2, &format!("{:>3}", c.animals), FAIR);
-                    text(frame, left + 150, y + 2, &format!("{}/{}", c.plant_generation, c.animal_generation), FAINT);
-                    text(frame, left + 178, y + 2, &format!("{:>5}", c.seeds_borne), FAINT);
+                    text(frame, left + col[2], y + 2, &format!("{}", c.plants), GOOD);
+                    text(frame, left + col[3], y + 2, &format!("{}", c.animals), FAIR);
+                    text(frame, left + col[4], y + 2, &format!("{}/{}", c.plant_generation, c.animal_generation), FAINT);
+                    text(frame, left + col[5], y + 2, &format!("{}", c.seeds_borne), FAINT);
                 }
-                // Never looked at, which is not the same as empty.
-                None => text(frame, left + 108, y + 2, RACK_LITERALS[6], FAINT),
+                // Never looked at, which is not the same as empty. One dash
+                // per column, on the column, rather than one run of text
+                // guessed into position.
+                None => {
+                    for x in col.iter().skip(2) {
+                        text(frame, left + x, y + 2, "-", FAINT);
+                    }
+                }
             }
             if ch.active {
-                text(frame, right - hud::text_width("HERE"), y + 2, RACK_LITERALS[10], SUB_ON);
+                text(frame, right - hud::text_width("HERE"), y + 2, RACK_LITERALS[3], SUB_ON);
+            } else if ch.rebuilding {
+                text(frame, right - hud::text_width(RACK_LITERALS[5]), y + 2, RACK_LITERALS[5], SUB_ON);
             } else if ch.on_record {
-                text(frame, right - hud::text_width(RACK_LITERALS[11]), y + 2, RACK_LITERALS[11], FAINT);
+                text(frame, right - hud::text_width(RACK_LITERALS[4]), y + 2, RACK_LITERALS[4], FAINT);
             }
             y += RACK_ROW;
         }
@@ -2649,11 +2829,16 @@ impl Ui {
             // there is nothing to walk into. Its verbs are drawn dead rather
             // than hidden, and the row itself says which it is.
             let on_record = chambers.get(i).is_some_and(|c| c.on_record);
+            let rebuilding = chambers.get(i).is_some_and(|c| c.rebuilding);
             for (label, action, on, why) in [
                 ("ENTER", Action::Chamber(i), !here && !on_record,
                  "PUT THIS CHAMBER ON SCREEN. THE ONE YOU LEAVE IS HELD EXACTLY WHERE IT IS -- IT RESUMES ON THE TICK IT STOPPED AT, NOT FROM THE START."),
                 ("CLOSE", Action::ChamberClose(i), !here && !on_record,
                  "THROW THIS CHAMBER AWAY. THE BOX YOU ARE IN CANNOT BE CLOSED: STEP INTO ANOTHER ONE FIRST, SO THAT CLOSING NEVER ALSO MOVES YOU SOMEWHERE YOU DID NOT ASK TO GO."),
+                // Only ever on an on-record row: a chamber that still has its
+                // world has nothing to rebuild.
+                ("REBUILD", Action::ChamberRebuild(i), on_record && !rebuilding,
+                 "RUN THIS ROW AGAIN AND KEEP THE WORLD THIS TIME. ITS NUMBERS WERE KEPT BUT ITS WORLD WAS NOT, AND THE RECIPE PLUS ITS SEED REPRODUCES THE RUN EXACTLY -- SO WHAT COMES BACK IS THE SAME BOX, NOT A SIMILAR ONE. IT RUNS IN THE BACKGROUND."),
             ] {
                 let bw = cell_width(hud::text_width(label), "", PAD) + 6;
                 if on {
@@ -2676,12 +2861,14 @@ impl Ui {
                 vx += bw + 4;
             }
             if here {
-                text(frame, vx + 4, vy + 2, RACK_LITERALS[8], FAINT);
+                text(frame, vx + 4, vy + 2, RACK_LITERALS[1], FAINT);
+            } else if rebuilding {
+                text(frame, vx + 4, vy + 2, RACK_LITERALS[5], SUB_ON);
             } else if on_record {
-                text(frame, vx + 4, vy + 2, RACK_LITERALS[9], FAINT);
+                text(frame, vx + 4, vy + 2, RACK_LITERALS[2], FAINT);
             }
         } else {
-            text(frame, left, y + 5, RACK_LITERALS[7], FAINT);
+            text(frame, left, y + 5, RACK_LITERALS[0], FAINT);
         }
 
         // Only the real buttons get a face. A row is a band, not a button:
@@ -3328,11 +3515,9 @@ impl Ui {
         // cannot take another cell at any spacing (see `tab_strip_y`). Drawn after
         // the bar so that `AboveBar` sits against its top edge rather than
         // under it.
-        self.tabs = match tab_strip_y(state.chambers.len()) {
-            Some(y) => lay_out_tabs(state.chambers, y),
-            None => Bar::default(),
-        };
-        if let Some(y) = tab_strip_y(state.chambers.len()) {
+        self.tabs = lay_out_tabs(state.chambers, tab_strip_y(state.chambers.len()));
+        {
+            let y = tab_strip_y(state.chambers.len());
             fill(frame, Rect { x: 0, y, w: W as i32, h: TAB_H }, BAR_BG);
             // The rule along the strip's own top, so the strip and the bar
             // read as one panel rather than two stacked ones.
@@ -3483,6 +3668,7 @@ mod tests {
         (0..n)
             .map(|i| super::super::ChamberSummary {
                 on_record: false,
+                rebuilding: false,
                 index: i,
                 active: i == 0,
                 label: format!("{}", i + 1),
@@ -3493,6 +3679,56 @@ mod tests {
             .collect()
     }
 
+    /// **A sort reorders what is drawn and must not re-aim what is clicked.**
+    ///
+    /// The bug this is named for was one line from shipping: the row loop
+    /// aimed its verbs with the loop's own position, which equals the
+    /// chamber's index right up until a sort moves a row. After that, clicking
+    /// the top row opens whichever chamber happens to be *first in the rack*
+    /// — so the more useful the sort, the more wrong the click.
+    ///
+    /// Built so the two orders genuinely differ: seeds ascend with the index
+    /// and plant counts descend against it, so sorting on plants reverses the
+    /// list. A fixture where they agreed would pass with the bug in place.
+    #[test]
+    fn sorting_the_rack_reorders_the_rows_without_re_aiming_the_verbs() {
+        const N: usize = 5;
+        let mut chambers = rack(N);
+        for (i, ch) in chambers.iter_mut().enumerate() {
+            // Descending against the index, so the sorted order is reversed.
+            ch.census = Some(super::super::stats::Census { plants: (N - i) * 10, ..Default::default() });
+        }
+
+        let mut page = Ui::new();
+        let st = state(false, 1);
+        let mut buf = vec![0u8; (W * H * 4) as usize];
+
+        // Column 2 is PLT. Descending puts the *largest* first, which is
+        // chamber 0 here, so sort ascending to actually reverse the list.
+        page.sort_chambers(2);
+        page.sort_chambers(2);
+        assert_eq!(page.rack_sort, Some((2, false)), "a second click on one column reverses it");
+        page.paint_rack(&mut buf, &chambers, None, &st);
+
+        // The rows are bands with no face; their action names the chamber.
+        let aimed: Vec<usize> = page
+            .rack_bar
+            .widgets
+            .iter()
+            .filter(|w| w.line1.is_empty())
+            .filter_map(|w| match w.action {
+                Some(Action::ChamberSelect(i)) => Some(i),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            aimed,
+            vec![4, 3, 2, 1, 0],
+            "ascending on PLT must draw the smallest first AND aim each row at its own chamber; \
+             {aimed:?} in rack order would mean the verbs are aimed at screen positions"
+        );
+    }
+
     /// **A rack of one draws no strip, and a rack of two does.**
     ///
     /// Both halves, at every style. The first alone is green for a strip that
@@ -3501,10 +3737,22 @@ mod tests {
     /// like a strip that is correctly absent.
     #[test]
     fn a_rack_of_one_draws_no_tabs_and_a_rack_of_two_does() {
-        assert_eq!(tab_strip_y(0), None, "an empty rack");
-        assert_eq!(tab_strip_y(1), None, "the lab's own opening");
-        assert!(tab_strip_y(2).is_some(), "two chambers must show a strip");
-        assert!(tab_strip_y(50).is_some(), "and so must fifty, which is what a batch makes");
+        // **The way into the rack is reachable at every rack size, and one is
+        // the size that matters.** This replaces a guard that asserted the
+        // opposite — that no strip is drawn below two chambers — which was
+        // the bug rather than the behaviour: `ALL` lives in the strip and is
+        // the only route to the page where chambers are *made*, so hiding it
+        // at one chamber made a second chamber unreachable. The lab opens on
+        // one. Reported by the owner as "I don't see it in the menu".
+        for n in [1usize, 2, 5, 50] {
+            let bar = lay_out_tabs(&rack(n), tab_strip_y(n));
+            let all = bar.widgets.iter().find(|w| w.action == Some(Action::Panel(Panel::Chambers)));
+            assert!(all.is_some(), "a rack of {n} has no way into the rack page");
+            assert!(
+                bar.widgets.iter().any(|w| w.action == Some(Action::Chamber(0))),
+                "a rack of {n} draws no tab for its first chamber"
+            );
+        }
     }
 
     /// **The strip never overlaps the bar, and never leaves the screen.**
@@ -3515,7 +3763,7 @@ mod tests {
     /// finds.
     #[test]
     fn the_tab_strip_clears_the_bar_and_the_screen() {
-        let y = tab_strip_y(5).expect("five chambers");
+        let y = tab_strip_y(5);
         assert!(y + TAB_H <= bar_top(), "the strip ran into the bar: {y} + {TAB_H} > {}", bar_top());
         assert!(y >= 0, "the strip ran off the top of the screen");
     }
@@ -3530,7 +3778,7 @@ mod tests {
     #[test]
     fn every_tab_is_clickable_where_it_is_drawn() {
         let chambers = rack(5);
-        let y = tab_strip_y(chambers.len()).expect("a rack of five");
+        let y = tab_strip_y(chambers.len());
         let bar = lay_out_tabs(&chambers, y);
         assert_eq!(bar.widgets.len(), 6, "five chambers, five tabs, and the way into the rack");
         for (i, wid) in bar.widgets.iter().take(5).enumerate() {
@@ -3550,7 +3798,7 @@ mod tests {
     #[test]
     fn a_rack_past_five_shows_what_it_is_not_showing() {
         let chambers = rack(12);
-        let y = tab_strip_y(chambers.len()).expect("a rack of twelve");
+        let y = tab_strip_y(chambers.len());
         let bar = lay_out_tabs(&chambers, y);
         assert_eq!(bar.widgets.len(), TABS_SHOWN + 1, "five tabs and the way into the rest");
         let all = bar.widgets.last().expect("the ALL button");
@@ -3560,7 +3808,7 @@ mod tests {
         // And at five or fewer it is still there, still a verb, with nothing
         // to count: the rack page is where a chamber is closed, so a rack of
         // three must be able to reach it.
-        let small = lay_out_tabs(&rack(3), tab_strip_y(3).expect("three"));
+        let small = lay_out_tabs(&rack(3), tab_strip_y(3));
         let all = small.widgets.last().expect("the ALL button");
         assert_eq!(all.line1, "ALL");
         assert_eq!(all.action, Some(Action::Panel(Panel::Chambers)));
@@ -3612,7 +3860,7 @@ mod tests {
                 check(&wid.line1, "rack button");
                 check(&wid.note, "rack explanation");
             }
-            for wid in &lay_out_tabs(&rack(7), tab_strip_y(7).expect("seven")).widgets {
+            for wid in &lay_out_tabs(&rack(7), tab_strip_y(7)).widgets {
                 check(&wid.line1, "tab face");
                 check(&wid.note, "tab explanation");
             }
