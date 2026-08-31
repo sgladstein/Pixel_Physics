@@ -2768,6 +2768,7 @@ impl World {
             flower_band: 0,
             fruit_band: 0,
             inherited: false,
+            stocked: false,
             generation: 0,
             // Founders claim theirs at the `plant_creature_seed` seam;
             // `push_organism` cannot, because it does not know whether it
