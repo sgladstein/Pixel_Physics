@@ -5,7 +5,10 @@ breeds stopped being the same number for every ant of a species and became
 something each one inherits from its parent — the last decision an ant made
 that was not its own. The same day the sealed bed's colony crash was traced
 to the colony eating the four plants nearest its own nest, measured against
-the same bed run with no ants in it. Before that: 2026-08-30, when ants bred
+the same bed run with no ants in it; the lab bed learned to be stocked with
+beetles; and it was measured that being under cover is worth a great deal to
+an ant and that the beetles are not what makes it so. Before that:
+2026-08-30, when ants bred
 for the first time. An ant close to affording young would finish its meal
 rather than carry it home — that rule has since gone, replaced by a crop
 that digests as the animal walks, so what reaches the nest is simply what
@@ -312,6 +315,28 @@ of them.
 
 That is a walking problem rather than a seeing problem, and it is written
 down as one.
+
+**And the beetles are not yet frightening, which is a separate thing and a
+larger one.** Ants that are under cover survive far better than ants in the
+open — a little over twice as well, and by nearly three times if you count
+only the tight spaces a beetle's body physically cannot get into. That is a
+real and large difference. **But it is very nearly the same difference when
+there are no beetles in the world at all.** Whatever is making shelter worth
+having, it is not the predators.
+
+Nor does a beetle punish wandering much. An ant a long way from its nest is
+*less* than half as likely to die as its share of the population would
+suggest, hunted or not — most dying happens near home, where the ants are
+crowded together, and putting nine beetles in the world barely changes where
+it happens.
+
+The reason this matters more than it sounds: for ants to end up digging
+homes to be safe in — which is the thing worth watching for — being safe
+somewhere has to be worth more than being unsafe *because of a predator*.
+The engine already has the hiding place. A one-cell tunnel takes an ant and
+refuses a beetle, purely because a beetle is a solid two-by-two block and has
+to fit; nobody wrote a rule about hiding. What it does not yet have is a
+predator that makes using it pay.
 
 ## Placing a colony, and watching what they smell
 
