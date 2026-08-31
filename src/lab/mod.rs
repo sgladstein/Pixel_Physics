@@ -207,6 +207,23 @@ pub struct OnRecord {
     pub spec: scene::LabBox,
     pub census: stats::Census,
     pub label: String,
+    /// Set while this record is being re-run back into a world.
+    ///
+    /// The row stays on the page rather than vanishing for the minute the
+    /// rebuild takes: a row that disappears when you press its own button
+    /// reads as having been thrown away.
+    pub rebuilding: bool,
+}
+
+impl OnRecord {
+    /// How many ticks this run did — **read off the census rather than stored
+    /// beside it**, because `Census::frame` *is* the world frame the run
+    /// ended on. A second copy of the number is a second thing that can be
+    /// wrong, and a rebuild that ran a different length than the record it
+    /// replaces would not be the same chamber.
+    pub fn ticks(&self) -> u64 {
+        self.census.frame
+    }
 }
 
 /// What the rack page needs to know about batches. A snapshot, because the
@@ -236,6 +253,8 @@ pub struct ChamberSummary {
     /// row is the difference between a rack that is honest about what it
     /// holds and one where some rows mysteriously do nothing.
     pub on_record: bool,
+    /// Set while an on-record row is being re-run back into a world.
+    pub rebuilding: bool,
     pub label: String,
     pub seed: u64,
     /// Simulated ticks this box has run. Frozen chambers hold still.
@@ -362,6 +381,7 @@ impl Lab {
                     index: i,
                     active,
                     on_record: false,
+                    rebuilding: false,
                     label: label.unwrap_or_else(|| format!("{}", i + 1)),
                     seed: spec.seed,
                     frame: world.frame,
@@ -376,6 +396,7 @@ impl Lab {
                 index: self.rack.len() + k,
                 active: false,
                 on_record: true,
+                rebuilding: r.rebuilding,
                 label: r.label.clone(),
                 seed: r.spec.seed,
                 frame: r.census.frame,
@@ -504,10 +525,61 @@ impl Lab {
         // explores new worlds rather than re-running the ones on the bench.
         self.batch_spec.seed0 = self.next_unused_seed();
         let spec = self.batch_spec.clone();
-        let n = spec.runs().len();
+        let runs = spec.runs();
+        let n = runs.len();
         let frames = spec.frames;
-        self.batch = Some(batch::Batch::start(spec));
-        format!("RUNNING {n} COPIES FOR {frames} TICKS EACH")
+        // **Copies of the box as it stands, not of its recipe.** The recipe
+        // says `founders: 0` on the shipped opening, so a recipe-built copy of
+        // a bed you planted by hand comes out empty -- which is exactly what
+        // the owner hit. The world carries the plants, the ants, their
+        // positions and their genomes; the seed change reaches only what
+        // happens next.
+        let template = batch::Start::Copy(Box::new(self.world.clone()));
+        self.batch = Some(batch::Batch::start_runs_from(runs, frames, spec.keep_bytes, template));
+        let alive = self.world.live_organism_count();
+        format!("RUNNING {n} COPIES OF THIS BOX ({alive} ALIVE) FOR {frames} TICKS EACH")
+    }
+
+    /// **Re-run an on-record row back into a world you can walk into.**
+    ///
+    /// The record kept its spec, and a spec plus a tick count reproduces its
+    /// run **exactly** — that is `tests/determinism.rs`'s lab bed being spent
+    /// rather than a hope, and it is the whole reason dropping the world for
+    /// the memory budget is affordable instead of lossy.
+    ///
+    /// It runs on the same background threads the batch uses, so the box on
+    /// screen keeps working. Refused while a rack is running, for
+    /// [`Lab::batch`]'s reason — and said out loud rather than ignored.
+    pub fn rebuild_record(&mut self, i: usize) -> String {
+        // The rack page numbers on-record rows after the chambers.
+        let Some(k) = i.checked_sub(self.rack.len()) else {
+            return "THAT ROW IS ALREADY A CHAMBER".to_string();
+        };
+        let Some(rec) = self.on_record.get(k) else {
+            return "NO SUCH ROW".to_string();
+        };
+        if rec.rebuilding {
+            return "ALREADY REBUILDING".to_string();
+        }
+        if self.batch.is_some() {
+            return "A RACK IS RUNNING -- STOP IT FIRST".to_string();
+        }
+        let ticks = rec.ticks();
+        let run = batch::PlannedRun {
+            index: 0,
+            setting_index: 0,
+            setting: None,
+            replicate: 0,
+            spec: rec.spec.clone(),
+        };
+        self.on_record[k].rebuilding = true;
+        // `u64::MAX` — the whole point of a rebuild is to get the world back,
+        // so it must not be dropped by the same budget that dropped it once.
+        // Recipe-built on purpose, unlike `start_batch`: this reproduces a
+        // run that was *itself* recipe-built, and its spec plus its seed is
+        // exactly what makes that reproduction exact.
+        self.batch = Some(batch::Batch::start_runs(vec![run], ticks, u64::MAX));
+        format!("REBUILDING {ticks} TICKS -- THE BOX ON SCREEN KEEPS RUNNING")
     }
 
     /// Ask a running rack to stop. Runs already finished keep their results.
@@ -540,11 +612,19 @@ impl Lab {
             match r.world {
                 // Held: it becomes a chamber you can walk into now.
                 Some(world) => {
+                    // A landed run retires the on-record row it was rebuilt
+                    // from, matched on the seed. Without this the rack shows
+                    // the same run twice — once as a chamber and once as the
+                    // record it came from — which is a rack whose count is
+                    // wrong in the direction that looks like more work got
+                    // done than did.
+                    let seed = r.spec.seed;
+                    self.on_record.retain(|rec| !(rec.rebuilding && rec.spec.seed == seed));
                     self.adopt_chamber(world, r.spec, r.census, r.history, label);
                 }
                 // On record only: the census is kept and the world is
                 // rebuilt from the spec on demand, which is exact.
-                None => self.on_record.push(OnRecord { spec: r.spec, census: r.census, label }),
+                None => self.on_record.push(OnRecord { spec: r.spec, census: r.census, label, rebuilding: false }),
             }
         }
         let Some(b) = &self.batch else { return };
@@ -561,6 +641,12 @@ impl Lab {
             } else {
                 format!("RACK DONE -- {} COPIES", p.finished)
             };
+            // Whatever happened, nothing is still rebuilding: the worker has
+            // stopped. A row left saying REBUILDING after a cancel or a panic
+            // is a button that can never be pressed again.
+            for rec in &mut self.on_record {
+                rec.rebuilding = false;
+            }
             self.ui.say(note);
         }
     }
@@ -672,6 +758,42 @@ impl Lab {
             Some(ch) => ch.thumb.as_ref(),
             None => self.thumb.as_ref(),
         }
+    }
+
+    /// **Throw away every chamber and record except the one on screen.**
+    ///
+    /// A rack of fifty is made by one click, so it needs to be unmade by one
+    /// click too — clearing it a row at a time is fifty clicks and a verb
+    /// nobody uses. The box on screen survives for `remove_chamber`'s reason:
+    /// clearing must never also move you somewhere you did not ask to go.
+    pub fn clear_rack(&mut self) -> String {
+        let chambers = self.rack.len() - 1;
+        let records = self.on_record.len();
+        if chambers == 0 && records == 0 {
+            return "NOTHING TO CLEAR -- THIS IS THE ONLY BOX".to_string();
+        }
+        // Keep only the hole the inline fields live in, and rebase `active`
+        // onto it: the rack invariant is that exactly one slot is `None`.
+        self.rack.retain(|slot| slot.is_none());
+        self.active = 0;
+        self.on_record.clear();
+        format!("CLEARED {chambers} CHAMBERS AND {records} RECORDS -- THIS BOX KEPT")
+    }
+
+    /// Discard one on-record row. Returns whether it went.
+    ///
+    /// Separate from [`Lab::remove_chamber`] because the two address
+    /// different things behind one row number: chambers first, records after
+    /// them. A record being deletable at all is the owner's ask — a run you
+    /// have read and finished with is clutter, and ~10 KB of it is still a
+    /// row you have to scroll past.
+    pub fn remove_record(&mut self, i: usize) -> bool {
+        let Some(k) = i.checked_sub(self.rack.len()) else { return false };
+        if k >= self.on_record.len() || self.on_record[k].rebuilding {
+            return false;
+        }
+        self.on_record.remove(k);
+        true
     }
 
     /// Close chamber `i`. Returns whether it went.
@@ -978,10 +1100,49 @@ impl Lab {
             ui::Tool::Cull => self.cull_at(x, y),
             ui::Tool::Keep => self.keep_at(x, y),
             ui::Tool::Release => self.release_at(x, y),
+            ui::Tool::Wall => self.wall_at(x),
             // The brushes never arrive here: they paint from `press`, so a
             // release that also painted would double the last dab.
             ui::Tool::Soil | ui::Tool::Water => {}
         }
+    }
+
+    /// Drop a wall in column `x`, or take out the one already there.
+    ///
+    /// **A toggle rather than two tools**, because the undo for "I put that
+    /// in the wrong place" has to be the same gesture as the mistake — a
+    /// separate remove-wall tool is a second thing to find at the moment you
+    /// already feel stupid.
+    ///
+    /// The wall goes into the live world **and** into the spec, so it is
+    /// there now *and* still there after a rebuild. Every other bed knob
+    /// takes effect only on rebuild; a wall that behaved that way would be a
+    /// verb whose effect you can only see by restarting, which is
+    /// `CLAUDE.md`'s second law being broken.
+    fn wall_at(&mut self, x: i32) {
+        // A little slack, because a one-cell column is not something a mouse
+        // hits exactly and the near-miss should remove the wall you were
+        // aiming at rather than build a second one beside it.
+        const REACH: i32 = 3;
+        if let Some(w) = self.spec.wall_near(x, REACH) {
+            self.spec.extra_walls.retain(|c| *c != w);
+            let spec = self.spec.clone();
+            spec.clear_wall(&mut self.world, w);
+            self.ui.say(format!("WALL AT {w} REMOVED"));
+            return;
+        }
+        let computed = self.spec.compartments > 1 && self.spec.partition_columns().contains(&x);
+        if computed {
+            // A computed partition belongs to `compartments`, and pulling one
+            // out from under that number would leave the two disagreeing.
+            self.ui.say("THAT WALL COMES FROM THE COMPARTMENTS SETTING -- CHANGE IT ON THE PARAMS PAGE".to_string());
+            return;
+        }
+        let spec = self.spec.clone();
+        spec.paint_wall(&mut self.world, x);
+        self.spec.extra_walls.push(x);
+        let n = self.spec.partition_columns().len();
+        self.ui.say(format!("WALL AT {x} -- {} COMPARTMENTS", n + 1));
     }
 
     /// Put one seed of the selected species in at `(x, y)`.
@@ -1226,8 +1387,19 @@ impl Lab {
                 self.ui.select_chamber(i);
                 self.ui.say(format!("CHAMBER {} ADDED -- SEED {seed}", i + 1));
             }
+            ui::Action::ChamberRebuild(i) => {
+                let said = self.rebuild_record(i);
+                self.ui.say(said);
+            }
+            ui::Action::ChamberSort(c) => self.ui.sort_chambers(c),
+            ui::Action::ChamberClear => {
+                let said = self.clear_rack();
+                self.ui.say(said);
+            }
             ui::Action::ChamberClose(i) => {
-                if self.remove_chamber(i) {
+                if self.remove_record(i) {
+                    self.ui.say("RECORD DISCARDED".to_string());
+                } else if self.remove_chamber(i) {
                     self.ui.say(format!("CHAMBER {} CLOSED", i + 1));
                 } else {
                     // Says why rather than doing nothing. `CLAUDE.md`'s second
@@ -1592,7 +1764,7 @@ const MAX_PLANT_LIFT: i32 = 12;
 /// have draws as a silent blank rather than as anything you would notice. That
 /// gap has shipped three times in this repo, so every line here is checked
 /// against `hud::has_glyph` by `every_help_line_is_drawable`.
-const HELP: [&str; 26] = [
+const HELP: [&str; 28] = [
     "THE EVOLUTION LAB",
     "",
     "THE BOX STARTS EMPTY. YOU STOCK IT.",
@@ -1615,7 +1787,9 @@ const HELP: [&str; 26] = [
     "           BEHIND THE VERBS",
     "G          THE SHELF -- KEPT GENETICS",
     "; \x27        DRIFT A RELEASE, IN BROODS",
-    "F1 F2 F3   PLANTS ANTS BOX   TAB STATS",
+    "F1 F2 F3 F4   PLANTS ANTS BOX RACK   TAB STATS",
+    "M KEEP   , FREE   K WALL (NO BUTTON: THE BAR IS FULL)",
+    "SHIFT+1..5   SWITCH CHAMBER    ALL   THE WHOLE RACK",
     "F RATE   WASD PAN   - = ZOOM   R REBUILD",
     "?          THIS PAGE",
     "",
@@ -1704,6 +1878,182 @@ mod tests {
         for _ in 0..n {
             lab.tick();
         }
+    }
+
+    /// **A copy carries what you planted, and the copies still differ.**
+    ///
+    /// The owner's report, on the merged code: *"I added some plants and ants
+    /// to my chamber, hit F4, tried to run copies of the same room, but all
+    /// of the copies were empty."* Exactly right. A copy was built from the
+    /// chamber's **recipe**, and the shipped binary opens on `founders: 0,
+    /// colonies: 0` — the box starts empty and you stock it — so everything
+    /// planted by hand lived in the *world*, which the recipe has never heard
+    /// of.
+    ///
+    /// The bed here is founded through the spec so the test can run headless,
+    /// but the mechanism is the one that was broken: the batch is started
+    /// from a spec with **no founders at all**, so any life in a copy can only
+    /// have arrived by cloning the live world.
+    ///
+    /// Both halves again, because either alone is green on a broken build:
+    /// the copies must **carry the stand**, and they must still **differ from
+    /// each other** — a clone that also copied the seed would satisfy the
+    /// first and make the rack one world wearing N labels.
+    #[test]
+    fn copies_carry_what_was_planted_and_still_diverge() {
+        // **A colony, and that is load-bearing rather than incidental.**
+        // Reseeding a clone changes only draws keyed on `world.seed`, and the
+        // two halves of the biosphere read it very differently:
+        //
+        //   - **creatures read it every tick** (`creature.rs`'s
+        //     `RNG_SLOT_MOVE`, `:458` and `:1695`), so ants diverge on the
+        //     next step;
+        //   - **plants read it only at seeding** (`plant.rs`'s
+        //     `seed_genotype`, `:1178`; growth is keyed on `(organism, x, y,
+        //     frame)` instead), so an established stand grows *identically*
+        //     in every copy until something new germinates or breeds.
+        //
+        // That is worth knowing rather than working around: copy a settled
+        // plant-only box and the copies hold still together until the next
+        // generation starts. A plants-only bed here made this test fail on
+        // its divergence half for a reason that was about the engine and not
+        // about the batch.
+        let mut lab = Lab::new(scene::LabBox { colonies: 1, ..rack_bed(1) });
+        run(&mut lab, 400);
+        let alive = lab.world.live_organism_count();
+        assert!(alive > 0, "the bed never germinated, so this test cannot see the thing it is about");
+
+        // **The recipe is emptied.** Anything alive in a copy now has to have
+        // come from the world, which is the whole claim.
+        lab.batch_spec.base = scene::LabBox { founders: 0, colonies: 0, ..rack_bed(1) };
+        lab.batch_spec.replicates = 3;
+        lab.batch_spec.frames = 600;
+        lab.start_batch();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(180);
+        while lab.batch.is_some() && std::time::Instant::now() < deadline {
+            lab.poll_batch();
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        assert!(lab.batch.is_none(), "the batch never finished");
+
+        let rows = lab.chamber_summaries();
+        let landed: Vec<&ChamberSummary> = rows.iter().filter(|r| r.label.starts_with("BATCH")).collect();
+        assert_eq!(landed.len(), 3, "three copies");
+        for r in &landed {
+            let c = r.census.as_ref().expect("a census");
+            assert!(
+                c.plants > 0,
+                "a copy came out EMPTY -- it was built from the recipe (0 founders) instead of copied \
+                 from the box, which is exactly the bug this test is named for"
+            );
+        }
+        // Read on the animals, for the reason at the top: they are the half
+        // that reads the seed every tick.
+        let distinct: std::collections::HashSet<(usize, usize, usize)> = landed
+            .iter()
+            .filter_map(|r| r.census.as_ref())
+            .map(|c| (c.animals, c.animal_cells, c.plant_cells))
+            .collect();
+        assert!(
+            distinct.len() > 1,
+            "the copies carry the stand but are identical -- the seed is not reaching them, so the \
+             rack is one world wearing three labels. Got {distinct:?}"
+        );
+    }
+
+    /// **REBUILD gives back the same box, not a similar one.**
+    ///
+    /// The claim the whole memory policy rests on: a run whose world was
+    /// dropped keeps ~10 KB of record instead of 2.5 MB of world, and that is
+    /// only affordable because the spec plus its tick count reproduces the run
+    /// **exactly**. `tests/determinism.rs`'s lab bed asserts the engine half;
+    /// this asserts that the rack actually spends it — that the row's spec,
+    /// its seed and its length all survive being kept as a record.
+    ///
+    /// So the assertion is not "a chamber appeared": it is that the rebuilt
+    /// chamber's census matches the record's, field for field. A rebuild that
+    /// ran the right spec for the wrong number of ticks would pass the first
+    /// and fail this.
+    #[test]
+    fn a_rebuilt_record_reproduces_its_run_exactly() {
+        let mut lab = Lab::new(rack_bed(1));
+        lab.batch_spec.replicates = 2;
+        lab.batch_spec.frames = 600;
+        // Nothing may be held, so both runs land as records rather than
+        // chambers — which is the state this verb exists for.
+        lab.batch_spec.keep_bytes = 0;
+        lab.start_batch();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(180);
+        while lab.batch.is_some() && std::time::Instant::now() < deadline {
+            lab.poll_batch();
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        assert_eq!(lab.on_record.len(), 2, "with no memory budget both runs must be records");
+        let chambers_before = lab.chamber_count();
+        let kept = lab.on_record[0].census.clone();
+        assert!(kept.frame > 0, "a record of a run that never ran");
+
+        // On-record rows are numbered after the chambers.
+        let row = lab.rack.len();
+        assert!(lab.rebuild_record(row).contains("REBUILDING"), "the verb must say it started");
+        while lab.batch.is_some() && std::time::Instant::now() < deadline {
+            lab.poll_batch();
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+
+        assert_eq!(lab.chamber_count(), chambers_before + 1, "the rebuilt row must become a chamber");
+        assert_eq!(lab.on_record.len(), 1, "the record it was rebuilt from must retire, or the rack counts the run twice");
+        let back = lab.chamber_summaries().into_iter().find(|r| r.index == chambers_before).expect("the new chamber");
+        let got = back.census.expect("a rebuilt chamber arrives with its census");
+        assert_eq!(
+            (got.frame, got.plants, got.plant_cells, got.animals, got.seeds_borne, got.germinations),
+            (kept.frame, kept.plants, kept.plant_cells, kept.animals, kept.seeds_borne, kept.germinations),
+            "the rebuild is not the run it replaced -- the record's spec, seed or length did not survive being kept"
+        );
+        assert!(lab.on_record.iter().all(|r| !r.rebuilding), "a row left stuck saying REBUILDING can never be pressed again");
+    }
+
+    /// **A hand-placed wall is there now, survives a rebuild, and comes out
+    /// with the same gesture that put it in.**
+    ///
+    /// Three claims, and the middle one is the reason the wall lives on the
+    /// *spec* rather than only in the world: every other bed knob takes
+    /// effect on rebuild, so a wall that a rebuild silently removed would put
+    /// the two halves of the same idea in a fight.
+    ///
+    /// The last assertion is the one that makes it a wall rather than a
+    /// decoration: `compartment_spans` — the function every founder, colony
+    /// and lamp is placed through — must see it, or the box looks divided and
+    /// is not.
+    #[test]
+    fn a_hand_placed_wall_holds_now_survives_a_rebuild_and_toggles_off() {
+        let mut lab = Lab::new(rack_bed(1));
+        let x = lab.spec.width / 3;
+        let spans_before = lab.spec.compartment_spans().len();
+
+        lab.ui.set_tool(ui::Tool::Wall);
+        lab.wall_at(x);
+        assert!(lab.spec.extra_walls.contains(&x), "the wall is not in the spec, so a rebuild would lose it");
+        assert_eq!(
+            lab.spec.compartment_spans().len(),
+            spans_before + 1,
+            "the placement machinery cannot see the wall -- founders and colonies would be spread straight across it"
+        );
+        // Standing in the world *now*, not on the next rebuild.
+        let mid = (lab.spec.ceiling_y() + lab.spec.bed_bottom_for_test()) / 2;
+        assert_eq!(lab.world.get(x, mid).material, crate::sim::material::STONE, "the wall was written to the spec and not to the box");
+
+        // ...and it is still there after the rebuild every bed knob triggers.
+        lab.reset();
+        assert!(lab.spec.extra_walls.contains(&x), "the rebuild dropped the wall from the spec");
+        assert_eq!(lab.world.get(x, mid).material, crate::sim::material::STONE, "the rebuild did not paint the wall back");
+
+        // The same gesture takes it out: the undo for a misplaced wall has to
+        // be the mistake repeated, not a second tool to go and find.
+        lab.wall_at(x + 1);
+        assert!(!lab.spec.extra_walls.contains(&x), "clicking near the wall did not remove it");
+        assert_eq!(lab.spec.compartment_spans().len(), spans_before, "the span did not close back up");
+        assert_ne!(lab.world.get(x, mid).material, crate::sim::material::STONE, "the stone is still standing in the box");
     }
 
     /// **A batch fills the rack, and the copies are different worlds.**

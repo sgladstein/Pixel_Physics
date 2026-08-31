@@ -1606,6 +1606,7 @@ fn default_reaction_chance() -> f32 {
     1.0
 }
 
+#[derive(Clone)]
 pub struct Material {
     pub name: String,
     pub display: String,
@@ -2375,6 +2376,7 @@ impl fmt::Display for MaterialError {
 
 impl std::error::Error for MaterialError {}
 
+#[derive(Clone)]
 pub struct MaterialRegistry {
     materials: Vec<Material>,
     by_name: HashMap<String, MaterialId>,

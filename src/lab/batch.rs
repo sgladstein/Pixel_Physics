@@ -251,6 +251,41 @@ struct Shared {
     cancel: AtomicBool,
 }
 
+/// **What every copy starts from.**
+///
+/// The distinction the owner found the hard way: *"I added some plants and
+/// ants to my chamber, hit F4, tried to run copies of the same room, but all
+/// of the copies were empty."* Exactly right, and the fault was here — a copy
+/// was built from the chamber's **recipe**, and the binary opens on
+/// `founders: 0, colonies: 0` because the box starts empty and you stock it.
+/// Everything the player plants lives in the *world*, which the recipe has
+/// never heard of.
+///
+/// So a copy now starts from the world itself, and `Fresh` is the exception
+/// rather than the rule.
+pub enum Start {
+    /// Build the bed from its recipe. Only what the recipe describes is in
+    /// it — which is nothing at all on the shipped opening.
+    Fresh,
+    /// **Copy the box exactly as it stands**, then give the copy its own
+    /// seed.
+    ///
+    /// Cloning is what makes this possible and it was not free: `World` had
+    /// no `Clone` at all, and the batch was written around that absence.
+    /// Twelve plain-data types needed the derive and nothing needed a hand
+    /// written impl.
+    ///
+    /// **The seed change reaches the future and not the past**, which is
+    /// precisely the experiment: every copy holds the same plants, the same
+    /// ants, in the same places, with the same genomes — and from the next
+    /// tick on, every draw they make differs. Same starting population,
+    /// different futures.
+    ///
+    /// **Boxed**, because a `World` is enormous beside the unit `Fresh` and
+    /// every value of this type would otherwise be sized for the larger arm.
+    Copy(Box<World>),
+}
+
 /// A batch in flight. Held by `Lab`; polled once per displayed frame.
 pub struct Batch {
     handle: Option<std::thread::JoinHandle<()>>,
@@ -280,6 +315,16 @@ impl Batch {
     /// which no `BatchSpec` can express and which is the control that says
     /// whether any of this is reproducible.
     pub fn start_runs(runs: Vec<PlannedRun>, frames: u64, keep_bytes: u64) -> Self {
+        Self::start_runs_from(runs, frames, keep_bytes, Start::Fresh)
+    }
+
+    /// As [`Batch::start_runs`], with what every copy starts from.
+    ///
+    /// The template is cloned **once** into the batch and then cloned again
+    /// per run on the worker that needs it, rather than N times up front: at
+    /// 2.5 MB a world, a fifty-copy batch would otherwise hold 125 MB before
+    /// a single tick had run.
+    pub fn start_runs_from(runs: Vec<PlannedRun>, frames: u64, keep_bytes: u64, start: Start) -> Self {
         let total = runs.len();
         let spec = BatchSpec {
             base: runs.first().map(|r| r.spec.clone()).unwrap_or_default(),
@@ -298,7 +343,7 @@ impl Batch {
             cancel: AtomicBool::new(false),
         });
         let sink = Arc::clone(&shared);
-        let handle = std::thread::spawn(move || drive(runs, frames, keep_bytes, &sink));
+        let handle = std::thread::spawn(move || drive(runs, frames, keep_bytes, &sink, &start));
         Self { handle: Some(handle), shared, started: Instant::now(), total, spec }
     }
 
@@ -355,14 +400,14 @@ impl Batch {
 /// Chunked rather than one thread per run so that a hundred-chamber batch
 /// does not spawn a hundred contending threads — `creature_space`'s rule,
 /// inherited with its reasoning.
-fn drive(runs: Vec<PlannedRun>, frames: u64, keep_bytes: u64, shared: &Arc<Shared>) {
+fn drive(runs: Vec<PlannedRun>, frames: u64, keep_bytes: u64, shared: &Arc<Shared>, start: &Start) {
     let threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4);
     for chunk in runs.chunks(threads) {
         if shared.cancel.load(Ordering::Relaxed) {
             break;
         }
         let landed: Vec<Option<RunResult>> = std::thread::scope(|scope| {
-            let handles: Vec<_> = chunk.iter().map(|run| scope.spawn(|| run_one(run, frames, shared))).collect();
+            let handles: Vec<_> = chunk.iter().map(|run| scope.spawn(|| run_one(run, frames, shared, start))).collect();
             // `.ok()` — a panicking worker is a bad spec, not a reason to
             // take the game down. `LabBox::build` asserts its floor sits
             // below the bed, and `main.rs` handles a panicking generator the
@@ -396,9 +441,21 @@ fn drive(runs: Vec<PlannedRun>, frames: u64, keep_bytes: u64, shared: &Arc<Share
 }
 
 /// One chamber, built and run headless.
-fn run_one(run: &PlannedRun, frames: u64, shared: &Arc<Shared>) -> RunResult {
-    let mut world = run.spec.build();
-    super::earth_toned_nest(&mut world);
+fn run_one(run: &PlannedRun, frames: u64, shared: &Arc<Shared>, start: &Start) -> RunResult {
+    let mut world = match start {
+        Start::Fresh => {
+            let mut w = run.spec.build();
+            super::earth_toned_nest(&mut w);
+            w
+        }
+        // Cloned per worker rather than per plan — see `start_runs_from`.
+        // The palette repaint came with the template.
+        Start::Copy(template) => (**template).clone(),
+    };
+    // **After the clone, so it reaches the copy's future and not its past.**
+    // Everything already standing in the box is identical across copies; from
+    // here on every draw they make differs.
+    world.seed = run.spec.seed;
     let mut particles = ParticleSystem::new();
     let mut blasts = Blasts::new();
     let tuning = player::Tuning::default();
@@ -530,7 +587,7 @@ mod tests {
                 kept_bytes: AtomicU64::new(0),
                 cancel: AtomicBool::new(false),
             });
-            runs.iter().map(|r| run_one(r, FRAMES, &shared).census).collect()
+            runs.iter().map(|r| run_one(r, FRAMES, &shared, &Start::Fresh).census).collect()
         };
 
         // Specificity: one seed, three copies. Anything but "identical" here

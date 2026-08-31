@@ -2512,6 +2512,7 @@ fn default_remains_half_life() -> f32 {
     6_000.0
 }
 
+#[derive(Clone)]
 pub struct Species {
     pub name: String,
     pub foliage_bands: PaletteBands,
@@ -2910,6 +2911,7 @@ pub struct Flight {
 /// Trees will need more here (an anchor/root-tip list, a shared energy
 /// pool) when that retrofit lands — deliberately not added speculatively
 /// ahead of a caller that would exercise it.
+#[derive(Clone)]
 pub struct OrganismState {
     pub species: SpeciesId,
     /// Every cell this organism currently owns.
@@ -3937,6 +3939,7 @@ pub fn jump_alleles(alleles: &mut [u8; DISCRETE_LOCI], rng: &mut super::rng::Rng
 /// without importing `brain` for one constant.
 pub const BRAIN_HIDDEN_FOR_STATE: usize = super::brain::BRAIN_HIDDEN;
 
+#[derive(Clone)]
 pub struct SpeciesRegistry {
     species: Vec<Species>,
     by_name: HashMap<String, SpeciesId>,

@@ -196,6 +196,7 @@ impl Rect {
     }
 }
 
+#[derive(Clone)]
 pub struct Chunk {
     pub coord: ChunkCoord,
     /// Boxed: 64*64*4 = 16 KB is far too large to move around by value.
