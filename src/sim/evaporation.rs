@@ -348,6 +348,65 @@ const SOIL_DRY_PER_CHECK: u16 = FILL_PER_CHECK;
 /// stops rescheduling, exactly as a drained puddle does.
 const SOIL_DRY_FLOOR: u16 = super::material::SOIL_WILTING_POINT;
 
+/// Smallest share of atmospheric demand a drying soil cell will fall to,
+/// however dry it is. See `soil_wetness_factor` — a brake that reaches zero
+/// makes the sink unreachable and reopens `open-bugs-handoff.md` §F8.
+const SOIL_DRY_RATE_FLOOR: f32 = 0.25;
+
+/// **How much the soil's own wetness slows its drying** — the term this rate
+/// did not have, and the reason it could not have one before.
+///
+/// Every other factor in the rate is a property of the *air*: humidity,
+/// shelter, warmth. Together they are atmospheric demand, and demand alone
+/// is the right model only while the surface is wet enough to meet it. Real
+/// soil dries in two stages — a constant-rate stage set by demand, then a
+/// falling-rate stage set by how fast water reaches the surface — and this
+/// engine only had the first. A bare bed therefore dried at full rate right
+/// down to the floor.
+///
+/// **It could not matter until capillary worked**, which is why it was
+/// missing rather than wrong. With the old rest threshold nothing resupplied
+/// a drying surface, so the sink emptied `SOIL_DRY_REACH` rows and stopped
+/// against an empty cell; the brake would have changed only how fast it got
+/// there. Now that `update.rs` equalises unsaturated soil, the surface is
+/// refilled from below as fast as it dries, and an unbraked sink is a wick
+/// straight out of the bed: measured without this, every row of the rooting
+/// zone read **180, the wilting point**, by frame 12,000, which kills the
+/// stand outright. `Reports/dead-ends.md` carries that run.
+///
+/// **`plant_available_fraction`, not a new curve.** It is already the
+/// engine's answer to "how wet is this soil, in the band that matters" — 1
+/// at field capacity, 0 at the wilting point, which is exactly
+/// `SOIL_DRY_FLOOR`. So a bed at field capacity dries at precisely the rate
+/// it always did (the factor is 1 and this change is invisible on wet
+/// ground), and the rate falls to nothing as the soil approaches the floor
+/// the sink was already clamped to. Reusing it also means the sink and the
+/// plants agree about what counts as dry, rather than the engine carrying
+/// two opinions.
+///
+/// **The floor is not slack, it is what keeps the sink reachable**, and it
+/// was put there by a guard rather than by taste. Scaling straight by
+/// `plant_available_fraction` sends the rate to zero as soil approaches the
+/// wilting point, and
+/// `evaporation::tests::unplanted_soil_gives_water_back_to_the_air` went red
+/// on two of its three seeds: soil moisture **monotone non-decreasing across
+/// four weather epochs**, which is `open-bugs-handoff.md` §F8 exactly — a
+/// bed with three sources and no reachable sink. A brake that can reach zero
+/// is not a brake, it is a second version of the bug this file was written
+/// to fix. So the rate falls to a quarter of demand and no further: dry
+/// ground still gives water back, just slowly.
+///
+/// **It slows the leak, it does not close it**, and that is the honest
+/// bound: with any non-zero sink and no rain, a sealed box still drains
+/// eventually. Closing it needs humidity to be a conserved quantity that
+/// *rises* as soil dries — the field currently derives humidity *from* soil
+/// moisture, so drying soil lowers humidity and speeds its own drying, which
+/// is a runaway rather than a brake. Owner's call, 2026-08-31: this now, the
+/// water cycle when it gets its own pass.
+fn soil_wetness_factor(cell: Cell) -> f32 {
+    SOIL_DRY_RATE_FLOOR + (1.0 - SOIL_DRY_RATE_FLOOR) * super::update::plant_available_fraction(cell)
+}
+
 /// Schedule a damp soil cell to be checked for drying.
 ///
 /// **Called where soil is *wetted*, not from the sweep**, and that is the
@@ -507,7 +566,10 @@ fn tick_soil(world: &mut World, x: i32, y: i32, stale_ticks: u8) -> Vec<ActiveSi
     let reschedule =
         ActiveSite { x, y, kind: ActiveKind::Evaporate { stale_ticks: 0 }, next_frame: world.frame + CHECK_INTERVAL };
 
-    let rate = dryness_counted(world, x, y, true) * (1.0 - shelter(world, x, y)) * warmth(world, x, y);
+    let rate = dryness_counted(world, x, y, true)
+        * (1.0 - shelter(world, x, y))
+        * warmth(world, x, y)
+        * soil_wetness_factor(cell);
     let loss = (SOIL_DRY_PER_CHECK as f32 * rate / (depth + 1) as f32) as u16;
     if loss == 0 {
         // Sheltered or saturated air. Still on the schedule, for the reason
