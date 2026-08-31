@@ -122,7 +122,7 @@ fn main() {
             def.traits[TRAIT_BIRTH_GRANT] = grant * 2.0 - 1.0;
         }
         if hunger >= 0.0 {
-            def.hunger_fraction = hunger;
+            def.digest_rate = hunger;
         }
         if mutation_rate >= 0.0 {
             def.mutation_rate = mutation_rate;
@@ -211,20 +211,31 @@ fn main() {
         if world_terrain { "world" } else { "slab" }
     );
     println!(
-        "  economy: start_energy {:.0} body_energy {:.0} hunger_fraction {:.2} threshold {:.0} mutation_rate {:.3} grant {:.2} (= {:.0}) | gut {gut_bias:+.2} (founder reads {})",
+        "  economy: start_energy {:.0} body_energy {:.0} crop {:.0} digest {:.2}/tick threshold {:.0} mutation_rate {:.3} grant {:.2} (= {:.0}) | gut {gut_bias:+.2} (founder reads {})",
         def.start_energy,
         def.body_energy,
-        def.hunger_fraction,
+        def.crop_capacity,
+        def.digest_rate,
         def.reproduce_threshold,
         def.mutation_rate,
         grant_fraction(def.traits[TRAIT_BIRTH_GRANT]),
         pixel_physics::sim::creature::birth_grant(&def, &def.traits),
         founder_gut.map_or("NO LIVE FOUNDER".to_string(), |g| format!("{g:+.2}")),
     );
+    // **A rate, not a ceiling, and the distinction is this harness's whole
+    // subject.** Its finding was that one number -- `ceiling - bar` --
+    // governs regardless of mechanism, every negative margin giving exactly
+    // zero births. The crop removes the ceiling (an animal digests at a rate
+    // and nothing stops it eating), so the governing number becomes whether
+    // an animal out-eats its upkeep, and how long a child then takes. The
+    // *shape* of the finding survives: a non-positive rate is still an exact
+    // zero-births prediction.
+    let upkeep = def.idle_cost_per_cell * def.body.len() as f32;
+    let rate_on = |mouthful: f32, face: f32| -> f32 {
+        def.digest_rate * if face > 0.0 { mouthful / face } else { 0.0 } - upkeep
+    };
     println!(
-        "  bar: birth costs {bar:.0} | ceiling on the whole material table {:.0} (best mouthful {table_best:.0}) | ceiling on food STANDING IN THIS WORLD {:.0} (best mouthful {world_best:.0})",
-        def.hunger_fraction * def.start_energy + table_best,
-        def.hunger_fraction * def.start_energy + world_best,
+        "  bar: birth costs {bar:.0} | upkeep {upkeep:.3}/tick | best mouthful on the whole table {table_best:.0}, standing in this world {world_best:.0}",
     );
     println!("  standing food this gut can see (>{EAT_YIELD_THRESHOLD:.0}), before the run:");
     for r in &standing {
@@ -324,8 +335,8 @@ fn main() {
         st.eats,
         if live > 0 { gut_sum / live as f64 } else { f64::NAN },
         pixel_physics::sim::creature::reproduce_at(&def).unwrap_or(f32::NAN),
-        def.hunger_fraction * def.start_energy + world_best,
-        def.hunger_fraction * def.start_energy + world_best_end,
+        world_best,
+        world_best_end,
     );
 }
 

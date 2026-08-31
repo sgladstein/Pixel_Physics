@@ -63,7 +63,7 @@ use super::cell::{Cell, AMBIENT_TEMPERATURE};
 use super::chunk::Rect;
 use super::field;
 use super::material::{self, MaterialKind};
-use super::organism::{pack_cell_type, Carried, CellType, CreatureDef, Flight, ShadeRule, SpeciesId, CREATURE_TRAITS, TRAIT_BIRTH_GRANT, TRAIT_GUT_BIAS};
+use super::organism::{pack_cell_type, Carried, CellType, Crop, CreatureDef, Flight, ShadeRule, SpeciesId, CREATURE_TRAITS, TRAIT_BIRTH_GRANT, TRAIT_GUT_BIAS};
 use super::pheromone::{self, Channel};
 use super::rng;
 use super::scheduler::{ActiveKind, ActiveSite};
@@ -1162,7 +1162,7 @@ fn carried_cells(world: &World, organism: u16, def: &CreatureDef) -> f32 {
     if def.body_energy <= 0.0 {
         return 0.0;
     }
-    world.organism(organism).and_then(|s| s.carrying).map_or(0.0, |c| c.worth as f32 / def.body_energy)
+    world.organism(organism).and_then(|s| s.crop).map_or(0.0, |c| c.worth / def.body_energy)
 }
 
 /// **What one birth costs the parent**: the child's metabolic grant plus
@@ -1707,7 +1707,48 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
         }
     }
 
-    let mut sites = apply_creature_energy(world, hx, hy, organism, -spent, def);
+    // --- digest ---------------------------------------------------------
+    //
+    // **A rate, and deliberately not a roll.** A probabilistic digestion step
+    // would be a gate wearing a rate's clothes -- reintroducing exactly the
+    // thing the crop exists to delete -- and it would take a draw from the
+    // stream `act` and the move verb share, which
+    // `the_mutation_rate_does_not_change_who_gets_born` depends on being
+    // stable. It lives here beside the metabolism charges rather than in
+    // `act` for the same reason: digesting is something a body does, not
+    // something an animal decides.
+    //
+    // **Booked here and nowhere else.** The live identity is an equality
+    // between `sum(state.energy)` and `expected_live_total`, so the credit
+    // has to land in the same breath as the animal receives it. Crediting at
+    // intake would open it by every stomach in the world; crediting at the
+    // drop would credit food the animal never absorbed.
+    let digested = if def.digest_rate > 0.0 {
+        let gut = gut_of(world, organism, def);
+        world.organism(organism).and_then(|s| s.crop).map_or(0.0, |c| {
+            let d = c.worth.min(def.digest_rate);
+            // The gut's filter applies here, where the food is actually
+            // absorbed -- the crop holds face value, and the difference
+            // between the two is the digestive loss `max_standing_meat`
+            // already carries as one-directional slack.
+            let quality = diet_quality(world, c.material, gut.bias);
+            let gain = d * quality;
+            if let Some(state) = world.organism_mut(organism) {
+                state.crop = if c.worth - d > 0.0 { Some(Crop { worth: c.worth - d, ..c }) } else { None };
+            }
+            if world.materials.get(c.material).worth_in_aux {
+                world.energy_ledger.harvested_corpse += gain as f64;
+            } else {
+                world.energy_ledger.harvested_plant += gain as f64;
+            }
+            world.creature_stats.digested_face += d as f64;
+            gain
+        })
+    } else {
+        0.0
+    };
+
+    let mut sites = apply_creature_energy(world, hx, hy, organism, digested - spent, def);
 
     // --- bud, last, and only if the tick was survived -------------------
     // **After the charge, not before.** An animal that spent its way to
@@ -1824,7 +1865,20 @@ fn sense(
 
     if let Some(state) = world.organism(organism) {
         inputs[I::Energy as usize] = (state.energy / def.start_energy.max(1.0)).clamp(0.0, 1.0);
-        inputs[I::Carrying as usize] = if state.carrying.is_some() { 1.0 } else { 0.0 };
+        // **Graded, and this is what replaced `hunger_fraction`.** As a
+        // boolean this said only "holding something"; as crop fill it says
+        // *how full*, which is the quantity the four hidden units in
+        // `ant.ron` gate the run on. The eat-or-carry crossover therefore
+        // stops being a species constant and becomes those units' bias
+        // weights -- which mutate. That is the whole point of the change: a
+        // number nobody could select on became a gene.
+        //
+        // Falls back to `crop_capacity` of 0 reading 0.0 rather than
+        // dividing by zero, so a species that never authored a crop is
+        // exactly the boolean's `false`.
+        inputs[I::Carrying as usize] = state.crop.map_or(0.0, |c| {
+            if def.crop_capacity > 0.0 { (c.worth / def.crop_capacity).clamp(0.0, 1.0) } else { 1.0 }
+        });
     }
 
     // **A creature is not crowded by itself**, and it was: this scan
@@ -1935,15 +1989,26 @@ pub fn diet_yield(world: &World, cell: Cell, gut_bias: f32) -> f32 {
     if worth <= 0.0 {
         return 0.0;
     }
-    let class = world.materials.get(cell.material).food_class;
+    worth * diet_quality(world, cell.material, gut_bias)
+}
+
+/// **How much of a mouthful this gut actually absorbs**, in `0..=1`.
+///
+/// Extracted from `diet_yield` rather than duplicated beside it, because the
+/// crop's digestion step needs exactly this factor and a second copy is a
+/// readout derived separately from the mechanism it describes -- the standing
+/// house rule, and the failure `food_value`'s own doc records for the eat verb
+/// and the overlay disagreeing about what a cell is worth.
+pub fn diet_quality(world: &World, material: material::MaterialId, gut_bias: f32) -> f32 {
+    let class = world.materials.get(material).food_class;
     // Clamped rather than assumed in range: both operands are authored
-    // f32s today and will be *mutated* f32s at S6, and a gut that drifted
+    // f32s today and are *mutated* f32s since S6, and a gut that drifted
     // past +-1 would otherwise make the squared term climb again past the
     // far end of the axis -- a carnivore at +3 rating leaves better than a
     // carnivore at +1. Clamping the quality, not the gene, keeps the
     // arithmetic honest without silently rewriting anybody's genome.
     let quality = (1.0 - (gut_bias - class).abs() / 2.0).clamp(0.0, 1.0);
-    worth * quality * quality
+    quality * quality
 }
 
 /// **The yield below which a mouthful is not food at all**, and the number
@@ -2249,7 +2314,7 @@ fn moisture_gradient(world: &World, x: i32, y: i32) -> f32 {
 /// ragged, real-looking walls, where a threshold builds a clean line.
 fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outputs: &[f32; brain::BRAIN_OUTPUTS], draw: &mut rng::Rng) {
     use brain::BrainOutput as O;
-    let carrying = world.organism(organism).and_then(|s| s.carrying);
+    let crop = world.organism(organism).and_then(|s| s.crop);
     let dig_urge = outputs[O::Dig as usize].clamp(0.0, 1.0);
     // **Feeding is its own verb, and it was not.** Both branches below used
     // to roll against `dig_urge`, so one weight decided whether an animal
@@ -2259,23 +2324,36 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
     // grazer while the two share a gene.
     let feed_urge = outputs[O::Feed as usize].clamp(0.0, 1.0);
     let drop_urge = outputs[O::Drop as usize].clamp(0.0, 1.0);
-    let bank = world.organism(organism).map_or(0.0, |s| s.energy);
-    let hungry = bank < def.start_energy * def.hunger_fraction;
-    // **The bar this individual actually has to clear to bud**, read through
-    // the same two functions `try_bud` reads it through so the feeding rule
-    // and the birth cannot disagree — the standing house rule that a readout
-    // derived separately from the mechanism it describes is a readout that
-    // can be wrong on its own. `None` for a species that does not reproduce,
-    // which is what makes the provisioning branch below byte-identical for
-    // everything that does not breed.
-    let bud_bar = world.organism(organism).and_then(|s| {
-        reproduce_at(def).map(|t| t.max(birth_cost_of(def, birth_grant(def, &s.traits)) + 1.0))
-    });
 
-    // --- eat / pick up --------------------------------------------------
+    // --- ingest ---------------------------------------------------------
+    //
+    // **Nothing here decides between eating and carrying, because there is
+    // no such decision any more.** What stood here was three hand-authored
+    // gates in a trench coat: eat below `hunger_fraction * start_energy`,
+    // carry above it, and -- Gate 0 -- eat again if *this exact mouthful*
+    // would close the gap to a birth bar, or if you happened to be standing
+    // at the nest. Each was added because a behaviour we wanted did not
+    // emerge, and the last of them had an ant doing arithmetic about the
+    // price of its own children.
+    //
+    // An animal now takes what it finds and digests it as it walks
+    // (`creature_tick`). What arrives home is what has not been metabolised
+    // on the way, so the eat-or-carry *outcome* is a consequence of trip
+    // time. That is central-place foraging emerging rather than being
+    // asserted -- and it is falsifiable, which the gates never were: if
+    // delivered load does not fall with distance, this model is wrong.
     let gut = gut_of(world, organism, def);
-    if carrying.is_none() {
-        if let Some((offer, fxx, fyy, food)) = adjacent_food(world, x, y, gut) {
+    let cap = def.crop_capacity;
+    if crop.is_none_or(|c| c.worth < cap) {
+        // **Single-material, and refusing is structural rather than fussy.**
+        // See `Crop`: a mixed load has no honest answer for `carried_meat`'s
+        // `worth_in_aux` filter, and a drop that returned whichever material
+        // arrived last would leak worth across the price table -- 480 in as
+        // leaf, 1,440 out as flower. An animal with meat in its crop is
+        // therefore blind to plant matter *as a load* until the meat digests
+        // down, which is a trade (foragers work in runs on one resource)
+        // rather than a rule about preference.
+        if let Some((offer, fxx, fyy, food)) = adjacent_food(world, x, y, gut).filter(|&(_, _, _, m)| crop.is_none_or(|c| c.material == m)) {
             // **The near side of `best_bite`, recorded before the roll.** An
             // animal that was offered a flower and failed its feed roll, and
             // one that never came near a flower, are the same `best_bite` and
@@ -2310,61 +2388,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
                 // so the menu did not move -- and nothing else could,
                 // because the eat verb was still crediting face value.
                 let worth = food_value(world, bite);
-                let gain = diet_yield(world, bite, gut.bias);
-                let banked = world.materials.get(bite.material).worth_in_aux;
                 let shade = bite.shade;
-                // **Provisioning: an animal that can turn this mouthful into
-                // a child swallows it instead of carrying it home.**
-                //
-                // Without this the bank has a hard roof at `hunger_fraction *
-                // start_energy + one mouthful` — an ant stops eating the
-                // instant it is over the satiety line and ferries everything
-                // after that to the nest — and Gate 0 dies against it by
-                // **40 points**: measured 2026-08-30 on the lab bed at
-                // `gut_bias = -1.0` with windfall on the floor, the highest
-                // bank any ant ever held was **1,060** against a bud bar of
-                // 1,100. The animal was not short of food. It was full, and
-                // being full is what stopped it.
-                //
-                // **Gated on this single bite finishing the job, which is
-                // what keeps the colony's delivery loop intact.** The obvious
-                // rule — *keep eating while below the birth bar* — is the
-                // recorded `hunger_fraction` dead end in a new costume: every
-                // ant is below the bar essentially always, so nothing would
-                // ever be carried home again (deliveries 1,733 -> 3 when that
-                // was tried directly). Restricted to the mouthful that alone
-                // reaches the bar, the ladder is at most one rung longer than
-                // satiety already allows, it fires only in front of the best
-                // food in the world, and everything smaller still goes to the
-                // nest.
-                //
-                // It needs no new constant, and it is the same trade a real
-                // forager makes: the meal that buys a brood is the one you do
-                // not bring back.
-                //
-                // **Two ways it fires, and the second is the colony's own
-                // loop finally being load-bearing.** Out on the route, the
-                // mouthful has to finish the job by itself. *At the nest* it
-                // does not: an animal standing in its own larder, short of
-                // the bar, keeps eating — which is what a colony's stores
-                // are *for*, and until now nothing in the engine ever read
-                // them back. Foragers still carry everything home; what
-                // changes is that the pile at the nest can become an ant
-                // instead of only ever being a pile.
-                //
-                // The nest clause is also what takes the knife-edge out.
-                // With the first clause alone the ladder is exactly two
-                // rungs — satiety, then one mouthful big enough to bridge —
-                // and on this bed that leaves a 19-point window between what
-                // an ant can hold and what a child costs. At the nest the
-                // ladder is as long as the larder, so whether a colony
-                // breeds is a question about how well it forages rather
-                // than about whether one ant was standing at the right
-                // energy when it met the right cell.
-                let provisioning = !hungry
-                    && bud_bar.is_some_and(|barrier| {
-                        bank < barrier && (bank + gain >= barrier || adjacent_nest(world, x, y, def))
-                    });
                 // If the mouthful belonged to somebody, tell them. Without
                 // this the victim keeps running on a chain that includes
                 // the cell just removed from it.
@@ -2373,121 +2397,101 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
                 if victim != 0 && victim != organism {
                     reconcile_chain(world, victim);
                 }
-                if hungry || provisioning {
-                    if let Some(state) = world.organism_mut(organism) {
-                        state.energy += gain;
-                    }
-                    // **Two accounts, because they are two different
-                    // things.** Meat came out of a stock something paid
-                    // for; plant matter is still free, and saying so in the
-                    // census is the only reason the sealed-box test can
-                    // tell a closed loop from the sun.
-                    //
-                    // **Booked at `gain`, not at `worth`, and which one it
-                    // is decides which identity survives S5.** The live
-                    // identity is an equality and catches charges that do
-                    // not land, so it has to see exactly what the animal
-                    // received; booking face value against a gut that only
-                    // absorbed a quarter of it would conjure the rest. The
-                    // meat identity is already an upper bound (see
-                    // `EnergyLedger`), and under-subtracting from it leaves
-                    // it a *valid* bound, just looser -- the digestive loss
-                    // joins the `meat_lost` seam as slack rather than
-                    // breaking anything. If that slack is ever wanted
-                    // tight, it needs its own sink term beside
-                    // `meat_lost`, which is WP-6's file and not this one's.
-                    if banked {
-                        world.energy_ledger.harvested_corpse += gain as f64;
-                    } else {
-                        world.energy_ledger.harvested_plant += gain as f64;
-                    }
-                    world.creature_stats.eats += 1;
-                    world.creature_stats.best_bite = world.creature_stats.best_bite.max(gain);
-                } else {
-                    // Full: carry it home instead of eating it. This is the
-                    // whole reason a colony accumulates stores rather than
-                    // every ant simply feeding itself.
-                    if let Some(state) = world.organism_mut(organism) {
-                        state.carrying = Some(Carried { material: food, worth: quantise_worth(worth), shade });
-                    }
-                    world.creature_stats.pickups += 1;
+                // **Into the crop at face value, and nothing is booked
+                // here.** The ledger's live identity is an *equality*
+                // between `sum(state.energy)` and `expected_live_total`,
+                // and a crop is not `state.energy` -- so crediting
+                // `harvested_*` at intake would open it by the whole
+                // contents of every stomach in the world (twelve ants
+                // holding a leaf each is 5,760 against a slack of 1).
+                // Digestion is where an animal actually receives anything,
+                // so digestion is where it is booked (`creature_tick`).
+                //
+                // Face rather than `diet_yield`, for the reason
+                // `carried_meat` needs: standing food is priced at face by
+                // `standing_meat`, so a pickup that entered the crop at a
+                // gut-filtered value would look like matter vanishing.
+                // The gut is applied when the food is absorbed, not when
+                // it is swallowed.
+                if let Some(state) = world.organism_mut(organism) {
+                    state.crop = Some(match state.crop {
+                        // **`unit` takes the min, not the last.** Corpses
+                        // carry per-cell worth in `aux`, so a crop filled
+                        // from a rich corpse and a poor one could otherwise
+                        // put back a cell worth more than the cheapest that
+                        // went in -- a small pump, one-directional, and
+                        // exactly the kind evolution finds. Taking the min
+                        // makes the leak run the safe way.
+                        Some(c) => Crop { worth: c.worth + worth, unit: c.unit.min(worth), ..c },
+                        None => Crop { material: food, shade, unit: worth, worth },
+                    });
                 }
+                world.creature_stats.pickups += 1;
+                // Same event, both counters: see `CreatureStats::eats`. The
+                // two verbs merged when the decision between them went away.
+                world.creature_stats.eats += 1;
+                world.creature_stats.best_bite = world.creature_stats.best_bite.max(worth);
                 return;
             }
         }
     }
 
-    // --- eat what is being carried --------------------------------------
+    // --- drop -----------------------------------------------------------
     //
-    // **An animal holding food must not starve to death holding it**, and
-    // before this it always did. The eat branch above is gated on
-    // `carrying.is_none()` and the drop branch below returns
-    // unconditionally, so a laden creature had no path back to feeding: the
-    // only way to put a load down was to *want* to drop it, and out on the
-    // route that roll is multiplied by the moisture gradient.
+    // **The "eat what is being carried" branch that stood between here and
+    // the ingest above is gone, and it is gone structurally rather than by
+    // being moved.** It existed because a laden animal had no path back to
+    // feeding -- the eat branch was gated on holding nothing and this one
+    // returned unconditionally -- so an ant would stand still and starve
+    // with a full mandible. A crop digests by existing, so the situation the
+    // branch handled cannot arise.
     //
-    // Found by the sessile-grazer probe, which could not be made to
-    // measure anything until it was fixed. Every run of that scene ended
-    // the same way and at the same count -- the ant ate until one meal
-    // carried it back over `hunger_fraction`, picked the next cell up
-    // instead of eating it, and then stood still until it starved. It read
-    // as "moss is not a pump", and it was really "nothing in this scene can
-    // eat more than twice": an unlimited static wall of leaf produced
-    // **exactly the same 2 eats and the same death**, which is the control
-    // that separated the two. `CLAUDE.md`: when every setting fails the
-    // same way, suspect the sweep.
-    //
-    // Deliberately gated on `hungry` and not on the drop rules, because
-    // this is the starvation path and not a second way to unload. A colony
-    // ant only reaches it when it is under half its budget with a full
-    // mandible, which is a real trade -- the load was going to the nest and
-    // now it does not -- and it is the trade that keeps the ant alive to
-    // carry the next one.
-    if let (Some(held), true) = (carrying, hungry) {
-        if draw.unit_f32() < feed_urge {
-            // The gut applies here too: swallowing what you are holding is
-            // still swallowing. The stored `worth` stays face value because
-            // the *other* exit from this branch puts the cell back in the
-            // world (see `Carried`), and only this one digests it.
-            let gain = diet_yield(world, held.into_cell(world), gut.bias);
-            if let Some(state) = world.organism_mut(organism) {
-                state.energy += gain;
-                state.carrying = None;
+    // **A cell leaves the crop only at whole unit worth.** Under one unit
+    // the drop does nothing and control falls through to dig, which is also
+    // what keeps `digs > 0` reachable now that animals are laden more of the
+    // time: an animal with nothing it can put down has nothing else to do.
+    // Fractional deposits were the alternative and they are a pump an ant
+    // can run standing still -- ingest 480, digest 60, put back 480,
+    // re-ingest.
+    if let Some(held) = crop {
+        let unit = held.unit_cell(quantise_worth);
+        let q = unit.worth as f32;
+        // **Debit the quantised number, not `unit`.** `into_cell` writes
+        // `round(unit)`, so debiting the float would let a cell land worth up
+        // to half a joule more than what left the stomach -- per delivery,
+        // against a biomass monotonicity bar asserted at 1e-6. Subtracting
+        // exactly what was written makes the drop conservative by
+        // construction rather than by tolerance.
+        if q > 0.0 && held.worth >= q {
+            let at_nest = adjacent_nest(world, x, y, def);
+            // At the nest it is storage and always wanted; out on the route it
+            // is construction, and *there* the moisture bias decides.
+            let p = if at_nest { drop_urge } else { drop_urge * moisture_gradient(world, x, y) };
+            if draw.unit_f32() < p {
+                if let Some((dx, dy)) = NEIGHBOURS_8.iter().map(|&(dx, dy)| (x + dx, y + dy)).find(|&(px, py)| world.is_empty(px, py)) {
+                    world.set(dx, dy, unit.into_cell(world));
+                    if let Some(state) = world.organism_mut(organism) {
+                        // **The residue stays in the crop rather than being
+                        // cleared.** Setting `None` here would destroy matter
+                        // the meat census has already counted in transit;
+                        // digestion is what finishes a sub-unit remainder.
+                        state.crop = state.crop.map(|c| Crop { worth: c.worth - q, ..c });
+                    }
+                    world.creature_stats.drops += 1;
+                    if at_nest {
+                        world.creature_stats.deliveries += 1;
+                    }
+                }
             }
-            if world.materials.get(held.material).worth_in_aux {
-                world.energy_ledger.harvested_corpse += gain as f64;
-            } else {
-                world.energy_ledger.harvested_plant += gain as f64;
-            }
-            world.creature_stats.eats += 1;
-            world.creature_stats.best_bite = world.creature_stats.best_bite.max(gain);
             return;
         }
     }
 
-    // --- drop -----------------------------------------------------------
-    if let Some(held) = carrying {
-        let at_nest = adjacent_nest(world, x, y, def);
-        // At the nest it is storage and always wanted; out on the route it
-        // is construction, and *there* the moisture bias decides.
-        let p = if at_nest { drop_urge } else { drop_urge * moisture_gradient(world, x, y) };
-        if draw.unit_f32() < p {
-            if let Some((dx, dy)) = NEIGHBOURS_8.iter().map(|&(dx, dy)| (x + dx, y + dy)).find(|&(px, py)| world.is_empty(px, py)) {
-                world.set(dx, dy, held.into_cell(world));
-                if let Some(state) = world.organism_mut(organism) {
-                    state.carrying = None;
-                }
-                world.creature_stats.drops += 1;
-                if at_nest {
-                    world.creature_stats.deliveries += 1;
-                }
-            }
-        }
-        return;
-    }
-
     // --- dig --------------------------------------------------------------
-    // Only reached with nothing to eat and nothing carried. Gated on the
+    // Reached with nothing edible in reach, or with a crop that cannot yield
+    // a whole cell to put down -- which since the crop landed includes a
+    // sub-unit residue, and is what keeps this verb reachable for an animal
+    // that is laden most of the time. Gated on the
     // material's own `penetration_resistance` against this species'
     // `dig_force` -- the pattern roots already use, never a name whitelist,
     // so a future softer stone becomes diggable with no code change.
@@ -3603,11 +3607,28 @@ pub fn standing_meat(world: &World, area: Rect) -> f64 {
 /// The same stock, in transit. A carrier holding a corpse cell is holding
 /// meat that is not in any cell of the world, and leaving it out is how a
 /// census reports a delivery run as an energy leak.
+///
+/// **Priced at face, and both other choices were traced and both go red.**
+/// `standing_meat` prices a cell on the ground through `food_value`, which is
+/// face value, so this has to use the same scale or the two disagree about
+/// what a pickup did:
+///
+/// * ignore the crop entirely and digestion raises `live` tick after tick
+///   with nothing falling to match -- `creature_biomass` climbs and
+///   `a_sealed_colony_never_grows_its_own_biomass` fails at 1e-6;
+/// * price it at *yield* (`worth * diet_quality`) and digestion balances, but
+///   the **pickup** drops biomass by the filtered fraction in one step and a
+///   drop puts it back -- so biomass rises on every delivery instead.
+///
+/// Face is the only scale under which matter neither appears nor vanishes at
+/// the moment food crosses into an animal. The gut's loss is taken where the
+/// gut acts: at digestion, as the one-directional slack `max_standing_meat`
+/// already names.
 pub fn carried_meat(world: &World) -> f64 {
     world
         .live_organism_ids()
         .into_iter()
-        .filter_map(|id| world.organism(id).and_then(|s| s.carrying))
+        .filter_map(|id| world.organism(id).and_then(|s| s.crop))
         .filter(|held| world.materials.get(held.material).worth_in_aux)
         .map(|held| held.worth as f64)
         .sum()
@@ -3714,7 +3735,7 @@ pub fn slay(world: &mut World, x: i32, y: i32) -> bool {
 }
 
 fn creature_dies(world: &mut World, organism: u16) {
-    let held = world.organism(organism).and_then(|s| s.carrying);
+    let held = world.organism(organism).and_then(|s| s.crop);
     // **The bank, and what of it was actually there.** These differ: a
     // creature is declared dead at or below zero, and the tick that killed
     // it debited a full charge against whatever was left, so `bank` is
@@ -3833,9 +3854,30 @@ fn creature_dies(world: &mut World, organism: u16) {
     // Same rule the drop verb uses -- first empty cell in the
     // 8-neighbourhood -- so a carrier that dies leaves its load beside its
     // body exactly as one that dropped it would.
+    //
+    // **Whole units out, and the sub-unit residue is booked rather than
+    // folded into the corpse.** Folding it into the body's `aux` is the
+    // tempting move and it mints meat for a *plant* crop: a leaf's worth is
+    // not meat, and writing it into a corpse cell makes it so, which
+    // `the_standing_meat_never_exceeds_what_was_put_into_it` catches. What
+    // the remainder is depends on what it was -- meat that nothing will now
+    // eat is `meat_lost`; a half-digested leaf never entered the meat stock
+    // and needs no booking at all.
     if let (Some(held), Some(&(cx, cy))) = (held, chain.last()) {
-        if let Some((dx, dy)) = NEIGHBOURS_8.iter().map(|&(dx, dy)| (cx + dx, cy + dy)).find(|&(px, py)| world.is_empty(px, py)) {
-            world.set(dx, dy, held.into_cell(world));
+        let unit = held.unit_cell(quantise_worth);
+        let q = unit.worth as f32;
+        let mut left = held.worth;
+        if q > 0.0 {
+            while left >= q {
+                let Some((dx, dy)) = NEIGHBOURS_8.iter().map(|&(dx, dy)| (cx + dx, cy + dy)).find(|&(px, py)| world.is_empty(px, py)) else {
+                    break;
+                };
+                world.set(dx, dy, unit.into_cell(world));
+                left -= q;
+            }
+        }
+        if left > 0.0 && world.materials.get(held.material).worth_in_aux {
+            world.energy_ledger.meat_lost += left as f64;
         }
     }
     world.creature_stats.deaths += 1;
@@ -4801,11 +4843,13 @@ mod tests {
         // nothing to do with the gene under test. The first draft of this
         // scene did exactly that -- the corpse sat where the tail goes.
         assert_ne!(ant, 0, "the ant was not placed; the scene does not contain the situation this test is about");
-        // Hungry, or it carries its food home instead of eating it and the
-        // counter under test never moves for a reason that is not the gene.
-        if let Some(state) = w.organism_mut(ant) {
-            state.energy = def.start_energy * def.hunger_fraction * 0.5;
-        }
+        // **No longer seeded hungry, and the reason it used to be is gone.**
+        // This set `energy` below `hunger_fraction * start_energy` so the eat
+        // branch was reachable at all; with a crop an animal always ingests
+        // and digests by existing, so the gene under test is exercised
+        // whatever the bank says. Leaving the seed in would be a scene
+        // holding a condition the code no longer has.
+        let _ = def;
         run(&mut w, 400);
         (w.creature_stats.eats, w.creature_stats.digs)
     }
@@ -5498,8 +5542,14 @@ mod tests {
             w.organism_mut(ant).expect("live").energy = 300.0;
             run(&mut w, 20_000);
             let st = w.creature_stats;
-            assert!(st.eats > 0, "no bite was taken at gut {bias}, so this arm measures nothing");
-            w.energy_ledger.harvested_plant / st.eats as f64
+            // **Per joule absorbed, not per bite.** Digestion is continuous
+            // now, so `harvested_plant / eats` would divide a running total by
+            // a count of *mouthfuls* and land on something that depends on how
+            // full each one was. `digested_face` is the face value the crop
+            // actually gave up, so this ratio is the gut's conversion factor
+            // exactly -- a stronger claim than the old per-event mean.
+            assert!(st.digested_face > 0.0, "nothing was digested at gut {bias}, so this arm measures nothing");
+            w.energy_ledger.harvested_plant / st.digested_face
         };
 
         // Leaf is `food_class: -1.0`. A herbivore gut matches it exactly
@@ -5511,10 +5561,15 @@ mod tests {
             let w = test_world();
             w.materials.get(w.materials.id_of("leaf").expect("leaf")).food_energy as f64
         };
+        // The ratio is now dimensionless: a matched gut absorbs all of what
+        // it digests, a half-axis gut a quarter of it. The leaf's face value
+        // is still read above as the setup assertion that the scene contains
+        // food at all.
+        assert!(face > 0.0, "the leaf must be worth something or neither arm can digest");
         let herbivore = gain_per_bite(-1.0);
         let generalist = gain_per_bite(0.0);
-        assert!((herbivore - face).abs() < 0.5, "a matched gut should get a leaf's whole {face}, got {herbivore:.2}");
-        assert!((generalist - face * 0.25).abs() < 0.5, "a neutral gut should get a quarter of it ({}), got {generalist:.2}", face * 0.25);
+        assert!((herbivore - 1.0).abs() < 0.01, "a matched gut should absorb all of what it digests, got {herbivore:.3}");
+        assert!((generalist - 0.25).abs() < 0.01, "a neutral gut should absorb a quarter of it, got {generalist:.3}");
     }
 
     /// **And not its own tail either.** `adjacent_food` scans the head's
@@ -5803,7 +5858,7 @@ mod tests {
         let corpse = w.materials.id_of("corpse").expect("corpse");
         let ant = spawn(&mut w, "ant", 100, 100);
         assert_ne!(ant, 0, "the carrier was not placed; the scene does not contain the situation this test is about");
-        w.organism_mut(ant).expect("live").carrying = Some(Carried { material: corpse, worth: 640, shade: 3 });
+        w.organism_mut(ant).expect("live").crop = Some(Crop { material: corpse, worth: 640.0, unit: 640.0, shade: 3 });
 
         creature_dies(&mut w, ant);
 
@@ -5851,7 +5906,7 @@ mod tests {
         }
         let ant = spawn(&mut w, "ant", 100, 100);
         let leaf = w.materials.id_of("leaf").expect("leaf is compiled in");
-        w.organism_mut(ant).expect("live").carrying = Some(Carried { material: leaf, worth: 0, shade: 0 });
+        w.organism_mut(ant).expect("live").crop = Some(Crop { material: leaf, worth: 0.0, unit: 0.0, shade: 0 });
         let before = (90..115).flat_map(|x| (90..102).map(move |y| (x, y))).filter(|&(x, y)| w.get(x, y).material == leaf).count();
 
         creature_dies(&mut w, ant);
@@ -6089,7 +6144,7 @@ mod tests {
             if let (Some(state), Some(worth)) = (w.organism_mut(ant), load) {
                 // The material is never put down in this scene, so what it
                 // is does not matter -- only its worth, which is the mass.
-                state.carrying = Some(Carried { material: material::EMPTY, worth, shade: 0 });
+                state.crop = Some(Crop { material: material::EMPTY, worth: worth as f32, unit: worth as f32, shade: 0 });
             }
             // Long enough to take many steps; the ratio is what is read, so
             // the absolute frame count is not load-bearing.
@@ -7336,90 +7391,17 @@ mod tests {
         assert_eq!((leaf_only.1, leaf_only.2), (99, 99), "sensitivity: with nothing better standing, the scan must still return the leaf");
         assert!(gain > leaf_only.0, "and the flower must be worth strictly more, or this scene proves nothing: {gain} vs {}", leaf_only.0);
     }
-
-    /// **A full animal short of a child's price keeps eating at the nest,
-    /// and the roof that used to stop it was the bug.**
-    ///
-    /// Before provisioning, an animal stopped eating the instant it crossed
-    /// `hunger_fraction * start_energy` and carried everything after that
-    /// home — so the most any bank could ever hold was **the satiety line
-    /// plus one mouthful**, whatever the colony had in store. Measured on
-    /// the lab bed 2026-08-30, that roof lands at 1,060 against a birth bar
-    /// of 1,041 and an authored bud threshold of 1,100: the colony was not
-    /// short of food, it was *full*, and being full is what stopped it.
-    ///
-    /// Three arms on one scene, and the middle one is what makes the first
-    /// mean anything:
-    ///
-    /// * **at the nest** — the bank must climb past the old roof;
-    /// * **away from the nest** — the same larder, the same ant, no nest
-    ///   cells: the roof must hold, because out on the route only a
-    ///   mouthful that finishes the job by itself is swallowed, and a leaf
-    ///   is not one;
-    /// * **a species that does not reproduce** — `reproduce_threshold: 0`,
-    ///   so `reproduce_at` is `None` and the branch cannot fire at all. The
-    ///   roof must hold there too, which is the guarantee that nothing in
-    ///   the world that does not breed pays for this.
-    #[test]
-    fn an_ant_at_the_nest_eats_past_satiety_to_pay_for_a_child() {
-        let peak_bank = |at_nest: bool, breeds: bool| -> (f32, f32) {
-            let mut w = test_world();
-            let soil = w.materials.id_of("soil").expect("soil");
-            for x in 70..150 {
-                for y in 111..120 {
-                    w.set(x, y, Cell::new(soil, 0).with_attached(true));
-                }
-            }
-            // A larder: leaf packed around the ant's row, exactly as
-            // `the_eat_verb_pays_the_filter_not_the_face_value` builds it,
-            // with row 109 left clear so the animal is standing in the
-            // scene rather than buried in it.
-            let leaf = w.materials.id_of("leaf").expect("leaf");
-            for x in 100..122 {
-                for y in [104, 105, 106, 107, 108, 110] {
-                    w.set(x, y, Cell::new(leaf, 0).with_attached(true));
-                }
-            }
-            let id = w.species.id_of("ant").expect("ant");
-            let mut def = w.species.get(id).creature.as_ref().expect("creature").clone();
-            if !breeds {
-                def.reproduce_threshold = 0.0;
-            }
-            w.species.set_creature(id, def.clone());
-            if at_nest {
-                // **Under the animal's row, never on it.** Row 109 is where
-                // the ant stands, and `plant_creature_seed` refuses an
-                // occupied cell -- paving the ant's own row with nest cells
-                // makes the founder fail to place, which reads as the
-                // mechanism being dead. Row 110 was larder; it is nest now,
-                // and rows 104-108 still are.
-                let nest = w.materials.id_of(&def.nest).expect("nest material");
-                for x in 100..122 {
-                    w.set(x, 110, Cell::new(nest, 0).with_attached(true));
-                }
-            }
-            run(&mut w, 2_000);
-            let ant = spawn(&mut w, "ant", 110, 109);
-            assert_ne!(ant, 0, "the grazer was not placed; the scene does not contain the situation this test is about");
-            w.creature_stats.peak_bank = 0.0;
-            run(&mut w, 20_000);
-            assert!(w.creature_stats.eats > 0, "no bite was taken, so this arm measures nothing");
-            // The old hard roof, computed rather than hardcoded so an
-            // economy retune moves the bar with the mechanism.
-            let roof = def.hunger_fraction * def.start_energy
-                + diet_yield(&w, Cell::new(leaf, 0), def.traits[TRAIT_GUT_BIAS]);
-            (w.creature_stats.peak_bank, roof)
-        };
-
-        let (nest_peak, roof) = peak_bank(true, true);
-        let (route_peak, _) = peak_bank(false, true);
-        let (sterile_peak, _) = peak_bank(true, false);
-
-        assert!(nest_peak > roof, "at the nest a breeding animal must climb past the old satiety roof of {roof}: reached {nest_peak}");
-        assert!(route_peak <= roof, "out on the route the roof must still hold for a leaf-sized mouthful: reached {route_peak} against {roof}");
-        assert!(
-            sterile_peak <= roof,
-            "a species that does not reproduce must not provision at all -- reached {sterile_peak} against {roof}"
-        );
-    }
+    // **`an_ant_at_the_nest_eats_past_satiety_to_pay_for_a_child` was here and
+    // is deleted rather than ported.** All three of its arms were stated
+    // against `roof = hunger_fraction * start_energy + one mouthful`, and a
+    // crop has no roof: an animal digests at a rate and nothing compares a
+    // bank against a threshold. Ported, its `nest_peak > roof` arm would have
+    // gone on passing -- vacuously, since any digesting animal clears that
+    // number for reasons having nothing to do with the nest -- which is a
+    // green light over a mechanism that no longer exists.
+    //
+    // The question it asked ("can a bank climb past a roof to reach the birth
+    // bar") is answered structurally by there being no roof. The question
+    // worth asking of the replacement is a different one and is asked by
+    // `a_crop_delivers_less_the_further_it_has_to_walk`.
 }

@@ -1817,7 +1817,7 @@ fn forage_loop_scene() {
                 let c = world.get(x, y);
                 if c.material == ant {
                     if let Some(st) = world.organism(c.organism_id()) {
-                        if st.carrying.is_some() && st.chain.first() == Some(&(x, y)) {
+                        if st.crop.is_some() && st.chain.first() == Some(&(x, y)) {
                             carriers.push(x);
                         }
                     }

@@ -173,9 +173,22 @@ pub struct Sample {
 /// colony structurally cannot reproduce*, and those want opposite responses.
 #[derive(Clone, Copy, Debug)]
 pub struct BreedMargin {
-    /// `hunger_fraction * start_energy + the best mouthful this gut can draw`
-    /// — the bank ceiling, from `stamp_probe`'s own arithmetic.
-    pub ceiling: f32,
+    /// **Net joules banked per decision while fed** — what digesting the best
+    /// mouthful this gut can draw pays, less what standing there costs.
+    ///
+    /// **This replaced a ceiling, and the change is not cosmetic.** The old
+    /// row read `hunger_fraction * start_energy + one mouthful`: an animal
+    /// stopped eating once comfortable, so its bank had a hard roof and a
+    /// colony under it could not breed at any amount of food. With a crop
+    /// there is no roof — an animal digests at a rate and the bank is limited
+    /// by supply and by time instead. So the question a player needs answered
+    /// stops being "can it ever get there" and becomes **"how long does it
+    /// take"**, which is a number they can act on.
+    ///
+    /// Excludes the synapse tax, which depends on how many connections are
+    /// live this tick and is small beside the two terms here; the figure is
+    /// therefore mildly optimistic and is a bound rather than a prediction.
+    pub gain_per_tick: f32,
     /// `creature::reproduce_at` — the bank an individual must reach to bud.
     pub bar: f32,
     /// The best single mouthful, priced over the **material table**.
@@ -183,8 +196,11 @@ pub struct BreedMargin {
 }
 
 impl BreedMargin {
-    pub fn margin(&self) -> f32 {
-        self.ceiling - self.bar
+    /// Decisions of uninterrupted feeding to reach the bar from empty.
+    /// `None` when the animal cannot out-eat its own metabolism, which is the
+    /// case the old negative margin was really about.
+    pub fn ticks_to_bar(&self) -> Option<f32> {
+        (self.gain_per_tick > 0.0).then(|| self.bar / self.gain_per_tick)
     }
 }
 
@@ -750,17 +766,16 @@ impl Stats {
         // as a colony failing, when it is a colony that structurally cannot
         // reproduce -- and those want opposite responses.
         if let (Some(breed), Some(name)) = (census.breed, census.animal_species.as_ref()) {
-            let margin = breed.margin();
+            let ticks = breed.ticks_to_bar();
             rows.push(Row::text(
-                if margin < 0.0 {
-                    format!("{name} CANNOT BREED, SHORT {:.0}", -margin)
-                } else {
-                    format!("{name} CAN AFFORD A CHILD  +{margin:.0}")
+                match ticks {
+                    Some(t) => format!("{name} NEEDS {t:.0} STEPS OF FEEDING PER CHILD"),
+                    None => format!("{name} CANNOT OUT-EAT ITS OWN UPKEEP"),
                 },
-                if margin < 0.0 { AMBER } else { GREEN },
+                if ticks.is_some() { GREEN } else { AMBER },
                 format!(
-                    "AN ANIMAL STOPS EATING ONCE IT IS COMFORTABLE, SO ITS STORE CANNOT PASS {:.0} -- ITS HUNGER LINE PLUS ONE BEST MOUTHFUL OF {:.0}. A CHILD COSTS {:.0}. THE GAP IS {:.0}, AND WHILE IT IS NEGATIVE NO AMOUNT OF FOOD PRODUCES A BIRTH. THE MOUTHFUL IS PRICED OVER EVERY MATERIAL THE GAME HAS, SO IT IS THE BEST CASE: A NEGATIVE GAP RULES BREEDING OUT, A POSITIVE ONE ONLY ALLOWS IT.",
-                    breed.ceiling, breed.best_mouthful, breed.bar, margin
+                    "AN ANT DIGESTS WHAT IT CARRIES AS IT WALKS, SO ITS STORE HAS NO CEILING -- WHAT LIMITS IT IS TIME AND SUPPLY. ON THE BEST MOUTHFUL IN THE BOX ({:.0}) IT NETS {:+.2} PER STEP AFTER UPKEEP, AND A CHILD COSTS {:.0}. THAT IS WHY BORN 0 CAN MEAN TWO OPPOSITE THINGS: A COLONY THAT NEEDS LONGER, OR ONE THAT LOSES GROUND EVERY STEP AND NEVER GETS THERE. THE MOUTHFUL IS PRICED OVER EVERY MATERIAL STANDING IN THE BOX, SO IT IS THE BEST CASE.",
+                    breed.best_mouthful, breed.gain_per_tick, breed.bar
                 ),
             ));
         }
@@ -1067,7 +1082,12 @@ fn take_census(
         let entry = world.species.get(*species);
         census.animal_species = Some(entry.name.to_uppercase());
         if let Some(def) = entry.creature.as_ref() {
-            let line = def.start_energy * def.hunger_fraction;
+            // **Poorer than a newborn**, since the hunger gate this used to
+            // read no longer exists. See `app.rs`'s `lean_line`: with a crop
+            // nothing compares a bank against a threshold, but "how many of my
+            // animals are struggling" is still the question a player asks, and
+            // below what this species hands a child is the derived answer.
+            let line = crate::sim::creature::birth_grant(def, &def.traits);
             census.animal_hungry = energies.iter().filter(|e| **e < line).count();
             census.breed = breed_margin(world, def, standing);
         }
@@ -1139,7 +1159,15 @@ fn breed_margin(
             creature::diet_yield(world, Cell::new(*id, 0).with_aux(aux), gut)
         })
         .fold(0.0f32, f32::max);
-    Some(BreedMargin { ceiling: def.hunger_fraction * def.start_energy + best, bar, best_mouthful: best })
+    // The best *conversion* this gut can achieve, which is what a rate turns
+    // face value into. Read over the same standing materials as `best`, so the
+    // two cannot describe different worlds.
+    let best_quality = standing
+        .iter()
+        .map(|id| creature::diet_quality(world, *id, gut))
+        .fold(0.0f32, f32::max);
+    let upkeep = def.idle_cost_per_cell * def.body.len() as f32;
+    Some(BreedMargin { gain_per_tick: def.digest_rate * best_quality - upkeep, bar, best_mouthful: best })
 }
 
 /// The generation histogram — how the living population splits by how many
@@ -1479,13 +1507,20 @@ mod tests {
         let breed = stats.census().expect("a census").breed.expect("an ant has an economy");
         assert!(breed.bar > 0.0, "a bar to reach");
         assert!(breed.best_mouthful > 0.0, "some material in the game is edible");
+        // **The claim changed shape with the model.** There is no ceiling to
+        // sit under any more, so what this asserts is that the page reports a
+        // *rate* and a time rather than a verdict: an ant that can out-eat its
+        // upkeep gets a number of steps, one that cannot gets the amber row.
         assert!(
-            breed.margin() < 0.0,
-            "the shipped ant's ceiling {} is under its bar {}",
-            breed.ceiling,
-            breed.bar
+            breed.gain_per_tick.is_finite(),
+            "the page must price a feeding rate, got {}",
+            breed.gain_per_tick
         );
-        assert!(dump(&stats, &world).iter().any(|r| r.contains("CANNOT BREED")));
+        let rows = dump(&stats, &world);
+        assert!(
+            rows.iter().any(|r| r.contains("STEPS OF FEEDING") || r.contains("CANNOT OUT-EAT")),
+            "the birth-economy row must say either how long a child takes or that it never arrives"
+        );
     }
 
     /// **The page stays inside its own border, and it draws something.**
