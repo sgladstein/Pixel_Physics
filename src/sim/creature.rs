@@ -1137,6 +1137,34 @@ fn live_body_cells(world: &World, organism: u16, def: &CreatureDef) -> f32 {
     world.organism(organism).map_or(def.body.len(), |s| s.chain.len()).max(1) as f32
 }
 
+/// **The mass this animal is hauling, in body-cell equivalents**, so a step
+/// costs what it moves rather than only what the animal is.
+///
+/// **One cell of food weighs one cell of body, and that needs no knob of its
+/// own.** `body_energy` is pinned to `corpse`'s `food_energy` by the
+/// flesh-pricing invariant (`standing_meat`'s doc), so a load's worth divided
+/// by it is already a count of cells. Inventing a separate `carry_cost` here
+/// would be a constant nobody can derive, sitting next to one that derives
+/// itself.
+///
+/// **Without this a load is free to haul**, and every lever over how much an
+/// animal carries — crop capacity, granary against replete — is a ratchet with
+/// one reachable end. That is exactly the unpriced-size failure
+/// `idle_cost_per_cell`'s own doc records ("an unpriced size lever ratchets to
+/// its maximum and expresses nothing"), arrived at independently on the other
+/// axis: that one was the body, this is what the body is carrying.
+///
+/// Charged on **movement only**, never on idle. An animal standing still is
+/// not doing work against its load, and the honest term is the one a forager
+/// pays per step — which is also what makes load size trade against travel
+/// distance rather than against time (Kramer & Nowell's central-place result).
+fn carried_cells(world: &World, organism: u16, def: &CreatureDef) -> f32 {
+    if def.body_energy <= 0.0 {
+        return 0.0;
+    }
+    world.organism(organism).and_then(|s| s.carrying).map_or(0.0, |c| c.worth as f32 / def.body_energy)
+}
+
 /// **What one birth costs the parent**: the child's metabolic grant plus
 /// the structural stamp of every cell of its body.
 ///
@@ -1565,8 +1593,23 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
     // predator pays for the body it started the tick with.
     let body_cells = live_body_cells(world, organism, def);
     let idle = def.idle_cost_per_cell * body_cells;
-    let mut spent = idle + synapse_tax;
-    world.energy_ledger.metabolized += idle as f64;
+    // **Seeing costs, and until 2026-08-31 it did not.** `sight_casts` and
+    // `sight_cells_read` counted rays and nothing charged for them, so
+    // `sight_range` was a lever on which more is strictly better — the same
+    // ratchet `idle_cost_per_cell`'s doc records for body size, on the
+    // sensory axis. Eyes and brains are among the most expensive tissue per
+    // gram in real animals, and this engine already taxes the brain
+    // (`synapse_fraction`); this closes the matching hole. Charged per cell
+    // the eye actually read, so an occluded eye in a tunnel is cheaper than
+    // one sweeping open ground — which is the term that makes shelter pay
+    // for itself twice.
+    let sight_tax = def.sight_fraction * def.start_energy * sight_reads as f32;
+    let mut spent = idle + synapse_tax + sight_tax;
+    // Booked as metabolism rather than as an account of its own: it is
+    // metabolism, and a new sink would have to be added to
+    // `EnergyLedger::expected_live_total` for no attribution the
+    // `sight_cells_read` counter does not already give.
+    world.energy_ledger.metabolized += (idle + sight_tax) as f64;
     world.energy_ledger.synapse_tax += synapse_tax as f64;
 
     // --- the four verbs, before moving: an ant that is going to pick
@@ -1596,7 +1639,14 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
             // energy ledger has one owner. The flight frames themselves
             // charge only pro-rated metabolism -- ballistics is free once
             // you have paid to leave.
-            let cost = def.move_cost_per_cell * body_cells * LAUNCH_COST_IN_MOVES;
+            // **The load is read here, not with `body_cells` above, and the
+            // difference is one tick of lag in the wrong direction.** `act`
+            // runs between the two points and is exactly what picks a load up
+            // or puts it down, so a top-of-tick reading charges an ant for
+            // cargo it delivered a moment ago and lets a fresh pickup ride
+            // free. The body cannot change in that window; the load is the
+            // whole point of the window.
+            let cost = def.move_cost_per_cell * (body_cells + carried_cells(world, organism, def)) * LAUNCH_COST_IN_MOVES;
             spent += cost;
             world.energy_ledger.moved += cost as f64;
             // **Deliberately not `moved`.** `moved` gates the pheromone
@@ -1607,7 +1657,9 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
         } else {
             moved = step_chain(world, organism, heading, &outputs, def, &mut draw);
             if moved {
-                let step = def.move_cost_per_cell * body_cells;
+                // Read after the step for the reason the launch arm above
+                // gives: `act` is what changes a load, and it has already run.
+                let step = def.move_cost_per_cell * (body_cells + carried_cells(world, organism, def));
                 spent += step;
                 world.energy_ledger.moved += step as f64;
             }
@@ -6013,6 +6065,91 @@ mod tests {
     /// An idle lifetime is `start_energy / idle_cost` ticks of
     /// `tick_interval` frames each. 1.1 of them keeps the meaning the
     /// original number had.
+    /// **Hauling costs, and a green suite is not evidence that it does.**
+    ///
+    /// The whole 1,252-test suite stayed green when load-dependent movement
+    /// landed, which is exactly the shape `CLAUDE.md` says to distrust: an
+    /// all-green run after a real behavioural change is a claim that the
+    /// change did nothing. Almost every creature test either hand-funds its
+    /// animals or asks a question a 50% step cost does not reach, so their
+    /// greenness is evidence about *them*.
+    ///
+    /// So this asserts the arithmetic directly, paired, on one deterministic
+    /// step. A load worth exactly `body_energy` is one cell of mass on a
+    /// two-cell animal, so a step must cost exactly 1.5x the empty one --
+    /// not "more", which a rounding error also satisfies.
+    #[test]
+    fn a_laden_animal_pays_more_to_move_than_an_empty_one() {
+        let step_cost = |load: Option<u16>| -> f64 {
+            let mut w = test_world();
+            for x in 0..200 {
+                w.set(x, 101, Cell::new(material::STONE, 0).with_attached(true));
+            }
+            let ant = spawn(&mut w, "ant", 100, 100);
+            if let (Some(state), Some(worth)) = (w.organism_mut(ant), load) {
+                // The material is never put down in this scene, so what it
+                // is does not matter -- only its worth, which is the mass.
+                state.carrying = Some(Carried { material: material::EMPTY, worth, shade: 0 });
+            }
+            // Long enough to take many steps; the ratio is what is read, so
+            // the absolute frame count is not load-bearing.
+            run(&mut w, 600);
+            let moves = w.creature_stats.moves.max(1) as f64;
+            w.energy_ledger.moved / moves
+        };
+
+        let empty = step_cost(None);
+        let laden = step_cost(Some(480));
+        assert!(empty > 0.0, "the empty arm never moved, so this measures nothing");
+
+        // 2 body cells empty, 3 cell-equivalents laden: exactly 1.5x.
+        let ratio = laden / empty;
+        assert!(
+            (ratio - 1.5).abs() < 0.02,
+            "a load of one body-cell's worth must make a step cost exactly 1.5x on a two-cell animal: {laden:.4} against {empty:.4} is {ratio:.3}x"
+        );
+    }
+
+    /// **An eye costs what it reads**, and the same green-suite caveat as
+    /// above applies: `sight_fraction` defaults to 0, so nothing in the tree
+    /// exercises it until something authors a value.
+    ///
+    /// Paired on one species with the rate off and on, so everything the
+    /// beetle does apart from looking is held fixed. The far-side quantity
+    /// is `metabolized`, which is where the tax is booked.
+    #[test]
+    fn an_eye_costs_what_it_reads() {
+        let burn = |rate: f32| -> (f64, u64) {
+            let mut w = test_world();
+            for x in 0..200 {
+                w.set(x, 101, Cell::new(material::STONE, 0).with_attached(true));
+            }
+            let id = w.species.id_of("beetle").expect("beetle");
+            let mut def = w.species.get(id).creature.as_ref().expect("creature").clone();
+            def.sight_fraction = rate;
+            w.species.set_creature(id, def);
+            spawn(&mut w, "beetle", 100, 100);
+            run(&mut w, 600);
+            (w.energy_ledger.metabolized, w.creature_stats.sight_cells_read)
+        };
+
+        let (free, cells_read) = burn(0.0);
+        assert!(cells_read > 0, "the beetle never cast a ray, so a per-cell-read tax cannot be measured here");
+
+        let rate = 1.0e-6;
+        let (taxed, taxed_cells) = burn(rate);
+        assert_eq!(cells_read, taxed_cells, "the two arms must read the same cells, or this compares two different runs");
+
+        // The tax is `rate * start_energy * cells_read`, booked to
+        // `metabolized` alongside idle.
+        let start_energy = 1600.0_f64;
+        let expected = rate as f64 * start_energy * cells_read as f64;
+        assert!(
+            (taxed - free - expected).abs() < 1.0,
+            "an eye that read {cells_read} cells at {rate} of a {start_energy} budget owes {expected:.2}: {taxed:.2} against {free:.2}"
+        );
+    }
+
     fn grazer_horizon() -> usize {
         let w = test_world();
         let species = w.species.id_of("ant").expect("ant");
