@@ -47,7 +47,7 @@
 //! ```
 
 use pixel_physics::lab::scene::LabBox;
-use pixel_physics::render::{FieldOverlay, Renderer};
+use pixel_physics::render::{FieldOverlay, OrganismOverlay, Renderer};
 use pixel_physics::sim::chunk::{CHUNK_SIZE, MAX_REACH};
 use pixel_physics::sim::explosion::Blasts;
 use pixel_physics::sim::particle::{self, ParticleSystem};
@@ -356,7 +356,8 @@ fn shot_mode(spec: &LabBox) {
     let at: u64 = arg("at").unwrap_or(6_000);
     let zoom: i32 = arg("zoom").unwrap_or(1);
     let overlay: String = arg("overlay").unwrap_or_else(|| "off".to_string());
-    println!("  out={out} at={at} zoom={zoom} overlay={overlay}");
+    let organism: String = arg("organism").unwrap_or_else(|| "off".to_string());
+    println!("  out={out} at={at} zoom={zoom} overlay={overlay} organism={organism}");
     let mut world = spec.build();
     let mut particles = ParticleSystem::default();
     let mut blasts = Blasts::default();
@@ -372,6 +373,45 @@ fn shot_mode(spec: &LabBox) {
     }
     let (cells, orgs, seeds, ants) = census(&world);
     println!("  stand at frame {at}: cells {cells} orgs {orgs} seeds {seeds} ants {ants}");
+    // **The count beside the picture.** `CLAUDE.md`'s standing rule: an
+    // image says what and where, and only a number says whether. A health
+    // sheet where every plant happens to be fed and one where the channel
+    // is not firing at all are the same photograph.
+    {
+        let (mut fed, mut starving, mut thirsty) = (0usize, 0usize, 0usize);
+        for id in world.live_organism_ids() {
+            let Some(st) = world.organism(id) else { continue };
+            if world.species.get(st.species).creature.is_some() {
+                continue;
+            }
+            if st.maintenance_unpaid > 0.0 || st.starving_ticks > 0 {
+                starving += 1;
+            } else {
+                fed += 1;
+                if st.water_status < 0.75 {
+                    thirsty += 1;
+                }
+            }
+        }
+        println!("  plant health: {fed} paying their upkeep ({thirsty} of them short of water), {starving} not");
+        // **Split by size, because the headline is dominated by seedlings.**
+        // A seed that germinated this minute has no leaf yet and cannot pay
+        // anything; counting it beside a grown plant reports a healthy bed
+        // as a dying one. `CLAUDE.md`: ask what the number counts when
+        // nothing is wrong.
+        let (mut est, mut est_starving) = (0usize, 0usize);
+        for id in world.live_organism_ids() {
+            let Some(st) = world.organism(id) else { continue };
+            if world.species.get(st.species).creature.is_some() || st.cells.len() < 20 {
+                continue;
+            }
+            est += 1;
+            if st.maintenance_unpaid > 0.0 || st.starving_ticks > 0 {
+                est_starving += 1;
+            }
+        }
+        println!("  of the {est} established (20+ cells): {est_starving} not paying");
+    }
 
     let (w, h) = (spec.width as u32 * zoom as u32, spec.height as u32 * zoom as u32);
     let mut buf = vec![0u8; (w * h * 4) as usize];
@@ -383,6 +423,23 @@ fn shot_mode(spec: &LabBox) {
         "temperature" => FieldOverlay::Temperature,
         "pressure" => FieldOverlay::Pressure,
         _ => FieldOverlay::Off,
+    };
+    // **The `L` channels, which `overlay=` could not reach.** The lab draws
+    // two independent overlays -- the field one on `O` and the organism one
+    // on `L` -- and this harness only ever set the first, so every question
+    // about a plant's own state had to be asked of the outdoor `filmstrip`
+    // scene instead of the bed the owner actually plays.
+    renderer.organism_overlay = match organism.as_str() {
+        "health" => OrganismOverlay::PlantHealth,
+        "celltype" => OrganismOverlay::CellType,
+        "resource" => OrganismOverlay::Resource,
+        "canopy" => OrganismOverlay::CanopyDensity,
+        "vein" => OrganismOverlay::VeinConductance,
+        "soil" => OrganismOverlay::SoilMoisture,
+        "food" => OrganismOverlay::FoodValue,
+        "gut" => OrganismOverlay::GutBias,
+        "bend" => OrganismOverlay::Stress,
+        _ => OrganismOverlay::Off,
     };
     let touched = std::collections::HashSet::new();
     renderer.draw(&world, &particles, &touched, &mut buf, (w, h), true);
