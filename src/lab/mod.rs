@@ -1356,6 +1356,7 @@ impl Lab {
             // space."* Neither is a new mechanism -- `keep_at` and
             // `release_at` are untouched -- what changed is where the thing
             // they act on is chosen.
+            ui::Action::SpecimenSection(i) => self.ui.show_specimen_section(i),
             ui::Action::KeepInspected => match self.ui.inspecting() {
                 // The cell page's own coordinate, so what is kept is what the
                 // page is showing. It is re-read every frame, which is the
