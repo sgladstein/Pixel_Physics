@@ -1455,7 +1455,7 @@ const COLONY_ANT_SPACING: i32 = 4;
 /// Grasse's threshold, in practice: below about fifty, a colony looks
 /// broken even when the code is right (P-15). A key that placed one ant
 /// would mostly teach people that ants do not work.
-const COLONY_ANTS: i32 = 52;
+pub const COLONY_ANTS: i32 = 52;
 
 impl World {
     /// Place an ant at `(x, y)` — the scene-level entry point, mirroring
@@ -1482,9 +1482,62 @@ impl World {
     /// feature** -- the owner pressed this key, saw nothing happen, and
     /// reasonably concluded the whole milestone was missing.
     pub fn found_colony(&mut self, x: i32, y: i32) -> usize {
+        self.found_colony_of(x, y, "ant", COLONY_ANTS)
+    }
+
+    /// **Found a colony of `ants` individuals of `species`.**
+    ///
+    /// `found_colony` is this at the shipped defaults and is kept because
+    /// twenty-odd callers want exactly that; nothing about them changes.
+    ///
+    /// **The species was a string literal here, and that is what the audit
+    /// filed.** `Reports/dead-ends.md` names it as the thing standing between
+    /// the lab and a re-test that has already been measured to work: a full
+    /// plant-specialist gut clears Gate 0 outright (`gut_bias -1.0`: 7 and 14
+    /// births, generation 2 on both seeds), it was reverted because it
+    /// narrows *the ant* off carrion against a standing owner verdict, and
+    /// the entry's own re-test condition is *"a separate grazer species
+    /// exists to carry the specialist gut… `lab::scene` founds colonies by
+    /// the name `ant`, so this needs the lab's species to become a
+    /// parameter."* This is that parameter.
+    ///
+    /// **The count is not a length and the spacing is**, which is the
+    /// distinction the old body of this function already drew and only half
+    /// applied. It scaled the corridor by `cell_scale` — the same physical
+    /// gap on a finer grid — while leaving it fixed against the *body*, and
+    /// its own comment says why that is wrong: four cells apart is authored
+    /// *for a two-cell body*, and dead ends 775/829 measured what a colony
+    /// packed tighter than it can walk does, at **27,386 blocked ticks
+    /// against a single pickup**. A nine-cell body at four-cell spacing is
+    /// that bug with a different species name on it. So the corridor is now
+    /// derived from the body plan's own width, floored at the shipped value
+    /// so the ant is byte-identical.
+    pub fn found_colony_of(&mut self, x: i32, y: i32, species: &str, ants: i32) -> usize {
         let Some(nest) = self.materials.id_of("nest") else {
             return 0;
         };
+        // **A species nobody loaded places nobody, and says so by returning
+        // 0** -- the same contract as no ground and no nest material. A
+        // silent no-op is indistinguishable from a broken feature, which is
+        // the incident this function's own doc opens with.
+        let Some(species_id) = self.species.id_of(species) else {
+            return 0;
+        };
+        // How wide the body actually is, east-facing; the mirror is the same
+        // width. `Chain(n)` is a following chain rather than a rigid row, so
+        // its offsets are the worst case it can occupy, which is what a
+        // corridor has to clear.
+        let body_span = self
+            .species
+            .get(species_id)
+            .creature
+            .as_ref()
+            .map(|c| {
+                let cells = c.body.offsets(false);
+                let (lo, hi) = cells.iter().fold((0, 0), |(lo, hi), &(dx, _)| (lo.min(dx), hi.max(dx)));
+                (hi - lo + 1).max(1)
+            })
+            .unwrap_or(1);
         // The per-column rules live in `colony_surface` and
         // `colony_ant_site`, so that nothing can hold a second copy of
         // them -- a second copy is what `open-bugs-handoff.md` §R2 is.
@@ -1505,9 +1558,13 @@ impl World {
         // as many cells across needs twice the corridor or the colony
         // gridlocks exactly as the 27,386 blocked ticks did. The ant *count*
         // is not a length and stays put; the band widens under it.
-        let spacing = scaled_cells(self, COLONY_ANT_SPACING);
+        // Two bodies' width of corridor, which is what the shipped ant has:
+        // a `Chain(2)` spans 2 and is founded 4 apart. So the ant reproduces
+        // exactly and anything wider gets the same *ratio* rather than the
+        // same *number*.
+        let spacing = scaled_cells(self, COLONY_ANT_SPACING.max(body_span * 2));
         let half_width = scaled_cells(self, COLONY_HALF_WIDTH);
-        let span = (COLONY_ANTS - 1) * spacing;
+        let span = (ants - 1).max(0) * spacing;
         let left = x - span / 2;
         for cx in (x - half_width)..=(x + half_width) {
             if let Some(sy) = colony_surface(self, cx, y) {
@@ -1520,11 +1577,13 @@ impl World {
             }
         }
         let mut placed = 0;
-        for i in 0..COLONY_ANTS {
+        for i in 0..ants.max(0) {
             let cx = left + i * spacing;
             if let Some(sy) = colony_ant_site(self, cx, y) {
                 let before = self.get(cx, sy - 1).organism_id();
-                self.plant_ant(cx, sy - 1);
+                if let Some(site) = plant_creature_seed(self, cx, sy - 1, species) {
+                    self.schedule_active_site(site);
+                }
                 if self.get(cx, sy - 1).organism_id() != before {
                     placed += 1;
                 }
@@ -7215,6 +7274,51 @@ mod tests {
         }
         let placed = w.found_colony(100, 5);
         assert!(placed > 40, "a colony founded from high above the ground should still land: got {placed} ants");
+    }
+
+    #[test]
+    fn a_colony_can_be_founded_at_a_chosen_size_and_of_a_chosen_species() {
+        // **The two halves the lab could not reach**, and each is checked by
+        // the count `found_colony_of` returns rather than by a census of the
+        // world -- the function already reports what it placed, which is the
+        // effect counter `CLAUDE.md` asks for beside every "it fired" one.
+        let mut w = test_world();
+        for x in 0..199 {
+            w.set(x, 160, Cell::new(material::STONE, 0));
+        }
+
+        // Size. A count is not a length: the band widens with it, so twelve
+        // ants must be twelve and not a clipped fifty-two.
+        let twelve = w.found_colony_of(100, 150, "ant", 12);
+        assert_eq!(twelve, 12, "asked for twelve ants and got {twelve}");
+
+        // Species. `beetle` is `Rigid` and three cells wide against the
+        // ant's two, so this also exercises the spacing derivation -- at the
+        // ant's fixed 4 it would be founded into its own neighbours, which
+        // is dead ends 775/829 with a different name on it.
+        let mut w = test_world();
+        for x in 0..199 {
+            w.set(x, 160, Cell::new(material::STONE, 0));
+        }
+        let beetles = w.found_colony_of(100, 150, "beetle", 8);
+        assert!(beetles > 0, "no beetle was placed, so the species parameter reaches nothing");
+        let beetle_mat = w.materials.id_of("beetle").expect("beetle is compiled in");
+        let standing = (0..199).filter(|&x| (140..160).any(|y| w.get(x, y).material == beetle_mat)).count();
+        assert!(standing > 0, "the count says {beetles} placed but no beetle cell stands in the world");
+
+        // And a species nobody loaded places nobody and says so, rather than
+        // panicking or quietly founding ants.
+        let mut w = test_world();
+        for x in 0..199 {
+            w.set(x, 160, Cell::new(material::STONE, 0));
+        }
+        assert_eq!(w.found_colony_of(100, 150, "no_such_species", 8), 0, "an unknown species placed something");
+        let ant = w.materials.id_of("ant").expect("ant is compiled in");
+        assert_eq!(
+            (0..199).filter(|&x| (140..160).any(|y| w.get(x, y).material == ant)).count(),
+            0,
+            "an unknown species fell back to founding ants"
+        );
     }
 
     #[test]

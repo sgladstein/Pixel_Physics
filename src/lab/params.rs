@@ -122,6 +122,20 @@ pub enum Knob {
     /// A field of the bed's build spec. **Takes effect on the next rebuild**,
     /// which every row of it says.
     Bed { field: &'static str },
+    /// **How hard heredity drifts** — a global of the plant line, live on the
+    /// next birth.
+    ///
+    /// Its own kind, and **deliberately not a `Species` field**, which is the
+    /// correction this row cost. The natural move is a `#[serde(default)]`
+    /// scalar on the species file, on `design-philosophy.md` §2a's rule that a
+    /// constant a non-programmer might tune graduates to `.ron` immediately.
+    /// `plant::fate_mutation_chance`'s own doc had already ruled against it:
+    /// species reach the binary through `include_str!`, so editing a `.ron`
+    /// and re-running a prebuilt harness gives **bit-identical runs**, and a
+    /// sweep over a mutation rate is exactly that shape. A runtime cell has
+    /// neither problem, and it is honest that these are one number for every
+    /// plant in the world rather than a property of a species.
+    Heredity { field: &'static str },
     /// **A rule of the simulation itself, on or off** — a `bool` on
     /// [`World`], live on the next tick.
     ///
@@ -496,6 +510,24 @@ fn plant_mechanics_rows(world: &World, out: &mut Vec<Param>) {
         world.plant_load_failure,
         "WHETHER A LIVING PLANT MAY BE PULLED APART BY MECHANICS. ON IS THE SHIPPED BEHAVIOUR: A STEM SNAPS WHERE THE BENDING STRESS BEATS THE WOOD, A LIMB REACHING FURTHER THAN IT CAN HOLD GIVES WAY, AND ONE THAT LOSES ITS FOOTING COMES DOWN WHOLE. OFF HOLDS EVERY LIVING PLANT IN THE BOX TOGETHER HOWEVER FAR IT LEANS AND WHATEVER IS DUG OUT FROM UNDER IT, WHICH IS WHAT YOU WANT WHILE YOU ARE LOOKING AT GROWTH RATHER THAN AT MECHANICS. DEAD WOOD STILL COMES APART EITHER WAY, SO CULLING AND ROT STILL CLEAR THE BOX. IT REACHES EVERY SPECIES, IT IS FELT ON THE NEXT TICK, AND IT LASTS THE SESSION.",
     ));
+    out.push(float(
+        Group::Plant,
+        Knob::Heredity { field: "mutation_sigma" },
+        "heredity",
+        "genotype_drift",
+        world.mutation_sigma,
+        span(0.0, 0.5, 0.005),
+        "HOW FAR ONE OF A PLANT'S TEN CONTINUOUS GENES MAY MOVE IN A SINGLE GENERATION. THIS IS THE MUTAGEN DIAL. AT 0 EVERY SEED IS A CLONE OF ITS PARENT ON THOSE TEN AXES, WHICH IS NOT A DISABLED FEATURE BUT THE CONTROL ARM: IT IS THE NULL A SELECTED RUN HAS TO BEAT. TURNED UP, LINEAGES WANDER FASTER AND SELECTION HAS MORE TO SORT -- AND MORE OF WHAT IT SORTS IS NOISE. IT REACHES EVERY PLANT IN THE BOX, IT IS FELT AT THE NEXT SEED RATHER THAN ON THE NEXT TICK, AND IT LASTS THE SESSION.",
+    ));
+    out.push(float(
+        Group::Plant,
+        Knob::Heredity { field: "fate_mutation_chance" },
+        "heredity",
+        "fate_drift",
+        world.fate_mutation_chance,
+        span(0.0, 1.0, 0.01),
+        "THE CHANCE A SEED IS BORN WITH ONE OF ITS PARENT'S FATE RULES CHANGED -- WHAT A CELL TURNS INTO WHEN ITS TIME COMES, WHICH IS THE PART OF A PLANT'S GENOME THAT DECIDES ITS SHAPE RATHER THAN ITS SIZE. THE COARSER OF THE TWO DIALS ON THIS PAGE: A CHANGED FATE IS A DIFFERENT ARCHITECTURE, WHERE THE DRIFT ABOVE IS THE SAME PLANT NUDGED. LASTS THE SESSION.",
+    ));
 }
 
 fn creature_value(world: &World, species: &str, field: &str) -> Option<f32> {
@@ -586,6 +618,8 @@ fn box_rows(world: &World, spec: &LabBox, out: &mut Vec<Param>) {
         "HOW MANY PLANTS THE BOX IS STOCKED WITH WHEN IT IS BUILT. THE BINARY OPENS AT ZERO ON PURPOSE -- THE BOX STARTS WITH NOTHING AND YOU STOCK IT -- SO RAISE THIS ONLY IF YOU WANT A REBUILD TO HAND YOU A STAND. TAKES EFFECT ON REBUILD.");
     bed("colonies", spec.colonies as f32, span(0.0, 8.0, 1.0),
         "HOW MANY ANT COLONIES A REBUILD RELEASES, ONE PER COMPARTMENT AT MOST. ONE COLONY IS NOT A GARNISH: IT DECIDES WHETHER THE BED LIVES, AND HOW MUCH ROOM THE BED HAS DECIDES WHICH WAY. MEASURED OVER SIX SEEDS, EACH PAIRED AGAINST THE SAME WORLD WITH NO COLONY: IN A 256-WIDE BOX ONE COLONY LEAVES 1% OF THE STAND STANDING AND 6 OF 6 SEEDS FALL, AT 512 IT LEAVES 41%, AND AT 1024 IT LEAVES 98% -- BUT THERE THE COLONY ITSELF DROPS TO 2 ANTS, BECAUSE IT CANNOT REACH THE PLANTS. A COLONY EATS ITS OWN NEIGHBOURHOOD, SO A NARROW BED FEEDS THE ANTS AND KILLS THE PLANTS AND A WIDE ONE DOES THE REVERSE. IF A STOCKED BED SIMPLY EMPTIES, THIS IS THE FIRST THING TO SUSPECT. TAKES EFFECT ON REBUILD.");
+    bed("colony_ants", spec.colony_ants as f32, span(1.0, 120.0, 1.0),
+        "HOW MANY ANIMALS EACH COLONY IS FOUNDED WITH. FIFTY-TWO BY DEFAULT, AND THAT NUMBER IS NOT ARBITRARY: BELOW ABOUT FIFTY A COLONY LOOKS BROKEN EVEN WHEN THE CODE IS RIGHT, WHICH IS WHY THE KEY PLACES A CROWD RATHER THAN AN ANT. IT WAS ALSO THE ONE STOCKING NUMBER YOU COULD NOT SET -- FOUNDERS SAYS HOW MANY PLANTS AND COLONIES SAYS HOW MANY NESTS, AND HOW BIG A POPULATION STARTS IS THE FIRST THING A SELECTION EXPERIMENT WANTS TO VARY. THE BAND WIDENS WITH THE COUNT, SO A SMALL COLONY IS SPARSE RATHER THAN CLIPPED. TAKES EFFECT ON REBUILD.");
     bed("predators", spec.predators as f32, span(0.0, 8.0, 1.0),
         "HOW MANY BEETLES A REBUILD RELEASES, SPREAD THE SAME WAY THE COLONIES ARE. ZERO BY DEFAULT, BECAUSE A PREDATOR IS THE ONE STOCKING CHOICE THAT CAN EMPTY A BOX. WHAT IT IS FOR IS A PAIR: TWO CHAMBERS ON THE SAME SEED, THIS AT 0 AND AT 4, IS AN EXPERIMENT -- ONE CHAMBER ON ITS OWN IS A STORY. IF A STOCKED BED SIMPLY EMPTIES, RAISE COMPARTMENTS BEFORE BLAMING THE BEETLE: A PREDATOR AND ITS PREY IN ONE SEALED BOX WITH NOWHERE TO HIDE GO EXTINCT IN THEORY AS WELL AS HERE. TAKES EFFECT ON REBUILD.");
     bed("seed", spec.seed as f32, span(0.0, 999.0, 1.0),
@@ -699,6 +733,17 @@ pub fn write(world: &mut World, spec: &mut LabBox, knob: &Knob, value: f32) -> b
             }
             true
         }
+        Knob::Heredity { field } => {
+            if !crate::sim::plant::settable_rate(value) {
+                return false;
+            }
+            match *field {
+                "mutation_sigma" => world.mutation_sigma = value,
+                "fate_mutation_chance" => world.fate_mutation_chance = value,
+                _ => return false,
+            }
+            true
+        }
         Knob::Rule { field } => {
             let on = value >= 0.5;
             match *field {
@@ -733,6 +778,7 @@ pub fn write_bed(spec: &mut LabBox, field: &str, value: f32) -> bool {
         "compartments" => spec.compartments = v as usize,
         "founders" => spec.founders = v as usize,
         "colonies" => spec.colonies = v as usize,
+        "colony_ants" => spec.colony_ants = v as i32,
         "predators" => spec.predators = v as usize,
         "seed" => spec.seed = v as u64,
         _ => return false,
@@ -754,6 +800,7 @@ pub fn read_bed(spec: &LabBox, field: &str) -> Option<f32> {
         "compartments" => spec.compartments as f32,
         "founders" => spec.founders as f32,
         "colonies" => spec.colonies as f32,
+        "colony_ants" => spec.colony_ants as f32,
         "predators" => spec.predators as f32,
         "seed" => spec.seed as f32,
         _ => return None,
@@ -826,6 +873,9 @@ fn planned_edit(param: &Param) -> Result<(std::path::PathBuf, String), String> {
         }
         Knob::Rule { .. } => {
             return Err("this is a rule of the running box, not a number in a file -- it lasts the session".into())
+        }
+        Knob::Heredity { .. } => {
+            return Err("heredity is one number for every plant, not a species field -- it lasts the session".into())
         }
         Knob::Material { material, .. } => (material::ASSET_DIR, material.to_string()),
         Knob::Creature { species, .. }
