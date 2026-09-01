@@ -2704,38 +2704,79 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
 
     // --- put down the spoil ---------------------------------------------
     //
-    // **The same verb as the drop above, on the same terms.** Owner, when the
-    // first two versions of this were hand-authored placement rules: *"is this
-    // a problem for you to solve or for the ants to solve. An ant should be
-    // able to hold and carry soil similar to how it holds and carries food."*
-    // So it is: the pellet goes in the first empty neighbour, on a roll
-    // against `drop_urge` -- a brain output, which is to say a *gene* -- times
-    // the same moisture gradient the food drop uses. Nothing here decides
-    // where a colony's tailings ought to end up.
+    // **When to let go is the ant's, where it can lie is the ground's.**
+    // Owner, when the first two versions of this were hand-authored rules
+    // about where a colony's tailings belong: *"is this a problem for you to
+    // solve or for the ants to solve. An ant should be able to hold and carry
+    // soil similar to how it holds and carries food."* So the roll is
+    // `drop_urge` -- a brain output, which is to say a gene, and the same one
+    // the food drop above rolls against. What is left in this file is one
+    // predicate about a *cell*: whether a pellet put there would stay put.
+    // Nothing here prefers one part of the world to another.
     //
-    // **And it is the partner the dig rule already had.** Digging rolls
-    // against `dig_urge * (1 - moisture_gradient)` and this against
-    // `drop_urge * moisture_gradient`, so an animal excavates where the
-    // humidity is flat and deposits where it changes -- the stigmergic
-    // building rule the design report asked for, now with something to
-    // deposit. What that produces is a question for the world.
+    // Four placement rules were built and measured before this one and all
+    // four are in `Reports/dead-ends.md` with their numbers: the first empty
+    // neighbour (refills the tunnel), the first with clear sky above (plugs
+    // the shafts, because a shaft mouth has clear sky by definition), a
+    // clearance from the dug cell, and gating the roll on the light channel.
     //
-    // Two hand-written placement rules were tried first and both are in
-    // `Reports/dead-ends.md`: dropping in the first empty neighbour with
-    // clear sky above (which plugs shafts, because a shaft mouth has clear
-    // sky by definition) and requiring a clearance from the dug cell.
     if let Some(spoil) = world.organism(organism).and_then(|s| s.spoil) {
         if draw.unit_f32() < drop_urge {
-            // **On something, never into the void** -- the one thing this
-            // placement asks that the food drop does not, and it is not a
-            // rule about *where* a colony's tailings belong. A pellet is
-            // tamped (see the dig branch) and tamped ground holds itself up,
-            // so a cell put down with nothing beneath it stands in mid-air
-            // for ever; food is ordinary loose matter and simply falls.
-            // Reading the cell below rather than checking support properly is
-            // deliberate: an ant is placing a crumb by hand, not surveying.
-            let footed = |px: i32, py: i32| world.is_empty(px, py) && !world.is_empty(px, py + 1);
-            if let Some((px, py)) = NEIGHBOURS_8.iter().map(|&(dx, dy)| (x + dx, y + dy)).find(|&(px, py)| footed(px, py)) {
+            // **Ground under it and air over it** -- a pellet goes down where
+            // it can lie, which is the open surface, and the two halves of
+            // that are the two ways it otherwise goes wrong.
+            //
+            // *Ground under it*, because a pellet is tamped (see the dig
+            // branch) and tamped ground holds itself up: one put down with
+            // nothing beneath it stands in mid-air for ever, where food is
+            // ordinary loose matter and simply falls. Reported from a picture,
+            // 2026-08-31 -- *"it looks like there's a lot of dirt just
+            // floating in the midair"* -- and censused as pieces of ground
+            // with no path down to the floor, **2-6 on the old behaviour
+            // against 26-38** with the pellet unqualified.
+            //
+            // *Air over it*, because everything else is the inside of the
+            // burrow. Without it a colony puts its spoil back in its own
+            // workings and `burrow_probe arms=colony` reads roofed void 2-4
+            // against 89-139: the nest, gone. Neither half alone is enough --
+            // the mouth of a shaft is open to the sky and has nothing under
+            // it, so it fails the first; a gallery has a floor and a roof, so
+            // it fails the second.
+            //
+            // **It is one predicate about the *cell*, not a policy about
+            // where a colony's tailings belong** -- which is the owner's
+            // ruling and the reason two earlier placement rules are in
+            // `dead-ends.md`. Which of those cells an animal is standing next
+            // to, and when it lets go, is still entirely the `Drop` gene's.
+            let open = |px: i32, py: i32| {
+                world.is_empty(px, py)
+                    // **A footing, not a point.** One cell beneath is enough
+                    // to stop a pellet hanging in the air and not enough to
+                    // stop it being balanced on a pinnacle: with only the
+                    // centre tested, a colony stacks tamped spoil single-file
+                    // and the top of a worked bank grows thin vertical
+                    // fingers, which a rendered sheet shows plainly. Two of
+                    // the three cells under it means a pellet goes in a
+                    // hollow or on a shoulder, so tailings spread instead of
+                    // climbing.
+                    && [(-1, 1), (0, 1), (1, 1)].iter().filter(|(dx, dy)| !world.is_empty(px + dx, py + dy)).count() >= 2
+                    && (1..=SPOIL_HEADROOM).all(|dy| world.is_empty(px, py - dy))
+            };
+            // **...and if there is no such cell beside it, up the shaft.**
+            // An animal at the face has nowhere to lie a pellet down -- every
+            // neighbour is either the gallery or the bank -- and the two
+            // things it can do about that are hold on to it, which stops the
+            // colony digging, or take it out. It takes it out: the first open
+            // surface in the column above, which is the pellet leaving the
+            // way it came in with the walk abstracted. An ant is two cells at
+            // play zoom and nothing about the journey is visible; a mound
+            // growing over the nest is.
+            let site = NEIGHBOURS_8
+                .iter()
+                .map(|&(dx, dy)| (x + dx, y + dy))
+                .find(|&(px, py)| open(px, py))
+                .or_else(|| (1..=SPOIL_LIFT).map(|dy| (x, y - dy)).find(|&(px, py)| open(px, py)));
+            if let Some((px, py)) = site {
                 world.set(px, py, spoil.cell);
                 if let Some(state) = world.organism_mut(organism) {
                     state.spoil = None;
@@ -2823,6 +2864,23 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
         }
     }
 }
+
+/// How far up a pellet may be carried to reach the surface, in cells.
+///
+/// The lab's own bed is 96 rows of soil under 160 of air, so this clears it
+/// with room to spare; deeper than that and the animal keeps hold, which
+/// stops it digging rather than deleting anything. It is also the cost bound,
+/// and it is only paid when nothing beside the animal will do.
+const SPOIL_LIFT: i32 = 160;
+
+/// **How much clear air over a cell makes it the outside of a burrow.**
+///
+/// Three, and the roof is what sets it: a gallery cut by `line_burrow` is one
+/// to three cells tall, so anything above that separates the inside of the
+/// nest from the ground over it. Larger was tried at six and buys nothing
+/// here now that the drop also needs a floor -- the two together already
+/// exclude a shaft.
+const SPOIL_HEADROOM: i32 = 3;
 
 /// The ablation switch for hauling, on by default.
 ///

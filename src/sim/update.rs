@@ -580,6 +580,23 @@ fn update_soil_water<S: CellSurface>(surface: &mut S, x: i32, y: i32) -> bool {
     false
 }
 
+/// The ablation switch for the crumb rule above, on by default.
+///
+/// `PIXEL_PHYSICS_CRUMB=off` makes a worked cell keep standing however little
+/// it is touching, which is the pre-2026-08-31 behaviour, and changes nothing
+/// else. It exists because what the rule governs is a **standing** quantity --
+/// how much detached ground a colony leaves hanging -- and a standing quantity
+/// has no baseline of its own, so the only honest comparison is the same
+/// binary run twice across one switch (`creature::lining_enabled`'s reasoning,
+/// and `CLAUDE.md`'s after the `relax_region` night).
+///
+/// Read once per process through a `OnceLock`: this sits in the powder sweep,
+/// where an `env::var` would be a syscall per cell.
+fn crumb_rule() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_CRUMB").as_deref() != Ok("off"))
+}
+
 fn update_powder<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: Cell, rightward: bool) -> bool {
     // Water first: a grain that is about to move should carry the moisture
     // it just absorbed with it, and `move_cell` copies the whole cell.
@@ -663,6 +680,63 @@ fn update_powder<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: Cell, ri
         // gotcha, four bugs and counting). Here the trigger is the cell's
         // own `aux`, one frame after the water arrives.
         let here = surface.get(x, y);
+        // **A packing needs something to grip *onto*, and this is the other
+        // half of the sentence above.** Cementing works by grain contact, so
+        // a worked cell touching nothing is not a wall -- it is a crumb, and
+        // a crumb is loose dirt whatever it was cut from.
+        //
+        // **The failure it exists for is visible and was reported from a
+        // picture**, 2026-08-31, of a colony hauling its spoil: *"it looks
+        // like there's a lot of dirt just floating in the midair."* A
+        // deposited pellet is worked ground placed as a single cell, and
+        // anything that later takes away what it was resting on strands it
+        // for ever, because `self_supporting` is exactly the rule that says
+        // it may not fall. Censused as pieces of ground with no path down to
+        // the floor, `burrow_probe arms=colony` went **2-6 pieces on the
+        // shipped behaviour to 26-38** once ants began putting spoil back.
+        //
+        // **Only a cell with nothing underneath it, and that gate is doing
+        // the work.** Asking every worked cell for contacts instead was
+        // measured and it takes the nest with it: a pellet resting on the
+        // ground reverts, the loose soil runs into the gallery beside it,
+        // and `burrow_probe arms=colony` reads **roofed void 4 and 10**
+        // against 39 and 37. A cell standing on something is standing on
+        // something whatever else it touches.
+        //
+        // **Three contacts, and it is the roof that sets the number.** Every
+        // cell of a gallery roof has nothing beneath it by definition -- that
+        // is what a roof is -- and sits at five or more contacts, since the
+        // bank above and the roof either side all count. A detached speck has
+        // none or one; a floating pair, two. At three the pair erodes from
+        // both ends and a lined tunnel cannot be touched, which is what keeps
+        // this from being the collapse `self_supporting` exists to prevent.
+        //
+        // Cheap by short-circuit and by the gate: only a `self_supporting`
+        // powder reaches it, only one with air beneath pays the ring, and the
+        // count stops at three.
+        let unsupported = crumb_rule() && surface.get(x, y + 1).material == material::EMPTY;
+        let contacts = if unsupported {
+            crate::sim::structural::NEIGHBOURS_8
+                .iter()
+                .filter(|(dx, dy)| surface.get(x + dx, y + dy).material != material::EMPTY)
+                .take(3)
+                .count()
+        } else {
+            usize::MAX
+        };
+        if contacts < 3 {
+            let loose = surface.materials().get(here.material).slumps_into;
+            if let Some(loose) = loose {
+                // Everything but the material rides across, for the reason
+                // the waterlogging branch below carries it: on a `Powder`,
+                // `aux == 0` means *dry*, so a rebuilt cell is destroyed
+                // moisture.
+                let mut crumb = here;
+                crumb.material = loose;
+                surface.set(x, y, crumb);
+                return true;
+            }
+        }
         if here.aux() > material::SOIL_FIELD_CAPACITY {
             // Copied out before the write: `slumps_into` is `Copy`, and
             // holding the `&Material` across `surface.set` would borrow
@@ -2205,6 +2279,21 @@ mod tests {
             let mut w = World::new(Rect::new(0, 0, 63, 63));
             let soil = w.materials.id_of("soil").expect("soil is compiled in");
             let packed = w.materials.id_of("packedsoil").expect("packedsoil is compiled in");
+            // **A floor under the bed, and it was missing.** The bed used to
+            // run to y=55 in a 64-row world with nothing beneath it, so the
+            // whole slab drained to the bottom and the loose soil under the
+            // gallery went with it -- the lining survived only because
+            // `self_supporting` says it may not fall, hanging over a hole.
+            // The test still passed, because what it asserts is the void
+            // staying open and a bed that falls out from under a tunnel
+            // leaves the tunnel open. `CLAUDE.md`'s "a scene that contradicts
+            // the code will look like a bug in the code": this surfaced as a
+            // *rule* failing when the crumb check started asking whether
+            // worked ground had anything under it, and the answer here was
+            // honestly no.
+            for x in 0..64 {
+                w.set(x, 56, Cell::new(material::STONE, 0));
+            }
             for x in 4..60 {
                 for y in 20..56 {
                     w.set(x, y, Cell::new(soil, 0));
@@ -2243,6 +2332,93 @@ mod tests {
             "the unlined control must collapse, or the lined arm proves nothing about the lining: \
              {bare}/{total} cells left open"
         );
+    }
+
+    /// **A worked cell hanging on nothing is a crumb and falls; one that is
+    /// part of a wall does not.**
+    ///
+    /// Owner, from a rendered bank, 2026-08-31: *"it looks like there's a lot
+    /// of dirt just floating in the midair."* `packedsoil` is
+    /// `self_supporting` precisely so a tunnel roof cannot fall, and the
+    /// price of that rule is that anything which strands a worked cell
+    /// strands it for ever.
+    ///
+    /// **Both arms, and the second is the one that matters.** A test of the
+    /// falling half alone would be green for a change that deleted
+    /// `self_supporting` outright, which is the tunnel-collapse bug this
+    /// whole material exists to prevent -- so the embedded arm asserts a
+    /// roof cell with the same "nothing underneath" and five contacts stays
+    /// exactly where it is. `a_lined_gallery_keeps_its_roof_and_an_unlined_
+    /// one_does_not` above is the whole-gallery version of that.
+    #[test]
+    fn a_stranded_worked_cell_crumbles_and_an_embedded_one_holds() {
+        use super::super::chunk::Rect;
+        use super::super::world::World;
+
+        let mut w = World::new(Rect::new(0, 0, 63, 63));
+        let soil = w.materials.id_of("soil").expect("soil is compiled in");
+        let packed = w.materials.id_of("packedsoil").expect("packedsoil is compiled in");
+
+        // A floor to land on, well below everything.
+        for x in 0..64 {
+            w.set(x, 60, Cell::new(material::STONE, 0));
+        }
+        // One worked cell alone in the air, and a pair beside it -- two
+        // contacts is still under the bar, and a pair propping itself up for
+        // ever is exactly what the picture showed.
+        w.set(10, 20, Cell::new(packed, 0));
+        w.set(20, 20, Cell::new(packed, 0));
+        w.set(21, 20, Cell::new(packed, 0));
+
+        // ...and a gallery roof, which has to be genuinely *embedded* or it
+        // proves nothing. A cap of soil sitting loose on top of a run of
+        // worked cells sheds off its own edges by repose, and once it has the
+        // roof really is bare and really should crumble -- the first version
+        // of this arm did exactly that and read 0 of 10. So the bank runs the
+        // full width around the void: the soil above the roof is confined by
+        // more soil either side and cannot slide off it.
+        // Wide and shallow, and standing on the stone: a tall free-standing
+        // column of loose soil spreads into a cone and walks across the floor
+        // into the crumb count, which is what the first two attempts at this
+        // arm actually measured.
+        for x in 34..64 {
+            for y in 50..60 {
+                w.set(x, y, Cell::new(soil, 0));
+            }
+        }
+        for x in 45..55 {
+            w.set(x, 55, Cell::EMPTY);
+            w.set(x, 54, Cell::new(packed, 0));
+        }
+
+        let ground = |w: &World| -> usize {
+            (0..64)
+                .flat_map(|x| (0..64).map(move |y| (x, y)))
+                .filter(|&(x, y)| w.get(x, y).material != material::EMPTY)
+                .count()
+        };
+        let before = ground(&w);
+
+        for _ in 0..200 {
+            step(&mut w);
+        }
+
+        assert_eq!(w.get(10, 20).material, material::EMPTY, "a lone worked cell in mid-air stayed put");
+        assert_eq!(w.get(20, 20).material, material::EMPTY, "a worked pair in mid-air propped itself up");
+        assert_eq!(w.get(21, 20).material, material::EMPTY, "a worked pair in mid-air propped itself up");
+        // **They became loose ground and fell rather than being deleted**, and
+        // the census is the whole world rather than a window under the
+        // crumbs. Three attempts at a window all measured the roof arm's own
+        // bank instead: loose soil spreads by repose and walks along the
+        // floor, so any box drawn near it counts grains that have nothing to
+        // do with this rule. What the rule actually claims is that a crumb
+        // *reverts* rather than vanishing, and conservation says exactly that
+        // with no geometry in it at all.
+        let after = ground(&w);
+        assert_eq!(after, before, "ground {before} -> {after}: crumbling destroyed cells rather than loosening them");
+
+        let roof = (45..55).filter(|&x| w.get(x, 54).material == packed).count();
+        assert_eq!(roof, 10, "a worked gallery roof must hold: {roof}/10 cells left");
     }
 
     /// **Waterlogged lining reverts to loose soil**, which is the whole of

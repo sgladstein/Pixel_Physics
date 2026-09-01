@@ -48,17 +48,17 @@ whole, then run `python3 scripts/readmetoc.py`.
 | [M10 status — the worldgen half](#m10-status--the-worldgen-half) | 3026 |
 | [Weather status](#weather-status) | 3196 |
 | [The ant colony — status](#the-ant-colony--status) | 3213 |
-| [Inheritance status — the growth program has no fallback under it](#inheritance-status--the-growth-program-has-no-fallback-under-it) | 3529 |
-| [M19 status — started](#m19-status--started) | 3632 |
-| [Felling status — the verb works, and what it produces is pieces](#felling-status--the-verb-works-and-what-it-produces-is-pieces) | 3704 |
-| [Bending status — soft tissue lies over, and the wind is what pushes it](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) | 3941 |
-| [Breaking status — a badly grown tree comes down on its own](#breaking-status--a-badly-grown-tree-comes-down-on-its-own) | 4018 |
-| [Lab lighting status — the fixtures are what light the crop](#lab-lighting-status--the-fixtures-are-what-light-the-crop) | 4167 |
-| [Specimen shelf status — an individual's genetics outlive the box](#specimen-shelf-status--an-individuals-genetics-outlive-the-box) | 4229 |
-| [Performance](#performance) | 4291 |
-| [World speed — five independent time axes](#world-speed--five-independent-time-axes) | 4488 |
-| [Status](#status) | 4571 |
-| [License](#license) | 4682 |
+| [Inheritance status — the growth program has no fallback under it](#inheritance-status--the-growth-program-has-no-fallback-under-it) | 3571 |
+| [M19 status — started](#m19-status--started) | 3674 |
+| [Felling status — the verb works, and what it produces is pieces](#felling-status--the-verb-works-and-what-it-produces-is-pieces) | 3746 |
+| [Bending status — soft tissue lies over, and the wind is what pushes it](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) | 3983 |
+| [Breaking status — a badly grown tree comes down on its own](#breaking-status--a-badly-grown-tree-comes-down-on-its-own) | 4060 |
+| [Lab lighting status — the fixtures are what light the crop](#lab-lighting-status--the-fixtures-are-what-light-the-crop) | 4209 |
+| [Specimen shelf status — an individual's genetics outlive the box](#specimen-shelf-status--an-individuals-genetics-outlive-the-box) | 4271 |
+| [Performance](#performance) | 4333 |
+| [World speed — five independent time axes](#world-speed--five-independent-time-axes) | 4530 |
+| [Status](#status) | 4613 |
+| [License](#license) | 4724 |
 
 ### Milestones, in numeric order
 
@@ -79,7 +79,7 @@ order they were written.
 | 16 | [M16 status](#m16-status) | 1593 |
 | 17 | [M17 status](#m17-status) | 1779 |
 | 18 | [M18 status](#m18-status) | 2006 |
-| 19 | [M19 status — started](#m19-status--started) | 3632 |
+| 19 | [M19 status — started](#m19-status--started) | 3674 |
 
 ### By topic
 
@@ -92,7 +92,7 @@ them is named "plants". A section can appear twice; felling is honestly both
 plant work and structural work.
 
 **Known limitations for every topic are collected in one place**:
-[Status](#status), line 4571 — the *last* section in the
+[Status](#status), line 4613 — the *last* section in the
 file, not the first. Read it before concluding something is broken.
 
 **Which game a topic belongs to** is the third column. `engine` is shared
@@ -103,22 +103,22 @@ about what you may read.
 
 | Topic | Game | Sections, primary first |
 |---|---|---|
-| **plants, trees and moss** | engine | [M16 status](#m16-status) 1593, [Plant lines merged](#plant-lines-merged-the-genome-and-the-ecology) 1221, [Inheritance status](#inheritance-status--the-growth-program-has-no-fallback-under-it) 3529, [The economy re-derived](#the-economy-re-derived-standing-tissue-costs-something) 1343, [Plants that stop](#plants-that-stop-organs-determinacy-and-a-price-on-both) 1525, [The generation loop](#the-generation-loop-plants-die-seeds-expire-slots-come-back) 1291, [Stems draw a line](#stems-draw-a-line-the-growth-walk-renders-its-heading) 1443, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 3704, [Bending status](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) 3941, [Breaking status](#breaking-status--a-badly-grown-tree-comes-down-on-its-own) 4018, [Specimen shelf status](#specimen-shelf-status--an-individuals-genetics-outlive-the-box) 4229 |
-| **creatures — worms and the ant colony** | engine | [M18 status](#m18-status) 2006, [The ant colony](#the-ant-colony--status) 3213, [Specimen shelf status](#specimen-shelf-status--an-individuals-genetics-outlive-the-box) 4229 |
-| **structural collapse, felling and rigid bodies** | outdoor | [M17 status](#m17-status) 1779, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 3704, [Bending status](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) 3941, [Breaking status](#breaking-status--a-badly-grown-tree-comes-down-on-its-own) 4018, [M8 status](#m8-status--started-not-complete) 2473 |
+| **plants, trees and moss** | engine | [M16 status](#m16-status) 1593, [Plant lines merged](#plant-lines-merged-the-genome-and-the-ecology) 1221, [Inheritance status](#inheritance-status--the-growth-program-has-no-fallback-under-it) 3571, [The economy re-derived](#the-economy-re-derived-standing-tissue-costs-something) 1343, [Plants that stop](#plants-that-stop-organs-determinacy-and-a-price-on-both) 1525, [The generation loop](#the-generation-loop-plants-die-seeds-expire-slots-come-back) 1291, [Stems draw a line](#stems-draw-a-line-the-growth-walk-renders-its-heading) 1443, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 3746, [Bending status](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) 3983, [Breaking status](#breaking-status--a-badly-grown-tree-comes-down-on-its-own) 4060, [Specimen shelf status](#specimen-shelf-status--an-individuals-genetics-outlive-the-box) 4271 |
+| **creatures — worms and the ant colony** | engine | [M18 status](#m18-status) 2006, [The ant colony](#the-ant-colony--status) 3213, [Specimen shelf status](#specimen-shelf-status--an-individuals-genetics-outlive-the-box) 4271 |
+| **structural collapse, felling and rigid bodies** | outdoor | [M17 status](#m17-status) 1779, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 3746, [Bending status](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) 3983, [Breaking status](#breaking-status--a-badly-grown-tree-comes-down-on-its-own) 4060, [M8 status](#m8-status--started-not-complete) 2473 |
 | **fire, heat and phase change** | engine | [M14 status](#m14-status) 808, [Materials](#materials) 235 |
 | **explosions, particles and debris** | outdoor | [M15 status](#m15-status) 985, [M7 status](#m7-status) 956 |
 | **liquids and gases** | engine | [Liquid physics](#liquid-physics-compressible-volume-not-discrete-occupied-cells) 782, [The coarse field grid](#the-coarse-field-grid) 493 |
 | **powders and granular flow** | engine | [Materials](#materials) 235, [Architecture](#architecture) 309 |
-| **the coarse field grid — pressure, heat, light** | engine | [The coarse field grid](#the-coarse-field-grid) 493, [M12/M13 status](#m12m13-status) 755, [Lab lighting status](#lab-lighting-status--the-fixtures-are-what-light-the-crop) 4167 |
+| **the coarse field grid — pressure, heat, light** | engine | [The coarse field grid](#the-coarse-field-grid) 493, [M12/M13 status](#m12m13-status) 755, [Lab lighting status](#lab-lighting-status--the-fixtures-are-what-light-the-crop) 4209 |
 | **worldgen and world structure** | outdoor | [M10 status](#m10-status--the-worldgen-half) 3026, [Architecture](#architecture) 309 |
 | **the gnome (player character)** | outdoor | [M9 status](#m9-status--the-gnome) 2586, [Controls](#controls) 169 |
-| **weather, sky and the clock** | engine | [Weather status](#weather-status) 3196, [M19 status](#m19-status--started) 3632, [World speed](#world-speed--five-independent-time-axes) 4488 |
+| **weather, sky and the clock** | engine | [Weather status](#weather-status) 3196, [M19 status](#m19-status--started) 3674, [World speed](#world-speed--five-independent-time-axes) 4530 |
 | **rendering, UI and tunables** | engine | [UI improvements](#ui-improvements--overnight-run-section-9) 2340, [Live tunables panel](#live-tunables-panel--overnight-run-section-10) 2385, [Rendering performance](#rendering-performance--overnight-run-section-11) 2453, [M6 deferral](#m6-deferral) 1116 |
-| **performance and the parallel sweep** | engine | [Performance](#performance) 4291, [M5 status](#m5-status) 1126, [Architecture](#architecture) 309, [Rendering performance](#rendering-performance--overnight-run-section-11) 2453 |
+| **performance and the parallel sweep** | engine | [Performance](#performance) 4333, [M5 status](#m5-status) 1126, [Architecture](#architecture) 309, [Rendering performance](#rendering-performance--overnight-run-section-11) 2453 |
 | **materials and the data schema** | engine | [Materials](#materials) 235, [M12/M13 status](#m12m13-status) 755 |
-| **the evolution lab — the box and its lights** | lab | [Lab lighting status](#lab-lighting-status--the-fixtures-are-what-light-the-crop) 4167 |
-| **keeping, cloning and mutating an individual** | lab | [Specimen shelf status](#specimen-shelf-status--an-individuals-genetics-outlive-the-box) 4229 |
+| **the evolution lab — the box and its lights** | lab | [Lab lighting status](#lab-lighting-status--the-fixtures-are-what-light-the-crop) 4209 |
+| **keeping, cloning and mutating an individual** | lab | [Specimen shelf status](#specimen-shelf-status--an-individuals-genetics-outlive-the-box) 4271 |
 
 <!-- END GENERATED TOC -->
 
@@ -3492,35 +3492,77 @@ let go of a load was being asked a question about food. `labnest`: **30-35 of
 from outside reads as having lost interest. Telling the truth about a full
 mandible puts laden at 3-8 in transit and digs at 719/788.
 
-**A pellet is put down tamped, and on a floor, and both halves were
-measured.** Tamping is the act `line_burrow` already performs on a gallery
-wall, and it is the difference between a nest and no nest: loose tilth put down
-anywhere near a gallery runs along it and closes it, which is
-`update_powder`'s straight-down rule and the whole reason the lining exists.
-Four combinations on `labnest`, roofed void at frame 9,000 over two seeds:
+**A pellet is put down tamped, and only where it can lie**, and every clause
+of that was measured rather than reasoned. Tamping is the act `line_burrow`
+already performs on a gallery wall, and it is the difference between a nest
+and no nest: loose tilth put down anywhere near a gallery runs along it and
+closes it, which is `update_powder`'s straight-down rule and the whole reason
+the lining exists. `labnest` roofed void at frame 9,000 over two seeds, loose
+against tamped: **2/1 against 54/58**.
 
-| pellet | placed | roofed void | digs |
-|---|---|---|---|
-| loose | any empty neighbour | 2/1 | 495/611 |
-| loose | on a floor | 2/3 | 488/540 |
-| tamped | any empty neighbour | 54/58 | 767/887 |
-| **tamped** | **on a floor** | **54/58** | **767/887** |
+The price of tamping is that worked ground is `self_supporting`, so a pellet
+put down with nothing under it hangs there for ever. **The owner caught that
+from a rendered bank** — *"it looks like there's a lot of dirt just floating
+in the midair"* — and it is a real regression, not a pre-existing quirk:
+censused as pieces of ground with no path down to the floor,
+`burrow_probe arms=colony` went **2-6 pieces (4-8 cells) on the shipped
+behaviour to 26-38 pieces (58-71 cells)**. The `floats`/`fcells` columns are
+that census, and they are a flood fill rather than a per-cell test for
+`CLAUDE.md`'s reason: the per-cell version reads 49-62 on the *shipped*
+behaviour and almost none of it is visible, because every gallery roof is
+unsupported by definition.
 
-The floor is the price of the tamping: worked ground is `self_supporting`, so a
-pellet placed with nothing under it hangs in the air. **Known limitation — a
-colony still stacks spoil on its own spoil**, which the floor rule permits, and
-a rendered bank shows a lattice of tamped ground reaching out into open sky.
-Put to the owner on card `20260831T224429408Z-bb6e1a` as a fork rather than
-fixed here, because the alternative is the top two rows of that table.
+Three things closed it, and the middle one is the general lesson:
+
+- **A drop site must be one a pellet can lie on** — solid under it, at least
+  two of the three cells beneath it filled (one is a pinnacle, and a colony
+  stacks tamped spoil single-file into thin fingers), and clear air over it,
+  because everything else is the inside of the burrow. Without the last
+  clause a colony tips its spoil down its own corridors and roofed void reads
+  **2-4 against 89-139**. When nothing beside an animal qualifies it takes
+  the pellet out of the burrow instead — the first open surface above it,
+  which is the walk abstracted, and an ant is two cells at play zoom where a
+  mound over the nest is not.
+- **`update_powder` now un-packs a worked cell that has nothing beneath it
+  and fewer than three contacts.** Grains pressed into contact need something
+  to be pressed against; a cell touching almost nothing is a crumb and reverts
+  to loose soil where it stands. A gallery roof has nothing beneath it *by
+  definition* and sits at five or more contacts, which is what keeps this from
+  being the collapse `self_supporting` exists to prevent — and the guard has
+  both arms, plus `PIXEL_PHYSICS_CRUMB=off` as the ablation. It fixes the
+  shipped behaviour's own 2-6 hanging pieces as well.
+- **It also corrected the instrument, and that is why the numbers below moved
+  down on both sides.** `roofed` counts a void cell with ground *anywhere
+  above it in the column*, so a single floating crumb roofs everything beneath
+  it. With the crumbs gone the shipped behaviour's own lab-bed nest reads
+  **110/83 where it read 197/179**, and the figure this section previously
+  quoted for spoil hauling — 54/58 — was substantially crumb-roofed void.
+  `roofed3 == roofed` in every arm now, which is what says the remaining void
+  is genuinely enclosed.
 
 **Reported rather than tuned, per the owner's standing direction: nests are
-smaller.** `labnest` roofed void **54/58 against 197/179** destroying, at 87%
-of the digs, because the shipped ant's `Drop` gene puts the pellet in the
-nearest hole and underground that is the gallery. That is now a weight
-selection can act on rather than a rule in `creature.rs`. Gating the drop on
-the light channel — an animal only lets go where it can see out — was tried on
-the same reasoning as the food drop's moisture term and made both numbers worse
-(roofed 43/53, digs 560/626). Whole-frame cost is unchanged — `ascii`, three
+smaller, and how much smaller depends on the bed.** Four seeds on
+`burrow_probe`'s bank, roofed void at frame 8,000: **69/95/62/66 against
+132/115/100/134**, so 61% — a colony working a face carries spoil out of it.
+The lab's own flat bed is the harder case at **17/20 against 110/83**, because
+an animal digging *down* keeps coming back to the surface to put something
+down and drives shallower workings for it. Floating ground is now the same in
+both arms (0-1 pieces).
+
+**Digging itself is not what fell**, and the two beds disagree about it in a
+way worth keeping: on the bank a hauling colony digs *more* (mean 550 against
+283, because the shipped one eats its bank away and runs out of face), and in
+the lab bed it digs 79% as much. So the smaller nest is about where the spoil
+lands, not about how much cutting happens.
+
+Two arms are recorded in `dead-ends.md` rather than kept: gating the drop on
+the light channel — an animal only lets go where it can see out, the obvious
+partner to the food drop's moisture term — made both numbers worse (roofed
+43/53, digs 560/626), because the coarse light field does not separate a
+shallow gallery from open ground; and requiring a clearance from the dug cell,
+which is a policy about where tailings belong rather than a fact about a cell.
+
+Whole-frame cost is unchanged — `ascii`, three
 alternating paired runs across the ablation switch, mean **3.417 ms against
 3.397 ms**, inside each arm's own spread. `labnest` gains `dumped` and `laden`
 beside `digs`: the effect counter and the in-flight gauge, without which a jam
