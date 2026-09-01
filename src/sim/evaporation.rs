@@ -107,10 +107,57 @@
 //! which is the difference between an accounting identity and a leak
 //! proportional to how often puddles finish.
 //!
-//! Nothing about the *rate* changed, and nothing here reads the bank: a
-//! puddle dries at the same speed over a full sky as over an empty one,
-//! because what stops evaporation is the humidity above it, which is a local
-//! reading and not a global balance.
+//! Nothing here reads the bank, and that is still true: a puddle dries at
+//! the same speed over a full sky as over an empty one. What stops
+//! evaporation is the humidity above it — a local reading, not a global
+//! balance. The section below is about making that local reading answer.
+//!
+//! # The ground was drying itself
+//!
+//! **The humidity that stops evaporation was a reading of the ground, not a
+//! state of the air**, and that made the whole mechanism a positive feedback
+//! loop. `field::apply_moisture_sources` rebuilds `moisture_source` from the
+//! CA grid every step, so as soil dried its source fell, the air above it
+//! read drier, `dryness` rose, and the soil dried *faster*. Nothing anywhere
+//! pushed back.
+//!
+//! It stayed hidden because it needs a trigger. A bed at field capacity
+//! reads 2.48 humidity — over `HUMID_STOP` — so drying is switched off and
+//! the bed is stable indefinitely. Measured in the sealed lab: one plant is
+//! enough. It pulls a few cells below field capacity, `update::update_soil_
+//! water` spreads that deficit, blocks cross under half saturation, the gate
+//! opens, and the front travels outward across the whole world. Over 16,000
+//! frames the bed lost **285,280** fill of which the plant had drunk
+//! **1,569** — 0.55%. The rest was the sun, and none of it was coming back.
+//!
+//! The fix is the *local* half of the water cycle: evaporated water is added
+//! to the air block it evaporated into, so drying ground damps the air it is
+//! drying into and throttles itself. Same run afterwards: **2,348** lost, of
+//! which the plant drank 1,917. The bed's total is byte-identical at 20,000,
+//! 40,000 and 60,000 frames — a fixed point rather than a slower leak.
+//!
+//! **And its rate depends on whether the air is a closed volume**
+//! (`is_enclosed`), which is the part that took a swept measurement to
+//! establish rather than an argument. Vapour in the open rises into an
+//! atmosphere the engine does not simulate the top of, so it stays at the
+//! small value this file has shipped since #189; under a lid it cannot leave
+//! and saturates the room. At *one* rate applied everywhere, anything strong
+//! enough to matter to the bed stops puddles drying and takes five guards
+//! down with it — the table at `is_enclosed` has both arms swept together,
+//! and **no single rate satisfies both**. That is not a tuning failure but a
+//! sign the question wanted data and not a constant: a puddle and a sealed
+//! bed look identical to a local humidity reading, and the lid is the thing
+//! that tells them apart.
+//!
+//! **Three further things about it are easy to get wrong and all three were,
+//! first time.** It must go into the block `dryness` actually reads, one
+//! `FIELD_SCALE` *above* the cell — humidifying the ground the water left
+//! moves no gauge anyone consults, and measured as no brake at all. It must
+//! go into the **diffusing** moisture channel rather than a floor beside it:
+//! vapour mixes, and a floor that sits where it was made saturates its own
+//! block and still lets the front travel. And the rate is only physical
+//! indoors, where the air really is a closed volume. All three are recorded
+//! in `Reports/dead-ends.md`.
 //!
 //! # Warm days dry, cool nights barely do
 //!
@@ -176,8 +223,25 @@ pub(crate) const CHECK_INTERVAL: u64 = 60;
 const HUMID_STOP: f32 = 2.0;
 
 /// Humidity one whole cell-equivalent of evaporated water adds to the block
-/// it left. See `vapour_of`, which is where this is argued.
-const VAPOUR_PER_CELL_EQUIVALENT: f32 = 2.0;
+/// of *air* it evaporated into, **under a lid**. See `vapour_of`, which is
+/// where both of these are argued, and note it is the block above the cell
+/// rather than the cell's own -- `dryness` reads the one above, and a brake
+/// has to move the gauge that governs it.
+const VAPOUR_PER_CELL_ENCLOSED: f32 = 260.0;
+
+/// The same, in the open air.
+///
+/// **Two orders of magnitude smaller, because the air is not a closed volume
+/// and this is the only place that difference can be expressed.** Outdoors
+/// the vapour rises into an atmosphere the engine does not simulate the top
+/// of, so what a cell of water does to the humidity *here* is small; under a
+/// lid it has nowhere to go and saturates the room. Unchanged from the value
+/// this file has shipped since #189 -- the open world's behaviour is not
+/// what this change is about, and `a_tree_denied_water_dies_and_a_watered_
+/// one_does_not` is measurably sensitive to it (it fails at 143 of the 200
+/// starving ticks with this term removed, on this branch *and* on `main`
+/// with only this constant zeroed).
+const VAPOUR_PER_CELL_OPEN: f32 = 2.0;
 
 /// Fill removed from one exposed surface cell per check in perfectly dry
 /// air, on `material::LIQUID_FULL`'s 0..1000 scale. Scaled by dryness, so
@@ -592,31 +656,97 @@ fn tick_soil(world: &mut World, x: i32, y: i32, stale_ticks: u8) -> Vec<ActiveSi
     world.credit_atmosphere(loss);
     // ...and damp the air it went into. `credit_atmosphere` books the water
     // globally so the sky can rain it back; this is the *local* half, which
-    // did not exist. See `field::FieldTile::vapour` for the runaway it
-    // closes -- without it, ground that starts drying makes its own air
-    // drier and so dries faster still.
-    world.add_vapour(x, y + depth, vapour_of(loss));
+    // did not exist. The runaway it closes is in the module doc above
+    // (*The ground was drying itself*): without it, ground that starts
+    // drying makes its own air drier and so dries faster still.
+    // **Into the air above, which is the block `dryness` reads.** Not the
+    // cell the water left: that is ground, and humidifying ground does
+    // nothing to the reading that governs drying. `dryness` samples
+    // `field_moisture_at(x, y - FIELD_SCALE)`, so vapour has to arrive
+    // there or the brake is wired to a gauge nobody consults -- which is
+    // exactly how it was wired first, and it measured as no brake at all.
+    //
+    // `y`, not `y + depth`: the surface site speaks for the rows beneath it
+    // (`SOIL_DRY_REACH`), but the water reaches the air at the surface
+    // however deep the drying front has descended.
+    let enclosed = is_enclosed(world);
+    world.add_vapour(x, y - FIELD_SCALE, vapour_of(loss, enclosed));
     vec![reschedule]
 }
 
 /// What a fill reduction is worth as humidity, on the field's own
 /// `0..MAX_MOISTURE` scale.
 ///
-/// **The two scales have no physical bridge, so this is an exchange rate and
-/// is sized rather than derived.** A cell's fill runs to
-/// `material::LIQUID_FULL`; a field block spans `FIELD_SCALE` squared world
-/// cells and reads `0..4`. The bar it has to clear is `HUMID_STOP` (2.0),
-/// the humidity at which drying stops: one exposed cell giving up
-/// `SOIL_DRY_PER_CHECK` should raise its block noticeably without silencing
-/// a whole block's drying in a single check, or one puff would stop a
-/// desert.
+/// **The order of magnitude is physical; only the landing point inside it is
+/// sized.** A cell's fill runs to `material::LIQUID_FULL`; a field block
+/// spans `FIELD_SCALE` squared -- 256 -- world cells and reads `0..4`. The
+/// bridge between the two is the one number that actually decides this:
+/// **liquid water holds on the order of 10,000 times more water than the
+/// same volume of saturated air**, so one cell of water evaporating is worth
+/// *thousands* of cells of saturated air, which is tens of blocks, not a
+/// fraction of one.
 ///
-/// At this rate a full `SOIL_DRY_PER_CHECK` of 100 adds 0.2 -- a tenth of
-/// the way to `HUMID_STOP` -- so closing the gate takes ten checks of
-/// sustained drying in one block, and `field::VAPOUR_PERSISTENCE` is what
-/// holds the earlier puffs while the later ones arrive.
-fn vapour_of(fill: u16) -> f32 {
-    fill as f32 / crate::sim::material::LIQUID_FULL as f32 * VAPOUR_PER_CELL_EQUIVALENT
+/// **The first version of this constant was 2.0, and it had that ratio
+/// backwards** -- it valued a whole cell of liquid at half a block of
+/// humidity, i.e. some four orders of magnitude short. It measured as no
+/// brake whatever: one plant still dried a 512-wide bed to the wilting
+/// point. 20.0 runs away too. 260 holds, and the bed reaches a fixed point.
+///
+/// So the clamp in `field::add_vapour_at` is load-bearing rather than
+/// defensive: at this rate one check's `SOIL_DRY_PER_CHECK` of 100 is worth
+/// 26.0 against a `MAX_MOISTURE` of 4.0, so a drying block pins its own air
+/// to saturation and **diffusion decides what happens next**. That is the
+/// intended reading. Vapour is not stored where it was made; it is released
+/// there and mixed outward, and what holds a block over `HUMID_STOP` (2.0)
+/// is sustained release outrunning the dilution -- which is why this cannot
+/// silence a desert. Stop drying and the humidity disperses on the ordinary
+/// moisture solve, and the ground goes back to being read for what it is.
+fn vapour_of(fill: u16, enclosed: bool) -> f32 {
+    let k = if enclosed { VAPOUR_PER_CELL_ENCLOSED } else { VAPOUR_PER_CELL_OPEN };
+    fill as f32 / crate::sim::material::LIQUID_FULL as f32 * k
+}
+
+/// Whether the air over this world is a closed volume.
+///
+/// **The one thing that tells a terrarium from a field, stated as data rather
+/// than inferred from a reading.** `World::enclosure` is `Some` exactly when
+/// the world has a ceiling -- the lab's sealed box -- and `None` for the open
+/// landscape. Under a lid, evaporated water has nowhere to go: it saturates
+/// the room and the ground stops drying, which is why a terrarium does not
+/// dry out. In the open, it rises and disperses into an atmosphere this
+/// engine does not simulate the top of, so humidity stays what it has always
+/// been here -- a local reading of the ground and the weather.
+///
+/// **This is not a special case bolted on to make the lab behave; it is the
+/// measurement saying the two cases are different.** Swept over a single
+/// exchange rate applied everywhere, on the lab bed and on the puddle guards
+/// together:
+///
+/// | rate, applied everywhere | lab bed lost, 16k frames | evaporation guards |
+/// |---|---|---|
+/// | 0 | 285,372 | 11 pass |
+/// | 8 | 250,526 | 11 pass |
+/// | 20 | 174,063 | 3 fail |
+/// | 60 | 71,680 | 5 fail |
+/// | 260 | 2,348 | 5 fail |
+///
+/// **No single rate does both.** Anything strong enough to matter to the bed
+/// has already stopped puddles drying, because one rate is the wrong
+/// instrument: a puddle and a sealed bed look identical to a local humidity
+/// reading, and `CLAUDE.md`'s rule for that is to state the difference as
+/// data rather than tune for it. The lid is the data, and it selects between
+/// `VAPOUR_PER_CELL_OPEN` and `VAPOUR_PER_CELL_ENCLOSED`.
+///
+/// **The open value is left exactly where `main` has it, deliberately.**
+/// Zeroing it outdoors was tried and is a real regression rather than a
+/// tidy-up: `plant::tests::a_tree_denied_water_dies_and_a_watered_one_does_
+/// not` then leaves the droughted tree alive at 143 of the 200 starving
+/// ticks it takes to die -- byte-identical on this branch and on `main` with
+/// only that constant set to zero, so the term is load-bearing for the plant
+/// economy's ability to kill by drought, and this change is not the place to
+/// remove it.
+fn is_enclosed(world: &World) -> bool {
+    world.enclosure().is_some()
 }
 
 /// How dry the air above `(x, y)` is, `0.0..=1.0` — the weather half of the
@@ -940,7 +1070,8 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
         // show up, months later, as a world whose sky had quietly stopped
         // being able to rain.
         world.credit_atmosphere(fill);
-        world.add_vapour(x, y, vapour_of(fill));
+        let enclosed = is_enclosed(world);
+        world.add_vapour(x, y - FIELD_SCALE, vapour_of(fill, enclosed));
         // Gone. `Cell::EMPTY`, never `with_aux(0)` — on a `Liquid`, `aux ==
         // 0` means *full*, so writing a drained cell that way manufactures a
         // full one out of nothing.
@@ -965,7 +1096,8 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
     // sky. The two credit sites are the only two places a fill reduction
     // happens in this file, and each credits exactly what it removed.
     world.credit_atmosphere(loss);
-    world.add_vapour(x, y, vapour_of(loss));
+    let enclosed = is_enclosed(world);
+    world.add_vapour(x, y - FIELD_SCALE, vapour_of(loss, enclosed));
     world.set(x, y, cell.with_aux(fill - loss));
     vec![reschedule]
 }

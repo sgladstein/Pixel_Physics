@@ -213,6 +213,28 @@ mod tests {
     /// scene reproduces the old value `15_147_976_901_438_684_952`
     /// **exactly**, so the move is `FIELD_SCALE`'s and nothing else's.
     ///
+    /// **Re-taken 2026-08-31 for the evaporation vapour term**, again the
+    /// first of the two cases the test's own doc names. Evaporated water is
+    /// now added to the air block *above* the cell -- the one
+    /// `evaporation::dryness` actually reads -- and into the diffusing
+    /// `moisture` channel rather than a separate non-diffusing floor, so this
+    /// scene's standing water humidifies the air over itself from the first
+    /// tick and its own drying rate changes with it. The sequence of phases
+    /// is untouched: `frame.rs`, `app.rs`, `parallel.rs` and `update.rs` are
+    /// byte-identical to `origin/main` on that branch.
+    ///
+    /// The attribution is again clean rather than assumed, and it is a
+    /// two-sided control. With `VAPOUR_PER_CELL_OPEN` and
+    /// `VAPOUR_PER_CELL_ENCLOSED` both set to 0 and every other edit left in
+    /// place, this scene reproduces the previous value
+    /// `2_716_942_592_370_077_923` **exactly** -- and `origin/main` with
+    /// *its* `VAPOUR_PER_CELL_EQUIVALENT` zeroed reproduces the same number,
+    /// which says the old floor was a no-op on this scene (water pins its own
+    /// block to saturation, so a floor beneath that reading changed nothing).
+    /// So the move is the vapour term becoming *effective*, and the deletion
+    /// of `FieldTile::vapour` that went with it is behaviour-neutral here.
+    /// Stable across `RAYON_NUM_THREADS` 1 and 4.
+    ///
     /// **What this constant no longer carries is its provenance**, and that
     /// is a real loss worth stating rather than papering over. The old value
     /// was taken from the *inline* `App::update` on the other side of the
@@ -221,5 +243,5 @@ mod tests {
     /// could only be taken from `frame::step` itself. It still pins the
     /// second failure the test names -- a phase added to one loop and not
     /// the other -- but it is a regression pin now, not a cross-check.
-    const PRE_EXTRACTION_HASH: u64 = 2_716_942_592_370_077_923;
+    const PRE_EXTRACTION_HASH: u64 = 6_411_500_948_612_927_299;
 }
