@@ -337,8 +337,8 @@ fn main() {
             }
             println!(
                 "           surface under cover {} over {cn} columns vs bare {} over {bn}",
-                if cn > 0 { (cs / cn).to_string() } else { "-".into() },
-                if bn > 0 { (bs / bn).to_string() } else { "-".into() },
+                cs.checked_div(cn).map_or_else(|| "-".to_string(), |m| m.to_string()),
+                bs.checked_div(bn).map_or_else(|| "-".to_string(), |m| m.to_string()),
             );
             if fine {
                 // Per-column, around the plant, at the resolution the report
