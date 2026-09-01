@@ -2703,7 +2703,7 @@ const RACK_COLS: [(&str, &str); 7] = [
 /// reason. The run count stays beside it because that is the number saying
 /// how many rows can already be compared.
 fn batch_progress_line(p: &super::batch::Progress, left_note: &str) -> String {
-    let pct = if p.ticks_planned > 0 { p.ticks * 100 / p.ticks_planned } else { 0 };
+    let pct = (p.ticks * 100).checked_div(p.ticks_planned).unwrap_or(0);
     format!(
         "{}% -- {}/{} TICKS  {}/{} DONE  {}M{:02}S  {}  {} HELD",
         pct,
@@ -2756,7 +2756,7 @@ fn rack_groups(chambers: &[super::ChamberSummary]) -> Vec<RackGroup> {
                 .collect();
             let pull = |f: &dyn Fn(&super::stats::Census) -> f32| -> Option<super::stats::Spread> {
                 let mut vals: Vec<f32> =
-                    mine.iter().filter_map(|c| c.census.as_ref()).map(|c| f(c)).collect();
+                    mine.iter().filter_map(|c| c.census.as_ref()).map(f).collect();
                 super::stats::Spread::of(&mut vals)
             };
             RackGroup {
@@ -3432,9 +3432,12 @@ impl Ui {
             text(frame, left, y, &line, SUB_ON);
             if p.failed > 0 {
                 text(frame, left, y + 9, &format!("{} FAILED TO BUILD", p.failed), POOR);
-                y += 9;
             }
-            y += 11;
+            // No `y` advance: the batch line is the last thing this page
+            // draws now that the row verbs have moved above the picture.
+            // Adding one back means something follows it -- and that
+            // something needs a term in `h` above, or it lands outside the
+            // panel exactly as ENTER did.
         }
 
 
