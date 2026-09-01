@@ -131,17 +131,57 @@ sweep of width, and nothing here says 512 is where the window is widest.
 Written into the `colonies` hover note, because a player whose stocked bed
 empties needs it at the moment they are setting the box up.
 
+## The box you can resize, and the wall's button (2026-09-01)
+
+Both closed by the owner, and one of them was a judgement I had got wrong.
+
+**`width` and `height` are rows on the parameters page now.** I had recorded
+this as *"a feature nobody has asked for"* and declined it — wrong on the
+facts: resizing the chamber is squarely inside the owner's original third
+idea, *"evaluate if we can modify our test chamber and how much it will
+impact performance"*. Having spent a session measuring exactly that axis and
+concluding **width is free**, leaving no way to use the finding was the gap,
+not the restraint. Owner asked directly; built.
+
+- **`128..4096` per side, step 64**, so every width this lane measured lands
+  on the grid. The ceiling is a **memory** decision (the owner's): a chamber
+  costs `w * h * 16 B` — 12 for the grid, 4 for the two pheromone planes — so
+  512x320 is 2.5 MB and 4096x4096 is ~268 MB, and a rack holds one each.
+- **Both size rows print what the current box actually costs**, computed
+  through `batch::BatchSpec::world_bytes` rather than a literal, so the
+  figure is this box's. Nothing in the engine refuses a box too large to
+  hold, so the number has to be on screen *before* `REBUILD` — the only
+  moment it can still be reconsidered.
+- **`ground_y` rides the height**, by ratio so it is idempotent under a
+  sweep. This is `lab_resolution`'s trap closed before it could be met: left
+  at 160 in a 640-row box the soil sits in the top quarter and 390 rows are
+  void. That was a harness-only footgun; a knob makes it the player's first
+  press. `ground_y` stays its own row for anyone who wants to override it.
+
+**`Tool::Wall` has a bar cell.** `KEEP` and `FREE` came off the bar, the
+owner called it, and the wall became the seventh tool.
+
+**But the bar is full again at seven, which is measured and not what the
+arithmetic suggests.** "Two cells freed, one spent" reads as a cell left
+over. There is none: putting an *eighth* back fails
+`the_bar_fits_the_screen_and_no_two_widgets_overlap` exactly as a ninth did
+before — the freed width did not all go to the tool row, and `WALL` is not
+the width of the `KEEP` it replaced. With the wall on, `PIXEL_PHYSICS_BAR_TRACE`
+reports the natural spacing **overflowing row 0 by 8 px**, and the layout
+falling back to its tightest rung to fit at **506 of 508** on row 0 and
+**508 of 508** on row 1. So the standing rule is unchanged: run the fit guard
+before assuming the next lab control has anywhere to live, and expect a no.
+
+I nearly shipped the opposite claim — the doc comment said "7 of the 8 that
+once fitted" until putting an eighth back proved it false.
+
 ## Still open
 
-- **`Tool::Wall` has no button.** The wall brush ships on `K` and is
-  deliberately not in `TOOLS`. Not a new finding — the genetics lane hit the
-  same wall independently and it is already in `dead-ends.md`: **row 1 is at
-  exactly its own width and row 0 has 1 px spare**, so the next lab control
-  needs a third row, a page, or a removal. An owner call, not a lane's.
-- **Width as a swept knob.** `write_bed` does not accept `width` or `height`
-  and the parameters page has no row for either, so the numbers above have no
-  panel to be shown in. Adding one is a feature nobody has asked for; the
-  measurement is recorded here and in `instruments.md` instead.
 - **Where the coexistence window actually is.** Three widths at one founder
   count found it; locating it wants width and `founders` swept together, paired
-  on the seed, which the rack now runs unaided.
+  on the seed, which the rack now runs unaided — and `width` being a
+  `write_bed` field means that sweep needs no new code.
+- **Nothing bounds a rack's total memory.** One chamber prints its own cost;
+  the rack does not sum them, and at 4096 a handful of chambers is a
+  gigabyte. The batch has a byte budget and drops worlds to on-record rows;
+  the *rack* has no equivalent.

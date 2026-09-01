@@ -2243,6 +2243,44 @@ mod tests {
         assert_ne!(grid_hash(&lab.world), parent, "a duplicate at a NEW seed came out identical — the seed is not reaching the copy, so a rack of replicates is one world wearing many labels");
     }
 
+    /// **Turning the size row up gives you a bigger box**, end to end from
+    /// the panel to the world's own bounds.
+    ///
+    /// The pieces were each covered and the chain between them was not:
+    /// `write_bed` moves the spec, `needs_rebuild` says the row wants a
+    /// rebuild, and `reset` builds from the spec — but nothing asserted that
+    /// pressing `REBUILD` after raising `width` actually widens the lattice,
+    /// which is the whole of what the row promises. `World::new` fixes the
+    /// bounds, so this is the only route a size change can take, and a
+    /// silent failure here would look exactly like a knob that does nothing.
+    #[test]
+    fn raising_the_width_and_rebuilding_gives_a_wider_world() {
+        let mut lab = Lab::new(rack_bed(1));
+        let before = lab.world.bounds().expect("the bed is bounded");
+        assert!(params::write_bed(&mut lab.spec, "width", 512.0));
+        assert!(
+            params::needs_rebuild(&params::Knob::Bed { field: "width" }),
+            "the width row must ask for a rebuild -- it cannot be applied live"
+        );
+        // The world is untouched until the rebuild, which is what every size
+        // note claims on screen.
+        assert_eq!(lab.world.bounds(), Some(before), "the spec must not reshape the running world");
+
+        lab.reset();
+        let after = lab.world.bounds().expect("the rebuilt bed is bounded");
+        assert_eq!(after.width(), 512, "REBUILD after raising width gave a {}-wide world", after.width());
+        assert!(after.width() > before.width(), "{} -> {}", before.width(), after.width());
+        assert_eq!(after.height(), before.height(), "width must not have moved the height");
+
+        // And the bed inside it is a bed, not a wider empty room: the
+        // builder has to have restocked it. Without this the test passes on
+        // a world that is merely bigger and dead.
+        assert!(
+            lab.world.live_organism_count() > 0,
+            "the wider box came back with nothing alive in it"
+        );
+    }
+
     /// The rack's one invariant, through every verb that reshapes it.
     #[test]
     fn the_rack_invariant_survives_add_switch_and_close() {
