@@ -1324,6 +1324,25 @@ drift that two of these documents still reflect.**
   Gate 2 needs. §6.1 names `CROSS` as the cheapest real expansion — the brain's
   topology is caged on one shared scaffold precisely so crossover is possible
   and there is still no verb for it. §7 records the bar running out of room.
+- [evolution-lab-playtest-round-2026-09-01.md](evolution-lab-playtest-round-2026-09-01.md)
+  — **findings + built and landed 2026-09-01.** The lab's fourth playtest
+  round: zooming out past the box, a creature that would not stay selected, a
+  released clone that could not move, and a plant count reading 200+ over a
+  bed with a handful of visible plants. **Three defects and a number.** The
+  one worth reading past the fixes is the first: a released *animal* had never
+  once taken a tick, on a feature that shipped with a round-trip guard, a
+  dial, a page and a README section — the placement path dropped the
+  `ActiveSite`, and every guard over either end stayed green because the
+  shelf's tests all place and then inspect and **none ran a frame**. Two more
+  that bind on future work: anything in `render.rs` bounded by *"the world is
+  huge"* is a defect waiting in the lab (two were in one function), and a knob
+  that is not an `f32` has no editor, because the parameters page moves
+  numbers — three animals shipped and one could be placed. The number is the
+  plant count, and the natural fix was the wrong one: the owner's *"lots of
+  tiny 1-3 cell plants"* implies a size threshold, and measured, the whole of
+  the discrepancy is **ungerminated seed** (419 of 467 at frame 30,000) with
+  about three plants in the 2-9 cell bucket. Both halves settle — stand ~48,
+  bank ~430.
 - [plant-evolution-design.md](plant-evolution-design.md) — **design, all
   nine §8 calls signed off 2026-08-19; partly implemented.** The plant
   ecology: litter, decay, grass and the creeper; §4a's register holds the

@@ -4193,3 +4193,49 @@ an ant is two dark cells at play zoom, findable only because it moves -- and a
 dead one has stopped moving, so it is unfindable by the very channel that
 finds a live one. A phase whose whole content is "watch evolution happen" has
 a legibility problem this repo has measured and not solved.
+
+## 2026-09-01 — a playtest round in the lab: three defects and a number
+
+Four things the owner hit in play, in one message. Full account in
+`Reports/evolution-lab-playtest-round-2026-09-01.md`; shipped behaviour in
+README's **Lab hand-verbs status**.
+
+**The zoom could open past the box.** The lab was calling the sandbox's zoom,
+which cannot overrun an 8192x2560 world and overruns a 512x320 box on its
+first step out — 87% of the screen outside the box at the widest step on a
+1024x640 bed. The replacement takes its limit from `World::bounds()` on every
+call, so it follows the box height knob rather than a constant, and holds the
+world cell at the middle of the screen while the scale changes under it. A
+world smaller than the view is now centred in it rather than pinned to the
+origin, and that rule went into `set_camera` so a pan cannot undo it.
+
+**A clicked animal was deselected the moment it walked.** The cell page
+latched a position. It now latches the individual too and follows it, but only
+once the cell stops being that individual's — so a plant page still reads the
+cell that was clicked.
+
+**A released clone could not move, and it is the entry worth keeping.** The
+specimen shelf shipped in round four with a round-trip guard, a brood dial, a
+rack page and a README section, and a released *animal* had never once taken a
+tick: `release_creature_specimen` dropped the `ActiveSite` its first tick had
+to be booked at. Nothing was red — it was in the world, in the organism table
+and in the census. Gravity is inside a creature's own tick, so it did not even
+fall. **The shelf's own tests all place and then inspect; none ran a frame.**
+
+**Only one of three shipped animals could be placed by hand**, because
+`colony_species` is a `String` and the parameters page moves numbers. The
+species chip now cycles animals under a stocking verb and writes that field; a
+stock dial says how many, at 1 one animal with no nest and above 1 a colony
+through `found_colony_of`'s own band arithmetic. The dial took the brush's
+three cells, which mean nothing under those verbs — the fourth answer to "the
+bar is full" that round four did not list.
+
+**And `PLANTS` was counting the seed bank.** Owner: *"5-7 obvious plants, but
+the count is way higher like 200+."* The natural fix is a size threshold, and
+it would have been tuned against a quantity that is not there: measured over
+30,000 frames, the whole of the discrepancy is **ungerminated seed** — 419 of
+467 at the last stop, with about three plants in the 2-9 cell bucket. Both
+halves settle (stand ~48, bank ~430), so this was a bed in balance described
+by one number answering neither question. The page now reads `PLANTS` for the
+stand and `SEEDS IN THE GROUND` for the bank, and the size spread is taken
+over the stand, where its median had been 1 for ever.
