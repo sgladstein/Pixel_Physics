@@ -864,7 +864,22 @@ pub fn release_creature_specimen(
     let material_id = world.materials.id_of(species_name)?;
     let def = world.species.get(species_id).creature.as_ref()?.clone();
     let site = place_creature(world, x, y, species_id, material_id, &def, Origin::Stock { genome, traits })?;
-    match site.kind {
+    // **Schedule it, or it is a statue.** `place_creature` writes the body and
+    // hands back the site its first tick has to be *booked* at -- every other
+    // caller does this (`found_colony_of`, the scene's beetles, `bud_creature`
+    // through its own return path) and this one did not, for the whole life of
+    // the shelf. Nothing failed: the body was there, the organism was in the
+    // table, the census counted it, and it never took a tick, so it never
+    // fell, never walked and never ate. The owner reported it as *"it just
+    // gets stuck in midair (or wherever you click) but it cannot move"*, which
+    // is exactly what an unscheduled creature looks like -- gravity is part of
+    // the creature's own tick (`creature_stats.falls`), not a separate pass.
+    //
+    // `CLAUDE.md`'s channel rule in its third shape: a writer and a reader
+    // both present, and the *wire between them* missing.
+    let kind = site.kind;
+    world.schedule_active_site(site);
+    match kind {
         ActiveKind::Creature { organism } => Some(organism),
         _ => None,
     }
@@ -1513,9 +1528,6 @@ impl World {
     /// derived from the body plan's own width, floored at the shipped value
     /// so the ant is byte-identical.
     pub fn found_colony_of(&mut self, x: i32, y: i32, species: &str, ants: i32) -> usize {
-        let Some(nest) = self.materials.id_of("nest") else {
-            return 0;
-        };
         // **A species nobody loaded places nobody, and says so by returning
         // 0** -- the same contract as no ground and no nest material. A
         // silent no-op is indistinguishable from a broken feature, which is
@@ -1523,6 +1535,38 @@ impl World {
         let Some(species_id) = self.species.id_of(species) else {
             return 0;
         };
+        if self.materials.id_of("nest").is_none() {
+            return 0;
+        }
+        // The two halves, each with exactly one definition of its own rule:
+        // where home is, and where the animals stand. See `colony_stations`
+        // for why they are separate verbs.
+        self.paint_nest_patch(x, y);
+        let mut placed = 0;
+        for (cx, cy) in self.colony_stations(x, y, species_id, ants) {
+            let before = self.get(cx, cy).organism_id();
+            if let Some(site) = plant_creature_seed(self, cx, cy, species) {
+                self.schedule_active_site(site);
+            }
+            if self.get(cx, cy).organism_id() != before {
+                placed += 1;
+            }
+        }
+        placed
+    }
+
+    /// **Where a colony of `ants` would stand, founded at `(x, y)`** — one
+    /// world position per animal, ground already resolved, in placement
+    /// order. Columns that are not a site are simply absent, so the length is
+    /// how many the bed can take rather than how many were asked for.
+    ///
+    /// Split out of [`World::found_colony_of`] so that the *release* verb can
+    /// put a colony down too: a jar released as a colony has to be laid out
+    /// exactly the way a founded one is, and the alternative was a second copy
+    /// of the band arithmetic. That is the failure `colony_surface`'s own doc
+    /// opens with -- `open-bugs-handoff.md` §R2 is what a second copy of a
+    /// placement rule cost last time.
+    pub fn colony_stations(&self, x: i32, y: i32, species_id: SpeciesId, ants: i32) -> Vec<(i32, i32)> {
         // How wide the body actually is, east-facing; the mirror is the same
         // width. `Chain(n)` is a following chain rather than a rigid row, so
         // its offsets are the worst case it can occupy, which is what a
@@ -1538,34 +1582,47 @@ impl World {
                 (hi - lo + 1).max(1)
             })
             .unwrap_or(1);
-        // The per-column rules live in `colony_surface` and
-        // `colony_ant_site`, so that nothing can hold a second copy of
-        // them -- a second copy is what `open-bugs-handoff.md` §R2 is.
-        // **Centred on the cursor, both of them.** The ants used to run from
-        // 26 cells left of the cursor to 178 cells *right* of it, because
-        // the loop started at the nest's left edge and then stepped forward
-        // once per ant -- so the colony appeared almost entirely to one
-        // side, and pressing the key on the right of the map put most of it
-        // outside the world, where placement fails silently.
-        //
-        // The nest patch stays much narrower than the ant band, which is
-        // deliberate and is the ratio the foraging scene measured 414
-        // deliveries at: home has to be a *place*, not everywhere, or there
-        // is no gradient to walk up.
-        // **Both are lengths in cells and both scale.** The comment above
-        // says why the spacing is 4 -- "four cells apart *for a two-cell
-        // body*" -- so it is denominated in bodies, and a body that is twice
-        // as many cells across needs twice the corridor or the colony
-        // gridlocks exactly as the 27,386 blocked ticks did. The ant *count*
-        // is not a length and stays put; the band widens under it.
-        // Two bodies' width of corridor, which is what the shipped ant has:
-        // a `Chain(2)` spans 2 and is founded 4 apart. So the ant reproduces
-        // exactly and anything wider gets the same *ratio* rather than the
-        // same *number*.
+        // **Both are lengths in cells and both scale.** The spacing is
+        // denominated in bodies -- "four cells apart *for a two-cell body*" --
+        // so a body twice as many cells across needs twice the corridor or the
+        // colony gridlocks exactly as dead ends 775/829's 27,386 blocked ticks
+        // did. The ant *count* is not a length and stays put; the band widens
+        // under it.
         let spacing = scaled_cells(self, COLONY_ANT_SPACING.max(body_span * 2));
-        let half_width = scaled_cells(self, COLONY_HALF_WIDTH);
         let span = (ants - 1).max(0) * spacing;
+        // **Centred on the cursor.** The ants used to run from 26 cells left
+        // of the cursor to 178 cells *right* of it, because the loop started
+        // at the nest's left edge and stepped forward once per ant -- so the
+        // colony appeared almost entirely to one side, and pressing the key on
+        // the right of the map put most of it outside the world, where
+        // placement fails silently.
         let left = x - span / 2;
+        (0..ants.max(0))
+            .filter_map(|i| {
+                let cx = left + i * spacing;
+                colony_ant_site(self, cx, y).map(|sy| (cx, sy - 1))
+            })
+            .collect()
+    }
+
+    /// **Lay a patch of nest at `(x, y)`** — the ground a colony walks home
+    /// to. Returns how many columns took it.
+    ///
+    /// Its own verb, because a colony needs it and a single animal placed by
+    /// hand does not: a nest patch under one beetle is a home for a colony
+    /// that does not exist, and the scent gradient it lays would be a lie
+    /// about the box.
+    ///
+    /// The patch stays much narrower than the animal band, which is
+    /// deliberate and is the ratio the foraging scene measured 414 deliveries
+    /// at: home has to be a *place*, not everywhere, or there is no gradient
+    /// to walk up.
+    pub fn paint_nest_patch(&mut self, x: i32, y: i32) -> usize {
+        let Some(nest) = self.materials.id_of("nest") else {
+            return 0;
+        };
+        let half_width = scaled_cells(self, COLONY_HALF_WIDTH);
+        let mut painted = 0;
         for cx in (x - half_width)..=(x + half_width) {
             if let Some(sy) = colony_surface(self, cx, y) {
                 let cell = self.get(cx, sy);
@@ -1573,23 +1630,11 @@ impl World {
                 // creature would be a surprise.
                 if matches!(self.materials.kind(cell.material), MaterialKind::Solid | MaterialKind::Powder) {
                     self.set(cx, sy, Cell::new(nest, 0).with_attached(cell.attached()));
+                    painted += 1;
                 }
             }
         }
-        let mut placed = 0;
-        for i in 0..ants.max(0) {
-            let cx = left + i * spacing;
-            if let Some(sy) = colony_ant_site(self, cx, y) {
-                let before = self.get(cx, sy - 1).organism_id();
-                if let Some(site) = plant_creature_seed(self, cx, sy - 1, species) {
-                    self.schedule_active_site(site);
-                }
-                if self.get(cx, sy - 1).organism_id() != before {
-                    placed += 1;
-                }
-            }
-        }
-        placed
+        painted
     }
 }
 

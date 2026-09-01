@@ -958,6 +958,60 @@ mod tests {
         assert_eq!(w.organism(id).expect("still alive").genome, before);
     }
 
+    /// **A released animal takes ticks.** Owner, from play: *"if you copy an
+    /// ant to the jar and then try to place a clone of it, it just gets stuck
+    /// in midair (or wherever you click) but it cannot move."*
+    ///
+    /// `release_creature_specimen` built the body, took the slot and handed
+    /// back the site its first tick had to be booked at -- and threw the site
+    /// away. Every other placement path in the engine schedules it. Nothing
+    /// went red: the animal was in the world, in the organism table and in the
+    /// census, and it never took a tick. Gravity is part of a creature's own
+    /// tick rather than a separate pass, so an unscheduled one does not even
+    /// fall.
+    ///
+    /// **Paired against a founder of the same species dropped from the same
+    /// height**, because a bare "it moved" assertion cannot tell a fixed
+    /// release from a world where nothing falls at all -- and the founder path
+    /// was never broken, so it is the positive control this needs.
+    #[test]
+    fn a_released_animal_falls_like_a_founder_does() {
+        let mut w = floored_world();
+        let id = distinctive_ant(&mut w);
+        let spec = capture(&w, id, "keeper").expect("keepable");
+
+        // Twenty rows of air over the floor at y == 101, well clear of the
+        // ant `distinctive_ant` left standing on it.
+        const DROP: i32 = 81;
+        let mut r = shelf_rng();
+        let released = release(&mut w, &spec, 140, DROP, 0, &mut r).expect("released").organism;
+        let control = {
+            let site = plant_creature_seed(&mut w, 150, DROP, "ant").expect("a founder hatches in mid-air");
+            let organism = w.get(150, DROP).organism_id();
+            w.schedule_active_site(site);
+            organism
+        };
+
+        let lowest = |w: &World, id: u16| {
+            w.organism(id).expect("alive").cells.keys().map(|(_, y)| *y).max().expect("a body has cells")
+        };
+        assert_eq!(lowest(&w, released), DROP, "the release did not start where it was put");
+
+        let mut particles = crate::sim::particle::ParticleSystem::default();
+        let mut blasts = crate::sim::explosion::Blasts::default();
+        let tuning = crate::sim::player::Tuning::default();
+        for _ in 0..400 {
+            crate::sim::frame::step(&mut w, &mut particles, &mut blasts, crate::sim::player::PlayerInput::default(), &tuning);
+        }
+
+        let control_fell = lowest(&w, control) - DROP;
+        assert!(control_fell > 0, "the control founder did not fall either, so this world cannot answer the question");
+        assert!(
+            lowest(&w, released) - DROP > 0,
+            "a released animal did not move at all in 400 frames while a founder dropped from the same height fell {control_fell} rows -- it is in the world and off the schedule",
+        );
+    }
+
     #[test]
     fn a_release_with_no_room_says_so_rather_than_half_placing() {
         let mut w = floored_world();
