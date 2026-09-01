@@ -237,13 +237,51 @@ question found one shipped bug and three gaps.
   `Lab::commit_typed_batch` alone, guarded by asserting a typed 9,999,999 and
   500 clicks reach the same ceiling.
 
+### Deleting and extending (2026-09-01)
+
+**Individual delete already worked** — `CLOSE` has been on a selected row all
+along. It was one of the buttons drawn below the panel and behind the bar
+until the layout fix above, which is why it read as missing alongside `ENTER`.
+
+**A batch had no identity, and that is why batch-level verbs did not exist.**
+A copy was labelled after its index *within* its batch, so two runs of eight
+both produced `BATCH 1..8`: nothing on the page and nothing in the data told
+one run's rows from another's, so there was no such thing as "this batch" to
+act on — only "every row", which is `CLEAR`. Each batch now takes a number as
+it starts, every row carries it, and the label is `B<batch>.<copy>`.
+
+- **`CLOSE B`** removes every row of one batch, chambers *and* on-record rows.
+  A batch's copies land partly in each depending on where the memory budget
+  fell, so a verb touching only one leaves half a batch behind.
+- **`MORE` / `MORE B`** run a row, or a whole batch, on by the TICKS dial.
+
+**Extending carries on; it does not rebuild, and both wrong versions are
+silent.** Rebuild from the recipe and the row returns at `extra` frames having
+discarded the run you paid for. Rebuild for `frame + extra` and the numbers
+look right while the plants are different individuals. So a parked chamber
+hands its world over — **moved, not cloned**, since it came out of the rack
+and is going back — and a row whose world the budget dropped is rebuilt to
+`frame + extra`, which reaches the same place because the spec and seed
+reproduce the run exactly. That is what lets a whole batch extend where the
+budget kept only half of it.
+
+Two additions carry it and the runner is otherwise untouched:
+`Start::Resume` hands each run a world by index, and `PlannedRun::frames`
+overrides the count per run — an extension holds runs of different lengths and
+one `frames` cannot express that.
+
+The box on screen is refused: it is live, the speed dial already runs it, and
+its world is inline rather than in the rack.
+
 ### Still open
 
 1. Cosmetic: the pager steps by `RACK_ROWS` while a grouped row is two lines,
    so a grouped page scrolls half a screen.
-2. Group rows are not clickable and have no verbs — you cannot enter a
-   setting's best run from the grouped view, only from the flat one.
-3. No PR opened yet for any of this.
+2. Group rows are not clickable and have no verbs — you cannot enter or extend
+   a setting's best run from the grouped view, only from the flat one.
+3. **`MORE` on a dropped row is much slower than on a live one** and the page
+   does not say so: one rebuilds from zero, the other continues. The hover
+   note says it; the row does not.
 
 ### Gates at handoff
 
