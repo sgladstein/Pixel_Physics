@@ -1,0 +1,89 @@
+{
+  "id": "20260901T205657957Z-dd2071",
+  "created": "2026-09-01T20:56:57Z",
+  "board": "lab",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/evolution-lab-tracking-iacu4z",
+    "commit": "cb4d3e91",
+    "agent": null,
+    "session_id": "f71970f9-fe80-577a-9e5c-1a53f5e54090",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Every plant and every animal, as a list you can click through",
+  "question": "Clicking a row marks that individual in the box and puts its numbers on screen. Is the mark findable enough -- a bracket round a plant, a crosshair round a two-cell ant -- and are these the eight columns you would want to sort a hundred of them by?",
+  "context_md": "**What it does:** the box could tell you it held 52 ants and it could tell you about one ant, if you could spot it. This is the bit in between -- a roster of every individual, sorted and filtered, and a click that holds on to one.\n\n**Where it sits:** first of four. Next is the genome read back in words instead of numbers, then a life record (age, offspring, feeding, cause of death), then side-by-side comparison and a lineage overlay.\n\n**Reached from the PLANTS and ANTS pages**, not from the bar -- the bar is measured full, row 1 at exactly 508 of 508 pixels, so the way in is a LIST heading on the page those buttons already open.\n\n**The pin is an identity, not a row and not a cell.** An ant walks out from under a cell inspector; a row number means a different animal the moment anything is born. Held across 240 ticks the pinned ant moved 13 cells and the page stayed on it.\n\n**Two things I already found and fixed by looking at these:** every ant read HUNGRY (the threshold was scaled off what a corpse is worth, not what an animal lives on), and every ant read HOME (that constant is a 3,000-tick sense window, not a place). Both were columns saying the same word 52 times.\n\n**Not asking about:** the world being mostly hidden behind the panel -- the list is meant to be put away once you have picked one, which is the last two pictures.",
+  "kind": "gallery",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "The animals list",
+      "files": [
+        "20260901T205657957Z-dd2071/000-c-roster--animals.png"
+      ],
+      "caption": "52 ants, 14 to a page, sortable on any column",
+      "meta": {
+        "animals listed": 52,
+        "rows on a page": 14,
+        "plants listed": 18
+      },
+      "focus": null
+    },
+    {
+      "label": "One picked",
+      "files": [
+        "20260901T205657957Z-dd2071/001-c-roster--animals-pinned.png"
+      ],
+      "caption": "the row highlights and its numbers open beside it",
+      "meta": {
+        "pinned ant id": 11,
+        "cells it owns": 2,
+        "moved after 240 ticks (cells)": 13
+      },
+      "focus": null
+    },
+    {
+      "label": "The plants list, one picked",
+      "files": [
+        "20260901T205657957Z-dd2071/002-c-roster--plants-pinned.png"
+      ],
+      "caption": "different columns: seeds set, water, shoot",
+      "meta": {
+        "plants listed": 18,
+        "pinned plant id": 7,
+        "cells it owns": 100
+      },
+      "focus": null
+    },
+    {
+      "label": "List away: a two-cell ant, marked",
+      "files": [
+        "20260901T205657957Z-dd2071/003-c-marked--animals.png"
+      ],
+      "caption": "the crosshair is the whole point -- this is the animal that is otherwise findable only because it moves",
+      "meta": {
+        "cells the ant owns": 2
+      },
+      "focus": null
+    },
+    {
+      "label": "List away: a plant, bracketed",
+      "files": [
+        "20260901T205657957Z-dd2071/004-c-marked--plants.png"
+      ],
+      "caption": "corners rather than a closed box, so the plant stays visible inside it",
+      "meta": {
+        "cells the plant owns": 100
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
