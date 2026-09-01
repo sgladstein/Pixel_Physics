@@ -819,6 +819,69 @@ drift that two of these documents still reflect.**
 
 ## Creatures and ecology  ·  `engine`
 
+- [mechanism-vs-behaviour-audit-2026-08-31.md](mechanism-vs-behaviour-audit-2026-08-31.md)
+  — **audit and staged plan, baseline `943ace17`, 2026-08-31; nothing built and
+  nothing measured by it. Independently reviewed and corrected in eleven
+  places, one load-bearing; then re-based and **three findings closed inside the
+  same day by a programme answering the same brief in parallel** — read §7
+  before §1, and read
+  [creature-gates-to-mechanism-2026-08-31.md](creature-gates-to-mechanism-2026-08-31.md)
+  alongside it.** Where the engine
+  hardcodes a *behaviour* instead of building a *mechanism*, on the owner's
+  line **the mechanism is code, the policy is genome**. Scoped to the evolution
+  lab and read off `943ace17`. **Twenty-one findings**, a ranking, and — the
+  half worth as much — **sixteen things checked and cleared as legitimate
+  substrate**, each with the reason so it is not re-audited. The two that carry
+  it: `hunger_fraction` is a constant chosen to make foraging appear and is now
+  the bank ceiling blocking reproduction (thirteen readers depend on that
+  ceiling, including two of the audit's own instruments and a lib guard that
+  would go on passing while testing nothing); and **`CREATURE_TRAITS = 2`** — a
+  `CreatureDef` has 25 fields and a child inherits two scalars and a wiring
+  matrix, so body size, dig force, sight range and when to breed are species
+  constants that cannot mutate. The plant genome, by contrast, is **exemplary**
+  and the staging copies it: ten continuous slots, six discrete loci with
+  paired-trade allele tables, heritable fates. Also two more **unpriced
+  ratchets** of PR #188's shape (digging and pheromone deposition are free),
+  the `Feed` output re-conflating eat with take exactly as it once conflated
+  eat with dig, `sight_fraction` armed in code and **unarmed in `beetle.ron`**,
+  and — found only in review — **the worm, an entire shipped animal implemented
+  as nine constants and a hand-written branch with no genome at all**.
+
+  **§7 is worth more than most of the findings.** The audit was read off
+  `943ace17`; by the time it was ready to land `main` was **+72**, and **three
+  of its findings had closed** — the crop (F2, its #1), the eat-vs-drop verb
+  choice (F11, #5) and when-to-breed as a trait (F7, #15). Not three
+  coincidences: `creature-gates-to-mechanism-2026-08-31.md` is `S0`–`S6`, and
+  it **opens by quoting the same owner sentence, adopting the same governing
+  line and the same two corollaries.** Two documents, one brief, written
+  simultaneously without either knowing of the other — which no branch list
+  reveals, since a report exists only once pushed. **Two independent readings
+  converging on the same top item is corroboration, not waste**: it is the best
+  evidence in either document that the crop was the right thing to build. Landed as first written it would have sent the next session to
+  build a crop that existed. `CLAUDE.md` already carries this rule filed under
+  *files*; §7 is it applied to *findings*, where it bites harder — a duplicate
+  bug entry shows up in a merge conflict and a stale finding merges cleanly and
+  reads as work to do. The remedy is one `grep` per finding against `main`
+  before landing, which took a single call for nineteen of them.
+
+  **One consequence for anyone acting on it:** F1's #1 rank rests on §T2's *4
+  deliveries*, taken against the **pre-crop** economy — and the sibling report's
+  §3 measured that same bed directly and found the colony crash is
+  **overgrazing, spatial rather than economic**: income 5–9× outgo, a 9% duty
+  cycle, the furthest founders untouched *to the cell*, and 2,033 plant cells
+  the colony cannot reach. **Do not build F1 before re-taking that number**; on
+  §3's evidence it may not survive.
+
+  **Read §1's F1 and F3 before citing either.** F1 shipped with a defect that
+  is **false** (soil is `Powder`, so the moisture field is not "blocked" there
+  and does carry a soil-water reading; the real defect is the coarse-field
+  trap, and the false sentence was inherited from PR #185's commit message
+  without being checked against `field.rs`). F3's proposed one-line fix is a
+  **recorded dead end** — `dead-ends.md`:1543, *"a floor is not a margin"* —
+  that a truncated grep hid behind a "clear" verdict. Both are corrected in
+  place with the mechanism of the error recorded, which is the more transferable
+  half. §5 stages the work behind Gate 0 and Gate 2; §6 says what it did not
+  cover.
 - [creature-motion-design.md](creature-motion-design.md) — **built
   2026-08-29; all four of §6's calls answered, §7's five guards green.**
   `BrainOutput::Impulse` ships: one verb, and the *body* decides what it
@@ -1595,6 +1658,16 @@ above says what the two games share.
 creature findings stay in their own sections even when the lab measured them
 — the whole premise is that those are the same organisms either side, and
 filing them by which game happened to observe them would hide that.
+
+That routing is why [mechanism-vs-behaviour-audit-2026-08-31.md](mechanism-vs-behaviour-audit-2026-08-31.md)
+is filed under **Creatures and ecology** despite being scoped to this game and
+staged against its gates: fourteen of its eighteen findings are about the
+animal, not the box. The four that *are* about the box are worth knowing here —
+the `COLONY` verb can only place the species literally named `"ant"` (which
+`dead-ends.md` names as the blocker for the grazer that clears Gate 0), there
+is **no food verb** although hand-placed food is the one intervention measured
+to separate generation 13 from generation 0, and the plant mutation rates the
+design guide's §7b-i calls "already data" are Rust `const`s.
 
 - [lab-lamps-light-the-bed-2026-08-30.md](lab-lamps-light-the-bed-2026-08-30.md)
   — **built and measured.** The fixtures are what light the crop, and moving
