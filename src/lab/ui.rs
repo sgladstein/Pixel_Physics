@@ -452,6 +452,10 @@ pub enum Action {
     /// able to delete individual experiments or whole batches. Right now the
     /// only option is delete everything."*
     ChamberCloseBatch(u32),
+    /// Run one row on for the number of ticks the TICKS dial holds.
+    ChamberExtend(usize),
+    /// Run every row of one batch on by the same amount.
+    ChamberExtendBatch(u32),
     /// Re-run an on-record row back into a world. See
     /// `Lab::rebuild_record`.
     ChamberRebuild(usize),
@@ -3373,6 +3377,14 @@ impl Ui {
                 // world has nothing to rebuild.
                 // Only on a row a batch produced: a chamber you made
                 // yourself has no batch to close.
+                // **The amount comes from the TICKS dial**, which is already
+                // on this page and already types. A second number for "how
+                // much more" would be a second thing to set and a second
+                // place for the two to disagree.
+                ("MORE", Action::ChamberExtend(i), !here,
+                 "RUN THIS ROW ON BY THE TICKS SHOWN BELOW, IN THE BACKGROUND. IT CARRIES ON FROM WHERE IT STOPPED RATHER THAN STARTING AGAIN, SO EXTENDING A 9,000-TICK COPY BY 20,000 COSTS TWENTY THOUSAND AND NOT TWENTY-NINE. A ROW KEPT AS NUMBERS ONLY IS REBUILT FROM ITS RECIPE AND RUN THE WHOLE WAY, WHICH REACHES THE SAME PLACE AND TAKES LONGER."),
+                ("MORE B", Action::ChamberExtendBatch(batch_of.unwrap_or(0)), batch_of.is_some(),
+                 "RUN EVERY ROW OF THIS BATCH ON BY THE TICKS SHOWN BELOW. THE BOX YOU ARE IN IS LEFT ALONE -- IT IS LIVE, AND THE SPEED DIAL ALREADY RUNS IT."),
                 ("CLOSE B", Action::ChamberCloseBatch(batch_of.unwrap_or(0)), batch_of.is_some(),
                  "THROW AWAY EVERY ROW THIS BATCH PRODUCED, CHAMBERS AND RECORDS ALIKE. THE BOX YOU ARE IN IS KEPT EVEN IF IT CAME FROM THIS BATCH, SO CLOSING ONE NEVER ALSO MOVES YOU SOMEWHERE YOU DID NOT ASK TO GO."),
                 ("REBUILD", Action::ChamberRebuild(i), on_record && !rebuilding,

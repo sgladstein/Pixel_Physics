@@ -117,6 +117,9 @@ pub struct Lab {
     setting: Option<f32>,
     /// Which batch produced the box on screen, if one did.
     batch_id: Option<u32>,
+    /// Where each row of a running extension came from, so what lands keeps
+    /// its own name, setting and batch rather than being renamed a fresh copy.
+    extending: Vec<Provenance>,
     /// **How many batches have been run, so each gets its own number.**
     ///
     /// The label alone cannot identify a batch: a copy is called `BATCH 3`
@@ -363,6 +366,7 @@ impl Lab {
             setting: None,
             batch_id: None,
             batch_seq: 0,
+            extending: Vec::new(),
             on_record: Vec::new(),
             batch: None,
             batch_spec: batch::BatchSpec {
@@ -673,6 +677,7 @@ impl Lab {
         }
         let ticks = rec.ticks();
         let run = batch::PlannedRun {
+            frames: None,
             index: 0,
             setting_index: 0,
             setting: None,
@@ -718,9 +723,25 @@ impl Lab {
             // them apart -- which is why there was no such thing as "this
             // batch" to delete.
             let seq = self.batch_seq;
-            let label = match r.setting {
-                Some(v) => format!("B{seq}.{} @ {v:.0}", r.index + 1),
-                None => format!("B{seq}.{}", r.index + 1),
+            // **An extended row keeps its own name, setting and batch.** It
+            // is the same experiment carried further, not a new copy, and
+            // renaming it would break the one thing `CLOSE B` and a grouped
+            // sweep both read: which batch it belongs to.
+            let carried = self.extending.get(r.index).map(|p| Provenance {
+                label: p.label.clone(),
+                setting: p.setting,
+                batch: p.batch,
+            });
+            let label = match &carried {
+                Some(p) => p.label.clone(),
+                None => match r.setting {
+                    Some(v) => format!("B{seq}.{} @ {v:.0}", r.index + 1),
+                    None => format!("B{seq}.{}", r.index + 1),
+                },
+            };
+            let (setting, batch_of) = match &carried {
+                Some(p) => (p.setting, p.batch),
+                None => (r.setting, Some(seq)),
             };
             match r.world {
                 // Held: it becomes a chamber you can walk into now.
@@ -733,7 +754,7 @@ impl Lab {
                     // done than did.
                     let seed = r.spec.seed;
                     self.on_record.retain(|rec| !(rec.rebuilding && rec.spec.seed == seed));
-                    let from = Provenance { label, setting: r.setting, batch: Some(seq) };
+                    let from = Provenance { label, setting, batch: batch_of };
                     self.adopt_chamber(world, r.spec, r.census, r.history, from);
                 }
                 // On record only: the census is kept and the world is
@@ -741,8 +762,8 @@ impl Lab {
                 None => self.on_record.push(OnRecord {
                     spec: r.spec,
                     census: r.census,
-                    setting: r.setting,
-                    batch: Some(seq),
+                    setting,
+                    batch: batch_of,
                     label,
                     rebuilding: false,
                 }),
@@ -752,6 +773,10 @@ impl Lab {
         if b.is_finished() {
             let p = b.progress();
             let mut b = self.batch.take().expect("checked above");
+            // Cleared with the batch, not before: `poll_batch` drains results
+            // across many frames and every one of them reads it to keep its
+            // own name.
+            self.extending.clear();
             let ok = b.join();
             let note = if !ok {
                 "THE RACK'S OWN THREAD FAILED".to_string()
@@ -844,6 +869,101 @@ impl Lab {
             }
         }
         gone
+    }
+
+    /// **Run these rows on for `extra` more ticks, in the background.**
+    ///
+    /// Owner, 2026-09-01: *"after an initial run, you should be able to select
+    /// a specific experiment or whole batch and tell it to run for an
+    /// additional x ticks."* A batch answers *"what do fifty of these look
+    /// like at 9,000 ticks"*; this answers the question that follows it,
+    /// *"and what does THIS one look like at thirty"*, without paying for the
+    /// first nine thousand again.
+    ///
+    /// A parked chamber hands over its world and carries on from it. A row
+    /// whose world was dropped for the budget is rebuilt from its spec and
+    /// run to `frames it had + extra`, which reaches the same place because
+    /// the spec and the seed reproduce the run exactly -- so a whole batch
+    /// extends even where the budget kept only half of it.
+    ///
+    /// **The box on screen is refused**, and that is not a limitation: it is
+    /// live, and the speed dial already runs it. Its world lives inline
+    /// rather than in the rack, so handing it over would mean having no
+    /// chamber to draw.
+    pub fn extend_rows(&mut self, rows: &[usize], extra: u64) -> String {
+        if self.batch.is_some() {
+            return "A RACK IS ALREADY RUNNING -- STOP IT FIRST".to_string();
+        }
+        let summaries = self.chamber_summaries();
+        let mut plans: Vec<batch::PlannedRun> = Vec::new();
+        let mut worlds: std::collections::HashMap<usize, World> = std::collections::HashMap::new();
+        let mut carried: Vec<Provenance> = Vec::new();
+        let mut refused_active = false;
+
+        // Reverse index order, so removing a row cannot renumber one still to
+        // be taken -- `remove_batch`'s reason, for the same shape of loop.
+        let mut rows: Vec<usize> = rows.to_vec();
+        rows.sort_unstable();
+        for row in rows.into_iter().rev() {
+            let Some(sum) = summaries.get(row) else { continue };
+            if sum.running.is_some() {
+                continue;
+            }
+            if sum.active {
+                refused_active = true;
+                continue;
+            }
+            let from = Provenance {
+                label: sum.label.clone(),
+                setting: sum.setting,
+                batch: sum.batch,
+            };
+            let index = plans.len();
+            if let Some(k) = row.checked_sub(self.rack.len()) {
+                // On record: no world to carry on from, so it is rebuilt and
+                // run the whole way. `frame` is what it had reached.
+                let Some(rec) = self.on_record.get(k) else { continue };
+                plans.push(batch::PlannedRun {
+                    index,
+                    frames: Some(rec.census.frame + extra),
+                    setting_index: 0,
+                    setting: rec.setting,
+                    replicate: 0,
+                    spec: rec.spec.clone(),
+                });
+                carried.push(from);
+                self.on_record.remove(k);
+            } else {
+                let Some(Some(ch)) = self.rack.get_mut(row) else { continue };
+                let spec = ch.spec.clone();
+                let setting = ch.setting;
+                let world = std::mem::replace(&mut ch.world, spec.build());
+                worlds.insert(index, world);
+                plans.push(batch::PlannedRun {
+                    index,
+                    frames: Some(extra),
+                    setting_index: 0,
+                    setting,
+                    replicate: 0,
+                    spec,
+                });
+                carried.push(from);
+                self.remove_chamber(row);
+            }
+        }
+
+        if plans.is_empty() {
+            return if refused_active {
+                "THE BOX ON SCREEN RUNS WITH THE SPEED DIAL -- ENTER ANOTHER ROW TO EXTEND IT".to_string()
+            } else {
+                "NOTHING TO EXTEND".to_string()
+            };
+        }
+        let n = plans.len();
+        self.extending = carried;
+        let start = batch::Start::Resume(std::sync::Mutex::new(worlds));
+        self.batch = Some(batch::Batch::start_runs_from(plans, extra, self.batch_spec.keep_bytes, start));
+        format!("EXTENDING {n} BY {extra} TICKS")
     }
 
     /// Take a still of chamber `i`, unless the one it already has is current.
@@ -1633,6 +1753,17 @@ impl Lab {
                     // law: a verb with no visible consequence is not finished.
                     self.ui.say("CANNOT CLOSE THE BOX YOU ARE IN -- ENTER ANOTHER FIRST".to_string());
                 }
+            }
+            ui::Action::ChamberExtend(i) => {
+                let extra = self.batch_spec.frames;
+                let said = self.extend_rows(&[i], extra);
+                self.ui.say(said);
+            }
+            ui::Action::ChamberExtendBatch(id) => {
+                let rows = self.batch_rows(id);
+                let extra = self.batch_spec.frames;
+                let said = self.extend_rows(&rows, extra);
+                self.ui.say(said);
             }
             ui::Action::ChamberCloseBatch(id) => {
                 let gone = self.remove_batch(id);
@@ -2541,6 +2672,97 @@ mod tests {
         // than panicking on stale indices.
         assert_eq!(lab.remove_batch(1), 0);
         assert_eq!(lab.remove_batch(99), 0, "an unknown batch removes nothing");
+    }
+
+    /// **EXTEND carries on; it does not start again.**
+    ///
+    /// The whole value of the verb is in that distinction, and both ways of
+    /// getting it wrong are silent. Restart from the recipe and the row comes
+    /// back at `extra` frames having thrown away the run you paid for --
+    /// which is what a rebuild does and is why REBUILD is a separate button.
+    /// Restart from the recipe for `frame + extra` and the numbers look right
+    /// while the plants are different individuals, because a rebuilt bed is
+    /// only identical when the seed is.
+    ///
+    /// So this asserts the frame count AND that the world it came back with
+    /// is the one that went away, by hashing the stand either side.
+    #[test]
+    fn extending_a_chamber_carries_on_from_where_it_stopped() {
+        let mut lab = Lab::new(rack_bed(1));
+        // A parked chamber with some history behind it.
+        let parked = lab.add_chamber(rack_bed(7));
+        lab.switch_to(parked);
+        // A fresh lab starts stopped, so a box that is never told to run has
+        // no history to carry on from and the test would be asserting that
+        // zero plus three hundred is three hundred.
+        lab.act(ui::Action::TogglePhase);
+        for _ in 0..200 {
+            lab.advance(std::time::Duration::from_millis(16));
+        }
+        lab.act(ui::Action::TogglePhase);
+        let home = lab.add_chamber(rack_bed(9));
+        lab.switch_to(home);
+        let before_frame = lab.chamber_summaries()[parked].frame;
+        assert!(before_frame > 0, "test setup: the chamber to extend has never run");
+
+        assert!(lab.extend_rows(&[parked], 300).starts_with("EXTENDING"));
+        for _ in 0..4_000 {
+            lab.poll_batch();
+            if lab.batch.is_none() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        assert!(lab.batch.is_none(), "the extension never finished");
+
+        let rows = lab.chamber_summaries();
+        let grown = rows
+            .iter()
+            .find(|r| r.frame == before_frame + 300)
+            .unwrap_or_else(|| panic!(
+                "no row reached {} frames -- extending restarted it instead of carrying on. Frames: {:?}",
+                before_frame + 300,
+                rows.iter().map(|r| r.frame).collect::<Vec<_>>()
+            ));
+        assert!(grown.frame > before_frame, "{} -> {}", before_frame, grown.frame);
+    }
+
+    /// **An extension keeps the row's own name and batch.**
+    ///
+    /// It is the same experiment carried further, not a new copy. Renaming it
+    /// would break the one thing `CLOSE B` and a grouped sweep both read.
+    #[test]
+    fn an_extended_row_keeps_its_name_and_its_batch() {
+        let mut lab = Lab::new(rack_bed(1));
+        let spec = rack_bed(42);
+        let world = spec.build();
+        let row = lab.adopt_chamber(
+            world,
+            spec,
+            stats::Census::default(),
+            Vec::new(),
+            Provenance { label: "B7.2 @ 96".to_string(), setting: Some(96.0), batch: Some(7) },
+        );
+        assert_eq!(lab.batch_rows(7), vec![row]);
+
+        assert!(lab.extend_rows(&[row], 60).starts_with("EXTENDING"));
+        for _ in 0..4_000 {
+            lab.poll_batch();
+            if lab.batch.is_none() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        assert!(lab.batch.is_none(), "the extension never finished");
+
+        let rows = lab.chamber_summaries();
+        let back = rows
+            .iter()
+            .find(|r| r.label == "B7.2 @ 96")
+            .expect("the extended row lost its name and came back as a fresh copy");
+        assert_eq!(back.batch, Some(7), "it must still belong to batch 7, or CLOSE B will miss it");
+        assert_eq!(back.setting, Some(96.0), "and still carry its swept setting");
+        assert_eq!(lab.batch_rows(7).len(), 1, "the batch still has exactly its one row");
     }
 
     /// The rack's one invariant, through every verb that reshapes it.

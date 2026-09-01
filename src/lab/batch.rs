@@ -153,7 +153,7 @@ impl BatchSpec {
                         sw.field
                     );
                 }
-                out.push(PlannedRun { index: out.len(), setting_index: si, setting: *setting, replicate: j, spec });
+                out.push(PlannedRun { index: out.len(), frames: None, setting_index: si, setting: *setting, replicate: j, spec });
             }
         }
         out
@@ -189,6 +189,15 @@ pub struct LiveRun {
 #[derive(Clone, Debug)]
 pub struct PlannedRun {
     pub index: usize,
+    /// Ticks for this run alone, overriding the batch's own count.
+    ///
+    /// **Extending needs it and a sweep does not.** Resuming a chamber runs
+    /// the EXTRA ticks; rebuilding a row whose world was dropped has to run
+    /// `frames it already had + extra` to reach the same place, because a
+    /// spec plus a seed reproduces a run only from the beginning. One batch
+    /// therefore holds runs of different lengths, which `frames` alone
+    /// cannot express.
+    pub frames: Option<u64>,
     pub setting_index: usize,
     pub setting: Option<f32>,
     pub replicate: u32,
@@ -291,6 +300,12 @@ struct Shared {
 /// So a copy now starts from the world itself, and `Fresh` is the exception
 /// rather than the rule.
 pub enum Start {
+    /// **Each run carries on from a world it is handed**, keyed by run index.
+    ///
+    /// What `EXTEND` runs on: the chamber's own world, moved in rather than
+    /// rebuilt, so "another 20,000 ticks" continues the experiment instead of
+    /// starting a new one from the same recipe.
+    Resume(Mutex<std::collections::HashMap<usize, World>>),
     /// Build the bed from its recipe. Only what the recipe describes is in
     /// it — which is nothing at all on the shipped opening.
     Fresh,
@@ -477,6 +492,7 @@ fn drive(runs: Vec<PlannedRun>, frames: u64, keep_bytes: u64, shared: &Arc<Share
 
 /// One chamber, built and run headless.
 fn run_one(run: &PlannedRun, frames: u64, shared: &Arc<Shared>, start: &Start) -> RunResult {
+    let frames = run.frames.unwrap_or(frames);
     let mut world = match start {
         Start::Fresh => {
             let mut w = run.spec.build();
@@ -486,6 +502,21 @@ fn run_one(run: &PlannedRun, frames: u64, shared: &Arc<Shared>, start: &Start) -
         // Cloned per worker rather than per plan — see `start_runs_from`.
         // The palette repaint came with the template.
         Start::Copy(template) => (**template).clone(),
+        // **Taken, not cloned.** The world came out of the rack and is going
+        // back into it; cloning here would double a fifty-chamber extension's
+        // peak memory for nothing. A row with no entry -- an on-record row,
+        // whose world was dropped for the budget -- falls back to building
+        // from its spec, which reproduces it exactly, and its `frames` is the
+        // full total rather than the extra.
+        Start::Resume(table) => table
+            .lock()
+            .ok()
+            .and_then(|mut t| t.remove(&run.index))
+            .unwrap_or_else(|| {
+                let mut w = run.spec.build();
+                super::earth_toned_nest(&mut w);
+                w
+            }),
     };
     // **After the clone, so it reaches the copy's future and not its past.**
     // Everything already standing in the box is identical across copies; from
