@@ -270,17 +270,38 @@ fn displace_soil_water(world: &mut World, x: i32, y: i32) {
         world.set(nx, ny, n.with_aux(held + moved));
         carried -= moved;
     }
-    // **Write the remainder back rather than trusting the caller to
-    // overwrite this cell.** Every production caller does overwrite it a
-    // line later, so this is invisible there -- but leaving the source at
-    // its original reading makes the function *create* water when called on
-    // its own, which is exactly what its conservation test caught. A
-    // function that only conserves when its caller happens to clean up
-    // after it is a trap for the next caller.
-    if carried != update::soil_moisture(cell) {
-        let now = world.get(x, y);
-        world.set(x, y, now.with_aux(carried));
+    // **Whatever would not fit goes to the air, because the caller is about
+    // to overwrite this cell and anything left in it is destroyed.**
+    //
+    // The neighbour loop above is bounded by each neighbour's *remaining*
+    // capacity, so it only conserves while there is somewhere to put the
+    // water. In a thickening root system there increasingly is not: a root
+    // grows among other roots, and a plant cell has a `water_capacity` of
+    // zero, so `moved` is zero at every neighbour and the whole reading is
+    // left in a cell that ceases to exist a line later.
+    //
+    // **Measured, 2026-09-01**, on the lab bed with a full water ledger
+    // (soil + standing liquid + `atmospheric_bank` against the starting
+    // total): the loss per root cell *climbs* with root density -- 349 fill
+    // at frame 50,000, 435 at 100,000, **626** at 150,000 -- which is the
+    // signature of exactly this, roots growing among roots with nowhere to
+    // hand their water on to.
+    //
+    // Booked to the atmosphere rather than kept, because that is where
+    // squeezed-out soil water actually goes, and it is the same ledger
+    // `evaporation::tick` and root uptake both credit. Outdoors the sky
+    // spends it as rain; indoors `weather::condense_under_a_lid` gives it
+    // back. Either way it stops being destroyed.
+    if carried > 0 {
+        world.credit_atmosphere(carried);
     }
+    // Zeroed rather than left holding `carried`: every production caller
+    // overwrites this cell immediately, and a standalone caller must not
+    // find water here that has already been booked somewhere else -- that
+    // would mint it. The original version wrote the remainder back, which
+    // conserved only because nothing ever read it again.
+    let now = world.get(x, y);
+    world.set(x, y, now.with_aux(0));
 }
 
 /// Local foliage proximity at a growth candidate — **any organism's, not
@@ -13733,6 +13754,57 @@ where the soil arm's exchange makes that {expected:.0} (before the fix: 1,000 of
         assert!(
             moved_out < material::SOIL_FIELD_CAPACITY as u32,
             "the cell about to be overwritten should have handed its water on, still holds {moved_out}"
+        );
+    }
+
+    /// The sibling of the test above, for the case it cannot see.
+    ///
+    /// **That one only ever builds neighbours with room**, so `carried`
+    /// always reaches zero and the "or destroying it" half of its name is
+    /// never exercised. It passed throughout the leak it is named for.
+    /// This one walls the cell in with material that holds no water at all
+    /// -- which is what a root surrounded by other roots actually is -- so
+    /// there is nowhere to hand the water to, and the only way to conserve
+    /// is to book it.
+    ///
+    /// Conservation is measured over **soil plus the atmospheric bank**,
+    /// because that is the ledger the water now moves within; a soil-only
+    /// assertion would call a correct hand-off to the sky a leak.
+    #[test]
+    fn water_a_root_displaces_with_nowhere_to_put_it_is_banked_not_destroyed() {
+        let mut w = test_world();
+        let soil = w.materials.id_of("soil").expect("soil is a compiled-in material");
+        let stone = material::STONE;
+
+        // The cell about to be grown into, full of water, walled in by
+        // something with no `water_capacity` on all eight sides.
+        for x in 49..=51 {
+            for y in 49..=51 {
+                w.set(x, y, Cell::new(stone, 0));
+            }
+        }
+        w.set(50, 50, Cell::new(soil, 0).with_aux(material::SOIL_FIELD_CAPACITY));
+
+        let soil_before = material::SOIL_FIELD_CAPACITY as f64;
+        let bank_before = w.atmospheric_bank;
+
+        displace_soil_water(&mut w, 50, 50);
+
+        let soil_after: f64 = (49..=51)
+            .flat_map(|x| (49..=51).map(move |y| (x, y)))
+            .map(|(x, y)| update::soil_moisture(w.get(x, y)) as f64)
+            .sum();
+        let banked = (w.atmospheric_bank - bank_before) * material::LIQUID_FULL as f64;
+
+        assert_eq!(
+            soil_after, 0.0,
+            "the doomed cell must not still be holding water the caller is about to overwrite"
+        );
+        assert!(
+            (banked - soil_before).abs() < 1.0,
+            "walled in, all {soil_before} of it should have gone to the bank, but {banked} did -- \
+             this is the leak: with no neighbour able to take it, the water was left in a cell \
+             that the caller overwrites and so ceased to exist"
         );
     }
 
