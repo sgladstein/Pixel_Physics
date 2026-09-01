@@ -321,6 +321,7 @@ fn run_pass(world: &mut World, coords: &[ChunkCoord], rightward: bool) {
             world.reindex_organism_cell(x, y, was, now);
         }
         world.phase_changes.merge(outcome.phase_counts);
+        world.merge_water_tally(outcome.water_tally);
         world.energy_ledger.meat_lost += outcome.meat_lost;
         // Summed in whole fill units per worker and converted once here, so
         // a pass credits the same total however the chunks were divided
@@ -420,6 +421,17 @@ struct ChunkOutcome {
     sky_condensate: u64,
     /// See `ChunkView::meat_lost`'s own doc.
     meat_lost: f64,
+    /// This worker's private water-accounting tally, merged into `World` by
+    /// `run_pass` -- same reasoning as `phase_counts` and `sky_condensate`.
+    ///
+    /// **The reason it has to exist here at all**: `World::set` carries the
+    /// same three counters, and they read numbers that cannot reconcile,
+    /// because the sweep never goes through `World::set`. `ChunkView::set`
+    /// writes `self.chunk` directly -- so capillary, drainage and every
+    /// grain of falling powder are invisible to the seam that looks like the
+    /// one seam. Measured before this existed: in-place change read
+    /// -2,644,450 against an actual soil fall of -362,326.
+    water_tally: WaterTally,
 }
 
 /// One active chunk's private workspace during a parallel pass.
@@ -520,6 +532,17 @@ struct ChunkView<'w> {
     /// outcomes in a fixed order, so the same run adds the same partial
     /// sums in the same sequence. See the `determinism.rs` pair.
     meat_lost: f64,
+    /// This worker's private water-accounting tally, merged into `World` by
+    /// `run_pass` -- same reasoning as `phase_counts` and `sky_condensate`.
+    ///
+    /// **The reason it has to exist here at all**: `World::set` carries the
+    /// same three counters, and they read numbers that cannot reconcile,
+    /// because the sweep never goes through `World::set`. `ChunkView::set`
+    /// writes `self.chunk` directly -- so capillary, drainage and every
+    /// grain of falling powder are invisible to the seam that looks like the
+    /// one seam. Measured before this existed: in-place change read
+    /// -2,644,450 against an actual soil fall of -362,326.
+    water_tally: WaterTally,
 }
 
 impl<'w> ChunkView<'w> {
@@ -543,6 +566,7 @@ impl<'w> ChunkView<'w> {
             phase_counts: crate::sim::fire::PhaseCounts::default(),
             sky_condensate: 0,
             meat_lost: 0.0,
+            water_tally: WaterTally::default(),
         }
     }
 
@@ -570,6 +594,7 @@ impl<'w> ChunkView<'w> {
             phase_counts: self.phase_counts,
             sky_condensate: self.sky_condensate,
             meat_lost: self.meat_lost,
+            water_tally: self.water_tally,
         }
     }
 
@@ -599,6 +624,37 @@ impl<'w> ChunkView<'w> {
                 }
                 self.dirty_touches.push((coord, x, y));
             }
+        }
+    }
+}
+
+/// Water moved or lost by one worker's writes, in `SOIL_SATURATED` units.
+///
+/// Three channels, because they answer different questions and mixing them
+/// hides the answer: material changes that *remove* the ability to hold
+/// water, material changes that *add* it, and in-place changes between two
+/// cells that both hold water. A powder moving one cell shows up as one of
+/// the first and one of the second and nets to zero; an uncredited sink
+/// shows up in the third.
+#[derive(Default, Clone, Copy)]
+pub(crate) struct WaterTally {
+    pub overwritten: u64,
+    pub written: u64,
+    pub in_place: i64,
+}
+
+impl WaterTally {
+    fn record(&mut self, materials: &MaterialRegistry, old: Cell, now: Cell) {
+        let was = materials.get(old.material).water_capacity > 0;
+        let is = materials.get(now.material).water_capacity > 0;
+        match (was, is) {
+            (true, false) => self.overwritten += u64::from(crate::sim::update::soil_moisture(old)),
+            (false, true) => self.written += u64::from(crate::sim::update::soil_moisture(now)),
+            (true, true) => {
+                self.in_place +=
+                    i64::from(crate::sim::update::soil_moisture(now)) - i64::from(crate::sim::update::soil_moisture(old));
+            }
+            (false, false) => {}
         }
     }
 }
@@ -647,6 +703,7 @@ impl CellSurface for ChunkView<'_> {
             if old.organism_id() != cell.organism_id() {
                 self.organism_moves.push((x, y, old.organism_id(), cell.organism_id()));
             }
+            self.water_tally.record(&self.world.materials, old, cell);
             let reach = self.world.materials.get(cell.material).sweep_reach();
             let is_liquid = self.world.materials.kind(cell.material) == MaterialKind::Liquid;
             self.chunk.set_world(x, y, cell, reach, is_liquid);

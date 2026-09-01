@@ -4046,6 +4046,17 @@ impl World {
         self.reindex_organism_cell(x, y, old.organism_id(), cell.organism_id());
     }
 
+    /// Fold one worker's water tally in, at the end of a parallel pass.
+    ///
+    /// Only `World` owns the cumulative counters, the same reasoning
+    /// `phase_changes` and `atmospheric_bank` are merged rather than written
+    /// from a worker.
+    pub(crate) fn merge_water_tally(&mut self, tally: crate::sim::parallel::WaterTally) {
+        self.water_overwritten += tally.overwritten;
+        self.water_written += tally.written;
+        self.water_in_place += tally.in_place;
+    }
+
     /// Move `(x, y)` from organism `was`'s cell list to organism `now`'s.
     ///
     /// Factored out of `set` because **`set` is not the only write seam.**
