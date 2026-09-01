@@ -151,9 +151,9 @@ fn main() {
 
     println!("labnest: frames={frames} seeds={seeds} dry={dry}");
     println!(
-        "\n{:>5} {:>7} {:>7} {:>7} {:>7} {:>7} {:>7} {:>6} {:>7} {:>8}",
+        "\n{:>5} {:>7} {:>7} {:>7} {:>7} {:>7} {:>7} {:>6} {:>7} {:>7} {:>6} {:>8}",
         "seed", "frame", "roofed", "packed", "overcap", "wettest", "ants", "buried", "digs",
-        "blocked%"
+        "dumped", "laden", "blocked%"
     );
 
     for seed in 1..=seeds {
@@ -184,8 +184,21 @@ fn main() {
             let (over, wettest) = over_capacity(world, x0, x1, y0, y1);
             let m = world.creature_stats.moves;
             let b = world.creature_stats.moves_blocked;
+            // **`dumped` and `laden` beside `digs`, which is a call counter.**
+            // Digging takes one cell into the mandibles and `dumped` counts
+            // the ones that came out again, so `digs - dumped` is what is in
+            // flight -- and `laden`, the animals holding one right now, is
+            // what says whether that is traffic or a jam. A colony that has
+            // stopped digging because every ant is stuck holding a pellet it
+            // cannot put down reads exactly like one that has lost interest,
+            // and only this pair tells them apart.
+            let laden = world
+                .live_organism_ids()
+                .into_iter()
+                .filter(|&id| world.organism(id).is_some_and(|s| s.spoil.is_some()))
+                .count();
             println!(
-                "{seed:>5} {f:>7} {:>7} {:>7} {:>7} {:>7} {:>7} {:>6} {:>7} {:>7.1}%",
+                "{seed:>5} {f:>7} {:>7} {:>7} {:>7} {:>7} {:>7} {:>6} {:>7} {:>7} {laden:>6} {:>7.1}%",
                 roofed(world, x0, x1, y0, y1),
                 packed_cells(world, packed_id, x0, x1, y0, y1),
                 over,
@@ -193,6 +206,7 @@ fn main() {
                 world.live_creature_count(),
                 buried(world),
                 world.creature_stats.digs,
+                world.creature_stats.spoil_dumped,
                 100.0 * b as f64 / (m + b).max(1) as f64,
             );
         };

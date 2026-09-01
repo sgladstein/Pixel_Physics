@@ -400,25 +400,40 @@ fn main() {
     fired.push(format!("RIGHT-DRAG ERASE: water {cells} -> {left}"));
     tiles.push(("ERASE (RIGHT BUTTON)".into(), shot(&mut lab)));
 
-    // **KEEP, the shelf, and FREE** — the three halves of the specimen rack,
+    // **KEEP, the shelf, and PLACE** — the three halves of the specimen rack,
     // each fired by a real click and each with its counter beside it. A jar
-    // is a file the sheet cannot show, a freed ant is two dark cells, and a
+    // is a file the sheet cannot show, a placed ant is two dark cells, and a
     // clone and a four-brood release look identical at this zoom: every one
     // of these tiles is a picture that says nothing on its own.
-    let at = centre(&lab, Action::Tool(Tool::Keep));
+    //
+    // **Two clicks, and the first one is the point of the rebuild.** `KEEP`
+    // is no longer a tool aimed at the world; it is a button on the cell
+    // page, so the gesture is *open the page on something alive, then press
+    // the button that is now there*. The button does not exist until the page
+    // is drawn over an organism, so `shot` runs between them: `centre` reads
+    // the retained layout and there is nothing to read before a draw.
+    let at = centre(&lab, Action::Tool(Tool::Look));
     click(&mut lab, at);
     let kept = living_cell_of(&lab, false).or_else(|| living_cell_of(&lab, true));
     match kept {
         Some((wx, wy)) => {
             let (sx, sy) = lab.renderer.world_to_screen(wx, wy).unwrap_or((wx, wy));
-            let before = lab.ui.shelf().len();
             click(&mut lab, (sx, sy));
-            fired.push(format!(
-                "KEEP: jars {before} -> {} -- {:?}",
-                lab.ui.shelf().len(),
-                lab.ui.notice_text().unwrap_or_default()
-            ));
-            lab.set_cursor(Some((sx, sy)));
+            let _ = shot(&mut lab);
+            fired.push(format!("LOOK: cell page open on {:?}", lab.ui.inspecting()));
+            let before = lab.ui.shelf().len();
+            match lab.ui.widget_rect(Action::KeepInspected) {
+                Some(r) => {
+                    click(&mut lab, (r.x + r.w / 2, r.y + r.h / 2));
+                    fired.push(format!(
+                        "KEEP: jars {before} -> {} -- {:?}",
+                        lab.ui.shelf().len(),
+                        lab.ui.notice_text().unwrap_or_default()
+                    ));
+                    lab.set_cursor(Some((r.x + r.w / 2, r.y + r.h / 2)));
+                }
+                None => fired.push("KEEP: the cell page drew no KEEP button".into()),
+            }
         }
         None => fired.push("KEEP: nothing alive to aim at".into()),
     }
@@ -467,19 +482,34 @@ fn main() {
         tiles.push(("SHELF: AFTER DRIFT".into(), shot(&mut lab)));
     }
 
-    // FREE, into the bed. **The count is the whole tile**: what lands is one
+    // PLACE, into the bed. **The count is the whole tile**: what lands is one
     // seed or a two-cell body, and the notice carries how many genome slots
     // the dial moved, which is the only thing that separates a clone from a
     // three-brood descendant on screen.
+    //
+    // Two clicks again, and for the mirror of `KEEP`'s reason: the button on
+    // the rack arms the placing and shuts the rack, because the rack is a
+    // page sitting over the box the jar has to go into. The second click is
+    // the aim.
+    if lab.ui.widget_rect(Action::ShelfPlace).is_some() {
+        let at = centre(&lab, Action::ShelfPlace);
+        click(&mut lab, at);
+        fired.push(format!(
+            "PLACE ARMED: tool {:?}, rack closed {} -- {:?}",
+            lab.ui.tool(),
+            lab.ui.panel.is_none(),
+            lab.ui.notice_text().unwrap_or_default()
+        ));
+    }
     let before = lab.world.live_organism_count();
     click(&mut lab, (gx + 20, gy));
     fired.push(format!(
-        "FREE: organisms {before} -> {} -- {:?}",
+        "PLACE: organisms {before} -> {} -- {:?}",
         lab.world.live_organism_count(),
         lab.ui.notice_text().unwrap_or_default()
     ));
     lab.set_cursor(Some((gx + 20, gy - 6)));
-    tiles.push(("VERB: FREE".into(), shot(&mut lab)));
+    tiles.push(("VERB: PLACE".into(), shot(&mut lab)));
     if lab.ui.panel == Some(Panel::Shelf) {
         let at = centre(&lab, Action::Panel(Panel::Shelf));
         click(&mut lab, at);

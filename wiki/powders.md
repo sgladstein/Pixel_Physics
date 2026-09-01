@@ -1,7 +1,8 @@
 # Powders
 
-*Current as of: 2026-08-30, when soil gained a worked form that holds
-itself up.*
+*Current as of: 2026-09-01, when worked soil stopped holding itself up on
+nothing. Before that: 2026-08-30, when soil gained a worked form that holds
+itself up at all.*
 
 Sand, gravel, ash, soil, and a handful of debris materials all behave the
 same basic way: they fall under gravity, and instead of spreading out flat
@@ -48,6 +49,15 @@ natural resting angle, the way real loose material does.
   floods loses the wettest of it — the shaft nearest the water — and keeps
   the rest. So a burrow is not a permanent hole in the world. It is a dry
   one, and staying dry is the whole of what keeps it standing.
+
+  **Grains pressed into contact need something to be pressed against, too.**
+  A wall stands because it is part of a wall. Undermine a piece of worked
+  ground until almost nothing is touching it and it is not a wall any more,
+  it is a crumb: it goes back to loose soil where it stands and falls. That
+  is what stops a worked bank leaving little cakes of dirt hanging in the air
+  wherever something was dug out from under them — and it costs a tunnel
+  nothing, because every cell of a roof is pressed against the bank above it
+  and the roof either side.
 
 Two more materials in this family come from elsewhere in the world rather
 than being something you'd paint on purpose:

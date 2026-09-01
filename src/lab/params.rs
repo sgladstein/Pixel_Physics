@@ -122,6 +122,16 @@ pub enum Knob {
     /// A field of the bed's build spec. **Takes effect on the next rebuild**,
     /// which every row of it says.
     Bed { field: &'static str },
+    /// **A rule of the simulation itself, on or off** — a `bool` on
+    /// [`World`], live on the next tick.
+    ///
+    /// Its own kind rather than a `Knob::Material` with a 0/1 span, because
+    /// what it switches is not any one material's number: turning plant
+    /// collapse off holds wood, rootwood, leaf and everything else a species
+    /// file may name, and it reaches a second rule in `structural.rs` that no
+    /// material field appears in at all. A row here prints `ON`/`OFF` rather
+    /// than `1.000`/`0.000`, which is [`Param::shown`]'s whole purpose.
+    Rule { field: &'static str },
     /// Shown, and not changeable from here. The panel draws no `-`/`+` pair on
     /// one of these and [`write`] refuses it; see this module's own doc for
     /// the three that are like this and why.
@@ -251,6 +261,20 @@ fn integer(group: Group, knob: Knob, category: &str, name: &str, value: f32, s: 
     }
 }
 
+/// **An on/off row.** Stored as a 0-or-1 integer so the panel's existing
+/// `-`/`+` pair moves it with no new control, and *shown* as `ON`/`OFF`
+/// because `1.000` is not a word a player is looking for.
+fn toggle(group: Group, knob: Knob, category: &str, name: &str, on: bool, note: &str) -> Param {
+    let v = if on { 1.0 } else { 0.0 };
+    Param {
+        group,
+        knob,
+        tunable: Tunable::integer(TunableGroup::Lab, category, name, v, 0.0, 1.0, 1.0),
+        note: note.to_string(),
+        shown: Some(if on { "ON".to_string() } else { "OFF".to_string() }),
+    }
+}
+
 /// A row that shows a value it cannot change.
 fn read_only(group: Group, category: &str, name: &str, shown: String, note: &str) -> Param {
     Param {
@@ -281,6 +305,14 @@ pub const COLONY_SPECIES: &str = "ant";
 pub fn registry(world: &World, spec: &LabBox, plant: Option<SpeciesId>) -> Vec<Param> {
     let mut out = Vec::new();
     ground(world, &mut out);
+    // **First on the page, and outside the `if`.** Outside because it is not
+    // the armed species' number -- it is a rule of the box that reaches every
+    // plant in it, and a page that hid it when an asset set happens to have no
+    // plantable species would hide the one control that says why the last
+    // stand fell over. First because the plant page is sixteen rows against a
+    // thirteen-row screen, so anything at the end of it is behind a press of
+    // the pager, and this was rendered there before it was moved.
+    plant_mechanics_rows(world, &mut out);
     if let Some(id) = plant {
         let name = world.species.get(id).name.clone();
         plant_rows(world, &name, &mut out);
@@ -441,6 +473,31 @@ fn plant_rows(world: &World, species: &str, out: &mut Vec<Param>) {
     }
 }
 
+/// **Whether a plant may be taken apart by the load it is carrying** — the
+/// one row that is a rule rather than a number, and the reason it is on this
+/// page rather than on `BOX`.
+///
+/// Owner request: *"create an option for me to turn off plant/tree collapse
+/// due to mechanics/bending stress."* A player watching a tree come down does
+/// not know, and should not have to know, that two separate rules can have
+/// done it — `plant::break_under_load`'s stress snap and
+/// `structural::organism_structural_tick`'s cantilever span — so this is one
+/// switch over both. What it deliberately leaves on is detachment: a branch
+/// you cut still falls.
+///
+/// **Its own category header**, so a page of one species' growth numbers does
+/// not appear to have grown a row that applies to all of them.
+fn plant_mechanics_rows(world: &World, out: &mut Vec<Param>) {
+    out.push(toggle(
+        Group::Plant,
+        Knob::Rule { field: "plant_load_failure" },
+        "plant mechanics",
+        "collapse_under_load",
+        world.plant_load_failure,
+        "WHETHER A PLANT MAY BREAK UNDER ITS OWN WEIGHT AND UNDER WHAT IS PILED ON IT. ON IS THE SHIPPED BEHAVIOUR: A STEM SNAPS WHERE THE BENDING STRESS BEATS THE WOOD, AND A LIMB REACHING FURTHER THAN IT CAN HOLD GIVES WAY. OFF HOLDS EVERY PLANT IN THE BOX TOGETHER HOWEVER FAR IT LEANS, WHICH IS WHAT YOU WANT WHILE YOU ARE LOOKING AT GROWTH RATHER THAN AT MECHANICS. CUTTING STILL WORKS EITHER WAY -- WHAT YOU SEVER STILL FALLS. IT REACHES EVERY SPECIES, IT IS FELT ON THE NEXT TICK, AND IT LASTS THE SESSION.",
+    ));
+}
+
 fn creature_value(world: &World, species: &str, field: &str) -> Option<f32> {
     let id = world.species.id_of(species)?;
     let def = world.species.get(id).creature.as_ref()?;
@@ -528,7 +585,7 @@ fn box_rows(world: &World, spec: &LabBox, out: &mut Vec<Param>) {
     bed("founders", spec.founders as f32, span(0.0, 64.0, 1.0),
         "HOW MANY PLANTS THE BOX IS STOCKED WITH WHEN IT IS BUILT. THE BINARY OPENS AT ZERO ON PURPOSE -- THE BOX STARTS WITH NOTHING AND YOU STOCK IT -- SO RAISE THIS ONLY IF YOU WANT A REBUILD TO HAND YOU A STAND. TAKES EFFECT ON REBUILD.");
     bed("colonies", spec.colonies as f32, span(0.0, 8.0, 1.0),
-        "HOW MANY ANT COLONIES A REBUILD RELEASES, ONE PER COMPARTMENT AT MOST. TAKES EFFECT ON REBUILD.");
+        "HOW MANY ANT COLONIES A REBUILD RELEASES, ONE PER COMPARTMENT AT MOST. ONE COLONY IS NOT A GARNISH: IT DECIDES WHETHER THE BED LIVES, AND HOW MUCH ROOM THE BED HAS DECIDES WHICH WAY. MEASURED OVER SIX SEEDS, EACH PAIRED AGAINST THE SAME WORLD WITH NO COLONY: IN A 256-WIDE BOX ONE COLONY LEAVES 1% OF THE STAND STANDING AND 6 OF 6 SEEDS FALL, AT 512 IT LEAVES 41%, AND AT 1024 IT LEAVES 98% -- BUT THERE THE COLONY ITSELF DROPS TO 2 ANTS, BECAUSE IT CANNOT REACH THE PLANTS. A COLONY EATS ITS OWN NEIGHBOURHOOD, SO A NARROW BED FEEDS THE ANTS AND KILLS THE PLANTS AND A WIDE ONE DOES THE REVERSE. IF A STOCKED BED SIMPLY EMPTIES, THIS IS THE FIRST THING TO SUSPECT. TAKES EFFECT ON REBUILD.");
     bed("predators", spec.predators as f32, span(0.0, 8.0, 1.0),
         "HOW MANY BEETLES A REBUILD RELEASES, SPREAD THE SAME WAY THE COLONIES ARE. ZERO BY DEFAULT, BECAUSE A PREDATOR IS THE ONE STOCKING CHOICE THAT CAN EMPTY A BOX. WHAT IT IS FOR IS A PAIR: TWO CHAMBERS ON THE SAME SEED, THIS AT 0 AND AT 4, IS AN EXPERIMENT -- ONE CHAMBER ON ITS OWN IS A STORY. IF A STOCKED BED SIMPLY EMPTIES, RAISE COMPARTMENTS BEFORE BLAMING THE BEETLE: A PREDATOR AND ITS PREY IN ONE SEALED BOX WITH NOWHERE TO HIDE GO EXTINCT IN THEORY AS WELL AS HERE. TAKES EFFECT ON REBUILD.");
     bed("seed", spec.seed as f32, span(0.0, 999.0, 1.0),
@@ -638,6 +695,14 @@ pub fn write(world: &mut World, spec: &mut LabBox, knob: &Knob, value: f32) -> b
             match *field {
                 "seed_half_life" => sp.seed_half_life = value,
                 "remains_half_life" => sp.remains_half_life = value,
+                _ => return false,
+            }
+            true
+        }
+        Knob::Rule { field } => {
+            let on = value >= 0.5;
+            match *field {
+                "plant_load_failure" => world.plant_load_failure = on,
                 _ => return false,
             }
             true
@@ -758,6 +823,9 @@ fn planned_edit(param: &Param) -> Result<(std::path::PathBuf, String), String> {
         Knob::ReadOnly => return Err("this row cannot be changed, so there is nothing to save".into()),
         Knob::Bed { .. } => {
             return Err("the bed's spec is session-only -- it has no file. rebuild to apply it".into())
+        }
+        Knob::Rule { .. } => {
+            return Err("this is a rule of the running box, not a number in a file -- it lasts the session".into())
         }
         Knob::Material { material, .. } => (material::ASSET_DIR, material.to_string()),
         Knob::Creature { species, .. }

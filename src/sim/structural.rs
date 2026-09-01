@@ -1240,7 +1240,13 @@ fn organism_structural_tick(world: &mut World, x: i32, y: i32, cell: Cell) -> Ve
     // **1**, and with the income gone the stand fell from 31,731 cells to
     // 7,171. `leaf.ron`'s own doc already says a leaf must not be a load
     // path; this is that sentence enforced instead of asserted.
-    let over_span = !detached && !unbounded && support > effective_span;
+    // `World::plant_load_failure` off makes living tissue indestructible by
+    // load, which is this clause and `plant::break_under_load` together. It
+    // is deliberately not folded into `detached` above: a limb that has been
+    // cut off is not overloaded, and a crown left hanging in the air when the
+    // trunk under it is felled would be a worse bug than the one the switch
+    // exists to escape.
+    let over_span = !detached && !unbounded && world.plant_load_failure && support > effective_span;
     if !detached && !over_span {
         // Supported and, unlike the aux-cached path, always an exact
         // answer rather than one still converging -- nothing more to do
@@ -3567,6 +3573,7 @@ struct Sliced {
 /// reason it is still standing is `FRACTURE_CELLS_PER_TICK`. It is
 /// deliberately not re-judged on the way back out: see the note at the call
 /// site in `tick` for the two ways that stalled and stranded it.
+#[derive(Clone)]
 pub struct StagedFracture {
     /// Everything still to come down, most recently sliced first.
     pub region: Vec<(i32, i32)>,
@@ -6996,6 +7003,73 @@ mod tests {
         let deadwood = w.materials.id_of("deadwood").unwrap();
         assert_eq!(w.get(11, 30).material, deadwood, "an over-span organism-owned wood cell should have broken into deadwood");
         assert_eq!(w.get(11, 30).organism_id(), 0, "broken-free debris should no longer belong to the organism");
+    }
+
+    /// **The player's switch stops the span rule and leaves severing alone.**
+    ///
+    /// Three arms off one scene, and the first two are what make the third
+    /// mean anything: the same beam breaks with the rule on and holds with it
+    /// off, so the null is the switch rather than a beam that was never going
+    /// to fail. The third is the half that could go wrong in the other
+    /// direction -- cut the only thing holding it up and it must still come
+    /// down, or the switch would leave crowns hanging in mid-air, which is
+    /// what `World::plant_load_failure`'s own doc promises it does not do.
+    ///
+    /// **Built at x=10 rather than at the world edge**, for
+    /// `cutting_an_organism_trees_support_collapses_the_far_side`'s reason: a
+    /// cell at x=0 reads the out-of-bounds sentinel as bedrock and is anchored
+    /// whatever happens to the stone under it, so the severing arm would be
+    /// green against a beam that was never detached.
+    #[test]
+    fn the_load_failure_switch_stops_the_span_rule_and_not_severing() {
+        const BASE: i32 = 10;
+        const TIP: i32 = BASE + 11;
+        let build = |rule: bool| -> (World, u16) {
+            let mut w = test_world();
+            w.plant_load_failure = rule;
+            let tree_species = w.species.id_of("tree").expect("tree species must be loaded");
+            let organism_id = w.push_organism(tree_species).expect("an organism slot is free");
+            pin_wood_reach(&mut w, 8);
+            w.set(BASE, 31, Cell::new(material::STONE, 0));
+            // 12 cells, so the tip stands at distance 11 from the anchor --
+            // past the reach pinned above, which is what the rule under test
+            // judges.
+            for x in BASE..BASE + 12 {
+                let cell = organism_wood_cell(&mut w, organism_id);
+                w.set(x, 30, cell);
+            }
+            w.schedule_structural_check(TIP, 30);
+            run_organisms(&mut w, 200);
+            (w, organism_id)
+        };
+
+        let (broken, organism_id) = build(true);
+        assert_ne!(
+            broken.get(TIP, 30).organism_id(),
+            organism_id,
+            "test setup: with the rule on this beam must break, or the null below proves nothing"
+        );
+
+        let (held, organism_id) = build(false);
+        assert_eq!(
+            held.get(TIP, 30).organism_id(),
+            organism_id,
+            "the switch is off and an over-span limb broke anyway"
+        );
+
+        // ...and the same limb, still with the rule off, once the thing
+        // holding it up is taken away. Detachment is not a load failure and
+        // must be untouched.
+        let (mut cut, organism_id) = build(false);
+        cut.set(BASE, 31, Cell::EMPTY);
+        cut.schedule_structural_check_around(BASE, 31);
+        cut.schedule_structural_check(BASE, 30);
+        run_organisms(&mut cut, 200);
+        assert_ne!(
+            cut.get(TIP, 30).organism_id(),
+            organism_id,
+            "a limb whose only anchor was cut stayed up -- the switch turned off severing too"
+        );
     }
 
     #[test]

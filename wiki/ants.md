@@ -1,11 +1,16 @@
 # Ants
 
-*Current as of: 2026-08-31, when how rich an ant waits to be before it
+*Current as of: 2026-08-31, when digging stopped destroying the ground it
+removed and an ant began carrying the spoil away in its jaws, and when how
+rich an ant waits to be before it
 breeds stopped being the same number for every ant of a species and became
 something each one inherits from its parent — the last decision an ant made
 that was not its own. The same day the sealed bed's colony crash was traced
 to the colony eating the four plants nearest its own nest, measured against
-the same bed run with no ants in it. Before that: 2026-08-30, when ants bred
+the same bed run with no ants in it; the lab bed learned to be stocked with
+beetles; and it was measured that being under cover is worth a great deal to
+an ant and that the beetles are not what makes it so. Before that:
+2026-08-30, when ants bred
 for the first time. An ant close to affording young would finish its meal
 rather than carry it home — that rule has since gone, replaced by a crop
 that digests as the animal walks, so what reaches the nest is simply what
@@ -161,6 +166,42 @@ itself up (see [Powders](powders.md)), so the tunnel is lined as fast as it
 is opened and the roof has something to rest on. The verb and the thing it
 leaves behind are the same act.
 
+**And the ground it takes out has to go somewhere, which it did not used to.**
+Digging destroyed what it removed — the cell was simply gone from the world —
+so a bed with a colony in it ran down, slowly and invisibly, until there was
+nothing left to dig. Now an ant comes away from the face with a pellet of
+ground in its jaws. It cannot cut anything else while it is holding one, so a
+burrow grows at the speed the colony can clear its own workings, not at the
+speed it can chew; and the pellet goes back into the world wherever the ant
+happens to put it down, tamped, exactly the way it puts down a crumb of food.
+A bed is now the same amount of ground it started as, rearranged.
+
+Where it puts them is not decided anywhere. An ant lets go of what it is
+carrying on the same impulse whether the load is food or spoil, so tailings
+end up wherever that impulse fires — sometimes out at the mouth of the
+burrow, often back down a gallery behind it. **The visible consequence, and it
+is a real cost, is that a nest is smaller than it used to be** — a colony
+that has to clear its own workings drives less tunnel in the same time, and
+what it drives is shallower, because it keeps coming back out to put
+something down.
+
+An ant *cements* the pellet as it sets it down, the same way it cements the
+wall of a tunnel, and that has a consequence you can see: a heap of tailings
+does not slump into a cone the way spilled dirt would. It holds its shape,
+and a worked bank ends up with a shelf of its own spoil out in front of the
+face. Left loose instead, the tailings would pour straight back down the
+tunnels and there would be no nest at all.
+
+**An ant will not put a pellet down just anywhere**, and the two things it
+insists on are the two ways spoil otherwise goes wrong. It has to be able to
+*lie* there — something solid under it, and not a single cell it would be
+balanced on — because cemented dirt does not fall and a crumb left standing
+on nothing stays standing on nothing. And it has to be out in the open,
+because everything else is the inside of the burrow, and a colony that tips
+its spoil back down its own corridors ends up with no corridors. When there
+is nowhere beside it that will do, the ant takes the pellet out of the burrow
+instead, which is what an ant does anyway.
+
 So a worked bank now has a warren in it: narrow galleries a cell or two
 across, walled in darker packed ground, branching back from the face the
 ants entered by. It is not a cathedral — it is the size of what fifty-five
@@ -312,6 +353,28 @@ of them.
 
 That is a walking problem rather than a seeing problem, and it is written
 down as one.
+
+**And the beetles are not yet frightening, which is a separate thing and a
+larger one.** Ants that are under cover survive far better than ants in the
+open — a little over twice as well, and by nearly three times if you count
+only the tight spaces a beetle's body physically cannot get into. That is a
+real and large difference. **But it is very nearly the same difference when
+there are no beetles in the world at all.** Whatever is making shelter worth
+having, it is not the predators.
+
+Nor does a beetle punish wandering much. An ant a long way from its nest is
+*less* than half as likely to die as its share of the population would
+suggest, hunted or not — most dying happens near home, where the ants are
+crowded together, and putting nine beetles in the world barely changes where
+it happens.
+
+The reason this matters more than it sounds: for ants to end up digging
+homes to be safe in — which is the thing worth watching for — being safe
+somewhere has to be worth more than being unsafe *because of a predator*.
+The engine already has the hiding place. A one-cell tunnel takes an ant and
+refuses a beetle, purely because a beetle is a solid two-by-two block and has
+to fit; nobody wrote a rule about hiding. What it does not yet have is a
+predator that makes using it pay.
 
 ## Placing a colony, and watching what they smell
 

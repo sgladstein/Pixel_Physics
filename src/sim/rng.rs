@@ -17,6 +17,7 @@
 //! single shared generator is deterministic and still couples every caller
 //! to every other caller's draw count. See `stream`.
 
+#[derive(Clone)]
 pub struct Rng(u64);
 
 impl Rng {
