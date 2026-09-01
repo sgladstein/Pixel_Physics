@@ -113,6 +113,8 @@ pub struct Lab {
     active: usize,
     /// The label of the box on screen, inline with the rest of its state.
     label: Option<String>,
+    /// The swept setting of the box on screen, inline for the same reason.
+    setting: Option<f32>,
     /// **Runs whose world was dropped for the memory budget.**
     ///
     /// Nothing is lost that cannot be recomputed: the spec reproduces the run
@@ -164,6 +166,14 @@ pub struct Lab {
 pub struct Chamber {
     pub world: World,
     pub spec: scene::LabBox,
+    /// The swept setting this copy ran at, when it came from a sweep.
+    ///
+    /// **The spec alone cannot answer this.** It holds the value, but not
+    /// *which* field the sweep varied, so a rack of fifty rows differing in
+    /// one number gives no way to see which number without knowing the sweep
+    /// — and a sweep whose settings are invisible is fifty rows sorted only
+    /// by seed, which is the comparison the sweep existed to make.
+    pub setting: Option<f32>,
     pub stats: stats::Stats,
     pub particles: ParticleSystem,
     pub blasts: Blasts,
@@ -206,6 +216,9 @@ pub struct Thumb {
 pub struct OnRecord {
     pub spec: scene::LabBox,
     pub census: stats::Census,
+    /// The swept setting, kept for the same reason [`Chamber::setting`] is:
+    /// a row whose world was dropped is still a data point.
+    pub setting: Option<f32>,
     pub label: String,
     /// Set while this record is being re-run back into a world.
     ///
@@ -229,7 +242,7 @@ impl OnRecord {
 /// What the rack page needs to know about batches. A snapshot, because the
 /// real thing is behind a mutex on a worker thread and the page must never
 /// wait on it.
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct BatchBar {
     pub copies: u32,
     pub frames: u64,
@@ -246,6 +259,13 @@ pub struct BatchBar {
 /// `CLAUDE.md`'s *"did it fire at all" needs a counter, not a picture*.
 pub struct ChamberSummary {
     pub index: usize,
+    /// The swept setting this row ran at, `None` outside a sweep.
+    pub setting: Option<f32>,
+    /// Ticks done so far by a copy still in flight, and `None` for a row that
+    /// has landed. A run that is still going has no census yet, so without
+    /// this the rack shows nothing at all until it finishes — which for a
+    /// 9,000-tick copy is a minute of a page that looks stalled.
+    pub running: Option<u64>,
     pub active: bool,
     /// **A box you can walk into, or one kept only as numbers.** Not a
     /// cosmetic distinction: an on-record row's world was dropped for the
@@ -308,6 +328,7 @@ impl Lab {
             rack: vec![None],
             active: 0,
             label: None,
+            setting: None,
             on_record: Vec::new(),
             batch: None,
             batch_spec: batch::BatchSpec {
@@ -389,6 +410,11 @@ impl Lab {
                 };
                 ChamberSummary {
                     index: i,
+                    setting: match &self.rack[i] {
+                        Some(ch) => ch.setting,
+                        None => self.setting,
+                    },
+                    running: None,
                     active,
                     on_record: false,
                     rebuilding: false,
@@ -404,6 +430,8 @@ impl Lab {
             // it ran is a batch nobody can trust the count of.
             .chain(self.on_record.iter().enumerate().map(|(k, r)| ChamberSummary {
                 index: self.rack.len() + k,
+                setting: r.setting,
+                running: None,
                 active: false,
                 on_record: true,
                 rebuilding: r.rebuilding,
@@ -412,6 +440,26 @@ impl Lab {
                 frame: r.census.frame,
                 census: Some(r.census.clone()),
             }))
+            // **Copies still running, last.** They come after the on-record
+            // rows on purpose: `rebuild_record` maps a row number onto
+            // `on_record` by subtracting `rack.len()`, so anything inserted
+            // between the two would silently re-aim that verb. Appended, the
+            // arithmetic is unchanged and an in-flight row simply falls off
+            // the end of it.
+            .chain(self.batch.as_ref().into_iter().flat_map(|b| b.progress().live).enumerate().map(
+                |(k, r)| ChamberSummary {
+                    index: self.rack.len() + self.on_record.len() + k,
+                    setting: r.setting,
+                    running: Some(r.ticks),
+                    active: false,
+                    on_record: false,
+                    rebuilding: false,
+                    label: format!("{}", r.index + 1),
+                    seed: r.seed,
+                    frame: r.ticks,
+                    census: None,
+                },
+            ))
             .collect()
     }
 
@@ -440,6 +488,7 @@ impl Lab {
         // which is what makes this a swap rather than a take-then-fill.
         let incoming = self.rack[i].take().expect("checked Some directly above");
         let outgoing = Chamber {
+            setting: self.setting,
             world: std::mem::replace(&mut self.world, incoming.world),
             spec: std::mem::replace(&mut self.spec, incoming.spec),
             stats: std::mem::replace(&mut self.stats, incoming.stats),
@@ -471,6 +520,8 @@ impl Lab {
         self.rack.push(Some(Chamber {
             world,
             spec,
+            // A box you made yourself is not a point in a sweep.
+            setting: None,
             stats: stats::Stats::new(),
             particles: ParticleSystem::new(),
             blasts: Blasts::new(),
@@ -630,11 +681,17 @@ impl Lab {
                     // done than did.
                     let seed = r.spec.seed;
                     self.on_record.retain(|rec| !(rec.rebuilding && rec.spec.seed == seed));
-                    self.adopt_chamber(world, r.spec, r.census, r.history, label);
+                    self.adopt_chamber(world, r.spec, r.census, r.history, label, r.setting);
                 }
                 // On record only: the census is kept and the world is
                 // rebuilt from the spec on demand, which is exact.
-                None => self.on_record.push(OnRecord { spec: r.spec, census: r.census, label, rebuilding: false }),
+                None => self.on_record.push(OnRecord {
+                    spec: r.spec,
+                    census: r.census,
+                    setting: r.setting,
+                    label,
+                    rebuilding: false,
+                }),
             }
         }
         let Some(b) = &self.batch else { return };
@@ -673,10 +730,12 @@ impl Lab {
         census: stats::Census,
         history: Vec<stats::Sample>,
         label: String,
+        setting: Option<f32>,
     ) -> usize {
         self.rack.push(Some(Chamber {
             world,
             spec,
+            setting,
             stats: stats::Stats::restored(census, history),
             particles: ParticleSystem::new(),
             blasts: Blasts::new(),
@@ -685,6 +744,20 @@ impl Lab {
             label: Some(label),
         }));
         self.rack.len() - 1
+    }
+
+    /// Apply a number typed into a batch dial, clamped the same way the
+    /// `-`/`+` faces clamp it.
+    ///
+    /// **The clamps live here and not in the keyboard handler**, so a typed
+    /// 900,000 and two hundred clicks land on the same ceiling: two clamps
+    /// for one dial is how they drift apart.
+    pub fn commit_typed_batch(&mut self) {
+        let Some((field, v)) = self.ui.commit_typing() else { return };
+        match field {
+            ui::TypedField::Copies => self.batch_spec.replicates = v.clamp(1, 200) as u32,
+            ui::TypedField::Frames => self.batch_spec.frames = v.clamp(1_000, 200_000),
+        }
     }
 
     /// Take a still of chamber `i`, unless the one it already has is current.
@@ -1347,6 +1420,8 @@ impl Lab {
             ui::Action::Reset => self.reset(),
             ui::Action::ParamGroup(i) => self.ui.set_param_group(i),
             ui::Action::ParamScroll(d) => self.ui.scroll_params(d),
+            ui::Action::RackScroll(d) => self.ui.scroll_rack(d),
+            ui::Action::RackGroup => self.ui.toggle_rack_grouping(),
             ui::Action::ParamSelect(i) => self.ui.select_param(i),
             ui::Action::ParamAdjust(i, sign) => self.adjust_param(i, sign),
             ui::Action::ParamSave => self.save_param(),
@@ -1423,6 +1498,7 @@ impl Lab {
                 let said = self.stop_batch();
                 self.ui.say(said);
             }
+            ui::Action::BatchType(f) => self.ui.begin_typing(f),
             ui::Action::BatchCopies(d) => {
                 // 1..=200. The floor is 1 rather than 0 because a rack of
                 // nothing is a button that reports success and does nothing;
@@ -2279,6 +2355,47 @@ mod tests {
             lab.world.live_organism_count() > 0,
             "the wider box came back with nothing alive in it"
         );
+    }
+
+    /// **A typed number is clamped exactly as the faces clamp it.**
+    ///
+    /// The half a `Ui`-only test cannot reach: `commit_typed_batch` owns the
+    /// range, and if it ever drifts from the `-`/`+` handlers the same dial
+    /// has two ceilings.
+    #[test]
+    fn a_typed_batch_number_lands_where_the_faces_would() {
+        let mut lab = Lab::new(rack_bed(1));
+
+        lab.ui.begin_typing(ui::TypedField::Frames);
+        for c in "45000".chars() {
+            lab.ui.type_digit(c);
+        }
+        lab.commit_typed_batch();
+        assert_eq!(lab.batch_spec.frames, 45_000);
+
+        // Past the ceiling, typed. Clicking `+` for ever stops at 200,000, so
+        // typing must too.
+        lab.ui.begin_typing(ui::TypedField::Frames);
+        for c in "9999999".chars() {
+            lab.ui.type_digit(c);
+        }
+        lab.commit_typed_batch();
+        let typed_ceiling = lab.batch_spec.frames;
+        for _ in 0..500 {
+            lab.act(ui::Action::BatchFrames(1));
+        }
+        assert_eq!(typed_ceiling, lab.batch_spec.frames, "typing and clicking reach different ceilings");
+
+        // And the floor, on the other dial.
+        lab.ui.begin_typing(ui::TypedField::Copies);
+        lab.ui.type_digit('0');
+        lab.commit_typed_batch();
+        let typed_floor = lab.batch_spec.replicates;
+        for _ in 0..500 {
+            lab.act(ui::Action::BatchCopies(-1));
+        }
+        assert_eq!(typed_floor, lab.batch_spec.replicates, "typing and clicking reach different floors");
+        assert_eq!(typed_floor, 1, "a rack of nothing is a button that reports success and does nothing");
     }
 
     /// The rack's one invariant, through every verb that reshapes it.

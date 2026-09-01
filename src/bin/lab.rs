@@ -329,6 +329,41 @@ impl Handler {
         if !pressed {
             return;
         }
+        // **Typing a number swallows the keyboard, and that is the point.**
+        // The digits are the dial presets and `-`/`=` are the zoom, so a
+        // number typed into a batch dial would otherwise also change the
+        // speed and the view. Nothing else in the lab reads a key while this
+        // is open.
+        if self.lab.ui.typing().is_some() {
+            match code {
+                KeyCode::Enter | KeyCode::NumpadEnter => self.lab.commit_typed_batch(),
+                KeyCode::Escape => self.lab.ui.cancel_typing(),
+                KeyCode::Backspace => self.lab.ui.type_backspace(),
+                _ => {
+                    // Physical codes rather than typed text: the lab takes no
+                    // character events, and a digit row is a digit row on
+                    // every layout this runs on.
+                    let digit = match code {
+                        KeyCode::Digit0 | KeyCode::Numpad0 => Some('0'),
+                        KeyCode::Digit1 | KeyCode::Numpad1 => Some('1'),
+                        KeyCode::Digit2 | KeyCode::Numpad2 => Some('2'),
+                        KeyCode::Digit3 | KeyCode::Numpad3 => Some('3'),
+                        KeyCode::Digit4 | KeyCode::Numpad4 => Some('4'),
+                        KeyCode::Digit5 | KeyCode::Numpad5 => Some('5'),
+                        KeyCode::Digit6 | KeyCode::Numpad6 => Some('6'),
+                        KeyCode::Digit7 | KeyCode::Numpad7 => Some('7'),
+                        KeyCode::Digit8 | KeyCode::Numpad8 => Some('8'),
+                        KeyCode::Digit9 | KeyCode::Numpad9 => Some('9'),
+                        _ => None,
+                    };
+                    if let Some(d) = digit {
+                        self.lab.ui.type_digit(d);
+                    }
+                }
+            }
+            return;
+        }
+
         // Any key dismisses the opening key list, so it is never in the way —
         // except `?`, which toggles it, and `Escape`, which quits.
         if self.lab.show_help && code != KeyCode::Escape {

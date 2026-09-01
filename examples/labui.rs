@@ -153,6 +153,21 @@ fn main() {
         fired.push(format!("click opened THE RACK: {}", lab.ui.panel == Some(Panel::Chambers)));
         tiles.push(("PAGE: THE RACK".into(), shot(&mut lab)));
 
+        // **Page two, and the row that only exists because of it.** A rack
+        // taller than the page could not be scrolled at all until 2026-09-01
+        // -- `rack_scroll` was written, clamped and honoured by the renderer
+        // with nothing bound to move it, so a rack of a hundred showed rows
+        // 1-12 for ever. Aiming at the last chamber is therefore the check
+        // that matters: on the unscrolled page it is not drawn, and `centre`
+        // panics rather than quietly photographing the wrong row.
+        if lab.chamber_count() > 12 {
+            let at = centre(&lab, Action::RackScroll(1));
+            click(&mut lab, at);
+            lab.set_cursor(None);
+            fired.push(format!("scrolled the rack: window starts at row {}", lab.ui.rack_scroll() + 1));
+            tiles.push(("RACK: SCROLLED".into(), shot(&mut lab)));
+        }
+
         let pick = lab.chamber_count() - 1;
         let at = centre(&lab, Action::ChamberSelect(pick));
         click(&mut lab, at);
@@ -172,6 +187,19 @@ fn main() {
         // clicking it again here would shut it, and the click that followed
         // would still fire off the retained layout, which is how the first
         // attempt produced a toast over a closed page.
+        // Typing a number into a dial: the value is the button, and two
+        // hundred clicks to a ceiling is why.
+        let at = centre(&lab, Action::BatchType(pixel_physics::lab::ui::TypedField::Frames));
+        click(&mut lab, at);
+        for c in "45000".chars() {
+            lab.ui.type_digit(c);
+        }
+        lab.set_cursor(None);
+        fired.push(format!("typing into TICKS: {:?}", lab.ui.typing()));
+        tiles.push(("RACK: TYPING A TICK COUNT".into(), shot(&mut lab)));
+        lab.commit_typed_batch();
+        fired.push(format!("committed: ticks now {}", lab.batch_spec.frames));
+
         lab.batch_spec.replicates = 6;
         lab.batch_spec.frames = 4000;
         let at = centre(&lab, Action::BatchRun);
