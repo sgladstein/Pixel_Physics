@@ -2973,13 +2973,42 @@ impl Ui {
         // the ones after it, and a selection held across that would highlight
         // a different box than the one that was picked.
         self.rack_selected = self.rack_selected.filter(|&i| i < chambers.len());
-        let shown = chambers.len().min(RACK_ROWS);
+        // **How many rows fit is computed, not assumed.** `RACK_ROWS` is the
+        // ceiling; the floor is whatever is left after the picture, the
+        // verbs, the pager and the batch controls have taken their share. A
+        // fixed row count made the panel 327 px tall on a 320 px screen once
+        // a picture and a running batch were both up -- the panel clamped at
+        // `MARGIN` and everything past the fold, ENTER included, fell off the
+        // bottom behind the bar. The table is the index and the picture is
+        // the detail, so the table is what gives way.
+        let picture_h = if thumb.is_some() { RACK_THUMB_H + 4 } else { 0 };
+        let batch_h = 16 + if thumb_batch_running { 11 } else { 0 };
+        let verbs_h = if self.rack_selected.is_some() { 14 } else { 0 };
+        // The pager depends on `shown` and `shown` on the pager, so budget
+        // for it whenever the rack could overflow one screen and drop it
+        // below.
+        let fixed = PAGE_HEADER + RACK_HEAD + verbs_h + picture_h + batch_h + PARAM_TABS + PAGE_PAD + 13;
+        let room = ((bar_top() - 4 - MARGIN - fixed) / RACK_ROW).max(1) as usize;
+        let shown = chambers.len().min(RACK_ROWS).min(room);
         self.rack_scroll = self.rack_scroll.min(chambers.len().saturating_sub(shown));
 
         let w = rack_page_width();
-        let picture_h = if thumb.is_some() { RACK_THUMB_H + 4 } else { 0 };
-        let batch_h = 16 + if thumb_batch_running { 11 } else { 0 };
-        let h = PAGE_HEADER + RACK_HEAD + RACK_ROW * shown.max(1) as i32 + picture_h + batch_h + PARAM_TABS + PAGE_PAD;
+        // **Every row this page can draw is counted here, or it is drawn
+        // outside its own panel.** The pager and the verbs were each added
+        // without a term, and the verbs went under the picture, so selecting
+        // a row pushed ENTER out of the box and behind the bar -- present to
+        // `widget_rect`, invisible to a player, which is how the page shipped
+        // with a working ENTER nobody could press.
+        let pager_h = if chambers.len() > shown { 13 } else { 0 };
+        let h = PAGE_HEADER
+            + RACK_HEAD
+            + RACK_ROW * shown.max(1) as i32
+            + pager_h
+            + verbs_h
+            + picture_h
+            + batch_h
+            + PARAM_TABS
+            + PAGE_PAD;
         let bottom = bar_top() - 4;
         let rect = Rect { x: MARGIN, y: (bottom - h).max(MARGIN), w, h };
         self.rack_box = Some(rect);
@@ -3252,6 +3281,69 @@ impl Ui {
             y += 13;
         }
 
+        // ---- the verbs on the highlighted row: FIRST, under the table.
+        //
+        // **They used to be last, and that made them unreachable.** Drawn
+        // after the picture and the batch dials, a selected row pushed ENTER
+        // clean out of the panel -- so the page had a working ENTER button
+        // that no player could see, and the owner reported there was `no way
+        // to enter the others`. The picture is the thing worth clipping when
+        // the page runs long; the only verb that walks into a chamber is not.
+        if let Some(i) = self.rack_selected {
+            let vy = y + 3;
+            let mut vx = left;
+            let here = chambers.get(i).is_some_and(|c| c.active);
+            // An on-record row's world was dropped for the memory budget, so
+            // there is nothing to walk into. Its verbs are drawn dead rather
+            // than hidden, and the row itself says which it is.
+            let on_record = chambers.get(i).is_some_and(|c| c.on_record);
+            let rebuilding = chambers.get(i).is_some_and(|c| c.rebuilding);
+            for (label, action, on, why) in [
+                ("ENTER", Action::Chamber(i), !here && !on_record,
+                 "PUT THIS CHAMBER ON SCREEN. THE ONE YOU LEAVE IS HELD EXACTLY WHERE IT IS -- IT RESUMES ON THE TICK IT STOPPED AT, NOT FROM THE START."),
+                ("CLOSE", Action::ChamberClose(i), !here && !on_record,
+                 "THROW THIS CHAMBER AWAY. THE BOX YOU ARE IN CANNOT BE CLOSED: STEP INTO ANOTHER ONE FIRST, SO THAT CLOSING NEVER ALSO MOVES YOU SOMEWHERE YOU DID NOT ASK TO GO."),
+                // Only ever on an on-record row: a chamber that still has its
+                // world has nothing to rebuild.
+                ("REBUILD", Action::ChamberRebuild(i), on_record && !rebuilding,
+                 "RUN THIS ROW AGAIN AND KEEP THE WORLD THIS TIME. ITS NUMBERS WERE KEPT BUT ITS WORLD WAS NOT, AND THE RECIPE PLUS ITS SEED REPRODUCES THE RUN EXACTLY -- SO WHAT COMES BACK IS THE SAME BOX, NOT A SIMILAR ONE. IT RUNS IN THE BACKGROUND."),
+            ] {
+                let bw = cell_width(hud::text_width(label), "", PAD) + 6;
+                if on {
+                    widgets.push(Widget {
+                        rect: Rect { x: vx, y: vy, w: bw, h: 11 },
+                        line1: label.into(),
+                        line2: String::new(),
+                        action: Some(action),
+                        latched: false,
+                        icon: None,
+                        ratio: None,
+                        note: why.into(),
+                    });
+                } else {
+                    // Drawn dead rather than hidden. A verb that vanishes when
+                    // it does not apply teaches nothing; one that is visibly
+                    // unavailable says why when you hover it.
+                    text(frame, vx + PAD, vy + 2, label, SUB);
+                }
+                vx += bw + 4;
+            }
+            if here {
+                text(frame, vx + 4, vy + 2, RACK_LITERALS[1], FAINT);
+            } else if rebuilding {
+                text(frame, vx + 4, vy + 2, RACK_LITERALS[5], SUB_ON);
+            } else if on_record {
+                text(frame, vx + 4, vy + 2, RACK_LITERALS[2], FAINT);
+            }
+        } else {
+            text(frame, left, y + 5, RACK_LITERALS[0], FAINT);
+        }
+        // **Advance past the verbs.** They used to be the last thing drawn
+        // and so never had to; moved above the picture, a block that does not
+        // move `y` gets the picture painted straight over it -- which it was,
+        // across the REBUILD label, on the first render after the move.
+        y += 14;
+
         // ---- the picture of whichever row is highlighted.
         if let Some(t) = thumb {
             let ty = y + 2;
@@ -3345,56 +3437,6 @@ impl Ui {
             y += 11;
         }
 
-        // ---- the two verbs on the highlighted row.
-        if let Some(i) = self.rack_selected {
-            let vy = y + 3;
-            let mut vx = left;
-            let here = chambers.get(i).is_some_and(|c| c.active);
-            // An on-record row's world was dropped for the memory budget, so
-            // there is nothing to walk into. Its verbs are drawn dead rather
-            // than hidden, and the row itself says which it is.
-            let on_record = chambers.get(i).is_some_and(|c| c.on_record);
-            let rebuilding = chambers.get(i).is_some_and(|c| c.rebuilding);
-            for (label, action, on, why) in [
-                ("ENTER", Action::Chamber(i), !here && !on_record,
-                 "PUT THIS CHAMBER ON SCREEN. THE ONE YOU LEAVE IS HELD EXACTLY WHERE IT IS -- IT RESUMES ON THE TICK IT STOPPED AT, NOT FROM THE START."),
-                ("CLOSE", Action::ChamberClose(i), !here && !on_record,
-                 "THROW THIS CHAMBER AWAY. THE BOX YOU ARE IN CANNOT BE CLOSED: STEP INTO ANOTHER ONE FIRST, SO THAT CLOSING NEVER ALSO MOVES YOU SOMEWHERE YOU DID NOT ASK TO GO."),
-                // Only ever on an on-record row: a chamber that still has its
-                // world has nothing to rebuild.
-                ("REBUILD", Action::ChamberRebuild(i), on_record && !rebuilding,
-                 "RUN THIS ROW AGAIN AND KEEP THE WORLD THIS TIME. ITS NUMBERS WERE KEPT BUT ITS WORLD WAS NOT, AND THE RECIPE PLUS ITS SEED REPRODUCES THE RUN EXACTLY -- SO WHAT COMES BACK IS THE SAME BOX, NOT A SIMILAR ONE. IT RUNS IN THE BACKGROUND."),
-            ] {
-                let bw = cell_width(hud::text_width(label), "", PAD) + 6;
-                if on {
-                    widgets.push(Widget {
-                        rect: Rect { x: vx, y: vy, w: bw, h: 11 },
-                        line1: label.into(),
-                        line2: String::new(),
-                        action: Some(action),
-                        latched: false,
-                        icon: None,
-                        ratio: None,
-                        note: why.into(),
-                    });
-                } else {
-                    // Drawn dead rather than hidden. A verb that vanishes when
-                    // it does not apply teaches nothing; one that is visibly
-                    // unavailable says why when you hover it.
-                    text(frame, vx + PAD, vy + 2, label, SUB);
-                }
-                vx += bw + 4;
-            }
-            if here {
-                text(frame, vx + 4, vy + 2, RACK_LITERALS[1], FAINT);
-            } else if rebuilding {
-                text(frame, vx + 4, vy + 2, RACK_LITERALS[5], SUB_ON);
-            } else if on_record {
-                text(frame, vx + 4, vy + 2, RACK_LITERALS[2], FAINT);
-            }
-        } else {
-            text(frame, left, y + 5, RACK_LITERALS[0], FAINT);
-        }
 
         // Only the real buttons get a face. A row is a band, not a button:
         // painting it as one would put a bevel round every line of the table,
@@ -4317,14 +4359,37 @@ mod tests {
         });
         for (label, st) in [("at rest", &st), ("with a batch running", &running)] {
             let mut page = Ui::new();
+            // **With a row picked**, which is the tallest the page ever gets
+            // and the case the verbs live in: ENTER, CLOSE and REBUILD are
+            // only drawn on a highlighted row, under the picture of it. A
+            // guard that never selects one never sees them, and the owner
+            // reported exactly that -- "there is currently no way to enter
+            // the others" -- against a page that draws an ENTER button.
+            page.select_chamber(20);
             page.paint_rack(&mut buf, &rack(40), Some(&thumb), st);
+            // **Against the panel, not the screen.** The first version of
+            // this guard checked `H` and passed while ENTER was being drawn
+            // below the panel, behind the bar -- on the screen by arithmetic
+            // and invisible in fact. That is the bug the owner reported.
+            let panel = page.rack_box.expect("paint_rack records the panel it drew");
+            assert!(
+                panel.y >= 0 && panel.bottom() <= H as i32,
+                "{label}: the rack panel itself is {} px tall on a {H} px screen ({}..{}) -- it clamps, and \
+                 whatever is drawn past the fold falls off the bottom behind the bar",
+                panel.h,
+                panel.y,
+                panel.bottom()
+            );
             for w in &page.rack_bar.widgets {
                 assert!(
-                    w.rect.y >= 0 && w.rect.bottom() <= H as i32,
-                    "{label}: a rack control runs off the screen vertically -- {:?} at y {}..{} of {H}",
+                    w.rect.y >= panel.y && w.rect.bottom() <= panel.bottom(),
+                    "{label}: a rack control is drawn outside the panel -- {:?} at y {}..{}, panel {}..{}. \
+                     Off the bottom it sits behind the bar: visible to `widget_rect`, invisible to a player.",
                     w.line1,
                     w.rect.y,
-                    w.rect.bottom()
+                    w.rect.bottom(),
+                    panel.y,
+                    panel.bottom()
                 );
                 assert!(
                     w.rect.x >= 0 && w.rect.right() <= W as i32,
