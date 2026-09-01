@@ -1297,6 +1297,32 @@ fn organism_structural_tick(world: &mut World, x: i32, y: i32, cell: Cell) -> Ve
     // arrives here through the branch above and comes down as a piece. The
     // graded outcome falls out of the chain rather than being authored into
     // it.
+    // **The switch covers this too, and the reason is what a player means by
+    // it.** `World::plant_load_failure` was scoped to the two *load* rules --
+    // the stress snap and the cantilever span -- on the reasoning that a cut
+    // branch must still fall. Measured on the lab bed 2026-09-01, that scoping
+    // made the control useless: `snapped under load` reads a flat **0** there,
+    // so the switch had nothing to turn off, while 419 living cells over
+    // 20,000 frames came down through *this* branch. Owner, from play: *"I
+    // turned COLLAPSE UNDER LOAD off, but trees are still falling over."*
+    //
+    // So with the rule off a **living** plant is never taken apart by the
+    // support check. Two things keep that from being the felling-is-broken
+    // bug the field's own doc warns about. A **senescent** plant still comes
+    // apart, so death, culling and rot are untouched -- which is every way a
+    // plant is *meant* to come down in the lab. And the default is on, so the
+    // outdoor game, the gnome's axe and `scripts/acceptance.sh`'s `fell` case
+    // are unchanged.
+    //
+    // **This is a control, not a repair.** What it is masking is a real
+    // defect: a living plant that loses its anchorage marks every cell
+    // `u16::MAX`, schedules its own structural check, and is felled whole --
+    // measured as pieces up to 75 cells, every one of them the entire
+    // organism at `anchors 0` and, in half the cases, with no root tissue
+    // left at all. See `Reports/open-bugs-handoff.md`.
+    if detached && !world.plant_load_failure && world.organism(organism_id).is_some_and(|st| !st.senescent) {
+        return Vec::new();
+    }
     if detached {
         let region = detached_organism_piece(world, x, y, organism_id);
         record_damage_reach_over(world, &region);
@@ -1308,14 +1334,25 @@ fn organism_structural_tick(world: &mut World, x: i32, y: i32, cell: Cell) -> Ve
         // severed trunk, a growing canopy and zero in every other counter.
         world.structural_failures.record_severed_organism(severed);
         world.structural_failures.record_severed_pieces(as_pieces);
+        // **Split by whether it was alive**, which is the half a pooled count
+        // cannot give -- see `FailureCounts::severed_living_cells`.
+        if world.organism(organism_id).is_some_and(|st| !st.senescent) {
+            world.structural_failures.severed_living_cells =
+                world.structural_failures.severed_living_cells.saturating_add(severed);
+        }
         // Every cell of the piece fans out, not just the one that was
         // checked: the piece may have been holding up tissue that is still
         // attached elsewhere, and that tissue is nowhere near `(x, y)`.
         return region.iter().flat_map(|&(rx, ry)| schedule_organism_neighbours(world, rx, ry, organism_id)).collect();
     }
     record_damage_reach_over(world, &[(x, y)]);
+    let alive = world.organism(organism_id).is_some_and(|st| !st.senescent);
     if break_free(world, x, y) {
         world.structural_failures.record_severed_organism(1);
+        if alive {
+            world.structural_failures.severed_living_cells =
+                world.structural_failures.severed_living_cells.saturating_add(1);
+        }
     }
     schedule_organism_neighbours(world, x, y, organism_id)
 }
@@ -7070,6 +7107,91 @@ mod tests {
             organism_id,
             "a limb whose only anchor was cut stayed up -- the switch turned off severing too"
         );
+    }
+
+    /// **With the rule off a living plant is held; a dead one still comes
+    /// apart.** The three arms are one test because no two of them are
+    /// evidence on their own: holding everything would break felling
+    /// outright, holding nothing is the state the owner reported, and a
+    /// beam that was never going to come down anyway is green for both.
+    ///
+    /// Owner, 2026-09-01: *"I turned COLLAPSE UNDER LOAD off, but trees are
+    /// still falling over."* They were right, and the switch's original
+    /// scoping was the reason -- it covered the two *load* rules, and
+    /// `snapped under load` reads a flat zero in the lab bed while 419
+    /// living cells over 20,000 frames came down through the support check.
+    ///
+    /// **Detachment is asserted, not grown, and that is what makes this a
+    /// test of the switch rather than of the plant economy.** Two drafts
+    /// tried to produce a detached living beam by building one on a stone
+    /// and taking the stone away, and both measured something else:
+    ///
+    /// - A beam of nothing but `MatureBody` carries no cell with
+    ///   `Photosynthesize`, `Germinate` or `BudBreak`, so `plant.rs`'s
+    ///   `vital_cells == 0` rule declares it dead on its first organism tick.
+    ///   Feeding it (`energy = 1e6`) does not help -- the rule is about
+    ///   vital *cells*, not about the balance -- and a hand-placed
+    ///   `DormantBud` is gone by frame 60, so senescence lands at 100
+    ///   either way.
+    /// - Worse, and the reason this is spelled out at length: once it is
+    ///   senescent `anchor_support` stops running, so cutting the stone
+    ///   **never raises `support` to `u16::MAX` at all**. The beam then
+    ///   vanishes at frame 230 to `rot_remains`. A "the dead one still
+    ///   comes apart" arm built that way is green with `break_free`
+    ///   deleted: it is measuring rot.
+    ///
+    /// So the arms below write `u16::MAX` into `OrganismCell::support`
+    /// themselves and call `tick` once. Nothing here is emergent, which is
+    /// the point -- the change under test is a three-term predicate, and
+    /// this is that predicate.
+    #[test]
+    fn the_load_failure_switch_holds_a_living_plant_that_lost_its_anchor_and_not_a_dead_one() {
+        const BASE: i32 = 10;
+        const SPAN: std::ops::Range<i32> = BASE..BASE + 10;
+        let build = |rule: bool, senescent: bool| -> (World, u16) {
+            let mut w = test_world();
+            w.plant_load_failure = rule;
+            let tree = w.species.id_of("tree").expect("tree species must be loaded");
+            let organism_id = w.push_organism(tree).expect("an organism slot is free");
+            for x in SPAN {
+                let cell = organism_wood_cell(&mut w, organism_id);
+                w.set(x, 30, cell);
+            }
+            if let Some(st) = w.organism_mut(organism_id) {
+                st.senescent = senescent;
+            }
+            // Unreached: nothing this piece connects to touches the ground.
+            // This is exactly what `plant::anchor_support` leaves behind
+            // when a crown is cut off, and writing it directly keeps the
+            // plant economy -- which kills a hand-built beam within 100
+            // frames whatever is done to it -- out of the measurement.
+            for x in SPAN {
+                if let Some(c) = w.organism_cell_mut(x, 30) {
+                    c.support = u16::MAX;
+                }
+            }
+            let _ = tick(&mut w, &ActiveSite { x: BASE + 9, y: 30, kind: ActiveKind::StructuralCheck, next_frame: 0 });
+            (w, organism_id)
+        };
+        let standing = |w: &World, organism_id: u16| SPAN.filter(|&x| w.get(x, 30).organism_id() == organism_id).count();
+
+        // The positive control, first, because everything below is a claim
+        // about a beam that had to be capable of coming down. `CLAUDE.md`:
+        // put the fault the guard is named for back and watch it go red.
+        let (falls, organism_id) = build(true, false);
+        let fell = standing(&falls, organism_id);
+        assert!(fell < 10, "test setup: with the rule on this beam must come down, or the two arms below prove nothing: {fell}/10 cells left");
+        assert!(falls.structural_failures.severed_living_cells > 0, "test setup: a living plant coming down must be counted as living");
+
+        let (alive, organism_id) = build(false, false);
+        let held = standing(&alive, organism_id);
+        assert_eq!(held, 10, "the rule is off and a living plant came apart anyway: {held}/10 cells left");
+        assert_eq!(alive.structural_failures.severed_living_cells, 0, "the rule is off and living tissue was still counted as severed");
+
+        let (dead, organism_id) = build(false, true);
+        let left = standing(&dead, organism_id);
+        assert!(left < 10, "a senescent plant must still come apart with the rule off, or culling and rot stop bringing anything down: {left}/10 cells left");
+        assert_eq!(dead.structural_failures.severed_living_cells, 0, "a senescent plant's cells were counted as living");
     }
 
     #[test]

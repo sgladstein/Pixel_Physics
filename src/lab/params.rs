@@ -122,6 +122,20 @@ pub enum Knob {
     /// A field of the bed's build spec. **Takes effect on the next rebuild**,
     /// which every row of it says.
     Bed { field: &'static str },
+    /// **How hard heredity drifts** — a global of the plant line, live on the
+    /// next birth.
+    ///
+    /// Its own kind, and **deliberately not a `Species` field**, which is the
+    /// correction this row cost. The natural move is a `#[serde(default)]`
+    /// scalar on the species file, on `design-philosophy.md` §2a's rule that a
+    /// constant a non-programmer might tune graduates to `.ron` immediately.
+    /// `plant::fate_mutation_chance`'s own doc had already ruled against it:
+    /// species reach the binary through `include_str!`, so editing a `.ron`
+    /// and re-running a prebuilt harness gives **bit-identical runs**, and a
+    /// sweep over a mutation rate is exactly that shape. A runtime cell has
+    /// neither problem, and it is honest that these are one number for every
+    /// plant in the world rather than a property of a species.
+    Heredity { field: &'static str },
     /// **A rule of the simulation itself, on or off** — a `bool` on
     /// [`World`], live on the next tick.
     ///
@@ -510,7 +524,25 @@ fn plant_mechanics_rows(world: &World, out: &mut Vec<Param>) {
         "plant mechanics",
         "collapse_under_load",
         world.plant_load_failure,
-        "WHETHER A PLANT MAY BREAK UNDER ITS OWN WEIGHT AND UNDER WHAT IS PILED ON IT. ON IS THE SHIPPED BEHAVIOUR: A STEM SNAPS WHERE THE BENDING STRESS BEATS THE WOOD, AND A LIMB REACHING FURTHER THAN IT CAN HOLD GIVES WAY. OFF HOLDS EVERY PLANT IN THE BOX TOGETHER HOWEVER FAR IT LEANS, WHICH IS WHAT YOU WANT WHILE YOU ARE LOOKING AT GROWTH RATHER THAN AT MECHANICS. CUTTING STILL WORKS EITHER WAY -- WHAT YOU SEVER STILL FALLS. IT REACHES EVERY SPECIES, IT IS FELT ON THE NEXT TICK, AND IT LASTS THE SESSION.",
+        "WHETHER A LIVING PLANT MAY BE PULLED APART BY MECHANICS. ON IS THE SHIPPED BEHAVIOUR: A STEM SNAPS WHERE THE BENDING STRESS BEATS THE WOOD, A LIMB REACHING FURTHER THAN IT CAN HOLD GIVES WAY, AND ONE THAT LOSES ITS FOOTING COMES DOWN WHOLE. OFF HOLDS EVERY LIVING PLANT IN THE BOX TOGETHER HOWEVER FAR IT LEANS AND WHATEVER IS DUG OUT FROM UNDER IT, WHICH IS WHAT YOU WANT WHILE YOU ARE LOOKING AT GROWTH RATHER THAN AT MECHANICS. DEAD WOOD STILL COMES APART EITHER WAY, SO CULLING AND ROT STILL CLEAR THE BOX. IT REACHES EVERY SPECIES, IT IS FELT ON THE NEXT TICK, AND IT LASTS THE SESSION.",
+    ));
+    out.push(float(
+        Group::Plant,
+        Knob::Heredity { field: "mutation_sigma" },
+        "heredity",
+        "genotype_drift",
+        world.mutation_sigma,
+        span(0.0, 0.5, 0.005),
+        "HOW FAR ONE OF A PLANT'S TEN CONTINUOUS GENES MAY MOVE IN A SINGLE GENERATION. THIS IS THE MUTAGEN DIAL. AT 0 EVERY SEED IS A CLONE OF ITS PARENT ON THOSE TEN AXES, WHICH IS NOT A DISABLED FEATURE BUT THE CONTROL ARM: IT IS THE NULL A SELECTED RUN HAS TO BEAT. TURNED UP, LINEAGES WANDER FASTER AND SELECTION HAS MORE TO SORT -- AND MORE OF WHAT IT SORTS IS NOISE. IT REACHES EVERY PLANT IN THE BOX, IT IS FELT AT THE NEXT SEED RATHER THAN ON THE NEXT TICK, AND IT LASTS THE SESSION.",
+    ));
+    out.push(float(
+        Group::Plant,
+        Knob::Heredity { field: "fate_mutation_chance" },
+        "heredity",
+        "fate_drift",
+        world.fate_mutation_chance,
+        span(0.0, 1.0, 0.01),
+        "THE CHANCE A SEED IS BORN WITH ONE OF ITS PARENT'S FATE RULES CHANGED -- WHAT A CELL TURNS INTO WHEN ITS TIME COMES, WHICH IS THE PART OF A PLANT'S GENOME THAT DECIDES ITS SHAPE RATHER THAN ITS SIZE. THE COARSER OF THE TWO DIALS ON THIS PAGE: A CHANGED FATE IS A DIFFERENT ARCHITECTURE, WHERE THE DRIFT ABOVE IS THE SAME PLANT NUDGED. LASTS THE SESSION.",
     ));
 }
 
@@ -616,6 +648,8 @@ fn box_rows(world: &World, spec: &LabBox, out: &mut Vec<Param>) {
         "HOW MANY PLANTS THE BOX IS STOCKED WITH WHEN IT IS BUILT. THE BINARY OPENS AT ZERO ON PURPOSE -- THE BOX STARTS WITH NOTHING AND YOU STOCK IT -- SO RAISE THIS ONLY IF YOU WANT A REBUILD TO HAND YOU A STAND. TAKES EFFECT ON REBUILD.");
     bed("colonies", spec.colonies as f32, span(0.0, 8.0, 1.0),
         "HOW MANY ANT COLONIES A REBUILD RELEASES, ONE PER COMPARTMENT AT MOST. ONE COLONY IS NOT A GARNISH: IT DECIDES WHETHER THE BED LIVES, AND HOW MUCH ROOM THE BED HAS DECIDES WHICH WAY. MEASURED OVER SIX SEEDS, EACH PAIRED AGAINST THE SAME WORLD WITH NO COLONY: IN A 256-WIDE BOX ONE COLONY LEAVES 1% OF THE STAND STANDING AND 6 OF 6 SEEDS FALL, AT 512 IT LEAVES 41%, AND AT 1024 IT LEAVES 98% -- BUT THERE THE COLONY ITSELF DROPS TO 2 ANTS, BECAUSE IT CANNOT REACH THE PLANTS. A COLONY EATS ITS OWN NEIGHBOURHOOD, SO A NARROW BED FEEDS THE ANTS AND KILLS THE PLANTS AND A WIDE ONE DOES THE REVERSE. IF A STOCKED BED SIMPLY EMPTIES, THIS IS THE FIRST THING TO SUSPECT. TAKES EFFECT ON REBUILD.");
+    bed("colony_ants", spec.colony_ants as f32, span(1.0, 120.0, 1.0),
+        "HOW MANY ANIMALS EACH COLONY IS FOUNDED WITH. FIFTY-TWO BY DEFAULT, AND THAT NUMBER IS NOT ARBITRARY: BELOW ABOUT FIFTY A COLONY LOOKS BROKEN EVEN WHEN THE CODE IS RIGHT, WHICH IS WHY THE KEY PLACES A CROWD RATHER THAN AN ANT. IT WAS ALSO THE ONE STOCKING NUMBER YOU COULD NOT SET -- FOUNDERS SAYS HOW MANY PLANTS AND COLONIES SAYS HOW MANY NESTS, AND HOW BIG A POPULATION STARTS IS THE FIRST THING A SELECTION EXPERIMENT WANTS TO VARY. THE BAND WIDENS WITH THE COUNT, SO A SMALL COLONY IS SPARSE RATHER THAN CLIPPED. TAKES EFFECT ON REBUILD.");
     bed("predators", spec.predators as f32, span(0.0, 8.0, 1.0),
         "HOW MANY BEETLES A REBUILD RELEASES, SPREAD THE SAME WAY THE COLONIES ARE. ZERO BY DEFAULT, BECAUSE A PREDATOR IS THE ONE STOCKING CHOICE THAT CAN EMPTY A BOX. WHAT IT IS FOR IS A PAIR: TWO CHAMBERS ON THE SAME SEED, THIS AT 0 AND AT 4, IS AN EXPERIMENT -- ONE CHAMBER ON ITS OWN IS A STORY. IF A STOCKED BED SIMPLY EMPTIES, RAISE COMPARTMENTS BEFORE BLAMING THE BEETLE: A PREDATOR AND ITS PREY IN ONE SEALED BOX WITH NOWHERE TO HIDE GO EXTINCT IN THEORY AS WELL AS HERE. TAKES EFFECT ON REBUILD.");
     bed("seed", spec.seed as f32, span(0.0, 999.0, 1.0),
@@ -729,6 +763,17 @@ pub fn write(world: &mut World, spec: &mut LabBox, knob: &Knob, value: f32) -> b
             }
             true
         }
+        Knob::Heredity { field } => {
+            if !crate::sim::plant::settable_rate(value) {
+                return false;
+            }
+            match *field {
+                "mutation_sigma" => world.mutation_sigma = value,
+                "fate_mutation_chance" => world.fate_mutation_chance = value,
+                _ => return false,
+            }
+            true
+        }
         Knob::Rule { field } => {
             let on = value >= 0.5;
             match *field {
@@ -783,6 +828,7 @@ pub fn write_bed(spec: &mut LabBox, field: &str, value: f32) -> bool {
         "compartments" => spec.compartments = v as usize,
         "founders" => spec.founders = v as usize,
         "colonies" => spec.colonies = v as usize,
+        "colony_ants" => spec.colony_ants = v as i32,
         "predators" => spec.predators = v as usize,
         "seed" => spec.seed = v as u64,
         _ => return false,
@@ -806,6 +852,7 @@ pub fn read_bed(spec: &LabBox, field: &str) -> Option<f32> {
         "compartments" => spec.compartments as f32,
         "founders" => spec.founders as f32,
         "colonies" => spec.colonies as f32,
+        "colony_ants" => spec.colony_ants as f32,
         "predators" => spec.predators as f32,
         "seed" => spec.seed as f32,
         _ => return None,
@@ -878,6 +925,9 @@ fn planned_edit(param: &Param) -> Result<(std::path::PathBuf, String), String> {
         }
         Knob::Rule { .. } => {
             return Err("this is a rule of the running box, not a number in a file -- it lasts the session".into())
+        }
+        Knob::Heredity { .. } => {
+            return Err("heredity is one number for every plant, not a species field -- it lasts the session".into())
         }
         Knob::Material { material, .. } => (material::ASSET_DIR, material.to_string()),
         Knob::Creature { species, .. }
@@ -967,10 +1017,40 @@ fn field_text(source: &str, field: &str) -> Option<String> {
 /// body traits and a foraging errand, a plant has a genotype, an allele set
 /// and a carbon economy.
 pub fn specimen_rows(world: &World, id: u16) -> Vec<(String, String, String)> {
+    specimen_sections(world, id).into_iter().flat_map(|(_, _, rows)| rows).collect()
+}
+
+/// One specimen readout row: label, value, and the note that explains it.
+pub type SpecimenRow = (String, String, String);
+
+/// One named group of specimen rows: its heading, what the heading means, and
+/// the rows under it.
+pub type SpecimenSection = (&'static str, &'static str, Vec<SpecimenRow>);
+
+/// What each group's heading means, as the page's hover note reads it.
+const LIFE_NOTE: &str = "WHERE THIS INDIVIDUAL CAME FROM AND HOW FAR DOWN THE LINE IT IS. NONE OF IT CHANGES WHILE YOU WATCH -- IT IS SETTLED THE MOMENT THE THING IS BORN.";
+const STATE_NOTE: &str = "HOW IT IS DOING RIGHT NOW. THIS IS THE GROUP THAT MOVES WHILE THE BOX RUNS, AND THE ONE TO HAVE OPEN IF YOU ARE WATCHING SOMETHING GET INTO TROUBLE.";
+const GENOME_NOTE: &str = "WHAT IT WAS DEALT AND CANNOT CHANGE, DRAWN WHEN IT WAS BORN AND CARRIED FOR LIFE. TWO INDIVIDUALS OF ONE SPECIES DIFFER HERE AND NOWHERE ELSE AT BIRTH -- THIS IS WHAT A JAR ON THE SHELF KEEPS.";
+
+/// **The same readout, in the three groups the cell page folds it into.**
+///
+/// `LIFE` is where this individual came from, `STATE` is how it is doing right
+/// now, and `GENOME` is what it was dealt and cannot change. Every kingdom
+/// gets all three, in that order, and a group is never empty — the page draws
+/// one header per group and a missing one would make two species' pages
+/// disagree about which header means what.
+///
+/// **The grouping is here rather than in the page** because it is a statement
+/// about what the numbers *are*, not about how they are drawn: `STATE` is the
+/// block a player watches change while the box runs, and that is the same fact
+/// whether it is folded, scrolled or printed by a harness.
+pub fn specimen_sections(world: &World, id: u16) -> Vec<SpecimenSection> {
     let Some(state) = world.organism_state(id) else { return Vec::new() };
     let species = world.species.get(state.species);
-    let mut rows: Vec<(String, String, String)> = Vec::new();
-    let mut row = |label: &str, value: String, note: &str| rows.push((label.into(), value, note.into()));
+    let mut life: Vec<SpecimenRow> = Vec::new();
+    let mut rows: Vec<SpecimenRow> = Vec::new();
+    let mut genome: Vec<SpecimenRow> = Vec::new();
+    let mut row = |label: &str, value: String, note: &str| life.push((label.into(), value, note.into()));
 
     row("GENERATION", state.generation.to_string(),
         "HOW MANY ANCESTORS BACK TO A FOUNDER. A FOUNDER IS 0. IF THIS NEVER LEAVES 0 OR 1, NOTHING IN THE BOX IS BREEDING, WHICH IS THE ONE THING A POPULATION COUNT CANNOT TELL YOU BY ITSELF.");
@@ -985,14 +1065,24 @@ pub fn specimen_rows(world: &World, id: u16) -> Vec<(String, String, String)> {
     row("ORIGIN", if state.stocked { "RELEASED FROM A JAR".into() } else if state.inherited { "BORN HERE".into() } else { "FOUNDER".into() },
         "WHERE THIS INDIVIDUAL CAME FROM. BORN HERE MEANS THE BOX BRED IT. FOUNDER MEANS IT WAS PLACED OUT OF NOTHING. RELEASED FROM A JAR MEANS YOU PUT IT BACK OFF THE SHELF, CARRYING A GENOME YOU KEPT. A BOX WHERE NOTHING EVER SAYS BORN HERE IS A BOX THAT HAS NOT REPRODUCED YET.");
 
+    // A second closure over `rows`, so the borrow of `life` ends here. The
+    // shadowing is deliberate: every `row(...)` below this line files into
+    // `STATE` and every one above it into `LIFE`, which is a good deal harder
+    // to get wrong than a group argument repeated on eighteen call sites.
+    let mut row = |label: &str, value: String, note: &str| rows.push((label.into(), value, note.into()));
+
     // **No energy row here.** The cell block above already prints the
     // organism's whole-body energy, and the same figure twice under one
     // heading reads as two different quantities that happen to agree.
     if species.creature.is_some() {
-        row("GUT BIAS", format!("{:+.3}", state.traits[organism::TRAIT_GUT_BIAS]),
-            "THIS ANIMAL'S OWN DIET, -1 PLANT MATTER TO +1 FLESH. IT IS INHERITED WITH JITTER, SO IT IS NOT THE SPECIES VALUE ON THE ANTS PAGE -- COMPARE THE TWO AND YOU ARE LOOKING AT ONE GENERATION OF DRIFT.");
-        row("BIRTH GRANT", format!("{:+.3}", state.traits[organism::TRAIT_BIRTH_GRANT]),
-            "HOW MUCH THIS ONE WOULD HAND A NEWBORN, AS ITS OWN INHERITED VALUE RATHER THAN THE SPECIES'.");
+        // **The two inherited traits are `GENOME`, not `STATE`**, for the
+        // reason the grouping exists: they are drawn at birth and carried for
+        // life, so they belong with the plant's genotype draws rather than
+        // with the numbers that move while you watch.
+        genome.push(("GUT BIAS".into(), format!("{:+.3}", state.traits[organism::TRAIT_GUT_BIAS]),
+            "THIS ANIMAL'S OWN DIET, -1 PLANT MATTER TO +1 FLESH. IT IS INHERITED WITH JITTER, SO IT IS NOT THE SPECIES VALUE ON THE ANTS PAGE -- COMPARE THE TWO AND YOU ARE LOOKING AT ONE GENERATION OF DRIFT.".into()));
+        genome.push(("BIRTH GRANT".into(), format!("{:+.3}", state.traits[organism::TRAIT_BIRTH_GRANT]),
+            "HOW MUCH THIS ONE WOULD HAND A NEWBORN, AS ITS OWN INHERITED VALUE RATHER THAN THE SPECIES'.".into()));
         row("SINCE NEST", state.since_nest.to_string(),
             "TICKS SINCE IT LAST TOUCHED THE NEST. IT CLIMBS WHILE A FORAGER IS OUT AND RESETS WHEN IT GETS HOME, SO A NUMBER THAT ONLY EVER CLIMBS IS AN ANT THAT IS LOST.");
         row("CROP", match &state.crop {
@@ -1002,7 +1092,7 @@ pub fn specimen_rows(world: &World, id: u16) -> Vec<(String, String, String)> {
             "WHAT IT IS CARRYING AND HOW MUCH OF IT IS LEFT. THE NUMBER FALLS AS IT WALKS -- AN ANT DIGESTS ITS LOAD ON THE WAY HOME, SO A LONG TRIP DELIVERS LESS THAN A SHORT ONE.");
         row("BODY", state.cells.len().to_string(),
             "HOW MANY CELLS THIS ANIMAL IS. EVERY PER-CELL COST ON THE ANTS PAGE IS MULTIPLIED BY THIS.");
-        return rows;
+        return vec![("LIFE", LIFE_NOTE, life), ("STATE", STATE_NOTE, rows), ("GENOME", GENOME_NOTE, genome)];
     }
 
     row("SHOOT", state.shoot_cells.to_string(),
@@ -1034,8 +1124,10 @@ pub fn specimen_rows(world: &World, id: u16) -> Vec<(String, String, String)> {
         "SURPLUS BANKED TOWARD SEED, RATHER THAN SPENT ON GROWTH. IT ACCRUES AND IS CAPPED INSTEAD OF BEING SPENT-OR-LOST, BECAUSE SEED SET FIRES ON A CHANCE AND THE SURPLUS HAS TO STILL BE THERE WHEN THE ROLL LANDS. A PLANT PARKED AT ZERO HERE IS ALIVE AND NOT REPRODUCING, WHICH IN THIS BOX IS THE SAME AS NOT COUNTING.");
     row("SENESCENT", if state.senescent { "YES -- ROTTING".into() } else { "NO".into() },
         "WHETHER IT IS DEAD AND ON ITS WAY OUT. A CULLED PLANT SAYS YES AND KEEPS ITS CELLS UNTIL THEY ROT, WHICH IS WHY A CULL IS GRADED RATHER THAN A DELETION.");
-    row("ALLELES", state.alleles.iter().map(|a| a.to_string()).collect::<Vec<_>>().join("/"),
-        "THE SIX DISCRETE MORPHOLOGY GENES, IN ORDER: LEAF ECONOMY, BRANCH ANGLE, INTERNODE, SYMPODIAL, TROPISM, WOOD DENSITY. THEY ARE CATEGORICAL, NOT SCALAR -- TWO PLANTS THAT DIFFER HERE ARE DIFFERENT SHAPES, NOT THE SAME SHAPE AT DIFFERENT SIZES.");
+    // ...and the borrow of `rows` ends here, for the same reason: from this
+    // line on, everything is `GENOME`.
+    genome.push(("ALLELES".into(), state.alleles.iter().map(|a| a.to_string()).collect::<Vec<_>>().join("/"),
+        "THE SIX DISCRETE MORPHOLOGY GENES, IN ORDER: LEAF ECONOMY, BRANCH ANGLE, INTERNODE, SYMPODIAL, TROPISM, WOOD DENSITY. THEY ARE CATEGORICAL, NOT SCALAR -- TWO PLANTS THAT DIFFER HERE ARE DIFFERENT SHAPES, NOT THE SAME SHAPE AT DIFFERENT SIZES.".into()));
 
     // The continuous genome, **only where the species gives it a width**. A
     // slot whose variance is zero is a draw with no consumer for this species:
@@ -1047,13 +1139,13 @@ pub fn specimen_rows(world: &World, id: u16) -> Vec<(String, String, String)> {
             continue;
         }
         let factor = (1.0 + state.genotype_draws[slot] * width).max(0.0);
-        rows.push((
+        genome.push((
             (*label).to_string(),
             format!("X{factor:.2}"),
             format!("THIS INDIVIDUAL'S OWN MULTIPLIER ON ITS SPECIES' {label}, DRAWN WHEN IT GERMINATED AND CARRIED FOR LIFE. 1.00 IS THE SPECIES VALUE; ITS SPECIES ALLOWS UP TO {:.0}% EITHER WAY. THIS IS WHY TWO SEEDS OF ONE SPECIES DO NOT GROW INTO THE SAME PLANT.", width * 100.0),
         ));
     }
-    rows
+    vec![("LIFE", LIFE_NOTE, life), ("STATE", STATE_NOTE, rows), ("GENOME", GENOME_NOTE, genome)]
 }
 
 /// The genome's slot map, as `organism::GENOTYPE_TRAITS`' own doc names it.

@@ -1067,6 +1067,22 @@ impl Lab {
                     Some(id) => (id, 0),
                     None => return,
                 },
+                // **`aux` 0, and here that is not a convention call.**
+                // `windfall` does not set `worth_in_aux`, so
+                // `creature::food_value` reads its `food_energy` (960) off the
+                // material whatever the cell carries — there is no stamp to
+                // write and no second pass to make. Painting it at anything
+                // else would be writing a number nothing reads.
+                //
+                // **An explicit arm rather than the catch-all below**, which
+                // is the whole reason this is a `match` and not an `if`: the
+                // `_` arm paints soil, so a new brush that forgot to declare
+                // itself would silently lay down ground instead of food and
+                // look, on screen, like a tool that simply missed.
+                ui::Tool::Food => match self.world.materials.id_of("windfall") {
+                    Some(id) => (id, 0),
+                    None => return,
+                },
                 _ => match self.world.materials.id_of("soil") {
                     Some(id) => (id, material::SOIL_FIELD_CAPACITY),
                     None => return,
@@ -1098,7 +1114,8 @@ impl Lab {
             ui::Tool::Look => self.ui.inspect(at),
             ui::Tool::Plant => self.plant_at(x, y),
             ui::Tool::Colony => {
-                let placed = self.world.found_colony(x, y);
+                let (species, ants) = (self.spec.colony_species.clone(), self.spec.colony_ants);
+                let placed = self.world.found_colony_of(x, y, &species, ants);
                 // The count, not just the picture: an ant is two dark cells at
                 // play zoom, and a colony that placed nothing looks exactly
                 // like one you have not found yet.
@@ -1112,7 +1129,7 @@ impl Lab {
             ui::Tool::Wall => self.wall_at(x),
             // The brushes never arrive here: they paint from `press`, so a
             // release that also painted would double the last dab.
-            ui::Tool::Soil | ui::Tool::Water => {}
+            ui::Tool::Soil | ui::Tool::Water | ui::Tool::Food => {}
         }
     }
 
@@ -1339,6 +1356,7 @@ impl Lab {
             // space."* Neither is a new mechanism -- `keep_at` and
             // `release_at` are untouched -- what changed is where the thing
             // they act on is chosen.
+            ui::Action::SpecimenSection(i) => self.ui.show_specimen_section(i),
             ui::Action::KeepInspected => match self.ui.inspecting() {
                 // The cell page's own coordinate, so what is kept is what the
                 // page is showing. It is re-read every frame, which is the
@@ -1836,7 +1854,7 @@ const HELP: [&str; 30] = [
     "           KEEP AND PLACE ARE BUTTONS NOW,",
     "           ON THE CELL PAGE AND THE RACK",
     "; \x27        DRIFT A RELEASE, IN BROODS",
-    "K          WALL -- SPLIT THE BOX (NO BUTTON)",
+    "K E        WALL / FOOD -- NO BUTTON, KEY ONLY",
     "F1 F2 F3 F4   PLANTS ANTS BOX RACK   TAB STATS",
     "SHIFT+1..5   SWITCH CHAMBER    ALL   THE WHOLE RACK",
     "F RATE   WASD PAN   - = ZOOM   R REBUILD",
@@ -2927,6 +2945,77 @@ mod tests {
         lab.press_erase(at.0, at.1);
         lab.end_stroke();
         assert_eq!(lab.world.get(wx, wy).material, material::EMPTY, "the eraser left the cell");
+    }
+
+    /// **The food brush puts something edible on the ground, and the count is
+    /// what says so.**
+    ///
+    /// `wiki/ants.md` records the two arms this verb exists to let a player
+    /// run: food beside the nest breeds a colony thirteen generations deep,
+    /// and the same colony foraging the sealed bed brings home four loads out
+    /// of sixteen hundred pickups. Until this tool existed the box could not
+    /// be put in the first state at all, so no measurement in it could
+    /// separate *the foraging is broken* from *the economy is broken*.
+    ///
+    /// **Asserted as a census of food value, not as a picture and not as a
+    /// material match alone.** A sheet of the bed looks the same whether this
+    /// laid down fruit or dirt — the shelf's `FREE` bug was caught only by
+    /// `organisms 89 -> 89` and by nothing on screen. What a forager cares
+    /// about is what `creature::food_value` returns, so that is the quantity
+    /// counted here.
+    ///
+    /// **The fault it was watched going red for** is the one the brush's own
+    /// `match` is shaped to prevent: delete the `Tool::Food` arm from
+    /// `paint_span` and the `_` arm catches it, so the brush lays **soil**.
+    /// The material assertion fails and the census stays flat — which is
+    /// exactly what a tool that silently painted ground would look like.
+    #[test]
+    fn the_food_brush_puts_something_edible_on_the_ground() {
+        use crate::sim::creature;
+        let mut lab = bench();
+        let (x, y) = (lab.spec.width / 2, lab.spec.ground_y - 30);
+        let windfall = lab.world.materials.id_of("windfall").expect("windfall is compiled in");
+
+        // The whole bed's standing food value, before and after. A census
+        // rather than one cell, so a brush that wrote a single cell and a
+        // brush that wrote its whole disc are distinguishable.
+        let edible = |lab: &Lab| -> f64 {
+            let mut total = 0.0;
+            for yy in 0..lab.spec.height {
+                for xx in 0..lab.spec.width {
+                    total += creature::food_value(&lab.world, lab.world.get(xx, yy)) as f64;
+                }
+            }
+            total
+        };
+        let before = edible(&lab);
+
+        lab.act(ui::Action::Tool(ui::Tool::Food));
+        assert_eq!(lab.ui.tool(), ui::Tool::Food, "the food tool did not arm");
+        let at = aim(&lab, x, y);
+        lab.set_cursor(Some(at));
+        lab.press(at.0, at.1);
+        lab.release(at.0, at.1);
+
+        let cell = lab.world.get(x, y);
+        assert_eq!(cell.material, windfall, "the food brush laid down something that is not windfall");
+        // The value is read off the material rather than a stamp -- windfall
+        // does not set `worth_in_aux` -- so a cell painted at any `aux` is
+        // worth the same, and that is the number a forager sees.
+        assert!(
+            creature::food_value(&lab.world, cell) > 0.0,
+            "the cell the food brush painted is worth nothing to eat"
+        );
+        assert!(
+            edible(&lab) > before,
+            "the bed holds no more food than before the brush ran: {before} -> {}",
+            edible(&lab)
+        );
+
+        // And it comes back out with the right button, like every other brush.
+        lab.press_erase(at.0, at.1);
+        lab.end_stroke();
+        assert_eq!(lab.world.get(x, y).material, crate::sim::material::EMPTY, "the eraser left the food");
     }
 
     /// A drag lays down one continuous band, not a dab at each end.

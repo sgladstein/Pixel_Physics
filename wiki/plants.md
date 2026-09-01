@@ -3,7 +3,11 @@
 *What plants do, and what it looks like when they are working. No code, no
 file names — see `Reports/` for why any of it is built the way it is.*
 
-*Current as of: 2026-08-31 (roots find water by how wet the *soil* is rather
+*Current as of: 2026-09-01 (the lab's `COLLAPSE UNDER LOAD` switch now holds a
+living plant together whatever happens under it, not just under its own
+weight -- see **When a tree breaks**. Dead wood still comes apart, and the
+outdoor world is unchanged.)
+Before that: 2026-08-31 (roots find water by how wet the *soil* is rather
 than by how humid the *air* is -- so they follow damp ground, turn down at
 the surface, and reach roughly twice as deep as they used to, with depth now
 set by where the water is instead of capping out a third of the way into any
@@ -708,6 +712,14 @@ the ones left are the ones that build a thicker trunk for the crown they
 carry. Their seedlings inherit that. A wood that has been standing a long
 time should be losing fewer limbs than a young one — that is the intent, and
 it is not yet proven over a long enough run to state as fact.
+
+**In the lab you can turn all of it off.** `COLLAPSE UNDER LOAD` at the top
+of the parameters panel's plant page holds every living plant in the box
+together — however far it leans, whatever is piled on it, and whatever is dug
+out from under it — which is what you want while you are watching something
+grow rather than watching it fail. Dead wood still comes apart either way, so
+culling and rot still clear the box, and the setting survives a rebuild. It is
+on by default and it changes nothing outside the lab.
 
 **What you will not see yet.** A trunk does not buckle — a very tall thin
 tree does not fold under its own height, it only breaks if something is

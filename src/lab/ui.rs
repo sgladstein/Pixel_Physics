@@ -384,6 +384,10 @@ pub enum Action {
     ParamSelect(usize),
     /// Write the highlighted parameter back to its asset file.
     ParamSave,
+    /// **Show one group of the cell page's specimen rows**, closing whichever
+    /// was open. The index is into `params::specimen_sections`' own order,
+    /// which is fixed and the same for every species.
+    SpecimenSection(usize),
     /// **Put the individual the cell page is open on into a jar.** The
     /// button that replaced the `KEEP` tool: the page is already pointed at
     /// one organism, so the second click the tool needed was a click at
@@ -494,6 +498,28 @@ pub enum Tool {
     /// Drop a wall, floor to ceiling, in the column you click. Click a wall
     /// you placed to take it out again.
     Wall,
+    /// **Put food on the ground.** Paints `windfall` — the fruit a herb drops
+    /// — which falls, piles at its own angle of repose and rots back into
+    /// soil, so a heap you paint is food that behaves like food rather than a
+    /// permanent fixture.
+    ///
+    /// **This is the box's control arm as much as it is a verb.** `wiki/
+    /// ants.md` records the two arms plainly: put food on the ground beside a
+    /// nest and a colony breeds **thirteen generations deep**; leave the same
+    /// colony to forage the sealed bed and it picks food up sixteen hundred
+    /// times and brings it home four. **The one intervention that separates
+    /// those two runs was the one thing the lab could not do**, so no
+    /// measurement in this bed could tell "the foraging is broken" from "the
+    /// economy is broken". Now it can.
+    ///
+    /// **Off the bar, like `Wall` and `Release`, and this was measured rather
+    /// than assumed.** `PIXEL_PHYSICS_BAR_TRACE` on the shipped layout reports
+    /// **row 0 slack 0 and row 1 slack 0** — both rows sit at exactly 508 of
+    /// 508 — so there is no seventh tool cell at any spacing `layout` tries.
+    /// `Reports/dead-ends.md` carries three earlier attempts at fitting one.
+    /// The key is in `HELP`, marked `(NO BUTTON)`, which is the pattern `K`
+    /// already set.
+    Food,
 }
 
 /// Every tool **that has a cell on the bar**, in bar order. One list, so the
@@ -536,6 +562,7 @@ impl Tool {
             Tool::Soil => "SOIL",
             Tool::Water => "WATER",
             Tool::Wall => "WALL",
+            Tool::Food => "FOOD",
             // Never drawn on the bar -- this is what the notice says while it
             // is armed, so it is the verb rather than the old `FREE`: what it
             // does now is put the jar you picked *somewhere*.
@@ -561,13 +588,20 @@ impl Tool {
             // that is not in the row the rule is about, and the wall's `K` is
             // a key players have already been given.
             Tool::Wall => "K",
+            // **`E`, and the bottom-row run had nothing left to give.** The
+            // run is `Z X C V B N`; its next two keys are already spoken for
+            // — `M` keeps the inspected individual and `,` places a jar — and
+            // `F` and `G` are the display rate and the shelf. So this joins
+            // `K` off the run, for the reason `K` states: a tool with no bar
+            // cell is not in the row the positional rule is about.
+            Tool::Food => "E",
         }
     }
     /// Whether this tool paints continuously while the button is held. The
     /// verbs are one-shot — a drag that founded a colony per pixel would empty
     /// the organism table in one gesture.
     pub fn is_brush(self) -> bool {
-        matches!(self, Tool::Soil | Tool::Water)
+        matches!(self, Tool::Soil | Tool::Water | Tool::Food)
     }
     fn note(self) -> &'static str {
         match self {
@@ -578,6 +612,7 @@ impl Tool {
             Tool::Soil => "PAINT SOIL, AT FIELD CAPACITY -- DAMP ENOUGH FOR A ROOT, NOT SO WET IT SLUMPS. IT WILL NOT PAINT OVER STONE OR OVER A LIVING PLANT.",
             Tool::Water => "PAINT WATER, FULL. IT RUNS, IT SOAKS INTO SOIL, AND TOO MUCH OF IT DROWNS ROOTS -- WHICH IS AN EXPERIMENT, NOT A MISTAKE.",
             Tool::Wall => "DROP A WALL FLOOR TO CEILING IN THE COLUMN YOU CLICK, OR CLICK ONE YOU PLACED TO TAKE IT OUT. A WALL IS WHAT MAKES TWO POPULATIONS IN ONE BOX INTO TWO POPULATIONS: THEY CANNOT MIX, SO THEY CAN DRIFT APART. IT CUTS WHATEVER IS IN THE WAY, WHICH IS THE POINT -- A WALL THROUGH A STAND IS A STAND SPLIT IN HALF. IT SURVIVES A REBUILD.",
+            Tool::Food => "PUT FOOD ON THE GROUND WHERE YOU PAINT. IT IS WINDFALL -- THE FRUIT A HERB DROPS -- SO IT FALLS, PILES UP AND ROTS BACK INTO THE SOIL RATHER THAN SITTING THERE FOR EVER. A COLONY WITH FOOD BESIDE THE NEST BREEDS HARD; THE SAME COLONY LEFT TO FORAGE THE SEALED BED MOSTLY DOES NOT. THIS IS HOW YOU TELL THOSE TWO APART.",
             Tool::Release => "PUT THE ARMED JAR BACK IN THE BOX WHERE YOU CLICK. AT 0 BROODS IT IS THAT EXACT INDIVIDUAL AGAIN; AT 1 IT IS AS DIFFERENT AS ITS OWN CHILD WOULD HAVE BEEN, AND SO ON UP. OPEN THE SHELF WITH G TO PICK A JAR AND SET THE DIAL.",
         }
     }
@@ -1232,6 +1267,13 @@ enum Body {
     Value { label: String, value: String, tint: [u8; 4] },
     /// A population over the last few dozen samples.
     Spark { label: String, series: Vec<u32>, tint: [u8; 4] },
+    /// **A named group of rows, and whether it is showing.** Clickable: the
+    /// action opens this group and closes whichever was open. `hidden` is how
+    /// many rows are behind it while it is shut, which is the whole reason a
+    /// fold is honest -- a group that says `+ GENOME 11` has not lost
+    /// anything, where a page that quietly stopped at the bottom of the
+    /// screen had.
+    Head { label: String, open: bool, hidden: usize, action: Action },
     Gap,
 }
 
@@ -1269,9 +1311,18 @@ impl Row {
     fn gap() -> Self {
         Self { body: Body::Gap, note: String::new() }
     }
+    fn head(label: &str, open: bool, hidden: usize, action: Action, note: impl Into<String>) -> Self {
+        Self {
+            body: Body::Head { label: label.into(), open, hidden, action },
+            note: note.into(),
+        }
+    }
     fn height(&self) -> i32 {
         match self.body {
             Body::Value { .. } => LINE,
+            // A rule above the label and a pixel of air under it, so a shut
+            // group reads as a lid rather than as another value row.
+            Body::Head { .. } => LINE + 4,
             // 22, not the strip's own 14: the strip's caption sits *under* the
             // bars, and a row measuring only the bars lets it overprint the
             // next row. Lane A's `Generations` row records the same trap.
@@ -1285,6 +1336,7 @@ impl Row {
                 hud::text_width(label) + 12 + hud::text_width(value)
             }
             Body::Spark { label, .. } => hud::text_width(label).max(96),
+            Body::Head { label, hidden, .. } => hud::text_width(label) + 12 + hud::text_width(&hidden.to_string()) + 8,
             Body::Gap => 0,
         }
     }
@@ -1528,6 +1580,13 @@ pub struct Ui {
     /// button, which is only there while the page is pointed at something
     /// alive. A `Bar` for `params_bar`'s reason.
     inspect_bar: Bar,
+    /// **Which specimen group the cell page is showing, while it is folded.**
+    /// Kept on the interface rather than per cell, so clicking from one plant
+    /// to the next leaves you looking at the same group -- which is what you
+    /// want when the reason you are clicking around is to compare them.
+    /// Index 1 (`STATE`) is the default: it is the block that moves while the
+    /// box runs, and it is what a player opened the page to watch.
+    specimen_section: usize,
 }
 
 /// Every species that can be planted, in a stable order.
@@ -1566,6 +1625,10 @@ impl Ui {
             // shovelful rather than a grain, which is what makes the first
             // stroke read as a verb.
             brush: 6,
+            // `STATE`, not `LIFE`: the group that moves while the box runs is
+            // what a player opened the page to watch, and `Default`'s own 0
+            // would land them on three rows that never change.
+            specimen_section: 1,
             ..Self::default()
         }
     }
@@ -1645,6 +1708,22 @@ impl Ui {
     /// harness hovering one of its rows is hovering a row that exists.
     pub fn inspect_rect(&self) -> Option<Rect> {
         self.inspect_box
+    }
+
+    /// Show one group of the cell page's specimen rows.
+    ///
+    /// **Not a toggle**, unlike `set_tool`: the page shows exactly one group
+    /// while it is folded, so clicking the open heading again would leave the
+    /// page with no group on it at all -- which reads as the page having
+    /// broken rather than as having been put away. Clicking the *cell* again
+    /// is how the page closes, and that has not changed.
+    pub fn show_specimen_section(&mut self, i: usize) {
+        self.specimen_section = i;
+    }
+
+    /// Which group the cell page is showing.
+    pub fn specimen_section(&self) -> usize {
+        self.specimen_section
     }
 
     pub fn toggle_panel(&mut self, panel: Panel) {
@@ -2187,14 +2266,120 @@ impl Ui {
             Row::value("ORGANISM", species, if organism.is_some() { GOOD } else { FAINT }, "THE SPECIES OF THE LIVING THING THIS CELL BELONGS TO, IF ANY. AN ANT IS TWO CELLS AND A TREE IS THOUSANDS; EITHER WAY THE CELL KNOWS WHICH ORGANISM OWNS IT."),
             Row::value("ENERGY", energy, VALUE, "THAT ORGANISM'S WHOLE-BODY ENERGY, NOT THIS CELL'S SHARE. WATCH IT WHILE THE BOX RUNS: A FORAGING ANT CLIMBS AND A STARVING ONE DOES NOT, AND A PLANT IN GOOD LIGHT BANKS CARBON FASTER THAN ITS BODY SPENDS IT."),
         ];
-        if organism.is_some() {
-            rows.push(Row::gap());
-            for (label, value, note) in params::specimen_rows(world, cell.organism_id()) {
-                rows.push(Row::value(label, value, VALUE, note));
+        let sections = params::specimen_sections(world, cell.organism_id());
+        if sections.is_empty() {
+            return rows;
+        }
+        rows.push(Row::gap());
+
+        // **Folded only when it has to be**, which is the rule the whole
+        // mechanism rests on. An ant's eight specimen rows fit beside the
+        // cell block with room to spare, so its page is exactly what it
+        // always was -- three headings and everything under them. A plant's
+        // twenty-five do not, so its page shows one group at a time. The
+        // player does not have to know which case they are in: what is on
+        // screen is the most the screen can hold.
+        //
+        // Measured 2026-09-01, and this is the defect it fixes: the plant
+        // page came to 302px on a 320px screen and `page_rect` had no clamp,
+        // so it was drawn at y = -42 and the title, AT, MATERIAL,
+        // TEMPERATURE and ORGANISM were simply off the top of the screen. It
+        // did not look truncated -- it looked like a page that started at
+        // ENERGY.
+        let head_h = Row::head("", false, 0, Action::SpecimenSection(0), "").height();
+        let mut room = page_content_budget()
+            - rows.iter().map(Row::height).sum::<i32>()
+            - sections.len() as i32 * head_h;
+        let mut open = vec![false; sections.len()];
+        // **The group you last clicked gets the room first, then the rest fill
+        // from the top with whatever still fits.** Not an accordion, which was
+        // the first build and showed strictly less: on the plant page the
+        // three-row `LIFE` block fits alongside either of the two eleven-row
+        // blocks with 14px to spare, so closing it bought nothing and cost the
+        // player the individual's identity while they were reading its
+        // numbers. Two consequences worth naming, because they are what makes
+        // this predictable rather than merely clever: a click always opens
+        // what it says (the chosen group is served before anything else, so it
+        // can never be crowded out by a group the player did not ask for), and
+        // a page whose groups all fit -- an ant's -- never folds at all, so
+        // that page is exactly what it always was.
+        let chosen = self.specimen_section.min(sections.len() - 1);
+        for i in std::iter::once(chosen).chain(0..sections.len()) {
+            let cost = sections[i].2.len() as i32 * LINE;
+            if !open[i] && cost <= room {
+                open[i] = true;
+                room -= cost;
             }
         }
-        rows
+        for (i, (label, note, section)) in sections.iter().enumerate() {
+            let open = open[i];
+            rows.push(Row::head(
+                label,
+                open,
+                if open { 0 } else { section.len() },
+                Action::SpecimenSection(i),
+                if open {
+                    (*note).to_string()
+                } else {
+                    format!("{note} CLICK TO SHOW ITS {} ROWS -- THE PAGE HOLDS ONE GROUP AT A TIME BECAUSE ALL OF THEM AT ONCE DO NOT FIT ON THE SCREEN.", section.len())
+                },
+            ));
+            if open {
+                for (label, value, note) in section {
+                    rows.push(Row::value(label, value, VALUE, note));
+                }
+            }
+        }
+        fit_rows(rows, page_content_budget())
     }
+}
+
+/// The tallest a page's rows may be before the page runs off the top.
+///
+/// Derived from the geometry rather than written down: a page is drawn
+/// upward from just above the bar, so what it may not exceed is the gap
+/// between the bar and the top margin, less its own header and padding.
+fn page_content_budget() -> i32 {
+    bar_top() - 4 - MARGIN - PAGE_HEADER - PAGE_PAD
+}
+
+/// **Guarantee the rows fit, and say so when they did not.**
+///
+/// The backstop under the fold above, and it exists because the fold is a
+/// judgement about *today's* row counts: a species with a wider genome, or one
+/// more line added to `STATE`, would overflow a single open group and the page
+/// would go back to being drawn off the top of the screen. This cannot -- it
+/// drops whatever will not fit and puts the count in its place.
+///
+/// `CLAUDE.md`'s cap rule is the reason it is written this way: a cap must
+/// bound work rather than gate whether something happens, and the test is
+/// whether exhausting it produces an *answer*. Trimming to the budget and
+/// printing `+7 MORE` produces no answer at all, which is the safe half; a
+/// silent stop at the bottom of the screen would have produced "this page has
+/// fourteen rows on it", which is not true.
+fn fit_rows(mut rows: Vec<Row>, budget: i32) -> Vec<Row> {
+    let marker = Row::value("...", "+0 MORE", FAINT, "");
+    if rows.iter().map(Row::height).sum::<i32>() <= budget {
+        return rows;
+    }
+    let room = budget - marker.height();
+    let mut used = 0;
+    let keep = rows
+        .iter()
+        .take_while(|row| {
+            used += row.height();
+            used <= room
+        })
+        .count();
+    let dropped = rows.len() - keep;
+    rows.truncate(keep);
+    rows.push(Row::value(
+        "...",
+        format!("+{dropped} MORE"),
+        FAINT,
+        "MORE ROWS THAN THE SCREEN HOLDS, SO THE REST ARE NOT DRAWN. THIS IS A BACKSTOP RATHER THAN A FEATURE -- IF YOU ARE SEEING IT, A GROUP HAS GROWN PAST WHAT ONE PAGE CAN SHOW AND WANTS SPLITTING.",
+    ));
+    rows
 }
 
 // ------------------------------------------------------------- page paint
@@ -2208,7 +2393,15 @@ fn page_rect(rows: &[Row], anchor_x: i32, bottom: i32) -> Rect {
     let w = inner + PAGE_PAD * 2;
     let h = PAGE_HEADER + content + PAGE_PAD;
     let x = anchor_x.min(W as i32 - MARGIN - w).max(MARGIN);
-    Rect { x, y: bottom - h, w, h }
+    // **Clamped at the top, and it must never be what saves the page.** A
+    // page taller than the screen used to be given a negative `y` and drawn
+    // with its title and first rows off the top edge -- measured at
+    // y = -42 on the cell page of a plant, 2026-09-01. The clamp stops that
+    // looking like a page that starts at its fifth row, but it trades one
+    // silent loss for another: it now runs off the *bottom* instead. What
+    // actually keeps the page whole is `fit_rows`, which trims to
+    // `page_content_budget` and prints the count of what it dropped.
+    Rect { x, y: (bottom - h).max(MARGIN), w, h }
 }
 
 /// Draw one page and return the note under the cursor, if any.
@@ -2223,6 +2416,7 @@ fn paint_page(
     title: &str,
     rows: &[Row],
     cursor: Option<(i32, i32)>,
+    taps: &mut Vec<Widget>,
 ) -> Option<(String, i32)> {
     fill(frame, rect, PANEL_BG);
     outline(frame, rect, PANEL_EDGE);
@@ -2256,6 +2450,35 @@ fn paint_page(
             Body::Spark { label, series, tint } => {
                 draw_spark(frame, Rect { x: left, y, w: right - left, h: 12 }, series, *tint);
                 text(frame, left, y + 14, label, FAINT);
+            }
+            Body::Head { label, open, hidden, action } => {
+                for x in rect.x + 1..rect.right() - 1 {
+                    render::put(frame, W, H, x, y + 1, DIVIDER);
+                }
+                // `-` open, `+` shut, then the count of what is behind it.
+                // The sign is on the left of the label rather than the right
+                // because that column is where the eye already is, and a row
+                // of headings has to be scannable without reading any of it.
+                let sign = if *open { "-" } else { "+" };
+                text(frame, left, y + 4, sign, if *open { VALUE } else { GOOD });
+                text(frame, left + 8, y + 4, label, if *open { VALUE } else { FAINT });
+                if !*open {
+                    text(frame, right - hud::text_width(&hidden.to_string()), y + 4, &hidden.to_string(), GOOD);
+                }
+                // An invisible hit target, exactly the row it was drawn at.
+                // Empty `line1` is the house idiom for "clickable, not
+                // painted" -- `paint_widget`'s own caller skips it, so the
+                // heading above is the only thing on screen.
+                taps.push(Widget {
+                    rect: Rect { x: rect.x + 1, y, w: rect.w - 2, h: row.height() },
+                    line1: String::new(),
+                    line2: String::new(),
+                    action: Some(*action),
+                    latched: false,
+                    icon: None,
+                    ratio: None,
+                    note: String::new(),
+                });
             }
         }
         y += row.height();
@@ -3555,7 +3778,7 @@ impl Ui {
                 .map_or(MARGIN, |wid| wid.rect.x);
             let rect = page_rect(&rows, anchor, bar_top() - 4);
             self.panel_box = Some(rect);
-            if let Some((text, y)) = paint_page(frame, rect, panel.title(), &rows, self.cursor) {
+            if let Some((text, y)) = paint_page(frame, rect, panel.title(), &rows, self.cursor, &mut Vec::new()) {
                 note = Some((text, rect, y, Note::BesidePage));
             }
         } else {
@@ -3573,7 +3796,14 @@ impl Ui {
             let anchor = self.panel_box.or(self.params_box).or(self.shelf_box).map_or(MARGIN, |r| r.right() + 6);
             let rect = page_rect(&rows, anchor, bar_top() - 4);
             self.inspect_box = Some(rect);
-            if let Some((text, y)) = paint_page(frame, rect, "CELL", &rows, self.cursor) {
+            // The group headings are hit targets, and they are collected by
+            // the paint loop rather than measured again afterwards: a second
+            // pass over the same arithmetic is how a label and the thing it
+            // clicks come to disagree about which row they are (this is
+            // `paint_page`'s own hover rule, and the reason it is stated
+            // there).
+            let mut taps: Vec<Widget> = Vec::new();
+            if let Some((text, y)) = paint_page(frame, rect, "CELL", &rows, self.cursor, &mut taps) {
                 note = Some((text, rect, y, Note::BesidePage));
             }
             // **`KEEP`, in the header, and only while there is something to
@@ -3591,10 +3821,9 @@ impl Ui {
                     note = Some((button.note.clone(), rect, rect.y, Note::BesidePage));
                 }
                 paint_widget(frame, &button, hover, down);
-                self.inspect_bar = Bar { widgets: vec![button], dividers: Vec::new() };
-            } else {
-                self.inspect_bar = Bar::default();
+                taps.push(button);
             }
+            self.inspect_bar = Bar { widgets: taps, dividers: Vec::new() };
         } else {
             self.inspect_box = None;
             self.inspect_bar = Bar::default();
@@ -4026,6 +4255,7 @@ mod tests {
                         check(value, "page value");
                     }
                     Body::Spark { label, .. } => check(label, "strip caption"),
+                    Body::Head { label, .. } => check(label, "group heading"),
                     Body::Gap => {}
                 }
                 check(&row.note, "row explanation");
@@ -4310,6 +4540,94 @@ mod tests {
                 assert!(r.y >= 0, "{panel:?} page runs off the top");
             }
         }
+    }
+
+    /// **The cell page fits on the screen, for something alive of each
+    /// kingdom** -- and the plant arm proves the fold is what makes it fit.
+    ///
+    /// This is the guard that was missing, and its absence is
+    /// `CLAUDE.md`'s *"check that a guard's inputs actually vary what it
+    /// guards"* in its purest form. `a_page_sits_above_the_bar_and_inside_
+    /// the_screen` covers `panel_rows` and only `panel_rows`; both
+    /// `inspect_rows` sweeps aim at a bare cell of an **empty** test world,
+    /// so they saw five rows where a plant has thirty. Every one of the three
+    /// was green while the plant page was being drawn at y = -42 with its
+    /// title and first four rows off the top of the screen.
+    #[test]
+    fn the_cell_page_fits_on_the_screen_for_a_plant_and_for_an_ant() {
+        for (name, kingdom) in [("tree", "plant"), ("ant", "animal")] {
+            let mut world = world();
+            let species = world.species.id_of(name).unwrap_or_else(|| panic!("{name} must be a loaded species"));
+            let id = world.push_organism(species).expect("a fresh world has organism slots free");
+            let shoot = world.species.get(species).shoot_material.clone();
+            let material = world.materials.id_of(&shoot).unwrap_or_else(|| panic!("{name}'s shoot material {shoot} must be loaded"));
+            world.set(10, 10, crate::sim::cell::Cell::new(material, 0).with_organism_id(id));
+            let ui = Ui::new();
+
+            // The positive control, and it is the whole reason the plant arm
+            // means anything: laid out flat this page has to be too tall, or
+            // a fold that did nothing would pass.
+            let sections = params::specimen_sections(&world, id);
+            assert_eq!(sections.len(), 3, "{name}: every kingdom gets the same three groups");
+            let flat = 5 * LINE + 4 + sections.len() as i32 * (LINE + 4) + sections.iter().map(|(_, _, r)| r.len() as i32 * LINE).sum::<i32>();
+            let over = flat > page_content_budget();
+            assert_eq!(over, kingdom == "plant", "{name}: flat page is {flat}px against a {}px budget -- the fold is being tested against the wrong kingdom", page_content_budget());
+
+            let rows = ui.inspect_rows(&world, (10, 10));
+            for anchor in [0, 200, W as i32 - 10] {
+                let r = page_rect(&rows, anchor, bar_top() - 4);
+                assert!(r.y >= MARGIN, "the {kingdom} cell page starts at y={} -- off the top of the screen", r.y);
+                assert!(r.bottom() <= bar_top(), "the {kingdom} cell page runs into the bar");
+                assert!(r.x >= 0 && r.right() <= W as i32, "the {kingdom} cell page runs off the side");
+            }
+
+            // **The fold is what fits it, not the backstop.** `fit_rows` will
+            // trim anything to size, so a page that fits only because rows
+            // were dropped is a page that has quietly stopped saying things.
+            assert!(
+                !rows.iter().any(|row| matches!(&row.body, Body::Value { value, .. } if value.ends_with("MORE"))),
+                "the {kingdom} cell page fits only because rows were dropped"
+            );
+            let shut = rows.iter().filter(|row| matches!(row.body, Body::Head { open: false, .. })).count();
+            assert_eq!(shut, if kingdom == "plant" { 1 } else { 0 }, "{name}: wrong number of groups folded away");
+
+            // **A click opens what it says, whichever group it is.** The half
+            // the fit assertions cannot reach: a rule that served the groups
+            // strictly from the top would fit the page perfectly and ignore
+            // the player, and every assertion above would still be green.
+            for chosen in 0..3 {
+                let mut ui = Ui::new();
+                ui.show_specimen_section(chosen);
+                let heads: Vec<bool> = ui
+                    .inspect_rows(&world, (10, 10))
+                    .iter()
+                    .filter_map(|row| match row.body {
+                        Body::Head { open, .. } => Some(open),
+                        _ => None,
+                    })
+                    .collect();
+                assert_eq!(heads.len(), 3, "{name}: the page lost a group heading");
+                assert!(heads[chosen], "{name}: clicking group {chosen} did not open it");
+            }
+        }
+    }
+
+    /// **`fit_rows` drops rather than overflows, and says how much it
+    /// dropped.** The backstop the guard above insists must stay unused, put
+    /// under load on its own so that "unused" is a measurement rather than an
+    /// assumption about a code path nobody has run.
+    #[test]
+    fn a_page_with_more_rows_than_the_screen_holds_is_trimmed_and_says_so() {
+        let rows: Vec<Row> = (0..200).map(|i| Row::value(format!("ROW {i}"), "1", VALUE, "N")).collect();
+        let budget = page_content_budget();
+        let fitted = fit_rows(rows, budget);
+        assert!(fitted.iter().map(Row::height).sum::<i32>() <= budget, "fit_rows returned rows taller than the budget it was given");
+        let Some(Body::Value { label, value, .. }) = fitted.last().map(|r| &r.body) else {
+            panic!("the trimmed page has no marker row")
+        };
+        assert_eq!(label, "...");
+        let dropped: usize = value.trim_start_matches('+').trim_end_matches(" MORE").parse().expect("the marker names a count");
+        assert_eq!(fitted.len() - 1 + dropped, 200, "the marker's count does not account for every row that went");
     }
 
     /// The population series is sampled on simulated frames, never on drawn

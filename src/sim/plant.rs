@@ -270,17 +270,38 @@ fn displace_soil_water(world: &mut World, x: i32, y: i32) {
         world.set(nx, ny, n.with_aux(held + moved));
         carried -= moved;
     }
-    // **Write the remainder back rather than trusting the caller to
-    // overwrite this cell.** Every production caller does overwrite it a
-    // line later, so this is invisible there -- but leaving the source at
-    // its original reading makes the function *create* water when called on
-    // its own, which is exactly what its conservation test caught. A
-    // function that only conserves when its caller happens to clean up
-    // after it is a trap for the next caller.
-    if carried != update::soil_moisture(cell) {
-        let now = world.get(x, y);
-        world.set(x, y, now.with_aux(carried));
+    // **Whatever would not fit goes to the air, because the caller is about
+    // to overwrite this cell and anything left in it is destroyed.**
+    //
+    // The neighbour loop above is bounded by each neighbour's *remaining*
+    // capacity, so it only conserves while there is somewhere to put the
+    // water. In a thickening root system there increasingly is not: a root
+    // grows among other roots, and a plant cell has a `water_capacity` of
+    // zero, so `moved` is zero at every neighbour and the whole reading is
+    // left in a cell that ceases to exist a line later.
+    //
+    // **Measured, 2026-09-01**, on the lab bed with a full water ledger
+    // (soil + standing liquid + `atmospheric_bank` against the starting
+    // total): the loss per root cell *climbs* with root density -- 349 fill
+    // at frame 50,000, 435 at 100,000, **626** at 150,000 -- which is the
+    // signature of exactly this, roots growing among roots with nowhere to
+    // hand their water on to.
+    //
+    // Booked to the atmosphere rather than kept, because that is where
+    // squeezed-out soil water actually goes, and it is the same ledger
+    // `evaporation::tick` and root uptake both credit. Outdoors the sky
+    // spends it as rain; indoors `weather::condense_under_a_lid` gives it
+    // back. Either way it stops being destroyed.
+    if carried > 0 {
+        world.credit_atmosphere(carried);
     }
+    // Zeroed rather than left holding `carried`: every production caller
+    // overwrites this cell immediately, and a standalone caller must not
+    // find water here that has already been booked somewhere else -- that
+    // would mint it. The original version wrote the remainder back, which
+    // conserved only because nothing ever read it again.
+    let now = world.get(x, y);
+    world.set(x, y, now.with_aux(0));
 }
 
 /// Local foliage proximity at a growth candidate — **any organism's, not
@@ -1384,7 +1405,38 @@ fn banded_shade(world: &World, organism_id: u16, material: material::MaterialId,
 ///
 /// **Untuned against an outcome**, and it should be swept once a breeding
 /// population runs long enough to measure allele spread per generation.
-const MUTATION_SIGMA: f32 = 0.08;
+pub(crate) const MUTATION_SIGMA: f32 = 0.08;
+
+/// The env seed for [`World::fate_mutation_chance`], read once per process.
+///
+/// **An env override rather than an asset field, deliberately** — the reason
+/// this pair's first design got wrong. `CLAUDE.md`'s `include_str!` gotcha is
+/// that editing a `.ron` and re-running a prebuilt example produces
+/// bit-identical "runs" — three of them, once, before anyone noticed the knob
+/// was not connected — and a sweep over a mutation rate is exactly that shape.
+/// So the *file* half stays an env read; the *runtime* half is a field on the
+/// world, which the parameters page writes and no asset can make stale.
+///
+/// Out-of-range values fall back to the constant rather than clamping
+/// silently: a typo that produced a rate of 100 should not read as a
+/// successful sweep point.
+pub fn fate_mutation_chance_seed() -> f32 {
+    static SEED: std::sync::OnceLock<f32> = std::sync::OnceLock::new();
+    *SEED.get_or_init(|| {
+        std::env::var("PIXEL_PHYSICS_FATE_MUTATION_CHANCE")
+            .ok()
+            .and_then(|v| v.parse::<f32>().ok())
+            .filter(|c| settable_rate(*c))
+            .unwrap_or(FATE_MUTATION_CHANCE)
+    })
+}
+
+/// Whether a width or rate may be stored — the shared predicate behind both
+/// heredity rows on the parameters page, so the contract can be checked
+/// without writing to a world.
+pub(crate) fn settable_rate(v: f32) -> bool {
+    (0.0..=1.0).contains(&v)
+}
 
 /// **One generation's drift on one continuous genotype slot.**
 ///
@@ -1400,8 +1452,20 @@ const MUTATION_SIGMA: f32 = 0.08;
 /// **Exactly one draw, always**, whatever it returns: the caller's stream
 /// position on return is a measured property with a guard over it
 /// (`set_seed_leaves_the_callers_rng_position_alone`).
-pub(crate) fn genotype_jitter(rng: &mut Rng) -> f32 {
-    (rng.below(2_000) as f32 / 1_000.0 - 1.0) * MUTATION_SIGMA
+/// **The width is an argument, not an ambient read, and that is a bug this
+/// pair already caused.** The first design made it a process global in this
+/// module. The parameters panel's own positive control
+/// (`params::tests::every_writable_parameter_actually_moves`) writes every
+/// registered row; tests run in parallel; and
+/// `widening_the_genome_does_not_move_the_breeding_draw_sequence` hashes a
+/// bred genome — so writing the row changed a sibling test's result from
+/// another thread, and CI went red on a hash nothing in its own diff could
+/// explain. Pinning the width to 0.5 reproduces that failure exactly, which
+/// is how it was confirmed rather than guessed. **A tunable that is
+/// process-global is a hidden argument to every reader of it.** It lives on
+/// `World` now, beside `plant_load_failure`, and arrives here explicitly.
+pub(crate) fn genotype_jitter(rng: &mut Rng, sigma: f32) -> f32 {
+    (rng.below(2_000) as f32 / 1_000.0 - 1.0) * sigma
 }
 
 /// **A ripe fruit lets go.**
@@ -1531,31 +1595,6 @@ const FATE_MUTATION_STREAM: u64 = 201;
 /// took a population census to tell them apart.
 pub const FATE_MUTATION_CHANCE: f32 = 0.30;
 
-/// **The rate actually in effect**, which is `FATE_MUTATION_CHANCE` unless
-/// `PIXEL_PHYSICS_FATE_MUTATION_CHANCE` overrides it.
-///
-/// An env override rather than an asset field, deliberately. `CLAUDE.md`'s
-/// `include_str!` gotcha is that editing a `.ron` and re-running a prebuilt
-/// example produces bit-identical "runs" — three of them, once, before
-/// anyone noticed the knob was not connected. A sweep over this rate is
-/// exactly the shape that walks into that, and an env read cannot go stale
-/// against a binary.
-///
-/// Read once per process: the growth path calls this per birth, and the rate
-/// cannot change mid-run anyway. Out-of-range values fall back to the
-/// constant rather than clamping silently — a typo that produced a rate of
-/// 100 should not read as a successful sweep point.
-pub fn fate_mutation_chance() -> f32 {
-    static CHANCE: std::sync::OnceLock<f32> = std::sync::OnceLock::new();
-    *CHANCE.get_or_init(|| {
-        std::env::var("PIXEL_PHYSICS_FATE_MUTATION_CHANCE")
-            .ok()
-            .and_then(|v| v.parse::<f32>().ok())
-            .filter(|c| (0.0..=1.0).contains(c))
-            .unwrap_or(FATE_MUTATION_CHANCE)
-    })
-}
-
 /// The fallback depth in effect, for a harness that must echo its own
 /// parameters — `CLAUDE.md`: "a knob nobody can see the value of is a knob
 /// nobody can tell is disconnected".
@@ -1644,6 +1683,10 @@ fn bear_seed_at(world: &mut World, sx: i32, sy: i32, parent_id: u16, seed_cost: 
     };
     // Read before the `organism_mut` borrow below, which holds `world`.
     let world_seed = world.seed;
+    // Read beside `world_seed` and for the same reason: both are wanted after
+    // `organism_mut` takes `world` mutably below.
+    let sigma = world.mutation_sigma;
+    let fate_chance = world.fate_mutation_chance;
     let (foliage_first, foliage_count, bark_bands, flower_bands, fruit_bands) = {
         let sp = world.species.get(species);
         (sp.foliage_bands.first, sp.foliage_bands.count, sp.bark_bands, sp.flower_bands, sp.fruit_bands)
@@ -1692,7 +1735,7 @@ fn bear_seed_at(world: &mut World, sx: i32, sy: i32, parent_id: u16, seed_cost: 
         // one substream per slot — would have given every *existing* slot
         // a different jitter and broken the thing this protects.
         for (dst, src) in state.genotype_draws.iter_mut().zip(draws.iter()).take(SEQUENCED_TRAITS) {
-            *dst = (*src + genotype_jitter(rng)).clamp(-1.0, 1.0);
+            *dst = (*src + genotype_jitter(rng, sigma)).clamp(-1.0, 1.0);
         }
         // **The discrete genes: inherited whole, mutated by jumping.** A
         // locus that drifted would be a continuous axis wearing an integer
@@ -1760,7 +1803,7 @@ fn bear_seed_at(world: &mut World, sx: i32, sy: i32, parent_id: u16, seed_cost: 
         // the stand guard caught it, which is what it is for.
         for (slot, (dst, src)) in state.genotype_draws.iter_mut().zip(draws.iter()).enumerate().skip(SEQUENCED_TRAITS) {
             let mut jrng = rng::stream(world_seed ^ APPENDED_JITTER_SALT, sx as u64, sy as u64, (generation as u64) << 8 | slot as u64);
-            *dst = (*src + genotype_jitter(&mut jrng)).clamp(-1.0, 1.0);
+            *dst = (*src + genotype_jitter(&mut jrng, sigma)).clamp(-1.0, 1.0);
         }
         // Both colours derive from the (possibly just-mutated) alleles.
         // Foliage has worked this way since the discrete-loci change;
@@ -1797,7 +1840,7 @@ fn bear_seed_at(world: &mut World, sx: i32, sy: i32, parent_id: u16, seed_cost: 
         let mut fate_rng =
             rng::stream(world_seed ^ APPENDED_JITTER_SALT, sx as u64, sy as u64, (generation as u64) << 8 | FATE_MUTATION_STREAM);
         fate_rolled = true;
-        if fate_rng.chance(fate_mutation_chance()) {
+        if fate_rng.chance(fate_chance) {
             fate_fired = true;
             // `mutate` returns `None` only for an empty genome, which cannot
             // happen here — `push_organism` seeds every organism from its
@@ -12307,6 +12350,67 @@ The night factor belongs on income only -- see NIGHT_INCOME_FLOOR"
     }
 
     #[test]
+    fn the_mutation_width_scales_the_gene_and_never_the_draw_count() {
+        // **The claim with teeth is the draw count, not the width.**
+        // `set_seed_leaves_the_callers_rng_position_alone` asserts the
+        // caller's stream position, and `CLAUDE.md` records a genome widening
+        // that shifted one draw out of a shared `Rng` and silently flattened
+        // every lineage in the world while both guards over it stayed green.
+        // A width of 0 is exactly where a "why draw at all" shortcut is
+        // tempting, so that is the asserted case.
+        //
+        // Position is read the way that guard reads it -- the next value off
+        // the stream -- because `Rng` exposes no cursor.
+        let run = |sigma: f32| -> (f32, u32) {
+            let mut rng = rng::stream(1, 2, 3, 4);
+            let j = genotype_jitter(&mut rng, sigma);
+            (j, rng.below(1_000_000))
+        };
+
+        let (j_default, after_default) = run(MUTATION_SIGMA);
+        let (j_wide, after_wide) = run(0.5);
+        let (j_zero, after_zero) = run(0.0);
+
+        assert_eq!(after_default, after_wide, "a wider width left the stream somewhere else");
+        assert_eq!(after_default, after_zero, "a zero width skipped its draw, shifting every draw after it");
+        assert_eq!(j_zero, 0.0, "a zero width still moved the gene");
+        assert!(j_wide.abs() > j_default.abs(), "a wider width did not drift further: {j_wide} vs {j_default}");
+    }
+
+    /// **A fresh world carries the shipped dials**, so nothing in this change
+    /// moves a bed nobody has touched the panel in.
+    ///
+    /// It also pins the property the first design got wrong: the dials are
+    /// **per world**, so one bed's setting cannot reach another's. That is
+    /// what makes the parameters panel's own positive control -- which writes
+    /// every registered row -- safe to run beside a test that breeds plants.
+    #[test]
+    fn the_heredity_dials_are_per_world_and_ship_at_their_constants() {
+        let a = World::new(Rect::new(0, 0, 32, 32));
+        let mut b = World::new(Rect::new(0, 0, 32, 32));
+        assert_eq!(a.mutation_sigma, MUTATION_SIGMA, "a fresh world does not carry the shipped width");
+        assert_eq!(b.fate_mutation_chance, fate_mutation_chance_seed(), "a fresh world does not carry the shipped fate rate");
+
+        b.mutation_sigma = 0.5;
+        b.fate_mutation_chance = 0.9;
+        assert_eq!(a.mutation_sigma, MUTATION_SIGMA, "setting one world's width moved another's");
+        assert_eq!(a.fate_mutation_chance, fate_mutation_chance_seed(), "setting one world's fate rate moved another's");
+    }
+
+    /// Out-of-range widths are refused rather than clamped, so a typo cannot
+    /// read as a successful sweep point -- `fate_mutation_chance_seed`'s rule,
+    /// shared with the panel's write arm.
+    #[test]
+    fn an_out_of_range_mutation_rate_is_refused_rather_than_clamped() {
+        assert!(settable_rate(0.0), "zero is a legitimate width -- it is the clonal control arm");
+        assert!(settable_rate(MUTATION_SIGMA));
+        assert!(settable_rate(1.0));
+        assert!(!settable_rate(100.0), "an absurd width would be accepted");
+        assert!(!settable_rate(-1.0), "a negative width would be accepted");
+        assert!(!settable_rate(f32::NAN), "NaN would be accepted");
+    }
+
+    #[test]
     fn set_seed_leaves_the_callers_rng_position_alone() {
         let mut w = test_world();
         w.seed = 4242;
@@ -13768,6 +13872,57 @@ where the soil arm's exchange makes that {expected:.0} (before the fix: 1,000 of
         assert!(
             moved_out < material::SOIL_FIELD_CAPACITY as u32,
             "the cell about to be overwritten should have handed its water on, still holds {moved_out}"
+        );
+    }
+
+    /// The sibling of the test above, for the case it cannot see.
+    ///
+    /// **That one only ever builds neighbours with room**, so `carried`
+    /// always reaches zero and the "or destroying it" half of its name is
+    /// never exercised. It passed throughout the leak it is named for.
+    /// This one walls the cell in with material that holds no water at all
+    /// -- which is what a root surrounded by other roots actually is -- so
+    /// there is nowhere to hand the water to, and the only way to conserve
+    /// is to book it.
+    ///
+    /// Conservation is measured over **soil plus the atmospheric bank**,
+    /// because that is the ledger the water now moves within; a soil-only
+    /// assertion would call a correct hand-off to the sky a leak.
+    #[test]
+    fn water_a_root_displaces_with_nowhere_to_put_it_is_banked_not_destroyed() {
+        let mut w = test_world();
+        let soil = w.materials.id_of("soil").expect("soil is a compiled-in material");
+        let stone = material::STONE;
+
+        // The cell about to be grown into, full of water, walled in by
+        // something with no `water_capacity` on all eight sides.
+        for x in 49..=51 {
+            for y in 49..=51 {
+                w.set(x, y, Cell::new(stone, 0));
+            }
+        }
+        w.set(50, 50, Cell::new(soil, 0).with_aux(material::SOIL_FIELD_CAPACITY));
+
+        let soil_before = material::SOIL_FIELD_CAPACITY as f64;
+        let bank_before = w.atmospheric_bank;
+
+        displace_soil_water(&mut w, 50, 50);
+
+        let soil_after: f64 = (49..=51)
+            .flat_map(|x| (49..=51).map(move |y| (x, y)))
+            .map(|(x, y)| update::soil_moisture(w.get(x, y)) as f64)
+            .sum();
+        let banked = (w.atmospheric_bank - bank_before) * material::LIQUID_FULL as f64;
+
+        assert_eq!(
+            soil_after, 0.0,
+            "the doomed cell must not still be holding water the caller is about to overwrite"
+        );
+        assert!(
+            (banked - soil_before).abs() < 1.0,
+            "walled in, all {soil_before} of it should have gone to the bank, but {banked} did -- \
+             this is the leak: with no neighbour able to take it, the water was left in a cell \
+             that the caller overwrites and so ceased to exist"
         );
     }
 

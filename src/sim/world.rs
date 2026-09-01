@@ -1510,23 +1510,41 @@ pub struct World {
     /// `plant::StemMode`. `K` cycles it; `Off` is the default and is the
     /// behaviour that predates the mechanism.
     pub stem_mode: crate::sim::plant::StemMode,
-    /// **Whether a plant may come apart because of the load it is carrying.**
-    /// `true` is the shipped behaviour; `false` makes living tissue
-    /// mechanically indestructible *by its own weight and by what is piled on
-    /// it*, and changes nothing else.
+    /// **Whether a living plant may be pulled apart by mechanics.** `true` is
+    /// the shipped behaviour; `false` makes *living* tissue mechanically
+    /// indestructible, and changes nothing about anything else in the world.
     ///
-    /// Two rules read it, and they are the two ways a plant fails under load:
+    /// Three rules read it. Two are the ways a plant fails under load:
     /// `plant::break_under_load` (stress past the material's `strength` — a
     /// stem snapping) and `structural::organism_structural_tick`'s `over_span`
-    /// branch (a limb reaching further than it can hold). Both are switched
-    /// together because a player cannot tell them apart on screen: what they
-    /// see either way is a tree coming down under its own weight.
+    /// branch (a limb reaching further than it can hold). The third is that
+    /// function's `detached` branch — a plant whose support distance has gone
+    /// to `u16::MAX`, i.e. that no longer reaches the ground at all.
     ///
-    /// **Detachment is deliberately *not* switched with them.** A cell whose
-    /// support distance is `u16::MAX` is not overloaded, it is no longer
-    /// attached to anything that reaches the ground — a cut branch, or a crown
-    /// whose trunk has gone — and that must still fall however this is set, or
-    /// felling and culling would leave crowns hanging in the air.
+    /// **The third one was added after the switch failed in the owner's
+    /// hands**, and the reason is worth keeping because it reads as a
+    /// scope error the other way round. This doc used to argue that
+    /// detachment must be exempt or "felling and culling would leave crowns
+    /// hanging in the air" — sound, and it made the control useless.
+    /// Measured on the lab bed 2026-09-01: `snapped under load` reads a flat
+    /// **0** there, so with only the two load rules covered the switch had
+    /// nothing to turn off, while **419 living cells over 20,000 frames**
+    /// came down through the detached branch. Owner, from play: *"I turned
+    /// COLLAPSE UNDER LOAD off, but trees are still falling over."*
+    ///
+    /// **What keeps felling working is the liveness test, not the exemption.**
+    /// Only a plant that is still alive is held; a **senescent** one comes
+    /// apart exactly as before, so culling, rot and the gnome's axe are
+    /// untouched — and those are every way a plant is *meant* to come down.
+    /// The default is `true`, so the outdoor game and
+    /// `scripts/acceptance.sh`'s `fell` case see none of this.
+    ///
+    /// **It is a control, not a repair.** What it masks in the lab is a real
+    /// defect: a living plant that loses its anchorage marks every cell
+    /// `u16::MAX` and schedules its own destruction, measured as pieces of up
+    /// to 75 cells, every one of them the whole organism at `anchors 0` and
+    /// half of them with no root tissue left at all. See
+    /// `Reports/open-bugs-handoff.md` §W.
     ///
     /// It is a field on the world rather than an `env::var` because the owner
     /// asked for it as a control they can reach while the box is running, and
@@ -1535,6 +1553,31 @@ pub struct World {
     /// setting. The lab's parameters panel writes this one; see
     /// `lab::params::Knob::Rule`.
     pub plant_load_failure: bool,
+    /// **How far one of a plant's ten continuous genes may drift in a
+    /// generation** — the mutagen dial, read by `plant::genotype_jitter`.
+    ///
+    /// **A field on the world for `plant_load_failure`'s reason and for one
+    /// more that cost a red CI run.** The owner asked for the mutation rates
+    /// as controls reachable while the box runs, which rules out the
+    /// `OnceLock` the fate rate used. The first attempt made both **process
+    /// globals** in `plant.rs`, and that is wrong here in a way that is worth
+    /// writing down: the panel's own positive control
+    /// (`params::tests::every_writable_parameter_actually_moves`) writes every
+    /// registered row, tests run in parallel, and
+    /// `plant::tests::widening_the_genome_does_not_move_the_breeding_draw_
+    /// sequence` hashes a bred genome — so writing the row changed a sibling
+    /// test's result from another thread. **A tunable that is process-global
+    /// is a hidden argument to every test that reads it.** Per-world, each
+    /// test's bed carries its own and nothing leaks.
+    pub mutation_sigma: f32,
+    /// **The chance a seed is born with one of its parent's fate rules
+    /// changed** — the coarser of the two heredity dials. See
+    /// [`Self::mutation_sigma`] for why it is a field rather than a global.
+    ///
+    /// Seeded from `PIXEL_PHYSICS_FATE_MUTATION_CHANCE` when the world is
+    /// built, so the existing harness override still works and still cannot
+    /// go stale against a prebuilt binary the way a `.ron` field would.
+    pub fate_mutation_chance: f32,
     /// How long a disturbance keeps licensing failures near it, in frames.
     /// Generous by default: a cave-in that arrives a few seconds after you
     /// undermine something is the mechanic, not a bug.
@@ -1975,6 +2018,18 @@ pub struct FailureCounts {
     /// broken. Both are recorded; only this one answers "how much of the
     /// *tree* survived as something you can see move".
     pub severed_organism_pieces: u32,
+    /// Of `severed_organism_cells`, how many belonged to a plant that was
+    /// still **alive** when it came down.
+    ///
+    /// **The split a pooled count cannot make, and the two halves are
+    /// opposite findings.** A senescent plant coming apart as it rots is the
+    /// graded death the design asks for; a living one losing its crown is a
+    /// tree falling over, which is what a player reports. Added 2026-09-01
+    /// after the owner turned the lab's collapse switch off and still saw
+    /// trees fall: the switch governs the two *load* rules, both of which
+    /// read **zero** in that bed, and everything happening was this counter's
+    /// other half.
+    pub severed_living_cells: u32,
     /// Cells of a settling `ChunkBody` that found **nowhere to go** and were
     /// dropped -- neither written back into the grid nor displaced.
     ///
@@ -2262,6 +2317,8 @@ impl World {
             // On, because it is the shipped behaviour and a default that
             // silently disables a mechanism is a mechanism nobody measures.
             plant_load_failure: true,
+            mutation_sigma: super::plant::MUTATION_SIGMA,
+            fate_mutation_chance: super::plant::fate_mutation_chance_seed(),
             chain_window: crate::sim::structural::CHAIN_WINDOW_FRAMES,
             disturbances: std::collections::VecDeque::new(),
             staged_fractures: std::collections::VecDeque::new(),

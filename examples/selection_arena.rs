@@ -872,7 +872,7 @@ fn main() {
     );
     println!(
         "selection_arena: fate_mutation_chance={} fate_lookup={:?}",
-        plant::fate_mutation_chance(),
+        plant::fate_mutation_chance_seed(),
         plant::fate_lookup_mode()
     );
 

@@ -119,6 +119,7 @@ GAME = {
     # reaches it*, and only the lab has the tools. Re-tag `engine` the day the
     # outdoor game grows a way to keep an individual.
     "keeping, cloning and mutating an individual": "lab",
+    "reading one specimen off the screen": "lab",
 }
 
 TOPICS = {
@@ -134,6 +135,7 @@ TOPICS = {
         "Bending status — soft tissue lies over, and the wind is what pushes it",
         "Breaking status — a badly grown tree comes down on its own",
         "Specimen shelf status — an individual's genetics outlive the box",
+        "Cell page status — the specimen readout is in three groups, and folds",
     ],
     "creatures — worms and the ant colony": [
         "M18 status",
@@ -208,6 +210,14 @@ TOPICS = {
     # on the GAME map above pointed at nothing.
     "the evolution lab — the box and its lights": [
         "Lab lighting status — the fixtures are what light the crop",
+    ],
+    # The lab's readouts, as distinct from its physics: what the interface
+    # tells you about one individual, and how it fits that on a 512x320
+    # screen. Listed under plants too, since the page that overflowed is the
+    # plant one and an agent sent to the plant line has no reason to look
+    # here for it.
+    "reading one specimen off the screen": [
+        "Cell page status — the specimen readout is in three groups, and folds",
     ],
     # The second lab row, and the first that is about what the *player* does
     # in the box rather than about the box. Also listed under creatures and

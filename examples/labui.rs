@@ -682,6 +682,25 @@ fn main() {
             lab.set_cursor(Some((r.x + 20, r.y + 60)));
         }
         tiles.push((format!("SPECIMEN: {what}"), shot(&mut lab)));
+
+        // **Open the genome group by clicking its heading**, which is the
+        // whole click path -- the heading is drawn by `paint_page`, collected
+        // into `inspect_bar` in the same loop, hit-tested by `Ui::hit` and
+        // handled in `Lab::act`. A page can look right and have a dead
+        // heading, and the tile above cannot tell the two apart.
+        let group = pixel_physics::lab::ui::Action::SpecimenSection(2);
+        match lab.ui.widget_rect(group) {
+            Some(r) => {
+                click(&mut lab, (r.x + 20, r.y + 4));
+                fired.push(format!(
+                    "SPECIMEN {what}: clicking GENOME left the page showing group {}",
+                    lab.ui.specimen_section()
+                ));
+                lab.set_cursor(None);
+                tiles.push((format!("SPECIMEN: {what} GENOME"), shot(&mut lab)));
+            }
+            None => fired.push(format!("SPECIMEN {what}: no GENOME heading to click")),
+        }
     }
 
     // 9. A click that lands on the bar must not also inspect the cell behind

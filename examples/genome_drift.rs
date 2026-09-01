@@ -174,7 +174,7 @@ fn main() {
     println!(
         "genome_drift: fate_lookup={:?} fate_mutation_chance={} (defaults: GenomeOnly, {})",
         plant::fate_lookup_mode(),
-        plant::fate_mutation_chance(),
+        plant::fate_mutation_chance_seed(),
         plant::FATE_MUTATION_CHANCE
     );
 
@@ -584,7 +584,7 @@ fn main() {
     println!(
         "  ...where the draw fired        {fired}  ({:.3}% of births, nominal {:.3}%)",
         pcu(fired, rolls),
-        100.0 * plant::fate_mutation_chance()
+        100.0 * plant::fate_mutation_chance_seed()
     );
     println!(
         "  ...that changed the genome     {applied}  ({:.1}% of draws applied, rest declined)",
@@ -602,7 +602,7 @@ fn main() {
     );
     // The model the 2.6x was measured against, recomputed here from this
     // run's own numbers so the two never drift apart in a report.
-    let predicted = 1.0 - (1.0 - plant::fate_mutation_chance()).powf(last.gen_mean);
+    let predicted = 1.0 - (1.0 - plant::fate_mutation_chance_seed()).powf(last.gen_mean);
     println!(
         "  per-birth model at mean generation {:.2}: {:.2}% of the population, against {:.2}% observed",
         last.gen_mean,

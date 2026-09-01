@@ -395,6 +395,9 @@ impl Handler {
             // actions the `KEEP` and `PLACE` buttons fire, which is the point
             // of routing every control through `Lab::act`.
             KeyCode::KeyM => self.lab.act(Action::KeepInspected),
+            // **Food is a brush with no button** — the bar measured 0 spare
+            // pixels on both rows, so it takes a key the way the wall does.
+            KeyCode::KeyE => self.lab.act(Action::Tool(Tool::Food)),
             KeyCode::Comma => self.lab.act(Action::ShelfPlace),
             KeyCode::Period => self.lab.act(Action::NextSpecies),
             // **`K`, not the next key along the bottom row.** The positional
