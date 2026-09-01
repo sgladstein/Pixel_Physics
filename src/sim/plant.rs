@@ -5234,7 +5234,14 @@ fn break_enabled() -> bool {
 /// grass bends and never breaks, and why these are one mechanism read
 /// through two constants rather than two mechanisms.
 fn break_under_load(world: &mut World, organism_id: u16, field: &std::collections::HashMap<(i32, i32), CellStress>) {
-    if !break_enabled() {
+    // **Two switches, and they are not the same kind of thing.**
+    // `break_enabled` is `BREAK=off`, the process-wide ablation this rule was
+    // measured against and which must stay for that. `plant_load_failure` is
+    // the player's, live on the world, and it also turns off
+    // `structural::organism_structural_tick`'s span rule -- the other half of
+    // "a plant comes down under its own weight", which this one alone would
+    // leave standing.
+    if !break_enabled() || !world.plant_load_failure {
         return;
     }
     // **`strength` is taken flat off the material, with no wood-density
@@ -9008,6 +9015,34 @@ mod tests {
             weak.organism(weak_id).expect("state").cells.len() < before,
             "the same plant with a strength must break -- otherwise the null above proves nothing"
         );
+    }
+
+    /// **The player's switch holds the same tissue together**, and the arm
+    /// above is its positive control: `tissue_with_no_strength_never_snaps_
+    /// and_tissue_with_one_does` establishes that this exact scene at
+    /// `strength = 1.0` really does come apart, so a null here is the switch
+    /// and not a scene that was never going to break.
+    ///
+    /// Owner request: *"create an option for me to turn off plant/tree
+    /// collapse due to mechanics/bending stress."*
+    #[test]
+    fn the_load_failure_switch_holds_a_plant_that_would_otherwise_snap() {
+        let mut cells: Vec<((i32, i32), u8)> = (90..100).map(|y| ((50, y), 0u8)).collect();
+        cells.extend((51..70).map(|x| ((x, 90), 1u8)));
+
+        let broke = |on: bool| {
+            let (mut world, id) = stem_world_of(&cells, "rootwood");
+            let root = world.materials.id_of("rootwood").expect("rootwood");
+            world.materials.get_mut(root).strength = 1.0;
+            world.plant_load_failure = on;
+            let before = world.organism(id).expect("state").cells.len();
+            anchor_support(&mut world, id);
+            let f = stress_field(&world, id);
+            break_under_load(&mut world, id, &f);
+            before - world.organism(id).expect("state").cells.len()
+        };
+        assert!(broke(true) > 0, "test setup: this scene must break with the rule on");
+        assert_eq!(broke(false), 0, "the switch is off and the plant still came apart");
     }
 
     /// A bend must never tear the plant in half. Every cell still has to

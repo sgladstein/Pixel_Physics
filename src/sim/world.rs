@@ -233,6 +233,28 @@ pub struct CreatureStats {
     /// every dig firing exactly as before and every wall unlined. `digs`
     /// cannot see that; this reads 0 the moment it happens.
     pub packed: u64,
+    /// **Pellets of spoil actually put back in the world** — the far side of
+    /// `digs` on the conservation question, the way `packed` is on the
+    /// lining question.
+    ///
+    /// Digging takes exactly one cell into the mandibles and this counts the
+    /// ones that came out again, so `digs - spoil_dumped` is what is in
+    /// flight: a small number that rises and falls with how many animals are
+    /// hauling, and never a trend. A drift upward is the failure this pair
+    /// exists to make visible — matter that entered an animal and did not
+    /// leave it — and neither counter alone can see it.
+    pub spoil_dumped: u64,
+    /// **Pellets that died with their carrier and had nowhere to land** —
+    /// cells that genuinely left the world, and the only way one still can
+    /// through this path.
+    ///
+    /// It reads 0 in an open bed and single figures in a crowded one (4 of
+    /// 1,125 digs on a scene that bred a colony into a sealed pocket, where
+    /// the corpse fills every cell around the body). Named rather than
+    /// swallowed because a material sink nobody could see is what this whole
+    /// mechanism was built to remove, and one that is small today is one
+    /// nobody would notice growing.
+    pub spoil_lost: u64,
     pub drops: u64,
     /// Drops that happened at the nest — food actually delivered home.
     /// **The number that proves the loop rather than its parts.**
@@ -1488,6 +1510,31 @@ pub struct World {
     /// `plant::StemMode`. `K` cycles it; `Off` is the default and is the
     /// behaviour that predates the mechanism.
     pub stem_mode: crate::sim::plant::StemMode,
+    /// **Whether a plant may come apart because of the load it is carrying.**
+    /// `true` is the shipped behaviour; `false` makes living tissue
+    /// mechanically indestructible *by its own weight and by what is piled on
+    /// it*, and changes nothing else.
+    ///
+    /// Two rules read it, and they are the two ways a plant fails under load:
+    /// `plant::break_under_load` (stress past the material's `strength` — a
+    /// stem snapping) and `structural::organism_structural_tick`'s `over_span`
+    /// branch (a limb reaching further than it can hold). Both are switched
+    /// together because a player cannot tell them apart on screen: what they
+    /// see either way is a tree coming down under its own weight.
+    ///
+    /// **Detachment is deliberately *not* switched with them.** A cell whose
+    /// support distance is `u16::MAX` is not overloaded, it is no longer
+    /// attached to anything that reaches the ground — a cut branch, or a crown
+    /// whose trunk has gone — and that must still fall however this is set, or
+    /// felling and culling would leave crowns hanging in the air.
+    ///
+    /// It is a field on the world rather than an `env::var` because the owner
+    /// asked for it as a control they can reach while the box is running, and
+    /// because the two existing ablations (`BEND=off`, `BREAK=off`) are
+    /// `OnceLock`s read once per process — a measurement instrument, not a
+    /// setting. The lab's parameters panel writes this one; see
+    /// `lab::params::Knob::Rule`.
+    pub plant_load_failure: bool,
     /// How long a disturbance keeps licensing failures near it, in frames.
     /// Generous by default: a cave-in that arrives a few seconds after you
     /// undermine something is the mechanic, not a bug.
@@ -2212,6 +2259,9 @@ impl World {
             // this is `i32::MAX` -- the literal it replaced.
             chain_reach: crate::sim::structural::CHAIN_MODES[0].reach,
             stem_mode: crate::sim::plant::StemMode::default(),
+            // On, because it is the shipped behaviour and a default that
+            // silently disables a mechanism is a mechanism nobody measures.
+            plant_load_failure: true,
             chain_window: crate::sim::structural::CHAIN_WINDOW_FRAMES,
             disturbances: std::collections::VecDeque::new(),
             staged_fractures: std::collections::VecDeque::new(),
@@ -2779,6 +2829,7 @@ impl World {
             flight: None,
             energy: 0.0,
             crop: None,
+            spoil: None,
             since_nest: 0,
             forage_anchor: (0, 0),
             forage_max: 0,

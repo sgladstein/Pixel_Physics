@@ -328,7 +328,17 @@ impl Lab {
 
     /// Rebuild the box from the same spec, keeping the view and the dial.
     pub fn reset(&mut self) {
+        // **The rules the player set survive the rebuild; the box does not.**
+        // `spec.build()` returns a brand-new `World` at its defaults, so a
+        // switch thrown on the parameters page would silently come back on
+        // the next `REBUILD` -- and `REBUILD` is exactly what a player presses
+        // after changing the bed, i.e. in the middle of the experiment the
+        // switch was set for. Carried explicitly rather than by making the
+        // builder take them, so the list of what is a *setting* rather than
+        // part of the box is readable in one place.
+        let plant_load_failure = self.world.plant_load_failure;
         self.world = self.spec.build();
+        self.world.plant_load_failure = plant_load_failure;
         earth_toned_nest(&mut self.world);
         self.particles = ParticleSystem::new();
         self.blasts = Blasts::new();
@@ -1098,7 +1108,6 @@ impl Lab {
                 });
             }
             ui::Tool::Cull => self.cull_at(x, y),
-            ui::Tool::Keep => self.keep_at(x, y),
             ui::Tool::Release => self.release_at(x, y),
             ui::Tool::Wall => self.wall_at(x),
             // The brushes never arrive here: they paint from `press`, so a
@@ -1300,7 +1309,13 @@ impl Lab {
                 // ...and picking a species arms the tool that uses it. A chip
                 // that changes what a *different* button will do, silently, is
                 // the mode you forget you are in.
-                self.ui.set_tool(ui::Tool::Plant);
+                //
+                // **`arm_tool`, never `set_tool`** -- see its doc. `set_tool`
+                // toggles, so cycling the species while `PLANT` was already
+                // armed put the tool away, which is the owner's reported
+                // *"suddenly plant is unselected and now the mouse is on
+                // look"*.
+                self.ui.arm_tool(ui::Tool::Plant);
                 self.ui.say(format!("PLANTING {name}"));
             }
             ui::Action::Brush(delta) => {
@@ -1318,13 +1333,45 @@ impl Lab {
             ui::Action::ParamSelect(i) => self.ui.select_param(i),
             ui::Action::ParamAdjust(i, sign) => self.adjust_param(i, sign),
             ui::Action::ParamSave => self.save_param(),
+            // **The two verbs the bar gave up, now on the pages that already
+            // know what they mean.** Owner, 2026-08-31: *"I feel like we don't
+            // need the keep and free buttons... this will save some menu
+            // space."* Neither is a new mechanism -- `keep_at` and
+            // `release_at` are untouched -- what changed is where the thing
+            // they act on is chosen.
+            ui::Action::KeepInspected => match self.ui.inspecting() {
+                // The cell page's own coordinate, so what is kept is what the
+                // page is showing. It is re-read every frame, which is the
+                // point: an ant that walked out from under the marker while
+                // you were reading is not the ant on the page any more, and
+                // keeping the cell rather than a snapshot is the honest
+                // reading of "this one".
+                Some((x, y)) => self.keep_at(x, y),
+                None => self.ui.say("OPEN THE CELL PAGE ON SOMETHING ALIVE FIRST"),
+            },
+            ui::Action::ShelfPlace => {
+                if self.ui.armed_jar().is_none() {
+                    self.ui.say("NO JAR ARMED -- CLICK ONE IN THE RACK FIRST");
+                } else {
+                    // The rack is a page over the box, so leaving it open
+                    // would arm a click at the thing covering what the click
+                    // is for.
+                    self.ui.close_panel();
+                    self.ui.arm_tool(ui::Tool::Release);
+                    let name = self.ui.armed_jar().map_or_else(String::new, |j| j.name.to_uppercase());
+                    let dial = self.ui.brood_label();
+                    self.ui.say(format!("CLICK IN THE BOX TO PLACE {name} -- {dial}"));
+                }
+            }
             ui::Action::ShelfSelect(i) => {
                 self.ui.select_jar(i);
                 // ...and picking a jar arms the tool that uses it, which is
                 // exactly what `NextSpecies` does for the species chip. A
                 // chip that changes what a *different* button will do,
-                // silently, is the mode you forget you are in.
-                self.ui.set_tool(ui::Tool::Release);
+                // silently, is the mode you forget you are in. `arm_tool` for
+                // `NextSpecies`' reason: picking a second jar is not a request
+                // to stop placing.
+                self.ui.arm_tool(ui::Tool::Release);
                 match self.ui.armed_jar() {
                     Some(jar) => {
                         let (name, dial) = (jar.name.to_uppercase(), self.ui.brood_label());
@@ -1764,7 +1811,7 @@ const MAX_PLANT_LIFT: i32 = 12;
 /// have draws as a silent blank rather than as anything you would notice. That
 /// gap has shipped three times in this repo, so every line here is checked
 /// against `hud::has_glyph` by `every_help_line_is_drawable`.
-const HELP: [&str; 28] = [
+const HELP: [&str; 30] = [
     "THE EVOLUTION LAB",
     "",
     "THE BOX STARTS EMPTY. YOU STOCK IT.",
@@ -1776,7 +1823,7 @@ const HELP: [&str; 28] = [
     "",
     "Z X C V B N  LOOK PLANT COLONY",
     "             CULL SOIL WATER",
-    "M ,          KEEP / FREE GENETICS",
+    "M ,          KEEP THIS ONE / PLACE A JAR",
     "CLICK      USE THE ARMED TOOL",
     "RIGHT      ERASE",
     ".          WHICH SPECIES TO PLANT",
@@ -1785,10 +1832,12 @@ const HELP: [&str; 28] = [
     "",
     "P          PARAMETERS -- THE NUMBERS",
     "           BEHIND THE VERBS",
-    "G          THE SHELF -- KEPT GENETICS",
+    "G          THE SHELF -- KEPT GENETICS.",
+    "           KEEP AND PLACE ARE BUTTONS NOW,",
+    "           ON THE CELL PAGE AND THE RACK",
     "; \x27        DRIFT A RELEASE, IN BROODS",
+    "K          WALL -- SPLIT THE BOX (NO BUTTON)",
     "F1 F2 F3 F4   PLANTS ANTS BOX RACK   TAB STATS",
-    "M KEEP   , FREE   K WALL (NO BUTTON: THE BAR IS FULL)",
     "SHIFT+1..5   SWITCH CHAMBER    ALL   THE WHOLE RACK",
     "F RATE   WASD PAN   - = ZOOM   R REBUILD",
     "?          THIS PAGE",
@@ -2613,6 +2662,34 @@ mod tests {
         lab.release(at.0, at.1);
     }
 
+    /// **Picking what a tool will use must not put the tool away**, which is
+    /// the owner's playtest report: *"i will click plant, then change the type
+    /// from grass to herb and suddenly plant is unselected and now the mouse
+    /// is on look."*
+    ///
+    /// The fault is `Ui::set_tool`'s toggle reached through a chip, so the
+    /// test asserts the *toggle is still there* on the second arm -- pressing
+    /// `PLANT` twice must still land on `LOOK`. Without that half it would go
+    /// green for a `set_tool` that had simply stopped toggling at all, which
+    /// would break every tool button on the bar.
+    #[test]
+    fn cycling_the_species_leaves_the_plant_tool_armed() {
+        let mut lab = bench();
+        lab.act(ui::Action::Tool(ui::Tool::Plant));
+        assert_eq!(lab.ui.tool(), ui::Tool::Plant);
+        for _ in 0..4 {
+            lab.act(ui::Action::NextSpecies);
+            assert_eq!(
+                lab.ui.tool(),
+                ui::Tool::Plant,
+                "cycling the species chip put the planting tool away"
+            );
+        }
+        // ...and the toggle it must not have cost: the tool button itself.
+        lab.act(ui::Action::Tool(ui::Tool::Plant));
+        assert_eq!(lab.ui.tool(), ui::Tool::Look, "pressing an armed tool no longer puts it away");
+    }
+
     /// **Gate 4's three verbs, each with the count that says it fired.**
     ///
     /// One test, because each of them looks identical to nothing happening in
@@ -2887,5 +2964,21 @@ mod tests {
                 assert!(crate::hud::has_glyph(c), "the HUD font has no glyph for {c:?} in {line:?}");
             }
         }
+    }
+
+    /// **...and the page it draws them on has to fit on the screen.**
+    ///
+    /// The same arithmetic `draw_help` uses, because the failure it catches is
+    /// silent: `draw_text` clips, so a key list one line too long loses its
+    /// last line and looks exactly like a key list that never had it. The
+    /// window is 512x320 and the page is already within ten rows of the
+    /// bottom, so this is the guard that says the next line added has to buy
+    /// its place by taking one out.
+    #[test]
+    fn the_help_page_fits_on_the_screen() {
+        let w = super::HELP.iter().map(|l| crate::hud::text_width(l)).max().unwrap_or(0);
+        let (bw, bh) = (w + 24, super::HELP.len() as i32 * 10 + 20);
+        assert!(bw <= WIDTH as i32, "the key list is {bw} px wide and the window is {WIDTH}");
+        assert!(bh <= HEIGHT as i32, "the key list is {bh} px tall and the window is {HEIGHT}");
     }
 }
