@@ -61,6 +61,7 @@ fn decode_organism_id(organism_id: u16) -> (u16, u8) {
     (slot_index, generation)
 }
 
+#[derive(Clone)]
 struct OrganismSlot {
     generation: u8,
     /// `None` when this slot is on the free list — kept rather than
@@ -83,6 +84,7 @@ pub struct BodyId {
     generation: u32,
 }
 
+#[derive(Clone)]
 struct BodySlot {
     generation: u32,
     /// `None` when this slot is on the free list — same reasoning as
@@ -611,6 +613,7 @@ impl EnergyLedger {
     }
 }
 
+#[derive(Clone)]
 pub struct World {
     chunks: HashMap<ChunkCoord, Chunk>,
     /// One tile per chunk, same lifetime — see the module doc on `field` for

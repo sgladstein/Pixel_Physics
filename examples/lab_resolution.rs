@@ -109,6 +109,9 @@ fn spec_from_args() -> LabBox {
         lamp_spacing: arg("lamps").unwrap_or(width / 4),
         species: arg("species").unwrap_or_else(|| "herb".to_string()),
         seed: arg("seed").unwrap_or(1),
+        // None: this harness varies geometry, and a hand-placed wall would be
+        // a second axis in a ladder that exists to isolate one.
+        extra_walls: Vec::new(),
         // **Exhaustive on purpose -- no `..LabBox::default()`.** Two lanes
         // repaired the same red build here at once, one by adding
         // `lamp_spacing` and one by adding a struct update, and together they
@@ -385,7 +388,14 @@ fn shot_mode(spec: &LabBox) {
             if world.species.get(st.species).creature.is_some() {
                 continue;
             }
-            if st.maintenance_unpaid > 0.0 || st.starving_ticks > 0 {
+            // The same test the overlay uses -- `maintenance > income`, the
+            // plant's own book, never the sum of its cells' shortfalls.
+            let margin = if st.maintenance > f32::EPSILON {
+                st.income * pixel_physics::sim::plant::MEAN_NIGHT_INCOME_FACTOR / st.maintenance
+            } else {
+                f32::INFINITY
+            };
+            if margin < 1.0 || st.starving_ticks > 0 {
                 starving += 1;
             } else {
                 fed += 1;
@@ -407,11 +417,52 @@ fn shot_mode(spec: &LabBox) {
                 continue;
             }
             est += 1;
-            if st.maintenance_unpaid > 0.0 || st.starving_ticks > 0 {
+            let margin = if st.maintenance > f32::EPSILON {
+                st.income * pixel_physics::sim::plant::MEAN_NIGHT_INCOME_FACTOR / st.maintenance
+            } else {
+                f32::INFINITY
+            };
+            if margin < 1.0 || st.starving_ticks > 0 {
                 est_starving += 1;
             }
         }
         println!("  of the {est} established (20+ cells): {est_starving} not paying");
+        // **The distributions behind the ramp, not just the counts.** The
+        // overlay maps `water_status` onto the green ramp and
+        // `starving_ticks` onto the red one; if either is degenerate the
+        // channel is a two-colour flag wearing a gradient, which is
+        // `CLAUDE.md`'s first law ("an outcome is a distribution, not a
+        // binary") failing in a readout rather than in a mechanic.
+        let q = |mut v: Vec<f32>, name: &str| {
+            if v.is_empty() {
+                println!("    {name}: none");
+                return;
+            }
+            v.sort_by(|a, b| a.partial_cmp(b).expect("finite"));
+            let at = |f: f32| v[((v.len() - 1) as f32 * f) as usize];
+            println!(
+                "    {name}: min {:.3}  p25 {:.3}  p50 {:.3}  p75 {:.3}  max {:.3}  (n={})",
+                v[0], at(0.25), at(0.5), at(0.75), v[v.len() - 1], v.len()
+            );
+        };
+        let (mut wat, mut starv, mut margin) = (Vec::new(), Vec::new(), Vec::new());
+        for id in world.live_organism_ids() {
+            let Some(st) = world.organism(id) else { continue };
+            if world.species.get(st.species).creature.is_some() || st.cells.len() < 20 {
+                continue;
+            }
+            let m = st.income * pixel_physics::sim::plant::MEAN_NIGHT_INCOME_FACTOR / st.maintenance.max(1e-6);
+            if m < 1.0 || st.starving_ticks > 0 {
+                starv.push(m);
+            } else {
+                wat.push(((m - 1.0) / 3.0).clamp(0.0, 1.0).min(st.water_status));
+            }
+            margin.push(m);
+        }
+        println!("  what the ramp actually sees, over established plants:");
+        q(wat, "green ramp input (scarcest resource, payers)");
+        q(starv, "margin of failers");
+        q(margin, "night-corrected margin (income x 0.49 / upkeep)");
     }
 
     let (w, h) = (spec.width as u32 * zoom as u32, spec.height as u32 * zoom as u32);

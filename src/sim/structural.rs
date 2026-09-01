@@ -3573,6 +3573,7 @@ struct Sliced {
 /// reason it is still standing is `FRACTURE_CELLS_PER_TICK`. It is
 /// deliberately not re-judged on the way back out: see the note at the call
 /// site in `tick` for the two ways that stalled and stranded it.
+#[derive(Clone)]
 pub struct StagedFracture {
     /// Everything still to come down, most recently sliced first.
     pub region: Vec<(i32, i32)>,

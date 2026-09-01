@@ -1,8 +1,12 @@
 # Day, Night, and Decay
 
-*Current as of: 2026-08-31 (soil grades between wet and dry now — it used to
+*Current as of: 2026-08-31 (a sealed room no longer dries out — water the sun
+takes out of the ground now humidifies the air above it, and that humidity is
+what stops the sun taking more, so one plant no longer parches a whole bed).*
+
+*Before that: soil grades between wet and dry now — it used to
 show only three values with nothing in between; and broken branches rot,
-where they used to be the one thing a dead plant left that stayed for ever).*
+where they used to be the one thing a dead plant left that stayed for ever.*
 
 *Before that: a world can now be a
 room instead of a landscape — the air inside a sealed box is drawn as a lit
@@ -319,10 +323,22 @@ replace it, for ever, until the whole bed reached the parched end. With it,
 the ground settles into a standing profile: dry at the top, damper as you go
 down, holding there instead of running away.
 
-**It is a slow leak, not a closed loop.** Water taken up by the sun does not
-yet come back as anything — there is no return path in a sealed room — so a
-box with no rain and no watering will still dry out eventually, just far
-more slowly than it takes to matter. Closing that is a separate job.
+**And the air holds what the ground gives up**, which is what makes it a loop
+rather than a leak. Water leaving the soil arrives in the air directly above
+it and makes that air humid — and humid air is what stops evaporation. So a
+sealed room does not dry out. The first ground to dry dampens the air over it,
+that air pushes back, and the bed settles into its standing profile and stays
+there: sampled at three times the interval it takes to settle, the bed is not
+merely slowing down but genuinely stopped.
+
+**A single plant used to break exactly this.** Put one plant in a full bed and
+the surface began drying beside it, then spread outwards — one side faster
+than the other — until the whole top of the world was parched and nothing
+dropped on it would germinate. The plant was not drinking it: it had taken
+about a two-hundredth of the water that went missing. What it did was *start*
+the drying, and the drying then fed itself, because the water the ground gave
+up went somewhere the air could not see. Now it goes into the air, the air
+answers, and one plant costs the bed roughly what one plant drinks.
 
 ## What a dead plant leaves, and how long it lies there
 

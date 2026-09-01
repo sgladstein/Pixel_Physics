@@ -60,37 +60,88 @@ one no test and no contact sheet can press. `labui` found it by panicking.
 | a chamber in memory | ~2.5 MB at 512x320, ~10.5 MB at 1024x640 | `Cell` is 12 B and `Pheromones` eagerly allocates `4*w*h` more |
 | batch throughput | **8.4 s per 9,000-tick chamber** amortised, 4 cores | `creature_space mode=threads` measured 3.27x on 4 |
 
-## One number that did NOT reproduce — do not quote either version yet
+## The width question, settled on a quiet box (2026-09-01)
 
-`instruments.md` records *"a wider box is **cheaper** at fixed founders — world
-size is not a term"*. Measured here at fixed founders, `arms=lab`, 1,000 frames,
-`RAYON_NUM_THREADS=2`:
+Both earlier readings were wrong, and they were wrong in opposite directions.
+`instruments.md` said *"a wider box is **cheaper** at fixed founders"*; this
+note said *"sublinear, then flat"* (1.68x, then **1.00x**) and refused to quote
+it because 6.386 against 6.395 is exactly the tidiness `CLAUDE.md` says to
+distrust. It was right to refuse: the flat second doubling was the loaded box
+and does not survive a quiet one.
 
-| width | mean | solved/f | stand |
-|---|---|---|---|
-| 256 | 3.79 ms | 13.2 | 820 |
-| 512 | 6.39 ms | 26.2 | 821 |
-| 1024 | 6.40 ms | 49.9 | 735 |
+Re-measured with the container freshly booted at 0.03 load per core, three legs,
+`arms=lab`, 6,000 frames, `RAYON_NUM_THREADS=4`, median of **three alternating
+rounds** so a slow patch of machine hits every arm rather than one:
 
-So **not cheaper — sublinear, then flat**: 1.68x for the first doubling and
-1.00x for the second, while the solve set doubles at every step.
+| leg | 256 | 512 | 1024 | |
+|---|---|---|---|---|
+| **empty** (`trees=0`) | 0.001 ms | 0.001 ms | 0.001 ms | **1.00x over 4x width**, `solved/f` 0.0 |
+| **stocked** (`trees=16`) | 3.575 ms | 5.365 ms | 6.444 ms | 1.50x, then 1.20x |
+| its stand | 5,411 cells | 8,861 | 10,483 | **1.94x more plant off the same 16 founders** |
+| **per 1,000 plant cells** | 0.661 ms | 0.605 | 0.615 | flat |
 
-**This is reported rather than acted on, and the reason is `CLAUDE.md`'s own
-tidiness tell.** 6.386 against 6.395 is a 0.14% agreement on a box with four
-cores, other agents on it, and worst frames of 10.9 / 60.6 / 38.8 ms in the
-three arms. A clean result on a chaotic quantity is evidence of an artifact
-before it is evidence of an effect. **Neither the recorded claim nor this one
-should be quoted to a player until somebody runs it on a quiet box** — which is
-why no width price went into the parameters panel.
+**So: width itself is free, and what it costs is what grows in it.** The
+absolute frame gets *more* expensive with width, not less — but only because
+room fills with life. `PlantScene` spaces founders `width / (trees + 1)` apart
+(15 cells at 256, 60 at 1024), so **a narrow box is a crowded box**, and
+"at fixed founders" is not "at a fixed stand". `LabBox::spread` divides its span
+the same way, so the confound belongs to the phrase rather than to one harness.
+That is what the original "cheaper" was seeing, one normalisation short.
+
+**The positive control is what makes those nulls results rather than
+blindness**: soil 40 -> 240 at one width moved **1.43x**, against a run-to-run
+spread of 1.6-5% on the arms themselves. Worst frames ran 7.7-59.4 ms against
+means of 3.5-6.6, and `mean x frames` exceeds the worst by ~3 orders of
+magnitude, so **no worst-frame figure here is pinned by its aggregate** — read
+the means.
+
+## What that cross-check turned up instead: a colony eats its own neighbourhood
+
+Running the same width axis on the **real** `LabBox` (sealed, with its ceiling)
+rather than `PlantScene` produced no cost curve at all, because the three widths
+are not three prices — **they are three different biospheres**, and the 256-wide
+one ends *dead*. Which is a scene error wearing a result, until you ask what
+killed it.
+
+`colonies=0` against `colonies=1`, six seeds, **paired on the seed** (replicate
+`j` takes `seed0 + j` whatever the setting, so both arms are the same world
+apart from the colony), 6,000 ticks, `founders=8`:
+
+| width | plants, no colony | with one colony | stand left standing | seeds down | the colony itself |
+|---|---|---|---|---|---|
+| 256 | 76 (55-104) | **1** (0-15) | **1%** | **6 of 6** | 14 ants |
+| 512 | 163 (127-229) | 66 (47-108) | 41% | 6 of 6 | 20 ants |
+| 1024 | 50 (28-72) | 50 (23-75) | **98%** | 4 of 6 | **2 ants** |
+
+**Monotone across a 4x width range, and the endpoints are far outside the
+2.42x seed-noise bar this lane measured** — 1% against 98% is not a sample from
+it. This is the finding another lane relayed (*"the colony crashes because it
+eats its own neighbourhood, not because the box is poor"*, founder survival
+monotone in distance from the nest) **reproduced as the spatial result they said
+a rack could get and one bed could not** — their axis was distance within one
+bed, this one is how much bed there is per colony.
+
+**A narrow bed feeds the ants and kills the plants; a wide one does the
+reverse** — at 1024 the plants are untouched and the colony falls to two
+animals because it cannot reach them. **512, the shipped width, is the only one
+of the three where both persist.** That is a coexistence window rather than a
+tuned default, and it is not claimed to be the best one: three widths is not a
+sweep of width, and nothing here says 512 is where the window is widest.
+
+Written into the `colonies` hover note, because a player whose stocked bed
+empties needs it at the moment they are setting the box up.
 
 ## Still open
 
-- **`REBUILD` for on-record rows.** A run whose world was dropped for the memory
-  budget is listed with its census and its verbs drawn dead. The spec
-  reproduces it exactly; the button that does so is not built.
-- **`compartments` as a verb rather than a rebuild knob.** A partition is a
-  stone column, so "drop a wall here" is a brush. It would need
-  `LabBox::extra_walls` so a hand-placed wall survives the rebuild every other
-  bed knob triggers — `partition_columns()` stays the one place wall positions
-  are decided.
-- **The width question above.**
+- **`Tool::Wall` has no button.** The wall brush ships on `K` and is
+  deliberately not in `TOOLS`. Not a new finding — the genetics lane hit the
+  same wall independently and it is already in `dead-ends.md`: **row 1 is at
+  exactly its own width and row 0 has 1 px spare**, so the next lab control
+  needs a third row, a page, or a removal. An owner call, not a lane's.
+- **Width as a swept knob.** `write_bed` does not accept `width` or `height`
+  and the parameters page has no row for either, so the numbers above have no
+  panel to be shown in. Adding one is a feature nobody has asked for; the
+  measurement is recorded here and in `instruments.md` instead.
+- **Where the coexistence window actually is.** Three widths at one founder
+  count found it; locating it wants width and `founders` swept together, paired
+  on the seed, which the rack now runs unaided.
