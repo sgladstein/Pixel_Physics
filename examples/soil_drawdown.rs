@@ -81,19 +81,50 @@ fn row_mean(world: &World, spec: &LabBox, y: i32, x0: i32, x1: i32) -> Option<u1
     (n > 0).then(|| (sum / n) as u16)
 }
 
+/// The top `reach` rows of one column, averaged -- the band
+/// `evaporation::SOIL_DRY_REACH` can actually pull from, which is the band a
+/// seed's germination gate reads and the band an overlay shows as "the
+/// surface".
+///
+/// `None` where the column has no water-holding cell in that band at all.
+fn column_surface(world: &World, spec: &LabBox, x: i32, reach: i32) -> Option<u16> {
+    let (mut sum, mut n) = (0u64, 0u64);
+    for d in 0..reach {
+        let c = world.get(x, spec.ground_y + d);
+        if world.materials.get(c.material).water_capacity > 0 {
+            sum += update::soil_moisture(c) as u64;
+            n += 1;
+        }
+    }
+    (n > 0).then(|| (sum / n) as u16)
+}
+
+/// Whether anything is sitting on this column's surface cell.
+///
+/// **This is the predicate that decides whether the sun can touch it.**
+/// `evaporation::is_damp_soil_surface` refuses a column whose cell above is
+/// not empty, so a column under a stem, a leaf or a scrap of litter does not
+/// dry at all while the bare column beside it does. Printed next to the
+/// moisture so a dry-vs-wet difference can be read against its cause instead
+/// of guessed at.
+fn covered(world: &World, spec: &LabBox, x: i32) -> bool {
+    !world.get(x, spec.ground_y - 1).is_empty()
+}
+
 fn main() {
     let founders: usize = arg("founders").unwrap_or(1);
     let frames: u64 = arg("frames").unwrap_or(24_000);
     let every: u64 = arg("every").unwrap_or(4_000);
     let seed: u64 = arg("seed").unwrap_or(1);
     let png: Option<String> = arg("png");
+    let fine: bool = arg::<u32>("fine").unwrap_or(0) > 0;
     let spec = LabBox { founders, colonies: 0, seed, ..LabBox::default() };
     // Echo every parameter, including the ones that default -- `CLAUDE.md`'s
     // megastudy gotcha, where a knob added after the binary was built was
     // silently ignored and produced 24 logs of 3 populations.
     println!(
         "soil_drawdown: founders={founders} frames={frames} every={every} seed={seed} \
-         png={} (field capacity {}, wilting point {}, saturated {})",
+         png={} fine={fine} (field capacity {}, wilting point {}, saturated {})",
         png.as_deref().unwrap_or("-"),
         material::SOIL_FIELD_CAPACITY,
         material::SOIL_WILTING_POINT,
@@ -160,20 +191,179 @@ fn main() {
                     below += (material::SOIL_FIELD_CAPACITY as u64).saturating_sub(m);
                 }
             }
-            // **Which door the water left by.** `evaporation::tick` credits
-            // `atmospheric_bank`; `plant::transpire` credits nothing at all.
-            // So bank growth is the sun's take and the rest of the shortfall
-            // is the plant's -- the two are otherwise indistinguishable on an
-            // overlay, and they want completely different fixes.
+            // **Which door the water left by -- and the label is now `net`,
+            // which matters.** `evaporation::tick` credits
+            // `atmospheric_bank` and `plant::transpire` credits nothing, so
+            // bank growth used to be exactly the sun's take. Since
+            // `weather::condense_under_a_lid` *spends* that bank to give the
+            // water back, bank growth is evaporation **minus** condensation.
+            // Reading it as "the sun" after that change would understate the
+            // sink by however much came back, which is most of it. The
+            // separation the two arms still support is the one that matters
+            // here: a bed whose net is near zero is a closed loop, whichever
+            // way the two gross flows are running.
             let banked = (w.atmospheric_bank - start_bank) * material::LIQUID_FULL as f64;
             let lost = start_total as f64 - total as f64;
             println!(
                 "  frame {f:>6}  across [{}]  down [{}]  total {total:>9}  deficit {below:>8}  \
-                 lost {lost:>9.0} = sun {banked:>9.0} + plant {:>9.0}",
+                 lost {lost:>9.0} = net-to-air {banked:>9.0} + rest {:>9.0}",
                 across.join(" "),
                 down.join(" "),
                 lost - banked
             );
+            // **The whole-bed minimum, and where.** The `across` buckets
+            // above are means over an eighth of the world, so a dry patch
+            // narrower than the bucket is averaged away -- the owner's report
+            // is of a patch 15-20 cells wide, which is a third of one bucket.
+            // A minimum cannot hide it.
+            let reach = 5;
+            let mut worst = (u16::MAX, -1i32);
+            for x in 0..spec.width {
+                if let Some(m) = column_surface(w, &spec, x, reach) {
+                    if m < worst.0 {
+                        worst = (m, x);
+                    }
+                }
+            }
+            // **How big the plant actually is, which is the scene check.**
+            // A null about "what one plant does to the bed" is worth nothing
+            // if the plant in the scene is a stunted seedling and the one in
+            // the report is a mature specimen -- `CLAUDE.md`'s "check the
+            // scene still contains the situation you think it does".
+            let (mut plant_cells, mut roots) = (0u32, 0u32);
+            for y in 0..spec.height {
+                for x in 0..spec.width {
+                    let c = w.get(x, y);
+                    if w.materials.get(c.material).kind == material::MaterialKind::Plant {
+                        plant_cells += 1;
+                        if y >= spec.ground_y {
+                            roots += 1;
+                        }
+                    }
+                }
+            }
+            println!(
+                "           plant cells {plant_cells} (below ground {roots}), organisms {}",
+                w.live_organism_ids().len(),
+            );
+            println!(
+                "           driest surface column {} at x={} (founder at {:?});                  columns under the wilting point {}, under half capacity {}",
+                worst.0,
+                worst.1,
+                planted,
+                (0..spec.width)
+                    .filter(|&x| column_surface(w, &spec, x, reach)
+                        .is_some_and(|m| m <= material::SOIL_WILTING_POINT))
+                    .count(),
+                (0..spec.width)
+                    .filter(|&x| column_surface(w, &spec, x, reach)
+                        .is_some_and(|m| m < material::SOIL_FIELD_CAPACITY / 2))
+                    .count(),
+            );
+            // **The whole water ledger, because "lost" is not "destroyed".**
+            //
+            // `total` counts soil moisture only -- cells with a
+            // `water_capacity`. Water standing as a `Liquid`, or sitting in
+            // the atmospheric bank, has left `total` without leaving the
+            // world, so reading a falling `total` as a leak is the mistake
+            // `CLAUDE.md` names: a number that is arithmetically right and
+            // about the wrong question. Everything the box can hold water in,
+            // added up, so the residual is what is genuinely unaccounted.
+            let mut liquid = 0u64;
+            for y in 0..spec.height {
+                for x in 0..spec.width {
+                    let c = w.get(x, y);
+                    if w.materials.kind(c.material) == material::MaterialKind::Liquid {
+                        liquid += update::liquid_fill(c) as u64;
+                    }
+                }
+            }
+            let bank = w.atmospheric_bank * material::LIQUID_FULL as f64;
+            let start_bank_fill = start_bank * material::LIQUID_FULL as f64;
+            let accounted = total as f64 + liquid as f64 + bank;
+            let began = start_total as f64 + start_bank_fill;
+            println!(
+                "           water ledger: soil {total} + standing liquid {liquid} + bank {bank:.0} \
+                 = {accounted:.0} against {began:.0} at the start -> unaccounted {:.0}",
+                began - accounted
+            );
+            // **Does the air under the lid actually get humid?**
+            //
+            // The next repair on the table is condensation -- water the sun
+            // took returning to the ground, which is what a sealed box does
+            // and why a terrarium never needs watering. The obvious trigger
+            // is saturation, and before building a reader for that signal it
+            // has to be shown the signal ever arrives: `CLAUDE.md`'s standing
+            // check that a channel needs a writer *and* a reader, and that a
+            // reader for something never written is dead code that looks
+            // alive. Sampled at the ceiling, at mid-air, and just over the
+            // ground, against `field::MAX_MOISTURE` of 4.0 and the
+            // `HUMID_STOP` of 2.0 that switches drying off.
+            let air_at = |y: i32| {
+                let (mut sum, mut peak, mut n) = (0.0f32, 0.0f32, 0u32);
+                for x in (0..spec.width).step_by(8) {
+                    let m = w.field_at(x, y).moisture;
+                    sum += m;
+                    peak = peak.max(m);
+                    n += 1;
+                }
+                (sum / n.max(1) as f32, peak)
+            };
+            let (ceil_mean, ceil_peak) = air_at(spec.ground_y - 200);
+            let (mid_mean, mid_peak) = air_at(spec.ground_y - 100);
+            let (low_mean, low_peak) = air_at(spec.ground_y - 8);
+            println!(
+                "           air humidity (max 4.0, drying stops at 2.0): ceiling {ceil_mean:.2}/{ceil_peak:.2}  \
+                 mid {mid_mean:.2}/{mid_peak:.2}  just above ground {low_mean:.2}/{low_peak:.2}  (mean/peak)"
+            );
+            // **Covered vs bare, which is the owner's spatial question.**
+            // `evaporation::is_damp_soil_surface` refuses any column whose
+            // cell above is not empty, so a column under a stem, a leaf or a
+            // scrap of litter cannot dry at all while the bare column beside
+            // it does. If that is what shapes the patch, these two means
+            // separate; if they do not separate, the shape is something else
+            // and the shielding story is wrong.
+            let (mut cs, mut cn, mut bs, mut bn) = (0u64, 0u64, 0u64, 0u64);
+            for x in 0..spec.width {
+                if let Some(m) = column_surface(w, &spec, x, reach) {
+                    if covered(w, &spec, x) {
+                        cs += m as u64;
+                        cn += 1;
+                    } else {
+                        bs += m as u64;
+                        bn += 1;
+                    }
+                }
+            }
+            println!(
+                "           surface under cover {} over {cn} columns vs bare {} over {bn}",
+                if cn > 0 { (cs / cn).to_string() } else { "-".into() },
+                if bn > 0 { (bs / bn).to_string() } else { "-".into() },
+            );
+            if fine {
+                // Per-column, around the plant, at the resolution the report
+                // is about. `#` marks a column something is standing on, so
+                // the shape can be read against the one predicate that gates
+                // whether the sun reaches it.
+                let c0 = planted.first().copied().unwrap_or(spec.width / 2);
+                let strip: Vec<String> = (-24..=24)
+                    .map(|i| {
+                        let x = c0 + i * 4;
+                        if x < 0 || x >= spec.width {
+                            return "    -".to_string();
+                        }
+                        let mark = if covered(w, &spec, x) { '#' } else { ' ' };
+                        match column_surface(w, &spec, x, reach) {
+                            Some(m) => format!("{m:>4}{mark}"),
+                            None => "    -".to_string(),
+                        }
+                    })
+                    .collect();
+                println!("           x={} +/- 96, every 4 columns ('#' = something standing on it):", c0);
+                for chunk in strip.chunks(16) {
+                    println!("             {}", chunk.join(""));
+                }
+            }
         }
         if f < frames {
             tick(&mut lab);
