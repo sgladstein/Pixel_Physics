@@ -588,8 +588,39 @@ fn absorb_water(world: &mut World, x: i32, y: i32, rate: f32) {
                                 // out of `apply_moisture_sources` on its own,
                                 // at the resolution the field actually has.
                                 let taken = (drawn / rate.max(f32::EPSILON) * SOIL_UPTAKE_PER_TICK as f32) as u16;
-                                let left = update::soil_moisture(n).saturating_sub(taken);
+                                let held = update::soil_moisture(n);
+                                let left = held.saturating_sub(taken);
                                 world.set(nx, ny, n.with_aux(left));
+                                // **Booked to the atmosphere, because a root
+                                // is not a hole in the world.** Water a plant
+                                // takes up is transpired to the air within
+                                // hours; almost none of it stays in tissue.
+                                // Until this line it was removed from the
+                                // soil and credited *nowhere*, so every drink
+                                // destroyed water outright -- measured
+                                // 2026-09-01 on the lab bed, a full ledger of
+                                // soil + standing liquid + `atmospheric_bank`
+                                // against its starting total: **1,001,077
+                                // fill unaccounted for by frame 60,000**, and
+                                // that is the whole reason the bed ratchets
+                                // down instead of cycling.
+                                //
+                                // `evaporation::tick` credits every unit it
+                                // takes, on this same scale, and this is the
+                                // other route soil water reaches the air by;
+                                // the two now agree. Outdoors the sky spends
+                                // the bank as rain, and indoors
+                                // `weather::condense_under_a_lid` gives it
+                                // back as condensation, so in both worlds the
+                                // water comes home rather than evaporating
+                                // out of the ledger.
+                                //
+                                // `held - left` rather than `taken`, because
+                                // `saturating_sub` floors at zero: a root
+                                // drinking a nearly dry cell removes what is
+                                // there, not what it asked for, and crediting
+                                // the ask would mint water.
+                                world.credit_atmosphere(held - left);
                             }
                         }
                     }

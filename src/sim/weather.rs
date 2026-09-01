@@ -1368,6 +1368,109 @@ fn gust(world: &mut World, w: Weather) {
 /// the field sleeps per tile now, and a write anywhere in a sky column would
 /// wake every tile between the cloud and the ground, undoing it. What the
 /// player sees falling is drawn, not simulated.
+/// Water the sun took out of a sealed box, coming back as condensation.
+///
+/// # The half of the cycle that was missing
+///
+/// `evaporation::tick` credits every drop it removes to
+/// `World::atmospheric_bank`, and outdoors `step` above spends that bank as
+/// rain. **The lab pins its weather clear**, so indoors the bank only ever
+/// grew: measured 2026-09-01 on the standard bed with eight founders, at
+/// 48,000 frames the sun had taken **1,146,301** fill -- about 1,146 cells of
+/// water -- and not one unit of it could come back. The box was not a closed
+/// system, it was a system with a drain.
+///
+/// What that costs is the whole point of the room. The sink can reach
+/// `evaporation::SOIL_DRY_REACH` rows down, so the top five rows of the bed
+/// dry to the wilting point *everywhere* while everything below them stays at
+/// field capacity -- measured `down [181 609 621 621 621 620 620 624]`, a dry
+/// crust over a full bed. A seed needs `soil_water_threshold` of the
+/// plant-available band under it, which is 246 on herb; the crust sits at
+/// about 220. **So nothing germinates anywhere on bare ground**, which is the
+/// owner's report, and no amount of watering by hand keeps up with it.
+///
+/// # Why this and not "make the air hold it"
+///
+/// The obvious repair is to let the room saturate, so drying stops on its own
+/// -- a terrarium does not dry out because its air is already full. Measured
+/// before building anything, and it cannot work as things stand: field
+/// humidity in the lab reads **0.00 at the ceiling**, 0.02 at mid height and
+/// 0.73 just over the ground. The vapour never rises. A condensation rule
+/// triggered by a humid lid would have been a reader for a signal nothing
+/// writes -- `CLAUDE.md`'s standing trap, and this is the fourth time it has
+/// been walked up to in this engine.
+///
+/// So the trigger is the *bank*, which is conservation rather than a proxy
+/// for it: in a closed box the water cannot leave, so what left the ground
+/// must come back to it.
+///
+/// # Self-regulating, because it returns a share rather than a quota
+///
+/// Each frame it gives back a fixed fraction of whatever is banked *above the
+/// world's starting endowment*. That is what makes it find its own level
+/// instead of needing a rate tuned against evaporation: a bed that is drying
+/// hard banks faster, so it rains back harder, and a bed that has stopped
+/// drying stops being rained on. Nothing has to know what the sink is doing.
+///
+/// It is also the graded outcome the ethos asks for rather than a switch --
+/// there is no "watered" and "not watered" state, only a box that is
+/// currently giving back more or less.
+fn condense_under_a_lid(world: &mut World) {
+    let Some(ceiling) = world.enclosure().map(|e| e.ceiling_y) else { return };
+    // Only ever the *excess*. `STORM_RESERVE` is the endowment a fresh world
+    // is created with (`World::new`), not water this box evaporated, so
+    // spending into it would drain a reserve the box never earned.
+    let excess = world.atmospheric_bank - STORM_RESERVE;
+    if excess <= 0.0 {
+        return;
+    }
+    let Some(bounds) = world.bounds() else { return };
+    let wanted = (excess * CONDENSATION_SHARE).min(MAX_DRIPS_PER_FRAME);
+    let mut pick = rng::stream(world.seed, 0x434F_4E44, world.frame, u64::MAX);
+    let drips = wanted.floor() as u32 + u32::from(pick.chance(wanted.fract() as f32));
+    if drips == 0 {
+        return;
+    }
+    // Hoisted out of the loop: `id_of` is a string hash and this runs every
+    // frame. No water material means no condensation rather than a panic.
+    let Some(water) = world.materials.id_of("water") else { return };
+    let (min_x, max_x) = (bounds.min_x, bounds.max_x);
+    let span = (max_x - min_x + 1).max(1) as u64;
+    for _ in 0..drips {
+        let x = min_x + (pick.next_u64() % span) as i32;
+        // The first row of air under the lid. A drop is only placed where
+        // there is actually air to place it in -- under a lamp fixture, or
+        // in a wall column, nothing forms and the budget is simply not spent
+        // this frame, which is the same all-or-nothing rule `spend_atmosphere`
+        // imposes everywhere else.
+        if !world.get(x, ceiling).is_empty() {
+            continue;
+        }
+        if !world.spend_atmosphere(1.0) {
+            return;
+        }
+        world.set(x, ceiling, Cell::new(water, 0));
+    }
+}
+
+/// What share of the banked excess a sealed box gives back per frame.
+///
+/// **Sized so the return is a slow drip rather than a shower, and left as a
+/// share rather than a rate on purpose** -- see `condense_under_a_lid`. At
+/// the measured indoor equilibrium the sink takes on the order of 0.02 cells
+/// a frame, so this reaches balance with a few hundred cells standing in the
+/// bank: enough of a buffer that a burst of drying is smoothed out, small
+/// enough that the box is not raining on itself continuously.
+const CONDENSATION_SHARE: f64 = 1.0 / 2_000.0;
+
+/// A ceiling on drops per frame, so a box that has been drying for a very
+/// long time gives its water back as weather rather than as a flood.
+///
+/// **A bound on work, never a gate on whether it happens** -- exhausting it
+/// leaves the rest in the bank for the next frame, which is the distinction
+/// `CLAUDE.md` draws between a cap that bounds and a cap that answers.
+const MAX_DRIPS_PER_FRAME: f64 = 4.0;
+
 pub fn step(world: &mut World) {
     // **World time, on the weather's *own* clock** (`sim::clock`) -- not the
     // sky's, and that distinction was built the other way round first.
@@ -1391,6 +1494,11 @@ pub fn step(world: &mut World) {
     // Wind is not gated on precipitation -- a dry gale is weather too, and
     // the wind channel is generated whether or not anything is falling.
     gust(world, w);
+    // **Indoors the sky is a lid, and a lid gives the water back.** Before
+    // the precipitation branch and outside it, because a sealed box's water
+    // cycle does not run on the weather at all -- the lab pins the weather
+    // clear, so every path below this is dead there.
+    condense_under_a_lid(world);
     let Some(bounds) = world.bounds() else { return };
     if !w.is_precipitating() {
         // **A clear freezing night still freezes.** See `DRY_FROST_CHILL`.
