@@ -1,0 +1,57 @@
+{
+  "id": "20260901T001848608Z-c1b10e",
+  "created": "2026-09-01T00:18:48Z",
+  "board": "lab",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/evolution-lab-multiple-chambers-qw1hjz",
+    "commit": "ccf88bdb",
+    "agent": null,
+    "session_id": "3a441651-265c-5f10-ba8c-b584bbef1307",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "One ant colony empties a narrow bed",
+  "question": "Is a bed the colony eats to nothing the right default at this width, or should stocking a colony scale with how much room the box has?",
+  "context_md": "**Same box, same seed, 6,000 ticks. The only difference is whether a colony was released.** Frames 0 / 2000 / 6000 top to bottom.\n\nThis is the other lane's finding — *the colony crashes because it eats its own neighbourhood, not because the box is poor* — reproduced as the **spatial** result they said a rack could get and one bed could not. Their axis was distance from the nest inside one bed; this one is how much bed there is per colony.\n\nSix seeds, each arm paired against the same world:\n\n| bed width | stand left standing | seeds down | the colony itself |\n|---|---|---|---|\n| **256** | **1%** | 6 of 6 | 14 ants |\n| 512 | 41% | 6 of 6 | 20 ants |\n| **1024** | **98%** | 4 of 6 | **2 ants** |\n\nSo a narrow bed feeds the ants and kills the plants, and a wide one does the reverse — at 1024 the plants are untouched and the colony starves down to two animals. **512, the shipped width, is the only one of the three where both persist.** Three widths is not a sweep, so nothing here says 512 is where that window is widest.\n\nWritten into the `colonies` hover note, so a player whose stocked bed empties reads it while setting the box up.",
+  "kind": "ab",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "no colony",
+      "files": [
+        "20260901T001848608Z-c1b10e/000-w256_nocolony.png"
+      ],
+      "caption": "256 wide, 8 founders, colonies=0",
+      "meta": {
+        "plants at 6000": 90,
+        "plant cells": 918,
+        "founders surviving": "2 of 8 (151 and 155 cells)",
+        "ants": 0
+      },
+      "focus": null
+    },
+    {
+      "label": "one colony",
+      "files": [
+        "20260901T001848608Z-c1b10e/001-w256_colony.png"
+      ],
+      "caption": "256 wide, 8 founders, colonies=1 — identical seed",
+      "meta": {
+        "plants at 6000": 0,
+        "plant cells": 0,
+        "founders surviving": "0 of 8",
+        "ants": 14,
+        "plant deaths": 38
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
