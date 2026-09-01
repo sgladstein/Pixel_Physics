@@ -238,6 +238,22 @@ const fn span(min: f32, max: f32, step: f32) -> Span {
     Span { min, max, step }
 }
 
+/// How small and how large the box may be built, in cells per side.
+///
+/// **The ceiling is a memory decision, not a simulation one**, and it is the
+/// owner's (2026-09-01). A chamber costs `12 B` per cell for the grid plus
+/// `4 B` for the two pheromone planes, so the bill is `w * h * 16 B` — the
+/// shipped 512x320 is ~2.5 MB and 4096x4096 is ~268 MB. Nothing stops a rack
+/// of large chambers exhausting a machine, which is why the two size rows
+/// print what the current setting actually costs rather than leaving the
+/// player to do that arithmetic: the number is on screen before `REBUILD` is
+/// pressed, which is the only moment it can still be reconsidered.
+///
+/// The floor is `SHELL`-driven: below about 128 the shell, the lamps and a
+/// compartment span stop fitting alongside each other.
+const MIN_BOX: i32 = 128;
+const MAX_BOX: i32 = 4096;
+
 /// A float row.
 fn float(group: Group, knob: Knob, category: &str, name: &str, value: f32, s: Span, note: &str) -> Param {
     Param {
@@ -574,6 +590,20 @@ fn box_rows(world: &World, spec: &LabBox, out: &mut Vec<Param>) {
     let mut bed = |field: &'static str, value: f32, s: Span, note: &str| {
         out.push(integer(g, Knob::Bed { field }, "the bed", field, value, s, note));
     };
+    // **What the box the player is standing in costs, on the row that
+    // changes it.** The note is built rather than a literal so the megabyte
+    // figure is this box's and not an example's — `Param::note` is a
+    // `String`, so this costs one allocation on a page that is rebuilt only
+    // when it is open.
+    let megabytes = |w: i32, h: i32| {
+        let probe = LabBox { width: w, height: h, ..spec.clone() };
+        crate::lab::batch::BatchSpec::world_bytes(&probe) as f32 / (1024.0 * 1024.0)
+    };
+    let here = megabytes(spec.width, spec.height);
+    bed("width", spec.width as f32, span(MIN_BOX as f32, MAX_BOX as f32, 64.0),
+        &format!("HOW MANY CELLS WIDE THE BOX IS BUILT. WIDTH ITSELF IS VERY NEARLY FREE -- AN EMPTY BOX MEASURED 0.001 MS PER TICK AT 256, 512 AND 1024 ALIKE, SO THE SLEEPING MACHINERY DOES NOT CARE HOW BIG THE ROOM IS. WHAT WIDTH COSTS IS WHAT GROWS IN IT: AT A FIXED NUMBER OF FOUNDERS A WIDER BOX SPACES THEM FURTHER APART, SO IT GROWS MORE PLANT AND COSTS MORE FRAME -- ABOUT 0.6 MS PER 1000 PLANT CELLS AT ANY WIDTH. IT IS ALSO THE MOST IMPORTANT KNOB FOR WHAT LIVES: ONE ANT COLONY LEAVES 1% OF THE STAND STANDING IN A 256-WIDE BED AND 98% IN A 1024-WIDE ONE, WHILE THE COLONY ITSELF STARVES DOWN TO 2 ANTS AT 1024 BECAUSE IT CANNOT REACH THE PLANTS. THIS BOX HOLDS {here:.1} MB IN MEMORY AND EVERY CHAMBER ON THE RACK HOLDS ITS OWN. TAKES EFFECT ON REBUILD."));
+    bed("height", spec.height as f32, span(MIN_BOX as f32, MAX_BOX as f32, 64.0),
+        &format!("HOW MANY CELLS TALL THE BOX IS BUILT: SOIL, THE AIR A PLANT STANDS UP IN, AND THE CEILING THE LAMPS HANG FROM. THE SOIL SURFACE MOVES WITH IT -- RAISE THE HEIGHT AND GROUND LEVEL RISES IN PROPORTION, SO THE BED KEEPS ITS SHAPE INSTEAD OF SITTING IN THE TOP QUARTER OF AN EMPTY BOX. SET GROUND LEVEL AFTERWARDS IF YOU WANT A DIFFERENT SPLIT. HEIGHT BUYS HEADROOM RATHER THAN ROOM: PLANTS RARELY CLEAR 200 CELLS AND ROOTS REACH ABOUT 13 ROWS ON THEIR OWN, SO PAST ABOUT 640 YOU ARE MOSTLY PAYING FOR EMPTY AIR. THIS BOX HOLDS {here:.1} MB IN MEMORY AND EVERY CHAMBER ON THE RACK HOLDS ITS OWN. TAKES EFFECT ON REBUILD."));
     bed("lamp_spacing", spec.lamp_spacing as f32, span(8.0, 512.0, 8.0),
         "HOW FAR APART THE LAMPS ARE, IN CELLS. CLOSER IS MORE OF THEM AND A MORE EVENLY LIT BED; THERE IS ALWAYS AT LEAST ONE PER COMPARTMENT, BECAUSE A WALLED-OFF DARK BED IS A SILENT WAY TO KILL A POPULATION. A LAMP'S POOL IS ABOUT 55 COLUMNS, SO PAST THAT THE BED IS LIT IN ISLANDS WITH DARK GROUND BETWEEN. NEARLY FREE -- EIGHT LAMPS COST WHAT ONE COSTS. TAKES EFFECT ON REBUILD.");
     bed("soil_depth", spec.soil_depth as f32, span(8.0, 240.0, 8.0),
@@ -727,6 +757,26 @@ pub fn write(world: &mut World, spec: &mut LabBox, knob: &Knob, value: f32) -> b
 pub fn write_bed(spec: &mut LabBox, field: &str, value: f32) -> bool {
     let v = value.max(0.0).round();
     match field {
+        "width" => spec.width = (v as i32).clamp(MIN_BOX, MAX_BOX),
+        // **`ground_y` rides the height, and that is the whole reason this
+        // arm is not a one-line assignment.** `lab_resolution` records the
+        // trap: left at 160 in a 640-row box the soil sits in the top
+        // quarter and 390 rows are empty void, which reads as a broken bed
+        // rather than a tall one — a scene error wearing a result, and the
+        // owner would meet it the first time they raised this row. Scaling
+        // the surface with the box keeps the proportions whatever the
+        // height, and `ground_y` stays its own row for anyone who wants to
+        // override it afterwards.
+        //
+        // Ratio rather than a remembered offset, so it is idempotent:
+        // writing the same height twice is a multiply by one, which matters
+        // because a sweep writes every setting into a fresh clone of the
+        // same spec.
+        "height" => {
+            let (old, new) = (spec.height.max(1), (v as i32).clamp(MIN_BOX, MAX_BOX));
+            spec.ground_y = (i64::from(spec.ground_y) * i64::from(new) / i64::from(old)) as i32;
+            spec.height = new;
+        }
         "lamp_spacing" => spec.lamp_spacing = v as i32,
         "soil_depth" => spec.soil_depth = v as i32,
         "ground_y" => spec.ground_y = v as i32,
@@ -748,6 +798,8 @@ pub fn write_bed(spec: &mut LabBox, field: &str, value: f32) -> bool {
 /// was asked for.
 pub fn read_bed(spec: &LabBox, field: &str) -> Option<f32> {
     Some(match field {
+        "width" => spec.width as f32,
+        "height" => spec.height as f32,
         "lamp_spacing" => spec.lamp_spacing as f32,
         "soil_depth" => spec.soil_depth as f32,
         "ground_y" => spec.ground_y as f32,
@@ -1288,6 +1340,61 @@ mod tests {
         assert_eq!(field_text("(traits: (0.0, -0.2),)", "traits").as_deref(), Some("(0.0"));
         assert!(field_text("(traits: (0.0, -0.2),)", "traits").unwrap().parse::<f64>().is_err());
         assert_eq!(field_text("(density: 1.3 // heavy\n)", "density").as_deref(), Some("1.3 // heavy"));
+    }
+
+    /// **A taller box keeps its proportions**, which is the one thing a size
+    /// row can get wrong in a way that looks like a broken game.
+    ///
+    /// `lab_resolution` records the trap this guards: at `height=640` with
+    /// `ground_y` left at 160 the soil sits in the top quarter and 390 rows
+    /// are empty void. That is a scene error wearing a result, and now that
+    /// height is a knob the player can turn it is one they would meet on
+    /// their first press rather than one only a harness could reach.
+    ///
+    /// Three claims, because the first alone passes on a writer that simply
+    /// pins `ground_y` to a constant fraction and forgets the box: the
+    /// surface scales, the *soil* is still soil-depth thick under it rather
+    /// than the whole box, and writing the same height twice is a no-op.
+    #[test]
+    fn raising_the_box_raises_the_ground_with_it() {
+        let (_, mut spec) = bed();
+        let (h0, g0) = (spec.height, spec.ground_y);
+        assert!(write_bed(&mut spec, "height", (h0 * 2) as f32));
+        assert_eq!(spec.height, h0 * 2);
+        assert_eq!(
+            spec.ground_y,
+            g0 * 2,
+            "the soil surface must ride the box: {h0} -> {} rows left ground at {}, which is the \
+             top-quarter bed lab_resolution documents",
+            h0 * 2,
+            spec.ground_y
+        );
+        // Depth is its own knob and must NOT have been dragged along.
+        assert_eq!(spec.soil_depth, bed().1.soil_depth, "height must not move the soil depth");
+
+        // Idempotent: a sweep writes every setting into a fresh clone of one
+        // spec, so a second write of the same value must not scale twice.
+        let g = spec.ground_y;
+        assert!(write_bed(&mut spec, "height", (h0 * 2) as f32));
+        assert_eq!(spec.ground_y, g, "writing the same height twice scaled the ground twice");
+
+        // And back down again returns where it started, so the row is not a
+        // ratchet the player cannot undo.
+        assert!(write_bed(&mut spec, "height", h0 as f32));
+        assert_eq!((spec.height, spec.ground_y), (h0, g0));
+    }
+
+    /// The size rows are bounded, because the cost is memory and nothing in
+    /// the engine would refuse a box too large to hold.
+    #[test]
+    fn the_box_size_is_clamped_at_both_ends() {
+        let (_, mut spec) = bed();
+        assert!(write_bed(&mut spec, "width", 1.0));
+        assert_eq!(spec.width, MIN_BOX, "a tiny width must clamp, not build a box with no room in it");
+        assert!(write_bed(&mut spec, "width", 999_999.0));
+        assert_eq!(spec.width, MAX_BOX, "an unbounded width would let the rack exhaust the machine");
+        assert_eq!(read_bed(&spec, "width"), Some(MAX_BOX as f32), "width must read back through the same table");
+        assert_eq!(read_bed(&spec, "height"), Some(spec.height as f32));
     }
 
     /// The bed's rows change the spec and nothing else — a rebuild is what

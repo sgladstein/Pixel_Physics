@@ -499,22 +499,32 @@ pub enum Tool {
 /// Every tool **that has a cell on the bar**, in bar order. One list, so the
 /// row, the key table and the tests cannot disagree about what exists.
 ///
-/// **Two of them are deliberately not in it, for opposite reasons.**
-/// [`Tool::Release`] came off because its verb moved to the page that already
-/// knows what it means (`PLACE`, on the rack), which is the owner's own
-/// ruling; see that variant. [`Tool::Wall`] was never on it, because the bar
-/// was measured **full** when the wall verb landed -- 1 px of slack on row 0
-/// and 0 on row 1 at the tightest of the three spacings `layout` tries, with
-/// `the_bar_fits_the_screen_and_no_two_widgets_overlap` saying so immediately
-/// when a ninth cell was tried.
+/// [`Tool::Release`] is deliberately not in it: its verb moved to the page
+/// that already knows what it means (`PLACE`, on the rack), which is the
+/// owner's own ruling; see that variant.
 ///
-/// **That constraint has since gone, and giving the wall a face is still the
-/// owner's call rather than this file's.** Dropping `KEEP` and `FREE` freed
-/// two cells, so there is now room; but which verb earns a bar cell, and
-/// whether the wall's key moves onto the run when it gets one, are
-/// proportions the owner chose by eye. Flagged rather than forced -- squeezing
-/// a control in is how the overlapping columns on the rack page happened.
-pub const TOOLS: [Tool; 6] = [Tool::Look, Tool::Plant, Tool::Colony, Tool::Cull, Tool::Soil, Tool::Water];
+/// **[`Tool::Wall`] is here now, and the history is worth keeping because it
+/// is a measurement rather than a preference.** The bar was measured *full*
+/// when the wall verb landed -- 1 px of slack on row 0 and 0 on row 1 at the
+/// tightest of the three spacings `layout` tries, with
+/// `the_bar_fits_the_screen_and_no_two_widgets_overlap` refusing a ninth cell
+/// immediately. So the verb shipped reachable only by its key, and whether it
+/// earned a cell was left to the owner rather than forced -- squeezing a
+/// control in is how the overlapping columns on the rack page happened.
+/// Dropping `KEEP` and `FREE` freed two cells and the owner called it
+/// (2026-09-01), so the wall became the seventh.
+///
+/// **The bar is full again at seven, and that is measured rather than
+/// assumed.** The obvious reading of "dropping two cells made room for one"
+/// is that a spare cell is left over; it is not. Putting an eighth back
+/// fails `the_bar_fits_the_screen_and_no_two_widgets_overlap` exactly as a
+/// ninth did before -- the freed width did not all go to the tool row, and
+/// `WALL` is not the width of the `KEEP` it replaced. So the rule that
+/// applied at eight applies unchanged at seven: **run the fit guard before
+/// assuming the next lab control has anywhere to live**, and expect it to
+/// say no.
+pub const TOOLS: [Tool; 7] =
+    [Tool::Look, Tool::Plant, Tool::Colony, Tool::Cull, Tool::Soil, Tool::Water, Tool::Wall];
 
 impl Tool {
     pub fn label(self) -> &'static str {
