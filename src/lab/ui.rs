@@ -1758,10 +1758,19 @@ impl Ui {
             // shovelful rather than a grain, which is what makes the first
             // stroke read as a verb.
             brush: 6,
-            // `STATE`, not `LIFE`: the group that moves while the box runs is
-            // what a player opened the page to watch, and `Default`'s own 0
-            // would land them on three rows that never change.
-            specimen_section: 1,
+            // **`WORDS`, and this reverses an argued decision.** It used to
+            // be `STATE` -- the group that moves while the box runs, and what
+            // a player opened the page to watch -- against `Default`'s own 0,
+            // which was then `LIFE`, three rows that never change.
+            //
+            // `WORDS` is now 0, and it answers the question the page is most
+            // often opened with: *what kind of thing is this*. The old
+            // reasoning still holds for the second page you open and every
+            // one after, and it does not have to be paid for -- the field is
+            // sticky, so one click on `STATE` puts every later page there and
+            // leaves it there. Defaulting to the summary costs a returning
+            // player one click and costs a new one nothing.
+            specimen_section: 0,
             ..Self::default()
         }
     }
@@ -5065,9 +5074,9 @@ impl Ui {
 ///   a `Powder` it is *dry*), so this goes through `update::liquid_fill` for
 ///   the first rather than reading `aux` and getting it backwards;
 /// - the organism owning the cell, and its whole-body energy.
-/// **The hover readout, docked clear of whatever is already parked there.**
 ///
-/// `avoid` is the cell page's rectangle, when one is open. Both want the
+/// **It docks clear of whatever is already parked there.** `avoid` is the
+/// cell page's rectangle, when one is open. Both want the
 /// top-left -- the readout at a fixed `HOVER_TOP`, the page anchored at
 /// `MARGIN` when no panel is open -- and until the roster landed they were
 /// rarely both up, because opening the cell page took a deliberate click on
@@ -6374,19 +6383,36 @@ mod tests {
             let mut world = world();
             let species = world.species.id_of(name).unwrap_or_else(|| panic!("{name} must be a loaded species"));
             let id = world.push_organism(species).expect("a fresh world has organism slots free");
+            // **Give the animal the brain its species ships with.**
+            // `push_organism` allocates the slot; `place_creature` is what
+            // normally fills the genome in, and this test does not go through
+            // it. Without this the ant's `WORDS` group reads `NO BRAIN YET`
+            // and is seven rows instead of fourteen -- so the page fits, the
+            // fold never fires, and the guard is measuring a specimen no
+            // player will ever open a page on.
+            let species_genome = world.species.get(species).genome.clone();
+            world.organism_mut(id).expect("just pushed").genome = species_genome;
             let shoot = world.species.get(species).shoot_material.clone();
             let material = world.materials.id_of(&shoot).unwrap_or_else(|| panic!("{name}'s shoot material {shoot} must be loaded"));
             world.set(10, 10, crate::sim::cell::Cell::new(material, 0).with_organism_id(id));
             let ui = Ui::new();
 
-            // The positive control, and it is the whole reason the plant arm
+            // The positive control, and it is the whole reason either arm
             // means anything: laid out flat this page has to be too tall, or
             // a fold that did nothing would pass.
             let sections = params::specimen_sections(&world, id);
-            assert_eq!(sections.len(), 3, "{name}: every kingdom gets the same three groups");
+            assert_eq!(sections.len(), 4, "{name}: every kingdom gets the same four groups");
+            assert_eq!(sections[0].0, "WORDS", "{name}: the summary leads, and `Ui::new` defaults to index 0");
+            assert!(!sections[0].2.is_empty(), "{name}: the summary group is empty, so the page would draw a heading over nothing");
             let flat = 5 * LINE + 4 + sections.len() as i32 * (LINE + 4) + sections.iter().map(|(_, _, r)| r.len() as i32 * LINE).sum::<i32>();
+            // **Both kingdoms overflow now, where only the plant did.** The
+            // `WORDS` group added eight to fourteen rows, so the fold is
+            // load-bearing on an ant's page too -- and this stays an equality
+            // against a literal rather than becoming `assert!(over)`, so that
+            // a future change making either page fit flat fails here and says
+            // the fold has stopped being tested, instead of passing quietly.
             let over = flat > page_content_budget();
-            assert_eq!(over, kingdom == "plant", "{name}: flat page is {flat}px against a {}px budget -- the fold is being tested against the wrong kingdom", page_content_budget());
+            assert!(over, "{name}: flat page is {flat}px against a {}px budget -- it fits without folding, so the fold is not being tested at all", page_content_budget());
 
             let rows = ui.inspect_rows(&world, (10, 10));
             for anchor in [0, 200, W as i32 - 10] {
@@ -6403,14 +6429,20 @@ mod tests {
                 !rows.iter().any(|row| matches!(&row.body, Body::Value { value, .. } if value.ends_with("MORE"))),
                 "the {kingdom} cell page fits only because rows were dropped"
             );
+            // **Both kingdoms fold now**, where only the plant did before:
+            // the `WORDS` group adds eight to fourteen rows and neither page
+            // holds all four groups at once. What matters is not how many are
+            // shut but that the page fits *because* it folded rather than
+            // because rows were trimmed, which the assertion above checks.
             let shut = rows.iter().filter(|row| matches!(row.body, Body::Head { open: false, .. })).count();
-            assert_eq!(shut, if kingdom == "plant" { 1 } else { 0 }, "{name}: wrong number of groups folded away");
+            assert!(shut >= 1, "{name}: nothing folded, so the fold is not being tested on this kingdom");
+            assert!(shut < sections.len(), "{name}: every group is shut, so the page shows no rows at all");
 
             // **A click opens what it says, whichever group it is.** The half
             // the fit assertions cannot reach: a rule that served the groups
             // strictly from the top would fit the page perfectly and ignore
             // the player, and every assertion above would still be green.
-            for chosen in 0..3 {
+            for chosen in 0..4 {
                 let mut ui = Ui::new();
                 ui.show_specimen_section(chosen);
                 let heads: Vec<bool> = ui
@@ -6421,7 +6453,7 @@ mod tests {
                         _ => None,
                     })
                     .collect();
-                assert_eq!(heads.len(), 3, "{name}: the page lost a group heading");
+                assert_eq!(heads.len(), 4, "{name}: the page lost a group heading");
                 assert!(heads[chosen], "{name}: clicking group {chosen} did not open it");
             }
         }
