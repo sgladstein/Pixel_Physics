@@ -149,6 +149,12 @@ fn main() {
     // Done from the example rather than as a `LabBox` knob because a scene
     // the harness can turn off is still the game's scene, where a second
     // builder would not be.
+    // `loadfail=0` is the lab's own COLLAPSE UNDER LOAD row, reachable
+    // headlessly -- it is a setting rather than an ablation, so unlike
+    // `BEND`/`BREAK` it has no `env::var` and nothing could measure it.
+    if let Some(v) = arg::<i32>("loadfail") {
+        world.plant_load_failure = v != 0;
+    }
     if arg::<i32>("lamps") == Some(0) {
         for cx in spec.lamps_in(&world) {
             spec.remove_lamp(&mut world, cx);
@@ -282,6 +288,25 @@ fn main() {
                 })
                 .collect();
             println!("            founders (cells): {}", founder_line.join(" "));
+            // **Why a stand is shrinking, split by the mechanism that did
+            // it.** A plant census says the stand got smaller and cannot say
+            // which rule took it -- and they want opposite responses. Owner,
+            // 2026-09-01: *"I turned COLLAPSE UNDER LOAD off, but trees are
+            // still falling over"*, which is exactly the question a pooled
+            // count cannot answer. `snapped` and `over span` are the two the
+            // switch governs; `severed` folds in limbs that simply lost their
+            // anchor, which it deliberately does not.
+            let f = world.structural_failures;
+            println!(
+                "            felling: snapped under load {:>4} | severed by support check {:>4} ({:>3} of them alive) | leaned {:>4} | shed {:>4} | rotted {:>4} | load rule {}",
+                f.snapped_under_load,
+                f.severed_organism_cells,
+                f.severed_living_cells,
+                f.bends_applied,
+                world.shed_shade + world.shed_drought + world.shed_stranded,
+                world.rotted_to_nothing + world.rotted_onward,
+                if world.plant_load_failure { "ON" } else { "OFF" },
+            );
             tiles.push(buf);
             next += 1;
         }

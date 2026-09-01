@@ -53,12 +53,12 @@ whole, then run `python3 scripts/readmetoc.py`.
 | [Felling status — the verb works, and what it produces is pieces](#felling-status--the-verb-works-and-what-it-produces-is-pieces) | 3746 |
 | [Bending status — soft tissue lies over, and the wind is what pushes it](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) | 3983 |
 | [Breaking status — a badly grown tree comes down on its own](#breaking-status--a-badly-grown-tree-comes-down-on-its-own) | 4060 |
-| [Lab lighting status — the fixtures are what light the crop](#lab-lighting-status--the-fixtures-are-what-light-the-crop) | 4209 |
-| [Specimen shelf status — an individual's genetics outlive the box](#specimen-shelf-status--an-individuals-genetics-outlive-the-box) | 4271 |
-| [Performance](#performance) | 4333 |
-| [World speed — five independent time axes](#world-speed--five-independent-time-axes) | 4530 |
-| [Status](#status) | 4613 |
-| [License](#license) | 4724 |
+| [Lab lighting status — the fixtures are what light the crop](#lab-lighting-status--the-fixtures-are-what-light-the-crop) | 4253 |
+| [Specimen shelf status — an individual's genetics outlive the box](#specimen-shelf-status--an-individuals-genetics-outlive-the-box) | 4315 |
+| [Performance](#performance) | 4377 |
+| [World speed — five independent time axes](#world-speed--five-independent-time-axes) | 4574 |
+| [Status](#status) | 4657 |
+| [License](#license) | 4768 |
 
 ### Milestones, in numeric order
 
@@ -92,7 +92,7 @@ them is named "plants". A section can appear twice; felling is honestly both
 plant work and structural work.
 
 **Known limitations for every topic are collected in one place**:
-[Status](#status), line 4613 — the *last* section in the
+[Status](#status), line 4657 — the *last* section in the
 file, not the first. Read it before concluding something is broken.
 
 **Which game a topic belongs to** is the third column. `engine` is shared
@@ -103,22 +103,22 @@ about what you may read.
 
 | Topic | Game | Sections, primary first |
 |---|---|---|
-| **plants, trees and moss** | engine | [M16 status](#m16-status) 1593, [Plant lines merged](#plant-lines-merged-the-genome-and-the-ecology) 1221, [Inheritance status](#inheritance-status--the-growth-program-has-no-fallback-under-it) 3571, [The economy re-derived](#the-economy-re-derived-standing-tissue-costs-something) 1343, [Plants that stop](#plants-that-stop-organs-determinacy-and-a-price-on-both) 1525, [The generation loop](#the-generation-loop-plants-die-seeds-expire-slots-come-back) 1291, [Stems draw a line](#stems-draw-a-line-the-growth-walk-renders-its-heading) 1443, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 3746, [Bending status](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) 3983, [Breaking status](#breaking-status--a-badly-grown-tree-comes-down-on-its-own) 4060, [Specimen shelf status](#specimen-shelf-status--an-individuals-genetics-outlive-the-box) 4271 |
-| **creatures — worms and the ant colony** | engine | [M18 status](#m18-status) 2006, [The ant colony](#the-ant-colony--status) 3213, [Specimen shelf status](#specimen-shelf-status--an-individuals-genetics-outlive-the-box) 4271 |
+| **plants, trees and moss** | engine | [M16 status](#m16-status) 1593, [Plant lines merged](#plant-lines-merged-the-genome-and-the-ecology) 1221, [Inheritance status](#inheritance-status--the-growth-program-has-no-fallback-under-it) 3571, [The economy re-derived](#the-economy-re-derived-standing-tissue-costs-something) 1343, [Plants that stop](#plants-that-stop-organs-determinacy-and-a-price-on-both) 1525, [The generation loop](#the-generation-loop-plants-die-seeds-expire-slots-come-back) 1291, [Stems draw a line](#stems-draw-a-line-the-growth-walk-renders-its-heading) 1443, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 3746, [Bending status](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) 3983, [Breaking status](#breaking-status--a-badly-grown-tree-comes-down-on-its-own) 4060, [Specimen shelf status](#specimen-shelf-status--an-individuals-genetics-outlive-the-box) 4315 |
+| **creatures — worms and the ant colony** | engine | [M18 status](#m18-status) 2006, [The ant colony](#the-ant-colony--status) 3213, [Specimen shelf status](#specimen-shelf-status--an-individuals-genetics-outlive-the-box) 4315 |
 | **structural collapse, felling and rigid bodies** | outdoor | [M17 status](#m17-status) 1779, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 3746, [Bending status](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) 3983, [Breaking status](#breaking-status--a-badly-grown-tree-comes-down-on-its-own) 4060, [M8 status](#m8-status--started-not-complete) 2473 |
 | **fire, heat and phase change** | engine | [M14 status](#m14-status) 808, [Materials](#materials) 235 |
 | **explosions, particles and debris** | outdoor | [M15 status](#m15-status) 985, [M7 status](#m7-status) 956 |
 | **liquids and gases** | engine | [Liquid physics](#liquid-physics-compressible-volume-not-discrete-occupied-cells) 782, [The coarse field grid](#the-coarse-field-grid) 493 |
 | **powders and granular flow** | engine | [Materials](#materials) 235, [Architecture](#architecture) 309 |
-| **the coarse field grid — pressure, heat, light** | engine | [The coarse field grid](#the-coarse-field-grid) 493, [M12/M13 status](#m12m13-status) 755, [Lab lighting status](#lab-lighting-status--the-fixtures-are-what-light-the-crop) 4209 |
+| **the coarse field grid — pressure, heat, light** | engine | [The coarse field grid](#the-coarse-field-grid) 493, [M12/M13 status](#m12m13-status) 755, [Lab lighting status](#lab-lighting-status--the-fixtures-are-what-light-the-crop) 4253 |
 | **worldgen and world structure** | outdoor | [M10 status](#m10-status--the-worldgen-half) 3026, [Architecture](#architecture) 309 |
 | **the gnome (player character)** | outdoor | [M9 status](#m9-status--the-gnome) 2586, [Controls](#controls) 169 |
-| **weather, sky and the clock** | engine | [Weather status](#weather-status) 3196, [M19 status](#m19-status--started) 3674, [World speed](#world-speed--five-independent-time-axes) 4530 |
+| **weather, sky and the clock** | engine | [Weather status](#weather-status) 3196, [M19 status](#m19-status--started) 3674, [World speed](#world-speed--five-independent-time-axes) 4574 |
 | **rendering, UI and tunables** | engine | [UI improvements](#ui-improvements--overnight-run-section-9) 2340, [Live tunables panel](#live-tunables-panel--overnight-run-section-10) 2385, [Rendering performance](#rendering-performance--overnight-run-section-11) 2453, [M6 deferral](#m6-deferral) 1116 |
-| **performance and the parallel sweep** | engine | [Performance](#performance) 4333, [M5 status](#m5-status) 1126, [Architecture](#architecture) 309, [Rendering performance](#rendering-performance--overnight-run-section-11) 2453 |
+| **performance and the parallel sweep** | engine | [Performance](#performance) 4377, [M5 status](#m5-status) 1126, [Architecture](#architecture) 309, [Rendering performance](#rendering-performance--overnight-run-section-11) 2453 |
 | **materials and the data schema** | engine | [Materials](#materials) 235, [M12/M13 status](#m12m13-status) 755 |
-| **the evolution lab — the box and its lights** | lab | [Lab lighting status](#lab-lighting-status--the-fixtures-are-what-light-the-crop) 4209 |
-| **keeping, cloning and mutating an individual** | lab | [Specimen shelf status](#specimen-shelf-status--an-individuals-genetics-outlive-the-box) 4271 |
+| **the evolution lab — the box and its lights** | lab | [Lab lighting status](#lab-lighting-status--the-fixtures-are-what-light-the-crop) 4253 |
+| **keeping, cloning and mutating an individual** | lab | [Specimen shelf status](#specimen-shelf-status--an-individuals-genetics-outlive-the-box) 4315 |
 
 <!-- END GENERATED TOC -->
 
@@ -4186,25 +4186,69 @@ unchanged beside this one. Play-facing:
 **And it is now switchable while the box runs.** Owner request, 2026-08-31:
 *"create an option for me to turn off plant/tree collapse due to
 mechanics/bending stress."* `World::plant_load_failure` is an `ON`/`OFF` row
-at the top of the lab parameters panel's `PLANT` page, and it switches **both**
-rules that take a plant apart under load — this one and
-`structural::organism_structural_tick`'s `over_span` branch — because a player
-watching a trunk fail cannot tell the two apart and what they see either way is
-a tree coming down under its own weight.
+at the top of the lab parameters panel's `PLANT` page.
 
-Three things about it are deliberate. **Detachment is not switched with them**:
-a cell whose support distance is `u16::MAX` is not overloaded, it is no longer
-attached to anything reaching the ground, and it must still fall or felling and
-culling would leave crowns hanging in the air. **It survives `REBUILD`**, which
+**It was scoped to the two load rules and that made it useless — the owner
+found this in play the next day, and the widening is the interesting part of
+the entry.** As shipped it switched this rule and
+`structural::organism_structural_tick`'s `over_span` branch, on the reasoning
+that a player watching a trunk fail cannot tell the two apart. Detachment was
+deliberately exempt, argued at length: a cell at `u16::MAX` is not overloaded,
+it is no longer attached to anything reaching the ground, and exempting it is
+what stops felling leaving crowns in the air. Sound, and wrong about where the
+plants were actually dying. Owner, 2026-09-01: *"I turned COLLAPSE UNDER LOAD
+off, but trees are still falling over."*
+
+Measured on the lab bed with `examples/labshot founders=8 colonies=1
+frames=0,20000`, one binary, the arms switched at run time:
+
+| `plant_load_failure` | severed by the support check | of those, **alive** | standing plant cells | standing flower / fruit |
+|---|---|---|---|---|
+| on | 683 | **654** | 1,935 | 0 / 1 |
+| off (as shipped) | 683 | 654 | 1,935 | 0 / 1 |
+| off (now) | 31 | **0** | **2,923** | **8 / 11** |
+
+`snapped under load` reads a flat **0** on that bed, so the switch had nothing
+to turn off: every plant coming down was coming down through the *detached*
+branch. It now covers that branch too, and the stand it leaves standing is 51%
+bigger. **The flower and fruit column is the one that says what it is worth**:
+plants that stop being demolished mid-life get far enough along to reproduce,
+where before the bed was carrying one standing fruit at frame 20,000. `rotted`
+rises with it (927 → 1,025), which is the same fact from the other side — a
+plant that is not felled gets to die of something instead.
+
+**What keeps felling working is a liveness test rather than the exemption.**
+Only a **living** organism is held; a senescent one comes apart exactly as
+before, so culling, rot, the gnome's axe and `scripts/acceptance.sh`'s `fell`
+case are untouched — and those are every way a plant is *meant* to come down.
+The default is `on`, so the outdoor game sees none of it.
+
+**This is a control, not a repair, and it is filed as such.** What it masks is
+a real defect — a living plant in the lab that never had anchorage marks its
+own cells `u16::MAX`, schedules its own structural check through
+`plant::anchor_support`, and is felled whole, at pieces up to 75 cells with
+`anchors 0`. `Reports/open-bugs-handoff.md` §B2 has the traces, the two
+repairs that measured nothing, and the two candidate fixes.
+
+Two smaller things are deliberate. **It survives `REBUILD`**, which
 `Lab::reset` carries explicitly — a rebuild returns a fresh `World` at its
 defaults, and `REBUILD` is exactly what a player presses in the middle of the
 experiment the switch was set for. And it is a field on the world rather than a
 third `env::var`: `BEND=off` and `BREAK=off` are `OnceLock`s read once per
-process and stay what they are — measurement instruments, not settings. Guards:
-`the_load_failure_switch_holds_a_plant_that_would_otherwise_snap` and
-`the_load_failure_switch_stops_the_span_rule_and_not_severing`, the second of
-which has three arms so that a null is the switch rather than a scene that was
-never going to break.
+process and stay what they are — measurement instruments, not settings.
+
+Guards: `the_load_failure_switch_holds_a_plant_that_would_otherwise_snap`,
+`the_load_failure_switch_stops_the_span_rule_and_not_severing`, and
+`the_load_failure_switch_holds_a_living_plant_that_lost_its_anchor_and_not_a_dead_one`.
+Each carries a positive control so that a null is the switch rather than a
+scene that was never going to break, and all three were **watched going red**
+against a `detached` branch stubbed out. The third one asserts detachment by
+writing `u16::MAX` into `OrganismCell::support` rather than growing it: two
+drafts that grew a beam and cut its footing both measured the plant economy
+instead — a hand-built beam has no vital cell, is senescent by frame 100, and
+is then carried off by `rot_remains` without `anchor_support` ever raising its
+support at all, which is green with severing deleted. The test says so at
+length.
 
 ## Lab lighting status — the fixtures are what light the crop
 
