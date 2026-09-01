@@ -73,6 +73,26 @@ pub struct LabBox {
     pub species: String,
     /// Ant colonies to found, spread across the bed.
     pub colonies: usize,
+    /// **How many animals each colony is founded with.**
+    ///
+    /// Fifty-two by default, which is `creature::COLONY_ANTS` and is Grassé's
+    /// threshold in practice — below about fifty a colony *looks* broken even
+    /// when the code is right. That is a good default and it was a bad
+    /// constant: the bed already exposes `founders` (how many plants) and
+    /// `colonies` (how many nests) as things a player sets, so the one number
+    /// that says how big a population starts was the only one out of reach.
+    /// It is the first independent variable a selection experiment in this
+    /// bed wants.
+    pub colony_ants: i32,
+    /// **Which species a colony is founded from.**
+    ///
+    /// `ant` by default. It was a string literal inside `found_colony`, and
+    /// `Reports/dead-ends.md` names that literal as what stands between this
+    /// bed and a re-test already measured to work — a plant-specialist gut
+    /// clears Gate 0 outright, and the reason it was reverted is that it
+    /// narrows *the ant* off carrion against a standing owner verdict. A
+    /// second species carries the specialist gut without touching the ant.
+    pub colony_species: String,
     /// **Beetles to release, spread across the bed the same way.**
     ///
     /// Zero by default, and that is not timidity: a predator is the one
@@ -219,6 +239,8 @@ impl Default for LabBox {
             founders: 8,
             species: "herb".to_string(),
             colonies: 1,
+            colony_ants: crate::sim::creature::COLONY_ANTS,
+            colony_species: "ant".to_string(),
             // **Zero, so the shipped bed is bit-identical to the one before
             // this field existed.** Every measurement anyone has taken in
             // this box was taken unhunted, and a default of 1 would silently
@@ -729,7 +751,7 @@ impl LabBox {
         }
         let mut ants = 0usize;
         for x in self.colony_columns() {
-            ants += w.found_colony(x, self.ground_y - 2);
+            ants += w.found_colony_of(x, self.ground_y - 2, &self.colony_species, self.colony_ants);
         }
         // **Predators last, so they are placed into a bed that already has
         // its prey and its plants in it.** `plant_creature_seed` refuses a

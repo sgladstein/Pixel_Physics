@@ -494,6 +494,28 @@ pub enum Tool {
     /// Drop a wall, floor to ceiling, in the column you click. Click a wall
     /// you placed to take it out again.
     Wall,
+    /// **Put food on the ground.** Paints `windfall` — the fruit a herb drops
+    /// — which falls, piles at its own angle of repose and rots back into
+    /// soil, so a heap you paint is food that behaves like food rather than a
+    /// permanent fixture.
+    ///
+    /// **This is the box's control arm as much as it is a verb.** `wiki/
+    /// ants.md` records the two arms plainly: put food on the ground beside a
+    /// nest and a colony breeds **thirteen generations deep**; leave the same
+    /// colony to forage the sealed bed and it picks food up sixteen hundred
+    /// times and brings it home four. **The one intervention that separates
+    /// those two runs was the one thing the lab could not do**, so no
+    /// measurement in this bed could tell "the foraging is broken" from "the
+    /// economy is broken". Now it can.
+    ///
+    /// **Off the bar, like `Wall` and `Release`, and this was measured rather
+    /// than assumed.** `PIXEL_PHYSICS_BAR_TRACE` on the shipped layout reports
+    /// **row 0 slack 0 and row 1 slack 0** — both rows sit at exactly 508 of
+    /// 508 — so there is no seventh tool cell at any spacing `layout` tries.
+    /// `Reports/dead-ends.md` carries three earlier attempts at fitting one.
+    /// The key is in `HELP`, marked `(NO BUTTON)`, which is the pattern `K`
+    /// already set.
+    Food,
 }
 
 /// Every tool **that has a cell on the bar**, in bar order. One list, so the
@@ -526,6 +548,7 @@ impl Tool {
             Tool::Soil => "SOIL",
             Tool::Water => "WATER",
             Tool::Wall => "WALL",
+            Tool::Food => "FOOD",
             // Never drawn on the bar -- this is what the notice says while it
             // is armed, so it is the verb rather than the old `FREE`: what it
             // does now is put the jar you picked *somewhere*.
@@ -551,13 +574,20 @@ impl Tool {
             // that is not in the row the rule is about, and the wall's `K` is
             // a key players have already been given.
             Tool::Wall => "K",
+            // **`E`, and the bottom-row run had nothing left to give.** The
+            // run is `Z X C V B N`; its next two keys are already spoken for
+            // — `M` keeps the inspected individual and `,` places a jar — and
+            // `F` and `G` are the display rate and the shelf. So this joins
+            // `K` off the run, for the reason `K` states: a tool with no bar
+            // cell is not in the row the positional rule is about.
+            Tool::Food => "E",
         }
     }
     /// Whether this tool paints continuously while the button is held. The
     /// verbs are one-shot — a drag that founded a colony per pixel would empty
     /// the organism table in one gesture.
     pub fn is_brush(self) -> bool {
-        matches!(self, Tool::Soil | Tool::Water)
+        matches!(self, Tool::Soil | Tool::Water | Tool::Food)
     }
     fn note(self) -> &'static str {
         match self {
@@ -568,6 +598,7 @@ impl Tool {
             Tool::Soil => "PAINT SOIL, AT FIELD CAPACITY -- DAMP ENOUGH FOR A ROOT, NOT SO WET IT SLUMPS. IT WILL NOT PAINT OVER STONE OR OVER A LIVING PLANT.",
             Tool::Water => "PAINT WATER, FULL. IT RUNS, IT SOAKS INTO SOIL, AND TOO MUCH OF IT DROWNS ROOTS -- WHICH IS AN EXPERIMENT, NOT A MISTAKE.",
             Tool::Wall => "DROP A WALL FLOOR TO CEILING IN THE COLUMN YOU CLICK, OR CLICK ONE YOU PLACED TO TAKE IT OUT. A WALL IS WHAT MAKES TWO POPULATIONS IN ONE BOX INTO TWO POPULATIONS: THEY CANNOT MIX, SO THEY CAN DRIFT APART. IT CUTS WHATEVER IS IN THE WAY, WHICH IS THE POINT -- A WALL THROUGH A STAND IS A STAND SPLIT IN HALF. IT SURVIVES A REBUILD.",
+            Tool::Food => "PUT FOOD ON THE GROUND WHERE YOU PAINT. IT IS WINDFALL -- THE FRUIT A HERB DROPS -- SO IT FALLS, PILES UP AND ROTS BACK INTO THE SOIL RATHER THAN SITTING THERE FOR EVER. A COLONY WITH FOOD BESIDE THE NEST BREEDS HARD; THE SAME COLONY LEFT TO FORAGE THE SEALED BED MOSTLY DOES NOT. THIS IS HOW YOU TELL THOSE TWO APART.",
             Tool::Release => "PUT THE ARMED JAR BACK IN THE BOX WHERE YOU CLICK. AT 0 BROODS IT IS THAT EXACT INDIVIDUAL AGAIN; AT 1 IT IS AS DIFFERENT AS ITS OWN CHILD WOULD HAVE BEEN, AND SO ON UP. OPEN THE SHELF WITH G TO PICK A JAR AND SET THE DIAL.",
         }
     }
