@@ -1,0 +1,53 @@
+{
+  "id": "20260901T003804194Z-589a1a",
+  "created": "2026-09-01T00:38:04Z",
+  "board": "creatures",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/evolution-lab-mechanics-o7i3xm",
+    "commit": "5b9abf0",
+    "agent": null,
+    "session_id": "b7a8dc92-eedb-5ab7-8809-1f18a9b21417",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The floating dirt, checked -- it was real and it is gone",
+  "question": "Does the spoil read as a heap of dug-out dirt in front of the face now, or is there still something wrong with it?",
+  "context_md": "You were right, and it was worse than a blemish. Counted properly -- pieces of ground with **no path down to the floor**, not just cells with a gap under them -- the old build had 2 to 6 such pieces and mine had **26 to 38**. Ten times, and mine.\n\n**Why it happened.** Spoil an ant puts down is cemented, the way it cements a tunnel wall, and cemented ground is the one thing in this world that does not fall -- that is the whole reason a tunnel stands. So anything that later dug out from under a pellet stranded it there permanently.\n\n**Three things fixed it.** An ant now only puts a pellet somewhere it could actually lie: something solid under it, not balanced on a single cell, and open sky over it. Cemented ground that ends up touching almost nothing goes back to being loose dirt and falls -- grains pressed together need something to be pressed *against*. And when there is nowhere beside it that will do, the ant carries the pellet out of the burrow.\n\n**And I owe you a correction.** Finding this showed that the nest sizes I quoted you were too generous, on *both* sides. The counter asks \"is there ground somewhere above this hole\" -- and a few crumbs hanging in the sky were answering yes for everything underneath them. With them gone, today's build measures 110 and 83 where I told you 197 and 179, and my build measures 17 and 20 where I told you 54 and 58. So the honest gap is bigger than I said, and it is worst in the lab's flat bed: an ant digging straight down keeps coming back up to put something down, so it drives shallower workings. On a bank it is much closer -- 69/95/62/66 against 132/115/100/134 over four seeds.\n\nStill exact on the thing you asked for: nothing leaves the world.",
+  "kind": "ab",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A -- what you saw",
+      "files": [
+        "20260901T003804194Z-589a1a/000-card-keep.png"
+      ],
+      "caption": "spoil stranded wherever it was left",
+      "meta": {
+        "pieces of ground hanging in the air": 38,
+        "cells in them": 58
+      },
+      "focus": null
+    },
+    {
+      "label": "B -- now",
+      "files": [
+        "20260901T003804194Z-589a1a/001-after.png"
+      ],
+      "caption": "same bank, same seed, same 8,000 frames",
+      "meta": {
+        "pieces of ground hanging in the air": 1,
+        "cells in them": 1,
+        "cells of ground gone from the world": 0
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
