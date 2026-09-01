@@ -143,7 +143,24 @@ pub struct TimeControl {
     /// the number by exactly the quantity Gate 3 is about.
     pub achieved: f32,
     /// Displayed frames per second of real time. See [`DISPLAY_RATES`].
+    ///
+    /// **Derived from the dial, not set beside it** — see
+    /// [`TimeControl::set_display_floor`]. Held as a field rather than
+    /// recomputed on every read so that a harness can still pin it outright
+    /// (`set_display_hz`) and sweep the rate against a fixed multiplier,
+    /// which is what `examples/labdial.rs mode=rate` does.
     display_hz: u32,
+    /// **The lowest displayed frame rate the dial may fall to** — the
+    /// player's setting, and the only half of the display rate they set
+    /// directly.
+    ///
+    /// Owner, 2026-09-01: *"minimum framerate at speedup should be an
+    /// adjustable setting. Probably require 60hz for 1-4x but we can reduce
+    /// that above 4x."* [`AUTO_DISPLAY`] is the first half of that sentence
+    /// and this is the second: at `60` the dial never drops a frame and the
+    /// lab behaves exactly as it did before this existed, and at `10` the
+    /// ladder runs all the way down.
+    display_floor: u32,
     /// Simulated time owed and not yet run. See the module note.
     sim_debt: Duration,
     /// Real time since the last displayed frame.
@@ -247,6 +264,7 @@ impl TimeControl {
             requested: 1,
             achieved: 1.0,
             display_hz: DISPLAY_RATES[0],
+            display_floor: DEFAULT_DISPLAY_FLOOR,
             sim_debt: Duration::ZERO,
             display_accum: Duration::ZERO,
             drawing: true,
@@ -466,12 +484,29 @@ impl TimeControl {
             let stopped = [235u8, 185, 90, 255];
             lines.push(("PAUSED - NOTHING IS TICKING".to_string(), stopped));
             lines.push((format!("SPACE RUNS THE BOX AT {}X", self.requested), white));
+            // **The setting is named where the player is standing when they
+            // set it.** A paused box is the bench, and the floor is the one
+            // number on this readout they change rather than read.
+            lines.push((
+                format!(
+                    "F - MIN {}HZ, SO {}X DRAWS AT {}HZ",
+                    self.display_floor,
+                    self.requested,
+                    auto_display_hz(self.requested).max(self.display_floor),
+                ),
+                grey,
+            ));
             lines.push((format!("FRAME {frame} - HELD"), grey));
             return lines;
         }
         lines.push((format!("RUNNING - ASKED {}X", self.requested), white));
         lines.push((
-            format!("GOT {:.1}X AT {}HZ", self.achieved.max(0.0), self.display_hz),
+            format!(
+                "GOT {:.1}X AT {}HZ - MIN {}HZ",
+                self.achieved.max(0.0),
+                self.display_hz,
+                self.display_floor,
+            ),
             white,
         ));
         lines.push((format!("SIM {} PER REAL SECOND", sim_per_second(self.achieved)), grey));
@@ -551,7 +586,54 @@ pub const PRESETS: [u32; 7] = [1, 2, 4, 16, 64, 256, 1024];
 /// it eats 7% and the tick multiplier roughly triples."* 10 Hz is included
 /// because the top of the dial is already far past the crossover, and a
 /// player watching a fast-forward is not watching for smoothness.
+///
+/// **Gate 3's "roughly triples" is wrong, and the correction is the reason
+/// this ladder stops at 10.** Measured in the shipped bed 2026-09-01
+/// (`Reports/evolution-lab-frame-cost-2026-09-01.md`): a tick costs 7.3 ms
+/// against a 4.7 ms draw, so 60 Hz spends 28% of the wall clock drawing and
+/// 10 Hz spends 4.5% — the whole ladder is worth about **1.3x**, not 3x, and
+/// the last rung of it is worth 5%. The tick is what the dial is short of;
+/// the draw is a rounding error beside it. Do not extend this downwards
+/// expecting more.
 pub const DISPLAY_RATES: [u32; 4] = [60, 30, 20, 10];
+
+/// **What display rate each speed asks for**, as `(up to this multiplier, at
+/// this rate)`, and the reason the player no longer has to hold the two
+/// halves of the dial in their head at once.
+///
+/// Owner, 2026-09-01: *"Probably require 60hz for 1-4x but we can reduce that
+/// above 4x."* That sentence is this table. It is a *request*: the effective
+/// rate is this floored by [`TimeControl::display_floor`], so a player who
+/// wants smoothness back sets the floor to 60 and the table stops mattering.
+///
+/// **The first row is deliberately more conservative than the measurement
+/// allows.** [`MOTION_TICKS_PER_FRAME`] is 12, so motion reads on this box up
+/// to 12x at 60 Hz, not 4x — a rung at `(12, 60)` would lose nothing visible.
+/// 4 is the owner's own number and it is theirs to move; what the crossover
+/// says is that moving it *up* costs nothing, which is written down here so
+/// the next session does not have to re-derive it.
+///
+/// The last entry must be unbounded, and
+/// `the_auto_ladder_covers_every_preset` is what says so.
+pub const AUTO_DISPLAY: [(u32, u32); 4] = [(4, 60), (16, 30), (64, 20), (u32::MAX, 10)];
+
+/// Where [`TimeControl::display_floor`] starts.
+///
+/// **The bottom of the ladder, not the top**, so the auto rates above are in
+/// force out of the box — which is what the owner asked for. Setting it to
+/// `DISPLAY_RATES[0]` restores the pre-2026-09-01 behaviour exactly: a
+/// permanent 60 Hz at every stop on the dial.
+pub const DEFAULT_DISPLAY_FLOOR: u32 = DISPLAY_RATES[DISPLAY_RATES.len() - 1];
+
+/// The display rate [`AUTO_DISPLAY`] asks for at a given multiplier, before
+/// the player's floor is applied.
+pub fn auto_display_hz(requested: u32) -> u32 {
+    AUTO_DISPLAY
+        .iter()
+        .find(|(upto, _)| requested <= *upto)
+        .map(|(_, hz)| *hz)
+        .unwrap_or(DISPLAY_RATES[0])
+}
 
 impl TimeControl {
     pub fn toggle_phase(&mut self) {
@@ -582,17 +664,54 @@ impl TimeControl {
         // coherent while that phase ran at 1x and is not now: a player asking
         // for real time would have got a frozen box. See `Phase`.
         self.phase = Phase::Running;
-        self.reset_pacing();
+        // **The rate follows the dial.** Without this the player would have
+        // to set two things to get one outcome, which is the complaint that
+        // produced `AUTO_DISPLAY`: they press 1024x and the box keeps paying
+        // for 60 drawn frames a second that nobody is reading as motion.
+        self.apply_auto_rate();
     }
 
-    /// Step through [`DISPLAY_RATES`], wrapping.
-    pub fn cycle_display_rate(&mut self) {
-        let i = DISPLAY_RATES.iter().position(|r| *r == self.display_hz).unwrap_or(0);
-        self.set_display_hz(DISPLAY_RATES[(i + 1) % DISPLAY_RATES.len()]);
+    /// Step the **floor** through [`DISPLAY_RATES`], wrapping.
+    ///
+    /// This used to step the display rate itself, and the change of what one
+    /// key does is the whole of the 2026-09-01 dial work: the rate is now the
+    /// dial's business ([`AUTO_DISPLAY`]) and the floor is the player's.
+    /// Pressing it repeatedly still walks 60 -> 30 -> 20 -> 10 -> 60, and at
+    /// the top of that walk the lab is exactly as it shipped.
+    pub fn cycle_display_floor(&mut self) {
+        let i = DISPLAY_RATES.iter().position(|r| *r == self.display_floor).unwrap_or(0);
+        self.set_display_floor(DISPLAY_RATES[(i + 1) % DISPLAY_RATES.len()]);
     }
 
-    /// Set the display rate directly. Clamped rather than asserted, so a
-    /// harness sweeping it cannot stall the loop with a zero.
+    /// The lowest displayed frame rate the dial may fall to.
+    pub fn display_floor(&self) -> u32 {
+        self.display_floor
+    }
+
+    /// Set the floor and re-derive the rate from it. Clamped rather than
+    /// asserted, so a harness sweeping it cannot stall the loop with a zero.
+    pub fn set_display_floor(&mut self, hz: u32) {
+        self.display_floor = hz.clamp(1, 240);
+        self.apply_auto_rate();
+    }
+
+    /// Take the display rate from the dial and the floor.
+    ///
+    /// Called wherever `requested` or the floor moves, and **nowhere else**:
+    /// a rate recomputed inside `plan` would move with the multiplier
+    /// mid-second and the display would visibly stutter as the dial settled.
+    fn apply_auto_rate(&mut self) {
+        self.set_display_hz(auto_display_hz(self.requested).max(self.display_floor));
+    }
+
+    /// Set the display rate directly, overriding the ladder until the dial
+    /// next moves.
+    ///
+    /// **For harnesses**, which is why it survived the floor becoming the
+    /// player-facing control: `examples/labdial.rs mode=rate` sweeps the rate
+    /// against a fixed multiplier, which is precisely the pair the ladder
+    /// couples. It calls `set_preset` and then this, in that order, and that
+    /// order is now load-bearing.
     pub fn set_display_hz(&mut self, hz: u32) {
         self.display_hz = hz.clamp(1, 240);
         self.display_accum = Duration::ZERO;
@@ -833,11 +952,21 @@ mod tests {
             "debt {:?} exceeded the one-frame ceiling {ceiling:?}",
             t.sim_debt
         );
-        // One displayed frame at 1024x and 60 Hz is 1,024 ticks. Eight real
-        // seconds of an unbounded debt would be asking for 8 * 60 * 1024.
+        // **The bound is one displayed frame's worth, derived rather than
+        // written down.** It used to be the literal 1200, from "one displayed
+        // frame at 1024x and 60 Hz is 1,024 ticks" — which stopped being the
+        // rate this preset runs at the moment `AUTO_DISPLAY` landed and the
+        // top of the dial began drawing at 10 Hz. The invariant never moved;
+        // only the operand did, and a literal cannot say which.
+        //
+        // Still sensitive by a wide margin: eight real seconds of an
+        // unbounded debt asks for `8 * display_hz * ticks_per_frame`, which
+        // is two orders of magnitude past this.
+        let one_frame = TICKS_PER_SECOND * t.multiple() / t.display_hz();
         assert!(
-            peak <= 1200,
-            "the request grew to {peak} ticks a frame, which is a banked backlog"
+            peak <= one_frame + one_frame / 5,
+            "the request grew to {peak} ticks a frame against one frame's {one_frame}, \
+             which is a banked backlog"
         );
     }
 
@@ -1052,16 +1181,72 @@ mod tests {
     }
 
     #[test]
-    fn the_display_rate_cycles_and_clamps() {
+    fn the_display_floor_cycles_and_clamps() {
         let mut t = TimeControl::new();
-        assert_eq!(t.display_hz(), 60);
+        assert_eq!(t.display_floor(), DEFAULT_DISPLAY_FLOOR);
+        t.set_display_floor(60);
         for expected in [30, 20, 10, 60] {
-            t.cycle_display_rate();
-            assert_eq!(t.display_hz(), expected);
+            t.cycle_display_floor();
+            assert_eq!(t.display_floor(), expected);
         }
         t.set_display_hz(0);
         assert!(t.display_hz() >= 1, "a zero display rate would stall the loop");
         assert!(!t.display_interval().is_zero());
+    }
+
+    /// **The owner's sentence, as a test.** *"Probably require 60hz for 1-4x
+    /// but we can reduce that above 4x."*
+    #[test]
+    fn the_dial_picks_the_display_rate_and_the_floor_wins() {
+        let mut t = TimeControl::new();
+        for (preset, expected) in PRESETS.iter().zip([60, 60, 60, 30, 20, 10, 10]) {
+            t.requested = *preset;
+            t.apply_auto_rate();
+            assert_eq!(
+                t.display_hz(),
+                expected,
+                "{preset}x should draw at {expected} Hz at the default floor"
+            );
+        }
+        // A floor of 60 is the pre-2026-09-01 lab exactly: every stop draws
+        // at 60 Hz and the ladder never fires.
+        t.set_display_floor(60);
+        for preset in PRESETS {
+            t.requested = preset;
+            t.apply_auto_rate();
+            assert_eq!(t.display_hz(), 60, "a 60 Hz floor must hold at {preset}x");
+        }
+    }
+
+    /// The last rung must be unbounded, or a multiplier past it falls through
+    /// to the fallback and silently draws at 60 Hz — the exact case the
+    /// ladder exists for.
+    #[test]
+    fn the_auto_ladder_covers_every_preset() {
+        assert_eq!(AUTO_DISPLAY.last().expect("a ladder").0, u32::MAX);
+        for preset in PRESETS {
+            assert!(
+                DISPLAY_RATES.contains(&auto_display_hz(preset)),
+                "{preset}x asks for a rate that is not on the ladder"
+            );
+        }
+        assert_eq!(auto_display_hz(u32::MAX), 10);
+    }
+
+    /// Pressing a number row must not need a second keypress to be honoured.
+    #[test]
+    fn moving_the_dial_moves_the_display_rate() {
+        let mut t = TimeControl::new();
+        t.set_preset(0);
+        assert_eq!(t.display_hz(), 60, "1x is real time and draws every frame");
+        t.set_preset(PRESETS.len() - 1);
+        assert_eq!(t.display_hz(), 10, "the top of the dial drops to the floor");
+        t.set_preset(4); // 64x, the last rung above the floor
+        assert_eq!(t.display_hz(), 20, "64x is the 20 Hz rung");
+        t.faster();
+        assert_eq!(t.display_hz(), 10, "256x is past the last rung");
+        t.slower();
+        assert_eq!(t.display_hz(), 20);
     }
 
     #[test]

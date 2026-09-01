@@ -4559,8 +4559,20 @@ impl World {
         coords
     }
 
+    /// A chunk's sideways reach — see [`Chunk::reach`]. `None` for a chunk
+    /// that does not exist.
+    pub fn chunk_reach(&self, coord: ChunkCoord) -> Option<i32> {
+        self.chunks.get(&coord).map(|c| c.reach())
+    }
+
     pub fn sweep_region(&self, coord: ChunkCoord) -> Option<Rect> {
         self.chunks.get(&coord).and_then(|c| c.sweep_region())
+    }
+
+    /// [`Chunk::sweep_plan`] — the same region with the per-row spans that
+    /// narrow it. What both drivers actually sweep.
+    pub fn sweep_plan(&self, coord: ChunkCoord) -> Option<crate::sim::chunk::SweepPlan> {
+        self.chunks.get(&coord).and_then(|c| c.sweep_plan())
     }
 
     pub fn chunk(&self, coord: ChunkCoord) -> Option<&Chunk> {

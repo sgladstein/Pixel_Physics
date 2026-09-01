@@ -115,6 +115,7 @@ GAME = {
     "materials and the data schema": "engine",
     "the evolution lab — the box and its lights": "lab",
     "putting things in the box, and what the view shows": "lab",
+    "the speed dial, and what a tick costs": "lab",
     # `lab`, though `sim::specimen` is engine code and the sandbox could
     # perfectly well call it: the tag says which *game builds a scene that
     # reaches it*, and only the lab has the tools. Re-tag `engine` the day the
@@ -202,6 +203,11 @@ TOPICS = {
         "M5 status",
         "Architecture",
         "Rendering performance — overnight run, section 11",
+        # Listed here as well as under its own lab row: it is the only place
+        # in this file that says the CA sweep can be the majority of a frame,
+        # and an agent arriving on "performance" has no reason to look under
+        # a lab heading for it.
+        "Lab speed-dial status — what the dial is actually short of",
     ],
     "materials and the data schema": [
         "Materials",
@@ -236,6 +242,13 @@ TOPICS = {
     # has no reason to look under a lab heading for them.
     "putting things in the box, and what the view shows": [
         "Lab hand-verbs status — what a click puts in the box, and what the view shows",
+    ],
+    # **What the speed dial costs, which is not what anyone assumed.** Its own
+    # row rather than a line under "the box and its lights", because the
+    # question it answers -- why a dial set to 1024x delivers 2x -- is the one
+    # the owner actually asks, and it routes to a *frame*, not to a fixture.
+    "the speed dial, and what a tick costs": [
+        "Lab speed-dial status — what the dial is actually short of",
     ],
 }
 

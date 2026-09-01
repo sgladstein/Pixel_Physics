@@ -235,6 +235,35 @@ pub struct Chunk {
     /// chunk still needs its one immediate neighbour re-examined when
     /// something adjacent changes.
     reach: i32,
+    /// **The same dirty marks, one x-span per row instead of one rect for
+    /// the whole chunk** — and the reason the sweep is a third of the size it
+    /// used to be.
+    ///
+    /// `dirty` is a *bounding box*, so two writes at opposite corners of a
+    /// chunk dirty everything between them. Measured in the evolution lab
+    /// 2026-09-01 (`Reports/evolution-lab-frame-cost-2026-09-01.md`): a
+    /// settled bed with eight plants in it changes **447 cells a tick** and
+    /// sweeps **45,442** for them, a ratio of 102 to 1, because the plants'
+    /// roots keep soil moisture moving in scattered single cells all over the
+    /// root zone and every one of them widens a box.
+    ///
+    /// These spans are the union of the marks' own neighbourhoods rather than
+    /// their bounding box, so they are **strictly a subset of `dirty` and
+    /// still a superset of every cell the sweep can act on** — the invariant
+    /// is unchanged, only its shape. **Off by default** —
+    /// `PIXEL_PHYSICS_SWEEP=rows` turns them on; see [`row_spans_enabled`]
+    /// for the measurement and for why a strictly-tighter region is still a
+    /// behaviour change here.
+    ///
+    /// Indexed by **local row + 1**, so index 0 is the row above the chunk
+    /// and index `CHUNK_SIZE + 1` the row below: a mark one row outside still
+    /// constrains the chunk's own edge row, exactly as `expanded_xy(_, 1)`
+    /// does for the box. Values are **world** x, unclipped — `reach` is not
+    /// known when a mark is made and can grow afterwards, so clipping happens
+    /// where the box's does, in `sweep_plan`. A span with `min > max` is
+    /// empty, which is how a row says "nothing here".
+    dirty_rows: [(i16, i16); SPAN_ROWS],
+    pending_rows: [(i16, i16); SPAN_ROWS],
     /// Whether this chunk currently holds any `Liquid`-kind cell.
     ///
     /// Tracked exactly like `reach` above and for the same reasons: grown
@@ -250,6 +279,110 @@ pub struct Chunk {
     has_liquid: bool,
 }
 
+/// Rows a chunk keeps a dirty span for: its own, plus one either side. See
+/// [`Chunk::dirty_rows`].
+const SPAN_ROWS: usize = CHUNK_SIZE as usize + 2;
+
+/// An empty span. `min > max`, so every consumer's `min <= max` test rejects
+/// it without a second flag.
+const NO_SPAN: (i16, i16) = (i16::MAX, i16::MIN);
+
+/// Spans store **world** x in an `i16`, so a world wider than this would
+/// silently wrap them. 32,767 cells is 64x the lab bed and 4x the outdoor
+/// world's 8,192; the assertion is here so M10's streaming does not discover
+/// it as a wrong-cells bug.
+const SPAN_MAX_WORLD: i32 = i16::MAX as i32;
+
+/// Every row of a chunk marked dirty end to end — what `new` and `wake` mean
+/// by "the whole chunk".
+fn full_rows(coord: ChunkCoord) -> [(i16, i16); SPAN_ROWS] {
+    let b = coord.bounds();
+    let mut rows = [NO_SPAN; SPAN_ROWS];
+    // Only the chunk's own rows: the two outriggers exist to carry marks made
+    // *outside* the chunk, and waking a chunk makes none.
+    for r in rows.iter_mut().skip(1).take(CHUNK_SIZE as usize) {
+        *r = (b.min_x as i16, b.max_x as i16);
+    }
+    rows
+}
+
+/// Whether the sweep uses the per-row spans or the old bounding box.
+/// `PIXEL_PHYSICS_SWEEP=rows` turns the spans on; anything else is the
+/// bounding box the engine has always used.
+///
+/// **An A/B inside one binary**, the shape `CLAUDE.md` asks for whenever two
+/// arms have to be compared on a box that is not quiet: `crumb_rule`'s own
+/// reasoning, and the reason the `relax_region` night ended in a measurement
+/// rather than an argument.
+///
+/// # Why this is off by default, which is the part to read before turning it on
+///
+/// The spans are **not** a free optimisation, and the reason generalises past
+/// this switch: **the CA sweep's random draws are consumed per visited cell,
+/// not per cell that acts.** `update_liquid` and `update_powder` each open
+/// with `surface.rng().flip()`, on every visit, whether or not anything
+/// moves. So *any* narrowing of the swept region — however provably it only
+/// removes cells no rule could have acted on — shifts the per-chunk RNG
+/// stream and therefore every pile, front and stand downstream of it. This is
+/// the `sort_unstable` tie-order gotcha in another costume: the free-looking
+/// half of the trade does not exist.
+///
+/// Measured 2026-09-01 in the evolution lab, paired, three runs a side:
+/// the CA sweep **3.67 -> 2.67 ms** and the whole tick **6.51 -> 5.49 ms**,
+/// ranges not overlapping. And two guards go red, both from the stream shift
+/// rather than from a lost cell: `frame_step_matches_the_sequence_app_update_
+/// ran_before_extraction` holds a hash taken on `origin/main`, and
+/// `a_determinate_species_terminates_its_axes_in_organs_and_an_indeterminate_
+/// one_does_not` asserts an organ is standing at one instant 30,000 frames in,
+/// which a phase shift moves.
+///
+/// **1.19x does not buy a change to how every pile in the world lands**, so
+/// this ships as the instrument that measured it rather than as the default.
+/// What would: seeding the per-cell draw from position and frame instead of a
+/// per-chunk stream, after which sweep-region work becomes free and is worth
+/// up to 3x of this phase (`est_rows` in `examples/labperf.rs`). Full account
+/// in `Reports/evolution-lab-frame-cost-2026-09-01.md`.
+///
+/// Read once per process through a `OnceLock` and consulted once per chunk
+/// per pass, never per cell.
+fn row_spans_enabled() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_SWEEP").as_deref() == Ok("rows"))
+}
+
+/// One chunk's sweep, row by row.
+///
+/// Carries the bounding box **as well as** the spans, deliberately: the box
+/// is what `parallel.rs`'s write-disjointness proof is stated against and
+/// what every existing caller of `sweep_region` reads, and it must stay the
+/// same rect it always was. The spans only ever narrow what is walked
+/// *inside* it.
+#[derive(Clone, Copy)]
+pub struct SweepPlan {
+    /// Exactly `Chunk::sweep_region`'s rect.
+    pub bounds: Rect,
+    /// Per row of `bounds`, the inclusive world-x span to visit. Indexed by
+    /// `y - bounds.min_y`.
+    rows: [(i16, i16); SPAN_ROWS],
+}
+
+impl SweepPlan {
+    /// The x span to sweep on world row `y`, or `None` when that row has
+    /// nothing to do. Rows outside `bounds` always answer `None`.
+    #[inline]
+    pub fn row(&self, y: i32) -> Option<(i32, i32)> {
+        if y < self.bounds.min_y || y > self.bounds.max_y {
+            return None;
+        }
+        let i = (y - self.bounds.min_y) as usize;
+        let (min, max) = self.rows[i];
+        if min > max {
+            return None;
+        }
+        Some((min as i32, max as i32))
+    }
+}
+
 impl Chunk {
     pub fn new(coord: ChunkCoord) -> Self {
         Self {
@@ -259,6 +392,10 @@ impl Chunk {
             // sweep; generated terrain may need to settle immediately.
             dirty: Some(coord.bounds()),
             pending_dirty: None,
+            // A new chunk is fully dirty on both representations, or the
+            // spans would narrow away the one sweep generated terrain needs.
+            dirty_rows: full_rows(coord),
+            pending_rows: [NO_SPAN; SPAN_ROWS],
             rng: Rng::new(seed_from_coord(coord)),
             reach: 1,
             has_liquid: false,
@@ -321,6 +458,28 @@ impl Chunk {
             Some(r) => r.include(x, y),
             None => self.pending_dirty = Some(Rect::point(x, y)),
         }
+        // The same mark, kept per row. A mark more than one row outside the
+        // chunk cannot reach it — the box expands by exactly one row — so it
+        // is dropped here rather than clamped, which is the whole of the
+        // narrowing in the vertical direction.
+        let ly = y - self.coord.bounds().min_y;
+        if !(-1..=CHUNK_SIZE).contains(&ly) {
+            return;
+        }
+        let span = &mut self.pending_rows[(ly + 1) as usize];
+        let x = x.clamp(-SPAN_MAX_WORLD, SPAN_MAX_WORLD) as i16;
+        span.0 = span.0.min(x);
+        span.1 = span.1.max(x);
+    }
+
+    /// The furthest any material resident in this chunk can move sideways in
+    /// one tick, capped at `MAX_REACH`. Exposed because it is the multiplier
+    /// on [`Self::sweep_region`]'s horizontal expansion, and therefore half
+    /// of the answer to "why is this chunk sweeping 1,600 cells for twenty
+    /// writes" — a question no instrument could ask from outside before.
+    #[inline]
+    pub fn reach(&self) -> i32 {
+        self.reach
     }
 
     /// The region this sweep should examine, clipped to the chunk.
@@ -335,6 +494,61 @@ impl Chunk {
         self.dirty?
             .expanded_xy(self.reach, 1)
             .intersection(self.coord.bounds())
+    }
+
+    /// The same region as [`Self::sweep_region`], with the per-row spans that
+    /// narrow it.
+    ///
+    /// **The bounding rect is unchanged and is still the answer to "could
+    /// this chunk write anywhere outside itself"** — every safety argument in
+    /// `parallel.rs` rests on that rect and none of them is weakened here.
+    /// What the spans change is only which cells inside it are walked.
+    ///
+    /// Each row's span is the union of the marks on that row and the two
+    /// beside it, expanded by `reach` sideways and clipped to the chunk. That
+    /// is exactly `expanded_xy(reach, 1)` applied per mark instead of to
+    /// their bounding box — the same rule, not a looser one — so a cell is
+    /// visited iff something within its own reach changed, which is the
+    /// contract `sweep_region`'s doc states.
+    pub fn sweep_plan(&self) -> Option<SweepPlan> {
+        let bounds = self.sweep_region()?;
+        let mut rows = [NO_SPAN; SPAN_ROWS];
+        if !row_spans_enabled() {
+            // The old behaviour, exactly: every row of the box, end to end.
+            for r in rows.iter_mut().take((bounds.max_y - bounds.min_y + 1) as usize) {
+                *r = (bounds.min_x as i16, bounds.max_x as i16);
+            }
+            return Some(SweepPlan { bounds, rows });
+        }
+        let reach = self.reach;
+        let chunk = self.coord.bounds();
+        for y in bounds.min_y..=bounds.max_y {
+            let ly = y - chunk.min_y;
+            // The marks on this row and the two beside it — the vertical
+            // half of the box's `expanded_xy(_, 1)`.
+            let mut min = i32::MAX;
+            let mut max = i32::MIN;
+            for d in -1..=1 {
+                let i = ly + d + 1;
+                if !(0..SPAN_ROWS as i32).contains(&i) {
+                    continue;
+                }
+                let (lo, hi) = self.dirty_rows[i as usize];
+                if lo <= hi {
+                    min = min.min(lo as i32);
+                    max = max.max(hi as i32);
+                }
+            }
+            if min > max {
+                continue;
+            }
+            let lo = (min - reach).max(bounds.min_x);
+            let hi = (max + reach).min(bounds.max_x);
+            if lo <= hi {
+                rows[(y - bounds.min_y) as usize] = (lo as i16, hi as i16);
+            }
+        }
+        Some(SweepPlan { bounds, rows })
     }
 
     /// True when this chunk has nothing to sweep and can be skipped.
@@ -375,6 +589,7 @@ impl Chunk {
     /// Promote writes made during this sweep into the region for the next one.
     pub fn end_sweep(&mut self) {
         self.dirty = self.pending_dirty.take();
+        self.dirty_rows = std::mem::replace(&mut self.pending_rows, [NO_SPAN; SPAN_ROWS]);
     }
 
     /// Recompute `reach` from scratch by scanning every resident cell —
@@ -394,6 +609,7 @@ impl Chunk {
     /// Force the whole chunk to be examined on the next sweep.
     pub fn wake(&mut self) {
         self.dirty = Some(self.coord.bounds());
+        self.dirty_rows = full_rows(self.coord);
     }
 
     pub fn cells(&self) -> &[Cell] {

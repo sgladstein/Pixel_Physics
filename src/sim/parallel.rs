@@ -80,7 +80,9 @@ use std::collections::HashMap;
 use rayon::prelude::*;
 
 use super::cell::Cell;
-use super::chunk::{Chunk, ChunkCoord, Rect, CHUNK_SIZE, MAX_REACH};
+use super::chunk::{Chunk, ChunkCoord, SweepPlan, CHUNK_SIZE, MAX_REACH};
+#[cfg(test)]
+use super::chunk::Rect;
 use super::field::{self, FieldTile, FIELD_SCALE};
 use super::material::{MaterialKind, MaterialRegistry};
 use super::rng::Rng;
@@ -197,15 +199,20 @@ fn run_pass(world: &mut World, coords: &[ChunkCoord], rightward: bool) {
     // discarding a chunk here would drop it from `world.chunks` forever.
     // `a_chunk_touched_only_by_a_neighbours_dirty_mark_is_never_lost`
     // covers that.
-    let mut owned: Vec<(ChunkCoord, Chunk, FieldTile, Rect)> = Vec::with_capacity(coords.len());
+    let mut owned: Vec<(ChunkCoord, Chunk, FieldTile, SweepPlan)> =
+        Vec::with_capacity(coords.len());
     for &coord in coords {
         let Some(chunk) = world.take_chunk(coord) else {
             continue;
         };
-        match chunk.sweep_region() {
-            Some(region) => {
+        // `sweep_plan` is `sweep_region` plus the per-row spans inside it
+        // (`chunk.rs`), and it answers `None` in exactly the same case — a
+        // chunk whose dirty mark cannot expand back into its own bounds. The
+        // `None` arm's contract below is therefore unchanged.
+        match chunk.sweep_plan() {
+            Some(plan) => {
                 let field = world.take_field(coord).unwrap_or_else(FieldTile::new);
-                owned.push((coord, chunk, field, region));
+                owned.push((coord, chunk, field, plan));
             }
             None => world.put_chunk(coord, chunk),
         }
@@ -214,9 +221,9 @@ fn run_pass(world: &mut World, coords: &[ChunkCoord], rightward: bool) {
     let shared: &World = world;
     let outcomes: Vec<ChunkOutcome> = owned
         .into_par_iter()
-        .map(|(coord, chunk, field, region)| {
+        .map(|(coord, chunk, field, plan)| {
             let mut view = ChunkView::new(coord, chunk, field, shared);
-            update::sweep(&mut view, region, rightward);
+            update::sweep_planned(&mut view, &plan, rightward);
             view.into_outcome()
         })
         .collect();
