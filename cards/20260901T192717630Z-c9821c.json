@@ -1,0 +1,42 @@
+{
+  "id": "20260901T192717630Z-c9821c",
+  "created": "2026-09-01T19:27:17Z",
+  "board": "lab",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/evolution-lab-fixes-dzo88x",
+    "commit": "3a28ed97",
+    "agent": null,
+    "session_id": "92aa2762-ab98-505e-8943-881c0cc86430",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Zoom out stops at the box",
+  "question": "At the widest zoom, does the box fill the screen the way you wanted -- and does the step from row 0 to row 1 land where you were looking?",
+  "context_md": "Your report: *\"you can currently zoom out farther than the lab fullscreen, making the lab small in the corner and everything else is just black... Also when you zoom, the screen should stay centered where it is.\"*\n\nOne box, 1024x640, same camera start in both columns. **Left** is the control the lab used to call (the sandbox's, written for a world no zoom step can overrun). **Right** is the new one: it derives its limit from the box's own height every time it is called, so it follows the height knob on the parameters page instead of a number written down anywhere.\n\nRead across a row rather than down. VOID is how much of the screen is outside the box; MID is the world cell in the middle of the screen, which is what \"stay centered\" means.\n\nWhat I am unsure about: at the widest step the box is centred in the screen, so MID moves 40 cells sideways on the first step out (552 -> 512). That is the box centring itself once it fits, and there is only one legal view at that point -- but it is a small jump you may not want.",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "before / after, one row per zoom-out step",
+      "files": [
+        "20260901T192717630Z-c9821c/000-labzoom-1024.png"
+      ],
+      "caption": "1024x640 box, 3000 frames, 8 founders and a colony",
+      "meta": {
+        "screen outside the box, widest step, before": "87%",
+        "screen outside the box, widest step, after": "0%",
+        "zoom-out steps offered, before": 3,
+        "zoom-out steps offered, after": 1
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
