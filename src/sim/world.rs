@@ -1306,6 +1306,51 @@ pub struct World {
     /// currently under consideration for `deadwood`. Read the pair as
     /// `rotted_to_solid - rotted_onward` for "reached the end of the chain".
     pub rotted_onward: u32,
+    /// **Soil water destroyed by being overwritten**, in `SOIL_SATURATED`
+    /// units -- a diagnostic at the one seam every writer goes through.
+    ///
+    /// A cell that holds soil moisture and is replaced by a material that
+    /// cannot hold water loses whatever it held, silently, unless the caller
+    /// hands it on first. Three such leaks have already been found and fixed
+    /// this way (`plant.rs`'s root uptake and `displace_soil_water`,
+    /// `evaporation`'s vapour routing), and a full water ledger over the lab
+    /// says at least one more remains: with plants, 501,832 fill goes missing
+    /// over 150,000 frames; with `founders=0` the same ledger closes to zero.
+    ///
+    /// At the write seam rather than at a list of callers, for this file's
+    /// own recorded reason -- *"an enumeration that has to stay complete is
+    /// the failure mode this project keeps rediscovering"*. Every creation
+    /// and removal path writes through `set`, so hooking the write is
+    /// complete by construction, where auditing the eight placement sites in
+    /// `plant.rs` by eye is not.
+    ///
+    /// **Zero is the correct reading**, and a caller that legitimately moves
+    /// the water hands it on before writing, so it never reaches here.
+    pub water_overwritten: u64,
+    /// The same, split by **what replaced the soil**, keyed on the new
+    /// material's id. A bare total cannot name a culprit -- it counts the
+    /// legitimate writes too (scene construction, soil turning into standing
+    /// water) and over-reports the real loss several-fold. The histogram
+    /// does name one, without enumerating callers.
+    pub water_overwritten_by: std::collections::HashMap<u16, u64>,
+    /// Water **arriving** by the same seam: a cell that could not hold water
+    /// replaced by one that does, carrying moisture with it.
+    ///
+    /// This is what makes the counter above readable. A powder *moving* one
+    /// cell writes EMPTY at the source and the moist cell at the destination,
+    /// so the raw overwrite count charges every falling grain of soil as a
+    /// leak. Netting the two cancels movement exactly and leaves only water
+    /// that genuinely arrived from, or vanished into, nowhere.
+    pub water_written: u64,
+    /// Net soil moisture change across writes that keep the cell able to
+    /// hold water -- the **in-place** channel, which the two counters above
+    /// are blind to by construction.
+    ///
+    /// This is where an uncredited sink has to live once material-change
+    /// writes are shown to conserve. Capillary and drainage both move water
+    /// between two cells and so net to zero here; a function that lowers a
+    /// cell's `aux` and books the difference nowhere does not.
+    pub water_in_place: i64,
     /// Leaves shed by the graded shade pressure (`tree.ron`'s
     /// `shade_death`), the upstream half of §O's decay count. Split by
     /// *cause* for the same reason the decay counters are split by rate:
@@ -2244,6 +2289,10 @@ impl World {
             rotted_to_solid: 0,
             rotted_to_nothing: 0,
             rotted_onward: 0,
+            water_overwritten: 0,
+            water_overwritten_by: std::collections::HashMap::new(),
+            water_written: 0,
+            water_in_place: 0,
             shed_shade: 0,
             shed_drought: 0,
             shed_stranded: 0,
@@ -3938,6 +3987,33 @@ impl World {
         // before this was folded into a single lookup).
         if old.managed() {
             self.demote_body_at(x, y);
+        }
+        // **Water destroyed by this write**, counted at the seam for the same
+        // reason `managed()` above is -- see `water_overwritten`. Reuses
+        // `write_cell`'s returned `old` rather than reading the cell again,
+        // like every other check here, and is guarded on the cheap half
+        // first: almost every write in the engine replaces something that
+        // held no water at all, so the common case costs one `Vec` index and
+        // a compare.
+        let old_capacity = self.materials.get(old.material).water_capacity;
+        let new_capacity = self.materials.get(cell.material).water_capacity;
+        if old_capacity > 0 && new_capacity == 0 {
+            let held = crate::sim::update::soil_moisture(old);
+            if held > 0 {
+                self.water_overwritten += u64::from(held);
+                *self.water_overwritten_by.entry(cell.material.0).or_insert(0) += u64::from(held);
+            }
+        } else if old_capacity == 0 && new_capacity > 0 {
+            let arriving = crate::sim::update::soil_moisture(cell);
+            if arriving > 0 {
+                self.water_written += u64::from(arriving);
+            }
+        } else if old_capacity > 0 && new_capacity > 0 {
+            let before = i64::from(crate::sim::update::soil_moisture(old));
+            let after = i64::from(crate::sim::update::soil_moisture(cell));
+            if before != after {
+                self.water_in_place += after - before;
+            }
         }
         // Organism cell bookkeeping, at the same seam and for the same
         // reason `managed()` above is checked here rather than at every

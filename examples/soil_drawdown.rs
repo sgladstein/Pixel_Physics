@@ -287,6 +287,21 @@ fn main() {
                  = {accounted:.0} against {began:.0} at the start -> unaccounted {:.0}",
                 began - accounted
             );
+            let mut by: Vec<(u16, u64)> = w.water_overwritten_by.iter().map(|(k, v)| (*k, *v)).collect();
+            by.sort_by(|a, b| b.1.cmp(&a.1));
+            let named: Vec<String> = by
+                .iter()
+                .take(6)
+                .map(|(m, v)| format!("{} {}", w.materials.get(pixel_physics::sim::material::MaterialId(*m)).name, v))
+                .collect();
+            println!(
+                "           water overwritten {} - arrived {} = NET destroyed {} -- by what replaced it: [{}]",
+                w.water_overwritten,
+                w.water_written,
+                w.water_overwritten as i64 - w.water_written as i64,
+                named.join(", ")
+            );
+            println!("           net soil moisture change from in-place writes: {}", w.water_in_place);
             // **Does the air under the lid actually get humid?**
             //
             // The next repair on the table is condensation -- water the sun
