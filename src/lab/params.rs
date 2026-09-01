@@ -915,10 +915,40 @@ fn field_text(source: &str, field: &str) -> Option<String> {
 /// body traits and a foraging errand, a plant has a genotype, an allele set
 /// and a carbon economy.
 pub fn specimen_rows(world: &World, id: u16) -> Vec<(String, String, String)> {
+    specimen_sections(world, id).into_iter().flat_map(|(_, _, rows)| rows).collect()
+}
+
+/// One specimen readout row: label, value, and the note that explains it.
+pub type SpecimenRow = (String, String, String);
+
+/// One named group of specimen rows: its heading, what the heading means, and
+/// the rows under it.
+pub type SpecimenSection = (&'static str, &'static str, Vec<SpecimenRow>);
+
+/// What each group's heading means, as the page's hover note reads it.
+const LIFE_NOTE: &str = "WHERE THIS INDIVIDUAL CAME FROM AND HOW FAR DOWN THE LINE IT IS. NONE OF IT CHANGES WHILE YOU WATCH -- IT IS SETTLED THE MOMENT THE THING IS BORN.";
+const STATE_NOTE: &str = "HOW IT IS DOING RIGHT NOW. THIS IS THE GROUP THAT MOVES WHILE THE BOX RUNS, AND THE ONE TO HAVE OPEN IF YOU ARE WATCHING SOMETHING GET INTO TROUBLE.";
+const GENOME_NOTE: &str = "WHAT IT WAS DEALT AND CANNOT CHANGE, DRAWN WHEN IT WAS BORN AND CARRIED FOR LIFE. TWO INDIVIDUALS OF ONE SPECIES DIFFER HERE AND NOWHERE ELSE AT BIRTH -- THIS IS WHAT A JAR ON THE SHELF KEEPS.";
+
+/// **The same readout, in the three groups the cell page folds it into.**
+///
+/// `LIFE` is where this individual came from, `STATE` is how it is doing right
+/// now, and `GENOME` is what it was dealt and cannot change. Every kingdom
+/// gets all three, in that order, and a group is never empty — the page draws
+/// one header per group and a missing one would make two species' pages
+/// disagree about which header means what.
+///
+/// **The grouping is here rather than in the page** because it is a statement
+/// about what the numbers *are*, not about how they are drawn: `STATE` is the
+/// block a player watches change while the box runs, and that is the same fact
+/// whether it is folded, scrolled or printed by a harness.
+pub fn specimen_sections(world: &World, id: u16) -> Vec<SpecimenSection> {
     let Some(state) = world.organism_state(id) else { return Vec::new() };
     let species = world.species.get(state.species);
-    let mut rows: Vec<(String, String, String)> = Vec::new();
-    let mut row = |label: &str, value: String, note: &str| rows.push((label.into(), value, note.into()));
+    let mut life: Vec<SpecimenRow> = Vec::new();
+    let mut rows: Vec<SpecimenRow> = Vec::new();
+    let mut genome: Vec<SpecimenRow> = Vec::new();
+    let mut row = |label: &str, value: String, note: &str| life.push((label.into(), value, note.into()));
 
     row("GENERATION", state.generation.to_string(),
         "HOW MANY ANCESTORS BACK TO A FOUNDER. A FOUNDER IS 0. IF THIS NEVER LEAVES 0 OR 1, NOTHING IN THE BOX IS BREEDING, WHICH IS THE ONE THING A POPULATION COUNT CANNOT TELL YOU BY ITSELF.");
@@ -933,14 +963,24 @@ pub fn specimen_rows(world: &World, id: u16) -> Vec<(String, String, String)> {
     row("ORIGIN", if state.stocked { "RELEASED FROM A JAR".into() } else if state.inherited { "BORN HERE".into() } else { "FOUNDER".into() },
         "WHERE THIS INDIVIDUAL CAME FROM. BORN HERE MEANS THE BOX BRED IT. FOUNDER MEANS IT WAS PLACED OUT OF NOTHING. RELEASED FROM A JAR MEANS YOU PUT IT BACK OFF THE SHELF, CARRYING A GENOME YOU KEPT. A BOX WHERE NOTHING EVER SAYS BORN HERE IS A BOX THAT HAS NOT REPRODUCED YET.");
 
+    // A second closure over `rows`, so the borrow of `life` ends here. The
+    // shadowing is deliberate: every `row(...)` below this line files into
+    // `STATE` and every one above it into `LIFE`, which is a good deal harder
+    // to get wrong than a group argument repeated on eighteen call sites.
+    let mut row = |label: &str, value: String, note: &str| rows.push((label.into(), value, note.into()));
+
     // **No energy row here.** The cell block above already prints the
     // organism's whole-body energy, and the same figure twice under one
     // heading reads as two different quantities that happen to agree.
     if species.creature.is_some() {
-        row("GUT BIAS", format!("{:+.3}", state.traits[organism::TRAIT_GUT_BIAS]),
-            "THIS ANIMAL'S OWN DIET, -1 PLANT MATTER TO +1 FLESH. IT IS INHERITED WITH JITTER, SO IT IS NOT THE SPECIES VALUE ON THE ANTS PAGE -- COMPARE THE TWO AND YOU ARE LOOKING AT ONE GENERATION OF DRIFT.");
-        row("BIRTH GRANT", format!("{:+.3}", state.traits[organism::TRAIT_BIRTH_GRANT]),
-            "HOW MUCH THIS ONE WOULD HAND A NEWBORN, AS ITS OWN INHERITED VALUE RATHER THAN THE SPECIES'.");
+        // **The two inherited traits are `GENOME`, not `STATE`**, for the
+        // reason the grouping exists: they are drawn at birth and carried for
+        // life, so they belong with the plant's genotype draws rather than
+        // with the numbers that move while you watch.
+        genome.push(("GUT BIAS".into(), format!("{:+.3}", state.traits[organism::TRAIT_GUT_BIAS]),
+            "THIS ANIMAL'S OWN DIET, -1 PLANT MATTER TO +1 FLESH. IT IS INHERITED WITH JITTER, SO IT IS NOT THE SPECIES VALUE ON THE ANTS PAGE -- COMPARE THE TWO AND YOU ARE LOOKING AT ONE GENERATION OF DRIFT.".into()));
+        genome.push(("BIRTH GRANT".into(), format!("{:+.3}", state.traits[organism::TRAIT_BIRTH_GRANT]),
+            "HOW MUCH THIS ONE WOULD HAND A NEWBORN, AS ITS OWN INHERITED VALUE RATHER THAN THE SPECIES'.".into()));
         row("SINCE NEST", state.since_nest.to_string(),
             "TICKS SINCE IT LAST TOUCHED THE NEST. IT CLIMBS WHILE A FORAGER IS OUT AND RESETS WHEN IT GETS HOME, SO A NUMBER THAT ONLY EVER CLIMBS IS AN ANT THAT IS LOST.");
         row("CROP", match &state.crop {
@@ -950,7 +990,7 @@ pub fn specimen_rows(world: &World, id: u16) -> Vec<(String, String, String)> {
             "WHAT IT IS CARRYING AND HOW MUCH OF IT IS LEFT. THE NUMBER FALLS AS IT WALKS -- AN ANT DIGESTS ITS LOAD ON THE WAY HOME, SO A LONG TRIP DELIVERS LESS THAN A SHORT ONE.");
         row("BODY", state.cells.len().to_string(),
             "HOW MANY CELLS THIS ANIMAL IS. EVERY PER-CELL COST ON THE ANTS PAGE IS MULTIPLIED BY THIS.");
-        return rows;
+        return vec![("LIFE", LIFE_NOTE, life), ("STATE", STATE_NOTE, rows), ("GENOME", GENOME_NOTE, genome)];
     }
 
     row("SHOOT", state.shoot_cells.to_string(),
@@ -982,8 +1022,10 @@ pub fn specimen_rows(world: &World, id: u16) -> Vec<(String, String, String)> {
         "SURPLUS BANKED TOWARD SEED, RATHER THAN SPENT ON GROWTH. IT ACCRUES AND IS CAPPED INSTEAD OF BEING SPENT-OR-LOST, BECAUSE SEED SET FIRES ON A CHANCE AND THE SURPLUS HAS TO STILL BE THERE WHEN THE ROLL LANDS. A PLANT PARKED AT ZERO HERE IS ALIVE AND NOT REPRODUCING, WHICH IN THIS BOX IS THE SAME AS NOT COUNTING.");
     row("SENESCENT", if state.senescent { "YES -- ROTTING".into() } else { "NO".into() },
         "WHETHER IT IS DEAD AND ON ITS WAY OUT. A CULLED PLANT SAYS YES AND KEEPS ITS CELLS UNTIL THEY ROT, WHICH IS WHY A CULL IS GRADED RATHER THAN A DELETION.");
-    row("ALLELES", state.alleles.iter().map(|a| a.to_string()).collect::<Vec<_>>().join("/"),
-        "THE SIX DISCRETE MORPHOLOGY GENES, IN ORDER: LEAF ECONOMY, BRANCH ANGLE, INTERNODE, SYMPODIAL, TROPISM, WOOD DENSITY. THEY ARE CATEGORICAL, NOT SCALAR -- TWO PLANTS THAT DIFFER HERE ARE DIFFERENT SHAPES, NOT THE SAME SHAPE AT DIFFERENT SIZES.");
+    // ...and the borrow of `rows` ends here, for the same reason: from this
+    // line on, everything is `GENOME`.
+    genome.push(("ALLELES".into(), state.alleles.iter().map(|a| a.to_string()).collect::<Vec<_>>().join("/"),
+        "THE SIX DISCRETE MORPHOLOGY GENES, IN ORDER: LEAF ECONOMY, BRANCH ANGLE, INTERNODE, SYMPODIAL, TROPISM, WOOD DENSITY. THEY ARE CATEGORICAL, NOT SCALAR -- TWO PLANTS THAT DIFFER HERE ARE DIFFERENT SHAPES, NOT THE SAME SHAPE AT DIFFERENT SIZES.".into()));
 
     // The continuous genome, **only where the species gives it a width**. A
     // slot whose variance is zero is a draw with no consumer for this species:
@@ -995,13 +1037,13 @@ pub fn specimen_rows(world: &World, id: u16) -> Vec<(String, String, String)> {
             continue;
         }
         let factor = (1.0 + state.genotype_draws[slot] * width).max(0.0);
-        rows.push((
+        genome.push((
             (*label).to_string(),
             format!("X{factor:.2}"),
             format!("THIS INDIVIDUAL'S OWN MULTIPLIER ON ITS SPECIES' {label}, DRAWN WHEN IT GERMINATED AND CARRIED FOR LIFE. 1.00 IS THE SPECIES VALUE; ITS SPECIES ALLOWS UP TO {:.0}% EITHER WAY. THIS IS WHY TWO SEEDS OF ONE SPECIES DO NOT GROW INTO THE SAME PLANT.", width * 100.0),
         ));
     }
-    rows
+    vec![("LIFE", LIFE_NOTE, life), ("STATE", STATE_NOTE, rows), ("GENOME", GENOME_NOTE, genome)]
 }
 
 /// The genome's slot map, as `organism::GENOTYPE_TRAITS`' own doc names it.
