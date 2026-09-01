@@ -98,6 +98,12 @@ fn spec_from_args() -> LabBox {
         soil_depth: arg("soil").unwrap_or(height / 4),
         founders: arg("founders").unwrap_or(8),
         colonies: arg("colonies").unwrap_or(1),
+        // **Not scaled with the box, unlike every length above it.** A count
+        // is not a length: the same fifty-two animals in a box of twice the
+        // area is the resolution question this harness asks, where twice as
+        // many would be a different experiment wearing the same name.
+        colony_ants: arg("ants").unwrap_or(pixel_physics::sim::creature::COLONY_ANTS),
+        colony_species: arg("colony_species").unwrap_or_else(|| "ant".to_string()),
         predators: arg("predators").unwrap_or(0),
         compartments: arg("walls").unwrap_or(1),
         // Scaled with `width` for the same reason `ground_y` and `soil_depth`

@@ -627,7 +627,7 @@ line"* three times. The guide should not pretend to have resolved them.
 | stage | the player's lever |
 |---|---|
 | **opening** | **selection only.** Cull, isolate, breed, set conditions. The environment is the whole lever |
-| **mid** | **mutagens, bought or acquired.** The `mutation_rate` and `FATE_MUTATION_CHANCE` dials already exist as data, so this is equipment that writes a number, not a new system |
+| **mid** | **mutagens, bought or acquired.** The dials exist and this is equipment that writes a number, not a new system. **Corrected 2026-09-01**: this row said they *"already exist as data"*, and for the plant half that was false — `MUTATION_SIGMA` and `FATE_MUTATION_CHANCE` were Rust `const`s, unreachable at runtime, so the tier was cheap for creatures and unbuilt for plants. Both are now runtime dials on the parameters page (`Knob::Heredity`). Deliberately **not** `.ron` fields: species reach the binary through `include_str!`, so a sweep that edits an asset and re-runs a prebuilt harness gets bit-identical runs |
 | **late** | **rare directed splicing — a maybe**, explicitly not committed |
 
 This ordering is worth more than any single option would have been, because

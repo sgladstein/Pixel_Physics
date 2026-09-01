@@ -1553,6 +1553,31 @@ pub struct World {
     /// setting. The lab's parameters panel writes this one; see
     /// `lab::params::Knob::Rule`.
     pub plant_load_failure: bool,
+    /// **How far one of a plant's ten continuous genes may drift in a
+    /// generation** — the mutagen dial, read by `plant::genotype_jitter`.
+    ///
+    /// **A field on the world for `plant_load_failure`'s reason and for one
+    /// more that cost a red CI run.** The owner asked for the mutation rates
+    /// as controls reachable while the box runs, which rules out the
+    /// `OnceLock` the fate rate used. The first attempt made both **process
+    /// globals** in `plant.rs`, and that is wrong here in a way that is worth
+    /// writing down: the panel's own positive control
+    /// (`params::tests::every_writable_parameter_actually_moves`) writes every
+    /// registered row, tests run in parallel, and
+    /// `plant::tests::widening_the_genome_does_not_move_the_breeding_draw_
+    /// sequence` hashes a bred genome — so writing the row changed a sibling
+    /// test's result from another thread. **A tunable that is process-global
+    /// is a hidden argument to every test that reads it.** Per-world, each
+    /// test's bed carries its own and nothing leaks.
+    pub mutation_sigma: f32,
+    /// **The chance a seed is born with one of its parent's fate rules
+    /// changed** — the coarser of the two heredity dials. See
+    /// [`Self::mutation_sigma`] for why it is a field rather than a global.
+    ///
+    /// Seeded from `PIXEL_PHYSICS_FATE_MUTATION_CHANCE` when the world is
+    /// built, so the existing harness override still works and still cannot
+    /// go stale against a prebuilt binary the way a `.ron` field would.
+    pub fate_mutation_chance: f32,
     /// How long a disturbance keeps licensing failures near it, in frames.
     /// Generous by default: a cave-in that arrives a few seconds after you
     /// undermine something is the mechanic, not a bug.
@@ -2292,6 +2317,8 @@ impl World {
             // On, because it is the shipped behaviour and a default that
             // silently disables a mechanism is a mechanism nobody measures.
             plant_load_failure: true,
+            mutation_sigma: super::plant::MUTATION_SIGMA,
+            fate_mutation_chance: super::plant::fate_mutation_chance_seed(),
             chain_window: crate::sim::structural::CHAIN_WINDOW_FRAMES,
             disturbances: std::collections::VecDeque::new(),
             staged_fractures: std::collections::VecDeque::new(),
