@@ -49,6 +49,7 @@ use crate::render;
 use crate::sim::world::World;
 
 use super::params;
+use super::roster;
 use super::scene::LabBox;
 use super::{HEIGHT as H, WIDTH as W};
 
@@ -481,6 +482,29 @@ pub enum Action {
     /// too long clicking + if you want to run a really long experiment"*.
     BatchType(TypedField),
     BatchCopies(i32),
+    /// **Pin one individual from the roster** -- an index into the rows as
+    /// they are currently sorted and filtered, which is what was on screen
+    /// when the click landed.
+    ///
+    /// The index is resolved to an `Individual` *inside the same draw* and
+    /// never stored. `Reports/dead-ends.md` records the shape: any selection
+    /// stored as a position into a list a neighbouring verb rewrites has this
+    /// bug, and a roster is rewritten by every birth, every death and every
+    /// click on a column heading.
+    RosterSelect(usize),
+    /// Scroll the roster by one page, `-1` or `+1`.
+    RosterScroll(i32),
+    /// Sort the roster on one column; clicking the sorted column reverses it.
+    RosterSort(usize),
+    /// Cycle the roster's filter: everything, only what is in trouble, only
+    /// the pinned individual's founding line.
+    RosterFilter,
+    /// Keep the camera on the pinned individual. The other half of the
+    /// marker: a marker says *where it is*, following says *watch this one*,
+    /// and at play zoom an ant is two dark cells.
+    RosterFollow,
+    /// Let the pinned individual go.
+    RosterRelease,
     /// How many ticks each copy runs for, same.
     BatchFrames(i32),
 }
@@ -680,6 +704,25 @@ pub enum Panel {
     /// bar only reach the first five, so this is the page a rack of fifty is
     /// read through.
     Chambers,
+    /// **Every plant in the box, one per row.** Draws itself for `Params`'
+    /// reason and is a [`Panel`] for the same two.
+    ///
+    /// **Reached from the PLANTS page rather than from the bar**, which is
+    /// not a stylistic choice: the bar was measured full on 2026-08-31 and
+    /// again on 2026-09-01 -- row 1 at exactly 508 of 508 px and row 0 with
+    /// two pixels spare, at the tightest spacing `layout` will accept. There
+    /// is no seventh chip. So the aggregate page becomes the cover of the
+    /// roster, and the row that opens it is a `Body::Head`, which already
+    /// carries a hit target and so cost no new painter code.
+    PlantList,
+    /// Every animal in the box, one per row. `PlantList`'s twin.
+    ///
+    /// **Two tables rather than one page with a kingdom switch**, because the
+    /// columns differ: a plant has seeds, a water status and a shoot, an
+    /// animal has a bank and a crop. A shared table would read `--` down half
+    /// of every column, which is the haystack `specimen_sections` splits the
+    /// two kingdoms to avoid.
+    AntList,
 }
 
 impl Panel {
@@ -691,6 +734,8 @@ impl Panel {
             Panel::Params => "PARAMETERS",
             Panel::Shelf => "THE SHELF",
             Panel::Chambers => "THE RACK",
+            Panel::PlantList => "EVERY PLANT",
+            Panel::AntList => "EVERY ANIMAL",
         }
     }
 }
@@ -1629,6 +1674,52 @@ pub struct Ui {
     /// Index 1 (`STATE`) is the default: it is the block that moves while the
     /// box runs, and it is what a player opened the page to watch.
     specimen_section: usize,
+    /// **The individual the interface is holding on to**, across frames and
+    /// across the thing moving.
+    ///
+    /// An identity rather than an index or a cell, and both of those were the
+    /// obvious wrong answers. An index into the roster names a different
+    /// animal the moment anything is born, dies or the sort changes. A cell
+    /// -- which is what `inspect` is, deliberately -- names whatever is
+    /// standing there now, so a walking ant leaves its own page behind. This
+    /// is the third thing: `(handle, born_frame)`, checked both halves, and a
+    /// pin that stops resolving is a **death** rather than a lookup failure.
+    ///
+    /// While it holds, `inspect` is re-pointed at the individual's own cell
+    /// every frame, so the cell page follows the animal instead of the ground
+    /// and every verb already on that page keeps working unchanged.
+    pinned: Option<roster::Individual>,
+    /// Whether the camera is chasing the pin.
+    following: bool,
+    /// The roster page's own clickable rectangles, for `params_bar`'s reason.
+    roster_bar: Bar,
+    roster_box: Option<Rect>,
+    /// **How each roster is being read, one entry per kingdom.**
+    ///
+    /// Per kingdom rather than shared, and that is a correctness matter
+    /// rather than a convenience. A sort is stored as a **column index**, and
+    /// column 1 is SEED on the plants table and BANK on the animals' -- so
+    /// one shared index means "sort on the second column, whatever that is
+    /// here", which is not a thing anybody asked for. Caught by the harness
+    /// on its first run: sorting the plants list and then opening the animals
+    /// list drew the animals in a sort nobody had chosen, and a click on the
+    /// third row pinned ant 41 where ant 11 was expected. Scroll and filter
+    /// go with it for the ordinary reason -- coming back to a list you had
+    /// scrolled and finding it at the top is a list that forgot what you were
+    /// doing.
+    roster_view: [RosterView; 2],
+    /// **The generic pages' own clickable rectangles.**
+    ///
+    /// `paint_page` has always collected `Body::Head` rows into a `taps` vec
+    /// and the one caller that draws a `Panel` through it passed
+    /// `&mut Vec::new()` -- so every heading on the PLANTS, ANTS and BOX pages
+    /// was a hit target that was built, thrown away, and could never fire.
+    /// Nothing noticed because those pages had no clickable headings yet; the
+    /// roster's way in is the first, and it would have shipped as a row that
+    /// looks like a button and does nothing. `CLAUDE.md`'s standing check --
+    /// a channel needs a writer and a reader, and the compiler checks
+    /// neither -- in its "read and never written" direction.
+    panel_bar: Bar,
 }
 
 /// Every species that can be planted, in a stable order.
@@ -1700,6 +1791,7 @@ impl Ui {
             || self.params_box.is_some_and(|r| r.contains(x, y))
             || self.shelf_box.is_some_and(|r| r.contains(x, y))
             || self.rack_box.is_some_and(|r| r.contains(x, y))
+            || self.roster_box.is_some_and(|r| r.contains(x, y))
             || self.inspect_box.is_some_and(|r| r.contains(x, y))
     }
 
@@ -1871,6 +1963,8 @@ impl Ui {
             // panicking on `ALL` the first time it was asked to open the rack.
             .chain(self.tabs.widgets.iter())
             .chain(self.rack_bar.widgets.iter())
+            .chain(self.roster_bar.widgets.iter())
+            .chain(self.panel_bar.widgets.iter())
             .chain(self.inspect_bar.widgets.iter())
             .find(|wid| wid.action == Some(action))
             .map(|wid| wid.rect)
@@ -1886,6 +1980,8 @@ impl Ui {
             .or_else(|| self.params_bar.hit(x, y))
             .or_else(|| self.shelf_bar.hit(x, y))
             .or_else(|| self.rack_bar.hit(x, y))
+            .or_else(|| self.roster_bar.hit(x, y))
+            .or_else(|| self.panel_bar.hit(x, y))
             .or_else(|| self.tabs.hit(x, y))
             .or_else(|| self.inspect_bar.hit(x, y))
     }
@@ -1905,6 +2001,163 @@ impl Ui {
         // top: staying at row 30 of a list that has just been reordered shows
         // you a window you did not choose.
         self.rack_scroll = 0;
+    }
+
+    // ------------------------------------------------------------- roster
+
+    /// The individual the interface is holding on to, if any.
+    pub fn pinned(&self) -> Option<roster::Individual> {
+        self.pinned
+    }
+
+    /// Hold on to one individual. Pinning the one already pinned lets it go,
+    /// which is `inspect`'s own gesture and the one a player already knows
+    /// from this interface.
+    pub fn pin(&mut self, who: roster::Individual) -> bool {
+        if self.pinned == Some(who) {
+            self.pinned = None;
+            self.following = false;
+            false
+        } else {
+            self.pinned = Some(who);
+            true
+        }
+    }
+
+    /// Let the pinned individual go, and stop chasing it.
+    pub fn release_pin(&mut self) {
+        self.pinned = None;
+        self.following = false;
+    }
+
+    pub fn following(&self) -> bool {
+        self.following
+    }
+
+    /// Chase the pin, or stop. Refused with no pin: following nothing would
+    /// latch a button that does nothing, which is worse than a button that
+    /// says no.
+    pub fn toggle_following(&mut self) -> bool {
+        self.following = self.pinned.is_some() && !self.following;
+        self.following
+    }
+
+    /// **Which roster is open**, or `None` when neither is.
+    ///
+    /// Every roster mutator below goes through this rather than taking a
+    /// kingdom argument: the page that is open is the page the click landed
+    /// on, and a caller passing the other one would be a second source of
+    /// truth about which table is on screen.
+    pub fn roster_kingdom(&self) -> Option<roster::Kingdom> {
+        match self.panel {
+            Some(Panel::PlantList) => Some(roster::Kingdom::Plants),
+            Some(Panel::AntList) => Some(roster::Kingdom::Creatures),
+            _ => None,
+        }
+    }
+
+    fn view(&self, kingdom: roster::Kingdom) -> RosterView {
+        self.roster_view[view_slot(kingdom)]
+    }
+
+    fn view_mut(&mut self, kingdom: roster::Kingdom) -> &mut RosterView {
+        &mut self.roster_view[view_slot(kingdom)]
+    }
+
+    /// Which column the open roster is sorted on, and which way.
+    pub fn roster_sort(&self) -> Option<(usize, bool)> {
+        self.roster_kingdom().and_then(|k| self.view(k).sort)
+    }
+
+    /// What the open roster is filtered to.
+    pub fn roster_filter(&self) -> roster::Filter {
+        self.roster_kingdom().map(|k| self.view(k).filter).unwrap_or_default()
+    }
+
+    /// The sort the roster page is *actually* drawn with, resolved through the
+    /// kingdom's own column list.
+    ///
+    /// **The one accessor `Lab` rebuilds the row list through**, so a click
+    /// cannot be resolved against a different order than the one on screen.
+    /// The alternative -- `Lab` re-deriving the key from the column index --
+    /// is the second copy of the arithmetic this module exists to avoid.
+    pub fn roster_sort_key(&self, kingdom: roster::Kingdom) -> (roster::SortKey, bool) {
+        match self.view(kingdom).sort {
+            Some((c, desc)) => {
+                let cols = roster_cols(kingdom);
+                (cols[c.min(cols.len() - 1)].2, desc)
+            }
+            None => (roster::SortKey::Slot, false),
+        }
+    }
+
+    /// Stop chasing, without letting go. What a death does: the pin is worth
+    /// keeping (the page has something to say about it) and the chase is not.
+    pub fn stop_following(&mut self) {
+        self.following = false;
+    }
+
+    /// Point the cell page at a world cell **without the toggle**.
+    ///
+    /// `inspect` toggles, which is right for a click on the ground and wrong
+    /// for this: the pin re-points the page every frame, and a toggle would
+    /// make the page flicker on and off at sixty hertz the moment an animal
+    /// stood still. Same distinction, and the same reason, as `arm_tool`
+    /// against `set_tool`.
+    pub fn inspect_at(&mut self, cell: (i32, i32)) {
+        self.inspect = Some(cell);
+    }
+
+    /// Sort the open roster on a column, or reverse it if it is already the
+    /// one.
+    ///
+    /// **Descending first**, for `sort_chambers`' reason: every column here
+    /// is a "how much", and the row worth looking at in a bed of a hundred is
+    /// the extreme one, so one click puts it at the top rather than at the
+    /// bottom.
+    pub fn sort_roster(&mut self, col: usize) {
+        let Some(k) = self.roster_kingdom() else { return };
+        let v = self.view_mut(k);
+        v.sort = match v.sort {
+            Some((c, desc)) if c == col => Some((c, !desc)),
+            _ => Some((col, true)),
+        };
+        // A sort moves rows under the cursor, so the window goes back to the
+        // top: staying at row 30 of a list that has just been reordered shows
+        // you a window you did not choose.
+        v.scroll = 0;
+    }
+
+    /// Move the open roster's window by one page. Clamped in `paint_roster`
+    /// against the list as it actually is, which matters more here than
+    /// anywhere else on this interface: a roster changes length between two
+    /// frames with nobody touching anything.
+    pub fn scroll_roster(&mut self, direction: i32) {
+        let Some(k) = self.roster_kingdom() else { return };
+        let page = ROSTER_ROWS.max(1);
+        let v = self.view_mut(k);
+        v.scroll = (v.scroll as i32 + direction * page as i32).max(0) as usize;
+    }
+
+    pub fn roster_scroll(&self) -> usize {
+        self.roster_kingdom().map(|k| self.view(k).scroll).unwrap_or(0)
+    }
+
+    /// Cycle what the open roster shows. `line` is the pinned individual's
+    /// founding line, or `None` when nothing is pinned -- in which case the
+    /// LINE state is skipped rather than shown empty, because a filter on a
+    /// line nobody chose keeps nothing and reads as a broken page.
+    pub fn cycle_roster_filter(&mut self, line: Option<u32>) -> String {
+        let Some(k) = self.roster_kingdom() else { return String::new() };
+        let v = self.view_mut(k);
+        v.filter = match (v.filter, line) {
+            (roster::Filter::All, _) => roster::Filter::Trouble,
+            (roster::Filter::Trouble, Some(l)) => roster::Filter::Lineage(l),
+            (roster::Filter::Trouble, None) => roster::Filter::All,
+            (roster::Filter::Lineage(_), _) => roster::Filter::All,
+        };
+        v.scroll = 0;
+        format!("SHOWING {}", v.filter.label())
     }
 
     /// Highlight one row of the rack page.
@@ -2150,7 +2403,7 @@ impl Ui {
             // and a range, so they are not `Row`s; `draw` branches away before
             // this is called, and the arm is here so that a page added to
             // `Panel` cannot be silently left out of both.
-            Panel::Params | Panel::Shelf | Panel::Chambers => Vec::new(),
+            Panel::Params | Panel::Shelf | Panel::Chambers | Panel::PlantList | Panel::AntList => Vec::new(),
             Panel::Plants => {
                 let (d, tint) = delta_text(self.history.delta(|s| s.plants as i64));
                 let (gd, gtint) = delta_text(self.history.delta(|s| s.germinations as i64));
@@ -2193,6 +2446,18 @@ impl Ui {
                         series,
                         GOOD,
                         "THE STANDING PLANT COUNT OVER THE LAST 56 SAMPLES, OLDEST ON THE LEFT. ONE SAMPLE EVERY 120 SIMULATED FRAMES, SO THE SHAPE IS THE SAME WHATEVER SPEED YOU WATCHED IT AT.",
+                    ),
+                    // **The way in to the roster**, and the reason it is a
+                    // heading rather than a chip: `Body::Head` already pushes
+                    // a full-width invisible hit target, so this cost no new
+                    // painter code -- and the bar has no room for a seventh
+                    // button, measured twice (see `Panel::PlantList`).
+                    Row::head(
+                        "LIST EVERY PLANT",
+                        false,
+                        plants,
+                        Action::Panel(Panel::PlantList),
+                        "OPEN THE ROSTER: ONE ROW PER PLANT, SORTABLE, AND CLICKING A ROW PUTS A MARKER ROUND THAT PLANT IN THE BOX AND ITS NUMBERS ON SCREEN. THIS PAGE IS THE STAND; THAT ONE IS THE INDIVIDUALS IN IT.",
                     ),
                 ]
             }
@@ -2238,6 +2503,13 @@ impl Ui {
                         series,
                         FAIR,
                         "THE ANIMAL COUNT OVER THE LAST 56 SAMPLES, OLDEST ON THE LEFT. ONE SAMPLE EVERY 120 SIMULATED FRAMES.",
+                    ),
+                    Row::head(
+                        "LIST EVERY ANIMAL",
+                        false,
+                        ants,
+                        Action::Panel(Panel::AntList),
+                        "OPEN THE ROSTER: ONE ROW PER ANIMAL, SORTABLE, AND CLICKING A ROW PUTS A MARKER ROUND THAT ANIMAL AND ITS NUMBERS ON SCREEN. AN ANT IS TWO DARK CELLS AT PLAY ZOOM AND YOU FIND IT ONLY BECAUSE IT MOVES, WHICH IS THE WHOLE REASON THIS LIST EXISTS.",
                     ),
                 ]
             }
@@ -2730,6 +3002,109 @@ const RACK_HEAD: i32 = 11;
 /// digits — `TICKS` reaches 45,000. Fixed rather than fitted so a value that
 /// gains a digit cannot shove its own `+` button sideways under the cursor.
 const BATCH_VALUE_W: i32 = 34;
+
+/// How many roster rows a page will draw at most. The ceiling; the floor is
+/// whatever is left after the header, the verbs and the pager, and
+/// `paint_roster` computes it.
+const ROSTER_ROWS: usize = 14;
+
+/// How one roster is being read: where it is scrolled to, what it is sorted
+/// on, and what it is filtered to. One per kingdom -- see `Ui::roster_view`.
+#[derive(Clone, Copy, Default)]
+struct RosterView {
+    scroll: usize,
+    /// `None` is registry order, which carries no opinion.
+    sort: Option<(usize, bool)>,
+    filter: roster::Filter,
+}
+
+/// Which slot of `Ui::roster_view` a kingdom reads.
+fn view_slot(kingdom: roster::Kingdom) -> usize {
+    match kingdom {
+        roster::Kingdom::Plants => 0,
+        roster::Kingdom::Creatures => 1,
+    }
+}
+
+
+/// **The roster's columns: a heading, the widest value it can hold, and what
+/// sorting on it means.**
+///
+/// The third term is what stops a table and its sort drifting apart. The rack
+/// keys its sort on a bare column index in a `match`, which works and means
+/// an inserted column silently sorts on its neighbour; carrying the key on
+/// the column makes an insert a compile-time move instead.
+///
+/// The second string is the **widest value the column can ever hold**, not a
+/// typical one. A column sized to what it usually shows is a column that
+/// breaks the first time a run gets big, which is the run you most want to
+/// read. Measured through `hud::text_width` and never counted by hand -- the
+/// rack's offsets were hand-counted first and overlapped by eight pixels.
+type RosterCol = (&'static str, &'static str, roster::SortKey);
+
+const PLANT_COLS: [RosterCol; 8] = [
+    ("SPECIES", "SPECIES--", roster::SortKey::Species),
+    ("CELLS", "CELLS", roster::SortKey::Cells),
+    ("SEED", "SEED", roster::SortKey::Score),
+    ("WATER", "WATER", roster::SortKey::Energy),
+    ("AGE", "999.9K", roster::SortKey::Age),
+    ("GEN", "GEN", roster::SortKey::Generation),
+    ("LINE", "LINE9", roster::SortKey::Lineage),
+    ("STATE", "STARVING", roster::SortKey::State),
+];
+
+const ANT_COLS: [RosterCol; 8] = [
+    ("SPECIES", "SPECIES--", roster::SortKey::Species),
+    ("BANK", "BANK9", roster::SortKey::Energy),
+    ("CROP", "CROP", roster::SortKey::Carrying),
+    ("BODY", "BODY", roster::SortKey::Cells),
+    ("AGE", "999.9K", roster::SortKey::Age),
+    ("GEN", "GEN", roster::SortKey::Generation),
+    ("LINE", "LINE9", roster::SortKey::Lineage),
+    ("STATE", "STARVING", roster::SortKey::State),
+];
+
+fn roster_cols(kingdom: roster::Kingdom) -> &'static [RosterCol; 8] {
+    match kingdom {
+        roster::Kingdom::Plants => &PLANT_COLS,
+        roster::Kingdom::Creatures => &ANT_COLS,
+    }
+}
+
+/// Where each roster column starts, relative to the page's left margin.
+/// Derived once and read by both the header and the rows, so the two cannot
+/// drift -- a header that no longer sits over its column is worse than none.
+fn roster_col_x(kingdom: roster::Kingdom) -> [i32; 8] {
+    let mut out = [0i32; 8];
+    // The row number sits first, outside the table.
+    let mut x = hud::text_width("999") + RACK_GAP;
+    for (i, (_, widest, _)) in roster_cols(kingdom).iter().enumerate() {
+        out[i] = x;
+        x += hud::text_width(widest) + RACK_GAP;
+    }
+    out
+}
+
+/// The page's width: the sum of its own columns, so it is exactly as wide as
+/// it has to be and no wider.
+fn roster_page_width(kingdom: roster::Kingdom) -> i32 {
+    let col = roster_col_x(kingdom);
+    let last = roster_cols(kingdom).last().expect("eight columns");
+    (col[7] + hud::text_width(last.1) + PAGE_PAD * 2).min(W as i32 - MARGIN * 2)
+}
+
+/// **Every fixed string the roster page draws, in one list.**
+///
+/// Named rather than inlined so `every_string_the_bar_can_draw_is_drawable`
+/// can reach them: this page paints itself, so nothing in `panel_rows` covers
+/// it, and `hud::draw_text` renders a character outside its 5x7 set as a
+/// **silent blank**. That trap has shipped three times here.
+const ROSTER_LITERALS: [&str; 4] = [
+    "NOTHING ALIVE IN THIS BOX YET",
+    "NOTHING MATCHES THIS FILTER",
+    "THIS ONE HAS DIED",
+    "CLICK A ROW TO PIN ONE",
+];
 
 /// **The rack page's columns: a heading and the widest thing it can hold.**
 ///
@@ -3560,6 +3935,294 @@ impl Ui {
         note
     }
 
+    /// **The roster page: one row per living thing, and a click pins one.**
+    ///
+    /// Draws itself for `paint_params`' reason -- its rows carry verbs, so
+    /// they are not `Row`s -- and follows `paint_rack`'s shape throughout,
+    /// deliberately: a rack of a hundred chambers and a bed of a hundred
+    /// plants are the same problem, and two different table gestures in one
+    /// interface is one to learn twice.
+    ///
+    /// **The row list is built first and the panel sized from it**, never
+    /// painted with a running cursor. `Reports/dead-ends.md` rejected the
+    /// running-cursor panel once its contents became variable, and the
+    /// condition it recorded was *the row list being variable* -- which a
+    /// roster is more than anything else on screen: it changes length between
+    /// two frames with nobody touching anything.
+    fn paint_roster(&mut self, frame: &mut [u8], world: &World, kingdom: roster::Kingdom) -> Option<(String, Rect, i32)> {
+        let mut widgets: Vec<Widget> = Vec::new();
+        let mut note: Option<(String, Rect, i32)> = None;
+
+        let cols = roster_cols(kingdom);
+        let view = self.view(kingdom);
+        let (sort_key, desc) = self.roster_sort_key(kingdom);
+        let rows = roster::rows(world, kingdom, sort_key, desc, view.filter);
+        let total = rows.len();
+
+        // How many rows fit is computed rather than assumed, for the reason
+        // `paint_rack` records: a fixed count made that page 327 px tall on a
+        // 320 px screen and everything past the fold fell behind the bar.
+        let verbs_h = if self.pinned.is_some() { 14 } else { 0 };
+        let fixed = PAGE_HEADER + RACK_HEAD + verbs_h + PAGE_PAD + 13 + 13;
+        let room = ((bar_top() - 4 - MARGIN - fixed) / RACK_ROW).max(1) as usize;
+        let shown = total.min(ROSTER_ROWS).min(room);
+        self.view_mut(kingdom).scroll = view.scroll.min(total.saturating_sub(shown));
+        let scroll = self.view(kingdom).scroll;
+
+        let pager_h = if total > shown { 13 } else { 0 };
+        let h = PAGE_HEADER + RACK_HEAD + RACK_ROW * shown.max(1) as i32 + pager_h + verbs_h + 13 + PAGE_PAD;
+        let w = roster_page_width(kingdom);
+        let bottom = bar_top() - 4;
+        let rect = Rect { x: MARGIN, y: (bottom - h).max(MARGIN), w, h };
+        self.roster_box = Some(rect);
+
+        fill(frame, rect, PANEL_BG);
+        outline(frame, rect, PANEL_EDGE);
+        let left = rect.x + PAGE_PAD;
+        let right = rect.right() - PAGE_PAD;
+        let title = if kingdom == roster::Kingdom::Plants { "EVERY PLANT" } else { "EVERY ANIMAL" };
+        text(frame, left, rect.y + 6, title, TITLE);
+
+        // BACK, in the header, to the page this one was opened from.
+        //
+        // **Not a nicety: without it the roster is a dead end.** Every other
+        // page here is closed by pressing the bar chip that opened it, and
+        // the roster has no chip -- that is the whole reason it hangs off the
+        // PLANTS page. So the only way out was the bar's own PLANTS button,
+        // which is one row up and reads as "open the page I am already
+        // inside". Found by the harness, which got stuck here on its second
+        // pass: `widget_rect` could not aim a click at a page it could not
+        // leave, which is exactly the player's problem in miniature.
+        let cover = if kingdom == roster::Kingdom::Plants { Panel::Plants } else { Panel::Ants };
+        let bw = cell_width(hud::text_width("BACK"), "", PAD) + 4;
+        widgets.push(Widget {
+            rect: Rect { x: right - bw, y: rect.y + 3, w: bw, h: 11 },
+            line1: "BACK".into(),
+            line2: String::new(),
+            action: Some(Action::Panel(cover)),
+            latched: false,
+            icon: None,
+            ratio: None,
+            note: "BACK TO THE COUNTS THIS LIST HANGS OFF. THAT PAGE IS THE POPULATION; THIS ONE IS THE INDIVIDUALS IN IT.".into(),
+        });
+
+        // FILTER, beside it. One chip cycling three states rather than three
+        // chips: the page is already at its width, and the state it is in is
+        // written on the chip's own face, which a set of latches is not.
+        let filter_label = view.filter.label();
+        let fw = cell_width(hud::text_width(&filter_label), "", PAD) + 4;
+        widgets.push(Widget {
+            rect: Rect { x: right - bw - fw - 4, y: rect.y + 3, w: fw, h: 11 },
+            line1: filter_label,
+            line2: String::new(),
+            action: Some(Action::RosterFilter),
+            latched: view.filter != roster::Filter::All,
+            icon: None,
+            ratio: None,
+            note: "WHAT THE LIST IS SHOWING. IN TROUBLE KEEPS ONLY THE ONES STARVING, ROTTING OR HUNGRY, WHICH IS THE QUESTION A LIST OF A HUNDRED IS OPENED TO ASK. LINE KEEPS ONE FOUNDING LINE, AND IT NEEDS A ROW PINNED FIRST BECAUSE OTHERWISE THERE IS NO LINE TO MEAN.".into(),
+        });
+        for x in rect.x + 1..rect.right() - 1 {
+            render::put(frame, W, H, x, rect.y + PAGE_HEADER - 4, DIVIDER);
+        }
+
+        // ---- the column header. Measured through `hud::text_width` against
+        // the widest value each column can ever hold, never counted by hand:
+        // the rack's own columns were hand-counted first and overlapped by
+        // eight pixels, reported from play.
+        let mut y = rect.y + PAGE_HEADER;
+        let col = roster_col_x(kingdom);
+        for (i, (head, widest, _)) in cols.iter().enumerate() {
+            let sorted_on = view.sort.map(|(c, _)| c) == Some(i);
+            let label = match view.sort {
+                Some((c, d)) if c == i => format!("{head}{}", if d { "\\" } else { "/" }),
+                _ => (*head).to_string(),
+            };
+            text(frame, left + col[i], y, &label, if sorted_on { TITLE } else { FAINT });
+            // The whole column is the target: a three-character heading is
+            // not something a person can reliably hit.
+            widgets.push(Widget {
+                rect: Rect { x: left + col[i] - 2, y: y - 2, w: hud::text_width(widest) + 4, h: RACK_HEAD },
+                line1: String::new(),
+                line2: String::new(),
+                action: Some(Action::RosterSort(i)),
+                latched: false,
+                icon: None,
+                ratio: None,
+                note: String::new(),
+            });
+        }
+        y += RACK_HEAD;
+        for x in rect.x + 1..rect.right() - 1 {
+            render::put(frame, W, H, x, y - 2, DIVIDER);
+        }
+
+        // ---- the rows.
+        if total == 0 {
+            // An empty state that says which empty it is. A box with no
+            // plants and a filter hiding all of them look identical
+            // otherwise, and the second one is a mistake the player made two
+            // clicks ago.
+            let why = match view.filter {
+                roster::Filter::All => ROSTER_LITERALS[0],
+                _ => ROSTER_LITERALS[1],
+            };
+            text(frame, left, y + 2, why, FAINT);
+            y += RACK_ROW;
+        }
+        for (n, r) in rows.iter().enumerate().skip(scroll).take(shown) {
+            let selected = self.pinned == Some(r.who);
+            let band = Rect { x: rect.x + 1, y, w: rect.w - 2, h: RACK_ROW };
+            // Before the text, for `paint_rack`'s reason: a hover fill
+            // painted over the row erases the line you are pointing at, which
+            // looks exactly like a row with no data in it.
+            let hovered = self.cursor.is_some_and(|(cx, cy)| band.contains(cx, cy));
+            if selected {
+                fill(frame, band, FACE_ON);
+            } else if hovered {
+                fill(frame, band, FACE_HOVER);
+            }
+            // The whole row is the button, and it is aimed with the position
+            // in the *sorted* list -- which `Lab::act` resolves to an identity
+            // in the same frame rather than storing.
+            widgets.push(Widget {
+                rect: band,
+                line1: String::new(),
+                line2: String::new(),
+                action: Some(Action::RosterSelect(n)),
+                latched: false,
+                icon: None,
+                ratio: None,
+                note: String::new(),
+            });
+
+            let tint = if selected { TITLE } else { FAINT };
+            text(frame, left, y + 2, &format!("{}", n + 1), tint);
+            let species = param_label(&world.species.get(r.species).name);
+            let state_tint = match r.state {
+                roster::RowState::Senescent | roster::RowState::Starving => POOR,
+                roster::RowState::Hungry | roster::RowState::Lost => FAIR,
+                roster::RowState::Carrying => GOOD,
+                roster::RowState::Ok => FAINT,
+            };
+            let age = world.frame.saturating_sub(r.born_frame);
+            let values: [(String, [u8; 4]); 8] = if kingdom == roster::Kingdom::Plants {
+                [
+                    (species, VALUE),
+                    (format!("{}", r.cells), GOOD),
+                    (format!("{}", r.score), if r.score > 0 { GOOD } else { FAINT }),
+                    (format!("{:.2}", r.energy), if r.energy < 0.5 { FAIR } else { FAINT }),
+                    (compact(age as f64), FAINT),
+                    (format!("{}", r.generation), FAINT),
+                    (format!("{}", r.lineage), FAINT),
+                    (r.state.label().to_string(), state_tint),
+                ]
+            } else {
+                [
+                    (species, VALUE),
+                    (format!("{:.0}", r.energy), if r.state == roster::RowState::Hungry { FAIR } else { GOOD }),
+                    (format!("{}", r.carrying), if r.carrying > 0 { GOOD } else { FAINT }),
+                    (format!("{}", r.cells), FAINT),
+                    (compact(age as f64), FAINT),
+                    (format!("{}", r.generation), FAINT),
+                    (format!("{}", r.lineage), FAINT),
+                    (r.state.label().to_string(), state_tint),
+                ]
+            };
+            for (i, (v, t)) in values.iter().enumerate() {
+                text(frame, left + col[i], y + 2, v, *t);
+            }
+            y += RACK_ROW;
+        }
+
+        // ---- the pager, only when there is something off the page. Spelled
+        // out rather than implied by a bar, because "13-24 OF 100" is the
+        // sentence that says there are seventy-six you have not looked at.
+        if total > shown {
+            let step_w = cell_width(hud::text_width("<"), "", PAD);
+            let up = Rect { x: left, y: y + 2, w: step_w, h: 10 };
+            let down = Rect { x: left + step_w + 2, y: y + 2, w: step_w, h: 10 };
+            let last = (scroll + shown).min(total);
+            text(frame, left + step_w * 2 + 8, y + 3, &format!("{}-{} OF {}", scroll + 1, last, total), FAINT);
+            for (r, label, dir) in [(up, "<", -1), (down, ">", 1)] {
+                widgets.push(Widget {
+                    rect: r,
+                    line1: label.into(),
+                    line2: String::new(),
+                    action: Some(Action::RosterScroll(dir)),
+                    latched: false,
+                    icon: None,
+                    ratio: None,
+                    note: "SCROLL THE LIST. SORTING A COLUMN JUMPS BACK TO THE TOP, SO THE FASTEST WAY TO THE ONE YOU WANT IS USUALLY TO SORT ON IT RATHER THAN TO PAGE THROUGH.".into(),
+                });
+            }
+            y += 13;
+        }
+
+        // ---- the verbs on the pinned row.
+        //
+        // Under the table for `paint_rack`'s reason, which it learned the
+        // hard way: drawn last, after everything else the page can hold, a
+        // selected row pushed its own verbs out of the panel and behind the
+        // bar -- present to `widget_rect`, invisible to a player.
+        let vy = y + 3;
+        if let Some(who) = self.pinned {
+            let mut vx = left;
+            let alive = who.alive(world);
+            for (label, action, on, why) in [
+                ("FOLLOW", Action::RosterFollow, alive,
+                 "KEEP THE CAMERA ON THIS ONE WHILE IT MOVES. AN ANT IS TWO DARK CELLS AT PLAY ZOOM AND YOU FIND IT ONLY BECAUSE IT MOVES, SO A MARKER ALONE IS HALF AN ANSWER: THIS IS THE OTHER HALF."),
+                ("LINE", Action::RosterFilter, alive,
+                 "SHOW ONLY THIS ONE'S FOUNDING LINE. TWO INDIVIDUALS WITH THE SAME LINE SHARE AN ANCESTOR IN THIS BOX; TWO WITH DIFFERENT ONES DO NOT, SO THIS IS HOW YOU WATCH ONE LINE TAKE THE BOX OVER."),
+                ("RELEASE", Action::RosterRelease, true,
+                 "LET GO OF THIS ONE. THE MARKER COMES OFF THE BOX AND THE PAGE STOPS FOLLOWING IT."),
+            ] {
+                let bw = cell_width(hud::text_width(label), "", PAD) + 6;
+                if on {
+                    widgets.push(Widget {
+                        rect: Rect { x: vx, y: vy, w: bw, h: 11 },
+                        line1: label.into(),
+                        line2: String::new(),
+                        action: Some(action),
+                        latched: label == "FOLLOW" && self.following,
+                        icon: None,
+                        ratio: None,
+                        note: why.into(),
+                    });
+                } else {
+                    // Drawn dead rather than hidden, for the rack's reason: a
+                    // verb that vanishes when it does not apply teaches
+                    // nothing, and one that is visibly unavailable says why
+                    // when you hover it.
+                    text(frame, vx + PAD, vy + 2, label, SUB);
+                }
+                vx += bw + 4;
+            }
+            // **The pin's own death, said out loud.** The page would
+            // otherwise simply stop having numbers on it, which reads as the
+            // interface having broken rather than as the animal having died.
+            if !alive {
+                text(frame, vx + 4, vy + 2, ROSTER_LITERALS[2], POOR);
+            }
+        } else {
+            text(frame, left, vy + 2, ROSTER_LITERALS[3], FAINT);
+        }
+
+        // Retained first, then painted from what was retained -- the house
+        // idiom, so an invisible hit target cannot be drawn as a blank chip.
+        for wid in widgets.iter().filter(|w| !w.line1.is_empty()) {
+            let hover = self.cursor.is_some_and(|(x, y)| wid.rect.contains(x, y));
+            let down = hover && self.pressed.is_some() && self.pressed == wid.action;
+            paint_widget(frame, wid, hover, down);
+        }
+        self.roster_bar = Bar { widgets, dividers: Vec::new() };
+        if let Some(wid) = self.roster_bar.hovered(self.cursor) {
+            if !wid.note.is_empty() {
+                note = Some((wid.note.clone(), wid.rect, wid.rect.y - 4));
+            }
+        }
+        note
+    }
+
     fn paint_shelf(&mut self, frame: &mut [u8]) -> Option<(String, Rect, i32)> {
         let mut widgets: Vec<Widget> = Vec::new();
         let mut note: Option<(String, Rect, i32)> = None;
@@ -4061,6 +4724,71 @@ impl Ui {
         // The inspected cell, marked in the world. The verb has to leave a
         // mark: a panel that names a cell without showing which cell it is
         // makes the player find it again by counting pixels.
+        // **The whole body of the pinned individual, before its cell marker.**
+        //
+        // A single-cell reticle is the right answer for a cell you clicked and
+        // the wrong one for an individual you picked off a list: it says
+        // *here* when the question was *which one*, and on a tree it marks one
+        // cell of two thousand. The box is drawn under the reticle so the two
+        // read as one mark rather than as two things.
+        //
+        // **A full replace on a fixed colour, never a blend into the cells
+        // underneath.** A magnitude-scaled blend was tried elsewhere in this
+        // engine and produced a sheet that read as blank -- the ramp was red,
+        // the wood was brown, and a mid-range value moved one colour byte from
+        // 139 to 155. The obvious reading, "the mechanism is dead", would have
+        // sent a fix at working code.
+        //
+        // And it is **static**, which is the whole point: the design guide's
+        // own measurement is that an ant is findable only because it moves,
+        // and a dead one has stopped. A marker that needed motion would fail
+        // on exactly the individual you most want to find.
+        if let Some(who) = self.pinned {
+            if let Some(state) = who.resolve(world) {
+                let mut b = (i32::MAX, i32::MAX, i32::MIN, i32::MIN);
+                for &(x, y) in state.cells.keys() {
+                    b.0 = b.0.min(x);
+                    b.1 = b.1.min(y);
+                    b.2 = b.2.max(x);
+                    b.3 = b.3.max(y);
+                }
+                // A body of two cells is already covered by the reticle, and a
+                // box drawn round it is the reticle again one pixel out. The
+                // bar is four cells, which is where a box starts saying
+                // something the reticle does not.
+                let big = b.0 <= b.2 && (b.2 - b.0 >= 3 || b.3 - b.1 >= 3);
+                if big {
+                    let (x0, y0, x1, y1, _) = renderer.world_rect_to_screen(b.0, b.1, b.2, b.3);
+                    let (x0, y0) = (x0 - 2, y0 - 2);
+                    let (x1, y1) = (x1 + 2, y1 + 2);
+                    if y0 < bar_top() {
+                        // Corner ticks rather than a closed rectangle. A box
+                        // round a tree is a box round most of the screen, and
+                        // a closed one reads as a panel border; corners read
+                        // as a bracket and leave the plant visible inside it.
+                        let box_rect = Rect { x: x0, y: y0, w: x1 - x0 + 1, h: (y1.min(bar_top() - 1)) - y0 + 1 };
+                        let arm = 4;
+                        for i in 0..arm {
+                            for (cx, cy) in [
+                                (box_rect.x + i, box_rect.y),
+                                (box_rect.x, box_rect.y + i),
+                                (box_rect.right() - 1 - i, box_rect.y),
+                                (box_rect.right() - 1, box_rect.y + i),
+                                (box_rect.x + i, box_rect.bottom() - 1),
+                                (box_rect.x, box_rect.bottom() - 1 - i),
+                                (box_rect.right() - 1 - i, box_rect.bottom() - 1),
+                                (box_rect.right() - 1, box_rect.bottom() - 1 - i),
+                            ] {
+                                if cy < bar_top() {
+                                    render::put(frame, W, H, cx, cy, MARKER);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         if let Some((wx, wy)) = self.inspect {
             let (x0, y0, x1, y1, _) = renderer.world_rect_to_screen(wx, wy, wx, wy);
             let (x0, y0) = (x0 - 3, y0 - 3);
@@ -4107,8 +4835,11 @@ impl Ui {
                 note = Some((body, avoid, y, Note::BesidePage));
             }
             self.panel_box = None;
+            self.panel_bar = Bar::default();
             self.shelf_box = None;
             self.shelf_bar = Bar::default();
+            self.roster_box = None;
+            self.roster_bar = Bar::default();
         } else if self.panel == Some(Panel::Chambers) {
             // Its own painter, for `Params`' and `Shelf`'s reason: a row here
             // is a chamber with two verbs attached, not a label.
@@ -4116,18 +4847,43 @@ impl Ui {
                 note = Some((body, avoid, y, Note::BesidePage));
             }
             self.panel_box = None;
+            self.panel_bar = Bar::default();
             self.params_box = None;
             self.params_bar = Bar::default();
             self.shelf_box = None;
             self.shelf_bar = Bar::default();
+            self.roster_box = None;
+            self.roster_bar = Bar::default();
         } else if self.panel == Some(Panel::Shelf) {
             // The same deal, and the same reason: a jar row is a verb.
             if let Some((body, avoid, y)) = self.paint_shelf(frame) {
                 note = Some((body, avoid, y, Note::BesidePage));
             }
             self.panel_box = None;
+            self.panel_bar = Bar::default();
             self.params_box = None;
             self.params_bar = Bar::default();
+            self.rack_box = None;
+            self.rack_bar = Bar::default();
+            self.roster_box = None;
+            self.roster_bar = Bar::default();
+        } else if matches!(self.panel, Some(Panel::PlantList) | Some(Panel::AntList)) {
+            // Its own painter, for the same reason as the three above: a row
+            // here is an individual with three verbs attached, not a label.
+            let kingdom = if self.panel == Some(Panel::PlantList) {
+                roster::Kingdom::Plants
+            } else {
+                roster::Kingdom::Creatures
+            };
+            if let Some((body, avoid, y)) = self.paint_roster(frame, world, kingdom) {
+                note = Some((body, avoid, y, Note::BesidePage));
+            }
+            self.panel_box = None;
+            self.panel_bar = Bar::default();
+            self.params_box = None;
+            self.params_bar = Bar::default();
+            self.shelf_box = None;
+            self.shelf_bar = Bar::default();
             self.rack_box = None;
             self.rack_bar = Bar::default();
         } else if let Some(panel) = self.panel {
@@ -4137,6 +4893,8 @@ impl Ui {
             self.shelf_bar = Bar::default();
             self.rack_box = None;
             self.rack_bar = Bar::default();
+            self.roster_box = None;
+            self.roster_bar = Bar::default();
             let rows = self.panel_rows(panel, world, spec, fps);
             // Anchored under the button that opened it, which is only
             // available because `Lab::act` closes the biosphere page when one
@@ -4151,22 +4909,27 @@ impl Ui {
                 .map_or(MARGIN, |wid| wid.rect.x);
             let rect = page_rect(&rows, anchor, bar_top() - 4);
             self.panel_box = Some(rect);
-            if let Some((text, y)) = paint_page(frame, rect, panel.title(), &rows, self.cursor, &mut Vec::new()) {
+            let mut taps: Vec<Widget> = Vec::new();
+            if let Some((text, y)) = paint_page(frame, rect, panel.title(), &rows, self.cursor, &mut taps) {
                 note = Some((text, rect, y, Note::BesidePage));
             }
+            self.panel_bar = Bar { widgets: taps, dividers: Vec::new() };
         } else {
             self.panel_box = None;
+            self.panel_bar = Bar::default();
             self.params_box = None;
             self.params_bar = Bar::default();
             self.shelf_box = None;
             self.shelf_bar = Bar::default();
+            self.roster_box = None;
+            self.roster_bar = Bar::default();
         }
 
         if let Some(at) = self.inspect {
             let rows = self.inspect_rows(world, at);
             // Beside the open page rather than under it, so opening a page
             // does not hide the cell you are inspecting.
-            let anchor = self.panel_box.or(self.params_box).or(self.shelf_box).map_or(MARGIN, |r| r.right() + 6);
+            let anchor = self.panel_box.or(self.params_box).or(self.shelf_box).or(self.roster_box).map_or(MARGIN, |r| r.right() + 6);
             let rect = page_rect(&rows, anchor, bar_top() - 4);
             self.inspect_box = Some(rect);
             // The group headings are hit targets, and they are collected by
@@ -4264,7 +5027,7 @@ impl Ui {
         // left column is free below the clock.
         if let Some((cx, cy)) = self.cursor.filter(|&(x, y)| y < bar_top() && !self.covers(x, y)) {
             let (wx, wy) = renderer.screen_to_world(cx, cy);
-            paint_hover_cell(frame, world, (wx, wy));
+            paint_hover_cell(frame, world, (wx, wy), self.inspect_box);
         }
 
         // The last verb's notice, over everything, just above the bar.
@@ -4302,7 +5065,21 @@ impl Ui {
 ///   a `Powder` it is *dry*), so this goes through `update::liquid_fill` for
 ///   the first rather than reading `aux` and getting it backwards;
 /// - the organism owning the cell, and its whole-body energy.
-fn paint_hover_cell(frame: &mut [u8], world: &World, (x, y): (i32, i32)) {
+/// **The hover readout, docked clear of whatever is already parked there.**
+///
+/// `avoid` is the cell page's rectangle, when one is open. Both want the
+/// top-left -- the readout at a fixed `HOVER_TOP`, the page anchored at
+/// `MARGIN` when no panel is open -- and until the roster landed they were
+/// rarely both up, because opening the cell page took a deliberate click on
+/// the world. A pin opens it as a matter of course, so the collision went
+/// from occasional to constant: the sheet showed `EMPTY 172.85 / 20C / DRY /
+/// NO ORGANISM` painted over the page's own AT and MATERIAL rows, which reads
+/// as one panel contradicting itself.
+///
+/// **The transient one moves.** The readout follows the cursor and is gone
+/// the moment it leaves; the page is pinned and is what the player is
+/// reading.
+fn paint_hover_cell(frame: &mut [u8], world: &World, (x, y): (i32, i32), avoid: Option<Rect>) {
     use crate::sim::material::MaterialKind;
     let cell = world.get(x, y);
     let def = world.materials.get(cell.material);
@@ -4333,7 +5110,21 @@ fn paint_hover_cell(frame: &mut [u8], world: &World, (x, y): (i32, i32)) {
         life,
     ];
     let w = lines.iter().map(|l| hud::text_width(l)).max().unwrap_or(0) + 12;
-    let r = Rect { x: MARGIN, y: HOVER_TOP, w, h: lines.len() as i32 * LINE + 8 };
+    let h = lines.len() as i32 * LINE + 8;
+    let mut r = Rect { x: MARGIN, y: HOVER_TOP, w, h };
+    if let Some(page) = avoid {
+        if page.contains(r.x, r.y) || page.contains(r.right(), r.bottom()) || (r.x < page.right() && r.right() > page.x && r.y < page.bottom() && r.bottom() > page.y) {
+            // Beside it if there is room, under it if there is not, and back
+            // where it started if neither -- a readout squeezed off the
+            // screen is worse than one overlapping something.
+            let beside = page.right() + 6;
+            r.x = if beside + w <= W as i32 - MARGIN { beside } else { r.x };
+            if r.x == MARGIN {
+                let under = page.bottom() + 6;
+                r.y = if under + h <= bar_top() - MARGIN { under } else { r.y };
+            }
+        }
+    }
     fill(frame, r, READOUT_BG);
     outline(frame, r, PANEL_EDGE);
     for (i, line) in lines.iter().enumerate() {
@@ -5152,6 +5943,418 @@ mod tests {
                 assert!(r.y >= 0, "{panel:?} page runs off the top");
             }
         }
+    }
+
+
+    // ------------------------------------------------------------- roster
+
+    /// A world with `plants` plants and `ants` ants, each a single cell, so a
+    /// roster test can say exactly how many rows it expects.
+    fn peopled(plants: usize, ants: usize) -> World {
+        let mut world = world();
+        for (name, n) in [("tree", plants), ("ant", ants)] {
+            let species = world.species.id_of(name).unwrap_or_else(|| panic!("{name} must be a loaded species"));
+            let shoot = world.species.get(species).shoot_material.clone();
+            let material = world.materials.id_of(&shoot).unwrap_or_else(|| panic!("{shoot} must be loaded"));
+            for i in 0..n {
+                let id = world.push_organism(species).expect("organism slots free");
+                let (x, y) = (2 + (i as i32 % 20) * 3, if name == "ant" { 40 } else { 10 });
+                world.set(x, y, crate::sim::cell::Cell::new(material, 0).with_organism_id(id));
+                if name == "ant" {
+                    world.organism_mut(id).expect("just made").chain = vec![(x, y)];
+                }
+            }
+        }
+        world
+    }
+
+    /// **The roster lists every live individual of its kingdom and no other.**
+    ///
+    /// The plainest thing it does, and the one a cached list would break: a
+    /// roster is rebuilt every frame precisely because the population moves
+    /// underneath it.
+    #[test]
+    fn a_roster_lists_every_live_organism_of_its_kingdom_and_no_other() {
+        let mut world = peopled(5, 7);
+        let plants = roster::rows(&world, roster::Kingdom::Plants, roster::SortKey::Slot, false, roster::Filter::All);
+        let ants = roster::rows(&world, roster::Kingdom::Creatures, roster::SortKey::Slot, false, roster::Filter::All);
+        assert_eq!(plants.len(), 5, "the plants table must hold every plant and nothing else");
+        assert_eq!(ants.len(), 7, "the animals table must hold every animal and nothing else");
+        assert_eq!(
+            plants.len() + ants.len(),
+            world.live_organism_count(),
+            "the two tables together are the whole registry -- a row in neither is an individual you cannot reach"
+        );
+        assert_eq!(ants.len(), world.live_creature_count(), "the animals table is the creature count");
+
+        // A death takes its row with it, which is the half a cached list
+        // fails. Freed through the engine's own seam rather than by editing
+        // the list, so this is a statement about the world and not about the
+        // table.
+        let doomed = ants[0].who;
+        world.free_organism(doomed.id);
+        let after = roster::rows(&world, roster::Kingdom::Creatures, roster::SortKey::Slot, false, roster::Filter::All);
+        assert_eq!(after.len(), 6, "a freed organism kept its row");
+        assert!(!after.iter().any(|r| r.who == doomed), "the dead individual is still listed");
+        assert!(!doomed.alive(&world), "and it does not resolve any more");
+    }
+
+    /// **An identity survives its slot being handed to somebody else.**
+    ///
+    /// The guard `born_frame` exists for, and the reason a bare handle is not
+    /// an identity: `encode_organism_id` gives the slot index 12 bits and the
+    /// generation 4, so a handle comes back after 16 turns of one slot. A pin
+    /// keyed on the handle alone would silently follow whatever animal landed
+    /// in the recycled slot -- which is a different creature wearing the
+    /// number of the one you were watching.
+    #[test]
+    fn an_individual_survives_slot_reuse_as_an_identity() {
+        let mut world = peopled(0, 1);
+        let species = world.species.id_of("ant").expect("ant loaded");
+        let first = roster::rows(&world, roster::Kingdom::Creatures, roster::SortKey::Slot, false, roster::Filter::All)[0].who;
+
+        // Turn the slot over until the four generation bits wrap and the
+        // handle comes back. Sixteen reuses is the whole cycle, so this is
+        // bounded and it is the real mechanism rather than a simulated one.
+        // **Free the handle you have, not the one you started with.** A
+        // freed slot comes back with its generation bumped, so the second
+        // turn of the loop holds a *different* handle -- and `free_organism`
+        // checks the generation, so freeing the original silently does
+        // nothing and the next push takes a fresh slot instead. The first
+        // version of this loop did exactly that and never collided.
+        let mut current = first.id;
+        let mut collided = None;
+        for _ in 0..64 {
+            world.free_organism(current);
+            world.frame += 1;
+            current = world.push_organism(species).expect("the slot was just freed");
+            if current == first.id {
+                collided = Some(current);
+                break;
+            }
+        }
+        let id = collided.expect("sixteen reuses of one slot must bring the handle back");
+        let born = world.organism(id).expect("just made").born_frame;
+
+        // The positive control: the halves the identity is made of really do
+        // collide, or the assertion below is about nothing.
+        assert_eq!(id, first.id, "the handle came back -- that is the situation being guarded");
+        assert_ne!(born, first.born_frame, "and the frame did not, which is what tells them apart");
+
+        assert!(
+            first.resolve(&world).is_none(),
+            "the original individual resolved to the stranger now holding its slot -- the exact bug born_frame exists to stop"
+        );
+        let now = roster::Individual { id, born_frame: born };
+        assert!(now.alive(&world), "the new occupant is findable by its own identity");
+    }
+
+    /// **A pin is not disturbed by the list moving underneath it.**
+    ///
+    /// Sorting reorders every row; the pin must still name the individual it
+    /// named. `Reports/dead-ends.md` records the general shape -- a selection
+    /// stored as a position into a list a neighbouring verb rewrites -- and a
+    /// sort is that verb.
+    #[test]
+    fn a_pin_survives_a_sort_and_a_filter() {
+        let mut world = peopled(0, 9);
+        // Spread the banks so a sort on energy is a real reorder rather than
+        // a no-op over equal values -- otherwise this passes on a comparator
+        // that does nothing.
+        // Scrambled rather than monotone: energies handed out in registry
+        // order make a descending sort the identity permutation, and the
+        // control below would then fail for a comparator that works.
+        for (i, id) in world.live_organism_ids().into_iter().enumerate() {
+            world.organism_mut(id).expect("live").energy = [40.0, 10.0, 90.0, 20.0, 70.0, 30.0, 80.0, 50.0, 60.0][i];
+        }
+        let by_slot = roster::rows(&world, roster::Kingdom::Creatures, roster::SortKey::Slot, false, roster::Filter::All);
+        let by_bank = roster::rows(&world, roster::Kingdom::Creatures, roster::SortKey::Energy, true, roster::Filter::All);
+        assert_eq!(by_slot.len(), by_bank.len(), "a sort must not lose rows");
+        assert_ne!(
+            by_slot.iter().map(|r| r.who.id).collect::<Vec<_>>(),
+            by_bank.iter().map(|r| r.who.id).collect::<Vec<_>>(),
+            "the sort changed nothing, so this test is not testing a reorder"
+        );
+        assert!(by_bank.windows(2).all(|w| w[0].energy >= w[1].energy), "descending sort is not descending");
+
+        let mut ui = Ui::new();
+        ui.panel = Some(Panel::AntList);
+        let pinned = by_slot[3].who;
+        ui.pin(pinned);
+        ui.sort_roster(1);
+        assert_eq!(ui.pinned(), Some(pinned), "a sort moved the pin");
+        ui.cycle_roster_filter(Some(0));
+        assert_eq!(ui.pinned(), Some(pinned), "a filter moved the pin");
+        assert!(pinned.alive(&world), "and the individual it names is still there");
+    }
+
+    /// **The two tables keep their own sort, scroll and filter.**
+    ///
+    /// A sort is stored as a *column index*, and column 1 is SEED on the
+    /// plants table and BANK on the animals'. Shared, one index means "the
+    /// second column, whatever that is here", which is nobody's request --
+    /// and the harness caught it doing real damage: sorting the plants list
+    /// and then opening the animals list drew the animals in an order nobody
+    /// had chosen, so a click on the third row pinned ant 41 where ant 11 was
+    /// expected.
+    #[test]
+    fn each_roster_keeps_its_own_sort_and_filter() {
+        let mut ui = Ui::new();
+        ui.panel = Some(Panel::PlantList);
+        ui.sort_roster(2);
+        ui.cycle_roster_filter(None);
+        let plant_sort = ui.roster_sort();
+        let plant_filter = ui.roster_filter();
+        assert_eq!(plant_sort, Some((2, true)), "the plants table did not take the sort");
+
+        ui.panel = Some(Panel::AntList);
+        assert_eq!(ui.roster_sort(), None, "the animals table inherited the plants table's sort");
+        assert_eq!(ui.roster_filter(), roster::Filter::All, "the animals table inherited the plants table's filter");
+        ui.sort_roster(5);
+
+        ui.panel = Some(Panel::PlantList);
+        assert_eq!(ui.roster_sort(), plant_sort, "the plants table lost its sort to the animals table");
+        assert_eq!(ui.roster_filter(), plant_filter, "the plants table lost its filter");
+
+        // And the two column lists really do disagree about what index 1
+        // means, or the whole hazard above is theoretical.
+        assert_ne!(
+            PLANT_COLS[1].0, ANT_COLS[1].0,
+            "the two tables now agree on column 1, so this guard is guarding nothing -- re-derive it"
+        );
+    }
+
+    /// **A roster taller than the page can be scrolled, and the two halves
+    /// are asserted separately.**
+    ///
+    /// The rack shipped `rack_scroll` written, clamped and honoured by the
+    /// renderer with **nothing bound to move it** -- a rack of a hundred
+    /// showed rows 1-12 for ever and every guard over it passed. So: the
+    /// control **exists**, and it **changes which rows are drawn**.
+    #[test]
+    fn a_roster_taller_than_the_page_can_be_scrolled() {
+        let world = peopled(0, 40);
+        let mut ui = Ui::new();
+        ui.panel = Some(Panel::AntList);
+        let mut buf = vec![0u8; (W * H * 4) as usize];
+
+        let drawn = |ui: &Ui| -> Vec<usize> {
+            ui.roster_bar
+                .widgets
+                .iter()
+                .filter(|w| w.line1.is_empty())
+                .filter_map(|w| match w.action {
+                    Some(Action::RosterSelect(i)) => Some(i),
+                    _ => None,
+                })
+                .collect()
+        };
+
+        ui.paint_roster(&mut buf, &world, roster::Kingdom::Creatures);
+        let first = drawn(&ui);
+        assert!(!first.is_empty() && first.len() < 40, "the page must show a window of a 40-row list, not all of it or none");
+        assert_eq!(first[0], 0, "and it starts at the top");
+        assert!(
+            ui.roster_bar.widgets.iter().any(|w| w.action == Some(Action::RosterScroll(1))),
+            "the roster has more rows than fit and drew no way to scroll -- the exact bug this guards"
+        );
+
+        ui.scroll_roster(1);
+        ui.paint_roster(&mut buf, &world, roster::Kingdom::Creatures);
+        let second = drawn(&ui);
+        assert!(
+            second.iter().all(|i| !first.contains(i)),
+            "paging forward redrew rows the first page had shown: {first:?} then {second:?}"
+        );
+
+        // Clamped at the far end, and the end is reachable.
+        for _ in 0..10 {
+            ui.scroll_roster(1);
+        }
+        ui.paint_roster(&mut buf, &world, roster::Kingdom::Creatures);
+        let last = drawn(&ui);
+        assert_eq!(*last.last().expect("rows"), 39, "the end of the list is not reachable");
+        assert_eq!(last.len(), first.len(), "scrolled off the end and drew a short page");
+
+        ui.scroll_roster(-20);
+        assert_eq!(ui.roster_scroll(), 0, "scrolling back must not go negative");
+        ui.scroll_roster(1);
+        ui.sort_roster(1);
+        assert_eq!(ui.roster_scroll(), 0, "a sort must jump back to the top");
+
+        // A roster that fits draws no pager: a control that does nothing is
+        // worse than no control.
+        let small = peopled(0, 3);
+        let mut tiny = Ui::new();
+        tiny.panel = Some(Panel::AntList);
+        tiny.paint_roster(&mut buf, &small, roster::Kingdom::Creatures);
+        assert!(
+            !tiny.roster_bar.widgets.iter().any(|w| w.action == Some(Action::RosterScroll(1))),
+            "a roster that fits on one page still drew a pager"
+        );
+    }
+
+    /// **The roster page stays on the screen, at every length it can be.**
+    ///
+    /// Its height is a sum of terms and every one of them was added by
+    /// somebody: the rack's pager and its verbs were each added without a
+    /// term, which put that panel 327 px tall on a 320 px screen and dropped
+    /// its own ENTER button behind the bar.
+    #[test]
+    fn the_roster_page_stays_on_the_screen() {
+        let mut buf = vec![0u8; (W * H * 4) as usize];
+        for n in [0usize, 1, 5, 14, 15, 40, 200] {
+            let world = peopled(0, n.min(60));
+            for pinned in [false, true] {
+                let mut ui = Ui::new();
+                ui.panel = Some(Panel::AntList);
+                if pinned {
+                    let rows = roster::rows(&world, roster::Kingdom::Creatures, roster::SortKey::Slot, false, roster::Filter::All);
+                    if let Some(r) = rows.first() {
+                        ui.pin(r.who);
+                    }
+                }
+                ui.paint_roster(&mut buf, &world, roster::Kingdom::Creatures);
+                let rect = ui.roster_box.expect("the page was drawn");
+                assert!(rect.y >= MARGIN, "n={n} pinned={pinned}: the page starts at y={} -- off the top", rect.y);
+                assert!(rect.bottom() <= bar_top(), "n={n} pinned={pinned}: the page runs into the bar");
+                assert!(rect.x >= 0 && rect.right() <= W as i32, "n={n} pinned={pinned}: the page runs off the side");
+                // **Every widget inside its own panel.** The assertion the
+                // rack was missing: a page can be the right height and still
+                // draw its verbs below itself.
+                for wid in &ui.roster_bar.widgets {
+                    assert!(
+                        wid.rect.y >= rect.y && wid.rect.bottom() <= rect.bottom(),
+                        "n={n} pinned={pinned}: a {:?} widget at y={} is outside the panel {}..{}",
+                        wid.action,
+                        wid.rect.y,
+                        rect.y,
+                        rect.bottom()
+                    );
+                }
+            }
+        }
+    }
+
+    /// **A roster with no way out is a page a player is stuck on.**
+    ///
+    /// No bar chip carries `Action::Panel(PlantList)` -- that is the whole
+    /// reason the roster hangs off the PLANTS page -- so "press whatever
+    /// opened it" cannot close this one. The harness found it twice by
+    /// panicking; this is the same finding as a test.
+    #[test]
+    fn a_roster_can_be_left_by_a_button_on_it() {
+        let world = peopled(2, 2);
+        let mut buf = vec![0u8; (W * H * 4) as usize];
+        for (panel, kingdom, back_to) in [
+            (Panel::PlantList, roster::Kingdom::Plants, Panel::Plants),
+            (Panel::AntList, roster::Kingdom::Creatures, Panel::Ants),
+        ] {
+            let mut ui = Ui::new();
+            ui.panel = Some(panel);
+            ui.paint_roster(&mut buf, &world, kingdom);
+            assert!(
+                ui.widget_rect(Action::Panel(back_to)).is_some(),
+                "{panel:?} drew no way back to {back_to:?}"
+            );
+            // And the way out is not the page's own action, which is what a
+            // caller would reach for and which is not on screen.
+            assert!(
+                ui.widget_rect(Action::Panel(panel)).is_none(),
+                "{panel:?} is reachable from itself, so this guard is not testing what it says"
+            );
+        }
+    }
+
+    /// **The sort keys are pinned to their columns.**
+    ///
+    /// The rack keys its sort on a bare column index in a `match`, so
+    /// inserting a column there silently sorts on its neighbour; carrying the
+    /// key on the column makes an insert a compile-time move. This asserts
+    /// the pairing anyway, so a *reordering* -- which the compiler cannot see
+    /// -- breaks loudly. PR 3 inserts an offspring column into both tables.
+    #[test]
+    fn the_roster_columns_and_their_sort_keys_agree() {
+        assert_eq!(PLANT_COLS[0].0, "SPECIES");
+        assert_eq!(PLANT_COLS[2].0, "SEED");
+        assert_eq!(PLANT_COLS[2].2, roster::SortKey::Score, "the SEED column must sort on what it shows");
+        assert_eq!(ANT_COLS[1].0, "BANK");
+        assert_eq!(ANT_COLS[1].2, roster::SortKey::Energy, "the BANK column must sort on what it shows");
+        assert_eq!(PLANT_COLS[7].0, "STATE");
+        assert_eq!(ANT_COLS[7].0, "STATE");
+        for cols in [&PLANT_COLS, &ANT_COLS] {
+            for (head, widest, _) in cols {
+                assert!(
+                    hud::text_width(head) <= hud::text_width(widest),
+                    "column {head:?} is wider than the widest value it claims to hold ({widest:?}) -- the header will overlap its neighbour"
+                );
+            }
+        }
+    }
+
+    /// **The roster's order is total**, so no sort implementation ever has a
+    /// tie to break.
+    ///
+    /// This started as "sort the same list eight times and check the answer
+    /// does not move", and that guard was **blind**: it stayed green with the
+    /// tie-break deleted and the sort switched to `sort_unstable_by`, because
+    /// a sort is deterministic within one build whatever its comparator says.
+    /// The hazard `CLAUDE.md` records is that ipnsort picks its small-sort
+    /// strategy from the *element type*, so two sorts asking the comparator
+    /// identical questions can still order equal elements differently -- and
+    /// nothing inside one build can see that.
+    ///
+    /// So this asserts the property that makes the hazard harmless instead:
+    /// `roster::compare` returns `Equal` only for a row against itself. With
+    /// no ties there is nothing for an implementation to choose.
+    #[test]
+    fn a_roster_sort_is_total_over_ties() {
+        use std::cmp::Ordering;
+        let world = peopled(4, 12);
+        for (kingdom, n) in [(roster::Kingdom::Plants, 4), (roster::Kingdom::Creatures, 12)] {
+            let rows = roster::rows(&world, kingdom, roster::SortKey::Slot, false, roster::Filter::All);
+            assert_eq!(rows.len(), n, "the positive control: {n} rows to compare");
+            for key in [
+                roster::SortKey::Slot,
+                roster::SortKey::Species,
+                roster::SortKey::Cells,
+                roster::SortKey::Energy,
+                roster::SortKey::Carrying,
+                roster::SortKey::Score,
+                roster::SortKey::Generation,
+                roster::SortKey::Lineage,
+                roster::SortKey::Age,
+                roster::SortKey::State,
+            ] {
+                for desc in [false, true] {
+                    for a in &rows {
+                        assert_eq!(
+                            roster::compare(a, a, key, desc),
+                            Ordering::Equal,
+                            "{key:?}: a row does not compare equal to itself"
+                        );
+                        for b in &rows {
+                            if a.who == b.who {
+                                continue;
+                            }
+                            assert_ne!(
+                                roster::compare(a, b, key, desc),
+                                Ordering::Equal,
+                                "{key:?} desc={desc}: two distinct rows are tied, so the sort has a choice to make and the toolchain makes it"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+        // The positive control for the control: these rows really are tied on
+        // the underlying quantity, or "no ties" is true for an uninteresting
+        // reason.
+        let ants = roster::rows(&world, roster::Kingdom::Creatures, roster::SortKey::Slot, false, roster::Filter::All);
+        assert!(
+            ants.iter().all(|r| r.generation == ants[0].generation),
+            "every ant here should share a generation -- otherwise the tie-break is not being exercised"
+        );
     }
 
     /// **The cell page fits on the screen, for something alive of each

@@ -120,6 +120,9 @@ GAME = {
     # outdoor game grows a way to keep an individual.
     "keeping, cloning and mutating an individual": "lab",
     "reading one specimen off the screen": "lab",
+    # The third lab row, and it is the one that gets you *to* an individual:
+    # the two above assume you have already found one.
+    "finding one individual among all of them": "lab",
 }
 
 TOPICS = {
@@ -136,11 +139,13 @@ TOPICS = {
         "Breaking status — a badly grown tree comes down on its own",
         "Specimen shelf status — an individual's genetics outlive the box",
         "Cell page status — the specimen readout is in three groups, and folds",
+        "Roster status — every plant and every animal, as a list you click through",
     ],
     "creatures — worms and the ant colony": [
         "M18 status",
         "The ant colony — status",
         "Specimen shelf status — an individual's genetics outlive the box",
+        "Roster status — every plant and every animal, as a list you click through",
     ],
     "structural collapse, felling and rigid bodies": [
         "M17 status",
@@ -225,6 +230,14 @@ TOPICS = {
     # them has no reason to look under "the evolution lab" for it.
     "keeping, cloning and mutating an individual": [
         "Specimen shelf status — an individual's genetics outlive the box",
+    ],
+    # The way *in* to the two rows above. They both start from "you have an
+    # individual"; this is how you get one out of a box of a hundred, and it
+    # is where the identity those pages are pinned by is defined. Listed under
+    # plants and creatures too, for the reason the shelf is: an agent on
+    # either line has no reason to look under the lab for it.
+    "finding one individual among all of them": [
+        "Roster status — every plant and every animal, as a list you click through",
     ],
 }
 

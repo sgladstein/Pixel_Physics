@@ -3559,6 +3559,24 @@ pub struct OrganismState {
     /// descends from whom separates them (the same argument
     /// `examples/genome_drift.rs` opens with, one level up).
     pub lineage: u32,
+    /// **The frame this individual was allocated.**
+    ///
+    /// With the organism handle it is a **collision-proof identity**, and
+    /// that is what it is for: `encode_organism_id` gives the slot index 12
+    /// bits and the generation 4, so a handle is reused after 16 turns of a
+    /// slot (`World::organism_generation_wraps` counts the wrap). Anything
+    /// that pins one individual across frames -- the lab's roster and its
+    /// selection marker -- would follow a *different* organism into a
+    /// recycled slot on the handle alone. The frame does not recycle.
+    ///
+    /// **Within one world only.** `World` is `Clone` and a batch copies it
+    /// per worker, so fifty copies on the rack all hold the same pairs. It
+    /// is an identity for "this animal in this box", never a rack-wide key.
+    ///
+    /// Also the age: `world.frame - born_frame`. Note that a plant's
+    /// organism is allocated at **seed set** (`plant::set_seed`), not at
+    /// germination, so a plant's age includes however long it lay dormant.
+    pub born_frame: u64,
     /// Seeds this organism has set. The other half of the same question.
     pub seeds_set: u32,
     /// **This individual's discrete genes** — see [`DISCRETE_LOCI`]. One

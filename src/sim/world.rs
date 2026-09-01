@@ -2832,6 +2832,12 @@ impl World {
         let fates = super::organism::FateGenome::from_table(self.species.get(species).fate_table());
         let state = OrganismState {
             fates,
+            // **The identity, stamped at the one allocation seam.** See
+            // `OrganismState::born_frame`: the handle alone is not an
+            // identity because slots are reused, and this is the term that
+            // makes the pair unique. Stamped here rather than by the caller
+            // so it cannot be forgotten on one of the five creation paths.
+            born_frame: self.frame,
             water: 0.0,
             water_status: 1.0,
             water_uptake: 0.0,

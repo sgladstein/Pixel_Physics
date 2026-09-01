@@ -34,6 +34,7 @@
 
 pub mod batch;
 pub mod params;
+pub mod roster;
 pub mod scene;
 pub mod stats;
 pub mod time;
@@ -1165,6 +1166,11 @@ impl Lab {
     /// in rather than measured here so that the number on the box page is the
     /// same one the title bar shows.
     pub fn draw(&mut self, frame_buf: &mut [u8], fps: f32) {
+        // **Before the camera is read, because it can move the camera.** The
+        // pin re-points the cell page at the individual's current cell and,
+        // while FOLLOW is on, walks the view after it -- so doing this after
+        // `renderer.draw` would draw one frame behind the animal.
+        self.follow_pin();
         // Anything drawn over the terrain has no footprint tracked between
         // frames, so the dirty-rect skip cannot know to erase last frame's.
         // Same rule, and the same reasoning, as `App::draw`'s. The bar is
@@ -1515,6 +1521,74 @@ impl Lab {
 
     /// The selected plantable species: its name in the bar's uppercase, and
     /// the line the chip's hover explanation shows.
+    /// **Pin the individual drawn at row `n` of the roster.**
+    ///
+    /// Rebuilds the list with the sort and filter the page was drawn with, so
+    /// the row this resolves is the row the player pointed at. The index goes
+    /// no further than this function: what is stored is the identity.
+    ///
+    /// A row that no longer exists -- the population changed between the draw
+    /// and the click, which at 1,024 ticks a frame is a real window -- says so
+    /// rather than pinning its neighbour.
+    fn pin_roster_row(&mut self, n: usize) -> String {
+        let Some(panel) = self.ui.panel else { return "NO LIST OPEN".to_string() };
+        let kingdom = match panel {
+            ui::Panel::PlantList => roster::Kingdom::Plants,
+            ui::Panel::AntList => roster::Kingdom::Creatures,
+            _ => return "NO LIST OPEN".to_string(),
+        };
+        let (key, desc) = self.ui.roster_sort_key(kingdom);
+        let rows = roster::rows(&self.world, kingdom, key, desc, self.ui.roster_filter());
+        let Some(row) = rows.get(n) else {
+            return "THAT ROW HAS GONE".to_string();
+        };
+        let species = self.world.species.get(row.species).name.to_uppercase();
+        if self.ui.pin(row.who) {
+            // **The cell page is pointed at it too**, which is what makes one
+            // click do the whole job: the page, the marker and the numbers
+            // are the ones that already existed, aimed by identity instead of
+            // by wherever the player happened to click on the ground.
+            self.ui.inspect_at(row.at);
+            format!("PINNED {species} AT {},{}", row.at.0, row.at.1)
+        } else {
+            "LET GO".to_string()
+        }
+    }
+
+    /// **Keep the pin honest, once per drawn frame.**
+    ///
+    /// Two jobs, and both of them are why the pin is an identity rather than
+    /// a cell. It re-points the cell page at the individual's *current* cell,
+    /// so the page follows the animal rather than the ground it was standing
+    /// on when you clicked. And it notices a pin that has stopped resolving
+    /// -- a death, or a slot reused by something else -- and says so, rather
+    /// than letting the page quietly become a different animal.
+    fn follow_pin(&mut self) {
+        let Some(who) = self.ui.pinned() else { return };
+        let Some(state) = who.resolve(&self.world) else {
+            // The pin is kept rather than dropped: the page says THIS ONE HAS
+            // DIED, which is the thing worth knowing, and RELEASE is how you
+            // put it away. A pin that vanished on its own would leave the
+            // player wondering whether they mis-clicked.
+            self.ui.stop_following();
+            return;
+        };
+        let at = roster::anchor_of(state);
+        if let Some(at) = at {
+            self.ui.inspect_at(at);
+            if self.ui.following() {
+                // `Renderer::follow`, not a hard centring: it is a dead-zone
+                // follow, and the reason is a frame cost rather than a feel.
+                // A camera move forces a full redraw, so a strictly-centred
+                // view repaints the whole screen every frame the animal is
+                // walking -- the dirty-rect skip paid away for nothing. This
+                // is the same call the outdoor game follows the gnome with.
+                let bounds = self.world.bounds();
+                self.renderer.follow(at, (WIDTH, HEIGHT), bounds);
+            }
+        }
+    }
+
     fn selected_species(&self) -> (String, String) {
         let Some(id) = self.ui.species_of(&self.world) else {
             return ("NONE".to_string(), "NO PLANTABLE SPECIES IS LOADED.".to_string());
@@ -1739,6 +1813,35 @@ impl Lab {
                 self.ui.say(said);
             }
             ui::Action::ChamberSort(c) => self.ui.sort_chambers(c),
+            // ---- the roster.
+            //
+            // **The index is resolved to an identity here, in the same frame
+            // the click landed in, and never stored.** `Reports/dead-ends.md`
+            // records the general shape -- a selection stored as a position
+            // into a list a neighbouring verb rewrites names something else
+            // the moment the list moves -- and a roster is rewritten by every
+            // birth, every death and every click on a column heading. The
+            // list is rebuilt with the same sort and filter the page drew, so
+            // row `n` here is the row the player pointed at.
+            ui::Action::RosterSelect(n) => {
+                let said = self.pin_roster_row(n);
+                self.ui.say(said);
+            }
+            ui::Action::RosterScroll(d) => self.ui.scroll_roster(d),
+            ui::Action::RosterSort(c) => self.ui.sort_roster(c),
+            ui::Action::RosterFilter => {
+                let line = self.ui.pinned().and_then(|w| w.resolve(&self.world)).map(|s| s.lineage);
+                let said = self.ui.cycle_roster_filter(line);
+                self.ui.say(said);
+            }
+            ui::Action::RosterFollow => {
+                let on = self.ui.toggle_following();
+                self.ui.say(if on { "FOLLOWING".into() } else { "NOT FOLLOWING".to_string() });
+            }
+            ui::Action::RosterRelease => {
+                self.ui.release_pin();
+                self.ui.say("LET GO".to_string());
+            }
             ui::Action::ChamberClear => {
                 let said = self.clear_rack();
                 self.ui.say(said);

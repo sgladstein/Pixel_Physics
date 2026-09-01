@@ -219,6 +219,94 @@ then Gate 2, now that it can have a control arm; then `PROMOTE` for plants,
 which refuses today because `individual_as_species` copies the parent
 *species'* fates rather than the individual's; then the parameter half.
 
+## Round five, 2026-09-01 — tracking individuals
+
+*Brief, owner: a table of all plants and all creatures you can click through
+with stats and a highlight; a life history for one individual; a genome summary
+in plain language; brainstorm the rest. Branch
+`claude/evolution-lab-tracking-iacu4z`. Owner's scoping answers: all three
+history tiers, dead individuals stay listed with a cause, order is tables →
+plain speech → history, and all four brainstormed extras (FOLLOW, sortable
+columns, side-by-side comparison, a lineage overlay).*
+
+**Landed so far: the rosters.** README's *"Roster status"* is the shipped
+behaviour. What it **overturned**, which is the part a later session cannot
+reconstruct:
+
+- **`Body::Head`'s hit target was built and thrown away.** `paint_page` has
+  always collected clickable headings into a `taps` vec, and the one caller
+  drawing a `Panel` through it passed `&mut Vec::new()`. Nothing had noticed
+  because no generic page had a clickable heading yet. Anything added to the
+  PLANTS / ANTS / BOX pages as a `Row::head` before this fix was a button
+  nobody could press.
+- **The bar is still full, re-measured today**: `pad=2 gap=1` is the only
+  spacing that fits, row 1 at **508 of 508** and row 0 with **2 px** spare. The
+  roster hangs off the PLANTS and ANTS pages for that reason and it cost no
+  painter code. **This is the pattern for the next lab control** — a heading on
+  a page that already has a chip, not a chip.
+- **A page with no bar chip has no way out, and nothing else here has that
+  shape.** Every other page is closed by pressing the chip that opened it; the
+  roster needed a `BACK` button of its own. The harness found it twice by
+  panicking, which is `labui` doing exactly its job.
+- **`OrganismState::born_frame` now exists**, stamped at `World::push_organism`.
+  The reason is identity: a handle is a 12-bit slot plus a 4-bit generation and
+  **is reused**, so a pin keyed on the handle alone follows a stranger after
+  sixteen turns of one slot. It doubles as `AGE`. **PR 3 was going to add this;
+  it is in already**, and the life record's counters hang off the same field.
+- **Two roster columns were vacuous and only the rendered table showed it.**
+  `HUNGRY` for all 52 ants (floor scaled off `body_energy` 480, what a corpse
+  is worth, against `start_energy` 200, what it lives on) and `HOME` for all 52
+  (`nest_memory` is a 3,000-tick sense window, not a place). Both are
+  `CLAUDE.md`'s *ask what your number counts when nothing is wrong*, in a
+  column.
+- **A guard was blind and had to be replaced, not widened.** *"Sort the same
+  list eight times and check the order holds"* stays green with the tie-break
+  deleted **and** `sort_unstable_by`, because a sort is deterministic inside
+  one build. The replacement asserts `roster::compare` is a **total** order —
+  `Equal` only against itself — so no implementation has a tie to make a choice
+  about. **Any future sort in this game wants that form**, not the repeat form.
+- **The two tables must not share a sort.** A sort is a *column index*, and
+  index 1 is SEED on one table and BANK on the other. Shared, the harness
+  reported a click pinning ant 41 where ant 11 was expected.
+
+### Measured on this branch, and reusable
+
+- `labstats frames=90000` on the shipped bed: **3,099 seeds borne, 279
+  sprouted, 15 animals born, 64 dead**. So a run log recording every seed-set
+  is **90% seed-set** and drowns; recording only an individual's *first* seed
+  brings it to ~640 events per 90k frames, which a 2,048 cap covers for about
+  290,000 frames. **This changed the run log's design before it was written.**
+- **`eats` cannot be closed against anything and must not be mirrored
+  per-individual.** Measured on `ascii`'s colony: `eats 283 / pickups 265` at
+  2,000 frames and `1142 / 1017` at 12,000. It is incremented at two sites for
+  one food cell (`creature.rs:2702` into the crop, `:1948` a cell absorbed) and
+  the two comments disagree about what it means. Close a per-individual bite
+  count against **`pickups`**, which has one site. Filed as its own finding.
+- Frame-cost baseline for the next three PRs, `RAYON_NUM_THREADS=4`, `ascii`
+  colony: **mean 3.98–4.30 ms over 12,000 frames**, worst ~52–57 ms and **not
+  pinned by the aggregate** (`mean x frames` is ~51,600 ms), so quote the mean.
+
+### Next, in order
+
+1. **The genome in words** — `brain::wiring_from_genome` already gives named
+   sparse instincts, so the phrasebook is the work. Note only **3 body traits
+   and the brain weights** are per-individual; `dig_force` and `sight_range`
+   are the *species'*, and a page that claims otherwise is lying.
+   `TRAIT_REPRODUCE_AT` is missing from `specimen_sections` today — two of
+   three are printed.
+2. **The life record.** Tier 1's identity field is already in. Watch the three
+   traps found in review: the `digs` mirror must stay **outside** the
+   `spoil_kept()` gate at `creature.rs:2921`; `World::seeds_set` does not exist
+   and `stats.rs`'s `seeds_borne` is a proxy (`fate_mutation_rolls`); and a
+   §B2-felled plant reaches `free_organism` with **`senescent == false` and no
+   death record at all**, so `!senescent` at that seam is the organism-level
+   counter §B2 has never had.
+3. **`Lab::advance` observes after its tick loop**, so at 256x and 1024x the
+   bar's population strip samples once per *drawn* frame — and `ui::History::
+   Sample` carries no frame, so its x-axis is the call cadence. `stats::Sample`
+   carries one and only loses resolution. Both `observe` calls belong in
+   `Lab::tick`; three lines, and the watch ring depends on it.
+
 ## Deliberately not being built yet
 
 The score and the economy — the guide's Gate 5. **Gate 2, does selection have
