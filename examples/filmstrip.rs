@@ -474,6 +474,16 @@ fn gnome_stand(args: &Args) -> World {
 /// on the world that is actually returned is idempotent for the scenes that
 /// already worked and is the whole fix for the five that did not.
 fn apply_world_settings(w: &mut World, args: &Args) {
+    // **The lab's own switch, reachable from a harness.** `World::plant_load
+    // _failure` is a *setting* rather than an ablation -- the parameters
+    // panel writes it while the box runs -- so it has no `env::var` the way
+    // `BEND` and `BREAK` do, and nothing headless could measure what a player
+    // sees with it off. `loadfail=0` is that, and it is the arm the owner's
+    // *"I turned COLLAPSE UNDER LOAD off, but trees are still falling over"*
+    // has to be read against.
+    if let Some(on) = args.load_failure {
+        w.plant_load_failure = on;
+    }
     w.crush_confined = args.confine;
     w.arch_relief = args.arch;
     w.section_share = args.share;
@@ -2522,6 +2532,9 @@ fn build_scene(args: &Args) -> World {
 }
 
 struct Args {
+    /// `loadfail=0|1` — see `apply_world_settings`. `None` leaves the
+    /// world's own default, which is on.
+    load_failure: Option<bool>,
     scene: String,
     /// `blind=1` -- force `scene=hunt`'s beetle to `sight_range: 0`, which
     /// is the **control arm** of that scene and not a debugging switch.
@@ -3247,6 +3260,7 @@ struct Args {
 
 fn parse() -> Args {
     let mut a = Args {
+        load_failure: None,
         scene: "pour".into(),
         dig_yield: pixel_physics::sim::player::Tuning::default().dig_yield,
         splash: pixel_physics::sim::player::Tuning::default().splash_force,
@@ -3379,6 +3393,7 @@ fn parse() -> Args {
             "moisture" => a.soil_moisture = v.parse().expect("moisture"),
             "frame0" => a.frame0 = v.parse().expect("frame0"),
             "plants" => a.plants = v.parse().expect("plants"),
+            "loadfail" => a.load_failure = Some(v.parse::<i32>().expect("loadfail=0|1") != 0),
             "soil" => a.soil_depth = v.parse().expect("soil=ROWS"),
             "ignite" => {
                 let n: Vec<i64> = v.split(',').map(|s| s.parse().expect("ignite")).collect();
