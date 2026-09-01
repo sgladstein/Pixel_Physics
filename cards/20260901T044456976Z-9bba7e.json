@@ -1,0 +1,46 @@
+{
+  "id": "20260901T044456976Z-9bba7e",
+  "created": "2026-09-01T04:44:56Z",
+  "board": "lab",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/evolution-lab-mechanics-o7i3xm",
+    "commit": "e56a8c0",
+    "agent": null,
+    "session_id": "b7a8dc92-eedb-5ab7-8809-1f18a9b21417",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The plant's cell page: three groups, and it fits now",
+  "question": "Are these the right three groups, and is STATE the right one to land on when you click a plant?",
+  "context_md": "The plant page was 302px tall on a 320px screen, and there was no clamp -- it\nwas being drawn at y = -42, so the title and the AT / MATERIAL / TEMPERATURE /\nORGANISM rows were off the top edge. It did not look cut off; it looked like a\npage that starts at ENERGY.\n\nThe readout is now three named groups. LIFE is where the individual came from\nand never changes. STATE is what moves while the box runs. GENOME is what it\nwas dealt at birth. An ant's gut bias and birth grant moved into GENOME on that\nrule.\n\nThe fold is greedy rather than one-at-a-time: the group you last clicked is\nserved first, then the rest fill from the top with whatever still fits. So on a\nplant you get LIFE and STATE open with \"+ GENOME 11\" shut (A); click GENOME and\nit trades STATE for it (B). A shut group always says how many rows are behind\nit, so nothing disappears silently.\n\nAn ant's page does not fold at all -- eight rows fit beside the cell block with\nroom to spare, so that page is exactly what it always was.\n\nI built it as a true accordion first and it was worse: LIFE is three rows and\nfits beside either eleven-row block with 14px left over, so closing it bought\nnothing and took away the individual's identity while you were reading its\nnumbers.\n\nBoth images are the same plant, one click apart.\n",
+  "kind": "ab",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "as it opens: LIFE + STATE, GENOME shut (11 rows behind it)",
+      "files": [
+        "20260901T044456976Z-9bba7e/000-cell-state.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "after clicking GENOME: it trades STATE for the genome",
+      "files": [
+        "20260901T044456976Z-9bba7e/001-cell-genome.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
