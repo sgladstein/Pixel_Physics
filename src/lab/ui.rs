@@ -372,6 +372,9 @@ pub enum Action {
     NextSpecies,
     /// Widen or narrow the brush, by `+1` or `-1` steps.
     Brush(i32),
+    /// Move the stocking count one stop along [`STOCK_LADDER`], `-1` or `+1`.
+    /// Shares the brush's cells; see `layout`.
+    Stock(i32),
     /// Cycle the false-colour view of the invisible channels.
     CycleOverlay,
     Panel(Panel),
@@ -635,6 +638,14 @@ impl Tool {
             Tool::Food => "E",
         }
     }
+    /// **Whether this tool puts animals in the box.** The two that do share a
+    /// species chip and a count, because they are one decision asked twice --
+    /// *which animal, and how many* -- and the second differs only in whether
+    /// the genome comes off the shelf or out of the species table.
+    pub fn is_stocking(self) -> bool {
+        matches!(self, Tool::Colony | Tool::Release)
+    }
+
     /// Whether this tool paints continuously while the button is held. The
     /// verbs are one-shot — a drag that founded a colony per pixel would empty
     /// the organism table in one gesture.
@@ -645,13 +656,13 @@ impl Tool {
         match self {
             Tool::Look => "POINT AT A CELL AND READ IT. CLICK TO PIN THE CELL PAGE OPEN; CLICK IT AGAIN TO PUT IT AWAY. WHAT IS UNDER THE POINTER IS ALWAYS READ OUT TOP RIGHT, TOOL OR NO TOOL.",
             Tool::Plant => "PUT ONE SEED IN THE SOIL WHERE YOU CLICK. THE CHIP TO THE RIGHT SAYS WHICH SPECIES AND WHAT IT COSTS TO GROW ONE. A SEED NEEDS BARE SOIL WITH ROOM ABOVE IT.",
-            Tool::Colony => "RELEASE A COLONY OF FOUNDERS AT THE SURFACE UNDER THE CLICK. THEY ARRIVE WITH A PATCH OF NEST TO WALK HOME TO -- WITHOUT ONE THERE IS NO GRADIENT AND NOBODY FORAGES.",
+            Tool::Colony => "PUT ANIMALS IN THE BOX. THE CHIP TO THE RIGHT SAYS WHICH ANIMAL -- ANT, BEETLE, WORM -- AND THE STOCK DIAL BESIDE IT SAYS HOW MANY. AT 1 IT IS ONE ANIMAL WHERE YOU CLICK, WITH NO NEST. ABOVE 1 IT IS A COLONY AT THE SURFACE UNDER THE CLICK, ARRIVING WITH A PATCH OF NEST TO WALK HOME TO -- WITHOUT ONE THERE IS NO GRADIENT AND NOBODY FORAGES.",
             Tool::Cull => "KILL THE ORGANISM YOU CLICK. IT IS MARKED SENESCENT, NOT DELETED, SO IT ROTS DOWN OVER ITS SPECIES HALF-LIFE AND FEEDS WHATEVER IS STILL ALIVE. THIS IS THE SELECTION LEVER: WHAT YOU CULL DOES NOT BREED.",
             Tool::Soil => "PAINT SOIL, AT FIELD CAPACITY -- DAMP ENOUGH FOR A ROOT, NOT SO WET IT SLUMPS. IT WILL NOT PAINT OVER STONE OR OVER A LIVING PLANT.",
             Tool::Water => "PAINT WATER, FULL. IT RUNS, IT SOAKS INTO SOIL, AND TOO MUCH OF IT DROWNS ROOTS -- WHICH IS AN EXPERIMENT, NOT A MISTAKE.",
             Tool::Wall => "DROP A WALL FLOOR TO CEILING IN THE COLUMN YOU CLICK, OR CLICK ONE YOU PLACED TO TAKE IT OUT. A WALL IS WHAT MAKES TWO POPULATIONS IN ONE BOX INTO TWO POPULATIONS: THEY CANNOT MIX, SO THEY CAN DRIFT APART. IT CUTS WHATEVER IS IN THE WAY, WHICH IS THE POINT -- A WALL THROUGH A STAND IS A STAND SPLIT IN HALF. IT SURVIVES A REBUILD.",
             Tool::Food => "PUT FOOD ON THE GROUND WHERE YOU PAINT. IT IS WINDFALL -- THE FRUIT A HERB DROPS -- SO IT FALLS, PILES UP AND ROTS BACK INTO THE SOIL RATHER THAN SITTING THERE FOR EVER. A COLONY WITH FOOD BESIDE THE NEST BREEDS HARD; THE SAME COLONY LEFT TO FORAGE THE SEALED BED MOSTLY DOES NOT. THIS IS HOW YOU TELL THOSE TWO APART.",
-            Tool::Release => "PUT THE ARMED JAR BACK IN THE BOX WHERE YOU CLICK. AT 0 BROODS IT IS THAT EXACT INDIVIDUAL AGAIN; AT 1 IT IS AS DIFFERENT AS ITS OWN CHILD WOULD HAVE BEEN, AND SO ON UP. OPEN THE SHELF WITH G TO PICK A JAR AND SET THE DIAL.",
+            Tool::Release => "PUT THE ARMED JAR BACK IN THE BOX WHERE YOU CLICK. TWO DIALS DECIDE WHAT ARRIVES: THE STOCK DIAL ON THE BAR IS HOW MANY, AND THE DRIFT DIAL ON THE SHELF IS HOW FAR EACH ONE HAS MOVED FROM THE JAR. AT 0 BROODS IT IS THAT EXACT INDIVIDUAL AGAIN, SO A COLONY IS A COLONY OF CLONES; AT 1 EACH IS AS DIFFERENT AS ITS OWN CHILD WOULD HAVE BEEN, DRAWN SEPARATELY, SO A COLONY IS A COLONY OF SIBLINGS. OPEN THE SHELF WITH G TO PICK A JAR AND SET THAT DIAL.",
         }
     }
 }
@@ -771,6 +782,11 @@ pub struct BarState<'a> {
     pub species_note: &'a str,
     /// Brush radius in cells, for the two painting tools.
     pub brush: i32,
+    /// **How many animals a stocking click puts down**, for the two verbs
+    /// that stock the box -- `COLONY` and a jar release. Shares the brush's
+    /// three cells on the bar, because a brush radius means nothing to either
+    /// of them and a stocking count means nothing to a brush; see `layout`.
+    pub stock: i32,
     /// The active false-colour channel, already named.
     pub overlay: &'static str,
     /// **What `RELEASE` will put in**: the armed jar's name, or how many
@@ -794,6 +810,23 @@ pub struct BarState<'a> {
     /// would be the same picture, repainted sixty times a second.
     pub rack_thumb: Option<&'a super::Thumb>,
 }
+
+/// What the stocking dial says it is for. Three notes rather than one,
+/// because the two arrows do different things and a shared note would make
+/// the player read a sentence about `+` while hovering `-`.
+const STOCK_NOTE: &str = "HOW MANY ANIMALS ONE CLICK PUTS DOWN. AT 1 IT IS A SINGLE ANIMAL WHERE YOU CLICK, WITH NO NEST -- THIS IS HOW YOU ADD ONE BEETLE. ABOVE 1 IT IS A COLONY: A PATCH OF NEST TO WALK HOME TO AND THE ANIMALS SPREAD ALONG THE GROUND EITHER SIDE OF THE CLICK, WHICH IS WHAT THEY NEED TO FORAGE AT ALL. IT GOVERNS BOTH STOCKING VERBS -- COLONY AND A JAR RELEASE.";
+const STOCK_DOWN_NOTE: &str = "FEWER. THE LADDER RUNS 1, 2, 4, 8, 16, 32, 52, 104 -- 52 IS THE SHIPPED COLONY, AND BELOW ABOUT FIFTY A COLONY LOOKS BROKEN EVEN WHEN THE CODE IS RIGHT. 1 IS ONE ANIMAL AND NO NEST.";
+const STOCK_UP_NOTE: &str = "MORE. THE LADDER RUNS 1, 2, 4, 8, 16, 32, 52, 104. EVERY ANIMAL IS A LIVING THING THE BOX HAS TO FEED, SO A HUNDRED OF THEM IS AN EXPERIMENT ABOUT CROWDING WHETHER YOU MEANT IT AS ONE OR NOT.";
+
+/// The stops the stocking dial climbs.
+///
+/// **A ladder rather than a step of one**, because the two ends are 1 and a
+/// full colony and a dial you have to click fifty-one times is not a control
+/// anybody uses -- the same finding the batch dials' typed entry came from.
+/// 52 is `creature::COLONY_ANTS`, the shipped colony and Grasse's threshold in
+/// practice; it is the default, so a player who never touches this dial gets
+/// exactly the colony the tool has always placed.
+const STOCK_LADDER: [i32; 8] = [1, 2, 4, 8, 16, 32, 52, 104];
 
 /// Width of a cell whose label is `label_px` wide and whose shortcut caption
 /// is `sub`. The caption is often the wider of the two (`SPACE` against
@@ -1064,9 +1097,13 @@ fn lay_out(state: &BarState<'_>, pad: i32, gap: i32) -> Bar {
     // the row sideways.
     let species_px = species_face_px().max(hud::text_width(state.species));
     let species = Spec {
-        width: cell_width(species_px, ";", pad),
+        // **`.`, which is the key `bin/lab.rs` actually binds.** It read `;`
+        // and had since the chip landed; `;` is the brood dial's step-down.
+        // A printed caption that is not the key is worse than none, because
+        // the player who tries it changes something else.
+        width: cell_width(species_px, ".", pad),
         line1: state.species.to_string(),
-        line2: ";".to_string(),
+        line2: ".".to_string(),
         action: Some(Action::NextSpecies),
         latched: state.tool == Tool::Plant,
         icon: None,
@@ -1074,26 +1111,47 @@ fn lay_out(state: &BarState<'_>, pad: i32, gap: i32) -> Bar {
         note: state.species_note.to_string(),
     };
 
-    // The brush, for the two painting tools: narrower, the radius, wider.
+    // **One dial, two meanings, decided by the armed tool.** A brush radius
+    // is meaningless to `COLONY` and a stocking count is meaningless to the
+    // soil brush, so the three cells say whichever the armed tool can use.
+    //
+    // Context-sensitive rather than a fourth group because **the bar is
+    // full** -- measured, with `the_bar_fits_the_screen_and_no_two_widgets_
+    // overlap` refusing an eighth tool cell -- and because these three cells
+    // were dead weight under exactly the tools that needed a dial of their
+    // own. Both cells are sized to the wider of the two faces, so the row
+    // does not shift under the cursor when the tool changes.
+    let stocking = state.tool.is_stocking();
     let step_px = cell_width(hud::text_width("W"), "]", pad);
+    let dial_px = hud::text_width("R64").max(hud::text_width("104"));
+    let dial_w = cell_width(dial_px, "SIZE", pad).max(cell_width(dial_px, "STOCK", pad));
     let narrower = Spec {
         width: step_px,
-        ..button("-", "[", Action::Brush(-1), false, "A NARROWER BRUSH. THE RADIUS IS IN CELLS, SO R1 IS A THREE-CELL DAB AND R16 IS A SPADEFUL.", pad)
+        ..if stocking {
+            button("-", "[", Action::Stock(-1), false, STOCK_DOWN_NOTE, pad)
+        } else {
+            button("-", "[", Action::Brush(-1), false, "A NARROWER BRUSH. THE RADIUS IS IN CELLS, SO R1 IS A THREE-CELL DAB AND R16 IS A SPADEFUL.", pad)
+        }
     };
     let wider = Spec {
         width: step_px,
-        ..button("+", "]", Action::Brush(1), false, "A WIDER BRUSH. THE RADIUS IS IN CELLS, AND THE COST OF A STROKE GOES UP WITH ITS AREA, NOT ITS LENGTH.", pad)
+        ..if stocking {
+            button("+", "]", Action::Stock(1), false, STOCK_UP_NOTE, pad)
+        } else {
+            button("+", "]", Action::Brush(1), false, "A WIDER BRUSH. THE RADIUS IS IN CELLS, AND THE COST OF A STROKE GOES UP WITH ITS AREA, NOT ITS LENGTH.", pad)
+        }
     };
     let size = Spec {
-        // Sized to `R64`, the widest it can say. See the readout.
-        width: cell_width(hud::text_width("R64"), "SIZE", pad),
-        line1: format!("R{}", state.brush),
-        line2: "SIZE".to_string(),
+        // Sized to `R64` and `104`, the widest either can say. See the
+        // readout.
+        width: dial_w,
+        line1: if stocking { state.stock.to_string() } else { format!("R{}", state.brush) },
+        line2: if stocking { "STOCK" } else { "SIZE" }.to_string(),
         action: None,
         latched: false,
         icon: None,
         ratio: None,
-        note: "HOW WIDE THE SOIL AND WATER BRUSHES ARE, IN CELLS.".to_string(),
+        note: if stocking { STOCK_NOTE } else { "HOW WIDE THE SOIL AND WATER BRUSHES ARE, IN CELLS." }.to_string(),
     };
 
     // The overlay. **Its face is the channel**, because an unlabelled
@@ -1521,6 +1579,21 @@ pub struct Ui {
     species: usize,
     /// Radius of the soil and water brushes, in cells.
     brush: i32,
+    /// **How many animals a stocking click puts down** — one stop per
+    /// stocking verb, indexed by [`Ui::stock_slot`].
+    ///
+    /// An index into [`STOCK_LADDER`] rather than the number itself, so the
+    /// dial cannot land between stops and the ladder is the only place the
+    /// stops are written down.
+    ///
+    /// **Two values behind one control, because the two verbs want opposite
+    /// defaults and both defaults are right.** `COLONY` founds fifty-two --
+    /// below about fifty a colony looks broken even when the code is right --
+    /// and a *release* is a specimen you kept on purpose, where fifty-two
+    /// copies of your one good forager is a box you did not ask for. The cell
+    /// shows whichever the armed tool uses, which is the same rule that makes
+    /// it a brush radius under a brush.
+    stock: [usize; 2],
     /// **What the last verb did, and when it said so.**
     ///
     /// `CLAUDE.md`'s second law: *if an event produces no visible consequence
@@ -1536,6 +1609,21 @@ pub struct Ui {
     notice: Option<(String, std::time::Instant)>,
     /// The world cell the player last clicked, re-read every frame.
     inspect: Option<(i32, i32)>,
+    /// **Which individual that cell belonged to when it was clicked**, so the
+    /// page can follow it when it walks off the cell.
+    ///
+    /// The inspector was purely positional, and for a plant that is the right
+    /// model -- it is a *cell* page and a plant's cells stay put. For an
+    /// animal it is not: an ant crosses a cell in a handful of ticks, so the
+    /// page emptied the moment the box was running. Owner, from play: *"the
+    /// selection is currently positional in the lab, but the creature moves
+    /// and is immediately unselected, unless time is paused."*
+    ///
+    /// The handle rather than a copy of the state, because the page is
+    /// deliberately live -- `inspect_rows` re-reads the world every frame so a
+    /// clicked ant's energy falls while you watch, and a snapshot would freeze
+    /// exactly the numbers the page exists to show.
+    inspect_organism: Option<u16>,
     pub(crate) history: History,
     /// Last frame's layout. See the module doc: a click arrives between
     /// frames, so this is the bar the player was looking at.
@@ -1648,6 +1736,24 @@ pub fn plantable_species(world: &World) -> Vec<crate::sim::organism::SpeciesId> 
     ids
 }
 
+/// Every species that can be *stocked* — the animals, in a stable order.
+///
+/// [`plantable_species`]' mirror image, filtered the same way and for the same
+/// reason: the species table is the list, and a hand-kept roster of animal
+/// names is the side table that goes stale the first time `assets/species/`
+/// gains a file. There were three animals in the table and exactly one of them
+/// -- the ant -- could be put in the box by hand, which is the gap this
+/// closes. Owner: *"I need to be able to add a beetle manually."*
+pub fn stockable_species(world: &World) -> Vec<crate::sim::organism::SpeciesId> {
+    use crate::sim::organism::SpeciesId;
+    let mut ids: Vec<SpeciesId> = (0..world.species.len() as u16)
+        .map(SpeciesId)
+        .filter(|id| world.species.get(*id).creature.is_some())
+        .collect();
+    ids.sort_by(|a, b| world.species.get(*a).name.cmp(&world.species.get(*b).name));
+    ids
+}
+
 /// Where the hover readout's top edge sits.
 ///
 /// Clear of the **tallest** thing `time::draw` can put in the left column —
@@ -1671,6 +1777,16 @@ impl Ui {
             // what a player opened the page to watch, and `Default`'s own 0
             // would land them on three rows that never change.
             specimen_section: 1,
+            // The shipped colony for `COLONY` and a single individual for a
+            // release, so both verbs do for an untouched dial exactly what
+            // they have always done.
+            stock: [
+                STOCK_LADDER
+                    .iter()
+                    .position(|n| *n == crate::sim::creature::COLONY_ANTS)
+                    .expect("the ladder carries the shipped colony size"),
+                0,
+            ],
             ..Self::default()
         }
     }
@@ -1738,8 +1854,79 @@ impl Ui {
     /// Point the inspector at a world cell, or put it away when the same cell
     /// is clicked twice. The panel re-reads the cell every frame rather than
     /// snapshotting it, so a clicked ant's energy falls while you watch.
-    pub fn inspect(&mut self, cell: (i32, i32)) {
-        self.inspect = if self.inspect == Some(cell) { None } else { Some(cell) };
+    ///
+    /// **Clicking anything alive latches the individual too**, and
+    /// [`Ui::follow_inspected`] then keeps the page on it as it moves. The
+    /// put-it-away click is therefore *the same animal* rather than the same
+    /// cell: an ant is two cells and a beetle is four, and having to click the
+    /// exact cell you first hit -- on a body that has since walked and turned
+    /// around -- is a toggle nobody can aim.
+    pub fn inspect(&mut self, world: &World, cell: (i32, i32)) {
+        let organism = match world.get(cell.0, cell.1).organism_id() {
+            0 => None,
+            id if world.organism(id).is_some() => Some(id),
+            _ => None,
+        };
+        let same = self.inspect == Some(cell) || (organism.is_some() && organism == self.inspect_organism);
+        if same {
+            self.inspect = None;
+            self.inspect_organism = None;
+        } else {
+            self.inspect = Some(cell);
+            self.inspect_organism = organism;
+        }
+    }
+
+    /// **Keep the cell page on the individual it was opened on.**
+    ///
+    /// Called once per drawn frame, before the page is painted, and it does
+    /// nothing at all in the common case: while the tracked cell still belongs
+    /// to the tracked individual the page stays exactly where it was put. That
+    /// is what keeps a *plant* page honest -- a plant does not move, and
+    /// silently sliding the reticle to some other cell of the same tree would
+    /// change the material and temperature rows the player is reading.
+    ///
+    /// It moves only when the cell stops being that individual's: an ant that
+    /// walked, a leaf that was shed. Then it takes the individual's cell
+    /// nearest the one it lost, so a two-cell ant's page follows the end of it
+    /// that stayed closest rather than jumping across the body.
+    ///
+    /// When the individual is gone the latch is dropped and **the cell is
+    /// kept**, which is the honest reading of a death: the page goes on
+    /// reporting that position, where a corpse now lies.
+    pub fn follow_inspected(&mut self, world: &World) {
+        let (Some(at), Some(id)) = (self.inspect, self.inspect_organism) else { return };
+        // **Liveness before position**, and that order is the whole of the
+        // death case: `free_organism` clears the slot and leaves the id
+        // written in the cells, so a dead animal's cell still reads back its
+        // handle. Tested position-first, the page would go on following a
+        // corpse for ever and report it as alive.
+        let Some(state) = world.organism(id) else {
+            self.inspect_organism = None;
+            return;
+        };
+        if world.get(at.0, at.1).organism_id() == id {
+            return;
+        }
+        // **Ties broken on the coordinate, never on iteration order.** The
+        // cell list is a `HashMap`, so "the first nearest cell" is not a
+        // defined thing and a page that picked one would be a different page
+        // on two runs of the same box.
+        let nearest = state.cells.keys().min_by_key(|(x, y)| {
+            let (dx, dy) = ((x - at.0) as i64, (y - at.1) as i64);
+            (dx * dx + dy * dy, *y, *x)
+        });
+        match nearest {
+            Some(&cell) => self.inspect = Some(cell),
+            // Alive with no cells is not a state the engine produces; if it
+            // ever does, stop following rather than pointing at nothing.
+            None => self.inspect_organism = None,
+        }
+    }
+
+    /// The individual the cell page is following, if it is following one.
+    pub fn inspected_organism(&self) -> Option<u16> {
+        self.inspect_organism
     }
 
     pub fn inspecting(&self) -> Option<(i32, i32)> {
@@ -2090,6 +2277,26 @@ impl Ui {
                 self.shelf.len()
             ),
         }
+    }
+
+    /// Which of the two stocking counts the armed tool reads. See
+    /// [`Ui::stock`]'s field.
+    fn stock_slot(&self) -> usize {
+        usize::from(self.tool == Tool::Release)
+    }
+
+    /// How many animals a stocking click puts down, for the armed verb.
+    pub fn stock(&self) -> i32 {
+        STOCK_LADDER[self.stock[self.stock_slot()].min(STOCK_LADDER.len() - 1)]
+    }
+
+    /// Move the stocking dial one stop. Clamped at both ends rather than
+    /// wrapped: a dial that jumped from one animal to a hundred and four
+    /// because you clicked once too often is a dial that empties a box.
+    pub fn adjust_stock(&mut self, delta: i32) {
+        let last = STOCK_LADDER.len() as i32 - 1;
+        let slot = self.stock_slot();
+        self.stock[slot] = (self.stock[slot] as i32 + delta).clamp(0, last) as usize;
     }
 
     pub fn broods(&self) -> u32 {
@@ -3655,7 +3862,7 @@ impl Ui {
             (
                 "PLACE",
                 Action::ShelfPlace,
-                "PUT THE ARMED JAR BACK IN THE BOX. THIS CLOSES THE RACK AND ARMS THE PLACING -- THE NEXT CLICK IN THE BOX IS WHERE IT GOES. AT 0 BROODS IT IS THAT EXACT INDIVIDUAL AGAIN; AT 1 IT IS AS DIFFERENT AS ITS OWN CHILD WOULD HAVE BEEN. A PLANT ARRIVES AS A SEED THAT STILL HAS TO GERMINATE; AN ANIMAL ARRIVES ALIVE.",
+                "PUT THE ARMED JAR BACK IN THE BOX. THIS CLOSES THE RACK AND ARMS THE PLACING -- THE NEXT CLICK IN THE BOX IS WHERE IT GOES. HOW MANY GO IN IS THE STOCK DIAL ON THE BAR: AT 1 IT IS ONE, ABOVE 1 IT IS A COLONY WITH A NEST, LAID OUT THE WAY A FOUNDED ONE IS. HOW FAR EACH HAS DRIFTED IS THE DIAL ON THE LEFT -- AT 0 BROODS EVERY ONE IS THAT EXACT INDIVIDUAL, SO A COLONY IS A COLONY OF CLONES; ABOVE 0 EACH DRIFTS SEPARATELY, SO IT IS A COLONY OF SIBLINGS AND THE SPREAD IS REAL. A PLANT ARRIVES AS A SEED THAT STILL HAS TO GERMINATE; AN ANIMAL ARRIVES ALIVE.",
             ),
         ] {
             let bw = cell_width(hud::text_width(label), "", PAD);
@@ -4057,6 +4264,9 @@ impl Ui {
         fps: f32,
     ) {
         self.bar = layout(state);
+        // Before anything is painted, so the reticle, the page and the rows
+        // under it are all reading one position rather than three.
+        self.follow_inspected(world);
 
         // The inspected cell, marked in the world. The verb has to leave a
         // mark: a panel that names a cell without showing which cell it is
@@ -4360,6 +4570,9 @@ mod tests {
             species: "HERB",
             species_note: "WHICH PLANT THE PLANTING TOOL PUTS IN.",
             brush: 6,
+            // The widest face the dial can show, so the fit guard below is
+            // measured against the worst case rather than the default.
+            stock: 104,
             overlay: "OFF",
             jar: "NO JARS",
             jar_note: "THE RACK OF KEPT GENETICS: EVERY JAR IS ONE INDIVIDUAL'S GENOME.",
@@ -5105,12 +5318,13 @@ mod tests {
     /// same cell twice puts it away, and clicking a different one moves it.
     #[test]
     fn the_inspector_toggles_on_the_cell_it_is_pointed_at() {
+        let w = world();
         let mut ui = Ui::new();
-        ui.inspect((10, 20));
+        ui.inspect(&w, (10, 20));
         assert_eq!(ui.inspecting(), Some((10, 20)));
-        ui.inspect((11, 20));
+        ui.inspect(&w, (11, 20));
         assert_eq!(ui.inspecting(), Some((11, 20)));
-        ui.inspect((11, 20));
+        ui.inspect(&w, (11, 20));
         assert_eq!(ui.inspecting(), None);
     }
 

@@ -219,6 +219,28 @@ then Gate 2, now that it can have a control arm; then `PROMOTE` for plants,
 which refuses today because `individual_as_species` copies the parent
 *species'* fates rather than the individual's; then the parameter half.
 
+## Round five, 2026-09-01 — a playtest round
+
+*Four things the owner hit in play: zoom, selection, stocking, the plant
+count. Branch `claude/evolution-lab-fixes-dzo88x`. **The account is
+[`../evolution-lab-playtest-round-2026-09-01.md`](../evolution-lab-playtest-round-2026-09-01.md)**;
+the shipped behaviour is README's "Lab hand-verbs status". Four findings from
+it bind on whatever comes next:*
+
+- **A verb can be complete, tested, documented and not wired in.** A released
+  *animal* had never taken a tick — the shelf's own tests all place and then
+  inspect, and **none ran a frame**.
+- **Anything in `render.rs` bounded by "the world is huge" is a defect waiting
+  in the lab.** Two were in one function.
+- **A knob that is not an `f32` has no editor**, because the parameters page
+  moves numbers. Three animals shipped and one could be placed.
+- **The bar being full has a fourth answer** round four did not list: a cell
+  that already exists and means nothing under the armed tool.
+
+**One loose end, filed rather than fixed:** the census sees a live plant
+organism with **zero cells**, one at a time, intermittently. One in ~450, not
+the seed bank, and nobody has looked at what produces it.
+
 ## Deliberately not being built yet
 
 The score and the economy — the guide's Gate 5. **Gate 2, does selection have

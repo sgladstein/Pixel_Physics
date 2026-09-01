@@ -234,7 +234,38 @@ impl BreedMargin {
 #[derive(Clone, Debug, Default)]
 pub struct Census {
     pub frame: u64,
+    /// **Plants that have germinated** — the stand you can see.
+    ///
+    /// It counted every plant *organism*, which sounds like the same thing
+    /// and is not: a sown seed is its own organism from the moment a parent
+    /// pays for it (`plant::bear_seed_at` takes a slot), so a seed lying in
+    /// the soil scored exactly like a tree. Owner, from play: *"there are 5-7
+    /// obvious plants, but the count is way higher like 200+... they are real
+    /// plants but it also isn't informative on the macroscale."*
+    ///
+    /// Measured 2026-09-01 on the standard bed, `examples/labplants.rs`, one
+    /// seed, no colony:
+    ///
+    /// | frame | reported | germinated | seed bank |
+    /// |---|---|---|---|
+    /// | 5,000 | 113 | 30 | 83 |
+    /// | 10,000 | 364 | 44 | 320 |
+    /// | 20,000 | 497 | 53 | 444 |
+    /// | 30,000 | 467 | 48 | 419 |
+    ///
+    /// So it is **not** a haze of tiny plants, which was the natural guess and
+    /// would have called for a size threshold: at every stop the whole of the
+    /// discrepancy is ungerminated seed, and both halves settle -- the stand
+    /// at about 48 and the bank at about 430. Two numbers that each say
+    /// something, pooled into one that says neither.
     pub plants: usize,
+    /// **Sown seeds still waiting in the ground.** The other half of what
+    /// `plants` used to be, kept rather than dropped: it is a real population,
+    /// it holds real organism slots, and it is the reproductive output that
+    /// has not cashed in yet -- a bank that keeps climbing while the stand
+    /// does not is a bed where nothing is germinating, which is a different
+    /// diagnosis from a bed where nothing is seeding.
+    pub seed_bank: usize,
     pub animals: usize,
     /// Living cells, split. **This is also the frame-time dial** — the guide
     /// is explicit that *"how many growth beds is your lab running IS the
@@ -677,7 +708,7 @@ impl Stats {
         };
 
         // --- is anything alive, and is it going up or down -----------------
-        if census.plants == 0 && census.animals == 0 {
+        if census.plants == 0 && census.seed_bank == 0 && census.animals == 0 {
             rows.push(Row::text(
                 "THE BOX IS EMPTY",
                 AMBER,
@@ -699,7 +730,7 @@ impl Stats {
             format!("PLANTS {}  ANIMALS {}{}", census.plants, census.animals, word),
             colour,
             format!(
-                "EVERY LIVING PLANT AND EVERY LIVING ANIMAL IN THE BOX. THE WORD IS THE TREND OF THE TWO STRIPS BELOW OVER {} READINGS SPANNING {} FRAMES.",
+                "EVERY PLANT THAT HAS GERMINATED AND EVERY LIVING ANIMAL IN THE BOX. SEEDS STILL WAITING IN THE GROUND ARE ON THEIR OWN ROW BELOW AND ARE NOT IN THIS NUMBER: THEY OUTNUMBER THE STAND ABOUT NINE TO ONE ONCE A BED IS SEEDING, AND POOLED IN THEY MADE THIS LINE READ 467 OVER A BED WITH 48 PLANTS IN IT. THE WORD IS THE TREND OF THE TWO STRIPS BELOW OVER {} READINGS SPANNING {} FRAMES.",
                 self.history.len(),
                 self.span()
             ),
@@ -732,6 +763,13 @@ impl Stats {
             DIM,
             "THE SMALLEST PLANT, THE MIDDLE ONE AND THE BIGGEST. EIGHT GROWN HERBS AND TWO HUNDRED SEEDLINGS CAN AVERAGE THE SAME AND ARE NOT THE SAME STAND.",
         ));
+        if census.seed_bank > 0 {
+            rows.push(Row::text(
+                format!("SEEDS IN THE GROUND {}", census.seed_bank),
+                DIM,
+                "SOWN SEEDS THAT HAVE NOT GERMINATED. EACH IS ONE CELL AND ONE ORGANISM, SO THEY COUNT AGAINST THE SLOT CEILING BELOW LIKE ANYTHING ELSE ALIVE -- BUT THEY ARE NOT THE STAND, AND THEY OUTNUMBER IT ABOUT NINE TO ONE IN A SETTLED BED. WATCH IT AGAINST SPROUTED: A BANK THAT CLIMBS WHILE THE STAND DOES NOT IS A BED WHERE SEED IS BEING SET AND NOT TAKING, WHICH IS A DIFFERENT PROBLEM FROM A BED THAT IS NOT SEEDING AT ALL.",
+            ));
+        }
         if census.senescent > 0 {
             rows.push(Row::text(
                 format!("DYING BACK {}", census.senescent),
@@ -873,7 +911,7 @@ impl Stats {
                 "LIVING THINGS AGAINST THE BOX'S HARD LIMIT. {} SLOTS HAVE BEEN USED AT ONCE AT THE MOST, OUT OF {}; {} ARE LIVE RIGHT NOW AND {} BIRTHS HAVE BEEN TURNED AWAY FOR WANT OF A SLOT. A POPULATION THAT HAS QUIETLY HIT THE LIMIT AND ONE THAT HAS SETTLED LOOK IDENTICAL -- THE REFUSED COUNT IS THE ONLY THING THAT TELLS THEM APART.",
                 census.slots_high_water,
                 census.slots_ceiling,
-                census.plants + census.animals,
+                census.plants + census.seed_bank + census.animals,
                 census.refused
             ),
         });
@@ -1011,6 +1049,27 @@ impl Stats {
     }
 }
 
+/// **Is this plant still a seed lying in the ground?**
+///
+/// One cell, and that cell is a `Seed`. Exact rather than approximate, and
+/// O(1) — see the call site in `take_census` for why both matter.
+///
+/// A plant eaten down to its last cell is *not* this: it germinated, it is
+/// standing, and it reads as a plant in trouble rather than as a seed. That is
+/// the case a size threshold would have got wrong, and it is the reason this
+/// asks what the cell **is** rather than how many there are.
+fn is_waiting_seed(world: &World, state: &organism::OrganismState) -> bool {
+    if state.cells.len() != 1 {
+        return false;
+    }
+    state
+        .cells
+        .keys()
+        .next()
+        .map(|(x, y)| organism::cell_type(world.get(*x, *y).aux()) == Some(organism::CellType::Seed))
+        .unwrap_or(false)
+}
+
 /// One walk of the live organism table, reduced to what the page draws.
 ///
 /// **Both kingdoms in one walk**, because the alternative is two walks that
@@ -1027,6 +1086,7 @@ fn take_census(
     let mut census = Census {
         frame: world.frame,
         plants: 0,
+        seed_bank: 0,
         animals: 0,
         plant_cells: 0,
         animal_cells: 0,
@@ -1106,11 +1166,26 @@ fn take_census(
                 Some((_, energies)) => energies.push(state.energy),
                 None => animals_by_species.push((state.species, vec![state.energy])),
             }
+        } else if is_waiting_seed(world, state) {
+            // **Counted, not dropped, and not walked cell by cell.** The test
+            // is `one cell, and that cell is a Seed`, which is exact rather
+            // than an approximation: a seed is one cell until it germinates
+            // and nothing divides before it does, so no multi-cell organism
+            // can be all seed. It is also O(1), which is what keeps this walk
+            // `O(live organisms)` -- an all-cells test would have made the
+            // census quadratic in the biggest tree in the box.
+            census.seed_bank += 1;
+            census.plant_cells += cells;
+            census.plant_generation = census.plant_generation.max(state.generation);
         } else {
             census.plants += 1;
             census.plant_cells += cells;
             census.plant_generation = census.plant_generation.max(state.generation);
             census.seeds_standing = census.seeds_standing.saturating_add(state.seeds_set);
+            // **The spread is over the standing stand only.** With the bank in
+            // it the median was 1 for ever -- a row headed PLANT SIZE that
+            // reported the size of a seed, on a page whose whole job is to
+            // separate a box that is working from one that looks like it.
             plant_sizes.push(cells as f32);
         }
     }
@@ -1424,8 +1499,13 @@ mod tests {
     fn the_census_counts_plants_and_animals_apart() {
         let plants_only = censused(&bed(4, 0));
         let c = plants_only.census().expect("a census");
-        assert!(c.plants > 0, "four founders were planted, census says {}", c.plants);
-        assert!(c.plant_cells > 0, "a planted herb owns cells");
+        // **A founder arrives as a seed**, so a bed at frame zero is all bank
+        // and no stand. That is the distinction this census exists to draw and
+        // it is asserted here rather than assumed: the four are counted, and
+        // they are counted as what they are.
+        assert_eq!(c.seed_bank, 4, "four founders were sown, the bank says {}", c.seed_bank);
+        assert_eq!(c.plants, 0, "nothing has germinated yet, and a seed is not a plant");
+        assert!(c.plant_cells > 0, "a sown seed owns a cell");
         assert_eq!(c.animals, 0, "no colony was founded");
         assert_eq!(c.animal_cells, 0);
         assert!(c.breed.is_none(), "no animal species, so no birth economy to price");
@@ -1435,9 +1515,64 @@ mod tests {
         assert!(c.animals > 0, "a colony was founded, census says {}", c.animals);
         assert!(c.animal_cells > 0);
         assert_eq!(c.plants, 0, "nothing was planted");
+        assert_eq!(c.seed_bank, 0, "nothing was sown either");
         assert_eq!(c.plant_cells, 0);
         assert!(c.breed.is_some(), "an ant has a birth cost and a hunger ceiling");
         assert!(c.animal_species.is_some());
+    }
+
+    /// **The stand and the seed bank are counted apart, and nothing falls
+    /// between them.** Owner, from play: *"there are 5-7 obvious plants, but
+    /// the count is way higher like 200+."*
+    ///
+    /// Frame zero cannot answer this -- there the bed is all bank and a census
+    /// that simply stopped counting seeds would pass. So this grows a bed
+    /// until it has both, which is the only state where the split can be
+    /// wrong, and asserts three things: both halves are non-empty, they
+    /// account for **every** live plant organism between them (nothing is
+    /// dropped, nothing is counted twice), and the size spread is over the
+    /// stand rather than over the bank -- with the bank in it the median was
+    /// 1 for ever, on a row headed PLANT SIZE.
+    #[test]
+    fn a_seeding_bed_reports_its_stand_and_its_bank_apart() {
+        let mut world = bed(6, 0);
+        let mut particles = crate::sim::particle::ParticleSystem::default();
+        let mut blasts = crate::sim::explosion::Blasts::default();
+        let tuning = crate::sim::player::Tuning::default();
+        for _ in 0..3_000 {
+            crate::sim::frame::step(&mut world, &mut particles, &mut blasts, crate::sim::player::PlayerInput::default(), &tuning);
+        }
+        let stats = censused(&world);
+        let c = stats.census().expect("a census");
+
+        assert!(c.plants > 0, "nothing germinated in 3,000 frames, so there is no stand to tell from a bank");
+        assert!(c.seed_bank > 0, "nothing was sown in 3,000 frames, so there is no bank to tell from a stand");
+
+        // The conservation check, counted independently of the census.
+        let live_plants = world
+            .live_organism_ids()
+            .into_iter()
+            .filter_map(|id| world.organism(id))
+            .filter(|st| world.species.get(st.species).creature.is_none() && !st.senescent)
+            .count();
+        assert_eq!(
+            c.plants + c.seed_bank,
+            live_plants,
+            "the two halves do not add up to the {live_plants} live plant organisms: {} standing, {} in the bank",
+            c.plants,
+            c.seed_bank
+        );
+
+        assert!(
+            c.plant_size.mid > 1.0,
+            "the median plant is {:.0} cells, which is a seed -- the spread is being taken over the bank",
+            c.plant_size.mid
+        );
+        let rows = dump(&stats, &world);
+        assert!(
+            rows.iter().any(|r| r.starts_with("SEEDS IN THE GROUND")),
+            "the bank is counted and never shown: {rows:?}"
+        );
     }
 
     /// The specificity half: nothing in the box, nothing on the page.
@@ -1446,7 +1581,7 @@ mod tests {
         let world = bed(0, 0);
         let stats = censused(&world);
         let c = stats.census().expect("a census");
-        assert_eq!((c.plants, c.animals, c.biomass()), (0, 0, 0));
+        assert_eq!((c.plants, c.seed_bank, c.animals, c.biomass()), (0, 0, 0, 0));
         assert_eq!(c.generations.iter().sum::<u32>(), 0);
         let rows = dump(&stats, &world);
         assert_eq!(rows.first().map(String::as_str), Some("THE BOX IS EMPTY"));
@@ -1463,8 +1598,13 @@ mod tests {
     fn killing_half_the_stand_moves_the_living_count_and_the_dying_back_row() {
         let mut world = bed(6, 0);
         let before = censused(&world);
-        let live = before.census().expect("a census").plants;
-        assert!(live >= 2, "the control needs a stand to halve, got {live}");
+        // **The living plant population, both halves.** A bed at frame zero is
+        // six sown seeds, so counting only the stand would give this control
+        // nothing to halve -- and the claim it exists to make (a senescent
+        // plant leaves the living population) is about either half.
+        let cb = before.census().expect("a census");
+        let live = cb.plants + cb.seed_bank;
+        assert!(live >= 2, "the control needs a population to halve, got {live}");
 
         let ids = world.live_organism_ids();
         let mut killed = 0;
@@ -1477,7 +1617,7 @@ mod tests {
 
         let after = censused(&world);
         let c = after.census().expect("a census");
-        assert_eq!(c.plants, live - killed, "a senescent plant is not living population");
+        assert_eq!(c.plants + c.seed_bank, live - killed, "a senescent plant is not living population");
         assert_eq!(c.senescent, killed, "and it is not silently dropped either");
         assert!(dump(&after, &world).iter().any(|r| r.starts_with("DYING BACK")));
     }

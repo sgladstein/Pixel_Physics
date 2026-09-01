@@ -1,6 +1,9 @@
 # Ants
 
-*Current as of: 2026-08-31, when digging stopped destroying the ground it
+*Current as of: 2026-09-01, when the lab learned to put **one** animal of any
+kind in the box rather than only a colony of ants, and an animal released from
+a jar stopped arriving paralysed. Before that:
+2026-08-31, when digging stopped destroying the ground it
 removed and an ant began carrying the spoil away in its jaws, and when how
 rich an ant waits to be before it
 breeds stopped being the same number for every ant of a species and became
@@ -393,6 +396,20 @@ stand — the ants go on the ground *beneath* the canopy, which is where they
 belong, but the trees take some of the room. Expect somewhere between a third
 and half of a colony to be lost to water and trees on rough, wooded, wet
 ground, and nearly none of it on open ground.
+
+**In the lab it is a click, and you choose the animal and the number.** The
+chip beside the stocking tool names which animal goes in — ant, beetle, worm —
+and the dial beside that says how many. Turn it down to one and you get a
+single animal where you click, standing on its own, with no nest: that is how
+you put one beetle in a bed to see what it does to the colony already living
+there. Turn it up and you get a colony, laid out exactly as the key lays one
+out, nest and all. The dial remembers a separate number for a founded colony
+and for an animal you release out of a jar, because fifty-two is right for one
+and almost never right for the other.
+
+An animal released from a jar used to arrive and then stand still for ever,
+wherever the click had put it — in mid-air if you clicked in mid-air. It now
+falls, walks and eats like anything else that was born in the box.
 
 The two scents are invisible. Press **V** to cycle the field overlays past
 the usual ones to **PHEROMONE A** (the home scent, magenta) and **PHEROMONE

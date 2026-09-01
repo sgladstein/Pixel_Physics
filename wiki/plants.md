@@ -3,7 +3,10 @@
 *What plants do, and what it looks like when they are working. No code, no
 file names — see `Reports/` for why any of it is built the way it is.*
 
-*Current as of: 2026-09-01 (the lab's `COLLAPSE UNDER LOAD` switch now holds a
+*Current as of: 2026-09-01 (the waiting seed bank was measured -- about nine
+seeds in the ground for every standing plant in a settled bed -- and is now
+counted apart from the stand rather than pooled with it. The same day, the
+lab's `COLLAPSE UNDER LOAD` switch began holding a
 living plant together whatever happens under it, not just under its own
 weight -- see **When a tree breaks**. Dead wood still comes apart, and the
 outdoor world is unchanged.)
@@ -761,6 +764,18 @@ Seeds that land somewhere too dry to germinate do not die on the spot — they
 ground under them. That waiting bank is what carries a species through a
 season it could not otherwise survive: even where every standing plant of a
 kind is gone, the ground may still be full of them.
+
+**The bank is much bigger than the stand, and that is normal rather than a
+sign of trouble.** In a sealed bed left to run, the ground settles at roughly
+**four hundred waiting seeds under about fifty standing plants** — nine seeds
+in the soil for every plant you can see. Both numbers stop climbing and stay
+there, which is what a bank in balance looks like: seed arriving at the rate
+seed is expiring and germinating. It is also why the lab counts them apart. A
+single figure covering both says four or five hundred over a bed with a few
+dozen plants in it, which is true and tells you nothing about either. Watch
+them against each other instead: a bank climbing while the stand does not is a
+bed where seed is being set and never taking, which is a different problem from
+a bed that is not seeding at all, and they want opposite fixes.
 
 But a seed does not wait for ever. Viability runs out gradually, so a bank
 that is not being topped up thins away and a bank that is settles at a depth

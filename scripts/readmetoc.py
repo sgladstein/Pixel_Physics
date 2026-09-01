@@ -114,6 +114,7 @@ GAME = {
     "performance and the parallel sweep": "engine",
     "materials and the data schema": "engine",
     "the evolution lab — the box and its lights": "lab",
+    "putting things in the box, and what the view shows": "lab",
     # `lab`, though `sim::specimen` is engine code and the sandbox could
     # perfectly well call it: the tag says which *game builds a scene that
     # reaches it*, and only the lab has the tools. Re-tag `engine` the day the
@@ -141,6 +142,7 @@ TOPICS = {
         "M18 status",
         "The ant colony — status",
         "Specimen shelf status — an individual's genetics outlive the box",
+        "Lab hand-verbs status — what a click puts in the box, and what the view shows",
     ],
     "structural collapse, felling and rigid bodies": [
         "M17 status",
@@ -225,6 +227,15 @@ TOPICS = {
     # them has no reason to look under "the evolution lab" for it.
     "keeping, cloning and mutating an individual": [
         "Specimen shelf status — an individual's genetics outlive the box",
+    ],
+    # The third lab row: the hand verbs and the view they are aimed through.
+    # Separate from "the box and its lights", which is what the box *is*, and
+    # from the shelf row, which is what a jar holds -- this is what a click
+    # does. Also listed under creatures: two of the four things in it are
+    # about getting an animal into the box, and an agent on the creature line
+    # has no reason to look under a lab heading for them.
+    "putting things in the box, and what the view shows": [
+        "Lab hand-verbs status — what a click puts in the box, and what the view shows",
     ],
 }
 
