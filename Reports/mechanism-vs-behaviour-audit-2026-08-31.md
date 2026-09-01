@@ -7,9 +7,11 @@ engine it runs on: `creature.rs`, `brain.rs`, `organism.rs`, `plant.rs`,
 `src/lab/`, `assets/species/*.ron`. The outdoor-only systems are scoped out
 and §6 says which and why.
 
-**Re-based on `main` 2026-08-31 and two findings closed by other lanes while
-this was being written — see §7, which is the part worth more than either
-finding.** Before that, **independently reviewed and corrected in eleven
+**Re-based on `main` 2026-08-31. Three findings were closed while this was
+being written, by a programme answering the same owner brief in parallel —
+[`creature-gates-to-mechanism-2026-08-31.md`](creature-gates-to-mechanism-2026-08-31.md).
+Read that one alongside this, and prefer it where they overlap: it measured,
+this only read. §7 is the account, and is worth more than any finding here.** Before that, **independently reviewed and corrected in eleven
 places, one of them load-bearing.** The corrections are left visible in place rather than
 edited away, per `CLAUDE.md`'s standing rule that a revert keeps the
 knowledge. The largest: **F1 shipped with a defect that is false** (soil is
@@ -768,10 +770,39 @@ sweep as a precondition.
 
 ### Statement order and the missing split
 
-#### F11. `Feed` conflates take-to-eat with take-to-carry, and `act`'s branch order makes the nest larder self-consuming
+#### F11. `Feed` conflates take-to-eat with take-to-carry, and `act`'s branch order makes the nest larder self-consuming — **the statement-order half CLOSED 2026-08-31 by S2 (PR #190)**
 
-`src/sim/creature.rs:2276`–`2410` (the eat/pickup block), `:2447` (eat what
-is carried), `:2468` (drop). **Shape 4.**
+`src/sim/creature.rs`. **Shape 4. Filed open; closed by the parallel
+programme the same day — see §7.**
+
+**What shipped.** `act` no longer decides by branch order. `creature.rs:2556`:
+
+```rust
+let prefer_drop = can_drop
+    && choose_weighted(&[feed_urge, drop_urge], CHOICE_EXPLORATION_K, draw.unit_f32()) == 1;
+```
+
+The two verbs are now scored against each other through `choose_weighted` —
+the same never-argmax function the movement candidates use — so **which verb
+fires is genome rather than statement order**, which is exactly what this entry
+asked for. `creature-gates-to-mechanism-2026-08-31.md` calls it S2 and states
+the intent in the same words.
+
+**What survives, and it is the half this entry was named for.** There is still
+no separate `Take` output: `Feed` continues to gate *swallowing* and *picking
+up* with one weight, so **a grazer and a hoarder are still not distinguishable
+points in the genome**. The oscillator is gone; the conflation is not. That is
+a smaller finding than the one filed and it is still the one `brain.rs:516`'s
+own argument implies — the `Dig`/`Feed` split, made once, not made again where
+it recurs.
+
+---
+
+<details>
+<summary>The original entry, kept for its analysis of the oscillator (click to
+expand)</summary>
+
+**F11 as originally filed:**
 
 `act`'s order is: **eat-or-pick-up** (gated on `carrying.is_none()`), then
 eat-what-is-carried (gated on `hungry`), then drop (gated on `carrying`), then
@@ -831,6 +862,8 @@ the two should be sequenced — crop first, since `Take` is a much smaller
 change once the eat/carry decision is no longer a branch on a constant.
 
 **Dead-ends:** zero hits on a take/feed split. Clear.
+
+</details>
 
 #### F12. `CHOICE_EXPLORATION_K` — the last locomotion policy constant
 
@@ -1289,10 +1322,11 @@ effort order.
 | # | Finding | Unlocks | Cost |
 |---|---|---|---|
 | — | ~~**F2** `hunger_fraction` decides eat-versus-carry~~ | **CLOSED by PR #190** — the crop. Was ranked #1 | — |
-| **1** | **F1** `moisture_gradient` is magnitude-only, coarse, and un-genomed | The route-drop rule, which is what §T2 measured. **Demoted from #1 in review**: one of its four defects was false, and the step it ranked first (the per-cell read) is the one least likely to move `deliveries` | Small code, real re-derivation across six species files |
+| **1?** | **F1** `moisture_gradient` is magnitude-only, coarse, and un-genomed — **rank contested, see §7** | The route-drop rule, which is what §T2 measured. **Demoted from #1 in review**: one of its four defects was false, and the step it ranked first (the per-cell read) is the one least likely to move `deliveries` | Small code, real re-derivation across six species files |
 | **2** | **F14** `CREATURE_TRAITS = 3` | Everything the lab claims to be about. Nothing else on this list makes an *animal* evolvable; this is what does | Must be staged behind F4 and F6 or each new trait lands as a ratchet. **Add `body_energy`**, and take `crop_capacity` first — it is the one slot whose preconditions are both already met |
 | **4** | **F18** no food verb | The player's own experiments, and the control arm that separates "foraging is broken" from "the economy is broken" | Trivial — it reuses the `Soil`/`Water` paint path and touches no simulation code |
-| **5** | **F11** `Feed` conflates eat with take | A grazer against a hoarder; the granary stops being self-consuming | Cheap, because the append is lawful |
+| — | ~~**F11** `act`'s branch order~~ | **CLOSED by S2 / PR #190** — the verbs now compete through `choose_weighted`. Was ranked #5 | — |
+| **5** | **F11b** `Feed` still conflates eat with take | A grazer against a hoarder. The oscillator is gone; the *conflation* is not, and it is what `brain.rs`'s own `Dig`/`Feed` argument implies | Cheap, because the append is lawful |
 | **13** | **F3** reproduction is opt-in | Predator-prey population dynamics, which is the biosphere's first real feedback loop. **Dropped from #6 in review**: the finding stands, but its one-line fix is a recorded dead end (`dead-ends.md`:1543), violates the field's own invariant, and does not give the beetle a child | A species-file change with a sweep behind it, read on `live` and never on `births` |
 | **7** | **F9** the eye is a food detector | Predator *avoidance*, and every non-feeding use of vision | Medium — **but gated on F13, not F14 as the first draft said**, and F13 is unstaged because its fix is unsolved. Treat this rank as conditional |
 | **8** | **F4** digging is free | Burrower against forager as a real trade; unblocks a heritable `dig_force` | Small, no new constant |
@@ -1530,26 +1564,40 @@ compelling and wrong in this area before.
 
 ---
 
-## 7. The audit was overtaken while it was being written
+## 7. The audit was written in parallel with a programme answering the same brief
 
 **Recorded because it is the most transferable thing in the document, and
 because it happened to the report that warns about it.**
 
 This audit was read off `943ace17`. By the time it was reviewed and corrected,
-`main` was **33 commits ahead**; by the time the corrections landed, **41**.
-Two of the twenty-one findings had been closed by other lanes in that window,
-and **both were in the top seven of §4's own ranking**:
+`main` was **33 commits ahead**; by the time it was ready to land, **39 more**.
+**Three of the twenty-one findings had been closed in that window:**
 
 | | closed by | what shipped |
 |---|---|---|
-| **F2** the eat-versus-carry threshold | **PR #190**, same day | the crop. `hunger_fraction` is not merely unread — the field is **gone** |
-| **F7** when to breed | **PR #192**, same day | `TRAIT_REPRODUCE_AT`, a heritable trait rather than the brain output proposed here |
+| **F2** the eat-versus-carry threshold, ranked **#1** | **S1 / PR #190** | the crop. `hunger_fraction` is not merely unread — the field is **gone** |
+| **F11** `act`'s branch order, ranked #5 | **S2 / PR #190** | `choose_weighted(&[feed_urge, drop_urge], ..)` — the verbs compete on genome weights |
+| **F7** when to breed, ranked #15 | **S4 / PR #192** | `TRAIT_REPRODUCE_AT`, a heritable trait rather than the brain output proposed here |
 
-**Nobody did anything wrong, and that is the point.** Two lanes were working
-the creature economy concurrently; the audit's own §1 says so, and
-`branchcheck` printed the branch list at the start of every session. What was
-missing is that **a finding is a claim about a moment**, and this document did
-not carry the date of its own baseline anywhere a reader would trip over it.
+**And this was not three coincidences — it was a whole parallel programme.**
+[`creature-gates-to-mechanism-2026-08-31.md`](creature-gates-to-mechanism-2026-08-31.md)
+is `S0`–`S6`, and it opens by quoting **the same owner sentence this audit
+opens by quoting**, adopting **the same governing line** — *the mechanism is
+code, the policy is genome* — and **the same two corollaries**. Two documents,
+one brief, written at the same time without either knowing about the other.
+S0 is PR #188, which this audit's baseline sits on top of and cites
+approvingly, so the programme was already visible in the history it read.
+
+**Read them together, and prefer that one where they overlap**: it measured,
+this one only read. Its §2 records four things its own plan asserted and
+measurement contradicted, and its §3 is the finding that most changes this
+document — see below.
+
+**Nobody did anything wrong, and that is the point.** What was missing is that
+**a finding is a claim about a moment**, and this document did not carry the
+date of its own baseline anywhere a reader would trip over it — nor did either
+document know the other existed, which no branch list would have revealed,
+since a report is written before it is pushed.
 Had #191 landed as first written, it would have sent the next session to build
 a crop that already existed — which is exactly the waste `Reports/dead-ends.md`
 exists to prevent, arriving through a document rather than through a retry.
@@ -1572,10 +1620,33 @@ it merges cleanly and reads as work to do.
   nineteen of them. Cheap enough that there is no excuse for skipping it, and
   the only step that would have caught this.
 - **Expect the overlap to be highest exactly where the document is most
-  useful.** The two findings that were closed were ranked #1 and #6 — because
-  a finding that matters is a finding somebody else is also looking at.
+  useful.** The three closed were ranked **#1, #5 and #15** — because a finding
+  that matters is one somebody else is also looking at. Two independent readings
+  of one brief converged on the same top item, which is corroboration rather
+  than waste: it is the strongest evidence in either document that the crop was
+  the right thing to build.
+- **Before writing an inventory, ask whether one is already being written.**
+  The branch list cannot answer this — a report exists only after it is pushed
+  — but `Reports/lanes/*.md` and the coordinator note can, and neither was
+  checked here. That is the cheapest step missing from this document's own
+  method.
 
 Three of §4's remaining entries are cheaper than when they were written, for
 the same reason: the crop makes `TRAIT_CROP_CAPACITY` a priced trade with a
 built mechanism (F14 step 0), and `TRAIT_REPRODUCE_AT`'s own doc settles F3's
 status explicitly rather than leaving it inferred.
+
+**And one is much weaker than §4 says.** F1 was re-ranked #1 on §T2's *4
+deliveries*, and
+[`creature-gates-to-mechanism-2026-08-31.md`](creature-gates-to-mechanism-2026-08-31.md)
+§3 measured the lab bed's colony crash directly: it is **overgrazing, and the
+remedy is spatial rather than economic.** Income runs **5–9× outgo**, the
+colony's duty cycle is **9%**, the four founders furthest from the nest are
+untouched *to the cell*, and by 24,000 frames the box holds **2,033 plant cells
+the colony cannot reach**. So the binding constraint on that bed is **reach**,
+not the drop rule — and §T2's figure was in any case taken against the
+pre-crop economy, where "delivery" meant something the crop has since deleted.
+**F1 should not be built until that number is re-taken**, and on §3's evidence
+it may not survive the re-take. This is this document's own rule — *size a
+problem at the moment it starts, not after the system has responded* — applied
+to its own top-ranked finding.

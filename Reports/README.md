@@ -822,8 +822,11 @@ drift that two of these documents still reflect.**
 - [mechanism-vs-behaviour-audit-2026-08-31.md](mechanism-vs-behaviour-audit-2026-08-31.md)
   — **audit and staged plan, baseline `943ace17`, 2026-08-31; nothing built and
   nothing measured by it. Independently reviewed and corrected in eleven
-  places, one load-bearing; then re-based and **two findings closed by other
-  lanes inside the same day** — read §7 before §1.** Where the engine
+  places, one load-bearing; then re-based and **three findings closed inside the
+  same day by a programme answering the same brief in parallel** — read §7
+  before §1, and read
+  [creature-gates-to-mechanism-2026-08-31.md](creature-gates-to-mechanism-2026-08-31.md)
+  alongside it.** Where the engine
   hardcodes a *behaviour* instead of building a *mechanism*, on the owner's
   line **the mechanism is code, the policy is genome**. Scoped to the evolution
   lab and read off `943ace17`. **Twenty-one findings**, a ranking, and — the
@@ -845,21 +848,29 @@ drift that two of these documents still reflect.**
   as nine constants and a hand-written branch with no genome at all**.
 
   **§7 is worth more than most of the findings.** The audit was read off
-  `943ace17`; by the time its corrections landed `main` was **+41**, and PR
-  #190 had built **the crop** — F2, its top-ranked economy finding, whose
-  `hunger_fraction` field is now *gone* rather than unread — while PR #192 made
-  when-to-breed a heritable trait (F7). Both were in the top seven of its own
-  ranking, **because a finding that matters is one somebody else is also
-  looking at**. Landed as first written it would have sent the next session to
+  `943ace17`; by the time it was ready to land `main` was **+72**, and **three
+  of its findings had closed** — the crop (F2, its #1), the eat-vs-drop verb
+  choice (F11, #5) and when-to-breed as a trait (F7, #15). Not three
+  coincidences: `creature-gates-to-mechanism-2026-08-31.md` is `S0`–`S6`, and
+  it **opens by quoting the same owner sentence, adopting the same governing
+  line and the same two corollaries.** Two documents, one brief, written
+  simultaneously without either knowing of the other — which no branch list
+  reveals, since a report exists only once pushed. **Two independent readings
+  converging on the same top item is corroboration, not waste**: it is the best
+  evidence in either document that the crop was the right thing to build. Landed as first written it would have sent the next session to
   build a crop that existed. `CLAUDE.md` already carries this rule filed under
   *files*; §7 is it applied to *findings*, where it bites harder — a duplicate
   bug entry shows up in a merge conflict and a stale finding merges cleanly and
   reads as work to do. The remedy is one `grep` per finding against `main`
   before landing, which took a single call for nineteen of them.
 
-  **One consequence for anyone acting on it:** F1's cost rests on a §T2 figure
-  measured against the **pre-crop** economy, so that number needs re-taking
-  before F1 is worth building.
+  **One consequence for anyone acting on it:** F1's #1 rank rests on §T2's *4
+  deliveries*, taken against the **pre-crop** economy — and the sibling report's
+  §3 measured that same bed directly and found the colony crash is
+  **overgrazing, spatial rather than economic**: income 5–9× outgo, a 9% duty
+  cycle, the furthest founders untouched *to the cell*, and 2,033 plant cells
+  the colony cannot reach. **Do not build F1 before re-taking that number**; on
+  §3's evidence it may not survive.
 
   **Read §1's F1 and F3 before citing either.** F1 shipped with a defect that
   is **false** (soil is `Powder`, so the moisture field is not "blocked" there
