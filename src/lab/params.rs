@@ -515,7 +515,7 @@ fn plant_mechanics_rows(world: &World, out: &mut Vec<Param>) {
         Knob::Heredity { field: "mutation_sigma" },
         "heredity",
         "genotype_drift",
-        crate::sim::plant::mutation_sigma(),
+        world.mutation_sigma,
         span(0.0, 0.5, 0.005),
         "HOW FAR ONE OF A PLANT'S TEN CONTINUOUS GENES MAY MOVE IN A SINGLE GENERATION. THIS IS THE MUTAGEN DIAL. AT 0 EVERY SEED IS A CLONE OF ITS PARENT ON THOSE TEN AXES, WHICH IS NOT A DISABLED FEATURE BUT THE CONTROL ARM: IT IS THE NULL A SELECTED RUN HAS TO BEAT. TURNED UP, LINEAGES WANDER FASTER AND SELECTION HAS MORE TO SORT -- AND MORE OF WHAT IT SORTS IS NOISE. IT REACHES EVERY PLANT IN THE BOX, IT IS FELT AT THE NEXT SEED RATHER THAN ON THE NEXT TICK, AND IT LASTS THE SESSION.",
     ));
@@ -524,7 +524,7 @@ fn plant_mechanics_rows(world: &World, out: &mut Vec<Param>) {
         Knob::Heredity { field: "fate_mutation_chance" },
         "heredity",
         "fate_drift",
-        crate::sim::plant::fate_mutation_chance(),
+        world.fate_mutation_chance,
         span(0.0, 1.0, 0.01),
         "THE CHANCE A SEED IS BORN WITH ONE OF ITS PARENT'S FATE RULES CHANGED -- WHAT A CELL TURNS INTO WHEN ITS TIME COMES, WHICH IS THE PART OF A PLANT'S GENOME THAT DECIDES ITS SHAPE RATHER THAN ITS SIZE. THE COARSER OF THE TWO DIALS ON THIS PAGE: A CHANGED FATE IS A DIFFERENT ARCHITECTURE, WHERE THE DRIFT ABOVE IS THE SAME PLANT NUDGED. LASTS THE SESSION.",
     ));
@@ -733,11 +733,17 @@ pub fn write(world: &mut World, spec: &mut LabBox, knob: &Knob, value: f32) -> b
             }
             true
         }
-        Knob::Heredity { field } => match *field {
-            "mutation_sigma" => crate::sim::plant::set_mutation_sigma(value),
-            "fate_mutation_chance" => crate::sim::plant::set_fate_mutation_chance(value),
-            _ => false,
-        },
+        Knob::Heredity { field } => {
+            if !crate::sim::plant::settable_rate(value) {
+                return false;
+            }
+            match *field {
+                "mutation_sigma" => world.mutation_sigma = value,
+                "fate_mutation_chance" => world.fate_mutation_chance = value,
+                _ => return false,
+            }
+            true
+        }
         Knob::Rule { field } => {
             let on = value >= 0.5;
             match *field {

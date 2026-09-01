@@ -1384,52 +1384,37 @@ fn banded_shade(world: &World, organism_id: u16, material: material::MaterialId,
 ///
 /// **Untuned against an outcome**, and it should be swept once a breeding
 /// population runs long enough to measure allele spread per generation.
-const MUTATION_SIGMA: f32 = 0.08;
+pub(crate) const MUTATION_SIGMA: f32 = 0.08;
 
-/// **The width actually in effect**, which is [`MUTATION_SIGMA`] until
-/// something sets it.
+/// The env seed for [`World::fate_mutation_chance`], read once per process.
 ///
-/// **A runtime cell rather than a species field, and that is the correction
-/// this pair cost.** The obvious move — and the one
-/// `Reports/mechanism-vs-behaviour-audit-2026-08-31.md` F16 proposed — is a
-/// `#[serde(default)]` field on the species, on `design-philosophy.md` §2a's
-/// rule that a constant a non-programmer might tune graduates to `.ron`
-/// immediately. `fate_mutation_chance`'s own doc had already ruled against
-/// exactly that, for a reason the audit had not read: materials and species
-/// reach the binary through `include_str!`, so **editing a `.ron` and
-/// re-running a prebuilt harness produces bit-identical "runs"** — three of
-/// them, once, before anyone noticed the knob was not connected — and a
-/// *sweep over a mutation rate* is precisely the shape that walks into it.
+/// **An env override rather than an asset field, deliberately** — the reason
+/// this pair's first design got wrong. `CLAUDE.md`'s `include_str!` gotcha is
+/// that editing a `.ron` and re-running a prebuilt example produces
+/// bit-identical "runs" — three of them, once, before anyone noticed the knob
+/// was not connected — and a sweep over a mutation rate is exactly that shape.
+/// So the *file* half stays an env read; the *runtime* half is a field on the
+/// world, which the parameters page writes and no asset can make stale.
 ///
-/// A runtime cell has neither problem. The parameters page writes it in
-/// memory and the next birth reads it; no file is edited, so nothing can go
-/// stale against a binary. It is also honest about scope: this is one width
-/// for every plant in the world, not a per-species property, and a species
-/// field would have implied otherwise.
-///
-/// Stored as `f32` bits in an atomic because that is what a lock-free global
-/// scalar is; the value is read once per jitter draw on the growth path.
-static MUTATION_SIGMA_LIVE: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(u32::MAX);
-
-/// The genotype jitter width in effect.
-pub fn mutation_sigma() -> f32 {
-    let bits = MUTATION_SIGMA_LIVE.load(std::sync::atomic::Ordering::Relaxed);
-    if bits == u32::MAX {
-        MUTATION_SIGMA
-    } else {
-        f32::from_bits(bits)
-    }
+/// Out-of-range values fall back to the constant rather than clamping
+/// silently: a typo that produced a rate of 100 should not read as a
+/// successful sweep point.
+pub fn fate_mutation_chance_seed() -> f32 {
+    static SEED: std::sync::OnceLock<f32> = std::sync::OnceLock::new();
+    *SEED.get_or_init(|| {
+        std::env::var("PIXEL_PHYSICS_FATE_MUTATION_CHANCE")
+            .ok()
+            .and_then(|v| v.parse::<f32>().ok())
+            .filter(|c| settable_rate(*c))
+            .unwrap_or(FATE_MUTATION_CHANCE)
+    })
 }
 
-/// Set the genotype jitter width. Out-of-range values are refused rather than
-/// clamped, for `fate_mutation_chance`'s reason: a typo that produced a width
-/// of 100 should not read as a successful sweep point.
-pub fn set_mutation_sigma(sigma: f32) -> bool {
-    if !(0.0..=1.0).contains(&sigma) {
-        return false;
-    }
-    MUTATION_SIGMA_LIVE.store(sigma.to_bits(), std::sync::atomic::Ordering::Relaxed);
-    true
+/// Whether a width or rate may be stored — the shared predicate behind both
+/// heredity rows on the parameters page, so the contract can be checked
+/// without writing to a world.
+pub(crate) fn settable_rate(v: f32) -> bool {
+    (0.0..=1.0).contains(&v)
 }
 
 /// **One generation's drift on one continuous genotype slot.**
@@ -1446,13 +1431,20 @@ pub fn set_mutation_sigma(sigma: f32) -> bool {
 /// **Exactly one draw, always**, whatever it returns: the caller's stream
 /// position on return is a measured property with a guard over it
 /// (`set_seed_leaves_the_callers_rng_position_alone`).
-pub(crate) fn genotype_jitter(rng: &mut Rng) -> f32 {
-    // **The draw happens before the width is applied, and unconditionally.**
-    // The width is now settable, and a settable width must not become a
-    // settable *draw count*: `set_seed_leaves_the_callers_rng_position_alone`
-    // asserts the caller's stream position on return, so a sigma of 0 has to
-    // consume its draw exactly as any other value does.
-    (rng.below(2_000) as f32 / 1_000.0 - 1.0) * mutation_sigma()
+/// **The width is an argument, not an ambient read, and that is a bug this
+/// pair already caused.** The first design made it a process global in this
+/// module. The parameters panel's own positive control
+/// (`params::tests::every_writable_parameter_actually_moves`) writes every
+/// registered row; tests run in parallel; and
+/// `widening_the_genome_does_not_move_the_breeding_draw_sequence` hashes a
+/// bred genome — so writing the row changed a sibling test's result from
+/// another thread, and CI went red on a hash nothing in its own diff could
+/// explain. Pinning the width to 0.5 reproduces that failure exactly, which
+/// is how it was confirmed rather than guessed. **A tunable that is
+/// process-global is a hidden argument to every reader of it.** It lives on
+/// `World` now, beside `plant_load_failure`, and arrives here explicitly.
+pub(crate) fn genotype_jitter(rng: &mut Rng, sigma: f32) -> f32 {
+    (rng.below(2_000) as f32 / 1_000.0 - 1.0) * sigma
 }
 
 /// **A ripe fruit lets go.**
@@ -1582,53 +1574,6 @@ const FATE_MUTATION_STREAM: u64 = 201;
 /// took a population census to tell them apart.
 pub const FATE_MUTATION_CHANCE: f32 = 0.30;
 
-/// **The rate actually in effect**, which is `FATE_MUTATION_CHANCE` unless
-/// `PIXEL_PHYSICS_FATE_MUTATION_CHANCE` overrides it.
-///
-/// An env override rather than an asset field, deliberately. `CLAUDE.md`'s
-/// `include_str!` gotcha is that editing a `.ron` and re-running a prebuilt
-/// example produces bit-identical "runs" — three of them, once, before
-/// anyone noticed the knob was not connected. A sweep over this rate is
-/// exactly the shape that walks into that, and an env read cannot go stale
-/// against a binary.
-///
-/// Read once per process: the growth path calls this per birth, and the rate
-/// cannot change mid-run anyway. Out-of-range values fall back to the
-/// constant rather than clamping silently — a typo that produced a rate of
-/// 100 should not read as a successful sweep point.
-pub fn fate_mutation_chance() -> f32 {
-    let bits = FATE_CHANCE_LIVE.load(std::sync::atomic::Ordering::Relaxed);
-    if bits != u32::MAX {
-        return f32::from_bits(bits);
-    }
-    // The env seed, read once. **Still an env read and not an asset field**,
-    // for the reason this doc gives: a sweep that edits a `.ron` and re-runs a
-    // prebuilt harness gets bit-identical runs.
-    static SEED: std::sync::OnceLock<f32> = std::sync::OnceLock::new();
-    *SEED.get_or_init(|| {
-        std::env::var("PIXEL_PHYSICS_FATE_MUTATION_CHANCE")
-            .ok()
-            .and_then(|v| v.parse::<f32>().ok())
-            .filter(|c| (0.0..=1.0).contains(c))
-            .unwrap_or(FATE_MUTATION_CHANCE)
-    })
-}
-
-/// The runtime override for the fate-mutation rate — see
-/// [`MUTATION_SIGMA_LIVE`] for why this is a cell and not a species field.
-/// `u32::MAX` means "nothing has set it", so the env seed still wins on a
-/// process nobody has touched the panel in.
-static FATE_CHANCE_LIVE: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(u32::MAX);
-
-/// Set the fate-mutation rate. Refuses out of range rather than clamping.
-pub fn set_fate_mutation_chance(chance: f32) -> bool {
-    if !(0.0..=1.0).contains(&chance) {
-        return false;
-    }
-    FATE_CHANCE_LIVE.store(chance.to_bits(), std::sync::atomic::Ordering::Relaxed);
-    true
-}
-
 /// The fallback depth in effect, for a harness that must echo its own
 /// parameters — `CLAUDE.md`: "a knob nobody can see the value of is a knob
 /// nobody can tell is disconnected".
@@ -1717,6 +1662,10 @@ fn bear_seed_at(world: &mut World, sx: i32, sy: i32, parent_id: u16, seed_cost: 
     };
     // Read before the `organism_mut` borrow below, which holds `world`.
     let world_seed = world.seed;
+    // Read beside `world_seed` and for the same reason: both are wanted after
+    // `organism_mut` takes `world` mutably below.
+    let sigma = world.mutation_sigma;
+    let fate_chance = world.fate_mutation_chance;
     let (foliage_first, foliage_count, bark_bands, flower_bands, fruit_bands) = {
         let sp = world.species.get(species);
         (sp.foliage_bands.first, sp.foliage_bands.count, sp.bark_bands, sp.flower_bands, sp.fruit_bands)
@@ -1765,7 +1714,7 @@ fn bear_seed_at(world: &mut World, sx: i32, sy: i32, parent_id: u16, seed_cost: 
         // one substream per slot — would have given every *existing* slot
         // a different jitter and broken the thing this protects.
         for (dst, src) in state.genotype_draws.iter_mut().zip(draws.iter()).take(SEQUENCED_TRAITS) {
-            *dst = (*src + genotype_jitter(rng)).clamp(-1.0, 1.0);
+            *dst = (*src + genotype_jitter(rng, sigma)).clamp(-1.0, 1.0);
         }
         // **The discrete genes: inherited whole, mutated by jumping.** A
         // locus that drifted would be a continuous axis wearing an integer
@@ -1833,7 +1782,7 @@ fn bear_seed_at(world: &mut World, sx: i32, sy: i32, parent_id: u16, seed_cost: 
         // the stand guard caught it, which is what it is for.
         for (slot, (dst, src)) in state.genotype_draws.iter_mut().zip(draws.iter()).enumerate().skip(SEQUENCED_TRAITS) {
             let mut jrng = rng::stream(world_seed ^ APPENDED_JITTER_SALT, sx as u64, sy as u64, (generation as u64) << 8 | slot as u64);
-            *dst = (*src + genotype_jitter(&mut jrng)).clamp(-1.0, 1.0);
+            *dst = (*src + genotype_jitter(&mut jrng, sigma)).clamp(-1.0, 1.0);
         }
         // Both colours derive from the (possibly just-mutated) alleles.
         // Foliage has worked this way since the discrete-loci change;
@@ -1870,7 +1819,7 @@ fn bear_seed_at(world: &mut World, sx: i32, sy: i32, parent_id: u16, seed_cost: 
         let mut fate_rng =
             rng::stream(world_seed ^ APPENDED_JITTER_SALT, sx as u64, sy as u64, (generation as u64) << 8 | FATE_MUTATION_STREAM);
         fate_rolled = true;
-        if fate_rng.chance(fate_mutation_chance()) {
+        if fate_rng.chance(fate_chance) {
             fate_fired = true;
             // `mutate` returns `None` only for an empty genome, which cannot
             // happen here — `push_organism` seeds every organism from its
@@ -12380,30 +12329,24 @@ The night factor belongs on income only -- see NIGHT_INCOME_FLOOR"
     }
 
     #[test]
-    fn the_mutation_width_is_settable_and_still_takes_exactly_one_draw() {
-        // **Two claims, and the second is the one with teeth.**
-        //
-        // That the width is settable is the feature. That changing it does not
-        // change how many draws `genotype_jitter` takes is what keeps the
-        // change safe: `set_seed_leaves_the_callers_rng_position_alone` below
-        // asserts the caller's stream position, and `CLAUDE.md` records a
-        // genome widening that shifted one draw out of a shared `Rng` and
-        // silently flattened every lineage in the world while both guards over
-        // it stayed green. A width of 0 is exactly where a "why draw at all"
-        // shortcut would be tempting, so it is the case asserted.
+    fn the_mutation_width_scales_the_gene_and_never_the_draw_count() {
+        // **The claim with teeth is the draw count, not the width.**
+        // `set_seed_leaves_the_callers_rng_position_alone` asserts the
+        // caller's stream position, and `CLAUDE.md` records a genome widening
+        // that shifted one draw out of a shared `Rng` and silently flattened
+        // every lineage in the world while both guards over it stayed green.
+        // A width of 0 is exactly where a "why draw at all" shortcut is
+        // tempting, so that is the asserted case.
         //
         // Position is read the way that guard reads it -- the next value off
         // the stream -- because `Rng` exposes no cursor.
-        let restore = mutation_sigma();
-
         let run = |sigma: f32| -> (f32, u32) {
-            assert!(set_mutation_sigma(sigma), "{sigma} was refused");
             let mut rng = rng::stream(1, 2, 3, 4);
-            let j = genotype_jitter(&mut rng);
+            let j = genotype_jitter(&mut rng, sigma);
             (j, rng.below(1_000_000))
         };
 
-        let (j_default, after_default) = run(0.08);
+        let (j_default, after_default) = run(MUTATION_SIGMA);
         let (j_wide, after_wide) = run(0.5);
         let (j_zero, after_zero) = run(0.0);
 
@@ -12411,14 +12354,39 @@ The night factor belongs on income only -- see NIGHT_INCOME_FLOOR"
         assert_eq!(after_default, after_zero, "a zero width skipped its draw, shifting every draw after it");
         assert_eq!(j_zero, 0.0, "a zero width still moved the gene");
         assert!(j_wide.abs() > j_default.abs(), "a wider width did not drift further: {j_wide} vs {j_default}");
+    }
 
-        // Out of range is refused rather than clamped, so a typo cannot read
-        // as a successful sweep point.
-        assert!(!set_mutation_sigma(100.0), "an absurd width was accepted");
-        assert!(!set_mutation_sigma(-1.0), "a negative width was accepted");
-        assert_eq!(mutation_sigma(), 0.0, "a refused write changed the value anyway");
+    /// **A fresh world carries the shipped dials**, so nothing in this change
+    /// moves a bed nobody has touched the panel in.
+    ///
+    /// It also pins the property the first design got wrong: the dials are
+    /// **per world**, so one bed's setting cannot reach another's. That is
+    /// what makes the parameters panel's own positive control -- which writes
+    /// every registered row -- safe to run beside a test that breeds plants.
+    #[test]
+    fn the_heredity_dials_are_per_world_and_ship_at_their_constants() {
+        let a = World::new(Rect::new(0, 0, 32, 32));
+        let mut b = World::new(Rect::new(0, 0, 32, 32));
+        assert_eq!(a.mutation_sigma, MUTATION_SIGMA, "a fresh world does not carry the shipped width");
+        assert_eq!(b.fate_mutation_chance, fate_mutation_chance_seed(), "a fresh world does not carry the shipped fate rate");
 
-        assert!(set_mutation_sigma(restore));
+        b.mutation_sigma = 0.5;
+        b.fate_mutation_chance = 0.9;
+        assert_eq!(a.mutation_sigma, MUTATION_SIGMA, "setting one world's width moved another's");
+        assert_eq!(a.fate_mutation_chance, fate_mutation_chance_seed(), "setting one world's fate rate moved another's");
+    }
+
+    /// Out-of-range widths are refused rather than clamped, so a typo cannot
+    /// read as a successful sweep point -- `fate_mutation_chance_seed`'s rule,
+    /// shared with the panel's write arm.
+    #[test]
+    fn an_out_of_range_mutation_rate_is_refused_rather_than_clamped() {
+        assert!(settable_rate(0.0), "zero is a legitimate width -- it is the clonal control arm");
+        assert!(settable_rate(MUTATION_SIGMA));
+        assert!(settable_rate(1.0));
+        assert!(!settable_rate(100.0), "an absurd width would be accepted");
+        assert!(!settable_rate(-1.0), "a negative width would be accepted");
+        assert!(!settable_rate(f32::NAN), "NaN would be accepted");
     }
 
     #[test]

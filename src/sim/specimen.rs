@@ -467,14 +467,14 @@ pub fn drift(world: &World, spec: &Specimen, broods: u32, name: &str, rng: &mut 
                 // shipped one either way — one `genotype_jitter`, one
                 // `MUTATION_SIGMA`, so the two paths cannot drift apart.
                 for d in draws.iter_mut() {
-                    let next = (*d + super::plant::genotype_jitter(rng)).clamp(-1.0, 1.0);
+                    let next = (*d + super::plant::genotype_jitter(rng, world.mutation_sigma)).clamp(-1.0, 1.0);
                     if next != *d {
                         moved += 1;
                     }
                     *d = next;
                 }
                 moved += organism::jump_alleles(&mut alleles, rng);
-                if rng.chance(super::plant::fate_mutation_chance()) && fates.mutate(rng).is_some_and(|m| m.applied) {
+                if rng.chance(world.fate_mutation_chance) && fates.mutate(rng).is_some_and(|m| m.applied) {
                     moved += 1;
                 }
             }
