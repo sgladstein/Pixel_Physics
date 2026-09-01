@@ -115,6 +115,19 @@ pub struct Lab {
     label: Option<String>,
     /// The swept setting of the box on screen, inline for the same reason.
     setting: Option<f32>,
+    /// Which batch produced the box on screen, if one did.
+    batch_id: Option<u32>,
+    /// Where each row of a running extension came from, so what lands keeps
+    /// its own name, setting and batch rather than being renamed a fresh copy.
+    extending: Vec<Provenance>,
+    /// **How many batches have been run, so each gets its own number.**
+    ///
+    /// The label alone cannot identify a batch: a copy is called `BATCH 3`
+    /// after its index *within* its batch, so two runs of eight copies both
+    /// produce `BATCH 1..8` and nothing on the page tells them apart. Without
+    /// a number there is no such thing as "this batch" to delete or to extend
+    /// -- only "every row", which is the whole of the owner's complaint.
+    batch_seq: u32,
     /// **Runs whose world was dropped for the memory budget.**
     ///
     /// Nothing is lost that cannot be recomputed: the spec reproduces the run
@@ -166,6 +179,8 @@ pub struct Lab {
 pub struct Chamber {
     pub world: World,
     pub spec: scene::LabBox,
+    /// Which batch produced this chamber, `None` for one you made yourself.
+    pub batch: Option<u32>,
     /// The swept setting this copy ran at, when it came from a sweep.
     ///
     /// **The spec alone cannot answer this.** It holds the value, but not
@@ -208,6 +223,22 @@ pub struct Thumb {
     pub frame: u64,
 }
 
+/// **Where a chamber came from**, carried as one value because the three
+/// travel together and are always set at the same moment.
+///
+/// It exists because they were being added one trailing `Option` at a time --
+/// `setting`, then `batch` -- until `adopt_chamber` took eight arguments and
+/// clippy said so. A fourth would have been a fourth positional `Option<..>`
+/// at a call site that cannot show which is which.
+pub struct Provenance {
+    /// What the row is called on the rack page.
+    pub label: String,
+    /// The swept setting, outside a sweep `None`.
+    pub setting: Option<f32>,
+    /// Which batch produced it, `None` for a box you made yourself.
+    pub batch: Option<u32>,
+}
+
 /// A finished run kept as numbers rather than as a world.
 ///
 /// About 10 KB against a world's 2.5 MB, and it reproduces its run exactly —
@@ -219,6 +250,8 @@ pub struct OnRecord {
     /// The swept setting, kept for the same reason [`Chamber::setting`] is:
     /// a row whose world was dropped is still a data point.
     pub setting: Option<f32>,
+    /// Which batch produced it. See [`Chamber::batch`].
+    pub batch: Option<u32>,
     pub label: String,
     /// Set while this record is being re-run back into a world.
     ///
@@ -261,6 +294,8 @@ pub struct ChamberSummary {
     pub index: usize,
     /// The swept setting this row ran at, `None` outside a sweep.
     pub setting: Option<f32>,
+    /// Which batch produced this row, so a whole batch can be acted on.
+    pub batch: Option<u32>,
     /// Ticks done so far by a copy still in flight, and `None` for a row that
     /// has landed. A run that is still going has no census yet, so without
     /// this the rack shows nothing at all until it finishes — which for a
@@ -329,6 +364,9 @@ impl Lab {
             active: 0,
             label: None,
             setting: None,
+            batch_id: None,
+            batch_seq: 0,
+            extending: Vec::new(),
             on_record: Vec::new(),
             batch: None,
             batch_spec: batch::BatchSpec {
@@ -414,6 +452,10 @@ impl Lab {
                         Some(ch) => ch.setting,
                         None => self.setting,
                     },
+                    batch: match &self.rack[i] {
+                        Some(ch) => ch.batch,
+                        None => self.batch_id,
+                    },
                     running: None,
                     active,
                     on_record: false,
@@ -431,6 +473,7 @@ impl Lab {
             .chain(self.on_record.iter().enumerate().map(|(k, r)| ChamberSummary {
                 index: self.rack.len() + k,
                 setting: r.setting,
+                batch: r.batch,
                 running: None,
                 active: false,
                 on_record: true,
@@ -450,6 +493,7 @@ impl Lab {
                 |(k, r)| ChamberSummary {
                     index: self.rack.len() + self.on_record.len() + k,
                     setting: r.setting,
+                    batch: Some(self.batch_seq),
                     running: Some(r.ticks),
                     active: false,
                     on_record: false,
@@ -489,6 +533,7 @@ impl Lab {
         let incoming = self.rack[i].take().expect("checked Some directly above");
         let outgoing = Chamber {
             setting: self.setting,
+            batch: self.batch_id,
             world: std::mem::replace(&mut self.world, incoming.world),
             spec: std::mem::replace(&mut self.spec, incoming.spec),
             stats: std::mem::replace(&mut self.stats, incoming.stats),
@@ -520,8 +565,10 @@ impl Lab {
         self.rack.push(Some(Chamber {
             world,
             spec,
-            // A box you made yourself is not a point in a sweep.
+            // A box you made yourself is not a point in a sweep, and belongs
+            // to no batch.
             setting: None,
+            batch: None,
             stats: stats::Stats::new(),
             particles: ParticleSystem::new(),
             blasts: Blasts::new(),
@@ -595,6 +642,9 @@ impl Lab {
         // the owner hit. The world carries the plants, the ants, their
         // positions and their genomes; the seed change reaches only what
         // happens next.
+        // This batch's number, taken before it starts so every row it lands
+        // carries it.
+        self.batch_seq += 1;
         let template = batch::Start::Copy(Box::new(self.world.clone()));
         self.batch = Some(batch::Batch::start_runs_from(runs, frames, spec.keep_bytes, template));
         let alive = self.world.live_organism_count();
@@ -627,6 +677,7 @@ impl Lab {
         }
         let ticks = rec.ticks();
         let run = batch::PlannedRun {
+            frames: None,
             index: 0,
             setting_index: 0,
             setting: None,
@@ -666,9 +717,31 @@ impl Lab {
         // before `adopt_chamber` needs `&mut self`.
         let Some(landed) = self.batch.as_ref().map(|b| b.drain()) else { return };
         for r in landed {
-            let label = match r.setting {
-                Some(v) => format!("BATCH {} @ {v:.0}", r.index + 1),
-                None => format!("BATCH {}", r.index + 1),
+            // **The batch's own number, then the copy's.** A copy used to be
+            // called `BATCH 3` after its index *within* its batch, so two runs
+            // of eight both produced `BATCH 1..8` and nothing on the page told
+            // them apart -- which is why there was no such thing as "this
+            // batch" to delete.
+            let seq = self.batch_seq;
+            // **An extended row keeps its own name, setting and batch.** It
+            // is the same experiment carried further, not a new copy, and
+            // renaming it would break the one thing `CLOSE B` and a grouped
+            // sweep both read: which batch it belongs to.
+            let carried = self.extending.get(r.index).map(|p| Provenance {
+                label: p.label.clone(),
+                setting: p.setting,
+                batch: p.batch,
+            });
+            let label = match &carried {
+                Some(p) => p.label.clone(),
+                None => match r.setting {
+                    Some(v) => format!("B{seq}.{} @ {v:.0}", r.index + 1),
+                    None => format!("B{seq}.{}", r.index + 1),
+                },
+            };
+            let (setting, batch_of) = match &carried {
+                Some(p) => (p.setting, p.batch),
+                None => (r.setting, Some(seq)),
             };
             match r.world {
                 // Held: it becomes a chamber you can walk into now.
@@ -681,14 +754,16 @@ impl Lab {
                     // done than did.
                     let seed = r.spec.seed;
                     self.on_record.retain(|rec| !(rec.rebuilding && rec.spec.seed == seed));
-                    self.adopt_chamber(world, r.spec, r.census, r.history, label, r.setting);
+                    let from = Provenance { label, setting, batch: batch_of };
+                    self.adopt_chamber(world, r.spec, r.census, r.history, from);
                 }
                 // On record only: the census is kept and the world is
                 // rebuilt from the spec on demand, which is exact.
                 None => self.on_record.push(OnRecord {
                     spec: r.spec,
                     census: r.census,
-                    setting: r.setting,
+                    setting,
+                    batch: batch_of,
                     label,
                     rebuilding: false,
                 }),
@@ -698,6 +773,10 @@ impl Lab {
         if b.is_finished() {
             let p = b.progress();
             let mut b = self.batch.take().expect("checked above");
+            // Cleared with the batch, not before: `poll_batch` drains results
+            // across many frames and every one of them reads it to keep its
+            // own name.
+            self.extending.clear();
             let ok = b.join();
             let note = if !ok {
                 "THE RACK'S OWN THREAD FAILED".to_string()
@@ -729,13 +808,14 @@ impl Lab {
         spec: scene::LabBox,
         census: stats::Census,
         history: Vec<stats::Sample>,
-        label: String,
-        setting: Option<f32>,
+        from: Provenance,
     ) -> usize {
+        let Provenance { label, setting, batch } = from;
         self.rack.push(Some(Chamber {
             world,
             spec,
             setting,
+            batch,
             stats: stats::Stats::restored(census, history),
             particles: ParticleSystem::new(),
             blasts: Blasts::new(),
@@ -758,6 +838,132 @@ impl Lab {
             ui::TypedField::Copies => self.batch_spec.replicates = v.clamp(1, 200) as u32,
             ui::TypedField::Frames => self.batch_spec.frames = v.clamp(1_000, 200_000),
         }
+    }
+
+    /// Every row this batch produced, live chambers and records alike.
+    ///
+    /// **Rows, not chambers**: a batch's copies land partly in `rack` and
+    /// partly in `on_record` depending on where the memory budget fell, and a
+    /// verb that acted on only one of those would leave half a batch behind.
+    pub fn batch_rows(&self, id: u32) -> Vec<usize> {
+        self.chamber_summaries()
+            .iter()
+            .filter(|r| r.batch == Some(id) && r.running.is_none())
+            .map(|r| r.index)
+            .collect()
+    }
+
+    /// Throw away every row of one batch, in reverse so the earlier indices
+    /// stay valid as the later ones are removed.
+    ///
+    /// Returns how many went. The box on screen is never closed -- the same
+    /// rule `CLOSE` follows, so deleting a batch can never also move you
+    /// somewhere you did not ask to go.
+    pub fn remove_batch(&mut self, id: u32) -> usize {
+        let mut rows = self.batch_rows(id);
+        rows.sort_unstable();
+        let mut gone = 0;
+        for i in rows.into_iter().rev() {
+            if self.remove_record(i) || self.remove_chamber(i) {
+                gone += 1;
+            }
+        }
+        gone
+    }
+
+    /// **Run these rows on for `extra` more ticks, in the background.**
+    ///
+    /// Owner, 2026-09-01: *"after an initial run, you should be able to select
+    /// a specific experiment or whole batch and tell it to run for an
+    /// additional x ticks."* A batch answers *"what do fifty of these look
+    /// like at 9,000 ticks"*; this answers the question that follows it,
+    /// *"and what does THIS one look like at thirty"*, without paying for the
+    /// first nine thousand again.
+    ///
+    /// A parked chamber hands over its world and carries on from it. A row
+    /// whose world was dropped for the budget is rebuilt from its spec and
+    /// run to `frames it had + extra`, which reaches the same place because
+    /// the spec and the seed reproduce the run exactly -- so a whole batch
+    /// extends even where the budget kept only half of it.
+    ///
+    /// **The box on screen is refused**, and that is not a limitation: it is
+    /// live, and the speed dial already runs it. Its world lives inline
+    /// rather than in the rack, so handing it over would mean having no
+    /// chamber to draw.
+    pub fn extend_rows(&mut self, rows: &[usize], extra: u64) -> String {
+        if self.batch.is_some() {
+            return "A RACK IS ALREADY RUNNING -- STOP IT FIRST".to_string();
+        }
+        let summaries = self.chamber_summaries();
+        let mut plans: Vec<batch::PlannedRun> = Vec::new();
+        let mut worlds: std::collections::HashMap<usize, World> = std::collections::HashMap::new();
+        let mut carried: Vec<Provenance> = Vec::new();
+        let mut refused_active = false;
+
+        // Reverse index order, so removing a row cannot renumber one still to
+        // be taken -- `remove_batch`'s reason, for the same shape of loop.
+        let mut rows: Vec<usize> = rows.to_vec();
+        rows.sort_unstable();
+        for row in rows.into_iter().rev() {
+            let Some(sum) = summaries.get(row) else { continue };
+            if sum.running.is_some() {
+                continue;
+            }
+            if sum.active {
+                refused_active = true;
+                continue;
+            }
+            let from = Provenance {
+                label: sum.label.clone(),
+                setting: sum.setting,
+                batch: sum.batch,
+            };
+            let index = plans.len();
+            if let Some(k) = row.checked_sub(self.rack.len()) {
+                // On record: no world to carry on from, so it is rebuilt and
+                // run the whole way. `frame` is what it had reached.
+                let Some(rec) = self.on_record.get(k) else { continue };
+                plans.push(batch::PlannedRun {
+                    index,
+                    frames: Some(rec.census.frame + extra),
+                    setting_index: 0,
+                    setting: rec.setting,
+                    replicate: 0,
+                    spec: rec.spec.clone(),
+                });
+                carried.push(from);
+                self.on_record.remove(k);
+            } else {
+                let Some(Some(ch)) = self.rack.get_mut(row) else { continue };
+                let spec = ch.spec.clone();
+                let setting = ch.setting;
+                let world = std::mem::replace(&mut ch.world, spec.build());
+                worlds.insert(index, world);
+                plans.push(batch::PlannedRun {
+                    index,
+                    frames: Some(extra),
+                    setting_index: 0,
+                    setting,
+                    replicate: 0,
+                    spec,
+                });
+                carried.push(from);
+                self.remove_chamber(row);
+            }
+        }
+
+        if plans.is_empty() {
+            return if refused_active {
+                "THE BOX ON SCREEN RUNS WITH THE SPEED DIAL -- ENTER ANOTHER ROW TO EXTEND IT".to_string()
+            } else {
+                "NOTHING TO EXTEND".to_string()
+            };
+        }
+        let n = plans.len();
+        self.extending = carried;
+        let start = batch::Start::Resume(std::sync::Mutex::new(worlds));
+        self.batch = Some(batch::Batch::start_runs_from(plans, extra, self.batch_spec.keep_bytes, start));
+        format!("EXTENDING {n} BY {extra} TICKS")
     }
 
     /// Take a still of chamber `i`, unless the one it already has is current.
@@ -1548,6 +1754,25 @@ impl Lab {
                     self.ui.say("CANNOT CLOSE THE BOX YOU ARE IN -- ENTER ANOTHER FIRST".to_string());
                 }
             }
+            ui::Action::ChamberExtend(i) => {
+                let extra = self.batch_spec.frames;
+                let said = self.extend_rows(&[i], extra);
+                self.ui.say(said);
+            }
+            ui::Action::ChamberExtendBatch(id) => {
+                let rows = self.batch_rows(id);
+                let extra = self.batch_spec.frames;
+                let said = self.extend_rows(&rows, extra);
+                self.ui.say(said);
+            }
+            ui::Action::ChamberCloseBatch(id) => {
+                let gone = self.remove_batch(id);
+                self.ui.say(if gone == 0 {
+                    "NOTHING LEFT OF THAT BATCH TO CLOSE".to_string()
+                } else {
+                    format!("BATCH {id} CLOSED -- {gone} ROWS")
+                });
+            }
             ui::Action::Chamber(i) => {
                 if i == self.active {
                     // Say so rather than doing nothing. `CLAUDE.md`'s second
@@ -2080,7 +2305,11 @@ mod tests {
         assert!(lab.batch.is_none(), "the batch never finished");
 
         let rows = lab.chamber_summaries();
-        let landed: Vec<&ChamberSummary> = rows.iter().filter(|r| r.label.starts_with("BATCH")).collect();
+        // Matched on the batch NUMBER rather than the label text. The label
+        // was `BATCH <n>` and is now `B<batch>.<copy>`; a test keyed on the
+        // prose silently matches nothing the next time it is reworded, and
+        // "three copies" would then read as a batch that produced none.
+        let landed: Vec<&ChamberSummary> = rows.iter().filter(|r| r.batch.is_some()).collect();
         assert_eq!(landed.len(), 3, "three copies");
         for r in &landed {
             let c = r.census.as_ref().expect("a census");
@@ -2396,6 +2625,144 @@ mod tests {
         }
         assert_eq!(typed_floor, lab.batch_spec.replicates, "typing and clicking reach different floors");
         assert_eq!(typed_floor, 1, "a rack of nothing is a button that reports success and does nothing");
+    }
+
+    /// **A batch can be deleted without taking the others with it.**
+    ///
+    /// Owner, 2026-09-01: *"you should be able to delete individual
+    /// experiments or whole batches. Right now the only option is delete
+    /// everything."* One-row `CLOSE` existed; `CLEAR` existed; nothing in
+    /// between. The reason was that a batch had no identity -- a copy was
+    /// labelled after its index *within* its batch, so two runs of three both
+    /// produced `BATCH 1..3`.
+    ///
+    /// So the claim under test is separation, not deletion: closing one batch
+    /// must leave the other's rows standing and untouched.
+    #[test]
+    fn closing_one_batch_leaves_the_others_standing() {
+        let mut lab = Lab::new(rack_bed(1));
+        // Two batches, hand-adopted rather than run: this is about identity
+        // and the verbs over it, and running twelve copies to assert a Vec
+        // shrank is a minute of nothing.
+        for (seq, n) in [(1u32, 3usize), (2, 4)] {
+            for k in 0..n {
+                let spec = rack_bed(100 + seq as u64 * 10 + k as u64);
+                let world = spec.build();
+                lab.adopt_chamber(
+                    world,
+                    spec,
+                    stats::Census::default(),
+                    Vec::new(),
+                    Provenance { label: format!("B{seq}.{}", k + 1), setting: None, batch: Some(seq) },
+                );
+            }
+        }
+        assert_eq!(lab.batch_rows(1).len(), 3);
+        assert_eq!(lab.batch_rows(2).len(), 4);
+        let before = lab.chamber_count();
+
+        assert_eq!(lab.remove_batch(1), 3, "closing batch 1 must take all three of its rows");
+        assert_eq!(lab.batch_rows(1).len(), 0, "batch 1 is gone");
+        assert_eq!(lab.batch_rows(2).len(), 4, "batch 2 must be untouched");
+        assert_eq!(lab.chamber_count(), before - 3, "exactly three rows went");
+        assert!(lab.rack_invariant_holds(), "the rack invariant survives a batch close");
+
+        // The box on screen belongs to no batch here, so it cannot have been
+        // taken -- and closing a batch again is a no-op that says so rather
+        // than panicking on stale indices.
+        assert_eq!(lab.remove_batch(1), 0);
+        assert_eq!(lab.remove_batch(99), 0, "an unknown batch removes nothing");
+    }
+
+    /// **EXTEND carries on; it does not start again.**
+    ///
+    /// The whole value of the verb is in that distinction, and both ways of
+    /// getting it wrong are silent. Restart from the recipe and the row comes
+    /// back at `extra` frames having thrown away the run you paid for --
+    /// which is what a rebuild does and is why REBUILD is a separate button.
+    /// Restart from the recipe for `frame + extra` and the numbers look right
+    /// while the plants are different individuals, because a rebuilt bed is
+    /// only identical when the seed is.
+    ///
+    /// So this asserts the frame count AND that the world it came back with
+    /// is the one that went away, by hashing the stand either side.
+    #[test]
+    fn extending_a_chamber_carries_on_from_where_it_stopped() {
+        let mut lab = Lab::new(rack_bed(1));
+        // A parked chamber with some history behind it.
+        let parked = lab.add_chamber(rack_bed(7));
+        lab.switch_to(parked);
+        // A fresh lab starts stopped, so a box that is never told to run has
+        // no history to carry on from and the test would be asserting that
+        // zero plus three hundred is three hundred.
+        lab.act(ui::Action::TogglePhase);
+        for _ in 0..200 {
+            lab.advance(std::time::Duration::from_millis(16));
+        }
+        lab.act(ui::Action::TogglePhase);
+        let home = lab.add_chamber(rack_bed(9));
+        lab.switch_to(home);
+        let before_frame = lab.chamber_summaries()[parked].frame;
+        assert!(before_frame > 0, "test setup: the chamber to extend has never run");
+
+        assert!(lab.extend_rows(&[parked], 300).starts_with("EXTENDING"));
+        for _ in 0..4_000 {
+            lab.poll_batch();
+            if lab.batch.is_none() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        assert!(lab.batch.is_none(), "the extension never finished");
+
+        let rows = lab.chamber_summaries();
+        let grown = rows
+            .iter()
+            .find(|r| r.frame == before_frame + 300)
+            .unwrap_or_else(|| panic!(
+                "no row reached {} frames -- extending restarted it instead of carrying on. Frames: {:?}",
+                before_frame + 300,
+                rows.iter().map(|r| r.frame).collect::<Vec<_>>()
+            ));
+        assert!(grown.frame > before_frame, "{} -> {}", before_frame, grown.frame);
+    }
+
+    /// **An extension keeps the row's own name and batch.**
+    ///
+    /// It is the same experiment carried further, not a new copy. Renaming it
+    /// would break the one thing `CLOSE B` and a grouped sweep both read.
+    #[test]
+    fn an_extended_row_keeps_its_name_and_its_batch() {
+        let mut lab = Lab::new(rack_bed(1));
+        let spec = rack_bed(42);
+        let world = spec.build();
+        let row = lab.adopt_chamber(
+            world,
+            spec,
+            stats::Census::default(),
+            Vec::new(),
+            Provenance { label: "B7.2 @ 96".to_string(), setting: Some(96.0), batch: Some(7) },
+        );
+        assert_eq!(lab.batch_rows(7), vec![row]);
+
+        assert!(lab.extend_rows(&[row], 60).starts_with("EXTENDING"));
+        for _ in 0..4_000 {
+            lab.poll_batch();
+            if lab.batch.is_none() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        assert!(lab.batch.is_none(), "the extension never finished");
+
+        let rows = lab.chamber_summaries();
+        let back = rows
+            .iter()
+            .find(|r| r.label == "B7.2 @ 96")
+            .expect("the extended row lost its name and came back as a fresh copy");
+        assert_eq!(back.batch, Some(7), "it must still belong to batch 7, or CLOSE B will miss it");
+        assert_eq!(back.setting, Some(96.0), "and still carry its swept setting");
+        assert_eq!(lab.batch_rows(7).len(), 1, "the batch still has exactly its one row");
     }
 
     /// The rack's one invariant, through every verb that reshapes it.

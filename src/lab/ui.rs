@@ -445,6 +445,17 @@ pub enum Action {
     ChamberAdd,
     /// Close the highlighted chamber. Refused for the one on screen.
     ChamberClose(usize),
+    /// Throw away every row one batch produced.
+    ///
+    /// **`CLEAR` and one-row `CLOSE` were the only two, and neither is what
+    /// you want after a fifty-copy run.** Owner, 2026-09-01: *"you should be
+    /// able to delete individual experiments or whole batches. Right now the
+    /// only option is delete everything."*
+    ChamberCloseBatch(u32),
+    /// Run one row on for the number of ticks the TICKS dial holds.
+    ChamberExtend(usize),
+    /// Run every row of one batch on by the same amount.
+    ChamberExtendBatch(u32),
     /// Re-run an on-record row back into a world. See
     /// `Lab::rebuild_record`.
     ChamberRebuild(usize),
@@ -3356,6 +3367,7 @@ impl Ui {
             // than hidden, and the row itself says which it is.
             let on_record = chambers.get(i).is_some_and(|c| c.on_record);
             let rebuilding = chambers.get(i).is_some_and(|c| c.rebuilding);
+            let batch_of = chambers.get(i).and_then(|c| c.batch);
             for (label, action, on, why) in [
                 ("ENTER", Action::Chamber(i), !here && !on_record,
                  "PUT THIS CHAMBER ON SCREEN. THE ONE YOU LEAVE IS HELD EXACTLY WHERE IT IS -- IT RESUMES ON THE TICK IT STOPPED AT, NOT FROM THE START."),
@@ -3363,6 +3375,18 @@ impl Ui {
                  "THROW THIS CHAMBER AWAY. THE BOX YOU ARE IN CANNOT BE CLOSED: STEP INTO ANOTHER ONE FIRST, SO THAT CLOSING NEVER ALSO MOVES YOU SOMEWHERE YOU DID NOT ASK TO GO."),
                 // Only ever on an on-record row: a chamber that still has its
                 // world has nothing to rebuild.
+                // Only on a row a batch produced: a chamber you made
+                // yourself has no batch to close.
+                // **The amount comes from the TICKS dial**, which is already
+                // on this page and already types. A second number for "how
+                // much more" would be a second thing to set and a second
+                // place for the two to disagree.
+                ("MORE", Action::ChamberExtend(i), !here,
+                 "RUN THIS ROW ON BY THE TICKS SHOWN BELOW, IN THE BACKGROUND. IT CARRIES ON FROM WHERE IT STOPPED RATHER THAN STARTING AGAIN, SO EXTENDING A 9,000-TICK COPY BY 20,000 COSTS TWENTY THOUSAND AND NOT TWENTY-NINE. A ROW KEPT AS NUMBERS ONLY IS REBUILT FROM ITS RECIPE AND RUN THE WHOLE WAY, WHICH REACHES THE SAME PLACE AND TAKES LONGER."),
+                ("MORE B", Action::ChamberExtendBatch(batch_of.unwrap_or(0)), batch_of.is_some(),
+                 "RUN EVERY ROW OF THIS BATCH ON BY THE TICKS SHOWN BELOW. THE BOX YOU ARE IN IS LEFT ALONE -- IT IS LIVE, AND THE SPEED DIAL ALREADY RUNS IT."),
+                ("CLOSE B", Action::ChamberCloseBatch(batch_of.unwrap_or(0)), batch_of.is_some(),
+                 "THROW AWAY EVERY ROW THIS BATCH PRODUCED, CHAMBERS AND RECORDS ALIKE. THE BOX YOU ARE IN IS KEPT EVEN IF IT CAME FROM THIS BATCH, SO CLOSING ONE NEVER ALSO MOVES YOU SOMEWHERE YOU DID NOT ASK TO GO."),
                 ("REBUILD", Action::ChamberRebuild(i), on_record && !rebuilding,
                  "RUN THIS ROW AGAIN AND KEEP THE WORLD THIS TIME. ITS NUMBERS WERE KEPT BUT ITS WORLD WAS NOT, AND THE RECIPE PLUS ITS SEED REPRODUCES THE RUN EXACTLY -- SO WHAT COMES BACK IS THE SAME BOX, NOT A SIMILAR ONE. IT RUNS IN THE BACKGROUND."),
             ] {
@@ -4359,6 +4383,7 @@ mod tests {
                 on_record: false,
                 rebuilding: false,
                 setting: None,
+                batch: None,
                 running: None,
                 index: i,
                 active: i == 0,
