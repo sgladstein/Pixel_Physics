@@ -219,20 +219,31 @@ question found one shipped bug and three gaps.
 - Guards: `the_rack_page_stays_on_the_screen` (the page grew a pager and
   nothing checked the sum) and `the_batch_line_leads_with_ticks`.
 
-### Next, in the owner's priority order
+### Also done (same session)
 
-1. **Enter an experiment from the rack.** Owner, 2026-09-01: *"You can only
-   enter them from the tabs in the main menu, but that only works for the 1st
-   four. There is currently no way to enter the others."* A row click is
-   `Action::ChamberSelect` (highlight + still); check whether any ENTER verb
-   reaches `Action::Chamber(i)` from the page at all. **Land this first — it
-   is what makes the rack usable.**
-2. **Type a number into the copies/ticks dials.** Clicking `+` to reach
-   200,000 ticks is unusable. Look for existing text entry on the parameters
-   page (`field_text` and the `saving_refuses_*` guards suggest editing
-   machinery) and reuse it rather than building a second one.
-3. Cosmetic: the pager steps by `RACK_ROWS` while a grouped row is two lines,
+- **ENTER from the rack.** The page *had* a working ENTER; it was drawn last,
+  after the picture and the batch dials, so a selected row pushed it out of
+  the panel and behind the bar — present to `widget_rect`, invisible to a
+  player. Two faults under it: the panel height never counted the pager or
+  verbs rows, and `shown` was a fixed `RACK_ROWS`, which made the panel
+  **323 px on a 320 px screen** with a picture up and a batch running. Rows
+  are now computed from the space left over (6 with a picture, 12 without),
+  the verbs sit above the picture, and the guard checks the panel *and* the
+  screen — its first two versions each passed while the bug was live.
+- **Typed entry on the batch dials.** `Ui::typing` plus `TypedField`; the
+  value between the `-`/`+` faces is the button. Digits are read from
+  physical key codes (the lab takes no character events) and typing swallows
+  the keyboard, because the digits are the speed presets. The clamp lives on
+  `Lab::commit_typed_batch` alone, guarded by asserting a typed 9,999,999 and
+  500 clicks reach the same ceiling.
+
+### Still open
+
+1. Cosmetic: the pager steps by `RACK_ROWS` while a grouped row is two lines,
    so a grouped page scrolls half a screen.
+2. Group rows are not clickable and have no verbs — you cannot enter a
+   setting's best run from the grouped view, only from the flat one.
+3. No PR opened yet for any of this.
 
 ### Gates at handoff
 

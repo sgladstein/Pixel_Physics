@@ -187,6 +187,19 @@ fn main() {
         // clicking it again here would shut it, and the click that followed
         // would still fire off the retained layout, which is how the first
         // attempt produced a toast over a closed page.
+        // Typing a number into a dial: the value is the button, and two
+        // hundred clicks to a ceiling is why.
+        let at = centre(&lab, Action::BatchType(pixel_physics::lab::ui::TypedField::Frames));
+        click(&mut lab, at);
+        for c in "45000".chars() {
+            lab.ui.type_digit(c);
+        }
+        lab.set_cursor(None);
+        fired.push(format!("typing into TICKS: {:?}", lab.ui.typing()));
+        tiles.push(("RACK: TYPING A TICK COUNT".into(), shot(&mut lab)));
+        lab.commit_typed_batch();
+        fired.push(format!("committed: ticks now {}", lab.batch_spec.frames));
+
         lab.batch_spec.replicates = 6;
         lab.batch_spec.frames = 4000;
         let at = centre(&lab, Action::BatchRun);

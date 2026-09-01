@@ -353,6 +353,13 @@ fn draw_icon(frame: &mut [u8], icon: Icon, x: i32, y: i32, colour: [u8; 4]) {
 /// What pressing a widget does. Owned by the UI; [`super::Lab::act`] is the
 /// one place that turns one of these into a change to the lab, so a button
 /// and its keyboard shortcut cannot drift apart.
+/// Which batch dial a typed number is going into.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TypedField {
+    Copies,
+    Frames,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Action {
     TogglePhase,
@@ -454,6 +461,14 @@ pub enum Action {
     /// Ask a running rack to stop. Copies already finished are kept.
     BatchStop,
     /// How many copies the next rack runs, by `-1` or `+1` steps of its own.
+    /// Start typing a number straight into one of the batch dials.
+    ///
+    /// **Because the dials cannot be driven to their own limits.** COPIES
+    /// steps by one to 200 and TICKS by a thousand to 200,000 -- two hundred
+    /// clicks each, which is not a control anybody would use to set up a long
+    /// experiment. Owner, 2026-09-01: *"you should be able to type as it takes
+    /// too long clicking + if you want to run a really long experiment"*.
+    BatchType(TypedField),
     BatchCopies(i32),
     /// How many ticks each copy runs for, same.
     BatchFrames(i32),
@@ -1583,6 +1598,8 @@ pub struct Ui {
     rack_scroll: usize,
     /// Whether the rack is showing one row per setting instead of one per run.
     rack_grouped: bool,
+    /// The dial being typed into and the digits so far, if any.
+    typing: Option<(TypedField, String)>,
     /// Which column the rack is sorted on, and whether it is descending.
     ///
     /// `None` is rack order — the order chambers were made, which is the only
@@ -1931,6 +1948,47 @@ impl Ui {
 
     pub fn rack_grouped(&self) -> bool {
         self.rack_grouped
+    }
+
+    /// Start typing into `field`, from empty.
+    ///
+    /// **Empty rather than pre-filled with the current value.** Typing a
+    /// fresh number is the common case and starting from `9000` means
+    /// clearing it first; the old value is still on screen until the new one
+    /// is committed, and `Escape` puts it back.
+    pub fn begin_typing(&mut self, field: TypedField) {
+        self.typing = Some((field, String::new()));
+    }
+
+    pub fn typing(&self) -> Option<(TypedField, &str)> {
+        self.typing.as_ref().map(|(f, b)| (*f, b.as_str()))
+    }
+
+    /// Take one digit. Anything else is ignored, and the buffer is capped at
+    /// the width of the largest number either dial accepts.
+    pub fn type_digit(&mut self, c: char) {
+        if let Some((_, buf)) = &mut self.typing {
+            if c.is_ascii_digit() && buf.len() < 7 {
+                buf.push(c);
+            }
+        }
+    }
+
+    pub fn type_backspace(&mut self) {
+        if let Some((_, buf)) = &mut self.typing {
+            buf.pop();
+        }
+    }
+
+    /// Finish, and hand back what was typed. An empty buffer commits nothing,
+    /// so pressing enter without typing leaves the dial where it was.
+    pub fn commit_typing(&mut self) -> Option<(TypedField, u64)> {
+        let (field, buf) = self.typing.take()?;
+        buf.parse::<u64>().ok().map(|v| (field, v))
+    }
+
+    pub fn cancel_typing(&mut self) {
+        self.typing = None;
     }
 
     pub fn scroll_params(&mut self, direction: i32) {
@@ -3359,7 +3417,9 @@ impl Ui {
         // and a run length chosen in the source are two decisions taken away
         // from the person the feature is for.
         let by = y + 3;
-        let mut dial = |label: &str, value: String, minus: Action, plus: Action, note: &'static str, x: i32, w: &mut Vec<Widget>| -> i32 {
+        let typing = self.typing.clone();
+        let mut dial = |label: &str, value: String, typed: TypedField, minus: Action, plus: Action, note: &'static str, x: i32, w: &mut Vec<Widget>| -> i32 {
+            let _ = &typing;
             let step = cell_width(hud::text_width("W"), "", PAD);
             text(frame, x, by + 2, label, FAINT);
             let mut cx = x + hud::text_width(label) + 4;
@@ -3369,7 +3429,25 @@ impl Ui {
                     // column: a value that gains a digit would otherwise
                     // shove its own `+` sideways under the cursor, which is
                     // the failure the parameters page already sizes against.
-                    text(frame, cx + 3, by + 2, &value, VALUE);
+                    //
+                    // It is also the click target for typing one in. Two
+                    // hundred clicks to reach either dial's ceiling is not a
+                    // control, so the number itself is a button.
+                    let live = self.typing.as_ref().filter(|(f, _)| *f == typed);
+                    match live {
+                        Some((_, buf)) => text(frame, cx + 3, by + 2, &format!("{buf}_"), SUB_ON),
+                        None => text(frame, cx + 3, by + 2, &value, VALUE),
+                    }
+                    w.push(Widget {
+                        rect: Rect { x: cx + 1, y: by, w: BATCH_VALUE_W, h: 11 },
+                        line1: String::new(),
+                        line2: String::new(),
+                        action: Some(Action::BatchType(typed)),
+                        latched: live.is_some(),
+                        icon: None,
+                        ratio: None,
+                        note: "CLICK THE NUMBER AND TYPE ONE IN. ENTER COMMITS IT, ESCAPE PUTS THE OLD ONE BACK. THE FACES EITHER SIDE STEP IT, WHICH IS FINE FOR A NUDGE AND TWO HUNDRED CLICKS FOR A LONG RUN.".into(),
+                    });
                     cx += BATCH_VALUE_W;
                 }
                 w.push(Widget {
@@ -3387,12 +3465,12 @@ impl Ui {
             cx
         };
         let mut bx = left;
-        bx = dial("COPIES", format!("{}", state.batch.copies), Action::BatchCopies(-1), Action::BatchCopies(1),
+        bx = dial("COPIES", format!("{}", state.batch.copies), TypedField::Copies, Action::BatchCopies(-1), Action::BatchCopies(1),
             "HOW MANY COPIES OF THIS BOX TO RUN. EACH ONE GETS ITS OWN SEED, WHICH IS WHAT MAKES THEM DIFFERENT WORLDS RATHER THAN THE SAME WORLD N TIMES -- MEASURED, THE SEED ALONE MOVES THE FINAL CENSUS BY 2.4 TO 3.1 TIMES.", bx, &mut widgets);
         // The return is the next free x, unused after the last dial — kept as
         // a return rather than dropped so a third dial slots in beside these
         // two without re-deriving the arithmetic.
-        let _ = dial("TICKS", format!("{}", state.batch.frames), Action::BatchFrames(-1), Action::BatchFrames(1),
+        let _ = dial("TICKS", format!("{}", state.batch.frames), TypedField::Frames, Action::BatchFrames(-1), Action::BatchFrames(1),
             "HOW LONG EACH COPY RUNS, IN SIMULATED TICKS. THE FIRST INHERITED PLANT APPEARS AROUND 1,800 AND THE FOURTH GENERATION AROUND 10,000. RUNNING IT HEADLESS IS EXACT -- IT IS THE SAME SIMULATION YOU WOULD HAVE WATCHED, NOT AN APPROXIMATION.", bx + 6, &mut widgets);
 
         let running = state.batch.progress.is_some();
@@ -4402,6 +4480,46 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// **A number can be typed into a batch dial, and it lands where the
+    /// faces would have landed it.**
+    ///
+    /// The dials step COPIES by one to 200 and TICKS by a thousand to
+    /// 200,000 -- two hundred clicks to either ceiling, which is why the
+    /// owner asked for typing. The clamp is the half worth guarding: it lives
+    /// on `Lab::commit_typed_batch` rather than in the keyboard handler
+    /// precisely so a typed 900,000 and two hundred clicks reach the same
+    /// number, and two clamps for one dial is how they drift apart.
+    #[test]
+    fn a_batch_dial_takes_a_typed_number() {
+        let mut page = Ui::new();
+        assert!(page.typing().is_none(), "nothing is being typed into by default");
+
+        page.begin_typing(TypedField::Frames);
+        for c in "45000".chars() {
+            page.type_digit(c);
+        }
+        assert_eq!(page.typing(), Some((TypedField::Frames, "45000")));
+        assert_eq!(page.commit_typing(), Some((TypedField::Frames, 45_000)));
+        assert!(page.typing().is_none(), "committing closes the editor");
+
+        // Non-digits are ignored rather than accepted and then failing to
+        // parse -- the buffer is what is drawn on screen, so junk in it is
+        // junk a player is looking at.
+        page.begin_typing(TypedField::Copies);
+        for c in "1a2.".chars() {
+            page.type_digit(c);
+        }
+        assert_eq!(page.typing(), Some((TypedField::Copies, "12")));
+        page.type_backspace();
+        assert_eq!(page.typing(), Some((TypedField::Copies, "1")));
+
+        // Escape leaves the dial alone, and an empty commit is not a zero.
+        page.cancel_typing();
+        assert!(page.typing().is_none());
+        page.begin_typing(TypedField::Copies);
+        assert_eq!(page.commit_typing(), None, "enter on an empty buffer must not commit 0");
     }
 
     /// **A rack bigger than the page can be paged through.**

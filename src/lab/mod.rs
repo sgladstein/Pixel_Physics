@@ -746,6 +746,20 @@ impl Lab {
         self.rack.len() - 1
     }
 
+    /// Apply a number typed into a batch dial, clamped the same way the
+    /// `-`/`+` faces clamp it.
+    ///
+    /// **The clamps live here and not in the keyboard handler**, so a typed
+    /// 900,000 and two hundred clicks land on the same ceiling: two clamps
+    /// for one dial is how they drift apart.
+    pub fn commit_typed_batch(&mut self) {
+        let Some((field, v)) = self.ui.commit_typing() else { return };
+        match field {
+            ui::TypedField::Copies => self.batch_spec.replicates = v.clamp(1, 200) as u32,
+            ui::TypedField::Frames => self.batch_spec.frames = v.clamp(1_000, 200_000),
+        }
+    }
+
     /// Take a still of chamber `i`, unless the one it already has is current.
     ///
     /// **Costs a full-size render plus a box downscale, and is therefore done
@@ -1484,6 +1498,7 @@ impl Lab {
                 let said = self.stop_batch();
                 self.ui.say(said);
             }
+            ui::Action::BatchType(f) => self.ui.begin_typing(f),
             ui::Action::BatchCopies(d) => {
                 // 1..=200. The floor is 1 rather than 0 because a rack of
                 // nothing is a button that reports success and does nothing;
@@ -2340,6 +2355,47 @@ mod tests {
             lab.world.live_organism_count() > 0,
             "the wider box came back with nothing alive in it"
         );
+    }
+
+    /// **A typed number is clamped exactly as the faces clamp it.**
+    ///
+    /// The half a `Ui`-only test cannot reach: `commit_typed_batch` owns the
+    /// range, and if it ever drifts from the `-`/`+` handlers the same dial
+    /// has two ceilings.
+    #[test]
+    fn a_typed_batch_number_lands_where_the_faces_would() {
+        let mut lab = Lab::new(rack_bed(1));
+
+        lab.ui.begin_typing(ui::TypedField::Frames);
+        for c in "45000".chars() {
+            lab.ui.type_digit(c);
+        }
+        lab.commit_typed_batch();
+        assert_eq!(lab.batch_spec.frames, 45_000);
+
+        // Past the ceiling, typed. Clicking `+` for ever stops at 200,000, so
+        // typing must too.
+        lab.ui.begin_typing(ui::TypedField::Frames);
+        for c in "9999999".chars() {
+            lab.ui.type_digit(c);
+        }
+        lab.commit_typed_batch();
+        let typed_ceiling = lab.batch_spec.frames;
+        for _ in 0..500 {
+            lab.act(ui::Action::BatchFrames(1));
+        }
+        assert_eq!(typed_ceiling, lab.batch_spec.frames, "typing and clicking reach different ceilings");
+
+        // And the floor, on the other dial.
+        lab.ui.begin_typing(ui::TypedField::Copies);
+        lab.ui.type_digit('0');
+        lab.commit_typed_batch();
+        let typed_floor = lab.batch_spec.replicates;
+        for _ in 0..500 {
+            lab.act(ui::Action::BatchCopies(-1));
+        }
+        assert_eq!(typed_floor, lab.batch_spec.replicates, "typing and clicking reach different floors");
+        assert_eq!(typed_floor, 1, "a rack of nothing is a button that reports success and does nothing");
     }
 
     /// The rack's one invariant, through every verb that reshapes it.
