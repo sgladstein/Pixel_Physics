@@ -176,6 +176,15 @@ impl BatchSpec {
     }
 }
 
+/// A copy still in flight: enough to draw a rack row for it.
+#[derive(Clone, Copy, Debug)]
+pub struct LiveRun {
+    pub index: usize,
+    pub seed: u64,
+    pub setting: Option<f32>,
+    pub ticks: u64,
+}
+
 /// One run, with its spec already resolved.
 #[derive(Clone, Debug)]
 pub struct PlannedRun {
@@ -218,7 +227,7 @@ pub struct RunResult {
 }
 
 /// Live counts, read by the interface while the batch runs.
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct Progress {
     pub total: usize,
     pub finished: usize,
@@ -226,6 +235,13 @@ pub struct Progress {
     pub held: usize,
     pub elapsed: Duration,
     pub cancelled: bool,
+    /// Ticks simulated so far across the whole batch, against what was
+    /// planned. The pair is the completion figure; `finished/total` is the
+    /// coarser one beside it.
+    pub ticks: u64,
+    pub ticks_planned: u64,
+    /// The copies still running, newest reading of each.
+    pub live: Vec<LiveRun>,
 }
 
 impl Progress {
@@ -244,6 +260,17 @@ impl Progress {
 
 struct Shared {
     done: Mutex<Vec<RunResult>>,
+    /// Ticks completed across every run, finished and in flight.
+    ///
+    /// **Runs done is not progress.** Fifty copies of 9,000 ticks report
+    /// `0/50` for the whole of the first minute while 200,000 ticks have
+    /// actually been simulated, so the only honest completion figure is this
+    /// one over the planned total.
+    ticks: AtomicU64,
+    /// What each copy still running has reached, so a rack shows its rows
+    /// filling rather than staying empty until they land. Published at the
+    /// cancel-check cadence, never per tick.
+    live: Mutex<Vec<LiveRun>>,
     finished: AtomicUsize,
     failed: AtomicUsize,
     held: AtomicUsize,
@@ -292,6 +319,9 @@ pub struct Batch {
     shared: Arc<Shared>,
     started: Instant,
     total: usize,
+    /// Ticks each copy was asked for, so `Progress` can state the planned
+    /// total rather than the caller having to remember it.
+    frames_each: u64,
     pub spec: BatchSpec,
 }
 
@@ -341,10 +371,12 @@ impl Batch {
             held: AtomicUsize::new(0),
             kept_bytes: AtomicU64::new(0),
             cancel: AtomicBool::new(false),
+            ticks: AtomicU64::new(0),
+            live: Mutex::new(Vec::new()),
         });
         let sink = Arc::clone(&shared);
         let handle = std::thread::spawn(move || drive(runs, frames, keep_bytes, &sink, &start));
-        Self { handle: Some(handle), shared, started: Instant::now(), total, spec }
+        Self { handle: Some(handle), shared, started: Instant::now(), total, frames_each: frames, spec }
     }
 
     /// Take every run that has landed since the last call.
@@ -364,6 +396,9 @@ impl Batch {
             held: self.shared.held.load(Ordering::Relaxed),
             elapsed: self.started.elapsed(),
             cancelled: self.shared.cancel.load(Ordering::Relaxed),
+            ticks: self.shared.ticks.load(Ordering::Relaxed),
+            ticks_planned: self.total as u64 * self.frames_each,
+            live: self.shared.live.lock().map(|l| l.clone()).unwrap_or_default(),
         }
     }
 
@@ -461,6 +496,10 @@ fn run_one(run: &PlannedRun, frames: u64, shared: &Arc<Shared>, start: &Start) -
     let tuning = player::Tuning::default();
     let mut stats = stats::Stats::new();
     let mut ran = 0u64;
+    let mut published = 0u64;
+    if let Ok(mut live) = shared.live.lock() {
+        live.push(LiveRun { index: run.index, seed: run.spec.seed, setting: run.setting, ticks: 0 });
+    }
     while ran < frames {
         frame::step(&mut world, &mut particles, &mut blasts, player::PlayerInput::default(), &tuning);
         ran += 1;
@@ -471,9 +510,29 @@ fn run_one(run: &PlannedRun, frames: u64, shared: &Arc<Shared>, start: &Start) -
         // the call cadence instead of simulated time, which is the one thing
         // `stats.rs` says it must never be.
         stats.observe(&world);
-        if ran.is_multiple_of(CANCEL_CHECK_EVERY) && shared.cancel.load(Ordering::Relaxed) {
-            break;
+        // **Published on the cancel check's own cadence, never per tick.**
+        // `CLAUDE.md`'s *guard hot-path work at the call site*: this rides a
+        // modulo the loop already computes, so the aggregate counter and the
+        // live row cost one relaxed add and one short lock every 256 ticks
+        // rather than anything per frame.
+        if ran.is_multiple_of(CANCEL_CHECK_EVERY) {
+            shared.ticks.fetch_add(CANCEL_CHECK_EVERY, Ordering::Relaxed);
+            published += CANCEL_CHECK_EVERY;
+            if let Ok(mut live) = shared.live.lock() {
+                if let Some(row) = live.iter_mut().find(|r| r.index == run.index) {
+                    row.ticks = ran;
+                }
+            }
+            if shared.cancel.load(Ordering::Relaxed) {
+                break;
+            }
         }
+    }
+    // The tail the cadence did not cover, so the aggregate lands on the true
+    // total rather than a multiple of the check interval.
+    shared.ticks.fetch_add(ran.saturating_sub(published), Ordering::Relaxed);
+    if let Ok(mut live) = shared.live.lock() {
+        live.retain(|r| r.index != run.index);
     }
     // A **fresh** `Stats` for the final census, never `stats.census()` — see
     // `RunResult::census` for the staleness this avoids. Its history is
@@ -586,6 +645,8 @@ mod tests {
                 held: AtomicUsize::new(0),
                 kept_bytes: AtomicU64::new(0),
                 cancel: AtomicBool::new(false),
+                ticks: AtomicU64::new(0),
+                live: Mutex::new(Vec::new()),
             });
             runs.iter().map(|r| run_one(r, FRAMES, &shared, &Start::Fresh).census).collect()
         };

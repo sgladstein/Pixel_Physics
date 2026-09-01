@@ -153,6 +153,21 @@ fn main() {
         fired.push(format!("click opened THE RACK: {}", lab.ui.panel == Some(Panel::Chambers)));
         tiles.push(("PAGE: THE RACK".into(), shot(&mut lab)));
 
+        // **Page two, and the row that only exists because of it.** A rack
+        // taller than the page could not be scrolled at all until 2026-09-01
+        // -- `rack_scroll` was written, clamped and honoured by the renderer
+        // with nothing bound to move it, so a rack of a hundred showed rows
+        // 1-12 for ever. Aiming at the last chamber is therefore the check
+        // that matters: on the unscrolled page it is not drawn, and `centre`
+        // panics rather than quietly photographing the wrong row.
+        if lab.chamber_count() > 12 {
+            let at = centre(&lab, Action::RackScroll(1));
+            click(&mut lab, at);
+            lab.set_cursor(None);
+            fired.push(format!("scrolled the rack: window starts at row {}", lab.ui.rack_scroll() + 1));
+            tiles.push(("RACK: SCROLLED".into(), shot(&mut lab)));
+        }
+
         let pick = lab.chamber_count() - 1;
         let at = centre(&lab, Action::ChamberSelect(pick));
         click(&mut lab, at);

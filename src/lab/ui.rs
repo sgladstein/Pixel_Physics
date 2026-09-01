@@ -376,6 +376,18 @@ pub enum Action {
     ParamGroup(usize),
     /// Scroll the parameters panel by one page, `-1` or `+1`.
     ParamScroll(i32),
+    /// Scroll the rack page by one page, `-1` or `+1`.
+    ///
+    /// **The field existed and nothing moved it.** `rack_scroll` was written,
+    /// clamped and honoured by the renderer from the day the page landed, so
+    /// every guard over it passed -- and with no key, click or `Action` bound
+    /// to it a rack of a hundred showed rows 1-12 and could reach no further.
+    /// The owner found it by asking what a hundred copies would look like.
+    /// `CLAUDE.md`'s standing warning about a channel with a writer and no
+    /// reader, in its other direction: a reader nothing writes.
+    RackScroll(i32),
+    /// Collapse the rack to one row per swept setting, and back.
+    RackGroup,
     /// Move one parameter by one of its own steps. The index is into the
     /// **current page's** list, which is what was on screen when the click
     /// landed; the sign is which way.
@@ -1569,6 +1581,8 @@ pub struct Ui {
     /// First visible row. A batch makes fifty chambers and the page shows
     /// twelve.
     rack_scroll: usize,
+    /// Whether the rack is showing one row per setting instead of one per run.
+    rack_grouped: bool,
     /// Which column the rack is sorted on, and whether it is descending.
     ///
     /// `None` is rack order — the order chambers were made, which is the only
@@ -1893,6 +1907,30 @@ impl Ui {
     /// is a read of what was drawn rather than of what was asked for.
     pub fn param_scroll(&self) -> usize {
         self.param_scroll
+    }
+
+    /// Move the rack window by one page. Clamped in `paint_rack` against the
+    /// list as it actually is, the way the parameters page does it -- closing
+    /// a chamber or landing a batch row changes the length under the scroll.
+    pub fn scroll_rack(&mut self, direction: i32) {
+        let page = RACK_ROWS.max(1);
+        self.rack_scroll = (self.rack_scroll as i32 + direction * page as i32).max(0) as usize;
+    }
+
+    pub fn rack_scroll(&self) -> usize {
+        self.rack_scroll
+    }
+
+    /// Collapse the rack to one row per swept setting, or expand it again.
+    pub fn toggle_rack_grouping(&mut self) {
+        self.rack_grouped = !self.rack_grouped;
+        // The list changes length underneath, so the window goes back to the
+        // top for `sort_chambers`' reason.
+        self.rack_scroll = 0;
+    }
+
+    pub fn rack_grouped(&self) -> bool {
+        self.rack_grouped
     }
 
     pub fn scroll_params(&mut self, direction: i32) {
@@ -2638,14 +2676,103 @@ const BATCH_VALUE_W: i32 = 34;
 /// typical one. A column sized to what it usually shows is a column that
 /// breaks the first time a run gets big, which is the run you most want to
 /// read.
-const RACK_COLS: [(&str, &str); 6] = [
+const RACK_COLS: [(&str, &str); 7] = [
     ("SEED", "SEED 999999"),
+    // The swept setting. Dashes outside a sweep rather than a hidden column:
+    // a table whose shape changes with its contents is one you cannot learn,
+    // and the column that is empty today is the one a sweep fills tomorrow.
+    ("SET", "99999"),
     ("FRAME", "9999999"),
     ("PLT", "9999"),
     ("ANI", "9999"),
     ("GEN", "99/99"),
     ("SOWN", "999999"),
 ];
+
+/// **What the batch line says while copies are in flight.**
+///
+/// Hoisted out of `paint_rack` because it is drawn with `text` rather than as
+/// a widget, so nothing could read it back: the one picture that should have
+/// shown it had a thumbnail over it, and a line no test can see and no sheet
+/// reliably shows is a line that rots.
+///
+/// **Ticks lead, runs follow.** Fifty copies of 9,000 ticks report `0/50` for
+/// the whole of the first minute while 200,000 ticks have already been
+/// simulated, so a runs-only readout is indistinguishable from a batch that
+/// has not started -- the owner asked for the tick figure for exactly that
+/// reason. The run count stays beside it because that is the number saying
+/// how many rows can already be compared.
+fn batch_progress_line(p: &super::batch::Progress, left_note: &str) -> String {
+    let pct = if p.ticks_planned > 0 { p.ticks * 100 / p.ticks_planned } else { 0 };
+    format!(
+        "{}% -- {}/{} TICKS  {}/{} DONE  {}M{:02}S  {}  {} HELD",
+        pct,
+        p.ticks,
+        p.ticks_planned,
+        p.finished + p.failed,
+        p.total,
+        p.elapsed.as_secs() / 60,
+        p.elapsed.as_secs() % 60,
+        left_note,
+        p.held
+    )
+}
+
+/// **One setting's runs, reduced to the order statistic.**
+///
+/// A sweep of `k` settings by `r` replicates is `k * r` rows, and the
+/// comparison it exists to make is between *settings*, not between runs. But
+/// the median alone is not the answer: outcomes here are chaotic in the seed
+/// — twelve copies of one chamber differing in nothing at all spread 2.42x on
+/// plants and 3.12x on animals — so a difference of two medians inside that
+/// is not a result. Both are carried, and the page draws them on two lines,
+/// because `CLAUDE.md`'s rule for exactly this table is **show the spread,
+/// never a mean**.
+struct RackGroup {
+    setting: f32,
+    runs: usize,
+    /// One `Spread` per numeric column, in `RACK_COLS` order from `FRAME`.
+    /// `None` for a column no run in the group has measured yet.
+    cols: [Option<super::stats::Spread>; 5],
+}
+
+/// Group finished rows by their swept setting. Rows with no setting, and rows
+/// still running or never censused, are not data points and are left out.
+fn rack_groups(chambers: &[super::ChamberSummary]) -> Vec<RackGroup> {
+    let mut keys: Vec<f32> = Vec::new();
+    for ch in chambers {
+        if let (Some(v), Some(_)) = (ch.setting, ch.census.as_ref()) {
+            if !keys.iter().any(|k| (k - v).abs() < f32::EPSILON) {
+                keys.push(v);
+            }
+        }
+    }
+    keys.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    keys.into_iter()
+        .map(|v| {
+            let mine: Vec<&super::ChamberSummary> = chambers
+                .iter()
+                .filter(|c| c.setting.is_some_and(|s| (s - v).abs() < f32::EPSILON) && c.census.is_some())
+                .collect();
+            let pull = |f: &dyn Fn(&super::stats::Census) -> f32| -> Option<super::stats::Spread> {
+                let mut vals: Vec<f32> =
+                    mine.iter().filter_map(|c| c.census.as_ref()).map(|c| f(c)).collect();
+                super::stats::Spread::of(&mut vals)
+            };
+            RackGroup {
+                setting: v,
+                runs: mine.len(),
+                cols: [
+                    pull(&|c| c.frame as f32),
+                    pull(&|c| c.plants as f32),
+                    pull(&|c| c.animals as f32),
+                    pull(&|c| c.plant_generation as f32),
+                    pull(&|c| c.seeds_borne as f32),
+                ],
+            }
+        })
+        .collect()
+}
 
 /// Gap between columns.
 const RACK_GAP: i32 = 6;
@@ -2673,13 +2800,15 @@ fn rack_col_x() -> [i32; RACK_COLS.len()] {
 /// covers it, and `hud::draw_text` renders a character outside its 5x7 set as
 /// a **silent blank**. The column header read `  SEED` in its first contact
 /// sheet because it began `  # SEED` and `#` has no glyph.
-const RACK_LITERALS: [&str; 6] = [
+const RACK_LITERALS: [&str; 8] = [
     "CLICK A ROW FOR ITS PICTURE",
     "-- THE BOX YOU ARE IN",
     "-- KEPT AS NUMBERS ONLY, THE WORLD WAS NOT HELD",
     "HERE",
     "RECORD",
     "REBUILDING",
+    "RUNNING",
+    "NO SWEEP TO GROUP -- EVERY ROW IS ITS OWN SETTING",
 ];
 /// The picture is the world at a quarter scale in each axis.
 const RACK_THUMB_SHRINK: u32 = 4;
@@ -2890,6 +3019,20 @@ impl Ui {
             ratio: None,
             note: "THROW AWAY EVERY CHAMBER AND EVERY RECORD EXCEPT THE BOX YOU ARE IN. THE ONE ON SCREEN IS KEPT, SO CLEARING NEVER ALSO MOVES YOU SOMEWHERE YOU DID NOT ASK TO GO.".into(),
         });
+        // GROUP, beside CLEAR. A hundred rows of a sweep are `k` settings
+        // wearing `r` labels each, and the comparison the sweep exists for is
+        // between the settings.
+        let group_w = cell_width(hud::text_width("GROUP"), "", PAD);
+        widgets.push(Widget {
+            rect: Rect { x: right - new_w - clear_w - group_w - 8, y: rect.y + 3, w: group_w, h: 11 },
+            line1: "GROUP".into(),
+            line2: String::new(),
+            action: Some(Action::RackGroup),
+            latched: self.rack_grouped,
+            icon: None,
+            ratio: None,
+            note: "COLLAPSE THE RACK TO ONE ROW PER SWEPT SETTING: THE MEDIAN ON TOP AND THE LOW-TO-HIGH RANGE UNDER IT. READ THE RANGE FIRST -- TWELVE COPIES OF ONE BOX DIFFERING IN NOTHING AT ALL ALREADY SPREAD 2.4X ON PLANTS AND 3.1X ON ANIMALS, SO TWO SETTINGS CLOSER TOGETHER THAN THAT HAVE NOT BEEN TOLD APART.".into(),
+        });
         for x in rect.x + 1..rect.right() - 1 {
             render::put(frame, W, H, x, rect.y + PAGE_HEADER - 4, DIVIDER);
         }
@@ -2944,13 +3087,21 @@ impl Ui {
         if let Some((c, desc)) = self.rack_sort {
             order.sort_by(|a, b| {
                 let key = |r: &super::ChamberSummary| -> i64 {
+                    // Seed and setting are known before a run has any
+                    // census, so they sort in flight; the rest cannot, and a
+                    // row with nothing measured yet sorts below every row
+                    // that has something.
+                    match c {
+                        0 => return r.seed as i64,
+                        1 => return r.setting.map_or(i64::MIN, |v| v as i64),
+                        2 => return r.frame as i64,
+                        _ => {}
+                    }
                     let Some(n) = r.census.as_ref() else { return -1 };
                     match c {
-                        0 => r.seed as i64,
-                        1 => r.frame as i64,
-                        2 => n.plants as i64,
-                        3 => n.animals as i64,
-                        4 => n.plant_generation as i64,
+                        3 => n.plants as i64,
+                        4 => n.animals as i64,
+                        5 => n.plant_generation as i64,
                         _ => n.seeds_borne as i64,
                     }
                 };
@@ -2964,8 +3115,43 @@ impl Ui {
             render::put(frame, W, H, x, y - 2, DIVIDER);
         }
 
+        // ---- grouped: one setting per pair of lines, medians over ranges.
+        let groups = if self.rack_grouped { rack_groups(chambers) } else { Vec::new() };
+        if self.rack_grouped {
+            if groups.is_empty() {
+                text(frame, left, y + 2, RACK_LITERALS[7], FAINT);
+                y += RACK_ROW;
+            }
+            for g in groups.iter().skip(self.rack_scroll).take(RACK_ROWS / 2) {
+                text(frame, left, y + 2, &format!("{:.0}", g.setting), VALUE);
+                text(frame, left + col[0], y + 2, &format!("{} RUNS", g.runs), FAINT);
+                text(frame, left + col[1], y + 2, &format!("{:.0}", g.setting), VALUE);
+                for (i, sp) in g.cols.iter().enumerate() {
+                    let x = left + col[2 + i];
+                    match sp {
+                        Some(sp) => text(frame, x, y + 2, &format!("{:.0}", sp.mid), if i == 1 { GOOD } else { FAINT }),
+                        None => text(frame, x, y + 2, "-", FAINT),
+                    }
+                }
+                y += RACK_ROW;
+                // **The range, under its own median.** A median with no
+                // spread beside it invites exactly the comparison this
+                // engine cannot support: two settings differing by less than
+                // the noise between two copies of one chamber.
+                for (i, sp) in g.cols.iter().enumerate() {
+                    if let Some(sp) = sp {
+                        text(frame, left + col[2 + i], y + 2, &format!("{:.0}-{:.0}", sp.low, sp.high), FAINT);
+                    }
+                }
+                y += RACK_ROW;
+            }
+        }
+
         // ---- the rows.
         for ch in order.iter().skip(self.rack_scroll).take(shown) {
+            if self.rack_grouped {
+                break;
+            }
             let row = ch.index;
             let selected = self.rack_selected == Some(row);
             let band = Rect { x: rect.x + 1, y, w: rect.w - 2, h: RACK_ROW };
@@ -2995,26 +3181,33 @@ impl Ui {
             let tint = if ch.active { SUB_ON } else if selected { TITLE } else { FAINT };
             text(frame, left, y + 2, &ch.label, tint);
             text(frame, left + col[0], y + 2, &format!("SEED {}", ch.seed), FAINT);
-            // The counter that says whether it is frozen.
-            text(frame, left + col[1], y + 2, &format!("{}", ch.frame), if ch.active { SUB_ON } else { FAINT });
+            match ch.setting {
+                Some(v) => text(frame, left + col[1], y + 2, &format!("{v:.0}"), VALUE),
+                None => text(frame, left + col[1], y + 2, "-", FAINT),
+            }
+            // The counter that says whether it is frozen -- and, on a copy
+            // still in flight, the one that says it is moving at all.
+            text(frame, left + col[2], y + 2, &format!("{}", ch.frame), if ch.active || ch.running.is_some() { SUB_ON } else { FAINT });
 
             match &ch.census {
                 Some(c) => {
-                    text(frame, left + col[2], y + 2, &format!("{}", c.plants), GOOD);
-                    text(frame, left + col[3], y + 2, &format!("{}", c.animals), FAIR);
-                    text(frame, left + col[4], y + 2, &format!("{}/{}", c.plant_generation, c.animal_generation), FAINT);
-                    text(frame, left + col[5], y + 2, &format!("{}", c.seeds_borne), FAINT);
+                    text(frame, left + col[3], y + 2, &format!("{}", c.plants), GOOD);
+                    text(frame, left + col[4], y + 2, &format!("{}", c.animals), FAIR);
+                    text(frame, left + col[5], y + 2, &format!("{}/{}", c.plant_generation, c.animal_generation), FAINT);
+                    text(frame, left + col[6], y + 2, &format!("{}", c.seeds_borne), FAINT);
                 }
                 // Never looked at, which is not the same as empty. One dash
                 // per column, on the column, rather than one run of text
                 // guessed into position.
                 None => {
-                    for x in col.iter().skip(2) {
+                    for x in col.iter().skip(3) {
                         text(frame, left + x, y + 2, "-", FAINT);
                     }
                 }
             }
-            if ch.active {
+            if ch.running.is_some() {
+                text(frame, right - hud::text_width(RACK_LITERALS[6]), y + 2, RACK_LITERALS[6], VALUE);
+            } else if ch.active {
                 text(frame, right - hud::text_width("HERE"), y + 2, RACK_LITERALS[3], SUB_ON);
             } else if ch.rebuilding {
                 text(frame, right - hud::text_width(RACK_LITERALS[5]), y + 2, RACK_LITERALS[5], SUB_ON);
@@ -3022,6 +3215,41 @@ impl Ui {
                 text(frame, right - hud::text_width(RACK_LITERALS[4]), y + 2, RACK_LITERALS[4], FAINT);
             }
             y += RACK_ROW;
+        }
+
+        // ---- the pager, only when there is something off the page.
+        //
+        // Same idiom as the parameters page, deliberately: a rack of a
+        // hundred and a page of four hundred knobs are the same problem, and
+        // two different scroll gestures in one interface is one to learn
+        // twice. The count is spelled out rather than implied by the bar,
+        // because "13-24 OF 100" is the sentence that tells you there are
+        // eighty-eight rows you have not looked at.
+        if chambers.len() > shown {
+            let step_w = cell_width(hud::text_width("<"), "", PAD);
+            let up = Rect { x: left, y: y + 2, w: step_w, h: 10 };
+            let down = Rect { x: left + step_w + 2, y: y + 2, w: step_w, h: 10 };
+            let last = (self.rack_scroll + shown).min(chambers.len());
+            text(
+                frame,
+                left + step_w * 2 + 8,
+                y + 3,
+                &format!("{}-{} OF {}", self.rack_scroll + 1, last, chambers.len()),
+                FAINT,
+            );
+            for (r, label, dir) in [(up, "<", -1), (down, ">", 1)] {
+                widgets.push(Widget {
+                    rect: r,
+                    line1: label.into(),
+                    line2: String::new(),
+                    action: Some(Action::RackScroll(dir)),
+                    latched: false,
+                    icon: None,
+                    ratio: None,
+                    note: "SCROLL THE RACK. SORTING A COLUMN JUMPS BACK TO THE TOP, SO THE FASTEST WAY TO THE RUN YOU WANT IS USUALLY TO SORT ON IT RATHER THAN TO PAGE THROUGH.".into(),
+                });
+            }
+            y += 13;
         }
 
         // ---- the picture of whichever row is highlighted.
@@ -3094,7 +3322,7 @@ impl Ui {
         });
         y = by + 13;
 
-        if let Some(p) = state.batch.progress {
+        if let Some(p) = &state.batch.progress {
             // **The counter beside the work.** A rack of rows filling in
             // looks the same whether four copies are running or none are, so
             // the count and the clock are on screen rather than inferred.
@@ -3102,15 +3330,13 @@ impl Ui {
                 Some(d) => format!("{}M{:02}S LEFT", d.as_secs() / 60, d.as_secs() % 60),
                 None => "ESTIMATING".to_string(),
             };
-            let line = format!(
-                "{}/{} DONE  {}M{:02}S  {}  {} HELD",
-                p.finished + p.failed,
-                p.total,
-                p.elapsed.as_secs() / 60,
-                p.elapsed.as_secs() % 60,
-                left_note,
-                p.held
-            );
+            // **Ticks, not just runs.** Fifty copies of 9,000 ticks report
+            // `0/50` for the whole of the first minute while 200,000 ticks
+            // have actually been simulated, so runs-done reads as a stalled
+            // batch for as long as the first copy takes. The percentage is
+            // over ticks; the run count stays beside it because that is what
+            // says how many rows you can already compare.
+            let line = batch_progress_line(p, &left_note);
             text(frame, left, y, &line, SUB_ON);
             if p.failed > 0 {
                 text(frame, left, y + 9, &format!("{} FAILED TO BUILD", p.failed), POOR);
@@ -4009,6 +4235,8 @@ mod tests {
             .map(|i| super::super::ChamberSummary {
                 on_record: false,
                 rebuilding: false,
+                setting: None,
+                running: None,
                 index: i,
                 active: i == 0,
                 label: format!("{}", i + 1),
@@ -4017,6 +4245,176 @@ mod tests {
                 census: None,
             })
             .collect()
+    }
+
+    /// **The batch line reports ticks, not just runs.**
+    ///
+    /// The owner's ask, and the reason it is not "N of M done": fifty copies
+    /// of 9,000 ticks sit at `0/50` for the whole of the first minute while a
+    /// fifth of the work is already done, which reads as a batch that has not
+    /// started. Asserted rather than photographed -- the line is drawn with
+    /// `text` and the one contact sheet that should have shown it had a
+    /// thumbnail over it.
+    #[test]
+    fn the_batch_line_leads_with_ticks() {
+        let p = super::super::batch::Progress {
+            total: 50,
+            finished: 0,
+            failed: 0,
+            held: 0,
+            elapsed: std::time::Duration::from_secs(65),
+            cancelled: false,
+            ticks: 180_000,
+            ticks_planned: 450_000,
+            live: Vec::new(),
+        };
+        let line = batch_progress_line(&p, "3M20S LEFT");
+
+        // The case the whole readout exists for: no run has landed, and the
+        // line must still show real progress.
+        assert!(line.starts_with("40% -- 180000/450000 TICKS"), "ticks must lead: {line}");
+        assert!(line.contains("0/50 DONE"), "and the run count stays beside them: {line}");
+        assert!(line.contains("1M05S"), "elapsed is mm ss, zero-padded: {line}");
+
+        // Every glyph of it must actually draw -- the 5x7 set has no `*`,
+        // `#` or `~`, and an undrawable character renders as a silent blank.
+        for c in line.chars() {
+            assert!(crate::hud::has_glyph(c), "the batch line cannot draw {c:?}: {line}");
+        }
+
+        // A batch asked for zero ticks must not divide by zero.
+        let empty = super::super::batch::Progress { ticks_planned: 0, ..p };
+        assert!(batch_progress_line(&empty, "ESTIMATING").starts_with("0% --"));
+    }
+
+    /// **Everything the rack page draws stays on the screen.**
+    ///
+    /// The page grows: a pager row, a thumbnail, two dials, a RUN button and
+    /// a progress line, stacked under a table whose height is fixed. Each
+    /// addition has been safe on its own and nothing checked the sum, which
+    /// is the bar's own failure mode one panel over -- and a control pushed
+    /// off the bottom is still returned by `widget_rect`, so a harness keeps
+    /// clicking it and every test stays green while no player can reach it.
+    #[test]
+    fn the_rack_page_stays_on_the_screen() {
+        let st = state(false, 1);
+        let mut buf = vec![0u8; (W * H * 4) as usize];
+        // The tallest case: more rows than fit (so the pager draws), a
+        // picture showing, and a batch running under it.
+        let (tw, th) = (W / RACK_THUMB_SHRINK, H / RACK_THUMB_SHRINK);
+        let thumb = super::super::Thumb { w: tw, h: th, frame: 0, rgba: vec![0; (tw * th * 4) as usize] };
+        let mut running = state(true, 1);
+        running.batch.progress = Some(super::super::batch::Progress {
+            total: 50,
+            finished: 3,
+            failed: 0,
+            held: 3,
+            elapsed: std::time::Duration::from_secs(90),
+            cancelled: false,
+            ticks: 412_000,
+            ticks_planned: 900_000,
+            live: Vec::new(),
+        });
+        for (label, st) in [("at rest", &st), ("with a batch running", &running)] {
+            let mut page = Ui::new();
+            page.paint_rack(&mut buf, &rack(40), Some(&thumb), st);
+            for w in &page.rack_bar.widgets {
+                assert!(
+                    w.rect.y >= 0 && w.rect.bottom() <= H as i32,
+                    "{label}: a rack control runs off the screen vertically -- {:?} at y {}..{} of {H}",
+                    w.line1,
+                    w.rect.y,
+                    w.rect.bottom()
+                );
+                assert!(
+                    w.rect.x >= 0 && w.rect.right() <= W as i32,
+                    "{label}: a rack control runs off the screen horizontally -- {:?} ends at {} of {W}",
+                    w.line1,
+                    w.rect.right()
+                );
+            }
+        }
+    }
+
+    /// **A rack bigger than the page can be paged through.**
+    ///
+    /// The bug this is named for shipped, and it shipped *green*:
+    /// `rack_scroll` was written, clamped and honoured by the renderer from
+    /// the day the page landed, so it looked wired from every angle except
+    /// the one that mattered -- nothing ever moved it. A rack of a hundred
+    /// showed rows 1-12 and no key, click or `Action` could reach row 13.
+    /// The owner found it by asking what a hundred copies would look like.
+    ///
+    /// So this asserts the two halves separately: the control **exists** (the
+    /// half that was missing) and it **changes which rows are drawn** (the
+    /// half that would pass on a control wired to nothing).
+    #[test]
+    fn a_rack_taller_than_the_page_can_be_scrolled() {
+        const N: usize = 30;
+        let chambers = rack(N);
+        let mut page = Ui::new();
+        let st = state(false, 1);
+        let mut buf = vec![0u8; (W * H * 4) as usize];
+
+        let drawn = |page: &Ui| -> Vec<usize> {
+            page.rack_bar
+                .widgets
+                .iter()
+                .filter(|w| w.line1.is_empty())
+                .filter_map(|w| match w.action {
+                    Some(Action::ChamberSelect(i)) => Some(i),
+                    _ => None,
+                })
+                .collect()
+        };
+
+        page.paint_rack(&mut buf, &chambers, None, &st);
+        let first = drawn(&page);
+        assert_eq!(first.len(), RACK_ROWS, "the page shows its window, not the whole rack");
+        assert_eq!(first[0], 0, "and it starts at the top");
+
+        // The control must be on the page at all. Without this the rest of
+        // the test passes on a `scroll_rack` no player can call.
+        assert!(
+            page.rack_bar.widgets.iter().any(|w| w.action == Some(Action::RackScroll(1))),
+            "the rack has more rows than fit and drew no way to scroll -- the exact bug this guards"
+        );
+
+        page.scroll_rack(1);
+        page.paint_rack(&mut buf, &chambers, None, &st);
+        let second = drawn(&page);
+        assert_eq!(second[0], RACK_ROWS, "one page forward starts where the last one ended");
+        assert!(
+            second.iter().all(|i| !first.contains(i)),
+            "paging forward redrew rows the first page had already shown: {first:?} then {second:?}"
+        );
+
+        // Clamped at the far end: paging past the last row must still leave a
+        // full window of real rows rather than an empty page.
+        for _ in 0..10 {
+            page.scroll_rack(1);
+        }
+        page.paint_rack(&mut buf, &chambers, None, &st);
+        let last = drawn(&page);
+        assert_eq!(last.len(), RACK_ROWS, "scrolled off the end and drew a short page");
+        assert_eq!(*last.last().expect("rows"), N - 1, "the end of the list is reachable");
+
+        // Back at the top, and a sort returns there too -- a window held
+        // across a reorder shows you rows you did not choose.
+        page.scroll_rack(-20);
+        assert_eq!(page.rack_scroll(), 0, "scrolling back must not go negative");
+        page.scroll_rack(1);
+        page.sort_chambers(2);
+        assert_eq!(page.rack_scroll(), 0, "a sort must jump back to the top");
+
+        // A rack that fits draws no pager: a control that does nothing is
+        // worse than no control.
+        let mut small = Ui::new();
+        small.paint_rack(&mut buf, &rack(4), None, &st);
+        assert!(
+            !small.rack_bar.widgets.iter().any(|w| w.action == Some(Action::RackScroll(1))),
+            "a rack that fits on one page still drew a pager"
+        );
     }
 
     /// **A sort reorders what is drawn and must not re-aim what is clicked.**
@@ -4043,11 +4441,14 @@ mod tests {
         let st = state(false, 1);
         let mut buf = vec![0u8; (W * H * 4) as usize];
 
-        // Column 2 is PLT. Descending puts the *largest* first, which is
-        // chamber 0 here, so sort ascending to actually reverse the list.
-        page.sort_chambers(2);
-        page.sort_chambers(2);
-        assert_eq!(page.rack_sort, Some((2, false)), "a second click on one column reverses it");
+        // Column 3 is PLT -- SEED, SET, FRAME, then the census columns.
+        // Descending puts the *largest* first, which is chamber 0 here, so
+        // sort ascending to actually reverse the list.
+        const PLT: usize = 3;
+        assert_eq!(RACK_COLS[PLT].0, "PLT", "the column indices moved and this test is now sorting on something else");
+        page.sort_chambers(PLT);
+        page.sort_chambers(PLT);
+        assert_eq!(page.rack_sort, Some((PLT, false)), "a second click on one column reverses it");
         page.paint_rack(&mut buf, &chambers, None, &st);
 
         // The rows are bands with no face; their action names the chamber.

@@ -185,3 +185,57 @@ once fitted" until putting an eighth back proved it false.
   the rack does not sum them, and at 4096 a handful of chambers is a
   gigabyte. The batch has a byte budget and drops worlds to on-record rows;
   the *rack* has no equivalent.
+
+## IN FLIGHT — handoff, 2026-09-01
+
+**Branch `claude/evolution-lab-multiple-chambers-qw1hjz`, pushed, no PR yet.**
+The owner asked what a hundred copies would look like on the rack page. That
+question found one shipped bug and three gaps.
+
+### Done
+
+- **The rack could not be scrolled at all.** `rack_scroll` was written,
+  clamped and honoured by the renderer from the day the page landed, with
+  **nothing bound to move it** — no key, no click, no `Action`. A rack of a
+  hundred showed rows 1-12 for ever, and every guard over it passed. Fixed
+  with a pager mirroring the parameters page. `a_rack_taller_than_the_page_
+  can_be_scrolled` asserts both halves separately — the control *exists*, and
+  it *changes which rows are drawn* — and was proven red against the original
+  no-op.
+- **A `SET` column**, so a sweep's rows say which setting they ran at.
+  `Chamber`, `OnRecord` and `ChamberSummary` carry `setting: Option<f32>`,
+  threaded from `RunResult.setting` through `adopt_chamber`. **Column indices
+  shifted**: PLT is now 3, not 2. The sort guard asserts
+  `RACK_COLS[3].0 == "PLT"` so the next insert breaks loudly.
+- **Tick progress, both readings.** `Shared.ticks` (aggregate) and
+  `Shared.live` (per-run), published on the cancel check's existing modulo so
+  the hot path pays nothing extra. The bar leads with ticks —
+  `40% -- 180000/450000 TICKS  0/50 DONE ...` — hoisted into
+  `batch_progress_line` so it is asserted rather than photographed.
+- **In-flight copies are rack rows**, marked `RUNNING`, appended *after*
+  `on_record` so `rebuild_record`'s index arithmetic is untouched.
+- **`GROUP`** collapses a sweep to one row per setting: median on top,
+  low-high underneath. Never a mean — `rack_groups` + `stats::Spread`.
+- Guards: `the_rack_page_stays_on_the_screen` (the page grew a pager and
+  nothing checked the sum) and `the_batch_line_leads_with_ticks`.
+
+### Next, in the owner's priority order
+
+1. **Enter an experiment from the rack.** Owner, 2026-09-01: *"You can only
+   enter them from the tabs in the main menu, but that only works for the 1st
+   four. There is currently no way to enter the others."* A row click is
+   `Action::ChamberSelect` (highlight + still); check whether any ENTER verb
+   reaches `Action::Chamber(i)` from the page at all. **Land this first — it
+   is what makes the rack usable.**
+2. **Type a number into the copies/ticks dials.** Clicking `+` to reach
+   200,000 ticks is unusable. Look for existing text entry on the parameters
+   page (`field_text` and the `saving_refuses_*` guards suggest editing
+   machinery) and reuse it rather than building a second one.
+3. Cosmetic: the pager steps by `RACK_ROWS` while a grouped row is two lines,
+   so a grouped page scrolls half a screen.
+
+### Gates at handoff
+
+`cargo test --release --lib lab::` **114 passed / 0 failed**. The full suite
+and clippy have NOT been re-run since `GROUP` landed — run both before opening
+a PR.
