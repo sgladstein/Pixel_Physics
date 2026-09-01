@@ -1,6 +1,8 @@
 # Ants
 
-*Current as of: 2026-08-31, when how rich an ant waits to be before it
+*Current as of: 2026-08-31, when digging stopped destroying the ground it
+removed and an ant began carrying the spoil away in its jaws, and when how
+rich an ant waits to be before it
 breeds stopped being the same number for every ant of a species and became
 something each one inherits from its parent — the last decision an ant made
 that was not its own. The same day the sealed bed's colony crash was traced
@@ -163,6 +165,42 @@ it excavates presses the ground around it into packed soil, which holds
 itself up (see [Powders](powders.md)), so the tunnel is lined as fast as it
 is opened and the roof has something to rest on. The verb and the thing it
 leaves behind are the same act.
+
+**And the ground it takes out has to go somewhere, which it did not used to.**
+Digging destroyed what it removed — the cell was simply gone from the world —
+so a bed with a colony in it ran down, slowly and invisibly, until there was
+nothing left to dig. Now an ant comes away from the face with a pellet of
+ground in its jaws. It cannot cut anything else while it is holding one, so a
+burrow grows at the speed the colony can clear its own workings, not at the
+speed it can chew; and the pellet goes back into the world wherever the ant
+happens to put it down, tamped, exactly the way it puts down a crumb of food.
+A bed is now the same amount of ground it started as, rearranged.
+
+Where it puts them is not decided anywhere. An ant lets go of what it is
+carrying on the same impulse whether the load is food or spoil, so tailings
+end up wherever that impulse fires — sometimes out at the mouth of the
+burrow, often back down a gallery behind it. **The visible consequence, and it
+is a real cost, is that a nest is smaller than it used to be** — a colony
+that has to clear its own workings drives less tunnel in the same time, and
+what it drives is shallower, because it keeps coming back out to put
+something down.
+
+An ant *cements* the pellet as it sets it down, the same way it cements the
+wall of a tunnel, and that has a consequence you can see: a heap of tailings
+does not slump into a cone the way spilled dirt would. It holds its shape,
+and a worked bank ends up with a shelf of its own spoil out in front of the
+face. Left loose instead, the tailings would pour straight back down the
+tunnels and there would be no nest at all.
+
+**An ant will not put a pellet down just anywhere**, and the two things it
+insists on are the two ways spoil otherwise goes wrong. It has to be able to
+*lie* there — something solid under it, and not a single cell it would be
+balanced on — because cemented dirt does not fall and a crumb left standing
+on nothing stays standing on nothing. And it has to be out in the open,
+because everything else is the inside of the burrow, and a colony that tips
+its spoil back down its own corridors ends up with no corridors. When there
+is nowhere beside it that will do, the ant takes the pellet out of the burrow
+instead, which is what an ant does anyway.
 
 So a worked bank now has a warren in it: narrow galleries a cell or two
 across, walled in darker packed ground, branching back from the face the

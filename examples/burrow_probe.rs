@@ -159,6 +159,62 @@ impl Void {
 /// erosion case as the best tunneller in the run.
 ///
 /// Returned largest-first.
+/// **Ground that is not attached to anything standing on the floor** — the
+/// count behind *"there is dirt floating in the sky"*.
+///
+/// Returns (pieces, cells).
+///
+/// **A flood fill, because the obvious census answers a different question.**
+/// Counting ground cells with nothing directly beneath them reads **49-62**
+/// on the shipped behaviour and 94-100 with spoil hauling, and almost none of
+/// either is visible: the roof of a gallery is unsupported by definition, and
+/// so is every cell of an arch. What a player sees as floating is a *piece*
+/// with no path down to the ground at all, and only a connected-component
+/// pass can tell the two apart. `CLAUDE.md`'s "ask what your number counts
+/// when nothing is wrong" -- the per-cell version counts working tunnels.
+///
+/// 8-connected, the neighbourhood the digger and the sweep both use. A piece
+/// is grounded when it reaches the bottom row, which in every scene here is
+/// bedrock or the stone floor.
+fn floating_ground(world: &World, w: i32, h: i32) -> (usize, usize) {
+    let idx = |x: i32, y: i32| (y as usize) * (w as usize) + (x as usize);
+    let ground: Vec<bool> = (0..h)
+        .flat_map(|y| (0..w).map(move |x| (x, y)))
+        .map(|(x, y)| matches!(world.materials.kind(world.get(x, y).material), MaterialKind::Powder | MaterialKind::Solid))
+        .collect();
+
+    let mut seen = vec![false; ground.len()];
+    let mut stack: Vec<(i32, i32)> = Vec::new();
+    let (mut pieces, mut cells) = (0usize, 0usize);
+    for sy in 0..h {
+        for sx in 0..w {
+            if !ground[idx(sx, sy)] || seen[idx(sx, sy)] {
+                continue;
+            }
+            seen[idx(sx, sy)] = true;
+            stack.push((sx, sy));
+            let (mut size, mut grounded) = (0usize, false);
+            while let Some((cx, cy)) = stack.pop() {
+                size += 1;
+                grounded |= cy == h - 1;
+                for (dx, dy) in [(-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1)] {
+                    let (nx, ny) = (cx + dx, cy + dy);
+                    if nx < 0 || nx >= w || ny < 0 || ny >= h || seen[idx(nx, ny)] || !ground[idx(nx, ny)] {
+                        continue;
+                    }
+                    seen[idx(nx, ny)] = true;
+                    stack.push((nx, ny));
+                }
+            }
+            if !grounded {
+                pieces += 1;
+                cells += size;
+            }
+        }
+    }
+    (pieces, cells)
+}
+
 fn void_components(
     world: &World,
     (x0, x1): (i32, i32),
@@ -518,7 +574,7 @@ fn colony_arm(seeds: u64, ants: i32, frames: u64, png: Option<&str>) {
         "  `comps`/`largest`/`ge8` are the connected-component split of that void (8-connected,\n           the neighbourhood the digger uses). `lgroof` is how much of the largest run has\n           ground overhead: a quarried face is one huge run with no roof, a gallery is a\n           smaller run that is nearly all roof."
     );
     println!(
-        "{:>6}  {:>7}  {:>8}  {:>8}  {:>8}  {:>6}  {:>8}  {:>5}  {:>7}  {:>7}  {:>7}  {:>9}  {:>10}",
+        "{:>6}  {:>7}  {:>8}  {:>8}  {:>8}  {:>6}  {:>8}  {:>5}  {:>7}  {:>7}  {:>7}  {:>9}  {:>10}  {:>7}  {:>7}",
         "seed",
         "frame",
         "void",
@@ -531,7 +587,14 @@ fn colony_arm(seeds: u64, ants: i32, frames: u64, png: Option<&str>) {
         "digs",
         "packed",
         "soil",
-        "packedsoil"
+        "packedsoil",
+        "hang soil",
+        "hang pack"
+    );
+    println!(
+        "  `hang soil`/`hang pack` are ground cells with **nothing underneath them**, over the whole
+           world rather than the bank -- the count behind \"is there dirt floating in the sky\".
+           `packedsoil` is self-supporting by design, so its column is the one that can be large."
     );
 
     for seed in 1..=seeds {
@@ -631,7 +694,20 @@ fn colony_arm(seeds: u64, ants: i32, frames: u64, png: Option<&str>) {
                     }
                 }
             }
-            (void, roofed, roofed3, soil, packed)
+            // **Ground standing on nothing, over the whole world.** Not a
+            // bank column: the ants carry spoil out of the footprint, so a
+            // rectangle census cannot see where it went, and the question
+            // this answers -- "is any of this dirt in mid-air" -- is exactly
+            // one about cells outside the bank.
+            //
+            // `packedsoil` is `self_supporting` by design, so an unsupported
+            // cell of it is not a bug in the sweep; it is the honest count of
+            // how much worked ground is hanging, which is what a player sees
+            // as dirt floating in the sky. Read against the same run with
+            // `PIXEL_PHYSICS_DIG_SPOIL=destroy`, which is the only baseline a
+            // standing quantity has.
+            let (float_pieces, float_cells) = floating_ground(world, w, h);
+            (void, roofed, roofed3, soil, packed, float_pieces, float_cells)
         };
 
         // The sheet is written for the first seed only: it is there to show
@@ -674,13 +750,13 @@ fn colony_arm(seeds: u64, ants: i32, frames: u64, png: Option<&str>) {
                 world.step_pheromones();
             }
             if marks.contains(&f) {
-                let (void, roofed, roofed3, soil, packed) = census(&world);
+                let (void, roofed, roofed3, soil, packed, floats, float_cells) = census(&world);
                 let comps = void_components(&world, (bank_x0, bank_x1), (bank_y0, bank_y1));
                 let largest = comps.first().copied().unwrap_or_default();
                 let ge8 = comps.iter().filter(|c| c.cells >= 8).count();
                 let st = world.creature_stats;
                 println!(
-                    "{seed:>6}  {f:>7}  {void:>8}  {roofed:>8}  {roofed3:>8}  {:>6}  {:>8}  {ge8:>5}  {:>7}  {:>7}  {:>7}  {soil:>9}  {packed:>10}",
+                    "{seed:>6}  {f:>7}  {void:>8}  {roofed:>8}  {roofed3:>8}  {:>6}  {:>8}  {ge8:>5}  {:>7}  {:>7}  {:>7}  {soil:>9}  {packed:>10}  {floats:>7}  {float_cells:>7}",
                     comps.len(),
                     largest.cells,
                     largest.roofed,

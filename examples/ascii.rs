@@ -2244,7 +2244,7 @@ fn nest_dig_scene() {
         .count();
     let st = world.creature_stats;
     println!("  digs {} | moves {} blocked {} deaths {}", st.digs, st.moves, st.moves_blocked, st.deaths);
-    println!("  bank {soil_before} -> {soil_after} ({} excavated), stone floor intact {stone_floor}/{w}", soil_before - soil_after.min(soil_before));
+    println!("  bank {soil_before} -> {soil_after} standing, stone floor intact {stone_floor}/{w}");
     println!("  standing void inside the bank {void}, of it roofed {roofed} | wall cells packed {} (standing {lined})", st.packed);
     assert!(st.digs > 0, "no ant ever dug -- the verb never fired, whatever the picture shows");
     // The far-side effect counter on the same call `digs` counts. A renamed
@@ -2258,7 +2258,36 @@ fn nest_dig_scene() {
         assert!(roofed > 0, "ants dug {} cells and left no roofed void at all -- no tunnel stood", st.digs);
     }
     assert!(void > 0, "the ants dug {} cells and left no standing void at all", st.digs);
-    assert!(soil_after < soil_before, "soil should have been excavated: {soil_before} -> {soil_after}");
+    // **This used to assert that the bank got *smaller*, and that claim was
+    // a statement about the old rule rather than about the ants.** Digging
+    // destroyed its spoil, so excavation and material loss were the same
+    // event; an ant now carries the cell it dug and puts it down again, so
+    // the bank is conserved and the old assertion is false by design.
+    //
+    // Replaced rather than deleted, and by a *stronger* claim than the one it
+    // made: the ground is conserved exactly, counting what is standing plus
+    // what is still in a mandible, less the pellets that died with their
+    // carrier with nowhere to land. The excavation half it was standing in
+    // for is `roofed > 0` above -- which is the column that says a nest
+    // exists, and the one `dead-ends.md` records as the repair for censusing
+    // a dug volume at all.
+    let laden = world
+        .live_organism_ids()
+        .into_iter()
+        .filter(|&id| world.organism(id).is_some_and(|s| s.spoil.is_some()))
+        .count();
+    // Skipped under the ablation for the reason the lining's assertions are:
+    // the control arm is the old behaviour, which does not conserve, and a
+    // control run that aborts here never reaches the scenes after it.
+    if std::env::var("PIXEL_PHYSICS_DIG_SPOIL").as_deref() == Ok("destroy") {
+        return;
+    }
+    assert_eq!(
+        soil_after + laden + st.spoil_lost as usize,
+        soil_before,
+        "the bank is not conserved: {soil_before} -> {soil_after} standing, {laden} in mandibles, {} lost with their carriers",
+        st.spoil_lost
+    );
     assert_eq!(stone_floor as i32, w, "ants must not have dug through stone -- dig_force 1.0 is below stone's penetration_resistance");
 }
 

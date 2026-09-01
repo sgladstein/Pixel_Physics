@@ -384,6 +384,15 @@ pub enum Action {
     ParamSelect(usize),
     /// Write the highlighted parameter back to its asset file.
     ParamSave,
+    /// **Put the individual the cell page is open on into a jar.** The
+    /// button that replaced the `KEEP` tool: the page is already pointed at
+    /// one organism, so the second click the tool needed was a click at
+    /// something the interface already knew.
+    KeepInspected,
+    /// **Arm the armed jar for placing**, and get the rack out of the way so
+    /// there is a box to place it in. The button that replaced the `FREE`
+    /// tool.
+    ShelfPlace,
     /// Arm one jar on the shelf — an index into the loaded rack.
     ShelfSelect(usize),
     /// Turn the brood dial by `-1` or `+1`.
@@ -467,21 +476,20 @@ pub enum Tool {
     Soil,
     /// Paint water, full.
     Water,
-    /// **Take the genetics of what you click and put them in a jar.** The
-    /// individual is unharmed — a specimen is a copy, so keeping one is not
-    /// a decision weighed against letting it breed.
-    Keep,
     /// **Put the armed jar back in the box**, as itself or drifted by the
     /// shelf's brood dial.
     ///
-    /// Labelled `FREE` rather than `RELEASE`, and the reason is the bar
-    /// rather than the vocabulary — though the vocabulary agrees. Both rows
-    /// of this bar are at capacity (measured 2026-08-31 with
-    /// `PIXEL_PHYSICS_BAR_TRACE=1`: row 1 sits at exactly its own width and
-    /// row 0 had 76 px of comfortable slack left), and `RELEASE` plus a jar
-    /// chip did not fit at any spacing. `KEEP` and `FREE` is also the pair
-    /// the world uses — you keep a specimen in a jar and you free it back
-    /// into the box — and it reads as a verb in a row of verbs.
+    /// **The one tool that is not on the bar**, and it is deliberate. The
+    /// pair this used to belong to — `KEEP` and `FREE` — cost two of the
+    /// eight tool buttons to say what two page buttons say better, which is
+    /// the owner's reading of it: *"I feel like we don't need the keep and
+    /// free buttons... this will save some menu space."* Keeping is now a
+    /// button on the cell page, where you are already looking at the
+    /// individual you want, and placing is armed by `PLACE` on the shelf,
+    /// where you are already looking at the jar. What is left over is the
+    /// *aiming*, which genuinely is a world click and genuinely is a mode,
+    /// so the mode survives and only its button is gone. The jar chip on the
+    /// bar latches while it is armed, so it is still visible.
     Release,
     /// Drop a wall, floor to ceiling, in the column you click. Click a wall
     /// you placed to take it out again.
@@ -491,22 +499,22 @@ pub enum Tool {
 /// Every tool **that has a cell on the bar**, in bar order. One list, so the
 /// row, the key table and the tests cannot disagree about what exists.
 ///
-/// **`Tool::Wall` is deliberately not in it, and that is a measured
-/// constraint rather than an oversight.** The bar runs at **1 px of slack on
-/// row 0 and 0 on row 1** at the tightest of the three spacings `layout`
-/// tries — measured with its own `PIXEL_PHYSICS_BAR_TRACE`, and recorded in
-/// `Reports/dead-ends.md` when the chamber tabs hit the same wall. A ninth
-/// cell is ~40 px and there is nowhere to put it;
-/// `the_bar_fits_the_screen_and_no_two_widgets_overlap` said so immediately
-/// when one was tried.
+/// **Two of them are deliberately not in it, for opposite reasons.**
+/// [`Tool::Release`] came off because its verb moved to the page that already
+/// knows what it means (`PLACE`, on the rack), which is the owner's own
+/// ruling; see that variant. [`Tool::Wall`] was never on it, because the bar
+/// was measured **full** when the wall verb landed -- 1 px of slack on row 0
+/// and 0 on row 1 at the tightest of the three spacings `layout` tries, with
+/// `the_bar_fits_the_screen_and_no_two_widgets_overlap` saying so immediately
+/// when a ninth cell was tried.
 ///
-/// So the wall verb is reachable by its key and from the help page, and
-/// **giving it a face is a layout decision for the owner** — it needs a third
-/// bar row or a shorter label somewhere, and both change proportions they
-/// chose by eye. Flagged rather than forced: squeezing it in is how the
-/// overlapping columns on the rack page happened.
-pub const TOOLS: [Tool; 8] =
-    [Tool::Look, Tool::Plant, Tool::Colony, Tool::Cull, Tool::Soil, Tool::Water, Tool::Keep, Tool::Release];
+/// **That constraint has since gone, and giving the wall a face is still the
+/// owner's call rather than this file's.** Dropping `KEEP` and `FREE` freed
+/// two cells, so there is now room; but which verb earns a bar cell, and
+/// whether the wall's key moves onto the run when it gets one, are
+/// proportions the owner chose by eye. Flagged rather than forced -- squeezing
+/// a control in is how the overlapping columns on the rack page happened.
+pub const TOOLS: [Tool; 6] = [Tool::Look, Tool::Plant, Tool::Colony, Tool::Cull, Tool::Soil, Tool::Water];
 
 impl Tool {
     pub fn label(self) -> &'static str {
@@ -518,10 +526,15 @@ impl Tool {
             Tool::Soil => "SOIL",
             Tool::Water => "WATER",
             Tool::Wall => "WALL",
-            Tool::Keep => "KEEP",
-            Tool::Release => "FREE",
+            // Never drawn on the bar -- this is what the notice says while it
+            // is armed, so it is the verb rather than the old `FREE`: what it
+            // does now is put the jar you picked *somewhere*.
+            Tool::Release => "PLACE",
         }
     }
+    /// The key printed under a tool's button. Never called for
+    /// [`Tool::Release`], which has no button; its key is bound directly in
+    /// `bin/lab.rs` to the action that arms it.
     fn key(self) -> &'static str {
         match self {
             Tool::Look => "Z",
@@ -530,14 +543,13 @@ impl Tool {
             Tool::Cull => "V",
             Tool::Soil => "B",
             Tool::Water => "N",
-            // The run continues along the bottom row: `M`, then `,`.
-            Tool::Keep => "M",
             Tool::Release => ",",
             // **Off the run, because it is off the bar.** The positional rule
-            // is "one unbroken run in *bar* order", and the wall verb has no
-            // bar cell — the bar is full, see `TOOLS`. Taking the next key in
+            // is "one unbroken run in *bar* order", and neither of these has
+            // a bar cell — see `TOOLS` for why each. Taking the next key in
             // the run would have moved `NextSpecies` off `.` for a control
-            // that is not in the row the rule is about.
+            // that is not in the row the rule is about, and the wall's `K` is
+            // a key players have already been given.
             Tool::Wall => "K",
         }
     }
@@ -556,7 +568,6 @@ impl Tool {
             Tool::Soil => "PAINT SOIL, AT FIELD CAPACITY -- DAMP ENOUGH FOR A ROOT, NOT SO WET IT SLUMPS. IT WILL NOT PAINT OVER STONE OR OVER A LIVING PLANT.",
             Tool::Water => "PAINT WATER, FULL. IT RUNS, IT SOAKS INTO SOIL, AND TOO MUCH OF IT DROWNS ROOTS -- WHICH IS AN EXPERIMENT, NOT A MISTAKE.",
             Tool::Wall => "DROP A WALL FLOOR TO CEILING IN THE COLUMN YOU CLICK, OR CLICK ONE YOU PLACED TO TAKE IT OUT. A WALL IS WHAT MAKES TWO POPULATIONS IN ONE BOX INTO TWO POPULATIONS: THEY CANNOT MIX, SO THEY CAN DRIFT APART. IT CUTS WHATEVER IS IN THE WAY, WHICH IS THE POINT -- A WALL THROUGH A STAND IS A STAND SPLIT IN HALF. IT SURVIVES A REBUILD.",
-            Tool::Keep => "TAKE THE GENETICS OF THE PLANT OR ANIMAL YOU CLICK AND PUT THEM IN A JAR ON THE SHELF. IT IS A COPY -- THE ONE YOU CLICKED GOES ON LIVING. A JAR HOLDS EVERYTHING THAT INDIVIDUAL WOULD HAVE PASSED TO ITS OWN OFFSPRING AND NOTHING ELSE, SO IT IS SMALL AND IT SURVIVES A RESET OF THE BOX.",
             Tool::Release => "PUT THE ARMED JAR BACK IN THE BOX WHERE YOU CLICK. AT 0 BROODS IT IS THAT EXACT INDIVIDUAL AGAIN; AT 1 IT IS AS DIFFERENT AS ITS OWN CHILD WOULD HAVE BEEN, AND SO ON UP. OPEN THE SHELF WITH G TO PICK A JAR AND SET THE DIAL.",
         }
     }
@@ -1503,6 +1514,10 @@ pub struct Ui {
     /// a rack of three is read as it stands.
     rack_sort: Option<(usize, bool)>,
     shelf_box: Option<Rect>,
+    /// The cell page's own clickable rectangles — today the one `KEEP`
+    /// button, which is only there while the page is pointed at something
+    /// alive. A `Bar` for `params_bar`'s reason.
+    inspect_bar: Bar,
 }
 
 /// Every species that can be planted, in a stable order.
@@ -1626,6 +1641,12 @@ impl Ui {
         self.panel = if self.panel == Some(panel) { None } else { Some(panel) };
     }
 
+    /// Put whatever page is open away. For a button *on* a page whose verb
+    /// needs the box back — `PLACE` is the only one so far.
+    pub fn close_panel(&mut self) {
+        self.panel = None;
+    }
+
     pub fn tool(&self) -> Tool {
         self.tool
     }
@@ -1635,6 +1656,21 @@ impl Ui {
     /// switch off is a brush that paints the next time you meant to point.
     pub fn set_tool(&mut self, tool: Tool) {
         self.tool = if self.tool == tool { Tool::Look } else { tool };
+    }
+
+    /// **Arm a tool, without the toggle.** For a control that *picks
+    /// something the tool will use* rather than pressing the tool itself --
+    /// the species chip, a jar on the shelf.
+    ///
+    /// These call sites all used `set_tool`, and that was a bug the owner
+    /// reported from play: *"i will click plant, then change the type from
+    /// grass to herb and suddenly plant is unselected and now the mouse is
+    /// on look."* Choosing a species while `PLANT` is already armed re-pressed
+    /// `PLANT`, which is exactly what `set_tool` is written to read as "put it
+    /// away". A toggle is right for a button that *is* the tool and wrong for
+    /// a chip beside it: picking herb is never a request to stop planting.
+    pub fn arm_tool(&mut self, tool: Tool) {
+        self.tool = tool;
     }
 
     pub fn brush(&self) -> i32 {
@@ -1697,13 +1733,14 @@ impl Ui {
             .iter()
             .chain(self.params_bar.widgets.iter())
             .chain(self.shelf_bar.widgets.iter())
-            // The strip and the rack page belong here for this accessor's
-            // whole reason: it is what a harness aims a synthetic click with,
-            // so a control missing from it is a control no test and no
-            // contact sheet can press. `labui` found this by panicking on
-            // `ALL` the first time it was asked to open the rack.
+            // The strip, the rack page and the cell page belong here for
+            // this accessor's whole reason: it is what a harness aims a
+            // synthetic click with, so a control missing from it is a control
+            // no test and no contact sheet can press. `labui` found this by
+            // panicking on `ALL` the first time it was asked to open the rack.
             .chain(self.tabs.widgets.iter())
             .chain(self.rack_bar.widgets.iter())
+            .chain(self.inspect_bar.widgets.iter())
             .find(|wid| wid.action == Some(action))
             .map(|wid| wid.rect)
     }
@@ -1719,6 +1756,7 @@ impl Ui {
             .or_else(|| self.shelf_bar.hit(x, y))
             .or_else(|| self.rack_bar.hit(x, y))
             .or_else(|| self.tabs.hit(x, y))
+            .or_else(|| self.inspect_bar.hit(x, y))
     }
 
     /// Sort the rack on a column, or reverse it if it is already the one.
@@ -1840,8 +1878,8 @@ impl Ui {
     pub fn jar_chip_note(&self) -> String {
         match self.armed_jar() {
             Some(jar) => format!(
-                "{} WILL RELEASE {} -- {} OF SPECIES {}, TAKEN AT GENERATION {}. THE DIAL IS AT {}. CLICK HERE TO OPEN THE RACK AND PICK ANOTHER.",
-                if self.tool == Tool::Release { "FREE (,)" } else { "THE FREE TOOL (,)" },
+                "{} {} -- {} OF SPECIES {}, TAKEN AT GENERATION {}. THE DIAL IS AT {}. CLICK HERE TO OPEN THE RACK AND PICK ANOTHER.",
+                if self.tool == Tool::Release { "CLICK IN THE BOX TO PLACE" } else { "PLACE (,) WILL PUT BACK" },
                 jar.name.to_uppercase(),
                 jar.genetics.kingdom(),
                 jar.species.to_uppercase(),
@@ -1849,10 +1887,10 @@ impl Ui {
                 self.brood_label()
             ),
             None if self.shelf.is_empty() => {
-                "THE SHELF IS EMPTY. ARM KEEP (M) AND CLICK A PLANT OR AN ANT TO PUT ITS GENETICS IN A JAR -- IT IS A COPY, SO THE ONE YOU CLICK GOES ON LIVING. CLICK HERE TO OPEN THE RACK.".to_string()
+                "THE SHELF IS EMPTY. POINT AT A PLANT OR AN ANT WITH LOOK (Z) AND PRESS KEEP ON THE CELL PAGE TO PUT ITS GENETICS IN A JAR -- IT IS A COPY, SO THE ONE YOU CLICKED GOES ON LIVING. CLICK HERE TO OPEN THE RACK.".to_string()
             }
             None => format!(
-                "{} JAR(S) ON THE SHELF AND NONE ARMED. CLICK HERE TO OPEN THE RACK AND PICK ONE; FREE (,) THEN PUTS IT BACK IN THE BOX, AS ITSELF OR DRIFTED BY A NUMBER OF BROODS.",
+                "{} JAR(S) ON THE SHELF AND NONE ARMED. CLICK HERE TO OPEN THE RACK AND PICK ONE; PLACE THEN PUTS IT BACK IN THE BOX, AS ITSELF OR DRIFTED BY A NUMBER OF BROODS.",
                 self.shelf.len()
             ),
         }
@@ -2058,6 +2096,34 @@ impl Ui {
                 ),
             ],
         }
+    }
+
+    /// **The cell page's one button**, or `None` when the cell it is open on
+    /// holds nothing alive.
+    ///
+    /// Sited in the page header beside the title, which is the only band on
+    /// the page that is not a row: the rows are re-read from the world every
+    /// frame and change height as an ant walks out from under the marker, so
+    /// a button among them would move while the player was reaching for it.
+    /// The shelf's `RELOAD` sits in its header for the same reason and this
+    /// matches it deliberately — one place on a page is where its verbs are.
+    fn keep_button(&self, world: &World, at: (i32, i32), rect: Rect) -> Option<Widget> {
+        let id = world.get(at.0, at.1).organism_id();
+        let state = world.organism(id)?;
+        let species = world.species.get(state.species).name.to_uppercase();
+        let w = cell_width(hud::text_width("KEEP"), "", PAD);
+        Some(Widget {
+            rect: Rect { x: rect.right() - PAGE_PAD - w, y: rect.y + 3, w, h: 11 },
+            line1: "KEEP".into(),
+            line2: String::new(),
+            action: Some(Action::KeepInspected),
+            latched: false,
+            icon: None,
+            ratio: None,
+            note: format!(
+                "PUT THIS {species}'S GENETICS IN A JAR ON THE SHELF (G). IT IS A COPY -- THE ONE ON THE PAGE GOES ON LIVING, AND KEEPING IT IS NOT A CHOICE WEIGHED AGAINST LETTING IT BREED. A JAR HOLDS WHAT THIS INDIVIDUAL WOULD HAVE PASSED TO ITS OWN OFFSPRING AND NOTHING ELSE, SO IT IS SMALL AND IT SURVIVES A REBUILD OF THE BOX."
+            ),
+        })
     }
 
     /// Seeds set by plants that are still alive.
@@ -2297,7 +2363,7 @@ fn shelf_page_width() -> i32 {
     // three verb faces — plus a gap the strip must keep in the middle.
     let step = cell_width(hud::text_width("W"), "", PAD);
     let dial = hud::text_width("DRIFT") + 6 + step + 4 + hud::text_width("8 BROODS") + 6 + step;
-    let verbs: i32 = ["COPY", "DISCARD", "PROMOTE"].iter().map(|v| cell_width(hud::text_width(v), "", PAD) + 2).sum();
+    let verbs: i32 = ["PLACE", "COPY", "DISCARD", "PROMOTE"].iter().map(|v| cell_width(hud::text_width(v), "", PAD) + 2).sum();
     rows.max(PAGE_PAD * 2 + dial + SHELF_STRIP_GAP + verbs)
 }
 
@@ -2970,6 +3036,21 @@ impl Ui {
                 Action::ShelfDrift,
                 "PUT A COPY OF THE ARMED JAR ON THE SHELF, DRIFTED BY THE DIAL ON THE LEFT. THE ORIGINAL STAYS ARMED, SO YOU CAN MAKE SEVERAL SIBLINGS FROM ONE PARENT. THIS IS HOW A LINE IS BRED WITHOUT EVER RELEASING IT -- THE NEW JAR RECORDS WHICH ONE IT CAME FROM AND HOW FAR.",
             ),
+            // **Last in the list is leftmost on screen**, because the strip
+            // is laid out right to left -- so this reads first, which is what
+            // it deserves: the other three are what you do *to* a jar and
+            // this is the one that puts it back in the world.
+            //
+            // It arms rather than places, and that is not a compromise: a jar
+            // has to go *somewhere*, and the page it is on is covering most
+            // of the box. So the button closes the rack and hands the next
+            // world click to the specimen -- which is the `FREE` tool's
+            // aiming, kept, with its button on the bar given up.
+            (
+                "PLACE",
+                Action::ShelfPlace,
+                "PUT THE ARMED JAR BACK IN THE BOX. THIS CLOSES THE RACK AND ARMS THE PLACING -- THE NEXT CLICK IN THE BOX IS WHERE IT GOES. AT 0 BROODS IT IS THAT EXACT INDIVIDUAL AGAIN; AT 1 IT IS AS DIFFERENT AS ITS OWN CHILD WOULD HAVE BEEN. A PLANT ARRIVES AS A SEED THAT STILL HAS TO GERMINATE; AN ANIMAL ARRIVES ALIVE.",
+            ),
         ] {
             let bw = cell_width(hud::text_width(label), "", PAD);
             vx -= bw;
@@ -2996,8 +3077,8 @@ impl Ui {
             // opens this page first has no way to guess that the shelf is
             // filled by a tool on the bar rather than by a button here.
             text(frame, left, y + 2, "NOTHING KEPT YET.", FAINT);
-            text(frame, left, y + 12, "ARM KEEP (M) AND CLICK A PLANT", FAINT);
-            text(frame, left, y + 22, "OR AN ANT TO PUT IT IN A JAR.", FAINT);
+            text(frame, left, y + 12, "CLICK A PLANT OR AN ANT WITH LOOK", FAINT);
+            text(frame, left, y + 22, "(Z), THEN PRESS KEEP ON THAT PAGE.", FAINT);
             y += SHELF_ROW * shown.max(1) as i32;
         }
         for (i, jar) in self.shelf.iter().take(SHELF_ROWS).enumerate() {
@@ -3485,8 +3566,28 @@ impl Ui {
             if let Some((text, y)) = paint_page(frame, rect, "CELL", &rows, self.cursor) {
                 note = Some((text, rect, y, Note::BesidePage));
             }
+            // **`KEEP`, in the header, and only while there is something to
+            // keep.** This is the `KEEP` tool's whole job, moved to where the
+            // player already is: the page is open *on* one individual, so the
+            // click that used to aim the tool is a click the interface had
+            // already been given. A button that is absent over bare soil
+            // rather than present and refusing, because the page is re-read
+            // every frame and a permanently-greyed control on a page that
+            // changes under you reads as broken.
+            if let Some(button) = self.keep_button(world, at, rect) {
+                let hover = self.cursor.is_some_and(|(x, y)| button.rect.contains(x, y));
+                let down = hover && self.pressed == Some(Action::KeepInspected);
+                if hover && !button.note.is_empty() {
+                    note = Some((button.note.clone(), rect, rect.y, Note::BesidePage));
+                }
+                paint_widget(frame, &button, hover, down);
+                self.inspect_bar = Bar { widgets: vec![button], dividers: Vec::new() };
+            } else {
+                self.inspect_bar = Bar::default();
+            }
         } else {
             self.inspect_box = None;
+            self.inspect_bar = Bar::default();
         }
 
         // The bar itself, over everything a page drew, because a page opens
