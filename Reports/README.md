@@ -849,6 +849,31 @@ drift that two of these documents still reflect.**
   already the best of the values tested, and a nine-cell pale body puts less
   on screen than the shipped two-cell dark one. The creature-side answer to
   `plant-appearance-design.md`.
+- [creature-gates-to-mechanism-2026-08-31.md](creature-gates-to-mechanism-2026-08-31.md)
+  — **built and landed 2026-08-31, PRs #190, #192, #194.** The authored
+  eat-vs-carry gates come out: a crop that digests as the animal walks
+  replaces `hunger_fraction`, `Feed` against `Drop` replaces statement order,
+  a birth becomes payable from food **within reach** (deliberately not from a
+  nest, which would hardcode a colony), and `TRAIT_REPRODUCE_AT` makes *when
+  to breed* the last per-animal decision to stop being a number in a `.ron`.
+  **Read §2: four things the plan asserted that measurement contradicted**,
+  three of which would have shipped working code that expressed nothing —
+  `store_in_body` is redundant against the brain weights an earlier stage
+  already made heritable; `reproduce_at` is two-sided today through
+  starvation, so senescence was never a precondition; the body-size refuge
+  already exists and is tested, so encounter bias was nearly rebuilt on top
+  of it; and a wrong-arity RON tuple **panics** rather than defaulting
+  silently, so the guards the plan specced were aimed at the wrong failure.
+  §3 attributes the lab bed's 52 → 12 to **overgrazing, with a control** —
+  the colony kills the four founders nearest its nest while the four furthest
+  are untouched to the cell — which is why the flagged cost re-derivation was
+  **not** done. §4 is S5a: predation punishes neither ranging nor
+  sheltering, so the owner's hoped-for dug home has no gradient to climb yet.
+  §5 is a method finding worth more than its subject: the four-seed run gave
+  a clean 0.47 → 0.48 and twelve gave 0.50 → **0.76**, the small sample being
+  *tidier than the truth*. Corrects `larder-reachability-2026-08-30.md` and
+  supersedes `creature-gate0-births-2026-08-30.md`'s mechanism (below).
+  Ships `predation_probe mode=range` and `LabBox::predators`.
 - [creature-motion-decoys-2026-08-30.md](creature-motion-decoys-2026-08-30.md)
   — **measured study, and a qualification of the report above.**
   `creature-appearance-design.md`'s whole body-size case rests on `decoys`,
@@ -893,7 +918,16 @@ drift that two of these documents still reflect.**
   did not need the stamp term after all. What still blocks the unfed lab bed
   is measured to the cell: **1,651 pickups, 4 deliveries, an empty larder**,
   isolated to `act`'s out-of-nest drop rule with a controlled probe and filed
-  as a bug. Ships `best_offer` / `best_bite` / `peak_bank` and
+  as a bug.
+  **Its mechanism was deleted 2026-08-31 and its open bug reattributed**
+  (`creature-gates-to-mechanism-2026-08-31.md`). *"An animal short of a
+  child's price now finishes the meal"* **is** the Gate 0 provisioning clause
+  S1 removed; the crop replaced it, so an animal takes what it finds and
+  digests it as it walks. The measurements here stand as the record of what
+  that gate did. The empty larder is not the drop rule: §3 of the new report
+  attributes the sealed bed's failure to **overgrazing**, with a
+  `colonies=0` control showing the colony kills the four founders nearest its
+  own nest while the four furthest are untouched to the cell. Ships `best_offer` / `best_bite` / `peak_bank` and
   `examples/windfall_probe.rs`.
 - [creature-body-extent-2026-08-30.md](creature-body-extent-2026-08-30.md) —
   **built and landed 2026-08-30.** The body is priced per cell at last:
@@ -1127,7 +1161,18 @@ drift that two of these documents still reflect.**
   2026-08-30 ruling requires before the gene is written. **It is not**, and
   the blocking fact is in the birth path rather than in the pile:
   `creature::try_bud` charges `state.energy` and there is no second term, so
-  a granary of any size funds zero births. The pile is real and small and
+  a granary of any size funds zero births.
+  **Two findings superseded 2026-08-31 by
+  `creature-gates-to-mechanism-2026-08-31.md` §6, and the gene this is a
+  pre-flight for was dropped.** S3 gave `try_bud` the second term — a birth
+  is payable from edible cells in the head's neighbourhood — so the blocking
+  fact above is gone. And *"the colony is the sink"* below was sound as a
+  measurement and wrong as an attribution: `act` checked ingest before drop,
+  gated only on crop room, so an ant at its own nest re-took what it had just
+  delivered **by statement order**, no weight of any genome involved.
+  `store_in_body` is redundant against the `Feed`/`Drop` brain weights and
+  was never written. **§8a is untouched by all of that.**
+  The pile is real and small and
   measured anyway — a median 10 cells within 2 of the nest against 1 with no
   colony (paired **+6, 13 seeds up / 2 down**), worth 2.21 `birth_cost`s at
   peak against a colony-free control's 1.04 — and `mode=turnover` shows it
