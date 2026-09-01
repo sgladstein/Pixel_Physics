@@ -1,0 +1,46 @@
+{
+  "id": "20260901T035646981Z-568a1f",
+  "created": "2026-09-01T03:56:46Z",
+  "board": "lab",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/evolution-lab-mechanics-o7i3xm",
+    "commit": "a6898b6",
+    "agent": null,
+    "session_id": "b7a8dc92-eedb-5ab7-8809-1f18a9b21417",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "COLLAPSE UNDER LOAD now covers what was actually felling them",
+  "question": "With it OFF, does the bed read as a stand that got to grow up -- or as plants glued together in ways that look wrong?",
+  "context_md": "You were right: the switch was wired, but it was scoped to the wrong rules.\n\n`snapped under load` reads a flat **0** on the lab bed -- the two rules the\nswitch covered never fire in there at all, so it had nothing to turn off. What\nwas actually taking your trees down is the support check: a plant that has no\nanchorage in soil marks its own cells \"unreached\", schedules its own structural\ncheck, and is felled whole -- pieces of up to 75 cells, the entire organism,\nwith zero anchors left in it. Nothing had touched them.\n\nThe switch now covers that too, for LIVING plants only. Dead wood still comes\napart, so culling and rot still clear the box, and the axe still works\noutdoors.\n\nSame binary, same bed, 8 founders / 1 colony / 20,000 frames, switched at run\ntime:\n\n                          ON            OFF\n  severed by the check    683           31\n  ...of them ALIVE        654           0\n  standing plant cells    1,935         2,923\n  standing flower/fruit   0 / 1         8 / 11\n  rotted                  927           1,025\n\nThe flower and fruit row is the one I would look at: plants that stop being\ndemolished mid-life get far enough to reproduce.\n\nThe underlying defect is filed (open-bugs-handoff §B2) and not fixed -- this is\na control in your hand, not a repair. With the switch ON it is exactly as live\nas it was.\n",
+  "kind": "ab",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "switch ON (shipped): 654 living cells severed, 1,935 standing",
+      "files": [
+        "20260901T035646981Z-568a1f/000-loadfail-1.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "switch OFF (this change): 0 living cells severed, 2,923 standing",
+      "files": [
+        "20260901T035646981Z-568a1f/001-loadfail-off.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
