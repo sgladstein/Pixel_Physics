@@ -819,7 +819,37 @@
             // measurement, and makes the ablation clean: this weight to 0.0
             // is the control arm, and the difference is attributable to
             // exactly one lever.
-            (SurfaceCurvature, Drop, 0.169),
+            // **0.5, and it is measured rather than guessed -- which the
+            // first draft of this weight could not be.** Authored at 0.169
+            // to match `MoistureGrad`'s, on the honest grounds that nothing
+            // had ever run with this input. It has now run:
+            // `burrow_probe arms=colony seeds=12`, rate-matched at
+            // `digbias=0.50` so the arms dig equally, against the
+            // **mean-matched** control (`PIXEL_PHYSICS_CURVATURE=flat`,
+            // which holds the input at the +0.417 an ant on a bank actually
+            // reads and removes only the spatial variation):
+            //
+            // | slope | circ | cells | digs |
+            // |---|---|---|---|
+            // | 0.0 | 0.194 | 77.5 | 605 |
+            // | 0.169 | 0.250 | 70.5 | 604 |
+            // | **0.5** | **0.287** | **59.5** | 608 |
+            // | 1.5 | 0.275 | 55.0 | 600 |
+            //
+            // At **0.169 it is a null** -- 8 of 12 seeds, median +0.05 on a
+            // per-seed spread of 0.10, which would need ~69 seeds to
+            // resolve. At 0.5 it is 10 of 12 against the mean-matched
+            // control on `circ` and **12 of 12** on `cells`. 1.5 buys
+            // nothing over 0.5.
+            //
+            // **The trade is real and is stated rather than buried: the
+            // cavity gets smaller.** 77.5 cells -> 59.5 for the same
+            // digging. The mean offset alone moves size the *other* way
+            // (89.0), so this is the spatial term consolidating a ramified
+            // void rather than the colony simply dropping more -- but a
+            // rounder, smaller nest is a judgement the numbers cannot make,
+            // and it is posted to the review queue for exactly that reason.
+            (SurfaceCurvature, Drop, 0.5),
 
             // **The spoil dump, unchanged, on a verb of its own.** These two
             // are exactly what `drop_urge` was before the split, so a digger
@@ -834,7 +864,9 @@
             // criterion and cache food on another, which one shared
             // coefficient never allowed. Authored equal for the same reason
             // as above -- the run is the measurement.
-            (SurfaceCurvature, DropSpoil, 0.169),
+            // Same slope, still fed separately -- see `Drop` above for the
+            // sweep. A lineage can move one without the other.
+            (SurfaceCurvature, DropSpoil, 0.5),
         ],
 
         // **The gate a single layer cannot express**, authored as weights

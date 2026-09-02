@@ -2450,10 +2450,12 @@ fn sense(
     //
     // Gated at the dispatch site on a field already in cache, so a species
     // with no such sense pays one `i32` compare rather than a call.
-    inputs[I::SurfaceCurvature as usize] = if def.curvature_radius > 0 && curvature_sense_enabled() {
-        surface_curvature(world, x, y, def.curvature_radius)
-    } else {
+    inputs[I::SurfaceCurvature as usize] = if def.curvature_radius == 0 || !curvature_sense_enabled() {
         0.0
+    } else if curvature_flattened() {
+        CURVATURE_BANK_MEDIAN
+    } else {
+        surface_curvature(world, x, y, def.curvature_radius)
     };
 
     // **The kin pair, from the same cast the prey pair came out of.**
@@ -3573,6 +3575,34 @@ const SPOIL_HEADROOM: i32 = 3;
 fn curvature_sense_enabled() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_CURVATURE").as_deref() != Ok("off"))
+}
+
+/// **The median curvature an ant on a worked bank actually reads**, measured
+/// by `examples/spoil_curvature.rs` over 12 seeds: p50 `+0.417`.
+///
+/// It exists for the `flat` ablation below and nowhere else.
+const CURVATURE_BANK_MEDIAN: f32 = 0.417;
+
+/// **The control that separates a shape effect from a rate offset**, and
+/// without it a positive result on this input cannot be read.
+///
+/// `PIXEL_PHYSICS_CURVATURE=flat` replaces the reading with the constant
+/// above -- the *same mean* an ant on a bank sees, with all the spatial
+/// information removed. `=off` pins it at 0.0 instead, which removes the mean
+/// as well.
+///
+/// The two answer different questions and only the first one is interesting.
+/// Curvature on a bank has a **positive median**, so any positive weight on
+/// it raises the drop urge *on average* -- a constant offset that would move
+/// every shape statistic in the world without the animal ever responding to
+/// a shape. Against `off` that offset is the whole difference and is
+/// indistinguishable from the mechanism; against `flat` the offset is present
+/// in both arms and only the variation differs. `CLAUDE.md`: *an A/B needs
+/// the two commits to differ only by the change*, and an arm that differs in
+/// two things carries half its effect in the wrong one.
+fn curvature_flattened() -> bool {
+    static FLAT: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *FLAT.get_or_init(|| std::env::var("PIXEL_PHYSICS_CURVATURE").as_deref() == Ok("flat"))
 }
 
 fn spoil_kept() -> bool {

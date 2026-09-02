@@ -1128,7 +1128,15 @@ fn colony_arm(seeds: u64, ants: i32, frames: u64, bud_k: f64, png: Option<&str>)
         {
             use pixel_physics::sim::brain::{io_slot, BrainInput, BrainOutput};
             let (cw, db) = (arg::<f32>("crowddig"), arg::<f32>("digbias"));
-            if cw.is_some() || db.is_some() {
+            // **`curvdrop=` sets the curvature slope on both drop verbs**,
+            // and it exists because a null with one value of the slope tested
+            // is the criticism §14i makes of the last one: "one value of the
+            // slope was tested" -- the crowding sweep varied the dig *rate*
+            // and never the weight under test. `ant.ron` authors 0.169 on
+            // each; this patches both together so the sweep is over one
+            // number.
+            let cd = arg::<f32>("curvdrop");
+            if cw.is_some() || db.is_some() || cd.is_some() {
                 let id = world.species.id_of("ant").expect("ant");
                 let mut g = world.species.get(id).genome.clone();
                 if let Some(w) = cw {
@@ -1137,11 +1145,15 @@ fn colony_arm(seeds: u64, ants: i32, frames: u64, bud_k: f64, png: Option<&str>)
                 if let Some(b) = db {
                     g[io_slot(BrainInput::Bias, BrainOutput::Dig)] = b;
                 }
+                if let Some(c) = cd {
+                    g[io_slot(BrainInput::SurfaceCurvature, BrainOutput::Drop)] = c;
+                    g[io_slot(BrainInput::SurfaceCurvature, BrainOutput::DropSpoil)] = c;
+                }
                 world.species.set_genome(id, g);
                 if seed == 1 {
                     println!(
-                        "  PATCHED genome: (Crowding, Dig) = {:?}, (Bias, Dig) = {:?}   [ant.ron authors no Crowding->Dig; its (Bias, Dig) is 0.4]",
-                        cw, db
+                        "  PATCHED genome: (Crowding, Dig) = {:?}, (Bias, Dig) = {:?}, (SurfaceCurvature, Drop/DropSpoil) = {:?}   [ant.ron authors no Crowding->Dig; its (Bias, Dig) is 0.4 and its curvature weights are 0.169]",
+                        cw, db, cd
                     );
                 }
             }
