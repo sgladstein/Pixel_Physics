@@ -1869,9 +1869,9 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   creature is their best), and one race is a coin flip against a **2.42×–3.12×**
   seed spread — which turns out to make the feature *better*, because the honest
   readout is a **best-of-N** rather than a single match. §5 finds the UI answer
-  already precedented: the bar is measurably full at seven, but `WALL` shipped
-  key-only and `Tool::Release` has no button at all, so **RACE belongs on the
-  rack page**, where jar actions already moved. Flags that `arm=random` rests on
+  already precedented: the bar is measurably full at seven, but `WALL` reached
+  the tree by key alone with no bar cell, and `Tool::Release` has no button at
+  all, so **RACE belongs on the rack page**, where jar actions already moved. Flags that `arm=random` rests on
   **six seeds** and needs twelve before it becomes a player-facing benchmark,
   and that a race is a verdict and therefore edges into the deliberately
   deferred Gate 5. **The guard before it ships: race a jar against itself and
