@@ -2016,9 +2016,11 @@ metric**, and *before* the lever is built.
    threshold and the answer is extent, not articulation.
 4. **The cheap test 13d needs and the first version omitted:** ✅ **Answered,
    and it came back the way that cuts against articulation.**
-   `creature-shape-reachability` §2 ran `creature_look` on 36-cell bodies of
-   different shape at constant extent: **shape did not move findability; extent
-   did.** §2.1 adds that extent grown as *length at the mobility-safe width* — 2
+   `creature-shape-reachability` **Q2 — "is shape *findable* at all at 36
+   cells?"**, renamed from "legible" on review from this session so the
+   question's own name matches the instrument that answers it — ran
+   `creature_look` on 36-cell bodies of different shape at constant extent:
+   **shape did not move findability; extent did.** §2.1 adds that extent grown as *length at the mobility-safe width* — 2
    wide, 18 tall, still 36 cells — scores in the same band as extent grown as a
    compact block, so the mobility answer and the findability answer are not in
    tension.
