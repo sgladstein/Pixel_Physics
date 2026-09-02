@@ -1003,6 +1003,21 @@ drift that two of these documents still reflect.**
   the owner's "perfect cube" is a shape reading at 36 cells — carries the
   finding that **no instrument here measures whether something reads as an
   animal**, so this lever is judged by blind A/B and not by a number.
+  **§14 is the one to read if what you want is rooms**, and it corrects §5g: a
+  chamber is **dug, not built**, so the spoil-placement rules were the wrong
+  thing to argue with, and `line_burrow` already cements an excavation's walls
+  into `self_supporting` ground — the engine can hold a room open, nothing digs
+  one. The mechanism is `stigmergy-research.md` §5 (Toffin et al., *PNAS* 2009,
+  controlled for heterogeneity): high worker density on a small perimeter gives
+  **uniform digging and a round chamber**, and as the cavity outgrows the colony
+  density falls and **localized buds sprout into tunnels**. That note's own
+  conclusion — *"this needs no new channel at all"* — has stood unacted on since
+  2026-08, and `BrainInput::Crowding` is exactly the density it names, **wired
+  to `Move` and nothing else** in every species file. So rooms are plausibly one
+  instinct weight, `(Crowding, Dig, w)`. The measurement it needs is the half
+  `burrow_probe` cannot give: it counts **roofed void**, a volume, while the
+  finding is entirely about **shape** — a round chamber and a ramified warren of
+  equal size are the same number and opposite results.
   **Independently reviewed 2026-09-02 and revised; §16 is the errata and is the
   most reusable section in the file.** The review found four confirmed errors,
   and three of them came from checking a claim against a *neighbouring* file
