@@ -1030,6 +1030,7 @@ pub type SpecimenSection = (&'static str, &'static str, Vec<SpecimenRow>);
 /// What each group's heading means, as the page's hover note reads it.
 const LIFE_NOTE: &str = "WHERE THIS INDIVIDUAL CAME FROM AND HOW FAR DOWN THE LINE IT IS. NONE OF IT CHANGES WHILE YOU WATCH -- IT IS SETTLED THE MOMENT THE THING IS BORN.";
 const STATE_NOTE: &str = "HOW IT IS DOING RIGHT NOW. THIS IS THE GROUP THAT MOVES WHILE THE BOX RUNS, AND THE ONE TO HAVE OPEN IF YOU ARE WATCHING SOMETHING GET INTO TROUBLE.";
+const WORDS_NOTE: &str = "THE SAME GENOME, IN SENTENCES. WHAT KIND OF THING THIS IS, RATHER THAN WHAT ITS NUMBERS ARE -- EVERY LINE HERE IS DERIVED FROM A ROW UNDER GENOME, AND HOVERING ONE SAYS WHICH.";
 const GENOME_NOTE: &str = "WHAT IT WAS DEALT AND CANNOT CHANGE, DRAWN WHEN IT WAS BORN AND CARRIED FOR LIFE. TWO INDIVIDUALS OF ONE SPECIES DIFFER HERE AND NOWHERE ELSE AT BIRTH -- THIS IS WHAT A JAR ON THE SHELF KEEPS.";
 
 /// **The same readout, in the three groups the cell page folds it into.**
@@ -1083,6 +1084,14 @@ pub fn specimen_sections(world: &World, id: u16) -> Vec<SpecimenSection> {
             "THIS ANIMAL'S OWN DIET, -1 PLANT MATTER TO +1 FLESH. IT IS INHERITED WITH JITTER, SO IT IS NOT THE SPECIES VALUE ON THE ANTS PAGE -- COMPARE THE TWO AND YOU ARE LOOKING AT ONE GENERATION OF DRIFT.".into()));
         genome.push(("BIRTH GRANT".into(), format!("{:+.3}", state.traits[organism::TRAIT_BIRTH_GRANT]),
             "HOW MUCH THIS ONE WOULD HAND A NEWBORN, AS ITS OWN INHERITED VALUE RATHER THAN THE SPECIES'.".into()));
+        // **The third body trait, and it was missing.** Two of three were
+        // printed here from the day the group landed; nothing pointed it out
+        // because a page listing two numbers looks exactly like a page whose
+        // subject has two. It is the one life-history axis the brain cannot
+        // already express, so a page without it cannot tell a fast breeder
+        // from a hoarder.
+        genome.push(("BREEDS AT".into(), format!("{:+.3}", state.traits[organism::TRAIT_REPRODUCE_AT]),
+            "HOW MUCH WEALTH THIS ONE INSISTS ON BEFORE IT WILL BUD, FROM -1 (THE EARLIEST THE ARITHMETIC ALLOWS) TO +1 (TWICE ITS SPECIES' THRESHOLD). AGAINST THE ANTS PAGE'S OWN FIGURE IT IS ONE GENERATION OF DRIFT. A BOX FULL OF HOARDERS IS A BOX THAT LOOKS HEALTHY AND DOES NOT BREED.".into()));
         row("SINCE NEST", state.since_nest.to_string(),
             "TICKS SINCE IT LAST TOUCHED THE NEST. IT CLIMBS WHILE A FORAGER IS OUT AND RESETS WHEN IT GETS HOME, SO A NUMBER THAT ONLY EVER CLIMBS IS AN ANT THAT IS LOST.");
         row("CROP", match &state.crop {
@@ -1092,7 +1101,12 @@ pub fn specimen_sections(world: &World, id: u16) -> Vec<SpecimenSection> {
             "WHAT IT IS CARRYING AND HOW MUCH OF IT IS LEFT. THE NUMBER FALLS AS IT WALKS -- AN ANT DIGESTS ITS LOAD ON THE WAY HOME, SO A LONG TRIP DELIVERS LESS THAN A SHORT ONE.");
         row("BODY", state.cells.len().to_string(),
             "HOW MANY CELLS THIS ANIMAL IS. EVERY PER-CELL COST ON THE ANTS PAGE IS MULTIPLIED BY THIS.");
-        return vec![("LIFE", LIFE_NOTE, life), ("STATE", STATE_NOTE, rows), ("GENOME", GENOME_NOTE, genome)];
+        return vec![
+            ("WORDS", WORDS_NOTE, words(world, id)),
+            ("LIFE", LIFE_NOTE, life),
+            ("STATE", STATE_NOTE, rows),
+            ("GENOME", GENOME_NOTE, genome),
+        ];
     }
 
     row("SHOOT", state.shoot_cells.to_string(),
@@ -1145,7 +1159,47 @@ pub fn specimen_sections(world: &World, id: u16) -> Vec<SpecimenSection> {
             format!("THIS INDIVIDUAL'S OWN MULTIPLIER ON ITS SPECIES' {label}, DRAWN WHEN IT GERMINATED AND CARRIED FOR LIFE. 1.00 IS THE SPECIES VALUE; ITS SPECIES ALLOWS UP TO {:.0}% EITHER WAY. THIS IS WHY TWO SEEDS OF ONE SPECIES DO NOT GROW INTO THE SAME PLANT.", width * 100.0),
         ));
     }
-    vec![("LIFE", LIFE_NOTE, life), ("STATE", STATE_NOTE, rows), ("GENOME", GENOME_NOTE, genome)]
+    vec![
+        ("WORDS", WORDS_NOTE, words(world, id)),
+        ("LIFE", LIFE_NOTE, life),
+        ("STATE", STATE_NOTE, rows),
+        ("GENOME", GENOME_NOTE, genome),
+    ]
+}
+
+/// **The genome read back as sentences** -- `plainspeak::describe`, as
+/// specimen rows.
+///
+/// A row with no value column, because a phrase *is* the value: the label
+/// column is 150 px and a sentence in it with a number beside it would wrap
+/// or truncate, and the number is already in `GENOME` two headings down. The
+/// explanation carries the weight or the allele it came from, so hovering any
+/// sentence says why it was said.
+fn words(world: &World, id: u16) -> Vec<SpecimenRow> {
+    crate::lab::plainspeak::describe(world, id)
+        .into_iter()
+        .flat_map(|p| {
+            // **A backstop, not the mechanism.** `page_rect` sizes the page
+            // to its widest row and then clamps it onto the screen, so a long
+            // sentence does not wrap of its own accord -- it widens the whole
+            // page and slides it left over whatever it was opened from. A
+            // thirty-character phrase took the cell page to 250 px and hid
+            // three of the roster's eight columns behind it.
+            //
+            // So the phrases are *written* to fit, and
+            // `plainspeak::every_phrase_fits_the_column` holds them to it over
+            // every genome and every allele rather than over the ones anybody
+            // thought of. This wrap is what happens if one ever slips through:
+            // two short rows rather than a page that eats its neighbour. The
+            // continuation carries the same explanation, so hovering either
+            // half says the same thing.
+            let note = p.detail;
+            crate::lab::ui::wrap_words(&p.text, crate::lab::plainspeak::PHRASE_COLUMNS)
+                .into_iter()
+                .map(move |line| (line, String::new(), note.clone()))
+                .collect::<Vec<_>>()
+        })
+        .collect()
 }
 
 /// The genome's slot map, as `organism::GENOTYPE_TRAITS`' own doc names it.
@@ -1170,6 +1224,10 @@ const GENOTYPE_SLOTS: [&str; organism::GENOTYPE_TRAITS] = [
 /// separation is what lets a root and a shoot diverge inside one individual,
 /// and a reader that took whichever arm came first would report the wrong
 /// width for three of ten rows.
+pub fn genotype_variance_of(world: &World, species: SpeciesId, slot: usize) -> Option<f32> {
+    genotype_width(world, species, slot)
+}
+
 fn genotype_width(world: &World, species: SpeciesId, slot: usize) -> Option<f32> {
     let cell_type = if matches!(slot, 1 | 5 | 8) { CellType::RootTip } else { CellType::GrowingTip };
     world.species.get(species).behaviors(cell_type).iter().find_map(|b| match b {

@@ -123,6 +123,9 @@ GAME = {
     # The third lab row, and it is the one that gets you *to* an individual:
     # the two above assume you have already found one.
     "finding one individual among all of them": "lab",
+    # The fourth lab row. Distinct from "reading one specimen off the screen"
+    # deliberately: that row is the numbers, this is what they mean.
+    "the genome in plain words": "lab",
 }
 
 TOPICS = {
@@ -140,12 +143,14 @@ TOPICS = {
         "Specimen shelf status — an individual's genetics outlive the box",
         "Cell page status — the specimen readout is in three groups, and folds",
         "Roster status — every plant and every animal, as a list you click through",
+        "Plain-speech status — the genome read back as sentences",
     ],
     "creatures — worms and the ant colony": [
         "M18 status",
         "The ant colony — status",
         "Specimen shelf status — an individual's genetics outlive the box",
         "Roster status — every plant and every animal, as a list you click through",
+        "Plain-speech status — the genome read back as sentences",
     ],
     "structural collapse, felling and rigid bodies": [
         "M17 status",
@@ -238,6 +243,12 @@ TOPICS = {
     # either line has no reason to look under the lab for it.
     "finding one individual among all of them": [
         "Roster status — every plant and every animal, as a list you click through",
+    ],
+    # Listed under creatures and plants too: the brain half and the allele
+    # half are read by different lines, and neither has a reason to look
+    # under the lab for it.
+    "the genome in plain words": [
+        "Plain-speech status — the genome read back as sentences",
     ],
 }
 

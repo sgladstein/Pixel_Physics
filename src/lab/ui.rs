@@ -2692,7 +2692,22 @@ impl Ui {
         // a page whose groups all fit -- an ant's -- never folds at all, so
         // that page is exactly what it always was.
         let chosen = self.specimen_section.min(sections.len() - 1);
-        for i in std::iter::once(chosen).chain(0..sections.len()) {
+        // **The chosen group opens whether or not it fits, and that is a
+        // change.** The rule used to be `cost <= room` for every group
+        // including the chosen one, which reads as "serve it first" and is
+        // not: a group *larger than the whole budget* could never satisfy it,
+        // so clicking its heading did nothing at all, for ever. Nothing had
+        // hit it while the biggest group was eleven rows against a
+        // fourteen-row budget; `WORDS` is eighteen and hit it immediately.
+        //
+        // A group that overruns is trimmed by `fit_rows` at the end of this
+        // function, which prints how many rows it dropped -- so an oversized
+        // group is shown short and says so, rather than being silently
+        // unopenable. A heading that does nothing when clicked is the worse
+        // of the two by a long way.
+        open[chosen] = true;
+        room -= sections[chosen].2.len() as i32 * LINE;
+        for i in 0..sections.len() {
             let cost = sections[i].2.len() as i32 * LINE;
             if !open[i] && cost <= room {
                 open[i] = true;
@@ -4697,7 +4712,7 @@ fn draw_note(frame: &mut [u8], note: &str, avoid: Rect, row_y: i32, place: Note)
 /// Break `text` into lines of at most `columns` characters, on spaces. A word
 /// longer than the column count overruns rather than being split — most of
 /// them are numbers, and a number cut in half reads as two numbers.
-fn wrap_words(text: &str, columns: usize) -> Vec<String> {
+pub(crate) fn wrap_words(text: &str, columns: usize) -> Vec<String> {
     let mut lines: Vec<String> = Vec::new();
     for word in text.split_whitespace() {
         match lines.last_mut() {

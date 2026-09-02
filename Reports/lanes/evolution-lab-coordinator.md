@@ -286,14 +286,46 @@ reconstruct:
   colony: **mean 3.98–4.30 ms over 12,000 frames**, worst ~52–57 ms and **not
   pinned by the aggregate** (`mean x frames` is ~51,600 ms), so quote the mean.
 
-### Next, in order
+### The genome in words — landed, and what it overturned
 
-1. **The genome in words** — `brain::wiring_from_genome` already gives named
-   sparse instincts, so the phrasebook is the work. Note only **3 body traits
-   and the brain weights** are per-individual; `dig_force` and `sight_range`
-   are the *species'*, and a page that claims otherwise is lying.
-   `TRAIT_REPRODUCE_AT` is missing from `specimen_sections` today — two of
-   three are printed.
+README's *"Plain-speech status"* is the shipped behaviour. Three findings a
+later session cannot reconstruct:
+
+- **The two pheromone channels have no meaning in the engine, and assuming one
+  gets it backwards.** `brain.rs` describes A and B as two anonymous planes;
+  what a channel *means* is decided entirely by which weights emit onto it. The
+  first phrasebook hard-coded *"A is the food trail"* — and on the shipped ant
+  **every ant lays A all the time** (`Bias -> EmitA`), which pools it round the
+  nest, while **only a laden ant lays B** (`Carrying -> EmitB`), which marks
+  the way back from food. So A is the *home* scent and B is the *food* route,
+  the opposite way round. The label is now derived from the individual's own
+  emissions. **Anything else that reads a pheromone channel should derive its
+  meaning the same way** rather than writing it down.
+- **All of the ant's conditional behaviour is in the hidden layer, and none of
+  it is in the direct one.** Its twelve direct weights are unconditional; the
+  foraging loop is twelve hidden weights pairing a `Bias` offset against a
+  `Carrying` weight so the unit switches with the load. A reader that walks
+  only `Wiring::instincts` — which is the obvious thing to do, and what the
+  first version did — sees an ant that lays two scents and never follows
+  either. The pairs are push-pull (same condition wired twice with opposite
+  signs on sensor *and* output), so they collapse to one behaviour, not two.
+- **A fold group larger than the whole budget could never be opened**, in
+  `inspect_rows`. The rule was `cost <= room` for every group including the
+  chosen one, so clicking such a heading did nothing for ever. Latent since the
+  fold landed; nothing had hit it while the largest group was eleven rows
+  against fourteen.
+
+Also: `TRAIT_REPRODUCE_AT` had been **missing from `specimen_sections` since
+that group landed** — two of three body traits printed, and a page listing two
+numbers looks exactly like a page whose subject has two.
+
+**The phrase column is a hard constraint.** `page_rect` sizes the cell page to
+its widest row and clamps it onto the screen, so a long sentence widens the
+page and slides it over the roster — a thirty-character phrase hid three of
+eight columns. `PHRASE_COLUMNS = 26`, swept by
+`every_phrase_fits_the_column`. **Any future text on this page inherits that.**
+
+### Next, in order
 2. **The life record.** Tier 1's identity field is already in. Watch the three
    traps found in review: the `digs` mirror must stay **outside** the
    `spoil_kept()` gate at `creature.rs:2921`; `World::seeds_set` does not exist

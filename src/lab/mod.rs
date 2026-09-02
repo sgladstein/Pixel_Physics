@@ -34,6 +34,7 @@
 
 pub mod batch;
 pub mod params;
+pub mod plainspeak;
 pub mod roster;
 pub mod scene;
 pub mod stats;
