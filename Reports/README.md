@@ -85,6 +85,22 @@ by somebody about to try it on creatures.
 - [emergent-world-architecture.md](emergent-world-architecture.md) —
   **direction agreed.** Thin agents, rich world; the priority reshuffle; §8
   is where determinism was reversed to *required*.
+- [emergence-and-stigmergy-2026-09-02.md](emergence-and-stigmergy-2026-09-02.md)
+  — **research and synthesis; nothing built.** Stigmergy is a subset of
+  emergence, not a synonym — §4 sorts the shipped engine into which
+  mechanisms are which (fire and the structural count-to-infinity runaway
+  are emergent but not stigmergic), §5–§6 record what the stigmergic case
+  specifically required and taught the rest of the programme, and §7 flags
+  claimed-vs-verified gaps (tiger-bush banding is mechanically wired and
+  unlooked-at; the moisture-curvature construction channel is a documented
+  refutation). §8, added on request, turns the question forward: facilitative
+  (not just competitive) inter-organism stigmergy, response-threshold
+  division of labour, the predator-prey extinction result
+  `population-dynamics-research.md` already found and the beetle mechanism
+  doesn't yet trigger, ontogenetic plasticity as a third adaptation axis,
+  direct multi-agent flocking as a category the "agents never talk directly"
+  rule forecloses, and percolation (already found once, in fire spread,
+  never generalized) are all named as concrete unbuilt directions.
 - [documentation-audit.md](documentation-audit.md) — **executed
   2026-08-21/22.** What the docs told an agent that wasn't true, re-ranked
   for the agent consumer; carries the in-flight doc inventory, and the
