@@ -1,6 +1,11 @@
 # Ants
 
-*Current as of: 2026-09-02, when ants got eyes and a bill for using them,
+*Current as of: 2026-09-02, when a crowded ant started digging harder than a
+lonely one — so a colony hollows out a room whose size is set by how many of
+them there are — and when it was measured that the preference for unloading on
+uneven ground is about a tenth, not the threefold this page implied. Also
+2026-09-02: a living beetle and a living worm became things
+something else can eat, which neither had been. Earlier the same day, when ants got eyes and a bill for using them,
 when home stopped being a patch of ground painted under the colony before it
 arrived, and when a creature that steps back into its own body stopped
 quietly losing its head. Before that:
@@ -224,6 +229,23 @@ looking at the bank rather than at the ants to see it. But it is genuinely
 enclosed ground, with soil standing over the top of it, and that is the
 thing a slumping bank can never produce.
 
+**A crowd digs; an ant on its own barely does.** How hard an ant works at a
+face depends on how many other ants are pressed around it. Fifty of them in a
+small cavity means every one is cutting, so it opens out evenly and keeps a
+round shape; let the same cavity get big enough that those fifty are spread
+thin around its walls and the work slows. A room therefore stops growing once
+it has outgrown the colony that made it. Nobody set a size for a chamber — the
+size is however big a room that many ants can crowd into, and a colony of
+twelve leaves a hollow you could miss where fifty-two leaves one you cannot.
+
+**Half of that has arrived and half has not, and the half that has not is
+branching.** The rooms are rounder than they were, on every world tried, at the
+same amount of digging. But in a real nest a round chamber eventually sprouts
+side tunnels once the crowd around its walls thins out, and that does not
+happen here: count the passages leading off a chamber and it is the same number
+with this behaviour as without it. What is missing is anything that draws
+diggers *back* to a spot that has already been dug, and nothing does that yet.
+
 **Water is what takes it away.** Packed ground is grains pressed together,
 and wetting it past what it can hold turns it back into loose soil that
 falls like any other. A nest driven below the water table does not survive;
@@ -231,12 +253,23 @@ one that takes on standing water loses the wettest part — the shaft it came
 in by — and keeps the deeper galleries. Nothing else threatens a burrow, so
 staying dry is the whole of what a colony is defending.
 
-**They build without being told to.** An ant carrying something is more
-likely to put it down where the ground is drying out unevenly, and more
-likely to dig where it is damp. Nobody wrote a rule that says "build a
-wall". Walls, pillars and chambers are just what happens when a lot of ants
-follow that one preference in the same place — which is, as far as anyone
-can tell, how real termites do it too.
+**They build without being told to — and the preference is far weaker than
+this page used to say.** An ant carrying something is a little more likely to
+put it down where the ground is drying out unevenly, and a little less likely
+to cut into ground that is. Nobody wrote a rule that says "build a wall", and
+that part stands.
+
+But *a little* is the honest word, and getting to it took throwing out the
+measurement this page's old claim rested on. Compared against the whole depth of
+the bank, an ant looks three times as likely to unload on uneven ground — and
+that figure survives deleting the preference entirely, because it is measuring
+the fact that an ant stands on a **surface** and a surface is uneven, rather
+than anything the ant wants. Compared against where those same laden ants were
+standing and chose *not* to put anything down, which is the only fair
+comparison, the ground they pick is about a tenth steeper. That is real, and it
+is not enough to build a wall out of: walls, pillars and chambers are something
+this preference could in principle grow into rather than something you will
+watch happen.
 
 **Ants starve now, and a colony settles at a size instead of running down.**
 An ant carries a store of energy, spends it on standing still, walking and

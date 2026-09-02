@@ -6401,6 +6401,142 @@ mod tests {
         assert_eq!(leftovers, 0, "no orphaned ant cell may be left standing -- reconcile_chain is what stops that");
     }
 
+
+    /// **Something eats a living beetle, and until 2026-09-02 nothing could.**
+    ///
+    /// `assets/materials/beetle.ron` and `worm.ron` authored no `food_energy`
+    /// and no `food_class`, so both defaulted to 0.0: `food_value` returned 0,
+    /// `diet_yield` returned 0, and `is_visible_prey` was false **at every
+    /// point on the diet axis**. The predation mechanism is symmetric — a bite
+    /// is the `Feed` verb and `is_living_kin` is species identity — but the
+    /// shipped data was not, so predation ran one way only, the beetle eating
+    /// ants and nothing eating beetles.
+    /// `Reports/creature-genome-flexibility-2026-09-02.md` §11a, prerequisite
+    /// P1.
+    ///
+    /// **The acceptance is that something demonstrably eats one**, not that
+    /// the two fields exist, so this is a scene and not a field check.
+    ///
+    /// **And it is paired with the fault put back**, in the same test and the
+    /// same scene: the second arm zeroes `food_energy` on the material at
+    /// runtime and asserts the meal does not happen. Without that arm a green
+    /// here is evidence about the test rather than about the data — this is
+    /// `CLAUDE.md`'s *before you cite a guard's green, put the fault it is
+    /// named for back and watch it go red*, made a command instead of a
+    /// discipline.
+    ///
+    /// The chamber and the touching placement are inherited wholesale from
+    /// `a_predator_eats_a_creature_and_needs_no_predation_code_to_do_it`, and
+    /// for its reasons: on open ground the faster animal simply walks away
+    /// before the slower one's first decision, and whether a hunter can *find*
+    /// prey is a different question from whether eating one works.
+    ///
+    /// **The beetle is made a herbivore for the duration**, which is the only
+    /// deliberate difference from that test. A shipped beetle is a carnivore
+    /// and would be eating the ant at the same time, so an `eats` counter
+    /// would not say which direction the meal went. Turning its gut off leaves
+    /// exactly one animal in the chamber that can bite the other.
+    #[test]
+    fn an_ant_eats_a_living_beetle_and_cannot_when_beetle_flesh_is_worth_nothing() {
+        // Returns (beetle cells left, cells the ant took) after the run.
+        let arm = |flesh: Option<f32>| -> (usize, u64) {
+            let mut w = test_world();
+            for x in 92..112 {
+                w.set(x, 101, Cell::new(material::STONE, 0));
+                w.set(x, 96, Cell::new(material::STONE, 0));
+            }
+            for y in 96..102 {
+                w.set(92, y, Cell::new(material::STONE, 0));
+                w.set(111, y, Cell::new(material::STONE, 0));
+            }
+            let beetle_material = w.materials.id_of("beetle").expect("beetle");
+            if let Some(v) = flesh {
+                w.materials.get_mut(beetle_material).food_energy = v;
+            }
+            // A herbivore beetle cannot bite back; see the doc above.
+            set_gut(&mut w, "beetle", -1.0);
+            let ant = spawn(&mut w, "ant", 108, 100);
+            let beetle = spawn(&mut w, "beetle", 100, 100);
+            assert!(w.organism(ant).is_some() && w.organism(beetle).is_some(), "test setup: both animals must be placeable");
+
+            run(&mut w, 1200);
+
+            let left = (92..112)
+                .flat_map(|x| (96..102).map(move |y| (x, y)))
+                .filter(|&(x, y)| w.get(x, y).material == beetle_material)
+                .count();
+            (left, w.creature_stats.eats + w.creature_stats.pickups)
+        };
+
+        // **The fault put back first, so its number is not read after the
+        // fact.** `food_energy: 0.0` is precisely the state both these
+        // materials shipped in.
+        let (left_blind, took_blind) = arm(Some(0.0));
+        assert_eq!(left_blind, 4, "with beetle flesh worth nothing the 2x2 body must stand untouched -- if it does not, this scene is not testing what it claims");
+
+        // And the authored value, changing nothing else.
+        let (left_fed, took_fed) = arm(None);
+        assert!(
+            left_fed < 4,
+            "an ant standing against a beetle must be able to eat it: {left_fed} of 4 body cells still standing, against {left_blind} with the flesh worth nothing"
+        );
+        assert!(
+            took_fed > took_blind,
+            "and the flesh has to have gone through the food verb rather than vanishing some other way: {took_fed} taken against {took_blind} in the blind arm"
+        );
+    }
+
+    /// The same for a living worm, and it is not a copy for symmetry's sake:
+    /// the worm reaches `food_value` by a different route. It is the
+    /// pre-`CreatureDef` animal — `worm.ron`'s species file declares no
+    /// `creature:` block at all — so it has no `body_energy` to pin its flesh
+    /// price to, and `assets/materials/worm.ron` carries the world's flesh
+    /// price rather than a derivation. That makes "can anything actually eat
+    /// one" a question about a different code path, not the same one twice.
+    #[test]
+    fn an_ant_eats_a_living_worm_and_cannot_when_worm_flesh_is_worth_nothing() {
+        let arm = |flesh: Option<f32>| -> (usize, u64) {
+            let mut w = test_world();
+            for x in 92..112 {
+                w.set(x, 101, Cell::new(material::STONE, 0));
+                w.set(x, 96, Cell::new(material::STONE, 0));
+            }
+            for y in 96..102 {
+                w.set(92, y, Cell::new(material::STONE, 0));
+                w.set(111, y, Cell::new(material::STONE, 0));
+            }
+            let worm_material = w.materials.id_of("worm").expect("worm");
+            if let Some(v) = flesh {
+                w.materials.get_mut(worm_material).food_energy = v;
+            }
+            let ant = spawn(&mut w, "ant", 108, 100);
+            // `plant_worm_seed`, not `spawn`: there is no `CreatureDef` to
+            // place a worm from, which is the whole reason this species needs
+            // its own arm.
+            let site = plant_worm_seed(&mut w, 100, 100).expect("a worm should be placeable in open air");
+            w.schedule_active_site(site);
+            assert!(w.organism(ant).is_some(), "test setup: the ant must be placeable");
+
+            run(&mut w, 1200);
+
+            let left = (92..112)
+                .flat_map(|x| (96..102).map(move |y| (x, y)))
+                .filter(|&(x, y)| w.get(x, y).material == worm_material)
+                .count();
+            (left, w.creature_stats.eats + w.creature_stats.pickups)
+        };
+
+        let (left_blind, took_blind) = arm(Some(0.0));
+        assert_eq!(left_blind, 1, "with worm flesh worth nothing the worm must still be standing");
+
+        let (left_fed, took_fed) = arm(None);
+        assert_eq!(left_fed, 0, "an ant standing against a worm must be able to eat it: {left_fed} worm cells still standing");
+        assert!(
+            took_fed > took_blind,
+            "and it has to have gone through the food verb: {took_fed} taken against {took_blind} in the blind arm"
+        );
+    }
+
     /// Set one species' gut for the duration of a test.
     fn set_gut(w: &mut World, species: &str, bias: f32) {
         let id = w.species.id_of(species).expect("species");

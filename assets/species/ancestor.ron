@@ -711,7 +711,92 @@
             //
             // Ants dig. It does not need a reason in the world; it needs a
             // reason in the animal.
-            (Bias, Dig, 0.4),
+            // **Digging is density-dependent, which is where rooms come
+            // from.** Toffin et al. (*PNAS* 2009) dug ant nests in
+            // deliberately homogeneous 2D conditions and found the shape
+            // transition with every environmental confound removed: a large
+            // number of diggers relative to nest area gives *uniform*
+            // digging, because density along the initially small perimeter is
+            // high, so the cavity grows evenly and stays round; as it grows,
+            // density falls, and digging localizes into buds that become
+            // tunnels. `Reports/stigmergy-research.md` §5 and
+            // `Reports/creature-genome-flexibility-2026-09-02.md` §14.
+            //
+            // `BrainInput::Crowding` **is** that density -- creature cells
+            // within r=2 of the head over `CROWDING_SCALE` -- and until now it
+            // was wired to `Move` and to nothing else. So the room mechanism
+            // is one authored weight rather than a new channel, which is the
+            // same shape as an existing sense taking a second job.
+            //
+            // **The channel has the range this needs, measured before the
+            // weight was authored rather than assumed** (`burrow_probe
+            // arms=colony` prints it beside the shape columns): over 52 ants
+            // on a soil bank it reads mean **0.995 at spawn, then 0.887,
+            // 0.736, 0.712, 0.675** at frames 100/500/2,000/4,000, with the
+            // max pinned at 1.0 throughout. A lever wired to a channel with no
+            // range is this project's most-repeated failure and it is not this
+            // one.
+            //
+            // **`(Bias, Dig, 0.4)` becomes 0.15, and that is a re-derivation
+            // rather than a second change.** `CLAUDE.md`: a term in a weighted
+            // sum is not an independent knob -- changing what one term can
+            // express reallocates the whole sum. A bare positive weight would
+            // raise every ant's dig probability at once, and then
+            // "density-dependent digging" and "digging more" would be the same
+            // arm of the same experiment with nothing to tell them apart. The
+            // offset holds the dig *rate* where it was and spends the whole of
+            // the new weight on the *slope*.
+            //
+            // **It was first set to -0.02 from the colony mean of 0.70, and
+            // that was wrong by half.** Measured against its own ablation
+            // (`burrow_probe arms=colony ants=52 seeds=4 crowddig=0
+            // digbias=0.4`, the same binary and the same worlds), -0.02 cut
+            // digs from **518 to 317**. The colony mean is set by the scrum on
+            // the surface; an ant that has tunnelled into the bank is *alone
+            // in its gallery*, so a digger reads far less crowding than the
+            // colony does, and calibrating on the colony mean silently
+            // switched digging off at the face. Swept against a matched dig
+            // count instead:
+            //
+            //     (Bias, Dig)   digs over 4 seeds, 52 ants
+            //          0.4      518   <- ablated, the arm being matched
+            //         -0.02     317
+            //          0.10     467
+            //          0.15     499   <- shipped
+            //          0.20     450
+            //
+            // 0.15 implies a digging ant reads c ~= 0.42 rather than the
+            // colony's 0.70, which is the number the first attempt did not
+            // have. The endpoints it gives, at the lab bed's underground
+            // m = 0.006 so the `MoistureGrad` term below is the same -0.0033
+            // on both sides:
+            //
+            //     c = 1.00   squash(0.747) = 0.428   a scrum digs hard
+            //     c = 0.42   squash(0.397) = 0.284   unchanged from before
+            //     c = 0.10   squash(0.207) = 0.171   a thin crew slows
+            //     c = 0.00   squash(0.147) = 0.128   and never quite stops
+            //
+            // **What it buys, and it is the confident half.** Cavities are
+            // **rounder**: `burrow_probe`'s `circ` column, paired seed by seed
+            // against the ablated arm in the same binary, is up on **4 of 4
+            // seeds at 52 ants and 4 of 4 at 26** -- .402/.351/.337/.248
+            // against .292/.325/.276/.204 at 52. It is not the dig rate doing
+            // it: the same 4-of-4 holds at every offset in the sweep above,
+            // which spans 317 to 499 digs. And the positive control the model
+            // demands passes -- chamber size tracks colony size, mean cavity
+            // **4.2 -> 28.5 -> 54.5 cells** at 12/26/52 ants.
+            //
+            // **What it does not buy, reported as the null it is.** Buds do
+            // not move: 2 across 4 seeds at 52 ants in both arms, and 0 at 26
+            // in both. The branching half of Toffin's transition needs
+            // positive feedback -- a dug spot must attract more digging -- and
+            // density dependence alone does not supply it. The two candidates
+            // (dig-along-heading momentum through `Persist`, a trail into a
+            // bud) are deliberately **not** authored in the same change,
+            // because mixing them would make neither attributable. So this
+            // ships the chamber and leaves the warren unbuilt.
+            (Bias, Dig, 0.15),
+            (Crowding, Dig, 0.6),
             (FoodAdjacent, Dig, 0.8),
             // **Digging was `dig_urge * (1 - moisture_gradient)` in Rust** --
             // an inverse coefficient no lineage could alter, so every animal

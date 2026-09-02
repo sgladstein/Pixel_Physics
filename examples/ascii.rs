@@ -2324,6 +2324,47 @@ fn construction_scene() {
     for x in (20..220).step_by(4) {
         world.set(x, floor - 1, Cell::new(corpse, 0));
     }
+    // **The ablation, as a switch rather than as a `.ron` edit and a
+    // rebuild** -- the shape `PIXEL_PHYSICS_BURROW_LINING` and
+    // `PIXEL_PHYSICS_DIG_SPOIL` already use here, and the reason is the one
+    // `CLAUDE.md` gives after the `relax_region` night: *the control is to
+    // hold the semantic rule fixed, not to add another metric.* An A/B run by
+    // editing a species file is two binaries and two worlds; this is one
+    // binary and one edit to one genome slot.
+    //
+    // **The offset is not optional and it is not a second change.** Zeroing
+    // `(MoistureGrad, Drop, w)` alone does not remove a bias, it removes the
+    // whole drop probability: this scene has no nest, so `AtNest` is 0, and
+    // `squash(-0.2 + 0.2)` is exactly 0 -- measured, `drops 715 -> 0`. Folding
+    // the weight back in at the mean input the ants actually read (0.75, from
+    // the run below) leaves the *rate* where it was and takes away only the
+    // *dependence*, which is the arm this experiment needs.
+    // **Before the ants, and that is load-bearing.** `place_creature` copies
+    // the species genome into each animal at spawn, so a `set_genome` after
+    // the colony exists changes nothing at all -- written the other way round
+    // first, and the two arms came back **byte-identical**, which is
+    // `CLAUDE.md`'s standing tell for a change that must have moved something
+    // and did not.
+    let ablate = std::env::var("PIXEL_PHYSICS_DROP_MOISTURE").ok().and_then(|v| {
+        // `off` folds at the calibrated default; `off:0.9` overrides it. The
+        // fraction is a **calibration of the control**, not a result, and it
+        // is a knob rather than a literal because matching the rate has to be
+        // re-doable without a rebuild whenever the drop weights are re-authored.
+        let rest = v.strip_prefix("off")?;
+        Some(rest.strip_prefix(':').and_then(|f| f.parse::<f32>().ok()).unwrap_or(0.98))
+    });
+    if let Some(fold) = ablate {
+        use pixel_physics::sim::brain::{io_slot, BrainInput, BrainOutput};
+        let id = world.species.id_of("ant").expect("ant");
+        let mut g = world.species.get(id).genome.clone();
+        let slot = io_slot(BrainInput::MoistureGrad, BrainOutput::Drop);
+        let w_moist = g[slot];
+        g[slot] = 0.0;
+        g[io_slot(BrainInput::Bias, BrainOutput::Drop)] += w_moist * fold;
+        world.species.set_genome(id, g);
+        println!("  ABLATED: (MoistureGrad, Drop, {w_moist:.4}) folded into the bias at {fold} of its ceiling -- the dependence gone, the rate held");
+    }
+
     for i in 0..55 {
         world.plant_ant(22 + i * 3, floor - 2);
     }
@@ -2395,6 +2436,10 @@ fn construction_scene() {
     // enough above the flat half's own 0.1061 that a world where both
     // halves are merely damp cannot clear it.
     const MARGIN_BAR: f64 = 0.5;
+    /// **The bar the scene's headline claim is actually asserted on.** See the
+    /// five-arm table at the bottom of this function for where it comes from
+    /// and what to run before changing it.
+    const MATCHED_BAR: f64 = 1.03;
     let mut wet_sum = 0.0f64;
     let mut dry_sum = 0.0f64;
     let mut samples = 0u32;
@@ -2420,6 +2465,64 @@ fn construction_scene() {
     // mean is still printed, because what the ants do to the field afterwards
     // is the interesting half and this is the file where it gets read.
     let mut initial_margin = f64::NAN;
+
+    // **The matched control the standing guard does not have** -- §5e of
+    // `Reports/creature-genome-flexibility-2026-09-02.md`, built after the
+    // hypothesis in it was measured and confirmed.
+    //
+    // The `uphill` ratio below compares |grad m| at drop cells against a
+    // 12-row band. **Drops land where an ant is standing, which is a surface,
+    // and a surface is exactly where |grad m| is high**; the band average
+    // includes deep air and buried soil, both near zero. So ~3x is what
+    // "ants drop on surfaces" reads, with no contribution from the response
+    // coefficient at all -- and measured on this build across three arms it
+    // is exactly that: **2.96x shipped, 3.00x with `(MoistureGrad, Drop, w)`
+    // deleted outright, 3.59x with the coefficient present as a constant at
+    // its own ceiling.** The arm with the mechanism reads *lowest* of the
+    // three, which is its predecessor's failure over again.
+    //
+    // The reference set has to be **matched on the confound**, and the only
+    // set that is, is *where the ants themselves were*. An ant that is laden
+    // and standing somewhere had the option of dropping there and did not; if
+    // the coefficient does anything, the gradient where it *did* drop is
+    // higher than the gradient where it stood. Same animals, same surfaces,
+    // same phase of the weather -- the ratio divides all of it out and is 1.0
+    // when the bias is absent, which is a bar that can go red.
+    //
+    // **Drop sites are attributed rather than censused.** Standing corpse
+    // cells cannot be the numerator: this scene lays *corpse* as food and a
+    // dead ant also becomes corpse, so the old census counts every ant that
+    // starved on the floor as a deposit -- 44-48 deaths against 66 "standing
+    // drops". Instead the band is diffed frame by frame, and new corpse cells
+    // are credited to the drop verb only on frames where `deaths` did not
+    // move. Frames where both happened are discarded rather than guessed at.
+    let band = |x: i32, y: i32| (20..220).contains(&x) && ((floor - 12)..floor).contains(&y);
+    let corpse_set = |world: &World| -> std::collections::HashSet<(i32, i32)> {
+        (20..220)
+            .flat_map(|x| ((floor - 12)..floor).map(move |y| (x, y)))
+            .filter(|&(x, y)| world.get(x, y).material == corpse)
+            .collect()
+    };
+    // **Both the raw field gradient and the value the brain is actually
+    // handed**, because they are not the same number and only one of them can
+    // be quoted next to the old column. `creature::moisture_gradient` divides
+    // by `WORM_MOISTURE_SATURATION` and **clamps to 1.0**, and the shipped
+    // reading at drop cells is 3.99 on a 4.0 saturation -- i.e. pinned at the
+    // ceiling. A sense that is saturated everywhere its owner stands has no
+    // range to express a preference with, which is a finding about the channel
+    // rather than about the weight, and it is invisible in the raw column.
+    let raw_grad = |world: &World, x: i32, y: i32| -> f64 {
+        let gx = world.field_at_bilinear((x + 4) as f32, y as f32).moisture - world.field_at_bilinear((x - 4) as f32, y as f32).moisture;
+        let gy = world.field_at_bilinear(x as f32, (y + 4) as f32).moisture - world.field_at_bilinear(x as f32, (y - 4) as f32).moisture;
+        ((gx * gx + gy * gy).sqrt()) as f64
+    };
+    let mut prev_corpse = corpse_set(&world);
+    let (mut prev_drops, mut prev_deaths) = (0u64, 0u64);
+    let (mut event_grad, mut event_in, mut event_n) = (0.0f64, 0.0f64, 0u32);
+    let (mut stood_grad, mut stood_in, mut stood_n) = (0.0f64, 0.0f64, 0u32);
+    let mut ambiguous = 0u32;
+    let mut unattributed = 0u64;
+    let (mut paired_sum, mut paired_n, mut paired_up) = (0.0f64, 0u32, 0u32);
     run_colony_with(&mut world, 10000, |world, frame| {
         refill_spring(world);
         if frame % GRAD_SAMPLE_EVERY == GRAD_SAMPLE_EVERY - 1 {
@@ -2431,6 +2534,104 @@ fn construction_scene() {
             dry_sum += dry;
             samples += 1;
         }
+
+        let st = world.creature_stats;
+        let (d_drops, d_deaths) = (st.drops - prev_drops, st.deaths - prev_deaths);
+        prev_drops = st.drops;
+        prev_deaths = st.deaths;
+        let now = corpse_set(world);
+        if d_drops > 0 && d_deaths == 0 {
+            // **A new corpse cell in the band is not automatically a
+            // deposit, and the first version of this believed it was** --
+            // it credited 2,230 events against a `drops` counter reading
+            // 1,495, which is the tell that the numerator was counting
+            // something else. `corpse` is `kind: Powder`, so a deposit
+            // settles, and every cell it settles into reads as new.
+            //
+            // Two conditions, and both are needed. It must not be a cell
+            // something fell *into* -- nothing held corpse above it last
+            // frame, diagonals included, because `roll_along_slope` moves a
+            // powder sideways as well as down. And it must be within one
+            // cell of a live head, because that is where the drop verb puts
+            // a pellet (`act`: the first empty 8-neighbour).
+            //
+            // `credited` against `d_drops` is the pairing `CLAUDE.md`
+            // requires -- the near-side counter is the engine's own, the
+            // far-side one is this attribution, and the gap between them is
+            // printed rather than hidden.
+            let heads: Vec<(i32, i32)> =
+                world.live_organism_ids().iter().filter_map(|&id| world.organism(id).and_then(|st| st.chain.first().copied())).collect();
+            let mut credited = 0u64;
+            let mut frame_drop_grad = 0.0f64;
+            // **Sorted, because a `HashSet`'s iteration order is randomised
+            // per process and float addition is not associative.** Summed
+            // straight off `difference` these totals differ in their last bits
+            // between two runs of the *same binary*, which is a guard that can
+            // flake for no reason at all. The elements are set members, so
+            // there are no equal keys and no tie order to worry about.
+            let mut new_cells: Vec<(i32, i32)> = now.difference(&prev_corpse).copied().collect();
+            new_cells.sort_unstable();
+            for (x, y) in new_cells {
+                let fell = [(-1, -1), (0, -1), (1, -1)].iter().any(|&(dx, dy)| prev_corpse.contains(&(x + dx, y + dy)));
+                let by_ant = heads.iter().any(|&(hx, hy)| (hx - x).abs() <= 1 && (hy - y).abs() <= 1);
+                if fell || !by_ant {
+                    continue;
+                }
+                let g = raw_grad(world, x, y);
+                event_grad += g;
+                frame_drop_grad += g;
+                event_in += pixel_physics::sim::creature::moisture_gradient(world, x, y) as f64;
+                event_n += 1;
+                credited += 1;
+            }
+            unattributed += d_drops.abs_diff(credited);
+
+            // **The denominator is taken on the same frame as the numerator,
+            // and that is not tidiness.** `CLAUDE.md`'s rule for a channel
+            // that oscillates by design: this world's moisture is fed by
+            // weather and by a topped-up spring and drifts the whole length of
+            // the run -- the two arms of this experiment ended at a flat-half
+            // mean of 3.978 and 0.108. A numerator sampled on drop frames
+            // against a denominator sampled every 25th frame is two different
+            // phases of that drift as much as it is two different sets of
+            // cells. Sampled together, the phase cancels exactly.
+            //
+            // **And the headline is a sign test, not a difference of means.**
+            // Outcomes here have enormous spread, so "1.08x" over one run is a
+            // sample from a wide distribution; "the drop side was higher on
+            // 214 of 300 frames" is a claim about the same run that a wide
+            // distribution cannot manufacture. Under no bias it sits at half.
+            let mut laden = 0.0f64;
+            let mut laden_n = 0u32;
+            for id in world.live_organism_ids() {
+                let Some(state) = world.organism(id) else { continue };
+                if state.crop.is_none_or(|c| c.cells == 0) {
+                    continue;
+                }
+                let Some(&(hx, hy)) = state.chain.first() else { continue };
+                if !band(hx, hy) {
+                    continue;
+                }
+                let g = raw_grad(world, hx, hy);
+                laden += g;
+                stood_grad += g;
+                stood_in += pixel_physics::sim::creature::moisture_gradient(world, hx, hy) as f64;
+                stood_n += 1;
+                laden_n += 1;
+            }
+            if credited > 0 && laden_n > 0 {
+                let (dg, lg) = (frame_drop_grad / credited as f64, laden / laden_n as f64);
+                paired_sum += dg - lg;
+                paired_n += 1;
+                if dg > lg {
+                    paired_up += 1;
+                }
+            }
+        } else if d_drops > 0 {
+            ambiguous += d_drops as u32;
+        }
+        prev_corpse = now;
+
     });
 
     let water_after = count_water(&world);
@@ -2457,10 +2658,24 @@ fn construction_scene() {
     // The claim is "deposition follows the moisture gradient", so measure
     // that directly and as a ratio: the mean |grad moisture| *at the cells
     // ants actually dropped on*, against the mean over the whole band they
-    // could have dropped on. Bias present pushes drops uphill in gradient
-    // and the ratio rises above 1; bias absent scatters them at ambient and
-    // it sits at 1. A ratio also divides out the overall drop rate, which
-    // is the thing the broken build moved.
+    // could have dropped on.
+    //
+    // **That reasoning is right and this reference set is not, and it has now
+    // been measured rather than suspected** (§5e of
+    // `Reports/creature-genome-flexibility-2026-09-02.md`, which named the
+    // control; this is its result). Drops land where an ant is standing,
+    // which is a **surface**, and a surface is where |grad m| is high; the
+    // band average includes deep air and buried soil, both near zero. So the
+    // ratio reads ~3x for "ants drop on surfaces" with no contribution from
+    // the response coefficient at all. Across five arms of this binary it
+    // reads **2.96x shipped, 3.00x with the weight deleted outright, 3.59x
+    // with it folded into the bias at its ceiling** -- the arm carrying the
+    // mechanism reads *lowest of the three*, which is exactly the failure its
+    // own predecessor was replaced for.
+    //
+    // It stays **printed and unasserted**, as the thing that shows the trap --
+    // the same way `void` is kept beside `roofed` in `burrow_probe`. What
+    // replaced it as the claim is the matched pair below.
     let grad_at = |world: &World, x: i32, y: i32| -> f64 {
         let gx = world.field_at_bilinear((x + 4) as f32, y as f32).moisture - world.field_at_bilinear((x - 4) as f32, y as f32).moisture;
         let gy = world.field_at_bilinear(x as f32, (y + 4) as f32).moisture - world.field_at_bilinear(x as f32, (y - 4) as f32).moisture;
@@ -2507,6 +2722,25 @@ fn construction_scene() {
     println!("  moisture level at the end: steep mean {wet_mean:.3} peak {wet_peak:.3} | flat mean {dry_mean:.3} peak {dry_peak:.3}");
     println!("  material left standing: steep half {wet_drops}, flat half {dry_drops}");
     println!("  |grad moisture| at the {drop_n} standing drops {at_drops:.4} vs {ambient:.4} ambient over the band -- {uphill:.2}x");
+    // **The matched pair, and it is the one to read.** See its construction
+    // above for why the band version cannot answer the question.
+    let (drop_raw, stood_raw) = (event_grad / event_n.max(1) as f64, stood_grad / stood_n.max(1) as f64);
+    let (drop_input, stood_input) = (event_in / event_n.max(1) as f64, stood_in / stood_n.max(1) as f64);
+    let matched = if stood_raw > 0.0 { drop_raw / stood_raw } else { 0.0 };
+    let matched_input = if stood_input > 0.0 { drop_input / stood_input } else { 0.0 };
+    println!(
+        "  matched: |grad moisture| at {event_n} attributed drop events {drop_raw:.4} vs {stood_raw:.4} where {stood_n} laden ants stood -- {matched:.2}x\n           (of {} drops: {ambiguous} discarded for a death in the same frame, {unattributed} not matched to a cell)",
+        st.drops
+    );
+    println!(
+        "  ...and on the value the brain is handed (clamped at 1.0): {drop_input:.4} at drops vs {stood_input:.4} standing -- {matched_input:.2}x"
+    );
+    let paired_mean = paired_sum / paired_n.max(1) as f64;
+    let paired_share = paired_up as f64 / paired_n.max(1) as f64;
+    println!(
+        "  paired within frame: drop side higher on {paired_up} of {paired_n} frames ({:.1}%), mean lift {paired_mean:+.4}",
+        100.0 * paired_share
+    );
     // **The spring has to still be a spring**, checked before anything is
     // concluded from the field it feeds. This is the assertion bug H
     // actually needed: the old one asked whether the *gradient* was ordered,
@@ -2536,12 +2770,72 @@ fn construction_scene() {
     // which is what this whole area has just cost us once already, so it
     // does not stay as an assertion.
     //
-    // Its successor is the `uphill` ratio printed above, which does separate
-    // the two arms -- 4.97x with the bias against 2.84x without, on the same
-    // seed and the same frame count. It is **not** an assertion yet and that
-    // is deliberate: both arms stand on 6 and 18 standing drops, and a bar
-    // set from a ratio of six cells is exactly the knife-edge this scene has
-    // already been bitten by. What it needs first is more drops to average
-    // over, and that is blocked on the same thing the foraging scene is --
-    // ants that leave home at all. Recorded here rather than tuned away.
+    // Its successor was the `uphill` ratio printed above, on 6 and 18 standing
+    // drops, left unasserted because a bar set from a ratio of six cells is
+    // the knife-edge this scene has already been bitten by. **That caution was
+    // right and it was not enough: the ratio is not knife-edge, it is blind**
+    // -- see its own comment above for the five arms that settle it.
+    //
+    // **What the claim is asserted on now.** `matched` compares |grad
+    // moisture| at attributed drop *events* against |grad moisture| where
+    // laden ants were standing **on the same frames**. Both sets are ant
+    // positions, so "ants are on surfaces" divides out exactly; both are
+    // sampled simultaneously, so the weather phase divides out too
+    // (`CLAUDE.md`'s designed-oscillator rule -- the two arms below ended at
+    // flat-half moisture means of 3.978 and 4.000 and the drift between
+    // frames is larger than the effect). Under no bias it is 1.0 by
+    // construction rather than by tuning.
+    //
+    // **Measured on this build, one seed, `PIXEL_PHYSICS_DROP_MOISTURE`
+    // sweeping the fold that rate-matches the control:**
+    //
+    // | arm | drops | band ratio | **matched** | paired sign |
+    // |---|---|---|---|---|
+    // | **shipped** | **663** | 2.96x | **1.10x** | 45.3% |
+    // | ablated, fold 0.85 | 195 | 3.00x | 0.99x | 44.9% |
+    // | ablated, fold 0.90 | 514 | 3.00x | 0.84x | 45.5% |
+    // | ablated, fold 0.95 | 1513 | **5.16x** | 0.83x | 34.4% |
+    // | ablated, fold 0.98 | 1483 | 3.56x | 0.84x | 44.3% |
+    //
+    // Read the three numeric columns against each other, because they do not
+    // agree and only one of them is a guard:
+    //
+    // * **`matched` separates the arms and nothing else does.** Every ablated
+    //   arm reads under 1.0; the shipped arm reads 1.10x. **The four controls
+    //   are what make this a bar rather than a number**: the drop rate spans
+    //   195 to 1,513 across them and the sign never flips, so the separation
+    //   is not the rate. `fold 0.90` is the rate-matched one to quote.
+    // * **The band ratio is worse than useless, not merely weak.** Its best
+    //   score in the table belongs to an arm with the mechanism *deleted*
+    //   (5.16x), and the shipped arm is the lowest row in the column.
+    // * **The paired sign test did not survive its own re-measurement, and it
+    //   is printed rather than trusted.** On an earlier build it read 55.5%
+    //   shipped against 38.5% ablated and looked like the robust statistic
+    //   here -- a sign test's null is exactly half, which is a principled bar
+    //   rather than a fitted one. On this build all five arms sit at 34-46%
+    //   and it separates nothing. One seed of a chaotic colony is a sample
+    //   from a wide distribution (`CLAUDE.md`), and this is what that costs:
+    //   the statistic that looked principled was the one that moved.
+    //
+    // The bar is 1.03 -- above the null with headroom, and clear of the
+    // strongest control (0.99) by about as much as the shipped arm clears it
+    // (1.10). **It is a thin margin on one seed and that is stated rather
+    // than dressed up.** If it ever fires, the first thing to do is not to
+    // widen it: run `PIXEL_PHYSICS_DROP_MOISTURE=off:0.9` and read that arm.
+    // If the *ablated* arm also clears 1.03, the replacement has gone blind in
+    // its turn and wants replacing rather than retuning.
+    assert!(
+        event_n > 0,
+        "no drop was attributed to a cell, so the matched ratio is over nothing -- the numerator is broken, not the mechanism"
+    );
+    assert!(
+        stood_n > 0,
+        "no laden ant was ever sampled, so the ratio has no denominator: {} drops over {paired_n} crediting frames",
+        st.drops
+    );
+    assert!(
+        matched > MATCHED_BAR,
+        "deposition no longer follows the moisture gradient: |grad m| at {event_n} drop events {drop_raw:.4} against {stood_raw:.4} where laden ants stood -- {matched:.2}x, under the {MATCHED_BAR} bar. \
+         Run PIXEL_PHYSICS_DROP_MOISTURE=off:0.9 before touching this number: that arm measured 0.84x, and if it now clears the bar too then this guard has gone blind rather than the mechanism having broken."
+    );
 }
