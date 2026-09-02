@@ -1055,8 +1055,11 @@ fn colony_arm(seeds: u64, ants: i32, frames: u64, bud_k: f64, png: Option<&str>)
            `circ` (round -> ramified), `inradius` (how big the cavity is, and the column the
            colony-size control is read on) and `buds` (protrusions off it). `arms=selftest` prints
            what these read on shapes whose answer is known; do not read them without it.
-           `crowd` beside them is the `BrainInput::Crowding` distribution over the live colony --
-           the pre-check on whether a `(Crowding, Dig, w)` weight has any range to act on at all.
+           `crowd` beside them is the `BrainInput::Crowding` distribution over the live colony.
+           **Read p50 and p10, not the mean**: the input is clamped at 1.0, and a mean that looks
+           mid-range can sit under a median pinned at the ceiling -- which is what it does here, so
+           a mechanism about *low* density has no regime to act in. *Does it vary at all* and
+           *does it reach the regime the mechanism needs* are different questions.
            **It reads `over 0 ants` at frame 8,000 because the colony has starved by then**: there
            is no food in this bed, digging stops somewhere past frame 4,000, and the last stop is a
            frozen final state rather than a working nest. Read `crowd` at 500 and 2,000.
@@ -1276,19 +1279,39 @@ fn colony_arm(seeds: u64, ants: i32, frames: u64, bud_k: f64, png: Option<&str>)
         // project keeps paying for -- a lever wired to a channel with no
         // range. Read through `creature::probe`, the shipped function the
         // brain itself is fed, rather than a reimplementation of the scan.
-        let crowding = |world: &World| -> (f64, f64, usize) {
-            let (mut sum, mut max, mut n) = (0.0f64, 0.0f64, 0usize);
+        // **The whole distribution, not the mean and the max, and that
+        // correction is the reason this closure was rewritten.** The first
+        // version reported mean and max only, and answered *"is `Crowding` a
+        // dead channel?"* -- it passed, and that answer is real. But the
+        // mechanism it was built to test (Toffin's density-dependent digging)
+        // is about what happens when density falls **below a critical value**,
+        // and `Crowding` is `(crowd / crowd_scale).min(1.0)`: **clamped at
+        // 1.0**. A colony mean of 0.995 falling to 0.675 with the max pinned
+        // at 1.0 says the sensor spent the run in the top third of its range,
+        // so the regime the model is about may never have been entered -- and
+        // a mean cannot show that. `min`/`p10`/`p50` can.
+        //
+        // The general form, which is the transferable part: **an input that
+        // never leaves saturation cannot demonstrate a mechanism about its low
+        // end**, and "does it vary at all" is a different question from "does
+        // it reach the regime the mechanism requires". Asserting the *realised
+        // range* of a driving input is a precondition of the run, not a
+        // readout of it.
+        let crowding = |world: &World| -> (Vec<f64>, usize) {
+            let mut vals: Vec<f64> = Vec::new();
             for id in world.live_organism_ids() {
                 let Some(state) = world.organism(id) else { continue };
                 let Some(def) = world.species.get(state.species).creature.as_ref() else { continue };
                 let Some(&(hx, hy)) = state.chain.first() else { continue };
                 let (inputs, _, _) = pixel_physics::sim::creature::probe(world, hx, hy, id, def);
-                let c = inputs[pixel_physics::sim::brain::BrainInput::Crowding as usize] as f64;
-                sum += c;
-                max = max.max(c);
-                n += 1;
+                vals.push(inputs[pixel_physics::sim::brain::BrainInput::Crowding as usize] as f64);
             }
-            (if n > 0 { sum / n as f64 } else { 0.0 }, max, n)
+            let n = vals.len();
+            // Sorted for the order statistics. `f64` has no total order, so
+            // `total_cmp` rather than a `partial_cmp().unwrap()` that a NaN
+            // would panic on.
+            vals.sort_by(f64::total_cmp);
+            (vals, n)
         };
 
         // The sheet is written for the first seed only: it is there to show
@@ -1350,10 +1373,20 @@ fn colony_arm(seeds: u64, ants: i32, frames: u64, bud_k: f64, png: Option<&str>)
                 // fifteen wide, and a number nobody can find is a number
                 // nobody reads.
                 let shape = roofed_void_shape(&world, (bank_x0, bank_x1), (bank_y0, bank_y1), bud_k);
-                let (crowd_mean, crowd_max, live) = crowding(&world);
+                let (crowd, live) = crowding(&world);
+                let at = |q: f64| crowd.get(((crowd.len() as f64 - 1.0) * q).round() as usize).copied().unwrap_or(0.0);
+                let mean = if live > 0 { crowd.iter().sum::<f64>() / live as f64 } else { 0.0 };
                 println!(
-                    "         chamber: {:>5} cells  circ {:>5.3}  inradius {:>5.2}  buds {:>3}   |   crowd mean {crowd_mean:.3} max {crowd_max:.3} over {live} ants",
+                    "         chamber: {:>5} cells  circ {:>5.3}  inradius {:>5.2}  buds {:>3}",
                     shape.cells, shape.circularity, shape.inradius, shape.buds
+                );
+                println!(
+                    "         crowd over {live} ants: min {:.3}  p10 {:.3}  p50 {:.3}  mean {mean:.3}  p90 {:.3}  max {:.3}   (clamped at 1.0)",
+                    at(0.0),
+                    at(0.10),
+                    at(0.50),
+                    at(0.90),
+                    at(1.0)
                 );
                 // The distribution, at the last stop only. `comps`/`largest`
                 // are order statistics over it and cannot say whether the
