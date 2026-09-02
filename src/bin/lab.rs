@@ -315,6 +315,16 @@ impl Handler {
         }
     }
 
+    /// Zoom a step about the middle of the screen, no wider than the box.
+    ///
+    /// One place, because the wheel and the key pair are the same control and
+    /// a second spelling of it is a second thing to keep in step -- the two
+    /// call sites were already `adjust_zoom` twice over.
+    fn zoom(&mut self, delta: i32) {
+        let bounds = self.lab.world.bounds();
+        self.lab.renderer.zoom_within(delta, (WIDTH, HEIGHT), bounds);
+    }
+
     fn key(&mut self, event_loop: &ActiveEventLoop, code: KeyCode, pressed: bool) {
         // Held state first, and only `WASD` — the arrow keys drive the dial,
         // so a pan reading of them would scroll the view every time the
@@ -443,8 +453,12 @@ impl Handler {
             // the help page; clippy caught the collision, which is the only
             // reason this is not a silent one.
             KeyCode::KeyK => self.lab.act(Action::Tool(Tool::Wall)),
-            KeyCode::BracketLeft => self.lab.act(Action::Brush(-1)),
-            KeyCode::BracketRight => self.lab.act(Action::Brush(1)),
+            // **The same two keys the two cells under them carry**, which is
+            // the whole point of the cells being shared: `[` and `]` are
+            // printed on that pair whichever tool is armed, so the key has to
+            // mean what the button means or the printed caption is a lie.
+            KeyCode::BracketLeft => self.lab.act(self.lab.dial_step(-1)),
+            KeyCode::BracketRight => self.lab.act(self.lab.dial_step(1)),
             KeyCode::KeyO => self.lab.act(Action::CycleOverlay),
             // The organism overlay keeps the sandbox's `L` and stays off the
             // bar: its channels are plant-internal scalars with names up to
@@ -480,8 +494,13 @@ impl Handler {
             KeyCode::KeyF => self.lab.time.cycle_display_rate(),
             KeyCode::Tab => self.lab.act(Action::Stats),
             KeyCode::KeyR => self.lab.act(Action::Reset),
-            KeyCode::Minus => self.lab.renderer.adjust_zoom(-1),
-            KeyCode::Equal => self.lab.renderer.adjust_zoom(1),
+            // **`zoom_within`, not `adjust_zoom`.** The box is smaller than
+            // the widest view the renderer offers, so the plain control zooms
+            // out past it and leaves the lab in a corner of a black screen --
+            // and it zooms about the origin rather than about what you are
+            // looking at. See `Renderer::zoom_within`.
+            KeyCode::Minus => self.zoom(-1),
+            KeyCode::Equal => self.zoom(1),
             _ => {}
         }
     }
@@ -569,7 +588,7 @@ impl ApplicationHandler for Handler {
                     MouseScrollDelta::LineDelta(_, y) => y > 0.0,
                     MouseScrollDelta::PixelDelta(p) => p.y > 0.0,
                 };
-                self.lab.renderer.adjust_zoom(if up { 1 } else { -1 });
+                self.zoom(if up { 1 } else { -1 });
             }
             WindowEvent::ModifiersChanged(m) => self.shift = m.state().shift_key(),
             WindowEvent::KeyboardInput { event, .. } => {

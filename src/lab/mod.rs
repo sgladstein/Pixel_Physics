@@ -1185,6 +1185,16 @@ impl Lab {
             || self.show_help
             // A chamber switch. See `Lab::view_dirty`.
             || std::mem::take(&mut self.view_dirty);
+        // **Hold the view inside the box, here rather than at every place the
+        // box can change.** The zoom limit is the current world's height
+        // (`Renderer::zoom_within`), and the world is replaced by a rebuild, a
+        // chamber switch and a re-run of an on-record row -- three call sites
+        // today and a fourth whenever the rack grows a verb. A zero-step zoom
+        // is the identity while the box has not changed shape (the centre it
+        // takes out is the centre it puts back), so the cheap thing to do is
+        // re-apply it every frame and let no path have to remember.
+        let bounds = self.world.bounds();
+        self.renderer.zoom_within(0, (WIDTH, HEIGHT), bounds);
         let touched = self.world.take_touched_chunks();
         self.renderer.draw(
             &self.world,
@@ -1199,7 +1209,7 @@ impl Lab {
         // own table rather than written down here — a chip that named a
         // species while explaining a different one is the stale side table
         // `ui::Spec::note` was made owned to avoid.
-        let (species, species_note) = self.selected_species();
+        let (species, species_note) = self.chip_species();
         // The jar chip's face and its explanation, for the species chip's
         // reason and by the same route: read out of the loaded rack rather
         // than remembered here.
@@ -1229,6 +1239,7 @@ impl Lab {
             species: &species,
             species_note: &species_note,
             brush: self.ui.brush(),
+            stock: self.ui.stock(),
             overlay: self.renderer.field_overlay.label(),
             jar: &jar,
             jar_note: &jar_note,
@@ -1397,19 +1408,9 @@ impl Lab {
     fn use_tool(&mut self, at: (i32, i32)) {
         let (x, y) = at;
         match self.ui.tool() {
-            ui::Tool::Look => self.ui.inspect(at),
+            ui::Tool::Look => self.ui.inspect(&self.world, at),
             ui::Tool::Plant => self.plant_at(x, y),
-            ui::Tool::Colony => {
-                let (species, ants) = (self.spec.colony_species.clone(), self.spec.colony_ants);
-                let placed = self.world.found_colony_of(x, y, &species, ants);
-                // The count, not just the picture: an ant is two dark cells at
-                // play zoom, and a colony that placed nothing looks exactly
-                // like one you have not found yet.
-                self.ui.say(match placed {
-                    0 => "NO ROOM FOR A COLONY HERE".to_string(),
-                    n => format!("COLONY OF {n} RELEASED"),
-                });
-            }
+            ui::Tool::Colony => self.stock_at(x, y),
             ui::Tool::Cull => self.cull_at(x, y),
             ui::Tool::Release => self.release_at(x, y),
             ui::Tool::Wall => self.wall_at(x),
@@ -1417,6 +1418,81 @@ impl Lab {
             // release that also painted would double the last dab.
             ui::Tool::Soil | ui::Tool::Water | ui::Tool::Food => {}
         }
+    }
+
+    /// Which dial the shared `[`/`]` pair is driving right now.
+    ///
+    /// The bar's two arrow cells change meaning with the armed tool (see
+    /// `ui::layout`), and the keys printed on them have to change with them --
+    /// a caption that says `[` while the key does something else is worse than
+    /// no caption. One function so the two cannot disagree.
+    pub fn dial_step(&self, delta: i32) -> ui::Action {
+        if self.ui.tool().is_stocking() {
+            ui::Action::Stock(delta)
+        } else {
+            ui::Action::Brush(delta)
+        }
+    }
+
+    /// **Put animals in the box at `(x, y)`** — one, or a colony, from the
+    /// species chip and the stock dial.
+    ///
+    /// The two are genuinely different placements rather than the same one
+    /// repeated, which is why the dial's bottom stop is its own branch:
+    ///
+    /// - **One** goes exactly where you clicked, with no nest. It is what
+    ///   *"I need to be able to add a beetle manually"* asks for, and a nest
+    ///   patch under a single animal would lay a scent gradient home to a
+    ///   colony that does not exist.
+    /// - **A colony** gets the patch of nest and the band along the ground
+    ///   either side of the click, because without a nest there is no
+    ///   gradient and nobody forages -- the thing `Tool::Colony`'s own note
+    ///   has always said.
+    fn stock_at(&mut self, x: i32, y: i32) {
+        let (species, _) = self.selected_animal();
+        let lower = species.to_lowercase();
+        let n = self.ui.stock();
+        if n <= 1 {
+            let placed = self.stock_one(x, y, &lower);
+            self.ui.say(match placed {
+                // The count, not just the picture: an ant is two dark cells at
+                // play zoom, and a placement that put nothing down looks
+                // exactly like one you have not found yet.
+                Some(at) => format!("{species} RELEASED AT {},{}", at.0, at.1),
+                None => format!("NO ROOM FOR A {species} HERE"),
+            });
+            return;
+        }
+        let placed = self.world.found_colony_of(x, y, &lower, n);
+        self.ui.say(match placed {
+            0 => format!("NO ROOM FOR A COLONY OF {species} HERE"),
+            k => format!("COLONY OF {k} {species} RELEASED"),
+        });
+    }
+
+    /// Put **one** animal down at `(x, y)`, and say where it landed.
+    ///
+    /// `plant_at`'s rule and `plant_at`'s reason: a click that lands *in* the
+    /// ground is aiming at the ground rather than at the air above it, so it
+    /// walks up to the first cell the body fits in. A click in mid-air is
+    /// honest and the animal falls -- gravity is part of a creature's own
+    /// tick, which is why it has to be scheduled and why
+    /// `release_creature_specimen` failing to do that read as *"stuck in
+    /// midair"*.
+    ///
+    /// It walks up until the **body** fits rather than until the clicked cell
+    /// is empty, because they are not the same test: a beetle is a 2x2 block
+    /// and the first free cell above the soil is one cell of the four.
+    fn stock_one(&mut self, x: i32, y: i32, species: &str) -> Option<(i32, i32)> {
+        let mut site = y;
+        for _ in 0..MAX_PLANT_LIFT {
+            if let Some(s) = crate::sim::creature::plant_creature_seed(&mut self.world, x, site, species) {
+                self.world.schedule_active_site(s);
+                return Some((x, site));
+            }
+            site -= 1;
+        }
+        None
     }
 
     /// Drop a wall in column `x`, or take out the one already there.
@@ -1518,6 +1594,81 @@ impl Lab {
             self.world.mark_organism_senescent(id);
             self.ui.say(format!("CULLED {name} - {cells} CELLS LEFT TO ROT"));
         }
+    }
+
+    /// **What the species chip says, for whichever tool is armed.**
+    ///
+    /// One chip, because it answers one question -- *what is this click about
+    /// to put in the box* -- and the answer is a plant under `PLANT` and an
+    /// animal under the two stocking verbs. The bar has no room for a second
+    /// chip (`the_bar_fits_the_screen_and_no_two_widgets_overlap`), and a
+    /// second one would be a control that is meaningless under five of the
+    /// seven tools.
+    fn chip_species(&self) -> (String, String) {
+        if self.ui.tool().is_stocking() {
+            self.selected_animal()
+        } else {
+            self.selected_species()
+        }
+    }
+
+    /// The animal the stocking verbs put in: its name, and the chip's line.
+    ///
+    /// **Read off `spec.colony_species`, which is the one store.** It was a
+    /// rebuild-only knob with no editor at all -- a `String`, so the
+    /// parameters page (which moves numbers) could not reach it -- and the
+    /// tool read it without any way to change it. So the chip is that
+    /// editor, and a rebuild founds whatever you last stocked by hand rather
+    /// than disagreeing with the tool about which animal this box is running.
+    fn selected_animal(&self) -> (String, String) {
+        let stockable = ui::stockable_species(&self.world);
+        let Some(id) = self
+            .world
+            .species
+            .id_of(&self.spec.colony_species)
+            .filter(|id| stockable.contains(id))
+            .or_else(|| stockable.first().copied())
+        else {
+            return ("NONE".to_string(), "NO ANIMAL SPECIES IS LOADED.".to_string());
+        };
+        let species = self.world.species.get(id);
+        let name = species.name.to_uppercase();
+        // Two numbers off the species, for `selected_species`' reason: two
+        // animals are the same handful of dark cells on screen, so a name
+        // alone does not say what you are about to release into the box.
+        let (start_energy, body) = species
+            .creature
+            .as_ref()
+            .map(|c| (c.start_energy, c.body.offsets(false).len()))
+            .unwrap_or((0.0, 0));
+        let note = format!(
+            "WHICH ANIMAL THE COLONY TOOL AND A JAR RELEASE PUT IN, AND WHAT A REBUILD FOUNDS. CLICK TO CYCLE. {name}: {body} CELLS OF BODY, STARTING ON {start_energy:.0} ENERGY. HOW MANY GO IN IS THE STOCK DIAL TO THE RIGHT -- AT 1 IT IS ONE ANIMAL AND NO NEST."
+        );
+        (name, note)
+    }
+
+    /// Step the stocking chip to the next animal in the table.
+    ///
+    /// Written back to `spec.colony_species` rather than held as an index,
+    /// for `selected_animal`'s reason: one store. An unknown name -- a spec
+    /// carrying a species this build no longer has -- lands on the first
+    /// animal rather than refusing, which is the same wrap-at-use rule the
+    /// plant chip's index follows.
+    fn next_animal(&mut self) {
+        let stockable = ui::stockable_species(&self.world);
+        if stockable.is_empty() {
+            return;
+        }
+        let here = self
+            .world
+            .species
+            .id_of(&self.spec.colony_species)
+            .and_then(|id| stockable.iter().position(|s| *s == id));
+        let next = match here {
+            Some(i) => (i + 1) % stockable.len(),
+            None => 0,
+        };
+        self.spec.colony_species = self.world.species.get(stockable[next]).name.to_string();
     }
 
     /// The selected plantable species: its name in the bar's uppercase, and
@@ -1674,6 +1825,20 @@ impl Lab {
                 self.ui.set_tool(tool);
                 self.ui.say(format!("TOOL {}", self.ui.tool().label()));
             }
+            // **The chip cycles whichever kingdom the armed tool stocks.** A
+            // stocking tool is armed, so `.` walks the animals and arms
+            // `COLONY`; anything else walks the plants and arms `PLANT`.
+            ui::Action::NextSpecies if self.ui.tool().is_stocking() => {
+                self.next_animal();
+                let (name, _) = self.selected_animal();
+                // Only `COLONY` -- arming `RELEASE` needs a jar, and a chip
+                // click that armed a verb with nothing to place would be a
+                // tool that refuses on its next click.
+                if self.ui.tool() == ui::Tool::Colony {
+                    self.ui.arm_tool(ui::Tool::Colony);
+                }
+                self.ui.say(format!("STOCKING {name}"));
+            }
             ui::Action::NextSpecies => {
                 self.ui.next_species();
                 let (name, _) = self.selected_species();
@@ -1692,6 +1857,16 @@ impl Lab {
             ui::Action::Brush(delta) => {
                 self.ui.adjust_brush(delta);
                 self.ui.say(format!("BRUSH R{}", self.ui.brush()));
+            }
+            ui::Action::Stock(delta) => {
+                self.ui.adjust_stock(delta);
+                let n = self.ui.stock();
+                // The count *and* what it means, because 1 and 2 are one step
+                // apart on the dial and two different mechanics in the box.
+                self.ui.say(match n {
+                    1 => "STOCK 1 -- ONE ANIMAL, NO NEST".to_string(),
+                    n => format!("STOCK {n} -- A COLONY, WITH A NEST"),
+                });
             }
             ui::Action::CycleOverlay => {
                 self.renderer.cycle_field_overlay();
@@ -1959,37 +2134,82 @@ impl Lab {
             return;
         };
         let broods = self.ui.broods();
-        // A seed is a falling powder and a body needs its cells free, so a
-        // click that lands *in* the ground walks up to the first empty cell
-        // above it -- `plant_at`'s rule, for `plant_at`'s reason.
-        let mut site = y;
-        for _ in 0..MAX_PLANT_LIFT {
-            if self.world.is_empty(x, site) {
-                break;
+        let name = jar.name.to_uppercase();
+        let what = jar.genetics.kingdom();
+        let n = self.ui.stock();
+
+        // **One, or a whole colony of it** — the stock dial, the same one
+        // `COLONY` reads. Owner: *"you should also have the option for
+        // placing 1 or a whole colony, also a whole colony of clones versus a
+        // colony with genetic spread based on the selected creature."*
+        //
+        // The second half of that is the **brood dial**, which was already
+        // here and needed nothing new: at 0 broods every individual is the
+        // same exact animal, and above it each one drifts on its own stream,
+        // so a colony released at 1 brood is a colony of siblings rather than
+        // a colony of copies. Two dials, four outcomes, and no third control.
+        let sites: Vec<(i32, i32)> = if n <= 1 {
+            // A seed is a falling powder and a body needs its cells free, so
+            // a click that lands *in* the ground walks up to the first empty
+            // cell above it -- `plant_at`'s rule, for `plant_at`'s reason.
+            let mut site = y;
+            for _ in 0..MAX_PLANT_LIFT {
+                if self.world.is_empty(x, site) {
+                    break;
+                }
+                site -= 1;
             }
-            site -= 1;
-        }
-        // **Its own stream, keyed on the frame and the release point.** The
-        // dial's draws must not come out of a generator the world goes on
-        // using -- `brain::mutate` takes a variable number of them, so the
-        // sweep's own draws would shift by an amount that depends on how
-        // many slots happened to mutate.
-        let mut rng = crate::sim::rng::stream(self.world.seed, x as u64, site as u64, self.world.frame);
-        match specimen::release(&mut self.world, &jar, x, site, broods, &mut rng) {
-            Ok(out) => {
-                let what = jar.genetics.kingdom();
-                let name = jar.name.to_uppercase();
-                // **The slots the dial actually moved, beside the picture.**
-                // A clone and a four-brood release are two dark cells either
-                // way at play zoom, and only the number says which one just
-                // happened.
-                self.ui.say(match out.moved {
-                    0 => format!("RELEASED {name} -- AN EXACT {what}"),
-                    n => format!("RELEASED {name} -- {} BROODS, {n} GENOME SLOTS MOVED", broods),
-                });
+            vec![(x, site)]
+        } else {
+            // Laid out exactly the way a founded colony is, through the same
+            // function -- see `World::colony_stations` for why that is one
+            // function and not two. The nest is for animals only: a stand of
+            // released seeds is not a colony and has no home to walk to.
+            let species_id = self.world.species.id_of(&jar.species);
+            let animal = species_id.is_some_and(|id| self.world.species.get(id).creature.is_some());
+            if animal {
+                self.world.paint_nest_patch(x, y);
             }
-            Err(e) => self.ui.say(e.say()),
+            match species_id {
+                Some(id) => self.world.colony_stations(x, y, id, n),
+                None => Vec::new(),
+            }
+        };
+
+        let mut placed = 0;
+        let mut moved = 0;
+        let mut refusal = None;
+        for (sx, sy) in sites {
+            // **Its own stream per individual, keyed on the frame and the
+            // release point.** Two reasons, and the second is the whole of
+            // the spread: the dial's draws must not come out of a generator
+            // the world goes on using (`brain::mutate` takes a variable
+            // number of them, so the sweep's own draws would shift by an
+            // amount that depends on how many slots happened to mutate); and
+            // a colony drawing from one stream per *station* is a colony
+            // whose members drift independently, which is what makes the
+            // spread a spread rather than one mutation applied fifty times.
+            let mut rng = crate::sim::rng::stream(self.world.seed, sx as u64, sy as u64, self.world.frame);
+            match specimen::release(&mut self.world, &jar, sx, sy, broods, &mut rng) {
+                Ok(out) => {
+                    placed += 1;
+                    moved += out.moved;
+                }
+                Err(e) => refusal = Some(e),
+            }
         }
+
+        // **The slots the dial actually moved, beside the picture.** A clone
+        // and a four-brood release are two dark cells either way at play
+        // zoom, and only the number says which one just happened.
+        self.ui.say(match (placed, refusal) {
+            (0, Some(e)) => e.say(),
+            (0, None) => format!("NO ROOM TO RELEASE {name} HERE"),
+            (1, _) if moved == 0 => format!("RELEASED {name} -- AN EXACT {what}"),
+            (1, _) => format!("RELEASED {name} -- {broods} BROODS, {moved} GENOME SLOTS MOVED"),
+            (k, _) if moved == 0 => format!("RELEASED {k} OF {name} -- EVERY ONE AN EXACT {what}"),
+            (k, _) => format!("RELEASED {k} OF {name} -- {broods} BROODS EACH, {moved} GENOME SLOTS MOVED IN ALL"),
+        });
     }
 
     /// **Breed the armed jar on the shelf**, without releasing it.
@@ -3025,6 +3245,98 @@ mod tests {
         (dir, guard)
     }
 
+    /// **A clicked animal stays clicked while it walks.** Owner, from play:
+    /// *"once a creature is selected to see the stats, they should stay
+    /// selected. The selection is currently positional in the lab, but the
+    /// creature moves and is immediately unselected, unless time is paused."*
+    ///
+    /// Asserted on the **individual the page is on**, not on the coordinate:
+    /// the coordinate is *supposed* to change, and a test that pinned it would
+    /// fail for the fix and pass for the bug.
+    #[test]
+    fn a_walking_animal_stays_selected() {
+        let mut lab = Lab::new(scene::LabBox { founders: 0, colonies: 0, ..scene::LabBox::default() });
+        lab.show_help = false;
+        let (fx, fy) = bench_cell(&lab);
+        // Through `found_colony_of` rather than a bare seed, because an ant
+        // with no nest to walk home to has no gradient to walk up and this
+        // test needs one that actually goes somewhere.
+        assert!(lab.world.found_colony_of(fx, fy, "ant", 8) > 0, "the harness founded no colony");
+        // Found through the organism table rather than by guessing a cell:
+        // where a colony lays its ants down is `colony_ant_site`'s business
+        // and not a thing this test should encode.
+        let id = *lab
+            .world
+            .live_organism_ids()
+            .iter()
+            .find(|id| {
+                lab.world
+                    .organism(**id)
+                    .is_some_and(|s| lab.world.species.get(s.species).creature.is_some())
+            })
+            .expect("the colony put an animal in the organism table");
+        let at = lab
+            .world
+            .organism(id)
+            .expect("live ant")
+            .cells
+            .keys()
+            .copied()
+            .min_by_key(|(x, y)| (*y, *x))
+            .expect("an ant has cells");
+
+        lab.act(ui::Action::Tool(ui::Tool::Look));
+        lab.use_tool(at);
+        assert_eq!(lab.ui.inspecting(), Some(at), "the click did not open the cell page");
+        assert_eq!(lab.ui.inspected_organism(), Some(id), "the page did not latch onto the animal in the cell");
+
+        // Run the box until the ant has left the cell it was clicked in. This
+        // is the state the bug is about, so a run that never reaches it would
+        // make the assertion below vacuous.
+        lab.act(ui::Action::TogglePhase);
+        let mut walked = false;
+        for _ in 0..600 {
+            lab.advance(std::time::Duration::from_millis(16));
+            lab.ui.follow_inspected(&lab.world);
+            if lab.world.get(at.0, at.1).organism_id() != id {
+                walked = true;
+                break;
+            }
+        }
+        assert!(walked, "the ant never left the cell it was clicked in, so this run cannot answer the question");
+
+        assert_eq!(lab.ui.inspected_organism(), Some(id), "the page dropped the animal the moment it moved");
+        let now = lab.ui.inspecting().expect("the page is still open");
+        assert_eq!(
+            lab.world.get(now.0, now.1).organism_id(),
+            id,
+            "the page followed to {now:?}, which is not a cell of the animal it is open on"
+        );
+        assert_ne!(now, at, "the page did not move at all, so it is not following anything");
+    }
+
+    /// The other half: what the page does when the thing it is following
+    /// dies. It keeps the **cell** and drops the animal, because a corpse is
+    /// what is there now and the cell page's job is to say what is there.
+    #[test]
+    fn a_selected_animal_that_dies_leaves_the_page_on_the_cell() {
+        let mut lab = Lab::new(scene::LabBox { founders: 0, colonies: 0, ..scene::LabBox::default() });
+        lab.show_help = false;
+        let (fx, fy) = bench_cell(&lab);
+        crate::sim::creature::plant_creature_seed(&mut lab.world, fx + 10, fy, "ant").expect("an ant hatches");
+        let at = (fx + 10, fy);
+        let id = lab.world.get(at.0, at.1).organism_id();
+        assert_ne!(id, 0);
+        lab.act(ui::Action::Tool(ui::Tool::Look));
+        lab.use_tool(at);
+        assert_eq!(lab.ui.inspected_organism(), Some(id));
+
+        lab.world.free_organism(id);
+        lab.ui.follow_inspected(&lab.world);
+        assert_eq!(lab.ui.inspecting(), Some(at), "the page moved off the cell when the animal died");
+        assert_eq!(lab.ui.inspected_organism(), None, "the page is still following a dead handle");
+    }
+
     /// **Keep an ant, free it, and check the released animal is the one that
     /// was kept** — through `Lab`'s own verbs rather than through
     /// `sim::specimen`, so the tool routing, the naming, the shelf write and
@@ -3061,6 +3373,140 @@ mod tests {
         let state = lab.world.organism(freed).expect("the freed ant");
         assert_eq!(state.genome, genome, "the freed ant is not carrying the kept genome");
         assert!(state.stocked, "the freed ant is not flagged as coming off the shelf");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// **A beetle can be put in the box by hand.** Owner: *"I need to be able
+    /// to add a beetle manually."*
+    ///
+    /// Three animals have shipped in the species table for as long as the lab
+    /// has existed and exactly one of them -- the ant -- could be placed:
+    /// `COLONY` read `spec.colony_species`, which is a `String` and therefore
+    /// had no editor on a parameters page that moves numbers. The species chip
+    /// is that editor.
+    ///
+    /// Asserted on the **species that arrived**, not on the chip's face: a
+    /// chip that cycles and a tool that ignores it would pass any test of the
+    /// face alone, and that is exactly the shape of the bug being fixed.
+    #[test]
+    fn the_stocking_chip_puts_the_animal_it_names_in_the_box() {
+        let mut lab = Lab::new(scene::LabBox { founders: 0, colonies: 0, ..scene::LabBox::default() });
+        lab.show_help = false;
+        lab.act(ui::Action::Tool(ui::Tool::Colony));
+        // Down to one animal, which is the case the owner asked for and also
+        // the one that makes the assertion below unambiguous.
+        while lab.ui.stock() > 1 {
+            lab.act(ui::Action::Stock(-1));
+        }
+        assert_eq!(lab.ui.stock(), 1);
+
+        // Cycle to the beetle rather than writing the spec directly, so the
+        // chip's own path is what is under test.
+        let mut seen = Vec::new();
+        for _ in 0..8 {
+            if lab.spec.colony_species == "beetle" {
+                break;
+            }
+            lab.act(ui::Action::NextSpecies);
+            seen.push(lab.spec.colony_species.clone());
+        }
+        assert_eq!(lab.spec.colony_species, "beetle", "the chip never reached the beetle; it offered {seen:?}");
+
+        let (fx, fy) = bench_cell(&lab);
+        let before = lab.world.live_organism_ids().len();
+        lab.use_tool((fx, fy));
+        let placed: Vec<u16> = lab
+            .world
+            .live_organism_ids()
+            .into_iter()
+            .filter(|id| lab.world.organism(*id).is_some_and(|st| lab.world.species.get(st.species).creature.is_some()))
+            .collect();
+        assert_eq!(placed.len(), 1, "one click at stock 1 placed {} animals: {:?}", placed.len(), lab.ui.notice_text());
+        assert_eq!(lab.world.live_organism_ids().len(), before + 1);
+        let species = lab.world.organism(placed[0]).expect("alive").species;
+        assert_eq!(lab.world.species.get(species).name, "beetle", "the chip said beetle and the box got something else");
+
+        // **And no nest**, which is the other half of "one animal": a patch of
+        // nest under a lone beetle lays a scent gradient home to a colony that
+        // does not exist.
+        let nest = lab.world.materials.id_of("nest").expect("nest material");
+        let laid = (fx - 40..=fx + 40).filter(|x| (fy - 4..=fy + 4).any(|y| lab.world.get(*x, y).material == nest)).count();
+        assert_eq!(laid, 0, "a single animal was given {laid} columns of nest");
+    }
+
+    /// **The stock dial reaches the world, and the two dials together are the
+    /// four outcomes the owner asked for**: one, a colony of clones, and a
+    /// colony with genetic spread.
+    ///
+    /// The spread half is the interesting assertion and it is a *paired*
+    /// one -- at 0 broods the released genomes must be identical and at 2 they
+    /// must not. Either arm alone passes for the wrong reason: identical
+    /// genomes are also what a release that ignored the brood dial produces,
+    /// and different ones are also what a release that lost the jar produces.
+    #[test]
+    fn a_jar_releases_as_one_or_as_a_colony_of_clones_or_siblings() {
+        let (dir, _shelf) = shelf_scratch("colony");
+        let mut lab = Lab::new(scene::LabBox { founders: 0, colonies: 0, ..scene::LabBox::default() });
+        lab.show_help = false;
+        let (fx, fy) = bench_cell(&lab);
+        crate::sim::creature::plant_creature_seed(&mut lab.world, fx, fy, "ant").expect("an ant hatches");
+        lab.keep_at(fx, fy);
+        lab.act(ui::Action::ShelfSelect(0));
+        assert_eq!(lab.ui.tool(), ui::Tool::Release);
+
+        let animals = |lab: &Lab| -> Vec<u16> {
+            lab.world
+                .live_organism_ids()
+                .into_iter()
+                .filter(|id| lab.world.organism(*id).is_some_and(|st| st.stocked))
+                .collect()
+        };
+
+        // One, which is what the dial starts at for a release.
+        assert_eq!(lab.ui.stock(), 1, "a release does not start at one individual");
+        lab.release_at(fx + 60, fy);
+        assert_eq!(animals(&lab).len(), 1, "stock 1 released {} animals: {:?}", animals(&lab).len(), lab.ui.notice_text());
+
+        // A colony of clones.
+        for _ in 0..3 {
+            lab.act(ui::Action::Stock(1));
+        }
+        assert_eq!(lab.ui.stock(), 8);
+        let mut lab_clones = Lab::new(scene::LabBox { founders: 0, colonies: 0, ..scene::LabBox::default() });
+        lab_clones.show_help = false;
+        crate::sim::creature::plant_creature_seed(&mut lab_clones.world, fx, fy, "ant").expect("an ant hatches");
+        lab_clones.keep_at(fx, fy);
+        lab_clones.act(ui::Action::ShelfSelect(0));
+        for _ in 0..3 {
+            lab_clones.act(ui::Action::Stock(1));
+        }
+        lab_clones.release_at(fx + 60, fy);
+        let clones = animals(&lab_clones);
+        assert!(clones.len() > 1, "stock 8 released {} animals: {:?}", clones.len(), lab_clones.ui.notice_text());
+        let genomes: Vec<&Vec<f32>> = clones.iter().map(|id| &lab_clones.world.organism(*id).expect("alive").genome).collect();
+        assert!(genomes.windows(2).all(|w| w[0] == w[1]), "a colony released at 0 broods is not a colony of clones");
+
+        // ...and the same colony at two broods is not.
+        let mut lab_sibs = Lab::new(scene::LabBox { founders: 0, colonies: 0, ..scene::LabBox::default() });
+        lab_sibs.show_help = false;
+        crate::sim::creature::plant_creature_seed(&mut lab_sibs.world, fx, fy, "ant").expect("an ant hatches");
+        lab_sibs.keep_at(fx, fy);
+        lab_sibs.act(ui::Action::ShelfSelect(0));
+        for _ in 0..3 {
+            lab_sibs.act(ui::Action::Stock(1));
+        }
+        for _ in 0..2 {
+            lab_sibs.act(ui::Action::Broods(1));
+        }
+        lab_sibs.release_at(fx + 60, fy);
+        let sibs = animals(&lab_sibs);
+        assert_eq!(sibs.len(), clones.len(), "the two arms did not place the same number of animals");
+        let drifted: Vec<&Vec<f32>> = sibs.iter().map(|id| &lab_sibs.world.organism(*id).expect("alive").genome).collect();
+        assert!(
+            drifted.windows(2).any(|w| w[0] != w[1]),
+            "a colony released at two broods came out {} identical genomes -- the spread is not a spread",
+            drifted.len()
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 

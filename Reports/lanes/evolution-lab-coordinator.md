@@ -219,7 +219,29 @@ then Gate 2, now that it can have a control arm; then `PROMOTE` for plants,
 which refuses today because `individual_as_species` copies the parent
 *species'* fates rather than the individual's; then the parameter half.
 
-## Round five, 2026-09-01 — tracking individuals
+## Round five, 2026-09-01 — a playtest round
+
+*Four things the owner hit in play: zoom, selection, stocking, the plant
+count. Branch `claude/evolution-lab-fixes-dzo88x`. **The account is
+[`../evolution-lab-playtest-round-2026-09-01.md`](../evolution-lab-playtest-round-2026-09-01.md)**;
+the shipped behaviour is README's "Lab hand-verbs status". Four findings from
+it bind on whatever comes next:*
+
+- **A verb can be complete, tested, documented and not wired in.** A released
+  *animal* had never taken a tick — the shelf's own tests all place and then
+  inspect, and **none ran a frame**.
+- **Anything in `render.rs` bounded by "the world is huge" is a defect waiting
+  in the lab.** Two were in one function.
+- **A knob that is not an `f32` has no editor**, because the parameters page
+  moves numbers. Three animals shipped and one could be placed.
+- **The bar being full has a fourth answer** round four did not list: a cell
+  that already exists and means nothing under the armed tool.
+
+**One loose end, filed rather than fixed:** the census sees a live plant
+organism with **zero cells**, one at a time, intermittently. One in ~450, not
+the seed bank, and nobody has looked at what produces it.
+
+## Round six, 2026-09-01 — tracking individuals
 
 *Brief, owner: a table of all plants and all creatures you can click through
 with stats and a highlight; a life history for one individual; a genome summary
@@ -268,6 +290,14 @@ reconstruct:
 - **The two tables must not share a sort.** A sort is a *column index*, and
   index 1 is SEED on one table and BANK on the other. Shared, the harness
   reported a click pinning ant 41 where ant 11 was expected.
+
+**Round five's zero-cell plant shows up here.** Its loose end -- *"the census
+sees a live plant organism with zero cells, one at a time, intermittently"* --
+is a row on the roster with `CELLS 0`, and `roster::anchor_of` has to survive
+it: a plant with no cells has no lowest cell and no bounding box, so the
+marker falls back to the origin rather than panicking on an empty fold. That
+is a guard against the symptom and not a fix for the cause, which nobody has
+looked at.
 
 ### Measured on this branch, and reusable
 

@@ -156,10 +156,19 @@ fn line(stats: &Stats, world: &World) {
         return;
     };
     println!(
-        "  frame {:>7}: plants {:>5} ({:>6} cells)  animals {:>4} ({:>5} cells)  senescent {:>4} | borne {:>5} sprouted {:>5} | born {:>4} died {:>4} refused {:>3} | gen p{} a{} {:?} | slots {}/{} | lines {} top {:.0}%",
+        "  frame {:>7}: plants {:>5} ({:>6} cells, size {:>3}/{:>3}/{:>4})  bank {:>5}  animals {:>4} ({:>5} cells)  senescent {:>4} | borne {:>5} sprouted {:>5} | born {:>4} died {:>4} refused {:>3} | gen p{} a{} {:?} | slots {}/{} | lines {} top {:.0}%",
         c.frame,
         c.plants,
         c.plant_cells,
+        c.plant_size.low as i64,
+        c.plant_size.mid as i64,
+        c.plant_size.high as i64,
+        // **The bank beside the stand, never pooled into it.** Measured
+        // 2026-09-01 on the standard bed: at frame 30,000 the pooled figure
+        // was 467 over a bed holding 48 plants and 419 ungerminated seeds,
+        // which is the owner's *"5-7 obvious plants, but the count is way
+        // higher like 200+"* with the arithmetic behind it.
+        c.seed_bank,
         c.animals,
         c.animal_cells,
         c.senescent,

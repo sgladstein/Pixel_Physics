@@ -1436,6 +1436,32 @@ const MAX_ZOOM: i32 = 8;
 /// revisited here.
 const MAX_ZOOM_OUT_STRIDE: i32 = 4;
 
+/// The widest zoom-out step that still makes sense over `bounds` — the
+/// smallest stride whose view is at least as tall as the world, capped at
+/// [`MAX_ZOOM_OUT_STRIDE`].
+///
+/// **Height, not width, and that is the owner's rule rather than an
+/// oversight**: *"the max zoom out should limit at the full height of the
+/// lab."* A wide, short box would let a width rule open the view to eight
+/// times the box's height, which is the black screen this exists to stop; a
+/// tall, narrow one is letterboxed left and right by `set_camera`'s centring
+/// and reads as a tall box. The axis that decides is the one that runs out
+/// first on a 512x320 viewport, which is the short one.
+///
+/// **Covering rather than fitting** — `ceil`, so the whole box is on screen
+/// with a little slack, rather than `floor`, which would show at most 320 rows
+/// of a 576-row box and never all of it. The box's height steps in 64s
+/// (`params.rs`), so it is rarely a multiple of a screen and the fitting rule
+/// would leave the widest zoom-out short of the box on nearly every setting.
+fn max_zoom_out_stride(viewport: (u32, u32), bounds: Option<Rect>) -> i32 {
+    let Some(b) = bounds else { return MAX_ZOOM_OUT_STRIDE };
+    let world_h = (b.max_y - b.min_y + 1).max(1);
+    let view_h = (viewport.1 as i32).max(1);
+    // Ceiling division, so the last step covers the box rather than stopping
+    // just short of it.
+    ((world_h + view_h - 1) / view_h).clamp(1, MAX_ZOOM_OUT_STRIDE)
+}
+
 /// How fast the `WASD` map scroll travels, in **viewport-fuls per second**.
 ///
 /// In screens, deliberately, never in cells: what has to feel the same at
@@ -2509,6 +2535,30 @@ impl Renderer {
             // its own origin rather than to a negative coordinate.
             cam_x = cam_x.min(b.max_x - span_x + 1).max(b.min_x);
             cam_y = cam_y.min(b.max_y - span_y + 1).max(b.min_y);
+            // **A world smaller than the view is centred in it, not shoved
+            // into the top-left corner**, which is what the `max` above does
+            // on its own -- the slack all lands on one side and the world sits
+            // in a corner of a black screen. Reported from play in the lab,
+            // where the world *is* smaller than the view whenever the box is
+            // shorter than the widest zoom step: *"the lab small in the corner
+            // and everything else is just black"*.
+            //
+            // Written here rather than at the one call site that can hit it,
+            // because this function's own doc gives the reason: `follow`,
+            // `pan` and `zoom_within` all write the camera through it, and a
+            // rule only one of them obeys is a rule that is not there -- a pan
+            // after a centred zoom would have dragged the world straight back
+            // into the corner.
+            //
+            // **Strictly greater**, so a span that exactly fits is untouched
+            // and every clamp already measured against this function is
+            // unchanged.
+            if span_x > b.max_x - b.min_x + 1 {
+                cam_x = b.min_x - (span_x - (b.max_x - b.min_x + 1)) / 2;
+            }
+            if span_y > b.max_y - b.min_y + 1 {
+                cam_y = b.min_y - (span_y - (b.max_y - b.min_y + 1)) / 2;
+            }
         }
         self.camera_x = cam_x;
         self.camera_y = cam_y;
@@ -2625,6 +2675,38 @@ impl Renderer {
                 self.zoom_out_stride = (self.zoom_out_stride + 1).min(MAX_ZOOM_OUT_STRIDE);
             }
         }
+    }
+
+    /// **[`Renderer::adjust_zoom`] for a world you can see all of** — it keeps
+    /// the middle of the screen on the same world cell, and it will not open
+    /// the view taller than `bounds`.
+    ///
+    /// Two defects in the plain version, both reported from the lab and both
+    /// invisible in a world larger than the widest view:
+    ///
+    /// - **It could zoom out past the world.** The sandbox's world is
+    ///   8192x2560 and the widest view is 2048x1280, so no stride can overrun
+    ///   it; the lab's box is authored, is 320 rows by default and is a knob
+    ///   the player turns, so the second stride already shows twice the box
+    ///   and three quarters of the screen is void. Owner: *"the max zoom out
+    ///   should limit at the full height of the lab."*
+    /// - **It zoomed about the top-left corner**, because the scale changed
+    ///   and the camera did not, so the picture grew away from the origin
+    ///   rather than around what you were looking at.
+    ///
+    /// The limit is **derived from `bounds` on every call, never stored**: the
+    /// box's height is a live parameter, so a cached limit would be wrong one
+    /// tick after the player changed it and would be wrong in the direction
+    /// that reintroduces the bug.
+    pub fn zoom_within(&mut self, delta: i32, viewport: (u32, u32), bounds: Option<Rect>) {
+        // The world cell under the middle of the screen, before the scale
+        // moves under it.
+        let (span_x, span_y) = self.visible_span(viewport);
+        let centre = (self.camera_x + span_x / 2, self.camera_y + span_y / 2);
+        self.adjust_zoom(delta);
+        self.zoom_out_stride = self.zoom_out_stride.min(max_zoom_out_stride(viewport, bounds));
+        let (span_x, span_y) = self.visible_span(viewport);
+        self.set_camera(centre.0 - span_x / 2, centre.1 - span_y / 2, viewport, bounds);
     }
 
     /// §11's dirty-rect render optimization. **Not a GPU-level change** —
@@ -8150,6 +8232,114 @@ mod tests {
         let settled = (r.camera_x, r.camera_y);
         r.follow((1024 + 8, 384 + 4), viewport, Some(world));
         assert_eq!((r.camera_x, r.camera_y), settled, "a small step moved the camera");
+    }
+
+    #[test]
+    fn the_zoom_never_opens_the_view_a_whole_screen_past_the_world() {
+        // Owner, from play in the lab: *"you can currently zoom out farther
+        // than the lab fullscreen, making the lab small in the corner and
+        // everything else is just black."* The box is authored and its height
+        // is a knob, so unlike the sandbox's world it can be -- and by default
+        // is -- smaller than the widest view the renderer offers.
+        //
+        // **Stated as an overshoot rather than as a stride**, because the zoom
+        // is discrete: a 576-row box cannot be shown in a whole number of
+        // 320-row screens, so the last step covers it with slack. What must
+        // never happen is a *whole screen* of slack, which is the corner-of-a-
+        // black-screen picture.
+        let viewport = (512u32, 320u32);
+        for world_h in [320, 512, 576, 640, 1280, 2560] {
+            let world = Rect::new(0, 0, 511, world_h - 1);
+            let mut r = Renderer::new();
+            for _ in 0..10 {
+                r.zoom_within(-1, viewport, Some(world));
+            }
+            let (_, span_y) = r.visible_span(viewport);
+            assert!(
+                span_y - world_h < 320,
+                "a {world_h}-row box zoomed out to a {span_y}-row view: {} rows of void, more than a screenful",
+                span_y - world_h
+            );
+            // ...and it does reach the box, so the rule above is not satisfied
+            // by refusing to zoom out at all. Capped at the renderer's own
+            // widest step, which a very tall box runs into first.
+            let reachable = (320 * MAX_ZOOM_OUT_STRIDE).min(world_h);
+            assert!(span_y >= reachable, "a {world_h}-row box only ever showed {span_y} rows; {reachable} were reachable");
+        }
+
+        // **The positive control**: the same ten steps through the unclamped
+        // control the lab used to call. Without it this test passes against a
+        // zoom that does nothing at all.
+        let mut plain = Renderer::new();
+        for _ in 0..10 {
+            plain.adjust_zoom(-1);
+        }
+        let (_, plain_span) = plain.visible_span(viewport);
+        assert_eq!(plain_span, 1280, "the unclamped control did not open up, so this test proves nothing");
+    }
+
+    #[test]
+    fn a_zoom_step_holds_the_middle_of_the_screen() {
+        // Owner: *"when you zoom it, the screen should stay centered where it
+        // is."* `adjust_zoom` changes the scale and leaves the camera, so the
+        // picture grows away from the top-left corner instead of around what
+        // you were looking at.
+        //
+        // A box big enough that the clamp is not what decides the answer --
+        // the centring is only visible where the camera has room to move.
+        let viewport = (512u32, 320u32);
+        let world = Rect::new(0, 0, 2047, 1279);
+        let mut r = Renderer::new();
+        r.set_camera(700, 500, viewport, Some(world));
+        let centre = |r: &Renderer| {
+            let (sx, sy) = r.visible_span(viewport);
+            (r.camera_x + sx / 2, r.camera_y + sy / 2)
+        };
+        let before = centre(&r);
+        for delta in [1, 1, -1, 1, -1, -1] {
+            r.zoom_within(delta, viewport, Some(world));
+            let now = centre(&r);
+            // Within a stride: the camera is an integer cell and a zoomed-out
+            // view samples on a coarser lattice, so the middle of the screen
+            // cannot land on an arbitrary cell.
+            let slack = r.zoom_out_stride.max(1);
+            assert!(
+                (now.0 - before.0).abs() <= slack && (now.1 - before.1).abs() <= slack,
+                "a zoom step moved the middle of the screen from {before:?} to {now:?}"
+            );
+        }
+
+        // The control, again on the same world: the unclamped zoom does not
+        // hold it, so the assertion above is about the fix rather than about
+        // arithmetic that was always true.
+        let mut plain = Renderer::new();
+        plain.set_camera(700, 500, viewport, Some(world));
+        let was = centre(&plain);
+        plain.adjust_zoom(-1);
+        let now = centre(&plain);
+        assert!((now.0 - was.0).abs() > 8, "the unclamped control held the centre too, so nothing here is being tested");
+    }
+
+    #[test]
+    fn a_world_smaller_than_the_view_sits_in_the_middle_of_it() {
+        // The other half of the corner-of-a-black-screen report. Once the
+        // stride is capped this is only reachable on the axis the cap does not
+        // govern -- a box narrower than the view -- and on a box shorter than
+        // one screen, which cannot zoom out at all but can still be shorter
+        // than 320 rows.
+        let viewport = (512u32, 320u32);
+        let world = Rect::new(0, 0, 255, 191);
+        let mut r = Renderer::new();
+        r.set_camera(0, 0, viewport, Some(world));
+        assert_eq!(r.camera_x, -128, "a 256-wide box in a 512-wide view leaves 128 cells of slack each side");
+        assert_eq!(r.camera_y, -64, "a 192-row box in a 320-row view leaves 64 rows of slack each side");
+
+        // And a pan cannot drag it back into the corner, which is the reason
+        // the rule lives in `set_camera` rather than in the zoom.
+        for _ in 0..120 {
+            r.pan((1, 1), 1.0 / 60.0, viewport, Some(world));
+        }
+        assert_eq!((r.camera_x, r.camera_y), (-128, -64), "a pan pulled a fully-visible world off centre");
     }
 
     #[test]
