@@ -3154,6 +3154,40 @@ impl World {
         }
     }
 
+    /// **Overwrite one live organism's brain genome**, for a harness that
+    /// races two genomes in one bed.
+    ///
+    /// The sibling of `set_organism_fates` above, and it exists for the same
+    /// reason that one does rather than the obvious alternative: registering
+    /// each arm as its own *species* would make the two arms differ in the
+    /// species table as well as in the genome, and half the creature tick
+    /// consults `CreatureDef` — `tick_interval`, `sight_range`,
+    /// `idle_cost_per_cell` — so the arms would no longer differ only in the
+    /// thing under test.
+    ///
+    /// **Length is checked rather than trusted.** A genome of the wrong
+    /// length does not fail loudly anywhere downstream: `eval_brain`
+    /// indexes by slot and a short vector would panic deep inside a tick,
+    /// while a long one would simply carry weights nothing reads. Both are
+    /// worse than a refusal here.
+    ///
+    /// Returns whether the organism was live — `false` for a stale or
+    /// recycled handle rather than a panic, matching `organism`.
+    pub fn set_organism_genome(&mut self, organism_id: u16, genome: Vec<f32>) -> bool {
+        assert_eq!(
+            genome.len(),
+            super::brain::GENOME_LEN,
+            "a genome is always exactly GENOME_LEN; a short one means a slot layout changed under this caller"
+        );
+        match self.organism_mut(organism_id) {
+            Some(state) => {
+                state.genome = genome;
+                true
+            }
+            None => false,
+        }
+    }
+
     pub(crate) fn claim_lineage(&mut self) -> u32 {
         let id = self.next_lineage;
         self.next_lineage = self.next_lineage.saturating_add(1);

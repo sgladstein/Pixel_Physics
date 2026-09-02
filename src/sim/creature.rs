@@ -2046,12 +2046,17 @@ pub fn probe(world: &World, x: i32, y: i32, organism: u16, def: &CreatureDef) ->
 /// Takes the `def` by reference rather than off the species so a harness can
 /// hand a **hypothetical** eye to an animal that has none today — which is
 /// every ant in the tree, `sight_range` being 0 in `ant.ron`.
-pub fn sighted(world: &World, x: i32, y: i32, organism: u16, def: &CreatureDef) -> Sightings {
+/// Returns the cast **and the cells it read**, because the second is what
+/// prices it: `sight_tax = sight_fraction * start_energy * sight_reads`, so
+/// authoring a `sight_fraction` needs a measured reads-per-cast at the reach
+/// in question and there was no way to ask for one.
+pub fn sighted(world: &World, x: i32, y: i32, organism: u16, def: &CreatureDef) -> (Sightings, u64) {
     if def.sight_range <= 0 {
-        return Sightings::default();
+        return (Sightings::default(), 0);
     }
     let mut reads = 0u64;
-    sight(world, x, y, organism, def, gut_of(world, organism, def), &mut reads)
+    let seen = sight(world, x, y, organism, def, gut_of(world, organism, def), &mut reads);
+    (seen, reads)
 }
 
 /// Fills all `brain::BRAIN_INPUTS` inputs. Slot indices are
@@ -2248,6 +2253,34 @@ fn sense(
             error -= std::f32::consts::TAU;
         }
         inputs[I::PreyBearing as usize] = error / std::f32::consts::PI;
+    }
+
+    // **The moisture gradient, which used to be a coefficient nobody could
+    // change.** It was multiplied into the drop probability and its inverse
+    // into the dig probability, in Rust, so every animal had one fixed
+    // relationship to it for ever. As an input it is a weight, which is to
+    // say a gene, and the sign is free as well as the magnitude.
+    inputs[I::MoistureGrad as usize] = moisture_gradient(world, x, y);
+
+    // **The kin pair, from the same cast the prey pair came out of.**
+    // §4: home stops being a named material and becomes *where my own kind
+    // are*. Both read a constant 0.0 for a species with no `sight_range`,
+    // which is every species but the beetle today -- so appending them is
+    // byte-identical for the shipped ant, which is the strict guard the
+    // reserve's own design promises.
+    if let Some(kin) = seen_all.kin {
+        // Nearness rather than distance, and the same normalisation
+        // `PreyNear` uses, so a genome that learns one has learned the
+        // other's scale.
+        inputs[I::KinNear as usize] = (1.0 - kin.dist / def.sight_range as f32).clamp(0.0, 1.0);
+        let bearing = ((kin.y - y) as f32).atan2((kin.x - x) as f32);
+        let heading_angle = -(heading as f32) * std::f32::consts::FRAC_PI_4;
+        let mut error = bearing - heading_angle;
+        error = error.rem_euclid(std::f32::consts::TAU);
+        if error > std::f32::consts::PI {
+            error -= std::f32::consts::TAU;
+        }
+        inputs[I::KinBearing as usize] = error / std::f32::consts::PI;
     }
 
     (inputs, seen_all, sight_reads)
@@ -5768,18 +5801,56 @@ mod tests {
         );
     }
 
+    /// **Nobody gets a free eye**, which is the invariant that replaced
+    /// "the ant has no eyes" when the ant got one (2026-09-02).
+    ///
+    /// The test that stood here asserted `ant.ron` authored no `sight_range`
+    /// — true then, and a premise rather than a property. What it was really
+    /// protecting is the thing `sight_fraction` exists for: seeing was free
+    /// until 2026-08-31, which made `sight_range` a ratchet, and then the
+    /// pricing shipped and **no species opted in**, so the only eye in the
+    /// tree was still free. A channel with a reader and no writer is the
+    /// failure `dead-ends.md` says this project has hit three times, and it
+    /// is invisible to every other test in this file.
+    ///
+    /// So: any species that can see must be billed for looking. This fails
+    /// for a future species authored with a range and no fraction, which is
+    /// exactly the mistake that is easy to make and impossible to see.
     #[test]
-    fn the_ant_has_no_eyes_and_the_shipped_ant_is_unchanged_by_this_input() {
-        // Every species but the beetle authors no `sight_range`, which is
-        // what makes the append lawful for them: two new slots, both zero,
-        // read by nothing.
+    fn every_eye_in_the_tree_is_paid_for() {
+        let w = test_world();
+        let mut eyed = 0;
+        for i in 0..w.species.len() {
+            let id = SpeciesId(i as u16);
+            let Some(def) = w.species.get(id).creature.as_ref() else { continue };
+            if def.sight_range <= 0 {
+                assert_eq!(def.sight_fraction, 0.0, "'{}' pays a sight tax and has no eyes to pay it for", w.species.get(id).name);
+                continue;
+            }
+            eyed += 1;
+            assert!(
+                def.sight_fraction > 0.0,
+                "'{}' authors sight_range {} and no sight_fraction, so its eye is free --                  which is the ratchet sight_fraction exists to close: more eye is then strictly                  better and a heritable range goes to its cap on the first generation expressing nothing",
+                w.species.get(id).name,
+                def.sight_range
+            );
+        }
+        assert!(eyed >= 2, "only {eyed} species can see; this guard is not exercising the case it is named for");
+    }
+
+    /// The other half, and it is what makes appending a sense lawful: a
+    /// species with **no** eye reads every distal slot as a constant zero and
+    /// casts nothing.
+    #[test]
+    fn a_species_with_no_eye_reads_every_distal_slot_as_zero() {
         let mut w = test_world();
         let ant = ant_on_a_floor(&mut w, 100);
-        let def = w.species.get(w.organism(ant).expect("live").species).creature.as_ref().expect("ant is a creature").clone();
-        assert_eq!(def.sight_range, 0, "ant.ron must not author an eye");
+        let mut def = w.species.get(w.organism(ant).expect("live").species).creature.as_ref().expect("ant is a creature").clone();
+        def.sight_range = 0;
         let (inputs, _, _) = probe(&w, 100, 100, ant, &def);
-        assert_eq!(inputs[brain::BrainInput::PreyNear as usize], 0.0);
-        assert_eq!(inputs[brain::BrainInput::PreyBearing as usize], 0.0);
+        for slot in [brain::BrainInput::PreyNear, brain::BrainInput::PreyBearing, brain::BrainInput::KinNear, brain::BrainInput::KinBearing] {
+            assert_eq!(inputs[slot as usize], 0.0, "{slot:?} must read zero for an animal that cannot see");
+        }
     }
 
     #[test]

@@ -82,12 +82,19 @@ struct Census {
     grad_nonzero: usize,
     kin_seen: usize,
     kin_dist_sum: f64,
+    /// **Cells one cast reads, summed.** Not a curiosity: it is the operand
+    /// in `sight_tax = sight_fraction * start_energy * sight_reads`, so an
+    /// eye cannot be priced without it -- and it is the half of the eye's
+    /// cost that occlusion makes cheap. An animal in a tunnel pays less to
+    /// look than one sweeping open ground, so shelter pays for itself twice.
+    reads_sum: u64,
 }
 
 impl Census {
-    fn add(&mut self, grad: f32, kin: Option<f32>) {
+    fn add(&mut self, grad: f32, kin: Option<f32>, reads: u64) {
         self.n += 1;
         self.grad_sum += grad as f64;
+        self.reads_sum += reads;
         if grad > 0.0 {
             self.grad_nonzero += 1;
         }
@@ -100,18 +107,19 @@ impl Census {
     fn row(&self, label: &str) -> String {
         let n = self.n.max(1) as f64;
         format!(
-            "{label:>10} {:>6} {:>10.4} {:>9.1}% {:>9.1}% {:>9.1}",
+            "{label:>10} {:>6} {:>10.4} {:>9.1}% {:>9.1}% {:>9.1} {:>10.0}",
             self.n,
             self.grad_sum / n,
             100.0 * self.grad_nonzero as f64 / n,
             100.0 * self.kin_seen as f64 / n,
             if self.kin_seen > 0 { self.kin_dist_sum / self.kin_seen as f64 } else { 0.0 },
+            self.reads_sum as f64 / n,
         )
     }
 }
 
 fn header() {
-    println!("\n{:>10} {:>6} {:>10} {:>10} {:>10} {:>9}", "where", "ants", "grad mean", "grad > 0", "kin seen", "kin dist");
+    println!("\n{:>10} {:>6} {:>10} {:>10} {:>10} {:>9} {:>10}", "where", "ants", "grad mean", "grad > 0", "kin seen", "kin dist", "cells read");
 }
 
 /// The ant's `CreatureDef` with a hypothetical eye bolted on.
@@ -280,7 +288,8 @@ fn control(eye: i32, settle: u64) {
     let a = w2.get(60, 100).organism_id();
     assert_ne!(a, 0, "the control placed no ant; the scene is wrong, not the sense");
     let def = ant_with_eye(&w2, eye);
-    let seen = creature::sighted(&w2, 60, 100, a, &def);
+    let (seen, reads) = creature::sighted(&w2, 60, 100, a, &def);
+    println!("control / kin:       one cast at reach {eye} read {reads} cells on bare open floor -- the operand `sight_fraction` is priced against");
     println!(
         "control / kin:       open floor at 20 cells -> {}",
         seen.kin.map_or("nothing".to_string(), |k| format!("kin at {:.1} cells", k.dist))
@@ -293,7 +302,7 @@ fn control(eye: i32, settle: u64) {
     for cy in 80..101 {
         w2.set(70, cy, Cell::new(material::STONE, 0));
     }
-    let walled = creature::sighted(&w2, 60, 100, a, &def);
+    let (walled, _) = creature::sighted(&w2, 60, 100, a, &def);
     println!("control / kin:       {}  -- a stone wall between them must take it away", if walled.kin.is_none() { "PASS" } else { "FAIL (rays pass through rock; occlusion is off)" });
 }
 
@@ -317,8 +326,9 @@ fn lab(frames: u64, seeds: u64, eye: i32) {
             }
             let Some(&(hx, hy)) = state.chain.first() else { continue };
             let grad = creature::moisture_gradient(&world, hx, hy);
-            let kin = creature::sighted(&world, hx, hy, id, &def).kin.map(|k| k.dist);
-            if is_under_cover(&world, hx, hy, spec.ground_y) { &mut under } else { &mut surface }.add(grad, kin);
+            let (seen, reads) = creature::sighted(&world, hx, hy, id, &def);
+            let kin = seen.kin.map(|k| k.dist);
+            if is_under_cover(&world, hx, hy, spec.ground_y) { &mut under } else { &mut surface }.add(grad, kin, reads);
         }
         println!("\nseed {seed} at frame {frames}: {} ants standing", surface.n + under.n);
         header();

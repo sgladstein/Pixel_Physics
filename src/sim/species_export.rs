@@ -357,7 +357,19 @@ mod tests {
         for (i, slot) in inputs.iter_mut().enumerate() {
             *slot = 0.1 + i as f32 * 0.037;
         }
-        let (mut a, mut b) = ([0.3, -0.2, 0.7, -0.9], [0.3, -0.2, 0.7, -0.9]);
+        // **Built from `BRAIN_HIDDEN`, not written out.** A literal
+        // four-element array here was a compile error the moment the hidden
+        // layer grew, which is the good case; the bad one is a literal that
+        // happens to still be the right length and silently stops covering
+        // the new units.
+        let seed_state = || {
+            let mut v = [0.0f32; brain::BRAIN_HIDDEN];
+            for (i, slot) in v.iter_mut().enumerate() {
+                *slot = 0.3 - 0.5 * (i % 4) as f32 + 0.2 * (i / 4) as f32;
+            }
+            v
+        };
+        let (mut a, mut b) = (seed_state(), seed_state());
         // Two ticks, because the second is the one that reads the
         // recurrence weights this export exists to carry.
         for _ in 0..2 {

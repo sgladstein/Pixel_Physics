@@ -110,6 +110,56 @@
         // harness then carried a hand-applied correction; a ratio needs no
         // correction to remember.
         synapse_fraction: 0.0000022222222,
+        // **The eye, and its price, authored together.**
+        // `Reports/creature-genome-flexibility-2026-09-02.md` §4 and §6.
+        //
+        // An ant had no eyes at all: `sight_range` defaults to 0 and only
+        // the beetle authored one. The kin senses need a cast to find
+        // anything, and home is *where my own kind are* -- so this is what
+        // makes `KinNear`/`KinBearing` read something other than a constant.
+        //
+        // **32, not the beetle's 64.** `foraging-range-measurement.md` puts
+        // real excursions at 12-19 cells with a thin tail past 32, so this
+        // covers an ant's whole normal range with margin and costs a little
+        // over half what the beetle's does.
+        //
+        // **Never the range without the fraction.** Seeing was free until
+        // 2026-08-31, which made `sight_range` a ratchet -- more eye
+        // strictly better, and a heritable range would go to its cap on the
+        // first generation expressing nothing. The pricing landed and then
+        // *nothing opted in*: a reader with no writer, which
+        // `dead-ends.md` names as the failure this project has hit three
+        // times. This closes it for the ant.
+        //
+        // **Derived, not chosen**, the way `synapse_fraction` above is:
+        //
+        //   sight_tax  = sight_fraction * start_energy * sight_reads   (per tick)
+        //   idle ticks = start_energy / (idle_cost_per_cell * cells) = 200 / 0.10 = 2,000
+        //   share S of an idle lifetime  =>  sight_fraction = S / (ticks * reads)
+        //
+        // `start_energy` cancels, which is exactly why a *fraction* is the
+        // right form: an absolute silently becomes a different tax every
+        // time the budget moves. Measured with
+        // `field_sense_probe mode=control eye=32`, one cast on bare open
+        // floor reads **616 cells** (328 at r16, 1,186 at r64). At S = 0.10:
+        //
+        //   0.10 / (2,000 * 616) = 8.1169e-8
+        //
+        // **S = 0.10 matches the brain.** `synapse_fraction` above prices
+        // about 22 active synapses at ~10% of an idle life, so a full-reach
+        // sweep over open ground now costs the same order as the brain that
+        // reads it. Nothing balances the *range*: the cell-read is priced
+        // and selection is left to settle where the eye lands, which is the
+        // whole point -- picking a "correct" range by hand would be the
+        // authored-behaviour failure in a new costume.
+        //
+        // **Charged per cell actually read, not per cast**, so a ray that
+        // dies on a wall costs only what it traversed: an ant in a tunnel
+        // pays less to look than one sweeping open ground, and shelter pays
+        // for itself twice. Nobody wrote that rule; it falls out of pricing
+        // the work honestly.
+        sight_range: 32,
+        sight_fraction: 0.000000081168831,
         // **120, which is exactly what a corpse cell was worth before.**
         // Under `eat_energy` any mouthful paid the eater 120, so pricing an
         // ant's own meat at 120 a cell leaves scavenging worth precisely
@@ -371,13 +421,34 @@
         // Full arithmetic in `Reports/creature-birth-grant-2026-08-30.md`
         // and `Reports/creature-gate0-births-2026-08-30.md`.
         reproduce_threshold: 1100.0,
-        // Per live genome slot, per birth. 268 slots are live, so this is
-        // about 2.7 point mutations per child -- enough that a lineage
-        // drifts within a run, far short of the density explosion an
-        // unrated operator produces (see `brain::mutate`). Set to 0.0 for
-        // the clonal control, which is the null every lineage-share
-        // reading is measured against rather than an off switch.
-        mutation_rate: 0.01,
+        // Per live genome slot, per birth -- so it is a constant calibrated
+        // against `brain::live_slots().count()`, and it has to be re-derived
+        // whenever that moves. Enough that a lineage drifts within a run,
+        // far short of the density explosion an unrated operator produces
+        // (see `brain::mutate`). Set to 0.0 for the clonal control, which is
+        // the null every lineage-share reading is measured against rather
+        // than an off switch.
+        //
+        // **0.0064242, re-derived 2026-09-02**, when `KinNear`, `KinBearing`,
+        // `MoistureGrad` and `BRAIN_HIDDEN` 4 -> 8 took the live surface
+        // **318 -> 495**
+        // (`creature-genome-flexibility-2026-09-02.md` §8). Held at the
+        // expected count the colony was actually running --
+        // `318 x 0.01 = 3.18` point mutations per child, so
+        // `3.18 / 495 = 0.0064242` -- rather than at the count the comment
+        // here *claimed*. It said **268 slots** for the whole time the true
+        // figure was 318, which is exactly the drift a literal in prose
+        // cannot catch and why `brain.rs` now pins the count in a test.
+        //
+        // **This cannot be made byte-identical and it is worth knowing
+        // why.** `brain::mutate` draws one `unit_f32` per live slot, so a
+        // wider genome consumes a different number of draws per birth and
+        // every draw after the first birth diverges. Measured on
+        // `examples/ascii`: every scene that does not breed is identical,
+        // and both ant scenes diverge from birth 1 -- deliveries 584 -> 526,
+        // forage trips 54 -> 49, births 8 -> 5, one seed, same regime. A
+        // comparison across this change has to be a seed sweep, not a diff.
+        mutation_rate: 0.0064242,
 
         // **A living nestmate counts as ground.** Footing only, never
         // passability -- two ants still cannot walk through each other --
