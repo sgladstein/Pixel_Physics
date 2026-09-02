@@ -2506,7 +2506,7 @@ fn construction_scene() {
     println!("  mean |grad moisture| over {samples} samples: steep half {wet_grad:.4}, flat half {dry_grad:.4}, margin {margin:.4}");
     println!("  moisture level at the end: steep mean {wet_mean:.3} peak {wet_peak:.3} | flat mean {dry_mean:.3} peak {dry_peak:.3}");
     println!("  material left standing: steep half {wet_drops}, flat half {dry_drops}");
-    println!("  |grad moisture| at the {drop_n} standing drops {at_drops:.4} vs {ambient:.4} ambient over the band -- {uphill:.2}x");
+    println!("  surface proximity at the {drop_n} standing drops {at_drops:.4} vs {ambient:.4} ambient over the band -- {uphill:.2}x (NOT evidence of the bias: reads 3.00x with the bias deleted)");
     // **The spring has to still be a spring**, checked before anything is
     // concluded from the field it feeds. This is the assertion bug H
     // actually needed: the old one asked whether the *gradient* was ordered,
