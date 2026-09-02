@@ -1915,10 +1915,22 @@ for what it was load-bearing for, and this work does not go near it.
 
 ---
 
-## 14. Rooms are dug, not built — and the mechanism is researched, cheap, and unwired
+## 14. Rooms are dug, not built — and the mechanism was built, measured, and withdrawn
 
 Added 2026-09-02 on the owner's *"I want rooms"*, and it opens with a
 correction I owe.
+
+> **STATUS 2026-09-02, after implementation (PR #216): the mechanism this
+> section recommends does not produce the outcome, and the recommendation to
+> build it first was wrong. Read §14g before acting on anything below.**
+>
+> `(Crowding, Dig, 0.6)` was built, rate-matched, swept and **withdrawn**. The
+> weight is out of `ant.ron` and `ancestor.ron`; both files are now
+> comment-only diffs against `main`. The reasoning in §14a–§14d is still
+> correct as far as it goes — the mechanism is real, the channel was genuinely
+> unwired, and the lever genuinely fires — and it does not deliver rooms in
+> this bed. `Reports/dead-ends.md` carries the full record and three retry
+> conditions.
 
 ### 14a. I pointed at the wrong rule
 
@@ -2027,6 +2039,81 @@ the spoil mound the excavation produces — but if only one gets built:
 
 **Recommend this first.** It is smaller, better evidenced, and it is the thing
 the owner asked for.
+
+---
+
+### 14g. What happened when it was built, and what it cost me to be wrong
+
+**PR #216 ran it. Two findings, and the first one invalidates the second's
+predecessor.**
+
+**The harness could not produce more than seven colonies.** `burrow_probe`'s
+colony arm placed founders at `off = (seed - 1) * 3`, which walks the founder
+row rightward as the seed climbs — and `bank_x0` is 40, so **from seed 8 every
+ant is placed inside the bank**, `plant_ant` refuses, and the world runs 8,000
+frames with no colony in it. Seeds 8–12 read `digs 0`, `packed 0`, `roofed 0` in
+**both arms**, which reads exactly like *"the effect disappears at larger
+samples"* and is an empty scene. It went unseen because every run before the
+review was `seeds=4`.
+
+**The general form, which is not about ants:** any harness that derives a scene
+parameter from its seed by *translation* eventually walks that parameter out of
+the region the scene is valid in, and the failure is silent because the run
+completes. Bound the derived parameter and assert the scene.
+
+**With that fixed, the result did not survive.** Cavity more compact, wired
+against ablated, paired seed by seed in one binary:
+
+| | result |
+|---|---|
+| four seeds | 4 of 4 at 52 ants, 4 of 4 at 26 |
+| **twelve seeds** | **16 of 33 seed pairs** — 3/9 at 12, 9/12 at 26, 4/12 at 52 |
+
+A coin flip, with the sign reversing between colony sizes. Buds never moved in
+either arm at any size. **And the interaction test §14e's successor proposed —
+does `circ` fall faster with colony size when the weight is live — reads
+−0.316 wired against −0.333 ablated**, i.e. identical.
+
+**The one effect that survived twelve seeds is the opposite of the goal:** the
+wired arm cuts a *smaller* cavity for the same or more digging — 54.5 cells
+against 67.5 at 52 ants on 541 digs against 508. Density-dependent digging makes
+less nest, not a better-shaped one.
+
+**What survives.** The instrument: `circ` / `inradius` / `buds`,
+`arms=selftest`, the `crowd` pre-check, and `crowddig=` / `digbias=`. It ships
+**because the null is only readable through it** — which is §0's argument
+arriving as a result rather than as a recommendation.
+
+**And the `crowd` pre-check passed**, so this is not a dead channel or a
+disconnected lever: crowding reads mean **0.995 at spawn falling to 0.675 by
+frame 4,000**, and the weight moved digging hard enough to need `(Bias, Dig)`
+re-derived to hold the rate. **The mechanism fires and does not deliver**, which
+is a different and more useful finding than "it was never wired".
+
+### 14h. Three things this section got wrong, recorded because the errors are the reusable part
+
+**1. The positive control I specified could not fail.** §14e said *"chamber size
+should track colony size"*. More ants dig more cells whether or not the weight
+exists, and the ablated arm scales identically — so it would have passed at
+`(Crowding, Dig, 0.0)`. I spent this document objecting to controls that cannot
+fail and then wrote one.
+
+**2. "Recommend this first" was built on four seeds that had not been run yet.**
+§14f ranked this above §5f's curvature signal partly on *"a controlled
+experiment with the confounds removed"* — which describes Toffin's paper, not
+this engine. **A well-controlled result in the literature is evidence that a
+mechanism exists in nature, not that a port of it works here**, and the section
+treated the two as the same kind of support.
+
+**3. The section's confidence was inverted.** §14d called the chamber half
+*"the confident one"* and the branching half *"not guaranteed"*. Measured: the
+branching half was a clean null in both arms, and the chamber half is the one
+that reversed. The half labelled confident is the half that failed.
+
+**What this does not change:** §14a's correction still stands — a chamber is dug
+rather than built, `line_burrow` already cements excavation walls, and the
+headroom clause was the wrong rule to argue with. The diagnosis survives; the
+prescription did not.
 
 ---
 

@@ -1017,7 +1017,19 @@ drift that two of these documents still reflect.**
   instinct weight, `(Crowding, Dig, w)`. The measurement it needs is the half
   `burrow_probe` cannot give: it counts **roofed void**, a volume, while the
   finding is entirely about **shape** — a round chamber and a ramified warren of
-  equal size are the same number and opposite results.
+  equal size are the same number and opposite results. **§14 was then built and
+  the recommendation withdrawn (PR #216)**: the weight is out of both species
+  files, which are comment-only diffs against `main`. Running the twelve seeds
+  the review asked for found first that `burrow_probe` **could not produce more
+  than seven colonies** — founder placement walked out of the valid region past
+  seed 7 and read `digs 0` in *both* arms, which looks exactly like an effect
+  vanishing at larger samples — and then that the result does not survive:
+  **4 of 4 seeds became 16 of 33 seed pairs**, with the sign reversing between
+  colony sizes, and the interaction test reading −0.316 wired against −0.333
+  ablated. The one effect that survived is the *opposite* of the goal — a
+  smaller cavity for more digging. §14g and §14h record it, including that the
+  positive control the section specified could not fail and that its confidence
+  was inverted: the half it called confident is the half that reversed.
   **Independently reviewed 2026-09-02 and revised; §16 is the errata and is the
   most reusable section in the file.** The review found four confirmed errors,
   and three of them came from checking a claim against a *neighbouring* file
