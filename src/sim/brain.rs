@@ -43,8 +43,8 @@ pub const BRAIN_INPUTS: usize = 21;
 /// one existing weight moves.
 ///
 /// **It is not free, and the cost is the mutable surface.** `live_slots`
-/// goes 318 -> 495 with the three new senses beside it, so the same
-/// `mutation_rate` moves 56% more of the genome per birth -- a shared-budget
+/// goes 318 -> 524 with the three new senses and the `DropSpoil` verb beside
+/// it, so the same `mutation_rate` moves 65% more of the genome per birth -- a shared-budget
 /// reallocation, and `CLAUDE.md` requires the constant be re-derived as part
 /// of the work rather than inherited. It also changes the *draw sequence*
 /// `brain::mutate` walks, so two births are not comparable across this
@@ -52,7 +52,7 @@ pub const BRAIN_INPUTS: usize = 21;
 /// values, so a sampled genome at a given seed is a different animal and
 /// every `creature_space` baseline taken before this is void.
 pub const BRAIN_HIDDEN: usize = 8;
-pub const BRAIN_OUTPUTS: usize = 11;
+pub const BRAIN_OUTPUTS: usize = 12;
 
 /// **Reserved storage dimensions.** The live counts above say how much of
 /// the scaffold is wired; these say how much room the layout leaves it to
@@ -214,7 +214,8 @@ pub const INPUT_NAMES: [&str; BRAIN_INPUTS] = [
     "KinBearing",
     "MoistureGrad",
 ];
-pub const OUTPUT_NAMES: [&str; BRAIN_OUTPUTS] = ["Turn", "Move", "EmitA", "EmitB", "Dig", "Drop", "Persist", "Tumble", "Caution", "Feed", "Impulse"];
+pub const OUTPUT_NAMES: [&str; BRAIN_OUTPUTS] =
+    ["Turn", "Move", "EmitA", "EmitB", "Dig", "Drop", "Persist", "Tumble", "Caution", "Feed", "Impulse", "DropSpoil"];
 
 /// **The genome's shape, as a stored jar remembers it.**
 ///
@@ -715,6 +716,25 @@ pub enum BrainOutput {
     /// later renumbers nothing but does mislead every species file that
     /// authored the name.
     Impulse = 10,
+    /// **Putting down a dug pellet, which was the same gene as putting down
+    /// food and should never have been.**
+    ///
+    /// Exactly the argument that split `Feed` out of `Dig`, one verb later:
+    /// while two acts share an output, evolution cannot select for one
+    /// against the other, and a weight added for one silently moves the
+    /// other. It bound here as soon as the drop's hardcoded moisture
+    /// coefficient moved into the genome
+    /// (`Reports/creature-genome-flexibility-2026-09-02.md` §2c and §5) --
+    /// the food drop away from home was `drop_urge * moisture_gradient` and
+    /// the spoil dump was bare `drop_urge`, so **one output was already
+    /// carrying two different probabilities** and only the Rust could tell
+    /// them apart. Re-authoring `Drop` to carry the food rule would have cut
+    /// spoil dumping fifteenfold and jammed every digger holding a pellet it
+    /// could not put down, which is `labnest`'s own failure mode.
+    ///
+    /// Appended, so `GENOME_LEN` does not change and no existing weight
+    /// moves: `OUTPUT_SLOTS` is 64 against a live count of 11.
+    DropSpoil = 11,
 }
 
 /// One authored connection, as a species file writes it:
@@ -850,6 +870,7 @@ pub const OUTPUTS: [BrainOutput; BRAIN_OUTPUTS] = [
     BrainOutput::Caution,
     BrainOutput::Feed,
     BrainOutput::Impulse,
+    BrainOutput::DropSpoil,
 ];
 
 /// A genome written back out as the four sparse lists a species file
@@ -1199,7 +1220,7 @@ mod tests {
             BRAIN_OUTPUTS * BRAIN_INPUTS + BRAIN_HIDDEN * BRAIN_INPUTS + BRAIN_HIDDEN + BRAIN_OUTPUTS * BRAIN_HIDDEN,
             "live_slots disagrees with the block arithmetic"
         );
-        assert_eq!(live, 495, "the mutable surface moved; re-derive every species' mutation_rate against it in the same change");
+        assert_eq!(live, 524, "the mutable surface moved; re-derive every species' mutation_rate against it in the same change");
     }
 
     #[test]
@@ -1225,18 +1246,18 @@ mod tests {
         // moves. This is exactly the append S2 reserved the dimensions for.
         //
         // **Moved again 2026-09-02 by `KinNear`, `KinBearing`,
-        // `MoistureGrad` and by `BRAIN_HIDDEN` 4 -> 8** (`creature-genome-flexibility-2026-09-02.md`
+        // `MoistureGrad`, the `DropSpoil` verb and `BRAIN_HIDDEN` 4 -> 8** (`creature-genome-flexibility-2026-09-02.md`
         // §4, §5 and §8). Lawful on both axes and for the same reason:
         // 18 -> 21 inputs and 4 -> 8 hidden units light up storage in reserves of
         // 64 that were already there and already zero, `GENOME_LEN` is still
         // 12,352, and no existing weight moves.
         //
         // **What this append changed that the last two did not is the
-        // meaning of `mutation_rate`.** `live_slots` goes 318 -> 495, a 56%
+        // meaning of `mutation_rate`.** `live_slots` goes 318 -> 524, a 65%
         // wider mutable surface, so the same per-slot rate moves 63% more of
         // the genome per birth. That is a shared-budget reallocation rather
         // than a free append, and it is re-derived in the same change.
-        assert_eq!(genome_manifest(), 1_053_848_446);
+        assert_eq!(genome_manifest(), 1_982_686_277);
     }
 
     #[test]

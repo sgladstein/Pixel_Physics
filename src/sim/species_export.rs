@@ -329,7 +329,6 @@ mod tests {
         assert_eq!(out.eats_kin, src.eats_kin);
         assert_eq!(out.nest, src.nest);
         assert_eq!(out.dig_force, src.dig_force);
-        assert_eq!(out.nest_memory, src.nest_memory);
         assert_eq!(out.sensor_offset, src.sensor_offset);
         assert_eq!(out.sight_range, src.sight_range, "the eye is a species field and has to survive an export like every other one");
         assert_eq!(back.cell_types().len(), ant.cell_types().len());

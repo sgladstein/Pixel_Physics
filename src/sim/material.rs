@@ -2352,6 +2352,9 @@ const EMBEDDED: &[&str] = &[
     // Both are at the end because ids are positional, and both are addressed
     // by name -- `id_of("growlamp")` -- never by number.
     include_str!("../../assets/materials/growlamp.ron"),
+    // **Appended at the end so no existing material's position moves.**
+    // The lab ancestor's flesh -- see `assets/materials/ancestor.ron`.
+    include_str!("../../assets/materials/ancestor.ron"),
 ];
 
 /// Where the loader looks for material files, relative to the working directory.

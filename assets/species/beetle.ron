@@ -73,7 +73,6 @@
 
         nest: "nest",
         dig_force: 0.3,
-        nest_memory: 3000,
         // **The eye, and it is the whole of what this animal was missing.**
         // 64 cells, all-round, sized before it was built by
         // `Reports/creature-vision-sizing-2026-08-30.md` -- see

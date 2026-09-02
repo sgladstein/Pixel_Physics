@@ -1,20 +1,45 @@
-// The first colony creature (Reports/creature-direction.md D2). A chain of
-// cells on the organism substrate, deciding with the fixed-scaffold brain
-// in `brain.rs`, whose weights are this file's `instincts` list and nothing
-// else -- there is no ant-specific behaviour code branching on species.
+// **The lab ancestor: a creature with no home.**
 //
-// **Generation zero must already forage.** That is the entire point of
-// authored instincts: the colony works on day one exactly as a brainless
-// taxis design would have, and evolution (stage 4) refines rather than
-// bootstraps. If the ant below mills instead of foraging, the thing to fix
-// is these weights, not the mutation rate.
+// The owner's objection, 2026-09-02: *"I don't like that we have directly
+// encoded there being a nest and dropping food at the nest. It seems designed
+// like we were intentionally trying to create that behavior and intentionally
+// trying to create ants."* This species is the answer, and
+// `Reports/creature-genome-flexibility-2026-09-02.md` is the argument.
 //
-// Both cell types carry no `Behavior`s, same as worm.ron: movement,
-// sensing and the four verbs are creature.rs's code. A `Behavior` is
-// something a species composes onto a cell type from data, and none of
-// this is that.
+// **It is `ant.ron` with four differences and nothing else** -- same body,
+// same energy budget, same costs, same eye, same palette -- because the lab
+// exists to compare genomes and a different body would confound that:
+//
+//   1. **No `nest` field.** There is no material it calls home, so `AtNest`
+//      reads a constant 0.0 for it, `found_colony_of` paints nothing, and
+//      `deliveries` is 0 by construction. Home has to be somewhere its
+//      lineage finds.
+//   2. **The odometer counts from kin, not from a material.** Hidden unit 4
+//      is wired from `KinNear` instead of `AtNest`. The mechanism is
+//      identical; what it measures is *where my own kind are*, which is a
+//      real quantity rather than a category.
+//   3. **`(KinBearing, Turn, 1.2)`** -- one connection from a sense to a
+//      verb, the same shape as the trail-following instincts below it. This
+//      is the only thing pointing this animal at its own kind, it is data,
+//      and mutation can erase it.
+//   4. **Nothing privileges putting food down anywhere.** The ant carries
+//      `(AtNest, Drop, ...)`; this one does not, so where a load ends up is
+//      whatever the weights and the world decide.
+//
+// **A colony is an outcome here, not a precondition.** Aggregation may make
+// a place, a place may make a gradient, a gradient may make central-place
+// foraging -- or none of that happens and the bed says so, which is a real
+// finding rather than a confirmation of our own scene painting. The owner
+// has accepted that outcome in advance: *"in the middle is better but I am
+// willing to try the risky option and give up if it doesn't work."*
+//
+// **Read it in the arena, not by its counters.** `deliveries` and
+// `nest_visits` are keyed on nest material and are therefore 0 for this
+// species however well it does. `examples/creature_arena.rs` is what says
+// whether a genome is winning.
+
 (
-    name: "ant",
+    name: "ancestor",
     cell_types: [
         (Head, []),
         (Segment, []),
@@ -542,7 +567,6 @@
         // shared.
         climbs_over_kin: true,
 
-        nest: "nest",
 
         // Against Material::penetration_resistance, the pattern roots
         // already use rather than a material-name whitelist. 1.0 chews
@@ -597,6 +621,15 @@
             // Flee heat. The worm's thermotaxis, kept, because it is the
             // same animal problem and it costs one connection.
             (TempAboveAmb, Turn, -0.8),
+            // **The one instinct that replaces the nest, and it is a weight
+            // rather than a rule.** A bearing to the nearest living
+            // nestmate, wired to the turn output exactly as
+            // `PheroALateral` is: one connection from a sense to a verb,
+            // which is the shape every other instinct in this file has.
+            // Mutation can weaken it, invert it or delete it, and if a
+            // lineage does better without it the bed will say so -- which
+            // is the difference between an authored colony and a found one.
+            (KinBearing, Turn, 1.2),
 
             // -- going anywhere at all -------------------------------
             // 2.0, not 0.7. squash() is what makes this a measurement
@@ -707,7 +740,6 @@
             // ant that drops at random is an ant that builds walls in the
             // middle of nowhere. Carrying alone must not be enough.
             (Bias, Drop, -0.2),
-            (AtNest, Drop, 1.0889),
             (Carrying, Drop, 0.2),
             (MoistureGrad, Drop, 0.169),
 
@@ -717,7 +749,6 @@
             // own output because the food drop above no longer rolls the same
             // number -- and while two acts share one gene, evolution cannot
             // select for either. See `brain::BrainOutput::DropSpoil`.
-            (AtNest, DropSpoil, 0.9),
             (Carrying, DropSpoil, 0.2),
         ],
 
@@ -819,7 +850,7 @@
             // gradient-laying rule is the better end. An ant past
             // `nest_memory` used to lay nothing at all, and so stopped
             // contributing to the gradient it was itself navigating by.
-            (AtNest,      4,   0.0005),
+            (KinNear,     4,   0.0005),
 
             (Bias,        0, -45.0),
             (Carrying,    0,  75.0),

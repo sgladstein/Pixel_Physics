@@ -360,9 +360,15 @@ fn main() {
     let frames: u64 = arg("frames").unwrap_or(9_000);
     let mirror: bool = arg::<String>("mirror").as_deref() != Some("off");
     let ants: i32 = arg("ants").unwrap_or(LabBox::default().colony_ants);
+    // **Which animal is in the box.** `ancestor` is the nest-free lab
+    // founder (`assets/species/ancestor.ron`), and the question stage 3 asks
+    // of it is not "does it beat the ant" -- they are different species in
+    // different worlds -- but *does it do anything at all*, which is
+    // `species=ancestor arm=lethal`: itself against a zeroed brain.
+    let species = arg_str("species").unwrap_or_else(|| LabBox::default().colony_species);
     let founders: usize = arg("founders").unwrap_or(LabBox::default().founders);
 
-    println!("creature_arena: arm={arm_name} seeds={seeds} frames={frames} mirror={} ants={ants} founders={founders}", if mirror { "on" } else { "off" });
+    println!("creature_arena: species={species} arm={arm_name} seeds={seeds} frames={frames} mirror={} ants={ants} founders={founders}", if mirror { "on" } else { "off" });
     if arm == Arm::Same && mirror {
         println!("  NOTE: arm=same with mirror=on is an ALGEBRAIC IDENTITY -- one simulation with the labels swapped.");
         println!("        It must read exactly 50.0%, and that says only that the harness runs. Use mirror=off for the control that means something.");
@@ -372,7 +378,7 @@ fn main() {
     let mut share_cells: Vec<f64> = Vec::new();
     println!("\n{:>5} {:>8} {:>8} {:>9} {:>8} {:>8} {:>9} {:>7} {:>7}", "seed", "A alive", "B alive", "B share", "A cells", "B cells", "B cells%", "A gen", "B gen");
     for seed in 1..=seeds {
-        let spec = LabBox { colonies: 1, founders, colony_ants: ants, seed, ..LabBox::default() };
+        let spec = LabBox { colonies: 1, founders, colony_ants: ants, colony_species: species.clone(), seed, ..LabBox::default() };
         let runs = if mirror { vec![false, true] } else { vec![false] };
         let (mut a, mut b) = (Tally::default(), Tally::default());
         let (mut ea, mut eb) = (0usize, 0usize);

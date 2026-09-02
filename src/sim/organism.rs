@@ -2209,6 +2209,20 @@ pub struct CreatureDef {
     #[serde(default)]
     pub eats_kin: bool,
     /// The material a nest is built from — what `AtNest` senses.
+    ///
+    /// **Optional since 2026-09-02, and that is the point.** A species that
+    /// declares no nest has no home material, so `AtNest` reads a constant
+    /// 0.0 for it and `deliveries` reads 0 by construction: home has to be
+    /// somewhere its lineage *finds*, not somewhere the scene paints.
+    /// `Reports/creature-genome-flexibility-2026-09-02.md` §2a — this was
+    /// the only sense in the suite that pre-categorised what it senses.
+    ///
+    /// The companion `nest_memory` is **gone**, not defaulted. It was read
+    /// by exactly one line — the `recency` multiplier that scaled channel-A
+    /// deposit — and when that became three authored weights the field had
+    /// no reader left. A field with no reader is dead weight; keeping it
+    /// would have been a species constant nobody could act on.
+    #[serde(default)]
     pub nest: String,
     /// How hard this species can dig, against a material's
     /// `penetration_resistance`. The pattern roots already use
@@ -2216,9 +2230,7 @@ pub struct CreatureDef {
     /// whitelist: a species that can chew soil but not stone should say so
     /// in force, so a future softer stone is diggable automatically.
     pub dig_force: f32,
-    /// Ticks over which nest-scent deposit falls to nothing. See
-    /// `OrganismState::since_nest`.
-    pub nest_memory: u16,
+
     /// **How far this animal can see another animal, in cells. Zero — the
     /// default — means it has no eyes at all**, which is every species in
     /// the world except the beetle and is what keeps the sense off the
@@ -2361,7 +2373,6 @@ impl CreatureDef {
             eats_kin,
             nest,
             dig_force,
-            nest_memory,
             sight_range,
             sensor_offset,
             instincts,
@@ -2407,9 +2418,7 @@ impl CreatureDef {
             // `start_energy` and `reproduce_threshold` are joules held by
             // one animal, `crop_capacity` is joules of face value the crop
             // holds, and `synapse_fraction` is a
-            // fractions *of* `start_energy`, and `nest_memory` is a decay
-            // time in ticks that describes the world's chemistry rather than
-            // this animal's gait. `dig_force` is compared against a
+            // fraction *of* `start_energy`. `dig_force` is compared against a
             // material's `penetration_resistance`, which does not move with
             // resolution either.
             start_energy: *start_energy,
@@ -2438,7 +2447,6 @@ impl CreatureDef {
             eats_kin: *eats_kin,
             nest: nest.clone(),
             dig_force: *dig_force,
-            nest_memory: *nest_memory,
             instincts: instincts.clone(),
             hidden_wiring: hidden_wiring.clone(),
             hidden_outputs: hidden_outputs.clone(),
@@ -4077,6 +4085,10 @@ const EMBEDDED: &[&str] = &[
     // changed -- the blind A/B on the shade rule needs arms that differ
     // in one thing, and its material is a byte-copy of `ant_block`'s.
     include_str!("../../assets/species/ant_block_shaded.ron"),
+    // **The lab ancestor** (`Reports/creature-genome-flexibility-2026-09-02.md`
+    // §10 stage 3). Appended at the end so no existing species' position
+    // moves.
+    include_str!("../../assets/species/ancestor.ron"),
 ];
 
 /// Where the loader looks for species files, relative to the working

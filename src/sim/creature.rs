@@ -1535,13 +1535,32 @@ impl World {
         let Some(species_id) = self.species.id_of(species) else {
             return 0;
         };
-        if self.materials.id_of("nest").is_none() {
-            return 0;
+        // **Home is painted only for a species that declares one, and this
+        // line is the whole of the owner's objection in code.**
+        // `lab/mod.rs` says out loud why the tool used to paint it
+        // unconditionally -- *"because without a nest there is no gradient
+        // and nobody forages"* -- and that is exactly the complaint:
+        // founding a colony painted the **precondition for the behaviour we
+        // then observed**, so a colony was a thing the scene handed us
+        // rather than a thing a lineage made.
+        // `Reports/creature-genome-flexibility-2026-09-02.md` §2a.
+        //
+        // A species with an empty `nest` gets animals on the ground and
+        // nothing else. Whether they aggregate, and whether aggregating
+        // produces a gradient anyone forages up, is now a question with an
+        // answer rather than an assumption. A species that *does* declare a
+        // nest -- the outdoor ant -- is unchanged, including the refusal
+        // when its material is missing.
+        let nest = self.species.get(species_id).creature.as_ref().map(|c| c.nest.clone()).unwrap_or_default();
+        if !nest.is_empty() {
+            if self.materials.id_of(&nest).is_none() {
+                return 0;
+            }
+            // The two halves, each with exactly one definition of its own
+            // rule: where home is, and where the animals stand. See
+            // `colony_stations` for why they are separate verbs.
+            self.paint_nest_patch(x, y);
         }
-        // The two halves, each with exactly one definition of its own rule:
-        // where home is, and where the animals stand. See `colony_stations`
-        // for why they are separate verbs.
-        self.paint_nest_patch(x, y);
         let mut placed = 0;
         for (cx, cy) in self.colony_stations(x, y, species_id, ants) {
             let before = self.get(cx, cy).organism_id();
@@ -1891,13 +1910,37 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
     // --- deposit, only on a successful move (P-11) ----------------------
     if moved {
         let (hx, hy) = world.organism(organism).and_then(|s| s.chain.first().copied()).unwrap_or((x, y));
-        // Nest scent falls off with how long ago this creature was home.
-        // That falloff is the entire homing mechanism: fresher scent is
-        // nearer the nest, so a laden ant walking up-gradient is walking
-        // home, and nothing ever asks where the nest is.
-        let since = world.organism(organism).map_or(0, |s| s.since_nest);
-        let recency = (1.0 - since as f32 / def.nest_memory.max(1) as f32).max(0.0);
-        let emit_a = outputs[brain::BrainOutput::EmitA as usize].clamp(0.0, 1.0) * recency;
+        // **Both channels are now just brain outputs, and that is the
+        // change.** Channel A used to be multiplied here by
+        // `1 - since_nest / nest_memory` -- an odometer written in Rust, and
+        // the whole of the homing mechanism. It worked, and it authored
+        // three things a lineage could not touch
+        // (`Reports/creature-genome-flexibility-2026-09-02.md` §2b): there
+        // was one way home and evolution could only turn its volume up and
+        // down; **A was the homing plane because a multiplier said so**, so
+        // a species could not swap the planes, use both for food, or use
+        // neither; and the whole thing was keyed on `AtNest`, a contact scan
+        // for a material named in the species file that nothing
+        // creature-side can ever make.
+        //
+        // A self-recurrent hidden unit *is* an odometer, in three weights:
+        // one in from whatever the species counts as "home", one on itself
+        // setting the decay, one out into the channel it wants to fade.
+        // `ant.ron` authors exactly that off `AtNest` and reproduces this
+        // curve; the lab ancestor authors it off `KinNear` and has no nest
+        // at all. What was a species constant (`nest_memory: 3000`) is now a
+        // number selection can move, and the two planes are symmetric.
+        //
+        // **Verified before it was built, because §4's safety claim rests on
+        // it**: `squash` is `x/(1+|x|)` and saturates, so three weights
+        // expressing a 3,000-tick decay is not obvious. At `w_rec = 0.9999`,
+        // `w_in = 0.0002`, `w_out = 1063.8` and a `-0.2` bias the emitted
+        // value runs 0.85 -> 0.08 monotonically over 3,000 ticks against the
+        // old 0.667 -> 0.0. **The shape is hyperbolic where the old one was
+        // linear** -- it falls faster early and never quite reaches zero,
+        // which for a gradient-laying rule is arguably the better end: an
+        // ant past `nest_memory` used to contribute nothing at all.
+        let emit_a = outputs[brain::BrainOutput::EmitA as usize].clamp(0.0, 1.0);
         let emit_b = outputs[brain::BrainOutput::EmitB as usize].clamp(0.0, 1.0);
         world.deposit_pheromone(Channel::A, hx, hy, (emit_a * pheromone::DEPOSIT as f32) as u8);
         world.deposit_pheromone(Channel::B, hx, hy, (emit_b * pheromone::DEPOSIT as f32) as u8);
@@ -2692,6 +2735,20 @@ fn sight(world: &World, x: i32, y: i32, organism: u16, def: &CreatureDef, gut: G
     Sightings { prey: best, kin }
 }
 
+/// **Is this creature touching the material its species calls home?**
+///
+/// Since 2026-09-02 this decides **nothing**. It is a `BrainInput` (so a
+/// weight, so a gene) and a counter (`deliveries`, `nest_visits`), and it is
+/// no longer read by any verb: the drop's privileged branch and the emission
+/// odometer both went to the genome
+/// (`Reports/creature-genome-flexibility-2026-09-02.md` §2a-c).
+///
+/// It stays wired because the positional law forbids removing a slot and
+/// because the outdoor ant still has a nest to count visits to. **For a
+/// species that authors no `nest`, `id_of` returns `None` and this is `false`
+/// for ever** -- so `deliveries` reads 0 by construction for the lab
+/// ancestor, and the arena, not this counter, is what says whether it
+/// forages.
 fn adjacent_nest(world: &World, x: i32, y: i32, def: &CreatureDef) -> bool {
     let Some(nest) = world.materials.id_of(&def.nest) else {
         return false;
@@ -2756,6 +2813,11 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
     // grazer while the two share a gene.
     let feed_urge = outputs[O::Feed as usize].clamp(0.0, 1.0);
     let drop_urge = outputs[O::Drop as usize].clamp(0.0, 1.0);
+    // **The spoil dump is its own verb since 2026-09-02**, for the reason
+    // stated one comment up about `Feed`: while two acts share an output,
+    // evolution cannot select for one against the other. See
+    // `brain::BrainOutput::DropSpoil` for what forced it.
+    let dump_urge = outputs[O::DropSpoil as usize].clamp(0.0, 1.0);
 
     // --- ingest ---------------------------------------------------------
     //
@@ -2917,10 +2979,29 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
         // construction, and what is being digested is a timer.
         if held.cells > 0 {
             let unit = held.unit_cell(quantise_worth);
+            // **One probability, wherever you are standing.** This line used
+            // to read `if at_nest { drop_urge } else { drop_urge *
+            // moisture_gradient(..) }` -- a hardcoded claim that putting
+            // something down at home is a *different act* from putting it
+            // down anywhere else (§2c), and a fixed coefficient that gave
+            // every animal in the world the same relationship to moisture
+            // for ever (§5).
+            //
+            // Both are now weights. `BrainInput::MoistureGrad` carries the
+            // channel into the brain, so the construction bias is
+            // `(MoistureGrad, Drop, w)` -- a sign *and* a magnitude, both
+            // free -- and the nest's privilege is `(AtNest, Drop, w)`, which
+            // `ant.ron` already authored and now carries the whole of the
+            // difference. A species with no nest simply does not wire it.
+            //
+            // **The form changes from multiplicative to additive**, which is
+            // not a detail: the old moisture term *scaled* the probability
+            // (in the lab bed, m ~ 0.07, so it cut a route drop to a
+            // fifteenth), and a weight inside `squash` *shifts* it. `ant.ron`
+            // is re-authored against measured endpoints rather than by
+            // porting the numbers -- see its `instincts` list.
             let at_nest = adjacent_nest(world, x, y, def);
-            // At the nest it is storage and always wanted; out on the route it
-            // is construction, and *there* the moisture bias decides.
-            let p = if at_nest { drop_urge } else { drop_urge * moisture_gradient(world, x, y) };
+            let p = drop_urge;
             if draw.unit_f32() < p {
                 if let Some((dx, dy)) = NEIGHBOURS_8.iter().map(|&(dx, dy)| (x + dx, y + dy)).find(|&(px, py)| world.is_empty(px, py)) {
                     world.set(dx, dy, unit.into_cell(world));
@@ -2962,7 +3043,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
     // clearance from the dug cell, and gating the roll on the light channel.
     //
     if let Some(spoil) = world.organism(organism).and_then(|s| s.spoil) {
-        if draw.unit_f32() < drop_urge {
+        if draw.unit_f32() < dump_urge {
             // **Ground under it and air over it** -- a pellet goes down where
             // it can lie, which is the open surface, and the two halves of
             // that are the two ways it otherwise goes wrong.
@@ -3039,7 +3120,11 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
     // material's own `penetration_resistance` against this species'
     // `dig_force` -- the pattern roots already use, never a name whitelist,
     // so a future softer stone becomes diggable with no code change.
-    if draw.unit_f32() < dig_urge * (1.0 - moisture_gradient(world, x, y)) {
+    // The dig side of the same change: this read `dig_urge * (1.0 -
+    // moisture_gradient(..))`, the inverse coefficient of the drop's, so
+    // excavation ran toward wetter ground by a rule no lineage could alter.
+    // It is `(MoistureGrad, Dig, w)` now, with the sign free.
+    if draw.unit_f32() < dig_urge {
         let heading = world.organism(organism).map_or(0, |s| s.heading);
         let (dx, dy) = DIRS[heading as usize];
         let (tx, ty) = (x + dx, y + dy);

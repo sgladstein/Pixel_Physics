@@ -87,10 +87,17 @@ the box changes even at the top of the dial.
    creature half of the game.
 2. **`sky_light` in an enclosed world.** 2.8 ms of a 4.78 ms draw, bought by
    a check the room already knows how to answer.
-3. **Gate 2 — does selection have teeth in *this* bed.** Still never run,
-   and `selection_arena`'s whole finding is that a null there is a statement
-   about the world rather than the genome, so it invalidates every evolution
-   result measured in the bed until it is done.
+3. ~~**Gate 2 — does selection have teeth in *this* bed.**~~ **Run, and
+   passed, 2026-09-02** — `examples/creature_arena.rs`, on branch
+   `claude/pr-213-report-impl-dxp7lw`. The zeroed-brain arm loses on 4 seeds
+   of 4 and a random genome loses on 5 of 6, against an identical-arms
+   control sitting at the null. **The line every reader of this note needs**:
+   the bed only discriminates *past the founding grant*. At `labbatch`'s
+   9,000-frame horizon the zeroed brain **wins**, 65.8% on 4 seeds of 4,
+   because an ant's grant is 12,000 frames of doing nothing and starving is
+   not yet possible inside the window — so any creature result taken at 9,000
+   frames in this bed is a reading of who was given more, not who earned
+   more. Design: `Reports/creature-genome-flexibility-2026-09-02.md` §9.
 4. **Gate 4's two verbs**, cull and partition, which the premise most
    depends on and which have no engine support.
 

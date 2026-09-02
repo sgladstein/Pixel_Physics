@@ -560,7 +560,6 @@ fn creature_value(world: &World, species: &str, field: &str) -> Option<f32> {
         "tick_interval" => def.tick_interval as f32,
         "idle_cost_per_cell" => def.idle_cost_per_cell,
         "move_cost_per_cell" => def.move_cost_per_cell,
-        "nest_memory" => def.nest_memory as f32,
         _ => return None,
     })
 }
@@ -598,8 +597,6 @@ fn ant_rows(world: &World, out: &mut Vec<Param>) {
         "WHAT IT COSTS AN ANT TO SIMPLY EXIST, PER CELL OF BODY, PER TURN. IT IS THE CLOCK ON EVERY ANIMAL IN THE BOX.");
     cr("move_cost_per_cell", span(0.0, 4.0, 0.02), false,
         "WHAT IT COSTS TO MOVE, PER CELL OF BODY. AGAINST THE IDLE COST IT IS THE PRICE OF LOOKING FOR FOOD VERSUS THE PRICE OF WAITING FOR IT.");
-    cr("nest_memory", span(0.0, 4000.0, 50.0), true,
-        "HOW LONG AN ANT REMEMBERS WHERE THE NEST WAS. IT IS WHAT LETS A FORAGER COME BACK RATHER THAN WANDER.");
 
     if let Some(id) = world.species.id_of(species) {
         if let Some(def) = world.species.get(id).creature.as_ref() {
@@ -702,8 +699,7 @@ pub fn write(world: &mut World, spec: &mut LabBox, knob: &Knob, value: f32) -> b
                 "tick_interval" => def.tick_interval = value.max(1.0).round() as u64,
                 "idle_cost_per_cell" => def.idle_cost_per_cell = value,
                 "move_cost_per_cell" => def.move_cost_per_cell = value,
-                "nest_memory" => def.nest_memory = value.max(0.0).round() as u16,
-                _ => return false,
+                        _ => return false,
             }
             world.species.set_creature(id, def);
             true
