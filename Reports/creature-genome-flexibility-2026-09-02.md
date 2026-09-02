@@ -581,40 +581,129 @@ meaning.
 offsets predate `FIELD_SCALE` doubling 8 → 16 on 2026-08-30 (`ca7e9042`, one day
 after `fac79156` last touched those lines) and proposed re-deriving them. **The
 dating is correct and the remedy is wrong**: §5b shows widening the span moves
-the ratio toward 1.0, so the offsets are not what stands between this channel
-and a curvature reading. Recorded rather than deleted, because the *shape* of
-the error is the one `CLAUDE.md` names — a constant calibrated against a
-quantity that then moved is worth suspecting, and here it was worth suspecting
-and was not the fault.
+the ratio toward 1.0. Recorded rather than deleted, because the *shape* of the
+error is the one `CLAUDE.md` names — a constant calibrated against a quantity
+that then moved is worth suspecting, and here it was worth suspecting and was
+not the fault.
 
-**Three options, and a recommendation.**
+#### The decision: build the curvature signal
 
-1. **Rename and re-document only.** Call it surface proximity, drop the termite
-   claim, keep the behaviour. Cheapest, honest, and it already does something
-   useful.
-2. **Add a curvature signal beside it, as a second brain input.** The cheap
-   implementation is a **discrete curvature estimate from a solid-neighbour
-   count** in a small disc: convex → few solid neighbours, concave → many, flat
-   → about half. It is geometric, so it is per-cell and immune to the
-   coarse-field degeneracy that has been hit five times on three lines; it costs
-   ~24 `World::get` at radius 2, once per drop roll, against 328–1,186 cells for
-   a single sight cast; and there is precedent for neighbour-counting at a cell
-   in `act`'s own spoil-drop footing test. **It is also the only version with
-   the positive feedback**, so it is the only one that can build a pillar.
-3. **Both.**
+**Owner's call, 2026-09-02, and two of the three objections against it were
+withdrawn under his challenge.** They are recorded because the *withdrawals*
+are the useful part.
 
-**Recommend 3.** Facchini says termites sense curvature *indirectly*, through
-evaporation; this engine tried the indirect route and measured that its coarse
-field does not carry the signal, so computing curvature directly is the honest
-fallback rather than a shortcut. And it follows this section's own surviving
-argument: if the *response* belongs to the genome, then giving evolution two
-honestly-named physical signals to weigh independently is strictly better than
-one mislabelled one.
+**Withdrawn 1 — "the ecology is not ready" is an ordering argument, not a
+don't-do-it.** It was presented as the latter. Building the sense is also how
+you find out whether the ecology needs changing.
 
-**Sequencing.** Option 1 is a documentation change and belongs with PR #214's
-review. Option 2 touches `creature.rs`, `brain.rs` and the species files, so it
-waits for #214 to land — and it is new design work rather than a review fix, so
-it should not ride on that PR.
+**Withdrawn 2 — "nothing selects for shelter" is wrong, and the data says so
+in the column nobody read.** `predation_probe mode=range`, 12 seeds, paired
+against `beetles=0`:
+
+| | no predator | beetles | advantage |
+|---|---|---|---|
+| roofed vs open | 0.59 / 1.36 | 0.54 / 1.41 | 2.31x → 2.61x |
+| predator cannot fit vs could reach | 0.43 / 1.22 | 0.56 / 1.18 | 2.84x → 2.11x |
+
+**Shelter pays 2.3–2.8x with no predator in the world at all.** The two tables
+disagree about the *sign* of the beetle term, and at 231 deaths with beetles
+against 190 without — about 3.4 extra deaths per seed — predation's
+contribution is inside the noise. So the correct statement is the narrow one:
+*predation* does not select for shelter, and something else does, strongly.
+**The gradient a builder would climb already exists.** What is missing is not a
+reason to shelter but the ability to make shelter of a good shape, which is
+what this signal is for.
+
+**Not withdrawn, but corrected — the visibility concern.** The worry was that a
+three-cell pillar sits below the world's 1–2 cell texture grain, on
+`creature-appearance-design.md` §2's decoy counts (127 at 2 cells, 15 at 9, 0
+at 16). That finding is real and it was **over-extended here**, three ways: it
+measures *finding an animal* rather than *reading as built*, and what reads as
+built is **regularity and repetition**, which `decoys` scores independently and
+therefore cannot see; the resolution step (#179/#181) doubled cell density, so
+the old three-cell feature is six; and structure **accumulates over a run**,
+where `motion_look` found a changing feature has 0–2 competitors against a still
+one's 141. The concern survives as a question, not as a reason to wait.
+
+**So: build it.**
+
+1. **`SurfaceCurvature` as a brain input** — signed, from a solid-neighbour
+   count in a disc (negative concave, positive convex), opt-in per species the
+   way `sight_range` is.
+2. **Rename the existing channel** to what it measures and keep it. Two
+   honestly-named signals, weighed independently, rather than one mislabelled
+   one.
+3. **Author the ant and the ancestor a starting weight**, so generation zero
+   carries the termite bias *for real* — which it has never actually had.
+4. **Feed both drop genes independently.** PR #214 split `Drop` and
+   `DropSpoil`, so a lineage can evolve to build with spoil and cache food on
+   different criteria. That falls out for free and is a better outcome than one
+   coefficient ever allowed.
+
+**One check, folded into the build rather than gating it:** render the bank with
+the bias forced on and off, blind A/B. Not permission to proceed — the thing
+that distinguishes "it works" from "it works and needs to be bigger". If the
+arms are indistinguishable the answer is extent, which is the same answer as the
+creature-silhouette work and not a reason to have skipped this.
+
+### 5g. The placement predicate, and why it should not change in the same step
+
+`act`'s spoil drop admits a cell only if it is empty, **at least two of the
+three cells directly beneath are solid**, and `SPOIL_HEADROOM = 3` cells above
+are clear. Both clauses are measured: without the footing, censused floating
+ground runs **26–38** pieces with no path to the floor against **2–6** with it;
+without the headroom, `burrow_probe arms=colony` reads roofed void **2–4**
+against **89–139** — the colony backfills its own nest.
+
+**The footing clause is specifically anti-pillar.** On a one-cell-wide pillar
+top the cells beneath are empty / solid / empty, so the count is 1 and the site
+fails. It went from "one beneath" to "two of three" because unmotivated stacking
+grew *"thin vertical fingers, which a rendered sheet shows plainly."*
+
+**And a finger and a pillar are the same geometry.** One is noise, the other is
+curvature-driven deposition, and the predicate cannot see the difference. That
+is exactly `CLAUDE.md`'s *when a rule must tell apart two things that can look
+identical, state the difference as data* — the rule four successive support
+models learned by failing, each either strong enough to hold a mountain or weak
+enough to let a player's tower break, because geometry cannot distinguish a
+mountain from a wall someone stacked. **Relaxing 2 to 1 is that mistake in a new
+costume, and it should not ride along with the curvature change**: two edits to
+one outcome cannot be attributed apart.
+
+**So: leave the predicate alone in this step.** Add curvature within it and see
+what it does to the *wide* features it can already shape — mound profile, ridge
+thickening, hollow filling. If those read as built, narrow pillars may not be
+wanted at all. What distinguishes architecture from noise is regularity, and
+regularity would come from the bias being consistent rather than from the
+placement rule.
+
+**If pillars specifically turn out to be wanted, the change is one line with its
+acceptance bar already in the tree:** relax the footing to one cell beneath and
+re-run the floating-ground census against its measured 2–6 / 26–38.
+
+#### The clause that actually binds is the headroom, and nobody has said so
+
+`SPOIL_HEADROOM` is 3, and its own comment records that *"a gallery cut by
+`line_burrow` is one to three cells tall"*. So inside a gallery there is never
+three cells of clear air above the floor, and **a pellet can never be placed
+inside a burrow.**
+
+That is deliberate and it is load-bearing — it is what stops the colony
+backfilling its own workings. But the consequence has not been stated anywhere:
+**all construction is necessarily external.** Mounds, banks and ridges are
+reachable; partitions, chamber walls and any thickening from inside are not. No
+curvature signal changes that, because the site is refused before preference is
+consulted.
+
+**So if "ants building homes" means rooms rather than mounds, the headroom
+clause is the binding constraint and the curvature work will not reach it.**
+And unlike the footing clause, this one *can* be restated as data rather than
+geometry: a pellet may go inside a burrow when it is **against a wall** —
+adjacent to solid on a side, which is what a lining is — as opposed to standing
+in open gallery space, which is backfill. That is a different question from
+"clear air above" and it would admit internal structure without reopening the
+failure the headroom clause was built for. **Not proposed here**; recorded so
+the next person asking for chambers knows which rule to argue with.
 
 ---
 
