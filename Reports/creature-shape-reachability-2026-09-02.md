@@ -41,7 +41,12 @@ engine, listed in `Reports/instruments.md`) and one existing species
    not a failure of the check: **on this evidence D1's lever is extent, not
    architecture**, for findability at least. §2 also states what effect size
    this design had the power to detect, since a null with no power statement
-   is not evidence of absence.
+   is not evidence of absence. **§2.1 closes the follow-up question this
+   raises**: extent grown as *length at the mobility-safe width §1 found*
+   (2 cells wide, 18 tall, still 36 cells) scores within the same noise band
+   as extent grown as a compact block — the mobility recommendation and the
+   legibility recommendation are not in tension, provided the economics are
+   fixed first (below).
 3. **Can the owner tell them apart?** Posted, not yet answered. Six body
    shapes (`ant`, `beetle`, `uniform3`, `uniform5`, `forward_taper`,
    `backward_taper`) as a blind gallery card, `20260902T194120383Z-3860b1`,
@@ -54,8 +59,15 @@ silhouettes clear that bar — but do not expect it to produce the owner's
 stated insect silhouette (small head, big abdomen), because that specific
 shape is measured to cost the same mobility as a plain rigid block, with or
 without articulation. If the real goal is "creatures that read as more than
-a chain," on §2's evidence that is answered by making them **bigger**, not by
-giving them a different architecture while narrow.
+a chain," on §2's evidence (and §2.1's follow-up) that is answered by making
+them **bigger, as a long narrow body**, not by giving them a different
+architecture while narrow, and not by making them wider — width is exactly
+what §1 measured as expensive. **One prerequisite precedes all of this**:
+`creature-genome-flexibility-2026-09-02.md` §11e/§12d already found that
+body size buys nothing in today's economy (more meat for a predator and
+nothing else), so a heritable size gene would shrink rather than grow until
+that is fixed — extent is the right *shape* lever, but it needs a reason to
+be selected for before it is worth building.
 
 ## 1. Q1 — does articulation recover mobility?
 
@@ -227,6 +239,55 @@ lever remains extent, not architecture, at both 9 and 36 cells. It leaves
 open exactly what §13d's own "standing gap" names: no instrument here
 measures whether a body *reads as an animal* rather than being merely
 *findable* — which is what §3 asks instead.
+
+### 2.1 Does "extent" have to mean compact?
+
+Added after a follow-up question about §0's recommendation ("if the goal is
+a creature that reads as more than a chain, the evidence points at extent,
+not architecture"): every extent measurement above, and every one in
+`creature-appearance-design.md` §2, grew the body as a **compact block** (up
+to 4x4 at 16 cells there, a 6x6 at 36 here). §1.3 found the mobility-safe
+zone is the opposite shape — **width ≤2, however long** — so before
+recommending extent-via-length as the way to grow a creature without paying
+§1's rigid-body mobility tax, the two findings need to be checked together:
+does a long, narrow body keep the legibility win a compact block gets, or
+was that win actually about being square-ish?
+
+A third 36-cell arm, `narrow36` (`block(2, 18)` — 2 cells wide, 18 tall, the
+same mobility-safe footprint §1.3 measured at 8-13% blocked), added to
+`creature_shape36_probe.rs` and run against `block36` for 6 seeds:
+
+| seed | block36 ink | narrow36 ink | diff |
+|---|---|---|---|
+| 1 | 5220 | 5233 | 0.2% |
+| 2 | 5146 | 5157 | 0.2% |
+| 3 | 5189 | 4506 | 13.2% |
+| 4 | 5221 | 5163 | 1.1% |
+| 5 | 5192 | 5073 | 2.3% |
+| 6 | 5224 | 5070 | 2.9% |
+| **mean** | | | **3.3%** |
+
+Five of six seeds land at 0.2-2.9%, the same band `block36` vs `waisted36`
+scored (0.1-1.9%, §2's table); seed 3's 13.2% is one placement-driven
+outlier of exactly the kind this line keeps warning about (a single run is
+a sample from a wide distribution), not a second data point. **Extent
+pursued as length at a mobility-safe width keeps the same legibility as
+extent pursued as a compact block.** The two findings are not in tension:
+a long, narrow, jointed body (what §1.4's "every part ≤2 cells wide" case
+actually looks like) is not a legibility compromise for being mobility-safe.
+
+**What this does not check:** `ink` says the body puts the same amount of
+"not-ground" on screen either way; it does not say a 2x18 silhouette *reads
+as an animal* rather than as a root, a vine, or a crack in the rock — that
+is §3's question, and `narrow36` is not one of the six shapes on that card.
+Nor does it touch the economics: `idle_cost_per_cell` and
+`move_cost_per_cell` are both charged per cell (`CLAUDE.md`, 2026-08-30), so
+a 36-cell body of either shape costs 18x the shipped two-cell ant's upkeep,
+and `creature-genome-flexibility-2026-09-02.md` §11e/§12d already flags that
+size buys nothing in the current economy — an unguided heritable size gene
+would shrink, not grow, whichever shape it grew into. Pursuing extent as a
+design direction is contingent on that being fixed first; this section only
+says the shape-legibility half of the trade is not the blocker.
 
 ## 3. Q3 — can the owner tell them apart?
 

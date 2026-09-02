@@ -133,12 +133,18 @@ struct PlacedShape {
     cells: Vec<(i32, i32)>,
 }
 
-/// Two 36-cell bodies, differing only in composition. `block36` is
+/// Three 36-cell bodies, differing only in shape. `block36` is
 /// `creature_look.rs`'s own `block(w,h)` closure at 6x6. `waisted36` is
 /// three segments -- a 3x4 head, a pinched 2x2 waist, a 4x5 abdomen -- the
 /// same *kind* of arrangement `ant_wide.ron` uses at 9 cells, scaled up and
 /// with a real pinch rather than a single notch so the composition change
-/// is unambiguous.
+/// is unambiguous. `narrow36` is `block(2, 18)` -- the geometry
+/// `creature-shape-reachability-2026-09-02.md` §1.3 found mobility-safe
+/// (footprint width <=2, blocked-move median 8-13% against >=3 wide's
+/// 47-58%), asking whether "extent" pursued as *length at safe width*
+/// keeps the legibility win `creature-appearance-design.md` measured for
+/// *compact* blocks, or whether that win was actually about being
+/// square-ish rather than merely being 36 cells.
 fn shapes36() -> Vec<Shape> {
     let block = |w: i32, h: i32| -> Vec<(i32, i32)> { (0..w).flat_map(move |dx| (0..h).map(move |dy| (-dx, -dy))).collect() };
     let mut waisted = Vec::new();
@@ -161,6 +167,7 @@ fn shapes36() -> Vec<Shape> {
     vec![
         Shape { name: "block36 (6x6)", w: 6, h: 6, offsets: block(6, 6) },
         Shape { name: "waisted36 (head/waist/abdomen)", w: 9, h: 5, offsets: waisted },
+        Shape { name: "narrow36 (2x18, mobility-safe width)", w: 2, h: 18, offsets: block(2, 18) },
     ]
 }
 
