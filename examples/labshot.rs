@@ -105,13 +105,21 @@ fn main() {
         soil_depth: arg("soil").unwrap_or(LabBox::default().soil_depth),
         founders: arg("founders").unwrap_or(8),
         colonies: arg("colonies").unwrap_or(1),
+        // **Which animal, because the answer is now visibly different.**
+        // `ancestor` (`assets/species/ancestor.ron`) declares no home
+        // material, so `found_colony_of` paints no nest patch for it -- and
+        // the whole question `Reports/creature-genome-flexibility-2026-09-02.md`
+        // asks is what a colony looks like when the scene did not paint the
+        // precondition for one. That is a judge-by-eye question and this is
+        // the harness that answers it.
+        colony_species: arg::<String>("species").unwrap_or_else(|| LabBox::default().colony_species),
         predators: arg("predators").unwrap_or(0),
         compartments: arg("walls").unwrap_or(1),
         ..LabBox::default()
     };
     println!(
-        "labshot: {}x{} soil={} founders={} colonies={} predators={} walls={} interior={interior} light={} frames={:?}",
-        spec.width, spec.height, spec.soil_depth, spec.founders, spec.colonies, spec.predators,
+        "labshot: {}x{} soil={} founders={} colonies={} of {} predators={} walls={} interior={interior} light={} frames={:?}",
+        spec.width, spec.height, spec.soil_depth, spec.founders, spec.colonies, spec.colony_species, spec.predators,
         spec.compartments,
         arg::<f32>("light").map_or("held at noon".to_string(), |f| format!("{f}")),
         stops
