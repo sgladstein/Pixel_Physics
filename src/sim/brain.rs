@@ -709,12 +709,25 @@ pub enum BrainOutput {
     /// verb (`creature-motion-design.md` §3): the reserve is free, the wiring
     /// is not.
     ///
-    /// **The slot after this one stays unnamed on purpose** — §4d and the
-    /// owner's call 2. The condition for spending it is written down in §4b:
-    /// the day something in the world moves a creature against its will, a
-    /// grip verb has a benefit to point at. Naming it now and changing it
-    /// later renumbers nothing but does mislead every species file that
-    /// authored the name.
+    /// **The slot after this one was held unnamed on purpose, and was spent
+    /// on 2026-09-02.** It is worth keeping the reasoning rather than
+    /// deleting it, because the condition it set is still the right one for
+    /// the *next* slot.
+    ///
+    /// It was held by §4d and the owner's call 2, against the condition in
+    /// §4b: the day something in the world moves a creature against its
+    /// will, a grip verb has a benefit to point at. That day has not come —
+    /// slot 11 went to `DropSpoil` instead, because the drop's hardcoded
+    /// moisture coefficient moving into the genome left one output carrying
+    /// two different probabilities (see `DropSpoil` below for the argument).
+    /// **A grip verb now goes to slot 12**, on the same condition and with
+    /// nothing else changed: `OUTPUT_SLOTS` is 64 against a live count of
+    /// 12, so naming it renumbers nothing.
+    ///
+    /// The caution that paragraph carried still stands and is why this note
+    /// exists: naming a slot and changing it later misleads every species
+    /// file that authored the name. `DropSpoil` is named because a species
+    /// file authors it *today*; slot 12 is not.
     Impulse = 10,
     /// **Putting down a dug pellet, which was the same gene as putting down
     /// food and should never have been.**

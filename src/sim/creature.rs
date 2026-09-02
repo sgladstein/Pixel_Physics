@@ -1933,10 +1933,24 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
         //
         // **Verified before it was built, because §4's safety claim rests on
         // it**: `squash` is `x/(1+|x|)` and saturates, so three weights
-        // expressing a 3,000-tick decay is not obvious. At `w_rec = 0.9999`,
-        // `w_in = 0.0002`, `w_out = 1063.8` and a `-0.2` bias the emitted
-        // value runs 0.85 -> 0.08 monotonically over 3,000 ticks against the
-        // old 0.667 -> 0.0. **The shape is hyperbolic where the old one was
+        // expressing a 3,000-tick decay is not obvious. Simulated over the
+        // real recurrence at the weights `ant.ron` actually authors --
+        // `w_in = 0.0005` (`AtNest` -> hidden 4), `w_rec = 0.9999`,
+        // `w_out = 1609.1` (hidden 4 -> `EmitA`) and a `-0.35` bias -- and
+        // **after a 5-tick nest touch**, which is a brush past rather than a
+        // stay: the emitted value runs 0.785 -> 0.046 monotonically across
+        // 3,000 ticks against the old 0.667 -> 0.0, rms 0.040. A 400-tick
+        // stay saturates at 0.972 rather than running away.
+        //
+        // **Name the touch duration whenever quoting these numbers**, because
+        // the charge is slow by design and the curve depends on it: an
+        // earlier fit assumed a 30-tick stay, produced different weights
+        // entirely (`w_in = 0.0002`, `w_out = 1063.8`, bias `-0.2`, running
+        // 0.85 -> 0.08), and was discarded for being fragile against an ant
+        // that only brushes the nest. Those weights are *not* in the tree and
+        // this comment quoted them for a while, which is the failure mode
+        // `CLAUDE.md` names -- a comment that reads correctly against nothing.
+        // **The shape is hyperbolic where the old one was
         // linear** -- it falls faster early and never quite reaches zero,
         // which for a gradient-laying rule is arguably the better end: an
         // ant past `nest_memory` used to contribute nothing at all.
@@ -2756,31 +2770,58 @@ fn adjacent_nest(world: &World, x: i32, y: i32, def: &CreatureDef) -> bool {
     NEIGHBOURS_8.iter().any(|&(dx, dy)| world.get(x + dx, y + dy).material == nest)
 }
 
-/// Local `|grad moisture|`, normalized. **The whole of termite-style
-/// construction and excavation shaping** (`stigmergy-research.md` §4, the
-/// eLife 2024 result): drop probability is multiplied by this and dig
-/// probability by its inverse, so material accumulates at convex, drying
-/// sites and excavation runs toward concave, wetter ones. Pillars, walls
-/// and chambers are consequences of that bias. There is no "build a wall"
-/// behaviour and wanting to write one is the signal to re-read that
-/// section.
+/// Local `|grad moisture|`, normalized.
+///
+/// **The design intent was termite-style construction and excavation
+/// shaping** (`stigmergy-research.md` §4, the eLife 2024 result): material
+/// should accumulate at convex, drying sites and excavation run toward
+/// concave, wetter ones, with pillars, walls and chambers as consequences of
+/// that bias rather than of any "build a wall" behaviour.
+///
+/// **This channel does not implement that, and it never did.** Measured
+/// 2026-09-02 with `examples/field_sense_probe.rs`, on a bed built to carry
+/// curvature — a convex crest against a flat plateau **at the same
+/// elevation**, so nothing in the comparison is altitude:
+///
+/// | sample span | crest | flat | ratio |
+/// |---|---|---|---|
+/// | ±4 (what this function uses) | 0.1746 | 0.1724 | **1.012x** |
+/// | ±8 | 0.3652 | 0.3613 | 1.011x |
+/// | ±16 (a full `FIELD_SCALE` block) | 0.7777 | 0.7732 | 1.006x |
+/// | ±24 | 1.2087 | 1.2047 | 1.003x |
+///
+/// Curvature does not move it at **any** span, and widening the sampler
+/// moves the ratio *toward* 1.0 rather than away — so the ±4-against-
+/// `FIELD_SCALE`-16 span mismatch, which looked like the live defect and is
+/// what `creature-genome-flexibility-2026-09-02.md` §5 proposed re-deriving,
+/// is **not** the repair. What this returns is the vertical air/soil step,
+/// which every surface in the world has: `dy` runs 0.17–0.33 while `dx` is
+/// 0.0009 at the crest and 0.0000 at a notch. **It is a depth signal.** A
+/// point 20 rows lower reads 1.91x a higher one, and the low plain reads
+/// 1.74x the high plateau — that is the whole of its dynamic range.
+///
+/// The probe carries its own positive control for exactly this reason: depth
+/// *does* move it, so a flat curvature reading is a statement about the
+/// channel and not about the instrument. Do not read the `dx` column as the
+/// answer either — a symmetric ridge's apex has `dx = 0` by symmetry rather
+/// than by dryness, which reads as a clean separation and is an artifact.
+///
+/// **So if you are here to make deposition follow curvature, it currently
+/// does not, and no re-derivation of these offsets will make it.** That
+/// needs a channel carrying surface shape, which nothing in the engine
+/// writes today.
+///
+/// **What still holds** is that deposition follows *this* channel, whatever
+/// it turns out to be measuring: `ascii`'s deposition scene reads 2.94x
+/// before the coefficient moved into the genome and 2.97x after. Since
+/// 2026-09-02 the response is `BrainInput::MoistureGrad` — a weight, so a
+/// sign and a magnitude both heritable — rather than a fixed multiplier on
+/// the drop and its inverse on the dig.
 ///
 /// **`pub` so a harness reads the shipped function rather than a copy of
-/// it.** `Reports/creature-genome-flexibility-2026-09-02.md` §5 asks whether
-/// this channel reads anything at all inside a burrow — field diffusion is
-/// gated on `blocked`, and `rebuild_blocked` marks a whole block blocked if
-/// one cell in it is `Solid` — and a probe that reimplemented the two
-/// samples could answer that question about itself instead of about the
-/// engine. The same rule `LabBox::build` is called under.
-///
-/// **The offsets are ±4 and `FIELD_SCALE` is 16**, which is a mismatch with
-/// a date on it: they were chosen when a field block was 8 cells (a full
-/// block across, a sensible span) and `ca7e9042` doubled the field to 16 on
-/// 2026-08-30, one day after these lines were last touched. Nobody
-/// re-derived them. `field_at_bilinear` keeps it off the outright
-/// block-nearest degeneracy, but the gradient returned is now a fraction of
-/// the true inter-block one and the fraction changed under a commit about
-/// light.
+/// it** — the same rule `LabBox::build` is called under. A probe that
+/// reimplemented the two samples would answer the question about itself
+/// instead of about the engine.
 pub fn moisture_gradient(world: &World, x: i32, y: i32) -> f32 {
     let m = |px: i32, py: i32| world.field_at_bilinear(px as f32, py as f32).moisture;
     let gx = m(x + 4, y) - m(x - 4, y);
@@ -3496,15 +3537,35 @@ fn step_chain(
                 world.creature_stats.nest_visits += 1;
             }
             let state = world.organism_mut(organism).expect("live");
-            // **The reset the homing gradient depends on.** `recency` in the
-            // deposit block above is `1 - since_nest / nest_memory`, so
-            // without this every ant's channel-A deposit decays to zero and
-            // the trail stops pointing home. An edit here dropped this one
-            // line while adding the trip counter below, and *nothing in the
-            // suite went red* -- 827 tests passed, clippy was clean, and
-            // `ascii`'s own scenes still delivered food. The paired baseline
-            // run is what caught it. Re-read this function after any edit to
-            // it, not the diff.
+            // **This reset used to be load-bearing and is not any more.**
+            // Until 2026-09-02 the deposit block read
+            // `recency = 1 - since_nest / nest_memory`, so dropping this one
+            // line stopped every ant's channel-A trail pointing home -- and
+            // when an edit did drop it, *nothing in the suite went red*: 827
+            // tests passed, clippy was clean, and `ascii`'s scenes still
+            // delivered food. Only a paired baseline run caught it.
+            //
+            // The odometer is three authored weights on a self-recurrent
+            // hidden unit now (`brain::BrainInput::AtNest`,
+            // `Reports/creature-genome-flexibility-2026-09-02.md` §2b), and
+            // **the deposit block no longer reads `since_nest` at all**.
+            //
+            // **The warning it carried still applies to this function**, which
+            // is why it is kept: re-read the whole of it after any edit, not
+            // the diff. That is how the stale claim above survived the change
+            // that falsified it -- this block is not in that diff.
+            //
+            // **`since_nest` is now close to dead weight, and removing it is
+            // a separate change.** Its only readers left are the guard three
+            // lines up -- which this file already documents as not working,
+            // because the counter is incremented unconditionally so the guard
+            // is false exactly once per lifetime -- and the flight
+            // pro-rating. That is the reasoning that deleted `nest_memory` in
+            // the same change; it was not applied here because the field is
+            // still *read*, and unpicking it means reworking `nest_visits`
+            // (whose own fix, the trip counter below, is already built) and
+            // touching the serialised `OrganismState`. Recorded rather than
+            // done, so the next reader has the case rather than the puzzle.
             state.since_nest = 0;
             let depth = state.forage_max;
             // Re-anchor on *every* contact, including the ones that book
@@ -3974,11 +4035,20 @@ fn step_flight(world: &mut World, organism: u16, def: &CreatureDef) -> Vec<Activ
     // **`since_nest` counts ticks, and a flight frame is not a tick.**
     // Advancing it once per airborne frame would age a hopping creature's
     // nest memory six times faster than a walking one's, purely because the
-    // scheduler visits it more often -- and `since_nest` scales the
-    // channel-A deposit, so a hop would quietly cost trail strength that
-    // nothing in the design asks it to cost. One increment per
-    // `tick_interval` frames keeps the *rate* identical, the same
-    // pro-rating the idle cost below uses and for the same reason.
+    // scheduler visits it more often. One increment per `tick_interval`
+    // frames keeps the *rate* identical, the same pro-rating the idle cost
+    // below uses and for the same reason.
+    //
+    // **The reason this mattered is gone**: it used to be that `since_nest`
+    // scaled the channel-A deposit, so a hop quietly cost trail strength
+    // nothing in the design asked it to cost. Since 2026-09-02 the deposit
+    // is a brain output and reads none of this
+    // (`Reports/creature-genome-flexibility-2026-09-02.md` §2b), so the
+    // pro-rating now protects only `nest_visits`. Kept because the rate
+    // argument is still correct for whatever reads the field next, and
+    // because an unpaced counter is a worse default than a paced one -- see
+    // the reset in `line_burrow` for the standing case that this field
+    // should probably go entirely.
     let frame = world.frame;
     let interval = def.tick_interval.max(1);
     if let Some(state) = world.organism_mut(organism) {

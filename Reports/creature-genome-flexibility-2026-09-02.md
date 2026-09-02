@@ -425,6 +425,34 @@ four hidden units on that pair. An authored odometer needs more. `BRAIN_HIDDEN`
 
 ## 5. The moisture gradient — the one that should mostly survive
 
+> **STATUS 2026-09-02, after implementation: the central premise of this
+> section is refuted, and the remedy it proposes is the wrong one.**
+>
+> This section argues the channel should survive *because* it asserts a
+> physical fact — surface curvature — and that its defect is a sampler span
+> (±4) left behind when `FIELD_SCALE` doubled to 16. Both halves were
+> measured with `examples/field_sense_probe.rs` and neither holds.
+>
+> A convex crest against a flat plateau **at the same elevation** reads
+> **1.012x** at the shipped ±4, and 1.011 / 1.006 / **1.003** at ±8 / ±16 /
+> ±24 — so curvature does not move this channel at any span, and widening the
+> sampler moves the ratio *toward* 1.0. What it returns is the vertical
+> air/soil step, which every surface in the world has (`dy` 0.17–0.33 against
+> `dx` 0.0009 at the crest). **It is a depth signal, not a curvature one**,
+> and re-deriving the offsets repairs nothing. The probe carries its own
+> positive control — depth moves it 1.74x — so this is a statement about the
+> channel rather than about the instrument.
+>
+> What survives is the *shape* of the argument, not its content: the
+> coefficient was fixed and is now `BrainInput::MoistureGrad`, a weight with
+> a free sign and magnitude, and deposition still follows the channel
+> (`ascii`'s deposition scene, 2.94x before and 2.97x after). Anyone wanting
+> deposition to follow **curvature** needs a channel carrying surface shape,
+> which nothing in the engine writes today. See `creature::moisture_gradient`
+> for the numbers in place, and `Reports/stigmergy-research.md` §4 for the
+> design intent this was built from.
+
+
 `creature.rs:2589`:
 
 ```rust
