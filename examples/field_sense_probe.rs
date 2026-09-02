@@ -331,6 +331,25 @@ fn lab(frames: u64, seeds: u64, eye: i32) {
             if is_under_cover(&world, hx, hy, spec.ground_y) { &mut under } else { &mut surface }.add(grad, kin, reads);
         }
         println!("\nseed {seed} at frame {frames}: {} ants standing", surface.n + under.n);
+        // **Assert the scene, because an empty one reads as a dead channel.**
+        // This bed places its colony with `founders: 0`, so there are no
+        // plants in it and nothing to eat: the ants starve out somewhere
+        // between frames 3,000 and 6,000, and at this file's own default of
+        // `frames=9000` every column below reads `0.0000` for every ant in
+        // both arms. That is indistinguishable from "the sense returns
+        // nothing underground", which is the finding this harness exists to
+        // make -- so it must not be reachable by accident. Measured
+        // 2026-09-02: 52 ants standing at 1,200 and at 3,000, **zero** at
+        // 6,000 and at 9,000.
+        //
+        // The general form is `Reports/creature-genome-flexibility-2026-09-02.md`
+        // §14g's: a harness whose scene silently stops containing the
+        // situation completes normally and reports a null. Bound the
+        // parameter and assert the scene.
+        assert!(
+            surface.n + under.n > 0,
+            "seed {seed} ran {frames} frames and ended with no ants: this bed has no plants in it and the colony starves out by ~6,000, so the table below would be a census of an empty world. Lower frames= (3,000 works) rather than reading this as a null"
+        );
         header();
         println!("{}", surface.row("surface"));
         println!("{}", under.row("covered"));

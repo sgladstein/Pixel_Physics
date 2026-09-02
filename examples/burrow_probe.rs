@@ -634,10 +634,36 @@ fn colony_arm(seeds: u64, ants: i32, frames: u64, png: Option<&str>) {
         // times -- `World::new` alone does not vary here the way `PlantScene`
         // does, and a "seed sweep" over identical worlds is the tidy,
         // meaningless result `CLAUDE.md` warns is the tell of an artifact.
+        // **Wrapped inside the strip, not translated out of the world.**
+        // This read `off = (seed - 1) * 3` and `x = 20 + off + ...`, which
+        // walks the founder row rightward as the seed climbs -- and
+        // `bank_x0` is 40, so **from seed 8 every ant is placed inside the
+        // bank**, `plant_ant` refuses, and the run completes with no colony
+        // in it. Seeds 8-12 then read `digs 0 packed 0 roofed 0` in *both*
+        // arms, which is indistinguishable from "the effect disappears at
+        // larger samples" and is an empty scene. It went unseen because
+        // every run before the review was `seeds=4`
+        // (`Reports/creature-genome-flexibility-2026-09-02.md` §14g).
+        //
+        // **The general form is not about ants**: any harness that derives a
+        // scene parameter from its seed by *translation* eventually walks
+        // that parameter out of the region the scene is valid in, and the
+        // failure is silent because the run completes. Bound the derived
+        // parameter, and assert the scene.
+        let strip = bank_x0 - 17;
         let off = (seed as i32 - 1) * 3;
+        let mut placed = 0;
         for i in 0..ants {
-            world.plant_ant(20 + off + i % 10 * 2, floor - 1 - (i / 10));
+            let x = 16 + (off + i % 10 * 2).rem_euclid(strip);
+            world.plant_ant(x, floor - 1 - (i / 10));
+            if world.get(x, floor - 1 - (i / 10)).organism_id() != 0 {
+                placed += 1;
+            }
         }
+        assert!(
+            placed > 0,
+            "seed {seed} placed no ants at all: the scene does not contain a colony, and every column this arm prints would read zero in both arms -- which looks exactly like the effect vanishing"
+        );
 
         // **`void` alone cannot say a nest happened, and the first version of
         // this arm shipped believing it could.** Measured 2026-08-30: with the
