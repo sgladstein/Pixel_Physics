@@ -988,9 +988,12 @@ drift that two of these documents still reflect.**
   bank has a positive median, so a positive weight is also a constant offset;
   `PIXEL_PHYSICS_CURVATURE=flat` holds the mean and removes only the spatial
   variation, and against *that* the live arm is rounder in 10 of 12 and
-  smaller in **12 of 12** — the offset alone moving size the other way. The
-  authored weight moves 0.169 (a null needing ~69 seeds, power stated per
-  §14i) to 0.5. Ships `examples/spoil_curvature.rs`, `burrow_probe curvdrop=`,
+  smaller in **12 of 12** — the offset alone moving size the other way. **And
+  the authored weight stays at 0.169 anyway**, because 0.5 turns three shipped
+  guards over ordinary behaviour red — a stronger drop urge is a stronger drop
+  urge *everywhere*, so the ant sheds its load before carrying it anywhere.
+  The lever's working range and its visible range do not overlap, which is the
+  shared-budget rule arriving as a measurement. Ships `examples/spoil_curvature.rs`, `burrow_probe curvdrop=`,
   a scene assertion on `field_sense_probe mode=lab` (whose default horizon was
   censusing a starved-out colony), and `bite_force` / `curvature_radius` on
   `CreatureDef`.

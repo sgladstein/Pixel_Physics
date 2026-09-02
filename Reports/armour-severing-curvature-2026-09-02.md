@@ -288,13 +288,42 @@ spatial information makes it smaller and rounder, in every seed.** They act in
 opposite directions on size, so the naive live-vs-off comparison was
 *understating* the spatial term rather than manufacturing it.
 
-The authored weight therefore moves 0.169 → 0.5. **The trade is stated rather
-than buried: the cavity gets smaller**, 77.5 cells → 59.5 for the same
-digging — the same direction §14g flagged as "the opposite of the goal" for
-crowding, though there the shape statistic was a coin flip and here it is not.
-Whether a rounder, smaller nest reads as *built* is not a question these
-numbers can answer; it is card `20260902T221154020Z-140852` on the review
-queue.
+### And the weight stays at 0.169, because 0.5 breaks the foraging loop
+
+The authored weight was moved to 0.5 and moved back, and **the reason is the
+result**. At 0.5, three shipped guards over ordinary behaviour go red:
+
+- `a_laden_animal_pays_more_to_move_than_an_empty_one`
+- `a_predator_eats_a_creature_and_needs_no_predation_code_to_do_it`
+- `an_ant_eats_a_living_worm_and_cannot_when_worm_flesh_is_worth_nothing`
+
+All three pass with the term ablated (`PIXEL_PHYSICS_CURVATURE=off`), so it is
+this weight and not the armour gate that moves them. The mechanism is obvious
+once seen: **a stronger drop urge is a stronger drop urge everywhere.** The ant
+sheds its load before it has carried it anywhere, and an animal that will not
+stay laden fails every test about being laden.
+
+**So the lever's working range and its visible range do not overlap.** At 0.169
+it is measurable-in-principle and does nothing; at 0.5 it shapes the nest and
+costs the foraging loop. That is `CLAUDE.md`'s shared-budget rule arriving as a
+measurement rather than a warning — *a correct mechanism at inherited constants
+is a regression* — and the constants it reallocates are the whole drop economy
+(`(Bias, Drop)`, `(AtNest, Drop)`, `(Carrying, Drop)`). Re-deriving those is its
+own piece of work with its own acceptance bar; doing it here would be two
+changes to one outcome.
+
+**The trade at 0.5, recorded so the next attempt starts from it**: a rounder
+cavity, and a **smaller** one — 77.5 cells → 59.5 for the same digging, the
+same direction §14g flagged as "the opposite of the goal" for crowding, though
+there the shape statistic was a coin flip and here it is not. Whether a rounder,
+smaller nest reads as *built* is not a question these numbers can answer; it is
+card `20260902T221154020Z-140852` on the review queue.
+
+**What ships is therefore the channel, its instrument and its controls — not a
+behaviour change.** `SurfaceCurvature` is wired, opt-in, guarded, and authored
+at a weight measured to be a null. That is deliberate: the alternative was
+shipping a weight that trades a nest shape nobody has judged for a foraging
+loop that is known to work.
 
 ---
 

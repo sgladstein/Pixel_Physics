@@ -842,14 +842,34 @@
             // control on `circ` and **12 of 12** on `cells`. 1.5 buys
             // nothing over 0.5.
             //
-            // **The trade is real and is stated rather than buried: the
-            // cavity gets smaller.** 77.5 cells -> 59.5 for the same
-            // digging. The mean offset alone moves size the *other* way
-            // (89.0), so this is the spatial term consolidating a ramified
-            // void rather than the colony simply dropping more -- but a
-            // rounder, smaller nest is a judgement the numbers cannot make,
-            // and it is posted to the review queue for exactly that reason.
-            (SurfaceCurvature, Drop, 0.5),
+            // **So why is this 0.169 and not 0.5? Because 0.5 breaks the
+            // foraging loop, and that is the finding.** Authored at 0.5,
+            // three shipped guards over ordinary behaviour go red:
+            // `a_laden_animal_pays_more_to_move_than_an_empty_one`,
+            // `a_predator_eats_a_creature_and_needs_no_predation_code_to_do_it`
+            // and `an_ant_eats_a_living_worm_...`. All three pass with the
+            // term ablated, so it is this weight and not the armour gate
+            // that moves them. The mechanism is the obvious one once seen:
+            // a stronger drop urge is a stronger drop urge *everywhere*, so
+            // the ant sheds its load before it has carried it anywhere, and
+            // an animal that will not stay laden fails every test about
+            // being laden.
+            //
+            // **The lever's working range and its visible range do not
+            // overlap.** That is `CLAUDE.md`'s shared-budget rule arriving
+            // as a measurement rather than a warning -- a correct mechanism
+            // at inherited constants is a regression, and the constants
+            // this one reallocates are the whole drop economy (`(Bias,
+            // Drop)`, `(AtNest, Drop)`, `(Carrying, Drop)`). Re-deriving
+            // those is its own piece of work with its own acceptance bar,
+            // and doing it here would be two changes to one outcome.
+            //
+            // The trade at 0.5, recorded so the next attempt starts from
+            // it: a rounder cavity, **smaller** at 77.5 cells -> 59.5 for
+            // the same digging. The mean offset alone moves size the *other*
+            // way (89.0), so the spatial term is consolidating a ramified
+            // void rather than the colony simply dropping more.
+            (SurfaceCurvature, Drop, 0.169),
 
             // **The spoil dump, unchanged, on a verb of its own.** These two
             // are exactly what `drop_urge` was before the split, so a digger
@@ -866,7 +886,7 @@
             // as above -- the run is the measurement.
             // Same slope, still fed separately -- see `Drop` above for the
             // sweep. A lineage can move one without the other.
-            (SurfaceCurvature, DropSpoil, 0.5),
+            (SurfaceCurvature, DropSpoil, 0.169),
         ],
 
         // **The gate a single layer cannot express**, authored as weights

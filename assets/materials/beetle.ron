@@ -45,5 +45,13 @@
     // is `diet_yield`'s matched filter doing the work with no rule about
     // beetles anywhere.
     food_energy: 200.0,
+    // In MPa like every other value of this field. **The hardest flesh in
+    // the world -- a beetle's shell -- and it is still under the ant's
+    // `dig_force` of 1.0**, because a food priced above every shipped bite
+    // force is not armoured, it is inedible (`material.rs`'s
+    // `penetration_resistance`, *the food table*). Well above the beetle's
+    // own 0.3, so a beetle cannot crack another beetle: armour is the one
+    // thing size and material buy in defence today.
+    penetration_resistance: 0.8,
     food_class: 1.0,
 )

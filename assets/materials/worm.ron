@@ -54,5 +54,10 @@
     // every other species, at which point this number wants re-deriving from
     // whatever `body_energy` that file authors.
     food_energy: 480.0,
+    // In MPa like every other value of this field. **Soft-bodied, and softer
+    // than the 0.25 of insect cuticle** -- a worm has no shell to get
+    // through. Under the weakest shipped bite (0.3), so everything with a
+    // mouth can eat one.
+    penetration_resistance: 0.15,
     food_class: 1.0,
 )
