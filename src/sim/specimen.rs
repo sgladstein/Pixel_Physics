@@ -249,6 +249,19 @@ pub struct CreatureGenetics {
     /// `brain::genome_manifest()` at the moment of capture. [`release`]
     /// refuses a mismatch rather than reinterpreting the weights.
     pub manifest: u32,
+    /// **The shape the manifest is a hash of**, so a *lawful append* can be
+    /// recognised as one instead of refused.
+    ///
+    /// The manifest alone can only say equal-or-not, and the whole point of
+    /// the 64-slot reserve is that appending a sense moves no existing
+    /// weight — so without this every jar on the shelf dies on a change the
+    /// scaffold was built to allow. See `brain::GenomeLayout`.
+    ///
+    /// `Option`, and absent means a jar written before this field existed:
+    /// those fall back to strict manifest equality, which is what they were
+    /// stored under.
+    #[serde(default)]
+    pub layout: Option<brain::GenomeLayout>,
     /// `organism::CREATURE_TRAITS` body traits. A `Vec`, for the same
     /// reason `PlantGenetics::draws` is.
     pub traits: Vec<f32>,
@@ -282,6 +295,11 @@ pub enum ShelfError {
     /// The genome layout moved under a saved creature. The two manifests
     /// are `(stored, current)`.
     StaleGenome(u32, u32),
+    /// The scaffold moved in a way that is **not** a lawful append -- a
+    /// rename, a reorder, or a shrink. Carries the clause that failed,
+    /// because "this jar predates the current brain layout" is unactionable
+    /// and "output 9 was 'Feed' and is now 'Impulse'" is not.
+    StaleLayout(String),
     /// A per-slot vector is longer than this build's width: a file from a
     /// future build. `(what, stored, current)`.
     FromTheFuture(&'static str, usize, usize),
@@ -301,6 +319,7 @@ impl ShelfError {
             ShelfError::Exists(p) => format!("A JAR IS ALREADY CALLED {}", stem_of(p)),
             ShelfError::NoSuchSpecies(s) => format!("NO SPECIES CALLED {s} IN THIS BUILD"),
             ShelfError::StaleGenome(..) => "THIS JAR PREDATES THE CURRENT BRAIN LAYOUT".into(),
+            ShelfError::StaleLayout(..) => "THE BRAIN LAYOUT MOVED UNDER THIS JAR".into(),
             ShelfError::FromTheFuture(what, ..) => format!("THIS JAR'S {what} IS FROM A NEWER BUILD"),
             ShelfError::NoRoom => "NO ROOM TO RELEASE HERE".into(),
             ShelfError::Serialize(e) => format!("COULD NOT WRITE THE JAR: {e}"),
@@ -319,6 +338,7 @@ impl std::fmt::Display for ShelfError {
             ShelfError::StaleGenome(stored, current) => {
                 write!(f, "genome manifest {stored:#010x} does not match this build's {current:#010x}")
             }
+            ShelfError::StaleLayout(why) => write!(f, "the brain layout moved under this jar and not by appending: {why}"),
             ShelfError::FromTheFuture(what, stored, current) => {
                 write!(f, "{what} has {stored} slots; this build has {current}")
             }
@@ -376,6 +396,7 @@ fn genetics_of(species: &Species, state: &OrganismState) -> Genetics {
         let wiring = brain::wiring_from_genome(&state.genome);
         Genetics::Creature(CreatureGenetics {
             manifest: brain::genome_manifest(),
+            layout: Some(brain::layout()),
             traits: state.traits.to_vec(),
             instincts: wiring.instincts,
             hidden: wiring.hidden,
@@ -503,7 +524,17 @@ pub struct Drifted {
 fn genome_of(g: &CreatureGenetics) -> Result<Vec<f32>, ShelfError> {
     let current = brain::genome_manifest();
     if g.manifest != current {
-        return Err(ShelfError::StaleGenome(g.manifest, current));
+        // **The manifest is the fast path, not the rule.** A mismatch means
+        // the scaffold moved; it does not yet mean the jar is unreadable,
+        // because the one move the scaffold is *designed* for -- appending a
+        // sense or a hidden unit into the reserve -- leaves every stored
+        // weight meaning exactly what it meant. `GenomeLayout::accepts` is
+        // what tells the two apart, and a jar too old to carry one falls
+        // back to the strict equality it was written under.
+        match &g.layout {
+            Some(stored) => stored.accepts().map_err(ShelfError::StaleLayout)?,
+            None => return Err(ShelfError::StaleGenome(g.manifest, current)),
+        }
     }
     Ok(brain::genome_from_wiring(&g.instincts, &g.hidden, &g.outputs, &g.recurrence))
 }
@@ -1096,14 +1127,65 @@ mod tests {
         // such file. Reinterpreting 12,352 weights against a moved slot
         // map produces a plausible animal that is not the one that was
         // saved, and nothing on screen would say so.
+        //
+        // **Two refusals, because since 2026-09-02 two different things can
+        // decide.** A jar old enough to carry no `layout` is judged on the
+        // manifest it was stored under, which is strict equality; a jar that
+        // carries one is judged on whether the scaffold *appended* or moved.
+        // The test exercises both, or it would go on passing while covering
+        // only the path that no longer runs.
+        let mut w = floored_world();
+        let id = distinctive_ant(&mut w);
+
+        // 1. No layout, wrong manifest -- the old contract, unchanged.
+        let mut old_jar = capture(&w, id, "keeper").expect("keepable");
+        let Genetics::Creature(g) = &mut old_jar.genetics else { panic!("creature") };
+        g.manifest ^= 1;
+        g.layout = None;
+        let mut r = shelf_rng();
+        assert!(matches!(release(&mut w, &old_jar, 140, 100, 0, &mut r), Err(ShelfError::StaleGenome(..))));
+
+        // 2. A layout whose names are not a prefix of this build's -- a
+        // rename or a reorder, which is the case the manifest exists for and
+        // the one the prefix rule must still refuse.
+        let mut moved = capture(&w, id, "keeper2").expect("keepable");
+        let Genetics::Creature(g) = &mut moved.genetics else { panic!("creature") };
+        g.manifest ^= 1;
+        let mut l = brain::layout();
+        l.input_names[3] = "SomethingElse".into();
+        g.layout = Some(l);
+        assert!(matches!(release(&mut w, &moved, 150, 100, 0, &mut r), Err(ShelfError::StaleLayout(..))));
+    }
+
+    #[test]
+    fn a_jar_stored_before_a_sense_and_a_hidden_unit_were_appended_still_loads() {
+        // **The migration this design is for, on the brain axis.** Appending
+        // a sense or a hidden unit is lawful -- the reserve is 64 wide on
+        // every axis and no stored weight moves -- but the manifest is one
+        // `u32` and can only say equal-or-not, so before `GenomeLayout` a
+        // lawful append killed every specimen on the shelf. The owner ruled
+        // the shelf expendable; this is it not needing to be.
+        //
+        // The stored layout is this build's with the *last* input, the last
+        // output and half the hidden units removed, which is exactly the
+        // shape of a jar written before an append on all three axes.
         let mut w = floored_world();
         let id = distinctive_ant(&mut w);
         let mut spec = capture(&w, id, "keeper").expect("keepable");
         let Genetics::Creature(g) = &mut spec.genetics else { panic!("creature") };
+        let mut l = brain::layout();
+        l.input_names.pop();
+        l.output_names.pop();
+        l.hidden /= 2;
+        g.layout = Some(l);
+        // The manifest is deliberately left wrong, because that is the whole
+        // point: an append always changes it, and the layout is what says
+        // the change was an append.
         g.manifest ^= 1;
 
         let mut r = shelf_rng();
-        assert!(matches!(release(&mut w, &spec, 140, 100, 0, &mut r), Err(ShelfError::StaleGenome(..))));
+        let released = release(&mut w, &spec, 140, 100, 0, &mut r);
+        assert!(released.is_ok(), "a jar from before a lawful append must still load, got {released:?}");
     }
 
     #[test]
