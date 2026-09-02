@@ -2610,7 +2610,24 @@ mod tests {
         // generation starts. A plants-only bed here made this test fail on
         // its divergence half for a reason that was about the engine and not
         // about the batch.
-        let mut lab = Lab::new(scene::LabBox { colonies: 1, ..rack_bed(1) });
+        // **`founders: 12`, and the raise is the test getting a subject
+        // rather than the test getting easier.** At `rack_bed`'s own 4 this
+        // bed holds **one organism of twelve cells** at frame 400 -- and the
+        // assertion below is that *all three* copies still have a plant after
+        // 600 more frames with 52 ants walking on them. Plants do not read
+        // `world.seed` after germination (see the note above), so the copies'
+        // stands grow identically and the only thing that differs between
+        // them is where the ants go: the assertion was therefore three
+        // reseeded coin flips on whether one seedling gets eaten, and it
+        // landed heads three times by luck rather than by margin.
+        //
+        // Measured 2026-09-02, at the moment soil moisture moved off the CA
+        // sweep: the same bed at 12 founders holds **8 organisms and 61
+        // cells** at frame 400. Nothing in the assertions moved; the bed they
+        // are asked about now has something in it. (The failure that exposed
+        // this was seed 1 only -- seeds 2 and 3 passed on both sides of that
+        // change -- which is what a coin flip looks like.)
+        let mut lab = Lab::new(scene::LabBox { colonies: 1, founders: 12, ..rack_bed(1) });
         run(&mut lab, 400);
         let alive = lab.world.live_organism_count();
         assert!(alive > 0, "the bed never germinated, so this test cannot see the thing it is about");

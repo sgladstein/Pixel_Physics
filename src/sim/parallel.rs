@@ -80,7 +80,9 @@ use std::collections::HashMap;
 use rayon::prelude::*;
 
 use super::cell::Cell;
-use super::chunk::{Chunk, ChunkCoord, Rect, CHUNK_SIZE, MAX_REACH};
+use super::chunk::{Chunk, ChunkCoord, SweepPlan, CHUNK_SIZE, MAX_REACH};
+#[cfg(test)]
+use super::chunk::Rect;
 use super::field::{self, FieldTile, FIELD_SCALE};
 use super::material::{MaterialKind, MaterialRegistry};
 use super::rng::Rng;
@@ -155,6 +157,26 @@ pub fn step(world: &mut World) {
     }
 
     world.end_step();
+    // **Soil moisture, after the sweep and inside the driver.** Infiltration,
+    // capillary exchange and drainage used to run per cell from inside
+    // `update_cell`, which put every wetness change on this channel's dirty
+    // marks -- and a dirty chunk buys the sweep *and* `field::step`'s
+    // five-pass solve, which is gated on `active_chunk_count()`. Measured in
+    // the evolution lab: 63% of the tick
+    // (`Reports/evolution-lab-frame-cost-2026-09-01.md`).
+    //
+    // **In the driver rather than in `frame::step`, and that placement was
+    // decided by a failure.** As a `frame::step` phase it was invisible to
+    // every test and probe that drives the world by hand -- there are 155
+    // call sites of this function across the tree, and three of them went red
+    // for exactly that reason with nothing wrong in the code. Weather and
+    // spring sit at the top of this function for the same reason, stated the
+    // same way: both drivers, deliberately.
+    //
+    // After `end_step`, which is where `Chunk::end_sweep` seeds the moisture
+    // channel from this tick's ordinary writes, so a mark made by the sweep
+    // is consumed in the same tick rather than a tick later.
+    world.step_soil_water();
 }
 
 /// Which pass a chunk is swept in, as an orderable key: chunk row first,
@@ -197,15 +219,20 @@ fn run_pass(world: &mut World, coords: &[ChunkCoord], rightward: bool) {
     // discarding a chunk here would drop it from `world.chunks` forever.
     // `a_chunk_touched_only_by_a_neighbours_dirty_mark_is_never_lost`
     // covers that.
-    let mut owned: Vec<(ChunkCoord, Chunk, FieldTile, Rect)> = Vec::with_capacity(coords.len());
+    let mut owned: Vec<(ChunkCoord, Chunk, FieldTile, SweepPlan)> =
+        Vec::with_capacity(coords.len());
     for &coord in coords {
         let Some(chunk) = world.take_chunk(coord) else {
             continue;
         };
-        match chunk.sweep_region() {
-            Some(region) => {
+        // `sweep_plan` is `sweep_region` plus the per-row spans inside it
+        // (`chunk.rs`), and it answers `None` in exactly the same case — a
+        // chunk whose dirty mark cannot expand back into its own bounds. The
+        // `None` arm's contract below is therefore unchanged.
+        match chunk.sweep_plan() {
+            Some(plan) => {
                 let field = world.take_field(coord).unwrap_or_else(FieldTile::new);
-                owned.push((coord, chunk, field, region));
+                owned.push((coord, chunk, field, plan));
             }
             None => world.put_chunk(coord, chunk),
         }
@@ -214,9 +241,9 @@ fn run_pass(world: &mut World, coords: &[ChunkCoord], rightward: bool) {
     let shared: &World = world;
     let outcomes: Vec<ChunkOutcome> = owned
         .into_par_iter()
-        .map(|(coord, chunk, field, region)| {
+        .map(|(coord, chunk, field, plan)| {
             let mut view = ChunkView::new(coord, chunk, field, shared);
-            update::sweep(&mut view, region, rightward);
+            update::sweep_planned(&mut view, &plan, rightward);
             view.into_outcome()
         })
         .collect();
