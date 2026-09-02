@@ -29,4 +29,30 @@
     burn_duration: 60,
     burns_into: "corpse",
     heat_conductivity: 0.1,
+
+    // **Live flesh, on the same footing as every other animal in the world.**
+    // Like `beetle.ron` this authored neither field until 2026-09-02 and
+    // defaulted to 0.0, so nothing could eat a living worm at any gut bias --
+    // `Reports/creature-genome-flexibility-2026-09-02.md` 11a (P1).
+    //
+    // **480 is the world's flesh price, and unlike the beetle's it is not a
+    // derivation, because there is nothing to derive it from.** The
+    // flesh-pricing invariant pins `food_energy` to the species'
+    // `body_energy`; `worm.ron`'s species file declares no `creature:` block
+    // at all -- the worm is the pre-`CreatureDef` hardcoded animal, run by
+    // `creature.rs`'s `WORM_*` constants -- so it has no `body_energy` to pin
+    // to, and `creature_dies` reads 0.0 for it. 480 is what `ant`, `ancestor`,
+    // `corpse` and all four `chitin`/`ant_*` materials carry, so it is the one
+    // rule that generalises rather than a number chosen for this file.
+    //
+    // **What that costs, stated rather than hidden:** the ledger cannot see
+    // it. A worm is granted `WORM_START_ENERGY` by `plant_worm_seed` with no
+    // `EnergyLedger::granted` booking and no stamp, so worm flesh eaten is
+    // energy the ledger never sourced. This widens a hole rather than opening
+    // one -- the worm has been outside the ledger since it was written -- and
+    // it closes for free the day the worm moves onto a `CreatureDef` like
+    // every other species, at which point this number wants re-deriving from
+    // whatever `body_energy` that file authors.
+    food_energy: 480.0,
+    food_class: 1.0,
 )
