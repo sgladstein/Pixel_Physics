@@ -1,0 +1,58 @@
+{
+  "id": "20260902T160213169Z-fcd549",
+  "created": "2026-09-02T16:02:13Z",
+  "board": "creatures",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/rooms-excavation-measurement-dooh13",
+    "commit": "e1347800",
+    "agent": null,
+    "session_id": "809185ab-ac22-51d1-bb49-5e7c5d4f2691",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Ants dig a room when crowded: does it read as one?",
+  "question": "In which bank does the excavation read as a room an ant lives in, rather than a bite taken out of the face?",
+  "context_md": "The owner asked for chambers. Ants now dig harder when they are pressed together and slow down when they are not, which is the mechanism a controlled digging experiment found behind real nest shape: a crowded cavity grows evenly and stays round, and it stops growing once it has outgrown the colony working it.\n\n**What I already measured, so you do not have to look for it.** The cavity is rounder in one of these on 4 of 4 worlds, and the size of the room tracks the size of the colony (12 / 26 / 52 ants gives a room of 4 / 29 / 55 cells). Digging effort is held equal between the two -- 499 cuts against 518 -- so neither side simply worked harder.\n\n**What I am unsure about, and it is the whole question.** All of that is a number. Looking at it, I cannot tell the two apart: what dominates the picture is the colony eating away the open face of the bank, and the room is behind that face and dark. If neither of these reads as a nest to you, the measurement is beside the point and the next thing to fix is that ants quarry rather than tunnel.\n\nBoth are the same world at the same moment, 52 ants, everything else identical.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A -- density-dependent digging",
+      "files": [
+        "20260902T160213169Z-fcd549/000-card_wired.png"
+      ],
+      "caption": "an ant digs hard in a crowd and slows down alone",
+      "meta": {
+        "room size (cells with ground over them)": 62,
+        "how round the room is (1 = a circle)": 0.402,
+        "widest point of the room, in cells across": 6.3,
+        "tunnels branching off it": 0,
+        "cells the colony cut": 542
+      },
+      "focus": null
+    },
+    {
+      "label": "B -- flat dig urge (today's build)",
+      "files": [
+        "20260902T160213169Z-fcd549/001-card_ablated.png"
+      ],
+      "caption": "every ant digs at the same rate wherever it is",
+      "meta": {
+        "room size (cells with ground over them)": 58,
+        "how round the room is (1 = a circle)": 0.292,
+        "widest point of the room, in cells across": 6.3,
+        "tunnels branching off it": 0,
+        "cells the colony cut": 572
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
