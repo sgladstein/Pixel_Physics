@@ -1,6 +1,13 @@
 # Ants
 
-*Current as of: 2026-09-02, when it was measured that making a crowded ant dig
+*Current as of: 2026-09-02, when biting became something a mouth can fail at —
+so a hard-shelled animal is harder to eat than a soft one, and a beetle simply
+cannot get through some of them — and when an animal that loses the middle of
+its body came apart at the bite instead of dying whole, the far half left lying
+where it fell as meat. The same day it was measured that an ant that can feel
+whether the ground under it bulges or hollows digs itself a **rounder and
+smaller** chamber than one that cannot, for the same amount of digging. Also
+2026-09-02, when it was measured that making a crowded ant dig
 harder does **not** give a colony rooms, and that its preference for unloading
 on uneven ground is about a tenth rather than the threefold this page implied.
 Also 2026-09-02: a living beetle and a living worm became things something else
