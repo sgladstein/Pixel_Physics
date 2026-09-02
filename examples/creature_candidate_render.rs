@@ -2,17 +2,26 @@
 //! `Reports/creature-genome-flexibility-2026-09-02.md` §13e item 3**: "Does
 //! anyone want these shapes?" There is no multi-part `BodyPlan` in the
 //! engine to build one on (and building it is explicitly out of scope this
-//! session -- see the report this harness accompanies), but a static or
-//! smoothly-walking body's **silhouette** does not depend on whether its
-//! segments are one rigid plan or several parts following each other --
-//! articulation changes how the body decides to *move*, not what its cells
-//! look like once placed. So this renders single `Rigid` bodies shaped like
-//! candidate articulated silhouettes -- uniform 3- and 5-segment bodies, and
-//! a forward taper (small head, big abdomen -- the insect silhouette) and
-//! backward taper (big head, shrinking tail) -- at the exact crop and zoom
-//! `creature_scale.rs`'s `mode=size` already ships, so the images are at
-//! "shipped resolution" and comparable to the two shipped bodies (`ant`,
-//! `beetle`) rendered the same way.
+//! session -- see the report this harness accompanies), so this renders
+//! single `Rigid` bodies shaped like candidate articulated silhouettes --
+//! uniform 3- and 5-segment bodies, and a forward taper (small head, big
+//! abdomen -- the insect silhouette) and backward taper (big head, shrinking
+//! tail) -- at the exact crop and zoom `creature_scale.rs`'s `mode=size`
+//! already ships, so the images are at "shipped resolution" and comparable
+//! to the two shipped bodies (`ant`, `beetle`) rendered the same way.
+//!
+//! **A monolithic `Rigid` body's silhouette only stands in for an
+//! articulated one while standing still or walking straight over flat
+//! ground.** The moment a body turns or crosses uneven terrain, a
+//! genuinely articulated body's trailing parts follow the leading part's
+//! traced path and the whole body bends; a monolithic `Rigid` body can
+//! only translate as one fixed shape. That bend is plausibly the visual
+//! difference between "a chain" and "an animal", so a still render of these
+//! shapes cannot show it -- a *positive* answer from the blind card these
+//! renders feed still counts, but a *null* one does not settle whether
+//! shape matters, only whether it matters while standing still. See the
+//! report's §3 correction for the fuller account (credited to independent
+//! review from the session on `claude/creature-genome-flexibility-ut3f71`).
 //!
 //! Writes one PNG per candidate (`out=` is a directory), for posting as a
 //! blind gallery card. Economics are `ant_block`'s, unmodified except
