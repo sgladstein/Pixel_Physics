@@ -1728,9 +1728,15 @@ there perfect cube creatures in our world?"* — is literally the second row.
 ### 13b. Shape costs an order of magnitude of mobility — and the *other* blocker was a counter bug
 
 **The mobility gap is real and survives everything.** A rigid body is blocked
-**25–43%** of its moves; a chain **2–6%** (`creature-appearance-design.md` §4–5,
-across all three trees it was taken on; note the *within*-rigid ranking in that
-section is explicitly withdrawn — only the coarse gap survives).
+**~54%** of its moves; a chain **~6%**. Those are the 12-seed medians from
+`creature-shape-reachability-2026-09-02.md` §1.2 and **supersede the 25–43% /
+2–6% this section carried from `creature-appearance-design.md` §4–5**, which
+were single-seed samples: `ant_block`'s 12-seed range is **21.1–67.8%**, which
+contains the old 43% comfortably below its own median, so the earlier figure
+was a draw from a wide distribution rather than a different measurement. The
+chain reproduces within noise. The *within*-rigid ranking was already
+explicitly withdrawn in the earlier report, and the 12 seeds confirm it —
+`ant_block` (55.8%) and `ant_wide` (56.6%) land within a point of each other.
 
 So: **a body with an interesting outline cannot move, and a body that moves has
 no outline.** Any answer to D1 must break that trade rather than pick a side.
@@ -1784,7 +1790,9 @@ are unrepresentable rather than rejected.
 
 The first version predicted articulated bodies land *"between the chain's 2–6%
 and the rigid body's 25–43%, much nearer the chain"*, on the grounds that a part
-moves into ground the part ahead has vacated and proven passable.
+moves into ground the part ahead has vacated and proven passable. (Those two
+figures are the superseded single-seed ones; at 12 seeds the gap is ~6% against
+~54% — wider, so the prediction's shape is unchanged.)
 
 **That is true of trailing parts and false of the one that matters.** Blocking is
 set by the **leading** part, which moves into fresh ground and is a rigid body of
@@ -1800,17 +1808,50 @@ alone**, and two consequences follow that the first version did not draw:
   this section is reaching for — is exactly the case the mechanism does not
   help.**
 
+**That second bullet was measured, and it is wrong in the direction that costs
+more.** `creature-shape-reachability-2026-09-02.md` §1.3–1.4 factorially
+separates width from cell count and from height, which nothing here had done:
+`domino_v` (1 wide) and `domino_h` (2 wide) hold cell count fixed and land in
+the same ~8–10% bucket; `strip3` (3 wide) and `strip4` (4 wide) hold height
+fixed at one row and land in the same ~47–53% bucket — matching a 3×3 and a
+5×2 despite two to three times fewer cells and a third the height. Pooled, 36
+runs at width ≤2 median **10.3%** against 48 runs at width ≥3 median **54.2%**,
+the buckets overlapping only over 18–27%.
+
+**So width sets it, as a step and not a gradient, and neither height nor cell
+count moves it at all.** The consequence for the taper claim: a rearward taper
+is *not* free, because a rearward taper is precisely the body whose **leading**
+part is the wide one, and the leading part is the one this section already
+established sets the cost. Both monolithic tapers measured at ~54–57%,
+indistinguishable from each other and from a plain block, and §1.4's argument
+for the articulated case is that a decoupled rearward taper could do no better
+than its own 3-wide head's standalone rate — which is ~50%.
+
+**The transferable rule is therefore harsher and simpler than "taper
+backwards": every part must be at most 2 cells wide, or the body pays the full
+rigid tax wherever the wide part sits.** A single wide part anywhere sets the
+whole body's cost. The 3-cell threshold itself was measured only on `rolling`
+and is presumably scaled to that preset's terrain grain, so treat *"there is a
+sharp width threshold"* as the claim that transfers and *"it is at 3"* as
+local.
+
 **This is a real limit on the proposal, not a detail.** What articulation buys
 is a body that is *longer and jointed* at near-chain mobility, with modest
 widening and free rearward taper. What it does not buy, for free, is an
 arbitrary outline.
 
-**And the number that would settle it does not exist.** There is **no measured
-blocked rate for a 2×2 rigid body anywhere**, even though the shipped beetle is
-one: `creature-appearance-design.md` §5 has `Chain(2)` 5%, `Chain(6)` 4%,
-`Rigid` 3×3 43%, `Rigid` 5×2 41%, and nothing at four cells. One
-`creature_scale mode=walk` run converts this whole argument from a prediction
-into a number, and it is now pre-check 2.
+**The number that would settle it did not exist, and now does — pre-check 2 is
+answered.** There was **no measured blocked rate for a 2×2 rigid body
+anywhere**, even though the shipped beetle is one:
+`creature-appearance-design.md` §5 had `Chain(2)` 5%, `Chain(6)` 4%, `Rigid`
+3×3 43%, `Rigid` 5×2 41%, and nothing at four cells.
+`creature-shape-reachability-2026-09-02.md` §1.3 measured it at 12 seeds:
+**`beetle`, Rigid 2×2, median 12.4%** (mean 13.0%, range 6.4–19.2%) — about
+twice the shipped chain and a full order of magnitude below anything ≥3 wide.
+**The prediction this section made survives, but for a different reason than it
+gave**: a 2×2 body is cheap because it is *narrow*, not because it is *small*,
+and that distinction is what the bullet above gets wrong. Pre-check 2 is
+closed; do not re-run it.
 
 #### What it does buy, stated at the strength the evidence supports
 
@@ -1863,6 +1904,20 @@ animals — and articulation is only the means of making bigger animals still
 mobile. **That would still be a win, and it is worth saying now so it is not
 later dressed up as a failure.**
 
+**Half of that prediction is now measured, and it came back as the half that
+cuts against articulation** — `creature-shape-reachability-2026-09-02.md` §2:
+at constant 36-cell extent, shape does not move the number and extent does.
+**But read the scope, because it is exactly the distinction the paragraph below
+is about**: `creature_look` answers *findability*, so what is confirmed is
+"articulation at constant extent does not make an animal easier to **find**".
+Whether it makes one read as an animal is untouched — that is D1, that is the
+standing gap, and no instrument in this repository measures it. The report's
+own §0 initially carried the findability null across to the legibility question
+(*"reads as more than a chain… is answered by making them bigger"*) and
+corrected it on review from this line; do not re-import the uncorrected
+version. **So: the extent answer is real and the legibility answer is still
+owed by the review queue.**
+
 **And the standing gap: no instrument in this repository measures whether
 something reads as an animal rather than a smudge.** Every appearance number
 answers *can it be seen*. That gap is exactly how a shape lever fires and is
@@ -1872,26 +1927,54 @@ metric**, and *before* the lever is built.
 
 ### 13e. The pre-checks, before any of this is built
 
+> **Status, 2026-09-02: 2 and 4 are answered, 3 is posted-and-open, 1 is
+> outstanding.** `Reports/creature-shape-reachability-2026-09-02.md` (PR #219)
+> ran them at 12 seeds each on `rolling`; the results are folded into 13b–13d
+> above. **Do not re-run 2 or 4.** What is left before Track B starts is 1
+> (`relocate_chain`), 3's verdict, and — per that report's own §3 correction —
+> the fact that a *null* verdict on 3 would not close it, because the card
+> renders monolithic proxies standing still and articulation's visible
+> contribution is the bend a still image cannot show.
+
 1. **Fix `relocate_chain`'s self-overwrite** (13b). Stage one of the body work
    by the owner's decision. Everything else here is measured on a body that
    currently mis-reports itself, so this is not optional sequencing.
-2. **Does it actually move?** `creature_scale mode=walk`, which is the body-plan
-   mobility instrument and carries a standing positive control: **`Chain(2)` must
-   reproduce 5%** (`examples/creature_scale.rs:31`, `:320` — the first version of
-   this section quoted 5.2%, which is not the instrument's own figure). Measure
-   **the missing 2×2 rigid** in the same run, then the articulated plans. If they
-   do not land near the chain, the trade in 13b is unbroken and the proposal
-   fails.
+2. **Does it actually move?** ✅ **Answered** — `creature-shape-reachability`
+   §1, 12 seeds per shape, control reproduced (`Chain(2)` at 6.2% median against
+   the instrument's standing 5%). The missing 2×2 is **12.4%**, and the factorial
+   that report added — which this pre-check did not think to ask for — found the
+   driver is **width, at a sharp threshold**, not size. The articulated plans
+   themselves remain unmeasurable until a real multi-part `BodyPlan` exists, so
+   what §1.4 establishes is the *floor* an articulated body would be compared
+   against, not the body itself. Original text: *`creature_scale mode=walk`, the
+   body-plan mobility instrument, carries a standing positive control —
+   `Chain(2)` must reproduce 5% (`examples/creature_scale.rs:31`, `:320`; the
+   first version of this section quoted 5.2%, which is not the instrument's own
+   figure). If they do not land near the chain, the trade in 13b is unbroken and
+   the proposal fails.*
 3. **Does anyone want these shapes?** Render candidates — 3 parts vs 5, uniform
    vs waisted vs tapered — at shipped resolution and post a **blind A/B**.
    `creature_scale mode=size` already renders one body per panel cropped to fixed
    *physical* units. If the owner cannot tell them apart, the lever is below
    threshold and the answer is extent, not articulation.
-4. **The cheap test 13d needs and the first version omitted:** run
-   `creature_look` on **two 36-cell bodies of different shape at constant
-   extent**. If the 0.8% becomes ~15%, the threshold claim is supported and §13
-   has a number. If it stays near 1%, the appearance report generalises and
-   articulation's value is extent alone. One run.
+4. **The cheap test 13d needs and the first version omitted:** ✅ **Answered,
+   and it came back the way that cuts against articulation.**
+   `creature-shape-reachability` §2 ran `creature_look` on 36-cell bodies of
+   different shape at constant extent: **shape did not move findability; extent
+   did.** §2.1 adds that extent grown as *length at the mobility-safe width* — 2
+   wide, 18 tall, still 36 cells — scores in the same band as extent grown as a
+   compact block, so the mobility answer and the findability answer are not in
+   tension.
+   **Read the scope carefully, because this is where that report initially
+   over-read itself and corrected on review**: `creature_look` measures
+   **findability** — can you locate the animal against a textured world. It does
+   *not* measure whether the animal reads as an animal, which is D1's actual
+   complaint and the standing gap 13d names. So this closes the half of 13d's
+   split prediction that says *articulation at constant extent moves nothing*
+   — confirmed, for findability — and leaves the other half open. Original
+   text: *If the 0.8% becomes ~15%, the threshold claim is supported and §13 has
+   a number. If it stays near 1%, the appearance report generalises and
+   articulation's value is extent alone. One run.*
 
 ### 13f. What this changes in §12's contract
 
