@@ -43,7 +43,9 @@
 //! `Cell::aux() == 0` on a `Liquid` cell means "never transferred, treat as
 //! full," not "empty" — see `material::LIQUID_FULL`'s own doc for why.
 
-use super::chunk::{Rect, MAX_REACH};
+use super::chunk::{SweepPlan, MAX_REACH};
+#[cfg(test)]
+use super::chunk::Rect;
 use super::fire;
 use super::material::{self, MaterialKind, HORIZONTAL_TRANSFER_REACH};
 use super::scheduler::{ActiveKind, ActiveSite};
@@ -84,29 +86,68 @@ pub fn step(world: &mut World) {
     let rightward = world.frame.is_multiple_of(2);
 
     for coord in world.chunks_to_sweep() {
-        let Some(region) = world.sweep_region(coord) else {
+        let Some(plan) = world.sweep_plan(coord) else {
             continue;
         };
-        sweep(world, region, rightward);
+        sweep_planned(world, &plan, rightward);
     }
 
     world.end_step();
+    // **Soil moisture, in this driver as well as the parallel one.** Both
+    // drivers, deliberately, exactly as weather and spring are -- see
+    // `parallel::step`'s note for why it is in the drivers rather than a
+    // phase above them.
+    world.step_soil_water();
 }
 
 /// Sweep one region against any `CellSurface` — `World` directly for the
 /// serial driver above, or a `ChunkView` per active chunk for the M5
 /// parallel driver (`parallel.rs`). Generic so both paths run the exact same
 /// rule code; there is nothing separate to keep in sync.
+/// **Test-only since 2026-09-01**: the whole-rect sweep, kept because
+/// `step_monolithic` above is the control for "is this the movement rules or
+/// the chunk decomposition", and that control has to sweep the world as one
+/// region rather than as a set of chunk dirty spans. Production goes through
+/// [`sweep_planned`], which walks exactly these cells unless
+/// `PIXEL_PHYSICS_SWEEP=rows` is set.
+#[cfg(test)]
 pub(crate) fn sweep<S: CellSurface>(surface: &mut S, region: Rect, rightward: bool) {
     for y in (region.min_y..=region.max_y).rev() {
-        if rightward {
-            for x in region.min_x..=region.max_x {
-                update_cell(surface, x, y, rightward);
-            }
-        } else {
-            for x in (region.min_x..=region.max_x).rev() {
-                update_cell(surface, x, y, rightward);
-            }
+        sweep_row(surface, y, region.min_x, region.max_x, rightward);
+    }
+}
+
+/// The same sweep, walking only the cells each row's dirty span reaches.
+///
+/// **Row order and x order are identical to `sweep`'s** — bottom to top,
+/// alternating direction — because both are behaviour, not bookkeeping: rows
+/// go bottom-up so a falling column descends as a unit, and the x direction
+/// alternates to cancel the bias a fixed scan order bakes into every pile.
+/// The only difference from `sweep` is that a row whose span is empty is
+/// skipped and a row whose span is narrow stops early, and both of those are
+/// cells no rule could have acted on (`Chunk::sweep_plan`).
+pub(crate) fn sweep_planned<S: CellSurface>(
+    surface: &mut S,
+    plan: &SweepPlan,
+    rightward: bool,
+) {
+    for y in (plan.bounds.min_y..=plan.bounds.max_y).rev() {
+        let Some((min_x, max_x)) = plan.row(y) else {
+            continue;
+        };
+        sweep_row(surface, y, min_x, max_x, rightward);
+    }
+}
+
+#[inline]
+fn sweep_row<S: CellSurface>(surface: &mut S, y: i32, min_x: i32, max_x: i32, rightward: bool) {
+    if rightward {
+        for x in min_x..=max_x {
+            update_cell(surface, x, y, rightward);
+        }
+    } else {
+        for x in (min_x..=max_x).rev() {
+            update_cell(surface, x, y, rightward);
         }
     }
 }
@@ -344,7 +385,10 @@ fn on_a_branch<S: CellSurface>(surface: &S, x: i32, y: i32) -> bool {
 ///
 /// Returns whether anything was written, so the caller can keep its own
 /// "did this cell do something" bookkeeping honest.
-fn update_soil_water<S: CellSurface>(surface: &mut S, x: i32, y: i32) -> bool {
+pub(crate) fn update_soil_water<S: CellSurface>(surface: &mut S, x: i32, y: i32) -> bool {
+    if !soil_water_enabled() {
+        return false;
+    }
     let cell = surface.get(x, y);
     // Opt-in per material -- see `Material::water_capacity`. A powder that
     // holds no water neither absorbs nor drains, so sand and gravel behave
@@ -539,10 +583,10 @@ fn update_soil_water<S: CellSurface>(surface: &mut S, x: i32, y: i32) -> bool {
         }
         if moisture > there {
             moisture -= moved;
-            surface.set(x + dx, y + dy, n.with_aux(there + moved));
+            surface.set_moisture(x + dx, y + dy, n.with_aux(there + moved));
         } else {
             moisture += moved;
-            surface.set(x + dx, y + dy, n.with_aux(there - moved));
+            surface.set_moisture(x + dx, y + dy, n.with_aux(there - moved));
         }
     }
 
@@ -555,13 +599,13 @@ fn update_soil_water<S: CellSurface>(surface: &mut S, x: i32, y: i32) -> bool {
             let moved = ((surplus as f32 * SOIL_DRAINAGE_RATE) as u16).min(room);
             if moved > 0 {
                 moisture -= moved;
-                surface.set(x, y + 1, below.with_aux(soil_moisture(below) + moved));
+                surface.set_moisture(x, y + 1, below.with_aux(soil_moisture(below) + moved));
             }
         }
     }
 
     if moisture != here {
-        surface.set(x, y, cell.with_aux(moisture));
+        surface.set_moisture(x, y, cell.with_aux(moisture));
         // **The other place soil gets wet**, and the second of the only two
         // moments a damp cell can be put on the drying schedule -- see
         // `evaporation::schedule_damp_soil`. It has to happen here, while
@@ -578,6 +622,63 @@ fn update_soil_water<S: CellSurface>(surface: &mut S, x: i32, y: i32) -> bool {
         return true;
     }
     false
+}
+
+/// **The ablation switch for soil moisture transport** — `PIXEL_PHYSICS_
+/// SOIL_WATER=off` stops infiltration, capillary exchange and drainage dead.
+///
+/// **A control, not a proposal**, in `labbox_cost`'s sense: with it off, a
+/// plant's roots deplete the soil around them and nothing refills it, so the
+/// stand is expected to differ and the census beside any timing has to say
+/// so. What it exists to size is the other half of that sentence.
+///
+/// Measured in the evolution lab 2026-09-01, and it is the largest single
+/// number in this repo's performance record: a settled bed with eight plants
+/// in it changes **447 cells a tick and 410 of them are soil moisture**.
+/// Every one marks its chunk dirty, and a dirty chunk buys two phases, not
+/// one — the CA sweep walks 45,442 cells for those 447, *and*
+/// `field::step`'s whole five-pass solve is gated on `active_chunk_count()`
+/// being nonzero, so the field runs every frame for the same reason. Between
+/// them that is ~85% of the lab's tick.
+///
+/// Moisture transport is not a *movement*, and the engine already has the
+/// right home for it: `evaporation::schedule_damp_soil` is called from this
+/// very function and puts damp soil on the active-site schedule. See
+/// `Reports/evolution-lab-frame-cost-2026-09-01.md`.
+///
+/// Read once per process through a `OnceLock`: this sits in the powder sweep,
+/// where an `env::var` would be a syscall per cell.
+fn soil_water_enabled() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_SOIL_WATER").as_deref() != Ok("off"))
+}
+
+/// **Whether soil moisture runs as its own phase or on the CA sweep.**
+/// `PIXEL_PHYSICS_MOISTURE=sweep` restores the pre-2026-09-01 placement,
+/// which is the control arm every measurement of this change is paired
+/// against.
+///
+/// The phase is the default because the sweep placement is what made a bed of
+/// plants cost 63% of the lab's tick: a wetness change is not a movement, but
+/// writing one dirtied a 64x64 chunk on the movement channel, and a dirty
+/// chunk buys the CA sweep *and* `field::step`'s five-pass solve. See
+/// `World::step_soil_water` and
+/// `Reports/evolution-lab-frame-cost-2026-09-01.md`.
+///
+/// **What the two arms genuinely differ on**, beyond cost, so a divergence is
+/// read as expected rather than as a bug:
+///
+/// - **Ordering.** On the sweep, a grain absorbed water and then moved in the
+///   same visit, so it carried what it had just taken. As a phase, absorption
+///   lands after the movement — one tick later for a grain in flight, and no
+///   different at all for the settled ground this mechanic is actually about.
+/// - **Parallelism.** The sweep ran it per chunk across rayon workers; the
+///   phase is serial. Both are deterministic; they are not the same order.
+///
+/// Read once per process through a `OnceLock`.
+pub fn moisture_phase_enabled() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_MOISTURE").as_deref() != Ok("sweep"))
 }
 
 /// The ablation switch for the crumb rule above, on by default.
@@ -618,7 +719,15 @@ fn update_powder<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: Cell, ri
     let holds_water = def.water_capacity > 0;
     let clings = def.clings_to_wood;
     let self_supporting = def.self_supporting;
-    let wet_changed = if holds_water { update_soil_water(surface, x, y) } else { false };
+    // **Only in the control arm.** With the phase on, moisture is
+    // `World::step_soil_water`'s business and running it here as well would
+    // both double the transport rate and put every wetness change back on the
+    // movement dirty channel, which is the entire cost this change removes.
+    let wet_changed = if holds_water && !moisture_phase_enabled() {
+        update_soil_water(surface, x, y)
+    } else {
+        false
+    };
 
     // **A worked wall holds itself up -- the whole of why a burrow can be a
     // place rather than a five-frame event.**

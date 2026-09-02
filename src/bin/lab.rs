@@ -27,7 +27,7 @@
 //! | `[` / `]` | the brush, narrower and wider |
 //! | `O` / `L` | the field and organism overlays |
 //! | `F1` / `F2` / `F3` | the plants, ants and box pages |
-//! | `F` | display rate: 60 / 30 / 20 / 10 Hz |
+//! | `F` | minimum framerate at speed-up: 60 / 30 / 20 / 10 Hz |
 //! | `Tab` | the stats page |
 //! | `WASD` | pan; `-` / `=` zoom |
 //! | left / right mouse | the armed tool / the eraser |
@@ -250,6 +250,15 @@ impl Handler {
         // Hz to 20 Hz buys **2.6x** the world per second on a loaded box and
         // 1.4x on a quiet one, because what it reclaims is the render's share
         // of a contended frame.
+        //
+        // **Which rate that is, is now the dial's business** rather than a
+        // second thing to remember: `time::AUTO_DISPLAY` picks it from the
+        // multiplier and `F` sets the floor under it. And it is worth less
+        // than the paragraph above implies — measured in the shipped bed
+        // 2026-09-01, the whole 60 -> 10 Hz ladder is about **1.3x**, because
+        // the tick costs 7.3 ms against the draw's 4.7 and it is the tick the
+        // dial is short of. See
+        // `Reports/evolution-lab-frame-cost-2026-09-01.md`.
         let render_error = if !advance.draw {
             None
         } else {
@@ -491,7 +500,7 @@ impl Handler {
             // without looking sit together.
             KeyCode::Semicolon => self.lab.act(Action::Broods(-1)),
             KeyCode::Quote => self.lab.act(Action::Broods(1)),
-            KeyCode::KeyF => self.lab.time.cycle_display_rate(),
+            KeyCode::KeyF => self.lab.time.cycle_display_floor(),
             KeyCode::Tab => self.lab.act(Action::Stats),
             KeyCode::KeyR => self.lab.act(Action::Reset),
             // **`zoom_within`, not `adjust_zoom`.** The box is smaller than

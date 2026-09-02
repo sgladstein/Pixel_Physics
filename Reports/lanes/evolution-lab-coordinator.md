@@ -241,6 +241,65 @@ it bind on whatever comes next:*
 organism with **zero cells**, one at a time, intermittently. One in ~450, not
 the seed bank, and nobody has looked at what produces it.
 
+## Round six, 2026-09-01 — the lab's own frame, measured
+
+*Owner's two questions: is 60 Hz the limitation, and how do we run faster.
+Branch `claude/evolution-lab-speed-performance-lshi7b`. **The account is
+[`../evolution-lab-frame-cost-2026-09-01.md`](../evolution-lab-frame-cost-2026-09-01.md)**
+and the shipped behaviour is README's "Lab speed-dial status". Only what a
+later session cannot reconstruct is here.*
+
+- **60 Hz was never required and is not the limitation.** The rate has been
+  decoupled since Gate 3; it merely defaulted to 60 and never moved on its
+  own. The whole 60 → 10 Hz ladder is **1.2x** in the real loop (2.03x →
+  2.47x achieved), because a tick is 7.3 ms against a 4.7 ms draw. **Gate 3's
+  "roughly triples" is retired.** Shipped anyway, as the owner asked:
+  `time::AUTO_DISPLAY` takes the rate from the dial and `F` now sets the
+  **minimum framerate** floor under it.
+- **Round two's "the draw dominates the tick five to one" was measured on a
+  young bed and has reversed.** On a grown one it is 6.4 ms of tick against
+  4.7 ms of draw. **Which half dominates is a function of how full the box
+  is**, so neither figure transfers without the stand's cell count beside it.
+- **63% of the tick is soil moisture, and none of it is plant code.** The box
+  is 0.006 ms empty and 7.03 ms with eight plants; `active_sites` is 0.28 ms
+  of that. 410 of the 447 cells that change per tick are soil wetness, each
+  marks a chunk dirty, and a dirty chunk buys the CA sweep **and** the field,
+  because `field::step` is gated on `active_chunk_count()`. Ablated, the tick
+  is **6.39 → 2.39 ms** and the multiplier **2.6x → 6.9x**, with a *larger*
+  stand. This is the mechanism behind round two's "+0.92 with the solve set,
+  +0.03 with biomass".
+- **The sweep cannot be narrowed for free, and this blocks a whole class of
+  optimisation.** Its random draws are consumed per *visited* cell, so any
+  tighter region shifts the RNG stream and moves every pile in the world. Per-
+  row dirty spans measure a real 1.19x and ship **off**
+  (`PIXEL_PHYSICS_SWEEP=rows`); the unlock is a positional RNG, not a better
+  region. In `dead-ends.md` with that condition.
+- **`examples/labperf`** is the instrument: what the sweep is asked for
+  against what it finds, and a per-phase grid diff naming which phase wrote
+  the cells that keep the box awake.
+
+**Moisture moved, 2026-09-02 (report §8).** Its own dirty channel and its own
+pass: **tick 6.42 -> 3.81 ms, awake chunks 20.4 -> 8.3, the dial 2.6x -> 4.4x**,
+and the stand **9.5% larger**, which is what says speed-up rather than
+subtraction. `PIXEL_PHYSICS_MOISTURE=sweep` is the control. Two things it
+overturned:
+
+- **A phase written into `frame::step` does not reach the engine.** There are
+  **155 call sites** that drive the world by calling a CA driver directly, and
+  a frame phase is invisible to all of them -- three went red with nothing
+  wrong in the code. It lives inside `parallel::step` and `update::step` now,
+  where weather and spring already are and for the same stated reason. **Any
+  future per-tick work has this choice and should not re-derive it.**
+- **A chunk-local prefilter over the moisture region is *slower*** (1.37 ms
+  against 1.23), because **88% of that region is soil**. The premise was
+  assumed. What the same counter points at is real: ~300 ns per soil cell,
+  nearly all of it `World::get`'s `HashMap` probe, so the next step is a
+  `ChunkView` over the moisture channel -- worth about another 1.0 ms of 3.81.
+
+**Next:** that `ChunkView`; then the field's all-or-nothing early-out (1.25 ms
+of 3.81, still gated on *any* chunk being awake anywhere); then the positional
+RNG, which unlocks the region work.
+
 ## Deliberately not being built yet
 
 The score and the economy — the guide's Gate 5. **Gate 2, does selection have

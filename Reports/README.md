@@ -1752,6 +1752,35 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   solves for movements of at most 20 bytes in 18,193**, which is the headroom
   nobody has taken and is a harder change than this one.
 
+- [evolution-lab-frame-cost-2026-09-01.md](evolution-lab-frame-cost-2026-09-01.md)
+  — **measured and landed 2026-09-01.** The first performance review of the
+  **lab's own** frame; every earlier one in this index is an outdoor
+  document, and the received headline *"the field is 69–86% of the frame"*
+  does not survive the move (the field is 28%, the CA sweep 56%). Answers the
+  owner's two questions and overturns the first: **60 Hz was never required
+  and is not the limitation** — the whole 60 -> 10 Hz ladder is worth **1.2x**
+  measured in the real loop, because a tick costs 7.3 ms against a 4.7 ms
+  draw, where Gate 3 predicted "roughly triples". **Soil moisture is 63% of
+  the tick**, and not through any code anyone would look at: roots drink,
+  capillary flow refills, **410 of the 447 cells that change per tick are soil
+  wetness**, each marks a 64x64 chunk dirty, and a dirty chunk buys *two*
+  phases because `field::step`'s five-pass solve is gated on
+  `active_chunk_count()`. The sweep walks **45,442 cells to find 447**, a
+  102:1 ratio, and the ablation (`PIXEL_PHYSICS_SOIL_WATER=off`) puts the tick
+  at **6.39 -> 2.39 ms** with a **25% larger** stand, so it is not cheap
+  because the stand died. §5 is the part worth more than the finding: **the CA
+  sweep's random draws are consumed per *visited* cell, not per cell that
+  acts**, so *any* narrowing of the swept region is a behaviour change however
+  provably correct it is — which is why per-row dirty spans measure a real
+  1.19x and still ship off by default, and why the unlock is a positional RNG
+  rather than a better region. **§8 is the fix, built 2026-09-02**: moisture on
+  its own dirty channel and its own pass, **tick 6.42 -> 3.81 ms and the dial
+  2.6x -> 4.4x with a 9.5% larger stand**, plus two findings the build produced
+  that the measurement could not — a phase written into `frame::step` is
+  invisible to the **155 call sites** that drive the world through a CA driver
+  directly, and a chunk-local prefilter over the moisture region is *slower*
+  because 88% of that region is soil.
+
 ## Licensing and distribution
 
 - [dependency-license-audit.md](dependency-license-audit.md) — **settled

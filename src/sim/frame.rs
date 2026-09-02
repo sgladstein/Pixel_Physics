@@ -47,6 +47,11 @@ pub fn step(
     player_input: player::PlayerInput,
     player_tuning: &player::Tuning,
 ) {
+    // Soil moisture rides inside `parallel::step`, at its end -- see that
+    // function. It is not a phase here because it has to reach the 155 places
+    // in this tree that drive the world by calling a CA driver directly, the
+    // same reason weather and spring live inside the drivers rather than
+    // above them.
     parallel::step(world);
     // Liquid heightfield bodies (`Reports/liquid-heightfield-design.md`
     // §8a) after the sweep -- the sweep is what produces this frame's
