@@ -16,7 +16,8 @@
     name: "seed",
     display: "Seed",
     kind: Powder,
-    // Light: a seed sinks through water rather than floating, but only just.
+    // Light: a seed sinks through water rather than floating, but only
+    // just.
     density: 0.6,
     // Steep, so seeds sit where they land instead of running like sand to
     // the bottom of every slope. Real seeds are irregular and interlock.
@@ -38,5 +39,8 @@
     // being worth more than a leaf is a real distinction and wants a
     // measurement, not a guess.
     food_energy: 480.0,
+    // In MPa like every other value of this field. The hard part of plant
+    // matter is the coat and the rind, not the flesh; level with `snow`.
+    penetration_resistance: 0.2,
     food_class: -1.0,
 )

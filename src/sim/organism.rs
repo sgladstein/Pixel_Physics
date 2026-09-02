@@ -2231,6 +2231,27 @@ pub struct CreatureDef {
     /// in force, so a future softer stone is diggable automatically.
     pub dig_force: f32,
 
+    /// **How hard this species can bite, against the target material's
+    /// `penetration_resistance`. Unset means "as hard as it digs".**
+    ///
+    /// A separate field from `dig_force` rather than a reuse of it, so
+    /// biting and digging can diverge later without a migration -- an
+    /// animal with mandibles for cutting flesh and no interest in soil is
+    /// a genome away, not a schema change away.
+    ///
+    /// **The default is the dangerous half of this field, and it is only
+    /// safe because the food table was authored in the same change.** With
+    /// every food at `penetration_resistance`'s 100.0 default, "defaults to
+    /// `dig_force`" does not mean "nothing changes until a species says
+    /// so"; it means the ant's 1.0 meets `1.0 >= 100.0` on every mouthful
+    /// and nothing in the world eats anything, ever
+    /// (`material.rs`'s `penetration_resistance`, *the food table*;
+    /// `Reports/creature-genome-flexibility-2026-09-02.md` §11c). Do not
+    /// give this field a numeric default and do not price a food above
+    /// every shipped bite force.
+    #[serde(default)]
+    pub bite_force: Option<f32>,
+
     /// **How far this animal can see another animal, in cells. Zero — the
     /// default — means it has no eyes at all**, which is every species in
     /// the world except the beetle and is what keeps the sense off the
@@ -2290,6 +2311,18 @@ pub struct CreatureDef {
 }
 
 impl CreatureDef {
+    /// How hard this animal bites: its own `bite_force`, or `dig_force`
+    /// where it authors none.
+    ///
+    /// **The resolution is here rather than at the call site** so that
+    /// every consumer of it -- the ingest gate, a probe, an export -- reads
+    /// one rule. `CreatureDef::bite_force` is `Option` precisely so that
+    /// "unset" stays distinguishable from "authored equal to dig_force" in
+    /// a species file a person has to read.
+    pub fn bite_force(&self) -> f32 {
+        self.bite_force.unwrap_or(self.dig_force)
+    }
+
     /// **This same animal, at the same physical size and the same physical
     /// behaviour, in a world built at `k` times the cell resolution.**
     ///
@@ -2373,6 +2406,7 @@ impl CreatureDef {
             eats_kin,
             nest,
             dig_force,
+            bite_force,
             sight_range,
             sensor_offset,
             instincts,
@@ -2447,6 +2481,9 @@ impl CreatureDef {
             eats_kin: *eats_kin,
             nest: nest.clone(),
             dig_force: *dig_force,
+            // Dimensionless like `dig_force`, and against the same
+            // resolution-invariant material field: x 1.
+            bite_force: *bite_force,
             instincts: instincts.clone(),
             hidden_wiring: hidden_wiring.clone(),
             hidden_outputs: hidden_outputs.clone(),

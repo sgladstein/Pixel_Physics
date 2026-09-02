@@ -328,6 +328,16 @@ struct Row {
     /// Creatures that lost a body cell and survived — the victim's side of
     /// the same event, counted by the engine rather than by this probe.
     injuries: u64,
+    /// **Severings, and the pair with `injuries` is the metric.** An injury
+    /// is any survived body-cell loss; a severing is a body that came
+    /// *apart* at one. The 2026-09 severing rule (§11d) can only fire on a
+    /// body with a middle, and the shipped ant is two cells long -- so a
+    /// zero here beside a non-zero `injuries` is not "the rule is broken",
+    /// it is "no body in this scene has a middle to sever". Printed rather
+    /// than inferred, because those two readings are indistinguishable in
+    /// every other counter.
+    severings: u64,
+    severed_cells: u64,
     /// Live ant heads at the last sample, and beetle heads.
     ants_alive: usize,
     beetles_alive: usize,
@@ -594,10 +604,12 @@ fn summarise(rows: &[Row]) {
     let carrion_grabs: u64 = rows.iter().map(|r| r.beetle_grabs_carrion).sum();
     let grabbed: usize = rows.iter().map(|r| r.beetles_grabbed).sum();
     let injuries: u64 = rows.iter().map(|r| r.injuries).sum();
+    let severings: u64 = rows.iter().map(|r| r.severings).sum();
+    let severed_cells: u64 = rows.iter().map(|r| r.severed_cells).sum();
     println!(
         "effect counters (far side of the verb): {feeds} feed events over {fed} beetle(s); \
          carry-samples {prey_grabs} holding ant / {carrion_grabs} holding carrion over {grabbed} beetle(s); \
-         {injuries} injuries world-wide"
+         {injuries} injuries world-wide, of them {severings} severings taking {severed_cells} cells"
     );
     println!(
         "colony: {} pickups, {} deliveries, {} deaths across all seeds",
@@ -938,6 +950,8 @@ fn run(seed: u64, frames: usize, every: usize, beetles: usize, paint: Paint, ove
     row.beetles_fed = ever_fed.len();
     row.beetles_grabbed = ever_grabbed.len();
     row.injuries = world.creature_stats.injuries;
+    row.severings = world.creature_stats.severings;
+    row.severed_cells = world.creature_stats.severed_body_cells;
     row.deposits_b = world.pheromones.stats.deposits_b;
     row.pickups = world.creature_stats.pickups;
     row.deliveries = world.creature_stats.deliveries;

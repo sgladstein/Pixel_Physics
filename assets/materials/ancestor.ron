@@ -23,10 +23,16 @@
     heat_conductivity: 0.1,
 
     // Live flesh, for whatever eats an ant. Static rather than
-    // per-individual because a creature cell's `aux` is already the organism
+    // per-individual because a creature cell's `aux` is already the
+    // organism
     // cell-type packing and cannot also carry a worth -- and predation has
     // never once fired (13o), so this number is close to unreachable today.
     // Flagged rather than dressed up.
     food_energy: 480.0,
+    // In MPa like every other value of this field. **Live insect cuticle,
+    // and the number `beetle.ron`'s `dig_force: 0.3` was chosen against**
+    // -- with headroom, because a knife-edge `0.3 <= 0.3` is a bar sitting
+    // on its own measurement.
+    penetration_resistance: 0.25,
     food_class: 1.0,
 )

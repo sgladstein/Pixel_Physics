@@ -363,6 +363,34 @@ pub struct CreatureStats {
     pub deaths: u64,
     /// Creatures that lost a body cell and survived it.
     pub injuries: u64,
+    /// **Bites refused by armour**: a mouthful this gut valued and this
+    /// mouth could not open, counted where `adjacent_food_counted` walks
+    /// the neighbourhood.
+    ///
+    /// The "did it fire at all" counter for the armour gate, and it is the
+    /// pair `CLAUDE.md` asks for beside `eats`: a bite that bounced and a
+    /// bite that was never offered are the same silence in `eats` alone.
+    /// Reads 0 in every scene that contains no armoured flesh, which is
+    /// every shipped scene bar one -- so a non-zero here is the whole
+    /// evidence that the mechanism exists.
+    pub bites_refused: u64,
+    /// **Severing events**: a creature that lost a body cell and came apart
+    /// at it, rather than merely shortening.
+    ///
+    /// Distinct from `injuries`, which counts every survived loss. A bite
+    /// that takes the last cell of a chain is an injury and not a severing;
+    /// a bite in the middle of one is both.
+    pub severings: u64,
+    /// Of `severings`, the cells that actually detached and are now
+    /// standing in the world as meat.
+    ///
+    /// **The pair is the metric, not either half** -- the same reading
+    /// `severed_organism_pieces` gets beside `severed_organism_cells` on
+    /// the plant side. One event that drops eleven cells and eleven events
+    /// that drop one are the difference between an animal coming apart and
+    /// an animal being nibbled, and `severings` alone cannot tell them
+    /// apart.
+    pub severed_body_cells: u64,
     /// **Children born to a living parent** — S6's "did it fire at all"
     /// counter, and the only thing that separates a population that is
     /// breeding from one that is merely still standing
