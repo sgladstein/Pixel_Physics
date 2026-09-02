@@ -1,0 +1,56 @@
+{
+  "id": "20260902T221154020Z-140852",
+  "created": "2026-09-02T22:11:54Z",
+  "board": "creatures",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/armour-severing-curvature-duzjig",
+    "commit": "03845f34",
+    "agent": null,
+    "session_id": "9237f7ba-f265-5e92-afb5-fb8610e1a72d",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Ant bank: does the shaped one read as built?",
+  "question": "Which bank looks like something was built, rather than just dug out?",
+  "context_md": "Both are the same colony on the same bank at the same four moments, seed 1, digging the same amount. The only difference is whether the ants can feel the **shape of the ground** under them when they put a pellet down.\n\nWhat to look at is the **face and the heap at its foot** — the nest itself is inside the bank and the renderer cannot show it (tunnel interior spans 119 of 255 in luminance; that is a known limit, not this change).\n\nAcross twelve of these, feeling the shape makes the hollow inside **rounder** (10 of 12 seeds) and **smaller** (12 of 12) for the same digging. The control arm is not \"switched off\" — it feels a *constant* shape, so both arms drop equally often and only the sense of where differs.\n\nThe honest doubt: a smaller nest may be worse, and no number here can say. That is the question.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A - constant shape (control)",
+      "files": [
+        "20260902T221154020Z-140852/000-nest_flat.png"
+      ],
+      "caption": "the ants feel the same ground everywhere",
+      "meta": {
+        "hollow: how round (1 = a circle)": 0.293,
+        "hollow: cells of space": 68,
+        "cells dug": 597,
+        "seeds where this arm was rounder": "2 of 12"
+      },
+      "focus": null
+    },
+    {
+      "label": "B - feels the real shape",
+      "files": [
+        "20260902T221154020Z-140852/001-nest_live.png"
+      ],
+      "caption": "the ants feel bulges and hollows",
+      "meta": {
+        "hollow: how round (1 = a circle)": 0.288,
+        "hollow: cells of space": 62,
+        "cells dug": 589,
+        "seeds where this arm was rounder": "10 of 12"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
