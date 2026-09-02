@@ -1,0 +1,58 @@
+{
+  "id": "20260902T013339718Z-fcfc2c",
+  "created": "2026-09-02T01:33:39Z",
+  "board": "lab",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/evolution-lab-speed-performance-lshi7b",
+    "commit": "c507d18f",
+    "agent": null,
+    "session_id": "47972be5-007f-54d8-9b59-85354a728ae8",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Soil moisture moved off the movement sweep",
+  "question": "Both beds are healthy on the counters. Does either read as wrong ground — soil that is too wet, too dry, or drying in the wrong places?",
+  "context_md": "**The lab runs 1.7x faster and I want to know if the ground still looks right.**\n\nRoots drink, capillary flow refills, and that refilling was happening *inside the movement sweep* — so every wetness change woke a 64x64 chunk, and a woken chunk costs the sweep **and** the whole field solve. Measured: 410 of the 447 cells changing per tick in a settled bed were soil wetness, and between the two phases that was **63% of the tick**.\n\nMoisture now runs as its own pass over its own dirty marks. Nothing about how water moves through soil changed — only when and where the engine looks for it.\n\n**What I already measured, so you do not have to look for it:** tick 6.42 -> 3.81 ms, the dial goes 2.6x -> 4.4x, and the stand came out *larger* rather than smaller. Every moisture, infiltration, drainage and evaporation guard is green, as are the outdoor gates.\n\n**What I cannot check and am asking you for:** whether the soil *looks* right. The ground's colour is its wetness, so this is the one thing the change could break that no counter would report. Ignore the plants' shapes — they differ because the two runs diverged, not because either is wrong.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A - moisture on the sweep (current)",
+      "files": [
+        "20260902T013339718Z-fcfc2c/000-moisture-sweep.png"
+      ],
+      "caption": "frames 0, 2000, 8000",
+      "meta": {
+        "plants standing": 120,
+        "ants alive": 14,
+        "fruit standing": 10,
+        "plant cells": 1235,
+        "how much world per real second": "2.6x"
+      },
+      "focus": null
+    },
+    {
+      "label": "B - moisture in its own pass",
+      "files": [
+        "20260902T013339718Z-fcfc2c/001-moisture-phase.png"
+      ],
+      "caption": "frames 0, 2000, 8000",
+      "meta": {
+        "plants standing": 131,
+        "ants alive": 18,
+        "fruit standing": 16,
+        "plant cells": 1358,
+        "how much world per real second": "4.4x"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
