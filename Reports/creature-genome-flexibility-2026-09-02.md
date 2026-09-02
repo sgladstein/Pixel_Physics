@@ -52,10 +52,10 @@ labelled as such — §13c's mobility argument and §13d's shape-threshold claim
 the two that matter, and both have a named pre-check in §10 Track B. **Do not
 promote either to a premise without running its check first.**
 
-**What was wrong in the first draft, and why that matters to you:** §16. An
+**What was wrong in the first draft, and why that matters to you:** §17. An
 independent review found four confirmed errors, one of which would have stopped
 every animal in the world from eating on the first run. They are corrected in
-place. §16 exists because the *shape* of those errors is the most reusable thing
+place. §17 exists because the *shape* of those errors is the most reusable thing
 here — three of the four came from checking a claim against a neighbouring file
 instead of the actual one.
 
@@ -1310,7 +1310,7 @@ survival."**
 **Revised 2026-09-02 after independent review**, which found the first version
 of §11c would have stopped every animal in the world from eating anything, and
 found two factual claims that were checked against the wrong files. Both
-corrections are folded in below rather than appended; §16 records what changed
+corrections are folded in below rather than appended; §17 records what changed
 and why, because the *errors* are more instructive than the text that replaced
 them.
 
@@ -1700,7 +1700,7 @@ The owner, 2026-09-02, on his single biggest issue with the body:
 
 **Revised 2026-09-02 after independent review**, which found this section
 citing a bug that had already been diagnosed and closed, and found the mobility
-argument only half-working. Both are corrected in place; §16 records them.
+argument only half-working. Both are corrected in place; §17 records them.
 
 ### 13a. This is already written down in the engine, in the same words
 
@@ -1915,7 +1915,122 @@ for what it was load-bearing for, and this work does not go near it.
 
 ---
 
-## 14. What not to re-derive
+## 14. Rooms are dug, not built — and the mechanism is researched, cheap, and unwired
+
+Added 2026-09-02 on the owner's *"I want rooms"*, and it opens with a
+correction I owe.
+
+### 14a. I pointed at the wrong rule
+
+§5g named `SPOIL_HEADROOM` as the constraint blocking chambers, on the
+reasoning that it forbids placing a pellet inside a burrow so all construction
+is necessarily external. **The observation is true and the conclusion was
+wrong: a chamber is not built, it is dug.** Forcing spoil out of the burrow is
+correct ant behaviour and is what puts a mound at the entrance. The headroom
+clause blocks internal *deposition*, which is how you would get partitions and
+linings — not how you get a room.
+
+**And the engine can already hold a room open.** `line_burrow` packs all eight
+neighbours of every dug cell into `packedsoil`, which is `self_supporting`, so
+an excavated space gets cemented walls that carry their own roof. Nothing about
+chambers is blocked by physics. **Nothing digs one.**
+
+### 14b. The mechanism, from a controlled experiment
+
+[`stigmergy-research.md`](stigmergy-research.md) §5, on Toffin et al., *PNAS*
+2009 — 2D nest-digging in deliberately homogeneous conditions, with no
+environmental heterogeneity to bias anything:
+
+> A morphological transition occurs during excavation: the initial circular
+> cavity evolves into a ramified, branching structure. The transition happens
+> regardless of the number of ants, but more often with more workers.
+
+And the mechanism:
+
+> **A large number of digging ants relative to nest area produces uniform
+> digging**, because ant density along the initially small nest perimeter is
+> high. **As the nest grows, average density falls to a critical value, at which
+> point localized excavated buds appear** through amplification.
+
+High perimeter density → uniform digging → a **round chamber**. The chamber
+outgrows the colony, density falls → digging localizes → **tunnels sprout**.
+
+The research note's own conclusion, written 2026-08 and never acted on:
+*"This needs no new channel at all. Ant density along a perimeter is already
+implicit in where the agents are."*
+
+### 14c. The channel exists and is wired to the wrong verb
+
+`BrainInput::Crowding` is *"creature cells within r=2 of the head, over 8"* —
+local density, at about the right radius for density along a perimeter.
+
+**It is wired to `Move`, and to nothing else.** `(Crowding, Move, -0.3)`, in
+`ant.ron` and in `ancestor.ron` alike. Its doc explains it as the
+trail-adaptation term — *"without a crowding input a colony ossifies on the
+first path it finds"* — and **nothing has ever connected it to digging.**
+
+So the room mechanism is plausibly **one instinct weight**: `(Crowding, Dig, w)`.
+That is the same shape as `dig_force` gaining a second job in §11c — an existing
+sense doing a second job, rather than a new channel with its own cost.
+
+### 14d. What each half would do, and which half is uncertain
+
+**The chamber half is the confident one.** With a positive weight, a small
+cavity crowded with ants has everyone digging, so it grows evenly and stays
+round; as it grows, density falls, the dig rate falls, growth slows. That is a
+**self-limiting chamber whose size tracks colony size** — Toffin's first half,
+and a genuinely good emergent property rather than a tuned one.
+
+**The branching half is not guaranteed, and saying so now is cheaper than
+finding out later.** Localization needs positive feedback: a dug spot must
+attract more digging. Two candidates already exist in the engine, neither
+verified for this purpose:
+
+- **Momentum.** `dig` cuts the cell in front of the heading, so an ant that digs
+  keeps digging forward. `(Crowding, Persist, -w)` would make a sparse ant more
+  persistent — driving a tunnel rather than milling. `Persist` is already an
+  output.
+- **Trails.** A trail into a bud draws more ants, which dig there. Both
+  pheromone planes already exist and are now symmetric (§4).
+
+### 14e. What must be measured, because this is where levers fire and move nothing
+
+`burrow_probe` counts **roofed void** — a volume. Toffin's finding is entirely
+about **shape**, and a volume census cannot see shape. That is `larder_probe`'s
+lesson in a new costume: a count of absence cannot distinguish a round chamber
+from a ramified warren of the same size, and those are the two opposite findings
+this work exists to tell apart.
+
+Two columns it does not have:
+
+- **Circularity** — perimeter² / area, or an equivalent. This is the transition
+  itself.
+- **Bud count** — distinct protrusions off the main cavity.
+
+**And the positive control writes itself, which is rare here: chamber size
+should track colony size.** Run the same bed at 12, 26 and 52 ants; the cavity
+should scale with the colony. If it does not, the weight is not doing what the
+model says and the null is readable rather than ambiguous.
+
+### 14f. Why this outranks the curvature work
+
+They compose rather than compete — excavation makes the room, deposition shapes
+the spoil mound the excavation produces — but if only one gets built:
+
+| | curvature signal (§5f) | density-dependent digging |
+|---|---|---|
+| what it buys | external shaping: mound profile, ridge thickening | **rooms**, which is what was asked for |
+| new sense | yes, a new input plus a disc read | **none** — `Crowding` exists |
+| new code path | yes | **none** — one authored weight |
+| evidence behind it | a mechanism we would be porting | **a controlled experiment with the confounds removed** |
+| what is unproven | whether ants use it, whether it reads | whether branching emerges; the chamber half is straightforward |
+
+**Recommend this first.** It is smaller, better evidenced, and it is the thing
+the owner asked for.
+
+---
+
+## 15. What not to re-derive
 
 - **Whether `store_in_body` needs a slot.** It does not; the `Feed`/`Drop`
   weights already express both forks and are conditioned on everything the brain
@@ -1942,7 +2057,7 @@ for what it was load-bearing for, and this work does not go near it.
 
 ---
 
-## 15. The honest risk
+## 16. The honest risk
 
 The change cannot lose the ant. Three independent guarantees: the positional law
 forbids removing `AtNest`; every code-side coefficient becomes an authored
@@ -1965,7 +2080,7 @@ uninterpretable and the session produces an opinion.
 
 ---
 
-## 16. What the independent review changed, and the shape of the errors
+## 17. What the independent review changed, and the shape of the errors
 
 A reviewer with no stake in this document checked its claims against source on
 2026-09-02. It found **four confirmed errors severe enough to change what gets
