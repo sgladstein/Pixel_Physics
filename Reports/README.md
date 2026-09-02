@@ -937,6 +937,83 @@ drift that two of these documents still reflect.**
   *tidier than the truth*. Corrects `larder-reachability-2026-08-30.md` and
   supersedes `creature-gate0-births-2026-08-30.md`'s mechanism (below).
   Ships `predation_probe mode=range` and `LabBox::predators`.
+- [creature-genome-flexibility-2026-09-02.md](creature-genome-flexibility-2026-09-02.md)
+  — **design, not built.** The owner's standing objection re-raised and scoped
+  to the **lab**: *"I don't like that we have directly encoded there being a
+  nest and dropping food at the nest."* Inventories the four mechanisms that
+  still spell "ant" in Rust — home as a material **named in the species file**
+  (the one sense in the suite that pre-categorises, and nothing creature-side
+  can make `nest`), homing as a **`since_nest` odometer in `creature_tick`**
+  that also makes channel A the homing plane by code rather than by evolution,
+  a drop that skips the moisture bias at home, and a body that does not evolve
+  at all. **§3 is the reusable part and answers the owner's "I don't know how
+  we balance that"**: every lever is *self-limiting* (no price needed —
+  `sensor_offset` has a measured interior optimum), *already priced* (safe now),
+  or *unpriced* (a ratchet, and the gene plus its cost line are one piece of
+  work). **Three Kind-2 genes are sitting unclaimed** — `sight_range` is priced
+  by `sight_fraction`, which landed 2026-08-31 and **no species has authored**,
+  so the beetle's radius-64 eyes are free today; `tick_interval` is priced by
+  construction because every cost is charged per creature tick; and **the
+  coordinator note's stated blocker on heritable body length is stale**, since
+  both cost paths went per-cell on 2026-08-30. §5 keeps the moisture gradient
+  and explains why — it asserts a *physical fact* (Facchini 2024: deposition
+  tracks evaporation flux, which tracks curvature; no cement pheromone) rather
+  than an outcome — while reporting a dated finding: **`moisture_gradient`
+  samples at ±4 cells and `FIELD_SCALE` doubled 8 → 16 on 2026-08-30**
+  (`ca7e9042`), one day after those offsets were last touched, so the sampler
+  was never re-derived. §9 is why the **creature Gate 2 does not exist** and
+  must come first: `labbatch` puts the seed alone at **2.42×–3.12×** on the lab
+  census with no true effect present. **§11 is predation and defence**, on the
+  owner's ruling that size should buy survival: the encoding has no predator
+  and no prey category — "prey" resolves through the attacker's own heritable
+  gut — but **`creature.rs` reads `penetration_resistance` in exactly one
+  place, the dig**, so an ant that cannot dig sand bites clean through a
+  beetle, and every creature material sits at the unread 100.0 "impenetrable"
+  default. The recommendation routes the bite through the rule the dig already
+  uses, makes a bite **sever rather than kill** (8-connected walk from the vital
+  cell; what detaches becomes meat), and derives `crop_capacity` from body size
+  so size stops being pure cost. **§12 is the body-plan interface contract** —
+  the owner intends a full body revamp, and the recommendation is *flexible,
+  not concurrent*, because body and metabolism are one budget and two changes
+  moving it cannot be read apart; only the movement rule is genuinely
+  body-plan-specific and nothing here reads it. **§13 answers the owner's
+  stated number-one issue** — *"larger creatures just become snakes/worms"* —
+  and finds the engine had already written it down: `BodyPlan::scaled`'s own
+  doc says *"a chain cannot be made physically identical at a finer
+  resolution… it is the reason the owner's 'creatures should be more than
+  chains of pixels' and the resolution step are the same piece of work."*
+  Scaled up, a chain stretches into a longer worm and a rigid plan
+  supersamples into the same silhouette bigger — `ant_block`'s 3×3 becoming
+  the 6×6 the owner called *"a perfect cube"* — while shape costs an order of
+  magnitude of mobility (rigid **25–43%** of moves blocked against a chain's
+  **2–6%**). The proposal is an **articulated body**, a short chain of rigid
+  parts each following the one ahead, which has `Chain` and `Rigid` as its two
+  degenerate ends rather than sitting beside them. **Read §13d before building
+  it**: `creature-appearance-design.md` §4 measured shape at constant extent
+  moving 0.8%, and the reconciliation — those are *findability* metrics, while
+  the owner's "perfect cube" is a shape reading at 36 cells — carries the
+  finding that **no instrument here measures whether something reads as an
+  animal**, so this lever is judged by blind A/B and not by a number.
+  **Independently reviewed 2026-09-02 and revised; §16 is the errata and is the
+  most reusable section in the file.** The review found four confirmed errors,
+  and three of them came from checking a claim against a *neighbouring* file
+  rather than the actual one: the proposed bite gate would have stopped **every
+  animal in the world from eating** (all **sixteen** food materials sit at the
+  100.0 default and `act`'s ingest branch is one branch for all food, so the
+  gate reads `1.0 >= 100.0` for every mouthful); `beetle.ron` and `worm.ron`
+  author **no `food_energy` or `food_class`**, so nothing can eat a living
+  beetle at any gut bias and the claim that predation is symmetric is true of
+  the mechanism and false of the data; §13 cited
+  `creature-body-extent-2026-08-30.md`'s "no chain past two cells" as a live
+  blocker when `creature-chain-head-loss-2026-08-30.md` had **closed it** as a
+  head-cell counter reading zero over a living population; and `body_after_step`
+  re-derives a `Rigid` body's template from the head every step, so severing was
+  incompatible with the one contract row §12 promised nothing would touch. **The
+  frame in §3 also had the bug it exists to prevent** — `tick_interval` was
+  classified "priced, safe now" while cost and benefit both scale linearly, so
+  it pins at the floor; Kind 2 now requires an interior optimum as well as a
+  price. Read §16 before trusting any recommendation here, and §10 (two tracks,
+  staged) is the implementation brief.
 - [creature-motion-decoys-2026-08-30.md](creature-motion-decoys-2026-08-30.md)
   — **measured study, and a qualification of the report above.**
   `creature-appearance-design.md`'s whole body-size case rests on `decoys`,
