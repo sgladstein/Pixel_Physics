@@ -724,6 +724,38 @@
             //
             // Ants dig. It does not need a reason in the world; it needs a
             // reason in the animal.
+            // **A standing drive to dig, and its absence was a hole in the
+            // authored brain rather than in the code.** With `FoodAdjacent`
+            // as the only route to this output, an ant facing a bank of
+            // soil computed a dig urge of exactly zero: the verb was
+            // implemented, reachable, tested -- and never once fired,
+            // measured at 0 digs against 19,114 moves and 27,928 blocked
+            // ticks, a colony standing at a soil face doing nothing at all.
+            // The picture of it looked like ants milling by a wall, which
+            // is also what a broken dig would look like.
+            //
+            // Ants dig. It does not need a reason in the world; it needs a
+            // reason in the animal.
+            //
+            // **`(Crowding, Dig, w)` belongs here and is not here, and that
+            // is a measured null rather than an oversight.** Toffin et al.
+            // (*PNAS* 2009) has density-dependent digging producing a round
+            // cavity that ramifies as it outgrows its colony, and
+            // `BrainInput::Crowding` is exactly that density -- so the room
+            // mechanism looked like one authored weight
+            // (`Reports/creature-genome-flexibility-2026-09-02.md` §14). It
+            // was built, rate-matched against its own ablation in one binary,
+            // and swept: on **four** seeds the cavity came out more compact on
+            // 4 of 4 at two colony sizes, and on **twelve** it came out more
+            // compact on **16 of 33** -- a coin flip. Buds never moved either
+            // way. The one effect that survived is that density-dependent
+            // digging cuts a *smaller* nest for the same effort, which is the
+            // opposite of what it was built for.
+            //
+            // Do not re-author it from §14 without reading the entry in
+            // `Reports/dead-ends.md`, which carries the numbers, the two
+            // instrument bugs the sweep exposed, and the conditions under
+            // which it is worth retrying.
             (Bias, Dig, 0.4),
             (FoodAdjacent, Dig, 0.8),
             // **Digging was `dig_urge * (1 - moisture_gradient)` in Rust** --

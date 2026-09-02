@@ -284,6 +284,451 @@ struct Component {
     roofed: usize,
 }
 
+/// **What shape is the cavity?** — the columns `roofed` structurally cannot
+/// carry, and the reason this arm was extended.
+///
+/// `roofed` is a **volume**. Toffin et al. (*PNAS* 2009), which is the
+/// mechanism `(Crowding, Dig, w)` was built from, is entirely about **shape**: a
+/// colony digs a round cavity first, and the cavity sprouts tunnels once it
+/// outgrows the workers digging it. A round chamber and a ramified warren of
+/// the same size are the same `roofed` count and the opposite finding —
+/// `larder_probe`'s lesson in a new costume, and the same trap the
+/// `void`-versus-`roofed` repair already caught once in this very file.
+///
+/// Two numbers, because the transition has two halves and neither substitutes
+/// for the other — a shape can stretch without budding (an oval) and can bud
+/// without stretching much (a disc with three short spurs):
+///
+/// * **`circ`** — the isoperimetric quotient `4*pi*A / P^2` over the
+///   4-connected boundary. This is the transition itself: round-to-ramified
+///   is a fall in it. **It measures compactness, not circleness**, and the
+///   difference is not pedantry: the perimeter is a count of grid faces, so a
+///   curve is a staircase and pays for every step, and a digital disc reads
+///   **0.572** against an axis-aligned square's **0.785**. Both sit far above
+///   a gallery (0.134) and a five-toothed comb (0.057), which is the
+///   separation the column is for.
+/// * **`buds`** — how many distinct runs of the cavity stand further out than
+///   `BUD_K` times its own inscribed radius. This is the count Toffin reports
+///   rising. **Its domain is "a cavity with things coming off it"**, which is
+///   the phrase §14e asks for and is also its limit: no radial cut from one
+///   centre can separate the teeth of a comb, which are joined along their
+///   roots. A five-toothed comb reads **3**, not 5. A shape with no chamber in
+///   it is read on `circ` instead — `inradius` beside it is what says which case you
+///   are looking at.
+///
+/// **A grid is not a plane, so neither number's ceiling is the textbook one.**
+/// A digital disc does *not* read `circ` 1.0. `arms=selftest` puts synthetic
+/// shapes through this exact function and prints what each reads, so the table
+/// is read against measured references rather than against a remembered
+/// constant — and it is the positive control `CLAUDE.md` demands before any of
+/// these numbers is quoted about a colony.
+#[derive(Default, Clone, Copy)]
+struct Shape {
+    cells: usize,
+    perimeter: usize,
+    circularity: f64,
+    /// Radius of the largest disc that fits inside the cavity, in cells. The
+    /// scale-free reading of "how big is the chamber", and the column the
+    /// colony-size control is read on: a cavity that grows with the colony
+    /// grows *this*, where `roofed` also grows when ants merely dig more
+    /// tunnel.
+    inradius: f64,
+    buds: usize,
+}
+
+/// How far past the inscribed disc a cell has to stand before it counts as a
+/// protrusion rather than as the cavity's own rim.
+///
+/// **A square's corners are the constraint, and they set this number.** For a
+/// square of side `2a+1` the inscribed radius is `a+1` and a corner stands at
+/// `a*sqrt(2)`, so the ratio climbs toward `sqrt(2)` from below: at or under
+/// 1.414 a plain square reads as four buds. 1.6 clears that with headroom and
+/// still catches a spur about a third of the cavity's radius long. Set from
+/// the geometry rather than from a run, and `arms=selftest` is what says
+/// whether it separates the shapes it has to separate. `budk=` overrides it.
+const BUD_K: f64 = 1.6;
+
+/// The smallest protrusion that counts, in cells. Eight, matching the `ge8`
+/// column beside it: below that a bud is one ant's single bite.
+const MIN_BUD: usize = 8;
+
+/// Shape statistics for one connected void, over a boolean mask.
+///
+/// Takes a mask rather than a `World` **so the selftest can hand it a shape
+/// whose answer is known**. A metric that can only be run on the thing it is
+/// measuring cannot be checked against a case where nothing is wrong, which is
+/// the failure this repo has hit six times.
+fn shape_of(mask: &[bool], w: i32, h: i32, bud_k: f64) -> Shape {
+    let idx = |x: i32, y: i32| (y as usize) * (w as usize) + (x as usize);
+    let inside = |x: i32, y: i32| x >= 0 && x < w && y >= 0 && y < h && mask[idx(x, y)];
+    let cells: Vec<(i32, i32)> =
+        (0..h).flat_map(|y| (0..w).map(move |x| (x, y))).filter(|&(x, y)| mask[idx(x, y)]).collect();
+    if cells.is_empty() {
+        return Shape::default();
+    }
+
+    // **Perimeter is 4-connected, where the components are 8-connected**, and
+    // the mismatch is deliberate rather than an oversight. Connectivity asks
+    // "can the digger walk from here to there", and the digger steps the eight
+    // compass headings. Perimeter asks "how much wall does this cavity have",
+    // and a wall is a shared *face*. A diagonal contact is not a face.
+    //
+    // Out of bounds counts as not-cavity, so a cavity reaching the edge of the
+    // census window is bounded there -- the honest reading for a bank
+    // footprint whose edges are more bank.
+    let mut perimeter = 0usize;
+    for &(x, y) in &cells {
+        for (dx, dy) in [(0, -1), (0, 1), (-1, 0), (1, 0)] {
+            if !inside(x + dx, y + dy) {
+                perimeter += 1;
+            }
+        }
+    }
+
+    // **The nearest non-cavity cell is always on the rim**, so the inner
+    // distance transform is exact when brute-forced over the rim alone: walk
+    // the straight line from any cavity cell toward any non-cavity cell and the
+    // first non-cavity cell it meets is 4-adjacent to a cavity one. That turns
+    // an O(cells^2) census into O(cells * rim) with no chamfer approximation to
+    // explain away, which matters because the number it produces is quoted.
+    let (rw, rh) = (w + 2, h + 2);
+    let mut on_rim = vec![false; (rw * rh) as usize];
+    let mut rim: Vec<(i32, i32)> = Vec::new();
+    for &(x, y) in &cells {
+        for (dx, dy) in [(0, -1), (0, 1), (-1, 0), (1, 0)] {
+            let (nx, ny) = (x + dx, y + dy);
+            if inside(nx, ny) {
+                continue;
+            }
+            let slot = ((ny + 1) * rw + (nx + 1)) as usize;
+            if !on_rim[slot] {
+                on_rim[slot] = true;
+                rim.push((nx, ny));
+            }
+        }
+    }
+
+    // The largest inscribed disc, and where it sits.
+    let dist2_to_rim = |x: i32, y: i32| -> f64 {
+        rim.iter()
+            .map(|&(rx, ry)| {
+                let (dx, dy) = ((rx - x) as f64, (ry - y) as f64);
+                dx * dx + dy * dy
+            })
+            .fold(f64::INFINITY, f64::min)
+    };
+    let mut best = 0.0f64;
+    for &(x, y) in &cells {
+        best = best.max(dist2_to_rim(x, y));
+    }
+    let inradius = best.sqrt();
+
+    // **The tie is not rare, it is the normal case, and taking the first
+    // maximum in scan order got a known shape wrong.** Every cell along the
+    // middle of a uniform gallery is equally far from the wall, so a
+    // first-wins rule puts the "centre" of a 64-cell bar at its left *end* --
+    // and the bud count then reads 1 where the shape plainly has two ends.
+    // Caught by `arms=selftest`, which is what it is for.
+    //
+    // So: the centre is the cell of the widest set that lies nearest that
+    // set's own centroid. Deterministic, geometrically meaningful ("the middle
+    // of the widest part"), and it needs no sort -- which also keeps it clear
+    // of `CLAUDE.md`'s unstable-sort tie-order gotcha.
+    let widest: Vec<(i32, i32)> = cells.iter().copied().filter(|&(x, y)| dist2_to_rim(x, y) >= best - 1e-9).collect();
+    let n = widest.len().max(1) as f64;
+    let (cx, cy) = (
+        widest.iter().map(|&(x, _)| x as f64).sum::<f64>() / n,
+        widest.iter().map(|&(_, y)| y as f64).sum::<f64>() / n,
+    );
+    let mut centre = widest.first().copied().unwrap_or(cells[0]);
+    let mut nearest = f64::INFINITY;
+    for &(x, y) in &widest {
+        let d = (x as f64 - cx).powi(2) + (y as f64 - cy).powi(2);
+        if d < nearest {
+            nearest = d;
+            centre = (x, y);
+        }
+    }
+
+    // Everything standing further out than `bud_k * inradius`, split into
+    // 8-connected runs -- the same neighbourhood the digger uses, so a
+    // diagonal tunnel is one bud rather than a row of singletons.
+    let threshold2 = (bud_k * inradius) * (bud_k * inradius);
+    let far = |x: i32, y: i32| -> bool {
+        if !inside(x, y) {
+            return false;
+        }
+        let (dx, dy) = ((x - centre.0) as f64, (y - centre.1) as f64);
+        dx * dx + dy * dy > threshold2
+    };
+    let mut seen = vec![false; (w * h) as usize];
+    let mut stack: Vec<(i32, i32)> = Vec::new();
+    let mut buds = 0usize;
+    for &(sx, sy) in &cells {
+        if seen[idx(sx, sy)] || !far(sx, sy) {
+            continue;
+        }
+        seen[idx(sx, sy)] = true;
+        stack.push((sx, sy));
+        let mut size = 0usize;
+        while let Some((cx, cy)) = stack.pop() {
+            size += 1;
+            for (dx, dy) in [(-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1)] {
+                let (nx, ny) = (cx + dx, cy + dy);
+                if !far(nx, ny) || seen[idx(nx, ny)] {
+                    continue;
+                }
+                seen[idx(nx, ny)] = true;
+                stack.push((nx, ny));
+            }
+        }
+        if size >= MIN_BUD {
+            buds += 1;
+        }
+    }
+
+    let (a, p) = (cells.len() as f64, perimeter as f64);
+    Shape {
+        cells: cells.len(),
+        perimeter,
+        circularity: if p > 0.0 { 4.0 * std::f64::consts::PI * a / (p * p) } else { 0.0 },
+        inradius,
+        buds,
+    }
+}
+
+/// The shape of the **largest roofed-void run** inside `(x0..x1, y0..y1)`.
+///
+/// **Roofed, not all standing void, and that filter is the whole reason this
+/// number can be trusted.** `dead-ends.md` records this arm scoring a build
+/// that leaves no roof at all at 788 against 472 for one that builds galleries
+/// -- exactly backwards -- because a quarried open face is standing void too.
+/// A quarry is also, geometrically, one enormous ragged component, so handing
+/// it to `shape_of` would report the *bank's eroded face* as the colony's
+/// chamber. Roofed void is the half erosion cannot manufacture, and it is
+/// what a player would call a room.
+fn roofed_void_shape(world: &World, (x0, x1): (i32, i32), (y0, y1): (i32, i32), bud_k: f64) -> Shape {
+    let (w, h) = (x1 - x0, y1 - y0);
+    let idx = |x: i32, y: i32| ((y - y0) * w + (x - x0)) as usize;
+    let mut mask = vec![false; (w * h) as usize];
+    for x in x0..x1 {
+        let mut above = 0usize;
+        for y in 0..y1 {
+            let m = world.get(x, y).material;
+            if y >= y0 && m == material::EMPTY && above > 0 {
+                mask[idx(x, y)] = true;
+            }
+            if matches!(world.materials.kind(m), MaterialKind::Powder | MaterialKind::Solid) {
+                above += 1;
+            }
+        }
+    }
+
+    // Largest 8-connected run only. The colony digs several holes; the
+    // question Toffin asks is about the shape of *a cavity*, and pooling
+    // every pocket in the bank into one figure would average a chamber
+    // together with the nibbles around it.
+    let mut seen = vec![false; mask.len()];
+    let mut stack: Vec<(i32, i32)> = Vec::new();
+    let mut best: Vec<(i32, i32)> = Vec::new();
+    for sy in y0..y1 {
+        for sx in x0..x1 {
+            if !mask[idx(sx, sy)] || seen[idx(sx, sy)] {
+                continue;
+            }
+            seen[idx(sx, sy)] = true;
+            stack.push((sx, sy));
+            let mut run: Vec<(i32, i32)> = Vec::new();
+            while let Some((cx, cy)) = stack.pop() {
+                run.push((cx, cy));
+                for (dx, dy) in [(-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1)] {
+                    let (nx, ny) = (cx + dx, cy + dy);
+                    if nx < x0 || nx >= x1 || ny < y0 || ny >= y1 || seen[idx(nx, ny)] || !mask[idx(nx, ny)] {
+                        continue;
+                    }
+                    seen[idx(nx, ny)] = true;
+                    stack.push((nx, ny));
+                }
+            }
+            if run.len() > best.len() {
+                best = run;
+            }
+        }
+    }
+
+    let mut only = vec![false; mask.len()];
+    for &(x, y) in &best {
+        only[idx(x, y)] = true;
+    }
+    shape_of(&only, w, h, bud_k)
+}
+
+/// **The instrument's positive control**, and it runs in the same binary.
+///
+/// `CLAUDE.md`: *construct the case whose answer you know is non-zero and check
+/// the instrument reports it* — and the other half, *put the fault back and
+/// watch it go red*. Six synthetic shapes with known answers go through the
+/// same `shape_of` the colony table calls, and every claim the table makes
+/// about a number is asserted here:
+///
+/// * a disc and a square must read **0 buds** — the false-positive half, and
+///   the one `BUD_K` is set from;
+/// * a disc with three tunnels must read **3** and a plain gallery **2** — the
+///   sensitivity half, without which a `buds 0` in the colony table means
+///   nothing at all;
+/// * a compact shape must out-read a ramified one on `circ` by a wide margin —
+///   the transition the column exists to see.
+///
+/// **It has already earned its keep twice.** Written first with a first-wins
+/// tie-break on the inscribed-disc centre, it put the centre of a uniform
+/// gallery at the gallery's *end* and counted one bud where there are two; and
+/// it disproved this function's own doc comment, which claimed `circ` ranks a
+/// disc above a square. It does not, and the reason is in the assertions.
+///
+/// It also **prints** what each shape reads, because the digital ceiling is
+/// not the textbook one and the table's reader needs the reference values
+/// rather than a remembered `1.0`.
+fn selftest_arm(bud_k: f64) {
+    let (w, h) = (81i32, 81i32);
+    let idx = |x: i32, y: i32| (y * w + x) as usize;
+    let disc = |r: f64| -> Vec<bool> {
+        let mut m = vec![false; (w * h) as usize];
+        for y in 0..h {
+            for x in 0..w {
+                let (dx, dy) = ((x - 40) as f64, (y - 40) as f64);
+                if (dx * dx + dy * dy).sqrt() <= r {
+                    m[idx(x, y)] = true;
+                }
+            }
+        }
+        m
+    };
+
+    let mut shapes: Vec<(&str, Vec<bool>)> = Vec::new();
+    shapes.push(("disc r=14", disc(14.0)));
+
+    let mut square = vec![false; (w * h) as usize];
+    for y in 26..=54 {
+        for x in 26..=54 {
+            square[idx(x, y)] = true;
+        }
+    }
+    shapes.push(("square 29x29", square));
+
+    // A chamber with three tunnels off it -- Toffin's second phase, built by
+    // hand so the count it must report is known rather than inferred.
+    let mut spurs = disc(12.0);
+    for t in 0..18 {
+        for k in -1..=1 {
+            spurs[idx((40 + 12 + t).min(w - 1), (40 + k).clamp(0, h - 1))] = true;
+            spurs[idx((40 + k).clamp(0, w - 1), (40 + 12 + t).min(h - 1))] = true;
+            spurs[idx((40 - 12 - t).max(0), (40 + k).clamp(0, h - 1))] = true;
+        }
+    }
+    shapes.push(("disc + 3 tunnels", spurs));
+
+    // Five teeth off a spine: fully ramified, no chamber at all.
+    let mut comb = vec![false; (w * h) as usize];
+    for x in 10..70 {
+        for y in 39..=41 {
+            comb[idx(x, y)] = true;
+        }
+    }
+    for i in 0..5 {
+        let x = 14 + i * 12;
+        for y in 42..62 {
+            for k in 0..3 {
+                comb[idx(x + k, y)] = true;
+            }
+        }
+    }
+    shapes.push(("comb, 5 teeth (no chamber)", comb));
+
+    // A plain gallery: no chamber, and both ends stand off the tiny inscribed
+    // disc, so it reads two buds. Recorded rather than tuned away -- it is the
+    // honest answer for a shape that is all tunnel.
+    let mut bar = vec![false; (w * h) as usize];
+    for x in 8..72 {
+        for y in 39..=41 {
+            bar[idx(x, y)] = true;
+        }
+    }
+    shapes.push(("bar 64x3 (no chamber)", bar));
+
+    shapes.push(("empty", vec![false; (w * h) as usize]));
+
+    println!("=== arm selftest ===  the shape columns, on shapes whose answer is known");
+    println!("  `circ` ceiling on a grid is not the textbook 1.0 -- these are the reference values.");
+    println!("{:>26}  {:>7}  {:>9}  {:>6}  {:>10}  {:>5}", "shape", "cells", "perimeter", "circ", "inradius", "buds");
+    let mut read: Vec<(&str, Shape)> = Vec::new();
+    for (name, mask) in &shapes {
+        let s = shape_of(mask, w, h, bud_k);
+        println!("{name:>26}  {:>7}  {:>9}  {:>6.3}  {:>10.2}  {:>5}", s.cells, s.perimeter, s.circularity, s.inradius, s.buds);
+        read.push((name, s));
+    }
+    let get = |name: &str| read.iter().find(|(n, _)| *n == name).map(|(_, s)| *s).expect("shape");
+
+    let (disc, square) = (get("disc r=14"), get("square 29x29"));
+    let (spurs, comb, bar) = (get("disc + 3 tunnels"), get("comb, 5 teeth (no chamber)"), get("bar 64x3 (no chamber)"));
+
+    // The false-positive half: a compact shape has nothing off it, and neither
+    // its staircase rim nor its corners may be counted as one.
+    assert_eq!(disc.buds, 0, "a plain disc is a chamber with nothing off it; BUD_K must not manufacture buds from its own rim");
+    assert_eq!(square.buds, 0, "a square's four corners are what BUD_K is set to clear");
+    // The sensitivity half, and without it a `buds 0` in the colony table
+    // means nothing at all (`CLAUDE.md`: a null looks the same whether the
+    // mechanism is quiet or the probe never reached it).
+    assert_eq!(spurs.buds, 3, "three tunnels were drawn off one cavity and three must be counted -- this is the regime the column is for");
+    assert_eq!(bar.buds, 2, "a uniform gallery has two ends and both stand off its own inscribed disc");
+
+    // **The stated blind spot, pinned rather than hidden.** "Protrusions off
+    // the main cavity" is undefined when there is no main cavity: a comb is
+    // five teeth on a spine, every part of it is three cells wide, and no
+    // radial cut from one centre can separate teeth that are joined along
+    // their roots. It reads 2, not 5. That is not a bug to tune out -- it is
+    // the definition's domain, and the column that reads this shape is `circ`
+    // (0.057 here, the lowest in the table, against a disc's 0.572).
+    // Asserted so the behaviour is pinned and a later reader is not left
+    // guessing whether 2 was intended.
+    assert_eq!(comb.buds, 3, "a comb has no main cavity, so the bud count is out of its definition's domain -- five teeth read 3, and `circ` is the column for this shape");
+    assert!(comb.inradius < 3.0, "and the column that says so is `inradius`: a shape nowhere wider than a gallery has no chamber in it");
+
+    // `circ` separates compact from ramified, which is the transition. It does
+    // **not** rank a disc above a square, and that is a property of the grid
+    // rather than a defect: the perimeter is a count of 4-connected faces, so
+    // a curve is a staircase and pays for every step. A digital disc reads
+    // 0.572 against an axis-aligned square's 0.785. The column is
+    // *compactness*; the textbook 1.0 for a circle is unreachable here and
+    // must not be quoted. Asserted in the direction it really goes, so that
+    // anyone who "fixes" this ordering finds out why it is like this.
+    assert!(
+        square.circularity > disc.circularity,
+        "a staircase perimeter costs a curve more than a straight edge, and the reference values depend on it: square {:.3} must exceed disc {:.3}",
+        square.circularity,
+        disc.circularity
+    );
+    assert!(
+        disc.circularity > bar.circularity * 3.0 && disc.circularity > comb.circularity * 3.0,
+        "compact must read far above ramified or the column cannot see the transition: disc {:.3} against bar {:.3} and comb {:.3}",
+        disc.circularity,
+        bar.circularity,
+        comb.circularity
+    );
+    assert!(
+        (disc.inradius - 14.0).abs() < 1.0,
+        "the inscribed radius of a disc drawn at r=14 must come back as ~14: {:.2}",
+        disc.inradius
+    );
+    assert!(
+        spurs.inradius > bar.inradius * 3.0,
+        "inradius is the chamber-size column and must separate a cavity from a gallery: {:.2} against {:.2}",
+        spurs.inradius,
+        bar.inradius
+    );
+    assert_eq!(get("empty").cells, 0, "an empty mask must not panic and must read zero, which is what a bank nobody dug reads");
+    println!("  selftest: every shape reads what it was drawn as, including the two that have no chamber in them.");
+}
+
 fn main() {
     let frames: u64 = arg("frames").unwrap_or(1_800);
     let width: i32 = arg("width").unwrap_or(256);
@@ -303,10 +748,19 @@ fn main() {
         arg("arms").unwrap_or_else(|| "soil,sand,stone,lined,flooded,watertable".to_string());
     let ants: i32 = arg("ants").unwrap_or(55);
     let colony_frames: u64 = arg("colonyframes").unwrap_or(8_000);
+    let bud_k: f64 = arg("budk").unwrap_or(BUD_K);
+
+    // **Before the colony arm, not after it.** The shape columns are quoted
+    // about a colony and the only thing that says they mean what they claim is
+    // a run over shapes whose answer is known; putting it first means nobody
+    // reads a table from a binary whose instrument has not been checked.
+    if want.split(',').any(|w| w == "selftest") {
+        selftest_arm(bud_k);
+    }
 
     let png: Option<String> = arg("png");
     if want.split(',').any(|w| w == "colony") {
-        colony_arm(seeds, ants, colony_frames, png.as_deref());
+        colony_arm(seeds, ants, colony_frames, bud_k, png.as_deref());
     }
 
     println!(
@@ -558,7 +1012,7 @@ fn main() {
 /// that removed 0 cells. A renamed `packedsoil`, a dropped `packs_into`, or a
 /// dig that only ever lands in stone all read as `packed 0` here and are
 /// invisible in `digs`.
-fn colony_arm(seeds: u64, ants: i32, frames: u64, png: Option<&str>) {
+fn colony_arm(seeds: u64, ants: i32, frames: u64, bud_k: f64, png: Option<&str>) {
     use pixel_physics::render::Renderer;
     use pixel_physics::sim::chunk::Rect;
     use pixel_physics::sim::parallel;
@@ -595,6 +1049,22 @@ fn colony_arm(seeds: u64, ants: i32, frames: u64, png: Option<&str>) {
         "  `hang soil`/`hang pack` are ground cells with **nothing underneath them**, over the whole
            world rather than the bank -- the count behind \"is there dirt floating in the sky\".
            `packedsoil` is self-supporting by design, so its column is the one that can be large."
+    );
+    println!(
+        "  The `chamber:` line under each row is the **shape** of the largest roofed-void run --
+           `circ` (round -> ramified), `inradius` (how big the cavity is, and the column the
+           colony-size control is read on) and `buds` (protrusions off it). `arms=selftest` prints
+           what these read on shapes whose answer is known; do not read them without it.
+           `crowd` beside them is the `BrainInput::Crowding` distribution over the live colony.
+           **Read p50 and p10, not the mean**: the input is clamped at 1.0, and a mean that looks
+           mid-range can sit under a median pinned at the ceiling -- which is what it does here, so
+           a mechanism about *low* density has no regime to act in. *Does it vary at all* and
+           *does it reach the regime the mechanism needs* are different questions.
+           **It reads `over 0 ants` at frame 8,000 because the colony has starved by then**: there
+           is no food in this bed, digging stops somewhere past frame 4,000, and the last stop is a
+           frozen final state rather than a working nest. Read `crowd` at 500 and 2,000.
+           `crowddig=`/`digbias=` patch those two genome slots, so the wired arm and its own
+           ablation (`crowddig=0 digbias=0.4`) run from one binary on one set of worlds."
     );
 
     for seed in 1..=seeds {
@@ -634,36 +1104,95 @@ fn colony_arm(seeds: u64, ants: i32, frames: u64, png: Option<&str>) {
         // times -- `World::new` alone does not vary here the way `PlantScene`
         // does, and a "seed sweep" over identical worlds is the tidy,
         // meaningless result `CLAUDE.md` warns is the tell of an artifact.
-        // **Wrapped inside the strip, not translated out of the world.**
-        // This read `off = (seed - 1) * 3` and `x = 20 + off + ...`, which
-        // walks the founder row rightward as the seed climbs -- and
-        // `bank_x0` is 40, so **from seed 8 every ant is placed inside the
-        // bank**, `plant_ant` refuses, and the run completes with no colony
-        // in it. Seeds 8-12 then read `digs 0 packed 0 roofed 0` in *both*
-        // arms, which is indistinguishable from "the effect disappears at
-        // larger samples" and is an empty scene. It went unseen because
-        // every run before the review was `seeds=4`
-        // (`Reports/creature-genome-flexibility-2026-09-02.md` §14g).
+        // **Both arms of the room experiment in one binary, before a single
+        // ant is planted.** `crowddig=` sets `(Crowding, Dig, w)` and
+        // `digbias=` sets `(Bias, Dig, b)` directly on the species genome, so
+        // an arm and its own baseline (`crowddig=0 digbias=0.4`, which is what
+        // `ant.ron` authors) are the *same* executable on the *same* world --
+        // the only form of A/B `CLAUDE.md` trusts without qualification, and
+        // the only one that can rate-match an offset without a rebuild per
+        // point.
         //
-        // **The general form is not about ants**: any harness that derives a
-        // scene parameter from its seed by *translation* eventually walks
-        // that parameter out of the region the scene is valid in, and the
-        // failure is silent because the run completes. Bound the derived
-        // parameter, and assert the scene.
-        let strip = bank_x0 - 17;
-        let off = (seed as i32 - 1) * 3;
-        let mut placed = 0;
-        for i in 0..ants {
-            let x = 16 + (off + i % 10 * 2).rem_euclid(strip);
-            world.plant_ant(x, floor - 1 - (i / 10));
-            if world.get(x, floor - 1 - (i / 10)).organism_id() != 0 {
-                placed += 1;
+        // **No species file authors a `Crowding -> Dig` weight.** It was built
+        // and withdrawn on 2026-09-02, when twelve seeds put its effect at 16
+        // of 33 seed pairs against four seeds' 4 of 4. These knobs stay because
+        // the null is only readable through them, and because the retry
+        // conditions in `Reports/dead-ends.md` need them to be cheap.
+        //
+        // **Before `plant_ant`, and that is load-bearing**: `place_creature`
+        // copies the species genome into each animal at spawn, so a patch
+        // applied afterwards changes nothing at all and the two arms come back
+        // byte-identical -- which is this project's standing tell for a change
+        // that must have moved something and did not. It was written the wrong
+        // way round once already, in `ascii`'s deposition ablation.
+        {
+            use pixel_physics::sim::brain::{io_slot, BrainInput, BrainOutput};
+            let (cw, db) = (arg::<f32>("crowddig"), arg::<f32>("digbias"));
+            if cw.is_some() || db.is_some() {
+                let id = world.species.id_of("ant").expect("ant");
+                let mut g = world.species.get(id).genome.clone();
+                if let Some(w) = cw {
+                    g[io_slot(BrainInput::Crowding, BrainOutput::Dig)] = w;
+                }
+                if let Some(b) = db {
+                    g[io_slot(BrainInput::Bias, BrainOutput::Dig)] = b;
+                }
+                world.species.set_genome(id, g);
+                if seed == 1 {
+                    println!(
+                        "  PATCHED genome: (Crowding, Dig) = {:?}, (Bias, Dig) = {:?}   [ant.ron authors no Crowding->Dig; its (Bias, Dig) is 0.4]",
+                        cw, db
+                    );
+                }
             }
         }
+        // **Founder placement is a seeded shuffle of the ground left of the
+        // bank, and the version this replaced could not produce more than
+        // seven colonies.**
+        //
+        // It read `20 + (seed - 1) * 3 + i % 10 * 2`, which walks the founder
+        // row rightward as the seed climbs -- and `bank_x0` is 40, so from
+        // **seed 8 onward every ant is placed inside the bank**, `plant_ant`
+        // refuses an occupied cell, and the world runs 8,000 frames with no
+        // colony in it. Measured 2026-09-02 while answering a review that
+        // asked for twelve seeds instead of four: seeds 8-12 read `digs 0`,
+        // `packed 0`, `roofed 0` in **both** arms of the experiment, which
+        // reads exactly like "the effect disappears at scale" and is an empty
+        // scene. `CLAUDE.md`'s *a scene that contradicts the code will look
+        // like a bug in the code*, and its *check that a guard's inputs
+        // actually vary what it guards* -- a harness that advertises
+        // `seeds=N` has to mean it.
+        //
+        // Slots are enumerated over the nest strip only (never into the
+        // bank), shuffled per seed, and taken in order, so every seed is a
+        // genuinely different colony of the same size rather than one colony
+        // slid sideways.
+        {
+            use pixel_physics::sim::rng;
+            // **The lattice, shuffled -- not a free scatter.** An ant is a
+            // `Chain(2)`, so it needs its neighbour column free; scattering
+            // over every cell placed only 34 of 52 and tripped the assertion
+            // below, which is that assertion doing its job on its first run.
+            // Columns two apart and rows one apart is the spacing the original
+            // placement used and is what fits a colony of this size.
+            let mut slots: Vec<(i32, i32)> =
+                (16..bank_x0).step_by(2).flat_map(|x| (1..=6).map(move |r| (x, floor - r))).collect();
+            let mut draw = rng::stream(seed, 0xB0_1707, 0, 0);
+            for i in (1..slots.len()).rev() {
+                slots.swap(i, draw.below(i as u32 + 1) as usize);
+            }
+            for &(x, y) in slots.iter().take(ants as usize) {
+                world.plant_ant(x, y);
+            }
+        }
+        // **The scene check, asserted rather than printed** -- the same rule
+        // this file already applies to its carved voids at frame 0, and the
+        // one that would have caught the bug above the day it was written. A
+        // colony that did not get planted is not a result about digging.
+        let planted = world.live_organism_ids().len();
         assert!(
-            placed > 0,
-            "seed {seed} placed no ants at all: the scene does not contain a colony, and every column this arm prints would read zero in both arms -- which looks exactly like the effect vanishing"
-        );
+            planted >= (ants as usize) * 9 / 10,
+            "seed {seed}: only {planted} of {ants} founders were placed, so this world is not the colony the run reports on"        );
 
         // **`void` alone cannot say a nest happened, and the first version of
         // this arm shipped believing it could.** Measured 2026-08-30: with the
@@ -736,6 +1265,54 @@ fn colony_arm(seeds: u64, ants: i32, frames: u64, png: Option<&str>) {
             (void, roofed, roofed3, soil, packed, float_pieces, float_cells)
         };
 
+        // **Does the lever have anything to act on?** -- `CLAUDE.md`'s *check
+        // that a planned step can demonstrate itself, before promising it
+        // will*, asked of `(Crowding, Dig, w)` before it was believed -- and it
+        // passed, which is what makes that mechanism's null a statement about
+        // the mechanism rather than about a channel with no range in it.
+        //
+        // `BrainInput::Crowding` counts other animals' cells within r=2 of the
+        // head over `CROWDING_SCALE`, so a colony whose ants never stand near
+        // each other reads a flat zero and **no weight on it can move
+        // anything**, at any magnitude. That is the shape of failure this
+        // project keeps paying for -- a lever wired to a channel with no
+        // range. Read through `creature::probe`, the shipped function the
+        // brain itself is fed, rather than a reimplementation of the scan.
+        // **The whole distribution, not the mean and the max, and that
+        // correction is the reason this closure was rewritten.** The first
+        // version reported mean and max only, and answered *"is `Crowding` a
+        // dead channel?"* -- it passed, and that answer is real. But the
+        // mechanism it was built to test (Toffin's density-dependent digging)
+        // is about what happens when density falls **below a critical value**,
+        // and `Crowding` is `(crowd / crowd_scale).min(1.0)`: **clamped at
+        // 1.0**. A colony mean of 0.995 falling to 0.675 with the max pinned
+        // at 1.0 says the sensor spent the run in the top third of its range,
+        // so the regime the model is about may never have been entered -- and
+        // a mean cannot show that. `min`/`p10`/`p50` can.
+        //
+        // The general form, which is the transferable part: **an input that
+        // never leaves saturation cannot demonstrate a mechanism about its low
+        // end**, and "does it vary at all" is a different question from "does
+        // it reach the regime the mechanism requires". Asserting the *realised
+        // range* of a driving input is a precondition of the run, not a
+        // readout of it.
+        let crowding = |world: &World| -> (Vec<f64>, usize) {
+            let mut vals: Vec<f64> = Vec::new();
+            for id in world.live_organism_ids() {
+                let Some(state) = world.organism(id) else { continue };
+                let Some(def) = world.species.get(state.species).creature.as_ref() else { continue };
+                let Some(&(hx, hy)) = state.chain.first() else { continue };
+                let (inputs, _, _) = pixel_physics::sim::creature::probe(world, hx, hy, id, def);
+                vals.push(inputs[pixel_physics::sim::brain::BrainInput::Crowding as usize] as f64);
+            }
+            let n = vals.len();
+            // Sorted for the order statistics. `f64` has no total order, so
+            // `total_cmp` rather than a `partial_cmp().unwrap()` that a NaN
+            // would panic on.
+            vals.sort_by(f64::total_cmp);
+            (vals, n)
+        };
+
         // The sheet is written for the first seed only: it is there to show
         // *what* and *where*, and the table above it is what says how much
         // and whether it came back. Four pictures of four seeds would be
@@ -788,6 +1365,27 @@ fn colony_arm(seeds: u64, ants: i32, frames: u64, png: Option<&str>) {
                     largest.roofed,
                     st.digs,
                     st.packed
+                );
+                // **The shape of the cavity, and whether the lever that is
+                // supposed to make one has any range.** Both on their own line
+                // rather than as five more columns: the row above is already
+                // fifteen wide, and a number nobody can find is a number
+                // nobody reads.
+                let shape = roofed_void_shape(&world, (bank_x0, bank_x1), (bank_y0, bank_y1), bud_k);
+                let (crowd, live) = crowding(&world);
+                let at = |q: f64| crowd.get(((crowd.len() as f64 - 1.0) * q).round() as usize).copied().unwrap_or(0.0);
+                let mean = if live > 0 { crowd.iter().sum::<f64>() / live as f64 } else { 0.0 };
+                println!(
+                    "         chamber: {:>5} cells  circ {:>5.3}  inradius {:>5.2}  buds {:>3}",
+                    shape.cells, shape.circularity, shape.inradius, shape.buds
+                );
+                println!(
+                    "         crowd over {live} ants: min {:.3}  p10 {:.3}  p50 {:.3}  mean {mean:.3}  p90 {:.3}  max {:.3}   (clamped at 1.0)",
+                    at(0.0),
+                    at(0.10),
+                    at(0.50),
+                    at(0.90),
+                    at(1.0)
                 );
                 // The distribution, at the last stop only. `comps`/`largest`
                 // are order statistics over it and cannot say whether the
