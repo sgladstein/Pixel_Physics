@@ -87,9 +87,12 @@ all. A heritable size gene would shrink rather than grow until that is
 fixed — extent is the right *shape* lever, but it needs a reason to be
 selected for before it is worth building.
 
-**Scaling `crop_capacity` with body cells is not that reason, and this
-report briefly said otherwise before the session that proposed it withdrew
-it with the arithmetic that refutes it, minutes later.** With capacity
+**Scaling `crop_capacity` with body cells is not that reason.** This report
+briefly recommended it, on the suggestion of the session working
+`creature-genome-flexibility-2026-09-02.md` §13/§14 — the same session
+withdrew the recommendation, by name, minutes later, with the arithmetic
+below, and asked that the withdrawal carry its attribution as visibly as
+the original claim did. With capacity
 `k·b` (`b` body cells), a trip that fills the crop every time delivers
 `k·b` cells at a cost of `idle·b·T + move·b·(1+k)·D`, so cost per delivered
 cell is `(idle·T + move·(1+k)·D) / k` — **`b` cancels exactly**: size is
