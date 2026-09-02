@@ -56,13 +56,13 @@ whole, then run `python3 scripts/readmetoc.py`.
 | [Lab lighting status — the fixtures are what light the crop](#lab-lighting-status--the-fixtures-are-what-light-the-crop) | 4261 |
 | [Cell page status — the specimen readout is in three groups, and folds](#cell-page-status--the-specimen-readout-is-in-three-groups-and-folds) | 4323 |
 | [Roster status — every plant and every animal, as a list you click through](#roster-status--every-plant-and-every-animal-as-a-list-you-click-through) | 4371 |
-| [Plain-speech status — the genome read back as sentences](#plain-speech-status--the-genome-read-back-as-sentences) | 4469 |
-| [Specimen shelf status — an individual's genetics outlive the box](#specimen-shelf-status--an-individuals-genetics-outlive-the-box) | 4571 |
-| [Lab hand-verbs status — what a click puts in the box, and what the view shows](#lab-hand-verbs-status--what-a-click-puts-in-the-box-and-what-the-view-shows) | 4633 |
-| [Performance](#performance) | 4721 |
-| [World speed — five independent time axes](#world-speed--five-independent-time-axes) | 4918 |
-| [Status](#status) | 5001 |
-| [License](#license) | 5112 |
+| [Plain-speech status — the genome read back as sentences](#plain-speech-status--the-genome-read-back-as-sentences) | 4473 |
+| [Specimen shelf status — an individual's genetics outlive the box](#specimen-shelf-status--an-individuals-genetics-outlive-the-box) | 4575 |
+| [Lab hand-verbs status — what a click puts in the box, and what the view shows](#lab-hand-verbs-status--what-a-click-puts-in-the-box-and-what-the-view-shows) | 4637 |
+| [Performance](#performance) | 4725 |
+| [World speed — five independent time axes](#world-speed--five-independent-time-axes) | 4922 |
+| [Status](#status) | 5005 |
+| [License](#license) | 5116 |
 
 ### Milestones, in numeric order
 
@@ -96,7 +96,7 @@ them is named "plants". A section can appear twice; felling is honestly both
 plant work and structural work.
 
 **Known limitations for every topic are collected in one place**:
-[Status](#status), line 5001 — the *last* section in the
+[Status](#status), line 5005 — the *last* section in the
 file, not the first. Read it before concluding something is broken.
 
 **Which game a topic belongs to** is the third column. `engine` is shared
@@ -107,8 +107,8 @@ about what you may read.
 
 | Topic | Game | Sections, primary first |
 |---|---|---|
-| **plants, trees and moss** | engine | [M16 status](#m16-status) 1601, [Plant lines merged](#plant-lines-merged-the-genome-and-the-ecology) 1229, [Inheritance status](#inheritance-status--the-growth-program-has-no-fallback-under-it) 3579, [The economy re-derived](#the-economy-re-derived-standing-tissue-costs-something) 1351, [Plants that stop](#plants-that-stop-organs-determinacy-and-a-price-on-both) 1533, [The generation loop](#the-generation-loop-plants-die-seeds-expire-slots-come-back) 1299, [Stems draw a line](#stems-draw-a-line-the-growth-walk-renders-its-heading) 1451, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 3754, [Bending status](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) 3991, [Breaking status](#breaking-status--a-badly-grown-tree-comes-down-on-its-own) 4068, [Specimen shelf status](#specimen-shelf-status--an-individuals-genetics-outlive-the-box) 4571, [Cell page status](#cell-page-status--the-specimen-readout-is-in-three-groups-and-folds) 4323, [Roster status](#roster-status--every-plant-and-every-animal-as-a-list-you-click-through) 4371, [Plain-speech status](#plain-speech-status--the-genome-read-back-as-sentences) 4469 |
-| **creatures — worms and the ant colony** | engine | [M18 status](#m18-status) 2014, [The ant colony](#the-ant-colony--status) 3221, [Specimen shelf status](#specimen-shelf-status--an-individuals-genetics-outlive-the-box) 4571, [Roster status](#roster-status--every-plant-and-every-animal-as-a-list-you-click-through) 4371, [Plain-speech status](#plain-speech-status--the-genome-read-back-as-sentences) 4469, [Lab hand-verbs status](#lab-hand-verbs-status--what-a-click-puts-in-the-box-and-what-the-view-shows) 4633 |
+| **plants, trees and moss** | engine | [M16 status](#m16-status) 1601, [Plant lines merged](#plant-lines-merged-the-genome-and-the-ecology) 1229, [Inheritance status](#inheritance-status--the-growth-program-has-no-fallback-under-it) 3579, [The economy re-derived](#the-economy-re-derived-standing-tissue-costs-something) 1351, [Plants that stop](#plants-that-stop-organs-determinacy-and-a-price-on-both) 1533, [The generation loop](#the-generation-loop-plants-die-seeds-expire-slots-come-back) 1299, [Stems draw a line](#stems-draw-a-line-the-growth-walk-renders-its-heading) 1451, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 3754, [Bending status](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) 3991, [Breaking status](#breaking-status--a-badly-grown-tree-comes-down-on-its-own) 4068, [Specimen shelf status](#specimen-shelf-status--an-individuals-genetics-outlive-the-box) 4575, [Cell page status](#cell-page-status--the-specimen-readout-is-in-three-groups-and-folds) 4323, [Roster status](#roster-status--every-plant-and-every-animal-as-a-list-you-click-through) 4371, [Plain-speech status](#plain-speech-status--the-genome-read-back-as-sentences) 4473 |
+| **creatures — worms and the ant colony** | engine | [M18 status](#m18-status) 2014, [The ant colony](#the-ant-colony--status) 3221, [Specimen shelf status](#specimen-shelf-status--an-individuals-genetics-outlive-the-box) 4575, [Roster status](#roster-status--every-plant-and-every-animal-as-a-list-you-click-through) 4371, [Plain-speech status](#plain-speech-status--the-genome-read-back-as-sentences) 4473, [Lab hand-verbs status](#lab-hand-verbs-status--what-a-click-puts-in-the-box-and-what-the-view-shows) 4637 |
 | **structural collapse, felling and rigid bodies** | outdoor | [M17 status](#m17-status) 1787, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 3754, [Bending status](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) 3991, [Breaking status](#breaking-status--a-badly-grown-tree-comes-down-on-its-own) 4068, [M8 status](#m8-status--started-not-complete) 2481 |
 | **fire, heat and phase change** | engine | [M14 status](#m14-status) 816, [Materials](#materials) 243 |
 | **explosions, particles and debris** | outdoor | [M15 status](#m15-status) 993, [M7 status](#m7-status) 964 |
@@ -117,16 +117,16 @@ about what you may read.
 | **the coarse field grid — pressure, heat, light** | engine | [The coarse field grid](#the-coarse-field-grid) 501, [M12/M13 status](#m12m13-status) 763, [Lab lighting status](#lab-lighting-status--the-fixtures-are-what-light-the-crop) 4261 |
 | **worldgen and world structure** | outdoor | [M10 status](#m10-status--the-worldgen-half) 3034, [Architecture](#architecture) 317 |
 | **the gnome (player character)** | outdoor | [M9 status](#m9-status--the-gnome) 2594, [Controls](#controls) 177 |
-| **weather, sky and the clock** | engine | [Weather status](#weather-status) 3204, [M19 status](#m19-status--started) 3682, [World speed](#world-speed--five-independent-time-axes) 4918 |
+| **weather, sky and the clock** | engine | [Weather status](#weather-status) 3204, [M19 status](#m19-status--started) 3682, [World speed](#world-speed--five-independent-time-axes) 4922 |
 | **rendering, UI and tunables** | engine | [UI improvements](#ui-improvements--overnight-run-section-9) 2348, [Live tunables panel](#live-tunables-panel--overnight-run-section-10) 2393, [Rendering performance](#rendering-performance--overnight-run-section-11) 2461, [M6 deferral](#m6-deferral) 1124 |
-| **performance and the parallel sweep** | engine | [Performance](#performance) 4721, [M5 status](#m5-status) 1134, [Architecture](#architecture) 317, [Rendering performance](#rendering-performance--overnight-run-section-11) 2461 |
+| **performance and the parallel sweep** | engine | [Performance](#performance) 4725, [M5 status](#m5-status) 1134, [Architecture](#architecture) 317, [Rendering performance](#rendering-performance--overnight-run-section-11) 2461 |
 | **materials and the data schema** | engine | [Materials](#materials) 243, [M12/M13 status](#m12m13-status) 763 |
 | **the evolution lab — the box and its lights** | lab | [Lab lighting status](#lab-lighting-status--the-fixtures-are-what-light-the-crop) 4261 |
 | **reading one specimen off the screen** | lab | [Cell page status](#cell-page-status--the-specimen-readout-is-in-three-groups-and-folds) 4323 |
-| **keeping, cloning and mutating an individual** | lab | [Specimen shelf status](#specimen-shelf-status--an-individuals-genetics-outlive-the-box) 4571 |
+| **keeping, cloning and mutating an individual** | lab | [Specimen shelf status](#specimen-shelf-status--an-individuals-genetics-outlive-the-box) 4575 |
 | **finding one individual among all of them** | lab | [Roster status](#roster-status--every-plant-and-every-animal-as-a-list-you-click-through) 4371 |
-| **the genome in plain words** | lab | [Plain-speech status](#plain-speech-status--the-genome-read-back-as-sentences) 4469 |
-| **putting things in the box, and what the view shows** | lab | [Lab hand-verbs status](#lab-hand-verbs-status--what-a-click-puts-in-the-box-and-what-the-view-shows) 4633 |
+| **the genome in plain words** | lab | [Plain-speech status](#plain-speech-status--the-genome-read-back-as-sentences) 4473 |
+| **putting things in the box, and what the view shows** | lab | [Lab hand-verbs status](#lab-hand-verbs-status--what-a-click-puts-in-the-box-and-what-the-view-shows) 4637 |
 
 <!-- END GENERATED TOC -->
 
@@ -4391,9 +4391,13 @@ the camera on the one you picked; `LINE` narrows the list to its founders'
 descendants; `RELEASE` lets go.
 
 **They hang off the PLANTS and ANTS pages rather than the bar, and that is
-measured rather than stylistic.** `PIXEL_PHYSICS_BAR_TRACE=1` on this build
-still reports the bar fitting only at `pad=2 gap=1`, with **row 1 at exactly
-508 of 508 pixels and row 0 with two to spare** — there is no seventh chip. So
+measured rather than stylistic.** `PIXEL_PHYSICS_BAR_TRACE=1` reported the bar
+fitting only at `pad=2 gap=1` when this work started, row 1 at exactly 508 of
+508 px and row 0 with two to spare. **Re-measured after merging `main`, it is
+tighter still: `pad=2 gap=1` no longer fits at all (row 0 overruns by 4 px),
+and the only spacing left is `pad=1 gap=1`, where both rows sit at exactly 508
+of 508 with zero slack.** `layout` has no looser rung to fall back to and no
+tighter one to try, so the bar is not nearly full, it is *finished*. So
 the way in is a `LIST EVERY PLANT` heading on the page those buttons already
 open, which cost no new painter code: `Body::Head` has always pushed a
 full-width invisible hit target. It had also always been **thrown away** — the

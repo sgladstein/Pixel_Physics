@@ -261,11 +261,17 @@ reconstruct:
   because no generic page had a clickable heading yet. Anything added to the
   PLANTS / ANTS / BOX pages as a `Row::head` before this fix was a button
   nobody could press.
-- **The bar is still full, re-measured today**: `pad=2 gap=1` is the only
-  spacing that fits, row 1 at **508 of 508** and row 0 with **2 px** spare. The
-  roster hangs off the PLANTS and ANTS pages for that reason and it cost no
-  painter code. **This is the pattern for the next lab control** — a heading on
-  a page that already has a chip, not a chip.
+- **The bar has run out of spacings, and this is the number to carry
+  forward.** At the start of this round `pad=2 gap=1` fitted with 2 px spare on
+  row 0. **After merging round five, it does not fit at all** — row 0 overruns
+  by 4 px — and the only rung left is `pad=1 gap=1`, where **both rows sit at
+  exactly 508 of 508 with zero slack**. `layout` has nothing tighter to try.
+  So the bar is no longer "nearly full": the *next* widget on it, of any width,
+  fails `the_bar_fits_the_screen_and_no_two_widgets_overlap` outright.
+  **The pattern that works is a `Body::Head` row on a page that already has a
+  chip** — that is how both rosters are reached and it cost no painter code.
+  Round four's list of answers (a third row, a page, a removal) now has that
+  fourth entry, and it is the cheap one.
 - **A page with no bar chip has no way out, and nothing else here has that
   shape.** Every other page is closed by pressing the chip that opened it; the
   roster needed a `BACK` button of its own. The harness found it twice by
