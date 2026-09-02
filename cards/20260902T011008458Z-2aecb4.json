@@ -1,0 +1,55 @@
+{
+  "id": "20260902T011008458Z-2aecb4",
+  "created": "2026-09-02T01:10:08Z",
+  "board": "lab",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/evolution-lab-tracking-iacu4z",
+    "commit": "6e7e77d3",
+    "agent": null,
+    "session_id": "f71970f9-fe80-577a-9e5c-1a53f5e54090",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The genome, read back as sentences instead of numbers",
+  "question": "Two things. Does WORDS belong open by default -- it pushed STATE (the numbers that move while the box runs) behind one click -- and is the animal's list the right length at five drives, or would you rather see all twelve?",
+  "context_md": "**Replaces card `20260902T010905133Z-9cf8f7`, which lost a line to a shell quoting slip. Read this one.**\n\n**What it does:** you asked for *\"this creature has this movement pattern and strong dig strength, and no vision\"* instead of a wall of numbers. This is that, on the page you already open by clicking a cell, and on a jar in the rack.\n\n**Where it sits:** second of four. The lists landed first; next is the life record -- age, offspring, feeding, cause of death -- then side-by-side comparison and a lineage overlay.\n\n**You asked whether it was accurate. It was not, and finding out changed two things.**\n\nThe ant's twelve *direct* weights are all unconditional -- and its **entire foraging loop is twelve hidden weights** the page said nothing about. Decoded, they are the bottom two lines of the animal card: laden, follow the home scent; empty, follow the food route. A summary silent on the main thing an animal does is worse than a short one.\n\nAnd the two scent channels have **no meaning in the engine at all** -- A and B are anonymous, and a channel means whatever a species emits onto it. I had hard-coded *\"A is the food trail\"*, and on the ant that is backwards: every ant lays A constantly, which pools it round the nest, while only a laden ant lays B, which marks the way back from food. The page described the loop the wrong way round while reading perfectly. The names are now derived from what the animal actually lays.\n\n**So: yes, it really is that simple in places.** UNLOADS AT THE NEST is one weight -- AtNest to Drop, +0.90 -- and nothing else. Two caveats the page cannot fit: that weight sets a *probability*, not a switch, and several weights add into the same output.\n\n**Also found:** the third body trait had been missing from the numbers page since it landed, and a group taller than the fold budget could never be opened at all -- clicking its heading did nothing, for ever.\n\n**Not asking about:** the wording of individual phrases. Tell me if one is *wrong*, but polish is cheap.",
+  "kind": "gallery",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "An ant",
+      "files": [
+        "20260902T011008458Z-2aecb4/000-f-roster--animals-pinned.png"
+      ],
+      "caption": "the bottom two WORDS lines are the foraging loop, and they come from the hidden layer",
+      "meta": {
+        "direct weights in its genome": 12,
+        "hidden weights": 16,
+        "sentences shown": 13,
+        "drives listed of 12": 5
+      },
+      "focus": null
+    },
+    {
+      "label": "A herb",
+      "files": [
+        "20260902T011008458Z-2aecb4/001-f-roster--plants-pinned.png"
+      ],
+      "caption": "six shape genes, then only the continuous ones its species actually lets vary",
+      "meta": {
+        "shape genes": 6,
+        "continuous genes shown of 10": 8,
+        "sentences shown": 14
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
