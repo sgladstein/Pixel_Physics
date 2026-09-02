@@ -1028,10 +1028,9 @@ pub type SpecimenRow = (String, String, String);
 pub type SpecimenSection = (&'static str, &'static str, Vec<SpecimenRow>);
 
 /// What each group's heading means, as the page's hover note reads it.
-const LIFE_NOTE: &str = "WHERE THIS INDIVIDUAL CAME FROM AND HOW FAR DOWN THE LINE IT IS. NONE OF IT CHANGES WHILE YOU WATCH -- IT IS SETTLED THE MOMENT THE THING IS BORN.";
+const LIFE_NOTE: &str = "WHERE THIS INDIVIDUAL CAME FROM, HOW FAR DOWN THE LINE IT IS, AND THE DATED LINES IT PUT IN THE RUN LOG. NOTHING HERE CHANGES ONCE IT IS WRITTEN -- A FRAME NUMBER IS SETTLED THE MOMENT THE THING HAPPENS, WHICH IS WHAT SEPARATES THIS GROUP FROM STATE.";
 const STATE_NOTE: &str = "HOW IT IS DOING RIGHT NOW. THIS IS THE GROUP THAT MOVES WHILE THE BOX RUNS, AND THE ONE TO HAVE OPEN IF YOU ARE WATCHING SOMETHING GET INTO TROUBLE.";
 const WORDS_NOTE: &str = "THE SAME GENOME, IN SENTENCES. WHAT KIND OF THING THIS IS, RATHER THAN WHAT ITS NUMBERS ARE -- EVERY LINE HERE IS DERIVED FROM A ROW UNDER GENOME, AND HOVERING ONE SAYS WHICH.";
-const STORY_NOTE: &str = "THE DATED LINES THIS INDIVIDUAL PUT IN THE RUN LOG -- BORN, FIRST FED, FIRST SEED, DIED. IT IS A NARRATIVE, NEVER A COUNT: THE LOG IS BOUNDED AND DROPS ITS OLDEST LINES, SO EVERY NUMBER ON THIS PAGE COMES FROM THE COUNTERS UNDER STATE INSTEAD.";
 const GENOME_NOTE: &str = "WHAT IT WAS DEALT AND CANNOT CHANGE, DRAWN WHEN IT WAS BORN AND CARRIED FOR LIFE. TWO INDIVIDUALS OF ONE SPECIES DIFFER HERE AND NOWHERE ELSE AT BIRTH -- THIS IS WHAT A JAR ON THE SHELF KEEPS.";
 
 /// **The same readout, in the three groups the cell page folds it into.**
@@ -1071,6 +1070,19 @@ pub fn specimen_sections(world: &World, id: u16) -> Vec<SpecimenSection> {
         "THE FRAME THIS INDIVIDUAL WAS ALLOCATED. WITH ITS ORGANISM NUMBER IT IS WHAT PINS IT: A SLOT IS HANDED OUT AGAIN AFTER SIXTEEN REUSES, SO THE NUMBER ALONE WOULD FOLLOW WHATEVER LANDED IN IT NEXT. THE FRAME DOES NOT COME BACK.");
     row("ORIGIN", if state.stocked { "RELEASED FROM A JAR".into() } else if state.inherited { "BORN HERE".into() } else { "FOUNDER".into() },
         "WHERE THIS INDIVIDUAL CAME FROM. BORN HERE MEANS THE BOX BRED IT. FOUNDER MEANS IT WAS PLACED OUT OF NOTHING. RELEASED FROM A JAR MEANS YOU PUT IT BACK OFF THE SHELF, CARRYING A GENOME YOU KEPT. A BOX WHERE NOTHING EVER SAYS BORN HERE IS A BOX THAT HAS NOT REPRODUCED YET.");
+
+    // **The individual's own lines out of the run log, filed under `LIFE`.**
+    //
+    // They belong here by the group's own contract: a frame number is settled
+    // the moment the thing happens and never moves again, which is exactly
+    // what separates `LIFE` from `STATE`. They were briefly a fifth group of
+    // their own and that is why they are not: one extra heading is 15px, the
+    // ant's page had about that much slack, and
+    // `the_cell_page_fits_on_the_screen_for_a_plant_and_for_an_ant` went red
+    // saying the page now fitted only because rows had been **dropped** --
+    // which is the one thing that guard exists to refuse. A group that costs
+    // a heading to say five short lines is not worth a trimmed page.
+    life.extend(story(world, id, state.born_frame));
 
     // A second closure over `rows`, so the borrow of `life` ends here. The
     // shadowing is deliberate: every `row(...)` below this line files into
@@ -1123,7 +1135,6 @@ pub fn specimen_sections(world: &World, id: u16) -> Vec<SpecimenSection> {
             ("WORDS", WORDS_NOTE, words(world, id)),
             ("LIFE", LIFE_NOTE, life),
             ("STATE", STATE_NOTE, rows),
-            ("STORY", STORY_NOTE, story(world, id, state.born_frame)),
             ("GENOME", GENOME_NOTE, genome),
         ];
     }
@@ -1188,7 +1199,6 @@ pub fn specimen_sections(world: &World, id: u16) -> Vec<SpecimenSection> {
         ("WORDS", WORDS_NOTE, words(world, id)),
         ("LIFE", LIFE_NOTE, life),
         ("STATE", STATE_NOTE, rows),
-        ("STORY", STORY_NOTE, story(world, id, state.born_frame)),
         ("GENOME", GENOME_NOTE, genome),
     ]
 }

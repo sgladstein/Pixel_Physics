@@ -6751,7 +6751,7 @@ mod tests {
             // means anything: laid out flat this page has to be too tall, or
             // a fold that did nothing would pass.
             let sections = params::specimen_sections(&world, id);
-            assert_eq!(sections.len(), 5, "{name}: every kingdom gets the same five groups");
+            assert_eq!(sections.len(), 4, "{name}: every kingdom gets the same four groups");
             assert_eq!(sections[0].0, "WORDS", "{name}: the summary leads, and `Ui::new` defaults to index 0");
             assert!(!sections[0].2.is_empty(), "{name}: the summary group is empty, so the page would draw a heading over nothing");
             let flat = 5 * LINE + 4 + sections.len() as i32 * (LINE + 4) + sections.iter().map(|(_, _, r)| r.len() as i32 * LINE).sum::<i32>();
@@ -6781,7 +6781,7 @@ mod tests {
             );
             // **Both kingdoms fold now**, where only the plant did before:
             // the `WORDS` group adds eight to fourteen rows and neither page
-            // holds all five groups at once. What matters is not how many are
+            // holds all four groups at once. What matters is not how many are
             // shut but that the page fits *because* it folded rather than
             // because rows were trimmed, which the assertion above checks.
             let shut = rows.iter().filter(|row| matches!(row.body, Body::Head { open: false, .. })).count();
