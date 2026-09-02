@@ -1869,7 +1869,15 @@ fn bear_seed_at(world: &mut World, sx: i32, sy: i32, parent_id: u16, seed_cost: 
     world.schedule_active_site(reschedule_organism(sx, sy, child, 0, 0, world.frame + SEED_TICK_INTERVAL));
     if let Some(parent) = world.organism_mut(parent_id) {
         parent.seeds_set += 1;
+        parent.life.seeds_set += 1;
     }
+    // **The world-level pair, which did not exist.** `lab::ui`'s seeds figure
+    // walks the live organism list *because there was no counter to read*,
+    // and `lab::stats`' `seeds_borne` is `fate_mutation_rolls`, a proxy that
+    // only moves when the fate roll fires. So the only cumulative seed count
+    // in the engine was an estimate that fell whenever a bearer died. This is
+    // the far side of `LifeCounters::seeds_set`, and the two close.
+    world.seeds_set += 1;
     true
 }
 
@@ -7244,6 +7252,7 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
         // traversal per organism per tick for one boolean.
         if vital_cells == 0 && !cells.is_empty() && has_economy {
             state.senescent = true;
+            state.senescence_cause = organism::DeathCause::LostVitalTissue;
         }
         // **Death by starvation — the economy's own killer.** See
         // `STARVATION_DEATH_TICKS`, including why the comparison is the
@@ -7287,6 +7296,7 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
                 state.starving_ticks = state.starving_ticks.saturating_add(1);
                 if state.starving_ticks >= STARVATION_DEATH_TICKS {
                     state.senescent = true;
+                    state.senescence_cause = organism::DeathCause::Starved;
                 }
             } else {
                 state.starving_ticks = 0;

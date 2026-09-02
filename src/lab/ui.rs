@@ -3288,7 +3288,12 @@ const ANT_COLS: [RosterCol; 8] = [
     ("SPECIES", "SPECIES--", roster::SortKey::Species),
     ("BANK", "BANK9", roster::SortKey::Energy),
     ("CROP", "CROP", roster::SortKey::Carrying),
-    ("BODY", "BODY", roster::SortKey::Cells),
+    // **`YOUNG` replaced `BODY`, and that is a judgement about what a
+    // hundred-row table is for.** Body size is the same two cells on every
+    // ant in the box, so the column carried no information; young is the
+    // fitness figure, it is the one you sort a colony on to find what is
+    // actually breeding, and it did not exist until the life record.
+    ("YOUNG", "YOUNG", roster::SortKey::Score),
     ("AGE", "999.9K", roster::SortKey::Age),
     ("GEN", "GEN", roster::SortKey::Generation),
     ("LINE", "LINE9", roster::SortKey::Lineage),
@@ -4352,7 +4357,7 @@ impl Ui {
                     (species, VALUE),
                     (format!("{:.0}", r.energy), if r.state == roster::RowState::Hungry { FAIR } else { GOOD }),
                     (format!("{}", r.carrying), if r.carrying > 0 { GOOD } else { FAINT }),
-                    (format!("{}", r.cells), FAINT),
+                    (format!("{}", r.score), if r.score > 0 { GOOD } else { FAINT }),
                     (compact(age as f64), FAINT),
                     (format!("{}", r.generation), FAINT),
                     (format!("{}", r.lineage), FAINT),
@@ -6517,6 +6522,8 @@ mod tests {
         assert_eq!(PLANT_COLS[2].0, "SEED");
         assert_eq!(PLANT_COLS[2].2, roster::SortKey::Score, "the SEED column must sort on what it shows");
         assert_eq!(ANT_COLS[1].0, "BANK");
+        assert_eq!(ANT_COLS[3].0, "YOUNG");
+        assert_eq!(ANT_COLS[3].2, roster::SortKey::Score, "the YOUNG column must sort on what it shows");
         assert_eq!(ANT_COLS[1].2, roster::SortKey::Energy, "the BANK column must sort on what it shows");
         assert_eq!(PLANT_COLS[7].0, "STATE");
         assert_eq!(ANT_COLS[7].0, "STATE");

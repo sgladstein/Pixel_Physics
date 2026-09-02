@@ -361,6 +361,37 @@ page and slides it over the roster — a thirty-character phrase hid three of
 eight columns. `PHRASE_COLUMNS = 26`, swept by
 `every_phrase_fits_the_column`. **Any future text on this page inherits that.**
 
+### The life record, tier one — landed
+
+README's *"Life record status"* is the shipped behaviour. Three things worth
+carrying:
+
+- **§B2 now has an organism-level counter, and it cost one boolean.** A plant
+  the support check fells whole leaves the world with `senescent == false` and
+  **no cause at all** -- `plant.rs`'s senescence rule is guarded on
+  `!cells.is_empty()`, and a whole-plant felling empties the list -- so it fell
+  through to slot reclamation indistinguishable from an organism allocated and
+  never given a cell. §B2 has only ever had *cell-level* numbers (654 living
+  cells severed per run) and could not say **how many plants**. Classifying
+  "no cells, no cause" at `free_organism` as `FELLED` is that count.
+- **`World::seeds_set` did not exist**, and two readers had worked around it
+  without saying so in the same place: `lab::ui` walks the live list *because
+  there was no counter*, and `lab::stats`' `seeds_borne` is
+  `fate_mutation_rolls`, a proxy that only moves when the fate roll fires. The
+  only cumulative seed figure in the engine was an estimate that fell whenever
+  a bearer died.
+- **A guard was written and deleted rather than shipped.** The dig mirror must
+  sit outside the `spoil_kept()` block; a test named for that trap **cannot go
+  red**, because `spoil_kept` caches in a `OnceLock` and defaults to true, so
+  under `cargo test` both placements pass. Blind, not weak -- deleted, with the
+  reasoning moved to a comment at the call site. **The same applies to any
+  future guard over a `OnceLock`-cached env switch in this engine.**
+
+The closing identity is `sum over the living + World::dead_life == the world
+total`, and its **vacuity checks fired on the first run**: 4,000 frames of the
+colony bed produce no death at all, so the identity held over two zeroes and
+would have passed with the roll-up deleted.
+
 ### Next, in order
 2. **The life record.** Tier 1's identity field is already in. Watch the three
    traps found in review: the `digs` mirror must stay **outside** the

@@ -127,6 +127,9 @@ GAME = {
     # The fourth lab row. Distinct from "reading one specimen off the screen"
     # deliberately: that row is the numbers, this is what they mean.
     "the genome in plain words": "lab",
+    # The fifth lab row: what an individual has done, as opposed to what it
+    # is. Also engine-side -- the counters live on `OrganismState`.
+    "what an individual has done, and what killed it": "lab",
 }
 
 TOPICS = {
@@ -145,6 +148,7 @@ TOPICS = {
         "Cell page status — the specimen readout is in three groups, and folds",
         "Roster status — every plant and every animal, as a list you click through",
         "Plain-speech status — the genome read back as sentences",
+        "Life record status — what an individual has done, and what killed it",
     ],
     "creatures — worms and the ant colony": [
         "M18 status",
@@ -153,6 +157,7 @@ TOPICS = {
         "Roster status — every plant and every animal, as a list you click through",
         "Plain-speech status — the genome read back as sentences",
         "Lab hand-verbs status — what a click puts in the box, and what the view shows",
+        "Life record status — what an individual has done, and what killed it",
     ],
     "structural collapse, felling and rigid bodies": [
         "M17 status",
@@ -251,6 +256,11 @@ TOPICS = {
     # under the lab for it.
     "the genome in plain words": [
         "Plain-speech status — the genome read back as sentences",
+    ],
+    # Listed under creatures and plants too: the counters are on
+    # `OrganismState` and both kingdoms carry them.
+    "what an individual has done, and what killed it": [
+        "Life record status — what an individual has done, and what killed it",
     ],
     # The third lab row: the hand verbs and the view they are aimed through.
     # Separate from "the box and its lights", which is what the box *is*, and

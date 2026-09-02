@@ -1063,6 +1063,11 @@ pub fn specimen_sections(world: &World, id: u16) -> Vec<SpecimenSection> {
     // thing the player did on purpose). A release is its own origin and says
     // so, or the rack's whole point -- did the line I picked do better --
     // cannot be read off a cell.
+    // **`BORN` is `LIFE`, `AGE` is `STATE`.** The frame it was allocated is
+    // settled the moment the thing exists, which is what this group is for;
+    // how long ago that was moves every tick, which is what the next one is.
+    row("BORN", format!("FRAME {}", state.born_frame),
+        "THE FRAME THIS INDIVIDUAL WAS ALLOCATED. WITH ITS ORGANISM NUMBER IT IS WHAT PINS IT: A SLOT IS HANDED OUT AGAIN AFTER SIXTEEN REUSES, SO THE NUMBER ALONE WOULD FOLLOW WHATEVER LANDED IN IT NEXT. THE FRAME DOES NOT COME BACK.");
     row("ORIGIN", if state.stocked { "RELEASED FROM A JAR".into() } else if state.inherited { "BORN HERE".into() } else { "FOUNDER".into() },
         "WHERE THIS INDIVIDUAL CAME FROM. BORN HERE MEANS THE BOX BRED IT. FOUNDER MEANS IT WAS PLACED OUT OF NOTHING. RELEASED FROM A JAR MEANS YOU PUT IT BACK OFF THE SHELF, CARRYING A GENOME YOU KEPT. A BOX WHERE NOTHING EVER SAYS BORN HERE IS A BOX THAT HAS NOT REPRODUCED YET.");
 
@@ -1101,6 +1106,18 @@ pub fn specimen_sections(world: &World, id: u16) -> Vec<SpecimenSection> {
             "WHAT IT IS CARRYING AND HOW MUCH OF IT IS LEFT. THE NUMBER FALLS AS IT WALKS -- AN ANT DIGESTS ITS LOAD ON THE WAY HOME, SO A LONG TRIP DELIVERS LESS THAN A SHORT ONE.");
         row("BODY", state.cells.len().to_string(),
             "HOW MANY CELLS THIS ANIMAL IS. EVERY PER-CELL COST ON THE ANTS PAGE IS MULTIPLIED BY THIS.");
+        row("AGE", format!("{} TICKS", world.frame.saturating_sub(state.born_frame)),
+            "HOW LONG THIS ONE HAS BEEN ALIVE, IN SIMULATED TICKS. AGAINST THE ANIMALS PAGE'S OWN TURNOVER IT SAYS WHETHER YOU ARE LOOKING AT A FOUNDER THAT HAS OUTLASTED EVERYTHING OR AT SOMETHING BORN THIS MINUTE.");
+        row("YOUNG", state.life.offspring.to_string(),
+            "HOW MANY THIS ONE HAS BUDDED. IT IS ITS FITNESS, IN THE ONLY SENSE THE BOX MEASURES FOR AN ANIMAL -- AND A COLONY WHERE NOBODY'S NUMBER EVER LEAVES ZERO IS A COLONY THAT IS NOT BREEDING, WHICH A HEADCOUNT ALONE CANNOT TELL YOU.");
+        row("FED", state.life.bites.to_string(),
+            "MOUTHFULS TAKEN INTO THE CROP OVER ITS WHOLE LIFE. IT COUNTS PICKING FOOD UP AND NOT DIGESTING IT, WHICH ARE DIFFERENT EVENTS -- AN ANIMAL WITH A HIGH COUNT AND NO DELIVERIES IS EATING EVERYTHING IT FINDS WHERE IT FINDS IT.");
+        row("DELIVERED", state.life.deliveries.to_string(),
+            "LOADS IT HAS BROUGHT HOME. AGAINST FED IT IS THE HALF OF THE FORAGING LOOP THAT CLOSES: PICKUPS WITHOUT DELIVERIES IS A COLONY THAT FEEDS ITSELF AND NEVER STOCKS THE NEST.");
+        row("DUG", state.life.digs.to_string(),
+            "CELLS IT HAS EXCAVATED IN ITS LIFE. THE GALLERIES IN THE BED ARE THE SUM OF THESE.");
+        row("WALKED", format!("{} / {} BLOCKED", state.life.moves, state.life.moves_blocked),
+            "STEPS TAKEN, AND STEPS IT TRIED AND COULD NOT MAKE. THE SECOND NUMBER IS NOT WASTE -- A COLONY SPENDS A THIRD OF ITS LIFE TURNING ON THE SPOT -- BUT AN ANIMAL WHOSE BLOCKED COUNT DWARFS ITS MOVES IS ONE WEDGED SOMEWHERE.");
         return vec![
             ("WORDS", WORDS_NOTE, words(world, id)),
             ("LIFE", LIFE_NOTE, life),
@@ -1113,6 +1130,12 @@ pub fn specimen_sections(world: &World, id: u16) -> Vec<SpecimenSection> {
         "HOW MUCH SHOOT IT HAS GROWN. THIS IS THE NUMBER THE PLANT PAGE'S SEED MATURITY IS COMPARED AGAINST -- BELOW THAT FENCE THIS PLANT CANNOT SET A SEED AT ALL, HOWEVER MUCH ENERGY IT HAS.");
     row("ROOT", state.root_cells.to_string(),
         "HOW MUCH ROOT IT HAS. AGAINST THE SHOOT COUNT IT IS THE ROOT-TO-SHOOT BALANCE, WHICH IS WHAT DECIDES WHETHER IT DIES OF THIRST OR OF SHADE.");
+    // **A plant's clock starts at seed set, not at germination**, because
+    // that is when `bear_seed_at` allocates its organism. So this includes
+    // however long it lay in the seed bank, and the row says so rather than
+    // printing a number that means something different for the two kingdoms.
+    row("AGE", format!("{} TICKS", world.frame.saturating_sub(state.born_frame)),
+        "HOW LONG SINCE THIS INDIVIDUAL WAS CREATED, IN SIMULATED TICKS. FOR A PLANT THE CLOCK STARTS WHEN ITS PARENT SET THE SEED AND NOT WHEN IT GERMINATED, SO A LONG-DORMANT SEED READS OLD ON ITS FIRST DAY ABOVE GROUND. AN ANIMAL'S CLOCK STARTS AT ITS BIRTH.");
     row("SEEDS SET", state.seeds_set.to_string(),
         "SEEDS THIS INDIVIDUAL HAS SET IN ITS LIFE. IT IS ITS FITNESS, IN THE ONLY SENSE THE BOX MEASURES.");
     row("ROOT IN SOIL", {

@@ -155,9 +155,8 @@ pub struct RosterRow {
     pub energy: f32,
     /// A creature's crop, in cells; a plant's shoot count.
     pub carrying: u32,
-    /// **What it has actually produced** -- a plant's seeds set, and (until
-    /// the life record lands) a creature's zero. It is the fitness column, in
-    /// the only sense the box measures.
+    /// **What it has actually produced** -- a plant's seeds set, an animal's
+    /// young. It is the fitness column, in the only sense the box measures.
     pub score: u32,
     pub state: RowState,
 }
@@ -311,7 +310,9 @@ fn row_of(world: &World, id: u16, state: &crate::sim::organism::OrganismState) -
         } else {
             state.shoot_cells
         },
-        score: state.seeds_set,
+        // A plant counts seeds, an animal counts young: the same question
+        // asked of two kingdoms that answer it with different organs.
+        score: if creature.is_some() { state.life.offspring } else { state.seeds_set },
         state: state_word,
     }
 }

@@ -1027,6 +1027,28 @@ pub struct World {
     /// interesting.
     organisms_born: u64,
     organisms_died: u64,
+    /// **The lifetime counters of every organism that has died.**
+    ///
+    /// The third term of `LifeCounters`' closing identity, and without it the
+    /// live sum can only fall: a freed organism takes its counts with it, so
+    /// the sum over the living alone is not comparable to anything. Rolled up
+    /// at `free_organism`, which is the one function that decides a release
+    /// really happened.
+    pub dead_life: organism::LifeCounters,
+    /// **Seeds set, cumulatively, over the whole run.**
+    ///
+    /// This did not exist, and the code said so: `lab::ui`'s own seeds figure
+    /// *"walks the live organism list rather than reading a world-level
+    /// counter, because there is not one"*, and `lab::stats`' `seeds_borne` is
+    /// a **proxy** -- `fate_mutation_rolls`, which only moves when the fate
+    /// roll fires. So the only cumulative seed count in the engine was an
+    /// estimate that fell whenever a bearer died. This is the real one.
+    pub seeds_set: u64,
+    /// Deaths by cause, indexed by `organism::DeathCause::index`.
+    ///
+    /// The far side of the run log's `died` events, and the only place §B2's
+    /// whole-plant fellings are counted as *organisms* rather than as cells.
+    pub deaths_by_cause: [u64; organism::DEATH_CAUSES],
     /// **Germinations refused because every organism slot was live** — the
     /// other half of making the 4,095 ceiling a real check rather than a
     /// `debug_assert` (see `push_organism`).
@@ -2273,6 +2295,9 @@ impl World {
             free_organism_slots: Vec::new(),
             organisms_born: 0,
             organisms_died: 0,
+            dead_life: organism::LifeCounters::default(),
+            seeds_set: 0,
+            deaths_by_cause: [0; organism::DEATH_CAUSES],
             organisms_refused: 0,
             organism_generation_wraps: 0,
             next_lineage: 1,
@@ -2838,6 +2863,8 @@ impl World {
             // makes the pair unique. Stamped here rather than by the caller
             // so it cannot be forgotten on one of the five creation paths.
             born_frame: self.frame,
+            life: organism::LifeCounters::default(),
+            senescence_cause: organism::DeathCause::Unknown,
             water: 0.0,
             water_status: 1.0,
             water_uptake: 0.0,
@@ -3001,6 +3028,9 @@ impl World {
         match self.organism_mut(organism_id) {
             Some(state) => {
                 state.senescent = true;
+                // The caller owns the *choice* to cull; recording that it was
+                // a cull rather than something the box did is this seam's.
+                state.senescence_cause = organism::DeathCause::Culled;
                 true
             }
             None => false,
@@ -3062,8 +3092,35 @@ impl World {
         if slot.generation != generation || slot.state.is_none() {
             return;
         }
+        // **The individual's books are closed here, for the same reason the
+        // death is counted here**: this is the one function that decides a
+        // release really happened, so it is the only place a roll-up cannot
+        // double-count. `slot.state` is already in hand, so it costs no
+        // lookup and no signature change.
+        let (life, cause) = match slot.state.as_ref() {
+            Some(state) => (
+                state.life,
+                // **A plant that never declared itself dead was felled**, and
+                // that classification is the whole of §B2's missing counter.
+                // `plant.rs`'s senescence rule is guarded on
+                // `!cells.is_empty()`, so a whole-plant felling empties the
+                // list, the guard is false, and the organism arrives here
+                // with `senescent == false` and no cause -- until now
+                // indistinguishable from one allocated and never given a
+                // cell. A creature always arrives with a cause set by
+                // `creature_dies`, so this only reclassifies plants.
+                if state.senescence_cause == organism::DeathCause::Unknown && state.cells.is_empty() && state.chain.is_empty() {
+                    organism::DeathCause::FelledOrLost
+                } else {
+                    state.senescence_cause
+                },
+            ),
+            None => (organism::LifeCounters::default(), organism::DeathCause::Unknown),
+        };
         slot.state = None;
         self.free_organism_slots.push(slot_index);
+        self.dead_life.absorb(&life);
+        self.deaths_by_cause[cause.index()] += 1;
         // Counted here rather than at either call site: this is the one
         // function that decides a release really happened (both callers can
         // fire twice for one death, and the guards above are what stop the
@@ -5602,6 +5659,87 @@ mod tests {
         let id = w.push_organism(species).expect("an organism slot is free");
         assert_ne!(id, 0, "0 is reserved for \"no organism\"");
         assert_eq!(w.organism(id).unwrap().species, species);
+    }
+
+    /// **A plant that leaves the world owning nothing, having never declared
+    /// itself dead, is booked as felled.**
+    ///
+    /// `Reports/open-bugs-handoff.md` §B2: the support check severs a *living*
+    /// plant whole, and `plant.rs`'s senescence rule is guarded on
+    /// `!cells.is_empty()` -- so a whole-plant felling empties the cell list,
+    /// that guard is false, `senescent` is never set, and the organism arrives
+    /// at `free_organism` with no cause at all. §B2 has only ever had
+    /// cell-level numbers; it has never been able to say **how many plants**
+    /// died this way, because nothing counted the organism.
+    ///
+    /// This guards the classification rather than the bug: §B2 is masked by
+    /// default (`plant_load_failure` covers the detached branch for a living
+    /// organism), so reproducing the felling itself needs the mask off and a
+    /// bed that accumulates litter. What is testable here, and what is new, is
+    /// that the seam turns "no cells, no cause" into a counted death instead
+    /// of dropping it on the floor.
+    #[test]
+    fn an_organism_that_leaves_owning_nothing_is_counted_as_felled() {
+        let mut w = test_world();
+        let species = SpeciesId(0);
+
+        // A plant that was felled: it had cells, they were all taken, and
+        // nothing ever set `senescent`.
+        let felled = w.push_organism(species).expect("a slot is free");
+        w.free_organism(felled);
+        assert_eq!(
+            w.deaths_by_cause[organism::DeathCause::FelledOrLost.index()],
+            1,
+            "an organism that left with no cells and no cause was not booked as felled"
+        );
+        assert_eq!(
+            w.deaths_by_cause[organism::DeathCause::Unknown.index()],
+            0,
+            "it was booked as an unattributed death instead, which is the state this replaces"
+        );
+
+        // ...against one that *did* declare a cause, which must keep it.
+        let starved = w.push_organism(species).expect("a slot is free");
+        w.organism_mut(starved).expect("just made").senescence_cause = organism::DeathCause::Starved;
+        w.free_organism(starved);
+        assert_eq!(
+            w.deaths_by_cause[organism::DeathCause::Starved.index()],
+            1,
+            "a declared cause was overwritten by the felled classification"
+        );
+        assert_eq!(
+            w.deaths_by_cause[organism::DeathCause::FelledOrLost.index()],
+            1,
+            "the felled bucket took a death that had already named its cause"
+        );
+
+        // The books still close over the whole histogram.
+        let (_, died) = w.organism_turnover();
+        assert_eq!(w.deaths_by_cause.iter().sum::<u64>(), died, "a death was counted without a cause bucket, or twice");
+    }
+
+    /// **A dead individual's counters are rolled into the world's dead-side
+    /// total, and not lost with it.**
+    #[test]
+    fn a_freed_organism_hands_its_life_to_the_world() {
+        let mut w = test_world();
+        let id = w.push_organism(SpeciesId(0)).expect("a slot is free");
+        {
+            let state = w.organism_mut(id).expect("just made");
+            state.life.moves = 7;
+            state.life.digs = 3;
+            state.life.seeds_set = 2;
+        }
+        assert_eq!(w.dead_life.moves, 0, "the positive control: nothing has died yet");
+        w.free_organism(id);
+        assert_eq!(w.dead_life.moves, 7, "the dead individual's steps were dropped rather than rolled up");
+        assert_eq!(w.dead_life.digs, 3);
+        assert_eq!(w.dead_life.seeds_set, 2);
+        // Freeing the same handle twice must not double-count: the generation
+        // check above the roll-up is what stops it, and it is the same guard
+        // that stops `organisms_died` counting one death twice.
+        w.free_organism(id);
+        assert_eq!(w.dead_life.moves, 7, "a second free of the same handle counted its life again");
     }
 
     #[test]
