@@ -45,8 +45,10 @@ engine, listed in `Reports/instruments.md`) and one existing species
    raises**: extent grown as *length at the mobility-safe width §1 found*
    (2 cells wide, 18 tall, still 36 cells) scores within the same noise band
    as extent grown as a compact block — the mobility recommendation and the
-   legibility recommendation are not in tension, provided the economics are
-   fixed first (below).
+   *findability* recommendation are not in tension with each other, provided
+   the economics are fixed first (below). Whether either is in tension with
+   the *legibility* question point 3 asks is still open — see the
+   recommendation below, corrected after review.
 3. **Can the owner tell them apart?** Posted, not yet answered. Six body
    shapes (`ant`, `beetle`, `uniform3`, `uniform5`, `forward_taper`,
    `backward_taper`) as a blind gallery card, `20260902T194120383Z-3860b1`,
@@ -58,11 +60,23 @@ than a chain that still reads as an animal once §3 answers whether these
 silhouettes clear that bar — but do not expect it to produce the owner's
 stated insect silhouette (small head, big abdomen), because that specific
 shape is measured to cost the same mobility as a plain rigid block, with or
-without articulation. If the real goal is "creatures that read as more than
-a chain," on §2's evidence (and §2.1's follow-up) that is answered by making
-them **bigger, as a long narrow body**, not by giving them a different
-architecture while narrow, and not by making them wider — width is exactly
-what §1 measured as expensive. **One prerequisite precedes all of this**:
+without articulation.
+
+**§2's "extent, not architecture" is a claim about findability, and only
+that.** *Findability* is settled: on §2 and §2.1's evidence, being seen at
+all is answered by being bigger, not by being a different shape, whether
+compact or long and narrow. *Whether a body reads as an animal rather than
+a shape merely large enough to notice* is a different question — the
+owner's actual complaint — and is exactly what §2 says no instrument here
+measures and what §3 was built to ask. §3's card is still open, and per its
+own caveat (added below) a "no difference" verdict on it would not settle
+this either, because the card cannot show the one thing articulation adds.
+**So "make it bigger, not differently shaped" is not yet the answer to the
+owner's question — it is the answer to a narrower question the owner's
+question contains.** Read §2's findability conclusion and §3's open
+legibility question as separate claims, not one following from the other.
+
+One prerequisite precedes acting on either:
 `creature-genome-flexibility-2026-09-02.md` §11e/§12d already found that
 body size buys nothing in today's economy (more meat for a predator and
 nothing else), so a heritable size gene would shrink rather than grow until
@@ -250,8 +264,9 @@ to 4x4 at 16 cells there, a 6x6 at 36 here). §1.3 found the mobility-safe
 zone is the opposite shape — **width ≤2, however long** — so before
 recommending extent-via-length as the way to grow a creature without paying
 §1's rigid-body mobility tax, the two findings need to be checked together:
-does a long, narrow body keep the legibility win a compact block gets, or
-was that win actually about being square-ish?
+does a long, narrow body keep the *findability* win a compact block gets, or
+was that win actually about being square-ish? (Findability, not legibility —
+see the correction at the end of §3 for why that distinction matters here.)
 
 A third 36-cell arm, `narrow36` (`block(2, 18)` — 2 cells wide, 18 tall, the
 same mobility-safe footprint §1.3 measured at 8-13% blocked), added to
@@ -292,12 +307,12 @@ says the shape-legibility half of the trade is not the blocker.
 ## 3. Q3 — can the owner tell them apart?
 
 New instrument, `examples/creature_candidate_render.rs`: since there is no
-multi-part `BodyPlan` to render, and a static or smoothly-walking body's
-silhouette does not depend on whether its segments are one rigid plan or
-several parts following each other (articulation changes how a body decides
-to *move*, not what its cells look like once placed), this stamps a single
-`Rigid` body shaped like each candidate and crops/zooms it exactly as
-`creature_scale mode=size` already ships.
+multi-part `BodyPlan` to render, this stamps a single `Rigid` body shaped
+like each candidate and crops/zooms it exactly as `creature_scale mode=size`
+already ships — on the premise that a body standing still or walking in a
+straight line over flat ground looks the same whether its segments are one
+rigid plan or several parts following each other. **That premise is scoped,
+not general, and the scope matters — see the correction below.**
 
 Six shapes, one seed (7), at `ant_block`'s economics throughout:
 
@@ -316,6 +331,31 @@ inbox` (or `get 20260902T194120383Z-3860b1`) in a later session for the
 verdict; nothing else in this report depends on it, but the recommendation
 in §0 should be revisited once it lands.
 
+**Correction, from independent review by the session working
+`creature-genome-flexibility-2026-09-02.md` §13/§14: a still render of a
+monolithic proxy cannot show the one thing articulation actually adds.**
+The rigid-proxy premise above holds only for a body standing still or
+walking straight over flat ground. The moment a body turns a corner or
+crosses uneven terrain, a genuinely articulated body's trailing parts
+follow the path the leading part traced and the body **bends**; a
+monolithic `Rigid` body can only translate as one fixed shape. That bend is
+plausibly the visual difference between "a chain" and "an animal" — and
+`motion_look`'s own finding that a *moving* body has 0-2 decoys against a
+*still* one's 141 says motion is where this world's discrimination lives at
+all. So card `20260902T194120383Z-3860b1` asks about six shapes in the
+least informative state on both axes at once: still, and unable to show
+the bend.
+
+**A positive answer on the card still counts** — if the owner picks a
+silhouette out of six stills, that is real information. **But a "no
+difference" verdict would not settle Q3**, and neither §0's recommendation
+nor anything else in this report should treat one as doing so. The re-test
+that could actually settle it is the same six shapes **in motion**,
+crossing uneven ground — `examples/filmstrip.rs -- gif=1` or
+`examples/motion_look.rs` — which needs the real mechanism (or at least a
+harness-level approximation of following) to produce, and so is Track B's
+to run once articulation exists, not this session's to build.
+
 ## 4. What this does and does not settle
 
 **Settled:** a rigid footprint's mobility is governed by width, sharply
@@ -331,8 +371,10 @@ by §1.3's atomic measurements — that needs the real mechanism, which is
 `Reports/creature-genome-flexibility-2026-09-02.md` §13's Track B, explicitly
 out of scope here per §12a (body and metabolism share one budget, and the
 creature session is moving it now). Whether any of these six silhouettes
-reads as an animal to the owner (§3, pending). Whether the width-3 threshold
-found here on `rolling` holds on other presets.
+reads as an animal to the owner (§3, pending — and per §3's correction, a
+null verdict on the pending card would not settle this on its own; the
+motion re-test would be needed). Whether the width-3 threshold found here
+on `rolling` holds on other presets.
 
 **Not attempted, deliberately:** no literature (Toffin or otherwise) was
 used as evidence that any mechanism here works — every number above came
