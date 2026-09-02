@@ -5971,15 +5971,31 @@ mod tests {
     /// So: any species that can see must be billed for looking. This fails
     /// for a future species authored with a range and no fraction, which is
     /// exactly the mistake that is easy to make and impossible to see.
+    ///
+    /// **The converse is not an error and this deliberately does not assert
+    /// it.** A `sight_fraction` with no `sight_range` costs exactly nothing —
+    /// `sight_tax = fraction * start_energy * sight_reads` and an eyeless
+    /// species reads zero cells — so it is a *price set in advance*, not a
+    /// tax on an animal that cannot see. `ant.ron` is that case on purpose:
+    /// it gave its eye back on a measurement (12 of 12 seeds, ~4% of a life
+    /// for a sense an animal with a nest never uses) and kept the fraction,
+    /// so that the day `sight_range` becomes heritable the gene arrives into
+    /// a world that already charges for it. An earlier version of this test
+    /// asserted the converse and would have made that impossible to author.
     #[test]
     fn every_eye_in_the_tree_is_paid_for() {
         let w = test_world();
         let mut eyed = 0;
+        let mut priced_but_blind = 0;
         for i in 0..w.species.len() {
             let id = SpeciesId(i as u16);
             let Some(def) = w.species.get(id).creature.as_ref() else { continue };
             if def.sight_range <= 0 {
-                assert_eq!(def.sight_fraction, 0.0, "'{}' pays a sight tax and has no eyes to pay it for", w.species.get(id).name);
+                // Costs nothing (zero cells read), and is how a price is set
+                // before the gene that spends it exists. Counted, not refused.
+                if def.sight_fraction > 0.0 {
+                    priced_but_blind += 1;
+                }
                 continue;
             }
             eyed += 1;
@@ -5991,6 +6007,15 @@ mod tests {
             );
         }
         assert!(eyed >= 2, "only {eyed} species can see; this guard is not exercising the case it is named for");
+        // The positive control on the clause above: a species carrying a
+        // price it does not yet spend must actually exist, or the exemption
+        // is untested and the next edit can silently reinstate the old
+        // over-strict rule.
+        assert!(
+            priced_but_blind >= 1,
+            "no species authors a sight_fraction without a sight_range, so the 'price set in advance' case this test \
+             exempts is not exercised -- either ant.ron changed or the exemption is now dead"
+        );
     }
 
     /// The other half, and it is what makes appending a sense lawful: a

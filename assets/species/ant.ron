@@ -110,18 +110,52 @@
         // harness then carried a hand-applied correction; a ratio needs no
         // correction to remember.
         synapse_fraction: 0.0000022222222,
-        // **The eye, and its price, authored together.**
+        // **The price of an eye, authored on an animal that does not have
+        // one -- and that is deliberate.**
         // `Reports/creature-genome-flexibility-2026-09-02.md` §4 and §6.
         //
-        // An ant had no eyes at all: `sight_range` defaults to 0 and only
-        // the beetle authored one. The kin senses need a cast to find
-        // anything, and home is *where my own kind are* -- so this is what
-        // makes `KinNear`/`KinBearing` read something other than a constant.
+        // **The outdoor ant was given a 32-cell eye on 2026-09-02 and it was
+        // taken away again the same day, on a measurement.** The kin senses
+        // need a cast to find anything, so an eye is what makes
+        // `KinNear`/`KinBearing` read other than a constant -- but *this*
+        // animal has a nest, and the kin senses exist to replace a nest for
+        // an animal that has none. It was paying for a sense it does not
+        // need.
         //
-        // **32, not the beetle's 64.** `foraging-range-measurement.md` puts
-        // real excursions at 12-19 cells with a thin tail past 32, so this
-        // covers an ant's whole normal range with margin and costs a little
-        // over half what the beetle's does.
+        // Measured with `forage_probe seeds=12 spacing=4`, against a binary
+        // built at this branch's base, read per seed rather than on a mean:
+        //
+        // | column | with the eye | with no eye |
+        // |---|---|---|
+        // | deliveries | **down on 10 of 12 seeds**, median 5.0 -> 2.5 | down 6, up 4, tied 2, median 5.0 -> 4.0 |
+        // | moves | **down on 12 of 12**, median 16,752 -> 16,307 | down 6, up 6, median 16,752 -> **16,761** |
+        // | excursion depth | down 7, up 4, median 55 -> 44 | down 5, up 6, median 55 -> 46 |
+        // | falls/move | 0.248 -> 0.247 | 0.248 -> 0.245 |
+        //
+        // **The cost is the eye and nothing else.** `forage_probe`'s control
+        // arm is one ant with no food anywhere -- it cannot forage, so a
+        // change there is metabolism and not behaviour -- and it fell on
+        // **12 of 12 seeds**, uniformly ~4%. Take the eye off and `moves`
+        // returns to the null exactly (6 down, 6 up).
+        //
+        // **What does not fully recover is `trips`**: 9 of 12 seeds down in
+        // both arms, median 36 -> 32.5. That residual is not the eye. The
+        // likeliest cause is the odometer's curve -- hyperbolic where
+        // `recency` was linear, so channel A fades faster early and an ant
+        // re-anchors on a different schedule. ~10% on a column whose seed
+        // spread is 22-47; recorded rather than chased.
+        //
+        // **`sight_fraction` stays** so the price is already set the day
+        // `sight_range` becomes heritable (§7's Kind 2, stage 6). That is
+        // the whole point of pricing before granting: the gene arrives into
+        // a world that already charges for it.
+        //
+        // **32 was the range, if it comes back.**
+        // `foraging-range-measurement.md` puts real excursions at 12-19
+        // cells with a thin tail past 32, so it covers an ant's normal range
+        // with margin at a little over half the beetle's cost.
+        // `assets/species/ancestor.ron` -- which has no nest and genuinely
+        // needs to find its own kind -- carries it.
         //
         // **Never the range without the fraction.** Seeing was free until
         // 2026-08-31, which made `sight_range` a ratchet -- more eye
@@ -158,7 +192,6 @@
         // pays less to look than one sweeping open ground, and shelter pays
         // for itself twice. Nobody wrote that rule; it falls out of pricing
         // the work honestly.
-        sight_range: 32,
         sight_fraction: 0.000000081168831,
         // **120, which is exactly what a corpse cell was worth before.**
         // Under `eat_energy` any mouthful paid the eater 120, so pricing an

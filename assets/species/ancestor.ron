@@ -6,8 +6,8 @@
 // trying to create ants."* This species is the answer, and
 // `Reports/creature-genome-flexibility-2026-09-02.md` is the argument.
 //
-// **It is `ant.ron` with four differences and nothing else** -- same body,
-// same energy budget, same costs, same eye, same palette -- because the lab
+// **It is `ant.ron` with five differences and nothing else** -- same body,
+// same energy budget, same per-cell costs, same palette -- because the lab
 // exists to compare genomes and a different body would confound that:
 //
 //   1. **No `nest` field.** There is no material it calls home, so `AtNest`
@@ -25,6 +25,13 @@
 //   4. **Nothing privileges putting food down anywhere.** The ant carries
 //      `(AtNest, Drop, ...)`; this one does not, so where a load ends up is
 //      whatever the weights and the world decide.
+//   5. **It has an eye and the ant does not.** Both carry the same
+//      `sight_fraction`, so both are priced identically the day
+//      `sight_range` becomes heritable -- but only this one authors a range.
+//      The ant has a nest and was paying 4% of its life for a sense it never
+//      used (measured, 12 of 12 seeds; `ant.ron`'s eye comment has the
+//      table). This animal has no home material, so a cast at its own kind
+//      is the whole of how it finds them.
 //
 // **A colony is an outcome here, not a precondition.** Aggregation may make
 // a place, a place may make a gradient, a gradient may make central-place
@@ -183,6 +190,13 @@
         // pays less to look than one sweeping open ground, and shelter pays
         // for itself twice. Nobody wrote that rule; it falls out of pricing
         // the work honestly.
+        // **This animal keeps the eye the outdoor ant gave back**, and it is
+        // the one that needs it: with no `nest` there is no home material to
+        // sense, so `KinNear`/`KinBearing` -- which need a cast to find
+        // anything -- are the whole of how it locates its own kind. The ant
+        // pays 4% of its life for a sense it does not use, measured on 12 of
+        // 12 seeds (`ant.ron`'s eye comment carries the table); this one is
+        // buying something with it.
         sight_range: 32,
         sight_fraction: 0.000000081168831,
         // **120, which is exactly what a corpse cell was worth before.**
