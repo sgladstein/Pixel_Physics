@@ -32,7 +32,7 @@
 
 use serde::{Deserialize, Serialize};
 
-pub const BRAIN_INPUTS: usize = 21;
+pub const BRAIN_INPUTS: usize = 22;
 /// **Eight, not four, since 2026-09-02.**
 ///
 /// Four was the whole of an animal's internal state, and `ant.ron` already
@@ -213,6 +213,7 @@ pub const INPUT_NAMES: [&str; BRAIN_INPUTS] = [
     "KinNear",
     "KinBearing",
     "MoistureGrad",
+    "SurfaceCurvature",
 ];
 pub const OUTPUT_NAMES: [&str; BRAIN_OUTPUTS] =
     ["Turn", "Move", "EmitA", "EmitB", "Dig", "Drop", "Persist", "Tumble", "Caution", "Feed", "Impulse", "DropSpoil"];
@@ -616,6 +617,43 @@ pub enum BrainInput {
     /// build against — but a weight on it is a weight on how deep you are,
     /// and calling it curvature would send the next reader at the wrong fix.
     MoistureGrad = 20,
+    /// **Signed terrain curvature under the head: convex positive, concave
+    /// negative, zero on a straight surface.** A solid-neighbour count in a
+    /// small disc, opt-in per species through
+    /// `CreatureDef::curvature_radius`; an animal that does not author one
+    /// reads a flat 0.0 and pays one branch.
+    ///
+    /// **Geometric, and that is why it exists beside `MoistureGrad` rather
+    /// than replacing it.** The moisture channel turned out to be a depth
+    /// signal (see above), and no widening of it recovers curvature. This
+    /// reads the lattice instead, so it is per-cell by construction: immune
+    /// to the block-nearest degeneracy that has cost this project four
+    /// separate bugs, and indifferent to whether the bed has any spatial
+    /// field structure at all. The lab box builds its soil at a uniform
+    /// moisture and develops only a vertical drying profile, so a
+    /// field-based curvature attempt would have been dead on arrival there;
+    /// this one works identically in a uniform bed.
+    ///
+    /// **What it is measured to do, before anyone weights it**
+    /// (`examples/spoil_curvature.rs`, 12 seeds):
+    ///
+    /// | bed | p10 | p50 | p90 | spread |
+    /// |---|---|---|---|---|
+    /// | `LabBox` | +0.000 | +0.000 | +0.000 | **0.000** |
+    /// | worked bank | -0.250 | +0.417 | +0.833 | 1.083 |
+    ///
+    /// So it is a real channel on a bank an animal has worked, and a
+    /// **constant** in the level lab bed. A weight on it does nothing
+    /// whatever in the lab, and that is a fact about the bed rather than
+    /// about the sense -- but it means a lab result on this input is not
+    /// evidence either way.
+    ///
+    /// **Flesh is excluded from the disc.** Counting it read -0.083 at every
+    /// one of 18,720 samples -- flat ground plus the ant's own second body
+    /// cell -- which is a sense that is a function of the senser. Nestmates
+    /// go with it: an ant in a crowd would otherwise read as standing in a
+    /// hollow, and `Crowding` already counts exactly that.
+    SurfaceCurvature = 21,
 }
 
 /// Which output slot. Positional and append-only, as above.
@@ -869,6 +907,7 @@ pub const INPUTS: [BrainInput; BRAIN_INPUTS] = [
     BrainInput::KinNear,
     BrainInput::KinBearing,
     BrainInput::MoistureGrad,
+    BrainInput::SurfaceCurvature,
 ];
 /// See [`INPUTS`].
 pub const OUTPUTS: [BrainOutput; BRAIN_OUTPUTS] = [
@@ -1233,7 +1272,7 @@ mod tests {
             BRAIN_OUTPUTS * BRAIN_INPUTS + BRAIN_HIDDEN * BRAIN_INPUTS + BRAIN_HIDDEN + BRAIN_OUTPUTS * BRAIN_HIDDEN,
             "live_slots disagrees with the block arithmetic"
         );
-        assert_eq!(live, 524, "the mutable surface moved; re-derive every species' mutation_rate against it in the same change");
+        assert_eq!(live, 544, "the mutable surface moved; re-derive every species' mutation_rate against it in the same change");
     }
 
     #[test]
@@ -1270,7 +1309,15 @@ mod tests {
         // wider mutable surface, so the same per-slot rate moves 63% more of
         // the genome per birth. That is a shared-budget reallocation rather
         // than a free append, and it is re-derived in the same change.
-        assert_eq!(genome_manifest(), 1_982_686_277);
+        //
+        // **Moved again 2026-09-02 by `SurfaceCurvature`** (§5f), lawfully
+        // on the input axis exactly as the two appends above: 21 -> 22
+        // lights up one column of the 64-wide reserve, `GENOME_LEN` is still
+        // 12,352, no existing weight moves. `live_slots` 524 -> 544, and
+        // `ant.ron`/`ancestor.ron` carry the re-derived rate
+        // (0.0060687 -> 0.0058456) in this same change, holding the expected
+        // 3.18 point mutations per child.
+        assert_eq!(genome_manifest(), 1_242_463_370);
     }
 
     #[test]

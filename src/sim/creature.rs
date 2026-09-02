@@ -2440,6 +2440,22 @@ fn sense(
     // say a gene, and the sign is free as well as the magnitude.
     inputs[I::MoistureGrad as usize] = moisture_gradient(world, x, y);
 
+    // **Terrain curvature, and it is geometric where the line above is a
+    // field read.** `MoistureGrad` turned out to be a depth signal -- a
+    // convex crest and a flat plateau at one elevation read 1.012x apart,
+    // and widening the sampler moves it toward 1.0 -- so this is not a
+    // better version of it, it is the other half. See
+    // `BrainInput::SurfaceCurvature` for the measured range in each bed,
+    // which is the thing to read before weighting it.
+    //
+    // Gated at the dispatch site on a field already in cache, so a species
+    // with no such sense pays one `i32` compare rather than a call.
+    inputs[I::SurfaceCurvature as usize] = if def.curvature_radius > 0 && curvature_sense_enabled() {
+        surface_curvature(world, x, y, def.curvature_radius)
+    } else {
+        0.0
+    };
+
     // **The kin pair, from the same cast the prey pair came out of.**
     // §4: home stops being a named material and becomes *where my own kind
     // are*. Both read a constant 0.0 for a species with no `sight_range`,
@@ -2999,6 +3015,77 @@ fn adjacent_nest(world: &World, x: i32, y: i32, def: &CreatureDef) -> bool {
 /// it** — the same rule `LabBox::build` is called under. A probe that
 /// reimplemented the two samples would answer the question about itself
 /// instead of about the engine.
+/// **What a straight horizontal surface reads, derived rather than
+/// measured**, so it can be subtracted and leave a signal that is zero on
+/// the flat.
+///
+/// A cell one row above level ground has `r * (2r + 1)` solid cells in its
+/// disc out of `(2r+1)^2 - 1` -- 10 of 24 at radius 2 -- so a raw count reads
+/// `+1/6` there, not zero. **Getting this wrong is not cosmetic**: banded
+/// against zero, 91.7% of the lab bed's surface cells classify as convex when
+/// they are simply flat, and a weight fitted on that would be a constant
+/// wearing a curvature-shaped name.
+fn curvature_flat_reference(radius: i32) -> f32 {
+    let total = (2 * radius + 1) * (2 * radius + 1) - 1;
+    1.0 - 2.0 * (radius * (2 * radius + 1)) as f32 / total as f32
+}
+
+/// **Signed terrain curvature at `(x, y)`: convex positive, concave
+/// negative, zero on a straight surface.**
+///
+/// `BrainInput::SurfaceCurvature`'s writer. Counts non-empty, non-flesh cells
+/// in a Chebyshev disc of `radius`, maps to `[-1, +1]` and removes the
+/// flat reference above. `+1` is a spike of ground with nothing around it,
+/// `-1` is buried.
+///
+/// **Geometric on purpose, and it is what makes this approach survive where a
+/// field-based one cannot.** A coarse-field read is block-nearest, so
+/// neighbouring cells return the same value and a per-cell decision built on
+/// the difference between two of them resolves to a constant direction --
+/// four bugs on three different lines, per `CLAUDE.md`. A lattice count has
+/// no such degeneracy, and it needs no spatial field structure to exist: the
+/// lab bed builds its soil at a uniform moisture and develops only a vertical
+/// drying profile, where any field-derived curvature would have been dead on
+/// arrival.
+///
+/// **Flesh is excluded, and it was not in the first version.** Counting it
+/// read exactly `-0.083` at every one of 18,720 samples across twelve seeds
+/// -- flat ground plus precisely one extra solid cell, which is the ant's own
+/// second body cell, adjacent to its head by construction. A sense must not
+/// be a function of the senser, and a perfectly constant result across twelve
+/// chaotic seeds is the tidiness tell rather than a strong effect. Nestmates
+/// are excluded with it: an ant packed among others would otherwise read as
+/// standing in a hollow, which is a crowd and not a hollow, and
+/// `BrainInput::Crowding` already counts exactly that -- two inputs on one
+/// quantity would make a weight on either unattributable.
+///
+/// **It cannot see a feature wider than its own disc.** At radius 2 the disc
+/// spans five columns, so a slot exactly five wide, sampled at its centre,
+/// sees no wall and reads *convex*. Found by `examples/spoil_curvature.rs`'s
+/// control on its first run, and it is a real limit rather than a bug: a
+/// species wanting broad features pays `(2r+1)^2` for them.
+pub fn surface_curvature(world: &World, x: i32, y: i32, radius: i32) -> f32 {
+    let mut solid = 0i32;
+    let mut total = 0i32;
+    for dy in -radius..=radius {
+        for dx in -radius..=radius {
+            if dx == 0 && dy == 0 {
+                continue;
+            }
+            total += 1;
+            // Raw material, never `Cell::is_empty`, which is managed-aware
+            // and answers "is this position available" rather than "is there
+            // material here".
+            let cell = world.get(x + dx, y + dy);
+            if cell.material == material::EMPTY || world.materials.kind(cell.material) == MaterialKind::Creature {
+                continue;
+            }
+            solid += 1;
+        }
+    }
+    1.0 - 2.0 * solid as f32 / total.max(1) as f32 - curvature_flat_reference(radius)
+}
+
 pub fn moisture_gradient(world: &World, x: i32, y: i32) -> f32 {
     let m = |px: i32, py: i32| world.field_at_bilinear(px as f32, py as f32).moisture;
     let gx = m(x + 4, y) - m(x - 4, y);
@@ -3469,6 +3556,25 @@ const SPOIL_HEADROOM: i32 = 3;
 /// in both arms.
 ///
 /// Read once per process through a `OnceLock`, matching `lining_enabled`.
+/// The ablation switch for the curvature sense, on by default.
+///
+/// `PIXEL_PHYSICS_CURVATURE=off` pins `BrainInput::SurfaceCurvature` at 0.0,
+/// which is exactly what a species authoring no `curvature_radius` reads --
+/// so the ablated arm is the world as it was, with the weights still in the
+/// genome and simply multiplied by nothing.
+///
+/// **An env switch rather than two builds, and `CLAUDE.md` is explicit about
+/// why.** A counter downstream of `parallel.rs`'s checkerboard is only
+/// load-independent at fixed parallelism -- measured 610 digs idle against
+/// 278 loaded from one binary -- so two arms compared *inside one run* are
+/// immune where two runs of two builds are not. It also removes the stale-
+/// binary failure mode outright: there is no "before" executable to forget
+/// to rebuild.
+fn curvature_sense_enabled() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_CURVATURE").as_deref() != Ok("off"))
+}
+
 fn spoil_kept() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_DIG_SPOIL").as_deref() != Ok("destroy"))
@@ -7178,6 +7284,70 @@ mod tests {
         w.set(hx, hy, Cell::EMPTY);
         assert!(!reconcile_chain(&mut w, ant), "the head is the deciding cell; losing it is death, not a shortening");
         assert_eq!(w.creature_stats.severings, 0, "a death is not a severing -- creature_dies owns the whole body");
+    }
+
+    /// **The curvature sense reads terrain and not the animal reading it.**
+    ///
+    /// Three legs, and the second is the one that matters: the first version
+    /// of this estimator counted flesh, and over twelve seeds and 18,720
+    /// samples it returned **exactly -0.083 every single time** -- flat
+    /// ground plus the ant's own second body cell. A perfectly constant
+    /// reading across twelve chaotic seeds is `CLAUDE.md`'s tidiness tell,
+    /// and what it was telling was that the sense was a function of the
+    /// senser.
+    #[test]
+    fn curvature_reads_the_ground_and_not_the_animal_standing_on_it() {
+        let mut w = test_world();
+        let stone = material::STONE;
+        for x in 0..200 {
+            for y in 120..160 {
+                w.set(x, y, Cell::new(stone, 0));
+            }
+        }
+        // 1. A straight surface is exactly zero, which is what makes the sign
+        //    mean what its name says. The raw count reads +1/6 there.
+        let flat = surface_curvature(&w, 90, 119, 2);
+        assert!(flat.abs() < 1e-6, "a straight surface must read exactly zero, got {flat:+.4}");
+
+        // A crest, and a notch narrow enough for a radius-2 disc to see both
+        // walls -- five wide and it sees neither, which the probe's control
+        // found on its first run.
+        for (i, x) in (40..=50).enumerate() {
+            let h = 5 - (i as i32 - 5).abs();
+            for y in (120 - h)..120 {
+                w.set(x, y, Cell::new(stone, 0));
+            }
+        }
+        for x in 141..=143 {
+            for y in 120..126 {
+                w.set(x, y, Cell::EMPTY);
+            }
+        }
+        let crest = surface_curvature(&w, 45, 114, 2);
+        let notch = surface_curvature(&w, 142, 125, 2);
+        assert!(crest > 0.0, "a crest must read convex, got {crest:+.4}");
+        assert!(notch < 0.0, "a notch must read concave, got {notch:+.4}");
+
+        // 2. **Flesh is not terrain.** An ant standing on the flat must read
+        //    the same as bare flat ground, or the sense is reading itself.
+        let ant = spawn(&mut w, "ant", 90, 119);
+        assert_ne!(ant, 0, "the ant was not placed; this leg proves nothing without a body beside the sample");
+        let (hx, hy) = w.organism(ant).expect("live").chain[0];
+        assert!(
+            w.organism(ant).expect("live").chain.len() > 1,
+            "the shipped ant must be more than one cell, or there is no body cell adjacent to the head and this leg cannot fail"
+        );
+        let with_body = surface_curvature(&w, hx, hy, 2);
+        assert!(
+            with_body.abs() < 1e-6,
+            "an ant standing on flat ground must still read flat, got {with_body:+.4} -- the sense is counting its own body"
+        );
+
+        // 3. The opt-in is real: the species field gates it, not the sense.
+        let off = w.species.id_of("beetle").and_then(|id| w.species.get(id).creature.as_ref().map(|d| d.curvature_radius));
+        assert_eq!(off, Some(0), "the beetle authors no curvature_radius, so it must have none -- one branch per tick and no reads");
+        let on = w.species.id_of("ant").and_then(|id| w.species.get(id).creature.as_ref().map(|d| d.curvature_radius));
+        assert_eq!(on, Some(2), "and the ant authors one, or every weight below it in ant.ron is multiplied by a constant zero");
     }
 
     /// **And not its own tail either.** `adjacent_food` scans the head's

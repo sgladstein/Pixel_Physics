@@ -2278,6 +2278,27 @@ pub struct CreatureDef {
     /// ms/frame at five beetles, 0.14% of a mean `ascii` frame.
     #[serde(default)]
     pub sight_range: i32,
+
+    /// **Chebyshev radius of the terrain-curvature disc, in cells. Zero --
+    /// the default -- means the species has no such sense**, exactly as
+    /// `sight_range` above means no eyes.
+    ///
+    /// The opt-in is on the species rather than inside the sense, which is
+    /// `CLAUDE.md`'s standing rule and not a preference: gating inside
+    /// `creature::surface_curvature` would still pay the call, and testing
+    /// it at the dispatch site that already holds the `CreatureDef` is an
+    /// `i32` compare against a field already in cache.
+    ///
+    /// **2 is the value §5f priced the sense at**: 24 `World::get`, against
+    /// 328-1,186 cells for one sight cast, which is the comparison that made
+    /// it affordable. It is also the value whose limits are measured -- the
+    /// disc spans five columns, so a hollow wider than five cells reads as
+    /// flat and a slot exactly five wide reads as *convex*
+    /// (`examples/spoil_curvature.rs`'s control found that on its first
+    /// run). A species wanting broad features has to pay for a wider disc,
+    /// which grows as `(2r+1)^2`.
+    #[serde(default)]
+    pub curvature_radius: i32,
     /// Sensor offset in cells for the forward/lateral sampling.
     ///
     /// 6, measured: `pheromone::tests::trail_following_sweep` puts on-trail
@@ -2408,6 +2429,7 @@ impl CreatureDef {
             dig_force,
             bite_force,
             sight_range,
+            curvature_radius,
             sensor_offset,
             instincts,
             hidden_wiring,
@@ -2430,6 +2452,11 @@ impl CreatureDef {
             // ---- lengths in cells: x k ----
             body: body_scaled,
             sight_range: (*sight_range as f32 * k).round() as i32,
+            // **A length, so it scales by `k` like the eye** -- a disc that
+            // stayed 2 cells on a supersampled world would be looking at a
+            // quarter of the physical neighbourhood and would report a
+            // different shape for the same terrain.
+            curvature_radius: (*curvature_radius as f32 * k).round() as i32,
             sensor_offset: (*sensor_offset as f32 * k).round() as i32,
 
             // ---- ticks per decision: / k ----
