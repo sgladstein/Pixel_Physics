@@ -1,0 +1,98 @@
+{
+  "id": "20260902T194120383Z-3860b1",
+  "created": "2026-09-02T19:41:20Z",
+  "board": "creatures",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/creature-shape-reachability-ecm8ts",
+    "commit": "e1347800",
+    "agent": null,
+    "session_id": "4f55b2eb-8555-53a8-b7eb-76afffecdb02",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Body shapes for the articulated-body proposal",
+  "question": "Which of these reads most like a real animal to you, and which reads as a blob or a smudge? Rank however you like in the comment -- there is no single 'pick one' answer needed.",
+  "context_md": "Reports/creature-genome-flexibility-2026-09-02.md §13 proposes an articulated body (a short chain of rigid parts, each following the one ahead) to answer 'creatures shouldn't all look like a chain'. The engine has no multi-part body plan yet and this session was told not to build one -- these are single rigid bodies shaped like what each articulated candidate's silhouette would look like once placed (articulation changes how a body decides to *move*, not what its cells look like standing still). All at 14 cells except the two shipped references (ant=2, beetle=4), rendered at the same crop/zoom `creature_scale mode=size` already ships.\n\n- **ant**: shipped today, Chain(2)\n- **beetle**: shipped today, Rigid 2x2\n- **uniform3**: three equal 2x2 segments with pinched waists (a 3-part body)\n- **uniform5**: five equal segments with pinched waists (a 5-part body)\n- **forward_taper**: small head, big abdomen -- the insect silhouette the owner wants. §13c's corrected mobility argument says this is exactly the shape the mechanism does *not* help, because the wider trailing part isn't moving into ground the head already cleared.\n- **backward_taper**: big head, shrinking tail -- the shape §13c says articulation *should* help, for free.\n\nThe mobility numbers (not shown here, they're in the report) say backward_taper's head-part-dominated mobility should land near the shipped beetle's ~12%, while forward_taper's is bounded by its abdomen alone -- similar to the shipped ant_block's ~55%, i.e. no better than a plain rigid block. This card is only asking the visual question: does anyone want these shapes at all, independent of whether the engine can move them.",
+  "kind": "gallery",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "ant (shipped, Chain 2)",
+      "files": [
+        "20260902T194120383Z-3860b1/000-ant.png"
+      ],
+      "caption": "",
+      "meta": {
+        "cells": 2
+      },
+      "focus": null
+    },
+    {
+      "label": "beetle (shipped, Rigid 2x2)",
+      "files": [
+        "20260902T194120383Z-3860b1/001-beetle.png"
+      ],
+      "caption": "",
+      "meta": {
+        "cells": 4
+      },
+      "focus": null
+    },
+    {
+      "label": "uniform3 (3 parts, uniform)",
+      "files": [
+        "20260902T194120383Z-3860b1/002-uniform3.png"
+      ],
+      "caption": "",
+      "meta": {
+        "cells": 14,
+        "parts": 3
+      },
+      "focus": null
+    },
+    {
+      "label": "uniform5 (5 parts, uniform)",
+      "files": [
+        "20260902T194120383Z-3860b1/003-uniform5.png"
+      ],
+      "caption": "",
+      "meta": {
+        "cells": 14,
+        "parts": 5
+      },
+      "focus": null
+    },
+    {
+      "label": "forward_taper (small head, big abdomen)",
+      "files": [
+        "20260902T194120383Z-3860b1/004-forward_taper.png"
+      ],
+      "caption": "",
+      "meta": {
+        "cells": 14,
+        "parts": 3
+      },
+      "focus": null
+    },
+    {
+      "label": "backward_taper (big head, shrinking tail)",
+      "files": [
+        "20260902T194120383Z-3860b1/005-backward_taper.png"
+      ],
+      "caption": "",
+      "meta": {
+        "cells": 14,
+        "parts": 3
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": false,
+    "comment": true,
+    "annotations": false
+  }
+}
