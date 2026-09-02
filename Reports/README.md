@@ -963,7 +963,20 @@ drift that two of these documents still reflect.**
   (`ca7e9042`), one day after those offsets were last touched, so the sampler
   was never re-derived. §9 is why the **creature Gate 2 does not exist** and
   must come first: `labbatch` puts the seed alone at **2.42×–3.12×** on the lab
-  census with no true effect present.
+  census with no true effect present. **§11 is predation and defence**, on the
+  owner's ruling that size should buy survival: the encoding has no predator
+  and no prey category — "prey" resolves through the attacker's own heritable
+  gut — but **`creature.rs` reads `penetration_resistance` in exactly one
+  place, the dig**, so an ant that cannot dig sand bites clean through a
+  beetle, and every creature material sits at the unread 100.0 "impenetrable"
+  default. The recommendation routes the bite through the rule the dig already
+  uses, makes a bite **sever rather than kill** (8-connected walk from the vital
+  cell; what detaches becomes meat), and derives `crop_capacity` from body size
+  so size stops being pure cost. **§12 is the body-plan interface contract** —
+  the owner intends a full body revamp, and the recommendation is *flexible,
+  not concurrent*, because body and metabolism are one budget and two changes
+  moving it cannot be read apart; only the movement rule is genuinely
+  body-plan-specific and nothing here reads it.
 - [creature-motion-decoys-2026-08-30.md](creature-motion-decoys-2026-08-30.md)
   — **measured study, and a qualification of the report above.**
   `creature-appearance-design.md`'s whole body-size case rests on `decoys`,

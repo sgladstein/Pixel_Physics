@@ -23,6 +23,10 @@ Answers given in the same conversation, and binding on everything below:
 | **Eyes cost, and the cost rises with range** | *"anything can get eyes but they should have a cost... although I don't know how we balance that"* |
 | **The specimen shelf is expendable** | *"we can lose the shelf"* |
 | **Risk accepted** | *"in the middle is better but I am willing to try the risky option and give up if it doesn't work"* |
+| **Size must buy survival** | *"yes size (or other physical features) should buy survival"* — §11 is the recommendation asked for |
+| **The body will be fully revamped** | so this plan is written **body-plan-independent** rather than run concurrently; the contract is §12 |
+| **The ratchet check gets built** | *"lean towards build it"* — `gene_probe`, §10 |
+| **Kind 3 genes are not wanted** | *"they don't seem highly important"*; two of the three should never become genes — §7 |
 
 ---
 
@@ -556,7 +560,28 @@ selection pressure for smallness).
 
 `dig_force` (stronger mandibles cost nothing), `crop_capacity` (a bigger
 stomach is free), `digest_rate` (faster absorption is free). Each needs a cost
-term built *with* the gene. None is on the critical path for this document.
+term built *with* the gene.
+
+**Owner's ruling 2026-09-02: none of these is wanted as a gene, and the
+recommendation is that two of the three should never become one.**
+
+- **`crop_capacity` is how much food, by worth, an animal can hold at once** —
+  its crop is checked in `act` as `c.worth() + c.unit <= cap`, and the animal
+  digests the contents as it walks. **Do not make it a gene: derive it from
+  live cell count** (§11e). A bigger animal carries more, which is the honest
+  physical answer, costs nothing to price because body size is already priced,
+  and hands the body axis a foraging payoff to set against its upkeep.
+- **`dig_force` should not get a slot either** — §11c gives it a second job
+  (biting) and therefore two opposed pressures, which is what makes an axis
+  worth having. Promote it when the body is heritable and it can scale with
+  the mandible rather than float free.
+- **`digest_rate` is genuinely left for now.** No recommendation; nothing in
+  this plan needs it and it has no obvious physical parent to derive from.
+
+**The general move worth keeping:** the cheapest fix for a Kind 3 lever is
+often not to price it but to **derive it from a lever that is already
+priced**. That converts an unpriced gene into a free consequence and removes a
+knob rather than adding a cost system.
 
 ### Not parameters at all — the three that change what is reachable
 
@@ -800,20 +825,351 @@ order statistic. **What says it did not:** wanderers. Twelve seeds of animals
 that never aggregate, never form a place, and never deliver anything to it. That
 is a real possible outcome and the owner has accepted it.
 
-### Stage 4 — the Kind 2 genes, once there is a working ancestor
+### Stage 4 — armour and severing (§11)
 
-`sight_range`, `tick_interval`, and then S8's body axis after its two
-pre-checks. `CREATURE_TRAITS` 3 → 5, which is a lawful widen (a wrong-arity RON
-tuple **panics** with the file position and both lengths — measured; the silent
-case is a *misspelling*, not a widen).
+**Independent of stages 2 and 3 and of the body revamp** — it touches the bite
+and the damage rule, neither of which reads a body plan (§12b). It can be built
+in parallel or slotted wherever it fits.
 
-### Stage 5 — crossover
+Three changes:
+
+1. **`bite_force` on `CreatureDef`, defaulting to `dig_force`**, tested against
+   the target cell's `penetration_resistance` in `act`'s ingest branch.
+2. **Author `penetration_resistance` on the creature materials.** They are all
+   at the 100.0 default today, which reads as impenetrable and is unread. `ant`
+   soft, `chitin_mid` and `chitin_pale` harder, `beetle` harder still — with
+   `body_energy` raised alongside, so armour is paid for in growth and is worth
+   more as meat.
+3. **`reconcile_chain` becomes a severing rule**: 8-connected walk from the
+   vital cell; what is still attached lives, what is not becomes meat where it
+   stands. Death is the vital cell taken, or energy at zero.
+
+Also here, because it is one line and it converts a Kind 3 lever to a free
+consequence (§11e): **derive `crop_capacity` from live cell count** rather than
+authoring it.
+
+**What says it worked:** a paired run at two `bite_force` settings must move
+`meat_lost` and the standing population, and an armoured species must survive
+measurably longer against the same predator. **The mandatory negative control**
+is `bite_force` above every resistance in the table — that must reproduce
+today's behaviour exactly, or the change did something other than what it says.
+
+**What says it did not:** nothing moves, which would mean bites are so rare
+that resistance never binds. Check `eats` and `meat_lost` are non-zero in the
+baseline *before* building — a bite rule cannot matter in a world where nothing
+bites, and S5a measured predation at 231 deaths over twelve seeds.
+
+### Stage 5 — the threat sense (§11f)
+
+The mirror of stage 2's kin sense, and cheap once that exists: a bearing to the
+nearest animal **whose gut values me**. Same rays, same full-circle bearing.
+This is what makes an arms race possible at all, and it should not be built
+before stage 4 — a threat sense with nothing to fear is an input wired to a
+constant.
+
+### Stage 6 — the Kind 2 genes, once there is a working ancestor
+
+`sight_range`, `tick_interval`, `bite_force`, and then S8's body axis after its
+two pre-checks — **and after the body revamp, per §12a.** `CREATURE_TRAITS`
+3 → 5 or 6, which is a lawful widen (a wrong-arity RON tuple **panics** with
+the file position and both lengths — measured; the silent case is a
+*misspelling*, not a widen).
+
+### Stage 7 — crossover
 
 `CROSS` on the shelf, and the heritable mutation rate beside it.
 
+### Running alongside: `gene_probe`, the ratchet check (§3)
+
+**Owner's call 2026-09-02: build it.** §3 is prose today, and `CLAUDE.md`'s own
+recurrence audit is that a prose discipline does not survive a real session —
+*"make it a command rather than a discipline"*, which is the finding that
+produced `scripts/docbench.py selftest` after two blind controls were written
+by an agent that had just finished writing the rule down.
+
+**What it does, plainly:** you are about to make something evolvable. Run the
+population at several settings of it and look at where the population mean
+ends up. If it pins to the top of the range and stays there, the gene is not
+expressing a choice — it is expressing that nothing charges for it, and it will
+ratchet to its cap on the first generation and express nothing thereafter. If
+the mean sits in the interior, the lever has two reachable ends and is worth
+shipping.
+
+**Shape**: `examples/gene_probe.rs gene=<name> range=lo,hi seeds=12`, reporting
+the population mean per setting and flagging a pin. Two controls in the
+binary, on the pattern every instrument here follows: a **known-good** lever
+(`sensor_offset`, measured interior at 6 — 0.755/0.817/0.743/0.727) which must
+read interior, and a **known-ratchet** lever (`sight_range` with
+`sight_fraction` forced to 0, which is literally the state that shipped) which
+must read pinned. Without both it cannot distinguish a quiet gene from a blind
+probe.
+
+It would have caught the plant architecture phase, `phototropism_dir`, and
+E10's body-length premise. It is the positive-control rule applied to genes
+rather than to measurements.
+
 ---
 
-## 11. What not to re-derive
+## 11. Predation, defence, and why size currently buys nothing
+
+Added 2026-09-02 on the owner's question — *"how do creatures attack/defend"*
+— and his ruling on the answer: **"yes, size (or other physical features)
+should buy survival."**
+
+### 11a. The encoding is good, and most of it should not be touched
+
+**There is no predator and there is no prey.** Neither is a category anywhere
+in the engine.
+
+- `is_visible_prey` is: a cell of `MaterialKind::Creature`, not me, not living
+  kin (unless `eats_kin`), whose `diet_yield` **against my own heritable gut**
+  clears `EAT_YIELD_THRESHOLD` (12.0). So "prey" resolves to *anything my gut
+  values*, which is a filter over data and a heritable one. A carnivore-leaning
+  ant and a beetle looking at each other both read "food". Predation is the
+  diet axis plus the ability to find things, and it is symmetric by
+  construction.
+- **Attack is the `Feed` verb.** There is no `Strike`; slot 12 is deliberately
+  left unnamed (E13). A bite is `world.set(fxx, fyy, Cell::EMPTY)` plus
+  `reconcile_chain` telling the victim.
+- **`is_living_kin` is species identity only** — one line,
+  `s.species == species`. It is not a relatedness model and does not pretend
+  to be.
+
+This is the mechanism/policy line working. Keep it.
+
+### 11b. The finding: digging respects hardness, biting does not
+
+**`creature.rs` reads `penetration_resistance` in exactly one place — the dig
+branch (`creature.rs:2910`). The bite path never reads it at all.**
+
+```rust
+// dig, creature.rs:2910
+if target.material != material::EMPTY
+    && world.materials.get(target.material).penetration_resistance <= def.dig_force { ... }
+
+// bite, act's ingest branch -- the whole test
+if diet_yield(world, cell, gut.bias) > EAT_YIELD_THRESHOLD { ... }
+```
+
+So an ant with `dig_force: 1.0` **cannot dig sand** (`penetration_resistance`
+1.4), cannot dig gravel (3.5) and cannot dig stone — and **can bite clean
+through a beetle.** Flesh is the only substance in the world that offers no
+resistance to being cut.
+
+**And the armour axis already has a home in the material table, uniformly
+unauthored.** `material.rs`'s `default_penetration_resistance()` returns
+**100.0** — *"Impenetrable by default -- see `penetration_resistance`'s own doc
+for why the safe default is 'no', not 'yes'"* — so every creature material is
+already carrying a value that says "you cannot cut this", and nothing reads it.
+`ant`, `chitin_pale`, `chitin_mid` and `beetle` are four distinct materials that
+are **identical in every food property** (`food_energy: 480.0`,
+`food_class: 1.0`, `density` 1.0/1.2) and identical in resistance because none
+of them authored one.
+
+This is `sight_fraction` again, one system over: **a field with a reader and no
+writer on one side, and a writer with no reader on the other.**
+
+### 11c. Recommendation R1 — a bite is a cut, and cuts already have a rule
+
+**Route the bite through the test the dig already uses.** A bite removes the
+target cell only if the attacker's force clears that cell's material's
+`penetration_resistance`.
+
+Why this and not a damage model:
+
+- **Zero new concepts.** `force vs penetration_resistance` is the engine's
+  universal "can this get through that" pattern — plant roots use it
+  (`Behavior::Grow`'s `penetration_force`), digging uses it, and
+  `dig_force`'s own doc already argues the case against the alternative:
+  *"the pattern roots already use, **not** a material-name whitelist: a species
+  that can chew soil but not stone should say so in force, so a future softer
+  stone is diggable automatically."* Armour is the same sentence with flesh
+  substituted for stone.
+- **Armour becomes data, per cell, and therefore evolvable later.** A species
+  whose cells are `chitin_mid` is harder to bite than one made of `ant`. That is
+  a material choice a species file makes today and a genome can make once cell
+  materials are heritable.
+- **It is priced by an existing term.** `body_energy` is what a body cell costs
+  to stamp and what it is worth as meat. Hard material costing more
+  `body_energy` makes armour a real trade — slower to grow, more expensive to
+  replace, and *worth more to whoever does get through it* — rather than a free
+  win. **This is the Kind 3 → Kind 2 promotion (§3) and it is one number per
+  material, not a new system.**
+- **It gives the existing `dig_force` gene a second job**, which is how a
+  burrower and a fighter become the same axis pulled in different directions —
+  and how "attack" and "excavate" stay one verb rather than two.
+
+**Name the attacker's term carefully.** Reusing `dig_force` verbatim couples
+digging strength to biting strength permanently; a separate `bite_force`
+defaulting to `dig_force` keeps them separable when that turns out to matter.
+Recommend the second, defaulted, so nothing changes until a species says so.
+
+### 11d. Recommendation R2 — a bite severs; it does not kill
+
+Today, `reconcile_chain`: if the surviving cells no longer start with the
+chain's first cell, *"head gone, the rest is meat"*, and the animal dies
+outright. **One bite on the right cell kills a 2-cell ant and a 20-cell animal
+identically.**
+
+That is a binary outcome, and this project's own first law says an outcome is a
+distribution rather than a binary — learned from destruction, stated in
+`CLAUDE.md` as applying *"to every line in the engine"*, and independently
+rediscovered on the plant line as graded death by `rot_remains`.
+
+**The replacement: losing cells is damage, and what disconnects is severed.**
+
+- Cells that lose **connectivity to the vital cell** are no longer part of the
+  animal. They become meat where they stand.
+- The animal lives on with what stays connected — smaller, and therefore
+  slower, weaker, and **cheaper to run**, since `idle_cost_per_cell` and
+  `move_cost_per_cell` already charge the live body rather than the authored
+  one. *An animal that has lost a cell to a predator burns less* is already
+  true in the tree and fell out of reading the right quantity.
+- Death is then two things, both already in the engine's vocabulary: the vital
+  cell itself is taken, or energy reaches zero.
+
+**Why this is the right shape rather than hit points.** Hit points are the
+authored-game answer — a number with no physical referent, attached to the
+animal rather than to its parts. Severing is the same mechanism the engine
+already runs everywhere else: a connectivity check over a body whose parts can
+be removed, which is exactly how a plant discovers it has lost a leaf
+(`reconcile_chain`'s own comment: *"A plant finds out it has lost a cell
+through its own connectivity check, which is exactly what made herbivory need
+no new code"*), and exactly how structural collapse decides what falls.
+
+It is also **satisfying in the house sense**: the second law is *there must be
+a verb and it must deliver something*, and what a successful attack delivers is
+**a piece**. A limb coming off is visible; an animal blinking out of existence
+is not.
+
+**One constraint travelling with it**, from `CLAUDE.md`: *a traversal must use
+the same neighbourhood the writer used.* Body cells are placed at 8 neighbours,
+so the connectivity walk is 8-connected or it will sever animals that are
+perfectly intact.
+
+### 11e. What this buys size, which is the owner's actual question
+
+With R1 and R2 in place, size stops being a pure cost:
+
+| | before | after |
+|---|---|---|
+| more cells | more meat for the attacker, more upkeep, **no survival value** | more cells that are not the vital one — the fatal target is diluted |
+| a lost cell | fatal if it was the head, free otherwise | graded: a piece comes off, the animal continues diminished |
+| hard cells | nothing — resistance unread | genuinely harder to cut, paid for in `body_energy` |
+
+**And a second benefit of size should be taken while we are here, because it
+converts a Kind 3 lever into a free consequence (§3):** derive
+`crop_capacity` from body size rather than authoring it. A bigger animal
+carries more. That removes a gene that would otherwise need its own cost term,
+and it gives size a *foraging* payoff to sit beside the survival one — so
+`body size` becomes a real trade with reachable ends rather than a ratchet in
+either direction.
+
+### 11f. The gap that blocks an arms race, and it is one-sided
+
+**A predator has an input for finding prey. Nothing has an input for detecting
+a predator.** `PreyNear`/`PreyBearing` report *food*, not *danger*, and
+`sight_range` defaults to 0, so **an ant cannot perceive a beetle at any
+distance whatsoever** — only on contact, and then as food.
+
+Fleeing is not a missing verb; `Turn` and `Move` away are fleeing. It is a
+missing **sense** to trigger on. And `creature-evolution-plan.md` §7 names an
+arms race as *"the standard engine of open-ended dynamics, and this world has
+never run one"* — which cannot start while only one side can see.
+
+**The fix is the same slot pair as the nest work, evaluated the other way
+round.** §4 adds a bearing to the nearest animal *my gut values*; the mirror is
+a bearing to the nearest animal *whose gut values me*. Same rays, same
+full-circle bearing, no new category, no fear pheromone (which is gated behind
+the measured 0.5 ms third-plane cost anyway). Pursuit and evasion then differ
+by the sign of one weight.
+
+**Note what S5a already measured before anyone builds on this**: predation
+today punishes neither ranging nor sheltering, mortality is biased *toward*
+home in both arms, and the two shelter tables disagree about the sign of the
+beetle term at 231 deaths. Shelter pays enormously and predators are not what
+makes it pay. So R1, R2 and the threat sense are **preconditions** for
+predation having teeth, not refinements of a working system.
+
+---
+
+## 12. The body-plan interface contract
+
+The owner, 2026-09-02: *"your current analysis of this partial relies on the
+current body design but I would like to fully revamp that, so either we need to
+do that concurrently or plan something flexible."*
+
+### 12a. Recommendation: flexible, not concurrent
+
+**Do not run the body revamp alongside this work.** Three reasons, and the
+third is the one that has cost this project real time:
+
+1. **The revamp is unscoped.** What the body should *become* has not been
+   stated, so a concurrent plan would be planning against an unknown.
+2. **Mind before body is the owner's own sequencing call**, made 2026-09-02
+   and unretracted.
+3. **Two changes reallocating one budget cannot be read apart.** This is
+   `CLAUDE.md`'s shared-budget rule and
+   `why-changes-cost-so-much-2026-08-27.md`'s whole subject: the moment two
+   changes move the same quantity, every measurement of either is confounded
+   and the constants calibrated against the old behaviour are being re-derived
+   twice against a moving target. Body and metabolism are the *same* budget —
+   `idle_cost_per_cell`, `move_cost_per_cell`, `body_energy`, `crop_capacity`.
+
+**Flexibility here is cheap rather than a compromise**, because nothing this
+document proposes needs to know what a body looks like. That is worth checking
+explicitly rather than asserting, which is what 12b is.
+
+### 12b. What the rest of the engine may ask a body
+
+State the contract, build against it, and the revamp becomes a swap behind it.
+Everything in this document uses **only** these:
+
+| the engine asks | used by | body-plan dependent? |
+|---|---|---|
+| **its cells**, as world positions | metabolism, rendering, damage | no — a set of positions |
+| **one vital cell** | death (§11d) | no, *provided a body plan designates one* |
+| **the connectivity neighbourhood** (8) | severing (§11d) | no |
+| **each cell's material** | armour (§11c), meat value | no |
+| **a cell count** | `idle_cost_per_cell`, `move_cost_per_cell`, `crop_capacity` (§11e) | no |
+| **a movement rule** | stepping, passability | **yes — and nothing here touches it** |
+
+Only the last row is genuinely body-plan-specific, and it is the one row this
+document never reads. `BodyPlan` today is `Chain(u8)` or `Rigid(Vec<(i8,i8)>)`
+— *"two movement rules, not one with a parameter"* — and the mechanisms
+proposed in §4, §11c and §11d are indifferent to which.
+
+### 12c. The one thing the revamp must honour
+
+**Any new body plan must designate exactly one vital cell.** Both current plans
+already do — `offsets()` returns the head first, `(0,0)` is the head in a
+`Rigid` and is implicit — so this is a contract the code already satisfies
+rather than a new requirement. It is written down here because §11d's death
+rule is the only thing in this plan that depends on it, and a revamp that
+quietly dropped the notion would turn "death" into an undefined question rather
+than a failing build.
+
+If the revamp wants *several* vital cells (a redundant nervous system, a
+creature that survives decapitation), that is a strict generalisation and it
+only makes §11d more graded. It is not a conflict; it is a later gene.
+
+### 12d. What the revamp should be told about, from this document
+
+Three findings that a body revamp will otherwise rediscover the expensive way:
+
+- **Body length is no longer unpriced** (§7). Both cost paths went per-cell on
+  2026-08-30. The coordinator note's blocker is stale.
+- **Size must buy something or it is a ratchet in reverse** (§11e). Today it
+  buys more meat for the attacker and nothing else, so an unguided body gene
+  would shrink rather than grow.
+- **Composition, not architecture, sets the silhouette** (§7's appearance
+  paragraph). Three plant levers all fired and moved no pixel; the creature
+  line then got *"It is a perfect cube"*. A revamp that only changes **which
+  cell gets a label** will land in the same place.
+
+---
+
+## 13. What not to re-derive
 
 - **Whether `store_in_body` needs a slot.** It does not; the `Feed`/`Drop`
   weights already express both forks and are conditioned on everything the brain
@@ -840,7 +1196,7 @@ case is a *misspelling*, not a widen).
 
 ---
 
-## 12. The honest risk
+## 14. The honest risk
 
 The change cannot lose the ant. Three independent guarantees: the positional law
 forbids removing `AtNest`; every code-side coefficient becomes an authored
