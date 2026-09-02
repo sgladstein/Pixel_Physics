@@ -1030,6 +1030,20 @@ drift that two of these documents still reflect.**
   smaller cavity for more digging. §14g and §14h record it, including that the
   positive control the section specified could not fail and that its confidence
   was inverted: the half it called confident is the half that reversed.
+  **§14i then asks how much the null establishes, and finds one thing nobody
+  noticed:** `Crowding` is clamped at 1.0 and ran mean **0.995 → 0.675** with
+  the max pinned, so a mechanism that is specifically about density falling
+  *below a critical value* was measured over a sensor that spent the run near
+  its ceiling — and the pre-check that passed asked *"is this a dead channel?"*
+  rather than *"does it reach the regime the model is about?"*, which is the
+  vacuous-control error in a third costume. **The general finding is bigger than
+  the ants**: this repo has extensive machinery for not trusting a *positive*
+  and almost none for not trusting a *null*, and the question that belongs
+  beside every null — **what effect size would this design have detected?** —
+  was not asked. The standing check it proposes: **an input that never leaves
+  saturation cannot demonstrate a mechanism about its low end**, so assert the
+  driving input's realised range as a precondition and refuse the run, the way
+  `creature_arena` refuses a verdict inside the founding grant.
   **Independently reviewed 2026-09-02 and revised; §16 is the errata and is the
   most reusable section in the file.** The review found four confirmed errors,
   and three of them came from checking a claim against a *neighbouring* file

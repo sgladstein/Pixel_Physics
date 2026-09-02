@@ -2117,6 +2117,104 @@ prescription did not.
 
 ---
 
+### 14i. How much the null actually establishes, and the check nobody ran
+
+**Added after the owner asked the right question: *"couldn't it be that we don't
+have the correct weights or environment or test metric… I worry that we come up
+with the best mechanisms and then give up on them after an imperfect test."***
+
+**The measurement is sound about what it tested. What it tested is narrower
+than "the mechanism", in four named ways, and one of them was not noticed by
+anybody.**
+
+#### The one that was missed: the sensor spent the run saturated
+
+`Crowding` is `(crowd / crowd_scale).min(1.0)` — **clamped at 1.0**. The
+`crowd` pre-check reported mean **0.995 at spawn**, falling to **0.675** by
+frame 4,000, **max pinned at 1.0**.
+
+**Toffin's mechanism is specifically about density falling *below a critical
+value*** — that is what turns uniform digging into localized buds. If crowding
+sits in the top third of its range for the whole run, **the regime the model is
+about was never entered**, and a null says nothing about it.
+
+**And note what the pre-check asked.** *"Is crowding a dead channel?"* It
+passed, and the answer is real — the channel is alive and the lever moves
+digging. But that is the question **does it vary at all**, not **does it reach
+the regime the mechanism requires**. That is the vacuous-control error in a
+third costume: §14h's positive control could not fail, and this pre-check could
+not discriminate. Both passed, and neither tested the claim.
+
+The statistics that would settle it — the low tail and the spread, rather than
+the mean and the max — were not reported.
+
+#### Three more the null does not rule out
+
+- **The scene may not contain the phenomenon.** Toffin's arena is homogeneous
+  with no exposed face; ants dig into uniform medium from a point. This bed is
+  dominated by quarrying the open face of a bank, and the roofed cavity is **a
+  fifth** of the largest void component. This is PR #216's own first retry
+  condition and it is the right one.
+- **The horizon may stop before the interesting regime.** The transition
+  requires the cavity to outgrow the colony. At 54 cells with 52 ants it plainly
+  has not. This is the saturation finding from the other end — one cause, two
+  symptoms.
+- **The metric is a snapshot of a trajectory.** Toffin measured a shape
+  transition *over time* — round first, ramified later. `circ` at frame 8,000
+  over one component is an end state, and a mechanism producing the right
+  sequence with the wrong end state reads as a null here.
+
+And on weights: **one value of the slope was tested.** The dig-rate sweep varied
+`(Bias, Dig)` — the *rate* — not `(Crowding, Dig)` — the *slope*.
+
+#### The systemic gap this exposes, which is bigger than the ants
+
+**This repository has extensive machinery for not trusting a positive** —
+positive controls, seed sweeps, the tidiness tell, *ask what your number counts
+when nothing is wrong*, and `gene_probe`. **It has almost none for not trusting
+a null.**
+
+The question that belongs beside every null and was not asked here:
+
+> **What effect size would this design have detected, if the effect were
+> real?**
+
+A null without that is *"we did not see it"*, not *"it is not there"*. And the
+incentives run the wrong way: a false positive ships a wrong feature and is
+visible and embarrassing, while a false negative kills a right idea and looks
+like rigour. So nulls are accepted more cheaply than positives, and good
+mechanisms die quietly. **That asymmetry is the thing to fix, and it is not
+specific to this mechanism or this line.**
+
+#### The standing check that comes out of it
+
+**An input that never leaves saturation cannot demonstrate a mechanism about
+its low end.** So: **assert the driving input's realised range as a
+precondition of the run**, and refuse rather than report when it is not met —
+exactly as `creature_arena` now refuses to draw a verdict inside the founding
+grant. A lever swept over a range its sensor never visits is the sensory
+equivalent of a negative control that cannot lose.
+
+#### What this changes, and what it does not
+
+**It does not make the withdrawal wrong.** Shipping a weight whose comment
+claims it makes rooms, when it measurably does not in the only bed we have,
+plants exactly the kind of false belief §5 spent a section undoing. And the
+withdrawal costs almost nothing to reverse — `crowddig=` and `digbias=` are
+runtime switches on a shipped instrument, so a re-test is a command.
+
+**What it changes is the size of the claim.** What has been shown is that *this
+weight, at this value, in this bed, at this horizon, read by this metric* does
+not produce rooms. That is a much smaller statement than *density-dependent
+digging does not work here*, and the record should not be allowed to compress
+into the second.
+
+**The re-test, when someone takes it up, is a different experiment rather than a
+re-run:** a bed with no open face, run long enough for the cavity to outgrow the
+colony, with crowding's realised range asserted before the run counts.
+
+---
+
 ## 15. What not to re-derive
 
 - **Whether `store_in_body` needs a slot.** It does not; the `Feed`/`Drop`
