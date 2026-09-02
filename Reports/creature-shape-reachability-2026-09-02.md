@@ -85,15 +85,37 @@ size-linked term (`idle_cost_per_cell`, `move_cost_per_cell`) is a cost, and
 `crop_capacity` is explicitly flat, so there is no revenue line for size at
 all. A heritable size gene would shrink rather than grow until that is
 fixed — extent is the right *shape* lever, but it needs a reason to be
-selected for before it is worth building. The `creature-genome-flexibility`
-session's candidate, discussed with this session: scale `crop_capacity`
-with body cells, but only past the point where a foraging trip already
-fills the *current* cap (checked via the `crop_fill` distribution
-`forage_probe` can already read) — a naive `cap ∝ cells` makes both cost and
-benefit linear in the same quantity with no interior optimum, which
-ratchets exactly as the unpriced levers `CLAUDE.md` already warns about; the
-saturating version has a real optimum set by trip length and encounter
-rate rather than by an authored constant. Not this report's to build.
+selected for before it is worth building.
+
+**Scaling `crop_capacity` with body cells is not that reason, and this
+report briefly said otherwise before the session that proposed it withdrew
+it with the arithmetic that refutes it, minutes later.** With capacity
+`k·b` (`b` body cells), a trip that fills the crop every time delivers
+`k·b` cells at a cost of `idle·b·T + move·b·(1+k)·D`, so cost per delivered
+cell is `(idle·T + move·(1+k)·D) / k` — **`b` cancels exactly**: size is
+neutral, not a payoff. Drop the always-fills assumption (encounter-bounded
+delivery, a fixed `F` independent of `b`) and cost per delivered cell
+becomes `(idle·b·T + move·b·(1+k)·D) / F`, **linear in `b`** — size is then
+strictly *worse*. There is no regime in which it is a payoff, and the
+saturation argument that looked like it rescued the lever is the same
+argument that makes the encounter-bounded case worse, not better. It would
+also re-normalise `BrainInput::Carrying` (divided by `crop_capacity`,
+`creature.rs:2213`) for every existing genome, and `crop_capacity` is
+joules of face value, not cells, so deriving it from a cell count needs an
+unpriced constant nobody has derived.
+
+**The payoff that survives the arithmetic is §11d severing plus §13
+articulation, and it is not available yet.** A bite severs at the nearest
+joint and costs one part rather than about half a chain's cells, so a
+bigger, more-segmented body dilutes the fatal target — cost linear in
+cells, benefit (survivability) saturating once there are enough parts that
+a bite is survivable, a genuine interior optimum and the owner's own stated
+preference ("size... should buy survival"). It is downstream of §11c's
+bite gate, which must land as one atomic commit authoring the whole food
+table, and a separate session is live on armour and severing. So: the
+correct answer is that this prerequisite has a real candidate payoff, it is
+not buildable by either of us right now, and crop capacity is not a
+substitute for it.
 
 ## 1. Q1 — does articulation recover mobility?
 
