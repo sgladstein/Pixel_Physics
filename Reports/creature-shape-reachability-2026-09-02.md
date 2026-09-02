@@ -185,6 +185,16 @@ a 3x3 abdomen (`forward_taper`) and its mirror, a 3x3 head plus a 2x2 tail
 | `forward_taper` (small head, big abdomen) | 14 | 12 | 53.6% | 56.6% | 22.5% | 73.5% |
 | `backward_taper` (big head, shrinking tail) | 14 | 12 | 55.6% | 56.2% | 35.0% | 68.0% |
 
+**These numbers are a floor for a monolithic body, not a measurement of an
+articulated one.** No genuinely decoupled taper (independent parts, one
+following the other) has been built or measured; "tapers cost 54-57%" is
+not a claim this report or any other makes. What follows is the reasoning
+for why an articulated taper is unlikely to beat this floor by much, not a
+second measurement of it — flagged in its own line because the shorthand
+is exactly the kind of scope-dropping this report and
+`creature-genome-flexibility-2026-09-02.md` §13c both had to be corrected
+for elsewhere.
+
 **Both land at the same ~54-57%, statistically indistinguishable from each
 other and from the plain `ant_block`/`ant_wide` numbers above, regardless of
 which end carries the wide segment.** For a monolithic body this is expected
