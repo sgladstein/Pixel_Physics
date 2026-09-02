@@ -4972,12 +4972,34 @@ control: the tick goes **6.39 → 2.39 ms** and the achieved multiplier **2.6x �
 6.9x**, with a **25% larger** stand, so it is not cheap because the stand
 died.
 
-**Known limitations.** Moisture is still on the CA sweep — the 2.7x above is
-an ablation, not a fix, and the shape of the fix (moisture as an active-site
-process with a quiet write that the renderer still sees) is §4 of the report.
-The field's early-out remains all-or-nothing, so one awake chunk anywhere
-costs the whole box's solve. And per-row dirty spans measure a real 1.19x and
-ship **off** behind `PIXEL_PHYSICS_SWEEP=rows`: the sweep's random draws are
-consumed per *visited* cell, so any narrowing of the region — however provably
-it only drops cells no rule could act on — shifts the RNG stream and moves
-every pile in the world. The unlock is a positional RNG, not a better region.
+**Moisture now runs as its own pass, and that is 1.69x of it.** Built
+2026-09-02 (report §8). Its three aux-only writes — the cell's own moisture, a
+capillary neighbour's, the cell below on drainage — go through
+`World::set_soil_moisture`, which writes quietly, marks the chunk for the
+*renderer* (soil's colour is its wetness) and marks it on a **second dirty
+channel** that only the moisture pass reads. Infiltration still wakes the
+movement sweep, deliberately: it consumes a `Liquid` cell outright, which is a
+material change. Paired against `PIXEL_PHYSICS_MOISTURE=sweep`, three runs a
+side: **tick 6.42 → 3.81 ms, awake chunks 20.4 → 8.3, the dial 2.6x → 4.4x**,
+and the stand came out **9.5% larger** — which is what says this is a speed-up
+rather than a subtraction.
+
+It lives inside `parallel::step` and `update::step` rather than in
+`frame::step`, and that placement was decided by a failure: as a frame phase it
+was invisible to the **155 call sites** in this tree that drive the world by
+calling a CA driver directly. Weather and spring are in those same two
+functions for the same reason.
+
+**Known limitations.** The moisture pass still reaches its cells through
+`World`, which is a `HashMap` probe per access — ~300 ns per soil cell against
+a `ChunkView`'s array index — so roughly another 1.0 ms of the 3.81 is sitting
+there; a chunk-local view of the moisture channel is the named next step, and
+reach-1 writes make it safe under the existing checkerboard. A chunk-local
+*prefilter* was tried instead and was slower, because 88% of the marked region
+is soil and there was nothing to reject (`dead-ends.md`). The field's early-out
+remains all-or-nothing, so one awake chunk anywhere costs the whole box's
+solve. And per-row dirty spans measure a real 1.19x and ship **off** behind
+`PIXEL_PHYSICS_SWEEP=rows`: the sweep's random draws are consumed per *visited*
+cell, so any narrowing of the region — however provably it only drops cells no
+rule could act on — shifts the RNG stream and moves every pile in the world.
+The unlock is a positional RNG, not a better region.

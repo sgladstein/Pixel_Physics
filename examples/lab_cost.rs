@@ -169,6 +169,15 @@ struct Tile {
     food_height: Option<(i32, i32)>,
     solved: f64,
     awake: f64,
+    /// **Did the moisture phase fire, and how much was it asked for?**
+    /// `CLAUDE.md`'s "a cost that vanishes may be work that vanished": a
+    /// moisture phase that costs nothing because it stopped transporting
+    /// water and one that costs nothing because it only walks the cells that
+    /// need it are the same timing and opposite findings. `sw chgd` is what
+    /// separates them.
+    sw_visited: f64,
+    sw_soil: f64,
+    sw_changed: f64,
     ms_mean: f64,
     ms_p50: f64,
     ms_worst: f64,
@@ -365,6 +374,9 @@ fn run_arm(
     let mut phase_sums = [0.0f64; PHASES.len()];
     let mut solved = 0u64;
     let mut awake = 0u64;
+    let mut sw_visited = 0u64;
+    let mut sw_soil = 0u64;
+    let mut sw_changed = 0u64;
     let mut render_sum = 0.0f64;
     let mut render_n = 0u64;
 
@@ -421,6 +433,9 @@ fn run_arm(
             t.elapsed().as_secs_f64() * 1000.0
         };
         window.push(ms);
+        sw_visited += world.soil_water_stats.visited;
+        sw_soil += world.soil_water_stats.soil;
+        sw_changed += world.soil_water_stats.changed;
         solved += world.field_stats.tiles_solved;
         awake += world.active_chunk_count() as u64;
 
@@ -454,6 +469,9 @@ fn run_arm(
             t.ms_worst = window[n - 1];
             t.solved = solved as f64 / n as f64;
             t.awake = awake as f64 / n as f64;
+            t.sw_visited = sw_visited as f64 / n as f64;
+            t.sw_soil = sw_soil as f64 / n as f64;
+            t.sw_changed = sw_changed as f64 / n as f64;
             t.phase_ms = phase_sums.map(|s| s / n as f64);
             t.render_ms = if render_n > 0 { render_sum / render_n as f64 } else { 0.0 };
             tiles.push(t);
@@ -461,6 +479,9 @@ fn run_arm(
             phase_sums = [0.0; PHASES.len()];
             solved = 0;
             awake = 0;
+            sw_visited = 0;
+            sw_soil = 0;
+            sw_changed = 0;
             render_sum = 0.0;
             render_n = 0;
         }
@@ -844,7 +865,7 @@ fn main() {
     // --- cost -------------------------------------------------------------
     println!("\n=== what does it cost? (whole-frame, in the bed, as the stand grows) ===");
     println!(
-        "{:>5} {:>7} | {:>8} {:>8} {:>8} {:>8} | {:>8} {:>8} | {:>9} | {:>7} {:>7} {:>7}",
+        "{:>5} {:>7} | {:>8} {:>8} {:>8} {:>8} | {:>8} {:>8} | {:>8} {:>8} {:>8} | {:>9} | {:>7} {:>7} {:>7}",
         "walls",
         "frame",
         "cells",
@@ -853,6 +874,9 @@ fn main() {
         "ms worst",
         "solved/f",
         "awake/f",
+        "sw seen",
+        "sw soil",
+        "sw chgd",
         "us/cell",
         "x sim",
         "x@60Hz",
@@ -882,7 +906,7 @@ fn main() {
             let t = &runs[0][k];
             let live = t.plant_cells + t.ants;
             println!(
-                "{:>5} {:>7} | {:>8} {:>8.3} {:>8.3} {:>8.3} | {:>8.1} {:>8.1} | {:>9.2} | {:>6.1}x {:>6.1}x {:>6.1}x",
+                "{:>5} {:>7} | {:>8} {:>8.3} {:>8.3} {:>8.3} | {:>8.1} {:>8.1} | {:>8.0} {:>8.0} {:>8.1} | {:>9.2} | {:>6.1}x {:>6.1}x {:>6.1}x",
                 w,
                 t.frame,
                 t.plant_cells,
@@ -891,6 +915,9 @@ fn main() {
                 t.ms_worst,
                 t.solved,
                 t.awake,
+                t.sw_visited,
+                t.sw_soil,
+                t.sw_changed,
                 mean * 1000.0 / live.max(1) as f64,
                 // **`x sim` is the dial's ceiling with the render taken out**
                 // — simulated seconds per real second if drawing were free.

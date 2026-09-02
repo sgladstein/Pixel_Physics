@@ -150,6 +150,13 @@ fn run_without_the_sweep(w: &mut World, frames: usize) {
         field::step(w);
         scheduler::step(w);
         w.end_step();
+        // **Moisture is no longer part of "the sweep", which is what this
+        // helper's name is about.** Infiltration, capillary exchange and
+        // drainage moved to their own phase on 2026-09-01
+        // (`World::step_soil_water`), so running them here is not a widening
+        // of what this helper covers -- it is the same coverage it always
+        // intended, after the thing it excludes stopped carrying them.
+        w.step_soil_water();
     }
 }
 

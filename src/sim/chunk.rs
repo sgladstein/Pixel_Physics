@@ -264,6 +264,33 @@ pub struct Chunk {
     /// empty, which is how a row says "nothing here".
     dirty_rows: [(i16, i16); SPAN_ROWS],
     pending_rows: [(i16, i16); SPAN_ROWS],
+    /// **A second dirty channel, for soil moisture only** — and the reason
+    /// a bed of plants no longer keeps the whole box awake.
+    ///
+    /// Moisture transport is not a *movement*. A wetness change needs its
+    /// own cell and the four it exchanges with reconsidered, and nothing
+    /// else — not the `reach`-wide movement neighbourhood, and not a chunk
+    /// held awake for the CA sweep to walk and for `field::step` to solve
+    /// against. Measured before this existed
+    /// (`Reports/evolution-lab-frame-cost-2026-09-01.md`): **410 of the 447
+    /// cells that change per tick in a settled lab bed are soil wetness**,
+    /// every one of them marked its chunk dirty on the ordinary channel, and
+    /// between the sweep and the field that was 63% of the tick.
+    ///
+    /// So moisture writes go through [`World::set_soil_moisture`], which
+    /// writes quietly, marks the chunk for the *renderer* (wet soil is a
+    /// different colour) and marks it here. `World::step_soil_water` is the
+    /// only reader. Seeded from the ordinary channel in [`Self::end_sweep`],
+    /// so every other writer in the engine — rain, a root drinking, a
+    /// painted bucket, a landing particle — reaches it for free and with no
+    /// hot-path cost.
+    ///
+    /// Single-buffered rather than promoted like `dirty`, because
+    /// `take_moist_plan` snapshots and clears in one move at the top of the
+    /// pass — the same two-phase `parallel::step` uses on `chunks_to_sweep`,
+    /// and for the same reason: a write made during the pass must land in
+    /// the *next* pass's set, not grow the one being walked.
+    pending_moist_rows: [(i16, i16); SPAN_ROWS],
     /// Whether this chunk currently holds any `Liquid`-kind cell.
     ///
     /// Tracked exactly like `reach` above and for the same reasons: grown
@@ -396,6 +423,10 @@ impl Chunk {
             // spans would narrow away the one sweep generated terrain needs.
             dirty_rows: full_rows(coord),
             pending_rows: [NO_SPAN; SPAN_ROWS],
+            // Fully moist-dirty for the same reason it is fully dirty:
+            // generated terrain arrives with whatever wetness worldgen gave
+            // it and needs one pass to find its own equilibrium.
+            pending_moist_rows: full_rows(coord),
             rng: Rng::new(seed_from_coord(coord)),
             reach: 1,
             has_liquid: false,
@@ -588,8 +619,101 @@ impl Chunk {
 
     /// Promote writes made during this sweep into the region for the next one.
     pub fn end_sweep(&mut self) {
+        // **Every ordinary write seeds the moisture channel**, and this one
+        // line is the whole of that plumbing. A moisture pass has to
+        // reconsider a cell whenever anything near it changed — rain landing,
+        // a root drinking, a grain falling into a puddle — and every one of
+        // those goes through `mark_dirty`. Unioning here rather than in
+        // `mark_dirty` keeps the hottest write path untouched, and cannot
+        // feed back on itself: `World::set_soil_moisture` is quiet on the
+        // ordinary channel, so a moisture write never appears in
+        // `pending_rows`.
+        for (moist, dirty) in self.pending_moist_rows.iter_mut().zip(self.pending_rows.iter()) {
+            if dirty.0 <= dirty.1 {
+                moist.0 = moist.0.min(dirty.0);
+                moist.1 = moist.1.max(dirty.1);
+            }
+        }
         self.dirty = self.pending_dirty.take();
         self.dirty_rows = std::mem::replace(&mut self.pending_rows, [NO_SPAN; SPAN_ROWS]);
+    }
+
+    /// Mark a cell for the next soil-moisture pass. See
+    /// [`Self::pending_moist_rows`].
+    #[inline]
+    pub fn mark_moist_dirty(&mut self, x: i32, y: i32) {
+        let ly = y - self.coord.bounds().min_y;
+        if !(-1..=CHUNK_SIZE).contains(&ly) {
+            return;
+        }
+        let span = &mut self.pending_moist_rows[(ly + 1) as usize];
+        let x = x.clamp(-SPAN_MAX_WORLD, SPAN_MAX_WORLD) as i16;
+        span.0 = span.0.min(x);
+        span.1 = span.1.max(x);
+    }
+
+    /// **What the next soil-moisture pass must walk, taken and cleared in
+    /// one move.**
+    ///
+    /// The horizontal expansion is **1**, not `reach`, and that is the whole
+    /// reason this channel is cheap: `update_soil_water` reads and writes
+    /// its own cell, the four it shares a face with, and the one below —
+    /// so a write at `p` can only change the outcome for cells one step from
+    /// `p`. The `reach` the movement sweep expands by (14 in a lab bed, up to
+    /// `MAX_REACH`) is about what can *flow into* a cell, and no amount of
+    /// water flows sideways through soil in one tick.
+    ///
+    /// Clearing here rather than promoting at the end is deliberate: writes
+    /// made *during* the pass must land in the next pass's set rather than
+    /// growing the one being walked, which is the same two-phase
+    /// `parallel::step` applies to `chunks_to_sweep`.
+    pub fn take_moist_plan(&mut self) -> Option<SweepPlan> {
+        let marks = std::mem::replace(&mut self.pending_moist_rows, [NO_SPAN; SPAN_ROWS]);
+        let chunk = self.coord.bounds();
+        let mut rows = [NO_SPAN; SPAN_ROWS];
+        let (mut min_y, mut max_y) = (i32::MAX, i32::MIN);
+        let (mut min_x, mut max_x) = (i32::MAX, i32::MIN);
+        for ly in 0..CHUNK_SIZE {
+            let (mut lo, mut hi) = (i32::MAX, i32::MIN);
+            for d in -1..=1 {
+                let i = ly + d + 1;
+                if !(0..SPAN_ROWS as i32).contains(&i) {
+                    continue;
+                }
+                let (a, b) = marks[i as usize];
+                if a <= b {
+                    lo = lo.min(a as i32);
+                    hi = hi.max(b as i32);
+                }
+            }
+            if lo > hi {
+                continue;
+            }
+            let lo = (lo - 1).max(chunk.min_x);
+            let hi = (hi + 1).min(chunk.max_x);
+            if lo > hi {
+                continue;
+            }
+            let y = chunk.min_y + ly;
+            min_y = min_y.min(y);
+            max_y = max_y.max(y);
+            min_x = min_x.min(lo);
+            max_x = max_x.max(hi);
+            rows[ly as usize] = (lo as i16, hi as i16);
+        }
+        if min_y > max_y {
+            return None;
+        }
+        // Re-index the spans against `bounds.min_y`, which is what
+        // `SweepPlan::row` looks them up by.
+        let mut shifted = [NO_SPAN; SPAN_ROWS];
+        for (i, slot) in shifted.iter_mut().enumerate() {
+            let ly = min_y - chunk.min_y + i as i32;
+            if (0..CHUNK_SIZE).contains(&ly) {
+                *slot = rows[ly as usize];
+            }
+        }
+        Some(SweepPlan { bounds: Rect::new(min_x, min_y, max_x, max_y), rows: shifted })
     }
 
     /// Recompute `reach` from scratch by scanning every resident cell —
@@ -610,6 +734,7 @@ impl Chunk {
     pub fn wake(&mut self) {
         self.dirty = Some(self.coord.bounds());
         self.dirty_rows = full_rows(self.coord);
+        self.pending_moist_rows = full_rows(self.coord);
     }
 
     pub fn cells(&self) -> &[Cell] {

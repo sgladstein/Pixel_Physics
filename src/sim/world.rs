@@ -613,6 +613,25 @@ impl EnergyLedger {
     }
 }
 
+/// What one `World::step_soil_water` pass did.
+///
+/// Three numbers rather than one, because they answer three different
+/// questions and only together do they say the pass is healthy: `chunks` and
+/// `visited` are what the moisture dirty channel *asked* for, and `changed`
+/// is what it found. A `visited` that climbs with a flat `changed` is the
+/// channel over-marking; a `changed` of zero in a bed with plants in it means
+/// moisture has stopped moving, which is a regression wearing a speed-up.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct SoilWaterStats {
+    pub chunks: u64,
+    pub visited: u64,
+    /// How many of `visited` actually hold water -- the prefilter's yield,
+    /// and the number that says whether the moisture dirty channel is marking
+    /// tightly or spraying.
+    pub soil: u64,
+    pub changed: u64,
+}
+
 #[derive(Clone)]
 pub struct World {
     chunks: HashMap<ChunkCoord, Chunk>,
@@ -982,6 +1001,12 @@ pub struct World {
     /// which explains why the obvious alternative (counting unsettled tiles)
     /// cannot answer the question they exist for.
     pub field_stats: field::FieldStats,
+    /// **What the soil-moisture pass was asked for and what it found** — the
+    /// counter half of `step_soil_water`, so a null there ("moisture stopped
+    /// happening") and a win there ("moisture stopped costing") are
+    /// distinguishable. `CLAUDE.md`: a cost that vanishes may be work that
+    /// vanished.
+    pub soil_water_stats: SoilWaterStats,
     /// The "did it fire" counters for creature behaviour — `FailureCounts`
     /// in shape and in purpose.
     ///
@@ -2267,6 +2292,7 @@ impl World {
             species: SpeciesRegistry::builtin(),
             pheromones: Pheromones::new(bounds),
             field_stats: field::FieldStats::default(),
+            soil_water_stats: SoilWaterStats::default(),
             creature_stats: CreatureStats::default(),
             energy_ledger: EnergyLedger::default(),
             organisms: Vec::new(),
@@ -4569,6 +4595,151 @@ impl World {
         self.chunks.get(&coord).and_then(|c| c.sweep_region())
     }
 
+    /// **Write a soil cell's new moisture without waking the CA sweep.**
+    ///
+    /// The one write in the engine that is deliberately invisible to
+    /// `chunks_to_sweep`, and the reason a bed of plants stopped costing 63%
+    /// of the lab's tick. Three things happen and the third is the one that
+    /// is easy to forget:
+    ///
+    /// - the cell is written through `Chunk::set_world_quiet`, so nothing on
+    ///   the ordinary dirty channel moves. Safe because a moisture write only
+    ///   ever changes `aux`: the material is unchanged, so `reach` and
+    ///   `has_liquid` cannot need updating, which is the whole of what
+    ///   `set_world` does beyond the write;
+    /// - the chunk is marked on the **moisture** channel, so the next
+    ///   `step_soil_water` reconsiders this cell and its neighbours;
+    /// - the chunk is marked **touched**, so the renderer redraws it. Wet
+    ///   soil is a different colour, and `touched_chunks` is filled from
+    ///   settledness transitions in `end_step` — a quiet write produces no
+    ///   transition, so without this line the ground would silently stop
+    ///   changing colour as it dried. That is the `CLAUDE.md` "a channel
+    ///   needs a writer and a reader" failure waiting to happen, and it is
+    ///   why this is one function rather than three call sites.
+    ///
+    /// Falls back to an ordinary `set` under `PIXEL_PHYSICS_MOISTURE=sweep`,
+    /// which is the control arm — see `update::moisture_phase_enabled`.
+    pub fn set_soil_moisture(&mut self, x: i32, y: i32, cell: Cell) {
+        if !crate::sim::update::moisture_phase_enabled() {
+            self.set(x, y, cell);
+            return;
+        }
+        let coord = ChunkCoord::containing(x, y);
+        let Some(chunk) = self.chunks.get_mut(&coord) else {
+            return;
+        };
+        chunk.set_world_quiet(x, y, cell);
+        chunk.mark_moist_dirty(x, y);
+        // A neighbour one cell the other side of the boundary is in the next
+        // chunk's business, and `mark_moist_dirty` clips to its own chunk --
+        // so the neighbour has to be told directly, exactly as
+        // `touch_neighbours` does for the ordinary channel.
+        //
+        // **Guarded on actually being at an edge** -- arithmetic against four
+        // `HashMap` lookups, for the 60 of a chunk's 64 rows and columns that
+        // cannot reach out at all.
+        //
+        // **It measured flat**, 1.23 ms against 1.24 on an identical bed, and
+        // that is recorded rather than quietly dropped because it says where
+        // the phase's cost actually is: not in these four lookups but in the
+        // ~10 `World::get`/`set` calls each cell makes, every one of them a
+        // `HashMap` probe. The prefilter in `step_soil_water` is what moved
+        // that number. Kept because it is strictly less work and three lines,
+        // not because it bought anything measurable here.
+        let lx = x.rem_euclid(CHUNK_SIZE);
+        let ly = y.rem_euclid(CHUNK_SIZE);
+        if lx == 0 || ly == 0 || lx == CHUNK_SIZE - 1 || ly == CHUNK_SIZE - 1 {
+            for (dx, dy) in [(-1, 0), (1, 0), (0, -1), (0, 1)] {
+                let n = ChunkCoord::containing(x + dx, y + dy);
+                if n != coord {
+                    if let Some(c) = self.chunks.get_mut(&n) {
+                        c.mark_moist_dirty(x, y);
+                    }
+                }
+            }
+        }
+        self.touched_chunks.insert(coord);
+    }
+
+    /// **Soil moisture, as its own phase.**
+    ///
+    /// Infiltration, capillary exchange and drainage used to run from inside
+    /// `update_cell`'s powder arm, which meant every wetness change dirtied a
+    /// 64x64 chunk on the movement channel -- and a dirty chunk buys two
+    /// phases, not one, because `field::step` skips its five-pass solve only
+    /// while `active_chunk_count()` is zero. Measured in the evolution lab
+    /// 2026-09-01: 410 of the 447 cells that change per tick were soil
+    /// wetness, the sweep walked 45,442 cells to find 447, and the two
+    /// phases together were 63% of the tick.
+    ///
+    /// **Serial, and that is a decision rather than an omission.** The pass
+    /// writes to a cell's four neighbours, which crosses chunk boundaries by
+    /// one cell and so cannot satisfy `parallel.rs`'s write-disjointness
+    /// proof without its own checkerboard. It does not need one: the whole
+    /// point is that the set is small -- a few thousand cells against the
+    /// sweep's forty-five thousand -- and a checkerboard over that would cost
+    /// more in dispatch than it saved.
+    ///
+    /// **Snapshot first, then run**, the same two-phase `parallel::step`
+    /// applies: every plan is taken and cleared before any work happens, so a
+    /// write made during the pass lands in the *next* pass rather than
+    /// growing the set being walked, and the result does not depend on which
+    /// chunk was reached first.
+    ///
+    /// Chunks are walked bottom row first, matching the sweep, because
+    /// drainage moves water downward and a column drains as a unit that way.
+    pub fn step_soil_water(&mut self) {
+        if !crate::sim::update::moisture_phase_enabled() {
+            return;
+        }
+        let mut plans: Vec<(ChunkCoord, crate::sim::chunk::SweepPlan)> = Vec::new();
+        for (coord, chunk) in self.chunks.iter_mut() {
+            if let Some(plan) = chunk.take_moist_plan() {
+                plans.push((*coord, plan));
+            }
+        }
+        // Deterministic order: chunk row descending (lower rows are larger
+        // `cy`, and water drains into them), then column. `chunks` is a
+        // `HashMap`, so without this the pass would inherit the hasher's
+        // order -- the exact non-determinism `ActiveSite`'s `Ord` was written
+        // to remove.
+        plans.sort_unstable_by(|a, b| b.0.y.cmp(&a.0.y).then(a.0.x.cmp(&b.0.x)));
+
+        // **A chunk-local prefilter was tried here and made it slower.** The
+        // idea was to reject air, stone and plant against the resident
+        // chunk's own array -- an index instead of the `HashMap` probe
+        // `World::get` costs -- and only pay the full tick for soil. It
+        // measured **1.37 ms against 1.23**, and the counter beside it says
+        // why: **4,145 of the 4,692 cells marked are soil**, 88%, because the
+        // region is a patch of the soil bed. There was nothing to reject.
+        // Recorded in `dead-ends.md`; `soil` is kept as a column precisely
+        // because it is the number that settles it.
+        //
+        // What the same measurement *does* say is where this phase's cost is:
+        // 4,145 cells that each make ~10 `World::get`/`set` calls, every one a
+        // `HashMap` probe. Making those chunk-local means a `ChunkView` and
+        // the checkerboard, which is the named next step rather than this one.
+        self.soil_water_stats = SoilWaterStats { chunks: plans.len() as u64, ..Default::default() };
+        for (_, plan) in &plans {
+            for y in (plan.bounds.min_y..=plan.bounds.max_y).rev() {
+                let Some((min_x, max_x)) = plan.row(y) else {
+                    continue;
+                };
+                for x in min_x..=max_x {
+                    self.soil_water_stats.visited += 1;
+                    let cell = self.get(x, y);
+                    if self.materials.get(cell.material).water_capacity == 0 {
+                        continue;
+                    }
+                    self.soil_water_stats.soil += 1;
+                    if crate::sim::update::update_soil_water(self, x, y) {
+                        self.soil_water_stats.changed += 1;
+                    }
+                }
+            }
+        }
+    }
+
     /// [`Chunk::sweep_plan`] — the same region with the per-row spans that
     /// narrow it. What both drivers actually sweep.
     pub fn sweep_plan(&self, coord: ChunkCoord) -> Option<crate::sim::chunk::SweepPlan> {
@@ -5240,6 +5411,10 @@ impl World {
 /// particles) already uses. See `surface.rs` for why this exists as a trait
 /// at all, and `parallel.rs`'s `ChunkView` for the other implementer.
 impl CellSurface for World {
+
+    fn set_moisture(&mut self, x: i32, y: i32, cell: Cell) {
+        self.set_soil_moisture(x, y, cell);
+    }
     #[inline]
     fn get(&self, x: i32, y: i32) -> Cell {
         World::get(self, x, y)

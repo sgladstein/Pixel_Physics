@@ -157,6 +157,26 @@ pub fn step(world: &mut World) {
     }
 
     world.end_step();
+    // **Soil moisture, after the sweep and inside the driver.** Infiltration,
+    // capillary exchange and drainage used to run per cell from inside
+    // `update_cell`, which put every wetness change on this channel's dirty
+    // marks -- and a dirty chunk buys the sweep *and* `field::step`'s
+    // five-pass solve, which is gated on `active_chunk_count()`. Measured in
+    // the evolution lab: 63% of the tick
+    // (`Reports/evolution-lab-frame-cost-2026-09-01.md`).
+    //
+    // **In the driver rather than in `frame::step`, and that placement was
+    // decided by a failure.** As a `frame::step` phase it was invisible to
+    // every test and probe that drives the world by hand -- there are 155
+    // call sites of this function across the tree, and three of them went red
+    // for exactly that reason with nothing wrong in the code. Weather and
+    // spring sit at the top of this function for the same reason, stated the
+    // same way: both drivers, deliberately.
+    //
+    // After `end_step`, which is where `Chunk::end_sweep` seeds the moisture
+    // channel from this tick's ordinary writes, so a mark made by the sweep
+    // is consumed in the same tick rather than a tick later.
+    world.step_soil_water();
 }
 
 /// Which pass a chunk is swept in, as an orderable key: chunk row first,

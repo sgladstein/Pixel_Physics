@@ -31,6 +31,23 @@ pub trait CellSurface {
     fn set(&mut self, x: i32, y: i32, cell: Cell);
     fn in_bounds(&self, x: i32, y: i32) -> bool;
 
+    /// **A soil cell's new moisture** — the same write as `set`, routed so
+    /// that it can be made invisible to the movement sweep.
+    ///
+    /// Only `update::update_soil_water`'s three *aux-only* writes use it: the
+    /// cell's own moisture, a capillary neighbour's, and the cell below on
+    /// drainage. Its infiltration writes deliberately do not — those consume
+    /// a `Liquid` cell outright, which is a material change and must dirty
+    /// the movement channel like any other.
+    ///
+    /// The default forwards to `set`, which is exactly right for `ChunkView`:
+    /// moisture only reaches a chunk view in the control arm
+    /// (`PIXEL_PHYSICS_MOISTURE=sweep`), where the old behaviour is the point.
+    /// `World` overrides it -- see `World::set_soil_moisture`.
+    fn set_moisture(&mut self, x: i32, y: i32, cell: Cell) {
+        self.set(x, y, cell);
+    }
+
     /// Clear a cell's moved flag once the sweep has skipped it. Always called
     /// on the position currently being visited.
     fn clear_moved(&mut self, x: i32, y: i32);

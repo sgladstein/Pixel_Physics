@@ -278,10 +278,27 @@ later session cannot reconstruct is here.*
   against what it finds, and a per-phase grid diff naming which phase wrote
   the cells that keep the box awake.
 
-**Next, in the order the evidence supports:** moisture onto the active-site
-schedule (2.7x, and §4 of the report names the two things it needs); then the
-field's all-or-nothing early-out (45% of what is left); then the RNG, which
-unlocks the region work.
+**Moisture moved, 2026-09-02 (report §8).** Its own dirty channel and its own
+pass: **tick 6.42 -> 3.81 ms, awake chunks 20.4 -> 8.3, the dial 2.6x -> 4.4x**,
+and the stand **9.5% larger**, which is what says speed-up rather than
+subtraction. `PIXEL_PHYSICS_MOISTURE=sweep` is the control. Two things it
+overturned:
+
+- **A phase written into `frame::step` does not reach the engine.** There are
+  **155 call sites** that drive the world by calling a CA driver directly, and
+  a frame phase is invisible to all of them -- three went red with nothing
+  wrong in the code. It lives inside `parallel::step` and `update::step` now,
+  where weather and spring already are and for the same stated reason. **Any
+  future per-tick work has this choice and should not re-derive it.**
+- **A chunk-local prefilter over the moisture region is *slower*** (1.37 ms
+  against 1.23), because **88% of that region is soil**. The premise was
+  assumed. What the same counter points at is real: ~300 ns per soil cell,
+  nearly all of it `World::get`'s `HashMap` probe, so the next step is a
+  `ChunkView` over the moisture channel -- worth about another 1.0 ms of 3.81.
+
+**Next:** that `ChunkView`; then the field's all-or-nothing early-out (1.25 ms
+of 3.81, still gated on *any* chunk being awake anywhere); then the positional
+RNG, which unlocks the region work.
 
 ## Deliberately not being built yet
 

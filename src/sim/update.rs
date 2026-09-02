@@ -93,6 +93,11 @@ pub fn step(world: &mut World) {
     }
 
     world.end_step();
+    // **Soil moisture, in this driver as well as the parallel one.** Both
+    // drivers, deliberately, exactly as weather and spring are -- see
+    // `parallel::step`'s note for why it is in the drivers rather than a
+    // phase above them.
+    world.step_soil_water();
 }
 
 /// Sweep one region against any `CellSurface` — `World` directly for the
@@ -380,7 +385,7 @@ fn on_a_branch<S: CellSurface>(surface: &S, x: i32, y: i32) -> bool {
 ///
 /// Returns whether anything was written, so the caller can keep its own
 /// "did this cell do something" bookkeeping honest.
-fn update_soil_water<S: CellSurface>(surface: &mut S, x: i32, y: i32) -> bool {
+pub(crate) fn update_soil_water<S: CellSurface>(surface: &mut S, x: i32, y: i32) -> bool {
     if !soil_water_enabled() {
         return false;
     }
@@ -578,10 +583,10 @@ fn update_soil_water<S: CellSurface>(surface: &mut S, x: i32, y: i32) -> bool {
         }
         if moisture > there {
             moisture -= moved;
-            surface.set(x + dx, y + dy, n.with_aux(there + moved));
+            surface.set_moisture(x + dx, y + dy, n.with_aux(there + moved));
         } else {
             moisture += moved;
-            surface.set(x + dx, y + dy, n.with_aux(there - moved));
+            surface.set_moisture(x + dx, y + dy, n.with_aux(there - moved));
         }
     }
 
@@ -594,13 +599,13 @@ fn update_soil_water<S: CellSurface>(surface: &mut S, x: i32, y: i32) -> bool {
             let moved = ((surplus as f32 * SOIL_DRAINAGE_RATE) as u16).min(room);
             if moved > 0 {
                 moisture -= moved;
-                surface.set(x, y + 1, below.with_aux(soil_moisture(below) + moved));
+                surface.set_moisture(x, y + 1, below.with_aux(soil_moisture(below) + moved));
             }
         }
     }
 
     if moisture != here {
-        surface.set(x, y, cell.with_aux(moisture));
+        surface.set_moisture(x, y, cell.with_aux(moisture));
         // **The other place soil gets wet**, and the second of the only two
         // moments a damp cell can be put on the drying schedule -- see
         // `evaporation::schedule_damp_soil`. It has to happen here, while
@@ -648,6 +653,34 @@ fn soil_water_enabled() -> bool {
     *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_SOIL_WATER").as_deref() != Ok("off"))
 }
 
+/// **Whether soil moisture runs as its own phase or on the CA sweep.**
+/// `PIXEL_PHYSICS_MOISTURE=sweep` restores the pre-2026-09-01 placement,
+/// which is the control arm every measurement of this change is paired
+/// against.
+///
+/// The phase is the default because the sweep placement is what made a bed of
+/// plants cost 63% of the lab's tick: a wetness change is not a movement, but
+/// writing one dirtied a 64x64 chunk on the movement channel, and a dirty
+/// chunk buys the CA sweep *and* `field::step`'s five-pass solve. See
+/// `World::step_soil_water` and
+/// `Reports/evolution-lab-frame-cost-2026-09-01.md`.
+///
+/// **What the two arms genuinely differ on**, beyond cost, so a divergence is
+/// read as expected rather than as a bug:
+///
+/// - **Ordering.** On the sweep, a grain absorbed water and then moved in the
+///   same visit, so it carried what it had just taken. As a phase, absorption
+///   lands after the movement — one tick later for a grain in flight, and no
+///   different at all for the settled ground this mechanic is actually about.
+/// - **Parallelism.** The sweep ran it per chunk across rayon workers; the
+///   phase is serial. Both are deterministic; they are not the same order.
+///
+/// Read once per process through a `OnceLock`.
+pub fn moisture_phase_enabled() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_MOISTURE").as_deref() != Ok("sweep"))
+}
+
 /// The ablation switch for the crumb rule above, on by default.
 ///
 /// `PIXEL_PHYSICS_CRUMB=off` makes a worked cell keep standing however little
@@ -686,7 +719,15 @@ fn update_powder<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: Cell, ri
     let holds_water = def.water_capacity > 0;
     let clings = def.clings_to_wood;
     let self_supporting = def.self_supporting;
-    let wet_changed = if holds_water { update_soil_water(surface, x, y) } else { false };
+    // **Only in the control arm.** With the phase on, moisture is
+    // `World::step_soil_water`'s business and running it here as well would
+    // both double the transport rate and put every wetness change back on the
+    // movement dirty channel, which is the entire cost this change removes.
+    let wet_changed = if holds_water && !moisture_phase_enabled() {
+        update_soil_water(surface, x, y)
+    } else {
+        false
+    };
 
     // **A worked wall holds itself up -- the whole of why a burrow can be a
     // place rather than a five-frame event.**

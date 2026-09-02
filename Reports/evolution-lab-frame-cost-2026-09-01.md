@@ -150,8 +150,10 @@ because the stand died — the ablated arm's stand is 25% *larger*.
 
 ## 4. What to do about it, in the order the evidence supports
 
-**1. Take soil moisture off the CA sweep's wakefulness path.** Worth 2.7x by
-the ablation above, and it is the only item on this list in that class.
+**1. Take soil moisture off the CA sweep's wakefulness path. — BUILT, 2026-09-02.
+See §8.** Predicted 2.7x from the ablation; delivered **1.69x**, and the
+difference between those two numbers is itself worth reading, because it is the
+gap between removing work and relocating it.
 Moisture transport is not a *movement*: a wetness change needs its own cell
 and the four it exchanges with reconsidered, and nothing else — not the
 `reach`-wide movement neighbourhood, and not a chunk kept awake for the CA
@@ -275,3 +277,95 @@ cargo run --release --example labdial -- mode=rate seconds=2 warm=2500
 Pin `RAYON_NUM_THREADS` for anything whose counter you intend to compare —
 `CLAUDE.md`'s note on counters downstream of the checkerboard — and alternate
 the arms rather than running one after the other.
+
+
+---
+
+## 8. Built: moisture as its own pass — 2026-09-02
+
+Owner: *"let's test it."* So it is built, measured and behind a switch.
+
+`update_soil_water`'s three aux-only writes — the cell's own moisture, a
+capillary neighbour's, and the cell below on drainage — now go through
+`World::set_soil_moisture`, which writes quietly, marks the chunk for the
+**renderer** (wet soil is a different colour, and `touched_chunks` is filled
+from settledness transitions that a quiet write does not produce), and marks it
+on a **second dirty channel** that only `World::step_soil_water` reads. Its
+infiltration writes deliberately still go through the ordinary `set`: those
+consume a `Liquid` cell outright, which is a material change and must wake the
+movement sweep like any other.
+
+`PIXEL_PHYSICS_MOISTURE=sweep` restores the old placement. Everything below is
+paired against it, alternating, three runs a side.
+
+| | tick | awake chunks | field solves/f | sweep+moisture | field | plant cells | achieved |
+|---|---|---|---|---|---|---|---|
+| on the sweep | 6.42 ms | 20.4 | 39.4 | 3.55 | 1.85 | 1,207 | 2.6x |
+| its own pass | **3.81 ms** | **8.3** | 33.1 | 1.55 | 1.25 | **1,322** | **4.4x** |
+
+**1.69x on the tick, and the stand came out 9.5% larger** — which is the
+number that says this is a speed-up rather than a subtraction. `CLAUDE.md`'s
+*a cost that vanishes may be work that vanished* is the failure to rule out
+here, and `soil_water_stats` is what rules it out: the pass reports **4,216
+cells visited, 3,688 of them soil, 626 changed** per tick, against the 45,442
+the sweep used to walk for them.
+
+### Why 1.69x and not the ablation's 2.7x
+
+The ablation *removed* the work; this *relocates* it. Moisture's own cost, when
+it was timed as a separate phase, was **1.22 ms** — about 300 ns per soil cell,
+and essentially all of it `HashMap` probing: `update_soil_water` makes ~10
+`World::get`/`set` calls per cell and `World::get` resolves a `ChunkCoord`
+through the map every time. The sweep avoids this by handing each worker a
+`ChunkView` with the chunk's array in hand. **That is the next step for this
+phase, and it is worth roughly the same again**: a `ChunkView` over the
+moisture channel, which reach-1 writes make safe under the existing
+checkerboard.
+
+**A chunk-local prefilter was tried first and made it slower** — 1.37 ms
+against 1.23 — and the counter beside it says why: **3,688 of the 4,216 cells
+marked are soil**, 88%, because the marked region is a patch of the soil bed.
+There was nothing to reject. In `dead-ends.md`.
+
+### Where the phase lives, and the failure that decided it
+
+It was written as a `frame::step` phase — visible, separately timable, and the
+natural home for a thing the frame orchestrates. **It is inside
+`parallel::step` and `update::step` instead**, at their ends, because as a
+frame phase it was invisible to every test and probe that drives the world by
+calling a CA driver directly. There are **155 such call sites** in this tree;
+three of them went red with nothing wrong in the code, and the rest would have
+diverged silently from the game. Weather and spring sit at the top of those
+same two functions for the same reason, and say so in the same words: *both
+drivers, deliberately.*
+
+The cost of that placement is that the harnesses' `ca_sweep` column now carries
+moisture, so the two cannot be separated in a phase table — only across the
+switch. Recorded because the 1.22 ms figure above came from the brief window
+when it *was* separable.
+
+### What the gates said
+
+`cargo test --release --lib` **1,316 passed / 0 failed**, plus `ascii`,
+`acceptance`, `worldgencheck`, `docscheck` and clippy, all clean.
+
+Seven tests went red on the first build and **six were the placement**, fixed
+by the move above. The seventh is worth recording because it is a guard
+problem rather than a code one:
+`lab::tests::copies_carry_what_was_planted_and_still_diverge` clones a bed into
+three copies and asserts every copy still has a plant 600 frames later. Its bed
+held **one organism of twelve cells** against **52 ants**, and plants do not
+read `world.seed` after germination — so the copies' stands grow identically
+and the only thing that differs between them is where the ants walk. The
+assertion was three reseeded coin flips on whether one seedling gets eaten. It
+failed on seed 1 only; seeds 2 and 3 passed on **both** sides of the change,
+and the control arm passed on all three. The bed now starts from 12 founders
+(8 organisms, 61 cells at the moment of cloning); not one assertion moved.
+
+### What is left, in order
+
+1. **A `ChunkView` for the moisture pass** — worth about another 1.0 ms of a
+   3.8 ms tick, and the reasoning is above.
+2. **The field's all-or-nothing early-out.** Still the largest single item at
+   1.25 ms of 3.81, and still gated on *any* chunk being awake anywhere.
+3. **The positional RNG**, which unlocks §5's region work.

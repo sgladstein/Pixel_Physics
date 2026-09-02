@@ -1773,7 +1773,13 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   acts**, so *any* narrowing of the swept region is a behaviour change however
   provably correct it is — which is why per-row dirty spans measure a real
   1.19x and still ship off by default, and why the unlock is a positional RNG
-  rather than a better region.
+  rather than a better region. **§8 is the fix, built 2026-09-02**: moisture on
+  its own dirty channel and its own pass, **tick 6.42 -> 3.81 ms and the dial
+  2.6x -> 4.4x with a 9.5% larger stand**, plus two findings the build produced
+  that the measurement could not — a phase written into `frame::step` is
+  invisible to the **155 call sites** that drive the world through a CA driver
+  directly, and a chunk-local prefilter over the moisture region is *slower*
+  because 88% of that region is soil.
 
 ## Licensing and distribution
 
