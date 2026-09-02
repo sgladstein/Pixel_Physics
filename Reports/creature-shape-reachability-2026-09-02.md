@@ -2,8 +2,9 @@
 
 Answers three pre-checks `Reports/creature-genome-flexibility-2026-09-02.md`
 §13e names before its articulated-body proposal (§13c) is built: does
-articulation recover mobility, is shape legible at all at this cell scale,
-and can the owner tell the candidates apart. Read alongside
+articulation recover mobility, is shape **findable** at all at this cell
+scale (not the same question as *legible* — see §2's correction), and can
+the owner tell the candidates apart. Read alongside
 `Reports/creature-appearance-design.md` §1-§5, which is the evidence §13
 rests on and partly argues with.
 
@@ -31,7 +32,7 @@ engine, listed in `Reports/instruments.md`) and one existing species
    corrected argument already said this case gets no help. Articulation's
    measured value is **length at near-chain mobility, provided every part
    stays narrow — not width, and not the insect outline.**
-2. **Is shape legible at all at 36 cells?** No, on the instrument that
+2. **Is shape findable at all at 36 cells?** No, on the instrument that
    exists. Two 36-cell bodies of different composition (a filled 6x6 block, a
    three-segment waisted "insect" silhouette) came out **~0.5% apart on ink**
    across 5 seeds (range 0.1-1.6%), not the ~15% §13d's threshold-crossing
@@ -41,7 +42,14 @@ engine, listed in `Reports/instruments.md`) and one existing species
    not a failure of the check: **on this evidence D1's lever is extent, not
    architecture**, for findability at least. §2 also states what effect size
    this design had the power to detect, since a null with no power statement
-   is not evidence of absence.
+   is not evidence of absence. **§2.1 closes the follow-up question this
+   raises**: extent grown as *length at the mobility-safe width §1 found*
+   (2 cells wide, 18 tall, still 36 cells) scores within the same noise band
+   as extent grown as a compact block — the mobility recommendation and the
+   *findability* recommendation are not in tension with each other, provided
+   the economics are fixed first (below). Whether either is in tension with
+   the *legibility* question point 3 asks is still open — see the
+   recommendation below, corrected after review.
 3. **Can the owner tell them apart?** Posted, not yet answered. Six body
    shapes (`ant`, `beetle`, `uniform3`, `uniform5`, `forward_taper`,
    `backward_taper`) as a blind gallery card, `20260902T194120383Z-3860b1`,
@@ -53,9 +61,64 @@ than a chain that still reads as an animal once §3 answers whether these
 silhouettes clear that bar — but do not expect it to produce the owner's
 stated insect silhouette (small head, big abdomen), because that specific
 shape is measured to cost the same mobility as a plain rigid block, with or
-without articulation. If the real goal is "creatures that read as more than
-a chain," on §2's evidence that is answered by making them **bigger**, not by
-giving them a different architecture while narrow.
+without articulation.
+
+**§2's "extent, not architecture" is a claim about findability, and only
+that.** *Findability* is settled: on §2 and §2.1's evidence, being seen at
+all is answered by being bigger, not by being a different shape, whether
+compact or long and narrow. *Whether a body reads as an animal rather than
+a shape merely large enough to notice* is a different question — the
+owner's actual complaint — and is exactly what §2 says no instrument here
+measures and what §3 was built to ask. §3's card is still open, and per its
+own caveat (added below) a "no difference" verdict on it would not settle
+this either, because the card cannot show the one thing articulation adds.
+**So "make it bigger, not differently shaped" is not yet the answer to the
+owner's question — it is the answer to a narrower question the owner's
+question contains.** Read §2's findability conclusion and §3's open
+legibility question as separate claims, not one following from the other.
+
+One prerequisite precedes acting on either:
+`creature-genome-flexibility-2026-09-02.md` §11e/§12d already found that
+body size buys nothing in today's economy (more meat for a predator and
+nothing else) — not merely underpriced, checked against source: every
+size-linked term (`idle_cost_per_cell`, `move_cost_per_cell`) is a cost, and
+`crop_capacity` is explicitly flat, so there is no revenue line for size at
+all. A heritable size gene would shrink rather than grow until that is
+fixed — extent is the right *shape* lever, but it needs a reason to be
+selected for before it is worth building.
+
+**Scaling `crop_capacity` with body cells is not that reason.** This report
+briefly recommended it, on the suggestion of the session working
+`creature-genome-flexibility-2026-09-02.md` §13/§14 — the same session
+withdrew the recommendation, by name, minutes later, with the arithmetic
+below, and asked that the withdrawal carry its attribution as visibly as
+the original claim did. With capacity
+`k·b` (`b` body cells), a trip that fills the crop every time delivers
+`k·b` cells at a cost of `idle·b·T + move·b·(1+k)·D`, so cost per delivered
+cell is `(idle·T + move·(1+k)·D) / k` — **`b` cancels exactly**: size is
+neutral, not a payoff. Drop the always-fills assumption (encounter-bounded
+delivery, a fixed `F` independent of `b`) and cost per delivered cell
+becomes `(idle·b·T + move·b·(1+k)·D) / F`, **linear in `b`** — size is then
+strictly *worse*. There is no regime in which it is a payoff, and the
+saturation argument that looked like it rescued the lever is the same
+argument that makes the encounter-bounded case worse, not better. It would
+also re-normalise `BrainInput::Carrying` (divided by `crop_capacity`,
+`creature.rs:2213`) for every existing genome, and `crop_capacity` is
+joules of face value, not cells, so deriving it from a cell count needs an
+unpriced constant nobody has derived.
+
+**The payoff that survives the arithmetic is §11d severing plus §13
+articulation, and it is not available yet.** A bite severs at the nearest
+joint and costs one part rather than about half a chain's cells, so a
+bigger, more-segmented body dilutes the fatal target — cost linear in
+cells, benefit (survivability) saturating once there are enough parts that
+a bite is survivable, a genuine interior optimum and the owner's own stated
+preference ("size... should buy survival"). It is downstream of §11c's
+bite gate, which must land as one atomic commit authoring the whole food
+table, and a separate session is live on armour and severing. So: the
+correct answer is that this prerequisite has a real candidate payoff, it is
+not buildable by either of us right now, and crop capacity is not a
+substitute for it.
 
 ## 1. Q1 — does articulation recover mobility?
 
@@ -138,6 +201,17 @@ presumably scaled to — a different preset was not tested, so treat "3" as
 specific to `rolling` and "there is a sharp width threshold, not a gradient"
 as the transferable claim.
 
+**This whole mechanism is an outdoor-game result and does not transfer to
+the evolution lab as stated.** Checked by the `creature-genome-flexibility`
+session: `src/lab/scene.rs` builds the lab bed as flat, uniform soil across
+its full width, with no worldgen pass anywhere in `src/lab/`. A rigid
+footprint failing to fit against terrain relief — the mechanism behind
+every number in this section — is absent there by construction; width may
+still cost something in the lab, but through excavation volume and
+`penetration_resistance` against `dig_force`, not through `mode=walk`'s
+blocked-move counter. A reader designing a lab body around "stay ≤2 cells
+wide" would be solving a constraint the lab world does not impose.
+
 ### 1.4 The taper question, measured rather than assumed
 
 §13c's corrected mobility argument: blocking is set by the **leading** part,
@@ -159,6 +233,16 @@ a 3x3 abdomen (`forward_taper`) and its mirror, a 3x3 head plus a 2x2 tail
 | `forward_taper` (small head, big abdomen) | 14 | 12 | 53.6% | 56.6% | 22.5% | 73.5% |
 | `backward_taper` (big head, shrinking tail) | 14 | 12 | 55.6% | 56.2% | 35.0% | 68.0% |
 
+**These numbers are a floor for a monolithic body, not a measurement of an
+articulated one.** No genuinely decoupled taper (independent parts, one
+following the other) has been built or measured; "tapers cost 54-57%" is
+not a claim this report or any other makes. What follows is the reasoning
+for why an articulated taper is unlikely to beat this floor by much, not a
+second measurement of it — flagged in its own line because the shorthand
+is exactly the kind of scope-dropping this report and
+`creature-genome-flexibility-2026-09-02.md` §13c both had to be corrected
+for elsewhere.
+
 **Both land at the same ~54-57%, statistically indistinguishable from each
 other and from the plain `ant_block`/`ant_wide` numbers above, regardless of
 which end carries the wide segment.** For a monolithic body this is expected
@@ -176,16 +260,20 @@ anywhere sets the whole body's cost, independent of position.** This is a
 sharper and more pessimistic statement than §13c's "taper backward is free"
 reads on its own, and it is measured rather than argued.
 
-## 2. Q2 — is shape legible at all at 36 cells?
+## 2. Q2 — is shape findable at all at 36 cells?
 
 `creature-appearance-design.md` §4: two 9-cell bodies (a filled 3x3, a
 waisted 5x2) scored **0.8% apart on ink** and inside the noise on contrast,
 concluding "extent is the only lever" at that size. §13d's counter-argument:
 the owner's "it is a perfect cube" verdict was a shape reading delivered at
-36 cells, so the two findings may sit on opposite sides of a legibility
-threshold rather than contradicting each other — falsifiable as "0.8%
-becomes ~15%" (threshold holds) against "stays near 1%" (the appearance
-report generalises, and articulation's value is extent alone).
+36 cells, so the two findings might sit on opposite sides of a threshold
+rather than contradicting each other — falsifiable as "0.8% becomes ~15%"
+(threshold holds) against "stays near 1%" (the appearance report
+generalises, and articulation's value is extent alone). **What this section
+tests is the findability operationalisation of that prediction**, because
+`ink` is a findability measure — whether the owner's "reads as a shape"
+verdict is well captured by findability at all, rather than by something
+`ink` cannot see, is the question §3's own correction (below) leaves open.
 
 New instrument, `examples/creature_shape36_probe.rs`, reusing
 `creature_look.rs`'s method (paired with/without render on real, grown
@@ -228,15 +316,65 @@ open exactly what §13d's own "standing gap" names: no instrument here
 measures whether a body *reads as an animal* rather than being merely
 *findable* — which is what §3 asks instead.
 
+### 2.1 Does "extent" have to mean compact?
+
+Added after a follow-up question about §0's recommendation ("if the goal is
+a creature that reads as more than a chain, the evidence points at extent,
+not architecture"): every extent measurement above, and every one in
+`creature-appearance-design.md` §2, grew the body as a **compact block** (up
+to 4x4 at 16 cells there, a 6x6 at 36 here). §1.3 found the mobility-safe
+zone is the opposite shape — **width ≤2, however long** — so before
+recommending extent-via-length as the way to grow a creature without paying
+§1's rigid-body mobility tax, the two findings need to be checked together:
+does a long, narrow body keep the *findability* win a compact block gets, or
+was that win actually about being square-ish? (Findability, not legibility —
+see the correction at the end of §3 for why that distinction matters here.)
+
+A third 36-cell arm, `narrow36` (`block(2, 18)` — 2 cells wide, 18 tall, the
+same mobility-safe footprint §1.3 measured at 8-13% blocked), added to
+`creature_shape36_probe.rs` and run against `block36` for 6 seeds:
+
+| seed | block36 ink | narrow36 ink | diff |
+|---|---|---|---|
+| 1 | 5220 | 5233 | 0.2% |
+| 2 | 5146 | 5157 | 0.2% |
+| 3 | 5189 | 4506 | 13.2% |
+| 4 | 5221 | 5163 | 1.1% |
+| 5 | 5192 | 5073 | 2.3% |
+| 6 | 5224 | 5070 | 2.9% |
+| **mean** | | | **3.3%** |
+
+Five of six seeds land at 0.2-2.9%, the same band `block36` vs `waisted36`
+scored (0.1-1.9%, §2's table); seed 3's 13.2% is one placement-driven
+outlier of exactly the kind this line keeps warning about (a single run is
+a sample from a wide distribution), not a second data point. **Extent
+pursued as length at a mobility-safe width keeps the same findability as
+extent pursued as a compact block.** The two findings are not in tension:
+a long, narrow, jointed body (what §1.4's "every part ≤2 cells wide" case
+actually looks like) is not a findability compromise for being mobility-safe.
+
+**What this does not check:** `ink` says the body puts the same amount of
+"not-ground" on screen either way; it does not say a 2x18 silhouette *reads
+as an animal* rather than as a root, a vine, or a crack in the rock — that
+is §3's question, and `narrow36` is not one of the six shapes on that card.
+Nor does it touch the economics: `idle_cost_per_cell` and
+`move_cost_per_cell` are both charged per cell (`CLAUDE.md`, 2026-08-30), so
+a 36-cell body of either shape costs 18x the shipped two-cell ant's upkeep,
+and `creature-genome-flexibility-2026-09-02.md` §11e/§12d already flags that
+size buys nothing in the current economy — an unguided heritable size gene
+would shrink, not grow, whichever shape it grew into. Pursuing extent as a
+design direction is contingent on that being fixed first; this section only
+says the shape-findability half of the trade is not the blocker.
+
 ## 3. Q3 — can the owner tell them apart?
 
 New instrument, `examples/creature_candidate_render.rs`: since there is no
-multi-part `BodyPlan` to render, and a static or smoothly-walking body's
-silhouette does not depend on whether its segments are one rigid plan or
-several parts following each other (articulation changes how a body decides
-to *move*, not what its cells look like once placed), this stamps a single
-`Rigid` body shaped like each candidate and crops/zooms it exactly as
-`creature_scale mode=size` already ships.
+multi-part `BodyPlan` to render, this stamps a single `Rigid` body shaped
+like each candidate and crops/zooms it exactly as `creature_scale mode=size`
+already ships — on the premise that a body standing still or walking in a
+straight line over flat ground looks the same whether its segments are one
+rigid plan or several parts following each other. **That premise is scoped,
+not general, and the scope matters — see the correction below.**
 
 Six shapes, one seed (7), at `ant_block`'s economics throughout:
 
@@ -255,6 +393,31 @@ inbox` (or `get 20260902T194120383Z-3860b1`) in a later session for the
 verdict; nothing else in this report depends on it, but the recommendation
 in §0 should be revisited once it lands.
 
+**Correction, from independent review by the session working
+`creature-genome-flexibility-2026-09-02.md` §13/§14: a still render of a
+monolithic proxy cannot show the one thing articulation actually adds.**
+The rigid-proxy premise above holds only for a body standing still or
+walking straight over flat ground. The moment a body turns a corner or
+crosses uneven terrain, a genuinely articulated body's trailing parts
+follow the path the leading part traced and the body **bends**; a
+monolithic `Rigid` body can only translate as one fixed shape. That bend is
+plausibly the visual difference between "a chain" and "an animal" — and
+`motion_look`'s own finding that a *moving* body has 0-2 decoys against a
+*still* one's 141 says motion is where this world's discrimination lives at
+all. So card `20260902T194120383Z-3860b1` asks about six shapes in the
+least informative state on both axes at once: still, and unable to show
+the bend.
+
+**A positive answer on the card still counts** — if the owner picks a
+silhouette out of six stills, that is real information. **But a "no
+difference" verdict would not settle Q3**, and neither §0's recommendation
+nor anything else in this report should treat one as doing so. The re-test
+that could actually settle it is the same six shapes **in motion**,
+crossing uneven ground — `examples/filmstrip.rs -- gif=1` or
+`examples/motion_look.rs` — which needs the real mechanism (or at least a
+harness-level approximation of following) to produce, and so is Track B's
+to run once articulation exists, not this session's to build.
+
 ## 4. What this does and does not settle
 
 **Settled:** a rigid footprint's mobility is governed by width, sharply
@@ -270,8 +433,12 @@ by §1.3's atomic measurements — that needs the real mechanism, which is
 `Reports/creature-genome-flexibility-2026-09-02.md` §13's Track B, explicitly
 out of scope here per §12a (body and metabolism share one budget, and the
 creature session is moving it now). Whether any of these six silhouettes
-reads as an animal to the owner (§3, pending). Whether the width-3 threshold
-found here on `rolling` holds on other presets.
+reads as an animal to the owner (§3, pending — and per §3's correction, a
+null verdict on the pending card would not settle this on its own; the
+motion re-test would be needed). Whether the width-3 threshold found here
+on `rolling` holds on other outdoor-game presets — and it does not apply to
+the evolution lab at all, whose flat, untextured bed has no terrain-relief
+mechanism for a wide footprint to fail against (§1.3).
 
 **Not attempted, deliberately:** no literature (Toffin or otherwise) was
 used as evidence that any mechanism here works — every number above came
