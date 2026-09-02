@@ -26,6 +26,37 @@ Answers given in the same conversation, and binding on everything below:
 
 ---
 
+## 0. The recommendation, stated once
+
+**Build the creature Gate 2 — a `selection_arena` for animals — and take the
+baseline on today's ant, before any of the mechanism work below.**
+Recommended by this document; put to the owner 2026-09-02 and **accepted**.
+
+It is one harness, it is modelled on two that already exist
+(`selection_arena` for plants, `labbatch` for the rack), and it is not a
+detour: it is the **control arm** the nest change needs anyway, taken on the
+same binary in the same session, which is what the paired-comparison rule
+requires.
+
+**Why it is not optional.** The lab's own coordinator note has carried the
+same line through five rounds — *"Gate 2, does selection have teeth in this
+bed, has still never been run, and `selection_arena`'s whole finding is that a
+null there is a statement about the world rather than about the genome. Until
+it passes, every evolution result measured in this bed is unvalidated."* And
+the noise floor is measured: `labbatch`, 12 seeds at 9,000 frames, puts the
+**world seed alone** at **2.42x-3.12x** across the lab census with no true
+effect present.
+
+So without it, the outcome of the whole programme below is unreadable in the
+one direction that matters. If the de-hardcoded ancestor stops foraging, we
+cannot distinguish *the mechanism failed* from *this bed never selected for
+anything* — and the creature line has now ended three times with the finding
+that the answer was the ecology and not the creature.
+
+Full argument in §9; the staging is §10.
+
+---
+
 ## 1. What already answered this, and must not be re-derived
 
 The owner made a near-identical objection on 2026-08-30 —
