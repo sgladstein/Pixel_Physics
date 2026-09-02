@@ -247,6 +247,49 @@ fn control(radius: i32) {
     println!("control: PASS -- the estimator separates the three by {:.4} / {:.4}\n", crest - flat, flat - notch);
 }
 
+/// **The bed where building actually happens**, and the second arm exists
+/// because the first one alone would repeat §14i's own mistake.
+///
+/// `LabBox` lays a level soil bed, so its surface is flat by construction and
+/// a sensor reading flat there says nothing about a sensor on a *worked*
+/// bank. This is `burrow_probe arms=colony`'s bed -- a soil bank with an open
+/// face and a colony beside it -- which is where spoil is dropped, where
+/// mounds form, and therefore where a curvature sense would live. Measuring
+/// only the flat bed and reporting the channel dead would be exactly the
+/// "the scene may not contain the phenomenon" error §14i lists first.
+///
+/// The founder offset wraps inside the strip rather than translating out of
+/// it, for the reason `burrow_probe` now carries in full: a scene parameter
+/// derived from the seed by translation eventually leaves the region the
+/// scene is valid in, silently.
+fn bank_bed(seed: u64, ants: i32) -> World {
+    let (w, h) = (256i32, 320i32);
+    let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
+    let soil_id = world.materials.id_of("soil").expect("soil");
+    let nest_id = world.materials.id_of("nest").expect("nest");
+    let floor = h - 8;
+    let (bank_x0, bank_x1) = (40i32, 160i32);
+    for x in 0..w {
+        for y in floor..h {
+            world.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+        }
+    }
+    for x in bank_x0..bank_x1 {
+        for y in (floor - 30)..floor {
+            world.set(x, y, Cell::new(soil_id, 0).with_attached(true));
+        }
+    }
+    for x in 16..bank_x0 {
+        world.set(x, floor, Cell::new(nest_id, 0).with_attached(true));
+    }
+    let strip = bank_x0 - 17;
+    let off = (seed as i32 - 1) * 3;
+    for i in 0..ants {
+        world.plant_ant(16 + (off + i % 10 * 2).rem_euclid(strip), floor - 1 - (i / 10));
+    }
+    world
+}
+
 fn main() {
     let seeds: u64 = arg("seeds").unwrap_or(12);
     // 3,000 rather than the 9,000 a lab harness usually takes: the colony in
@@ -256,15 +299,20 @@ fn main() {
     // default reads all-zero for exactly this reason.
     let frames: u64 = arg("frames").unwrap_or(3_000);
     let radius: i32 = arg("radius").unwrap_or(DEFAULT_RADIUS);
-    println!("spoil_curvature: seeds={seeds} frames={frames} radius={radius} (disc {} cells)", (2 * radius + 1) * (2 * radius + 1) - 1);
+    let bed: String = arg("bed").unwrap_or_else(|| "lab".into());
+    let ants: i32 = arg("ants").unwrap_or(55);
+    println!("spoil_curvature: bed={bed} seeds={seeds} frames={frames} radius={radius} ants={ants} (disc {} cells)", (2 * radius + 1) * (2 * radius + 1) - 1);
     control(radius);
 
     let (mut all_surface, mut admitted, mut stood) = (Vec::new(), Vec::new(), Vec::new());
     let mut stood_with_bodies: Vec<f32> = Vec::new();
     let mut ants_seen = 0usize;
     for seed in 1..=seeds {
-        let spec = LabBox { colonies: 1, founders: 0, seed, ..LabBox::default() };
-        let mut w = spec.build();
+        let mut w = match bed.as_str() {
+            "lab" => LabBox { colonies: 1, founders: 0, seed, ..LabBox::default() }.build(),
+            "bank" => bank_bed(seed, ants),
+            other => panic!("unknown bed={other}; try lab or bank"),
+        };
         // Sample where ants stand *through* the run, not only at the end: the
         // realised range of a sense is what it saw, and an end-state census
         // is a snapshot of a trajectory (§14i).
