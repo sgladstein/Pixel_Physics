@@ -18,6 +18,7 @@
 //! `frames=N` warms the box for N ticks first (default 900, enough for the
 //! founders to have grown into something the pages have numbers about).
 
+use pixel_physics::lab::roster;
 use pixel_physics::lab::ui::{Action, Panel, Tool};
 use pixel_physics::lab::{scene::LabBox, Lab, HEIGHT, WIDTH};
 
@@ -143,6 +144,140 @@ fn main() {
         let at = centre(&lab, Action::Panel(open));
         click(&mut lab, at);
     }
+
+    // 6a2. **The two rosters, opened the way a player opens them** -- through
+    // the PLANTS/ANTS page's own LIST heading, because the bar is full and
+    // there is no chip for them. Every tile prints a count: an image shows a
+    // table and cannot show whether the click resolved to anything, and a
+    // roster with `pinned: None` under it looks exactly like one that works.
+    for (cover, list, verb) in [
+        (Panel::Plants, Panel::PlantList, "PLANTS"),
+        (Panel::Ants, Panel::AntList, "ANIMALS"),
+    ] {
+        // Leaving whatever is open, by its own button. A roster is left by
+        // its BACK chip rather than by a bar button, which is the difference
+        // that made this loop panic the first time it ran.
+        if let Some(open) = lab.ui.panel {
+            let at = match open {
+                Panel::PlantList => centre(&lab, Action::Panel(Panel::Plants)),
+                Panel::AntList => centre(&lab, Action::Panel(Panel::Ants)),
+                _ => centre(&lab, Action::Panel(open)),
+            };
+            click(&mut lab, at);
+            let _ = shot(&mut lab);
+        }
+        let at = centre(&lab, Action::Panel(cover));
+        click(&mut lab, at);
+        // **A frame first.** The layout is retained from the last painted
+        // frame, so nothing on a page that has not been drawn is clickable --
+        // the same constraint the warm draw at the top of this file exists
+        // for, and it applies again every time a click opens something new.
+        let _ = shot(&mut lab);
+        // The heading is a `Body::Head` row on the cover page, so it is a
+        // real widget and `widget_rect` can find it -- which is the whole
+        // reason it is a heading rather than a chip.
+        let at = centre(&lab, Action::Panel(list));
+        click(&mut lab, at);
+        let _ = shot(&mut lab);
+        // **The list is rebuilt through the page's own sort accessor**, not
+        // with a guessed one. The first run of this harness used
+        // `SortKey::Slot` and reported the click pinning ant 41 where 11 was
+        // expected -- which was the harness asking a different question than
+        // the page was answering, and it is exactly the mismatch the printed
+        // pair is here to catch.
+        let kingdom = kingdom_of(list);
+        let (key, desc) = lab.ui.roster_sort_key(kingdom);
+        let rows = roster::rows(&lab.world, kingdom, key, desc, lab.ui.roster_filter());
+        fired.push(format!("LIST {verb} opened: {} with {} rows", lab.ui.panel == Some(list), rows.len()));
+        tiles.push((format!("ROSTER: {verb}"), shot(&mut lab)));
+
+        // Pin the third row, or the first on a short list. The identity is
+        // printed rather than the index, because the index is the thing that
+        // is not an identity.
+        if !rows.is_empty() {
+            let want = 2.min(rows.len() - 1);
+            let at = centre(&lab, Action::RosterSelect(want));
+            click(&mut lab, at);
+            fired.push(format!(
+                "LIST {verb} row {want} pinned: {:?} (expected {:?}) -- notice {:?}",
+                lab.ui.pinned(),
+                Some(rows[want].who),
+                lab.ui.notice_text()
+            ));
+            tiles.push((format!("ROSTER: {verb} PINNED"), shot(&mut lab)));
+
+            // **Does the pin survive the thing moving?** The failure this
+            // whole identity exists to prevent is a walking ant leaving its
+            // own page behind, so the harness walks it.
+            let before = lab.ui.pinned();
+            let moved_from = rows[want].at;
+            lab.act(Action::TogglePhase);
+            for _ in 0..240 {
+                lab.advance(std::time::Duration::from_millis(16));
+            }
+            lab.act(Action::TogglePhase);
+            let _ = shot(&mut lab);
+            // A plant has no `chain`, so its position is its lowest cell --
+            // which is what the roster's own `at` uses, and what the marker
+            // is drawn at. Reading `chain` for both kingdoms printed `None`
+            // for every plant on the first run: a readout that says nothing
+            // moved because it was asking the wrong half of the state.
+            let now = roster::rows(&lab.world, kingdom, key, desc, lab.ui.roster_filter())
+                .into_iter()
+                .find(|r| Some(r.who) == lab.ui.pinned())
+                .map(|r| r.at);
+            fired.push(format!(
+                "LIST {verb} pin after 240 ticks: same {} alive {} -- was at {:?} now at {:?}",
+                lab.ui.pinned() == before,
+                lab.ui.pinned().is_some_and(|w| w.alive(&lab.world)),
+                moved_from,
+                now
+            ));
+            tiles.push((format!("ROSTER: {verb} PIN HELD"), shot(&mut lab)));
+
+            // **The payoff shot: the list put away, and the mark still on
+            // the box.** This is what the roster is for -- the list is how
+            // you find one, the marker is how you keep hold of it -- and it
+            // is the one tile that shows the world rather than a panel.
+            lab.ui.close_panel();
+            let held = lab.ui.pinned().and_then(|w| w.resolve(&lab.world)).map(|s| s.cells.len());
+            fired.push(format!(
+                "LIST {verb} marked on the box: pin {:?} owning {:?} cells",
+                lab.ui.pinned().map(|w| w.id),
+                held
+            ));
+            tiles.push((format!("MARKED: {verb}"), shot(&mut lab)));
+            lab.ui.toggle_panel(if verb == "PLANTS" { Panel::PlantList } else { Panel::AntList });
+            let _ = shot(&mut lab);
+
+            // Sorting, and the pin surviving the reorder underneath it.
+            let at = centre(&lab, Action::RosterSort(1));
+            click(&mut lab, at);
+            fired.push(format!(
+                "LIST {verb} sorted on col 1: {:?}, pin still {:?}",
+                lab.ui.roster_sort(),
+                lab.ui.pinned()
+            ));
+            tiles.push((format!("ROSTER: {verb} SORTED"), shot(&mut lab)));
+        }
+    }
+    // **A roster is left by its own BACK chip.** Unlike every other page
+    // here, no widget on screen carries `Action::Panel(PlantList)` while the
+    // roster is open -- the page has no bar chip, which is the whole reason
+    // it hangs off the PLANTS page -- so the usual "click whatever opened it"
+    // cannot aim at anything. Twice now this loop has found that, which is
+    // the harness doing its job: a page a synthetic click cannot leave is a
+    // page a player cannot leave either.
+    if let Some(open) = lab.ui.panel {
+        let at = match open {
+            Panel::PlantList => centre(&lab, Action::Panel(Panel::Plants)),
+            Panel::AntList => centre(&lab, Action::Panel(Panel::Ants)),
+            _ => centre(&lab, Action::Panel(open)),
+        };
+        click(&mut lab, at);
+        let _ = shot(&mut lab);
+    }
+    lab.ui.release_pin();
 
     // 6b. The rack, and the rack with a row picked -- which is the half that
     // carries the picture. Skipped on a one-chamber lab, where there is no
@@ -794,6 +929,14 @@ fn main() {
     println!("wrote {out}");
 }
 
+/// Which table a list page is.
+fn kingdom_of(panel: Panel) -> roster::Kingdom {
+    match panel {
+        Panel::AntList => roster::Kingdom::Creatures,
+        _ => roster::Kingdom::Plants,
+    }
+}
+
 fn blank() -> Vec<u8> {
     vec![0u8; (WIDTH * HEIGHT * 4) as usize]
 }
@@ -806,7 +949,13 @@ fn shot(lab: &mut Lab) -> Vec<u8> {
 
 /// The middle of the button for `action`, from the retained layout.
 fn centre(lab: &Lab, action: Action) -> (i32, i32) {
-    let r = lab.ui.widget_rect(action).expect("the bar has no button for this action");
+    let r = lab
+        .ui
+        .widget_rect(action)
+        // **Names the action.** The bare message cost a debugging round: with
+        // six `centre` calls in one loop, "the bar has no button for this
+        // action" says a click could not be aimed and not which one.
+        .unwrap_or_else(|| panic!("the interface has no button for {action:?} -- has a frame been drawn since it appeared?"));
     (r.x + r.w / 2, r.y + r.h / 2)
 }
 

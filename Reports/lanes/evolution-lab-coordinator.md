@@ -300,6 +300,171 @@ overturned:
 of 3.81, still gated on *any* chunk being awake anywhere); then the positional
 RNG, which unlocks the region work.
 
+## Round seven, 2026-09-01 — tracking individuals
+
+*Brief, owner: a table of all plants and all creatures you can click through
+with stats and a highlight; a life history for one individual; a genome summary
+in plain language; brainstorm the rest. Branch
+`claude/evolution-lab-tracking-iacu4z`. Owner's scoping answers: all three
+history tiers, dead individuals stay listed with a cause, order is tables →
+plain speech → history, and all four brainstormed extras (FOLLOW, sortable
+columns, side-by-side comparison, a lineage overlay).*
+
+**Landed so far: the rosters.** README's *"Roster status"* is the shipped
+behaviour. What it **overturned**, which is the part a later session cannot
+reconstruct:
+
+- **`Body::Head`'s hit target was built and thrown away.** `paint_page` has
+  always collected clickable headings into a `taps` vec, and the one caller
+  drawing a `Panel` through it passed `&mut Vec::new()`. Nothing had noticed
+  because no generic page had a clickable heading yet. Anything added to the
+  PLANTS / ANTS / BOX pages as a `Row::head` before this fix was a button
+  nobody could press.
+- **The bar has run out of spacings, and this is the number to carry
+  forward.** At the start of this round `pad=2 gap=1` fitted with 2 px spare on
+  row 0. **After merging round five, it does not fit at all** — row 0 overruns
+  by 4 px — and the only rung left is `pad=1 gap=1`, where **both rows sit at
+  exactly 508 of 508 with zero slack**. `layout` has nothing tighter to try.
+  So the bar is no longer "nearly full": the *next* widget on it, of any width,
+  fails `the_bar_fits_the_screen_and_no_two_widgets_overlap` outright.
+  **The pattern that works is a `Body::Head` row on a page that already has a
+  chip** — that is how both rosters are reached and it cost no painter code.
+  Round four's list of answers (a third row, a page, a removal) now has that
+  fourth entry, and it is the cheap one.
+- **A page with no bar chip has no way out, and nothing else here has that
+  shape.** Every other page is closed by pressing the chip that opened it; the
+  roster needed a `BACK` button of its own. The harness found it twice by
+  panicking, which is `labui` doing exactly its job.
+- **`OrganismState::born_frame` now exists**, stamped at `World::push_organism`.
+  The reason is identity: a handle is a 12-bit slot plus a 4-bit generation and
+  **is reused**, so a pin keyed on the handle alone follows a stranger after
+  sixteen turns of one slot. It doubles as `AGE`. **PR 3 was going to add this;
+  it is in already**, and the life record's counters hang off the same field.
+- **Two roster columns were vacuous and only the rendered table showed it.**
+  `HUNGRY` for all 52 ants (floor scaled off `body_energy` 480, what a corpse
+  is worth, against `start_energy` 200, what it lives on) and `HOME` for all 52
+  (`nest_memory` is a 3,000-tick sense window, not a place). Both are
+  `CLAUDE.md`'s *ask what your number counts when nothing is wrong*, in a
+  column.
+- **A guard was blind and had to be replaced, not widened.** *"Sort the same
+  list eight times and check the order holds"* stays green with the tie-break
+  deleted **and** `sort_unstable_by`, because a sort is deterministic inside
+  one build. The replacement asserts `roster::compare` is a **total** order —
+  `Equal` only against itself — so no implementation has a tie to make a choice
+  about. **Any future sort in this game wants that form**, not the repeat form.
+- **The two tables must not share a sort.** A sort is a *column index*, and
+  index 1 is SEED on one table and BANK on the other. Shared, the harness
+  reported a click pinning ant 41 where ant 11 was expected.
+
+**Round five's zero-cell plant shows up here.** Its loose end -- *"the census
+sees a live plant organism with zero cells, one at a time, intermittently"* --
+is a row on the roster with `CELLS 0`, and `roster::anchor_of` has to survive
+it: a plant with no cells has no lowest cell and no bounding box, so the
+marker falls back to the origin rather than panicking on an empty fold. That
+is a guard against the symptom and not a fix for the cause, which nobody has
+looked at.
+
+### Measured on this branch, and reusable
+
+- `labstats frames=90000` on the shipped bed: **3,099 seeds borne, 279
+  sprouted, 15 animals born, 64 dead**. So a run log recording every seed-set
+  is **90% seed-set** and drowns; recording only an individual's *first* seed
+  brings it to ~640 events per 90k frames, which a 2,048 cap covers for about
+  290,000 frames. **This changed the run log's design before it was written.**
+- **`eats` cannot be closed against anything and must not be mirrored
+  per-individual.** Measured on `ascii`'s colony: `eats 283 / pickups 265` at
+  2,000 frames and `1142 / 1017` at 12,000. It is incremented at two sites for
+  one food cell (`creature.rs:2702` into the crop, `:1948` a cell absorbed) and
+  the two comments disagree about what it means. Close a per-individual bite
+  count against **`pickups`**, which has one site. Filed as its own finding.
+- Frame-cost baseline for the next three PRs, `RAYON_NUM_THREADS=4`, `ascii`
+  colony: **mean 3.98–4.30 ms over 12,000 frames**, worst ~52–57 ms and **not
+  pinned by the aggregate** (`mean x frames` is ~51,600 ms), so quote the mean.
+
+### The genome in words — landed, and what it overturned
+
+README's *"Plain-speech status"* is the shipped behaviour. Three findings a
+later session cannot reconstruct:
+
+- **The two pheromone channels have no meaning in the engine, and assuming one
+  gets it backwards.** `brain.rs` describes A and B as two anonymous planes;
+  what a channel *means* is decided entirely by which weights emit onto it. The
+  first phrasebook hard-coded *"A is the food trail"* — and on the shipped ant
+  **every ant lays A all the time** (`Bias -> EmitA`), which pools it round the
+  nest, while **only a laden ant lays B** (`Carrying -> EmitB`), which marks
+  the way back from food. So A is the *home* scent and B is the *food* route,
+  the opposite way round. The label is now derived from the individual's own
+  emissions. **Anything else that reads a pheromone channel should derive its
+  meaning the same way** rather than writing it down.
+- **All of the ant's conditional behaviour is in the hidden layer, and none of
+  it is in the direct one.** Its twelve direct weights are unconditional; the
+  foraging loop is twelve hidden weights pairing a `Bias` offset against a
+  `Carrying` weight so the unit switches with the load. A reader that walks
+  only `Wiring::instincts` — which is the obvious thing to do, and what the
+  first version did — sees an ant that lays two scents and never follows
+  either. The pairs are push-pull (same condition wired twice with opposite
+  signs on sensor *and* output), so they collapse to one behaviour, not two.
+- **A fold group larger than the whole budget could never be opened**, in
+  `inspect_rows`. The rule was `cost <= room` for every group including the
+  chosen one, so clicking such a heading did nothing for ever. Latent since the
+  fold landed; nothing had hit it while the largest group was eleven rows
+  against fourteen.
+
+Also: `TRAIT_REPRODUCE_AT` had been **missing from `specimen_sections` since
+that group landed** — two of three body traits printed, and a page listing two
+numbers looks exactly like a page whose subject has two.
+
+**The phrase column is a hard constraint.** `page_rect` sizes the cell page to
+its widest row and clamps it onto the screen, so a long sentence widens the
+page and slides it over the roster — a thirty-character phrase hid three of
+eight columns. `PHRASE_COLUMNS = 26`, swept by
+`every_phrase_fits_the_column`. **Any future text on this page inherits that.**
+
+### The life record, tier one — landed
+
+README's *"Life record status"* is the shipped behaviour. Three things worth
+carrying:
+
+- **§B2 now has an organism-level counter, and it cost one boolean.** A plant
+  the support check fells whole leaves the world with `senescent == false` and
+  **no cause at all** -- `plant.rs`'s senescence rule is guarded on
+  `!cells.is_empty()`, and a whole-plant felling empties the list -- so it fell
+  through to slot reclamation indistinguishable from an organism allocated and
+  never given a cell. §B2 has only ever had *cell-level* numbers (654 living
+  cells severed per run) and could not say **how many plants**. Classifying
+  "no cells, no cause" at `free_organism` as `FELLED` is that count.
+- **`World::seeds_set` did not exist**, and two readers had worked around it
+  without saying so in the same place: `lab::ui` walks the live list *because
+  there was no counter*, and `lab::stats`' `seeds_borne` is
+  `fate_mutation_rolls`, a proxy that only moves when the fate roll fires. The
+  only cumulative seed figure in the engine was an estimate that fell whenever
+  a bearer died.
+- **A guard was written and deleted rather than shipped.** The dig mirror must
+  sit outside the `spoil_kept()` block; a test named for that trap **cannot go
+  red**, because `spoil_kept` caches in a `OnceLock` and defaults to true, so
+  under `cargo test` both placements pass. Blind, not weak -- deleted, with the
+  reasoning moved to a comment at the call site. **The same applies to any
+  future guard over a `OnceLock`-cached env switch in this engine.**
+
+The closing identity is `sum over the living + World::dead_life == the world
+total`, and its **vacuity checks fired on the first run**: 4,000 frames of the
+colony bed produce no death at all, so the identity held over two zeroes and
+would have passed with the roll-up deleted.
+
+### Next, in order
+2. **The life record.** Tier 1's identity field is already in. Watch the three
+   traps found in review: the `digs` mirror must stay **outside** the
+   `spoil_kept()` gate at `creature.rs:2921`; `World::seeds_set` does not exist
+   and `stats.rs`'s `seeds_borne` is a proxy (`fate_mutation_rolls`); and a
+   §B2-felled plant reaches `free_organism` with **`senescent == false` and no
+   death record at all**, so `!senescent` at that seam is the organism-level
+   counter §B2 has never had.
+3. **`Lab::advance` observes after its tick loop**, so at 256x and 1024x the
+   bar's population strip samples once per *drawn* frame — and `ui::History::
+   Sample` carries no frame, so its x-axis is the call cadence. `stats::Sample`
+   carries one and only loses resolution. Both `observe` calls belong in
+   `Lab::tick`; three lines, and the watch ring depends on it.
+
 ## Deliberately not being built yet
 
 The score and the economy — the guide's Gate 5. **Gate 2, does selection have
