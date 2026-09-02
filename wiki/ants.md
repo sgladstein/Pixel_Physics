@@ -1,6 +1,10 @@
 # Ants
 
-*Current as of: 2026-09-01, when the lab learned to put **one** animal of any
+*Current as of: 2026-09-02, when ants got eyes and a bill for using them,
+when home stopped being a patch of ground painted under the colony before it
+arrived, and when a creature that steps back into its own body stopped
+quietly losing its head. Before that:
+2026-09-01, when the lab learned to put **one** animal of any
 kind in the box rather than only a colony of ants, and an animal released from
 a jar stopped arriving paralysed. Before that:
 2026-08-31, when digging stopped destroying the ground it
@@ -109,6 +113,13 @@ nest, fading the longer it has been away. So a colony paints its own map
 outward from home, and the map is strongest exactly where home is. An ant
 carrying food leaves a second, different scent — a food trail — which is
 what draws other ants toward something worth having.
+
+**How long the fade lasts is no longer a fact about the species.** It used
+to be one number every ant of a kind was born with and none could change.
+Now it is part of what an ant inherits, along with which of the two scents
+it treats as the one pointing home — so a lineage can lay a longer trail, or
+a shorter one, or swap the two scents over entirely, and whether any of that
+is a good idea is for the world to decide rather than for us.
 
 Both smells fade. A path nobody walks disappears; a path everybody walks
 gets stronger. Nothing decides where a trail goes: it is just the leftovers
@@ -339,8 +350,26 @@ nothing at all, and neither does it see its own body. This is the same rule
 its mouth uses: an animal that steered toward food it cannot digest would be
 running on bookkeeping rather than on appetite.
 
-**Nothing else in the world has eyes.** Ants do not, and the ant you place
-behaves exactly as it did before this existed.
+**Ants can see now too, and they pay for it.** An ant looks about thirty
+cells — half a beetle's reach, and about twice as far as it usually wanders
+from home — and what it is looking for is *its own kind* rather than food.
+That is what replaced the nest: see below.
+
+**Looking costs food, and it costs by the cell.** An eye is not free and was
+for a while, which is a bad thing for a world where eyes are meant to be
+something a lineage can grow or lose: if seeing costs nothing, more eye is
+always better and every animal ends up with the largest eye there is,
+expressing nothing. So an animal is billed for every cell its gaze actually
+crosses. Two things fall out of that which nobody wrote down as rules:
+
+- **A full sweep of open ground costs about a tenth of a life** — the same
+  share the animal's own brain costs it. Looking hard is roughly as expensive
+  as thinking hard.
+- **Shelter pays for itself twice.** A ray stops at the first rock or bank of
+  soil, so it is only charged for what it got through. An animal standing in
+  a tunnel is both harder to see and cheaper to look out of; one sweeping an
+  open plain pays full price. Nobody designed that — it falls out of charging
+  honestly for the work.
 
 ### What it does not yet do well
 
@@ -386,6 +415,17 @@ patch along whatever surface is there and stands about fifty ants on it.
 Fifty, not one, because fewer than that does not look like ants. It follows
 the terrain, so it works on a hillside or in a cave mouth as well as on flat
 ground.
+
+**The patch is laid for an ant because an ant has a home to be laid.** That
+sentence used to be untrue: the patch went down whatever you were placing,
+which meant founding a colony painted the very thing the colony then
+appeared to discover. A creature that has no notion of home now gets animals
+on the ground and nothing else — no patch, no head start, and no gradient
+handed to it. Whether such a creature gathers anyway, and whether gathering
+turns into a place worth coming back to, is a question with an answer now
+instead of an assumption. It is quite possible the answer is that they
+wander and nothing happens; that is a real finding and it is why the
+question was asked this way round.
 
 Where it *cannot* put an ant, it puts none, and the number it managed is
 reported rather than quietly rounded up. Water is the clearest case: ants are

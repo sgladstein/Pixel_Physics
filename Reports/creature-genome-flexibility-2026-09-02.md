@@ -563,10 +563,13 @@ surfaces" and the rewrite traded one blind guard for another.
 
 ### 5f. What survives, what dies, and the recommendation
 
-**Survives, and gets stronger.** The channel is still a real field the world
-computes rather than an authored outcome, and **moving the response coefficient
-into the genome is still right** — more right now, because a fixed coefficient
-was encoding a rule nobody had correctly identified. That was this section's
+**Survives, and gets stronger — and it has now shipped.** The channel is still
+a real field the world computes rather than an authored outcome, and moving the
+response coefficient into the genome was still right — more right, because a
+fixed coefficient was encoding a rule nobody had correctly identified. **Done in
+PR #214**: the coefficient is `BrainInput::MoistureGrad`, and `ant.ron` authors
+`(MoistureGrad, Dig, -0.55)` and `(MoistureGrad, Drop, 0.169)` — a weight with a
+free sign and magnitude where there was a fixed multiplier. That was this section's
 actual argument and the measurement does not touch it. `dead-ends.md` entry 983
 prescribes the same move in general terms: *"it wants to be a wired instinct on
 its own brain output rather than a coefficient in `act`, so a lineage can lose
@@ -630,9 +633,10 @@ one's 141. The concern survives as a question, not as a reason to wait.
 1. **`SurfaceCurvature` as a brain input** — signed, from a solid-neighbour
    count in a disc (negative concave, positive convex), opt-in per species the
    way `sight_range` is.
-2. **Rename the existing channel** to what it measures and keep it. Two
-   honestly-named signals, weighed independently, rather than one mislabelled
-   one.
+2. **Rename the existing channel** to what it measures and keep it. The
+   *response* is already a weight (above); what is still misnamed is the
+   *signal*. Two honestly-named signals, weighed independently, rather than one
+   mislabelled one.
 3. **Author the ant and the ancestor a starting weight**, so generation zero
    carries the termite bias *for real* — which it has never actually had.
 4. **Feed both drop genes independently.** PR #214 split `Drop` and

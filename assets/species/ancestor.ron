@@ -1,20 +1,52 @@
-// The first colony creature (Reports/creature-direction.md D2). A chain of
-// cells on the organism substrate, deciding with the fixed-scaffold brain
-// in `brain.rs`, whose weights are this file's `instincts` list and nothing
-// else -- there is no ant-specific behaviour code branching on species.
+// **The lab ancestor: a creature with no home.**
 //
-// **Generation zero must already forage.** That is the entire point of
-// authored instincts: the colony works on day one exactly as a brainless
-// taxis design would have, and evolution (stage 4) refines rather than
-// bootstraps. If the ant below mills instead of foraging, the thing to fix
-// is these weights, not the mutation rate.
+// The owner's objection, 2026-09-02: *"I don't like that we have directly
+// encoded there being a nest and dropping food at the nest. It seems designed
+// like we were intentionally trying to create that behavior and intentionally
+// trying to create ants."* This species is the answer, and
+// `Reports/creature-genome-flexibility-2026-09-02.md` is the argument.
 //
-// Both cell types carry no `Behavior`s, same as worm.ron: movement,
-// sensing and the four verbs are creature.rs's code. A `Behavior` is
-// something a species composes onto a cell type from data, and none of
-// this is that.
+// **It is `ant.ron` with five differences and nothing else** -- same body,
+// same energy budget, same per-cell costs, same palette -- because the lab
+// exists to compare genomes and a different body would confound that:
+//
+//   1. **No `nest` field.** There is no material it calls home, so `AtNest`
+//      reads a constant 0.0 for it, `found_colony_of` paints nothing, and
+//      `deliveries` is 0 by construction. Home has to be somewhere its
+//      lineage finds.
+//   2. **The odometer counts from kin, not from a material.** Hidden unit 4
+//      is wired from `KinNear` instead of `AtNest`. The mechanism is
+//      identical; what it measures is *where my own kind are*, which is a
+//      real quantity rather than a category.
+//   3. **`(KinBearing, Turn, 1.2)`** -- one connection from a sense to a
+//      verb, the same shape as the trail-following instincts below it. This
+//      is the only thing pointing this animal at its own kind, it is data,
+//      and mutation can erase it.
+//   4. **Nothing privileges putting food down anywhere.** The ant carries
+//      `(AtNest, Drop, ...)`; this one does not, so where a load ends up is
+//      whatever the weights and the world decide.
+//   5. **It has an eye and the ant does not.** Both carry the same
+//      `sight_fraction`, so both are priced identically the day
+//      `sight_range` becomes heritable -- but only this one authors a range.
+//      The ant has a nest and was paying 4% of its life for a sense it never
+//      used (measured, 12 of 12 seeds; `ant.ron`'s eye comment has the
+//      table). This animal has no home material, so a cast at its own kind
+//      is the whole of how it finds them.
+//
+// **A colony is an outcome here, not a precondition.** Aggregation may make
+// a place, a place may make a gradient, a gradient may make central-place
+// foraging -- or none of that happens and the bed says so, which is a real
+// finding rather than a confirmation of our own scene painting. The owner
+// has accepted that outcome in advance: *"in the middle is better but I am
+// willing to try the risky option and give up if it doesn't work."*
+//
+// **Read it in the arena, not by its counters.** `deliveries` and
+// `nest_visits` are keyed on nest material and are therefore 0 for this
+// species however well it does. `examples/creature_arena.rs` is what says
+// whether a genome is winning.
+
 (
-    name: "ant",
+    name: "ancestor",
     cell_types: [
         (Head, []),
         (Segment, []),
@@ -110,52 +142,18 @@
         // harness then carried a hand-applied correction; a ratio needs no
         // correction to remember.
         synapse_fraction: 0.0000022222222,
-        // **The price of an eye, authored on an animal that does not have
-        // one -- and that is deliberate.**
+        // **The eye, and its price, authored together.**
         // `Reports/creature-genome-flexibility-2026-09-02.md` §4 and §6.
         //
-        // **The outdoor ant was given a 32-cell eye on 2026-09-02 and it was
-        // taken away again the same day, on a measurement.** The kin senses
-        // need a cast to find anything, so an eye is what makes
-        // `KinNear`/`KinBearing` read other than a constant -- but *this*
-        // animal has a nest, and the kin senses exist to replace a nest for
-        // an animal that has none. It was paying for a sense it does not
-        // need.
+        // An ant had no eyes at all: `sight_range` defaults to 0 and only
+        // the beetle authored one. The kin senses need a cast to find
+        // anything, and home is *where my own kind are* -- so this is what
+        // makes `KinNear`/`KinBearing` read something other than a constant.
         //
-        // Measured with `forage_probe seeds=12 spacing=4`, against a binary
-        // built at this branch's base, read per seed rather than on a mean:
-        //
-        // | column | with the eye | with no eye |
-        // |---|---|---|
-        // | deliveries | **down on 10 of 12 seeds**, median 5.0 -> 2.5 | down 6, up 4, tied 2, median 5.0 -> 4.0 |
-        // | moves | **down on 12 of 12**, median 16,752 -> 16,307 | down 6, up 6, median 16,752 -> **16,761** |
-        // | excursion depth | down 7, up 4, median 55 -> 44 | down 5, up 6, median 55 -> 46 |
-        // | falls/move | 0.248 -> 0.247 | 0.248 -> 0.245 |
-        //
-        // **The cost is the eye and nothing else.** `forage_probe`'s control
-        // arm is one ant with no food anywhere -- it cannot forage, so a
-        // change there is metabolism and not behaviour -- and it fell on
-        // **12 of 12 seeds**, uniformly ~4%. Take the eye off and `moves`
-        // returns to the null exactly (6 down, 6 up).
-        //
-        // **What does not fully recover is `trips`**: 9 of 12 seeds down in
-        // both arms, median 36 -> 32.5. That residual is not the eye. The
-        // likeliest cause is the odometer's curve -- hyperbolic where
-        // `recency` was linear, so channel A fades faster early and an ant
-        // re-anchors on a different schedule. ~10% on a column whose seed
-        // spread is 22-47; recorded rather than chased.
-        //
-        // **`sight_fraction` stays** so the price is already set the day
-        // `sight_range` becomes heritable (§7's Kind 2, stage 6). That is
-        // the whole point of pricing before granting: the gene arrives into
-        // a world that already charges for it.
-        //
-        // **32 was the range, if it comes back.**
-        // `foraging-range-measurement.md` puts real excursions at 12-19
-        // cells with a thin tail past 32, so it covers an ant's normal range
-        // with margin at a little over half the beetle's cost.
-        // `assets/species/ancestor.ron` -- which has no nest and genuinely
-        // needs to find its own kind -- carries it.
+        // **32, not the beetle's 64.** `foraging-range-measurement.md` puts
+        // real excursions at 12-19 cells with a thin tail past 32, so this
+        // covers an ant's whole normal range with margin and costs a little
+        // over half what the beetle's does.
         //
         // **Never the range without the fraction.** Seeing was free until
         // 2026-08-31, which made `sight_range` a ratchet -- more eye
@@ -192,6 +190,14 @@
         // pays less to look than one sweeping open ground, and shelter pays
         // for itself twice. Nobody wrote that rule; it falls out of pricing
         // the work honestly.
+        // **This animal keeps the eye the outdoor ant gave back**, and it is
+        // the one that needs it: with no `nest` there is no home material to
+        // sense, so `KinNear`/`KinBearing` -- which need a cast to find
+        // anything -- are the whole of how it locates its own kind. The ant
+        // pays 4% of its life for a sense it does not use, measured on 12 of
+        // 12 seeds (`ant.ron`'s eye comment carries the table); this one is
+        // buying something with it.
+        sight_range: 32,
         sight_fraction: 0.000000081168831,
         // **120, which is exactly what a corpse cell was worth before.**
         // Under `eat_energy` any mouthful paid the eater 120, so pricing an
@@ -575,7 +581,6 @@
         // shared.
         climbs_over_kin: true,
 
-        nest: "nest",
 
         // Against Material::penetration_resistance, the pattern roots
         // already use rather than a material-name whitelist. 1.0 chews
@@ -630,6 +635,15 @@
             // Flee heat. The worm's thermotaxis, kept, because it is the
             // same animal problem and it costs one connection.
             (TempAboveAmb, Turn, -0.8),
+            // **The one instinct that replaces the nest, and it is a weight
+            // rather than a rule.** A bearing to the nearest living
+            // nestmate, wired to the turn output exactly as
+            // `PheroALateral` is: one connection from a sense to a verb,
+            // which is the shape every other instinct in this file has.
+            // Mutation can weaken it, invert it or delete it, and if a
+            // lineage does better without it the bed will say so -- which
+            // is the difference between an authored colony and a found one.
+            (KinBearing, Turn, 1.2),
 
             // -- going anywhere at all -------------------------------
             // 2.0, not 0.7. squash() is what makes this a measurement
@@ -740,7 +754,6 @@
             // ant that drops at random is an ant that builds walls in the
             // middle of nowhere. Carrying alone must not be enough.
             (Bias, Drop, -0.2),
-            (AtNest, Drop, 1.0889),
             (Carrying, Drop, 0.2),
             (MoistureGrad, Drop, 0.169),
 
@@ -750,7 +763,6 @@
             // own output because the food drop above no longer rolls the same
             // number -- and while two acts share one gene, evolution cannot
             // select for either. See `brain::BrainOutput::DropSpoil`.
-            (AtNest, DropSpoil, 0.9),
             (Carrying, DropSpoil, 0.2),
         ],
 
@@ -852,7 +864,7 @@
             // gradient-laying rule is the better end. An ant past
             // `nest_memory` used to lay nothing at all, and so stopped
             // contributing to the gradient it was itself navigating by.
-            (AtNest,      4,   0.0005),
+            (KinNear,     4,   0.0005),
 
             (Bias,        0, -45.0),
             (Carrying,    0,  75.0),

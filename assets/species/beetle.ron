@@ -73,7 +73,6 @@
 
         nest: "nest",
         dig_force: 0.3,
-        nest_memory: 3000,
         // **The eye, and it is the whole of what this animal was missing.**
         // 64 cells, all-round, sized before it was built by
         // `Reports/creature-vision-sizing-2026-08-30.md` -- see
@@ -86,6 +85,27 @@
         // What it could not do was *find* one, and the two lines below are
         // what turn a sighting into a pursuit.
         sight_range: 64,
+        // **The price of that range, which was missing.** `sight_fraction`
+        // landed 2026-08-31 to stop `sight_range` being a ratchet, and then
+        // no species authored one -- so the only eye in the tree was free,
+        // a reader with no writer
+        // (`Reports/creature-genome-flexibility-2026-09-02.md` §6, gap 1).
+        // Leaving it free while the ant pays would also make any later
+        // predator/prey comparison a comparison of who was billed.
+        //
+        // Same derivation as `ant.ron`'s, at this animal's own constants:
+        //
+        //   idle ticks = start_energy / (idle_cost_per_cell * cells)
+        //              = 1600 / (0.0375 * 4) = 10,666.7
+        //   one cast at reach 64 on bare open floor reads 1,186 cells
+        //     (`field_sense_probe mode=control eye=64`)
+        //   S = 0.10 of an idle lifetime, matching the synapse tax:
+        //   0.10 / (10,666.7 * 1,186) = 7.9047e-9
+        //
+        // A beetle's eye is therefore *cheaper per cell* than an ant's, and
+        // that is not a thumb on the scale: it is a much larger animal with
+        // a much longer life, so the same share of it buys more looking.
+        sight_fraction: 0.0000000079047218,
         sensor_offset: 6,
         instincts: [
             (Bias, Move, 2.0),
