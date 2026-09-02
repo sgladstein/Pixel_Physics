@@ -4186,9 +4186,47 @@ fn body_after_step(def: &CreatureDef, chain: &[(i32, i32)], head: (i32, i32), fr
         // Facing is a *mirror*, never a rotation (see `BodyPlan`). Turning
         // between east-ish and west-ish re-lays the template; turning
         // within one side leaves the shape alone.
-        let _ = from;
         let west = (3..=5).contains(&to);
-        def.body.offsets(west).iter().map(|&(dx, dy)| (head.0 + dx, head.1 + dy)).collect()
+        let full = def.body.offsets(west);
+        if chain.len() == full.len() {
+            return full.iter().map(|&(dx, dy)| (head.0 + dx, head.1 + dy)).collect();
+        }
+        // **An injured rigid body re-lays the cells it still has, not the
+        // ones it was born with**, and until 2026-09-02 nothing could reach
+        // this branch so nothing had had to.
+        //
+        // The line above re-laid the whole authored template from the head
+        // regardless of how much body was left, so a bitten beetle asked
+        // `relocate_chain` to move 2 cells into 4 positions. `debug_assert`
+        // catches it -- *"a body relocates cell for cell; a length change here
+        // is a lost or invented cell"* -- and in **release**, where that
+        // assertion is compiled out, it is worse than a panic: `zip` writes
+        // only the cells that exist and `state.chain = to.to_vec()` then
+        // records two positions holding nothing, which is the invented-cell
+        // half of that same comment.
+        //
+        // It was unreachable because nothing in the world could take a cell
+        // off a living rigid animal: `beetle.ron` authored no `food_energy`,
+        // so `diet_yield` was 0 at every gut bias. Giving beetle flesh a
+        // worth (§11a's P1) is what made an ant able to bite one, and this is
+        // that change's own consequence rather than a separate repair.
+        //
+        // **Offsets from the head, mirrored when the facing side flips**,
+        // which is exactly what the intact path does -- the difference is
+        // only that the set of offsets comes from the body that is standing
+        // rather than from the one the species file authored. A `Chain`
+        // shortens by dropping its tail and keeps walking; a `Rigid` body
+        // now keeps its remaining shape and keeps translating, so an injury
+        // is an injury in both body plans instead of a corrupt chain in one.
+        let (hx, hy) = chain.first().copied().unwrap_or(head);
+        let flipped = west != (3..=5).contains(&from);
+        chain
+            .iter()
+            .map(|&(cx, cy)| {
+                let (dx, dy) = (cx - hx, cy - hy);
+                (head.0 + if flipped { -dx } else { dx }, head.1 + dy)
+            })
+            .collect()
     } else {
         let mut next = Vec::with_capacity(chain.len());
         next.push(head);
@@ -6535,6 +6573,51 @@ mod tests {
             took_fed > took_blind,
             "and it has to have gone through the food verb: {took_fed} taken against {took_blind} in the blind arm"
         );
+    }
+
+    /// **An injured rigid body moves the cells it has, not the ones it was
+    /// born with.**
+    ///
+    /// `body_after_step` re-laid the whole authored template from the head
+    /// whatever the body's actual length, so a bitten beetle asked
+    /// `relocate_chain` to move 2 cells into 4 positions. That is caught by a
+    /// `debug_assert` and therefore **only in the debug profile** -- it passed
+    /// `cargo test --release` and failed CI's `cargo test (debug)`, which is
+    /// what that job exists for. In release the assertion is compiled out and
+    /// the failure is worse than a panic: `relocate_chain`'s `zip` writes only
+    /// the cells that exist and then records a `chain` claiming two positions
+    /// that hold nothing.
+    ///
+    /// It was unreachable until `beetle.ron` gained a `food_energy`, because
+    /// before that nothing in the world could take a cell off a living rigid
+    /// animal at any gut bias.
+    ///
+    /// Asserted on the pure function rather than through a colony, because the
+    /// invariant is arithmetic -- **length in equals length out** -- and a
+    /// scene would make it a claim about whether a bite happened to land.
+    #[test]
+    fn an_injured_rigid_body_relocates_the_cells_it_still_has() {
+        let w = test_world();
+        let def = w.species.get(w.species.id_of("beetle").expect("beetle")).creature.as_ref().expect("creature").clone();
+        assert!(def.body.is_rigid() && def.body.len() == 4, "test setup: this is the 2x2 rigid body the bug was found on");
+
+        // Intact: the authored template, and the path that always worked.
+        let intact = vec![(100, 100), (99, 100), (100, 99), (99, 99)];
+        let stepped = body_after_step(&def, &intact, (101, 100), 0, 0);
+        assert_eq!(stepped.len(), intact.len(), "an intact body must still lay its whole template");
+
+        // Bitten down to two cells, head first. Every one of these must come
+        // out the far side, and nothing else with them.
+        let injured = vec![(100, 100), (99, 99)];
+        let moved = body_after_step(&def, &injured, (101, 100), 0, 0);
+        assert_eq!(moved.len(), injured.len(), "length in must equal length out, or relocate_chain loses or invents a cell");
+        assert_eq!(moved, vec![(101, 100), (100, 99)], "and the surviving shape travels with it, offset for offset");
+
+        // Turning to face west mirrors the shape, exactly as an intact body's
+        // template is mirrored rather than rotated.
+        let mirrored = body_after_step(&def, &injured, (99, 100), 0, 4);
+        assert_eq!(mirrored.len(), injured.len(), "a facing flip must not change how many cells there are");
+        assert_eq!(mirrored, vec![(99, 100), (100, 99)], "x offsets mirror, y offsets do not -- facing is a mirror, never a rotation");
     }
 
     /// Set one species' gut for the duration of a test.

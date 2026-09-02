@@ -4,7 +4,8 @@
 harder does **not** give a colony rooms, and that its preference for unloading
 on uneven ground is about a tenth rather than the threefold this page implied.
 Also 2026-09-02: a living beetle and a living worm became things something else
-can eat, which neither had been. Earlier the same day, when ants got eyes and a bill for using them,
+can eat, which neither had been — and a beetle that loses a cell to a bite
+stopped coming apart wrongly, which nothing could make it do before. Earlier the same day, when ants got eyes and a bill for using them,
 when home stopped being a patch of ground painted under the colony before it
 arrived, and when a creature that steps back into its own body stopped
 quietly losing its head. Before that:
