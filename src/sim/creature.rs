@@ -1068,6 +1068,17 @@ fn place_creature(
             if let Some(p) = world.organism_mut(parent) {
                 p.life.offspring += 1;
             }
+            // The log line, beside the counter. `id` is the newborn -- the
+            // event is about it, and `other` says who bore it.
+            let born_frame = world.organism(organism).map_or(0, |s| s.born_frame);
+            world.run_log.push(crate::sim::world::LogEvent {
+                frame: world.frame,
+                id: organism,
+                born_frame,
+                species: species_id,
+                kind: crate::sim::world::LogKind::Born,
+                other: parent,
+            });
             // **A birth creates no energy, and this is the S3b stamp seam
             // closing** (`Reports/creature-evolution-plan.md` §2.3, "One
             // seam left open"; `EnergyLedger::meat_lost`'s own doc points
@@ -2753,8 +2764,27 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
                 // `bites` mirrors `pickups` and never `eats` -- see
                 // `LifeCounters`. Its own lookup: the `organism_mut` above is
                 // inside the crop-update block and does not reach here.
-                if let Some(state) = world.organism_mut(organism) {
+                let first = if let Some(state) = world.organism_mut(organism) {
                     state.life.bites += 1;
+                    state.life.bites == 1
+                } else {
+                    false
+                };
+                // **Only the first, which is the whole reason this is
+                // affordable.** A colony takes a thousand mouthfuls in twelve
+                // thousand frames; the moment a forager starts paying its own
+                // way happens once and is the part worth a line.
+                if first {
+                    if let Some((born_frame, sp)) = world.organism(organism).map(|s| (s.born_frame, s.species)) {
+                        world.run_log.push(crate::sim::world::LogEvent {
+                            frame: world.frame,
+                            id: organism,
+                            born_frame,
+                            species: sp,
+                            kind: crate::sim::world::LogKind::FirstFeed,
+                            other: 0,
+                        });
+                    }
                 }
                 // Same event, both counters: see `CreatureStats::eats`. The
                 // two verbs merged when the decision between them went away.
@@ -4638,6 +4668,82 @@ mod tests {
             0,
             "{} deaths were recorded with no cause -- a call site is missing one",
             w.deaths_by_cause[organism::DeathCause::Unknown.index()]
+        );
+    }
+
+    /// **The notable events reach the log through the production path.**
+    ///
+    /// The unit tests in `world.rs` prove `RunLog` keeps and trims correctly;
+    /// this proves anything is ever put in it. A recording site is one line
+    /// beside an existing counter and is exactly the kind of thing that gets
+    /// left out of a second call site -- and a log that is simply never
+    /// written reads on the page as a quiet run, which is the failure
+    /// `dropped` exists to prevent one level up.
+    ///
+    /// Red by deleting either push: the birth assertion or the death one goes
+    /// with it. The cause assertion is red against a `Died` line that records
+    /// no cause.
+    #[test]
+    fn a_death_reaches_the_run_log_with_its_cause() {
+        let (mut w, low) = colony_bed();
+        let placed = w.found_colony(200, low - 32);
+        assert!(placed > 0, "the bed placed no ants -- the scene is wrong, not the rule");
+        run(&mut w, 4_000);
+
+        // **The birth half is not asserted here, and the vacuity check is why.**
+        // Written as "assert births > 0 then compare the log against the
+        // count", this failed on its first run: the colony bed produces
+        // **zero** births in 4,000 frames, so the comparison would have held
+        // over two zeroes and passed with the recording site deleted -- which
+        // is `CLAUDE.md`'s *green is the default state* blindness exactly.
+        // Rather than ship a guard that cannot go red, the birth half is left
+        // uncovered and said so: it needs a bed that actually breeds, and
+        // finding one is its own piece of work.
+        //
+        // Note also that a *founder* gets no `Born` line at all -- only
+        // `Origin::Bud` records one -- so the log's birth count is births in
+        // the box, never the population.
+        let born_lines = w
+            .run_log
+            .recent()
+            .filter(|e| e.kind == crate::sim::world::LogKind::Born)
+            .count() as u64;
+        assert_eq!(
+            born_lines, w.creature_stats.births,
+            "the world counted {} births and the log holds {born_lines} -- a recording site is missing",
+            w.creature_stats.births
+        );
+
+        // Kill animals that have already lived a little, so the death lines
+        // carry a real identity rather than one that never did anything.
+        let doomed: Vec<u16> = w.live_organism_ids().into_iter().take(4).collect();
+        assert!(doomed.len() >= 4, "too few animals to kill for the death half to mean anything");
+        for id in &doomed {
+            let at = w.organism(*id).and_then(|s| s.chain.first().copied());
+            if let Some((x, y)) = at {
+                slay(&mut w, x, y);
+            }
+        }
+        run(&mut w, 50);
+
+        let died: Vec<&crate::sim::world::LogEvent> =
+            w.run_log.recent().filter(|e| e.kind == crate::sim::world::LogKind::Died).collect();
+        assert!(!died.is_empty(), "four animals were killed and the log recorded no death");
+        assert!(
+            died.iter().all(|e| e.other as usize != organism::DeathCause::Unknown.index()),
+            "a death was logged with no cause -- the page would print DIED and nothing else"
+        );
+
+        // And an individual's own timeline is a subset of the whole, keyed on
+        // the identity rather than on the handle. Taken off a death line,
+        // because that is the kind this bed reliably produces.
+        let (id, born_frame) = died
+            .first()
+            .map(|e| (e.id, e.born_frame))
+            .expect("a death line was just asserted to exist");
+        assert!(
+            w.run_log.about(id, born_frame).count() >= 1,
+            "an individual the log recorded a death for has an empty timeline"
         );
     }
 

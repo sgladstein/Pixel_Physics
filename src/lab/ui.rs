@@ -46,7 +46,7 @@ use std::collections::VecDeque;
 
 use crate::hud;
 use crate::render;
-use crate::sim::world::World;
+use crate::sim::world::{self, World};
 
 use super::params;
 use super::roster;
@@ -734,6 +734,20 @@ pub enum Panel {
     /// of every column, which is the haystack `specimen_sections` splits the
     /// two kingdoms to avoid.
     AntList,
+    /// **What happened while you were not looking.** `World::run_log`, newest
+    /// first.
+    ///
+    /// The one page in the lab whose subject is *time* rather than a standing
+    /// quantity: every other page answers "what is the box like now", and at
+    /// 1024x a player crosses tens of thousands of frames between two glances
+    /// at it. A count that moved from 15 to 64 does not say a lineage died.
+    ///
+    /// **Narrative only. Never count anything off it** -- the log is bounded
+    /// (`world::RUN_LOG_CAP`) and drops its oldest lines, so counting rows
+    /// would give an undercount wearing the shape of an answer. Every number
+    /// in this interface comes from `LifeCounters` and `CreatureStats`, which
+    /// are unbounded.
+    Log,
 }
 
 impl Panel {
@@ -747,6 +761,7 @@ impl Panel {
             Panel::Chambers => "THE RACK",
             Panel::PlantList => "EVERY PLANT",
             Panel::AntList => "EVERY ANIMAL",
+            Panel::Log => "WHAT HAPPENED",
         }
     }
 }
@@ -2778,8 +2793,90 @@ impl Ui {
                     if fps >= 30.0 { GOOD } else { FAIR },
                     "DRAWN FRAMES PER SECOND. THIS IS THE WINDOW, NOT THE SIMULATION -- THE SPEED READOUT ON THE BAR IS THE SIMULATION.",
                 ),
+                // The way in to the log, on the same mechanism as the two
+                // rosters: a `Body::Head` already carries a hit target, and
+                // the bar has no room for a seventh chip.
+                Row::head(
+                    "WHAT HAPPENED",
+                    false,
+                    world.run_log.len(),
+                    Action::Panel(Panel::Log),
+                    "OPEN THE RUN LOG: BIRTHS, DEATHS AND FIRSTS, NEWEST FIRST. EVERY OTHER PAGE SAYS WHAT THE BOX IS LIKE NOW; AT 1024X YOU CROSS TENS OF THOUSANDS OF FRAMES BETWEEN TWO GLANCES AT IT, AND A COUNT THAT MOVED DOES NOT SAY WHOSE LINE ENDED.",
+                ),
             ],
+            Panel::Log => self.log_rows(world),
         }
+    }
+
+    /// The run log as rows, newest first.
+    ///
+    /// **Bounded twice, and both bounds are stated on the page.** The log
+    /// itself drops its oldest lines past `world::RUN_LOG_CAP`, and this page
+    /// shows only the newest `LOG_ROWS` of what survives. Neither is allowed
+    /// to read as *nothing happened*: the last row says how many lines are
+    /// off the bottom and how many are gone for good. A trimmed history that
+    /// looks like a quiet one is the same failure as a zero body count read
+    /// as "chunks are working".
+    fn log_rows(&self, world: &World) -> Vec<Row> {
+        let mut rows = vec![Row::head(
+            "BACK TO THE BOX",
+            false,
+            0,
+            Action::Panel(Panel::Box),
+            "RETURN TO THE BOX PAGE.",
+        )];
+        let shown: Vec<&world::LogEvent> = world.run_log.recent().take(LOG_ROWS).collect();
+        if shown.is_empty() {
+            rows.push(Row::value(
+                "NOTHING YET",
+                "--".to_string(),
+                FAINT,
+                "NO BIRTH, DEATH OR FIRST HAS HAPPENED SINCE THE BOX WAS BUILT. THIS IS AN EMPTY LOG, NOT A TRIMMED ONE -- THE ROW BELOW SAYS WHICH.",
+            ));
+        }
+        for e in shown.iter() {
+            let who = param_label(&world.species.get(e.species).name);
+            let (what, tint, note) = match e.kind {
+                world::LogKind::Born => (
+                    format!("{who} {} BORN", e.id),
+                    GOOD,
+                    format!(
+                        "A SEED GERMINATED, OR AN ANIMAL BUDDED FROM {}. THE NUMBER IS THE SLOT IT HOLDS, WHICH IS REUSED AFTER 16 TURNS -- THE ROSTER PINS BY SLOT AND BIRTH FRAME TOGETHER FOR THAT REASON.",
+                        if e.other == 0 { "NOTHING".to_string() } else { format!("PARENT {}", e.other) }
+                    ),
+                ),
+                world::LogKind::Died => (
+                    format!("{who} {} {}", e.id, cause_of(e.other)),
+                    POOR,
+                    "IT LEFT THE WORLD, AND WHAT KILLED IT. FELLED OR LOST IS THE ONE THAT IS NOT A DEATH THE ENGINE INTENDED: THE PLANT WAS PULLED APART BY THE SUPPORT CHECK WHILE STILL ALIVE.".to_string(),
+                ),
+                world::LogKind::FirstFeed => (
+                    format!("{who} {} FIRST FED", e.id),
+                    VALUE,
+                    "THE FIRST TIME THIS ANIMAL EVER PICKED FOOD UP. ONE PER LIFE -- EVERY LATER MOUTHFUL IS COUNTED ON ITS OWN PAGE, NOT HERE, BECAUSE A LOG OF EVERY BITE WOULD DROWN EVERYTHING WORTH READING.".to_string(),
+                ),
+                world::LogKind::FirstSeed => (
+                    format!("{who} {} FIRST SEED", e.id),
+                    VALUE,
+                    "THE FIRST SEED THIS PLANT EVER SET -- THE MOMENT IT STOPPED BEING A COST TO THE BOX AND STARTED BEING A PARENT. LATER SEEDS ARE COUNTED ON ITS OWN PAGE: THE SHIPPED BED SETS 3,099 OF THEM IN 90,000 FRAMES AND A LOG OF ALL OF THEM WOULD BE 90% SEED-SET.".to_string(),
+                ),
+                world::LogKind::LineEnded => (
+                    format!("LINE {} ENDED", e.other),
+                    POOR,
+                    "THE LAST LIVING MEMBER OF A LINEAGE LEFT THE WORLD. THIS IS THE EVENT NO STANDING COUNT CAN SHOW: THE POPULATION NUMBER CAN HOLD PERFECTLY STEADY WHILE THE BOX QUIETLY LOSES EVERY DESCENDANT OF ONE FOUNDER.".to_string(),
+                ),
+            };
+            rows.push(Row::value(format!("F{}", e.frame), what, tint, note));
+        }
+        let below = world.run_log.len().saturating_sub(shown.len());
+        let dropped = world.run_log.dropped();
+        rows.push(Row::value(
+            "OLDER",
+            if dropped == 0 { format!("{below} MORE") } else { format!("{below} MORE, {dropped} LOST") },
+            FAINT,
+            "HOW MANY LINES ARE OFF THE BOTTOM OF THIS PAGE, AND HOW MANY HAVE AGED OUT OF THE LOG FOR GOOD. THE SECOND NUMBER IS WHY NOTHING IN THE LAB IS EVER COUNTED OFF THIS PAGE -- THE COUNTS COME FROM EACH INDIVIDUAL'S OWN TOTALS, WHICH ARE NEVER TRIMMED.",
+        ));
+        rows
     }
 
     /// **The cell page's one button**, or `None` when the cell it is open on
@@ -3603,6 +3700,23 @@ impl Line {
 /// shipped three times here; a name arriving from an asset file is exactly the
 /// path a test over hardcoded strings would not cover, so an unknown character
 /// becomes a visible `?` rather than a gap in the middle of a word.
+/// **Rows of the log this page draws.** The roster's own page height, for the
+/// same reason: it is what fits above the bar with a header and a footer.
+const LOG_ROWS: usize = 14;
+
+/// The cause index a `Died` line carries, as words.
+///
+/// `LogEvent::other` is a `u16` because a birth puts a parent handle there;
+/// on a death it is `DeathCause::index()`. An index this does not recognise
+/// prints as `DIED` rather than as a wrong cause -- a log that confidently
+/// names the wrong killer is worse than one that admits it does not know.
+fn cause_of(index: u16) -> &'static str {
+    match crate::sim::organism::DEATH_CAUSE_LIST.get(index as usize) {
+        Some(c) => c.label(),
+        None => "DIED",
+    }
+}
+
 fn param_label(name: &str) -> String {
     name.chars()
         .map(|c| if c == '_' { ' ' } else { c })
@@ -6637,7 +6751,7 @@ mod tests {
             // means anything: laid out flat this page has to be too tall, or
             // a fold that did nothing would pass.
             let sections = params::specimen_sections(&world, id);
-            assert_eq!(sections.len(), 4, "{name}: every kingdom gets the same four groups");
+            assert_eq!(sections.len(), 5, "{name}: every kingdom gets the same five groups");
             assert_eq!(sections[0].0, "WORDS", "{name}: the summary leads, and `Ui::new` defaults to index 0");
             assert!(!sections[0].2.is_empty(), "{name}: the summary group is empty, so the page would draw a heading over nothing");
             let flat = 5 * LINE + 4 + sections.len() as i32 * (LINE + 4) + sections.iter().map(|(_, _, r)| r.len() as i32 * LINE).sum::<i32>();
@@ -6667,7 +6781,7 @@ mod tests {
             );
             // **Both kingdoms fold now**, where only the plant did before:
             // the `WORDS` group adds eight to fourteen rows and neither page
-            // holds all four groups at once. What matters is not how many are
+            // holds all five groups at once. What matters is not how many are
             // shut but that the page fits *because* it folded rather than
             // because rows were trimmed, which the assertion above checks.
             let shut = rows.iter().filter(|row| matches!(row.body, Body::Head { open: false, .. })).count();
@@ -6678,7 +6792,7 @@ mod tests {
             // the fit assertions cannot reach: a rule that served the groups
             // strictly from the top would fit the page perfectly and ignore
             // the player, and every assertion above would still be green.
-            for chosen in 0..4 {
+            for chosen in 0..sections.len() {
                 let mut ui = Ui::new();
                 ui.show_specimen_section(chosen);
                 let heads: Vec<bool> = ui
@@ -6689,7 +6803,7 @@ mod tests {
                         _ => None,
                     })
                     .collect();
-                assert_eq!(heads.len(), 4, "{name}: the page lost a group heading");
+                assert_eq!(heads.len(), sections.len(), "{name}: the page lost a group heading");
                 assert!(heads[chosen], "{name}: clicking group {chosen} did not open it");
             }
         }

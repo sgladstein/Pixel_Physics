@@ -44,7 +44,7 @@
 
 use crate::sim::material;
 use crate::sim::organism::{self, Behavior, CellType, SpeciesId};
-use crate::sim::world::World;
+use crate::sim::world::{self, World};
 use crate::tunables::{self, Tunable, TunableGroup};
 
 use super::scene::LabBox;
@@ -1031,6 +1031,7 @@ pub type SpecimenSection = (&'static str, &'static str, Vec<SpecimenRow>);
 const LIFE_NOTE: &str = "WHERE THIS INDIVIDUAL CAME FROM AND HOW FAR DOWN THE LINE IT IS. NONE OF IT CHANGES WHILE YOU WATCH -- IT IS SETTLED THE MOMENT THE THING IS BORN.";
 const STATE_NOTE: &str = "HOW IT IS DOING RIGHT NOW. THIS IS THE GROUP THAT MOVES WHILE THE BOX RUNS, AND THE ONE TO HAVE OPEN IF YOU ARE WATCHING SOMETHING GET INTO TROUBLE.";
 const WORDS_NOTE: &str = "THE SAME GENOME, IN SENTENCES. WHAT KIND OF THING THIS IS, RATHER THAN WHAT ITS NUMBERS ARE -- EVERY LINE HERE IS DERIVED FROM A ROW UNDER GENOME, AND HOVERING ONE SAYS WHICH.";
+const STORY_NOTE: &str = "THE DATED LINES THIS INDIVIDUAL PUT IN THE RUN LOG -- BORN, FIRST FED, FIRST SEED, DIED. IT IS A NARRATIVE, NEVER A COUNT: THE LOG IS BOUNDED AND DROPS ITS OLDEST LINES, SO EVERY NUMBER ON THIS PAGE COMES FROM THE COUNTERS UNDER STATE INSTEAD.";
 const GENOME_NOTE: &str = "WHAT IT WAS DEALT AND CANNOT CHANGE, DRAWN WHEN IT WAS BORN AND CARRIED FOR LIFE. TWO INDIVIDUALS OF ONE SPECIES DIFFER HERE AND NOWHERE ELSE AT BIRTH -- THIS IS WHAT A JAR ON THE SHELF KEEPS.";
 
 /// **The same readout, in the three groups the cell page folds it into.**
@@ -1122,6 +1123,7 @@ pub fn specimen_sections(world: &World, id: u16) -> Vec<SpecimenSection> {
             ("WORDS", WORDS_NOTE, words(world, id)),
             ("LIFE", LIFE_NOTE, life),
             ("STATE", STATE_NOTE, rows),
+            ("STORY", STORY_NOTE, story(world, id, state.born_frame)),
             ("GENOME", GENOME_NOTE, genome),
         ];
     }
@@ -1186,8 +1188,54 @@ pub fn specimen_sections(world: &World, id: u16) -> Vec<SpecimenSection> {
         ("WORDS", WORDS_NOTE, words(world, id)),
         ("LIFE", LIFE_NOTE, life),
         ("STATE", STATE_NOTE, rows),
+        ("STORY", STORY_NOTE, story(world, id, state.born_frame)),
         ("GENOME", GENOME_NOTE, genome),
     ]
+}
+
+/// **One individual's own lines out of the run log**, newest first.
+///
+/// The counters under `STATE` say *how much*; this says *when*, which is the
+/// one question a standing number cannot answer -- at 1024x a player crosses
+/// tens of thousands of frames between two glances, and "fed 41 times" does
+/// not say whether it started this minute or has been foraging all run.
+///
+/// **Bounded by construction rather than by a cap**, which is the distinction
+/// `CLAUDE.md`'s size-cap rule turns on: each of the five kinds fires at most
+/// once in a life, so this is at most five rows however long the individual
+/// lives, and there is no budget whose exhaustion could turn into an answer.
+/// What the log *does* drop is old lines wholesale, and the row below says so
+/// -- an individual older than the log's window has a truncated story, and a
+/// truncated story must not read as an uneventful one.
+fn story(world: &World, id: u16, born_frame: u64) -> Vec<SpecimenRow> {
+    let mut rows: Vec<SpecimenRow> = world
+        .run_log
+        .about(id, born_frame)
+        .map(|e| {
+            (
+                format!("F{}", e.frame),
+                match e.kind {
+                    world::LogKind::Born => "BORN".to_string(),
+                    world::LogKind::Died => organism::DEATH_CAUSE_LIST
+                        .get(e.other as usize)
+                        .map(|c| c.label().to_string())
+                        .unwrap_or_else(|| "DIED".to_string()),
+                    world::LogKind::FirstFeed => "FIRST FED".to_string(),
+                    world::LogKind::FirstSeed => "FIRST SEED".to_string(),
+                    world::LogKind::LineEnded => format!("LINE {} ENDED", e.other),
+                },
+                "A LINE THIS INDIVIDUAL PUT IN THE RUN LOG, AT THE SIMULATED FRAME IT HAPPENED ON. THE BOX PAGE'S WHAT HAPPENED LIST IS THE SAME LOG WITH EVERYBODY IN IT.".to_string(),
+            )
+        })
+        .collect();
+    if rows.is_empty() {
+        rows.push((
+            "NO LINES".into(),
+            "--".into(),
+            "NOTHING THIS INDIVIDUAL DID HAS REACHED THE RUN LOG. EITHER IT HAS NOT YET DONE ANYTHING NOTABLE, OR IT IS OLD ENOUGH THAT ITS LINES HAVE AGED OUT OF THE LOG -- THE WHAT HAPPENED PAGE SAYS HOW MANY HAVE BEEN LOST FOR GOOD.".into(),
+        ));
+    }
+    rows
 }
 
 /// **The genome read back as sentences** -- `plainspeak::describe`, as

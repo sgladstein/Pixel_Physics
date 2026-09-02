@@ -111,6 +111,135 @@ pub(crate) fn creature_priority() -> bool {
     *ON.get_or_init(|| std::env::var("CREATURE_PRIORITY").map_or(true, |v| v != "0"))
 }
 
+
+/// **One line of the box's own history.**
+///
+/// **Narrative only. This is never the source of any count.** Every number a
+/// page shows comes from `LifeCounters` or from `CreatureStats`; the log says
+/// *what happened and when*, which those cannot. The distinction matters
+/// because the log is capped, and a reader who answered "how many times did
+/// this ant feed?" by filtering it would get an **undercount that looks like
+/// an answer** the moment the cap was reached. `CLAUDE.md`'s size-cap rule
+/// turns on exactly that: does exhausting the cap produce *an answer*, or
+/// merely *less work*? Dropping the oldest line is less work -- the event
+/// still fired and is still counted -- and `RunLog::dropped` is what stops
+/// the trimming being silent.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LogEvent {
+    /// The simulated frame it happened on.
+    pub frame: u64,
+    /// Who it happened to, as the identity the roster pins by.
+    pub id: u16,
+    pub born_frame: u64,
+    pub species: organism::SpeciesId,
+    pub kind: LogKind,
+    /// The other party, where there is one: a birth's parent. `0` otherwise.
+    pub other: u16,
+}
+
+/// What kind of thing happened.
+///
+/// **Notable events only, and that list is a measurement rather than a
+/// taste.** `labstats frames=90000` on the shipped bed reports 3,099 seeds
+/// borne against 279 germinations, 15 animal births and 64 deaths -- so a log
+/// that recorded every seed-set would be **90% seed-set** and would drown
+/// everything worth reading. Recording only an individual's *first* seed
+/// brings the whole run to roughly 640 lines, which is what sets the cap.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LogKind {
+    /// A creature budded, or a seed germinated.
+    Born,
+    /// It left the world. `LogEvent::other` carries the cause's index.
+    Died,
+    /// The first mouthful of its life -- the moment a forager starts paying
+    /// its own way, and the one nothing else records.
+    FirstFeed,
+    /// The first seed it ever set. Its later seeds are counted and not logged.
+    FirstSeed,
+    /// The last individual of a founding line died. The only entry that is
+    /// about a *lineage* rather than an individual.
+    LineEnded,
+}
+
+impl LogKind {
+    pub fn label(self) -> &'static str {
+        match self {
+            LogKind::Born => "BORN",
+            LogKind::Died => "DIED",
+            LogKind::FirstFeed => "FIRST FED",
+            LogKind::FirstSeed => "FIRST SEED",
+            LogKind::LineEnded => "LINE ENDED",
+        }
+    }
+}
+
+/// **What happened in this box while you were not looking.**
+///
+/// The instrument `Reports/evolution-lab-gui-physics-2026-08-30.md` asks for
+/// and nothing provided: a phase that fast-forwards 45,000 frames has to be
+/// able to say what went on. Filter by identity for one individual's
+/// timeline; read it whole for the box's.
+#[derive(Clone, Debug, Default)]
+pub struct RunLog {
+    events: std::collections::VecDeque<LogEvent>,
+    /// **How many lines have aged out.** Without it a trimmed early history
+    /// reads as *nothing happened*, which is the same failure as a zero body
+    /// count read as "chunks are working": the absence of evidence looks
+    /// exactly like evidence of absence. The page prints it.
+    dropped: u64,
+}
+
+/// **How many lines the log holds**, set from measurement with headroom.
+///
+/// Roughly 640 notable events per 90,000 frames of the shipped bed (see
+/// `LogKind`), so this covers about 290,000 frames -- several sessions --
+/// before anything ages out at all.
+///
+/// **Not decimated**, unlike `lab::stats`' sample ring. A decimated *series*
+/// is the same shape at lower resolution; a decimated *narrative* is a story
+/// with every other sentence removed.
+pub const RUN_LOG_CAP: usize = 2048;
+
+impl RunLog {
+    pub fn push(&mut self, event: LogEvent) {
+        self.events.push_back(event);
+        while self.events.len() > RUN_LOG_CAP {
+            self.events.pop_front();
+            self.dropped += 1;
+        }
+    }
+
+    /// Newest first, which is the order a log is read in.
+    pub fn recent(&self) -> impl Iterator<Item = &LogEvent> {
+        self.events.iter().rev()
+    }
+
+    /// One individual's timeline, newest first.
+    pub fn about(&self, id: u16, born_frame: u64) -> impl Iterator<Item = &LogEvent> {
+        self.events.iter().rev().filter(move |e| e.id == id && e.born_frame == born_frame)
+    }
+
+    pub fn len(&self) -> usize {
+        self.events.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.events.is_empty()
+    }
+
+    /// How many lines have aged out of the far end.
+    pub fn dropped(&self) -> u64 {
+        self.dropped
+    }
+
+    /// Start again. For a batch copy, which inherits its parent's log through
+    /// `World`'s `Clone` and should not: a copy's history is its own run.
+    pub fn clear(&mut self) {
+        self.events.clear();
+        self.dropped = 0;
+    }
+}
+
 /// Per-verb creature counters. Printed beside every scene.
 ///
 /// `trips_completed` is the one that proves the *loop* rather than its
@@ -1074,6 +1203,9 @@ pub struct World {
     /// The far side of the run log's `died` events, and the only place §B2's
     /// whole-plant fellings are counted as *organisms* rather than as cells.
     pub deaths_by_cause: [u64; organism::DEATH_CAUSES],
+    /// **What happened while you were not looking.** See [`RunLog`] -- it is
+    /// narrative, never the source of a count.
+    pub run_log: RunLog,
     /// **Germinations refused because every organism slot was live** — the
     /// other half of making the 4,095 ceiling a real check rather than a
     /// `debug_assert` (see `push_organism`).
@@ -2324,6 +2456,7 @@ impl World {
             dead_life: organism::LifeCounters::default(),
             seeds_set: 0,
             deaths_by_cause: [0; organism::DEATH_CAUSES],
+            run_log: RunLog::default(),
             organisms_refused: 0,
             organism_generation_wraps: 0,
             next_lineage: 1,
@@ -3143,10 +3276,40 @@ impl World {
             ),
             None => (organism::LifeCounters::default(), organism::DeathCause::Unknown),
         };
+        let (species, lineage, born_frame) = match slot.state.as_ref() {
+            Some(state) => (state.species, state.lineage, state.born_frame),
+            None => (organism::SpeciesId(0), 0, 0),
+        };
         slot.state = None;
         self.free_organism_slots.push(slot_index);
         self.dead_life.absorb(&life);
         self.deaths_by_cause[cause.index()] += 1;
+        self.run_log.push(LogEvent {
+            frame: self.frame,
+            id: organism_id,
+            born_frame,
+            species,
+            kind: LogKind::Died,
+            other: cause.index() as u16,
+        });
+        // **The lineage's own ending, which is the only line here about
+        // something other than an individual.** A founding line going extinct
+        // is the thing a selection experiment is watching for and the thing a
+        // population count cannot show: the headcount falls by one whether the
+        // last of a line died or one of fifty siblings did.
+        //
+        // The walk is O(live organisms) and runs only on a death -- tens of
+        // organisms, hundreds of deaths in a long run.
+        if lineage != 0 && !self.organisms.iter().any(|slot| slot.state.as_ref().is_some_and(|s| s.lineage == lineage)) {
+            self.run_log.push(LogEvent {
+                frame: self.frame,
+                id: organism_id,
+                born_frame,
+                species,
+                kind: LogKind::LineEnded,
+                other: 0,
+            });
+        }
         // Counted here rather than at either call site: this is the one
         // function that decides a release really happened (both callers can
         // fire twice for one death, and the guards above are what stop the
@@ -5632,6 +5795,82 @@ mod tests {
 
     fn test_world() -> World {
         World::new(Rect::new(0, 0, 127, 127))
+    }
+
+    /// **The log says how much of the story it threw away.**
+    ///
+    /// The cap is a bound on the writer, not a gate on any answer -- every
+    /// number in the interface comes from `LifeCounters`, never from counting
+    /// log lines. But a reader still has to be able to tell a quiet run from a
+    /// trimmed one, and silence looks identical either way. That is the same
+    /// failure as a zero body count read as "chunks are working", so
+    /// `dropped` exists and the page prints it.
+    ///
+    /// Provable red by dropping the `self.dropped += 1` in `RunLog::push`, or
+    /// by resetting `dropped` in `clear`'s place.
+    #[test]
+    fn the_run_log_reports_what_it_dropped() {
+        let mut log = RunLog::default();
+        let line = |frame: u64| LogEvent {
+            frame,
+            id: 1,
+            born_frame: 0,
+            species: organism::SpeciesId(0),
+            kind: LogKind::Born,
+            other: 0,
+        };
+
+        // Under the cap it drops nothing -- the specificity half, without
+        // which `dropped` could simply count every push.
+        for f in 0..RUN_LOG_CAP as u64 {
+            log.push(line(f));
+        }
+        assert_eq!(log.len(), RUN_LOG_CAP);
+        assert_eq!(log.dropped(), 0, "the log trimmed a story that fitted");
+
+        // Over it, the count is exact and the oldest lines are the ones gone.
+        const OVER: u64 = 37;
+        for f in 0..OVER {
+            log.push(line(RUN_LOG_CAP as u64 + f));
+        }
+        assert_eq!(log.len(), RUN_LOG_CAP, "the cap did not bound the writer");
+        assert_eq!(log.dropped(), OVER, "the log lost lines without saying how many");
+        assert!(
+            log.recent().all(|e| e.frame >= OVER),
+            "the log trimmed from the wrong end -- the newest lines went instead of the oldest"
+        );
+
+        log.clear();
+        assert!(log.is_empty() && log.dropped() == 0, "a cleared log still claims a past");
+    }
+
+    /// **One individual's timeline is filtered by identity, not by handle.**
+    ///
+    /// `id` is a 12-bit slot plus a 4-bit generation and is reused after 16
+    /// turns, so a log filtered on the handle alone hands the roster a dead
+    /// animal's history under a living one's name -- and it reads as a rich
+    /// life rather than as a bug. Red by dropping the `born_frame` term from
+    /// `RunLog::about`.
+    #[test]
+    fn one_individuals_timeline_is_filtered_by_identity_not_by_handle() {
+        let mut log = RunLog::default();
+        let line = |frame: u64, born_frame: u64, kind: LogKind| LogEvent {
+            frame,
+            id: 9,
+            born_frame,
+            species: organism::SpeciesId(0),
+            kind,
+            other: 0,
+        };
+        log.push(line(10, 10, LogKind::Born));
+        log.push(line(90, 10, LogKind::Died));
+        // Same slot, a later tenant.
+        log.push(line(100, 100, LogKind::Born));
+
+        let first: Vec<u64> = log.about(9, 10).map(|e| e.frame).collect();
+        assert_eq!(first, vec![90, 10], "the first tenant's timeline is wrong (newest first)");
+        let second: Vec<u64> = log.about(9, 100).map(|e| e.frame).collect();
+        assert_eq!(second, vec![100], "the slot's second tenant inherited the first one's life");
     }
 
     // --- meat_lost: the destruction seam ---------------------------------
