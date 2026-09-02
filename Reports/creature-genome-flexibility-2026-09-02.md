@@ -1346,6 +1346,16 @@ with a reader and no writer.
 **Prerequisite P1: author `food_energy` and `food_class` on `beetle.ron` and
 `worm.ron`.** Small, and everything in §11f depends on it.
 
+> **P1 is DONE — landed on `main` 2026-09-02, verified in this tree after
+> merging main in.** `beetle.ron` now carries `food_energy: 200.0,
+> food_class: 1.0` and `worm.ron` `food_energy: 480.0, food_class: 1.0`,
+> both with the flesh-pricing invariant stated in a comment beside them
+> (a material's `food_energy` tracks its species' own energy, and
+> `food_class: 1.0` is flesh, the value `ant` and `corpse` already carried).
+> **Do not re-do this**, and read the paragraphs above as the record of why
+> it was needed rather than as outstanding work. What it unblocks is §11f:
+> predation is now two-way in the data as well as in the mechanism.
+
 ### 11b. The finding: digging respects hardness, biting does not
 
 **`creature.rs` reads `penetration_resistance` in exactly one place — the dig
@@ -2361,7 +2371,7 @@ recorded here because the errors generalise better than the corrections do.
 |---|---|---|
 | **§11c** | `bite_force` defaulting to `dig_force` means *"nothing changes until a species says so"* | **All sixteen food materials** sit at the 100.0 "impenetrable" default and `act`'s ingest branch is one branch for *all* food, so the gate would have been `1.0 >= 100.0` for every mouthful in the world. **Nothing eats anything, ever** |
 | **§13b/e** | *"no chain longer than two cells leaves a living colony"*, cited as a live blocker | Superseded. `creature-chain-head-loss-2026-08-30.md` diagnosed it as a **head-cell counter reading zero over a living population**; `Reports/README.md` records *"the extent lever is recoverable"* |
-| **§11a/b** | the four creature materials are *"identical in every food property"*, so predation is *"symmetric by construction"* | `beetle.ron` and `worm.ron` author **no `food_energy` and no `food_class`**. Nothing in the world can eat a living beetle at any gut bias, and §11b's own headline example was unreachable |
+| **§11a/b** | the four creature materials are *"identical in every food property"*, so predation is *"symmetric by construction"* | `beetle.ron` and `worm.ron` author **no `food_energy` and no `food_class`**. Nothing in the world can eat a living beetle at any gut bias, and §11b's own headline example was unreachable. **Closed on `main` 2026-09-02** — both now author flesh values; see §11a's status block |
 | **§11d/§12b** | a body's cells and cell count are body-plan-independent | `body_after_step` re-derives a **`Rigid` body's template from the head every step**, so a bitten beetle regrows its cells for free. Severing was incompatible with the one row §12 promised nothing would touch |
 
 ### The shape of them, which is the reusable part
