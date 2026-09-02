@@ -981,10 +981,19 @@ drift that two of these documents still reflect.**
   both cost paths went per-cell on 2026-08-30. §5 keeps the moisture gradient
   and explains why — it asserts a *physical fact* (Facchini 2024: deposition
   tracks evaporation flux, which tracks curvature; no cement pheromone) rather
-  than an outcome — while reporting a dated finding: **`moisture_gradient`
-  samples at ±4 cells and `FIELD_SCALE` doubled 8 → 16 on 2026-08-30**
-  (`ca7e9042`), one day after those offsets were last touched, so the sampler
-  was never re-derived. §9 is why the **creature Gate 2 does not exist** and
+  than an outcome. **§5 was revised 2026-09-02 after `field_sense_probe`
+  measured that the shipped channel does not implement it**: curvature moves it
+  1.012x at the shipped ±4 span and **1.003x at ±24**, so widening the sampler
+  moves *toward* 1.0. It is a **surface-proximity detector** — moisture is
+  sourced by damp soil and blocked by solids, so `|∇m|` peaks at the air/ground
+  interface — which makes the shipped rules read *drop when you surface, dig
+  once you are inside*. The consequence that matters is structural: Facchini's
+  mechanism is self-amplifying (deposit raises curvature, curvature attracts
+  deposit) while a surface detector is self-neutralising, so **this signal
+  yields accretion and can never yield architecture, at any coefficient in any
+  genome**. §5f keeps the surviving half of the argument — the response still
+  belongs in the genome — and recommends adding a discrete curvature signal
+  beside it, cheaply, from a solid-neighbour count. §9 is why the **creature Gate 2 does not exist** and
   must come first: `labbatch` puts the seed alone at **2.42×–3.12×** on the lab
   census with no true effect present. **§11 is predation and defence**, on the
   owner's ruling that size should buy survival: the encoding has no predator
@@ -1017,6 +1026,47 @@ drift that two of these documents still reflect.**
   the owner's "perfect cube" is a shape reading at 36 cells — carries the
   finding that **no instrument here measures whether something reads as an
   animal**, so this lever is judged by blind A/B and not by a number.
+  **§14 is the one to read if what you want is rooms**, and it corrects §5g: a
+  chamber is **dug, not built**, so the spoil-placement rules were the wrong
+  thing to argue with, and `line_burrow` already cements an excavation's walls
+  into `self_supporting` ground — the engine can hold a room open, nothing digs
+  one. The mechanism is `stigmergy-research.md` §5 (Toffin et al., *PNAS* 2009,
+  controlled for heterogeneity): high worker density on a small perimeter gives
+  **uniform digging and a round chamber**, and as the cavity outgrows the colony
+  density falls and **localized buds sprout into tunnels**. That note's own
+  conclusion — *"this needs no new channel at all"* — has stood unacted on since
+  2026-08, and `BrainInput::Crowding` is exactly the density it names, **wired
+  to `Move` and nothing else** in every species file. So rooms are plausibly one
+  instinct weight, `(Crowding, Dig, w)`. The measurement it needs is the half
+  `burrow_probe` cannot give: it counts **roofed void**, a volume, while the
+  finding is entirely about **shape** — a round chamber and a ramified warren of
+  equal size are the same number and opposite results. **§14 was then built and
+  the recommendation withdrawn (PR #216)**: the weight is out of both species
+  files, which are comment-only diffs against `main`. Running the twelve seeds
+  the review asked for found first that `burrow_probe` **could not produce more
+  than seven colonies** — founder placement walked out of the valid region past
+  seed 7 and read `digs 0` in *both* arms, which looks exactly like an effect
+  vanishing at larger samples — and then that the result does not survive:
+  **4 of 4 seeds became 16 of 33 seed pairs**, with the sign reversing between
+  colony sizes, and the interaction test reading −0.316 wired against −0.333
+  ablated. The one effect that survived is the *opposite* of the goal — a
+  smaller cavity for more digging. §14g and §14h record it, including that the
+  positive control the section specified could not fail and that its confidence
+  was inverted: the half it called confident is the half that reversed.
+  **§14i then asks how much the null establishes, and finds one thing nobody
+  noticed:** `Crowding` is clamped at 1.0 and ran mean **0.995 → 0.675** with
+  the max pinned, so a mechanism that is specifically about density falling
+  *below a critical value* was measured over a sensor that spent the run near
+  its ceiling — and the pre-check that passed asked *"is this a dead channel?"*
+  rather than *"does it reach the regime the model is about?"*, which is the
+  vacuous-control error in a third costume. **The general finding is bigger than
+  the ants**: this repo has extensive machinery for not trusting a *positive*
+  and almost none for not trusting a *null*, and the question that belongs
+  beside every null — **what effect size would this design have detected?** —
+  was not asked. The standing check it proposes: **an input that never leaves
+  saturation cannot demonstrate a mechanism about its low end**, so assert the
+  driving input's realised range as a precondition and refuse the run, the way
+  `creature_arena` refuses a verdict inside the founding grant.
   **Independently reviewed 2026-09-02 and revised; §16 is the errata and is the
   most reusable section in the file.** The review found four confirmed errors,
   and three of them came from checking a claim against a *neighbouring* file
@@ -1852,6 +1902,30 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   solves for movements of at most 20 bytes in 18,193**, which is the headroom
   nobody has taken and is a harder change than this one.
 
+- [lab-race-verb-2026-09-02.md](lab-race-verb-2026-09-02.md) — **design, not
+  built.** The owner's question: is `creature_arena` a player feature or only a
+  dev tool? **Both, and they are two surfaces over one engine.** The game
+  feature is a **tournament between two shelf jars**, and it closes the loop the
+  specimen shelf left open — you can already keep, clone and mutate a creature
+  and have no way to find out whether the mutant is any good. **It is also fast
+  enough to watch**, which is the fact that changes the answer: a valid run is
+  24,000 frames and the dial does 12 ticks per displayed frame, so a match is
+  **~33 seconds**, not a batch job. §3 is the part that must not be softened —
+  the mirror runs invisibly and is never optional (`arm=same mirror=off` reads
+  **42.9%–70.0%** on position alone), the founding-grant horizon is **enforced
+  rather than warned** (at 9,000 frames a brain with every weight zeroed wins
+  **65.8% on 4 of 4 seeds**, so a player racing short concludes their worst
+  creature is their best), and one race is a coin flip against a **2.42×–3.12×**
+  seed spread — which turns out to make the feature *better*, because the honest
+  readout is a **best-of-N** rather than a single match. §5 finds the UI answer
+  already precedented: the bar is measurably full at seven, but `WALL` reached
+  the tree by key alone with no bar cell, and `Tool::Release` has no button at
+  all, so **RACE belongs on the rack page**, where jar actions already moved. Flags that `arm=random` rests on
+  **six seeds** and needs twelve before it becomes a player-facing benchmark,
+  and that a race is a verdict and therefore edges into the deliberately
+  deferred Gate 5. **The guard before it ships: race a jar against itself and
+  check it comes back at the null** — if a creature beats itself, every verdict
+  the feature has shown is void.
 - [evolution-lab-frame-cost-2026-09-01.md](evolution-lab-frame-cost-2026-09-01.md)
   — **measured and landed 2026-09-01.** The first performance review of the
   **lab's own** frame; every earlier one in this index is an outdoor
