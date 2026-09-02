@@ -1853,6 +1853,30 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   solves for movements of at most 20 bytes in 18,193**, which is the headroom
   nobody has taken and is a harder change than this one.
 
+- [lab-race-verb-2026-09-02.md](lab-race-verb-2026-09-02.md) — **design, not
+  built.** The owner's question: is `creature_arena` a player feature or only a
+  dev tool? **Both, and they are two surfaces over one engine.** The game
+  feature is a **tournament between two shelf jars**, and it closes the loop the
+  specimen shelf left open — you can already keep, clone and mutate a creature
+  and have no way to find out whether the mutant is any good. **It is also fast
+  enough to watch**, which is the fact that changes the answer: a valid run is
+  24,000 frames and the dial does 12 ticks per displayed frame, so a match is
+  **~33 seconds**, not a batch job. §3 is the part that must not be softened —
+  the mirror runs invisibly and is never optional (`arm=same mirror=off` reads
+  **42.9%–70.0%** on position alone), the founding-grant horizon is **enforced
+  rather than warned** (at 9,000 frames a brain with every weight zeroed wins
+  **65.8% on 4 of 4 seeds**, so a player racing short concludes their worst
+  creature is their best), and one race is a coin flip against a **2.42×–3.12×**
+  seed spread — which turns out to make the feature *better*, because the honest
+  readout is a **best-of-N** rather than a single match. §5 finds the UI answer
+  already precedented: the bar is measurably full at seven, but `WALL` shipped
+  key-only and `Tool::Release` has no button at all, so **RACE belongs on the
+  rack page**, where jar actions already moved. Flags that `arm=random` rests on
+  **six seeds** and needs twelve before it becomes a player-facing benchmark,
+  and that a race is a verdict and therefore edges into the deliberately
+  deferred Gate 5. **The guard before it ships: race a jar against itself and
+  check it comes back at the null** — if a creature beats itself, every verdict
+  the feature has shown is void.
 - [evolution-lab-frame-cost-2026-09-01.md](evolution-lab-frame-cost-2026-09-01.md)
   — **measured and landed 2026-09-01.** The first performance review of the
   **lab's own** frame; every earlier one in this index is an outdoor
