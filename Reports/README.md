@@ -912,6 +912,29 @@ drift that two of these documents still reflect.**
   already the best of the values tested, and a nine-cell pale body puts less
   on screen than the shipped two-cell dark one. The creature-side answer to
   `plant-appearance-design.md`.
+- [creature-shape-reachability-2026-09-02.md](creature-shape-reachability-2026-09-02.md)
+  — **measurement only, no body plan built.** Three pre-checks for
+  `creature-genome-flexibility-2026-09-02.md` §13's articulated-body
+  proposal, run before anyone designs one. A rigid footprint's blocked-move
+  rate is set by **width**, not height or cell count, and it is a step
+  rather than a gradient: ≤2 cells wide blocks 8-13% median (12 seeds), ≥3
+  wide blocks 47-58% median, on `rolling`. The never-measured 2x2 (the
+  shipped `beetle`) lands at 12.4% median. Both taper directions (small
+  head/big abdomen and its mirror), measured as monolithic 14-cell bodies,
+  land at the same ~54-57% regardless of which end carries the wide part —
+  the floor a genuinely decoupled body would be measured against, since a
+  wide part cannot benefit from a narrower part's cleared ground whichever
+  end it sits at. So articulation's measured value is **length at
+  near-chain mobility, provided every part stays ≤2 cells wide** — not the
+  wide "small head, big abdomen" insect silhouette the proposal reaches for,
+  which costs the same as a plain rigid block with or without articulation.
+  Separately, shape at constant extent (a filled 6x6 block against a
+  waisted 36-cell "insect") still moves nothing measurable on `ink` (~0.5%
+  median, not the ~15% a legibility-threshold-crossing would predict) —
+  `creature-appearance-design.md`'s 9-cell finding generalises to 36 rather
+  than being a small-size artifact. A blind gallery card of six candidate
+  silhouettes is posted and unanswered as of this report
+  (`20260902T194120383Z-3860b1`).
 - [creature-gates-to-mechanism-2026-08-31.md](creature-gates-to-mechanism-2026-08-31.md)
   — **built and landed 2026-08-31, PRs #190, #192, #194.** The authored
   eat-vs-carry gates come out: a crop that digests as the animal walks
