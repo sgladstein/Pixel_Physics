@@ -1580,8 +1580,35 @@ Two further costs the "one line" framing hid:
   cells. Deriving it from a cell count needs a joules-per-body-cell multiplier
   that nobody has derived — precisely the unpriced constant §3 warns about.
 
+**And the arithmetic above is the *generous* case.** It assumes the crop is
+filled every trip, so delivery is `k·b`. Drop that — if fill is bounded by how
+much food the animal actually meets rather than by capacity, delivery is some
+fixed *F* independent of *b* — and cost per delivered cell becomes
+`(idle·b·T + move·b·(1+k)·D) / F`, which **rises linearly in *b***. So:
+
+| does the crop fill each trip? | what size-linked capacity does |
+|---|---|
+| always | exactly **neutral** — the *b* cancels |
+| not always | **strictly worse** — cost per delivered cell rises with size |
+
+**There is no regime in which this is a payoff.** Note which way that cuts: the
+saturation that would look like a natural brake on the lever is the thing that
+turns it into a penalty.
+
 **Recommendation: keep `crop_capacity` authored for now.** It is not the lever
 that makes size pay; §11d-with-§13 is.
+
+> **Errata, 2026-09-02, recorded because the wrong version left this session.**
+> Asked by another session for the most promising payoff to attach to size, I
+> recommended exactly this lever — scaling `crop_capacity` with body cells —
+> arguing that trip saturation would give it an interior optimum. **That is
+> wrong, and this section already contained the arithmetic refuting it**; I
+> answered without re-reading my own work. Withdrawn to that session within
+> minutes and recorded here because they hold the message and a later reader
+> holds the report. The failure is worth naming for its shape rather than its
+> subject: **an argument carried into a regime it was not derived in** — which
+> is the same class of error this document had just finished flagging in
+> someone else's, in the paragraph immediately before making it.
 
 ### 11f. The gap that blocks an arms race, and it is one-sided
 
@@ -1844,6 +1871,26 @@ whole body's cost. The 3-cell threshold itself was measured only on `rolling`
 and is presumably scaled to that preset's terrain grain, so treat *"there is a
 sharp width threshold"* as the claim that transfers and *"it is at 3"* as
 local.
+
+**And for this document's own scope, "local" is stronger than it sounds: the
+lab bed has no terrain at all.** `src/lab/scene.rs:663` fills it as
+`for x in 0..width { for y in ground_y..(ground_y + soil_depth) { …soil… } }`
+with `ground_y` a single `i32` (160) and `soil_depth` 96 — **dead flat across
+the full width, uniform soil, and no worldgen pass anywhere under `src/lab/`.**
+So the mechanism that produces the width tax — a rigid footprint failing to fit
+against terrain relief — **is absent by construction in the evolution lab**,
+which is the game the owner scoped this line to.
+
+**Read every mobility number in §13 as an outdoor-game result until someone
+measures the lab.** Width may well still cost something there, but through
+different mechanisms: excavation volume when digging, and
+`penetration_resistance` against `dig_force`, which `creature.rs` reads at
+exactly one site (`:2910`, the dig branch). Neither is what `creature_scale
+mode=walk` measures. `examples/creature_body_probe.rs` already clones a
+`CreatureDef` and overrides `body`, so pointing it at a `LabScene` bed rather
+than a generated world is a small change and would settle it — **and it should
+be settled before a body plan is designed around a constraint the lab does not
+impose.**
 
 **This is a real limit on the proposal, not a detail.** What articulation buys
 is a body that is *longer and jointed* at near-chain mobility, with modest
