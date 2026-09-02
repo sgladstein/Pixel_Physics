@@ -994,6 +994,26 @@ drift that two of these documents still reflect.**
   the owner's "perfect cube" is a shape reading at 36 cells — carries the
   finding that **no instrument here measures whether something reads as an
   animal**, so this lever is judged by blind A/B and not by a number.
+  **Independently reviewed 2026-09-02 and revised; §16 is the errata and is the
+  most reusable section in the file.** The review found four confirmed errors,
+  and three of them came from checking a claim against a *neighbouring* file
+  rather than the actual one: the proposed bite gate would have stopped **every
+  animal in the world from eating** (all **sixteen** food materials sit at the
+  100.0 default and `act`'s ingest branch is one branch for all food, so the
+  gate reads `1.0 >= 100.0` for every mouthful); `beetle.ron` and `worm.ron`
+  author **no `food_energy` or `food_class`**, so nothing can eat a living
+  beetle at any gut bias and the claim that predation is symmetric is true of
+  the mechanism and false of the data; §13 cited
+  `creature-body-extent-2026-08-30.md`'s "no chain past two cells" as a live
+  blocker when `creature-chain-head-loss-2026-08-30.md` had **closed it** as a
+  head-cell counter reading zero over a living population; and `body_after_step`
+  re-derives a `Rigid` body's template from the head every step, so severing was
+  incompatible with the one contract row §12 promised nothing would touch. **The
+  frame in §3 also had the bug it exists to prevent** — `tick_interval` was
+  classified "priced, safe now" while cost and benefit both scale linearly, so
+  it pins at the floor; Kind 2 now requires an interior optimum as well as a
+  price. Read §16 before trusting any recommendation here, and §10 (two tracks,
+  staged) is the implementation brief.
 - [creature-motion-decoys-2026-08-30.md](creature-motion-decoys-2026-08-30.md)
   — **measured study, and a qualification of the report above.**
   `creature-appearance-design.md`'s whole body-size case rests on `decoys`,

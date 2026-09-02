@@ -28,6 +28,47 @@ Answers given in the same conversation, and binding on everything below:
 | **The ratchet check gets built** | *"lean towards build it"* — `gene_probe`, §10 |
 | **Kind 3 genes are not wanted** | *"they don't seem highly important"*; two of the three should never become genes — §7 |
 | **The body revamp's target is the silhouette** | *"I don't want all to look like a chain… larger creatures just become snakes/worms"* — §13 |
+| **A rigid body's cells become state** | *"fix it properly as part of the body work"* — not a special case in §11d. Track B, stage B2 |
+| **`relocate_chain`'s bug is stage one of the body work** | *"for now it can be stage one"* — Track B, stage B1 |
+
+---
+
+## How to use this report
+
+**If you are the implementing agent, this is your entry point.**
+
+**Read in this order.** §0 (the one recommendation), §2 (what is actually
+authored, with line numbers), §3 (the frame that decides whether a gene is safe
+to build), then **§10, which is the implementation brief** — two tracks, staged,
+each with its acceptance number and its falsifier. Everything else is the
+argument behind those.
+
+**What is decided and not open to re-litigation:** the table above. Those are
+the owner's rulings, given in conversation on 2026-09-02.
+
+**What is measured, what is assumed.** Claims in this document that were
+verified against source carry a `file:line`. Claims that are predictions are
+labelled as such — §13c's mobility argument and §13d's shape-threshold claim are
+the two that matter, and both have a named pre-check in §10 Track B. **Do not
+promote either to a premise without running its check first.**
+
+**What was wrong in the first draft, and why that matters to you:** §16. An
+independent review found four confirmed errors, one of which would have stopped
+every animal in the world from eating on the first run. They are corrected in
+place. §16 exists because the *shape* of those errors is the most reusable thing
+here — three of the four came from checking a claim against a neighbouring file
+instead of the actual one.
+
+**Before you build anything**, the three rules at the top of §10 govern every
+stage: re-take a baseline on the binary you are comparing against, never move
+the metabolic budget in parallel with an arena reading, and carry a positive
+control rather than only a negative one.
+
+**Two things this report does not authorise.** It does not authorise the body
+revamp's *design* — Track B stops at articulation-if-the-pre-checks-support-it,
+and §13c records what articulation demonstrably does not buy. And it does not
+authorise skipping §0: with the seed alone moving the lab census 2.42×–3.12×,
+a result measured before the arena exists is not a result.
 
 ---
 
@@ -258,13 +299,40 @@ measured exactly that shape (0.755 at 4, **0.817 at 6**, 0.743 at 8, 0.727 at
 The test: *can I state a setting at which more of this is worse, and is that
 setting reachable?* If yes, ship the gene.
 
-### Kind 2 — already priced. Safe now.
+**A caveat on that exemplar, from the review.** `sensor_offset`'s numbers come
+from `pheromone.rs`'s `trail_following_sweep`, an **`#[ignore]`d unit test**
+running a bespoke follower on a hand-built trail over **six seeds** — and
+`CLAUDE.md` states flatly that *six seeds is not a sweep* (1.64× over six, 1.08×
+over the next twelve, pooled median zero). It also measures a *steering score in
+a synthetic harness*, not a population mean under selection. So it is a
+**plausible** Kind 1 example, not a measured one, and §10 no longer uses it as
+`gene_probe`'s reference control.
 
-A cost term exists and scales with the lever. **Safe to make heritable, and
-three of these are sitting unclaimed** (§7).
+### Kind 2 — priced *and* self-limiting. Safe now.
 
-The test: *name the line that charges for it, and show the charge rises with
-the gene.* If you cannot name the line, it is Kind 3.
+A cost term exists, scales with the lever, **and the optimum it produces is
+interior.**
+
+**Both halves, and the first version of this document had only the first — which
+is the bug in the frame that the independent review found.** "A cost exists and
+rises with the gene" is not sufficient, because a cost that rises *linearly*
+against a benefit that also rises linearly produces no interior optimum at all:
+the ratio is constant and the gene pins at whichever end is marginally better.
+`tick_interval` is exactly that case and the first version classified it as safe
+(§7).
+
+**The two-part test:**
+
+1. *Name the line that charges for it, and show the charge rises with the gene.*
+   If you cannot name the line, it is Kind 3.
+2. *Then show the return diminishes or the cost accelerates* — that the benefit
+   saturates, or the cost grows faster than linearly. If both are linear, the
+   gene is a ratchet **even though it is priced**, and it belongs in Kind 3 until
+   something bends one of the two curves.
+
+Step 2 is the same question Kind 1 asks (*can I state a setting at which more of
+this is worse?*); pricing does not exempt a lever from having to answer it.
+`gene_probe` (§10) is step 2 made mechanical.
 
 ### Kind 3 — unpriced. Do not make heritable yet.
 
@@ -537,7 +605,7 @@ failure in a new costume.
 | gene | the line that charges for it |
 |---|---|
 | **`sight_range`** | `sight_tax = sight_fraction × start_energy × sight_reads` — rises with radius through cells read. Author the fraction first (§6). |
-| **`tick_interval`** | every cost is charged **once per creature tick** (`spent = idle + synapse_tax + sight_tax`), so halving the interval doubles the bill per frame. **Priced by construction, and nobody noticed.** |
+| ~~`tick_interval`~~ | **withdrawn — see below.** Priced, but not self-limiting |
 | **body length / girth (S8)** | `idle_cost_per_cell × body_cells` and `move_cost_per_cell × (body_cells + carried_cells)`. |
 
 **The S8 entry is a live correction.** The creature coordinator's note
@@ -549,6 +617,19 @@ fields went per-cell on 2026-08-30 and were renamed to carry the meaning change,
 and `idle_cost_per_cell`'s doc names E10's false premise as the thing it was
 fixing. **The stated blocker on heritable body length has been removed and the
 plan has not caught up.**
+
+**`tick_interval` is withdrawn from this table.** The pricing claim is correct —
+every cost is charged once per creature tick (`creature.rs:1822`), so halving
+the interval doubles the bill per frame. But it fails Kind 2's *second* test
+(§3): cost and benefit both scale linearly with tick rate, so there is no
+interior optimum and the gene pins at the floor, `tick_interval: 1` — which is
+the ratchet the frame exists to prevent.
+
+**It is also a frame-cost lever nobody named.** `tick_interval` sets how often a
+creature's active site is rescheduled; 52 ants at 1 instead of 6 is six times
+the creature scheduling work per frame. `CLAUDE.md` requires a proposal to say
+what it costs the frame, and the first version of this table was silent. It
+belongs in Kind 3 until either the benefit saturates or the cost accelerates.
 
 Two conditions from §2.8 still stand and are not about pricing: the girth
 pre-check (if wide bodies are more than twice as blocked, width is lethal at
@@ -568,10 +649,13 @@ recommendation is that two of the three should never become one.**
 
 - **`crop_capacity` is how much food, by worth, an animal can hold at once** —
   its crop is checked in `act` as `c.worth() + c.unit <= cap`, and the animal
-  digests the contents as it walks. **Do not make it a gene: derive it from
-  live cell count** (§11e). A bigger animal carries more, which is the honest
-  physical answer, costs nothing to price because body size is already priced,
-  and hands the body axis a foraging payoff to set against its upkeep.
+  digests the contents as it walks. **Do not make it a gene — and, revised after
+  review, do not derive it from body size either.** §11e does the arithmetic the
+  first version skipped: deriving capacity from cell count makes foraging cost
+  per delivered cell **independent of body size**, so it is size-*neutral*
+  rather than a payoff; it silently re-normalises `BrainInput::Carrying` for
+  every existing genome; and it is denominated in joules, not cells, so it needs
+  a joules-per-body-cell constant nobody has derived. **Keep it authored.**
 - **`dig_force` should not get a slot either** — §11c gives it a second job
   (biting) and therefore two opposed pressures, which is what makes an axis
   worth having. Promote it when the body is heritable and it can scale with
@@ -701,10 +785,21 @@ mean when short, refused when long, with the doc noting that fixed arrays
 parse'"*). **Only the brain axis is brittle, and it should adopt the rule its
 neighbour already has.**
 
-Concretely: stamp the *dimensions and names* such that a jar loads when the
-stored name list is a **prefix** of the current one, and refuse otherwise. That
-keeps the protection against a rename or a reorder — which is what the manifest
-exists for — while making an append a non-event.
+Concretely, and **corrected after review, because the obvious form of this rule
+does not permit the change it was introduced for**: `genome_manifest()`
+(`brain.rs:211`) hashes **seven dimensions** — `BRAIN_INPUTS`, `BRAIN_OUTPUTS`,
+`BRAIN_HIDDEN`, `INPUT_SLOTS`, `OUTPUT_SLOTS`, `HIDDEN_SLOTS`, `GENOME_LEN` —
+*and then* the ordered names. Stage 2 grows `BRAIN_HIDDEN` 4 → 8, and **hidden
+units have no names**; they are positional, as `specimen.rs` states outright
+(*"name-addressed on inputs and outputs and positional on hidden units"*). A
+name-prefix rule alone therefore still rejects every jar on precisely the change
+it was written for.
+
+**The rule that works has two clauses:** a stored jar loads when its name lists
+are a **prefix** of the current ones **and** every stored dimension is
+**less than or equal to** the current one. Rename, reorder or shrink still
+refuse — which is what the manifest exists for — and a lawful append in any of
+the three directions becomes a non-event.
 
 ---
 
@@ -758,55 +853,109 @@ first result the plant harness produced and it was vacuous.
 
 ## 10. The staged plan
 
-Each stage states what it delivers, what number says it worked, and what would
-say it did not.
+**This section is the implementation brief.** Each stage states what it
+delivers, the number that says it worked, and the observation that would say it
+did not. Revised 2026-09-02 after independent review, which found the original
+sequence confounding the very baseline it existed to protect.
 
-### Stage 0 — the two measurements owed before anything is built
+### The measurement discipline that governs every stage
 
-**0a. Does `moisture_gradient` read anything underground?** (§5)
+Three rules, all from `CLAUDE.md`, and the first one is the review's finding
+against the first draft of this plan:
 
-Print the value for ants inside a `labnest` gallery against ants on the open
-surface, and the same at both `FIELD_SCALE` sampling spans. **Positive control
-first**: a hand-built convex ridge must read high and a flat plain low, or the
-probe is measuring nothing. If the burrow reads flat, the termite mechanism is
-inert where nests are dug and §5's remedy changes from "move the coefficient
-into the genome" to "fix the sensor, *then* move it".
+1. **Re-take the arena baseline immediately before every comparison, on the same
+   binary.** The original plan took one baseline at Stage 1 and compared Stage 3
+   against it — across which the genome widened 318 → 495 live slots,
+   `mutation_rate` was re-derived, and a new sight tax landed. §8 says outright
+   that *"a sampled genome at a given seed is a different animal"* after the
+   widen. **That is §12a's own rule — two changes reallocating one budget cannot
+   be read apart — violated inside this document's own sequence.** A baseline is
+   valid only against the binary it was taken on.
+2. **Nothing that moves the metabolic budget runs in parallel with an arena
+   reading.** This retires the original Stage 4's claim that it was *"independent
+   of stages 2 and 3, can be built in parallel"*: its `crop_capacity` item moved
+   the same budget the arena reads. (That item is now dropped entirely — §11e.)
+3. **Every stage carries a positive control, not only a negative one.** The
+   review's severest finding (§11c) was reachable because the proposed control
+   proved only that a gate is transparent when open, never that it is not shut on
+   everything.
 
-Cheap, and it is the `check-that-a-planned-step-can-demonstrate-itself` question
-that has cost this project a whole phase once.
+---
+
+## 10A. Track A — senses and the nest
+
+### Stage 0 — measurements owed before anything is built
+
+**0a. Does `moisture_gradient` read anything underground?** (§5) Print the value
+for ants inside a `labnest` gallery against ants on open surface. **Positive
+control first**: a hand-built convex ridge must read high and a flat plain low,
+or the probe measures nothing. If the burrow reads flat, §5's remedy changes
+from "move the coefficient into the genome" to "fix the sensor, *then* move it".
 
 **0b. What does an ant-sized eye cost?** `vision_probe mode=cost` at radius 16,
-32 and 64 with ~50 animals. The existing figure (0.004 ms/frame at five
-beetles at r64) is the right order but the wrong population. Note the standing
-trap in that harness's own notes: the `locate` arm exists because a whole-world
-scan **overstates the sense's cost thirtyfold**, so read `rN` minus `locate`,
-never `vs blind`.
+32, 64 with ~50 animals. Read `rN` **minus `locate`** — that harness's own notes
+record the whole-world scan overstating the sense's cost **thirtyfold**, and
+`vs blind` is the wrong column.
+
+**0c. Can an ant see kin from inside a burrow?** *(Added after review.)* Sight
+rays die on `Solid | Powder`, so an ant in a gallery may see no kin at all — and
+"where is home when home is a hole" is exactly the case §4's odometer replaces.
+Report the fraction of kin-bearing reads that are non-zero for an ant standing
+in a `labnest` gallery. **Mitigating evidence to check it against:**
+`foraging-range-measurement.md` puts real excursions at 12–19 cells with ~4.5
+per seed past 32, so a 16–32 radius is plausibly adequate above ground; the
+question is only what happens below it. **If kin are invisible underground, §4
+needs a contact-range fallback and should say so before Stage 3, not after.**
 
 ### Stage 1 — the instrument (§9)
 
-Creature `selection_arena`. Ships with its own controls: `arm=same` mirrored
-must be exactly 50.0% and is vacuous by construction; `arm=same` **unmirrored**
-establishes the seed-driven spread against which everything else is read;
-`arm=lethal` is the mandatory negative control and must be detected, or the
-harness is blind.
+Creature `selection_arena`. Controls, all three mandatory:
 
-Then **run it on today's ant** — the baseline, taken on the same binary, before
-anything changes.
+- `arm=same` **mirrored** must read exactly 50.0% — and is *vacuous*, an
+  algebraic identity. It proves the harness runs, nothing more.
+- `arm=same` **unmirrored** establishes the seed-driven spread everything else
+  is read against. `labbatch` puts that at 2.42×–3.12× on the lab census.
+- `arm=lethal` is the mandatory negative control and **must** be detected, or the
+  harness is blind.
+
+**One design question the plant harness cannot answer for us**: animals move
+between arms in a way plants cannot, so attribution must be by
+`OrganismState::lineage` and never by position. Confirm the mirrored control
+still means what it means when the two arms can physically mix — and if it does
+not, say so rather than inheriting the plant argument.
+
+Then **run it on today's ant**: the baseline, on this binary.
 
 **The falsifier for the whole programme lives here.** If the bed does not
 discriminate against a genome known to be worse, nothing downstream is
-interpretable and the fix is the ecology, not the genome. The creature line has
-now ended three times with that same finding in different costumes.
+interpretable and the fix is the ecology, not the genome.
 
 ### Stage 2 — the kin sense, additive
 
-Append `KinNear`, `KinBearing`; grow `BRAIN_HIDDEN` 4 → 8; relax the manifest to
-prefix-compatible (§8); author `ant.ron` a `sight_fraction` and a short
-`sight_range`. **Nothing is deleted in this stage.** The ant behaves as it does
-today plus a sense it does not use, which makes the whole stage a pure
-positive-control exercise: the new inputs must be non-zero where kin are and
-zero where they are not, and `ascii`'s foraging scene must be unchanged in
-`deliveries`.
+**Split in two after review, because the first version could not pass its own
+guard.** It authored `ant.ron` both a `sight_fraction` and a `sight_range` and
+then asserted `deliveries` would be unchanged — but `sight_tax =
+sight_fraction × start_energy × sight_reads` is added to `spent` every creature
+tick (`creature.rs:1825`), so turning both on charges the ant a metabolic tax it
+does not pay today, which moves energy, deaths, births and therefore
+`deliveries`. The stage contradicted itself.
+
+**Stage 2a — the slots, wired to nothing.** Append `KinNear`, `KinBearing`; grow
+`BRAIN_HIDDEN` 4 → 8; fix the manifest rule (§8). `ant.ron` gets **no**
+`sight_range`, so it casts no rays, pays no tax, and reads both new inputs as a
+constant 0.0. **`ascii` must be byte-identical on every counter** — the strict
+guard the reserve's own design promises, and the one the first version made
+impossible.
+
+**Stage 2b — switch the eye on, and price it.** Author `ant.ron` a
+`sight_range` and a `sight_fraction` together (never the range alone — that is
+the ratchet `sight_fraction` exists to close). **The guard here is a stated
+budget, not "unchanged":** name the expected energy delta from the arithmetic in
+§6 before running, and check the measured delta against it. A run that comes
+back *unchanged* is now the failure — it means the eye never fired.
+
+Positive control for both: the new inputs must be non-zero where kin are and
+zero where they are not.
 
 ### Stage 3 — the lab ancestor, and the deletions
 
@@ -815,133 +964,210 @@ A **new species file** — not an edit to `ant.ron` — with no `nest`, no
 weight. In the same change, behind the species: delete the `recency` multiplier,
 delete the `at_nest` drop branch, move the moisture coefficients to weights.
 
-`ant.ron` authors the weights that reproduce its current behaviour, and
-`ascii`'s foraging scene is the guard on that — **paired baseline run, not the
-test suite**, because §2b records that the suite is blind to exactly this class
-of edit.
+**Re-take the arena baseline first** (discipline rule 1) — the genome has
+widened and the eye has been priced since Stage 1.
+
+`ant.ron` authors weights reproducing its current behaviour, and `ascii`'s
+foraging scene is the guard — **paired baseline run, not the test suite**,
+because §2b records that the suite is blind to exactly this class of edit (an
+edit once dropped the `since_nest` reset and 827 tests stayed green).
+
+**Verify before building** that an authored self-recurrent unit can actually
+approximate `1 - since_nest / nest_memory`. `squash` is `x/(1+|x|)` and
+saturates; if three weights cannot express the decay, §4's central safety claim
+— that the ant survives — is false and the stage must stop.
 
 **What says it worked:** the new ancestor aggregates and forages in the arena at
-a rate distinguishable from a zero-connection control, over 12 seeds, read at an
-order statistic. **What says it did not:** wanderers. Twelve seeds of animals
-that never aggregate, never form a place, and never deliver anything to it. That
-is a real possible outcome and the owner has accepted it.
+a rate distinguishable from a zero-connection control, over 12 seeds, at an
+order statistic. **What says it did not:** wanderers, on twelve seeds. That is a
+real possible outcome and the owner has accepted it.
 
 ### Stage 4 — armour and severing (§11)
 
-**Independent of stages 2 and 3 and of the body revamp** — it touches the bite
-and the damage rule, neither of which reads a body plan (§12b). It can be built
-in parallel or slotted wherever it fits.
+**One atomic change, and no longer claimed to be parallelisable.**
 
-Three changes:
+**P1 first, as its own commit:** author `food_energy` and `food_class` on
+`beetle.ron` and `worm.ron` (§11a). Nothing can currently eat either, so every
+predation measurement downstream is void without it.
 
-1. **`bite_force` on `CreatureDef`, defaulting to `dig_force`**, tested against
-   the target cell's `penetration_resistance` in `act`'s ingest branch.
-2. **Author `penetration_resistance` on the creature materials.** They are all
-   at the 100.0 default today, which reads as impenetrable and is unread. `ant`
-   soft, `chitin_mid` and `chitin_pale` harder, `beetle` harder still — with
-   `body_energy` raised alongside, so armour is paid for in growth and is worth
-   more as meat.
-3. **`reconcile_chain` becomes a severing rule**: 8-connected walk from the
-   vital cell; what is still attached lives, what is not becomes meat where it
-   stands. Death is the vital cell taken, or energy at zero.
+Then, together:
 
-Also here, because it is one line and it converts a Kind 3 lever to a free
-consequence (§11e): **derive `crop_capacity` from live cell count** rather than
-authoring it.
+1. **Author `penetration_resistance` on all sixteen food materials** (§11b),
+   derived from the shipped `dig_force` values so ordinary food stays edible.
+2. **`bite_force` on `CreatureDef`, defaulting to `dig_force`.**
+3. **The gate in `act`'s ingest branch.**
+4. **`reconcile_chain` becomes a severing rule** — 8-connected walk from the
+   vital cell — *with* the ledger, corpse-stamp, rigid-path and
+   mid-flight/mid-dig specifications of §11d(a)–(d). The rigid path depends on
+   the body work's `body_after_step` fix; **until that lands, severing applies
+   to chain and articulated bodies only, and rigid bodies keep the current
+   rule.**
 
-**What says it worked:** a paired run at two `bite_force` settings must move
-`meat_lost` and the standing population, and an armoured species must survive
-measurably longer against the same predator. **The mandatory negative control**
-is `bite_force` above every resistance in the table — that must reproduce
-today's behaviour exactly, or the change did something other than what it says.
+**`crop_capacity` is NOT touched** — the original plan's "derive it from cell
+count" item is withdrawn (§11e).
 
-**What says it did not:** nothing moves, which would mean bites are so rare
-that resistance never binds. Check `eats` and `meat_lost` are non-zero in the
-baseline *before* building — a bite rule cannot matter in a world where nothing
-bites, and S5a measured predation at 231 deaths over twelve seeds.
+**Acceptance, positive first:** with the gate live at authored values, `eats`
+must be non-zero **on the herbivore path** and `harvested_corpse` non-zero on
+the scavenger path. `creature.rs:6300` — the test whose message is *"and it has
+to clear the bar, or the scavenger niche is gone"* — is the natural home.
+**Then** the negative control (`bite_force` above every resistance reproduces
+today's behaviour) and the paired predation delta on `meat_lost`.
+
+**Run `seedbed_probe` on both sides**, because `penetration_resistance` is also
+read by roots and by digging (§11c). If lowering `leaf`/`litter`/`moss` changes
+germination, that is a plant-line consequence to accept deliberately or to avoid
+with a separate `bite_resistance` field.
+
+**What says it did not work:** nothing moves — which would mean bites are too
+rare for resistance to bind. Check `eats` and `meat_lost` are non-zero in the
+baseline **before** building.
 
 ### Stage 5 — the threat sense (§11f)
 
-The mirror of stage 2's kin sense, and cheap once that exists: a bearing to the
-nearest animal **whose gut values me**. Same rays, same full-circle bearing.
-This is what makes an arms race possible at all, and it should not be built
-before stage 4 — a threat sense with nothing to fear is an input wired to a
-constant.
+The mirror of Stage 2's kin sense: a bearing to the nearest animal **whose gut
+values me**. Same rays, same full-circle bearing. **Not before Stage 4** — a
+threat sense with nothing to fear is an input wired to a constant.
 
-### Stage 6 — the Kind 2 genes, once there is a working ancestor
+### Stage 6 — the Kind 2 genes
 
-`sight_range`, `tick_interval`, `bite_force`, and then S8's body axis after its
-two pre-checks — **and after the body revamp, per §12a.** `CREATURE_TRAITS`
-3 → 5 or 6, which is a lawful widen (a wrong-arity RON tuple **panics** with
-the file position and both lengths — measured; the silent case is a
-*misspelling*, not a widen).
+`sight_range` and `bite_force`. **`tick_interval` is withdrawn** from this stage
+(§7): it is priced but not self-limiting, and it is an unpriced frame-cost lever.
+S8's body axis comes after the body work, not here. `CREATURE_TRAITS` widens
+lawfully (a wrong-arity RON tuple **panics** with the file position and both
+lengths — measured; the silent case is a *misspelling*, not a widen).
 
 ### Stage 7 — crossover
 
 `CROSS` on the shelf, and the heritable mutation rate beside it.
 
-### Running alongside: `gene_probe`, the ratchet check (§3)
+---
 
-**Owner's call 2026-09-02: build it.** §3 is prose today, and `CLAUDE.md`'s own
+## 10B. Track B — the body
+
+Runs **after** Track A's Stage 3 by the owner's mind-before-body sequencing
+(§12a), and its first stage is a bug fix that Track A does not depend on and
+could be pulled forward at any time.
+
+### Stage B1 — fix `relocate_chain`'s self-overwrite
+
+**Owner's decision, 2026-09-02: stage one of the body work.** `body_after_step`
+can place one position twice when a head steps into its own tail, and
+`relocate_chain`'s `to.iter().zip(&cells)` silently truncates while still
+writing `state.chain = to.to_vec()` (§13b). This is what makes a `Chain(n ≥ 3)`
+lose its head marking, and it is the real blocker on longer bodies —
+`creature-chain-head-loss-2026-08-30.md` diagnosed it and nothing has fixed it.
+
+**Everything else in Track B is measured on bodies that currently mis-report
+themselves, so this is not optional sequencing.**
+
+### Stage B2 — a body's live cells become state
+
+The `body_after_step` fix of §11d(a) and §12b: a rigid body's cell set and count
+stop being re-derived from the authored template every step. This is what lets
+§11d's severing apply to every body plan, and it is the row §12b's first version
+wrongly marked body-plan-independent.
+
+### Stage B3 — the pre-checks (§13e)
+
+`creature_scale mode=walk` including **the missing 2×2 rigid measurement**;
+the blind A/B on candidate shapes; and the constant-extent `creature_look` run
+at 36 cells that decides whether §13d's threshold claim survives.
+
+### Stage B4 — articulation
+
+Only if B3 supports it. `Chain` and `Rigid` become the two ends of one part-chain
+representation (§13c), with the honest limits recorded there: blocking is set by
+the **leading** part, a rearward taper is free and a forward one is not.
+
+---
+
+## 10C. Running alongside: `gene_probe`, the ratchet check (§3)
+
+**Owner's call 2026-09-02: build it.** §3 is prose, and `CLAUDE.md`'s own
 recurrence audit is that a prose discipline does not survive a real session —
-*"make it a command rather than a discipline"*, which is the finding that
-produced `scripts/docbench.py selftest` after two blind controls were written
-by an agent that had just finished writing the rule down.
+*"make it a command rather than a discipline"*, the finding that produced
+`scripts/docbench.py selftest` after two blind controls were written by an agent
+that had just finished writing the rule down.
 
 **What it does, plainly:** you are about to make something evolvable. Run the
-population at several settings of it and look at where the population mean
-ends up. If it pins to the top of the range and stays there, the gene is not
-expressing a choice — it is expressing that nothing charges for it, and it will
-ratchet to its cap on the first generation and express nothing thereafter. If
-the mean sits in the interior, the lever has two reachable ends and is worth
-shipping.
+population at several settings and look at where the population mean ends up.
+Pinned to a bound and staying there means the gene is not expressing a choice —
+it is expressing that nothing charges for it, or that nothing bends the return
+curve, and it will ratchet on the first generation and express nothing after.
+An interior mean means two reachable ends.
 
 **Shape**: `examples/gene_probe.rs gene=<name> range=lo,hi seeds=12`, reporting
-the population mean per setting and flagging a pin. Two controls in the
-binary, on the pattern every instrument here follows: a **known-good** lever
-(`sensor_offset`, measured interior at 6 — 0.755/0.817/0.743/0.727) which must
-read interior, and a **known-ratchet** lever (`sight_range` with
-`sight_fraction` forced to 0, which is literally the state that shipped) which
-must read pinned. Without both it cannot distinguish a quiet gene from a blind
-probe.
+the population mean per setting and flagging a pin.
 
-It would have caught the plant architecture phase, `phototropism_dir`, and
-E10's body-length premise. It is the positive-control rule applied to genes
-rather than to measurements.
+**Its controls, corrected after review.** The first version proposed
+`sensor_offset` as the known-good. That is invalid: its numbers come from a
+six-seed `#[ignore]`d unit test measuring a *steering score in a synthetic
+harness*, not a population mean under selection — so if selection pins
+`sensor_offset` because trail-following is not the binding fitness term,
+`gene_probe` would be **correct** and would read as blind.
+
+**A control for `gene_probe` must be measured with `gene_probe`.** Build it the
+other way round: take a lever whose answer is known *by construction* —
+`sight_range` with `sight_fraction` **forced to zero**, which is literally the
+state that shipped and cannot be anything but a ratchet — as the **known-pinned**
+control, and the same lever at an authored `sight_fraction` as the **known-bent**
+one. Both arms in one binary, one run apart. Then, and only then, is a reading on
+a gene nobody has classified worth anything.
+
+It would have caught the plant architecture phase, `phototropism_dir`, E10's
+body-length premise, and `tick_interval` in §7 of this document.
 
 ---
 
 ## 11. Predation, defence, and why size currently buys nothing
 
-Added 2026-09-02 on the owner's question — *"how do creatures attack/defend"*
-— and his ruling on the answer: **"yes, size (or other physical features)
-should buy survival."**
+Added 2026-09-02 on the owner's question — *"how do creatures attack/defend"* —
+and his ruling: **"yes, size (or other physical features) should buy
+survival."**
+
+**Revised 2026-09-02 after independent review**, which found the first version
+of §11c would have stopped every animal in the world from eating anything, and
+found two factual claims that were checked against the wrong files. Both
+corrections are folded in below rather than appended; §16 records what changed
+and why, because the *errors* are more instructive than the text that replaced
+them.
 
 ### 11a. The encoding is good, and most of it should not be touched
 
-**There is no predator and there is no prey.** Neither is a category anywhere
-in the engine.
+**There is no predator and there is no prey.** Neither is a category anywhere.
 
-- `is_visible_prey` is: a cell of `MaterialKind::Creature`, not me, not living
-  kin (unless `eats_kin`), whose `diet_yield` **against my own heritable gut**
-  clears `EAT_YIELD_THRESHOLD` (12.0). So "prey" resolves to *anything my gut
-  values*, which is a filter over data and a heritable one. A carnivore-leaning
-  ant and a beetle looking at each other both read "food". Predation is the
-  diet axis plus the ability to find things, and it is symmetric by
-  construction.
+- `is_visible_prey` (`creature.rs:2483`) is: a cell of `MaterialKind::Creature`,
+  not me, not living kin (unless `eats_kin`), whose `diet_yield` **against my
+  own heritable gut** clears `EAT_YIELD_THRESHOLD` (12.0). "Prey" resolves to
+  *anything my gut values* — a filter over data, and a heritable one.
 - **Attack is the `Feed` verb.** There is no `Strike`; slot 12 is deliberately
-  left unnamed (E13). A bite is `world.set(fxx, fyy, Cell::EMPTY)` plus
+  unnamed (E13). A bite is `world.set(fxx, fyy, Cell::EMPTY)` plus
   `reconcile_chain` telling the victim.
-- **`is_living_kin` is species identity only** — one line,
-  `s.species == species`. It is not a relatedness model and does not pretend
-  to be.
+- `is_living_kin` (`creature.rs:2347`) is species identity only, one line. It is
+  not a relatedness model and does not pretend to be.
 
-This is the mechanism/policy line working. Keep it.
+**The mechanism is symmetric. The shipped data is not, and that is a
+prerequisite nobody had noticed.**
+
+`assets/materials/beetle.ron` and `assets/materials/worm.ron` author **no
+`food_energy` and no `food_class`** — zero occurrences of either, verified by
+count. Both default to 0.0 (`material.rs:467`). `food_value` returns
+`m.food_energy` for a living cell, so `diet_yield` is 0, so `is_visible_prey` is
+false **at every gut bias**.
+
+So **nothing in this world can eat a living beetle or a living worm.** Predation
+is one-way today: the beetle (carnivore gut, `traits: (1.0, ...)`) eats ants;
+nothing eats beetles. An arms race is impossible before this is fixed, and it is
+one more instance of the failure class this document keeps finding — a channel
+with a reader and no writer.
+
+**Prerequisite P1: author `food_energy` and `food_class` on `beetle.ron` and
+`worm.ron`.** Small, and everything in §11f depends on it.
 
 ### 11b. The finding: digging respects hardness, biting does not
 
 **`creature.rs` reads `penetration_resistance` in exactly one place — the dig
-branch (`creature.rs:2910`). The bite path never reads it at all.**
+branch, `creature.rs:2910`. The bite path never reads it.**
 
 ```rust
 // dig, creature.rs:2910
@@ -952,145 +1178,243 @@ if target.material != material::EMPTY
 if diet_yield(world, cell, gut.bias) > EAT_YIELD_THRESHOLD { ... }
 ```
 
-So an ant with `dig_force: 1.0` **cannot dig sand** (`penetration_resistance`
-1.4), cannot dig gravel (3.5) and cannot dig stone — and **can bite clean
-through a beetle.** Flesh is the only substance in the world that offers no
-resistance to being cut.
+So an ant with `dig_force: 1.0` cannot dig sand (1.4), gravel (3.5) or stone,
+and **cuts through flesh with no resistance at all.** Flesh is the only
+substance in the world that offers none.
 
-**And the armour axis already has a home in the material table, uniformly
-unauthored.** `material.rs`'s `default_penetration_resistance()` returns
-**100.0** — *"Impenetrable by default -- see `penetration_resistance`'s own doc
-for why the safe default is 'no', not 'yes'"* — so every creature material is
-already carrying a value that says "you cannot cut this", and nothing reads it.
-`ant`, `chitin_pale`, `chitin_mid` and `beetle` are four distinct materials that
-are **identical in every food property** (`food_energy: 480.0`,
-`food_class: 1.0`, `density` 1.0/1.2) and identical in resistance because none
-of them authored one.
+**The scale of the gap, measured rather than sampled.**
+`default_penetration_resistance()` is **100.0** (`material.rs:1491`),
+*"impenetrable by default"*. Enumerating every material in
+`assets/materials/` that authors a `food_energy`:
 
-This is `sight_fraction` again, one system over: **a field with a reader and no
-writer on one side, and a writer with no reader on the other.**
+> `ant`, `ant_block`, `ant_block_shaded`, `ant_long`, `ant_wide`, `chitin_mid`,
+> `chitin_pale`, `corpse`, `deadleaf`, `flower`, `fruit`, `leaf`, `litter`,
+> `moss`, `seed`, `windfall`
+
+**All sixteen author no `penetration_resistance` and sit at the 100.0 default.**
+Every food in the game is carrying a value that says *you cannot cut this*, and
+nothing reads it.
+
+*(The first version of this section said "four creature materials, identical in
+every food property". That was checked on `ant`/`chitin_pale`/`chitin_mid` and
+generalised to `beetle` without opening it — which is how 11a's error got in
+too. The sixteen-material figure is the corrected one and it is what makes 11c
+dangerous.)*
 
 ### 11c. Recommendation R1 — a bite is a cut, and cuts already have a rule
 
-**Route the bite through the test the dig already uses.** A bite removes the
+**Route the bite through the test the dig already uses**: a bite removes the
 target cell only if the attacker's force clears that cell's material's
 `penetration_resistance`.
 
-Why this and not a damage model:
+Why this rather than a bespoke damage model:
 
-- **Zero new concepts.** `force vs penetration_resistance` is the engine's
-  universal "can this get through that" pattern — plant roots use it
-  (`Behavior::Grow`'s `penetration_force`), digging uses it, and
-  `dig_force`'s own doc already argues the case against the alternative:
+- **Zero new concepts.** Force-vs-resistance is the engine's universal "can this
+  get through that": roots use it (`Behavior::Grow`'s `penetration_force`),
+  digging uses it, and `dig_force`'s own doc already argues the case —
   *"the pattern roots already use, **not** a material-name whitelist: a species
   that can chew soil but not stone should say so in force, so a future softer
-  stone is diggable automatically."* Armour is the same sentence with flesh
+  stone is diggable automatically."* Armour is that sentence with flesh
   substituted for stone.
-- **Armour becomes data, per cell, and therefore evolvable later.** A species
-  whose cells are `chitin_mid` is harder to bite than one made of `ant`. That is
-  a material choice a species file makes today and a genome can make once cell
-  materials are heritable.
-- **It is priced by an existing term.** `body_energy` is what a body cell costs
-  to stamp and what it is worth as meat. Hard material costing more
-  `body_energy` makes armour a real trade — slower to grow, more expensive to
-  replace, and *worth more to whoever does get through it* — rather than a free
-  win. **This is the Kind 3 → Kind 2 promotion (§3) and it is one number per
-  material, not a new system.**
-- **It gives the existing `dig_force` gene a second job**, which is how a
-  burrower and a fighter become the same axis pulled in different directions —
-  and how "attack" and "excavate" stay one verb rather than two.
+- **Armour becomes per-cell data, and therefore evolvable** once cell materials
+  are heritable. A body of `chitin_mid` is harder to bite than one of `ant`.
+- **It is priced by an existing term.** `body_energy` is what a cell costs to
+  stamp and what it is worth as meat. Hard material costing more `body_energy`
+  makes armour a real trade — slower to grow, dearer to replace, worth more to
+  whoever does get through it. **That is the Kind 3 → Kind 2 promotion of §3, in
+  one number per material rather than a new system.**
 
-**Name the attacker's term carefully.** Reusing `dig_force` verbatim couples
-digging strength to biting strength permanently; a separate `bite_force`
-defaulting to `dig_force` keeps them separable when that turns out to matter.
-Recommend the second, defaulted, so nothing changes until a species says so.
+#### The trap, and it is the whole reason this section was rewritten
+
+**A default of `bite_force = dig_force` does not mean "nothing changes until a
+species says so". It means nothing eats anything, ever.**
+
+`act`'s ingest branch is **one branch for all food** — `adjacent_food` returns
+leaves, fruit, seeds, corpses and flesh alike (`creature.rs:2671`). With all
+sixteen food materials at 100.0 and `ant.ron` at `dig_force: 1.0`, the gate is
+`1.0 >= 100.0` for **every mouthful in the world**. Herbivory, scavenging and
+predation stop on frame one.
+
+This is `CLAUDE.md`'s named ban, and it passes the syntactic test while failing
+the semantic one: *a size cap must bound work, never gate whether something
+happens* — **the test is whether exhausting the gate produces an answer or
+merely less work.** Here it produces an answer: *not food*. The first version of
+this section quoted that rule approvingly in §3 and then violated it two
+sections later, which is the same shape as the three reports `CLAUDE.md` records
+quoting the rule while failing to be saved by it.
+
+#### So R1 lands as one atomic change, with the food table authored
+
+1. **Author `penetration_resistance` on all sixteen food materials**, soft to
+   hard: plant matter and corpse low, `ant` low-ish, `chitin_pale` /
+   `chitin_mid` higher, `beetle` highest. Values chosen so the shipped
+   `dig_force` values still clear ordinary food — i.e. **derived from the
+   existing forces**, not picked.
+2. **`bite_force` on `CreatureDef`, defaulting to `dig_force`** — a separate
+   field so biting and digging can diverge later without a migration.
+3. Only then, the gate in `act`'s ingest branch.
+
+**The shared-field coupling must be stated, because it is real.**
+`penetration_resistance` is read by **roots** and by **digging** as well.
+Lowering `leaf`, `litter` and `moss` from 100.0 makes them root-penetrable and
+diggable for the first time. That may well be right — a root *should* grow
+through leaf litter — but it is a change to the plant line, not a creature-side
+tweak, and `seedbed_probe` is the instrument that owns it (it measured a
+deadwood mat blocking 16 of 16 germinations, and found the gate is **water, not
+material**). **Run `seedbed_probe` on both sides of this change**, and if the
+coupling turns out to be unwanted, the fallback is a `bite_resistance` field
+defaulting to `penetration_resistance` — a second knob, and therefore the
+second choice.
+
+#### The acceptance bar, corrected
+
+The first version proposed a negative control only: `bite_force` above every
+resistance must reproduce today's behaviour. **That control cannot catch this
+bug** — it proves the gate is transparent when open, never that it is not shut
+on everything.
+
+**The control that catches it is the positive one `CLAUDE.md` demands:** with
+the gate live at authored values, `eats` must be **non-zero on the herbivore
+path** — an ant eating a leaf — and `harvested_corpse` non-zero on the scavenger
+path. `creature.rs:6300` already carries a test whose message is *"and it has to
+clear the bar, or the scavenger niche is gone"*; that test is the natural home
+for the assertion. Only then is the predation-side `meat_lost` delta meaningful.
 
 ### 11d. Recommendation R2 — a bite severs; it does not kill
 
-Today, `reconcile_chain`: if the surviving cells no longer start with the
-chain's first cell, *"head gone, the rest is meat"*, and the animal dies
-outright. **One bite on the right cell kills a 2-cell ant and a 20-cell animal
-identically.**
+Today, `reconcile_chain` (`creature.rs:616`): if the surviving cells no longer
+start with the chain's first cell, *"head gone, the rest is meat"*, and the
+animal dies outright. **One bite on the right cell kills a 2-cell ant and a
+20-cell animal identically.**
 
-That is a binary outcome, and this project's own first law says an outcome is a
-distribution rather than a binary — learned from destruction, stated in
-`CLAUDE.md` as applying *"to every line in the engine"*, and independently
-rediscovered on the plant line as graded death by `rot_remains`.
+That is a binary outcome, and this project's first law is that an outcome is a
+distribution — stated in `CLAUDE.md` as applying *"to every line in the
+engine"*, learned from destruction, and rediscovered independently on the plant
+line as graded death by `rot_remains`.
 
 **The replacement: losing cells is damage, and what disconnects is severed.**
+An 8-connected walk from the vital cell — 8 because body cells are placed at 8
+neighbours and `CLAUDE.md` requires a traversal to use the writer's
+neighbourhood. What stays attached lives on smaller; what detaches becomes meat
+where it stands. Death is the vital cell taken, or energy at zero.
 
-- Cells that lose **connectivity to the vital cell** are no longer part of the
-  animal. They become meat where they stand.
-- The animal lives on with what stays connected — smaller, and therefore
-  slower, weaker, and **cheaper to run**, since `idle_cost_per_cell` and
-  `move_cost_per_cell` already charge the live body rather than the authored
-  one. *An animal that has lost a cell to a predator burns less* is already
-  true in the tree and fell out of reading the right quantity.
-- Death is then two things, both already in the engine's vocabulary: the vital
-  cell itself is taken, or energy reaches zero.
+**Why not hit points:** a number with no physical referent, attached to the
+animal rather than to its parts. Severing is the mechanism the engine already
+runs everywhere — it is how a plant discovers it has lost a leaf, and how
+structural collapse decides what falls. It is also satisfying in the house
+sense: the second law is *there must be a verb and it must deliver something*,
+and what a successful attack delivers is **a piece**.
 
-**Why this is the right shape rather than hit points.** Hit points are the
-authored-game answer — a number with no physical referent, attached to the
-animal rather than to its parts. Severing is the same mechanism the engine
-already runs everywhere else: a connectivity check over a body whose parts can
-be removed, which is exactly how a plant discovers it has lost a leaf
-(`reconcile_chain`'s own comment: *"A plant finds out it has lost a cell
-through its own connectivity check, which is exactly what made herbivory need
-no new code"*), and exactly how structural collapse decides what falls.
+#### Four things the first version left unspecified, all of which break it
 
-It is also **satisfying in the house sense**: the second law is *there must be
-a verb and it must deliver something*, and what a successful attack delivers is
-**a piece**. A limb coming off is visible; an animal blinking out of existence
-is not.
+**(a) A rigid body regenerates its lost cells for free.** `body_after_step`
+(`creature.rs:3856`) branches on `is_rigid()` and returns
+`def.body.offsets(west)` — **the authored template, re-derived from the head**,
+with no reference to how many cells the animal still owns. A beetle bitten to
+three cells asks for four positions next step and gets them back.
 
-**One constraint travelling with it**, from `CLAUDE.md`: *a traversal must use
-the same neighbourhood the writer used.* Body cells are placed at 8 neighbours,
-so the connectivity walk is 8-connected or it will sever animals that are
-perfectly intact.
+So §12b's contract was wrong: *"its cells"* and *"a cell count"* are **not**
+body-plan-independent — for `Rigid` they are re-asserted from the plan every
+step. **Owner's decision, 2026-09-02: fix it properly as part of the body work**
+— a body's live cell count becomes state rather than a re-derived template —
+rather than special-casing severing to chains. §12b's table is corrected
+accordingly and §13's staging owns the fix.
 
-### 11e. What this buys size, which is the owner's actual question
+**(b) The energy ledger double-books.** `reconcile_chain:643` books
+`energy_ledger.meat_lost += body_energy * lost` **precisely because a cell lost
+from a living animal never becomes meat** — it is a sink. If severed cells now
+*do* become meat, the same matter is booked twice and `expected_live_total` stops
+closing; if `meat_lost` is simply dropped, every other loss route (fire, brush,
+explosion) loses its accounting. **The rule: a severed cell moves from
+`meat_lost` to `harvested_*`-eligible standing matter, and the ledger entry
+follows the matter.** Cells destroyed rather than severed still book
+`meat_lost`.
 
-With R1 and R2 in place, size stops being a pure cost:
+**(c) Severed cells need their worth stamped.** `creature_dies`
+(`creature.rs:4296`) shows the arithmetic — a corpse cell carries per-cell worth
+in `aux` (`worth_in_aux`, authored only by `corpse.ron`). Severed cells take the
+same path or they are worth the wrong thing as food.
 
-| | before | after |
-|---|---|---|
-| more cells | more meat for the attacker, more upkeep, **no survival value** | more cells that are not the vital one — the fatal target is diluted |
-| a lost cell | fatal if it was the head, free otherwise | graded: a piece comes off, the animal continues diminished |
-| hard cells | nothing — resistance unread | genuinely harder to cut, paid for in `body_energy` |
+**(d) Mid-flight and mid-dig are reachable and undefined.** The airborne path
+(`creature.rs:3770`) holds `state.chain` and pro-rates idle against it;
+`release_if_bodyless` (`:561`) frees the organism when `cells` empties. Severing
+during a flight or a dig must be specified, not discovered.
 
-**And a second benefit of size should be taken while we are here, because it
-converts a Kind 3 lever into a free consequence (§3):** derive
-`crop_capacity` from body size rather than authoring it. A bigger animal
-carries more. That removes a gene that would otherwise need its own cost term,
-and it gives size a *foraging* payoff to sit beside the survival one — so
-`body size` becomes a real trade with reachable ends rather than a ratchet in
-either direction.
+### 11e. What this buys size — corrected, and it is less than the first version claimed
+
+**The dilution argument does not work for a one-cell-wide chain, and the first
+version of this section asserted that it did without doing the arithmetic.**
+
+Under severing, a bite at position *k* of an *n*-chain amputates everything
+distal from it. For a uniformly-placed bite the expected loss is about **n/2 —
+half the body.** Today, by contrast, `reconcile_chain` filters by ownership and
+preserves order without testing contiguity, so a mid-body bite costs exactly one
+cell and leaves a geometrically disconnected but living animal. **Severing makes
+each non-fatal bite cost a chain proportionally *more*, not less.**
+
+So the honest statement:
+
+| body | what severing does to it |
+|---|---|
+| **`Chain(n)`** | a bite costs ~n/2 cells. Size is a **liability** per bite, offset only by there being more of it |
+| **articulated (§13)** | a bite severs at the nearest **joint**, so it costs *one part*. Size dilutes the fatal target honestly, and a big animal loses a limb and walks |
+| **`Rigid`** | undefined until (a) above is fixed |
+
+**This is an argument for §13, not an argument that stands without it.** The
+graded-damage payoff and the articulated body are the same piece of work, and
+the report should not have presented §11d's benefit as independent of it.
+
+#### And `crop_capacity` from body size is neutral, not a payoff
+
+The first version claimed deriving `crop_capacity` from cell count hands size a
+foraging payoff. **Do the arithmetic.** With body cells *b*, capacity *k·b*,
+round-trip distance *D* and trip time *T*, the energy per trip is
+`idle·b·T + move·b·(1+k)·D` against a delivery of `k·b` cells, so cost per
+delivered cell is `(idle·T + move·(1+k)·D) / k` — **independent of *b***.
+Deriving crop from size makes foraging **size-neutral**. It removes a penalty;
+it does not add a payoff.
+
+Two further costs the "one line" framing hid:
+
+- **`BrainInput::Carrying` is `c.worth() / def.crop_capacity`**
+  (`creature.rs:2129`). Changing the denominator changes that input's
+  normalisation **for every existing genome** — and `ant.ron` authors
+  `(Carrying, Drop, 0.2)` as its whole away-from-nest putting-down rule.
+  `dead-ends.md` line 984 records exactly what happens when that input starts
+  lying: 30–35 of 52 ants standing laden, `digs` 121 against 881, a colony that
+  from outside reads as having lost interest in digging. **This is a
+  shared-budget reallocation and needs the re-derivation §3 demands.**
+- **`crop_capacity` is in joules of face value** (`ant.ron:130`, `1440.0`), not
+  cells. Deriving it from a cell count needs a joules-per-body-cell multiplier
+  that nobody has derived — precisely the unpriced constant §3 warns about.
+
+**Recommendation: keep `crop_capacity` authored for now.** It is not the lever
+that makes size pay; §11d-with-§13 is.
 
 ### 11f. The gap that blocks an arms race, and it is one-sided
 
-**A predator has an input for finding prey. Nothing has an input for detecting
-a predator.** `PreyNear`/`PreyBearing` report *food*, not *danger*, and
-`sight_range` defaults to 0, so **an ant cannot perceive a beetle at any
-distance whatsoever** — only on contact, and then as food.
+**A predator has an input for finding prey. Nothing has an input for detecting a
+predator.** `PreyNear`/`PreyBearing` report *food*, not *danger*, and
+`sight_range` defaults to 0 with only `beetle.ron:88` authoring it — so **an ant
+cannot perceive a beetle at any distance**, only on contact.
 
 Fleeing is not a missing verb; `Turn` and `Move` away are fleeing. It is a
-missing **sense** to trigger on. And `creature-evolution-plan.md` §7 names an
-arms race as *"the standard engine of open-ended dynamics, and this world has
-never run one"* — which cannot start while only one side can see.
+missing **sense** to trigger on. `creature-evolution-plan.md` §7 names an arms
+race as *"the standard engine of open-ended dynamics, and this world has never
+run one"* — which cannot start while only one side can see, and (per 11a) cannot
+start while one side is inedible.
 
-**The fix is the same slot pair as the nest work, evaluated the other way
-round.** §4 adds a bearing to the nearest animal *my gut values*; the mirror is
-a bearing to the nearest animal *whose gut values me*. Same rays, same
-full-circle bearing, no new category, no fear pheromone (which is gated behind
-the measured 0.5 ms third-plane cost anyway). Pursuit and evasion then differ
-by the sign of one weight.
+**The fix is §4's slot pair evaluated the other way round**: a bearing to the
+nearest animal *whose gut values me*. Same rays, same full-circle bearing, no new
+category, no fear pheromone (gated behind a measured 0.5 ms third-plane cost
+anyway).
 
-**Note what S5a already measured before anyone builds on this**: predation
-today punishes neither ranging nor sheltering, mortality is biased *toward*
-home in both arms, and the two shelter tables disagree about the sign of the
-beetle term at 231 deaths. Shelter pays enormously and predators are not what
-makes it pay. So R1, R2 and the threat sense are **preconditions** for
-predation having teeth, not refinements of a working system.
+**What S5a already measured, before anyone builds on this**: predation today
+punishes neither ranging nor sheltering; mortality is biased *toward* home in
+both arms; the two shelter tables disagree about the sign of the beetle term at
+231 deaths. Shelter pays enormously and predators are not what makes it pay. So
+P1, R1, R2 and the threat sense are **preconditions** for predation having
+teeth, not refinements of a working system.
 
 ---
 
@@ -1128,12 +1452,25 @@ Everything in this document uses **only** these:
 
 | the engine asks | used by | body-plan dependent? |
 |---|---|---|
-| **its cells**, as world positions | metabolism, rendering, damage | no — a set of positions |
+| **its cells**, as world positions | metabolism, rendering, damage | **yes, for `Rigid`** — see below |
 | **one vital cell** | death (§11d) | no, *provided a body plan designates one* |
 | **the connectivity neighbourhood** (8) | severing (§11d) | no |
 | **each cell's material** | armour (§11c), meat value | no |
-| **a cell count** | `idle_cost_per_cell`, `move_cost_per_cell`, `crop_capacity` (§11e) | no |
+| **a cell count** | `idle_cost_per_cell`, `move_cost_per_cell` | **yes, for `Rigid`** — see below |
 | **a movement rule** | stepping, passability | **yes — and nothing here touches it** |
+
+**Two rows were wrong in the first version of this table and the review caught
+them.** `body_after_step` (`creature.rs:3856`) branches on `is_rigid()` and
+returns `def.body.offsets(west)` — the **authored template**, re-derived from
+the head every step. So a rigid body's cell set and cell count are not state at
+all; they are re-asserted from the plan, and a bitten beetle silently regrows.
+**Owner's decision 2026-09-02: fix it properly as part of the body work** — a
+body's live cells become state — rather than special-casing §11d to chains. §13
+owns the fix.
+
+That correction *strengthens* rather than weakens the contract's conclusion: it
+names a specific, bounded defect to repair, after which all six rows hold for
+every body plan.
 
 Only the last row is genuinely body-plan-specific, and it is the one row this
 document never reads. `BodyPlan` today is `Chain(u8)` or `Rigid(Vec<(i8,i8)>)`
@@ -1172,172 +1509,227 @@ Three findings that a body revamp will otherwise rediscover the expensive way:
 
 ## 13. The body: why growing a creature makes a worm or a brick
 
-The owner, 2026-09-02, asked for his single biggest issue with the body:
+The owner, 2026-09-02, on his single biggest issue with the body:
 
 > *"My biggest issue is the visual. I don't want all [creatures] to look like a
 > chain. That is not interesting, and so larger creatures just become
 > snakes/worms. There are lots of other interesting things that could be done,
 > but that is my number 1 issue."*
 
+**Revised 2026-09-02 after independent review**, which found this section
+citing a bug that had already been diagnosed and closed, and found the mobility
+argument only half-working. Both are corrected in place; §16 records them.
+
 ### 13a. This is already written down in the engine, in the same words
 
-`BodyPlan::scaled`'s doc comment:
+`BodyPlan::scaled`'s doc comment (`organism.rs:1849`):
 
-> *A `Rigid` plan supersamples and a `Chain` can only stretch, and the
-> asymmetry is the plan's, not this function's. A rigid cell is an area, so at
-> `k` it becomes the `k`x`k` block it covers and the silhouette is preserved
-> exactly. A chain is a path... So `Chain(n)` scales to `Chain(n*k)`, which is
-> the right physical length and still one cell wide. **A chain cannot be made
-> physically identical at a finer resolution, and that is not a bug to fix
-> here: it is the reason the owner's "creatures should be more than chains of
-> pixels" and the resolution step are the same piece of work.**
+> *A `Rigid` plan supersamples and a `Chain` can only stretch… A chain is a
+> path… So `Chain(n)` scales to `Chain(n*k)`, which is the right physical length
+> and still one cell wide. **A chain cannot be made physically identical at a
+> finer resolution, and that is not a bug to fix here: it is the reason the
+> owner's "creatures should be more than chains of pixels" and the resolution
+> step are the same piece of work.**
 
-So the complaint is not new and it is not an oversight. It is a **property of
-having exactly two body plans**, and both of them fail to gain structure with
-size in opposite directions:
+So the complaint is neither new nor an oversight. It is a property of having
+exactly two body plans, and both fail to gain structure with size, in opposite
+directions:
 
 | | scaled up | what you get |
 |---|---|---|
 | `Chain(n)` | `Chain(n·k)` — stretches | a longer worm, still one cell wide |
 | `Rigid(cells)` | each cell becomes a `k`×`k` block | the same silhouette, bigger. `ant_block`'s 3×3 becomes a 6×6 — **the "perfect cube"** |
 
-The owner's verdict on the 36-cell creature — *"Shape. It is a perfect cube.
-Are there perfect cube creatures in our world?"* — is literally the second row.
+The owner's verdict on the 36-cell creature — *"Shape. It is a perfect cube. Are
+there perfect cube creatures in our world?"* — is literally the second row.
 
-### 13b. And shape currently costs an order of magnitude of mobility
+### 13b. Shape costs an order of magnitude of mobility — and the *other* blocker was a counter bug
 
-The reason nobody has simply authored better shapes is measured, and it is the
-real constraint:
+**The mobility gap is real and survives everything.** A rigid body is blocked
+**25–43%** of its moves; a chain **2–6%** (`creature-appearance-design.md` §4–5,
+across all three trees it was taken on; note the *within*-rigid ranking in that
+section is explicitly withdrawn — only the coarse gap survives).
 
-**A rigid body is blocked 25–43% of its moves; a chain 2–6%.** That survives
-all three trees it was measured on and no reshuffling closes it
-(`creature-appearance-design.md` §4 — note that the *within*-rigid ranking in
-that section is explicitly withdrawn; only the coarse gap survives).
+So: **a body with an interesting outline cannot move, and a body that moves has
+no outline.** Any answer to D1 must break that trade rather than pick a side.
 
-`creature-body-extent-2026-08-30.md` adds the other half: **at the shipped seed
-and horizon, no chain longer than two cells leaves a living colony** — at
-three, four, six or nine cells, and at the old flat bill as much as the new
-per-cell one, reproducing on a flat slab so it is not terrain.
+**The first version of this section also cited
+`creature-body-extent-2026-08-30.md`'s finding that "no chain longer than two
+cells leaves a living colony" as a second, independent blocker. That finding is
+superseded and the citation was wrong.**
 
-So today: **a body with an interesting outline cannot move, and a body that
-moves cannot have an outline.** Any answer to D1 has to break that trade rather
-than pick a side of it.
+`Reports/creature-chain-head-loss-2026-08-30.md` closed it: **the colony never
+dies at all.** A `Chain(n ≥ 3)` loses its `CellType::Head` marking to a
+self-overwrite in `relocate_chain` — `body_after_step` can place one position in
+the next body twice when a head steps into its own tail — so `live 0` is *a
+head-cell counter reading zero over a living, feeding, delivering population*.
+Both controls were run: `kinfood=off` came back byte-identical, and
+`eatskin=on` moved `meat_lost` 0 → 40,320, so the instrument could have reported
+the other answer. `Reports/README.md` carries the standing, including **"the
+extent lever is recoverable."**
 
-### 13c. The proposal: an articulated body, which is one representation with both current plans as its ends
+**This was a process failure, not bad luck.** `CLAUDE.md` requires checking a
+report's standing in `Reports/README.md` before trusting it, and that check was
+not run. It is recorded here rather than quietly fixed because the same omission
+would have sent an implementing agent to solve an ecology problem that does not
+exist.
+
+**What is actually blocking longer bodies is the `relocate_chain`
+duplicate-position bug, and it is unfixed.** `relocate_chain`'s
+`to.iter().zip(&cells)` silently truncates when the two lists differ in length
+while still writing `state.chain = to.to_vec()`, so the chain can claim
+positions the organism does not own.
+
+**And an articulated body makes it strictly worse** — more positions in the
+follow list, more opportunity for self-overlap. **Owner's decision 2026-09-02:
+fixing it is stage one of the body work.**
+
+### 13c. The proposal: an articulated body, which has both current plans as its ends
 
 **A body is a short chain of *parts*. Each part is a small rigid shape. Each
-part follows the path of the part ahead of it, exactly as a chain cell follows
-the head.**
+part follows the path of the part ahead, as a chain cell follows the head.**
 
-- `Chain(n)` is the degenerate case where every part is a single cell.
-- `Rigid(cells)` is the degenerate case with exactly one part.
+- `Chain(n)` is the case where every part is a single cell.
+- `Rigid(cells)` is the case with exactly one part.
 
-So this is not a third body plan beside two others — it is **the
-generalisation the two existing plans are already the endpoints of**, which is
-the kind of unification this codebase prefers and is why it is worth doing
-rather than adding `Blob` next to `Chain`.
+So this is **the generalisation the two existing plans are already the endpoints
+of**, not a third plan beside them — which is why it is worth doing rather than
+adding `Blob` next to `Chain`. It is also §2.8's `body_of(segments, girth)` with
+connectivity free by construction, so disconnected and self-overlapping bodies
+are unrepresentable rather than rejected.
 
-**Why it should recover the mobility.** Passability is checked **per part**, and
-a part moves into ground the part ahead has already vacated and proven passable.
-So a 2×2 part meets the rigid-body problem at 2×2 scale rather than at
-whole-body scale. **Predicted to land between the chain's 2–6% and the rigid
-body's 25–43%, much nearer the chain.** That is a prediction, not a premise —
-see 13e.
+#### The mobility argument, corrected — it works in one direction only
 
-**Why it should recover the silhouette.** Parts may differ in size and shape, so
-a body gets a **waist, a taper and a head that is not the same as the abdomen** —
-which is precisely what a uniform chain and a uniform block both lack. And it
-scales correctly: at `k` each part supersamples, so a physically identical
-animal keeps its **proportions** instead of becoming a longer worm.
+The first version predicted articulated bodies land *"between the chain's 2–6%
+and the rigid body's 25–43%, much nearer the chain"*, on the grounds that a part
+moves into ground the part ahead has vacated and proven passable.
 
-**Why it is the right thing for evolution rather than only for authoring.** A
-part list is a small, bounded, continuous-ish genome: how many parts, and each
-part's extent. That is `body_of(segments, girth)` from
-`creature-evolution-plan.md` §2.8 — *"continuous genes, discrete phenotype…
-disconnected, self-overlapping and 4095-cell bodies are unrepresentable rather
-than merely rejected"* — with the connectivity guarantee falling out for free,
-because a chain of parts is connected by construction.
+**That is true of trailing parts and false of the one that matters.** Blocking is
+set by the **leading** part, which moves into fresh ground and is a rigid body of
+its own size. So a body's mobility is roughly **the mobility of its head part
+alone**, and two consequences follow that the first version did not draw:
 
-### 13d. The honest caveat, and it is the one that has cost this project a phase
+- **The silhouette you can afford is the silhouette of one part, repeated** —
+  a much weaker claim than "a waist, a taper and a head that is not the same as
+  the abdomen".
+- **A taper backwards is free; a taper forwards is not.** Any part wider than
+  the part ahead of it is *not* moving into vacated ground and meets the rigid
+  problem directly. **A small head with a big abdomen — the insect silhouette
+  this section is reaching for — is exactly the case the mechanism does not
+  help.**
+
+**This is a real limit on the proposal, not a detail.** What articulation buys
+is a body that is *longer and jointed* at near-chain mobility, with modest
+widening and free rearward taper. What it does not buy, for free, is an
+arbitrary outline.
+
+**And the number that would settle it does not exist.** There is **no measured
+blocked rate for a 2×2 rigid body anywhere**, even though the shipped beetle is
+one: `creature-appearance-design.md` §5 has `Chain(2)` 5%, `Chain(6)` 4%,
+`Rigid` 3×3 43%, `Rigid` 5×2 41%, and nothing at four cells. One
+`creature_scale mode=walk` run converts this whole argument from a prediction
+into a number, and it is now pre-check 2.
+
+#### What it does buy, stated at the strength the evidence supports
+
+- **Proportions survive a resolution change**: at `k` each part supersamples, so
+  a physically identical animal keeps its shape instead of becoming a longer
+  worm. This is 13a's defect closed.
+- **A joint is a natural cut line**, which is what makes §11d's severing grade
+  properly — a bite costs one part rather than half a chain (§11e).
+- **Local armour**: parts can differ in material, so a hard head and a soft
+  abdomen become expressible (§11c).
+- **A small, bounded, evolvable encoding**: part count and per-part extent.
+
+### 13d. The honest caveat, and the counter-argument the first version dodged
 
 **`creature-appearance-design.md` §4 measured shape at constant extent moving
-nothing.** Two nine-cell bodies — a filled 3×3 and a waisted 5×2 insect
-outline — came out **0.8% apart on ink and inside the noise on contrast**, on
-all three trees. Its §1 states the conclusion flatly: *"Extent is the only
-lever."*
+nothing.** Two nine-cell bodies — a filled 3×3 and a waisted 5×2 insect outline
+— came out **0.8% apart on ink and inside the noise on contrast**, on all three
+trees. §1 states it flatly: *"Extent is the only lever."*
 
-Read carelessly, that says D1 is unreachable and articulation is the plant
-line's three architectural levers all over again — built, fired, moved no pixel.
-
-**It does not say that, and the distinction is the most important thing in this
-section.** `creature_look`'s numbers — `ink`, `|contrast|`, `decoys` — measure
-**findability**: can you locate the animal against a textured world. The owner's
-complaint is not that he cannot find it. It is *what it is once he has found
-it*, and his own verdict — **"it is a perfect cube"**, at 36 cells — is a
-shape reading, delivered by eye, on a body large enough for shape to register.
-
-So the two are not in conflict; they are at different sizes and about different
-questions. The synthesis, stated as a claim that could be wrong:
+**Half the reconciliation is sound.** `creature_look`'s numbers — `ink`,
+`|contrast|`, `decoys` — measure **findability**: can you locate the animal
+against a textured world. The owner's complaint is not that he cannot find it;
+it is what it is once found, and *"it is a perfect cube"* is a shape reading
+delivered by eye at 36 cells. Stated as a claim that could be wrong:
 
 > **Shape is below the noise at 9 cells and legible at 36.** The appearance
-> report's 0.8% and the owner's "perfect cube" are the same axis measured
-> either side of the threshold, and the resolution step (#179/#181, cell
-> density doubled, *"the direction, not an experiment"*) is what moved a
+> report's 0.8% and the owner's "perfect cube" are the same axis measured either
+> side of a threshold, and the resolution step (#179/#181) is what moved a
 > physically ant-sized animal across it.
 
-**And the consequence for how this gets judged: there is no instrument in this
-repository that measures "does this read as an animal rather than a smudge".**
-Every appearance number here answers *can it be seen*. That gap is exactly how
-a shape lever fires and is judged as nothing, which is the failure
-`plant-appearance-design.md` records costing a whole phase.
+**The other half was missing, and it cuts against the proposal.** This document
+says twice — §7's appearance paragraph and §12d — that the plant line's finding
+is **composition, not architecture, sets a silhouette**, and that *"a revamp
+that only changes which cell gets a label will land in the same place."*
+Articulation **is** an architecture lever. The first version rescued it against
+the appearance *metric* and never answered the *composition* argument it had
+itself made two sections earlier. That is where the motivated reasoning was.
 
-**Therefore D1's verdict comes from the review queue, not from a metric** —
-`review.py ab --blind`, rendered sheets of candidate bodies, the owner's eye.
-That is not a fallback; `CLAUDE.md` requires it (*"post rather than describe…
-you are choosing between approaches and the difference is visual: post a blind
-A/B"*), and it must happen **before** the lever is built, not after.
+**The answer, and it is a genuine one rather than a patch:** articulation is not
+only a relabelling, because it changes **extent and proportion**, which is the
+lever the appearance report says *does* work. A three-part body is physically
+longer than a one-part body of the same part size. Where it *is* only
+relabelling — rearranging cells at constant extent — the appearance report
+predicts it moves nothing, and this document should expect that.
+
+**So the split prediction, which is what makes it falsifiable:** articulation
+that *increases extent* moves the silhouette; articulation at *constant extent*
+does not. If the pre-checks show the second, the answer to D1 is extent — bigger
+animals — and articulation is only the means of making bigger animals still
+mobile. **That would still be a win, and it is worth saying now so it is not
+later dressed up as a failure.**
+
+**And the standing gap: no instrument in this repository measures whether
+something reads as an animal rather than a smudge.** Every appearance number
+answers *can it be seen*. That gap is exactly how a shape lever fires and is
+judged as nothing — the failure `plant-appearance-design.md` records costing a
+whole phase. **Therefore D1's verdict comes from the review queue, not from a
+metric**, and *before* the lever is built.
 
 ### 13e. The pre-checks, before any of this is built
 
-Three, and they are cheap because two of the instruments exist.
-
-1. **Does anyone want these shapes?** Render candidate articulated bodies —
-   3 parts vs 5, uniform vs waisted vs tapered — at the shipped resolution and
-   post a blind A/B. `creature_scale mode=size` already renders one body per
-   panel cropped to fixed *physical* units. **If the owner cannot tell them
-   apart, the lever is below threshold and the answer is extent, not
-   articulation.** This is the *check-that-a-planned-step-can-demonstrate-itself*
-   question, asked first this time.
-2. **Does it actually move?** `creature_scale mode=walk` is the body-plan
-   mobility instrument and carries a standing positive control: `Chain(2)` must
-   reproduce **5.2%**, or the run is measuring something else. Articulated
-   bodies must land nearer that than the rigid 25–43%. **If they do not, the
-   trade in 13b was not broken and the proposal fails.**
-3. **Can a colony of them live?** `creature-body-extent-2026-08-30.md`'s finding
-   is that no chain past two cells leaves a living colony — at *any* pricing. A
-   bigger body is not blocked on cost, and articulation does not by itself fix
-   whatever that is. **Run `body=` across the articulated plans before treating
-   any of this as shippable**, and if the colony still dies, that is an ecology
-   problem to solve before a body problem.
+1. **Fix `relocate_chain`'s self-overwrite** (13b). Stage one of the body work
+   by the owner's decision. Everything else here is measured on a body that
+   currently mis-reports itself, so this is not optional sequencing.
+2. **Does it actually move?** `creature_scale mode=walk`, which is the body-plan
+   mobility instrument and carries a standing positive control: **`Chain(2)` must
+   reproduce 5%** (`examples/creature_scale.rs:31`, `:320` — the first version of
+   this section quoted 5.2%, which is not the instrument's own figure). Measure
+   **the missing 2×2 rigid** in the same run, then the articulated plans. If they
+   do not land near the chain, the trade in 13b is unbroken and the proposal
+   fails.
+3. **Does anyone want these shapes?** Render candidates — 3 parts vs 5, uniform
+   vs waisted vs tapered — at shipped resolution and post a **blind A/B**.
+   `creature_scale mode=size` already renders one body per panel cropped to fixed
+   *physical* units. If the owner cannot tell them apart, the lever is below
+   threshold and the answer is extent, not articulation.
+4. **The cheap test 13d needs and the first version omitted:** run
+   `creature_look` on **two 36-cell bodies of different shape at constant
+   extent**. If the 0.8% becomes ~15%, the threshold claim is supported and §13
+   has a number. If it stays near 1%, the appearance report generalises and
+   articulation's value is extent alone. One run.
 
 ### 13f. What this changes in §12's contract
 
-Nothing is retracted. Articulation touches exactly the one row §12b marked as
-body-plan-specific and that nothing else in this plan reads:
-
 | the engine asks | under articulation |
 |---|---|
-| its cells | unchanged — still a set of positions |
+| its cells | **fixed by 12b's correction** — live cells become state for every plan |
 | one vital cell | unchanged — the head of the first part |
-| connectivity (8) | unchanged, and **stronger**: a part chain is connected by construction, so §11d's severing rule gets a natural cut line at a joint |
-| each cell's material | unchanged, and **now more useful**: parts can differ in material, so armour can be *local* — a hard head, a soft abdomen |
-| a cell count | unchanged |
+| connectivity (8) | unchanged, and **stronger**: a part chain is connected by construction, so §11d's severing gets a natural cut line at a joint |
+| each cell's material | unchanged, and **more useful**: armour can be local |
+| a cell count | **fixed by 12b's correction** |
 | **a movement rule** | **this is the row that changes**, and it is the only one |
 
-So §11's armour and severing can be built before, during or after the body
-work, and §4's kin sense is untouched. **The sequencing in §10 does not need to
-change.** That is the flexibility §12a was arguing for, now tested against a
-concrete revamp rather than asserted.
+**One concern checked and cleared, recorded because it would otherwise be
+re-raised:** `parallel.rs`'s cross-chunk write-safety is **not** threatened by an
+articulated body of any length. Creature movement runs in the **serial
+active-site phase**, not the checkerboard — `creature.rs:536` says so in source
+(*"Serial active-site phase, so plain `World::set` is correct and `MAX_REACH`
+does not bind"*) — and `parallel.rs` touches creatures only through the
+`pending_active_sites` queue. `MAX_REACH == CHUNK_SIZE / 2` stays load-bearing
+for what it was load-bearing for, and this work does not go near it.
 
 ---
 
@@ -1388,3 +1780,68 @@ anything measured.
 
 Stage 1 is what makes the answer readable either way. Without it, a null is
 uninterpretable and the session produces an opinion.
+
+---
+
+## 16. What the independent review changed, and the shape of the errors
+
+A reviewer with no stake in this document checked its claims against source on
+2026-09-02. It found **four confirmed errors severe enough to change what gets
+built**, plus five moderate ones. All are corrected in place above. They are
+recorded here because the errors generalise better than the corrections do.
+
+### The four that mattered
+
+| | what was claimed | what is true |
+|---|---|---|
+| **§11c** | `bite_force` defaulting to `dig_force` means *"nothing changes until a species says so"* | **All sixteen food materials** sit at the 100.0 "impenetrable" default and `act`'s ingest branch is one branch for *all* food, so the gate would have been `1.0 >= 100.0` for every mouthful in the world. **Nothing eats anything, ever** |
+| **§13b/e** | *"no chain longer than two cells leaves a living colony"*, cited as a live blocker | Superseded. `creature-chain-head-loss-2026-08-30.md` diagnosed it as a **head-cell counter reading zero over a living population**; `Reports/README.md` records *"the extent lever is recoverable"* |
+| **§11a/b** | the four creature materials are *"identical in every food property"*, so predation is *"symmetric by construction"* | `beetle.ron` and `worm.ron` author **no `food_energy` and no `food_class`**. Nothing in the world can eat a living beetle at any gut bias, and §11b's own headline example was unreachable |
+| **§11d/§12b** | a body's cells and cell count are body-plan-independent | `body_after_step` re-derives a **`Rigid` body's template from the head every step**, so a bitten beetle regrows its cells for free. Severing was incompatible with the one row §12 promised nothing would touch |
+
+### The shape of them, which is the reusable part
+
+**Three of the four came from checking a claim against a neighbouring file
+instead of the actual one.** `ant`, `chitin_pale` and `chitin_mid` were opened;
+`beetle` was not, and it is the one that differs. The four creature materials
+were counted; the *sixteen* food materials were not, and the ingest branch does
+not distinguish them. This is `CLAUDE.md`'s *ask what your number counts when
+nothing is wrong* with the instrument being a `grep` — **a sample of a table is
+not the table**, and the file that breaks the pattern is exactly the one a
+sample omits.
+
+**One came from not checking a report's standing.**
+`creature-body-extent-2026-08-30.md` was cited on its own text.
+`Reports/README.md` records it as superseded, and `CLAUDE.md` requires that
+check. The cost would not have been a wrong sentence: §13e made the superseded
+finding a gate on shippability, so an implementing agent would have gone to
+solve an ecology problem that does not exist.
+
+**And the frame had the bug it was written to prevent.** §3 classified
+`tick_interval` as *"already priced, safe now"* on the strength of a cost line
+that genuinely rises with the gene — while cost and benefit both scale linearly,
+so there is no interior optimum and the gene pins at the floor. The taxonomy
+needed a second clause, and the section arguing that unpriced levers ratchet had
+itself shipped a ratchet.
+
+**The severest error passed a rule this document quotes approvingly.** §3 cites
+*a size cap must bound work, never gate whether something happens*, and §11c
+then proposed a gate that produces an **answer** (*not food*) rather than less
+work. `CLAUDE.md` already records three reports quoting that rule while failing
+to be saved by it; this is the fourth. The lesson is the one already written
+there — **the test is semantic, not syntactic** — and quoting the rule is not
+performing it.
+
+### What this says about the document you are reading
+
+The review's verdict was that the **diagnosis** half is sound and the
+**prescription** half was not — and that the two failing sections were the last
+two commits, written fastest and checked least. §§1–9 verified clean, including
+the live-slot arithmetic, the `sight_fraction` gap, the S8 pricing correction
+and the `FIELD_SCALE` finding.
+
+**So weight this document accordingly**: its inventory of what is authored is
+reliable and carries line numbers you can check. Its recommendations are one
+review old, and §10's pre-checks exist because the predictions in §11 and §13
+have not been run yet.
+
