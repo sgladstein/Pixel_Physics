@@ -92,6 +92,11 @@ on **every mouthful in the world**. Measured on `ascii`:
 
 Both legs non-zero. Energy census closes (live 7654.94 vs ledger 7655.05).
 
+*(Measured on the armour commit against its parent, so the delta is armour and
+nothing else. Running `ascii` on the branch head gives different absolutes —
+the curvature channel and a `main` merge landed after — and the bar that has to
+hold there is the same one: `eats` and `harvested_corpse` both non-zero.)*
+
 ### The dig branch takes a kind guard, and it holds behaviour fixed
 
 No `Creature`- or `Plant`-kind material authored a resistance before, so the
