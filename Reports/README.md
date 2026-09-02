@@ -976,7 +976,24 @@ drift that two of these documents still reflect.**
   the owner intends a full body revamp, and the recommendation is *flexible,
   not concurrent*, because body and metabolism are one budget and two changes
   moving it cannot be read apart; only the movement rule is genuinely
-  body-plan-specific and nothing here reads it.
+  body-plan-specific and nothing here reads it. **§13 answers the owner's
+  stated number-one issue** — *"larger creatures just become snakes/worms"* —
+  and finds the engine had already written it down: `BodyPlan::scaled`'s own
+  doc says *"a chain cannot be made physically identical at a finer
+  resolution… it is the reason the owner's 'creatures should be more than
+  chains of pixels' and the resolution step are the same piece of work."*
+  Scaled up, a chain stretches into a longer worm and a rigid plan
+  supersamples into the same silhouette bigger — `ant_block`'s 3×3 becoming
+  the 6×6 the owner called *"a perfect cube"* — while shape costs an order of
+  magnitude of mobility (rigid **25–43%** of moves blocked against a chain's
+  **2–6%**). The proposal is an **articulated body**, a short chain of rigid
+  parts each following the one ahead, which has `Chain` and `Rigid` as its two
+  degenerate ends rather than sitting beside them. **Read §13d before building
+  it**: `creature-appearance-design.md` §4 measured shape at constant extent
+  moving 0.8%, and the reconciliation — those are *findability* metrics, while
+  the owner's "perfect cube" is a shape reading at 36 cells — carries the
+  finding that **no instrument here measures whether something reads as an
+  animal**, so this lever is judged by blind A/B and not by a number.
 - [creature-motion-decoys-2026-08-30.md](creature-motion-decoys-2026-08-30.md)
   — **measured study, and a qualification of the report above.**
   `creature-appearance-design.md`'s whole body-size case rests on `decoys`,

@@ -27,6 +27,7 @@ Answers given in the same conversation, and binding on everything below:
 | **The body will be fully revamped** | so this plan is written **body-plan-independent** rather than run concurrently; the contract is §12 |
 | **The ratchet check gets built** | *"lean towards build it"* — `gene_probe`, §10 |
 | **Kind 3 genes are not wanted** | *"they don't seem highly important"*; two of the three should never become genes — §7 |
+| **The body revamp's target is the silhouette** | *"I don't want all to look like a chain… larger creatures just become snakes/worms"* — §13 |
 
 ---
 
@@ -1169,7 +1170,178 @@ Three findings that a body revamp will otherwise rediscover the expensive way:
 
 ---
 
-## 13. What not to re-derive
+## 13. The body: why growing a creature makes a worm or a brick
+
+The owner, 2026-09-02, asked for his single biggest issue with the body:
+
+> *"My biggest issue is the visual. I don't want all [creatures] to look like a
+> chain. That is not interesting, and so larger creatures just become
+> snakes/worms. There are lots of other interesting things that could be done,
+> but that is my number 1 issue."*
+
+### 13a. This is already written down in the engine, in the same words
+
+`BodyPlan::scaled`'s doc comment:
+
+> *A `Rigid` plan supersamples and a `Chain` can only stretch, and the
+> asymmetry is the plan's, not this function's. A rigid cell is an area, so at
+> `k` it becomes the `k`x`k` block it covers and the silhouette is preserved
+> exactly. A chain is a path... So `Chain(n)` scales to `Chain(n*k)`, which is
+> the right physical length and still one cell wide. **A chain cannot be made
+> physically identical at a finer resolution, and that is not a bug to fix
+> here: it is the reason the owner's "creatures should be more than chains of
+> pixels" and the resolution step are the same piece of work.**
+
+So the complaint is not new and it is not an oversight. It is a **property of
+having exactly two body plans**, and both of them fail to gain structure with
+size in opposite directions:
+
+| | scaled up | what you get |
+|---|---|---|
+| `Chain(n)` | `Chain(n·k)` — stretches | a longer worm, still one cell wide |
+| `Rigid(cells)` | each cell becomes a `k`×`k` block | the same silhouette, bigger. `ant_block`'s 3×3 becomes a 6×6 — **the "perfect cube"** |
+
+The owner's verdict on the 36-cell creature — *"Shape. It is a perfect cube.
+Are there perfect cube creatures in our world?"* — is literally the second row.
+
+### 13b. And shape currently costs an order of magnitude of mobility
+
+The reason nobody has simply authored better shapes is measured, and it is the
+real constraint:
+
+**A rigid body is blocked 25–43% of its moves; a chain 2–6%.** That survives
+all three trees it was measured on and no reshuffling closes it
+(`creature-appearance-design.md` §4 — note that the *within*-rigid ranking in
+that section is explicitly withdrawn; only the coarse gap survives).
+
+`creature-body-extent-2026-08-30.md` adds the other half: **at the shipped seed
+and horizon, no chain longer than two cells leaves a living colony** — at
+three, four, six or nine cells, and at the old flat bill as much as the new
+per-cell one, reproducing on a flat slab so it is not terrain.
+
+So today: **a body with an interesting outline cannot move, and a body that
+moves cannot have an outline.** Any answer to D1 has to break that trade rather
+than pick a side of it.
+
+### 13c. The proposal: an articulated body, which is one representation with both current plans as its ends
+
+**A body is a short chain of *parts*. Each part is a small rigid shape. Each
+part follows the path of the part ahead of it, exactly as a chain cell follows
+the head.**
+
+- `Chain(n)` is the degenerate case where every part is a single cell.
+- `Rigid(cells)` is the degenerate case with exactly one part.
+
+So this is not a third body plan beside two others — it is **the
+generalisation the two existing plans are already the endpoints of**, which is
+the kind of unification this codebase prefers and is why it is worth doing
+rather than adding `Blob` next to `Chain`.
+
+**Why it should recover the mobility.** Passability is checked **per part**, and
+a part moves into ground the part ahead has already vacated and proven passable.
+So a 2×2 part meets the rigid-body problem at 2×2 scale rather than at
+whole-body scale. **Predicted to land between the chain's 2–6% and the rigid
+body's 25–43%, much nearer the chain.** That is a prediction, not a premise —
+see 13e.
+
+**Why it should recover the silhouette.** Parts may differ in size and shape, so
+a body gets a **waist, a taper and a head that is not the same as the abdomen** —
+which is precisely what a uniform chain and a uniform block both lack. And it
+scales correctly: at `k` each part supersamples, so a physically identical
+animal keeps its **proportions** instead of becoming a longer worm.
+
+**Why it is the right thing for evolution rather than only for authoring.** A
+part list is a small, bounded, continuous-ish genome: how many parts, and each
+part's extent. That is `body_of(segments, girth)` from
+`creature-evolution-plan.md` §2.8 — *"continuous genes, discrete phenotype…
+disconnected, self-overlapping and 4095-cell bodies are unrepresentable rather
+than merely rejected"* — with the connectivity guarantee falling out for free,
+because a chain of parts is connected by construction.
+
+### 13d. The honest caveat, and it is the one that has cost this project a phase
+
+**`creature-appearance-design.md` §4 measured shape at constant extent moving
+nothing.** Two nine-cell bodies — a filled 3×3 and a waisted 5×2 insect
+outline — came out **0.8% apart on ink and inside the noise on contrast**, on
+all three trees. Its §1 states the conclusion flatly: *"Extent is the only
+lever."*
+
+Read carelessly, that says D1 is unreachable and articulation is the plant
+line's three architectural levers all over again — built, fired, moved no pixel.
+
+**It does not say that, and the distinction is the most important thing in this
+section.** `creature_look`'s numbers — `ink`, `|contrast|`, `decoys` — measure
+**findability**: can you locate the animal against a textured world. The owner's
+complaint is not that he cannot find it. It is *what it is once he has found
+it*, and his own verdict — **"it is a perfect cube"**, at 36 cells — is a
+shape reading, delivered by eye, on a body large enough for shape to register.
+
+So the two are not in conflict; they are at different sizes and about different
+questions. The synthesis, stated as a claim that could be wrong:
+
+> **Shape is below the noise at 9 cells and legible at 36.** The appearance
+> report's 0.8% and the owner's "perfect cube" are the same axis measured
+> either side of the threshold, and the resolution step (#179/#181, cell
+> density doubled, *"the direction, not an experiment"*) is what moved a
+> physically ant-sized animal across it.
+
+**And the consequence for how this gets judged: there is no instrument in this
+repository that measures "does this read as an animal rather than a smudge".**
+Every appearance number here answers *can it be seen*. That gap is exactly how
+a shape lever fires and is judged as nothing, which is the failure
+`plant-appearance-design.md` records costing a whole phase.
+
+**Therefore D1's verdict comes from the review queue, not from a metric** —
+`review.py ab --blind`, rendered sheets of candidate bodies, the owner's eye.
+That is not a fallback; `CLAUDE.md` requires it (*"post rather than describe…
+you are choosing between approaches and the difference is visual: post a blind
+A/B"*), and it must happen **before** the lever is built, not after.
+
+### 13e. The pre-checks, before any of this is built
+
+Three, and they are cheap because two of the instruments exist.
+
+1. **Does anyone want these shapes?** Render candidate articulated bodies —
+   3 parts vs 5, uniform vs waisted vs tapered — at the shipped resolution and
+   post a blind A/B. `creature_scale mode=size` already renders one body per
+   panel cropped to fixed *physical* units. **If the owner cannot tell them
+   apart, the lever is below threshold and the answer is extent, not
+   articulation.** This is the *check-that-a-planned-step-can-demonstrate-itself*
+   question, asked first this time.
+2. **Does it actually move?** `creature_scale mode=walk` is the body-plan
+   mobility instrument and carries a standing positive control: `Chain(2)` must
+   reproduce **5.2%**, or the run is measuring something else. Articulated
+   bodies must land nearer that than the rigid 25–43%. **If they do not, the
+   trade in 13b was not broken and the proposal fails.**
+3. **Can a colony of them live?** `creature-body-extent-2026-08-30.md`'s finding
+   is that no chain past two cells leaves a living colony — at *any* pricing. A
+   bigger body is not blocked on cost, and articulation does not by itself fix
+   whatever that is. **Run `body=` across the articulated plans before treating
+   any of this as shippable**, and if the colony still dies, that is an ecology
+   problem to solve before a body problem.
+
+### 13f. What this changes in §12's contract
+
+Nothing is retracted. Articulation touches exactly the one row §12b marked as
+body-plan-specific and that nothing else in this plan reads:
+
+| the engine asks | under articulation |
+|---|---|
+| its cells | unchanged — still a set of positions |
+| one vital cell | unchanged — the head of the first part |
+| connectivity (8) | unchanged, and **stronger**: a part chain is connected by construction, so §11d's severing rule gets a natural cut line at a joint |
+| each cell's material | unchanged, and **now more useful**: parts can differ in material, so armour can be *local* — a hard head, a soft abdomen |
+| a cell count | unchanged |
+| **a movement rule** | **this is the row that changes**, and it is the only one |
+
+So §11's armour and severing can be built before, during or after the body
+work, and §4's kin sense is untouched. **The sequencing in §10 does not need to
+change.** That is the flexibility §12a was arguing for, now tested against a
+concrete revamp rather than asserted.
+
+---
+
+## 14. What not to re-derive
 
 - **Whether `store_in_body` needs a slot.** It does not; the `Feed`/`Drop`
   weights already express both forks and are conditioned on everything the brain
@@ -1196,7 +1368,7 @@ Three findings that a body revamp will otherwise rediscover the expensive way:
 
 ---
 
-## 14. The honest risk
+## 15. The honest risk
 
 The change cannot lose the ant. Three independent guarantees: the positional law
 forbids removing `AtNest`; every code-side coefficient becomes an authored
