@@ -1,0 +1,62 @@
+{
+  "id": "20260902T060318153Z-d1dfb9",
+  "created": "2026-09-02T06:03:18Z",
+  "board": "creatures",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/pr-213-report-impl-dxp7lw",
+    "commit": "d73a804f",
+    "agent": null,
+    "session_id": "3d65268f-5b3e-574e-be94-91d1e105e662",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Two colonies at 0 / 3k / 9k / 24k frames — one was handed a home, one was not",
+  "question": "Which of these two was given a patch of nest ground under it before it started?",
+  "context_md": "Your objection, this morning: *\"I don't like that we have directly encoded there being a nest and dropping food at the nest. It seems designed like we were intentionally trying to create that behavior and intentionally trying to create ants.\"*\n\nOne of these beds had a strip of home material painted along the ground before a single animal moved — that is what founding a colony has always done, and `lab/mod.rs` says why out loud: *\"because without a nest there is no gradient and nobody forages.\"* The other got animals on bare soil and nothing else: no home material anywhere in its world, no privileged place to put food down, and no coded sense of how long ago it was home. The only thing pointing it at its own kind is a single inherited weight that mutation can erase.\n\n**Judge by eye, not by the numbers under the panes** — the counts are there so you can see neither bed is empty, not to answer the question. Same bed, same seed, same 24,000 frames, same body and the same food budget on both sides.\n\nIf you cannot tell them apart, that is the result I am hoping for and the reason the card is blind.",
+  "kind": "frames",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A — nest patch painted at the start",
+      "files": [
+        "20260902T060318153Z-d1dfb9/000-f_ant_0.png",
+        "20260902T060318153Z-d1dfb9/001-f_ant_3000.png",
+        "20260902T060318153Z-d1dfb9/002-f_ant_9000.png",
+        "20260902T060318153Z-d1dfb9/003-f_ant_24000.png"
+      ],
+      "caption": "founded the way it always has been",
+      "meta": {
+        "animals alive at the end": 15,
+        "born during the run": 10,
+        "died during the run": 47,
+        "plants standing at the end": 179
+      },
+      "focus": null
+    },
+    {
+      "label": "B — nothing painted, home never given",
+      "files": [
+        "20260902T060318153Z-d1dfb9/004-f_ancestor_0.png",
+        "20260902T060318153Z-d1dfb9/005-f_ancestor_3000.png",
+        "20260902T060318153Z-d1dfb9/006-f_ancestor_9000.png",
+        "20260902T060318153Z-d1dfb9/007-f_ancestor_24000.png"
+      ],
+      "caption": "bare soil, no home material in the world at all",
+      "meta": {
+        "animals alive at the end": 17,
+        "born during the run": 9,
+        "died during the run": 44,
+        "plants standing at the end": 148
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
