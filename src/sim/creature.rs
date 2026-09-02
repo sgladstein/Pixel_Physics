@@ -4186,9 +4186,47 @@ fn body_after_step(def: &CreatureDef, chain: &[(i32, i32)], head: (i32, i32), fr
         // Facing is a *mirror*, never a rotation (see `BodyPlan`). Turning
         // between east-ish and west-ish re-lays the template; turning
         // within one side leaves the shape alone.
-        let _ = from;
         let west = (3..=5).contains(&to);
-        def.body.offsets(west).iter().map(|&(dx, dy)| (head.0 + dx, head.1 + dy)).collect()
+        let full = def.body.offsets(west);
+        if chain.len() == full.len() {
+            return full.iter().map(|&(dx, dy)| (head.0 + dx, head.1 + dy)).collect();
+        }
+        // **An injured rigid body re-lays the cells it still has, not the
+        // ones it was born with**, and until 2026-09-02 nothing could reach
+        // this branch so nothing had had to.
+        //
+        // The line above re-laid the whole authored template from the head
+        // regardless of how much body was left, so a bitten beetle asked
+        // `relocate_chain` to move 2 cells into 4 positions. `debug_assert`
+        // catches it -- *"a body relocates cell for cell; a length change here
+        // is a lost or invented cell"* -- and in **release**, where that
+        // assertion is compiled out, it is worse than a panic: `zip` writes
+        // only the cells that exist and `state.chain = to.to_vec()` then
+        // records two positions holding nothing, which is the invented-cell
+        // half of that same comment.
+        //
+        // It was unreachable because nothing in the world could take a cell
+        // off a living rigid animal: `beetle.ron` authored no `food_energy`,
+        // so `diet_yield` was 0 at every gut bias. Giving beetle flesh a
+        // worth (§11a's P1) is what made an ant able to bite one, and this is
+        // that change's own consequence rather than a separate repair.
+        //
+        // **Offsets from the head, mirrored when the facing side flips**,
+        // which is exactly what the intact path does -- the difference is
+        // only that the set of offsets comes from the body that is standing
+        // rather than from the one the species file authored. A `Chain`
+        // shortens by dropping its tail and keeps walking; a `Rigid` body
+        // now keeps its remaining shape and keeps translating, so an injury
+        // is an injury in both body plans instead of a corrupt chain in one.
+        let (hx, hy) = chain.first().copied().unwrap_or(head);
+        let flipped = west != (3..=5).contains(&from);
+        chain
+            .iter()
+            .map(|&(cx, cy)| {
+                let (dx, dy) = (cx - hx, cy - hy);
+                (head.0 + if flipped { -dx } else { dx }, head.1 + dy)
+            })
+            .collect()
     } else {
         let mut next = Vec::with_capacity(chain.len());
         next.push(head);
@@ -6399,6 +6437,187 @@ mod tests {
         let ant_material = w.materials.id_of("ant").unwrap();
         let leftovers = (92..112).flat_map(|x| (96..101).map(move |y| (x, y))).filter(|&(x, y)| w.get(x, y).material == ant_material).count();
         assert_eq!(leftovers, 0, "no orphaned ant cell may be left standing -- reconcile_chain is what stops that");
+    }
+
+
+    /// **Something eats a living beetle, and until 2026-09-02 nothing could.**
+    ///
+    /// `assets/materials/beetle.ron` and `worm.ron` authored no `food_energy`
+    /// and no `food_class`, so both defaulted to 0.0: `food_value` returned 0,
+    /// `diet_yield` returned 0, and `is_visible_prey` was false **at every
+    /// point on the diet axis**. The predation mechanism is symmetric — a bite
+    /// is the `Feed` verb and `is_living_kin` is species identity — but the
+    /// shipped data was not, so predation ran one way only, the beetle eating
+    /// ants and nothing eating beetles.
+    /// `Reports/creature-genome-flexibility-2026-09-02.md` §11a, prerequisite
+    /// P1.
+    ///
+    /// **The acceptance is that something demonstrably eats one**, not that
+    /// the two fields exist, so this is a scene and not a field check.
+    ///
+    /// **And it is paired with the fault put back**, in the same test and the
+    /// same scene: the second arm zeroes `food_energy` on the material at
+    /// runtime and asserts the meal does not happen. Without that arm a green
+    /// here is evidence about the test rather than about the data — this is
+    /// `CLAUDE.md`'s *before you cite a guard's green, put the fault it is
+    /// named for back and watch it go red*, made a command instead of a
+    /// discipline.
+    ///
+    /// The chamber and the touching placement are inherited wholesale from
+    /// `a_predator_eats_a_creature_and_needs_no_predation_code_to_do_it`, and
+    /// for its reasons: on open ground the faster animal simply walks away
+    /// before the slower one's first decision, and whether a hunter can *find*
+    /// prey is a different question from whether eating one works.
+    ///
+    /// **The beetle is made a herbivore for the duration**, which is the only
+    /// deliberate difference from that test. A shipped beetle is a carnivore
+    /// and would be eating the ant at the same time, so an `eats` counter
+    /// would not say which direction the meal went. Turning its gut off leaves
+    /// exactly one animal in the chamber that can bite the other.
+    #[test]
+    fn an_ant_eats_a_living_beetle_and_cannot_when_beetle_flesh_is_worth_nothing() {
+        // Returns (beetle cells left, cells the ant took) after the run.
+        let arm = |flesh: Option<f32>| -> (usize, u64) {
+            let mut w = test_world();
+            for x in 92..112 {
+                w.set(x, 101, Cell::new(material::STONE, 0));
+                w.set(x, 96, Cell::new(material::STONE, 0));
+            }
+            for y in 96..102 {
+                w.set(92, y, Cell::new(material::STONE, 0));
+                w.set(111, y, Cell::new(material::STONE, 0));
+            }
+            let beetle_material = w.materials.id_of("beetle").expect("beetle");
+            if let Some(v) = flesh {
+                w.materials.get_mut(beetle_material).food_energy = v;
+            }
+            // A herbivore beetle cannot bite back; see the doc above.
+            set_gut(&mut w, "beetle", -1.0);
+            let ant = spawn(&mut w, "ant", 108, 100);
+            let beetle = spawn(&mut w, "beetle", 100, 100);
+            assert!(w.organism(ant).is_some() && w.organism(beetle).is_some(), "test setup: both animals must be placeable");
+
+            run(&mut w, 1200);
+
+            let left = (92..112)
+                .flat_map(|x| (96..102).map(move |y| (x, y)))
+                .filter(|&(x, y)| w.get(x, y).material == beetle_material)
+                .count();
+            (left, w.creature_stats.eats + w.creature_stats.pickups)
+        };
+
+        // **The fault put back first, so its number is not read after the
+        // fact.** `food_energy: 0.0` is precisely the state both these
+        // materials shipped in.
+        let (left_blind, took_blind) = arm(Some(0.0));
+        assert_eq!(left_blind, 4, "with beetle flesh worth nothing the 2x2 body must stand untouched -- if it does not, this scene is not testing what it claims");
+
+        // And the authored value, changing nothing else.
+        let (left_fed, took_fed) = arm(None);
+        assert!(
+            left_fed < 4,
+            "an ant standing against a beetle must be able to eat it: {left_fed} of 4 body cells still standing, against {left_blind} with the flesh worth nothing"
+        );
+        assert!(
+            took_fed > took_blind,
+            "and the flesh has to have gone through the food verb rather than vanishing some other way: {took_fed} taken against {took_blind} in the blind arm"
+        );
+    }
+
+    /// The same for a living worm, and it is not a copy for symmetry's sake:
+    /// the worm reaches `food_value` by a different route. It is the
+    /// pre-`CreatureDef` animal — `worm.ron`'s species file declares no
+    /// `creature:` block at all — so it has no `body_energy` to pin its flesh
+    /// price to, and `assets/materials/worm.ron` carries the world's flesh
+    /// price rather than a derivation. That makes "can anything actually eat
+    /// one" a question about a different code path, not the same one twice.
+    #[test]
+    fn an_ant_eats_a_living_worm_and_cannot_when_worm_flesh_is_worth_nothing() {
+        let arm = |flesh: Option<f32>| -> (usize, u64) {
+            let mut w = test_world();
+            for x in 92..112 {
+                w.set(x, 101, Cell::new(material::STONE, 0));
+                w.set(x, 96, Cell::new(material::STONE, 0));
+            }
+            for y in 96..102 {
+                w.set(92, y, Cell::new(material::STONE, 0));
+                w.set(111, y, Cell::new(material::STONE, 0));
+            }
+            let worm_material = w.materials.id_of("worm").expect("worm");
+            if let Some(v) = flesh {
+                w.materials.get_mut(worm_material).food_energy = v;
+            }
+            let ant = spawn(&mut w, "ant", 108, 100);
+            // `plant_worm_seed`, not `spawn`: there is no `CreatureDef` to
+            // place a worm from, which is the whole reason this species needs
+            // its own arm.
+            let site = plant_worm_seed(&mut w, 100, 100).expect("a worm should be placeable in open air");
+            w.schedule_active_site(site);
+            assert!(w.organism(ant).is_some(), "test setup: the ant must be placeable");
+
+            run(&mut w, 1200);
+
+            let left = (92..112)
+                .flat_map(|x| (96..102).map(move |y| (x, y)))
+                .filter(|&(x, y)| w.get(x, y).material == worm_material)
+                .count();
+            (left, w.creature_stats.eats + w.creature_stats.pickups)
+        };
+
+        let (left_blind, took_blind) = arm(Some(0.0));
+        assert_eq!(left_blind, 1, "with worm flesh worth nothing the worm must still be standing");
+
+        let (left_fed, took_fed) = arm(None);
+        assert_eq!(left_fed, 0, "an ant standing against a worm must be able to eat it: {left_fed} worm cells still standing");
+        assert!(
+            took_fed > took_blind,
+            "and it has to have gone through the food verb: {took_fed} taken against {took_blind} in the blind arm"
+        );
+    }
+
+    /// **An injured rigid body moves the cells it has, not the ones it was
+    /// born with.**
+    ///
+    /// `body_after_step` re-laid the whole authored template from the head
+    /// whatever the body's actual length, so a bitten beetle asked
+    /// `relocate_chain` to move 2 cells into 4 positions. That is caught by a
+    /// `debug_assert` and therefore **only in the debug profile** -- it passed
+    /// `cargo test --release` and failed CI's `cargo test (debug)`, which is
+    /// what that job exists for. In release the assertion is compiled out and
+    /// the failure is worse than a panic: `relocate_chain`'s `zip` writes only
+    /// the cells that exist and then records a `chain` claiming two positions
+    /// that hold nothing.
+    ///
+    /// It was unreachable until `beetle.ron` gained a `food_energy`, because
+    /// before that nothing in the world could take a cell off a living rigid
+    /// animal at any gut bias.
+    ///
+    /// Asserted on the pure function rather than through a colony, because the
+    /// invariant is arithmetic -- **length in equals length out** -- and a
+    /// scene would make it a claim about whether a bite happened to land.
+    #[test]
+    fn an_injured_rigid_body_relocates_the_cells_it_still_has() {
+        let w = test_world();
+        let def = w.species.get(w.species.id_of("beetle").expect("beetle")).creature.as_ref().expect("creature").clone();
+        assert!(def.body.is_rigid() && def.body.len() == 4, "test setup: this is the 2x2 rigid body the bug was found on");
+
+        // Intact: the authored template, and the path that always worked.
+        let intact = vec![(100, 100), (99, 100), (100, 99), (99, 99)];
+        let stepped = body_after_step(&def, &intact, (101, 100), 0, 0);
+        assert_eq!(stepped.len(), intact.len(), "an intact body must still lay its whole template");
+
+        // Bitten down to two cells, head first. Every one of these must come
+        // out the far side, and nothing else with them.
+        let injured = vec![(100, 100), (99, 99)];
+        let moved = body_after_step(&def, &injured, (101, 100), 0, 0);
+        assert_eq!(moved.len(), injured.len(), "length in must equal length out, or relocate_chain loses or invents a cell");
+        assert_eq!(moved, vec![(101, 100), (100, 99)], "and the surviving shape travels with it, offset for offset");
+
+        // Turning to face west mirrors the shape, exactly as an intact body's
+        // template is mirrored rather than rotated.
+        let mirrored = body_after_step(&def, &injured, (99, 100), 0, 4);
+        assert_eq!(mirrored.len(), injured.len(), "a facing flip must not change how many cells there are");
+        assert_eq!(mirrored, vec![(99, 100), (100, 99)], "x offsets mirror, y offsets do not -- facing is a mirror, never a rotation");
     }
 
     /// Set one species' gut for the duration of a test.
