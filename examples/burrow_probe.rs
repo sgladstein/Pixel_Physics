@@ -288,7 +288,7 @@ struct Component {
 /// carry, and the reason this arm was extended.
 ///
 /// `roofed` is a **volume**. Toffin et al. (*PNAS* 2009), which is the
-/// mechanism behind `(Crowding, Dig, w)`, is entirely about **shape**: a
+/// mechanism `(Crowding, Dig, w)` was built from, is entirely about **shape**: a
 /// colony digs a round cavity first, and the cavity sprouts tunnels once it
 /// outgrows the workers digging it. A round chamber and a ramified warren of
 /// the same size are the same `roofed` count and the opposite finding —
@@ -1104,10 +1104,17 @@ fn colony_arm(seeds: u64, ants: i32, frames: u64, bud_k: f64, png: Option<&str>)
         // **Both arms of the room experiment in one binary, before a single
         // ant is planted.** `crowddig=` sets `(Crowding, Dig, w)` and
         // `digbias=` sets `(Bias, Dig, b)` directly on the species genome, so
-        // the wired build and its own baseline (`crowddig=0 digbias=0.4`) are
-        // the *same* executable on the *same* world -- which is the only form
-        // of A/B `CLAUDE.md` trusts without qualification, and the only one
-        // that can rate-match an offset without a rebuild per point.
+        // an arm and its own baseline (`crowddig=0 digbias=0.4`, which is what
+        // `ant.ron` authors) are the *same* executable on the *same* world --
+        // the only form of A/B `CLAUDE.md` trusts without qualification, and
+        // the only one that can rate-match an offset without a rebuild per
+        // point.
+        //
+        // **No species file authors a `Crowding -> Dig` weight.** It was built
+        // and withdrawn on 2026-09-02, when twelve seeds put its effect at 16
+        // of 33 seed pairs against four seeds' 4 of 4. These knobs stay because
+        // the null is only readable through them, and because the retry
+        // conditions in `Reports/dead-ends.md` need them to be cheap.
         //
         // **Before `plant_ant`, and that is load-bearing**: `place_creature`
         // copies the species genome into each animal at spawn, so a patch
@@ -1130,16 +1137,60 @@ fn colony_arm(seeds: u64, ants: i32, frames: u64, bud_k: f64, png: Option<&str>)
                 world.species.set_genome(id, g);
                 if seed == 1 {
                     println!(
-                        "  PATCHED genome: (Crowding, Dig) = {:?}, (Bias, Dig) = {:?}   [authored: 0.6 / -0.02]",
+                        "  PATCHED genome: (Crowding, Dig) = {:?}, (Bias, Dig) = {:?}   [ant.ron authors no Crowding->Dig; its (Bias, Dig) is 0.4]",
                         cw, db
                     );
                 }
             }
         }
-        let off = (seed as i32 - 1) * 3;
-        for i in 0..ants {
-            world.plant_ant(20 + off + i % 10 * 2, floor - 1 - (i / 10));
+        // **Founder placement is a seeded shuffle of the ground left of the
+        // bank, and the version this replaced could not produce more than
+        // seven colonies.**
+        //
+        // It read `20 + (seed - 1) * 3 + i % 10 * 2`, which walks the founder
+        // row rightward as the seed climbs -- and `bank_x0` is 40, so from
+        // **seed 8 onward every ant is placed inside the bank**, `plant_ant`
+        // refuses an occupied cell, and the world runs 8,000 frames with no
+        // colony in it. Measured 2026-09-02 while answering a review that
+        // asked for twelve seeds instead of four: seeds 8-12 read `digs 0`,
+        // `packed 0`, `roofed 0` in **both** arms of the experiment, which
+        // reads exactly like "the effect disappears at scale" and is an empty
+        // scene. `CLAUDE.md`'s *a scene that contradicts the code will look
+        // like a bug in the code*, and its *check that a guard's inputs
+        // actually vary what it guards* -- a harness that advertises
+        // `seeds=N` has to mean it.
+        //
+        // Slots are enumerated over the nest strip only (never into the
+        // bank), shuffled per seed, and taken in order, so every seed is a
+        // genuinely different colony of the same size rather than one colony
+        // slid sideways.
+        {
+            use pixel_physics::sim::rng;
+            // **The lattice, shuffled -- not a free scatter.** An ant is a
+            // `Chain(2)`, so it needs its neighbour column free; scattering
+            // over every cell placed only 34 of 52 and tripped the assertion
+            // below, which is that assertion doing its job on its first run.
+            // Columns two apart and rows one apart is the spacing the original
+            // placement used and is what fits a colony of this size.
+            let mut slots: Vec<(i32, i32)> =
+                (16..bank_x0).step_by(2).flat_map(|x| (1..=6).map(move |r| (x, floor - r))).collect();
+            let mut draw = rng::stream(seed, 0xB0_1707, 0, 0);
+            for i in (1..slots.len()).rev() {
+                slots.swap(i, draw.below(i as u32 + 1) as usize);
+            }
+            for &(x, y) in slots.iter().take(ants as usize) {
+                world.plant_ant(x, y);
+            }
         }
+        // **The scene check, asserted rather than printed** -- the same rule
+        // this file already applies to its carved voids at frame 0, and the
+        // one that would have caught the bug above the day it was written. A
+        // colony that did not get planted is not a result about digging.
+        let planted = world.live_organism_ids().len();
+        assert!(
+            planted >= (ants as usize) * 9 / 10,
+            "seed {seed}: only {planted} of {ants} founders were placed, so this world is not the colony the run reports on"
+        );
 
         // **`void` alone cannot say a nest happened, and the first version of
         // this arm shipped believing it could.** Measured 2026-08-30: with the
@@ -1214,7 +1265,9 @@ fn colony_arm(seeds: u64, ants: i32, frames: u64, bud_k: f64, png: Option<&str>)
 
         // **Does the lever have anything to act on?** -- `CLAUDE.md`'s *check
         // that a planned step can demonstrate itself, before promising it
-        // will*, asked of `(Crowding, Dig, w)` before it is believed.
+        // will*, asked of `(Crowding, Dig, w)` before it was believed -- and it
+        // passed, which is what makes that mechanism's null a statement about
+        // the mechanism rather than about a channel with no range in it.
         //
         // `BrainInput::Crowding` counts other animals' cells within r=2 of the
         // head over `CROWDING_SCALE`, so a colony whose ants never stand near

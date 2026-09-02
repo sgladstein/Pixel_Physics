@@ -48,20 +48,20 @@ whole, then run `python3 scripts/readmetoc.py`.
 | [M10 status — the worldgen half](#m10-status--the-worldgen-half) | 3032 |
 | [Weather status](#weather-status) | 3202 |
 | [The ant colony — status](#the-ant-colony--status) | 3219 |
-| [Inheritance status — the growth program has no fallback under it](#inheritance-status--the-growth-program-has-no-fallback-under-it) | 3734 |
-| [M19 status — started](#m19-status--started) | 3837 |
-| [Felling status — the verb works, and what it produces is pieces](#felling-status--the-verb-works-and-what-it-produces-is-pieces) | 3909 |
-| [Bending status — soft tissue lies over, and the wind is what pushes it](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) | 4146 |
-| [Breaking status — a badly grown tree comes down on its own](#breaking-status--a-badly-grown-tree-comes-down-on-its-own) | 4223 |
-| [Lab lighting status — the fixtures are what light the crop](#lab-lighting-status--the-fixtures-are-what-light-the-crop) | 4416 |
-| [Cell page status — the specimen readout is in three groups, and folds](#cell-page-status--the-specimen-readout-is-in-three-groups-and-folds) | 4478 |
-| [Specimen shelf status — an individual's genetics outlive the box](#specimen-shelf-status--an-individuals-genetics-outlive-the-box) | 4526 |
-| [Lab hand-verbs status — what a click puts in the box, and what the view shows](#lab-hand-verbs-status--what-a-click-puts-in-the-box-and-what-the-view-shows) | 4588 |
-| [Performance](#performance) | 4676 |
-| [World speed — five independent time axes](#world-speed--five-independent-time-axes) | 4873 |
-| [Status](#status) | 4956 |
-| [License](#license) | 5067 |
-| [Lab speed-dial status — what the dial is actually short of](#lab-speed-dial-status--what-the-dial-is-actually-short-of) | 5091 |
+| [Inheritance status — the growth program has no fallback under it](#inheritance-status--the-growth-program-has-no-fallback-under-it) | 3742 |
+| [M19 status — started](#m19-status--started) | 3845 |
+| [Felling status — the verb works, and what it produces is pieces](#felling-status--the-verb-works-and-what-it-produces-is-pieces) | 3917 |
+| [Bending status — soft tissue lies over, and the wind is what pushes it](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) | 4154 |
+| [Breaking status — a badly grown tree comes down on its own](#breaking-status--a-badly-grown-tree-comes-down-on-its-own) | 4231 |
+| [Lab lighting status — the fixtures are what light the crop](#lab-lighting-status--the-fixtures-are-what-light-the-crop) | 4424 |
+| [Cell page status — the specimen readout is in three groups, and folds](#cell-page-status--the-specimen-readout-is-in-three-groups-and-folds) | 4486 |
+| [Specimen shelf status — an individual's genetics outlive the box](#specimen-shelf-status--an-individuals-genetics-outlive-the-box) | 4534 |
+| [Lab hand-verbs status — what a click puts in the box, and what the view shows](#lab-hand-verbs-status--what-a-click-puts-in-the-box-and-what-the-view-shows) | 4596 |
+| [Performance](#performance) | 4684 |
+| [World speed — five independent time axes](#world-speed--five-independent-time-axes) | 4881 |
+| [Status](#status) | 4964 |
+| [License](#license) | 5075 |
+| [Lab speed-dial status — what the dial is actually short of](#lab-speed-dial-status--what-the-dial-is-actually-short-of) | 5099 |
 
 ### Milestones, in numeric order
 
@@ -82,7 +82,7 @@ order they were written.
 | 16 | [M16 status](#m16-status) | 1599 |
 | 17 | [M17 status](#m17-status) | 1785 |
 | 18 | [M18 status](#m18-status) | 2012 |
-| 19 | [M19 status — started](#m19-status--started) | 3837 |
+| 19 | [M19 status — started](#m19-status--started) | 3845 |
 
 ### By topic
 
@@ -95,7 +95,7 @@ them is named "plants". A section can appear twice; felling is honestly both
 plant work and structural work.
 
 **Known limitations for every topic are collected in one place**:
-[Status](#status), line 4956 — the *last* section in the
+[Status](#status), line 4964 — the *last* section in the
 file, not the first. Read it before concluding something is broken.
 
 **Which game a topic belongs to** is the third column. `engine` is shared
@@ -106,25 +106,25 @@ about what you may read.
 
 | Topic | Game | Sections, primary first |
 |---|---|---|
-| **plants, trees and moss** | engine | [M16 status](#m16-status) 1599, [Plant lines merged](#plant-lines-merged-the-genome-and-the-ecology) 1227, [Inheritance status](#inheritance-status--the-growth-program-has-no-fallback-under-it) 3734, [The economy re-derived](#the-economy-re-derived-standing-tissue-costs-something) 1349, [Plants that stop](#plants-that-stop-organs-determinacy-and-a-price-on-both) 1531, [The generation loop](#the-generation-loop-plants-die-seeds-expire-slots-come-back) 1297, [Stems draw a line](#stems-draw-a-line-the-growth-walk-renders-its-heading) 1449, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 3909, [Bending status](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) 4146, [Breaking status](#breaking-status--a-badly-grown-tree-comes-down-on-its-own) 4223, [Specimen shelf status](#specimen-shelf-status--an-individuals-genetics-outlive-the-box) 4526, [Cell page status](#cell-page-status--the-specimen-readout-is-in-three-groups-and-folds) 4478 |
-| **creatures — worms and the ant colony** | engine | [M18 status](#m18-status) 2012, [The ant colony](#the-ant-colony--status) 3219, [Specimen shelf status](#specimen-shelf-status--an-individuals-genetics-outlive-the-box) 4526, [Lab hand-verbs status](#lab-hand-verbs-status--what-a-click-puts-in-the-box-and-what-the-view-shows) 4588 |
-| **structural collapse, felling and rigid bodies** | outdoor | [M17 status](#m17-status) 1785, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 3909, [Bending status](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) 4146, [Breaking status](#breaking-status--a-badly-grown-tree-comes-down-on-its-own) 4223, [M8 status](#m8-status--started-not-complete) 2479 |
+| **plants, trees and moss** | engine | [M16 status](#m16-status) 1599, [Plant lines merged](#plant-lines-merged-the-genome-and-the-ecology) 1227, [Inheritance status](#inheritance-status--the-growth-program-has-no-fallback-under-it) 3742, [The economy re-derived](#the-economy-re-derived-standing-tissue-costs-something) 1349, [Plants that stop](#plants-that-stop-organs-determinacy-and-a-price-on-both) 1531, [The generation loop](#the-generation-loop-plants-die-seeds-expire-slots-come-back) 1297, [Stems draw a line](#stems-draw-a-line-the-growth-walk-renders-its-heading) 1449, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 3917, [Bending status](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) 4154, [Breaking status](#breaking-status--a-badly-grown-tree-comes-down-on-its-own) 4231, [Specimen shelf status](#specimen-shelf-status--an-individuals-genetics-outlive-the-box) 4534, [Cell page status](#cell-page-status--the-specimen-readout-is-in-three-groups-and-folds) 4486 |
+| **creatures — worms and the ant colony** | engine | [M18 status](#m18-status) 2012, [The ant colony](#the-ant-colony--status) 3219, [Specimen shelf status](#specimen-shelf-status--an-individuals-genetics-outlive-the-box) 4534, [Lab hand-verbs status](#lab-hand-verbs-status--what-a-click-puts-in-the-box-and-what-the-view-shows) 4596 |
+| **structural collapse, felling and rigid bodies** | outdoor | [M17 status](#m17-status) 1785, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 3917, [Bending status](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) 4154, [Breaking status](#breaking-status--a-badly-grown-tree-comes-down-on-its-own) 4231, [M8 status](#m8-status--started-not-complete) 2479 |
 | **fire, heat and phase change** | engine | [M14 status](#m14-status) 814, [Materials](#materials) 241 |
 | **explosions, particles and debris** | outdoor | [M15 status](#m15-status) 991, [M7 status](#m7-status) 962 |
 | **liquids and gases** | engine | [Liquid physics](#liquid-physics-compressible-volume-not-discrete-occupied-cells) 788, [The coarse field grid](#the-coarse-field-grid) 499 |
 | **powders and granular flow** | engine | [Materials](#materials) 241, [Architecture](#architecture) 315 |
-| **the coarse field grid — pressure, heat, light** | engine | [The coarse field grid](#the-coarse-field-grid) 499, [M12/M13 status](#m12m13-status) 761, [Lab lighting status](#lab-lighting-status--the-fixtures-are-what-light-the-crop) 4416 |
+| **the coarse field grid — pressure, heat, light** | engine | [The coarse field grid](#the-coarse-field-grid) 499, [M12/M13 status](#m12m13-status) 761, [Lab lighting status](#lab-lighting-status--the-fixtures-are-what-light-the-crop) 4424 |
 | **worldgen and world structure** | outdoor | [M10 status](#m10-status--the-worldgen-half) 3032, [Architecture](#architecture) 315 |
 | **the gnome (player character)** | outdoor | [M9 status](#m9-status--the-gnome) 2592, [Controls](#controls) 175 |
-| **weather, sky and the clock** | engine | [Weather status](#weather-status) 3202, [M19 status](#m19-status--started) 3837, [World speed](#world-speed--five-independent-time-axes) 4873 |
+| **weather, sky and the clock** | engine | [Weather status](#weather-status) 3202, [M19 status](#m19-status--started) 3845, [World speed](#world-speed--five-independent-time-axes) 4881 |
 | **rendering, UI and tunables** | engine | [UI improvements](#ui-improvements--overnight-run-section-9) 2346, [Live tunables panel](#live-tunables-panel--overnight-run-section-10) 2391, [Rendering performance](#rendering-performance--overnight-run-section-11) 2459, [M6 deferral](#m6-deferral) 1122 |
-| **performance and the parallel sweep** | engine | [Performance](#performance) 4676, [M5 status](#m5-status) 1132, [Architecture](#architecture) 315, [Rendering performance](#rendering-performance--overnight-run-section-11) 2459, [Lab speed-dial status](#lab-speed-dial-status--what-the-dial-is-actually-short-of) 5091 |
+| **performance and the parallel sweep** | engine | [Performance](#performance) 4684, [M5 status](#m5-status) 1132, [Architecture](#architecture) 315, [Rendering performance](#rendering-performance--overnight-run-section-11) 2459, [Lab speed-dial status](#lab-speed-dial-status--what-the-dial-is-actually-short-of) 5099 |
 | **materials and the data schema** | engine | [Materials](#materials) 241, [M12/M13 status](#m12m13-status) 761 |
-| **the evolution lab — the box and its lights** | lab | [Lab lighting status](#lab-lighting-status--the-fixtures-are-what-light-the-crop) 4416 |
-| **reading one specimen off the screen** | lab | [Cell page status](#cell-page-status--the-specimen-readout-is-in-three-groups-and-folds) 4478 |
-| **keeping, cloning and mutating an individual** | lab | [Specimen shelf status](#specimen-shelf-status--an-individuals-genetics-outlive-the-box) 4526 |
-| **putting things in the box, and what the view shows** | lab | [Lab hand-verbs status](#lab-hand-verbs-status--what-a-click-puts-in-the-box-and-what-the-view-shows) 4588 |
-| **the speed dial, and what a tick costs** | lab | [Lab speed-dial status](#lab-speed-dial-status--what-the-dial-is-actually-short-of) 5091 |
+| **the evolution lab — the box and its lights** | lab | [Lab lighting status](#lab-lighting-status--the-fixtures-are-what-light-the-crop) 4424 |
+| **reading one specimen off the screen** | lab | [Cell page status](#cell-page-status--the-specimen-readout-is-in-three-groups-and-folds) 4486 |
+| **keeping, cloning and mutating an individual** | lab | [Specimen shelf status](#specimen-shelf-status--an-individuals-genetics-outlive-the-box) 4534 |
+| **putting things in the box, and what the view shows** | lab | [Lab hand-verbs status](#lab-hand-verbs-status--what-a-click-puts-in-the-box-and-what-the-view-shows) 4596 |
+| **the speed dial, and what a tick costs** | lab | [Lab speed-dial status](#lab-speed-dial-status--what-the-dial-is-actually-short-of) 5099 |
 
 <!-- END GENERATED TOC -->
 
@@ -3658,56 +3658,64 @@ headless at three cells, 0 of 31 after**, with the shipped two-cell ant
 byte-identical. `Reports/creature-chain-head-loss-2026-08-30.md` diagnosed it;
 `landing_is_placeable` is the repair.
 
-### Rooms are dug, not built: crowding drives the excavation (2026-09-02)
+### Rooms: the mechanism fires, the shape does not follow (2026-09-02)
 
-**The owner asked for chambers, and the mechanism turned out to be one authored
-weight rather than a new channel.** Toffin et al. (*PNAS* 2009) dug ant nests
-in deliberately homogeneous conditions and found the shape transition with
-every environmental confound removed: high digger density along a small
-perimeter gives *uniform* digging, so the cavity grows evenly and stays round;
-as it outgrows the colony, density falls and digging localizes into buds that
-become tunnels. `BrainInput::Crowding` **is** that density, and it was wired to
-`Move` and nothing else in every species file. `Reports/stigmergy-research.md`
-§5; `Reports/creature-genome-flexibility-2026-09-02.md` §14.
+**A null, and the instrument that can read one is the thing that shipped.**
+The owner asked for chambers. Toffin et al. (*PNAS* 2009) is a controlled
+digging experiment with the environmental confounds removed: high digger
+density on a small perimeter gives *uniform* digging and a round cavity, and as
+it outgrows the colony density falls and digging localizes into buds.
+`BrainInput::Crowding` is exactly that density and was wired to `Move` and
+nothing else, so the room mechanism looked like **one authored weight** —
+`Reports/stigmergy-research.md` §5;
+`Reports/creature-genome-flexibility-2026-09-02.md` §14.
 
-`ant.ron` and `ancestor.ron` now author `(Crowding, Dig, 0.6)`, with
-`(Bias, Dig, 0.4)` re-derived to **0.15** so the dig *rate* is held and the
-whole of the new weight is spent on the *slope*. **The first re-derivation was
-wrong by half and is the transferable part** (`dead-ends.md`): set from the
-colony-wide mean crowding of 0.70 it cut digs **518 → 317**, because the colony
-mean is the scrum standing on the surface and an ant that has tunnelled into a
-bank is alone in its gallery. A mean taken to hold a constant fixed has to be
-taken over *the population that expresses the behaviour*.
+`(Crowding, Dig, 0.6)` was built, with `(Bias, Dig, 0.4)` re-derived to hold the
+dig *rate* so density dependence and "digging more" could be told apart, and
+rate-matched against its own ablation inside one binary. **It was measured and
+withdrawn.** The lever is not disconnected — crowding reads mean 0.995 at spawn
+falling to 0.675 by frame 4,000, and the weight moves digging hard enough to
+need the offset re-derived. What does not appear is the shape:
 
-**The measurement was the hard half, and `roofed` could not do it.** It is a
-volume, and this finding is entirely about shape — a round chamber and a
-ramified warren of equal size are the same number and opposite results.
-`burrow_probe`'s colony arm gained `circ` (`4πA/P²` over the largest
-**roofed**-void run), `inradius` and `buds`, plus `arms=selftest`, which runs
-six synthetic shapes with known answers through the same function and **caught
-two defects in the instrument before any colony number was quoted** — a
-first-wins tie-break putting the "centre" of a uniform gallery at its end, and
-the doc's claim that `circ` ranks a disc above a square, which on a 4-connected
-grid it does not (a staircase perimeter costs a curve every step: a digital
-disc reads 0.572 against a square's 0.785, so the column is *compactness*).
+| | four seeds | **twelve seeds** |
+|---|---|---|
+| cavity more compact, wired vs ablated | 4 of 4 at 52 ants, 4 of 4 at 26 | **16 of 33 seed pairs** |
+| buds | 2 vs 2 | 0 vs 0, 0 vs 5, 6 vs 5 |
+| does `circ` fall faster with colony size? | not asked | −0.316 wired vs −0.333 ablated |
 
-**What it buys.** Cavities are rounder — paired seed by seed against the
-ablation in the same binary, up on **4 of 4 seeds at 52 ants and 4 of 4 at
-26** — and the same 4-of-4 holds at every offset in the rate sweep, which spans
-317 to 499 digs, so it is not the dig rate. The positive control the model
-demands passes: chamber size tracks colony size, mean cavity **4.2 → 28.5 →
-54.5 cells** at 12/26/52 ants.
+A coin flip, with the sign reversing between colony sizes. This is
+`CLAUDE.md`'s *six seeds is not a sweep* on the creature line for the second
+time, and the small sample was **tidier than the truth** exactly as that rule
+predicts. The one effect that survived twelve seeds is the opposite of the
+goal: density-dependent digging cuts a **smaller** nest for the same or more
+effort — 54.5 cells against 67.5 at 52 ants on 541 digs against 508.
+`dead-ends.md` carries it with the three conditions under which it is worth
+retrying, the first being a bed where a colony is not dominated by quarrying
+the open face of a bank.
 
-**What it does not buy, reported as the null it is.** Buds do not move: 2 across
-4 seeds at 52 ants in both arms, 0 at 26 in both. Branching needs positive
-feedback — a dug spot must attract more digging — and density dependence alone
-does not supply it. The two candidates (dig-along-heading momentum through
-`Persist`, a trail into a bud) are deliberately not authored in the same change,
-because mixing them would make neither attributable. **Known limitation:** the
-change is measurable and not legible — in `burrow_probe`'s bed the colony
-mostly quarries the open face of the bank and the room sits behind it in the
-dark. Whether any of this reads as a nest is a question for the owner's queue,
-not for a counter.
+**What ships is the measurement, because the null is only readable through
+it.** `roofed` is a *volume* and this question is entirely about *shape* — a
+round chamber and a ramified warren of equal size are the same number and
+opposite results. `burrow_probe`'s colony arm gains `circ` (`4πA/P²` over the
+largest **roofed**-void run, since a quarried face is one enormous ragged
+component that would otherwise be reported as the chamber), `inradius`, `buds`,
+and a `crowd` pre-check on whether the lever has any range at all.
+`crowddig=`/`digbias=` patch the two genome slots before the ants are planted,
+so an arm and its ablation run from one binary on one set of worlds.
+
+**Two instrument bugs were caught by running the controls, and both generalise.**
+`arms=selftest` puts six synthetic shapes with known answers through the same
+function and found a first-wins tie-break putting the "centre" of a uniform
+gallery at its *end*, and disproved this feature's own doc comment: `circ` does
+**not** rank a disc above a square, because on a 4-connected grid a staircase
+perimeter costs a curve every step (digital disc **0.572**, axis-aligned square
+**0.785**). The column measures *compactness*, not circleness. And the sweep the
+review asked for exposed that **the harness could not produce more than seven
+colonies**: founder placement walked rightward with the seed until every ant
+was placed inside the bank, so seeds 8–12 ran 8,000 frames with `digs 0` in
+*both* arms — which reads exactly like "the effect disappears at larger samples"
+and is an empty scene. Placement is a bounded per-seed shuffle now, with the
+scene asserted.
 
 ### Nothing could eat a living beetle, at any gut bias (2026-09-02)
 

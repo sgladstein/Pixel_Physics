@@ -2791,11 +2791,11 @@ fn construction_scene() {
     //
     // | arm | drops | band ratio | **matched** | paired sign |
     // |---|---|---|---|---|
-    // | **shipped** | **663** | 2.96x | **1.10x** | 45.3% |
-    // | ablated, fold 0.85 | 195 | 3.00x | 0.99x | 44.9% |
-    // | ablated, fold 0.90 | 514 | 3.00x | 0.84x | 45.5% |
-    // | ablated, fold 0.95 | 1513 | **5.16x** | 0.83x | 34.4% |
-    // | ablated, fold 0.98 | 1483 | 3.56x | 0.84x | 44.3% |
+    // | **shipped** | **715** | 2.96x | **1.10x** | 55.5% |
+    // | ablated, fold 0.85 | 179 | 3.00x | 0.93x | 46.7% |
+    // | ablated, fold 0.90 | 581 | 3.00x | 0.84x | 43.2% |
+    // | ablated, fold 0.95 | 1466 | **4.60x** | 0.80x | 30.2% |
+    // | ablated, fold 0.98 | 1511 | 3.13x | 0.86x | 48.4% |
     //
     // Read the three numeric columns against each other, because they do not
     // agree and only one of them is a guard:
@@ -2807,23 +2807,26 @@ fn construction_scene() {
     //   is not the rate. `fold 0.90` is the rate-matched one to quote.
     // * **The band ratio is worse than useless, not merely weak.** Its best
     //   score in the table belongs to an arm with the mechanism *deleted*
-    //   (5.16x), and the shipped arm is the lowest row in the column.
-    // * **The paired sign test did not survive its own re-measurement, and it
-    //   is printed rather than trusted.** On an earlier build it read 55.5%
-    //   shipped against 38.5% ablated and looked like the robust statistic
-    //   here -- a sign test's null is exactly half, which is a principled bar
-    //   rather than a fitted one. On this build all five arms sit at 34-46%
-    //   and it separates nothing. One seed of a chaotic colony is a sample
-    //   from a wide distribution (`CLAUDE.md`), and this is what that costs:
-    //   the statistic that looked principled was the one that moved.
+    //   (4.60x), and the shipped arm is the **lowest row** in the column.
+    // * **The paired sign test is printed and not trusted, because it did not
+    //   survive being re-measured against a different colony.** Here it orders
+    //   the arms correctly and looked like the robust statistic -- a sign
+    //   test's null is exactly half, which is a principled bar rather than a
+    //   fitted one. Run against an ant carrying one extra authored dig weight,
+    //   all five arms sat at **34-46%** and it separated nothing, while
+    //   `matched` held its ordering across both. One seed of a chaotic colony
+    //   is a sample from a wide distribution (`CLAUDE.md`), and this is what
+    //   that costs: the statistic that looked most principled was the one that
+    //   moved when the world did.
     //
     // The bar is 1.03 -- above the null with headroom, and clear of the
-    // strongest control (0.99) by about as much as the shipped arm clears it
+    // strongest control (0.93) by about as much as the shipped arm clears it
     // (1.10). **It is a thin margin on one seed and that is stated rather
     // than dressed up.** If it ever fires, the first thing to do is not to
-    // widen it: run `PIXEL_PHYSICS_DROP_MOISTURE=off:0.9` and read that arm.
-    // If the *ablated* arm also clears 1.03, the replacement has gone blind in
-    // its turn and wants replacing rather than retuning.
+    // widen it: run `PIXEL_PHYSICS_DROP_MOISTURE=off:0.9` and read that arm --
+    // it measured 0.84x. If the *ablated* arm also clears 1.03, the
+    // replacement has gone blind in its turn and wants replacing rather than
+    // retuning.
     assert!(
         event_n > 0,
         "no drop was attributed to a cell, so the matched ratio is over nothing -- the numerator is broken, not the mechanism"

@@ -1,11 +1,10 @@
 # Ants
 
-*Current as of: 2026-09-02, when a crowded ant started digging harder than a
-lonely one — so a colony hollows out a room whose size is set by how many of
-them there are — and when it was measured that the preference for unloading on
-uneven ground is about a tenth, not the threefold this page implied. Also
-2026-09-02: a living beetle and a living worm became things
-something else can eat, which neither had been. Earlier the same day, when ants got eyes and a bill for using them,
+*Current as of: 2026-09-02, when it was measured that making a crowded ant dig
+harder does **not** give a colony rooms, and that its preference for unloading
+on uneven ground is about a tenth rather than the threefold this page implied.
+Also 2026-09-02: a living beetle and a living worm became things something else
+can eat, which neither had been. Earlier the same day, when ants got eyes and a bill for using them,
 when home stopped being a patch of ground painted under the colony before it
 arrived, and when a creature that steps back into its own body stopped
 quietly losing its head. Before that:
@@ -229,22 +228,16 @@ looking at the bank rather than at the ants to see it. But it is genuinely
 enclosed ground, with soil standing over the top of it, and that is the
 thing a slumping bank can never produce.
 
-**A crowd digs; an ant on its own barely does.** How hard an ant works at a
-face depends on how many other ants are pressed around it. Fifty of them in a
-small cavity means every one is cutting, so it opens out evenly and keeps a
-round shape; let the same cavity get big enough that those fifty are spread
-thin around its walls and the work slows. A room therefore stops growing once
-it has outgrown the colony that made it. Nobody set a size for a chamber — the
-size is however big a room that many ants can crowd into, and a colony of
-twelve leaves a hollow you could miss where fifty-two leaves one you cannot.
-
-**Half of that has arrived and half has not, and the half that has not is
-branching.** The rooms are rounder than they were, on every world tried, at the
-same amount of digging. But in a real nest a round chamber eventually sprouts
-side tunnels once the crowd around its walls thins out, and that does not
-happen here: count the passages leading off a chamber and it is the same number
-with this behaviour as without it. What is missing is anything that draws
-diggers *back* to a spot that has already been dug, and nothing does that yet.
+**Rooms, and why there are not any yet.** A real ant nest starts as a round
+chamber and sprouts side tunnels as it grows, and the reason is crowding: a
+small cavity packed with diggers is worked evenly all over, and once it has
+outgrown the colony the digging thins out and goes to a few spots. That was
+tried here — ants digging harder when pressed together — and it did not produce
+it. The rooms did not come out any rounder over twelve worlds, no side tunnels
+appeared, and the one thing that did change was that the colony left a *smaller*
+hollow for the same amount of chewing. So what a worked bank has in it is still
+what the paragraphs above describe: galleries branching back from the face the
+ants came in by, sized by how much fifty-odd ants can chew, and no chamber.
 
 **Water is what takes it away.** Packed ground is grains pressed together,
 and wetting it past what it can hold turns it back into loose soil that
