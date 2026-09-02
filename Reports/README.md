@@ -937,6 +937,33 @@ drift that two of these documents still reflect.**
   *tidier than the truth*. Corrects `larder-reachability-2026-08-30.md` and
   supersedes `creature-gate0-births-2026-08-30.md`'s mechanism (below).
   Ships `predation_probe mode=range` and `LabBox::predators`.
+- [creature-genome-flexibility-2026-09-02.md](creature-genome-flexibility-2026-09-02.md)
+  — **design, not built.** The owner's standing objection re-raised and scoped
+  to the **lab**: *"I don't like that we have directly encoded there being a
+  nest and dropping food at the nest."* Inventories the four mechanisms that
+  still spell "ant" in Rust — home as a material **named in the species file**
+  (the one sense in the suite that pre-categorises, and nothing creature-side
+  can make `nest`), homing as a **`since_nest` odometer in `creature_tick`**
+  that also makes channel A the homing plane by code rather than by evolution,
+  a drop that skips the moisture bias at home, and a body that does not evolve
+  at all. **§3 is the reusable part and answers the owner's "I don't know how
+  we balance that"**: every lever is *self-limiting* (no price needed —
+  `sensor_offset` has a measured interior optimum), *already priced* (safe now),
+  or *unpriced* (a ratchet, and the gene plus its cost line are one piece of
+  work). **Three Kind-2 genes are sitting unclaimed** — `sight_range` is priced
+  by `sight_fraction`, which landed 2026-08-31 and **no species has authored**,
+  so the beetle's radius-64 eyes are free today; `tick_interval` is priced by
+  construction because every cost is charged per creature tick; and **the
+  coordinator note's stated blocker on heritable body length is stale**, since
+  both cost paths went per-cell on 2026-08-30. §5 keeps the moisture gradient
+  and explains why — it asserts a *physical fact* (Facchini 2024: deposition
+  tracks evaporation flux, which tracks curvature; no cement pheromone) rather
+  than an outcome — while reporting a dated finding: **`moisture_gradient`
+  samples at ±4 cells and `FIELD_SCALE` doubled 8 → 16 on 2026-08-30**
+  (`ca7e9042`), one day after those offsets were last touched, so the sampler
+  was never re-derived. §9 is why the **creature Gate 2 does not exist** and
+  must come first: `labbatch` puts the seed alone at **2.42×–3.12×** on the lab
+  census with no true effect present.
 - [creature-motion-decoys-2026-08-30.md](creature-motion-decoys-2026-08-30.md)
   — **measured study, and a qualification of the report above.**
   `creature-appearance-design.md`'s whole body-size case rests on `decoys`,
