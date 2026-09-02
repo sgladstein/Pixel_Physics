@@ -423,12 +423,20 @@ four hidden units on that pair. An authored odometer needs more. `BRAIN_HIDDEN`
 
 ---
 
-## 5. The moisture gradient — the one that should mostly survive
+## 5. The moisture gradient — what it is actually reading, and why that changes the recommendation
 
-`creature.rs:2589`:
+**Revised 2026-09-02.** The first version of this section recommended keeping
+this channel on the grounds that it implements the termite construction result —
+deposition tracking evaporation flux, which tracks surface curvature. **It does
+not, and that was measured rather than argued.** `examples/field_sense_probe.rs`
+(PR #214, Stage 0a) found curvature does not move this channel at any sampling
+span. The recommendation changes; the *argument* behind it mostly survives, and
+§5f says which half is which.
+
+`creature.rs`:
 
 ```rust
-fn moisture_gradient(world: &World, x: i32, y: i32) -> f32 {
+pub fn moisture_gradient(world: &World, x: i32, y: i32) -> f32 {
     let m = |px, py| world.field_at_bilinear(px as f32, py as f32).moisture;
     let gx = m(x + 4, y) - m(x - 4, y);
     let gy = m(x, y + 4) - m(x, y - 4);
@@ -436,99 +444,177 @@ fn moisture_gradient(world: &World, x: i32, y: i32) -> f32 {
 }
 ```
 
-Drop probability is multiplied by this; dig probability by its inverse.
+Food drop probability away from home is multiplied by this; dig probability by
+its inverse.
 
-### The thinking, and it is good
+### 5a. The design intent, which is good and is worth keeping on the page
 
 Source is [`stigmergy-research.md`](stigmergy-research.md) §4 on Facchini et
 al., *eLife* 2024. The classical model of termite construction — Deneubourg
 1977 and every agent model after it — assumes a **cement pheromone**: a marker
 added to deposited material that stimulates further deposition nearby. That
 study ran *Coptotermes gestroi* on clay arenas with pellets **sterilised to
-remove chemical marking**, tracking collection and deposition as separate
-events. Findings:
+remove chemical marking**, tracking collection and deposition separately:
 
 1. **Collection is uniform across the arena; deposition is concentrated.** That
    asymmetry is the whole algorithm.
-2. The single feature shared by every deposition region was that it was a local
-   maximum in **evaporation flux** — which is provably proportional to local
-   surface curvature.
-3. Convex regions attract deposition; concave regions attract digging. This
-   reconciled an earlier study that had reported the opposite sign, because that
-   study could not separate digging from building.
+2. Every deposition region was a local maximum in **evaporation flux** — which
+   is provably proportional to local surface curvature.
+3. Convex regions attract deposition; concave regions attract digging.
 4. A salt-solution control with **no termites** deposited salt in precisely the
    regions where termites had built.
 
-So this is the **opposite** of the nest. The nest asserts an outcome. This
-asserts a *physical fact about drying* and lets the outcome emerge. Pillars,
-walls, galleries and chambers are consequences. `act`'s own comment states the
-discipline: *"There is no 'build a wall' behaviour and wanting to write one is
-the signal to re-read that section."*
+This is the right kind of mechanism for this engine: it asserts a *physical
+fact* and lets the outcome emerge, rather than asserting the outcome. Nothing
+below retracts that. What is retracted is the claim that the shipped channel
+implements it.
 
-**This is the design the owner is asking for, already done right. Keep the
-channel.**
+### 5b. The measurement: curvature does not move this channel at any span
 
-### The critique, which is narrower than "it's hardcoded"
+`field_sense_probe`'s control bed holds three curvatures **in one elevation
+band**, because an earlier version compared a crest against a plain 30 rows
+lower and could not say which of the two it was reading. Convex crest against
+flat plateau at the same elevation:
 
-**The coefficient is fixed.** Every animal in the world has the same
-relationship to curvature, at the same strength, with the same sign, for ever.
-A lineage that nests in hollows instead of building on ridges is not a point in
-the search space — there is no gene to be one with. And `dead-ends.md` entry 983
-already prescribes the remedy in general terms, from the neighbouring case of
-gating the spoil drop on `LightHere`:
+| span | crest | flat | ratio |
+|---|---|---|---|
+| ±4 (shipped) | 0.1746 | 0.1724 | **1.012x** |
+| ±8 | 0.3652 | 0.3613 | 1.011x |
+| ±16 | 0.7777 | 0.7732 | 1.006x |
+| ±24 | 1.2087 | 1.2047 | 1.003x |
 
-> *It wants to be a wired instinct on its own brain output rather than a
-> coefficient in `act`, so a lineage can lose it.*
+**Widening the sampler moves the ratio *toward* 1.0.** The probe's own positive
+control passes — depth moves the reading 1.74x — so this is a statement about
+the channel and not about the probe. `dy` runs 0.17–0.33 while `dx` is 0.0009 at
+the crest and 0.0000 at the notch.
 
-**So: add a `MoistureGrad` input carrying the scalar this function already
-computes, delete both multipliers from `act`, and author `ant.ron` with the
-weights that reproduce today's behaviour.** The termite bias, its inverse, and
-everything between become reachable. The physics stays in code; the *response
-to* the physics moves into the genome. That is the mechanism/policy line
-applied exactly.
+**Do not put a bar on the `dx` column**: an earlier version did and reported a
+clean 0.09x separation, which is an artifact twice over — a symmetric ridge's
+apex has `dx = 0` by symmetry, and the flat reference sat near its plateau's
+edge.
 
-This also retires §2c for free: with the drop bias a weight rather than a
-multiplier, there is no `at_nest` branch to privilege.
+### 5c. What it is actually reading: an interface detector
 
-### A dated finding: the sampler predates the field it samples
+*(This reading is inferred from `field.rs` rather than separately measured; the
+numbers above are what it explains.)*
 
-**`moisture_gradient` samples at ±4 cells. `FIELD_SCALE` is 16.**
+`apply_moisture_sources` makes **damp soil and standing liquid moisture
+sources** — `moisture_source` is `held / water_capacity` for soil, full for
+liquid. Air carries moisture only by diffusion, and diffusion is gated on
+`blocked`, which `rebuild_blocked` sets for a whole block if one cell in it is
+`Solid`.
 
-- `field.rs:48` — `pub const FIELD_SCALE: i32 = 16;`
-- `ca7e9042`, **2026-08-30**, *"field: FIELD_SCALE 8 -> 16, the light resolution
-  the owner picked by eye"*, on `main`.
-- The `m(x + 4, y) - m(x - 4, y)` lines were last touched by `fac79156`,
-  **2026-08-29**.
+So the field is high in and at damp ground, decays upward into air, and is
+near-uniform deep inside the ground. `|∇moisture|` therefore peaks **at the
+air/ground interface** and falls toward zero in both directions — deep
+underground, and high in open air.
 
-So the ±4 offsets were chosen when a field block was 8 cells — half a block
-each side, a full block across, which is a sensible sampling span. The field
-then doubled to 16 and **nobody re-derived the sampler.** The two reads are now
-8 cells apart inside a 16-cell block. `field_at_bilinear` saves it from being
-the outright block-nearest degeneracy, but the gradient returned is a fraction
-of the true inter-block gradient, and the fraction changed silently under a
-commit about light.
+**It is a surface-proximity detector.** Depth is simply the axis along which it
+varies, which is why depth moved it 1.74x.
 
-This is `CLAUDE.md`'s *fixing a bug often exposes a constant that was
-compensating for it*, in its second shape: a constant calibrated against a
-quantity that then moved.
+Read the two shipped rules with that substituted in:
 
-**And there is a second, larger concern, which is unmeasured.** Field diffusion
-is gated on `blocked`, and `rebuild_blocked` marks a whole block blocked if
-**one** cell in it is `Solid` — with a deliberate exception only for blocks that
-are themselves moisture *sources*. The lab's own round-three finding is the
-sibling of this: *"roots steer by air humidity, not soil water — hydrotropism
-reads the coarse field channel, which does not diffuse inside solid ground, so
-below the surface it has no gradient, which is why roots stop at 13 rows."*
+| rule | what it actually says |
+|---|---|
+| food drop away from home = `drop_urge × surface_proximity` | drop what you are carrying **when you surface** |
+| dig = `dig_urge × (1 − surface_proximity)` | dig **once you are already inside the ground** |
 
-If that holds for `moisture_gradient` too, then **inside a burrow** the drop
-term goes to ~0 and the dig term to full `dig_urge`, unshaped — meaning the
-termite construction mechanism is **inert exactly where a nest gets dug**, while
-galleries still appear for other reasons (`line_burrow`'s tamping, and the
-pellet-placement predicate). That is the signature of a mechanism that looks
-like it works and is not the thing producing the result.
+That is a coherent hauling rule and arguably a good one — roughly *carry the
+spoil out and dump it at the mouth*. It is not stigmergy, and it is not
+Facchini.
 
-**This is a hypothesis with a cheap test and it is owed before anything is built
-on the channel** — see §10.
+### 5d. Why it structurally cannot produce architecture
+
+**This is the part that matters more than the mis-citation.**
+
+Facchini's mechanism is **self-amplifying**: deposit → raises local curvature →
+curvature attracts more deposition → a pillar grows. The positive feedback is
+what produces pillars, walls and chambers.
+
+A surface detector is **self-neutralising**: deposit at the surface, and the new
+surface reads the same value the old one did. Nothing accumulates an advantage.
+And a placed pellet is `packedsoil` with `water_capacity: 1000` carrying its own
+moisture, so it re-sources the field and remains a surface.
+
+**No positive feedback means accretion, not architecture.** So the old §5's
+*"pillars, walls and chambers are consequences of that bias"* is not merely
+mis-sourced — it is **unreachable with this signal, at any coefficient, in any
+genome.** No amount of moving the response into the brain fixes that, because
+the fault is in the signal rather than in the response to it.
+
+### 5e. A hypothesis about the guard, with the control named
+
+**Unmeasured. Stated so it is tested rather than assumed.**
+
+`ascii`'s deposition scene measures mean `|∇m|` at the cells ants dropped on
+against the mean over a 12-row band — 2.94x before this work, 2.97x after. Its
+own comment records that an earlier version was replaced because it *"passed
+harder for the broken build"*.
+
+But drops land where an ant is standing, which is a surface, and surfaces are
+exactly where `|∇m|` is high; the band average includes deep air and buried
+soil, which are both near zero. **So the ratio may read ~3x purely because
+drops happen at surfaces, with no contribution from the moisture term at all.**
+
+**The control is one run**: delete the moisture term from the drop probability
+and re-measure *the ratio* — not the counts, which is what the previous version
+got wrong. If the ratio stays near 2.9x, the guard is measuring "ants drop on
+surfaces" and the rewrite traded one blind guard for another.
+
+### 5f. What survives, what dies, and the recommendation
+
+**Survives, and gets stronger.** The channel is still a real field the world
+computes rather than an authored outcome, and **moving the response coefficient
+into the genome is still right** — more right now, because a fixed coefficient
+was encoding a rule nobody had correctly identified. That was this section's
+actual argument and the measurement does not touch it. `dead-ends.md` entry 983
+prescribes the same move in general terms: *"it wants to be a wired instinct on
+its own brain output rather than a coefficient in `act`, so a lineage can lose
+it."*
+
+**Dies.** The claim about what the channel produces; Facchini as a description
+of the shipped mechanism (it stays as the design *intent*); and the name —
+`moisture_gradient` is accurate about the arithmetic and misleading about the
+meaning.
+
+**Also retired: the first version's "dated finding".** It reported that the ±4
+offsets predate `FIELD_SCALE` doubling 8 → 16 on 2026-08-30 (`ca7e9042`, one day
+after `fac79156` last touched those lines) and proposed re-deriving them. **The
+dating is correct and the remedy is wrong**: §5b shows widening the span moves
+the ratio toward 1.0, so the offsets are not what stands between this channel
+and a curvature reading. Recorded rather than deleted, because the *shape* of
+the error is the one `CLAUDE.md` names — a constant calibrated against a
+quantity that then moved is worth suspecting, and here it was worth suspecting
+and was not the fault.
+
+**Three options, and a recommendation.**
+
+1. **Rename and re-document only.** Call it surface proximity, drop the termite
+   claim, keep the behaviour. Cheapest, honest, and it already does something
+   useful.
+2. **Add a curvature signal beside it, as a second brain input.** The cheap
+   implementation is a **discrete curvature estimate from a solid-neighbour
+   count** in a small disc: convex → few solid neighbours, concave → many, flat
+   → about half. It is geometric, so it is per-cell and immune to the
+   coarse-field degeneracy that has been hit five times on three lines; it costs
+   ~24 `World::get` at radius 2, once per drop roll, against 328–1,186 cells for
+   a single sight cast; and there is precedent for neighbour-counting at a cell
+   in `act`'s own spoil-drop footing test. **It is also the only version with
+   the positive feedback**, so it is the only one that can build a pillar.
+3. **Both.**
+
+**Recommend 3.** Facchini says termites sense curvature *indirectly*, through
+evaporation; this engine tried the indirect route and measured that its coarse
+field does not carry the signal, so computing curvature directly is the honest
+fallback rather than a shortcut. And it follows this section's own surviving
+argument: if the *response* belongs to the genome, then giving evolution two
+honestly-named physical signals to weigh independently is strictly better than
+one mislabelled one.
+
+**Sequencing.** Option 1 is a documentation change and belongs with PR #214's
+review. Option 2 touches `creature.rs`, `brain.rs` and the species files, so it
+waits for #214 to land — and it is new design work rather than a review fix, so
+it should not ride on that PR.
 
 ---
 
@@ -597,7 +683,7 @@ failure in a new costume.
 | gene | why it cannot ratchet |
 |---|---|
 | `sensor_offset` | measured interior optimum: 0.755 at 4, **0.817 at 6**, 0.743 at 8, 0.727 at 10 |
-| the moisture response (§5) | a sign *and* a magnitude; both extremes are bad architecture |
+| the moisture response (§5) | a sign *and* a magnitude; both extremes are bad. **But see §5c** — the channel is a surface detector, so the response is to depth rather than to curvature, and the lever is narrower than this row assumed |
 | all steering weights | already heritable; listed for completeness |
 
 ### Kind 2 — already priced, safe now
@@ -886,11 +972,14 @@ against the first draft of this plan:
 
 ### Stage 0 — measurements owed before anything is built
 
-**0a. Does `moisture_gradient` read anything underground?** (§5) Print the value
-for ants inside a `labnest` gallery against ants on open surface. **Positive
-control first**: a hand-built convex ridge must read high and a flat plain low,
-or the probe measures nothing. If the burrow reads flat, §5's remedy changes
-from "move the coefficient into the genome" to "fix the sensor, *then* move it".
+**0a. ~~Does `moisture_gradient` read anything underground?~~ ANSWERED, and
+the answer was bigger than the question** (§5b). `field_sense_probe`, PR #214.
+Curvature does not move this channel at **any** sampling span — 1.012x at the
+shipped ±4, and 1.011 / 1.006 / **1.003** at ±8 / ±16 / ±24, so widening it
+moves *toward* 1.0. The channel is a surface-proximity detector, the termite
+citation does not describe the shipped mechanism, and §5's remedy changed from
+"re-derive the sampler" to §5f's three options. **Nothing further is owed
+here**; what is owed is §5e's blind-guard control, which is a different run.
 
 **0b. What does an ant-sized eye cost?** `vision_probe mode=cost` at radius 16,
 32, 64 with ~50 animals. Read `rN` **minus `locate`** — that harness's own notes

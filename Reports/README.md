@@ -958,10 +958,19 @@ drift that two of these documents still reflect.**
   both cost paths went per-cell on 2026-08-30. §5 keeps the moisture gradient
   and explains why — it asserts a *physical fact* (Facchini 2024: deposition
   tracks evaporation flux, which tracks curvature; no cement pheromone) rather
-  than an outcome — while reporting a dated finding: **`moisture_gradient`
-  samples at ±4 cells and `FIELD_SCALE` doubled 8 → 16 on 2026-08-30**
-  (`ca7e9042`), one day after those offsets were last touched, so the sampler
-  was never re-derived. §9 is why the **creature Gate 2 does not exist** and
+  than an outcome. **§5 was revised 2026-09-02 after `field_sense_probe`
+  measured that the shipped channel does not implement it**: curvature moves it
+  1.012x at the shipped ±4 span and **1.003x at ±24**, so widening the sampler
+  moves *toward* 1.0. It is a **surface-proximity detector** — moisture is
+  sourced by damp soil and blocked by solids, so `|∇m|` peaks at the air/ground
+  interface — which makes the shipped rules read *drop when you surface, dig
+  once you are inside*. The consequence that matters is structural: Facchini's
+  mechanism is self-amplifying (deposit raises curvature, curvature attracts
+  deposit) while a surface detector is self-neutralising, so **this signal
+  yields accretion and can never yield architecture, at any coefficient in any
+  genome**. §5f keeps the surviving half of the argument — the response still
+  belongs in the genome — and recommends adding a discrete curvature signal
+  beside it, cheaply, from a solid-neighbour count. §9 is why the **creature Gate 2 does not exist** and
   must come first: `labbatch` puts the seed alone at **2.42×–3.12×** on the lab
   census with no true effect present. **§11 is predation and defence**, on the
   owner's ruling that size should buy survival: the encoding has no predator
