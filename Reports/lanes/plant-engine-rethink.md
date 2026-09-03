@@ -52,6 +52,31 @@ before that card is answered.** Collect with
    can point the root's `Grew` rule's `lateral` at a `GrowingTip`, and then
    every root growth step launches a shoot. Found by accident, while running
    the control for something else.
+5. **…and then that finding was cut back by its own follow-up.** The *event*
+   is reachable; the growth form is not. 144 launches over eight worlds
+   produce no second stem above the background rate and **no extra width at
+   all**, on a stand 22% smaller for having tried (report §4b). The draft that
+   read §4a as "a lineage discovers clonal spread" overstated it — what a
+   lineage discovers is a lateral that goes nowhere. **Reachability was not
+   the binding constraint**, which is the load-bearing correction for anything
+   built on the brief's *"nothing hard coded, let variety evolve"*: a form
+   also has to pay.
+6. **The background rate of a census is not zero until you have run the
+   negative control on the seeds where the mechanism cannot fire.** All three
+   of the shipped species' "second stems" occur on seeds whose launch counter
+   reads zero. Had the treated arm been read alone, five second stems would
+   have looked like the mechanism working.
+
+## The blocker a later session will hit on underground shoots
+
+**A shoot below ground cannot be followed past maturity, and the reason is a
+missing distinction rather than a missing instrument.** `CellType::MatureBody`
+is shared by root and shoot, and `plant::organ_material` gives a distinct
+material only to `Flower` and `Fruit` — so a matured sucker is identical, by
+cell type *and* by material, to the root it came off. That is why §4b can say
+*nothing surfaces* and cannot say *why*. Anything that proposes to make
+underground shoots work needs that distinction to exist **before** it can
+measure whether it worked.
 
 ## Traps this bed has that are not in `CLAUDE.md`
 
