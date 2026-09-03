@@ -1,0 +1,54 @@
+{
+  "id": "20260903T120950045Z-4f14bd",
+  "created": "2026-09-03T12:09:50Z",
+  "board": "plants",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/plant-engine-rethink-brief-rk7lq5",
+    "commit": "4e59a0c8",
+    "agent": null,
+    "session_id": "2fd32b8c-66a6-5662-ac48-04f7486d66f4",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Two ways to arrange the same leaves",
+  "question": "Which stand's foliage reads better to you -- and is the difference worth having as something a plant can inherit?",
+  "context_md": "Same species, same bed, same seed, same length of run. **The two stands put down the same amount of leaf** (3,203 against 3,389 cells, within 6%) -- what differs is only how each node's cluster of leaves is *arranged*.\n\nThe engine gives a node up to eight leaf cells and then grows them as a random walk, so the shape of every clump is drawn fresh from the dice and nothing has ever controlled it. One of these keeps that; the other makes the clump reach away from the stem in a line instead of bunching.\n\nI am posting this rather than picking, for a specific reason: three previous attempts to give plants different architectures all fired, were counted, and looked identical to you. Those changed which *label* a cell carried. This changes which cells are green, which is why I think it is different in kind -- but that is exactly the claim I keep getting wrong, so it is yours to judge.\n\n**Whichever you prefer can be the default.** The other stays reachable, and because it is a plant's own number rather than a species-wide switch, a line could evolve toward either. If the honest answer is \"these look the same\", say that -- it is the more useful answer and I would rather retire the lever than keep a knob nobody can see.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "clumped -- the shipped behaviour",
+      "files": [
+        "20260903T120950045Z-4f14bd/000-lsp_0.png"
+      ],
+      "caption": "herb, 10 founders, 14,000 frames",
+      "meta": {
+        "leaf cells in the stand": 3203,
+        "clumps of 3+ leaves": 229,
+        "how stretched a clump is (higher = more line-like)": 0.634
+      },
+      "focus": null
+    },
+    {
+      "label": "reaching -- leaves line out from the stem",
+      "files": [
+        "20260903T120950045Z-4f14bd/001-lsp_1.png"
+      ],
+      "caption": "same bed, same seed, same number of leaves",
+      "meta": {
+        "leaf cells in the stand": 3389,
+        "clumps of 3+ leaves": 226,
+        "how stretched a clump is (higher = more line-like)": 0.769
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
