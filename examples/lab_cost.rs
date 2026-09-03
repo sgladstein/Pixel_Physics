@@ -317,6 +317,7 @@ fn census(w: &World, spec: &LabBox, ids: &Ids, tile: &mut Tile) {
 #[allow(clippy::too_many_arguments)]
 fn run_arm(
     spec: &LabBox,
+    plant_load: bool,
     frames: u64,
     every: u64,
     fans: usize,
@@ -350,6 +351,7 @@ fn run_arm(
     } else {
         world = spec.build();
     }
+    world.plant_load_failure = plant_load;
 
     let ids = Ids::of(&world);
     let mut particles = ParticleSystem::new();
@@ -532,6 +534,11 @@ fn main() {
     let render_every: u64 = arg("render_every").unwrap_or(20);
     let gut: Option<f32> = arg("gut");
     let selftest: bool = arg::<u32>("selftest").unwrap_or(0) == 1;
+    // **The owner's own switch, reachable from the harness.** `plant_load_
+    // failure` is the parameters page's `collapse_under_load`, and the owner
+    // plays with it OFF -- so a cost measured with it on is not a cost they
+    // ever pay. It is a field on `World`, set after the bed is built.
+    let plant_load: bool = arg::<u32>("plant_load").unwrap_or(1) == 1;
 
     let walls: Vec<usize> = walls.split(',').map(|s| s.parse().expect("a wall count")).collect();
 
@@ -552,10 +559,11 @@ fn main() {
     println!(
         "lab_cost: {width}x{height} soil={soil} ground_y={} founders={founders} species={species} \
          colonies={colonies} seed={seed} walls={walls:?} fans={fans} reps={reps} frames={frames} \
-         every={every} phases={} render_every={render_every} gut={} \
+         every={every} phases={} render_every={render_every} plant_load={} gut={} \
          (bed defaults from LabBox::default(), soil {} rows)",
         base.ground_y,
         if split { 1 } else { 0 },
+        u8::from(plant_load),
         gut.map_or("(ant.ron)".to_string(), |g| format!("{g:+.2}")),
         LabBox::default().soil_depth,
     );
@@ -598,6 +606,7 @@ fn main() {
             let spec = LabBox { compartments: *w, ..base.clone() };
             let (tiles, world, founder_ids) = run_arm(
                 &spec,
+                plant_load,
                 frames,
                 every,
                 fans,

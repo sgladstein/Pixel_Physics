@@ -332,6 +332,24 @@ RNG, which unlocks the region work.
 **Also in play now:** organism slots at **1,239 of 4,095** on a medium bed at
 12,000 frames and still climbing.
 
+**Then the owner named the regime, and it sharpened all of the above (§10).**
+*"Previously 10-30x with plant structural damage off; now I max out at 4x"* and
+*"the toggle doesn't change anything right away but once a plant grows and
+collapses, the collapse destroys performance."* Three results:
+
+- **`plant_load_failure` off used to buy nothing (3.95 vs 3.95 ms) and now buys
+  1.32x**, halving `active_sites`. Over half that phase's new cost is collapse
+  work on living tissue -- the thing the owner turns off by hand.
+- **The big-plant box no longer self-limits.** `species=tree founders=16
+  colonies=0`, 32,000 frames: the old stand peaks at 6,100 cells / 93 organisms
+  and *falls* to 2,961 / 33, dial recovering to **6.5x**; the new one climbs to
+  **27,013 / 646 and is still climbing**, dial pinned at **2.5x from frame
+  8,000 onward**. Find what used to make it stop.
+- **The median frame barely moved (2.07 -> 2.25 ms); the mean went 2.57 ->
+  6.78.** Two-thirds of all time is now in frames above the median, and the
+  dial reports the mean -- so a box whose typical frame is fine reads as
+  permanently slow. **Chase the tail, not the phase table.**
+
 ## Deliberately not being built yet
 
 The score and the economy — the guide's Gate 5. **Gate 2, does selection have

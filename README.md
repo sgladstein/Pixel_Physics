@@ -5377,6 +5377,17 @@ the default one**: the default 8-founder bed reports the same change as a 1.3x
 *improvement*, because `bin/lab.rs` opens empty and the bed being played is not
 the bed being measured. Report §9.
 
+**And the owner's own regime is worse than that (§10).** With big plants
+(`species=tree`) and collapse on, the old box **self-limits** — its stand peaks
+at 6,100 cells and falls to 2,961, the dial recovering to 6.5x — while the new
+one climbs to **27,013 cells and 646 organisms and is still climbing** at
+32,000 frames, dial pinned at **2.5x from frame 8,000 onward**. The **median
+frame barely moved** (2.07 → 2.25 ms); the *mean* went 2.57 → 6.78, so
+two-thirds of all time is now in frames above the median and the dial, which
+reports the mean, reads as a permanently slow box. Separately,
+`plant_load_failure` off used to buy **nothing** (3.95 vs 3.95 ms) and now buys
+**1.32x**.
+
 **Known limitations.** The moisture pass still reaches its cells through
 `World`, which is a `HashMap` probe per access — ~300 ns per soil cell against
 a `ChunkView`'s array index — so roughly another 1.0 ms of the 3.81 is sitting

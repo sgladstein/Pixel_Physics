@@ -487,3 +487,106 @@ moved off the sweep (card `20260902T013339718Z-fcfc2c`) was never opened. It is
 still queued and still answerable. If the verdict says the shipped arm reads
 wrong, `PIXEL_PHYSICS_MOISTURE=sweep` restores the old placement and flipping
 `update::moisture_phase_enabled`'s default is a one-line change.
+
+
+---
+
+## 10. The owner's own case, reproduced — 2026-09-03
+
+*Two details from the owner turned §9 from "the plants got dearer" into
+something sharper: **"previously I could get 10-30x (with plant structural
+damage turned off); now I basically max out at 4x"**, and **"the toggle doesn't
+change anything right away but once a plant grows and collapses, the collapse
+destroys performance."** Both are reproducible, and the second names the
+regime §9 was measured outside of.*
+
+### 10.1 The toggle used to be free, and now is not
+
+`world.plant_load_failure` is the parameters page's `collapse_under_load`.
+`lab_cost plant_load=0` sets it. Four arms, same bed
+(`founders=128 colonies=1`, 12,000 frames):
+
+| | tick | `ca_sweep` | `active_sites` | `field` | dial |
+|---|---|---|---|---|---|
+| `9652ba6b`, collapse **on** | 3.95 ms | 2.14 | 0.49 | 1.06 | 4.2x |
+| `9652ba6b`, collapse **off** | 3.95 ms | 2.01 | 0.54 | 1.09 | 4.2x |
+| `d150e266`, collapse **on** | 5.68 ms | 2.13 | **2.27** | 1.14 | 2.9x |
+| `d150e266`, collapse **off** | 4.29 ms | 2.02 | **1.01** | 1.09 | 3.9x |
+
+**Before, the switch bought nothing at all — 3.95 against 3.95.** Now it buys
+**1.32x**, and it takes `active_sites` from 2.27 to 1.01. So *more than half*
+of `active_sites`' new cost is load/collapse work on living tissue, and the
+owner's habit of turning it off is doing real work it never had to do before.
+The residue is the other half: even with collapse off, `active_sites` is 1.01
+against the old 0.54.
+
+### 10.2 The real regime: big plants, and a box that never self-limits
+
+§9 measured `herb` at 128 founders. The owner grows **big** plants. Same
+harness, `species=tree founders=16 colonies=0`, collapse on, 32,000 frames:
+
+| frame | `9652ba6b` cells / orgs / mean / p50 / dial | `d150e266` cells / orgs / mean / p50 / dial |
+|---|---|---|
+| 8,000 | 6,100 / 67 / 4.01 / 3.14 / 4.2x | 19,799 / 241 / 7.02 / 3.27 / 2.4x |
+| 16,000 | 3,153 / 93 / 6.41 / 5.58 / 2.6x | 25,014 / 608 / 6.47 / 2.68 / 2.6x |
+| 24,000 | 3,080 / 47 / 4.65 / 2.97 / 3.6x | 25,968 / 687 / 6.66 / 2.87 / 2.5x |
+| **32,000** | **2,961 / 33 / 2.57 / 2.07 / 6.5x** | **27,013 / 646 / 6.78 / 2.25 / 2.5x** |
+
+**The old box self-limits and the new one does not.** On `9652ba6b` the stand
+peaks at 6,100 cells and 93 organisms, then *falls* to 2,961 and 33 — and the
+dial climbs back to **6.5x**, better than it started. On `d150e266` it climbs
+to 27,013 cells and 646 organisms and is **still climbing** at 32,000 frames,
+and the dial sits at **2.5x from frame 8,000 onward and never recovers**.
+
+That is the owner's sentence, measured: *it maxes out at 4x all the time.* Not
+a spike that passes — a floor it never comes back from.
+
+### 10.3 And the median frame is fine, which is why this is hard to see
+
+The most useful column in that table is the one it would be easy to skip.
+
+| at frame 32,000 | `9652ba6b` | `d150e266` |
+|---|---|---|
+| **median** frame | 2.07 ms | **2.25 ms** |
+| **mean** frame | 2.57 ms | **6.78 ms** |
+| mean / median | 1.24 | **3.01** |
+
+**The typical frame barely moved — 2.07 to 2.25 ms.** What moved is the tail:
+on the new build the mean is three times the median, so roughly **two-thirds of
+all time spent in that window is in frames above the median**. The speed dial
+reports achieved throughput, which the *mean* governs, so a box whose typical
+frame is fine reads as a permanently slow box.
+
+**This is why the collapse "destroys performance" rather than costing a hitch**,
+and it is the shape the next session should chase: not a phase that got
+uniformly dearer, but a heavy tail over a stand that is nine times larger and
+still growing. `mean x frames` does not pin the single worst frame (347:1), so
+the worst is still not a quotable number — but the **mean-to-median ratio is a
+distributional fact and is**.
+
+### 10.4 What this changes about §9
+
+§9's framing — *2.7x more organisms, each 1.7x dearer* — is right for the
+`herb` bed it was measured on and **understates the case the owner is in**. On
+the big-plant bed the organism count is **20x** (33 -> 646) and the stand **9x**
+(2,961 -> 27,013), because the box lost whatever used to make it self-limit.
+Whatever that was is the first thing to find: on `9652ba6b` a `tree` bed with
+no ants in it peaks and then declines on its own, and on `d150e266` the same
+bed does not.
+
+### 10.5 Revised order for the next session
+
+1. **Why does the big-plant box no longer self-limit?** `species=tree
+   founders=16 colonies=0 plant_load=1`, 32,000 frames, both commits. The old
+   stand peaks at 6,100 cells and falls to 2,961; the new one climbs past
+   27,000. Nothing else on this list matters as much, because every other cost
+   is per-organism and this is what sets the organism count.
+2. **Find the tail.** Median 2.25 ms against a 6.78 ms mean: two-thirds of the
+   time is in frames nobody has looked at. A per-frame histogram, or
+   `labperf`'s attribution run at the frames above the median, says what they
+   are doing. The owner's report says a collapse is involved.
+3. **Halve `active_sites` for free**: over half of it is collapse work on
+   living tissue (§10.1), which the owner already turns off by hand. Whether
+   that work can be made cheaper rather than switched off is untouched.
+4. Then §8's two leftovers — the moisture `ChunkView` and the field's
+   all-or-nothing early-out.
