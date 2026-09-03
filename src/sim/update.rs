@@ -1934,7 +1934,7 @@ pub fn dissipation_tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite>
 /// an explosion's own transient peaks at — so a blast still dominates its
 /// own neighbourhood completely and the breeze only takes over once the
 /// shock has passed, which is the ordering that reads correctly.
-const PREVAILING_DRIFT: f32 = 2.0;
+pub const PREVAILING_DRIFT: f32 = 2.0;
 
 /// Below this wind speed a gas picks its horizontal direction with a fair
 /// coin, exactly as it always did. Not zero: the field's velocity channel
@@ -1942,7 +1942,7 @@ const PREVAILING_DRIFT: f32 = 2.0;
 /// than exactly zero (`field::SETTLE_EPSILON_VELOCITY` exists for the same
 /// reason), so without a threshold a long-settled world would still show
 /// every plume leaning one way forever on numerical residue.
-const WIND_BIAS_THRESHOLD: f32 = 0.01;
+pub const WIND_BIAS_THRESHOLD: f32 = 0.01;
 
 /// Strongest the wind bias can get, as a probability of choosing downwind.
 /// Capped below 1.0 deliberately: at exactly 1.0 every gas cell in a windy
@@ -1966,7 +1966,7 @@ const MAX_WIND_BIAS: f32 = 0.85;
 /// post-blast wind partway up the ramp and the initial shock firmly at the
 /// top, so the lean visibly eases off as the shock passes rather than
 /// switching between two states.
-const WIND_BIAS_FULL_SPEED: f32 = 4.0;
+pub const WIND_BIAS_FULL_SPEED: f32 = 4.0;
 
 /// How much of the bias also decides whether the gas leans downwind *before*
 /// rising, rather than only which side it prefers once it cannot rise. See
