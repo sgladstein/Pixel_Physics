@@ -676,3 +676,180 @@ still unmeasured, and is where the difference between "the box is bigger" and
    collapse work on living tissue when the switch is on.
 4. Then §8's leftovers — the moisture `ChunkView` and the field's early-out —
    which together address about 30% of the frame.
+
+
+---
+
+## 12. `step_organisms` optimised — 2026-09-03
+
+*§11.4 item 1, done. **The world hash at frame 32,000 is byte-identical
+across every arm below**, on both settings of the collapse switch, so nothing
+here is a behaviour change: no seed sweep, no owner verdict, no re-derived
+constant. `lab_cost` now prints that hash, which is what makes the claim
+checkable rather than asserted.*
+
+### 12.1 The profiler was measuring the stagger, not the pass
+
+`ORGANISM_PASS` has existed since the frame-cost audit and **it was off by
+about fifty times**, in the direction that hides the problem. It printed one
+sampled frame. Organisms tick on a stagger of `ORGANISM_TICK_INTERVAL`, so any
+single frame holds ~1/45th of the population and *which* 1/45th is a lottery:
+on the tree bed at frame 32,000 the sampled frame ticked **14 organisms
+holding 14 cells between them** — one cell each, every one a seed — and
+reported the whole pass at **0.08 ms** while `active_sites` averaged **4.04**.
+
+Read that way the pass looks free and §9.1's attribution looks wrong. Averaged
+over the window instead, the same build reports **3.74 ms**, which is 93% of
+`active_sites` — §9.1's figure, arrived at by subtraction, was right.
+
+Two things came out of fixing it, and the second is the one worth carrying:
+
+- **`stress_field`, `bend_under_load` and `break_under_load` had no slots at
+  all.** The instrument covered seven of the ten calls in the loop, and the
+  pass that turned out to dominate was one of the three it could not see. A
+  timing harness that does not cover every call in the loop reports a total
+  that is not the total.
+- **A profiler over a staggered schedule must average over the stagger.** This
+  is `CLAUDE.md`'s *ask what your number counts when nothing is wrong* in a new
+  costume — the number was arithmetically correct and answered a different
+  question. The tell was there to be read: `ticked 14 / cells 14` says one cell
+  per organism, which is not what a 27,000-cell stand looks like.
+
+### 12.2 Where the 3.74 ms goes
+
+Per frame, averaged over the 8,000 frames ending at 32,000, `species=tree
+founders=16 colonies=0 seed=1`:
+
+| pass | before | after | |
+|---|---|---|---|
+| **stress** (`stress_field`) | **1.301** | **0.469** | **2.8x** |
+| frontier | 0.602 | 0.599 | — |
+| upkeep | 0.494 | 0.469 | — |
+| transport | 0.408 | 0.403 | — |
+| bend | 0.328 | 0.300 | 1.09x |
+| anchor | 0.313 | 0.257 | 1.22x |
+| support | 0.152 | 0.152 | — |
+| buds | 0.104 | 0.104 | — |
+| break | 0.013 | 0.013 | — |
+| roottips | 0.009 | 0.009 | — |
+| **`step_organisms`** | **3.740** | **2.789** | **1.34x** |
+
+The passes nothing touched holding still across four rebuilds is the control:
+only the three that were changed moved.
+
+The slots sum to within 0.02 ms of the whole-function clock, which settles a
+question the original instrument's doc raised and could not answer — **the
+per-organism cadence gate really does cost nothing.** It runs for all 646 live
+organisms every frame to find the ~15 that are due, and that is not where the
+money is.
+
+### 12.3 What was actually wrong: a constant read through two hash lookups
+
+`World::get` resolves a chunk through a `HashMap<ChunkCoord, Chunk>`, and
+`World::organism_cell` adds a second hash lookup in the organism's own cell
+map. So `organism_cell` is **two hashes**, and `stress_field`'s `rank` — which
+is `(support, Reverse(y))` — called it once per **sort comparison** and nine
+times per cell in the flow loop.
+
+`stress_field` takes `&World` and never writes. Every one of those reads was
+returning the same answer it had already returned. Hoisting `support` and
+`material` into two arrays, one pass, changes no arithmetic — the values are
+identical by construction — and is the whole 2.8x.
+
+The same shape, twice more:
+
+- **`anchor_support`** asked `cell_type(world.get(..).aux())` of the cell being
+  expanded *and* of all eight neighbours, so a leaf cost nine chunk lookups per
+  visit for a property the walk never changes. Hoisted to one pass. Its
+  write-back loop also did `organism_cell` and then `organism_cell_mut` on the
+  same cell; folded into one, **carefully** — the old `map_or(0, ..)` gave an
+  unregistered cell `was = 0` and still ran the schedule test, so the fold must
+  not become an `if let` around both.
+- **`bend_under_load`** filtered the field by fetching `support` from the world
+  per entry, one line after `stress_field` had read it. `CellStress` now
+  carries it.
+
+### 12.4 The binary search that looked free and was slower
+
+`stress_field`, `anchor_support` and `accumulate_support` each build a
+`HashMap<(i32, i32), usize>` over a list that is **already sorted by `(y, x)`**
+and read it eight times per cell. Replacing it with a binary search is the
+obvious move: same answer, no allocation, no hashing.
+
+It is a pessimisation, and not a marginal one. One change at a time, same bed,
+same frame:
+
+| pass | with the map | with a binary search |
+|---|---|---|
+| `accumulate_support` | 0.152 | **0.292** |
+| `anchor_support` | 0.316 | **0.405** |
+| `stress_field` (hoists in both) | **0.472** | 0.659 |
+
+An organism here averages ~42 cells, so the search is 5-6 dependent,
+cache-missing comparisons against one hash and a probe. **The container was
+never the problem** — it was reading the world through it. Landed with the
+maps intact.
+
+This is worth recording because the reasoning for the swap was sound and the
+result was backwards, which is only visible if the two halves of the change are
+measured separately. Bundled with the hoists it would have shipped as a win —
+`stress` still fell from 1.301 to 0.659 — and left two-thirds of the available
+gain on the floor.
+
+### 12.5 Whole-frame, in the regime the owner plays
+
+`plant_load=0`, paired and alternating, two runs a side, on a shared 4-core
+box. `lab_cost` grew the `plant_load` knob in §11's own branch; the bed echo
+now prints it, and the census below matches §11's stand exactly.
+
+| at frame 32,000 | base r1 | opt r1 | base r2 | opt r2 |
+|---|---|---|---|---|
+| world hash | `0x0102…8f79` | **identical** | identical | identical |
+| plant cells | 27,718 | 27,718 | 27,718 | 27,718 |
+| **`active_sites`** | 3.602 | **2.910** | 3.574 | **2.866** |
+| `ca_sweep` | 0.718 | 0.732 | 0.722 | 0.713 |
+| `field` | 1.144 | 1.134 | 1.133 | 1.104 |
+| **mean frame** | 5.475 | **4.786** | 5.440 | **4.693** |
+| median frame | 2.373 | 2.365 | 2.358 | 2.293 |
+| `us/cell` | 0.20 | **0.17** | 0.20 | **0.17** |
+| dial @60Hz | 3.0x | **3.5x** | 3.1x | **3.6x** |
+
+**`active_sites` 1.24x, the whole tick 1.15x, the dial 3.0 -> 3.5x.** The
+optimised arm wins both pairs on every column that moved, and `ca_sweep` and
+`field` — which nothing here touches — stay put, which is what says the
+difference is the change rather than the box.
+
+**§11.1's unit price is the number that actually moved**: `active_sites` per
+plant cell was **0.159 us on the old build and 0.151 on the new**, the finding
+that there was nothing to fix per-cell. It is now **0.104 us**, which is 1.5x
+better than the build that was measured before the box got fertile.
+
+Note the median barely moves (2.373 -> 2.365) while the mean falls 0.69 ms.
+That is §11.3 restated: this is tail work, so a per-frame improvement shows up
+in the mean and the dial and not in the typical frame. It also means **§11.3
+is still the next thing to do** — the tail has been made cheaper, not
+explained.
+
+### 12.6 What is left, unchanged in order
+
+1. **Profile the frames above the median** (§11.3). Untouched. The mean is
+   still 2.0x the median after this work.
+2. **The damage-on arm** (§10.1). On this bed `break` is 0.013 ms so there was
+   nothing to win here; §10.1's "over half of `active_sites`" was measured on
+   the 128-founder `herb` bed and still stands there.
+3. **§8's leftovers** — the moisture `ChunkView` and the field's
+   all-or-nothing early-out. `field` is now 1.11 ms of a 4.74 ms frame, so
+   its share has *risen* to 23% simply because the plants got cheaper.
+4. **Inside `step_organisms`, what is now on top**: `frontier` at 0.599 ms and
+   `upkeep` at 0.469 are the two largest remaining passes and neither has been
+   looked at. `stress_field` still walks `section_across` per cell through the
+   world rather than through the arrays now beside it, which is the one hoist
+   in this section that was identified and not taken.
+
+### 12.7 The blind A/B from §8 and §9.4 is answered
+
+Card `20260902T013339718Z-fcfc2c`, queued 2026-09-02 and listed as never
+opened, **was answered on 2026-09-03**: *"They look the same."* The soil reads
+the same with moisture off the movement sweep as on it, so PR #212's placement
+stands. `PIXEL_PHYSICS_MOISTURE=sweep` stays as the escape hatch and
+`update::moisture_phase_enabled`'s default does not move.

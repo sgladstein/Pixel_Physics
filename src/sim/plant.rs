@@ -4564,19 +4564,39 @@ struct OrganismTiming {
     live: usize,
     ticked: usize,
     cells: usize,
+    /// Whole-function clock, so the ten slots can be read against the total
+    /// they are meant to add up to — the gap is the per-organism cadence
+    /// gate and the reclamation walk, which no slot covers.
+    start: Option<std::time::Instant>,
 }
 
 impl OrganismTiming {
-    const PASSES: usize = 7;
-    const NAMES: [&'static str; Self::PASSES] =
-        ["transport", "frontier", "support", "anchor", "buds", "roottips", "upkeep"];
+    const PASSES: usize = 10;
+    // **The three that were missing were the expensive ones.** Slots 0-6 were
+    // the whole instrument until 2026-09-03, and `stress_field` /
+    // `bend_under_load` / `break_under_load` sat *outside* it -- so the pass
+    // that turned out to dominate this function was the one the profiler
+    // could not see, and its cost was silently attributed to "the remainder".
+    // A timing harness that does not cover every call in the loop reports a
+    // total that is not the total.
+    const NAMES: [&'static str; Self::PASSES] = [
+        "transport", "frontier", "support", "anchor", "buds", "roottips", "upkeep", "stress",
+        "bend", "break",
+    ];
 
     fn new(live: usize) -> Self {
         use std::sync::OnceLock;
         static EVERY: OnceLock<u64> = OnceLock::new();
         let every =
             *EVERY.get_or_init(|| std::env::var("ORGANISM_PASS").ok().and_then(|v| v.parse().ok()).unwrap_or(0));
-        OrganismTiming { every, ms: [0.0; Self::PASSES], live, ticked: 0, cells: 0 }
+        OrganismTiming {
+            every,
+            ms: [0.0; Self::PASSES],
+            live,
+            ticked: 0,
+            cells: 0,
+            start: (every != 0).then(std::time::Instant::now),
+        }
     }
 
     fn time<R>(&mut self, slot: usize, f: impl FnOnce() -> R) -> R {
@@ -4589,22 +4609,73 @@ impl OrganismTiming {
         r
     }
 
+    /// Fold this frame into the running window and print when the window
+    /// closes.
+    ///
+    /// **Per-window, not per-frame, and the difference was the whole
+    /// reading.** This printed one sampled frame until 2026-09-03 and was
+    /// off by roughly fifty times because of it: organisms tick on a
+    /// stagger of `ORGANISM_TICK_INTERVAL`, so any single frame holds
+    /// ~1/45th of the population, and *which* 1/45th is a lottery. On the
+    /// tree bed at frame 32,000 the sampled frame ticked **14 organisms
+    /// holding 14 cells** -- one cell each, every one of them a seed -- and
+    /// reported the whole pass at 0.08 ms while `active_sites` averaged
+    /// 4.04. Averaged over the window instead, the same build reports the
+    /// cost that is actually being paid. A profiler that samples one frame
+    /// of a staggered schedule is measuring the stagger.
     fn report(&self, frame: u64) {
-        if self.every == 0 || !frame.is_multiple_of(self.every) {
+        use std::sync::atomic::Ordering::Relaxed;
+        if self.every == 0 {
             return;
         }
-        let total: f64 = self.ms.iter().sum();
-        let detail: Vec<String> =
-            Self::NAMES.iter().zip(self.ms.iter()).map(|(n, ms)| format!("{n} {ms:.2}")).collect();
+        for (slot, ms) in self.ms.iter().enumerate() {
+            ACCUM.ns[slot].fetch_add((ms * 1.0e6) as u64, Relaxed);
+        }
+        if let Some(t) = self.start {
+            ACCUM.total_ns.fetch_add(t.elapsed().as_nanos() as u64, Relaxed);
+        }
+        ACCUM.frames.fetch_add(1, Relaxed);
+        ACCUM.ticked.fetch_add(self.ticked as u64, Relaxed);
+        ACCUM.cells.fetch_add(self.cells as u64, Relaxed);
+        if !frame.is_multiple_of(self.every) {
+            return;
+        }
+        let frames = ACCUM.frames.swap(0, Relaxed).max(1) as f64;
+        let per = |ns: u64| ns as f64 / 1.0e6 / frames;
+        let total = per(ACCUM.total_ns.swap(0, Relaxed));
+        let detail: Vec<String> = Self::NAMES
+            .iter()
+            .enumerate()
+            .map(|(slot, n)| format!("{n} {:.3}", per(ACCUM.ns[slot].swap(0, Relaxed))))
+            .collect();
         println!(
-            "  [organism] frame {frame:>6} live {:>5} ticked {:>4} cells {:>7} total {total:>7.2}ms | {}",
+            "  [organism] frame {frame:>6} live {:>5} | per frame over {frames:.0}: ticked {:>6.1} \
+             cells {:>8.1} step_organisms {total:>7.3}ms | {}",
             self.live,
-            self.ticked,
-            self.cells,
+            ACCUM.ticked.swap(0, Relaxed) as f64 / frames,
+            ACCUM.cells.swap(0, Relaxed) as f64 / frames,
             detail.join("  ")
         );
     }
 }
+
+/// The window `OrganismTiming::report` averages over — see its doc for why a
+/// single frame could not answer this.
+struct OrganismAccum {
+    ns: [std::sync::atomic::AtomicU64; OrganismTiming::PASSES],
+    total_ns: std::sync::atomic::AtomicU64,
+    frames: std::sync::atomic::AtomicU64,
+    ticked: std::sync::atomic::AtomicU64,
+    cells: std::sync::atomic::AtomicU64,
+}
+
+static ACCUM: OrganismAccum = OrganismAccum {
+    ns: [const { std::sync::atomic::AtomicU64::new(0) }; OrganismTiming::PASSES],
+    total_ns: std::sync::atomic::AtomicU64::new(0),
+    frames: std::sync::atomic::AtomicU64::new(0),
+    ticked: std::sync::atomic::AtomicU64::new(0),
+    cells: std::sync::atomic::AtomicU64::new(0),
+};
 
 pub fn step_organisms(world: &mut World) {
     let ids = world.live_organism_ids();
@@ -4703,16 +4774,16 @@ pub fn step_organisms(world: &mut World) {
             // recompute cost +0.43 ms/frame against BREAK=off, and this is
             // bit-identical to it because the recompute still happens on
             // exactly the ticks where the world changed under it.
-            let field = stress_field(world, organism_id);
-            let field = if bend_under_load(world, organism_id, &field) {
-                stress_field(world, organism_id)
+            let field = timing.time(7, || stress_field(world, organism_id));
+            let field = if timing.time(8, || bend_under_load(world, organism_id, &field)) {
+                timing.time(7, || stress_field(world, organism_id))
             } else {
                 field
             };
             // After the bend, because bending is what takes the load off:
             // whatever is still over its strength once the plant has leaned
             // as far as it can is what actually cannot hold.
-            break_under_load(world, organism_id, &field);
+            timing.time(9, || break_under_load(world, organism_id, &field));
             // Before upkeep, so a bud that flushes this tick is already a
             // `GrowingTip` when `thicken` runs and can be counted as frontier
             // rather than thickened over on the same tick it woke up.
@@ -5501,6 +5572,18 @@ pub struct CellStress {
     /// The run of same-order tissue across the load path. See
     /// `section_across` for why same-order, and why a run at all.
     pub section: u16,
+    /// `OrganismCell::support` for this cell, carried rather than re-read.
+    ///
+    /// **A cached world read, and the caching is only sound because a field
+    /// is used against the world it was built from.** `bend_under_load`
+    /// filters on this and used to fetch it per entry through
+    /// `World::organism_cell` — two hash lookups a cell, for a value
+    /// `stress_field` had already read one line earlier. Every caller builds
+    /// the field and consumes it before mutating anything, so the two agree
+    /// by construction; a caller that held a field across a change to
+    /// `support` would now read the stale one, which is the cost of the
+    /// hoist and is why this note is here rather than in a commit message.
+    pub support: u16,
     /// `|moment| / section²` — **the slab reading**, and it is written down
     /// here because the alternative is a silent constant change later.
     ///
@@ -5730,8 +5813,6 @@ fn bend_under_load(world: &mut World, organism_id: u16, field: &std::collections
     if !bend_enabled() {
         return false;
     }
-    let support_of = |w: &World, p: (i32, i32)| w.organism_cell(p.0, p.1).map_or(u16::MAX, |c| c.support);
-
     // Every cell that wants to bend, most-deflected first — not just the
     // worst one.
     //
@@ -5749,9 +5830,11 @@ fn bend_under_load(world: &mut World, organism_id: u16, field: &std::collections
     // world rather than by the hash order.
     let mut candidates: Vec<((i32, i32), f32)> = field
         .iter()
-        .filter(|(&at, s)| {
-            let support = support_of(world, at);
-            support != 0 && support != u16::MAX && s.deflection.abs() >= 1.0
+        .filter(|(_, s)| {
+            // `s.support` rather than a fresh `World::organism_cell` per
+            // entry — the same number, read once in `stress_field` instead of
+            // twice-hashed here. See `CellStress::support`.
+            s.support != 0 && s.support != u16::MAX && s.deflection.abs() >= 1.0
         })
         .map(|(&at, s)| (at, s.deflection.abs()))
         .collect();
@@ -6139,8 +6222,42 @@ pub fn stress_field(world: &World, organism_id: u16) -> std::collections::HashMa
     // rather than of the hasher's seed.
     let mut cells: Vec<(i32, i32)> = state.cells.keys().copied().collect();
     cells.sort_unstable_by_key(|&(x, y)| (y, x));
+    // **Every world read this function makes is hoisted to one pass, and
+    // that is the whole optimisation.** It changes no arithmetic: the
+    // signature is `&World`, nothing here writes, so `support` and
+    // `material` are constants for the duration and asking for them
+    // repeatedly can only return the same answer.
+    //
+    // What it was costing: `World::get` resolves a chunk through a
+    // `HashMap<ChunkCoord, Chunk>`, and `organism_cell` adds a second hash
+    // lookup in the organism's own cell map -- so every `rank` was two
+    // hashes. `rank` was called once per *sort comparison* and nine times
+    // per cell in the flow loop, on top of eight `index` hashes per cell for
+    // the neighbour lookup. Hoisted, it is one `get` and one `organism_cell`
+    // per cell, full stop.
+    //
+    // **Resolved through the grid, exactly as `World::organism_cell` does,
+    // and not through `state.cells`.** The two can disagree for a tick --
+    // `is_structural_anchor` says so at its own call site, "the list can
+    // outlive the grid by a tick" -- and the code this replaces asked the
+    // grid. Reading the organism's own map instead would be a quieter
+    // answer and a different one.
+    let mut mat = Vec::with_capacity(cells.len());
+    let mut support = Vec::with_capacity(cells.len());
+    for &(x, y) in &cells {
+        mat.push(world.get(x, y).material);
+        support.push(world.organism_cell(x, y).map_or(u16::MAX, |c| c.support));
+    }
+    // **The neighbour index stays a `HashMap`, and that is measured rather
+    // than assumed.** Replacing it with a binary search over the already-
+    // sorted `cells` looks free -- same answer, no allocation, no hashing --
+    // and it is slower. Measured on the tree bed at 32,000 frames, one
+    // change at a time: `accumulate_support` went 0.152 -> 0.292 ms/frame and
+    // `anchor_support` 0.316 -> 0.405 with the search in place. An organism
+    // here averages ~42 cells, so the search is 5-6 dependent, cache-missing
+    // comparisons against one hash and a probe. The win in this function was
+    // never the container -- it is the hoist above.
     let index: std::collections::HashMap<(i32, i32), usize> = cells.iter().enumerate().map(|(i, &p)| (p, i)).collect();
-    let support_of = |p: (i32, i32)| world.organism_cell(p.0, p.1).map_or(u16::MAX, |c| c.support);
 
     // **Rank, not `support` alone, and the difference is the whole trunk.**
     // `anchor_support` charges `SUPPORT_COST_STANDING`, which is **zero**:
@@ -6156,7 +6273,7 @@ pub fn stress_field(world: &World, organism_id: u16) -> std::collections::HashMa
     // standing on something means. `y` grows downward, so the rank is
     // `(support, -y)` and a cell hands to strictly smaller rank — strict, so
     // the flow still cannot cycle.
-    let rank = |p: (i32, i32)| (support_of(p), std::cmp::Reverse(p.1));
+    let rank = |i: usize| (support[i], std::cmp::Reverse(cells[i].1));
 
     // **The gust, not the local air velocity, and that is a measurement
     // rather than a preference.** The obvious read is `field_at_bilinear`'s
@@ -6195,7 +6312,12 @@ pub fn stress_field(world: &World, organism_id: u16) -> std::collections::HashMa
         _ => 0.0,
     };
     let mut visit: Vec<usize> = (0..cells.len()).collect();
-    visit.sort_by_key(|&i| (std::cmp::Reverse(rank(cells[i])), cells[i].0));
+    // `sort_by_key`, still -- **stable**, so reading the key out of an array
+    // rather than recomputing it per comparison cannot reorder equal
+    // elements. `CLAUDE.md`'s recorded gotcha (caching a sort key changes
+    // tie order) is about `sort_unstable_by`, whose small-sort strategy
+    // specialises on the element type; this must not be turned into one.
+    visit.sort_by_key(|&i| (std::cmp::Reverse(rank(i)), cells[i].0));
 
     let mut carried = vec![0.0f32; cells.len()];
     let mut moment_x = vec![0.0f32; cells.len()];
@@ -6209,18 +6331,18 @@ pub fn stress_field(world: &World, organism_id: u16) -> std::collections::HashMa
     let mut supporters: Vec<usize> = Vec::with_capacity(8);
     for &i in &visit {
         let (x, y) = cells[i];
-        let mass = world.materials.density(world.get(x, y).material) + surcharge_mass(world, x, y);
+        let mass = world.materials.density(mat[i]) + surcharge_mass(world, x, y);
         carried[i] += mass;
         moment_x[i] += mass * x as f32;
         let f = push_at(y);
         wind_fx[i] += f;
         wind_my[i] += f * y as f32;
 
-        let own = rank((x, y));
+        let own = rank(i);
         supporters.clear();
         for (dx, dy) in NEIGHBOURS_8 {
             let Some(&j) = index.get(&(x + dx, y + dy)) else { continue };
-            if rank(cells[j]) < own {
+            if rank(j) < own {
                 supporters.push(j);
             }
         }
@@ -6275,10 +6397,11 @@ pub fn stress_field(world: &World, organism_id: u16) -> std::collections::HashMa
                 carried: carried[i],
                 moment,
                 section,
+                support: support[i],
                 stress: moment.abs() / (section as f32).powi(2),
                 // Rigid tissue divides by infinity and gets exactly 0, which
                 // is what every material that has not opted in should read.
-                deflection: moment / world.materials.get(world.get(x, y).material).stiffness,
+                deflection: moment / world.materials.get(mat[i]).stiffness,
                 grounded: grounded[i],
             },
         );
@@ -6327,6 +6450,16 @@ fn anchor_support(world: &mut World, organism_id: u16) {
     let mut cells: Vec<(i32, i32)> = state.cells.keys().copied().collect();
     cells.sort_unstable_by_key(|&(x, y)| (y, x));
     let index: std::collections::HashMap<(i32, i32), usize> = cells.iter().enumerate().map(|(i, &p)| (p, i)).collect();
+    // **Leaf-ness hoisted out of the walk.** The rule below asks it of the
+    // cell being expanded *and* of every one of its eight neighbours, so a
+    // leaf cost nine `World::get` calls — each a chunk `HashMap` lookup —
+    // per visit, for a property of the cell that the walk never changes.
+    // The walk only reads the grid; the one write above it touches
+    // `OrganismState`'s own fields and no cell.
+    let is_leaf: Vec<bool> = cells
+        .iter()
+        .map(|&(x, y)| organism::cell_type(world.get(x, y).aux()) == Some(CellType::Leaf))
+        .collect();
 
     let mut dist = vec![u16::MAX; cells.len()];
     let mut heap: std::collections::BinaryHeap<std::cmp::Reverse<(u16, i32, i32, usize)>> = std::collections::BinaryHeap::new();
@@ -6389,14 +6522,11 @@ fn anchor_support(world: &mut World, organism_id: u16) {
         // its twig, so leaf-to-leaf carries; wood holds leaf; leaf never
         // holds wood. With the direction in, the same three breaks sever
         // **810 cells at 91% pieces**.
-        let source_is_leaf = organism::cell_type(world.get(x, y).aux()) == Some(CellType::Leaf);
+        let source_is_leaf = is_leaf[i];
         for (dx, dy) in NEIGHBOURS_8 {
             let Some(&j) = index.get(&(x + dx, y + dy)) else { continue };
-            if source_is_leaf {
-                let (nx, ny) = cells[j];
-                if organism::cell_type(world.get(nx, ny).aux()) != Some(CellType::Leaf) {
-                    continue;
-                }
+            if source_is_leaf && !is_leaf[j] {
+                continue;
             }
             // `dy > 0` puts the child *below* its parent, so it hangs from
             // it; `dy < 0` puts it above, standing on it. Sideways is
@@ -6414,10 +6544,19 @@ fn anchor_support(world: &mut World, organism_id: u16) {
     }
 
     for (i, &(x, y)) in cells.iter().enumerate() {
-        let was = world.organism_cell(x, y).map_or(0, |c| c.support);
-        if let Some(slot) = world.organism_cell_mut(x, y) {
-            slot.support = dist[i];
-        }
+        // One lookup where there were two. **The `None` arm still falls
+        // through to the schedule test**, exactly as the pair did: the old
+        // `map_or(0, ..)` gave an unregistered cell `was = 0` and then asked
+        // `dist[i] > 0` anyway, so folding the read into the write must not
+        // become an `if let` around both.
+        let was = match world.organism_cell_mut(x, y) {
+            Some(slot) => {
+                let was = slot.support;
+                slot.support = dist[i];
+                was
+            }
+            None => 0,
+        };
         // **A distance that rose is the signal, and only a rise.** Straight
         // from the inert path's own reasoning (`structural::tick`): a
         // distance that *fell* means a better load path was found and
