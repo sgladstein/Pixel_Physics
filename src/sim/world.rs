@@ -1201,6 +1201,28 @@ pub struct World {
     /// **How many births rolled for a parameter override** — the "it fired"
     /// counter for `organism::ParamGenome`, on the same footing as
     /// `fate_mutation_rolls`.
+    /// **Shoots launched off a root tip** — the event counter for clonal
+    /// spread (rhizomes, runners, suckers).
+    ///
+    /// **Not zero in the shipped game, and that is the finding.** Every
+    /// species authors `plastochron: [0]` on its `RootTip`, so no root ever
+    /// reaches a `Node` fate — but `FateOp::Retarget` can point the root's
+    /// **`Grew`** rule's `lateral` at a `GrowingTip`, and then every root
+    /// growth step launches a shoot. Measured on `herb`, 4 founders, 20,000
+    /// frames, three world seeds: **0 / 4 / 0 launches at the shipped
+    /// `FATE_MUTATION_CHANCE`, and 0 / 0 / 0 with it turned off** — so a
+    /// lineage can already discover a growth form nobody authored, which is
+    /// the owner's *"a flexible system that will allow variety to evolve"*
+    /// working, rarely, today. Giving the root a `plastochron` as well takes
+    /// it to 13 / 29 (`examples/genome_reach -- rhizome=1`).
+    ///
+    /// **A counter rather than a census, because a census provably cannot
+    /// answer this.** Shoot tissue below the ground line reads 1 / 3 / 2 in
+    /// the *unmodified* species — a plant whose collar was buried by a cell of
+    /// moving soil — and even four rows down the control reaches nine on one
+    /// seed. Both readings are indistinguishable from a treated arm's.
+    /// `CLAUDE.md`: *"did it fire at all" needs a counter, not a picture*.
+    pub root_shoots_launched: u64,
     pub param_mutation_rolls: u64,
     /// **How many of those actually changed the genome** — the effect
     /// counter from the far side of the call, which `CLAUDE.md` requires
@@ -2409,6 +2431,7 @@ impl World {
             fate_mutation_rolls: 0,
             fate_mutations_fired: 0,
             fate_mutations_applied: 0,
+            root_shoots_launched: 0,
             param_mutation_rolls: 0,
             param_mutations_applied: 0,
             leaf_cells_unaffordable: 0,

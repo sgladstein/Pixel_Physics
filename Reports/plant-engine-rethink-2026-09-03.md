@@ -457,6 +457,61 @@ a shoot up from underground; what stops it is that every root authors
 
 ---
 
+## 4a. Clonal spread is already reachable, and nobody knew
+
+§1.5 says root `plastochron` is `0` in every shipped species and no genome
+slot addresses it, so no plant may put a node underground. That is true and it
+is not the whole story, and finding out took three passes.
+
+**The experiment.** `genome_reach -- rhizome=1` registers a runtime variant of
+`herb` — root `plastochron: [3]` plus a `RootTip` fate whose `lateral` is a
+`GrowingTip` — beside the shipped species, and runs both. No shipped file is
+touched.
+
+**Two censuses failed before a counter worked, and both failures are the
+useful part.** Counting shoot tissue below the ground line reads **1 / 3 / 2 in
+the *unmodified* species** over three world seeds, against 2 / 2 / 2 treated —
+a clean null, from a discriminator that does not discriminate: a plant whose
+collar is buried by a cell of moving soil looks exactly like a shoot that came
+up from below. Restricting to four or more rows down does not fix it either;
+the control reaches **nine rows** on one seed. `CLAUDE.md`'s *"did it fire at
+all" needs a counter, not a picture*, and this is the third occurrence in the
+register.
+
+`World::root_shoots_launched` is the counter — a shoot launched off a
+`RootTip`, at the one site where a lateral is created. It costs one comparison
+on a path that already branches on `is_organ`.
+
+| `herb`, 4 founders, 20,000 frames | ws 1 | ws 2 | ws 3 |
+|---|---|---|---|
+| control, shipped species | **0** | **4** | **0** |
+| control, `FATE_MUTATION_CHANCE=0` | 0 | 0 | 0 |
+| root node + lateral shoot | **15** | **13** | **29** |
+
+**The middle row is the finding.** The control is *not* zero, and turning the
+fate mutation off is what shows why: no root ever reaches a `Node` fate, but
+`FateOp::Retarget` can point the root's **`Grew`** rule's `lateral` at a
+`GrowingTip` — and then every root growth step launches a shoot. **So a `herb`
+lineage can already discover a clonal growth form nobody authored, in the
+shipped game, today.** Rarely — four events in one run of three — but not
+never, and that is the owner's *"a flexible system that will allow variety to
+evolve"* working rather than being proposed.
+
+Three things follow.
+
+- **The fate genome is doing more than its own reports claim.** It is
+  documented as able to acquire a rule a species never had; this is a measured
+  case of it acquiring a *growth form* nobody has ever authored in any species
+  file, and it was found by accident while controlling something else.
+- **The species-file lever is a multiplier on it, not the enabler.** A root
+  `plastochron` takes the same event from ~1 per run to 13–29, and
+  `ParamGenome` is what makes that number reachable by mutation rather than
+  only by an author.
+- **Whether any of those shoots becomes a *plant* is not measured.** The
+  counter says the event fires; it says nothing about whether the sucker
+  establishes, and the census that would answer that is the one this section
+  just showed cannot be trusted in this bed. That is the next instrument.
+
 ## 5. What was built: `organism::ParamGenome`
 
 ### 5.1 The shape
@@ -679,11 +734,13 @@ item on the list that is ink rather than a label.
    (`20260903T060947894Z-4646f4`) answered first — some of the present scatter
    is what makes a stand read as alive rather than stamped, and flattening it
    is a design decision rather than a repair.
-3. **Give the root a node.** `plastochron` on `RootTip` is `0` in every species
-   and no genome slot addresses it; a non-zero value plus a `RootTip` fate with
-   `child: GrowingTip` is rhizomes, runners and suckers, which is one of the
-   five things the owner named. It is now reachable by mutation and has never
-   been reachable by evolution.
+3. **Find out whether a sucker becomes a plant.** §4a shows the *event* is
+   already reachable — a `herb` lineage discovers a shoot off a root in the
+   shipped game, and a root `plastochron` takes it from ~1 per run to 13–29 —
+   but nothing measures whether any of those shoots establishes, and §4a is
+   also the section that shows a static census of this bed cannot tell a sucker
+   from a buried collar. The instrument wants to follow the launched shoot
+   rather than census the bed.
 4. **Leaf-cluster shape**, §4.
 5. **Then the parameter-genome rate**, once generation depth is deep enough to
    test §5.4's prediction — and run `genome_reach -- drift=1` first, because

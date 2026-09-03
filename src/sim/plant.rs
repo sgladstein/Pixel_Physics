@@ -3740,6 +3740,33 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                             if lateral_type.is_organ() {
                                 world.organs_built += 1;
                             }
+                            // **A shoot launched off a root — a sucker.**
+                            //
+                            // The event counter for clonal spread, and it
+                            // exists because a *census* provably cannot
+                            // answer this. `examples/genome_reach -- rhizome=1`
+                            // tried, twice: shoot tissue below the ground
+                            // line reads 1/3/2 in the shipped species over
+                            // three world seeds (a plant whose collar got
+                            // buried by a cell of moving soil), and even at
+                            // four rows down the control reaches 9 rows on
+                            // one seed. Both readings are indistinguishable
+                            // from the treated arm's, which is `CLAUDE.md`'s
+                            // *"did it fire at all" needs a counter, not a
+                            // picture* -- two very different mechanisms look
+                            // identical from outside.
+                            //
+                            // Costs one comparison on a path that already
+                            // branches on `is_organ`. It is **not** zero in
+                            // the shipped game: no root reaches a `Node`
+                            // fate, but a `Retarget` on the root's `Grew`
+                            // rule points its `lateral` at a `GrowingTip` and
+                            // then every root step launches one. See
+                            // `World::root_shoots_launched` for the numbers
+                            // and the control that isolates it.
+                            if cell_type == CellType::RootTip && !matches!(lateral_type, CellType::RootTip | CellType::MatureBody) {
+                                world.root_shoots_launched += 1;
+                            }
                             displace_soil_water(world, bx, by);
                             world.set(bx, by, branch_cell);
                             // **The only place order increases.** A lateral

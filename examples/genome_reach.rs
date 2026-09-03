@@ -331,7 +331,9 @@ fn world_hash(w: &World) -> u64 {
 fn main() {
     let grow: u32 = arg("grow").unwrap_or(0);
     let drift: u32 = arg("drift").unwrap_or(0);
-    if drift > 0 {
+    if arg::<u32>("rhizome").unwrap_or(0) > 0 {
+        rhizome();
+    } else if drift > 0 {
         param_drift();
     } else if grow == 0 {
         static_table();
@@ -830,4 +832,160 @@ fn dynamic_arms() {
     let caged_and_still: Vec<&str> =
         (0..organism::GENOTYPE_TRAITS).filter(|&s| statics[s].starts_with("CAGED") && !moved[s]).map(|s| SLOT_NAMES[s]).collect();
     println!("  slots the arithmetic cages AND the world confirms dead: {caged_and_still:?}");
+}
+
+// ------------------------------------------------------------- rhizome --
+
+/// **Is a clonal growth form reachable, or is there a mechanism missing?**
+///
+/// `plant-reseeding-2026-09-03.md` records that a `RootTip` fate could set
+/// `child: GrowingTip` and put a shoot up from underground, and that *"every
+/// shipped species gives roots `plastochron: [0]`, which disables nodes
+/// outright"* — so rhizomes, runners and suckers are *"one authored number
+/// away and no species has taken it"*. The static census (§1.5 of the report)
+/// sharpens that: root `plastochron` is authored `0` in **every** species and
+/// **no genome slot addresses it**, so it is not merely untaken — it was
+/// unreachable by evolution until `ParamGenome` landed.
+///
+/// This arm asks the question that claim depends on and that nobody has run:
+/// **if a root does get a node, does a shoot actually come up?** It is a
+/// reachability question, not a design proposal — the answer decides whether
+/// clonal spread is a species-file line or a missing mechanism, and those
+/// need completely different work.
+///
+/// **It registers a runtime species and touches no shipped file.**
+/// `PlantScene::species_ron` puts a variant of `herb` in the registry before
+/// the bed plants anything, so `herb.ron` is unchanged and the shipped game
+/// is unaffected. The arms differ in exactly two lines of that variant.
+///
+/// ```text
+/// cargo run --release --example genome_reach -- rhizome=1 frames=20000
+/// ```
+///
+/// **The readout is the count of shoot cells that are *below the ground
+/// line and not connected upward through their own plant's stem*** — which
+/// is what a sucker is and what a taller plant is not. Its control is the
+/// unmodified arm, which must read zero: a bed where the baseline also
+/// reports suckers is a bed where the census is counting something else.
+fn rhizome() {
+    let frames: u64 = arg("frames").unwrap_or(20_000);
+    let founders: usize = arg("founders").unwrap_or(4);
+    let node: u8 = arg("node").unwrap_or(6);
+    // How far below the ground line a shoot cell has to be before it counts
+    // as coming off a root rather than off a buried collar.
+    let deep_at: i32 = arg("deep").unwrap_or(4);
+    let worldseed: Option<u64> = arg("worldseed");
+
+    // The two arms, as a `herb` variant under another name so the registry
+    // keeps the shipped species alongside it.
+    let base = include_str!("../assets/species/herb.ron");
+    let control = base.replace("name: \"herb\"", "name: \"herb_control\"");
+    // The root's `Grow` is the second `plastochron: [0]`-carrying block; edit
+    // by the whole `(RootTip, [` section so a shoot line cannot be hit.
+    let Some(root_at) = base.find("(RootTip, [\n            Absorb") else {
+        println!("REFUSING: herb.ron's RootTip block did not match -- the edit would have hit nothing, \\
+                  and an arm whose edit matched nothing reads as `the mechanism does not work`.");
+        std::process::exit(2);
+    };
+    let (head, tail) = base.split_at(root_at);
+    let patched_tail = tail.replacen("plastochron: [0],", &format!("plastochron: [{node}],"), 1);
+    if patched_tail == tail {
+        println!("REFUSING: the root plastochron edit matched nothing.");
+        std::process::exit(2);
+    }
+    // ...and a `RootTip` fate that makes a node put a shoot out sideways.
+    let mut treated = format!("{head}{patched_tail}").replace("name: \"herb\"", "name: \"herb_rhizome\"");
+    let root_fates = "(RootTip, [\n            (when: Grew,  becomes: MatureBody, child: Some(RootTip), lateral: Some(RootTip)),";
+    let with_node = "(RootTip, [\n            (when: Node,  becomes: MatureBody, child: Some(RootTip), lateral: Some(GrowingTip)),\n            (when: Grew,  becomes: MatureBody, child: Some(RootTip), lateral: Some(RootTip)),";
+    if !treated.contains(root_fates) {
+        println!("REFUSING: herb.ron's RootTip fate block did not match.");
+        std::process::exit(2);
+    }
+    treated = treated.replacen(root_fates, with_node, 1);
+
+    println!("genome_reach: mode=rhizome frames={frames} founders={founders} root_plastochron={node} worldseed={worldseed:?}");
+    for (label, ron, name) in
+        [("control (shipped herb)", control, "herb_control"), ("root node + lateral shoot", treated, "herb_rhizome")]
+    {
+        let d = common::PlantScene::default();
+        let scene = common::PlantScene {
+            trees: founders,
+            width: d.width * (founders as i32).max(1) / d.trees as i32,
+            species: name.to_string(),
+            species_ron: Some(ron),
+            seed: worldseed,
+            ..Default::default()
+        };
+        let ground = scene.ground_y;
+        let mut w = scene.build();
+        for _ in 0..frames {
+            parallel::step(&mut w);
+            w.step_active_sites();
+            w.step_fields();
+        }
+        // Shoot tissue standing below the ground line, and — the column that
+        // makes it a sucker rather than a buried stem — shoot tissue that
+        // reaches back up into open air somewhere other than its own collar.
+        let b = w.bounds().expect("bounds");
+        let (mut shallow, mut deep, mut cells) = (0u32, 0u32, 0u32);
+        let mut depth_hist: std::collections::BTreeMap<i32, u32> = std::collections::BTreeMap::new();
+        let mut owners: std::collections::BTreeSet<u16> = std::collections::BTreeSet::new();
+        for y in b.min_y..=b.max_y {
+            for x in b.min_x..=b.max_x {
+                let c = w.get(x, y);
+                if c.organism_id() == 0 {
+                    continue;
+                }
+                cells += 1;
+                owners.insert(c.organism_id());
+                let Some(ct) = organism::cell_type(c.aux()) else { continue };
+                if !matches!(ct, CellType::GrowingTip | CellType::Leaf | CellType::DormantBud) {
+                    continue;
+                }
+                let d = y - ground;
+                if d >= 1 {
+                    *depth_hist.entry(d).or_default() += 1;
+                    // **Depth is the discriminator, and the first version of
+                    // this arm did not have one.** It counted shoot tissue
+                    // below the ground line with open sky a few rows above,
+                    // which reads as "a shoot that broke the surface" and is
+                    // also what a plant whose collar got buried by a cell or
+                    // two of moving soil looks like. Over three world seeds
+                    // the control read 1 / 3 / 2 of those and the treated arm
+                    // read 2 / 2 / 2 -- a clean null wearing a discriminator
+                    // that does not discriminate. A sucker comes off a root,
+                    // and roots are rows down.
+                    if d >= deep_at {
+                        deep += 1;
+                    } else {
+                        shallow += 1;
+                    }
+                }
+            }
+        }
+        println!(
+            "  {label:<26} SHOOTS LAUNCHED OFF A ROOT {:<6} | organisms {:<5} cells {cells:<7} \
+             shoot tissue 1-{} rows down {shallow:<5} {}+ rows down {deep:<5} depths {:?}",
+            w.root_shoots_launched,
+            owners.len(),
+            deep_at - 1,
+            deep_at,
+            depth_hist
+        );
+    }
+    // **The discriminator is `reaching daylight`, not `below ground`, and the
+    // first run is what settled that.** The control reads a handful of shoot
+    // cells below the ground line — seedlings that germinated into a hollow
+    // and got buried, which is a real thing this bed does and has nothing to
+    // do with a root node. Only the emergent column separates a sucker from a
+    // buried stem, and it is 0 in the control by construction: nothing in the
+    // shipped species can put a shoot below ground *and* drive it back up.
+    println!(
+        "  -- read the FIRST column. `World::root_shoots_launched` counts the event; the depth columns are \
+         a census and this bed buries collars in both arms at up to nine rows, so they cannot separate a \
+         sucker from a burial. The control does NOT read 0: no root reaches a Node fate, but a fate \
+         mutation can point the root's Grew rule's lateral at a GrowingTip, and then every root step \
+         launches one. `PIXEL_PHYSICS_FATE_MUTATION_CHANCE=0` is the control that isolates that, and \
+         it takes the control arm to 0 on every seed."
+    );
 }

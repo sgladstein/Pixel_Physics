@@ -1,0 +1,81 @@
+# The plant-engine rethink — lane note
+
+*One unattended overnight session, 2026-09-03, against
+[`../plant-engine-rethink-brief-2026-09-03.md`](../plant-engine-rethink-brief-2026-09-03.md).
+The findings are in
+[`../plant-engine-rethink-2026-09-03.md`](../plant-engine-rethink-2026-09-03.md)
+and are not repeated here. **This note holds only what a later session cannot
+reconstruct** — what was overturned, and what is waiting on an answer.*
+
+## Waiting on the owner — three review cards, all open at hand-off
+
+| card | asks |
+|---|---|
+| `20260903T060437573Z-e132ab` | blind: which of two beds is sixteen clones of one genome |
+| `20260903T060536659Z-91838d` | the genome's two extremes alternating — two kinds of plant, or one kind at two sizes |
+| `20260903T060947894Z-4646f4` | twelve clones one column apart — is that scatter wanted, or to be cut down |
+
+**The third one gates real work.** The report's §7 item 2 proposes keying plant
+growth on the plant's own frame with an inherited developmental seed, so that
+two plants of one genome grow the same shape wherever they stand. That moves
+every plant in both games and it is a design decision, not a repair — some of
+the present scatter is what makes a stand read as alive. **Do not start it
+before that card is answered.** Collect with
+`python3 scripts/review.py inbox`.
+
+## What this session overturned — four things, three of them its own
+
+1. **Slot 1 is not caged on tree/conifer/shrub.** The static reach census read
+   one authored base per genome slot and reported three species unable to
+   evolve a branching root system. Slot 1 has **two** consumers — it also
+   divides the root's `branch_priming`, under a comment in the species file
+   reading *"Superseded by `branch_priming` below"*. The widening arm caught
+   it. **A reachability census taken by reading one call site is a census of
+   that call site.**
+2. **`PlantScene::build` does not draw a genome.** It plants through
+   `World::plant_tree_species`, which allocates the organism and writes the
+   cell and **never calls `plant::seed_genotype`** — only `World::plant_tree`
+   does. So at frame 0 every founder in every plant harness in this repo holds
+   `genotype_draws = [0.0; 10]`, the species mean. A `ref=` argument selecting
+   among founders was therefore inert and produced byte-identical output at
+   `ref=0`, `1` and `5`. **Any harness that reads a founder's genome at frame 0
+   has this.**
+3. **The organism id is not the noise lever.** An earlier draft claimed the
+   `organism_id` term in `rng::stream(organism_id, cx, cy, frame)` was a
+   per-individual random seed worth removing in one line. The arm that produced
+   the number builds a fresh world per run and plants one thing, so the id is
+   **constant by construction** and what was measured is position alone. The
+   id's contribution is still unmeasured, and the arm that would settle it
+   needs a way to advance the organism counter without adding a plant.
+4. **Clonal spread is already reachable in the shipped game**, which nothing
+   in the record said. No root reaches a `Node` fate, but `FateOp::Retarget`
+   can point the root's `Grew` rule's `lateral` at a `GrowingTip`, and then
+   every root growth step launches a shoot. Found by accident, while running
+   the control for something else.
+
+## Traps this bed has that are not in `CLAUDE.md`
+
+- **The plant bed buries its own collars.** Shoot tissue below the ground line
+  reads 1 / 3 / 2 in the *unmodified* species over three world seeds, and up to
+  **nine rows** down on one. So no census of "is there shoot tissue below
+  ground" can answer "did a root put a shoot up" — that took two failed
+  discriminators and an event counter (`World::root_shoots_launched`).
+- **A widening arm at a short horizon reads as a dead slot.** At 4,000 frames
+  five of eight live genome slots came back byte-identical; at 16,000 all eight
+  moved. The stand had not yet thickened or rooted to depth.
+- **`grass` has no `CellType::Leaf`**, so every composition descriptor is
+  structurally zero for it, and it establishes ~2 plants in the standard bed.
+  Any number measured on `grass` in this bed is a number about the scene.
+- **`tree` reaches generation 1** in a 20,000-frame run, so the clone/population
+  split is not measurable on it — 23 established plants and four variance ratios
+  above 1.0. The woody species need a horizon nobody has run.
+
+## The one thing shipped inert, and what would turn it on
+
+`plant::PARAM_MUTATION_CHANCE = 0.0`. The mechanism is measured; the rate is
+not. **Run `genome_reach -- drift=1` before raising it** — the addresses that
+pile up at their `clamp_param` bound are the free-lever list measured rather
+than inventoried, and pricing those is the prerequisite. At rate 0.3 nothing
+piles up except `juvenile_size`, because `herb`'s pedigree is ~2.3 generations
+deep and cannot accumulate the coordinated set a degenerate optimum needs; that
+changes when generation depth rises.
