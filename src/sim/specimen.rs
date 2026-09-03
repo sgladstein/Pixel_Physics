@@ -231,6 +231,12 @@ pub struct PlantGenetics {
     /// The production rule, flattened the way `FateGenome::to_table` gives
     /// it. **Order is load-bearing** — lookup is first-match-wins.
     pub fates: Vec<(CellType, Vec<Fate>)>,
+    /// **This individual's parameter overrides** — see
+    /// `organism::ParamGenome`. `#[serde(default)]` so every jar written
+    /// before this field existed still loads, as an empty genome, which is
+    /// exactly what those specimens carried.
+    #[serde(default)]
+    pub params: Vec<organism::ParamOverride>,
     /// Organ colour. Stored rather than derived because these two have no
     /// locus yet (`OrganismState::flower_band`'s doc records the gap), so
     /// a released specimen that re-drew them would not be the plant the
@@ -408,6 +414,7 @@ fn genetics_of(species: &Species, state: &OrganismState) -> Genetics {
             draws: state.genotype_draws.to_vec(),
             alleles: state.alleles.to_vec(),
             fates: state.fates.to_table(),
+            params: state.params.overrides().to_vec(),
             flower_band: state.flower_band,
             fruit_band: state.fruit_band,
             endowment: state.endowment,
@@ -477,6 +484,8 @@ pub fn drift(world: &World, spec: &Specimen, broods: u32, name: &str, rng: &mut 
             let mut draws: [f32; organism::GENOTYPE_TRAITS] = padded(&g.draws, "DRAWS")?;
             let mut alleles: [u8; organism::DISCRETE_LOCI] = padded_u8(&g.alleles, "ALLELES")?;
             let mut fates = organism::FateGenome::from_table(&g.fates);
+            let mut params = organism::ParamGenome::from_overrides(&g.params);
+            let species_id = world.species.id_of(&out.species);
             for _ in 0..broods {
                 // **Every slot from the one stream, where `bear_seed_at`
                 // splits at `SEQUENCED_TRAITS`.** That split exists because
@@ -498,10 +507,23 @@ pub fn drift(world: &World, spec: &Specimen, broods: u32, name: &str, rng: &mut 
                 if rng.chance(world.fate_mutation_chance) && fates.mutate(rng).is_some_and(|m| m.applied) {
                     moved += 1;
                 }
+                // **A brood is one of every mutation the engine performs**,
+                // so the parameter genome drifts here too or the dial would
+                // mean something different from what a birth does. At the
+                // shipped `param_mutation_chance` of 0.0 this is inert,
+                // which is the same relationship the dial has to breeding.
+                if let Some(id) = species_id {
+                    if rng.chance(world.param_mutation_chance)
+                        && organism::mutate_params(&mut params, &world.species, id, world.param_mutation_sigma, rng)
+                    {
+                        moved += 1;
+                    }
+                }
             }
             g.draws = draws.to_vec();
             g.alleles = alleles.to_vec();
             g.fates = fates.to_table();
+            g.params = params.overrides().to_vec();
         }
         // A jar holding a creature genome whose species has since lost its
         // creature block. Nothing to mutate it with, so it is returned
@@ -613,6 +635,7 @@ pub fn release(world: &mut World, spec: &Specimen, x: i32, y: i32, broods: u32, 
                 draws,
                 alleles,
                 organism::FateGenome::from_table(&g.fates),
+                organism::ParamGenome::from_overrides(&g.params),
                 g.flower_band,
                 g.fruit_band,
                 g.endowment,

@@ -4239,3 +4239,71 @@ halves settle (stand ~48, bank ~430), so this was a bed in balance described
 by one number answering neither question. The page now reads `PLANTS` for the
 stand and `SEEDS IN THE GROUND` for the bank, and the size spread is taken
 over the stand, where its median had been 1 for ever.
+
+## 2026-09-03 — the genome's reach is measured, and size turns out not to be heritable
+
+Overnight, answering
+[`Reports/plant-engine-rethink-brief-2026-09-03.md`](Reports/plant-engine-rethink-brief-2026-09-03.md).
+Full account:
+[`Reports/plant-engine-rethink-2026-09-03.md`](Reports/plant-engine-rethink-2026-09-03.md).
+
+**What a lineage can reach was never measured, and the arithmetic is the
+answer.** `plant::genotype` returns `1 + draw * variance` and every consumer
+multiplies it into an authored species constant, so the reachable phenotype set
+is `[base*(1-v), base*(1+v)]` and **both of the numbers that define it are
+authored per species and never inherited**. An authored zero is therefore a
+cage: three of seventy (species x slot) cells across the seven species that
+grow, and `moss` has no `Grow` at all so none of its ten slots is expressed.
+`examples/genome_reach` is the census; its `grow=1` arm widens one slot to its
+maximum and **hashes the whole grid**, which is the only statement here that
+cannot be argued with — a changed hash is weak evidence and an unchanged one is
+conclusive.
+
+**That arm corrected the static half before any of it landed.** Slot 1 was
+reported caged on `tree`, `conifer` and `shrub`, whose roots author
+`branch_chance: [0.0]`; widening it moved the world on every seed, because slot
+1 has a **second consumer** — it divides the root's `branch_priming`, under a
+comment in the species file reading *"Superseded by `branch_priming` below"*.
+A reachability census taken by reading one call site is a census of that call
+site.
+
+**The bigger number is not the cage.** Root `plastochron` is `0` in every
+shipped species and **no genome slot addresses it**, so no plant may put a node
+underground — and a node underground is a rhizome, a runner or a sucker, which
+is one of the five things the owner named as wanted.
+
+**The owner's second question, asked mid-session, turned out to bound
+everything else.** *"Clones of the same plant end up growing/looking very
+different from one another, which makes it much harder to identify when growth
+patterns do change."* The scatter has been in the record since 2026-08-27 as a
+method note — *do not quote a stand median* — and never as a defect. Measured
+as broad-sense heritability, `H2 = 1 - Var(clone)/Var(pop)`, on `herb` over
+four reference genomes x four world seeds: **plant size reads 0.00 / 0.01 /
+0.05 / 0.38**, against a positive control (the widest genetic contrast the
+engine can express) reaching 0.44–0.74 on the same descriptor. Composition is
+the heritable half. **Crown width is not reachable at all** — its positive
+control reads 0.000 on all four — which retires
+`plant-reseeding-2026-09-03.md`'s *"the one indirect lever"* the genome had on
+dispersal. The consequence for the appearance line is a second, independent
+mechanism for an invisible architectural lever: most of what the eye sees on a
+contact sheet is developmental noise, so a lever moving a descriptor at
+`H2 = 0.2` is four-fifths drowned before it starts.
+
+**Built: `organism::ParamGenome`.** Every scalar in a species' behaviour table
+as a heritable per-individual override that **replaces** the authored number
+rather than scaling it — 70 continuous slots become **804 addresses**. Founded
+empty, so at its shipped rate of **0.0** the engine is bit-identical to before
+it existed (1338 lib tests pass). Units come from the corpus rather than a
+table; bounds from a `ParamKind` that cannot collapse to a point. The rate is
+zero because the mechanism is measured and the rate is not: a free lever made
+heritable produces uniformity, nine parameters are inventoried free, and at
+rate 0.3 nothing piles up at a bound except `juvenile_size` — because the
+pedigree is ~2.3 generations deep and cannot accumulate a degenerate set. The
+dial is on the lab parameters page.
+
+**Two stale-binary catches in one night**, both found by the standing tell of
+identical output across a change that must have moved something: a `ref=`
+argument selecting among founders that all held the species mean (because
+`PlantScene::build` plants through the one `World` method that does *not* draw
+a genome), and a rate A/B run against a `plant_probe` that had never been
+rebuilt.

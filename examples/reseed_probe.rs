@@ -238,6 +238,22 @@ fn main() {
         ..LabBox::default()
     };
     let (mut world, mut placed) = spec.build_counted();
+    // **`launch=` patches the registry, not a `.ron`.** `Behavior::Reproduce::
+    // seed_launch` is 0 in every shipped species, so this is the only way to
+    // measure what the dispersal channel buys -- and it goes through
+    // `SpeciesRegistry::set_param` rather than through an edited species file
+    // for the reason `CLAUDE.md` records at length: a `.ron` is `include_str!`
+    // and a sweep that edits one and re-runs a prebuilt example produces
+    // bit-identical "runs". It refuses rather than reporting a null if the
+    // write finds nothing to write to.
+    if let Some(reach) = arg::<f32>("launch") {
+        let id = world.species.id_of(&species).expect("species is compiled in");
+        assert!(
+            world.species.set_param(id, CellType::MatureBody, organism::ParamId::SeedLaunch, 0, reach),
+            "launch={reach} matched no Reproduce behaviour on {species} -- an arm whose edit matched nothing \
+             reads as `the mechanism does nothing`"
+        );
+    }
     // **`col=` moves the single founder to a named column.** `spread(1)` puts
     // one founder at the bed's centre, which at `lamp_spacing 64` is exactly
     // half way between two fixtures -- so a one-founder run is not a smaller
@@ -262,13 +278,14 @@ fn main() {
     // **The harness echoes its own parameters** -- a log that does not name
     // its arm was written by a binary that never had one (`CLAUDE.md`).
     println!(
-        "reseed probe: {species} | {frames} frames, sample every {every} | founders {}/{} at {:?} | colonies {} ants {} | world seed {} | scatter {scatter} | established >= {est} cells",
+        "reseed probe: {species} | {frames} frames, sample every {every} | founders {}/{} at {:?} | colonies {} ants {} | world seed {} | scatter {scatter} | launch {} | established >= {est} cells",
         placed.planted,
         placed.asked,
         founder_cols,
         spec.colonies,
         placed.ants,
         spec.seed,
+        arg::<f32>("launch").unwrap_or(0.0),
         );
     println!("  germination gate: light >= {light_bar:.3}, plant-available soil water >= {water_bar:.3}, and something underneath");
 

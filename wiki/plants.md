@@ -3,7 +3,18 @@
 *What plants do, and what it looks like when they are working. No code, no
 file names — see `Reports/` for why any of it is built the way it is.*
 
-*Current as of: 2026-09-01 (the waiting seed bank was measured -- about nine
+*Current as of: 2026-09-03 (plants can now throw their seed, though none of
+them does yet -- **seed launch** is a new number on the parameters page,
+zero for every species, and turning it up is what stops a stand sitting in
+clumps under the plants that made it. Also: a plant can now inherit numbers
+its species never wrote down, though nothing does yet: the lab's parameters page has a new
+**species drift** dial, at zero by default, and turning it up lets a lineage
+leave a value its species fixed -- see **Individuals of one species differ
+too**. Measured the same day, and the more useful thing to know while looking
+at a bed: **two plants of one species differ in size almost entirely for
+reasons that are not their genes**, so a change to how something grows is far
+easier to see in the *shape* of a plant than in how big it gets.)
+Before that: 2026-09-01 (the waiting seed bank was measured -- about nine
 seeds in the ground for every standing plant in a settled bed -- and is now
 counted apart from the stand rather than pooled with it. The same day, the
 lab's `COLLAPSE UNDER LOAD` switch began holding a
@@ -400,6 +411,47 @@ great-grandchildren; the generations were in fact there all along, and what was
 missing was the mutation. Slow-breeding species like the big trees still show
 none of this, because a run rarely gets past their first generation of children
 and a program can only change when a seed is set.
+
+**Two plants of one species mostly differ for reasons that are not their
+genes, and that is worth knowing before you read anything into a bed.** Stand
+sixteen genetically identical plants in one bed and they come out very nearly
+as different in *size* as sixteen plants with different genomes — nearly all of
+the difference in how big a plant gets is where it happened to stand, not what
+it inherited. What the genome does reliably change is **proportion**: how much
+of a plant is leaf, how much is root, whether it is a spire or a dome. So if
+you are looking for the effect of a change to how plants grow, look at the
+*shape* of them and not at how large they are; size will be noisy whatever you
+do, and a bigger plant beside a smaller one is usually just a better spot.
+
+**Seed goes where it falls, and that is most of why a stand is clumpy.** A
+seed is a falling powder. It appears beside the plant that made it, drops, and
+rolls about two thirds of a cell sideways when it lands on a slope — so a
+plant's children grow up more or less where the plant is standing, and a bed
+sown from eight plants reads as eight clumps rather than as a meadow. Nothing
+carries a seed anywhere: the wind moves air and smoke and does not move seed.
+
+**A plant can now throw its seed, and none of them does yet.** *Seed launch*
+on the parameters page is a distance in cells, at zero for every species. Turn
+it up and a plant flings its seed sideways — but not *through* anything: the
+seed travels through open space and stops at the first thing in the way, so a
+plant in a corner still sows a corner, and a plant behind a wall does not sow
+past it. It is a distance and not a direction, so most seed still lands near
+home and a few go a long way. Measured on the herb: a reach of twelve cells put
+about **a third more plants down well away from anything anyone planted**.
+
+**A lineage can also leave its species' own numbers behind, though nothing
+does by default.** Everything above moves a plant *inside* the space its
+species describes — every inherited value is a nudge on a number the species
+fixed, so a species that says a stalk never branches has no descendant that
+branches, however long you run it. The **species drift** dial on the
+parameters page lifts that: turned up, a seed can be born having replaced one
+of those numbers outright rather than nudged it, and a line can end up putting
+out shoots, or spacing its leaves, or pricing its seed differently from
+anything its species ever did. It ships at zero, because several of these
+numbers are cheap to improve and nothing yet charges for improving them — so
+turned up far, a bed may drift toward one plant that has found all the free
+wins rather than toward a variety of them. It is a knob to experiment with, and
+it is off until you move it.
 
 ## Plants that stop, and what they stop in
 
