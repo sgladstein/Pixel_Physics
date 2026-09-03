@@ -1,0 +1,46 @@
+{
+  "id": "20260903T022329102Z-64500f",
+  "created": "2026-09-03T02:23:29Z",
+  "board": "plants",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/evolution-lab-plant-reseeding-jjn7r0",
+    "commit": "f142da2e",
+    "agent": null,
+    "session_id": "6dcebb26-facf-510e-94c5-9c6d42643a5c",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The lab bed after 27,000 frames: 8 plants became 407, and they are still 8 clumps",
+  "question": "Is this the bed you were looking at when you said the plants do not spread — eight clumps under the eight lamps with dark empty stripes between them?",
+  "context_md": "Eight herb founders, **no ants**, frames 0 / 4,500 / 13,500 / 27,000 top to bottom (`labshot founders=8 colonies=0`). The bed is 512 columns wide.\n\nWhat I want judged is the **negative space**, not the plants. The stand grew 50x and the gaps between the lamps never filled.\n\nWhat I already measured, so you do not have to look for it:\n\n- The gaps are **dark**. Bench light reads **2.40 under a fixture and 0.69** in the two widest gaps. A single plant founded in one of those bands **dies without setting one seed — 4 of 4 world seeds**, while 4 of 4 breed under a lamp.\n- Seeds do not travel. A seed's roll reach is **0.70 cells**; wind moves gases only. Setting every seed down at a random column instead is worth about 1.5x germination and 1.3x coverage — real, and smaller than this picture suggests, because there is nothing for them in the dark anyway.\n- **313 of 332 standing seeds are resting on something that reads bone dry for ever** (only `soil` and `packedsoil` hold water). **183 of those are resting on the parent plant**, not on a seed pile — a seed does not fall past a branch, though a windfall does.\n\nSecond question if you have a view: **the clumps themselves.** Can you count individual plants inside one, or does a clump read as one mass?",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "frames 0 / 4,500 / 13,500 / 27,000",
+      "files": [
+        "20260903T022329102Z-64500f/000-eight_founders.png"
+      ],
+      "caption": "8 founders, no ants, 512-wide bed, lamps at columns 60-452",
+      "meta": {
+        "plants alive at 27,000": 407,
+        "plants planted": 8,
+        "columns of 512 holding a plant": 351,
+        "plants that reached ground 16+ columns from a founder": 8,
+        "seeds standing at 27,000": 684,
+        "seeds standing on ground that can never wet them": 313,
+        "bench light under a lamp": 2.4,
+        "bench light in the widest gaps": 0.69
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
