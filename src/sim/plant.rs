@@ -1761,6 +1761,59 @@ fn draw_band(bands: organism::PaletteBands, rng: &mut Rng) -> u8 {
 /// coordinate alongside 64..71, not a breeding draw keyed on the landing
 /// cell alongside 200..202, and putting it with its neighbours is what stops
 /// the next person adding a founding draw from colliding with it.
+/// **What a plant pays, per unit of `seed_cost`, to throw a seed `reach`
+/// cells instead of dropping it.**
+///
+/// `Reports/plant-heritability-survey-design-2026-08-27.md` §2 states the law
+/// this exists for: **a free lever made heritable produces uniformity, not
+/// diversity** — a quantity with a benefit and no counterweight has exactly
+/// one optimum, which a working economy finds and holds every plant at.
+/// `seed_launch` shipped as precisely that, and the report that built it said
+/// why that is bad two sections earlier without noticing it had just done it.
+///
+/// The trade is real botany and it needs no new economy: `seed_cost` already
+/// sets how many seeds a plant can afford (`budget / cost`), so scaling it by
+/// reach *is* the dispersal/fecundity trade-off — **throw far and set fewer**.
+/// The optimum then depends on the bed, which is the point: crowded under the
+/// parent, throwing wins; empty ground, setting many wins. A global maximum
+/// becomes a local one.
+///
+/// It is `TRANSPIRATION_PER_RATE`'s pattern — a price *derived* from the
+/// lever, so tuning cannot quietly decouple them — rather than a second
+/// authored number that could be set to zero.
+///
+/// **Square-root, and the shape is load-bearing rather than taste.** Linear
+/// scaling reaches `REPRODUCTIVE_BUDGET_CAP` at a launch the genome can
+/// actually evolve to, and a charge above that cap makes `budget >= charge`
+/// unsatisfiable — **permanent, silent sterility**, which is the failure
+/// `a_lit_sward_funds_a_reproductive_budget` already documents for grass. A
+/// concave price also matches the mechanism: `launch_offset` walks cell by
+/// cell and stops at the first obstruction, so the *realised* distance grows
+/// more slowly than the requested reach, and the marginal cell of reach buys
+/// less than the one before it.
+///
+/// Returns exactly `1.0` at `reach <= 0`, which every shipped species
+/// authors — so this is a no-op on both games until somebody turns a launch
+/// on, and `a_zero_seed_launch_costs_exactly_what_it_always_did` pins that.
+fn launch_price(reach: f32) -> f32 {
+    if reach <= 0.0 {
+        return 1.0;
+    }
+    1.0 + LAUNCH_PRICE_PER_ROOT_CELL * reach.sqrt()
+}
+
+/// How much of `seed_cost` one root-cell of launch reach adds.
+///
+/// Set from the ceiling rather than by eye: `REPRODUCTIVE_BUDGET_CAP` is
+/// `RESOURCE_SCALE` (4.0) and the dearest shipped `seed_cost` is `tree`/
+/// `conifer` at 0.30, so a plant must stay affordable across the whole range
+/// a lineage can reach. `clamp_param` bounds `SeedLaunch` at
+/// `PARAM_REACH * param_scale`, and at the corpus fallback of 1.0 that is 4
+/// cells; authoring a launch anywhere widens it. At 0.25 a reach of 16 costs
+/// twice a dropped seed and a reach of 64 costs three times — dear enough to
+/// trade against, and still finite at any reach the clamp allows.
+const LAUNCH_PRICE_PER_ROOT_CELL: f32 = 0.25;
+
 const DEVELOPMENTAL_SEED_STREAM: u64 = 72;
 
 const ORGAN_BAND_STREAM: u64 = 200;
@@ -7910,7 +7963,14 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
                     // longer decides *how many*.
                     if seed_maturity_met(shoot_cells, seed_maturity) {
                         let budget = world.organism(organism_id).map_or(0.0, |s| s.reproductive_budget);
-                        if budget >= seed_cost {
+                        // **A thrown seed is a dearer seed** -- see
+                        // `launch_price`. The charge, the gate and the
+                        // affordability arithmetic all read the same number,
+                        // which is why the pricing lives here and not inside
+                        // `set_seed`: three call sites, one value, no way for
+                        // them to drift apart.
+                        let charge = seed_cost * launch_price(seed_launch);
+                        if budget >= charge {
                             world.seed_budget_available += 1;
                         } else {
                             world.seed_budget_blocked += 1;
@@ -7918,12 +7978,19 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
                         // Affordable this tick, spread over the mature
                         // tissue that could bear one. `shoot_cells` is the
                         // census this same pass already computed.
-                        let affordable = if seed_cost > 0.0 { budget / seed_cost } else { 0.0 };
+                        let affordable = if charge > 0.0 { budget / charge } else { 0.0 };
                         let bearers = shoot_cells.max(1) as f32;
                         let place_here = (affordable / bearers).clamp(0.0, 1.0);
-                        if budget >= seed_cost && rng.chance(place_here) && set_seed(world, cx, cy, organism_id, seed_cost, seed_launch, &mut rng) {
+                        // **`seed_cost` goes to the child, `charge` comes out
+                        // of the parent, and the split is the whole point.**
+                        // `bear_seed_at` writes its argument as the seedling's
+                        // `endowment`, so handing it the scaled figure would
+                        // make a far-flung seed germinate *richer* -- a launch
+                        // cost that pays itself back, which is not a trade-off
+                        // at all.
+                        if budget >= charge && rng.chance(place_here) && set_seed(world, cx, cy, organism_id, seed_cost, seed_launch, &mut rng) {
                             if let Some(state) = world.organism_mut(organism_id) {
-                                state.reproductive_budget -= seed_cost;
+                                state.reproductive_budget -= charge;
                             }
                         }
                     }
@@ -11008,6 +11075,55 @@ The night factor belongs on income only -- see NIGHT_INCOME_FLOOR"
             })
             .count();
         assert!(travelled > 8, "with the walls removed a reach of 20 moved the seed past one cell only {travelled} times in 64");
+    }
+
+
+    /// **A launch is priced, and pricing it is why it is not a free lever.**
+    ///
+    /// `plant-heritability-survey-design-2026-08-27.md` §2: a quantity with a
+    /// benefit and no counterweight has one optimum, which a working economy
+    /// finds and pins every plant at. This asserts the counterweight exists
+    /// and is monotone — a further throw is a dearer throw, always.
+    ///
+    /// **And that it cannot sterilise a plant**, which is the failure mode
+    /// with teeth: `budget >= charge` is unsatisfiable above
+    /// `REPRODUCTIVE_BUDGET_CAP`, and a plant that silently never breeds again
+    /// looks exactly like a plant with nowhere to put a seed. Checked at the
+    /// dearest shipped `seed_cost` across the whole range `clamp_param` allows
+    /// and well past it.
+    #[test]
+    fn a_thrown_seed_is_dearer_and_can_never_cost_more_than_the_budget_cap() {
+        assert_eq!(launch_price(0.0), 1.0, "a dropped seed must cost exactly what it always did");
+        assert_eq!(launch_price(-3.0), 1.0, "a negative reach is a dropped seed");
+
+        let mut last = 1.0;
+        for reach in [0.5f32, 1.0, 2.0, 4.0, 8.0, 12.0, 16.0, 32.0, 64.0] {
+            let p = launch_price(reach);
+            assert!(p > last, "reach {reach} must cost more than the reach below it ({p} against {last})");
+            last = p;
+            // The dearest seed any shipped species authors is 0.30
+            // (`tree`, `conifer`); the cap is `RESOURCE_SCALE`.
+            let charge = 0.30 * p;
+            assert!(
+                charge < REPRODUCTIVE_BUDGET_CAP,
+                "a reach of {reach} charges {charge} against a cap of {REPRODUCTIVE_BUDGET_CAP} -- above it the plant is \
+                 sterile for ever and nothing says so"
+            );
+        }
+    }
+
+    /// **The negative control for the price: at the shipped launch of zero,
+    /// a plant sets exactly the seeds it always did.**
+    ///
+    /// The sibling of `a_zero_seed_launch_moves_nothing` above, which pins
+    /// that a zero reach does not *move* a seed; this pins that it does not
+    /// *charge* for one either. Both halves are needed, because the price and
+    /// the displacement are now separate mechanisms reading one number.
+    #[test]
+    fn a_zero_seed_launch_costs_exactly_what_it_always_did() {
+        for cost in [0.12f32, 0.16, 0.18, 0.25, 0.30] {
+            assert_eq!(cost * launch_price(0.0), cost, "a dropped seed must be charged its authored cost exactly");
+        }
     }
 
     /// **At the shipped `seed_launch` of zero the throw is not merely small,
