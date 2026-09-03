@@ -57,6 +57,14 @@ scrambler, so the first of `plant-appearance-design.md`'s two stated causes for
 the invisible architectural levers **is stale**. `grass` reads **0** — it owns
 no `CellType::Leaf` at all. §3.
 
+**And a clonal growth form is reachable in the shipped game and does nothing.**
+A `herb` lineage can already point a root's lateral at a shoot — the fate
+genome acquiring a growth form no species file authors (§4a). Then 144 of those
+launches, across eight worlds, produce **no second stem above the background
+rate and no extra width at all**, on a stand 22% smaller for having tried
+(§4b). Reachability is not the binding constraint; the engine gives an
+underground shoot nothing to do.
+
 **Three claims this session made and then withdrew**, all recorded because the
 withdrawal is the useful part: that tree, conifer and shrub cannot evolve a
 branching root system (§1.3 — slot 1 has a second consumer); a first
@@ -533,10 +541,83 @@ Three things follow.
   `plastochron` takes the same event from ~1 per run to 13–29, and
   `ParamGenome` is what makes that number reachable by mutation rather than
   only by an author.
-- **Whether any of those shoots becomes a *plant* is not measured.** The
-  counter says the event fires; it says nothing about whether the sucker
-  establishes, and the census that would answer that is the one this section
-  just showed cannot be trusted in this bed. That is the next instrument.
+- **Whether any of those shoots becomes a *plant* was not measured when this
+  section was written. It is now, and the answer is no.** §4b.
+
+## 4b. The sucker is launched and nothing comes of it
+
+The instrument §4a asked for, built and run. **`emergent_clumps`** counts each
+organism's 8-connected **above-ground** clumps of shoot tissue and calls a
+clump a *stem* only if some cell of it is 8-adjacent to a cell of the same
+organism at or below the ground line. One plant, one collar, is one stem
+however deeply that collar is buried — which is what makes this immune to the
+burial trap that killed §4a's first two discriminators. A sucker that surfaced
+somewhere new is a *second* stem: joined to its parent only underground,
+through root tissue the walk does not cross.
+
+`herb`, 4 founders, 20,000 frames, root `plastochron: [2]` on the treated arm,
+eight world seeds:
+
+| | shoots launched off a root | plants standing | second stems | mean width |
+|---|---|---|---|---|
+| control, shipped species | **4** | 358 | **3** | 12.84 |
+| root node + lateral shoot | **144** | 278 | **5** | 12.04 |
+
+**144 launches produce nothing.** Five second stems against the shipped
+species' three is not a difference at this count — and the control settles it
+without any arithmetic, because **all three of its second stems occur on seeds
+where the launch counter reads zero**. Whatever produces a second above-ground
+clump in this bed, it is not a sucker; a plant's base can be split by a grain
+of surface soil, and that is the background this measures against.
+
+**Width is the number that closes the one loophole**, and it was added for
+exactly that. A sucker surfacing *inside* its parent's crown is adjacent to the
+crown's own tissue, merges into that component, and cannot raise the stem
+count. Width cannot be fooled that way: anything that surfaces where the crown
+does not already reach makes the plant wider. The treated arm is **narrower**,
+12.04 against 12.84. So the shoots are not merging into the crown either.
+Nothing surfaced.
+
+**And the growth form is not free.** The treated stand carries 278 standing
+plants against 358 (**-22%**) and 26,241 organism cells against 37,499
+(**-30%**). A root that stops to build a node every two steps is a root that
+did not grow, and the lateral it builds returns nothing.
+
+**Both controls ran on every one of the sixteen runs.** The positive control
+grafts a column of the plant's own shoot tissue out of one of its own
+below-ground cells — a sucker built by hand — and the stem count **must** move
+by exactly one; it did, 16 times out of 16. Its first two versions did not work
+and both failures are the useful part:
+
+- **An unanchored stamp is not a control.** Stamping a clump into open air
+  proved only that the census can count a component, which the census
+  specifically declines as debris. *A control the mechanism under test is
+  designed to reject proves nothing about the mechanism.*
+- **A control that hunts for a clear site is skipped exactly where it matters.**
+  Requiring a column already free of tissue found no site at all on the densest
+  bed of nine — 47 plants, no root with five clear rows above it — and printed
+  `None`, which reads identically to a census with nothing to find. It now
+  *clears* three columns and re-takes its own baseline afterwards, so whatever
+  the clear removed is in both terms of the difference and cancels. The denser
+  the world, the more certain the old version failed, which is precisely
+  backwards.
+
+**What this changes.** §4a stands as written about the *event*: a `herb`
+lineage can discover a shoot off a root in the shipped game, and that is the
+fate genome acquiring a growth form nobody authored. What it cannot claim, and
+an earlier draft of this report implied, is that the lineage thereby discovers
+**clonal spread**. The form is reachable and inert — reachability is not the
+binding constraint, and this is the same shape as `CLAUDE.md`'s channel with a
+reader and no writer: the genome can say *put a shoot here* and the engine
+gives that shoot nothing to do.
+
+**Why it dies is not determined, and the reason it is not determined is worth
+recording**: `CellType::MatureBody` is shared between root and shoot, and
+`plant::organ_material` gives a distinct material only to `Flower` and `Fruit`
+— so once a below-ground shoot matures it is indistinguishable, by cell type
+*and* by material, from the root it came off. A sucker can be followed only
+while it is still a `GrowingTip`. Any future work on underground shoots needs
+that distinction to exist before it can be measured.
 
 ## 5. What was built: `organism::ParamGenome`
 
@@ -896,13 +977,14 @@ Named in §4 and not started.
    (`20260903T060947894Z-4646f4`) answered first — some of the present scatter
    is what makes a stand read as alive rather than stamped, and flattening it
    is a design decision rather than a repair.
-3. **Find out whether a sucker becomes a plant.** §4a shows the *event* is
-   already reachable — a `herb` lineage discovers a shoot off a root in the
-   shipped game, and a root `plastochron` takes it from ~1 per run to 13–29 —
-   but nothing measures whether any of those shoots establishes, and §4a is
-   also the section that shows a static census of this bed cannot tell a sucker
-   from a buried collar. The instrument wants to follow the launched shoot
-   rather than census the bed.
+3. ~~**Find out whether a sucker becomes a plant.**~~ — **done, §4b, and the
+   answer is no.** 144 launches across eight worlds produce five second stems
+   against the shipped species' three, and all three of *those* occur on seeds
+   with zero launches. The stand is 22% smaller for it. What is left is a
+   decision rather than a measurement: **either give an underground shoot a
+   way to reach the surface, or stop treating clonal spread as reachable.** The
+   first needs `MatureBody` to distinguish root from shoot before anything
+   about it can be measured (§4b's last paragraph).
 4. ~~**Leaf-cluster shape**~~ — **built, §6.3, and out for review.** What is
    left on it is the owner's verdict: if the two stands read the same, retire
    the lever rather than keep a knob nobody can see.

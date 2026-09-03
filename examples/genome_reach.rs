@@ -834,6 +834,253 @@ fn dynamic_arms() {
     println!("  slots the arithmetic cages AND the world confirms dead: {caged_and_still:?}");
 }
 
+// ------------------------------------------------ clonal spread: census --
+
+/// The smallest above-ground clump `emergent_clumps` counts as a stem. A shed
+/// leaf keeps its `organism_id`, so counting one-cell components would put
+/// both arms in the dozens and separate nothing.
+const MIN_CLUMP: usize = 3;
+
+/// **Build a sucker by hand, so the census has the exact thing it is looking
+/// for.** Returns the column, the anchor row and the organism it hangs off.
+///
+/// The sensitivity half of `CLAUDE.md`'s *ask what your number counts*: a
+/// census reporting "every plant has exactly one stem" reads the same whether
+/// that is the answer or whether the census cannot see a second one. This is
+/// the control that tells them apart, and it runs on the same world the
+/// numbers came from, after they are taken.
+///
+/// **It has to be *anchored*, and the first version was not.** Stamping a
+/// clump into open air proved only that `emergent_clumps` can count a
+/// component — not the claim, because the census specifically declines
+/// unanchored components as debris. A control the mechanism under test is
+/// designed to reject proves nothing about it. So this grafts a column of
+/// shoot tissue rising out of one of the plant's own below-ground cells: a
+/// sucker, built by hand.
+///
+/// **And it clears its own site rather than hunting for a clear one, which is
+/// the difference between a control that runs and a control that is skipped
+/// exactly where it is most needed.** Searching for a column already free of
+/// tissue failed outright on the densest bed of nine — 47 plants, no root with
+/// five clear rows above it — and a control that cannot be built in a crowded
+/// world is a control that certifies only the empty ones. Clearing three
+/// columns first always succeeds; the caller re-takes its baseline *after* the
+/// clear, so whatever the clear removed is in both terms of the difference and
+/// cancels.
+fn clear_graft_site(w: &mut World, ground: i32) -> Option<(i32, i32, u16)> {
+    let b = w.bounds()?;
+    let top = ground - 5;
+    for y in ground..=b.max_y {
+        for x in b.min_x + 1..b.max_x {
+            let id = w.get(x, y).organism_id();
+            if id == 0 {
+                continue;
+            }
+            // Three columns wide: the graft's own, plus its neighbours, so it
+            // cannot end up 8-adjacent to tissue of the same organism and
+            // merge into a clump that already exists — which would register
+            // as zero and read as a blind census.
+            for yy in top..y {
+                for dx in -1..=1 {
+                    w.set(x + dx, yy, pixel_physics::sim::cell::Cell::EMPTY);
+                }
+            }
+            return Some((x, y, id));
+        }
+    }
+    None
+}
+
+/// Fill the cleared column with the organism's own tissue, from four rows
+/// above the ground line down to its anchor.
+///
+/// It copies a live cell rather than constructing one, so the probe carries
+/// whatever material, shade and packed cell type the species actually grows —
+/// a hand-built cell could differ in exactly the field the census filters on,
+/// and then the control would prove the census can see something that never
+/// occurs.
+fn graft_sucker(w: &mut World, ground: i32, site: (i32, i32, u16)) -> bool {
+    let (x, y, id) = site;
+    let Some(b) = w.bounds() else { return false };
+    let mut donor = None;
+    'donor: for dy in b.min_y..=b.max_y.min(ground - 1) {
+        for dx in b.min_x..=b.max_x {
+            let c = w.get(dx, dy);
+            if c.organism_id() != 0
+                && matches!(
+                    organism::cell_type(c.aux()),
+                    Some(CellType::GrowingTip | CellType::MatureBody | CellType::Leaf | CellType::DormantBud)
+                )
+            {
+                donor = Some(c);
+                break 'donor;
+            }
+        }
+    }
+    let Some(donor) = donor else { return false };
+    // Whose the donor cell was does not matter -- it is re-stamped with the
+    // anchor's id, and the graft must belong to the organism it hangs off or
+    // the anchor test correctly refuses it.
+    let graft = donor.with_organism_id(id);
+    for yy in (ground - 4)..y {
+        w.set(x, yy, graft);
+    }
+    true
+}
+
+/// **How wide does each plant stand?** — the number that closes
+/// `emergent_clumps`' one loophole.
+///
+/// A sucker that surfaces *inside* its parent's own crown is 8-adjacent to
+/// the crown's tissue, so it merges into the same component and the stem
+/// count cannot see it. That is arguably the right answer to the question
+/// being asked — *does the plant occupy new ground* — but it is the wrong
+/// answer to *did a shoot come up at all*, and reporting one number for both
+/// would hide the difference.
+///
+/// Width cannot be fooled that way: a shoot surfacing anywhere its parent's
+/// crown does not already reach makes the plant wider, merged or not. So the
+/// pair reads: **stems** says whether the plant broke ground somewhere new,
+/// **width** says whether anything surfaced at all. Both flat means nothing
+/// came up.
+fn above_ground_width(w: &World, ground: i32) -> (f32, i32, usize) {
+    use std::collections::BTreeMap;
+    let mut span: BTreeMap<u16, (i32, i32)> = BTreeMap::new();
+    let Some(b) = w.bounds() else { return (0.0, 0, 0) };
+    for y in b.min_y..=b.max_y.min(ground - 1) {
+        for x in b.min_x..=b.max_x {
+            let c = w.get(x, y);
+            if c.organism_id() == 0
+                || !matches!(
+                    organism::cell_type(c.aux()),
+                    Some(CellType::GrowingTip | CellType::MatureBody | CellType::Leaf | CellType::DormantBud)
+                )
+            {
+                continue;
+            }
+            let e = span.entry(c.organism_id()).or_insert((x, x));
+            e.0 = e.0.min(x);
+            e.1 = e.1.max(x);
+        }
+    }
+    let widths: Vec<i32> = span.values().map(|(lo, hi)| hi - lo + 1).collect();
+    let n = widths.len();
+    let mean = if n == 0 { 0.0 } else { widths.iter().sum::<i32>() as f32 / n as f32 };
+    (mean, widths.iter().copied().max().unwrap_or(0), n)
+}
+
+/// **How many separate places does this organism break the surface?** — the
+/// discriminator for *did a sucker become a plant*, as distinct from *did a
+/// sucker get launched*.
+///
+/// `World::root_shoots_launched` counts the event at the moment a lateral
+/// comes off a `RootTip`. It says nothing about what became of it, and the
+/// section of `Reports/plant-engine-rethink-2026-09-03.md` that introduced it
+/// is also the section showing that a *depth* census of this bed cannot
+/// answer the follow-up: the plant bed buries its own collars at up to nine
+/// rows, so shoot tissue below ground is a burial as often as it is a sucker.
+///
+/// **So ask the question a player would ask instead: how many stems come out
+/// of the ground?** One organism, one collar, is what every shipped species
+/// produces — the crown is 8-connected to the collar through the stem, so all
+/// of its above-ground tissue is a single component. A sucker that emerged is
+/// a *second* component: connected to the parent only underground, through
+/// root tissue this walk does not cross. The count is therefore
+/// `1 + (suckers that reached daylight)`, and it does not care where the
+/// ground line ended up, because a buried collar still leaves exactly one
+/// above-ground clump.
+///
+/// **Returned per organism as `(clumps, stems)`, and the second number is the
+/// one to read.** The first version returned only the first, and its own run
+/// refuted it: on world seed 1 the treated arm reported one plant with
+/// **seven** above-ground clumps while `root_shoots_launched` was **zero** —
+/// which no sucker can explain. Detached tissue keeps its `organism_id`: a
+/// shed leaf cluster, or a crown severed and fallen, is a component of three
+/// or more cells sitting in the air, and raising `min_cells` cannot separate
+/// it from a stem because a real sucker is small when it first emerges.
+///
+/// So a clump is a **stem** only if it is anchored — some cell of it is
+/// 8-adjacent to a cell of the *same organism* at or below the ground line.
+/// A stem that came out of the ground has that by construction, whether its
+/// collar is the original one or a root running sideways; debris in the air
+/// does not, and neither does a fallen crown, unless it happens to land on
+/// its own roots. Both numbers are printed, because `clumps - stems` is a
+/// real quantity about this bed (how much detached tissue is standing around)
+/// and it was invisible until this arm went looking for something else.
+///
+/// 8-connected, because `Grow` places at 8 neighbours (`CLAUDE.md`: *a
+/// traversal must use the same neighbourhood the writer used*).
+fn emergent_clumps(
+    w: &World,
+    ground: i32,
+    min_cells: usize,
+) -> std::collections::BTreeMap<u16, (usize, usize)> {
+    use std::collections::{BTreeMap, BTreeSet};
+    let mut out: BTreeMap<u16, (usize, usize)> = BTreeMap::new();
+    let Some(b) = w.bounds() else { return out };
+    let shoot = |c: pixel_physics::sim::cell::Cell| {
+        matches!(
+            organism::cell_type(c.aux()),
+            Some(CellType::GrowingTip | CellType::MatureBody | CellType::Leaf | CellType::DormantBud)
+        )
+    };
+    let mut owner: BTreeMap<(i32, i32), u16> = BTreeMap::new();
+    for y in b.min_y..=b.max_y.min(ground - 1) {
+        for x in b.min_x..=b.max_x {
+            let c = w.get(x, y);
+            let id = c.organism_id();
+            // Shoot tissue only. `RootTip` is excluded deliberately and it is
+            // the whole mechanism: it is the underground link that makes two
+            // emergences one organism, so walking it would merge them back
+            // into one component and every plant would read 1 whatever
+            // happened.
+            if id != 0 && shoot(c) {
+                owner.insert((x, y), id);
+            }
+        }
+    }
+    let mut seen: BTreeSet<(i32, i32)> = BTreeSet::new();
+    let starts: Vec<((i32, i32), u16)> = owner.iter().map(|(&p, &id)| (p, id)).collect();
+    for (start, id) in starts {
+        if !seen.insert(start) {
+            continue;
+        }
+        let mut stack = vec![start];
+        let (mut n, mut anchored) = (0usize, false);
+        while let Some((x, y)) = stack.pop() {
+            n += 1;
+            for dy in -1..=1 {
+                for dx in -1..=1 {
+                    if dx == 0 && dy == 0 {
+                        continue;
+                    }
+                    let (qx, qy) = (x + dx, y + dy);
+                    // At or below the ground line: not in `owner`, so it can
+                    // only be reached this way. Any cell of this organism will
+                    // do -- a sucker's link down is `RootTip`, an ordinary
+                    // collar's is its own buried stem, and the census must not
+                    // care which.
+                    if qy >= ground {
+                        anchored |= w.get(qx, qy).organism_id() == id;
+                        continue;
+                    }
+                    if owner.get(&(qx, qy)) == Some(&id) && seen.insert((qx, qy)) {
+                        stack.push((qx, qy));
+                    }
+                }
+            }
+        }
+        if n >= min_cells {
+            let e = out.entry(id).or_default();
+            e.0 += 1;
+            if anchored {
+                e.1 += 1;
+            }
+        }
+    }
+    out
+}
+
 // ------------------------------------------------------------- rhizome --
 
 /// **Is a clonal growth form reachable, or is there a mechanism missing?**
@@ -862,11 +1109,27 @@ fn dynamic_arms() {
 /// cargo run --release --example genome_reach -- rhizome=1 frames=20000
 /// ```
 ///
-/// **The readout is the count of shoot cells that are *below the ground
-/// line and not connected upward through their own plant's stem*** — which
-/// is what a sucker is and what a taller plant is not. Its control is the
-/// unmodified arm, which must read zero: a bed where the baseline also
-/// reports suckers is a bed where the census is counting something else.
+/// **The readout is two numbers, and the first version of this harness had
+/// only a third one that does not work.** Counting shoot cells *below the
+/// ground line* was tried and is void: this bed buries its own collars at up
+/// to nine rows, so a buried stem and a sucker read identically, and over
+/// three world seeds the control read 1/3/2 against the treated arm's 2/2/2 —
+/// a clean null wearing a discriminator that does not discriminate. The
+/// depth columns are still printed, and they are printed as the thing that
+/// failed. What replaced them:
+///
+/// - **`World::root_shoots_launched`** — the event, counted at the one site
+///   where a lateral comes off a `RootTip`. *Did it fire at all.*
+/// - **`emergent_clumps`** — 8-connected above-ground clumps per organism.
+///   *Did what fired become a stem.* One collar is one clump however deeply
+///   it is buried, so this is immune to the trap above.
+///
+/// - **`above_ground_width`** — how wide each plant stands. *Did anything
+///   surface at all*, including a sucker that came up inside its parent's own
+///   crown and merged into its clump.
+///
+/// Read them in that order: each is only interesting where the one before it
+/// is non-zero.
 fn rhizome() {
     let frames: u64 = arg("frames").unwrap_or(20_000);
     let founders: usize = arg("founders").unwrap_or(4);
@@ -963,6 +1226,16 @@ fn rhizome() {
                 }
             }
         }
+        // **And then the follow-up question the counter cannot answer: did
+        // any of those launches become a stem of its own?** See
+        // `emergent_clumps` -- one organism with two above-ground clumps has
+        // broken the surface in two places, which is what a sucker looks like
+        // from outside and is not what a burial looks like.
+        let clumps = emergent_clumps(&w, ground, MIN_CLUMP);
+        let multi = clumps.values().filter(|v| v.1 > 1).count();
+        let extra: usize = clumps.values().map(|v| v.1.saturating_sub(1)).sum();
+        let debris: usize = clumps.values().map(|v| v.0 - v.1).sum();
+        let standing = clumps.values().filter(|v| v.1 > 0).count();
         println!(
             "  {label:<26} SHOOTS LAUNCHED OFF A ROOT {:<6} | organisms {:<5} cells {cells:<7} \
              shoot tissue 1-{} rows down {shallow:<5} {}+ rows down {deep:<5} depths {:?}",
@@ -972,6 +1245,44 @@ fn rhizome() {
             deep_at,
             depth_hist
         );
+        let (wmean, wmax, wn) = above_ground_width(&w, ground);
+        println!(
+            "  {:<26} SECOND STEMS {multi:<6} | plants rooted above ground {standing:<4} \
+             extra stems {extra:<4} unanchored clumps (debris) {debris:<4} stems per plant {:?}",
+            "",
+            clumps.values().map(|v| v.1).filter(|&n| n > 1).collect::<Vec<_>>()
+        );
+        println!(
+            "  {:<26} width per plant: mean {wmean:.2} max {wmax} over {wn} plants \
+             -- flat width AND flat stems together mean nothing surfaced at all",
+            ""
+        );
+        // **The positive control, on this exact world, after its numbers are
+        // taken** -- `CLAUDE.md`, *run the positive control*: a null here is
+        // the shape that hides, because "no plant has a second stem" and "the
+        // census cannot see a second stem" are the same printout. Grafting a
+        // shoot out of a plant's own buried tissue builds the exact thing the
+        // census is looking for, and must move STEMS by one; if it does not,
+        // the row above is void rather than negative.
+        // A control that could not be built must not read as a control that
+        // found nothing -- they print the same `0` and mean opposite things.
+        let site = clear_graft_site(&mut w, ground).expect(
+            "the positive control could not be built: this bed has no below-ground organism cell at \
+             all, so the SECOND STEMS row above is unverified",
+        );
+        // Baseline re-taken **after** the clear and before the graft, so the
+        // tissue the clear removed sits in both terms and cancels. `clumps`
+        // above is the measurement; this is the control's own reference.
+        let before = emergent_clumps(&w, ground, MIN_CLUMP);
+        assert!(graft_sucker(&mut w, ground, site), "no donor tissue to build the control from");
+        let after = emergent_clumps(&w, ground, MIN_CLUMP);
+        let moved: i64 = after.values().map(|v| v.1 as i64).sum::<i64>()
+            - before.values().map(|v| v.1 as i64).sum::<i64>();
+        println!(
+            "  {:<26} control: grafted a shoot onto organism {} at column {} -> STEMS moved by {moved} (must be 1)",
+            "", site.2, site.0
+        );
+        assert_eq!(moved, 1, "emergent_clumps is blind: a hand-built sucker did not register");
     }
     // **The discriminator is `reaching daylight`, not `below ground`, and the
     // first run is what settled that.** The control reads a handful of shoot
