@@ -49,13 +49,21 @@
 //!
 //! And separately, `shift=1`: **one plant, alone, in an identical bed, moved
 //! one column at a time.** No neighbours, no competition, no genetic
-//! difference — so whatever moves is the world one cell over plus the draw
-//! stream. It exists because `plant.rs`'s growth RNG is
-//! `rng::stream(organism_id, cx, cy, frame)`: **the organism's own id is part
-//! of the key**, so two genetically identical plants in physically identical
-//! spots are still different plants. That is not environmental variation and
-//! it is not heritable; it is a per-individual random seed, and it is the one
-//! source of scatter that a player has no way to read as *anything*.
+//! difference — so whatever moves is *position*. It exists because `plant.rs`'s
+//! growth RNG is `rng::stream(organism_id, cx, cy, frame)`, so a plant's whole
+//! development is a function of **where in the world it is standing**: two
+//! clones cannot develop alike, ever, however identical their genomes and
+//! their surroundings. Measured on `herb`, twelve positions: **83 to 181 cells
+//! and 27 to 63 rows tall**, from one genome.
+//!
+//! **What this arm does NOT measure is the `organism_id` term, and an earlier
+//! version of this comment claimed it did.** Each run here builds a fresh world
+//! and plants one thing, so the founder gets the **same id every time** — the
+//! id is constant by construction and the whole 0.28 belongs to position.
+//! Whether the id adds anything on top is unmeasured; the arm that would settle
+//! it needs a way to advance the organism counter without putting another plant
+//! in the bed. Since position alone already produces that spread, the id is not
+//! the cheap lever it looked like.
 
 mod common;
 
