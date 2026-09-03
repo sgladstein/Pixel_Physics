@@ -5380,8 +5380,18 @@ the bed being measured. Report §9.
 **And the owner's own regime is worse than that (§10).** With big plants
 (`species=tree`) and collapse on, the old box **self-limits** — its stand peaks
 at 6,100 cells and falls to 2,961, the dial recovering to 6.5x — while the new
-one climbs to **27,013 cells and 646 organisms and is still climbing** at
-32,000 frames, dial pinned at **2.5x from frame 8,000 onward**. The **median
+one reaches **27,013 cells and 646 organisms**, dial pinned at **2.5x from
+frame 8,000 onward** — the brake is intact but engages **~4x later and at ~4.5x
+the population** (run to 64,000 frames the new stand does turn over, peaking
+near 32,000 and falling to 16,891 cells).
+
+**With damage *off* — the regime the owner plays — the answer is simpler and
+better.** Same bed, 32,000 frames: `active_sites` goes 1.77 → 4.19 ms while
+`ca_sweep` and `field` do not move, and **the cost per plant cell is
+unchanged** (0.159 → 0.151 µs). Nothing got dearer; the box grows **2.5x more
+plant**. `active_sites` was already the largest phase before (49% of the tick)
+and is now **70%**, and `plant::step_organisms` has never been optimised — a
+pure win needing no behaviour change. Report §11. The **median
 frame barely moved** (2.07 → 2.25 ms); the *mean* went 2.57 → 6.78, so
 two-thirds of all time is now in frames above the median and the dial, which
 reports the mean, reads as a permanently slow box. Separately,

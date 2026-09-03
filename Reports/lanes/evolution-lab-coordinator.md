@@ -350,6 +350,21 @@ collapses, the collapse destroys performance."* Three results:
   dial reports the mean -- so a box whose typical frame is fine reads as
   permanently slow. **Chase the tail, not the phase table.**
 
+**Corrected, and then narrowed by the owner (§11).** *"I would prefer to solve
+it with plant structural damage off first."* Two results:
+
+- **"The new box never self-limits" was wrong** -- an extrapolation from a run
+  that stopped before the turn. At 64,000 frames it does turn over; the brake
+  engages ~4x later and at ~4.5x the population. *A cascade censused before it
+  settles*, arriving on a population curve.
+- **With damage OFF, nothing got dearer per cell.** `active_sites` 1.77 -> 4.19
+  ms while `ca_sweep` and `field` hold, and **per plant cell it is 0.159 ->
+  0.151 us -- unchanged.** The box just grows 2.5x more plant. `active_sites`
+  was already the largest phase on the old build in this regime (49%) and is
+  now **70%**, and `plant::step_organisms` has never been optimised. **That is
+  the target, and it is a pure win**: no behaviour change, no seed sweep, no
+  owner verdict.
+
 ## Deliberately not being built yet
 
 The score and the economy — the guide's Gate 5. **Gate 2, does selection have
