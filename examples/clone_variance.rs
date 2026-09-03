@@ -448,14 +448,25 @@ fn apply_arm(w: &mut World, ids: &[(u16, i32, i32)], arm: Arm, reference: usize)
                 *h = organism::LOCUS_ALLELES[locus].saturating_sub(1);
                 low[locus] = 0;
             }
-            for (i, &(id, _, _)) in ids.iter().enumerate() {
+            for (i, &(id, x, y)) in ids.iter().enumerate() {
                 let (v, a) = if i % 2 == 0 { (-1.0, low) } else { (1.0, high) };
-                // **Each founder keeps its own developmental seed here**, and
+                // **Each founder gets its OWN developmental seed here**, and
                 // that is the opposite of the clone arm on purpose: this arm
                 // is the denominator of the sensitivity control, so it must
-                // carry every source of variation the engine has. Handing all
-                // of them one seed would shrink the spread this arm exists to
-                // maximise and quietly inflate every H2 measured against it.
+                // carry every source of variation the engine has.
+                //
+                // **`seed_genotype` first, and the first version of this line
+                // did not, which made the whole arm developmentally uniform.**
+                // A founder has no lineage seed until something draws one --
+                // `PlantScene::build` never calls `seed_genotype` -- so
+                // reading it back off an ungerminated founder returns 0, and
+                // writing 0 onto all sixteen made every one of them the same
+                // plant. Under `DevelopmentalKey::Plant` that collapses
+                // `Var(spread)`, which is the denominator of every H2 in the
+                // table. **The control row caught it**: it read 0.000 across
+                // the board where the world key reads 0.44-0.82, which is the
+                // estimator saying its own numbers are void.
+                pixel_physics::sim::plant::seed_genotype(w, id, x, y);
                 let dev = w.organism_genotype(id).map(|g| g.3).unwrap_or(0);
                 w.set_organism_genotype(id, [v; organism::GENOTYPE_TRAITS], a, params, dev);
             }
