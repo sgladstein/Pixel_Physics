@@ -735,6 +735,23 @@ For scale, `plant-reseeding-2026-09-03.md` §6.1 moved that same statistic
 and it is still not the headline — which is what that report's `scatter=1`
 positive control said before the mechanism existed.
 
+**And the limitation the same measurement exposes, in the mechanism this
+session built rather than in the one it inherited.** No species authors a
+launch, so `param_scale` falls back to 1.0 and `clamp_param` bounds this
+`Magnitude` at `PARAM_REACH * 1.0` = **4 cells** — and the table above puts
+reach 4 *inside the spread* while reach 12 is the +38%. **So the channel is
+heritable and its evolvable range is currently below its useful range.** A
+lineage can discover a seed throw and cannot discover a useful one.
+
+That is a property of the corpus-scale design, not of seeds, and it generalises:
+**a brand-new parameter that no species has ever authored is evolvable only
+within four units of zero, in whatever units it happens to have.** The remedy
+is authoring rather than patching — one species with a non-zero value raises
+the corpus scale and widens the range for every lineage at once, so the owner's
+dial and what evolution can reach move together. Writing a `4.0` into a table
+for this one parameter would buy the same range and give the mechanism back the
+hardcode it exists to remove.
+
 **Cost.** At the shipped zero it is one float comparison per seed borne;
 `launch_offset` returns before drawing anything. The per-frame figures in the
 sweep (4.33 / 3.82 / 3.74 ms) are not a cost comparison and should not be read

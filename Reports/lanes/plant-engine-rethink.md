@@ -70,9 +70,24 @@ before that card is answered.** Collect with
   split is not measurable on it — 23 established plants and four variance ratios
   above 1.0. The woody species need a horizon nobody has run.
 
-## The one thing shipped inert, and what would turn it on
+## The limitation to hit first, in the mechanism this session built
 
-`plant::PARAM_MUTATION_CHANCE = 0.0`. The mechanism is measured; the rate is
+**A parameter no species has ever authored is evolvable only within four units
+of zero.** `param_scale` takes units from the corpus and falls back to 1.0 when
+the corpus is empty, so `clamp_param` bounds a `Magnitude` at 4. The first new
+channel built that way, `seed_launch`, is measured with reach **4 inside the
+spread** and reach **12** at +38% — so it is heritable and its evolvable range
+is below its useful range. **Do not fix this with a per-parameter range
+table**: that is the hardcode `ParamKind` exists to remove. Authoring a
+non-zero value on one species raises the scale for every lineage at once, which
+is the corpus doing its job. Applies to every future `ParamId` whose corpus is
+all zeros — check the reachable range against the range the mechanism needs
+before calling the channel evolvable.
+
+## The two things shipped inert, and what would turn them on
+
+`plant::PARAM_MUTATION_CHANCE = 0.0` and `Behavior::Reproduce::seed_launch`
+at 0 in every species. For the rate: the mechanism is measured, the rate is
 not. **Run `genome_reach -- drift=1` before raising it** — the addresses that
 pile up at their `clamp_param` bound are the free-lever list measured rather
 than inventoried, and pricing those is the prerequisite. At rate 0.3 nothing

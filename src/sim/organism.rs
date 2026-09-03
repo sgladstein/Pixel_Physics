@@ -959,6 +959,24 @@ pub enum Behavior {
         /// crevice disperses no further than the crevice. That is the ethos's
         /// first law (an outcome is a distribution, not a binary), and it is
         /// what keeps it from reading as magic.
+        ///
+        /// **What a lineage can currently evolve here is 0 to 4 cells, and
+        /// that is measured as too small to matter.** No species authors a
+        /// launch, so [`SpeciesRegistry::param_scale`] falls back to 1.0 and
+        /// `clamp_param` bounds a `Magnitude` at `PARAM_REACH * scale` = 4 —
+        /// while the sweep in
+        /// `Reports/plant-engine-rethink-2026-09-03.md` §6.1 puts reach 4
+        /// inside the spread and reach **12** at +38% on the statistic this
+        /// mechanism exists for. So the channel is heritable and its evolvable
+        /// range is, today, below its useful range.
+        ///
+        /// **The redeeming property, and it is why this is not a hardcode to
+        /// be patched:** the bound is derived from the corpus, so the moment
+        /// any species authors a launch the scale rises and the reachable
+        /// range rises with it. Turning the dial up on one species widens what
+        /// every lineage can evolve toward. A parameter no species has ever
+        /// used has no units, and 1.0 is the honest guess rather than a
+        /// judgement about seeds.
         #[serde(default)]
         seed_launch: f32,
     },
@@ -2326,9 +2344,21 @@ impl SpeciesRegistry {
     /// unmutatable, reproducing the defect one level up.
     ///
     /// Falls back to `1.0` when no species authors a non-zero value anywhere,
-    /// which today is true of `stem_stiffness`. A parameter with no corpus
-    /// has no units, and 1.0 is the honest guess; it is also visible in
-    /// `genome_reach`'s table rather than buried.
+    /// which today is true of `stem_stiffness` and of `seed_launch`. A
+    /// parameter with no corpus has no units, and 1.0 is the honest guess; it
+    /// is also visible in `genome_reach`'s table rather than buried.
+    ///
+    /// **The fallback has a measured consequence and it is not cosmetic.** A
+    /// parameter nobody has authored is evolvable only within
+    /// `PARAM_REACH * 1.0` of zero — four units, in whatever the parameter's
+    /// units are — and for `seed_launch` that is four cells, which
+    /// `plant-engine-rethink-2026-09-03.md` §6.1 measures as *inside the
+    /// spread* while twelve cells is worth +38%. So a brand-new channel is
+    /// heritable from the day it lands and may be evolvable only across a
+    /// range too narrow to select on. **The remedy is authoring, not
+    /// patching**: one species with a non-zero value raises the corpus scale
+    /// and widens the range for every lineage, which is the corpus doing what
+    /// it is here to do.
     pub fn param_scale(&self, param: ParamId) -> f32 {
         let mut scale = 0.0f32;
         for i in 0..self.len() {
