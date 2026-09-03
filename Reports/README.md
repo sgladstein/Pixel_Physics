@@ -1991,6 +1991,30 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   invisible to the **155 call sites** that drive the world through a CA driver
   directly, and a chunk-local prefilter over the moisture region is *slower*
   because 88% of that region is soil.
+- [plant-reseeding-2026-09-03.md](plant-reseeding-2026-09-03.md) —
+  **measured 2026-09-03.** Answers the owner's two questions about why the
+  lab's plants never spread. **Q1: no, a plant cannot evolve better seed
+  spreading here, and it is a missing channel rather than a tuning gap** —
+  not one step of a seed's journey has a heritable dial and two of the three
+  have no dial at all. Wind reaches gases only; `roll_along_slope` gives a
+  `seed` a reach of **0.70 cells**; `friction_angle` is a material property;
+  and the ten continuous slots and six discrete loci contain nothing about
+  seeds. The one indirect lever, crown width, is **off by construction on
+  `herb`**: every slot is a multiplier on an authored constant and
+  `branch_chance` is `[0.0, 0.0]`, so no mutation can make a herb branch.
+  **Q2: no, dispersal is not the only reason, and it is not the largest** —
+  scattering every seed to a random column is worth ~1.5x germination and
+  ~1.3x coverage, against three bigger effects measured here for the first
+  time: only **`soil` and `packedsoil` declare `water_capacity`** in the whole
+  material set, so 313 of 332 standing seeds rest on ground that reads bone
+  dry for ever (and **183 of them are resting on the parent plant**, not on
+  the seed pile the report was expected to find); the grow lamps leave
+  **32-column dead bands at 0.69 against 2.40**, in which **4 of 4** founders
+  die without setting one seed, and `LabBox::spread(1)` puts a single founder
+  in one; and the shipped colony is a **seed predator**, cutting the stand
+  2.6x and the coverage in half. Ships `examples/reseed_probe.rs` and
+  `World::seeds_borne`, and files [`open-bugs-handoff.md`](open-bugs-handoff.md)
+  §Z4 — germinations exceeding the seeds that ever existed, 164 against 79.
 
 ## Licensing and distribution
 

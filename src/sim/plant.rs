@@ -1870,6 +1870,11 @@ fn bear_seed_at(world: &mut World, sx: i32, sy: i32, parent_id: u16, seed_cost: 
     if let Some(parent) = world.organism_mut(parent_id) {
         parent.seeds_set += 1;
     }
+    // Beside the parent's own tally rather than instead of it: `seeds_set`
+    // dies with its parent and is keyed on a re-usable organism slot, so it
+    // cannot answer "how many seeds did this world ever make". See
+    // `World::seeds_borne`.
+    world.seeds_borne += 1;
     true
 }
 
