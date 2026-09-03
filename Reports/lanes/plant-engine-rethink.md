@@ -7,13 +7,20 @@ The findings are in
 and are not repeated here. **This note holds only what a later session cannot
 reconstruct** — what was overturned, and what is waiting on an answer.*
 
-## Waiting on the owner — three review cards, all open at hand-off
+## Waiting on the owner — four review cards, all open at hand-off
 
-| card | asks |
-|---|---|
-| `20260903T060437573Z-e132ab` | blind: which of two beds is sixteen clones of one genome |
-| `20260903T060536659Z-91838d` | the genome's two extremes alternating — two kinds of plant, or one kind at two sizes |
-| `20260903T060947894Z-4646f4` | twelve clones one column apart — is that scatter wanted, or to be cut down |
+| card | asks | what it gates |
+|---|---|---|
+| `20260903T060437573Z-e132ab` | blind: which of two beds is sixteen clones of one genome | nothing — it is the noise floor shown rather than stated |
+| `20260903T060536659Z-91838d` | the genome's two extremes alternating — two kinds of plant, or one kind at two sizes | nothing |
+| `20260903T060947894Z-4646f4` | twelve clones one column apart — is that scatter wanted, or to be cut down | **§7 item 2**, below |
+| `20260903T120950045Z-4f14bd` | blind A/B of leaf-cluster shape, `leaf_spread` 0 against 1 | whether `leaf_spread` **stays**: if the two stands read the same, retire the lever rather than tune it (§7 item 4) |
+
+**The fourth card was posted after the first three and this table did not have
+it for a while**, which is worth a line because the table is the only place a
+later session is told to look: a card the lane note does not list is a verdict
+nobody collects. Check `python3 scripts/review.py list` against this table
+rather than trusting it.
 
 **The third one gates real work.** The report's §7 item 2 proposes keying plant
 growth on the plant's own frame with an inherited developmental seed, so that
@@ -23,7 +30,7 @@ the present scatter is what makes a stand read as alive. **Do not start it
 before that card is answered.** Collect with
 `python3 scripts/review.py inbox`.
 
-## What this session overturned — four things, three of them its own
+## What this session overturned — six things, five of them its own
 
 1. **Slot 1 is not caged on tree/conifer/shrub.** The static reach census read
    one authored base per genome slot and reported three species unable to
