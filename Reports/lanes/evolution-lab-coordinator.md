@@ -307,6 +307,64 @@ overturned:
 of 3.81, still gated on *any* chunk being awake anywhere); then the positional
 RNG, which unlocks the region work.
 
+## Round seven, 2026-09-03 — the frame cost re-measured, and the target has moved
+
+*Owner: "performance has gotten a lot worse." It has, it reproduces, and it is
+**not** a regression in the speed work — the account is
+[`../evolution-lab-frame-cost-2026-09-01.md`](../evolution-lab-frame-cost-2026-09-01.md)
+§9. Three things bind on whatever comes next:*
+
+- **The default bed reports the regression as a 1.3x improvement.** `bin/lab.rs`
+  opens *empty* and the owner paints the population in, so the 8-founder bed
+  every lab measurement in this repo uses is not the bed being played. Measure
+  on **`founders=128 colonies=1`, 12,000 frames**; that is where it shows.
+- **Every phase is unchanged except `active_sites`, which is 4.5x** (0.49 ->
+  2.22 ms). The CA sweep, the field and the moisture channel all held across 81
+  commits. Inside it, the scheduler is 0.3 ms of the 1.7 ms growth and
+  **`plant::step_organisms` is the other 1.4** -- once per organism, never
+  optimised, ~11x.
+- **Two terms multiply and both are real: 2.7x more organisms (441 -> 1,174),
+  each 1.7x dearer.** The average organism is *smaller* (7.2 cells against
+  9.1), so the per-organism rise is new work rather than more cells. This is the
+  germination fix and seed dispersal doing what they were built to do; the
+  optimisation target has simply moved off the sweep and onto the plants.
+
+**Also in play now:** organism slots at **1,239 of 4,095** on a medium bed at
+12,000 frames and still climbing.
+
+**Then the owner named the regime, and it sharpened all of the above (§10).**
+*"Previously 10-30x with plant structural damage off; now I max out at 4x"* and
+*"the toggle doesn't change anything right away but once a plant grows and
+collapses, the collapse destroys performance."* Three results:
+
+- **`plant_load_failure` off used to buy nothing (3.95 vs 3.95 ms) and now buys
+  1.32x**, halving `active_sites`. Over half that phase's new cost is collapse
+  work on living tissue -- the thing the owner turns off by hand.
+- **The big-plant box no longer self-limits.** `species=tree founders=16
+  colonies=0`, 32,000 frames: the old stand peaks at 6,100 cells / 93 organisms
+  and *falls* to 2,961 / 33, dial recovering to **6.5x**; the new one climbs to
+  **27,013 / 646 and is still climbing**, dial pinned at **2.5x from frame
+  8,000 onward**. Find what used to make it stop.
+- **The median frame barely moved (2.07 -> 2.25 ms); the mean went 2.57 ->
+  6.78.** Two-thirds of all time is now in frames above the median, and the
+  dial reports the mean -- so a box whose typical frame is fine reads as
+  permanently slow. **Chase the tail, not the phase table.**
+
+**Corrected, and then narrowed by the owner (§11).** *"I would prefer to solve
+it with plant structural damage off first."* Two results:
+
+- **"The new box never self-limits" was wrong** -- an extrapolation from a run
+  that stopped before the turn. At 64,000 frames it does turn over; the brake
+  engages ~4x later and at ~4.5x the population. *A cascade censused before it
+  settles*, arriving on a population curve.
+- **With damage OFF, nothing got dearer per cell.** `active_sites` 1.77 -> 4.19
+  ms while `ca_sweep` and `field` hold, and **per plant cell it is 0.159 ->
+  0.151 us -- unchanged.** The box just grows 2.5x more plant. `active_sites`
+  was already the largest phase on the old build in this regime (49%) and is
+  now **70%**, and `plant::step_organisms` has never been optimised. **That is
+  the target, and it is a pure win**: no behaviour change, no seed sweep, no
+  owner verdict.
+
 ## Deliberately not being built yet
 
 The score and the economy — the guide's Gate 5. **Gate 2, does selection have
