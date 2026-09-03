@@ -1,0 +1,42 @@
+{
+  "id": "20260903T060536659Z-91838d",
+  "created": "2026-09-03T06:05:36Z",
+  "board": "plants",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/plant-engine-rethink-brief-rk7lq5",
+    "commit": "2eb7983f",
+    "agent": null,
+    "session_id": "2fd32b8c-66a6-5662-ac48-04f7486d66f4",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The two most different herbs this genome can make, alternating",
+  "question": "Reading left to right, adjacent plants are the two extremes of the genome. Do they read as two kinds of plant, or as one kind at two sizes?",
+  "context_md": "Every plant here is `herb`, in one bed, at one instant. Odd positions carry every continuous gene at its minimum and every discrete allele at index 0; even positions carry every gene at its maximum and the top allele at each locus. **This is the widest genetic contrast the engine can currently express** -- nothing about a herb's genome can make two plants more different than two neighbours in this picture.\n\nIt is the positive control for a measurement, not a proposal: the finding it controls is that a bed of sixteen *identical* genomes comes out very nearly as varied in size as a bed of sixteen different ones. If the answer here is \"one kind at two sizes\", then the genome's whole range is smaller than the noise, and widening what it can reach is the work rather than tuning what it already reaches.",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "alternating genome extremes",
+      "files": [
+        "20260903T060536659Z-91838d/000-cv_spread.png"
+      ],
+      "caption": "herb, 12,000 frames, one bed",
+      "meta": {
+        "plants that established": 12,
+        "how much of size difference is genetic": "3% (median of 4 reference genomes)",
+        "how much of leaf-vs-stem difference is genetic": "61%",
+        "how much of crown-width difference is genetic": "0% -- even at these extremes"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
