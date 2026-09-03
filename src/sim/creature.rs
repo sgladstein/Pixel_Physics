@@ -3409,7 +3409,37 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
             // and one that posts them up through a tree canopy report the
             // same number. See `CreatureStats::spoil_lifted`.
             let near = NEIGHBOURS_8.iter().map(|&(dx, dy)| (x + dx, y + dy)).find(|&(px, py)| open(px, py));
-            let site = near.or_else(|| (1..=SPOIL_LIFT).map(|dy| (x, y - dy)).find(|&(px, py)| open(px, py)));
+            // **The lift stops at the first thing this animal could not have
+            // got through itself**, which is what makes it an abstracted walk
+            // rather than teleportation.
+            //
+            // It used to scan all `SPOIL_LIFT` rows unconditionally, and the
+            // consequence was `open-bugs-handoff.md` §Z4: inside a trunk every
+            // candidate fails `open`'s emptiness test, so the scan ran past the
+            // whole tree and put the pellet on the first foliage shoulder or
+            // the crown top -- where, `packedsoil` being `self_supporting`, it
+            // stayed. Measured over four seeds, one tree and a colony at its
+            // foot: pellets standing **52-99 rows** above the surface and 7-18
+            // of them touching living tissue, against **2-4 rows and a flat
+            // zero** for the same colony in the same bed with no tree. That is
+            // an owner playtest report -- *"they pile up dirt on top of and
+            // around the trees"* -- and it was this line.
+            //
+            // **Soil still passes, and that is the point of keeping a lift at
+            // all.** An animal at the face of a gallery has a roof over it and
+            // every neighbour taken; the walk home is up its own workings,
+            // through ground it can cut. So the bound is the species' own
+            // `dig_force` against the material's `penetration_resistance` --
+            // the same test the dig branch makes, so "could I have come this
+            // way" and "could I have dug this" cannot drift apart -- and never
+            // a material whitelist. Plant tissue (resistance 100 by default),
+            // stone, sand and the colony's own nest all stop it; soil and
+            // packed soil do not.
+            //
+            // Raw `material == EMPTY` rather than `World::is_empty`, which is
+            // managed-aware and answers a different question (`CLAUDE.md`).
+            let reach = lift_reach(world, x, y, def.dig_force);
+            let site = near.or_else(|| (1..=reach).map(|dy| (x, y - dy)).find(|&(px, py)| open(px, py)));
             if let Some((px, py)) = site {
                 world.set(px, py, spoil.cell);
                 if let Some(state) = world.organism_mut(organism) {
@@ -3529,6 +3559,47 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
             line_burrow(world, tx, ty);
         }
     }
+}
+
+/// How far up `act`'s spoil lift may look — the first row holding something
+/// this animal could not have got through itself, or `SPOIL_LIFT`.
+///
+/// **This is what makes the lift an abstracted walk rather than
+/// teleportation**, and it is `open-bugs-handoff.md` §Z4. The scan used to run
+/// all `SPOIL_LIFT` rows unconditionally: inside a trunk every candidate fails
+/// the destination test's emptiness clause, so it ran past the whole tree and
+/// put the pellet on the first foliage shoulder or the crown top, where
+/// `packedsoil` being `self_supporting` it stayed. Measured over four seeds,
+/// one tree with a colony at its foot: pellets standing **52–99 rows** above
+/// the surface, 7–18 of them touching living tissue, against **2–4 rows and a
+/// flat zero** for the same colony in the same bed with no tree. An owner
+/// reported it from play as dirt piling up on top of the trees.
+///
+/// **Soil still passes, and that is why a lift exists at all.** An animal at
+/// the face of a gallery has a roof over it and every neighbour taken; its way
+/// home is up its own workings, through ground it can cut. So the bound is the
+/// species' own `dig_force` against the material's `penetration_resistance` —
+/// the same test the dig branch makes, so *"could I have come this way"* and
+/// *"could I have dug this"* cannot drift apart — and never a material
+/// whitelist. Plant tissue (resistance 100 by default), stone, sand and the
+/// colony's own nest stop it; soil and packed soil do not.
+///
+/// Returns the blocking row itself rather than the one below it, which costs
+/// nothing: a blocker is not `EMPTY`, so the destination test refuses it
+/// anyway. Raw `material == EMPTY` rather than `World::is_empty`, which is
+/// managed-aware and answers a different question (`CLAUDE.md`).
+fn lift_reach(world: &World, x: i32, y: i32, dig_force: f32) -> i32 {
+    for dy in 1..=SPOIL_LIFT {
+        let cell = world.get(x, y - dy);
+        if cell.material == material::EMPTY {
+            continue;
+        }
+        if world.materials.get(cell.material).penetration_resistance <= dig_force {
+            continue;
+        }
+        return dy;
+    }
+    SPOIL_LIFT
 }
 
 /// How far up a pellet may be carried to reach the surface, in cells.
@@ -6040,6 +6111,60 @@ mod tests {
         }
         w.plant_ant(x, 100);
         w.get(x, 100).organism_id()
+    }
+
+
+    /// **A pellet may not be posted up through a tree.** §Z4's guard.
+    ///
+    /// Three columns in one bed, because the bound has to *stop* something and
+    /// also has to *not* stop the thing the lift exists for -- a positive
+    /// control in the same test, which `CLAUDE.md` asks for by name. Assert on
+    /// the trunk alone and a bound that broke every burrow in the world would
+    /// pass just as happily.
+    ///
+    /// **Watched going red**, per the rule about citing a guard's green:
+    /// returning `SPOIL_LIFT` unconditionally fails it (160 against 121 on the
+    /// clear column, and 160 against 40 on the trunk had the run got that
+    /// far). Both the bound and the control move under the fault, which is
+    /// what says neither assertion is decorative.
+    #[test]
+    fn the_spoil_lift_walks_up_soil_and_stops_at_a_trunk() {
+        let mut w = test_world();
+        let soil = w.materials.id_of("soil").expect("soil");
+        let wood = w.materials.id_of("wood").expect("wood");
+        let sand = w.materials.id_of("sand").expect("sand");
+        // Ground from y=60 down; the animal stands at y=120 in all three.
+        for x in 0..200 {
+            for y in 60..150 {
+                w.set(x, y, Cell::new(soil, 0).with_aux(material::SOIL_FIELD_CAPACITY));
+            }
+        }
+        // Column 100: clear soil all the way up -- the way home.
+        // Column 40: a trunk crossing the column at y=80, 40 rows over the ant.
+        w.set(40, 80, Cell::new(wood, 0));
+        // Column 160: sand at y=100, which this animal also cannot cut.
+        w.set(160, 100, Cell::new(sand, 0));
+
+        let force = 1.0; // `ant.ron`'s authored `dig_force`
+        // **121, not `SPOIL_LIFT`, and the difference is the world edge.**
+        // The bed is 200 tall and the animal stands at y=120, so the walk runs
+        // out of world at dy=121, where `World::get` returns its `BEDROCK`
+        // sentinel and the bound correctly refuses to go further. That is the
+        // right answer -- a pellet may not be posted out of the world either --
+        // and it is the assertion that says diggable ground is *not* what
+        // stopped it.
+        assert_eq!(
+            lift_reach(&w, 100, 120, force),
+            121,
+            "a column of diggable soil is the case the lift exists for: nothing but the world edge may bound it"
+        );
+        assert_eq!(lift_reach(&w, 40, 120, force), 40, "the walk must stop at the trunk, not run past it into the crown");
+        assert_eq!(lift_reach(&w, 160, 120, force), 20, "sand is past this animal's dig_force and stops the walk too");
+
+        // And it is the *animal* that decides, not a material list: a digger
+        // strong enough to cut sand walks through it.
+        assert_eq!(lift_reach(&w, 160, 120, 2.0), 121, "a stronger mandible passes ground it could actually cut, up to the world edge");
+        assert_eq!(lift_reach(&w, 40, 120, 2.0), 40, "...but living tissue is not diggable at any authored force");
     }
 
     /// **Digging moves ground; it does not delete it.**

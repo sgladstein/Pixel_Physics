@@ -8987,17 +8987,40 @@ through a canopy are the same number. `spoil_lifted` / `spoil_lift_max`
 **The root half is a different bug and is not caused by the digging.** New
 root tips are spawned only from mature root cells with a 4-neighbour whose
 material has `water_capacity > 0` — the `open` flag in `plant.rs`'s tip
-conversion. The guard is there for a good reason, stated at the site: *"Only
-tissue that still has soil to grow into: converting a cell walled in by its
-own root system spends the cost on a tip that has nowhere to go"*. But
-**`EMPTY` has `water_capacity == 0` too**, so a root cell that ends up
-bordering an ant tunnel answers the predicate exactly as a root-packed one
-does, and is disqualified from branching for good. The hole does not merely
-remove soil; it switches off root extension along its whole face.
+conversion, at both the conversion and the priming site. The guard is there
+for a good reason, stated at the site: *"Only tissue that still has soil to
+grow into: converting a cell walled in by its own root system spends the cost
+on a tip that has nowhere to go"*. But **`EMPTY` has `water_capacity == 0`
+too**, so excavated ground answers the predicate exactly as root-packed
+ground does.
+
+**Scope, corrected 2026-09-03 — an earlier revision of this entry
+overstated it and the correction changes what the fix has to be.** `open` is
+satisfied by **any one** of the four neighbours, not all of them, so a root
+lying *along* a tunnel wall keeps three soil faces and stays eligible. What
+disqualifies a cell is being **fully enveloped** — every one of its four
+neighbours air, root, or stone — which is the excavated *chamber* case, not
+the tunnel case. Nor is it permanent: the priming site un-primes a walled
+cell rather than rescanning it, and its own comment says *"a tip passing
+again re-primes"*, so the ground is recoverable if growth reaches it. And
+partial exposure is **graded rather than binary**: `wet` sums only the
+water-bearing neighbours and is the score candidates are ranked by, so a
+half-excavated root cell is deprioritised, not excluded. The claim this
+entry supports is therefore *"hollowing a chamber around the root plate
+stops it branching"*, and not *"a tunnel beside a root stops it branching"*.
 
 Note what this is *not*: `packedsoil` keeps `water_capacity: 1000`, so spoil
 put **back** is fully rootable. Ant tamping is harmless to roots. The void is
 the whole of the damage.
+
+**And the blocking runs both ways, which any fix here has to face.**
+`plant::growable` returns `true` for `EMPTY`, so roots already grow *through*
+open air — into an ant's gallery — and an ant cannot dig plant tissue
+(`penetration_resistance` defaults to 100 against a `dig_force` of 1.0). So a
+root that crosses a tunnel plugs it permanently, today, with no way for the
+colony to clear it. Loosening the tip predicate so that voids no longer
+disqualify a root would *increase* that, which is why it is not proposed
+here: the owner raised exactly this objection when it was, 2026-09-03.
 
 **The root census is directional and not established**, and is reported that
 way. Same seeds, tree+ants against tree-only (`roots_before` is identical
@@ -9017,10 +9040,42 @@ owner's report is of a much longer game. **The code mechanism above is the
 strong evidence here; this table is not.** Anyone acting on it should widen
 the sweep and lengthen the horizon first.
 
-**Three separable fixes, none of them creature/plant pass-through.** Bound
-the lift so a pellet cannot pass through material the animal could not walk
-through. Make the tip-conversion predicate distinguish *packed with my own
-root* from *someone dug the soil away*. And — the one that stops the hole
-forming — let root-reinforced soil resist the mandible: `rootwood` already
-declares `reinforces_powder: true` and `update.rs`'s `root_reinforced()` is
-already a cheap four-neighbour test that nothing on the dig path reads.
+**Fixes, revised 2026-09-03 after the owner pushed back on two of three.**
+
+1. **Bound the lift** so a pellet cannot pass through material the animal
+   could not have got through itself. **Landed** — `creature::lift_reach`,
+   guarded by `the_spoil_lift_walks_up_soil_and_stops_at_a_trunk`.
+   Re-measured on the same four seeds, tallest standing pellet in the
+   tree arm **+52 / +67 / +99 / +94 → +2 / +3 / +2 / +4**, against a
+   no-tree control of +4 / +3 / +2 / +2. **The tree arm now sits inside
+   its own control**, which is the bar: a tree no longer changes where
+   a colony's spoil ends up. Digs are unmoved (448–725 → 477–690) and
+   the lift still fires at 7–14% of dumps and still runs 52–57 rows on
+   the seeds with deep workings, so the bound did not disable it — it
+   stops it at the surface instead of the crown. What is *not* fixed by
+   it, and is arguably not a fault: pellets still pile at ground level
+   beside a trunk, which is what a mound is.
+2. ~~Loosen the tip predicate so a void no longer disqualifies a root.~~
+   **Withdrawn before building.** It would let roots branch into ant
+   galleries, and since ants cannot cut root tissue that converts a dug
+   tunnel into a permanent plug — the same complaint with the parties
+   reversed. See the both-ways paragraph above.
+3. **Let root-reinforced soil resist the mandible**, so the chamber never
+   forms around the root plate. `rootwood` already declares
+   `reinforces_powder: true` and `update.rs`'s `root_reinforced()` is already
+   a cheap four-neighbour test that nothing on the dig path reads. The
+   objection to it — *"won't the ants just dig slightly lower and do the same
+   thing"* — is answered by the scope correction above: digging **below** an
+   intact root plate leaves every root cell with soil neighbours, so root
+   growth is unaffected. Relocating the excavation out of the root zone is
+   not a side effect of this fix, it **is** the fix.
+4. **The option none of the three covers**, and the one the owner arrived at
+   independently: make root tissue **passable to ants while staying
+   un-diggable**. That dissolves the mutual blocking rather than arbitrating
+   it — ants tunnel through the root zone, roots grow across the galleries,
+   neither destroys the other. `rootwood.ron` already makes precisely this
+   argument for the *gnome* (*"a root threading through soil used to stop a
+   tunnel dead… It still cannot be dug — it simply is not a wall any more"*);
+   the creature half is the unfinished part of that change. It needs the
+   occlusion write described for the trunk case, but at far smaller scope and
+   with none of the canopy-side risks, since it is underground.
