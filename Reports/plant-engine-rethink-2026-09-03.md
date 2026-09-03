@@ -40,7 +40,11 @@ than a signal-to-noise floor, and the floor is where the leverage is.
 
 **Landed.** `organism::ParamGenome` — every scalar in a species' behaviour
 table as a heritable, mutable per-individual override, founded empty and
-therefore **inert on every founder**. It replaces the authored number instead
+therefore **inert on every founder**. And, on top of it,
+`Behavior::Reproduce::seed_launch`: the dispersal channel the reseeding report
+measures as absent, as a heritable distance founded at zero — worth **+38%
+plants established well away from a founder column** at a reach of 12, on 3 of
+3 seeds, and inert at the zero every species ships (§6.1). It replaces the authored number instead
 of scaling it, so an authored zero is a starting point. It multiplies the
 heritable surface from **70 slots to 804 addresses**, and it ships with its
 mutation rate at **0.0** — the mechanism is measured, the *rate* is not, and
@@ -678,24 +682,84 @@ ever addressed.
 
 ## 6. What was not built, and why
 
-### 6.1 Dispersal
+### 6.1 Dispersal — built after all, and inert until somebody turns it on
 
-The brief says it should be in scope whatever else is, and this session did not
-build it. The reason is that §2's result changes what dispersal is worth
-measuring against, and the honest ordering puts it after the noise floor: a
-heritable dispersal distance whose H2 is 0.1 is a channel selection cannot use.
+The brief says dispersal should be in scope whatever else is, and the first
+draft of this report deferred it. It is built, because §1 turned out to make it
+nearly free.
 
-Two things were established for whoever takes it. `dead-ends.md` has **nothing**
-on seed dispersal — grepped for `dispers` and `launch`, nine and six hits, all
-liquids, advection and gusts. And the one entry that does bind is a warning
-about the second candidate in the brief's list: **a steady global wind term was
-built, measured and reverted** — a uniform velocity in a bounded world pushes
-air into the walls, so `field::is_converged` never returns true again and the
-settled-field cost went from 0.0002 ms to a permanent 3.55 ms on every scene.
-Gusts, which are bounded impulses that disperse, are the recorded replacement.
-So "wind on light powders" has to ride gusts, which makes dispersal **bursty**
-— intermittent by construction, which satisfies the ethos's first law (a
-distribution, not a binary) and needs saying up front rather than discovering.
+**`Behavior::Reproduce::seed_launch`** — how far a plant flings a seed
+sideways, in cells. **Zero in every shipped species**, and the guard
+`a_zero_seed_launch_moves_nothing` asserts both halves of that: the throw
+function returns its input unchanged at a non-positive reach, *and* no species
+file authors one. So the outdoor game is untouched and every stand measured
+before it existed grows the same plant.
+
+**What makes it worth building now rather than earlier is that it is an
+ordinary `ParamId`**, so `ParamGenome` reaches it and a lineage can leave the
+authored zero. That is exactly the cage §1.1 describes, and this is the first
+new channel built on top of the fix: *a heritable dispersal distance, founded
+at zero.* Under the multiplicative genome it could not have existed — a slot
+multiplying an authored `0.0` is a slot that does nothing for ever, which is
+why `plant-reseeding-2026-09-03.md` §1's own proposal had to include *"give the
+species files a non-zero authored base so the multiplier has something to
+scale"*. It no longer does.
+
+**It is a distance, not a destination**, and that is the answer to the same
+report's objection that the cheap form *"reads as magic"*. `plant::set_seed`
+draws a displacement uniform on `[-reach, reach]` and **walks toward it one
+cell at a time through open cells, stopping at the first thing in the way** —
+so a seed is flung rather than teleported, it cannot cross a wall, and a plant
+in a crevice disperses no further than the crevice.
+`a_flung_seed_cannot_cross_a_wall` is the guard, with its own positive control
+(remove the walls and the same throws must travel). A symmetric draw is also
+the ethos's first law: most seed still lands near the parent and a few go a
+long way.
+
+**What it buys**, `herb`, 8 founders, no ants, 27,000 frames, three world
+seeds, on the evenly-lit bench:
+
+| reach | columns of 512 held | plants ≥16 cells from a founder column | established |
+|---|---|---|---|
+| **0** (shipped) | 398 / 454 / 396 | 66 / 69 / 61 | 105 / 106 / 93 |
+| **4** | 457 / 479 / 415 | 64 / 82 / 72 | 106 / 115 / 107 |
+| **12** | 500 / 465 / 481 | **91 / 92 / 88** | 133 / 110 / 116 |
+
+Pooled, reach 12 against 0: coverage **+16%**, established **+18%**, and the
+number this is actually about — plants that reached ground more than fifteen
+columns from anything anyone planted — **+38%, up on 3 of 3 seeds**. Reach 4
+is up on 2 of 3 and is inside the spread.
+
+For scale, `plant-reseeding-2026-09-03.md` §6.1 moved that same statistic
+**4.1x** by lighting the bench evenly. So dispersal is real, it is worth having,
+and it is still not the headline — which is what that report's `scatter=1`
+positive control said before the mechanism existed.
+
+**Cost.** At the shipped zero it is one float comparison per seed borne;
+`launch_offset` returns before drawing anything. The per-frame figures in the
+sweep (4.33 / 3.82 / 3.74 ms) are not a cost comparison and should not be read
+as one — the arms grow different amounts of plant, which is `CLAUDE.md`'s *a
+cost that appears may be biomass that appeared* seen from the other side.
+
+**And the harness seam it needed is worth more than the arm.**
+`SpeciesRegistry::set_param` writes one authored parameter by `ParamId` into
+the live registry. Every parameter sweep in this repo has until now had to edit
+a `.ron` and rebuild, which is the `include_str!` trap `CLAUDE.md` records
+producing *whole invalid sweeps*: identical output across settings because the
+prebuilt binary never read the file. A sweep that goes through `set_param`
+cannot go stale. `reseed_probe -- launch=N` is the first user, and it refuses
+outright if the write matches nothing.
+
+**What is still missing**, and the brief's own list is right about it: this is
+the *cheapest* of the three mechanisms, not the most satisfying. It gives the
+plant a dispersal trait; it does not give the **player a verb**. Wind on light
+powders would, and `dead-ends.md` carries the warning that matters for it — a
+steady global wind was built, measured and reverted (settled-field cost 0.0002
+→ 3.55 ms on every scene, because a uniform velocity in a bounded world pushes
+air into the walls and `field::is_converged` never returns true again). Gusts
+are the recorded replacement, so wind-borne seed would be **bursty** by
+construction. That is a good property and it needs saying up front rather than
+discovering.
 
 ### 6.2 Speciation
 
@@ -755,7 +819,9 @@ item on the list that is ink rather than a label.
 5. **Then the parameter-genome rate**, once generation depth is deep enough to
    test §5.4's prediction — and run `genome_reach -- drift=1` first, because
    the free-lever list is the thing to price, not the rate.
-6. **Then dispersal**, §6.1.
+6. **Then the dispersal *verb*.** §6.1 built the trait; what it does not build
+   is something the player turns on. Wind on light powders is the candidate,
+   and `dead-ends.md`'s reverted steady-wind entry says it has to ride gusts.
 
 ---
 

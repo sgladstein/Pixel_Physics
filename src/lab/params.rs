@@ -437,10 +437,11 @@ fn grow_by_order(world: &World, species: &str, field: &str) -> Option<String> {
 fn repro_value(world: &World, species: &str, field: &str) -> Option<f32> {
     let id = world.species.id_of(species)?;
     world.species.get(id).behaviors(CellType::MatureBody).iter().chain(world.species.get(id).behaviors(CellType::GrowingTip)).find_map(|b| match b {
-        Behavior::Reproduce { seed_cost, reproductive_allocation, seed_maturity } => Some(match field {
+        Behavior::Reproduce { seed_cost, reproductive_allocation, seed_maturity, seed_launch } => Some(match field {
             "seed_cost" => *seed_cost,
             "reproductive_allocation" => *reproductive_allocation,
             "seed_maturity" => *seed_maturity as f32,
+            "seed_launch" => *seed_launch,
             _ => return None,
         }),
         _ => None,
@@ -485,6 +486,8 @@ fn plant_rows(world: &World, species: &str, out: &mut Vec<Param>) {
         "WHAT ONE SEED COSTS TO MAKE. CHEAP SEEDS MEAN MANY SMALL CHANCES, DEAR ONES MEAN FEW GOOD ONES.");
     repro("reproductive_allocation", span(0.0, 1.0, 0.02), false,
         "WHAT SHARE OF A MATURE PLANT'S INCOME GOES INTO SEED RATHER THAN INTO MORE PLANT. IT IS THE GROW-VERSUS-BREED DIAL.");
+    repro("seed_launch", span(0.0, 40.0, 1.0), false,
+        "HOW FAR THIS PLANT FLINGS A SEED SIDEWAYS, IN CELLS. AT 0 -- WHERE EVERY SPECIES SHIPS -- A SEED DROPS AT THE PLANT'S FEET AND THE ONLY THING THAT MOVES IT AFTERWARDS IS THE FALL, WHICH IS WORTH ABOUT TWO THIRDS OF A CELL SIDEWAYS: THAT IS WHY A STAND SITS IN CLUMPS UNDER THE PLANTS THAT MADE IT. TURN IT UP AND SEED IS THROWN, THOUGH NOT THROUGH ANYTHING -- IT STOPS AT THE FIRST THING IN THE WAY, SO A PLANT IN A CORNER STILL SOWS A CORNER. IT IS A DISTANCE AND NOT A DIRECTION, SO MOST SEED STILL LANDS NEAR HOME AND A FEW GO A LONG WAY. MEASURED ON HERB OVER THREE BEDS, A REACH OF 12 PUT 38% MORE PLANTS DOWN WELL AWAY FROM WHERE ANYTHING WAS PLANTED. LASTS THE SESSION.");
 
     if let Some(id) = world.species.id_of(species) {
         let s = world.species.get(id);
@@ -758,11 +761,12 @@ pub fn write(world: &mut World, spec: &mut LabBox, knob: &Knob, value: f32) -> b
             let sp = world.species.get_mut(id);
             for ct in [CellType::MatureBody, CellType::GrowingTip] {
                 for b in sp.behaviors_mut(ct) {
-                    if let Behavior::Reproduce { seed_cost, reproductive_allocation, seed_maturity } = b {
+                    if let Behavior::Reproduce { seed_cost, reproductive_allocation, seed_maturity, seed_launch } = b {
                         match *field {
                             "seed_cost" => *seed_cost = value,
                             "reproductive_allocation" => *reproductive_allocation = value,
                             "seed_maturity" => *seed_maturity = value.max(0.0).round() as u32,
+                            "seed_launch" => *seed_launch = value.max(0.0),
                             _ => continue,
                         }
                         wrote = true;

@@ -931,6 +931,36 @@ pub enum Behavior {
         /// which is a real evolutionary attractor and a boring one.
         #[serde(default)]
         seed_maturity: u32,
+        /// **How far this plant flings a seed sideways, in cells.**
+        ///
+        /// The dispersal channel `Reports/plant-reseeding-2026-09-03.md` §1
+        /// measures as *absent*: not one step of a seed's journey had a
+        /// heritable dial and two of the three had no dial at all. Wind
+        /// reaches gases only, `roll_along_slope` gives a `seed` a reach of
+        /// **0.70 cells**, and `friction_angle` is a property of the material
+        /// rather than of the plant. The one indirect lever, crown width, was
+        /// then measured unreachable by the genome at all
+        /// (`plant-engine-rethink-2026-09-03.md` §2.2: the positive control
+        /// reads 0.000 on four reference genomes).
+        ///
+        /// **Zero by default, and every shipped species leaves it there**, so
+        /// this is inert until somebody authors it or a lineage mutates it —
+        /// and a lineage *can*, which is the point. It is an ordinary
+        /// [`ParamId`], so [`ParamGenome`] reaches it, and an override
+        /// **replaces** the authored value rather than scaling it. A channel
+        /// that starts at zero and can be left is precisely what the
+        /// multiplicative genome could not express, and this is the first new
+        /// one built on that fix.
+        ///
+        /// **It is a distance, not a direction**: `plant::set_seed` draws a
+        /// displacement in `-reach..=reach` and walks toward it through open
+        /// cells, stopping at the first thing in the way. A seed is flung
+        /// rather than teleported — it cannot cross a wall, and a plant in a
+        /// crevice disperses no further than the crevice. That is the ethos's
+        /// first law (an outcome is a distribution, not a binary), and it is
+        /// what keeps it from reading as magic.
+        #[serde(default)]
+        seed_launch: f32,
     },
     SecondaryThicken { pipe_ratio: f32 },
     /// **An organ's clock.** The only behaviour a `Flower` or `Fruit`
@@ -1793,6 +1823,7 @@ pub enum ParamId {
     SeedCost,
     ReproductiveAllocation,
     SeedMaturity,
+    SeedLaunch,
     PipeRatio,
     RipenRate,
     RipenCost,
@@ -1808,7 +1839,7 @@ pub enum ParamId {
 
 /// Every address a mutation may draw from — the alphabet, exactly as
 /// `PLANT_CELL_TYPES` and `ALL_FATE_WHENS` are the fate genome's.
-pub const ALL_PARAM_IDS: [ParamId; 43] = [
+pub const ALL_PARAM_IDS: [ParamId; 44] = [
     ParamId::GrowCost,
     ParamId::BranchChance,
     ParamId::ContinuationWeight,
@@ -1841,6 +1872,7 @@ pub const ALL_PARAM_IDS: [ParamId; 43] = [
     ParamId::SeedCost,
     ParamId::ReproductiveAllocation,
     ParamId::SeedMaturity,
+    ParamId::SeedLaunch,
     ParamId::PipeRatio,
     ParamId::RipenRate,
     ParamId::RipenCost,
@@ -1890,6 +1922,7 @@ impl ParamId {
             ParamId::SeedCost => "seed_cost",
             ParamId::ReproductiveAllocation => "reproductive_allocation",
             ParamId::SeedMaturity => "seed_maturity",
+            ParamId::SeedLaunch => "seed_launch",
             ParamId::PipeRatio => "pipe_ratio",
             ParamId::RipenRate => "ripen_rate",
             ParamId::RipenCost => "ripen_cost",
@@ -1934,6 +1967,13 @@ impl ParamId {
             | ParamId::JuvenileSize
             | ParamId::Internode
             | ParamId::SeedMaturity => ParamKind::Count,
+            // **A `Magnitude`, not a `Count`, and the corpus is why.** Every
+            // shipped species authors `seed_launch: 0`, so `param_scale`
+            // falls back to its 1.0 default — and a `Count` rounds, which at
+            // a scale of 1 would quantise every mutation to 0, 1, 2, 3 or 4
+            // and make the very first step a fourfold jump. `set_seed` reads
+            // it as a continuous reach and rounds once, at the point of use.
+            ParamId::SeedLaunch => ParamKind::Magnitude,
             // `turgor_per_cell` divides into the height ceiling and
             // `pipe_ratio` divides into the girth a stem is allowed; both
             // are infinite at zero.
@@ -2100,10 +2140,11 @@ fn apply_one(o: &ParamOverride, behavior: &mut Behavior) {
                 *rate = o.value;
             }
         }
-        Behavior::Reproduce { seed_cost, reproductive_allocation, seed_maturity } => match o.param {
+        Behavior::Reproduce { seed_cost, reproductive_allocation, seed_maturity, seed_launch } => match o.param {
             ParamId::SeedCost => *seed_cost = o.value,
             ParamId::ReproductiveAllocation => *reproductive_allocation = o.value,
             ParamId::SeedMaturity => *seed_maturity = o.value.round().clamp(0.0, 100_000.0) as u32,
+            ParamId::SeedLaunch => *seed_launch = o.value,
             _ => {}
         },
         Behavior::SecondaryThicken { pipe_ratio } => {
@@ -2208,10 +2249,11 @@ pub fn read_param(behavior: &Behavior, param: ParamId, tier: u8) -> Option<f32> 
         }),
         Behavior::Transpire { rate } => (param == ParamId::TranspireRate).then_some(*rate),
         Behavior::Absorb { rate } => (param == ParamId::AbsorbRate).then_some(*rate),
-        Behavior::Reproduce { seed_cost, reproductive_allocation, seed_maturity } => Some(match param {
+        Behavior::Reproduce { seed_cost, reproductive_allocation, seed_maturity, seed_launch } => Some(match param {
             ParamId::SeedCost => *seed_cost,
             ParamId::ReproductiveAllocation => *reproductive_allocation,
             ParamId::SeedMaturity => *seed_maturity as f32,
+            ParamId::SeedLaunch => *seed_launch,
             _ => return None,
         }),
         Behavior::SecondaryThicken { pipe_ratio } => (param == ParamId::PipeRatio).then_some(*pipe_ratio),
@@ -5192,6 +5234,39 @@ impl SpeciesRegistry {
     /// is enough and nothing needs redrawing.
     ///
     /// A no-op if the species has no `Grow` on that cell type.
+    /// **Write one authored parameter on one species, by [`ParamId`]** —
+    /// harness only, and the reason it exists is a recorded trap rather than
+    /// convenience.
+    ///
+    /// `CLAUDE.md`: *editing an asset `.ron` does nothing until the next
+    /// build* — materials and species are compiled in via `include_str!`, so
+    /// a sweep that edits `tree.ron` and re-runs a prebuilt example produces
+    /// bit-identical "runs", and this project has published whole invalid
+    /// sweeps that way. A sweep that goes through here instead cannot go
+    /// stale: it patches the registry the run is about to use.
+    ///
+    /// Writes every behaviour of that cell type that owns the parameter, and
+    /// returns whether anything was written — `false` means the species has
+    /// no behaviour owning it, which a sweep should refuse on rather than
+    /// report as *"the knob does nothing"*.
+    ///
+    /// **Not the same thing as a `ParamGenome` override.** This moves what
+    /// the *species* authors, so every founder of it changes; an override
+    /// moves one *individual* and is inherited. Both go through
+    /// `apply_one`/`read_param`, so they cannot disagree about which field a
+    /// `ParamId` names.
+    pub fn set_param(&mut self, id: SpeciesId, cell_type: CellType, param: ParamId, tier: u8, value: f32) -> bool {
+        let o = ParamOverride { cell_type, param, tier, value };
+        let mut wrote = false;
+        for b in self.species[id.0 as usize].behaviors_mut(cell_type) {
+            if read_param(b, param, tier).is_some() {
+                apply_one(&o, b);
+                wrote = true;
+            }
+        }
+        wrote
+    }
+
     pub fn set_genotype_variance(&mut self, id: SpeciesId, cell_type: CellType, variance: [f32; GENOTYPE_TRAITS]) {
         let Some((_, behaviors)) = self.species[id.0 as usize].cell_types.iter_mut().find(|(ct, _)| *ct == cell_type) else {
             return;

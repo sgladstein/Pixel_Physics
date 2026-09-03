@@ -1686,6 +1686,11 @@ const FATE_MUTATION_STREAM: u64 = 201;
 /// a measured property with a guard over it.
 const PARAM_MUTATION_STREAM: u64 = 202;
 
+/// The salt the seed throw's substream is keyed with — same shape and same
+/// reason as `APPENDED_JITTER_SALT`: it must not collide with
+/// `seed_genotype`'s `(world_seed, x, y, slot)` streams within a run.
+const SEED_LAUNCH_SALT: u64 = 0x5468_726F_7721_5F5F;
+
 /// **How often a seed's production rule takes a point mutation.**
 ///
 /// **Measured 2026-08-30, and the measurement is why this is 0.30 and not the
@@ -1795,7 +1800,7 @@ const APPENDED_JITTER_SALT: u64 = 0x5361_6C74_4A69_7472;
 /// light-and-moisture gate. Nothing downstream needs to know it had a
 /// parent except `seed_genotype`, which must not redraw over the genome
 /// this copies in.
-fn set_seed(world: &mut World, x: i32, y: i32, parent_id: u16, seed_cost: f32, rng: &mut Rng) -> bool {
+fn set_seed(world: &mut World, x: i32, y: i32, parent_id: u16, seed_cost: f32, seed_launch: f32, rng: &mut Rng) -> bool {
     if world.organism(parent_id).is_none() {
         return false;
     }
@@ -1810,7 +1815,60 @@ fn set_seed(world: &mut World, x: i32, y: i32, parent_id: u16, seed_cost: f32, r
         return false;
     }
     let (sx, sy) = spots[rng.below(spots.len() as u32) as usize];
+    // **And then the plant's own contribution to where it goes** — see
+    // `Behavior::Reproduce::seed_launch`. Zero in every shipped species, so
+    // this is `launch_offset` returning `sx` unchanged and one comparison.
+    //
+    // **After the neighbour draw and never instead of it**, so the shared
+    // `Rng`'s consumption is unchanged at `seed_launch: 0` and every stand
+    // measured before this existed still grows the same plant; the throw is
+    // drawn from a keyed substream for the same reason `bear_seed_at`'s own
+    // additions are (`set_seed_leaves_the_callers_rng_position_alone`).
+    let sx = launch_offset(world, sx, sy, seed_launch);
     bear_seed_at(world, sx, sy, parent_id, seed_cost, seed_material, rng)
+}
+
+/// **Throw a seed sideways, through open cells, and stop at the first thing
+/// in the way.**
+///
+/// A *distance*, not a destination: the seed walks one cell at a time toward
+/// a drawn displacement and stops where it can no longer go, so it can never
+/// cross a wall and a plant in a crevice disperses no further than the
+/// crevice. That is what separates this from a teleport, which is the
+/// objection `Reports/plant-reseeding-2026-09-03.md` §1 raises against the
+/// cheapest form of this mechanism (*"a seed appearing eight cells away with
+/// nothing in between reads as magic"*).
+///
+/// **The walk is horizontal only.** The seed is a `Powder` and the fall is
+/// already the world's business — adding a vertical component here would be
+/// this function deciding something the CA sweep decides better.
+///
+/// Returns `sx` unchanged for a non-positive reach, which is every shipped
+/// species, so the whole mechanism costs one float comparison until somebody
+/// turns it on.
+fn launch_offset(world: &World, sx: i32, sy: i32, reach: f32) -> i32 {
+    if reach <= 0.0 {
+        return sx;
+    }
+    // Keyed on the landing cell rather than taken from the caller's `Rng`:
+    // that stream is borrowed and outlives this call, and its position on
+    // return is a measured property with a guard over it.
+    let mut rng = rng::stream(world.seed ^ SEED_LAUNCH_SALT, sx as u64, sy as u64, world.frame);
+    // Uniform on `[-reach, reach]`, so the *distribution* is symmetric and
+    // most seeds still land near the parent — an outcome is a distribution,
+    // not a binary, and a species that flings hard should still drop some at
+    // its feet.
+    let throw = ((rng.below(2_000) as f32 / 1_000.0 - 1.0) * reach).round() as i32;
+    let step = throw.signum();
+    let mut at = sx;
+    for _ in 0..throw.abs() {
+        let next = at + step;
+        if !world.is_empty(next, sy) {
+            break;
+        }
+        at = next;
+    }
+    at
 }
 
 /// **Bear one seed at a named cell, in a named material.**
@@ -7695,7 +7753,7 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
                 Behavior::Transpire { rate } => {
                     transpire(world, cx, cy, rate);
                 }
-                Behavior::Reproduce { seed_cost, reproductive_allocation: _, seed_maturity } => {
+                Behavior::Reproduce { seed_cost, reproductive_allocation: _, seed_maturity, seed_launch } => {
                     // **The number of seeds is carbon; only the placement
                     // is a roll.** This used to be the other way round —
                     // `seed_chance` decided the rate per mature cell and
@@ -7730,7 +7788,7 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
                         let affordable = if seed_cost > 0.0 { budget / seed_cost } else { 0.0 };
                         let bearers = shoot_cells.max(1) as f32;
                         let place_here = (affordable / bearers).clamp(0.0, 1.0);
-                        if budget >= seed_cost && rng.chance(place_here) && set_seed(world, cx, cy, organism_id, seed_cost, &mut rng) {
+                        if budget >= seed_cost && rng.chance(place_here) && set_seed(world, cx, cy, organism_id, seed_cost, seed_launch, &mut rng) {
                             if let Some(state) = world.organism_mut(organism_id) {
                                 state.reproductive_budget -= seed_cost;
                             }
@@ -10653,6 +10711,72 @@ The night factor belongs on income only -- see NIGHT_INCOME_FLOOR"
     /// Kept for the tests whose subject is free *water* rather than soil
     /// moisture -- a soil bed would supply the plant before its root ever
     /// reached the puddle, which is the confound rather than the mechanism.
+    /// **A seed thrown at a wall stops at the wall.** The property that
+    /// separates `seed_launch` from a teleport, which is the objection
+    /// `plant-reseeding-2026-09-03.md` §1 raises against the cheapest form of
+    /// a dispersal mechanism (*"a seed appearing eight cells away with nothing
+    /// in between reads as magic"*).
+    #[test]
+    fn a_flung_seed_cannot_cross_a_wall() {
+        let mut w = test_world();
+        w.seed = 3;
+        // A corridor two cells wide either side of the launch point, walled.
+        for x in 40..60 {
+            w.set(x, 51, Cell::new(material::STONE, 0));
+        }
+        w.set(52, 50, Cell::new(material::STONE, 0));
+        w.set(48, 50, Cell::new(material::STONE, 0));
+        // Whatever the throw, the seed can reach 49..=51 and no further.
+        for frame in 0..64u64 {
+            w.frame = frame;
+            let landed = launch_offset(&w, 50, 50, 20.0);
+            assert!((49..=51).contains(&landed), "a throw of 20 crossed a wall at frame {frame}: landed at {landed}");
+        }
+        // ...and the positive control: with the walls gone the same throws do
+        // travel, or this test passes for a mechanism that never fires.
+        w.set(52, 50, Cell::EMPTY);
+        w.set(48, 50, Cell::EMPTY);
+        let travelled = (0..64u64)
+            .filter(|&frame| {
+                w.frame = frame;
+                (launch_offset(&w, 50, 50, 20.0) - 50).abs() > 1
+            })
+            .count();
+        assert!(travelled > 8, "with the walls removed a reach of 20 moved the seed past one cell only {travelled} times in 64");
+    }
+
+    /// **At the shipped `seed_launch` of zero the throw is not merely small,
+    /// it does not happen** — so every stand measured before this existed
+    /// grows the same plant.
+    #[test]
+    fn a_zero_seed_launch_moves_nothing() {
+        let mut w = test_world();
+        w.seed = 3;
+        for frame in 0..64u64 {
+            w.frame = frame;
+            assert_eq!(launch_offset(&w, 50, 50, 0.0), 50, "a zero reach displaced a seed at frame {frame}");
+            assert_eq!(launch_offset(&w, 50, 50, -1.0), 50, "a negative reach displaced a seed at frame {frame}");
+        }
+        // The species files are the other half of that claim: if one of them
+        // ever authors a launch, this mechanism stops being inert and the
+        // stand hashes in this suite move. Better to be told here.
+        for i in 0..w.species.len() {
+            let id = organism::SpeciesId(i as u16);
+            for &ct in organism::PLANT_CELL_TYPES.iter() {
+                for b in w.species.get(id).behaviors(ct) {
+                    if let Behavior::Reproduce { seed_launch, .. } = b {
+                        assert_eq!(
+                            *seed_launch, 0.0,
+                            "{} authors a non-zero seed_launch -- intended, but it makes the mechanism live and \
+                             every stand baseline in this suite has to be re-taken",
+                            w.species.get(id).name
+                        );
+                    }
+                }
+            }
+        }
+    }
+
     /// **Does an override actually change what grows?** — the end-to-end
     /// positive control for `organism::ParamGenome`, and the one claim its
     /// unit tests cannot make.
@@ -11902,7 +12026,7 @@ The night factor belongs on income only -- see NIGHT_INCOME_FLOOR"
         place(&mut w, (50, 59), wood, parent, CellType::MatureBody, (4.0, 0.0));
 
         let mut rng = rng::stream(5, 6, 7, 8);
-        assert!(set_seed(&mut w, 50, 59, parent, 0.2, &mut rng), "the parent must manage to bear a seed");
+        assert!(set_seed(&mut w, 50, 59, parent, 0.2, 0.0, &mut rng), "the parent must manage to bear a seed");
 
         let child = (40..70)
             .flat_map(|x| (40..70).map(move |y| (x, y)))
@@ -11961,7 +12085,7 @@ The night factor belongs on income only -- see NIGHT_INCOME_FLOOR"
         let wood = w.materials.id_of("wood").expect("wood");
         place(&mut w, (45, 58), wood, parent, CellType::MatureBody, (4.0, 0.0));
         let mut rng = rng::stream(5, 6, 7, 8);
-        assert!(set_seed(&mut w, 45, 58, parent, 0.2, &mut rng), "the parent must manage to bear a seed");
+        assert!(set_seed(&mut w, 45, 58, parent, 0.2, 0.0, &mut rng), "the parent must manage to bear a seed");
 
         let child = (35..70)
             .flat_map(|x| (40..70).map(move |y| (x, y)))
@@ -12561,7 +12685,7 @@ The night factor belongs on income only -- see NIGHT_INCOME_FLOOR"
             // quietly shrink the sample.
             let (x, y) = (4 + (i as i32 % 48) * 4, 4 + (i as i32 / 48) * 4);
             let mut rng = rng::stream(parent as u64, x as u64, y as u64, i as u64);
-            if !set_seed(&mut w, x, y, parent, 1.0, &mut rng) {
+            if !set_seed(&mut w, x, y, parent, 1.0, 0.0, &mut rng) {
                 continue;
             }
             born += 1;
@@ -12812,7 +12936,7 @@ The night factor belongs on income only -- see NIGHT_INCOME_FLOOR"
         let mut born = 0;
         for i in 0..8 {
             let (x, y) = (10 + i * 6, 20);
-            if set_seed(&mut w, x, y, parent, 1.0, &mut rng) {
+            if set_seed(&mut w, x, y, parent, 1.0, 0.0, &mut rng) {
                 born += 1;
             }
         }
