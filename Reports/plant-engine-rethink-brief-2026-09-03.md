@@ -38,15 +38,6 @@ incremental suggestions."*
   (`CLAUDE.md` carries the owner's standing authorisation for both). Leave the
   rest as a report with its numbers.
 
-**One thing to hold back on**, and it is the only one: do not ship a change
-that reallocates a weighted budget without a card in the queue showing both
-arms. `Reports/why-changes-cost-so-much-2026-08-27.md` is the scar — reshaping
-`phototropism_dir`'s codomain, which is the *repair `dead-ends.md` itself
-prescribes*, gave the growth weights a direction they had never had; trees
-spread instead of climbing, never reached `seed_maturity`, and **reproduction
-went to zero**, with every gate green but one. Proposing that class of change
-is wanted. Shipping it unseen is not.
-
 ---
 
 ## The provocation: where the design currently lives
