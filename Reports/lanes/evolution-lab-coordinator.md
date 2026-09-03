@@ -307,6 +307,31 @@ overturned:
 of 3.81, still gated on *any* chunk being awake anywhere); then the positional
 RNG, which unlocks the region work.
 
+## Round seven, 2026-09-03 — the frame cost re-measured, and the target has moved
+
+*Owner: "performance has gotten a lot worse." It has, it reproduces, and it is
+**not** a regression in the speed work — the account is
+[`../evolution-lab-frame-cost-2026-09-01.md`](../evolution-lab-frame-cost-2026-09-01.md)
+§9. Three things bind on whatever comes next:*
+
+- **The default bed reports the regression as a 1.3x improvement.** `bin/lab.rs`
+  opens *empty* and the owner paints the population in, so the 8-founder bed
+  every lab measurement in this repo uses is not the bed being played. Measure
+  on **`founders=128 colonies=1`, 12,000 frames**; that is where it shows.
+- **Every phase is unchanged except `active_sites`, which is 4.5x** (0.49 ->
+  2.22 ms). The CA sweep, the field and the moisture channel all held across 81
+  commits. Inside it, the scheduler is 0.3 ms of the 1.7 ms growth and
+  **`plant::step_organisms` is the other 1.4** -- once per organism, never
+  optimised, ~11x.
+- **Two terms multiply and both are real: 2.7x more organisms (441 -> 1,174),
+  each 1.7x dearer.** The average organism is *smaller* (7.2 cells against
+  9.1), so the per-organism rise is new work rather than more cells. This is the
+  germination fix and seed dispersal doing what they were built to do; the
+  optimisation target has simply moved off the sweep and onto the plants.
+
+**Also in play now:** organism slots at **1,239 of 4,095** on a medium bed at
+12,000 frames and still climbing.
+
 ## Deliberately not being built yet
 
 The score and the economy — the guide's Gate 5. **Gate 2, does selection have

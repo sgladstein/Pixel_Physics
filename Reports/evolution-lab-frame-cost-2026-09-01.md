@@ -369,3 +369,121 @@ and the control arm passed on all three. The bed now starts from 12 founders
 2. **The field's all-or-nothing early-out.** Still the largest single item at
    1.25 ms of 3.81, and still gated on *any* chunk being awake anywhere.
 3. **The positional RNG**, which unlocks §5's region work.
+
+
+---
+
+## 9. Re-measured on main, 2026-09-03 — the target has moved
+
+*Owner: "there have been lots of changes since this session was last active and
+performance has gotten a lot worse." **It has, it reproduces, and it is not a
+regression in any of the work above** — every phase this report optimised is
+unchanged. What grew is the plant line's per-organism work, because the box got
+much more fertile.*
+
+**81 commits** landed between PR #212's merge (`9652ba6b`) and `d150e266`:
+leaf clumps with shape (#224), the genome's reach and the species file as a
+starting point (#223), seed dispersal (`seed_launch`), lighting the whole bench
+and the free-germination fix (#222), plus the creature line's armour, severing
+and curvature work.
+
+### The default bed got *faster*, which is why this needs a heavy bed to see
+
+Same 8-founder / 1-colony bed, 8,000 frames, that §8 was measured on:
+
+| | tick | awake | field | plant cells | dial |
+|---|---|---|---|---|---|
+| `9652ba6b` (§8) | 3.81 ms | 8.3 | 1.25 | 1,322 | 4.4x |
+| `d150e266` | **2.89 ms** | 8.7 | 0.93 | **2,039** | **5.8x** |
+
+**A measurement on the default bed would have reported "no regression" and been
+useless.** The bed the owner plays is not this one: `bin/lab.rs` opens
+*empty* and they paint the population in, so the config that matters is a full
+box.
+
+### On a full box it reproduces, paired, two runs a side
+
+`width=512 height=320 soil=96 founders=128 colonies=1 seed=1`, 12,000 frames,
+both binaries built from the same harness source, bed echo identical on both
+sides:
+
+| | tick | worst frame | `ca_sweep` | **`active_sites`** | `field` | dial@60Hz |
+|---|---|---|---|---|---|---|
+| `9652ba6b` | 3.97 ms | 42–53 ms | 2.13 | **0.49** | 1.07 | 3.3x |
+| `d150e266` | **5.67 ms** | **168–172 ms** | 2.17 | **2.22** | 1.15 | **2.3x** |
+
+**Every phase is unchanged except `active_sites`, which is 4.5x.** The CA
+sweep, the field and the moisture channel all hold — the work in §5 and §8 did
+not come undone.
+
+The worst frame tripling is real in the sense that it reproduced on both runs
+of both arms (171.7 / 168.5 against 52.7 / 42.0), but `mean x frames` does not
+pin it (653:1), so by this file's own rule it is an order statistic over many
+similar frames and **must not be quoted as a number** — only as a direction to
+look, which is what §9.2 does.
+
+### 9.1 Where inside `active_sites`, and it is not the scheduler
+
+`World::step_active_sites` is two calls. `SCHED_PASS=4000` times the first:
+
+| at frame 12,000 | `9652ba6b` | `d150e266` |
+|---|---|---|
+| `scheduler::step` total | 0.35 ms | 0.66 ms |
+| ...of which `organism` | 0.06 / 87 sites | 0.16 / 290 sites |
+| ...of which `creature` | 0.23 / 40 | 0.40 / 61 |
+| **`plant::step_organisms`** (the remainder) | **~0.14 ms** | **~1.56 ms** |
+
+**The scheduler accounts for 0.3 ms of the 1.7 ms growth. The other 1.4 ms is
+`plant::step_organisms`, which runs once per organism**, and that is ~11x.
+
+### 9.2 Why: the box is far more fertile, and each organism costs more
+
+Same bed, frame 12,000:
+
+| | `9652ba6b` | `d150e266` | |
+|---|---|---|---|
+| live organisms | 441 | **1,174** | 2.7x |
+| plant cells | 4,020 | 8,401 | 2.1x |
+| standing seeds | 719 | **1,828** | 2.5x |
+| leaf cells | 1,112 | **2,359** | 2.1x |
+| organism slots used | 482 | **1,239** | of a 4,095 cap |
+| **cost per organism** | 1.11 us | **1.89 us** | **1.7x** |
+| cells per organism | 9.1 | 7.2 | *smaller* |
+
+Two independent terms multiply: **2.7x more organisms, each 1.7x dearer.** And
+the per-organism rise is not "organisms got bigger" — the average organism is
+**smaller** now (7.2 cells against 9.1), so the extra cost is new per-organism
+work, not more cells to walk.
+
+**This is the plant line doing its job**, not a defect: the germination fix and
+seed dispersal are what a more alive box looks like, and the owner asked for a
+box that lives. What it means for the dial is that **the optimisation target
+has moved.** This report's whole subject — soil moisture waking chunks, the CA
+sweep's dirty regions, the field's solve gate — was correct for a box holding
+441 organisms and is now the *second* problem.
+
+### 9.3 What the next session should do, in the order the evidence supports
+
+1. **Profile `plant::step_organisms` per organism.** It is 1.56 ms of a 5.67 ms
+   tick and nothing has ever been optimised inside it. The 1.7x per-organism
+   rise is unattributed — 81 commits landed and this measurement does not say
+   which. A bisect over the plant commits with the heavy bed above is the
+   direct route; `SCHED_PASS` already separates the scheduler out, so the
+   remainder is the signal.
+2. **The organism-slot ceiling is now in play.** 1,239 of 4,095 used at 12,000
+   frames on a bed the owner would call medium, still climbing. Whatever the
+   cap does when it binds is untested at this population.
+3. **Then the two items §8 left**: a `ChunkView` over the moisture channel
+   (~1.0 ms), and the field's all-or-nothing early-out (~1.15 ms, still gated
+   on *any* chunk being awake anywhere).
+4. **Measure on a full box, never the default one.** The default bed reports
+   this regression as a 1.3x *improvement*. `founders=128 colonies=1` at 12,000
+   frames is the config that shows it.
+
+### 9.4 Still open from §8
+
+The blind A/B asking whether the ground still *looks* right after moisture
+moved off the sweep (card `20260902T013339718Z-fcfc2c`) was never opened. It is
+still queued and still answerable. If the verdict says the shipped arm reads
+wrong, `PIXEL_PHYSICS_MOISTURE=sweep` restores the old placement and flipping
+`update::moisture_phase_enabled`'s default is a one-line change.

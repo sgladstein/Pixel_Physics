@@ -1990,7 +1990,14 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   that the measurement could not — a phase written into `frame::step` is
   invisible to the **155 call sites** that drive the world through a CA driver
   directly, and a chunk-local prefilter over the moisture region is *slower*
-  because 88% of that region is soil.
+  because 88% of that region is soil. **§9 re-measures it on main 2026-09-03**
+  after 81 commits: the owner's "performance got a lot worse" reproduces and is
+  **not** a regression in any of this -- every phase holds except
+  `active_sites`, which is 4.5x because the box got 2.7x more fertile and each
+  organism 1.7x dearer. Its most transferable finding is a measurement trap:
+  **the default 8-founder bed reports that regression as a 1.3x improvement**,
+  because `bin/lab.rs` opens empty and the bed being played is not the bed being
+  measured.
 - [plant-reseeding-2026-09-03.md](plant-reseeding-2026-09-03.md) —
   **measured 2026-09-03.** Answers the owner's two questions about why the
   lab's plants never spread. **Q1: no, a plant cannot evolve better seed

@@ -5365,6 +5365,18 @@ was invisible to the **155 call sites** in this tree that drive the world by
 calling a CA driver directly. Weather and spring are in those same two
 functions for the same reason.
 
+**Re-measured 2026-09-03, and the target has moved.** After 81 commits the
+owner reported the lab slower, and it reproduces — but **not** in any of the
+above: on a full box (`founders=128`, 12,000 frames) every phase holds except
+`active_sites`, which goes **0.49 → 2.22 ms**. Two terms multiply and both are
+the plant line working as intended: **2.7x more organisms** (441 → 1,174, from
+the germination fix and seed dispersal) each **1.7x dearer**, with the average
+organism *smaller* than before. `plant::step_organisms` — once per organism,
+never optimised — is 1.4 ms of that 1.7. **Measure this on a full box, never
+the default one**: the default 8-founder bed reports the same change as a 1.3x
+*improvement*, because `bin/lab.rs` opens empty and the bed being played is not
+the bed being measured. Report §9.
+
 **Known limitations.** The moisture pass still reaches its cells through
 `World`, which is a `HashMap` probe per access — ~300 ns per soil cell against
 a `ChunkView`'s array index — so roughly another 1.0 ms of the 3.81 is sitting
