@@ -23,13 +23,16 @@ mutation can leave**. Measured across the seven species that grow: **3 of 70
 (species x slot) cells are caged**, 60 live, and 7 are slot 9, which has no
 consumer at all. §1.
 
-**Q: how much of the difference between two plants is their genome?** A stand
-of clones is **99% as variable in size** as a stand of different genomes:
-broad-sense heritability of plant size is **H2 = 0.01**, of height 0.20, of
-width 0.16. Composition is the half that *is* genetic — foliage share reads
-**H2 = 0.55**. So the engine's most salient visual property, size, carries
-almost no genetic signal, and the owner's *"clones of the same plant end up
-growing very different"* is not an impression: it is the dominant term. §2.
+**Q: how much of the difference between two plants is their genome?** Very
+little of the part a person notices first. Broad-sense heritability of plant
+**size** is **0.03 median over four reference genomes** (0.00 / 0.01 / 0.05 /
+0.38), against a positive control — the widest genetic contrast the engine can
+express — reaching **0.44–0.74** on the same descriptor. So the column is not
+blind; the genetic variation the engine actually produces is just small against
+its developmental noise. Composition is the heritable half (foliage share,
+median 0.61), and **crown width is not reachable at all**: its positive control
+reads 0.000 on all four. The owner's *"clones of the same plant end up growing
+very different"* is not an impression, it is the dominant term. §2.
 
 **That second result reframes the first.** Widening what a genome *can* express
 buys nothing if selection cannot see what it *did* express. A cage matters less
@@ -262,29 +265,52 @@ broken arm read clone-arm CV on height at 0.376, the fixed one at 0.213.
 
 ### 2.2 The result
 
-`herb`, 16 founders, 12,000 frames, four world seeds pooled, `ref=0`:
+`herb`, 16 founders, 12,000 frames, four world seeds pooled per row, and the
+whole table repeated for four different **reference genomes** — because one
+genome is one sample, and a founder sitting near a threshold in the economy
+makes every clone of it sit there too.
 
-| descriptor | Var(clone)/Var(pop) | **H2** | H2 of the positive control |
-|---|---|---|---|
-| cells | 0.987 | **0.013** | 0.591 |
-| height | 0.801 | 0.199 | 0.618 |
-| width | 0.839 | 0.161 | 0.000 |
-| slenderness | 0.845 | 0.155 | 0.139 |
-| **foliage share** | 0.449 | **0.551** | **0.750** |
-| root share | 0.691 | 0.309 | 0.348 |
-| foliage centre | 0.745 | 0.255 | 0.559 |
+`H2 = 1 - Var(clone)/Var(pop)`:
 
-Read it as: **a stand of genetically identical plants is 99% as variable in
-size as a stand of different genomes.** Height and width are barely better.
-The genome shows up in *composition and proportion* — what fraction of the
-plant is leaf, what fraction is root — and it is nearly invisible in
-everything a person would call size.
+| ref genome | cells | height | width | slenderness | foliage share | root share | foliage centre |
+|---|---|---|---|---|---|---|---|
+| 0 | **0.013** | 0.199 | 0.161 | 0.155 | 0.551 | 0.309 | 0.255 |
+| 1 | **0.054** | 0.470 | 0.226 | 0.253 | 0.673 | 0.409 | 0.403 |
+| 2 | **0.000** | 0.534 | 0.315 | 0.163 | 0.313 | 0.082 | 0.378 |
+| 3 | 0.376 | 0.575 | 0.227 | 0.427 | 0.669 | 0.630 | 0.278 |
+| **median** | **0.034** | 0.502 | 0.227 | 0.208 | 0.610 | 0.359 | 0.328 |
+| *positive control* | *0.44 – 0.74* | *0.62 – 0.80* | ***0.000 x4*** | *0.14 – 0.42* | *0.62 – 0.82* | *0.13 – 0.65* | *0.56 – 0.65* |
+
+Three things to read out of it.
+
+**Plant size is the least heritable thing the engine produces within a
+species** — median `H2 = 0.03`, and three of the four reference genomes read
+0.00–0.05. The last row is what makes that a statement about the *world*
+rather than about the descriptor: the widest genetic contrast the engine can
+express moves cell count clearly (0.44–0.74), so `cells` is not a blind
+column. **The natural genetic variation this engine produces is simply small
+against its developmental noise**, which is exactly what `base * (1 +
+draw*variance)` predicts — a band of +/-15% to +/-70% around one species mean.
 
 **Which inverts the standing complaint.** The owner's verdict three separate
 times has been *"the biggest differences are still size and colour"*. That is
-true *between species*, because the species files differ in their turgor
-ceilings and their palettes. Within a species it is exactly backwards: size is
-the least heritable thing the engine produces.
+true **between** species, because the species files differ in their turgor
+ceilings and their palettes. **Within** a species it is backwards.
+
+**And crown width is not reachable at all.** `width`'s positive control reads
+**0.000 on all four reference genomes** — pushing the genome to both of its
+extremes does not widen the spread of crown width beyond what a stand of
+clones already shows. That matters more than it looks:
+`plant-reseeding-2026-09-03.md` §1 identifies crown width as *"the one indirect
+lever"* the genome has on seed dispersal, since a wider crown rains seed over a
+wider footprint. It is measured here as a lever the genome cannot pull.
+
+**How much the reference genome matters is itself the finding behind the
+finding.** `ref=3` reads 0.376 on cells where the other three read ~0.03, which
+means the *environmental* variance a genome experiences depends on the genome —
+some genomes are developmentally stable and some are not. Any future claim of
+the form "this change made plants more consistent" has to be made against
+several reference genomes or it is a claim about one of them.
 
 ### 2.3 Where the scatter comes from, and the part that is not environmental
 
@@ -514,6 +540,24 @@ cannot accumulate the *coordinated set* of overrides a degenerate optimum would
 need. The one address that does pile up at a bound is `juvenile_size`, driven
 to zero — a lineage discarding its juvenile stage, which is exactly the free
 lever the inventory predicted.
+
+**Turning it on does not break the stand, which is a different question and is
+also answered.** `herb`, 8 founders, 30,000 frames, three world seeds, paired
+at rate 0 against rate 0.3 — the same binary, the rate from the environment:
+
+| world seed | established, rate 0 | rate 0.3 | seeds set, rate 0 | rate 0.3 |
+|---|---|---|---|---|
+| 1 | 103 | **110** | 6,438 | 6,204 |
+| 2 | 105 | 100 | 7,024 | **7,551** |
+| 3 | 87 | 77 | 6,337 | 5,290 |
+| **pooled** | 295 | 287 (−2.7%) | 19,799 | 19,045 (−3.8%) |
+
+Two seeds down, one up, both within the spread this bed produces from world
+seed alone. **This A/B is also the night's second stale-binary catch**: run
+before `cargo build --release --examples`, the two rates produced six
+byte-identical censuses, because `plant_probe` had never been rebuilt after the
+mechanism landed and the arms were the same binary. The tell was the standing
+one.
 
 **What that means for the rate.** Turning it on today would not produce the
 degeneracy, because nothing in this bed lives long enough. It would also not

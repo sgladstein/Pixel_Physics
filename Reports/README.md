@@ -2051,6 +2051,45 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   it by hand in `87a2c35c` — which is the brief's own autonomy clause applied
   to the brief. `why-changes-cost-so-much-2026-08-27.md` survives in the
   reading map as evidence a session may weigh, not as a gate it must pass.
+- [plant-engine-rethink-2026-09-03.md](plant-engine-rethink-2026-09-03.md) —
+  **measured and built 2026-09-03**, the overnight answer to the brief above.
+  Two instruments and one mechanism. **`examples/genome_reach` censuses what a
+  lineage can reach**: the continuous genome is `base * (1 + draw*variance)`
+  with both `base` and `variance` authored per species and never inherited, so
+  the reachable set is a closed interval fixed when the `.ron` is written and
+  **an authored zero is a cage** — 3 of 70 (species x slot) cells are caged,
+  60 live, 7 have no consumer at all, and `moss` has no `Grow` so **none** of
+  its ten slots is expressed. Its `grow=1` arm widens one slot to its maximum
+  and hashes the whole grid, which corrected the static table before it landed:
+  **a slot can have two consumers**, and slot 1 divides `branch_priming` as
+  well as multiplying `branch_chance`, so the three species reported unable to
+  evolve a branching root system can. **`examples/clone_variance` splits a
+  stand's spread into genome and position**, and is the reply to the owner's
+  *"clones of the same plant end up growing very different"*: **broad-sense
+  heritability of plant size is 0.013 / 0.054 / 0.000** over three reference
+  genomes, against a positive control reaching 0.75–0.82 on foliage share — so
+  a clone stand is 99% as variable in size as a stand of different genomes,
+  composition is the heritable half, and **size is the least heritable thing
+  the engine produces within a species**. The consequence, which reframes the
+  appearance line: an architectural lever can fire, be counted and still be
+  invisible because four fifths of what the eye sees on a contact sheet is
+  developmental noise — a second mechanism for `plant-appearance-design.md`'s
+  outcome that was never on the list. **Ships `organism::ParamGenome`**: every
+  scalar in a species' behaviour table as a heritable per-individual override
+  that *replaces* the authored number rather than scaling it, so an authored
+  zero is a starting point — **70 continuous slots become 804 addresses**,
+  with units taken from the corpus rather than a table and bounds from a
+  `ParamKind` that cannot collapse to a point. Founders carry none, so at its
+  shipped rate of **0.0** the engine is bit-identical to before it existed. The
+  rate is zero deliberately and §5.4 says what must be measured first: a free
+  lever made heritable produces uniformity, nine parameters are inventoried
+  free, and at rate 0.3 nothing piles at a bound except `juvenile_size` because
+  the pedigree is only ~2.3 generations deep. Also re-tests one stale verdict —
+  **foliage share is 43 / 42 / 41 / 37 / 31%, not ~5%** — and answers what
+  separates real plants at this pixel scale, where the cheapest unbuilt lever
+  is the **shape of a leaf cluster** (ink, not a label) and the second is a
+  node underground, which every species forbids by authoring
+  `plastochron: [0]` on its root.
 
 ## Licensing and distribution
 

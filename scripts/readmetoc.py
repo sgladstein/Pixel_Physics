@@ -129,6 +129,7 @@ TOPICS = {
         "M16 status",
         "Plant lines merged: the genome, and the ecology",
         "Inheritance status \u2014 the growth program has no fallback under it",
+        "Parameter-genome status \u2014 a species file is a starting point, and it ships inert",
         "The economy re-derived: standing tissue costs something",
         "Plants that stop: organs, determinacy, and a price on both",
         "The generation loop: plants die, seeds expire, slots come back",

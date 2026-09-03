@@ -7608,8 +7608,8 @@ mod tests {
     #[test]
     fn a_full_parameter_genome_declines_a_new_address() {
         let mut g = ParamGenome::default();
-        for i in 0..MAX_PARAM_OVERRIDES {
-            assert!(g.set(CellType::GrowingTip, ALL_PARAM_IDS[i], 0, 1.0), "override {i} should fit");
+        for (i, &param) in ALL_PARAM_IDS.iter().take(MAX_PARAM_OVERRIDES).enumerate() {
+            assert!(g.set(CellType::GrowingTip, param, 0, 1.0), "override {i} should fit");
         }
         assert_eq!(g.len(), MAX_PARAM_OVERRIDES);
         assert!(

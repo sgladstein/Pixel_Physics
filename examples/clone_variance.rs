@@ -116,6 +116,10 @@ impl Shape {
     }
 }
 
+/// One organism's running census while the grid is scanned: body cells, leaf
+/// cells, the bounding box, and the summed leaf row for the foliage centre.
+type Tally = (u32, u32, i32, i32, i32, i32, i64);
+
 /// Census one organism off the grid.
 ///
 /// Off the grid rather than off `OrganismState`, the way `plant_probe` and
@@ -124,7 +128,7 @@ impl Shape {
 /// it.
 fn shapes(w: &World, ids: &[(u16, i32, i32)]) -> Vec<Shape> {
     let Some(b) = w.bounds() else { return Vec::new() };
-    let mut acc: std::collections::HashMap<u16, (u32, u32, i32, i32, i32, i32, i64)> = std::collections::HashMap::new();
+    let mut acc: std::collections::HashMap<u16, Tally> = std::collections::HashMap::new();
     for y in b.min_y..=b.max_y {
         for x in b.min_x..=b.max_x {
             let c = w.get(x, y);

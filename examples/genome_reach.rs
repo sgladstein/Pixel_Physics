@@ -420,7 +420,7 @@ fn param_drift() {
     for o in &owners {
         let Some(g) = w.organism_params(*o) else { continue };
         *depth_hist.entry(g.len()).or_default() += 1;
-        if g.len() > 0 {
+        if !g.is_empty() {
             carriers += 1;
         }
         for ov in g.overrides() {
@@ -454,7 +454,7 @@ fn param_drift() {
     println!();
     println!("  {:<44} {:>6} {:>10} {:>10} {:>10} {:>8}", "address", "n", "authored", "median", "bound hi", "at bound");
     let mut ranked: Vec<_> = rows.into_iter().collect();
-    ranked.sort_by(|a, b| b.1 .0.cmp(&a.1 .0));
+    ranked.sort_by_key(|(_, (n, _, _))| std::cmp::Reverse(*n));
     for (key, (n, mut values, at_bound)) in ranked {
         values.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
         let med = values[values.len() / 2];
@@ -502,7 +502,7 @@ fn static_table() {
         let shoot = variance_vector(&w, *id, CellType::GrowingTip);
         let root = variance_vector(&w, *id, CellType::RootTip);
         println!("--- {name} ---");
-        println!("  {:>2} {:<7} {:>26} {:>6} {:>22}  {}", "#", "slot", "authored base", "var", "reachable phenotype", "verdict");
+        println!("  {:>2} {:<7} {:>26} {:>6} {:>22}  verdict", "#", "slot", "authored base", "var", "reachable phenotype");
         for slot in 0..organism::GENOTYPE_TRAITS {
             let variance = match variance_owner(slot) {
                 CellType::RootTip => root[slot],
@@ -629,7 +629,7 @@ fn static_table() {
     // or a sucker. `Reports/plant-reseeding-2026-09-03.md` names it as "one
     // authored number away and no species has taken it".
     println!("  authored zeros -- the ones the continuous genome caged, and the ones it never addressed:");
-    println!("  {:<10} {:<20} {:>9} {:>20}  {}", "species", "parameter", "authored", "now reachable", "was");
+    println!("  {:<10} {:<20} {:>9} {:>20}  was", "species", "parameter", "authored", "now reachable");
     for (name, id) in &species {
         for (ct, param, tier, label) in [
             (CellType::GrowingTip, organism::ParamId::BranchChance, 0u8, "shoot branch_chance"),
@@ -680,7 +680,6 @@ fn static_table() {
 
 /// One arm of the widening test.
 struct Arm {
-    label: String,
     hash: u64,
     cells: u32,
     organisms: usize,
@@ -703,7 +702,6 @@ fn census(w: &World) -> (u32, usize) {
 }
 
 fn run_arm(
-    label: String,
     species_name: &str,
     founders: usize,
     frames: u64,
@@ -740,7 +738,7 @@ fn run_arm(
         w.step_fields();
     }
     let (cells, organisms) = census(&w);
-    Arm { label, hash: world_hash(&w), cells, organisms }
+    Arm { hash: world_hash(&w), cells, organisms }
 }
 
 fn dynamic_arms() {
@@ -783,7 +781,7 @@ fn dynamic_arms() {
         "  arm = the same scene with slot s's genotype_variance set to {wide}; everything else identical, no extra draws consumed."
     );
 
-    let base = run_arm("baseline".into(), &species_name, founders, frames, worldseed, None);
+    let base = run_arm(&species_name, founders, frames, worldseed, None);
     println!("  baseline: hash {:#018x}  organism cells {}  organisms {}", base.hash, base.cells, base.organisms);
     if base.cells == 0 {
         println!("REFUSING: the baseline grew nothing, so every arm would read identical and the page would be a row of false nulls.");
@@ -791,10 +789,10 @@ fn dynamic_arms() {
     }
 
     println!();
-    println!("  {:>2} {:<7} {:>16} {:>18} {:>8} {:>6}  {}", "#", "slot", "static verdict", "hash", "cells", "orgs", "moved?");
+    println!("  {:>2} {:<7} {:>16} {:>18} {:>8} {:>6}  moved?", "#", "slot", "static verdict", "hash", "cells", "orgs");
     let mut moved = [false; organism::GENOTYPE_TRAITS];
     for slot in 0..organism::GENOTYPE_TRAITS {
-        let a = run_arm(format!("slot{slot}"), &species_name, founders, frames, worldseed, Some((slot, wide)));
+        let a = run_arm(&species_name, founders, frames, worldseed, Some((slot, wide)));
         moved[slot] = a.hash != base.hash;
         println!(
             "  {:>2} {:<7} {:>16} {:#018x} {:>8} {:>6}  {}",
