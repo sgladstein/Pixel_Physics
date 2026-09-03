@@ -949,6 +949,72 @@ Named in §4 and not started.
 
 ---
 
+### 6.5 The dispersal verb — measured, designed, not built
+
+**Everything below is the answer to *can this step demonstrate itself*, asked
+before building anything** (`CLAUDE.md`). The phase that preceded this report
+spent itself on three architectural levers that all fired perfectly and moved
+nothing anyone could see, so the guard is to check the channel a proposed
+mechanism would read *before* writing the mechanism.
+
+**Is there wind where a seed falls?** `wind_probe -- velocity=4000` censuses
+`field_at(x, y).vx` over the rows above **each column's own surface**, so the
+terrain decides where the band is rather than a fixed row. On `rolling`, three
+seeds, against the gas rule's own `WIND_BIAS_THRESHOLD` (0.01) rather than a
+new number:
+
+| | over threshold | max \|vx\| | p50 | p99 |
+|---|---|---|---|---|
+| GALE seed 1 | 919/1920 (**47.9%**) | 1.756 | 0.0046 | 1.683 |
+| GALE seed 3 | 686/1920 (**35.7%**) | 1.697 | 0.0000 | 1.571 |
+| GALE seed 7 | 947/1920 (**49.3%**) | 2.867 | 0.0059 | 2.824 |
+| CLEAR — control | 0/1920 (**0.0%**) | 0.000 | 0.000 | 0.000 |
+
+Three readings, and the third is the one that shapes the design:
+
+- **The wind is real down there.** A third to a half of the cells a seed passes
+  through are windy enough for the threshold its consumer would use.
+- **It never reaches full strength.** Nothing hits `WIND_BIAS_FULL_SPEED`
+  (4.0), so a mechanism scaled to that ramp runs permanently in its lower half.
+  Either scale to the measured range or accept a weak effect deliberately.
+- **It is concentrated, not ambient** — median ~0.005 against a p99 of 1.5–2.8.
+  A channel that is quiet almost everywhere and strong in a few places
+  disperses seeds *in a few places*, which is what dispersal wants and is a
+  better answer than a uniform breeze would have been.
+
+The `Pin::Clear` arm reads **exactly 0.0000** on every seed and is not
+decoration: `field::SETTLE_EPSILON_VELOCITY` means still air settles *near*
+rather than at zero — which is why `WIND_BIAS_THRESHOLD` exists at all — so
+without a calm arm on the same terrain for the same frames, the GALE row cannot
+be told from the solver's own residue.
+
+**And the lever is the move ordering, not the coin.** This is the part that
+would have been got wrong. `update_powder` picks `(first, second)` with a fair
+coin, and that coin decides only the *diagonal*; the straight-down move is
+tried first and always succeeds in open air. **So biasing the coin would be a
+no-op for a seed in free fall** — the exact *which pixels does this lever move*
+trap, and `update_gas`'s own `MAX_LEAN_CHANCE` comment says as much about its
+own mechanism: *"without this the whole mechanism is a no-op in open air"*.
+
+So the shape, when someone picks this up:
+
+- A wind-borne powder tries the **downwind diagonal before straight down**,
+  mirroring `wind_biased_order`'s `lean` exactly.
+- Opted in by a `#[serde(default)]` field on `MaterialDef`, mirrored into the
+  runtime `Material` and tested at `update_powder`'s dispatch site where the
+  `Cell` is already in hand — `CLAUDE.md`'s *guard hot-path work at the call
+  site*, and `clings_to_wood` is the precedent to copy. Every other powder in
+  the world then pays one `Vec` index.
+- **No RNG draw at all below threshold**, so a calm world stays bit-identical
+  and that is the negative control: a world hash unchanged under `Pin::Clear`
+  proves the change cannot touch a still day.
+- **No `PREVAILING_DRIFT` for powders.** A constant would slide every seed one
+  way for ever, and would destroy that bit-identical guarantee.
+
+**Not attempted here.** It reaches every forest in the outdoor game, and the
+frame-cost question — whether a wind-borne powder keeps chunks awake — has not
+been measured.
+
 ## 7. What to do next, in the order the evidence supports
 
 1. **Post §2's result to the owner and get a verdict on the noise floor.** It
@@ -994,6 +1060,9 @@ Named in §4 and not started.
 6. **Then the dispersal *verb*.** §6.1 built the trait; what it does not build
    is something the player turns on. Wind on light powders is the candidate,
    and `dead-ends.md`'s reverted steady-wind entry says it has to ride gusts.
+   **The prerequisite is now measured and the design is settled — see §6.5.**
+   It was not started, and the reason is that the session ran out rather than
+   that anything blocks it.
 
 ---
 

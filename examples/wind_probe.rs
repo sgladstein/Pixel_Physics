@@ -81,6 +81,10 @@ fn main() {
         gust_census(&preset, seed, gusts);
         return;
     }
+    if let Some(n) = std::env::args().find_map(|a| a.strip_prefix("velocity=").map(|v| v.parse::<u64>().expect("velocity"))) {
+        velocity_census(&preset, seed, n);
+        return;
+    }
 
     let world = build(&preset, seed);
     println!("  x     surf  fetch   shelter  prominence   exposure");
@@ -270,5 +274,98 @@ fn gust_census(preset: &str, seed: u64, frames: u64) {
     println!(
         "  strongest gust: frame {} at x={} over exposure {:.3}",
         strongest_at.0, strongest_at.1, strongest_at.2
+    );
+}
+
+/// **Is there any wind at seed height?** — the prerequisite for a wind-borne
+/// powder, asked before building one.
+///
+/// `CLAUDE.md`: *check that a planned step can demonstrate itself, before
+/// promising it will*. `Reports/plant-engine-rethink-2026-09-03.md` §7 item 6
+/// proposes giving a falling seed the same downwind bias `update_gas` already
+/// gives a gas cell, so that dispersal distance varies with the weather. The
+/// whole proposal rests on one unmeasured quantity: **does the field's
+/// velocity channel carry anything in the rows a seed actually falls
+/// through?** Not in the sky, where the gust is delivered, and not next to a
+/// blast — near the ground, in ordinary windy weather.
+///
+/// It reads the gas rule's own scale rather than copying its numbers, which
+/// is the point of comparing against it: `update::WIND_BIAS_THRESHOLD` is
+/// where a gas stops treating the wind as numerical residue, and
+/// `update::WIND_BIAS_FULL_SPEED` is where its bias saturates. A powder rule
+/// of the same shape would behave the same way, so what those two thresholds
+/// catch here is what such a rule would deliver.
+///
+/// **The negative control runs every time and is not optional.** A pinned
+/// `Clear` sky has `wind: 0.0`, so no gust ever fires and the same census
+/// must read essentially zero. Without it a windy reading proves only that
+/// the field has numbers in it — the solver settles to *near* zero rather
+/// than to zero, which is exactly why `WIND_BIAS_THRESHOLD` is not zero.
+///
+/// ```text
+/// cargo run --release --example wind_probe -- velocity=4000 preset=rolling seed=7
+/// ```
+fn velocity_census(preset: &str, seed: u64, frames: u64) {
+    use pixel_physics::sim::parallel;
+    use pixel_physics::sim::update;
+
+    // How far above the surface a falling seed is sampled. A seed is borne
+    // from a crown and falls; the rows that decide where it lands are the
+    // ones between the crown and the ground, so the band is measured from
+    // the surface upward rather than at one height.
+    const BAND: i32 = 30;
+
+    println!(
+        "  band = surface-1 .. surface-{BAND}, every {}th column | gas-rule scale: threshold {} full-speed {} prevailing drift {}",
+        8,
+        update::WIND_BIAS_THRESHOLD,
+        update::WIND_BIAS_FULL_SPEED,
+        update::PREVAILING_DRIFT,
+    );
+    for (label, pin) in [("GALE (wind 0.95)", weather::Pin::Gale), ("CLEAR -- control", weather::Pin::Clear)] {
+        let mut world = build(preset, seed);
+        world.seed = seed;
+        world.set_weather_pin(pin);
+        for _ in 0..frames {
+            parallel::step(&mut world);
+            world.step_active_sites();
+            world.step_fields();
+        }
+        let mut mags: Vec<f32> = Vec::new();
+        for x in (0..WIDTH).step_by(8) {
+            let Some(surf) = surface(&world, x) else { continue };
+            for dy in 1..=BAND {
+                let y = surf - dy;
+                if y < 0 {
+                    continue;
+                }
+                mags.push(world.field_at(x, y).vx.abs());
+            }
+        }
+        mags.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let n = mags.len().max(1);
+        let mean = mags.iter().sum::<f32>() / n as f32;
+        let at = |q: f32| mags[((n - 1) as f32 * q) as usize];
+        // The two counts are the answer, not the mean: what a bias rule
+        // delivers is decided per cell, so what matters is how many cells
+        // are over the threshold at all, and how many are anywhere near
+        // saturation.
+        let over = mags.iter().filter(|&&v| v > update::WIND_BIAS_THRESHOLD).count();
+        let full = mags.iter().filter(|&&v| v >= update::WIND_BIAS_FULL_SPEED).count();
+        println!(
+            "  {label:<18} |vx| mean {mean:.4} p50 {:.4} p90 {:.4} p99 {:.4} max {:.4} | over threshold {over}/{n} ({:.1}%) at full speed {full} ({:.2}%)",
+            at(0.50),
+            at(0.90),
+            at(0.99),
+            mags[n - 1],
+            100.0 * over as f32 / n as f32,
+            100.0 * full as f32 / n as f32,
+        );
+    }
+    println!(
+        "  -- read `over threshold`. A mean is the wrong statistic here: a bias rule decides per cell, \\
+         so a channel that is zero almost everywhere and strong in a few places disperses seeds in a few \\
+         places, which is what dispersal wants. The CLEAR row is the control and must be ~0; if it is not, \\
+         the GALE row is measuring the solver's residue."
     );
 }
