@@ -28,5 +28,9 @@
     burns_into: "corpse",
     heat_conductivity: 0.1,
     food_energy: 480.0,
+    // In MPa like every other value of this field. **Armour, harder still**
+    // -- same band, same reason; the two chitins are a distribution rather
+    // than one value.
+    penetration_resistance: 0.7,
     food_class: 1.0,
 )

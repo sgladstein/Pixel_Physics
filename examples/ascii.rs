@@ -1695,6 +1695,21 @@ fn forage_loop_scene() {
             st.nest_visits,
             st.deaths
         );
+        // **The damage counters, printed even while they are zero, for the
+        // reason the reproduction ones below are.** `injuries` counts every
+        // survived body-cell loss and has been here in spirit since
+        // `reconcile_chain` existed; `severed` is the one that says the
+        // 2026-09 severing rule *fired* rather than merely shortening a
+        // chain, and `refused` says armour turned a bite away. Two very
+        // different mechanisms produce the same `eats` and the same
+        // `deaths`, and only these separate them -- `CLAUDE.md`, *"did it
+        // fire at all" needs a counter, not a picture*. A colony with
+        // nothing armoured in it reads `refused 0`, which is the negative
+        // control the first non-zero is read against.
+        println!(
+            "  damage: injuries {} severings {} severed cells {} | bites refused by armour {}",
+            st.injuries, st.severings, st.severed_body_cells, st.bites_refused
+        );
         // **The reproduction counters, printed even while they are zero.**
         // That is the point of shipping them ahead of the mechanism
         // (`Reports/creature-review-2026-08.md` §T4): a colony that is not

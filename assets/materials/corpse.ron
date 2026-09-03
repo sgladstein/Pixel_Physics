@@ -14,17 +14,21 @@
     friction_angle: 30.0,
     // **Ordered darkest to lightest, and the order is load-bearing.**
     // `creature_dies` picks the shade by ramping a corpse's worth over this
-    // list, so index order *is* the meaning: dark is a starved animal, light
+    // list, so index order *is* the meaning: dark is a starved animal,
+    // light
     // is one killed with energy still in the bank. Written the other way
     // round at first, which made a corpse worth 760 render darker than a
     // starved one worth 120 -- non-monotone, and the doc comment in
     // `creature.rs` confidently described the opposite of what shipped.
     //
     // **Five entries spanning 52..152 in red, not three spanning 84..104.**
-    // The narrow version was correct and unreadable: a blind A/B at 10x zoom
-    // put six corpses worth 120..1020 side by side and they were one colour.
+    // The narrow version was correct and unreadable: a blind A/B at 10x
+    // zoom
+    // put six corpses worth 120..1020 side by side and they were one
+    // colour.
     // The owner's verdict on the widened ramp -- "I can tell there is a
-    // slightly different color, but that is pretty minor. Not much you can do
+    // slightly different color, but that is pretty minor. Not much you can
+    // do
     // if it is only two pixels though" -- is the reason this is as far as
     // colour goes here. It is taken because more legible beats less at no
     // cost, not because it makes the mechanic readable; a corpse is one or
@@ -61,9 +65,14 @@
     // the cheapest thing it could have been rather than as the richest. A
     // burnt *beetle* is therefore under-priced at 120 against its own 200,
     // which is deliberate: fire destroying some of a carcass's worth is the
-    // reading that costs nothing to believe, and the alternative is teaching
+    // reading that costs nothing to believe, and the alternative is
+    // teaching
     // a generic burnout path about creature species.
     food_energy: 480.0,
+    // In MPa like every other value of this field. Carrion is dead cuticle,
+    // and softer than the live cuticle at 0.25 -- which is what keeps the
+    // scavenger niche the cheap meal.
+    penetration_resistance: 0.1,
     food_class: 1.0,
     // Every corpse cell carries its own worth, stamped by `creature_dies`.
     worth_in_aux: true,

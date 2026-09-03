@@ -35,8 +35,10 @@
     // six were kept deliberately close to soil in value, so a litter layer
     // would read as ground *texture* rather than as a second canopy lying
     // down. Judged against soil at play zoom that lost: the floor was there
-    // and could not be seen. These sit clearly above soil in luminance while
-    // staying in the same hue family, so a drift still reads as ground cover
+    // and could not be seen. These sit clearly above soil in luminance
+    // while
+    // staying in the same hue family, so a drift still reads as ground
+    // cover
     // rather than as something painted on.
     colors: [
         (150, 110, 50),
@@ -55,34 +57,46 @@
     burn_temperature: 500.0,
     burn_duration: 60,
     burns_into: "ash",
-    // **Rots where it lies**, on `decay.rs`'s moisture-gated schedule -- the
+    // **Rots where it lies**, on `decay.rs`'s moisture-gated schedule --
+    // the
     // same channel ash uses, which is what makes a forest floor a cycle
     // rather than an accumulator.
     //
-    // The site is scheduled by `World::end_step`'s **awake -> settled** chunk
-    // scan, not where the leaf was shed. A decay site is a bare coordinate and
+    // The site is scheduled by `World::end_step`'s **awake -> settled**
+    // chunk
+    // scan, not where the leaf was shed. A decay site is a bare coordinate
+    // and
     // nothing makes it follow its cell, so scheduling at creation stranded
     // every site the moment the litter fell (`Reports/open-bugs-handoff.md`
     // §0e, and the four candidates it was chosen over). Settling is not a
-    // workaround for that -- it is what the rule means. Weathering happens to
+    // workaround for that -- it is what the rule means. Weathering happens
+    // to
     // matter that has come to rest.
     //
     // **Still true, and must not be retried:** rotting *inline* in
-    // `update_powder` was built and reverted. A settled chunk sleeps, so the
+    // `update_powder` was built and reverted. A settled chunk sleeps, so
+    // the
     // powder update stops running on exactly the cells that need it, and a
-    // knob whose strength depends on an unrelated optimisation is worse than
+    // knob whose strength depends on an unrelated optimisation is worse
+    // than
     // no knob.
     // **The gnome runs straight through it.** Owner's call, 2026-08-23: a
-    // forest floor deep enough to see should not bog him down -- `player.rs`
-    // grades powder drag by how many of his rows are in it and turns *stuck*
-    // on at four. Leaves are not sand. See `Material::insubstantial`; nothing
+    // forest floor deep enough to see should not bog him down --
+    // `player.rs`
+    // grades powder drag by how many of his rows are in it and turns
+    // *stuck*
+    // on at four. Leaves are not sand. See `Material::insubstantial`;
+    // nothing
     // in the CA sweep reads it, so litter still falls, piles and rots
     // unchanged, and an ant is as impeded by a drift as it ever was.
     insubstantial: true,
-    // **A shed leaf falls past a branch instead of resting on it.** The world
-    // is one vertical slice of a 3D wood, so a branch one cell wide is not a
+    // **A shed leaf falls past a branch instead of resting on it.** The
+    // world
+    // is one vertical slice of a 3D wood, so a branch one cell wide is not
+    // a
     // shelf across the whole depth of the tree; this is the same reading of
-    // the slice that `plant::shed_to_litter` has always applied at the moment
+    // the slice that `plant::shed_to_litter` has always applied at the
+    // moment
     // of abscission, now applied wherever a litter cell comes to rest.
     //
     // Without it, litter that reached mid-canopy by any route other than
@@ -100,30 +114,42 @@
     //     resting on plant tissue                            57.6% -> 44.1%
     //     still airborne at frame 12,000                          4 -> 0
     //
-    // The 44% that still rests on plant tissue is the drift banked against a
-    // trunk that `friction_angle: 42.0` above exists to build, and it is now
+    // The 44% that still rests on plant tissue is the drift banked against
+    // a
+    // trunk that `friction_angle: 42.0` above exists to build, and it is
+    // now
     // all of it at floor level -- `litter_probe`'s module doc is explicit
     // that its `against-plant` column scores that case and the stuck-up-a-
     // tree case identically, and must be read with the height bands. The
     // overlay is the clearer read: magenta streaks running up the middle of
     // a crown before, magenta only at the trunk bases after.
     //
-    // Deliberately not given to `deadwood`: a snapped branch is chunky enough
+    // Deliberately not given to `deadwood`: a snapped branch is chunky
+    // enough
     // to hang up in a crown, and should. See
     // `MaterialDef::falls_through_organisms` for why this is a flag rather
     // than a rule read off `density`.
     falls_through_organisms: true,
     // **It governs two rules, not one, and the second was the half still on
-    // screen.** `update_powder` reads this flag twice: `fall_through_organism`
-    // stops a leaf resting on a branch, and `slide_past_organism` lets a drift
-    // spill *round* a trunk instead of climbing it. The first landed alone and
-    // measured as working -- 4 of 497 standing cells left with any air under
-    // them -- and the owner still reported that the leaves did not look like
-    // they were on the floor. He was right: a pile wedged between trunks has
-    // nowhere to roll, so it climbed out of the floor into the lower crown as
+    // screen.** `update_powder` reads this flag twice:
+    // `fall_through_organism`
+    // stops a leaf resting on a branch, and `slide_past_organism` lets a
+    // drift
+    // spill *round* a trunk instead of climbing it. The first landed alone
+    // and
+    // measured as working -- 4 of 497 standing cells left with any air
+    // under
+    // them -- and the owner still reported that the leaves did not look
+    // like
+    // they were on the floor. He was right: a pile wedged between trunks
+    // has
+    // nowhere to roll, so it climbed out of the floor into the lower crown
+    // as
     // a narrow column, grounded the whole way. Measured: 24% of standing
-    // litter more than eight rows up, 68% of it with plant tissue immediately
-    // beside it, tallest column 28 rows -- against 4.9% and 10 rows with both
+    // litter more than eight rows up, 68% of it with plant tissue
+    // immediately
+    // beside it, tallest column 28 rows -- against 4.9% and 10 rows with
+    // both
     // rules on.
     decays_into: "soil",
     // **5% of rotting litter leaves a soil cell; the other 95% leaves
@@ -131,13 +157,16 @@
     // observed building up around trunks toward the crowns.
     //
     // The 1:1 conversion this replaces was not a tuning error, it was a
-    // missing sink. A tree fixes carbon out of light and builds a solid cell
+    // missing sink. A tree fixes carbon out of light and builds a solid
+    // cell
     // with it -- matter into the world from nothing -- and 1:1 rot made
-    // every one of those cells permanent soil. Source, no sink, so the floor
+    // every one of those cells permanent soil. Source, no sink, so the
+    // floor
     // rose for as long as the stand lived. **A yield below 1 does not fix
     // that**, and should not be read as having fixed it: 5% of an unbounded
     // stream is still unbounded, and this only flattens the slope by 20x.
-    // `Reports/soil-accumulation-and-the-carbon-cycle.md` has the real-world
+    // `Reports/soil-accumulation-and-the-carbon-cycle.md` has the
+    // real-world
     // account and what an actual sink would have to look like.
     //
     // **5% is close to the real number, which is the part worth keeping.**
@@ -151,7 +180,8 @@
     // cell-for-cell yield of 0.05 is if anything generous.
     //
     // **Measured: the pile falls about 7x.** `crown_census frames=60000
-    // trees=8`, one build, one world seed, counting soil standing *above the
+    // trees=8`, one build, one world seed, counting soil standing *above
+    // the
     // ground line* -- which is the mound around the trunk, and is the thing
     // actually complained about:
     //
@@ -165,14 +195,16 @@
     // rate for almost no pile, which is why this is 0.05 rather than 0.
     //
     // **The floor does not vanish, it changes material** -- from a dirt
-    // mound to standing leaf litter, which is what a forest floor should be.
+    // mound to standing leaf litter, which is what a forest floor should
+    // be.
     // Litter is no longer converted to permanent soil as fast as it lands,
     // so it stands and rots instead.
     //
     // **Do not size this from a world-wide soil count.** That census is
     // dominated by roots overwriting soil cells to occupy them, everywhere
     // on the map, which has nothing to do with the mound; it even runs
-    // *negative* while a stand is expanding. `Reports/soil-accumulation-and-
+    // *negative* while a stand is expanding.
+    // `Reports/soil-accumulation-and-
     // the-carbon-cycle.md` §5a records that mistake in full rather than
     // quietly dropping it.
     //
@@ -183,31 +215,42 @@
     // `DECAY_YIELD=0` (env) turns solid production off entirely and
     // `DECAY_YIELD=1` restores the old behaviour, for comparing the three
     // without a rebuild -- see `decay::decay_yield_override`, which exists
-    // because this file is `include_str!`d and editing it is invisible to an
+    // because this file is `include_str!`d and editing it is invisible to
+    // an
     // already-built harness.
     decay_yield: 0.05,
-    // **No `reseed_chance`, so it defaults to 0.** Ash sets 0.15 -- ash cells
+    // **No `reseed_chance`, so it defaults to 0.** Ash sets 0.15 -- ash
+    // cells
     // are rare, something has to burn first, so a roll there reads as
-    // succession after a fire. Litter cells are produced by every shading leaf
-    // in a growing forest, in the thousands (11,478 in one measured run), and
+    // succession after a fire. Litter cells are produced by every shading
+    // leaf
+    // in a growing forest, in the thousands (11,478 in one measured run),
+    // and
     // giving each one a 15% chance to plant a tree is a feedback loop that
-    // turns one stand into a solid mat of seedlings. Left at 0 until there is
+    // turns one stand into a solid mat of seedlings. Left at 0 until there
+    // is
     // a measurement asking for it, and guarded by
     // `decay::tests::litter_does_not_reseed_the_forest_that_dropped_it`.
     //
-    // **Its own rot rates, because ash's are a rock's.** Without these litter
-    // takes `decay.rs`'s defaults (damp 0.05, dry 0.002 per 200-frame check)
-    // -- a ~100,000-frame dry lifetime against runs of ~10,000, so the floor
+    // **Its own rot rates, because ash's are a rock's.** Without these
+    // litter
+    // takes `decay.rs`'s defaults (damp 0.05, dry 0.002 per 200-frame
+    // check)
+    // -- a ~100,000-frame dry lifetime against runs of ~10,000, so the
+    // floor
     // integrates the canopy's shedding instead of reaching equilibrium.
     // Measured on a standard stand at frame 10,800 with the defaults: 263
-    // cells rotted against 4,593 ever shed, standing count still climbing at
+    // cells rotted against 4,593 ever shed, standing count still climbing
+    // at
     // every sample.
     //
     // A shed leaf is not a mineral. Damp leaf litter is one of the fastest
     // things in a forest to disappear; dry litter is the fuel that sits
     // through a season, which is why these differ by 5x rather than the
-    // defaults' 25x. **Most litter is dry** -- the moisture field is sampled
-    // at the litter's own block, which is air, so only 2-7% of standing litter
+    // defaults' 25x. **Most litter is dry** -- the moisture field is
+    // sampled
+    // at the litter's own block, which is air, so only 2-7% of standing
+    // litter
     // reads above the damp gate. The dry number is the one that governs.
     decay_chance_damp: 0.5,
     decay_chance_dry: 0.1,
@@ -215,21 +258,30 @@
     // material with no conductivity keeps its chunk awake forever holding
     // heat it cannot shed.
     heat_conductivity: 0.15,
-    // **No `breaks_into`.** Litter is already the broken-down form; there is
-    // nothing smaller for it to become, and pointing it at itself would make
+    // **No `breaks_into`.** Litter is already the broken-down form; there
+    // is
+    // nothing smaller for it to become, and pointing it at itself would
+    // make
     // a fragment loop. The plan asks for exactly this.
-    // **Food, and this is the point of the material.** Same value as the leaf
-    // it fell from: nothing about hitting the ground makes a leaf more or less
+    // **Food, and this is the point of the material.** Same value as the
+    // leaf
+    // it fell from: nothing about hitting the ground makes a leaf more or
+    // less
     // nutritious, and pricing it differently would be a knob nobody could
     // justify in either direction. Plant matter on the diet axis.
     //
-    // **`ant.ron`'s `food:` list is the other half of this, and without it the
+    // **`ant.ron`'s `food:` list is the other half of this, and without it
+    // the
     // whole stage is inert.** `adjacent_food` tests menu membership and
     // nothing else; `food_energy` says what a mouthful is *worth*, never
     // whether an animal will take it. S4 shipped with this value set and no
-    // ant able to eat a cell of it, and the census built to judge it counted
+    // ant able to eat a cell of it, and the census built to judge it
+    // counted
     // `food_value` -- keyed on the material, blind to the menu -- so it
     // reported a rich forest floor for three rounds of measurement.
     food_energy: 480.0,
+    // In MPa like every other value of this field. Dead, half-rotted tissue
+    // -- the softest thing in the world, under `snow`'s 0.2.
+    penetration_resistance: 0.05,
     food_class: -1.0,
 )

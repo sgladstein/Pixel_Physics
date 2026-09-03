@@ -19,12 +19,15 @@
     name: "windfall",
     display: "Windfall",
     kind: Powder,
-    // Heavier than `seed` (0.6) and than water: a dropped fruit sinks. It is
+    // Heavier than `seed` (0.6) and than water: a dropped fruit sinks. It
+    // is
     // the densest thing a plant sheds.
     density: 1.05,
     // **Shallow, unlike `seed`'s 55 and `litter`'s 42.** Fruit is round and
-    // slick and it rolls -- which is dispersal doing its job on a slope, and
-    // is why a windfall ends up somewhere its parent's shade does not reach.
+    // slick and it rolls -- which is dispersal doing its job on a slope,
+    // and
+    // is why a windfall ends up somewhere its parent's shade does not
+    // reach.
     friction_angle: 26.0,
     // The ripe palette of `fruit.ron`, one shade darker and duller across
     // the board: this is the same object bruised and off the plant.
@@ -42,26 +45,34 @@
     burn_duration: 40,
     burns_into: "ash",
     heat_conductivity: 0.2,
-    // **Rots fast and leaves almost nothing**, on `decay.rs`'s moisture-gated
+    // **Rots fast and leaves almost nothing**, on `decay.rs`'s
+    // moisture-gated
     // schedule -- the same channel litter uses. Faster than litter in both
     // arms: soft wet flesh is the quickest thing on a forest floor to
     // disappear, where a dry leaf can sit out a season.
     //
     // `decay_yield` matches `litter`'s 0.05 for the reason that file argues
-    // at length: the great majority of rotting mass leaves as gas this engine
+    // at length: the great majority of rotting mass leaves as gas this
+    // engine
     // cannot represent, and a 1:1 conversion is a source with no sink.
     decays_into: "soil",
     decay_yield: 0.05,
     decay_chance_damp: 0.7,
     decay_chance_dry: 0.15,
-    // **The gnome walks through a drift of them**, like litter. Fallen fruit
+    // **The gnome walks through a drift of them**, like litter. Fallen
+    // fruit
     // under a tree is ankle-deep at worst and should not read as quicksand.
     insubstantial: true,
-    // **And it falls past a branch rather than sitting on it** -- the 2D-slice
-    // rule `MaterialDef::falls_through_organisms` states as data. A fruit that
-    // lets go inside a crown is the same case as a shed leaf: the world is one
-    // vertical slice of a 3D plant, so a branch one cell wide is not a shelf
-    // spanning the wood's whole depth, and going past it is the common outcome.
+    // **And it falls past a branch rather than sitting on it** -- the
+    // 2D-slice
+    // rule `MaterialDef::falls_through_organisms` states as data. A fruit
+    // that
+    // lets go inside a crown is the same case as a shed leaf: the world is
+    // one
+    // vertical slice of a 3D plant, so a branch one cell wide is not a
+    // shelf
+    // spanning the wood's whole depth, and going past it is the common
+    // outcome.
     //
     // **Its effect here is unmeasured, and saying so is the point.** The
     // census that prompted this line read "2 of 2 standing windfall cells
@@ -75,17 +86,22 @@
     // flag on, the discriminating column (windfall more than 16 rows above
     // the ground) reads 1 and 1 against 1 and 0 without it: nothing.
     //
-    // Kept anyway, because it is a claim about what a fruit *is* rather than
-    // a tuning knob, and it costs one branch paid only by a windfall sitting
-    // on living tissue. It will matter the first time something tall fruits,
+    // Kept anyway, because it is a claim about what a fruit *is* rather
+    // than
+    // a tuning knob, and it costs one branch paid only by a windfall
+    // sitting
+    // on living tissue. It will matter the first time something tall
+    // fruits,
     // and that is the run that should measure it.
     //
     // **Note the density argument runs the other way and is not the
     // criterion.** This is 1.05 against `deadwood`'s 0.7, and deadwood
     // deliberately *does* hang up in a crown. That flag's own doc says why
     // geometry cannot decide it: a snapped branch is chunky and a fruit is
-    // small and round, and no number already on the material expresses that.
-    // The mechanic seconds it -- a windfall carries a live seed, so one lodged
+    // small and round, and no number already on the material expresses
+    // that.
+    // The mechanic seconds it -- a windfall carries a live seed, so one
+    // lodged
     // mid-canopy germinates mid-canopy, which is the rooted-above-ground
     // failure `plant_probe` already counts.
     falls_through_organisms: true,
@@ -100,5 +116,8 @@
     // channel with a writer and no reader, which is the trap `litter.ron`
     // records having shipped once already.
     food_energy: 960.0,
+    // In MPa like every other value of this field. Dead, half-rotted tissue
+    // -- the softest thing in the world, under `snow`'s 0.2.
+    penetration_resistance: 0.05,
     food_class: -1.0,
 )

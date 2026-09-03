@@ -2231,6 +2231,27 @@ pub struct CreatureDef {
     /// in force, so a future softer stone is diggable automatically.
     pub dig_force: f32,
 
+    /// **How hard this species can bite, against the target material's
+    /// `penetration_resistance`. Unset means "as hard as it digs".**
+    ///
+    /// A separate field from `dig_force` rather than a reuse of it, so
+    /// biting and digging can diverge later without a migration -- an
+    /// animal with mandibles for cutting flesh and no interest in soil is
+    /// a genome away, not a schema change away.
+    ///
+    /// **The default is the dangerous half of this field, and it is only
+    /// safe because the food table was authored in the same change.** With
+    /// every food at `penetration_resistance`'s 100.0 default, "defaults to
+    /// `dig_force`" does not mean "nothing changes until a species says
+    /// so"; it means the ant's 1.0 meets `1.0 >= 100.0` on every mouthful
+    /// and nothing in the world eats anything, ever
+    /// (`material.rs`'s `penetration_resistance`, *the food table*;
+    /// `Reports/creature-genome-flexibility-2026-09-02.md` §11c). Do not
+    /// give this field a numeric default and do not price a food above
+    /// every shipped bite force.
+    #[serde(default)]
+    pub bite_force: Option<f32>,
+
     /// **How far this animal can see another animal, in cells. Zero — the
     /// default — means it has no eyes at all**, which is every species in
     /// the world except the beetle and is what keeps the sense off the
@@ -2257,6 +2278,27 @@ pub struct CreatureDef {
     /// ms/frame at five beetles, 0.14% of a mean `ascii` frame.
     #[serde(default)]
     pub sight_range: i32,
+
+    /// **Chebyshev radius of the terrain-curvature disc, in cells. Zero --
+    /// the default -- means the species has no such sense**, exactly as
+    /// `sight_range` above means no eyes.
+    ///
+    /// The opt-in is on the species rather than inside the sense, which is
+    /// `CLAUDE.md`'s standing rule and not a preference: gating inside
+    /// `creature::surface_curvature` would still pay the call, and testing
+    /// it at the dispatch site that already holds the `CreatureDef` is an
+    /// `i32` compare against a field already in cache.
+    ///
+    /// **2 is the value §5f priced the sense at**: 24 `World::get`, against
+    /// 328-1,186 cells for one sight cast, which is the comparison that made
+    /// it affordable. It is also the value whose limits are measured -- the
+    /// disc spans five columns, so a hollow wider than five cells reads as
+    /// flat and a slot exactly five wide reads as *convex*
+    /// (`examples/spoil_curvature.rs`'s control found that on its first
+    /// run). A species wanting broad features has to pay for a wider disc,
+    /// which grows as `(2r+1)^2`.
+    #[serde(default)]
+    pub curvature_radius: i32,
     /// Sensor offset in cells for the forward/lateral sampling.
     ///
     /// 6, measured: `pheromone::tests::trail_following_sweep` puts on-trail
@@ -2290,6 +2332,18 @@ pub struct CreatureDef {
 }
 
 impl CreatureDef {
+    /// How hard this animal bites: its own `bite_force`, or `dig_force`
+    /// where it authors none.
+    ///
+    /// **The resolution is here rather than at the call site** so that
+    /// every consumer of it -- the ingest gate, a probe, an export -- reads
+    /// one rule. `CreatureDef::bite_force` is `Option` precisely so that
+    /// "unset" stays distinguishable from "authored equal to dig_force" in
+    /// a species file a person has to read.
+    pub fn bite_force(&self) -> f32 {
+        self.bite_force.unwrap_or(self.dig_force)
+    }
+
     /// **This same animal, at the same physical size and the same physical
     /// behaviour, in a world built at `k` times the cell resolution.**
     ///
@@ -2373,7 +2427,9 @@ impl CreatureDef {
             eats_kin,
             nest,
             dig_force,
+            bite_force,
             sight_range,
+            curvature_radius,
             sensor_offset,
             instincts,
             hidden_wiring,
@@ -2396,6 +2452,11 @@ impl CreatureDef {
             // ---- lengths in cells: x k ----
             body: body_scaled,
             sight_range: (*sight_range as f32 * k).round() as i32,
+            // **A length, so it scales by `k` like the eye** -- a disc that
+            // stayed 2 cells on a supersampled world would be looking at a
+            // quarter of the physical neighbourhood and would report a
+            // different shape for the same terrain.
+            curvature_radius: (*curvature_radius as f32 * k).round() as i32,
             sensor_offset: (*sensor_offset as f32 * k).round() as i32,
 
             // ---- ticks per decision: / k ----
@@ -2447,6 +2508,9 @@ impl CreatureDef {
             eats_kin: *eats_kin,
             nest: nest.clone(),
             dig_force: *dig_force,
+            // Dimensionless like `dig_force`, and against the same
+            // resolution-invariant material field: x 1.
+            bite_force: *bite_force,
             instincts: instincts.clone(),
             hidden_wiring: hidden_wiring.clone(),
             hidden_outputs: hidden_outputs.clone(),

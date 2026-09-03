@@ -960,6 +960,43 @@ drift that two of these documents still reflect.**
   *tidier than the truth*. Corrects `larder-reachability-2026-08-30.md` and
   supersedes `creature-gate0-births-2026-08-30.md`'s mechanism (below).
   Ships `predation_probe mode=range` and `LabBox::predators`.
+- [armour-severing-curvature-2026-09-02.md](armour-severing-curvature-2026-09-02.md)
+  — **built**, executing `creature-genome-flexibility-2026-09-02.md` §11 and
+  §5f. Three of its five findings are nulls or reversals and those are the
+  useful part. **The rider first: `creature_arena`'s default horizon is
+  shorter than the founding grant**, so at `frames=9000` a *random* genome
+  beats the authored ant in 8 of 12 seeds and at 18,000 it loses 12 of 12 —
+  the harness prints that warning one line above the table that contradicts
+  it, which is the general shape of *a guard that prints and does not stop*.
+  **Armour** routes the bite through the dig's own force-vs-resistance test,
+  with the seventeen food materials priced from the shipped forces (§11b says
+  sixteen; `ancestor.ron` was missed); the gate lives in `Gut` rather than at
+  the bite, because gating at the bite builds a starvation trap out of
+  `adjacent_food` returning the *best* mouthful. **Severing** replaces
+  reconcile_chain's kill rule with an 8-connected walk — and **has never fired
+  in any shipped scene** (0 severings against 20 injuries in
+  `predation_probe`), because a two-cell ant has no middle, which is §11e's
+  own prediction arriving as a measurement. **The curvature sense ships with
+  three findings that generalise.** Its sensor read *exactly* −0.083 at all
+  18,720 samples until flesh was excluded — it was counting the ant's own
+  second body cell, a sense that is a function of the senser. It is a
+  **constant in `LabBox`** (spread 0.000, the bed is level) and alive on a
+  worked bank (1.083), so a lab null on it means nothing. And the lever's
+  first positive was the §14g confound exactly — `digs` down 12 of 12, the
+  weight buying shape by digging less — which rate-matching collapses to a
+  coin flip. **The control that makes it readable is new**: curvature on a
+  bank has a positive median, so a positive weight is also a constant offset;
+  `PIXEL_PHYSICS_CURVATURE=flat` holds the mean and removes only the spatial
+  variation, and against *that* the live arm is rounder in 10 of 12 and
+  smaller in **12 of 12** — the offset alone moving size the other way. **And
+  the authored weight stays at 0.169 anyway**, because 0.5 turns three shipped
+  guards over ordinary behaviour red — a stronger drop urge is a stronger drop
+  urge *everywhere*, so the ant sheds its load before carrying it anywhere.
+  The lever's working range and its visible range do not overlap, which is the
+  shared-budget rule arriving as a measurement. Ships `examples/spoil_curvature.rs`, `burrow_probe curvdrop=`,
+  a scene assertion on `field_sense_probe mode=lab` (whose default horizon was
+  censusing a starved-out colony), and `bite_force` / `curvature_radius` on
+  `CreatureDef`.
 - [creature-genome-flexibility-2026-09-02.md](creature-genome-flexibility-2026-09-02.md)
   — **design, not built.** The owner's standing objection re-raised and scoped
   to the **lab**: *"I don't like that we have directly encoded there being a

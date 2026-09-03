@@ -614,43 +614,164 @@ fn reconcile_chain(world: &mut World, organism: u16) -> bool {
     let (chain, owned) = (state.chain.clone(), state.cells.clone());
     let surviving: Vec<(i32, i32)> = chain.iter().copied().filter(|p| owned.contains_key(p)).collect();
     if surviving.is_empty() || surviving.first() != chain.first() {
-        // Head gone (or nothing left at all): the rest is meat.
+        // Vital cell gone (or nothing left at all): the rest is meat.
         creature_dies(world, organism);
         return false;
     }
-    if surviving.len() != chain.len() {
-        // **The living-flesh stamp seam, closing here** (`Reports/
-        // creature-evolution-plan.md` §2.3, "One seam left open";
-        // `EnergyLedger::meat_lost`'s doc points at it from the other
-        // end). A body cell was stamped with `body_energy` of meat at the
-        // moment the animal was built, and that stamp only ever became
-        // standing food by way of a corpse. A cell bitten, burned or
-        // blasted off a *living* animal never reaches `creature_dies`, so
-        // its stamp stayed in the meat accounts against nothing at all —
-        // which is what made `max_standing_meat` an upper bound rather
-        // than a bound. It is a sink, exactly like a corpse cell the
-        // brush erases; the difference was never the accounting, it was
-        // that there was nothing paying stamps *in* until a parent
-        // started paying for its children.
-        //
-        // Booked here rather than at each destruction site because a live
-        // creature's material is not `worth_in_aux`, so
-        // `EnergyLedger::meat_worth_of` returns `None` for it and none of
-        // those sites can see the loss. This is the one place that knows
-        // a body cell went missing while its owner lived, and it already
-        // holds both counts for its own reasons.
-        let lost = (chain.len() - surviving.len()) as f64;
-        let body_energy = world
-            .organism(organism)
-            .and_then(|s| world.species.get(s.species).creature.as_ref().map(|d| d.body_energy))
-            .unwrap_or(0.0) as f64;
-        world.energy_ledger.meat_lost += body_energy * lost;
-        if let Some(state) = world.organism_mut(organism) {
-            state.chain = surviving;
-        }
-        world.creature_stats.injuries += 1;
+    if surviving.len() == chain.len() {
+        return true;
     }
-    true
+
+    // **Losing cells is damage; what disconnects is severed.** Recommendation
+    // R2 of `Reports/creature-genome-flexibility-2026-09-02.md` §11d. Until
+    // 2026-09-02 the only two outcomes here were "one cell shorter" and
+    // "dead", and which you got depended entirely on *which* cell went: one
+    // bite on the right cell killed a two-cell ant and a twenty-cell animal
+    // identically, and a bite anywhere else cost exactly one cell and left a
+    // geometrically disconnected animal walking around as if nothing had
+    // happened. That is a binary outcome, and this project's first law is
+    // that an outcome is a distribution -- stated in `CLAUDE.md` as applying
+    // *"to every line in the engine"*, learned from destruction, and
+    // rediscovered on the plant line as graded death by `rot_remains`.
+    //
+    // What stays attached lives on smaller; what detaches becomes meat where
+    // it stands. Death is still the vital cell taken, or energy at zero.
+    //
+    // **Not hit points**, which would be a number with no physical referent
+    // attached to the animal rather than to its parts. Severing is the
+    // mechanism the engine already runs everywhere -- it is how a plant
+    // discovers it has lost a leaf and how structural collapse decides what
+    // falls -- and it satisfies the second law, that a verb must deliver
+    // something: what a successful attack delivers is **a piece**.
+    //
+    // **Eight-connected, because `Grow` places body cells at eight.**
+    // `CLAUDE.md`'s standing rule is that a traversal must use the
+    // neighbourhood the writer used; walking four here would report a body
+    // as severed at every diagonal it was legitimately built with.
+    let rigid = world
+        .organism(organism)
+        .and_then(|s| world.species.get(s.species).creature.as_ref().map(|d| d.body.is_rigid()))
+        .unwrap_or(false);
+    let attached: Vec<(i32, i32)> = if rigid {
+        // **A rigid body keeps the old rule until `body_after_step` is
+        // fixed, and this is a deliberate hold rather than an oversight.**
+        // That function branches on `is_rigid()` and returns
+        // `def.body.offsets(west)` -- the authored template, re-derived from
+        // the head, with no reference to how many cells the animal still
+        // owns -- so a beetle bitten to three cells asks for four positions
+        // next step and gets them back for free. Severing a body that
+        // regenerates would sever the same cells every tick and mint meat
+        // out of nothing. The owner's decision, 2026-09-02, is to fix it
+        // properly as part of the body work (a body's live cell count
+        // becomes state rather than a re-derived template), not to
+        // special-case severing to chains; §12b's contract and §13's
+        // staging own it. Until then a rigid body shortens, exactly as it
+        // did before this change.
+        surviving.clone()
+    } else {
+        let live: std::collections::HashSet<(i32, i32)> = surviving.iter().copied().collect();
+        let mut seen = std::collections::HashSet::with_capacity(live.len());
+        let mut stack = vec![surviving[0]];
+        seen.insert(surviving[0]);
+        while let Some((cx, cy)) = stack.pop() {
+            for &(dx, dy) in NEIGHBOURS_8.iter() {
+                let n = (cx + dx, cy + dy);
+                if live.contains(&n) && seen.insert(n) {
+                    stack.push(n);
+                }
+            }
+        }
+        // Order preserved: `chain` is a *sequence*, the head leads, and
+        // `body_after_step` walks it to place the body next step.
+        surviving.iter().copied().filter(|p| seen.contains(p)).collect()
+    };
+    let severed: Vec<(i32, i32)> = surviving.iter().copied().filter(|p| !attached.contains(p)).collect();
+
+    // **The energy ledger, and the rule is that the entry follows the
+    // matter** (§11d(b)). `meat_lost` is booked here precisely because a
+    // cell lost from a *living* animal never becomes meat -- its
+    // `body_energy` stamp went into `stamped` when the animal was built, and
+    // a cell that is destroyed has to come back out or the meat identity
+    // (`EnergyLedger`: `meat = stamped + stored_in_meat - harvested_corpse -
+    // meat_lost`) stops closing.
+    //
+    // A **severed** cell is the opposite case and books nothing at all: it
+    // was already in `stamped`, and it is still standing in the world as
+    // meat worth exactly that stamp. Booking it would double-count the same
+    // matter; dropping `meat_lost` for the destroyed cells would lose every
+    // other loss route with it. Only the cells that genuinely left the world
+    // -- swallowed, burned, blasted -- are a sink.
+    let destroyed = (chain.len() - surviving.len()) as f64;
+    let body_energy = world
+        .organism(organism)
+        .and_then(|s| world.species.get(s.species).creature.as_ref().map(|d| d.body_energy))
+        .unwrap_or(0.0);
+    world.energy_ledger.meat_lost += body_energy as f64 * destroyed;
+
+    if !severed.is_empty() {
+        // **Severed cells need their worth stamped, or they are worth the
+        // wrong thing as food** (§11d(c)). Same path `creature_dies` takes,
+        // and deliberately the same arithmetic -- a corpse cell carries its
+        // per-cell worth in `aux`, which is what `worth_in_aux` means and
+        // what `harvested_corpse` pays out against.
+        //
+        // **The stamp only, with no share of the bank**, and that is the one
+        // honest difference from dying: the animal is still alive and still
+        // holds its energy. A severed piece is worth what the flesh cost to
+        // build, which is exactly `body_energy`, and it therefore sits at
+        // the dark end of the shade ramp -- a limb is poorer eating than a
+        // fresh kill, and it should look it.
+        let full = (body_energy + def_start_energy(world, organism)).max(1.0);
+        stamp_as_corpse(world, &severed, body_energy, full);
+        world.creature_stats.severings += 1;
+        world.creature_stats.severed_body_cells += severed.len() as u64;
+    }
+
+    // **Mid-flight and mid-dig are defined rather than discovered**
+    // (§11d(d)). `step_flight` re-reads `state.chain` at the top of every
+    // airborne frame and bails when it is empty, so a creature severed in
+    // the air simply flies on with a shorter chain: `body_drag` recomputes
+    // mass, width and drag from the cells that are left, and the pro-rated
+    // idle charge follows the same list. The severed cells are `corpse`,
+    // which is a `Powder`, so they fall on their own with no creature code
+    // at all -- meat where it stands, and mid-air "where it stands" is
+    // down. A dig is untouched: `crop` and `spoil` belong to the animal,
+    // not to the cells, and the survivor keeps both.
+    if let Some(state) = world.organism_mut(organism) {
+        state.chain = attached;
+    }
+    world.creature_stats.injuries += 1;
+    // A severing that took every cell but the vital one still leaves a live
+    // animal; a severing that somehow emptied the body does not, and this is
+    // the same release the destruction paths use.
+    release_if_bodyless(world, organism);
+    world.organism(organism).is_some()
+}
+
+/// Write `cells` into the world as `corpse`, each carrying `worth` in
+/// `Cell::aux` and a shade read off the same number.
+///
+/// Extracted from `creature_dies` when severing needed the identical stamp
+/// (§11d(c)): a severed piece and a dead body are the same kind of meat and
+/// must be priced by the same arithmetic, or a predator learns to prefer
+/// whichever one the accounting favours. **The palette order matters and is
+/// not obvious** -- see `creature_dies` for why `corpse.ron`'s browns had to
+/// be reordered before this ramp was monotone.
+///
+/// Books nothing. The caller owns the ledger entry, because the two callers
+/// book differently and for good reasons: a death transfers the animal's
+/// remaining bank into meat, and a severing transfers nothing at all.
+fn stamp_as_corpse(world: &mut World, cells: &[(i32, i32)], worth: f32, full: f32) {
+    let Some(corpse_id) = world.materials.id_of("corpse") else {
+        return;
+    };
+    let aux = worth.round().clamp(0.0, u16::MAX as f32) as u16;
+    let shades = world.materials.get(corpse_id).palette.len().max(1) as u32;
+    let shade = ((worth / full).clamp(0.0, 1.0) * (shades - 1) as f32).round() as u8;
+    for &(cx, cy) in cells.iter() {
+        let temp = world.get(cx, cy).temperature();
+        world.set(cx, cy, Cell::new(corpse_id, shade).with_temperature(temp).with_aux(aux));
+    }
 }
 
 /// Energy cost to move into `target_material` at `(x, y)`, or `None` if
@@ -2319,6 +2440,24 @@ fn sense(
     // say a gene, and the sign is free as well as the magnitude.
     inputs[I::MoistureGrad as usize] = moisture_gradient(world, x, y);
 
+    // **Terrain curvature, and it is geometric where the line above is a
+    // field read.** `MoistureGrad` turned out to be a depth signal -- a
+    // convex crest and a flat plateau at one elevation read 1.012x apart,
+    // and widening the sampler moves it toward 1.0 -- so this is not a
+    // better version of it, it is the other half. See
+    // `BrainInput::SurfaceCurvature` for the measured range in each bed,
+    // which is the thing to read before weighting it.
+    //
+    // Gated at the dispatch site on a field already in cache, so a species
+    // with no such sense pays one `i32` compare rather than a call.
+    inputs[I::SurfaceCurvature as usize] = if def.curvature_radius == 0 || !curvature_sense_enabled() {
+        0.0
+    } else if curvature_flattened() {
+        CURVATURE_BANK_MEDIAN
+    } else {
+        surface_curvature(world, x, y, def.curvature_radius)
+    };
+
     // **The kin pair, from the same cast the prey pair came out of.**
     // §4: home stops being a named material and becomes *where my own kind
     // are*. Both read a constant 0.0 for a species with no `sight_range`,
@@ -2429,6 +2568,25 @@ struct Gut {
     /// Whose flesh counts as kin — see `is_living_kin`.
     species: SpeciesId,
     eats_kin: bool,
+    /// **How hard this animal bites, against a material's
+    /// `penetration_resistance`** — `CreatureDef::bite_force`.
+    ///
+    /// **In the gut rather than at the bite, because armour has to change
+    /// what an animal *chooses*, not only what it succeeds at.** Gating at
+    /// the moment of the bite reads as the obvious place and builds a
+    /// starvation trap: `adjacent_food` returns the *best* mouthful in
+    /// reach, so an ant standing between an armoured nestmate and a leaf
+    /// would be offered the nestmate every tick, bounce off it, and never
+    /// once take the leaf. Filtering here means armoured flesh is simply
+    /// not food to a mouth that cannot open it, which is the same shape
+    /// `eats_kin` and `gut_bias` already have — a filter over data
+    /// (`Reports/creature-genome-flexibility-2026-09-02.md` §11a).
+    ///
+    /// It also makes two other readers honest for free:
+    /// `BrainInput::FoodAdjacent` now means "food I can actually open",
+    /// and `is_visible_prey` stops sending a beetle across the world after
+    /// an ant it could never have bitten.
+    bite: f32,
 }
 
 fn gut_of(world: &World, organism: u16, def: &CreatureDef) -> Gut {
@@ -2436,6 +2594,7 @@ fn gut_of(world: &World, organism: u16, def: &CreatureDef) -> Gut {
         bias: world.organism(organism).map_or(0.0, |s| s.traits[TRAIT_GUT_BIAS]),
         species: world.organism(organism).map_or(SpeciesId(0), |s| s.species),
         eats_kin: def.eats_kin,
+        bite: def.bite_force(),
     }
 }
 
@@ -2526,7 +2685,24 @@ fn reachable_provision(world: &World, x: i32, y: i32, gut: Gut) -> f32 {
 }
 
 fn adjacent_food(world: &World, x: i32, y: i32, gut: Gut) -> Option<(f32, i32, i32, material::MaterialId)> {
+    adjacent_food_counted(world, x, y, gut).0
+}
+
+/// `adjacent_food`, plus **how many mouthfuls this gut wanted and this
+/// mouth could not open**.
+///
+/// The armour event, and it needs its own counter for the reason
+/// `CLAUDE.md` states about every discrete "this happened": a bite that
+/// bounced and a bite that was never offered are the same silence in
+/// `eats`, and only this number separates them. Free, because the walk over
+/// the eight neighbours is happening anyway.
+///
+/// Split from `adjacent_food` rather than folded into it because
+/// `eval_brain` calls the same scan for `BrainInput::FoodAdjacent` and must
+/// not book anything: a sense is not an event.
+fn adjacent_food_counted(world: &World, x: i32, y: i32, gut: Gut) -> (Option<(f32, i32, i32, material::MaterialId)>, u64) {
     let mut best: Option<(f32, i32, i32, material::MaterialId)> = None;
+    let mut refused = 0u64;
     for &(dx, dy) in NEIGHBOURS_8.iter() {
         let cell = world.get(x + dx, y + dy);
         if !gut.eats_kin && is_living_kin(world, cell, gut.species) {
@@ -2536,11 +2712,30 @@ fn adjacent_food(world: &World, x: i32, y: i32, gut: Gut) -> Option<(f32, i32, i
         if gain <= EAT_YIELD_THRESHOLD {
             continue;
         }
+        // **Armour, and it is the dig's own rule with flesh substituted for
+        // stone.** Force against the target material's
+        // `penetration_resistance` -- the test roots use for soil and the
+        // dig branch uses for a gallery wall -- so a body of `chitin_mid`
+        // is harder to bite than one of `ant` and no code anywhere knows
+        // what chitin is. Armour is per-cell data, and therefore evolvable
+        // the day cell materials become heritable
+        // (`Reports/creature-genome-flexibility-2026-09-02.md` §11c).
+        //
+        // **Read `material.rs`'s `penetration_resistance` doc before
+        // changing the table this reads.** One branch feeds all food here,
+        // so at that field's 100.0 default every mouthful in the world
+        // fails `1.0 >= 100.0` and nothing eats anything, ever. The gate
+        // and the seventeen authored resistances are one atomic change for
+        // that reason.
+        if world.materials.get(cell.material).penetration_resistance > gut.bite {
+            refused += 1;
+            continue;
+        }
         if best.is_none_or(|(b, ..)| gain > b) {
             best = Some((gain, x + dx, y + dy, cell.material));
         }
     }
-    best
+    (best, refused)
 }
 
 /// One prey animal, seen: where it is and how far away.
@@ -2822,6 +3017,77 @@ fn adjacent_nest(world: &World, x: i32, y: i32, def: &CreatureDef) -> bool {
 /// it** — the same rule `LabBox::build` is called under. A probe that
 /// reimplemented the two samples would answer the question about itself
 /// instead of about the engine.
+/// **What a straight horizontal surface reads, derived rather than
+/// measured**, so it can be subtracted and leave a signal that is zero on
+/// the flat.
+///
+/// A cell one row above level ground has `r * (2r + 1)` solid cells in its
+/// disc out of `(2r+1)^2 - 1` -- 10 of 24 at radius 2 -- so a raw count reads
+/// `+1/6` there, not zero. **Getting this wrong is not cosmetic**: banded
+/// against zero, 91.7% of the lab bed's surface cells classify as convex when
+/// they are simply flat, and a weight fitted on that would be a constant
+/// wearing a curvature-shaped name.
+fn curvature_flat_reference(radius: i32) -> f32 {
+    let total = (2 * radius + 1) * (2 * radius + 1) - 1;
+    1.0 - 2.0 * (radius * (2 * radius + 1)) as f32 / total as f32
+}
+
+/// **Signed terrain curvature at `(x, y)`: convex positive, concave
+/// negative, zero on a straight surface.**
+///
+/// `BrainInput::SurfaceCurvature`'s writer. Counts non-empty, non-flesh cells
+/// in a Chebyshev disc of `radius`, maps to `[-1, +1]` and removes the
+/// flat reference above. `+1` is a spike of ground with nothing around it,
+/// `-1` is buried.
+///
+/// **Geometric on purpose, and it is what makes this approach survive where a
+/// field-based one cannot.** A coarse-field read is block-nearest, so
+/// neighbouring cells return the same value and a per-cell decision built on
+/// the difference between two of them resolves to a constant direction --
+/// four bugs on three different lines, per `CLAUDE.md`. A lattice count has
+/// no such degeneracy, and it needs no spatial field structure to exist: the
+/// lab bed builds its soil at a uniform moisture and develops only a vertical
+/// drying profile, where any field-derived curvature would have been dead on
+/// arrival.
+///
+/// **Flesh is excluded, and it was not in the first version.** Counting it
+/// read exactly `-0.083` at every one of 18,720 samples across twelve seeds
+/// -- flat ground plus precisely one extra solid cell, which is the ant's own
+/// second body cell, adjacent to its head by construction. A sense must not
+/// be a function of the senser, and a perfectly constant result across twelve
+/// chaotic seeds is the tidiness tell rather than a strong effect. Nestmates
+/// are excluded with it: an ant packed among others would otherwise read as
+/// standing in a hollow, which is a crowd and not a hollow, and
+/// `BrainInput::Crowding` already counts exactly that -- two inputs on one
+/// quantity would make a weight on either unattributable.
+///
+/// **It cannot see a feature wider than its own disc.** At radius 2 the disc
+/// spans five columns, so a slot exactly five wide, sampled at its centre,
+/// sees no wall and reads *convex*. Found by `examples/spoil_curvature.rs`'s
+/// control on its first run, and it is a real limit rather than a bug: a
+/// species wanting broad features pays `(2r+1)^2` for them.
+pub fn surface_curvature(world: &World, x: i32, y: i32, radius: i32) -> f32 {
+    let mut solid = 0i32;
+    let mut total = 0i32;
+    for dy in -radius..=radius {
+        for dx in -radius..=radius {
+            if dx == 0 && dy == 0 {
+                continue;
+            }
+            total += 1;
+            // Raw material, never `Cell::is_empty`, which is managed-aware
+            // and answers "is this position available" rather than "is there
+            // material here".
+            let cell = world.get(x + dx, y + dy);
+            if cell.material == material::EMPTY || world.materials.kind(cell.material) == MaterialKind::Creature {
+                continue;
+            }
+            solid += 1;
+        }
+    }
+    1.0 - 2.0 * solid as f32 / total.max(1) as f32 - curvature_flat_reference(radius)
+}
+
 pub fn moisture_gradient(world: &World, x: i32, y: i32) -> f32 {
     let m = |px: i32, py: i32| world.field_at_bilinear(px as f32, py as f32).moisture;
     let gx = m(x + 4, y) - m(x - 4, y);
@@ -2908,7 +3174,9 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
         // therefore blind to plant matter *as a load* until the meat digests
         // down, which is a trade (foragers work in runs on one resource)
         // rather than a rule about preference.
-        if let Some((offer, fxx, fyy, food)) = adjacent_food(world, x, y, gut).filter(|&(_, _, _, m)| crop.is_none_or(|c| c.material == m)) {
+        let (offered, refused) = adjacent_food_counted(world, x, y, gut);
+        world.creature_stats.bites_refused += refused;
+        if let Some((offer, fxx, fyy, food)) = offered.filter(|&(_, _, _, m)| crop.is_none_or(|c| c.material == m)) {
             // **The near side of `best_bite`, recorded before the roll.** An
             // animal that was offered a flower and failed its feed roll, and
             // one that never came near a flower, are the same `best_bite` and
@@ -3170,7 +3438,31 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
         let (dx, dy) = DIRS[heading as usize];
         let (tx, ty) = (x + dx, y + dy);
         let target = world.get(tx, ty);
-        if target.material != material::EMPTY && world.materials.get(target.material).penetration_resistance <= def.dig_force {
+        // **Digging is a verb against *ground*, and this kind test is what
+        // says so.** It is not the material-name whitelist the force gate
+        // exists to avoid -- it states as data the distinction the force
+        // cannot: an animal is bitten and a plant is eaten; neither is
+        // excavated.
+        //
+        // **It went in with the food table and it holds behaviour fixed
+        // rather than changing it.** Before 2026-09-02 no `Creature`- or
+        // `Plant`-kind material authored a `penetration_resistance` at all,
+        // so every one sat at the 100.0 default and this branch could never
+        // reach one; pricing flesh at 0.25 and foliage at 0.1 would have
+        // opened it silently. Two things would then have been wrong. A
+        // creature cell dug out never goes through `reconcile_chain`, so
+        // the victim runs on a stale chain -- the exact orphaned-segment
+        // bug that function exists to prevent -- and its `body_energy`
+        // stamp is never booked to `meat_lost`, so it stands in the world
+        // as a spoil pellet of live flesh owned by nobody while the ledger
+        // still counts it alive. And an ant quarrying foliage is a second
+        // change to the same outcome as the ingest gate, which
+        // `CLAUDE.md` says cannot be attributed apart from it.
+        let ground = !matches!(
+            world.materials.kind(target.material),
+            MaterialKind::Creature | MaterialKind::Plant
+        );
+        if ground && target.material != material::EMPTY && world.materials.get(target.material).penetration_resistance <= def.dig_force {
             // **The spoil is picked up, not destroyed.** This line read
             // `world.set(tx, ty, Cell::EMPTY)` with a comment calling
             // carrying it out "a stage-4+ refinement -- noted, not built",
@@ -3266,6 +3558,53 @@ const SPOIL_HEADROOM: i32 = 3;
 /// in both arms.
 ///
 /// Read once per process through a `OnceLock`, matching `lining_enabled`.
+/// The ablation switch for the curvature sense, on by default.
+///
+/// `PIXEL_PHYSICS_CURVATURE=off` pins `BrainInput::SurfaceCurvature` at 0.0,
+/// which is exactly what a species authoring no `curvature_radius` reads --
+/// so the ablated arm is the world as it was, with the weights still in the
+/// genome and simply multiplied by nothing.
+///
+/// **An env switch rather than two builds, and `CLAUDE.md` is explicit about
+/// why.** A counter downstream of `parallel.rs`'s checkerboard is only
+/// load-independent at fixed parallelism -- measured 610 digs idle against
+/// 278 loaded from one binary -- so two arms compared *inside one run* are
+/// immune where two runs of two builds are not. It also removes the stale-
+/// binary failure mode outright: there is no "before" executable to forget
+/// to rebuild.
+fn curvature_sense_enabled() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_CURVATURE").as_deref() != Ok("off"))
+}
+
+/// **The median curvature an ant on a worked bank actually reads**, measured
+/// by `examples/spoil_curvature.rs` over 12 seeds: p50 `+0.417`.
+///
+/// It exists for the `flat` ablation below and nowhere else.
+const CURVATURE_BANK_MEDIAN: f32 = 0.417;
+
+/// **The control that separates a shape effect from a rate offset**, and
+/// without it a positive result on this input cannot be read.
+///
+/// `PIXEL_PHYSICS_CURVATURE=flat` replaces the reading with the constant
+/// above -- the *same mean* an ant on a bank sees, with all the spatial
+/// information removed. `=off` pins it at 0.0 instead, which removes the mean
+/// as well.
+///
+/// The two answer different questions and only the first one is interesting.
+/// Curvature on a bank has a **positive median**, so any positive weight on
+/// it raises the drop urge *on average* -- a constant offset that would move
+/// every shape statistic in the world without the animal ever responding to
+/// a shape. Against `off` that offset is the whole difference and is
+/// indistinguishable from the mechanism; against `flat` the offset is present
+/// in both arms and only the variation differs. `CLAUDE.md`: *an A/B needs
+/// the two commits to differ only by the change*, and an arm that differs in
+/// two things carries half its effect in the wrong one.
+fn curvature_flattened() -> bool {
+    static FLAT: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *FLAT.get_or_init(|| std::env::var("PIXEL_PHYSICS_CURVATURE").as_deref() == Ok("flat"))
+}
+
 fn spoil_kept() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_DIG_SPOIL").as_deref() != Ok("destroy"))
@@ -4674,7 +5013,7 @@ fn creature_dies(world: &mut World, organism: u16) {
     // exactly the same account. Reads 0 for a starved animal, which is
     // every death in a colony scene with nothing biting anything.
     world.energy_ledger.meat_lost += body_energy as f64 * (chain_before - chain.len()) as f64;
-    if let Some(corpse_id) = world.materials.id_of("corpse") {
+    if world.materials.id_of("corpse").is_some() {
         let cells = chain.len().max(1) as f32;
         let worth = (body_energy * cells + leftover) / cells;
         let aux = worth.round().clamp(0.0, u16::MAX as f32) as u16;
@@ -4697,13 +5036,11 @@ fn creature_dies(world: &mut World, organism: u16) {
         // difference as the canopy-density sheet that read as blank.
         // `OrganismOverlay::FoodValue` is the readout that can answer "how
         // much"; this byte is only meant to say "not all the same".
-        let shades = world.materials.get(corpse_id).palette.len().max(1) as u32;
+        // Shared with severing (`stamp_as_corpse`): a severed piece and a
+        // dead body are the same kind of meat, and pricing them by two
+        // copies of this arithmetic is how they would come to differ.
         let full = (body_energy + def_start_energy(world, organism)).max(1.0);
-        let shade = ((worth / full).clamp(0.0, 1.0) * (shades - 1) as f32).round() as u8;
-        for &(cx, cy) in chain.iter() {
-            let temp = world.get(cx, cy).temperature();
-            world.set(cx, cy, Cell::new(corpse_id, shade).with_temperature(temp).with_aux(aux));
-        }
+        stamp_as_corpse(world, &chain, worth, full);
         // **A transfer, not a write-off**, and the account name is the
         // whole difference. `died_holding` said this energy was destroyed;
         // it is standing in the world as meat, and the census that says so
@@ -6943,6 +7280,323 @@ mod tests {
         let generalist = gain_per_bite(0.0);
         assert!((herbivore - 1.0).abs() < 0.01, "a matched gut should absorb all of what it digests, got {herbivore:.3}");
         assert!((generalist - 0.25).abs() < 0.01, "a neutral gut should absorb a quarter of it, got {generalist:.3}");
+    }
+
+    /// **Every shipped food is biteable by a shipped mouth, and this is
+    /// the guard that would have caught the bug the gate nearly shipped
+    /// with.**
+    ///
+    /// `act`'s ingest branch is one branch for *all* food, so a food priced
+    /// above every bite force in the world is not armoured -- it is
+    /// inedible. With `penetration_resistance` at its 100.0 default on all
+    /// seventeen food materials, `bite_force` defaulting to the ant's
+    /// `dig_force: 1.0` gates `1.0 >= 100.0` on every mouthful and
+    /// herbivory, scavenging and predation stop on frame one
+    /// (`Reports/creature-genome-flexibility-2026-09-02.md` §11c).
+    ///
+    /// **This is the positive control, and it is the only kind that can
+    /// see that failure.** The negative one -- a force above every
+    /// resistance reproduces today's behaviour -- proves the gate is
+    /// transparent when open and says nothing about a gate shut on
+    /// everything. Sensitivity is checked in the same test rather than
+    /// asserted: the last leg puts the fault back and watches the same
+    /// arithmetic refuse the food, per `CLAUDE.md`.
+    #[test]
+    fn every_shipped_food_can_be_bitten_by_a_shipped_mouth() {
+        let w = test_world();
+        let ant_force = {
+            let id = w.species.id_of("ant").expect("ant");
+            w.species.get(id).creature.as_ref().expect("creature").bite_force()
+        };
+        let beetle_force = {
+            let id = w.species.id_of("beetle").expect("beetle");
+            w.species.get(id).creature.as_ref().expect("creature").bite_force()
+        };
+        // Unauthored, so it must resolve to the dig force rather than to a
+        // numeric default -- which is the whole reason the field is
+        // `Option`.
+        assert_eq!(ant_force, 1.0, "the ant authors no bite_force, so it must bite as hard as it digs");
+        assert_eq!(beetle_force, 0.3, "the beetle authors no bite_force either, and it is the weakest mouth in the world");
+
+        // Enumerated from the material table rather than listed here, so a
+        // new food added tomorrow is covered without anyone remembering to
+        // come back. That is the half of this guard `CLAUDE.md`'s "check a
+        // guard's inputs actually vary what it guards" asks for: a
+        // hand-written list would silently stop covering the world.
+        let foods: Vec<_> = (0..w.materials.len() as u16)
+            .map(material::MaterialId)
+            .filter(|&id| w.materials.get(id).food_energy > 0.0)
+            .collect();
+        assert!(foods.len() >= 17, "the food table shrank to {}; this guard is sized against the seventeen materials that authored a food_energy in 2026-09", foods.len());
+
+        let mut armoured = Vec::new();
+        for &id in foods.iter() {
+            let m = w.materials.get(id);
+            assert!(
+                m.penetration_resistance <= ant_force,
+                "{} is food at {} and needs {} to bite, which is above the strongest shipped mouth ({ant_force}) -- nothing in the world can eat it",
+                m.name,
+                m.food_energy,
+                m.penetration_resistance
+            );
+            if m.penetration_resistance > beetle_force {
+                armoured.push(m.name.clone());
+            }
+        }
+
+        // **And the mechanism has to actually have a regime**, which is the
+        // check §14i records nobody running: a gate that is open on
+        // everything is as dead as one shut on everything, and both read as
+        // "the table is authored". Armour exists only where a food sits
+        // above *some* shipped mouth.
+        assert!(
+            !armoured.is_empty(),
+            "no shipped food is armoured against any shipped mouth, so the gate can never refuse anything and this mechanism has never entered its own regime"
+        );
+
+        // Sensitivity: put the fault back. The same arithmetic against the
+        // default this field ships with must refuse every one of them.
+        let default_resist = 100.0_f32;
+        for &id in foods.iter() {
+            assert!(
+                default_resist > ant_force,
+                "{} at the unauthored default must be refused, or this guard is blind and its green means nothing",
+                w.materials.get(id).name
+            );
+        }
+    }
+
+    /// **Armour refuses a bite, and the refusal is counted.**
+    ///
+    /// The end-to-end half of the guard above: the table being authored
+    /// correctly is one claim, and `adjacent_food` actually reading it is
+    /// another. A beetle (`dig_force: 0.3`, and no authored `bite_force`)
+    /// is offered plain `ant` flesh at 0.25 and takes it; offered
+    /// `chitin_pale` at 0.5 it is offered nothing at all, and
+    /// `CreatureStats::bites_refused` is what says the difference was
+    /// armour rather than an empty neighbourhood.
+    #[test]
+    fn armour_stops_a_bite_that_softer_flesh_does_not() {
+        let offer = |material_name: &str| {
+            let mut w = test_world();
+            let beetle = spawn(&mut w, "beetle", 100, 100);
+            assert_ne!(beetle, 0, "the beetle was not placed; the scene does not contain the situation this test is about");
+            let (hx, hy) = w.organism(beetle).expect("live").chain[0];
+            let flesh = w.materials.id_of(material_name).unwrap_or_else(|| panic!("{material_name} material"));
+            // Beside the head, and owned by nobody -- this is about the
+            // material's hardness, not about kinship or liveness.
+            w.set(hx + 1, hy, Cell::new(flesh, 0));
+            let def = w.species.get(w.organism(beetle).expect("live").species).creature.clone().expect("creature");
+            let gut = gut_of(&w, beetle, &def);
+            let (best, refused) = adjacent_food_counted(&w, hx, hy, gut);
+            (best.is_some(), refused, w.materials.get(flesh).penetration_resistance, def.bite_force())
+        };
+
+        let (soft_taken, soft_refused, soft_resist, force) = offer("ant");
+        assert!(soft_resist < force, "test setup: plain ant flesh has to be under the beetle's bite ({soft_resist} vs {force}) or this arm proves nothing");
+        assert!(soft_taken, "a beetle must be able to bite plain ant flesh, or predation is gone");
+        assert_eq!(soft_refused, 0, "and nothing should have been refused");
+
+        let (hard_taken, hard_refused, hard_resist, _) = offer("chitin_pale");
+        assert!(hard_resist > force, "test setup: chitin_pale has to be above the beetle's bite ({hard_resist} vs {force}) or this arm proves nothing");
+        assert!(!hard_taken, "armour at {hard_resist} must refuse a bite of {force}");
+        assert_eq!(hard_refused, 1, "and the refusal has to be counted, or a bounce and an empty neighbourhood are the same silence");
+    }
+
+    /// **A bite in the middle of a chain severs it: what stays attached
+    /// lives, what detaches becomes meat where it stands.**
+    ///
+    /// Recommendation R2 (§11d). Before this, `reconcile_chain` filtered by
+    /// ownership without testing contiguity, so a mid-body bite cost
+    /// exactly one cell and left a geometrically disconnected animal
+    /// walking around; the only other outcome was outright death when the
+    /// head went. Two outcomes, and this project's first law is that an
+    /// outcome is a distribution.
+    ///
+    /// The three things §11d(a)-(d) said were unspecified are all asserted
+    /// here: the ledger follows the matter, the severed cells carry the
+    /// same `aux` stamp a corpse does, and the survivor keeps its head.
+    #[test]
+    fn a_bite_in_the_middle_of_a_body_severs_it_rather_than_killing_it() {
+        let mut w = test_world();
+        let soil = w.materials.id_of("soil").expect("soil");
+        for x in 90..115 {
+            for y in 101..105 {
+                w.set(x, y, Cell::new(soil, 0));
+            }
+        }
+        let ant = spawn(&mut w, "ant", 100, 100);
+        assert_ne!(ant, 0, "the ant was not placed");
+        // Grow the chain by hand to a length worth severing: the shipped
+        // ant is two cells, and a two-cell body has no middle.
+        let flesh = w.get(100, 100).material;
+        let mut chain = vec![(100, 100)];
+        for i in 1..6 {
+            let p = (100 - i, 100);
+            w.set(p.0, p.1, Cell::new(flesh, 0).with_organism_id(ant));
+            chain.push(p);
+        }
+        if let Some(state) = w.organism_mut(ant) {
+            state.chain = chain.clone();
+        }
+        let body_energy = {
+            let id = w.organism(ant).expect("live").species;
+            w.species.get(id).creature.as_ref().expect("creature").body_energy
+        };
+        let before = w.energy_ledger;
+
+        // Bite cell 2 of 6, counting from the head. Cells 3..6 are now
+        // disconnected from the head and must come off.
+        let (bx, by) = chain[2];
+        w.set(bx, by, Cell::EMPTY);
+        let alive = reconcile_chain(&mut w, ant);
+
+        assert!(alive, "the head is untouched, so the animal is injured and not dead");
+        let after_chain = w.organism(ant).expect("live").chain.clone();
+        assert_eq!(after_chain, vec![chain[0], chain[1]], "only the head side stays attached");
+        assert_eq!(w.creature_stats.severings, 1, "one severing event");
+        assert_eq!(w.creature_stats.severed_body_cells, 3, "and the three cells distal to the bite came off");
+
+        // **Severed cells are meat where they stand, stamped like a
+        // corpse** (§11d(c)) -- or they are worth the wrong thing as food.
+        let corpse = w.materials.id_of("corpse").expect("corpse");
+        for &(cx, cy) in chain[3..].iter() {
+            let cell = w.get(cx, cy);
+            assert_eq!(cell.material, corpse, "the severed cell at ({cx}, {cy}) has to be standing meat");
+            assert_eq!(cell.aux(), body_energy.round() as u16, "and worth the stamp it was built with -- no share of a bank the animal still holds");
+        }
+
+        // **The ledger entry follows the matter** (§11d(b)). One cell was
+        // destroyed by the bite and is a sink; the three severed ones are
+        // still standing in the world and were already counted in
+        // `stamped`, so booking them would double-count the same matter.
+        let lost = w.energy_ledger.meat_lost - before.meat_lost;
+        assert!(
+            (lost - body_energy as f64).abs() < 1e-6,
+            "only the destroyed cell books meat_lost; got {lost} against one cell's {body_energy}"
+        );
+        assert_eq!(w.energy_ledger.stored_in_meat, before.stored_in_meat, "a severing moves no live energy: the animal is alive and still holds its bank");
+    }
+
+    /// **The severing rule is what produces that, and this is its
+    /// sensitivity leg.**
+    ///
+    /// Written separately because the guard above passes for a reason that
+    /// has nothing to do with contiguity if the walk is wrong: a bite that
+    /// takes the *last* cell of a chain leaves everything else attached,
+    /// and must shorten rather than sever. If this fires a severing, the
+    /// traversal is reporting a body as broken at a join it was
+    /// legitimately built with -- which is exactly what walking four
+    /// neighbours instead of the eight `Grow` places at would do.
+    #[test]
+    fn a_bite_at_the_tail_shortens_and_does_not_sever() {
+        let mut w = test_world();
+        let soil = w.materials.id_of("soil").expect("soil");
+        for x in 90..115 {
+            for y in 101..105 {
+                w.set(x, y, Cell::new(soil, 0));
+            }
+        }
+        let ant = spawn(&mut w, "ant", 100, 100);
+        let flesh = w.get(100, 100).material;
+        // A body with a diagonal in it, which is what `Grow` actually
+        // places and what a four-neighbour walk would tear apart.
+        let chain = vec![(100, 100), (99, 100), (98, 99), (97, 99), (96, 98)];
+        for &(cx, cy) in chain[1..].iter() {
+            w.set(cx, cy, Cell::new(flesh, 0).with_organism_id(ant));
+        }
+        if let Some(state) = w.organism_mut(ant) {
+            state.chain = chain.clone();
+        }
+
+        let tail = *chain.last().expect("chain");
+        w.set(tail.0, tail.1, Cell::EMPTY);
+        assert!(reconcile_chain(&mut w, ant), "losing a tail cell is an injury");
+        assert_eq!(w.creature_stats.severings, 0, "a body that is still one connected piece has not been severed");
+        assert_eq!(w.organism(ant).expect("live").chain, chain[..4].to_vec(), "and the diagonals must survive the walk -- eight neighbours, because that is what Grow places at");
+        assert_eq!(w.creature_stats.injuries, 1);
+    }
+
+    /// **And the vital cell is still death**, which is the boundary the
+    /// distribution has at one end.
+    #[test]
+    fn taking_the_vital_cell_is_still_death() {
+        let mut w = test_world();
+        let soil = w.materials.id_of("soil").expect("soil");
+        for x in 90..115 {
+            for y in 101..105 {
+                w.set(x, y, Cell::new(soil, 0));
+            }
+        }
+        let ant = spawn(&mut w, "ant", 100, 100);
+        let (hx, hy) = w.organism(ant).expect("live").chain[0];
+        w.set(hx, hy, Cell::EMPTY);
+        assert!(!reconcile_chain(&mut w, ant), "the head is the deciding cell; losing it is death, not a shortening");
+        assert_eq!(w.creature_stats.severings, 0, "a death is not a severing -- creature_dies owns the whole body");
+    }
+
+    /// **The curvature sense reads terrain and not the animal reading it.**
+    ///
+    /// Three legs, and the second is the one that matters: the first version
+    /// of this estimator counted flesh, and over twelve seeds and 18,720
+    /// samples it returned **exactly -0.083 every single time** -- flat
+    /// ground plus the ant's own second body cell. A perfectly constant
+    /// reading across twelve chaotic seeds is `CLAUDE.md`'s tidiness tell,
+    /// and what it was telling was that the sense was a function of the
+    /// senser.
+    #[test]
+    fn curvature_reads_the_ground_and_not_the_animal_standing_on_it() {
+        let mut w = test_world();
+        let stone = material::STONE;
+        for x in 0..200 {
+            for y in 120..160 {
+                w.set(x, y, Cell::new(stone, 0));
+            }
+        }
+        // 1. A straight surface is exactly zero, which is what makes the sign
+        //    mean what its name says. The raw count reads +1/6 there.
+        let flat = surface_curvature(&w, 90, 119, 2);
+        assert!(flat.abs() < 1e-6, "a straight surface must read exactly zero, got {flat:+.4}");
+
+        // A crest, and a notch narrow enough for a radius-2 disc to see both
+        // walls -- five wide and it sees neither, which the probe's control
+        // found on its first run.
+        for (i, x) in (40..=50).enumerate() {
+            let h = 5 - (i as i32 - 5).abs();
+            for y in (120 - h)..120 {
+                w.set(x, y, Cell::new(stone, 0));
+            }
+        }
+        for x in 141..=143 {
+            for y in 120..126 {
+                w.set(x, y, Cell::EMPTY);
+            }
+        }
+        let crest = surface_curvature(&w, 45, 114, 2);
+        let notch = surface_curvature(&w, 142, 125, 2);
+        assert!(crest > 0.0, "a crest must read convex, got {crest:+.4}");
+        assert!(notch < 0.0, "a notch must read concave, got {notch:+.4}");
+
+        // 2. **Flesh is not terrain.** An ant standing on the flat must read
+        //    the same as bare flat ground, or the sense is reading itself.
+        let ant = spawn(&mut w, "ant", 90, 119);
+        assert_ne!(ant, 0, "the ant was not placed; this leg proves nothing without a body beside the sample");
+        let (hx, hy) = w.organism(ant).expect("live").chain[0];
+        assert!(
+            w.organism(ant).expect("live").chain.len() > 1,
+            "the shipped ant must be more than one cell, or there is no body cell adjacent to the head and this leg cannot fail"
+        );
+        let with_body = surface_curvature(&w, hx, hy, 2);
+        assert!(
+            with_body.abs() < 1e-6,
+            "an ant standing on flat ground must still read flat, got {with_body:+.4} -- the sense is counting its own body"
+        );
+
+        // 3. The opt-in is real: the species field gates it, not the sense.
+        let off = w.species.id_of("beetle").and_then(|id| w.species.get(id).creature.as_ref().map(|d| d.curvature_radius));
+        assert_eq!(off, Some(0), "the beetle authors no curvature_radius, so it must have none -- one branch per tick and no reads");
+        let on = w.species.id_of("ant").and_then(|id| w.species.get(id).creature.as_ref().map(|d| d.curvature_radius));
+        assert_eq!(on, Some(2), "and the ant authors one, or every weight below it in ant.ron is multiplied by a constant zero");
     }
 
     /// **And not its own tail either.** `adjacent_food` scans the head's

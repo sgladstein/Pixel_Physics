@@ -34,5 +34,8 @@
     // one patch faster than the patch regrows is a perpetual-motion machine
     // the moment food has value. Bounded by the sessile-grazer probe.
     food_energy: 480.0,
+    // In MPa like every other value of this field. Live soft tissue: a
+    // lamina punctures at almost nothing.
+    penetration_resistance: 0.1,
     food_class: -1.0,
 )

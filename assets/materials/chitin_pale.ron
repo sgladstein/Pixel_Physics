@@ -28,5 +28,10 @@
     burns_into: "corpse",
     heat_conductivity: 0.1,
     food_energy: 480.0,
+    // In MPa like every other value of this field. **Armour: above the
+    // weakest shipped bite (0.3) and below the strongest (1.0)**, so a
+    // beetle cannot crack this ant and another ant can. This is the whole
+    // of what size and material buy in defence today.
+    penetration_resistance: 0.5,
     food_class: 1.0,
 )
