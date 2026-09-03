@@ -1602,6 +1602,56 @@ fn build_scene(args: &Args) -> World {
                 args.blind, def.sight_range
             );
         }
+        // **One tree, one colony at its foot** -- the bed
+        // `examples/spoil_destination.rs` censuses, so the picture and the
+        // numbers are the same geometry rather than two scenes that merely
+        // agree in prose.
+        //
+        // Built from an owner playtest report, 2026-09-03: ants "make big
+        // holes under each tree and pile up dirt on top of and around the
+        // trees". `scene=colony` cannot show it -- that scene deliberately
+        // scores *against* canopy when it picks a founding site, so its
+        // colony is placed where there is no tree, which is the opposite of
+        // the case under test.
+        //
+        // Read the counters beside the sheet, not the sheet alone: spoil
+        // standing in a canopy and spoil that merely looks high at this zoom
+        // are the same few pixels, and `spoil_lifted` is what separates them.
+        "treecolony" => {
+            const TC_GROUND_Y: i32 = 150;
+            const TC_SOIL_ROWS: i32 = 90;
+            const TC_TREE_X: i32 = 256;
+            let soil = w.materials.id_of("soil").expect("soil is a compiled-in material");
+            for x in 0..WIDTH {
+                for y in TC_GROUND_Y..(TC_GROUND_Y + TC_SOIL_ROWS) {
+                    w.set(x, y, Cell::new(soil, (rng::jitter(x, y) * 255.0) as u8).with_aux(material::SOIL_FIELD_CAPACITY));
+                }
+                for y in (TC_GROUND_Y + TC_SOIL_ROWS)..(TC_GROUND_Y + TC_SOIL_ROWS + 6) {
+                    w.set(x, y, Cell::new(material::STONE, 0));
+                }
+            }
+            w.plant_tree(TC_TREE_X, TC_GROUND_Y - 1);
+            // Grow the tree before the ants arrive, for `scene=colony`'s
+            // reason: a seedling is not a canopy, and a scene whose tree has
+            // not grown measures the warmup.
+            let grow: usize = if args.frame0 > 0 { args.frame0 as usize } else { 8_000 };
+            for _ in 0..grow {
+                pixel_physics::sim::parallel::step(&mut w);
+                w.step_active_sites();
+                w.step_fields();
+                w.step_pheromones();
+            }
+            let plant = (0..HEIGHT)
+                .map(|y| (0..WIDTH).filter(|&x| w.materials.kind(w.get(x, y).material) == pixel_physics::sim::material::MaterialKind::Plant).count())
+                .sum::<usize>();
+            // The frame-0 assertion `burrow_probe` insists on: a tree arm
+            // with no tree in it reads exactly like a colony that ate one.
+            assert!(plant > 40, "scene=treecolony grew no tree in {grow} frames ({plant} plant cells) -- a scene fault, not a result");
+            let placed = w.found_colony_of(TC_TREE_X, TC_GROUND_Y - 1, "ant", 52);
+            assert!(placed > 0, "scene=treecolony placed no ants -- the scene is not showing what it claims to");
+            println!("scene=treecolony seed={} : {placed} ants founded at x={TC_TREE_X}, {plant} plant cells after {grow} frames of growth", args.seed);
+            println!("  suggested crop: crop={},{},260,150", TC_TREE_X - 130, TC_GROUND_Y - 110);
+        }
         "colony" => {
             let (presets, err) = pixel_physics::worldgen::WorldgenPresets::load();
             if let Some(e) = err {

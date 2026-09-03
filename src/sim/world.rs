@@ -255,6 +255,24 @@ pub struct CreatureStats {
     /// mechanism was built to remove, and one that is small today is one
     /// nobody would notice growing.
     pub spoil_lost: u64,
+    /// **Pellets placed by the up-column lift rather than beside the
+    /// animal** — the second of `act`'s two spoil sites, counted apart
+    /// because they are the only ones that can arrive somewhere the animal
+    /// never stood.
+    ///
+    /// The neighbour branch puts a pellet in one of eight cells the animal
+    /// is touching; the lift scans as far as `SPOIL_LIFT` rows straight up
+    /// and takes the first cell that will hold one, with no path check —
+    /// its own comment calls that "the walk abstracted". So a lift is the
+    /// only way spoil reaches a cell that is not adjacent to a dig, and
+    /// splitting the two is what says whether a mound was carried or
+    /// teleported. `spoil_dumped` alone cannot: both branches increment it.
+    pub spoil_lifted: u64,
+    /// The longest single lift, in rows. Read beside `spoil_lifted`, which
+    /// says only that the branch fired: a colony lifting one row out of its
+    /// own shaft mouth and one lifting forty through a tree canopy are the
+    /// same count and opposite findings.
+    pub spoil_lift_max: u32,
     pub drops: u64,
     /// Drops that happened at the nest — food actually delivered home.
     /// **The number that proves the loop rather than its parts.**
