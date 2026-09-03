@@ -54,14 +54,14 @@ whole, then run `python3 scripts/readmetoc.py`.
 | [Bending status — soft tissue lies over, and the wind is what pushes it](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) | 4190 |
 | [Breaking status — a badly grown tree comes down on its own](#breaking-status--a-badly-grown-tree-comes-down-on-its-own) | 4267 |
 | [Lab lighting status — the fixtures are what light the crop](#lab-lighting-status--the-fixtures-are-what-light-the-crop) | 4460 |
-| [Cell page status — the specimen readout is in three groups, and folds](#cell-page-status--the-specimen-readout-is-in-three-groups-and-folds) | 4522 |
-| [Specimen shelf status — an individual's genetics outlive the box](#specimen-shelf-status--an-individuals-genetics-outlive-the-box) | 4570 |
-| [Lab hand-verbs status — what a click puts in the box, and what the view shows](#lab-hand-verbs-status--what-a-click-puts-in-the-box-and-what-the-view-shows) | 4632 |
-| [Performance](#performance) | 4720 |
-| [World speed — five independent time axes](#world-speed--five-independent-time-axes) | 4917 |
-| [Status](#status) | 5000 |
-| [License](#license) | 5111 |
-| [Lab speed-dial status — what the dial is actually short of](#lab-speed-dial-status--what-the-dial-is-actually-short-of) | 5135 |
+| [Cell page status — the specimen readout is in three groups, and folds](#cell-page-status--the-specimen-readout-is-in-three-groups-and-folds) | 4587 |
+| [Specimen shelf status — an individual's genetics outlive the box](#specimen-shelf-status--an-individuals-genetics-outlive-the-box) | 4635 |
+| [Lab hand-verbs status — what a click puts in the box, and what the view shows](#lab-hand-verbs-status--what-a-click-puts-in-the-box-and-what-the-view-shows) | 4697 |
+| [Performance](#performance) | 4785 |
+| [World speed — five independent time axes](#world-speed--five-independent-time-axes) | 4982 |
+| [Status](#status) | 5065 |
+| [License](#license) | 5176 |
+| [Lab speed-dial status — what the dial is actually short of](#lab-speed-dial-status--what-the-dial-is-actually-short-of) | 5200 |
 
 ### Milestones, in numeric order
 
@@ -95,7 +95,7 @@ them is named "plants". A section can appear twice; felling is honestly both
 plant work and structural work.
 
 **Known limitations for every topic are collected in one place**:
-[Status](#status), line 5000 — the *last* section in the
+[Status](#status), line 5065 — the *last* section in the
 file, not the first. Read it before concluding something is broken.
 
 **Which game a topic belongs to** is the third column. `engine` is shared
@@ -106,8 +106,8 @@ about what you may read.
 
 | Topic | Game | Sections, primary first |
 |---|---|---|
-| **plants, trees and moss** | engine | [M16 status](#m16-status) 1599, [Plant lines merged](#plant-lines-merged-the-genome-and-the-ecology) 1227, [Inheritance status](#inheritance-status--the-growth-program-has-no-fallback-under-it) 3778, [The economy re-derived](#the-economy-re-derived-standing-tissue-costs-something) 1349, [Plants that stop](#plants-that-stop-organs-determinacy-and-a-price-on-both) 1531, [The generation loop](#the-generation-loop-plants-die-seeds-expire-slots-come-back) 1297, [Stems draw a line](#stems-draw-a-line-the-growth-walk-renders-its-heading) 1449, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 3953, [Bending status](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) 4190, [Breaking status](#breaking-status--a-badly-grown-tree-comes-down-on-its-own) 4267, [Specimen shelf status](#specimen-shelf-status--an-individuals-genetics-outlive-the-box) 4570, [Cell page status](#cell-page-status--the-specimen-readout-is-in-three-groups-and-folds) 4522 |
-| **creatures — worms and the ant colony** | engine | [M18 status](#m18-status) 2012, [The ant colony](#the-ant-colony--status) 3219, [Specimen shelf status](#specimen-shelf-status--an-individuals-genetics-outlive-the-box) 4570, [Lab hand-verbs status](#lab-hand-verbs-status--what-a-click-puts-in-the-box-and-what-the-view-shows) 4632 |
+| **plants, trees and moss** | engine | [M16 status](#m16-status) 1599, [Plant lines merged](#plant-lines-merged-the-genome-and-the-ecology) 1227, [Inheritance status](#inheritance-status--the-growth-program-has-no-fallback-under-it) 3778, [The economy re-derived](#the-economy-re-derived-standing-tissue-costs-something) 1349, [Plants that stop](#plants-that-stop-organs-determinacy-and-a-price-on-both) 1531, [The generation loop](#the-generation-loop-plants-die-seeds-expire-slots-come-back) 1297, [Stems draw a line](#stems-draw-a-line-the-growth-walk-renders-its-heading) 1449, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 3953, [Bending status](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) 4190, [Breaking status](#breaking-status--a-badly-grown-tree-comes-down-on-its-own) 4267, [Specimen shelf status](#specimen-shelf-status--an-individuals-genetics-outlive-the-box) 4635, [Cell page status](#cell-page-status--the-specimen-readout-is-in-three-groups-and-folds) 4587 |
+| **creatures — worms and the ant colony** | engine | [M18 status](#m18-status) 2012, [The ant colony](#the-ant-colony--status) 3219, [Specimen shelf status](#specimen-shelf-status--an-individuals-genetics-outlive-the-box) 4635, [Lab hand-verbs status](#lab-hand-verbs-status--what-a-click-puts-in-the-box-and-what-the-view-shows) 4697 |
 | **structural collapse, felling and rigid bodies** | outdoor | [M17 status](#m17-status) 1785, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 3953, [Bending status](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) 4190, [Breaking status](#breaking-status--a-badly-grown-tree-comes-down-on-its-own) 4267, [M8 status](#m8-status--started-not-complete) 2479 |
 | **fire, heat and phase change** | engine | [M14 status](#m14-status) 814, [Materials](#materials) 241 |
 | **explosions, particles and debris** | outdoor | [M15 status](#m15-status) 991, [M7 status](#m7-status) 962 |
@@ -116,15 +116,15 @@ about what you may read.
 | **the coarse field grid — pressure, heat, light** | engine | [The coarse field grid](#the-coarse-field-grid) 499, [M12/M13 status](#m12m13-status) 761, [Lab lighting status](#lab-lighting-status--the-fixtures-are-what-light-the-crop) 4460 |
 | **worldgen and world structure** | outdoor | [M10 status](#m10-status--the-worldgen-half) 3032, [Architecture](#architecture) 315 |
 | **the gnome (player character)** | outdoor | [M9 status](#m9-status--the-gnome) 2592, [Controls](#controls) 175 |
-| **weather, sky and the clock** | engine | [Weather status](#weather-status) 3202, [M19 status](#m19-status--started) 3881, [World speed](#world-speed--five-independent-time-axes) 4917 |
+| **weather, sky and the clock** | engine | [Weather status](#weather-status) 3202, [M19 status](#m19-status--started) 3881, [World speed](#world-speed--five-independent-time-axes) 4982 |
 | **rendering, UI and tunables** | engine | [UI improvements](#ui-improvements--overnight-run-section-9) 2346, [Live tunables panel](#live-tunables-panel--overnight-run-section-10) 2391, [Rendering performance](#rendering-performance--overnight-run-section-11) 2459, [M6 deferral](#m6-deferral) 1122 |
-| **performance and the parallel sweep** | engine | [Performance](#performance) 4720, [M5 status](#m5-status) 1132, [Architecture](#architecture) 315, [Rendering performance](#rendering-performance--overnight-run-section-11) 2459, [Lab speed-dial status](#lab-speed-dial-status--what-the-dial-is-actually-short-of) 5135 |
+| **performance and the parallel sweep** | engine | [Performance](#performance) 4785, [M5 status](#m5-status) 1132, [Architecture](#architecture) 315, [Rendering performance](#rendering-performance--overnight-run-section-11) 2459, [Lab speed-dial status](#lab-speed-dial-status--what-the-dial-is-actually-short-of) 5200 |
 | **materials and the data schema** | engine | [Materials](#materials) 241, [M12/M13 status](#m12m13-status) 761 |
 | **the evolution lab — the box and its lights** | lab | [Lab lighting status](#lab-lighting-status--the-fixtures-are-what-light-the-crop) 4460 |
-| **reading one specimen off the screen** | lab | [Cell page status](#cell-page-status--the-specimen-readout-is-in-three-groups-and-folds) 4522 |
-| **keeping, cloning and mutating an individual** | lab | [Specimen shelf status](#specimen-shelf-status--an-individuals-genetics-outlive-the-box) 4570 |
-| **putting things in the box, and what the view shows** | lab | [Lab hand-verbs status](#lab-hand-verbs-status--what-a-click-puts-in-the-box-and-what-the-view-shows) 4632 |
-| **the speed dial, and what a tick costs** | lab | [Lab speed-dial status](#lab-speed-dial-status--what-the-dial-is-actually-short-of) 5135 |
+| **reading one specimen off the screen** | lab | [Cell page status](#cell-page-status--the-specimen-readout-is-in-three-groups-and-folds) 4587 |
+| **keeping, cloning and mutating an individual** | lab | [Specimen shelf status](#specimen-shelf-status--an-individuals-genetics-outlive-the-box) 4635 |
+| **putting things in the box, and what the view shows** | lab | [Lab hand-verbs status](#lab-hand-verbs-status--what-a-click-puts-in-the-box-and-what-the-view-shows) 4697 |
+| **the speed dial, and what a tick costs** | lab | [Lab speed-dial status](#lab-speed-dial-status--what-the-dial-is-actually-short-of) 5200 |
 
 <!-- END GENERATED TOC -->
 
@@ -4518,6 +4518,71 @@ because a 15-cell fixture fits *inside* a 16-cell block. The cure is one line,
 a fixture may never be narrower than a light block. Full account, with the API
 the parameters panel calls, in
 [`Reports/lab-lamps-light-the-bed-2026-08-30.md`](Reports/lab-lamps-light-the-bed-2026-08-30.md).
+
+### The bench is evenly lit since 2026-09-03, and that is what lets a stand spread
+
+**Owner: *"Light should be even (or mostly even) across the whole surface in
+the lab."* Measured in
+[`Reports/plant-reseeding-2026-09-03.md`](Reports/plant-reseeding-2026-09-03.md)
+§2.2 and §6.**
+
+**A fixture lights the columns under it and almost nothing else.** That is the
+section above working as designed — the beam rides the column descent, and the
+only sideways spread is `field::LIGHT_DECAY`'s bounce, which its own doc calls
+*a glow, not a second sun*. What was wrong was the **spacing**, chosen from a
+claim that a lamp's pool is "its own width plus what `LIGHT_DECAY` bleeds
+sideways — about 55 columns all told". The bench profile says otherwise: with
+eight 31-cell bars 56 columns apart, light every 8 columns read **2.40 under a
+bar and 0.69** between them, four consecutive field blocks of it, and shell
+aside that was **45% of the bed**.
+
+**A plant founded in one of those bands died without setting a single seed.**
+One founder, four world seeds, 13,500 frames: 4 of 4 bred at column 60 under a
+fixture and **4 of 4 died at column 256** between two. Germination is not what
+failed — both clear its 0.1 light bar easily — income is, since a leaf earns
+`rate × light × water` and 0.69 against 2.40 is 29% of the wage. Not an edge
+case in play: the lab opens empty and the player plants by clicking, so about a
+sixth of the bed killed a plant with no feedback, and `LabBox::spread(1)` put a
+*single* founder at column 256 exactly.
+
+**The fixtures now tile the ceiling.** `lamp_spacing` defaults to one bar's
+width plus a two-cell gap, and `lamp_columns` places them cell-centred
+(`lo + span*(2j+1)/2n`) rather than through `LabBox::spread`, whose formula
+leaves a whole spacing of unlit bed at each end of a compartment. Fifteen
+fixtures on a 512-wide bed instead of eight, each the same 31-cell object.
+Bench light now reads **1.95–2.40 from wall to wall**.
+
+This reverses a smaller call recorded on `lamp_columns` itself — that fixtures
+should share `spread` with the founders so a plant station and a light station
+are the same column. That reasoning was right about the symptom and picked the
+wrong remedy: it stood the *founders* in the pools instead of lighting the bed,
+so anything the player planted between two fixtures was still in the dark.
+
+**What it buys**, 8 founders, no ants, 13,500 frames, four world seeds: plants
+alive 67/90/69/63 → **101/114/87/104**, established 46/54/43/45 →
+**75/89/73/89**, columns of 512 holding a plant 237/287/239/252 →
+**320/376/311/354**, and plants that reached ground more than 15 columns from
+any founder 10/8/4/7 → **41/35/25/33**, a 4.1x. A founder at column 256 now
+survives on 4 of 4 seeds where it survived on 0 of 4.
+
+**It costs nothing, and the control is what says so.** With no plants in the
+box the two lighting arms time **identically at 0.025 ms/frame**, three
+alternating reps each from one binary at pinned thread count. The planted run
+is 0.36 ms/frame slower, and that is a **3.3x larger stand** — 1,412 plant
+cells against 431 at frame 4,000 — which is the feature, not overhead. The
+same shape as the +0.82 ms recorded above, and priced the same way.
+
+**Known limitations.** At the default spacing there is nowhere to *slide* a
+fixture: `LabBox::move_lamp` refuses a destination that would drive two bars
+into contact, because `lamps_in` reads fixtures back as contiguous runs and a
+merged pair reports one centre belonging to neither, after which no verb can
+pick either up. That was always reachable — a bar's width apart was all it took
+— and tiling made it easy, so the refusal is a repair rather than a
+restriction; but it does mean the light-pattern verb on the default bed is
+**pull one out** rather than drag, which is why `LabBox::place_lamp` now exists
+to put it back. Neither verb is wired to a control yet; both are called only
+from harnesses. A bed with slack in it (`lamp_spacing: 128`) still slides a
+fixture exactly as before.
 
 ## Cell page status — the specimen readout is in three groups, and folds
 

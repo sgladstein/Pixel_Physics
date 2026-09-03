@@ -1991,6 +1991,66 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   invisible to the **155 call sites** that drive the world through a CA driver
   directly, and a chunk-local prefilter over the moisture region is *slower*
   because 88% of that region is soil.
+- [plant-reseeding-2026-09-03.md](plant-reseeding-2026-09-03.md) —
+  **measured 2026-09-03.** Answers the owner's two questions about why the
+  lab's plants never spread. **Q1: no, a plant cannot evolve better seed
+  spreading here, and it is a missing channel rather than a tuning gap** —
+  not one step of a seed's journey has a heritable dial and two of the three
+  have no dial at all. Wind reaches gases only; `roll_along_slope` gives a
+  `seed` a reach of **0.70 cells**; `friction_angle` is a material property;
+  and the ten continuous slots and six discrete loci contain nothing about
+  seeds. The one indirect lever, crown width, is **off by construction on
+  `herb`**: every slot is a multiplier on an authored constant and
+  `branch_chance` is `[0.0, 0.0]`, so no mutation can make a herb branch.
+  **Q2: no, dispersal is not the only reason, and it is not the largest** —
+  scattering every seed to a random column is worth ~1.5x germination and
+  ~1.3x coverage, against three bigger effects measured here for the first
+  time: only **`soil` and `packedsoil` declare `water_capacity`** in the whole
+  material set, so 313 of 332 standing seeds rest on ground that reads bone
+  dry for ever (and **183 of them are resting on the parent plant**, not on
+  the seed pile the report was expected to find); the grow lamps leave
+  **32-column dead bands at 0.69 against 2.40**, in which **4 of 4** founders
+  die without setting one seed, and `LabBox::spread(1)` puts a single founder
+  in one; and the shipped colony is a **seed predator**, cutting the stand
+  2.6x and the coverage in half. Ships `examples/reseed_probe.rs` and
+  `World::seeds_borne`, and files [`open-bugs-handoff.md`](open-bugs-handoff.md)
+  §Z4 — germinations exceeding the seeds that ever existed, 164 against 79.
+  **§6, same day, on the owner's direction: the bench is now evenly lit and
+  §Z4 is fixed.** Fifteen fixtures tile the ceiling instead of eight standing
+  apart, bench light **0.36–2.40 → 1.95–2.40**, and over four world seeds
+  plants alive **+38%**, established **+67%**, and plants that reached ground
+  more than 15 columns from a founder **4.1x** — a spreading number moved by a
+  *lighting* change, because seeds could not cross the gap and there was
+  nothing for them if they did. A founder at column 256 survives on 4 of 4
+  where it survived on 0 of 4. The cost is nothing: with `founders=0` the two
+  lighting arms time identically at 0.025 ms/frame, and the 0.36 ms the
+  planted run adds is a 3.3x larger stand. §Z4's mechanism is named by
+  `World::germinations_in_place` (108 of 164 on the runaway arm, **5 of 336 on
+  the shipped bed**, so it was live on `main`) and fixed at the one fate
+  lookup, without narrowing what a lineage can reach.
+
+- [plant-engine-rethink-brief-2026-09-03.md](plant-engine-rethink-brief-2026-09-03.md)
+  — **a brief, not a report, written 2026-09-03 for an unattended overnight
+  session on the plant engine.** The owner's thesis is its spine: *"nothing
+  should be hard coded, we don't want to design specific behavior but create a
+  flexible system that will allow variety to evolve"*, with explicit
+  authorisation to reconsider closed decisions and to recommend a full
+  overhaul. Deliberately sets direction and constraints rather than steps. Its
+  most reusable part is the **inventory of where the design currently lives** —
+  a genotype is ten scalars *multiplying* authored species constants, `CellType`
+  and `Behavior` and `FateWhen` are closed enums, a tip scores on a fixed set of
+  six terms, allele meanings are authored tables, a species names six materials
+  none of which are heritable, and the species id is copied to offspring
+  unchanged so **speciation is impossible by construction**. The fate genome is
+  the one place the engine already does what the thesis asks, and it is the
+  existence proof. Carries the standing constraints (the outdoor-game line, the
+  positive-control rule, frame cost) and a reading map that says which of the
+  four 60k–97k documents not to open whole. **It deliberately imposes no
+  hold-back on shipping**: the draft carried one, requiring a review card
+  before any change that reallocates a weighted budget, and the owner removed
+  it by hand in `87a2c35c` — which is the brief's own autonomy clause applied
+  to the brief. `why-changes-cost-so-much-2026-08-27.md` survives in the
+  reading map as evidence a session may weigh, not as a gate it must pass.
 
 ## Licensing and distribution
 

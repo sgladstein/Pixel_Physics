@@ -1304,6 +1304,41 @@ pub struct World {
     /// were ever dispersed.
     pub fruit_dropped: u64,
 
+    /// **Seed cells actually borne**, every one of them: the mature-cell
+    /// path (`plant::set_seed`) and the fruit drop (`plant::drop_organ`)
+    /// alike, counted where they share a floor in `plant::bear_seed_at`.
+    ///
+    /// **It exists because the obvious outside-in count of the same thing
+    /// cannot be made to work, and that took two tries to find out.** A
+    /// harness can see `OrganismState::seeds_set` on the parent and it can
+    /// watch for organism ids appearing as fresh single-`Seed` organisms;
+    /// both are keyed on the organism slot, and `World::push_organism`
+    /// re-uses the slot a dead plant just released — often in the same
+    /// frame a new seed is borne into it. So both counts miss the recycled
+    /// births, agree with each other while doing so, and disagreed with
+    /// `germinations` by more than 2x (80 seeds against 164 germinations,
+    /// which is impossible). `CLAUDE.md`'s *ask what your number counts*:
+    /// two independent instruments can share one blind spot and then
+    /// corroborate each other into a wrong answer.
+    ///
+    /// Incremented on success only, so a refused birth
+    /// (`organisms_refused`) is not counted as one.
+    pub seeds_borne: u64,
+
+    /// **Germinations on an organism that holds more than one cell** — the
+    /// discriminator for `open-bugs-handoff.md` §Z4.
+    ///
+    /// A borne seed is a fresh child organism holding exactly one cell
+    /// (`plant::bear_seed_at`), so it can never be counted here. Anything
+    /// this counts is a `CellType::Seed` that appeared on a *living* body
+    /// without going through `bear_seed_at` — a relabel in place — and each
+    /// one is a free germination on a cell nobody paid for, plus a fresh
+    /// `plant::seed_genotype` draw over an individual's existing genome.
+    ///
+    /// Zero is the expected reading. A non-zero one says `germinations` is
+    /// an overcount and by how much.
+    pub germinations_in_place: u64,
+
     /// Decay events, split by which side of `DECAY_MOISTURE_THRESHOLD` the
     /// field humidity was on when the roll was made.
     ///
@@ -2348,6 +2383,8 @@ impl World {
             organ_ripening_blocked: 0,
             organ_ripening_paid: 0,
             fruit_dropped: 0,
+            seeds_borne: 0,
+            germinations_in_place: 0,
             decayed_damp: 0,
             decayed_dry: 0,
             rotted_to_solid: 0,
