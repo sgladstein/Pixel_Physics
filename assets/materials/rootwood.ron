@@ -16,6 +16,40 @@
     // organism cell and `displace_disc` will not shove one. It still cannot
     // be dug -- it simply is not a wall any more.
     climbable: true,
+    // **The same argument, for the other character.** The line above was
+    // written about the gnome and left the ants where they were: a root
+    // crossing a gallery stopped a colony dead, because an ant can neither
+    // cut plant tissue (resistance 100 against a dig_force of 1.0) nor step
+    // into it. And roots grow through open air already -- 79/1/28/21 root
+    // cells measured inside a carved gallery over four seeds -- so the plug
+    // was permanent and there was nothing the colony could do about it.
+    //
+    // Passable, still not diggable. Ants tunnel through the root plate,
+    // roots grow across the galleries, and neither destroys the other; the
+    // owner's framing was that either the two are mutually exclusive or one
+    // goes through the other, and this is the third state. See
+    // `Material::creature_passable` and open-bugs-handoff.md §Z4.
+    //
+    // **Built, measured, and left OFF -- 2026-09-03.** The mechanism works
+    // (`an_ant_walks_through_a_root_and_leaves_it_standing`) and it should
+    // not be switched on, for two measured reasons and not for a doubt:
+    //
+    // 1. **It buys nothing.** Blocked-move rate over four seeds, feature on
+    //    against off from one binary: 0.089/0.076/0.075/0.074 against
+    //    0.083/0.074/0.089/0.070. No direction. Ants meet roots **1, 5, 24
+    //    and 31 times** in 9,000 frames -- roots are simply not what a
+    //    colony is blocked by.
+    // 2. **It costs trees.** An occluded cell reads as somebody else's to
+    //    twelve separate plant passes, so while an ant stands in a root that
+    //    root stops absorbing and stops conducting carbon. On a marginal
+    //    tree that is fatal: seed 2 went 3,113 standing plant cells -> **4**
+    //    on five occlusions.
+    //
+    // Turning it on again means first making those passes resolve through
+    // `World::covered_at`, the way `plant::is_structural_anchor` already
+    // does. The flag, the write seam and the guard are all still here for
+    // that; only the opt-in is withdrawn.
+    creature_passable: false,
     // Denser than trunk wood -- root tissue is water-saturated.
     density: 1.05,
     // Pale tan, not dark brown. Real roots are cream-to-tan and read pale

@@ -613,6 +613,26 @@ fn reconcile_chain(world: &mut World, organism: u16) -> bool {
     }
     let (chain, owned) = (state.chain.clone(), state.cells.clone());
     let surviving: Vec<(i32, i32)> = chain.iter().copied().filter(|p| owned.contains_key(p)).collect();
+
+    // **A body cell that was standing in a root, eaten, gives the root
+    // back.** The third and last discharge of `OrganismState::occluded`, and
+    // it is the one that arrives by somebody else's hand: the predation path
+    // writes `Cell::EMPTY` over the mouthful through the ordinary seam, so
+    // the position stops being this animal's without either of the other two
+    // discharges running. Left alone, the root would be gone from the grid
+    // while the *tree* still listed the position — a phantom that
+    // `anchor_support` would happily conduct through.
+    //
+    // Keyed on `owned`, which is the same authority `surviving` uses one line
+    // up, so a cell is either still this body's or it is not; there is no
+    // third answer for the two to disagree about.
+    if let Some(state) = world.organism_mut(organism) {
+        let (lost, kept): (Vec<_>, Vec<_>) = std::mem::take(&mut state.occluded).into_iter().partition(|&(p, _)| !owned.contains_key(&p));
+        state.occluded = kept;
+        for (pos, covered) in lost {
+            world.reveal(pos.0, pos.1, covered);
+        }
+    }
     if surviving.is_empty() || surviving.first() != chain.first() {
         // Vital cell gone (or nothing left at all): the rest is meat.
         creature_dies(world, organism);
@@ -3402,17 +3422,54 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
             // way it came in with the walk abstracted. An ant is two cells at
             // play zoom and nothing about the journey is visible; a mound
             // growing over the nest is.
-            let site = NEIGHBOURS_8
-                .iter()
-                .map(|&(dx, dy)| (x + dx, y + dy))
-                .find(|&(px, py)| open(px, py))
-                .or_else(|| (1..=SPOIL_LIFT).map(|dy| (x, y - dy)).find(|&(px, py)| open(px, py)));
+            // **The two branches are resolved apart so the counters can tell
+            // them apart.** They used to be one `or_else` chain, which is
+            // tidier and answers a strictly weaker question: `spoil_dumped`
+            // counts both, so a colony that lays its tailings beside itself
+            // and one that posts them up through a tree canopy report the
+            // same number. See `CreatureStats::spoil_lifted`.
+            let near = NEIGHBOURS_8.iter().map(|&(dx, dy)| (x + dx, y + dy)).find(|&(px, py)| open(px, py));
+            // **The lift stops at the first thing this animal could not have
+            // got through itself**, which is what makes it an abstracted walk
+            // rather than teleportation.
+            //
+            // It used to scan all `SPOIL_LIFT` rows unconditionally, and the
+            // consequence was `open-bugs-handoff.md` §Z4: inside a trunk every
+            // candidate fails `open`'s emptiness test, so the scan ran past the
+            // whole tree and put the pellet on the first foliage shoulder or
+            // the crown top -- where, `packedsoil` being `self_supporting`, it
+            // stayed. Measured over four seeds, one tree and a colony at its
+            // foot: pellets standing **52-99 rows** above the surface and 7-18
+            // of them touching living tissue, against **2-4 rows and a flat
+            // zero** for the same colony in the same bed with no tree. That is
+            // an owner playtest report -- *"they pile up dirt on top of and
+            // around the trees"* -- and it was this line.
+            //
+            // **Soil still passes, and that is the point of keeping a lift at
+            // all.** An animal at the face of a gallery has a roof over it and
+            // every neighbour taken; the walk home is up its own workings,
+            // through ground it can cut. So the bound is the species' own
+            // `dig_force` against the material's `penetration_resistance` --
+            // the same test the dig branch makes, so "could I have come this
+            // way" and "could I have dug this" cannot drift apart -- and never
+            // a material whitelist. Plant tissue (resistance 100 by default),
+            // stone, sand and the colony's own nest all stop it; soil and
+            // packed soil do not.
+            //
+            // Raw `material == EMPTY` rather than `World::is_empty`, which is
+            // managed-aware and answers a different question (`CLAUDE.md`).
+            let reach = lift_reach(world, x, y, def.dig_force);
+            let site = near.or_else(|| (1..=reach).map(|dy| (x, y - dy)).find(|&(px, py)| open(px, py)));
             if let Some((px, py)) = site {
                 world.set(px, py, spoil.cell);
                 if let Some(state) = world.organism_mut(organism) {
                     state.spoil = None;
                 }
                 world.creature_stats.spoil_dumped += 1;
+                if near.is_none() {
+                    world.creature_stats.spoil_lifted += 1;
+                    world.creature_stats.spoil_lift_max = world.creature_stats.spoil_lift_max.max((y - py).max(0) as u32);
+                }
             }
         }
         // Laden either way: a full mandible is a mandible that cannot cut,
@@ -3524,6 +3581,47 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
     }
 }
 
+/// How far up `act`'s spoil lift may look — the first row holding something
+/// this animal could not have got through itself, or `SPOIL_LIFT`.
+///
+/// **This is what makes the lift an abstracted walk rather than
+/// teleportation**, and it is `open-bugs-handoff.md` §Z4. The scan used to run
+/// all `SPOIL_LIFT` rows unconditionally: inside a trunk every candidate fails
+/// the destination test's emptiness clause, so it ran past the whole tree and
+/// put the pellet on the first foliage shoulder or the crown top, where
+/// `packedsoil` being `self_supporting` it stayed. Measured over four seeds,
+/// one tree with a colony at its foot: pellets standing **52–99 rows** above
+/// the surface, 7–18 of them touching living tissue, against **2–4 rows and a
+/// flat zero** for the same colony in the same bed with no tree. An owner
+/// reported it from play as dirt piling up on top of the trees.
+///
+/// **Soil still passes, and that is why a lift exists at all.** An animal at
+/// the face of a gallery has a roof over it and every neighbour taken; its way
+/// home is up its own workings, through ground it can cut. So the bound is the
+/// species' own `dig_force` against the material's `penetration_resistance` —
+/// the same test the dig branch makes, so *"could I have come this way"* and
+/// *"could I have dug this"* cannot drift apart — and never a material
+/// whitelist. Plant tissue (resistance 100 by default), stone, sand and the
+/// colony's own nest stop it; soil and packed soil do not.
+///
+/// Returns the blocking row itself rather than the one below it, which costs
+/// nothing: a blocker is not `EMPTY`, so the destination test refuses it
+/// anyway. Raw `material == EMPTY` rather than `World::is_empty`, which is
+/// managed-aware and answers a different question (`CLAUDE.md`).
+fn lift_reach(world: &World, x: i32, y: i32, dig_force: f32) -> i32 {
+    for dy in 1..=SPOIL_LIFT {
+        let cell = world.get(x, y - dy);
+        if cell.material == material::EMPTY {
+            continue;
+        }
+        if world.materials.get(cell.material).penetration_resistance <= dig_force {
+            continue;
+        }
+        return dy;
+    }
+    SPOIL_LIFT
+}
+
 /// How far up a pellet may be carried to reach the surface, in cells.
 ///
 /// The lab's own bed is 96 rows of soil under 160 of air, so this clears it
@@ -3540,6 +3638,26 @@ const SPOIL_LIFT: i32 = 160;
 /// here now that the drop also needs a floor -- the two together already
 /// exclude a shaft.
 const SPOIL_HEADROOM: i32 = 3;
+
+/// The ablation switch for walking through living tissue, on by default.
+///
+/// `PIXEL_PHYSICS_ROOT_PASSABLE=off` puts the pre-2026-09-03 behaviour back:
+/// a root is a wall an ant can neither cut nor enter. It changes **nothing
+/// else** — the same shape `spoil_kept` and `lining_enabled` beside it use,
+/// and for the same reason `CLAUDE.md` gives: *the control is to hold the
+/// semantic rule fixed, not to add another metric*.
+///
+/// It exists because the claim is about a **standing** quantity (how much of
+/// a tree's root system is left, how often a colony is blocked) and a
+/// standing quantity has no baseline of its own. Both arms run from one
+/// binary, so no rebuild sits between them and the counters that would catch
+/// an error in the mechanism exist in both.
+///
+/// Read once per process through a `OnceLock`, matching its two neighbours.
+fn root_passable() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_ROOT_PASSABLE").map(|v| v != "off").unwrap_or(true))
+}
 
 /// The ablation switch for hauling, on by default.
 ///
@@ -4510,7 +4628,38 @@ fn tumble(world: &mut World, organism: u16, def: &CreatureDef, draw: &mut rng::R
 /// translation and cannot duplicate either; it goes through here anyway so
 /// that "can this body stand in these cells" is one rule and not three.
 fn landing_is_placeable(world: &World, chain: &[(i32, i32)], landing: &[(i32, i32)]) -> bool {
-    landing.iter().enumerate().all(|(i, &p)| (world.is_empty(p.0, p.1) || chain.contains(&p)) && !landing[..i].contains(&p))
+    landing
+        .iter()
+        .enumerate()
+        .all(|(i, &p)| (world.is_empty(p.0, p.1) || chain.contains(&p) || occludable(world, p.0, p.1).is_some()) && !landing[..i].contains(&p))
+}
+
+/// **Living tissue a body may stand *in*** — the cell to put back afterwards,
+/// or `None` if this is not somewhere a creature may go.
+///
+/// Both halves are load-bearing and neither works alone, which is
+/// `player::footing`'s argument for the identical pair and it is not repeated
+/// by accident. The flag is what makes this **data**: a species that should
+/// stop an ant says so in its own `.ron` with no code change, and turning the
+/// whole tree passable is `wood`/`leaf` gaining the flag rather than anything
+/// here. The organism id is what separates a grown root from `wood` a player
+/// painted — the same `MaterialId`, and a fort made of it must keep stopping
+/// people.
+///
+/// **A creature cell is not occludable, and that exclusion is the safety of
+/// the whole mechanism.** Two chains swapping through each other is a much
+/// harder change that nothing here approaches (`dead-ends.md` 775/829 kept
+/// "pass-through" untested for exactly that reason). It costs nothing to
+/// enforce: whoever is standing in a root *is* what the grid holds there, so
+/// the second animal reads a `Creature` and is refused, and the first
+/// animal's own tail is refused for the same reason.
+fn occludable(world: &World, x: i32, y: i32) -> Option<Cell> {
+    if !root_passable() {
+        return None;
+    }
+    let cell = world.get(x, y);
+    let material = world.materials.get(cell.material);
+    (material.creature_passable && cell.organism_id() != 0).then_some(cell)
 }
 
 /// Where this creature's cells end up if its head steps to `head`.
@@ -4706,14 +4855,45 @@ fn relocate_chain(world: &mut World, organism: u16, from: &[(i32, i32)], to: &[(
         "a body cannot occupy one cell twice: {to:?} — the caller skipped landing_is_placeable"
     );
     let cells: Vec<Cell> = from.iter().map(|&(cx, cy)| world.get(cx, cy)).collect();
+
+    // **What the body is about to cover, read before anything is written.**
+    // After the clear below, a cell of `to` that overlaps `from` holds
+    // whatever the clear put there, so a later read cannot tell living tissue
+    // from the hole the body just left.
+    let covering: Vec<Option<Cell>> = to.iter().map(|&(cx, cy)| occludable(world, cx, cy)).collect();
+
+    // Vacate: put back what was underneath, or leave a hole. Taking the entry
+    // *out* of `occluded` as it is discharged is what keeps the list an
+    // obligation rather than a cache -- a stale entry would put a root back
+    // somewhere the body is no longer standing.
+    let mut held: Vec<((i32, i32), Cell)> = world.organism_mut(organism).map(|s| std::mem::take(&mut s.occluded)).unwrap_or_default();
     for &(cx, cy) in from {
-        world.set(cx, cy, Cell::EMPTY);
+        match held.iter().position(|&(p, _)| p == (cx, cy)) {
+            Some(i) => {
+                let (_, covered) = held.swap_remove(i);
+                world.reveal(cx, cy, covered);
+            }
+            None => world.set(cx, cy, Cell::EMPTY),
+        }
     }
-    for (&(cx, cy), &cell) in to.iter().zip(&cells) {
-        world.set(cx, cy, cell);
+    debug_assert!(held.is_empty(), "a body left tissue occluded at a position it no longer stands on: {held:?}");
+
+    // Arrive: `occlude` where there is tissue to preserve, an ordinary write
+    // everywhere else, so the common case pays nothing.
+    let mut now_covering = Vec::new();
+    for ((&(cx, cy), &cell), covered) in to.iter().zip(&cells).zip(&covering) {
+        match covered {
+            Some(under) => {
+                world.occlude(cx, cy, cell);
+                world.creature_stats.occlusions += 1;
+                now_covering.push(((cx, cy), *under));
+            }
+            None => world.set(cx, cy, cell),
+        }
     }
     if let Some(state) = world.organism_mut(organism) {
         state.chain = to.to_vec();
+        state.occluded = now_covering;
     }
 }
 
@@ -4983,6 +5163,25 @@ fn creature_dies(world: &mut World, organism: u16) {
         .organism(organism)
         .map(|s| s.chain.iter().copied().filter(|p| owned.contains_key(p)).collect())
         .unwrap_or_default();
+
+    // **Give back the tissue before laying down the corpse.** An animal that
+    // dies standing inside a root must not bury it: `stamp_as_corpse` writes
+    // through the ordinary seam, so a corpse cell here would overwrite the
+    // root *and* drop it from the tree's cell list, which is precisely the
+    // severing `World::occlude` exists to prevent -- arriving by a different
+    // door. This is the second and last place an entry in
+    // `OrganismState::occluded` is discharged; `relocate_chain` is the other.
+    //
+    // The revealed positions leave `chain`, so no corpse is stamped on them.
+    // Their flesh really is gone, and `meat_lost` below books it as such --
+    // the cell count it derives that from is `chain_before - chain.len()`,
+    // which is why the removal happens above that line and not below it.
+    let occluded = world.organism_mut(organism).map(|s| std::mem::take(&mut s.occluded)).unwrap_or_default();
+    for &(pos, covered) in &occluded {
+        world.reveal(pos.0, pos.1, covered);
+    }
+    let chain: Vec<(i32, i32)> = chain.into_iter().filter(|p| !occluded.iter().any(|&(q, _)| q == *p)).collect();
+
     // **What the meat is worth, written into the meat.** The structural
     // stamp the body was granted at spawn, plus whatever the animal had left
     // to spend, divided over the cells that are actually still standing --
@@ -6033,6 +6232,133 @@ mod tests {
         }
         w.plant_ant(x, 100);
         w.get(x, 100).organism_id()
+    }
+
+
+    /// **An ant walks through a root and the root survives it.** §Z4's
+    /// pass-through guard, and the assertions are in the order the mechanism
+    /// can fail in.
+    ///
+    /// Passability alone is not the claim and testing only that would miss the
+    /// whole bug: a creature is cells in the grid, so "can step there" and
+    /// "the tissue is still there afterwards" are separate facts, and the
+    /// naive version of this feature satisfies the first while deleting the
+    /// root. **The membership assertion is the sharpest one** -- `World::set`
+    /// drops an overwritten cell from its owner's list, and a root missing
+    /// from the tree's `cells` is one `anchor_support` pass away from the
+    /// crown being shed. Green on the other three and red on that one is
+    /// exactly what the unguarded implementation looks like.
+    ///
+    /// **Watched going red**: with `relocate_chain` writing through `set`
+    /// instead of `occlude`/`reveal`, it fails on the membership assertion --
+    /// the tree loses its claim the instant the ant steps in, before the
+    /// restore is ever reached.
+    #[test]
+    fn an_ant_walks_through_a_root_and_leaves_it_standing() {
+        let mut w = test_world();
+        let rootwood = w.materials.id_of("rootwood").expect("rootwood");
+        let wood = w.materials.id_of("wood").expect("wood");
+        // **The test turns the flag on itself**, because the shipped data has
+        // it off (see `rootwood.ron`, and §Z4 for the measurement that put it
+        // there). This guard is about whether the *mechanism* is correct --
+        // that a body can occupy tissue without destroying it -- which is a
+        // separate question from whether any material should opt in. Keeping
+        // it live is what stops the machinery rotting while the decision is
+        // open, and it is what a re-enable would be checked against.
+        w.materials.get_mut(rootwood).creature_passable = true;
+        for cx in 0..200 {
+            w.set(cx, 101, Cell::new(material::STONE, 0));
+        }
+        // A real organism to own the tissue, so `organism_id() != 0` is true
+        // for the reason it is true in the world rather than by fiat.
+        let tree = w.push_organism(SpeciesId(0)).expect("an organism slot is free");
+        let root = Cell::new(rootwood, 0).with_organism_id(tree);
+        w.set(105, 100, root);
+        // A painted `wood` wall with no owner -- the same `MaterialKind`, and
+        // it must keep stopping people. This is the half a material-only test
+        // would get wrong.
+        w.set(110, 100, Cell::new(wood, 0));
+
+        assert!(occludable(&w, 105, 100).is_some(), "living root tissue is what an ant may stand in");
+        assert!(occludable(&w, 110, 100).is_none(), "unowned wood is a wall someone built, not a root");
+        assert!(
+            w.organism(tree).is_some_and(|s| s.cells.contains_key(&(105, 100))),
+            "the tree must own the cell before the ant arrives, or the test below proves nothing"
+        );
+
+        let ant = ant_on_a_floor(&mut w, 100);
+        // Walk the body onto the root and off again, through the same call the
+        // sweep uses -- not a hand-rolled write, which could not catch a
+        // regression in `relocate_chain` itself.
+        let chain = w.organism(ant).expect("ant").chain.clone();
+        let onto: Vec<(i32, i32)> = chain.iter().map(|&(cx, cy)| (cx + 5, cy)).collect();
+        relocate_chain(&mut w, ant, &chain, &onto);
+        assert_eq!(w.get(105, 100).organism_id(), ant, "the ant is standing in the root cell");
+        assert!(
+            w.organism(tree).is_some_and(|s| s.cells.contains_key(&(105, 100))),
+            "the tree must keep its claim while occupied -- losing it is what severs the root"
+        );
+
+        relocate_chain(&mut w, ant, &onto, &chain);
+        assert_eq!(w.get(105, 100).material, rootwood, "the root is put back when the ant steps off");
+        assert_eq!(w.get(105, 100).organism_id(), tree, "...and it still belongs to the tree");
+        assert!(
+            w.organism(ant).is_some_and(|s| s.occluded.is_empty()),
+            "every occlusion is an obligation and must be discharged when the body leaves"
+        );
+    }
+
+    /// **A pellet may not be posted up through a tree.** §Z4's guard.
+    ///
+    /// Three columns in one bed, because the bound has to *stop* something and
+    /// also has to *not* stop the thing the lift exists for -- a positive
+    /// control in the same test, which `CLAUDE.md` asks for by name. Assert on
+    /// the trunk alone and a bound that broke every burrow in the world would
+    /// pass just as happily.
+    ///
+    /// **Watched going red**, per the rule about citing a guard's green:
+    /// returning `SPOIL_LIFT` unconditionally fails it (160 against 121 on the
+    /// clear column, and 160 against 40 on the trunk had the run got that
+    /// far). Both the bound and the control move under the fault, which is
+    /// what says neither assertion is decorative.
+    #[test]
+    fn the_spoil_lift_walks_up_soil_and_stops_at_a_trunk() {
+        let mut w = test_world();
+        let soil = w.materials.id_of("soil").expect("soil");
+        let wood = w.materials.id_of("wood").expect("wood");
+        let sand = w.materials.id_of("sand").expect("sand");
+        // Ground from y=60 down; the animal stands at y=120 in all three.
+        for x in 0..200 {
+            for y in 60..150 {
+                w.set(x, y, Cell::new(soil, 0).with_aux(material::SOIL_FIELD_CAPACITY));
+            }
+        }
+        // Column 100: clear soil all the way up -- the way home.
+        // Column 40: a trunk crossing the column at y=80, 40 rows over the ant.
+        w.set(40, 80, Cell::new(wood, 0));
+        // Column 160: sand at y=100, which this animal also cannot cut.
+        w.set(160, 100, Cell::new(sand, 0));
+
+        let force = 1.0; // `ant.ron`'s authored `dig_force`
+        // **121, not `SPOIL_LIFT`, and the difference is the world edge.**
+        // The bed is 200 tall and the animal stands at y=120, so the walk runs
+        // out of world at dy=121, where `World::get` returns its `BEDROCK`
+        // sentinel and the bound correctly refuses to go further. That is the
+        // right answer -- a pellet may not be posted out of the world either --
+        // and it is the assertion that says diggable ground is *not* what
+        // stopped it.
+        assert_eq!(
+            lift_reach(&w, 100, 120, force),
+            121,
+            "a column of diggable soil is the case the lift exists for: nothing but the world edge may bound it"
+        );
+        assert_eq!(lift_reach(&w, 40, 120, force), 40, "the walk must stop at the trunk, not run past it into the crown");
+        assert_eq!(lift_reach(&w, 160, 120, force), 20, "sand is past this animal's dig_force and stops the walk too");
+
+        // And it is the *animal* that decides, not a material list: a digger
+        // strong enough to cut sand walks through it.
+        assert_eq!(lift_reach(&w, 160, 120, 2.0), 121, "a stronger mandible passes ground it could actually cut, up to the world edge");
+        assert_eq!(lift_reach(&w, 40, 120, 2.0), 40, "...but living tissue is not diggable at any authored force");
     }
 
     /// **Digging moves ground; it does not delete it.**
