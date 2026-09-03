@@ -1290,6 +1290,75 @@ fn tissue_appearance(
 /// the same genotype. Mixing the frame in would fix that and would break
 /// save/load stability, so it is deliberately not done — a repeat in the
 /// same spot, seasons apart, is not a visible defect.
+/// **The stream a plant's own decisions are drawn from**, and the one place
+/// `World::developmental_key` is read.
+///
+/// Under `DevelopmentalKey::World` this is exactly the shipped key —
+/// `(organism_id, cell_x, cell_y, world.frame)` — so the default costs one
+/// enum compare and nothing else moves.
+///
+/// Under `Plant` it is the plant's **own frame of reference**:
+/// `(dev_seed, x - origin_x, y - origin_y, frame - germination_frame)`. Two
+/// plants of one lineage standing in different columns, germinating at
+/// different moments, then draw the *same* sequence at the same place in
+/// their own bodies at the same age — so what is left between them is what
+/// the environment did, which is the variation worth keeping.
+///
+/// **Relative coordinates, absolute-frame subtraction, and a stamped seed:
+/// each of the three matters.** `x - origin_x` because a cell three up and
+/// two left of the collar should draw differently from its neighbour, which
+/// is the part that must survive; `frame - germination_frame` because a
+/// clone sown an hour later is otherwise a different plant, and because it
+/// preserves the `ORGANISM_TICK_INTERVAL` stride that `rng.rs`'s
+/// `a_stream_stays_uniform_along_a_fixed_tick_stride` asserts; and
+/// `dev_seed` rather than `lineage_seed` because folding the germination
+/// coordinate is the dial (see [`organism::DevelopmentalKey`]).
+///
+/// **Falls back to the world key when the plant has no origin**, which is a
+/// creature or an organism that reached tissue without passing a germination
+/// path. That is a real case rather than a defensive shrug -- but it must
+/// never be the common one, so `a_germinated_plant_is_stamped_with_an_origin`
+/// pins that the shipped paths all stamp.
+fn growth_stream(world: &World, organism_id: u16, x: i32, y: i32) -> Rng {
+    let plant_frame = match world.developmental_key {
+        organism::DevelopmentalKey::World => None,
+        organism::DevelopmentalKey::Plant { .. } => world.organism(organism_id).and_then(|s| {
+            s.origin.map(|(ox, oy)| (s.dev_seed, x - ox, y - oy, world.frame.saturating_sub(s.germination_frame)))
+        }),
+    };
+    match plant_frame {
+        // `as u64` on a negative offset wraps to a large value, which is
+        // exactly what a hash input wants: distinct, and stable per offset.
+        Some((seed, dx, dy, age)) => rng::stream(seed, dx as u64, dy as u64, age),
+        None => rng::stream(organism_id as u64, x as u64, y as u64, world.frame),
+    }
+}
+
+/// **Stamp where and when this plant started**, once, at the moment its real
+/// position is finally known.
+///
+/// Separate from `seed_genotype` on purpose, and it has to be: that function
+/// returns at the top for an `inherited` genome, which is every bred seed and
+/// every specimen the player sows — exactly the plants whose origin matters
+/// most. A stamp folded into it would be skipped for all of them and kept for
+/// founders, which is the subset that would make a clone stand look like it
+/// worked.
+///
+/// Idempotent by the `is_none` guard: a seed that is told "not yet" and
+/// re-tries germination keeps the first stamp, so its clock does not restart
+/// and its `dev_seed` does not change under it.
+fn stamp_origin(world: &mut World, organism_id: u16, x: i32, y: i32) {
+    let key = world.developmental_key;
+    let frame = world.frame;
+    if let Some(state) = world.organism_mut(organism_id) {
+        if state.origin.is_none() {
+            state.origin = Some((x, y));
+            state.germination_frame = frame;
+            state.dev_seed = key.fold(state.lineage_seed, x, y);
+        }
+    }
+}
+
 pub fn seed_genotype(world: &mut World, organism_id: u16, x: i32, y: i32) {
     // **An inherited genome is not redrawn.** This function keys on where
     // a seed came to rest, which is right for one a scene or the player
@@ -1421,6 +1490,17 @@ pub fn seed_genotype(world: &mut World, organism_id: u16, x: i32, y: i32) {
                 vary(organism::LOCUS_TROPISM, u8::from(tropism.at(1) == organism::Tropism::Plagiotropic), 69);
         }
     }
+    // **A founder's developmental identity, drawn here for the reason every
+    // other founding draw is drawn here**: keyed on the germination
+    // coordinate, so it survives planting order, worldgen edits, slot reuse
+    // and save/load, none of which an id-keyed draw does. Stream 72 is free —
+    // 0..9 are the trait slots, 64..71 the colour and minority-variant rolls,
+    // 200..202 the breeding substreams.
+    //
+    // A *bred* seed never reaches this line: `bear_seed_at` sets `inherited`
+    // and this function returns at the top, which is what makes the lineage
+    // seed heritable rather than re-rolled at every germination.
+    let lineage_seed = rng::stream(world_seed, x as u64, y as u64, DEVELOPMENTAL_SEED_STREAM).next_u64();
     if let Some(state) = world.organism_mut(organism_id) {
         state.genotype_draws = draws;
         state.foliage_band = foliage_band;
@@ -1428,6 +1508,7 @@ pub fn seed_genotype(world: &mut World, organism_id: u16, x: i32, y: i32) {
         state.flower_band = flower_band;
         state.fruit_band = fruit_band;
         state.alleles = alleles;
+        state.lineage_seed = lineage_seed;
     }
 }
 
@@ -1673,6 +1754,15 @@ fn draw_band(bands: organism::PaletteBands, rng: &mut Rng) -> u8 {
 /// genome slot index, and colliding with a slot the jitter loop uses would
 /// give one trait and one colour the same stream. 200 leaves room for the
 /// genome to grow by an order of magnitude first.
+/// The substream slot a founder's `lineage_seed` is drawn from — see
+/// `ORGAN_BAND_STREAM` for why these sit well clear of `GENOTYPE_TRAITS`.
+///
+/// 72 rather than 203: this is a *founding* draw keyed on the germination
+/// coordinate alongside 64..71, not a breeding draw keyed on the landing
+/// cell alongside 200..202, and putting it with its neighbours is what stops
+/// the next person adding a founding draw from colliding with it.
+const DEVELOPMENTAL_SEED_STREAM: u64 = 72;
+
 const ORGAN_BAND_STREAM: u64 = 200;
 
 /// The substream slot the fate mutation draws from — see `ORGAN_BAND_STREAM`
@@ -1888,9 +1978,9 @@ fn launch_offset(world: &World, sx: i32, sy: i32, reach: f32) -> i32 {
 /// sequence *choose a spot, draw a shade, mutate the genome* exactly where it
 /// was. The drop path has no spot draw at all: a fruit lets go where it hangs.
 fn bear_seed_at(world: &mut World, sx: i32, sy: i32, parent_id: u16, seed_cost: f32, seed_material: material::MaterialId, rng: &mut Rng) -> bool {
-    let Some((species, draws, generation, parent_alleles, parent_fates, parent_params, parent_lineage)) = world
+    let Some((species, draws, generation, parent_alleles, parent_fates, parent_params, parent_lineage, parent_dev)) = world
         .organism(parent_id)
-        .map(|s| (s.species, s.genotype_draws, s.generation, s.alleles, s.fates, s.params, s.lineage))
+        .map(|s| (s.species, s.genotype_draws, s.generation, s.alleles, s.fates, s.params, s.lineage, s.lineage_seed))
     else {
         return false;
     };
@@ -1988,6 +2078,13 @@ fn bear_seed_at(world: &mut World, sx: i32, sy: i32, parent_id: u16, seed_cost: 
         // and what `plant-rule-drift-observed-2026-08-29.md` §5 records as
         // missing outright: "No lineage was followed individually."
         state.lineage = parent_lineage;
+        // **The developmental identity rides with the genome and is never
+        // mutated** -- see `OrganismState::lineage_seed` for why that is the
+        // owner's decision rather than an omission. Note it takes **no draw**:
+        // that is what keeps `set_seed_leaves_the_callers_rng_position_alone`
+        // green, and it is why this could be added without a substream at all
+        // where `fates` and `params` each needed one.
+        state.lineage_seed = parent_dev;
         organism::jump_alleles(&mut state.alleles, rng);
         // **The appended slots, from their own keyed substream rather
         // than the shared `Rng`** -- and the substream is the whole
@@ -2589,6 +2686,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
         slot.canopy_density *= CANOPY_DENSITY_DECAY_PER_TICK;
     }
 
+
     // One stream per (organism, cell, tick), seeded from exactly those --
     // never `world.rng`, whose sequence depends on how many draws every
     // *other* organism made first. See `rng::stream` for why that coupling
@@ -2597,7 +2695,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
     // it. `world.frame` is in the seed so a cell that ticks repeatedly does
     // not redraw the same numbers; `(x, y)` so two cells of one organism
     // ticking on the same frame diverge.
-    let mut rng = rng::stream(organism_id as u64, x as u64, y as u64, world.frame);
+    let mut rng = growth_stream(world, organism_id, x, y);
     // Once per tick rather than once per `is_foliage` call -- see that
     // function's own note.
     let has_leaf_stage = world.species.get(species_id).has_leaf_stage();
@@ -4829,7 +4927,7 @@ fn rot_remains(world: &mut World, organism_id: u16) {
         if world.get(x, y).organism_id() != organism_id {
             continue; // burned, erased or overwritten since the list was taken
         }
-        let mut rng = rng::stream(organism_id as u64, x as u64, y as u64, world.frame);
+        let mut rng = growth_stream(world, organism_id, x, y);
         if rng.chance(chance) {
             shed_to_litter(world, x, y);
         }
@@ -7659,7 +7757,7 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
             continue; // still on the active-site schedule, handled there
         }
 
-        let mut rng = rng::stream(organism_id as u64, cx as u64, cy as u64, world.frame);
+        let mut rng = growth_stream(world, organism_id, cx, cy);
         let mut behavior_buf = [None::<Behavior>; MAX_BEHAVIORS_PER_CELL_TYPE];
         // The mature-tissue pass's half of the seam above -- both fills apply
         // the individual's overrides, or a plant would run its own numbers on
@@ -8549,6 +8647,10 @@ fn germinate(world: &mut World, x: i32, y: i32, organism_id: u16, cell: Cell, rn
     // planted, and the coordinate it comes to rest at is the one that
     // should decide what kind of individual grows. See `seed_genotype`.
     seed_genotype(world, organism_id, x, y);
+    // ...and the same coordinate is this plant's developmental origin. A
+    // bred seed skips the line above (`inherited`) and must not skip this
+    // one -- see `stamp_origin`.
+    stamp_origin(world, organism_id, x, y);
     // The seed cell is `seed` material; the shoot it becomes is whatever
     // this species declares -- `wood` for every shipped tree, and the
     // reason a non-woody species is expressible at all. See
@@ -8986,6 +9088,7 @@ impl World {
         // `genotype_variance` is all zeroes, and correct the moment a
         // species with a `Divide` economy wants individuality.
         seed_genotype(self, organism_id, x, y);
+        stamp_origin(self, organism_id, x, y);
         let site = reschedule_organism(x, y, organism_id, 0, 0, self.organism_due(ORGANISM_TICK_INTERVAL));
         self.schedule_active_site(site);
     }
@@ -10969,8 +11072,8 @@ The night factor belongs on income only -- see NIGHT_INCOME_FLOOR"
             plant_tree_on_ground(&mut w, 100, 60);
             let id = w.get(100, 60).organism_id();
             assert_ne!(id, 0, "test setup: the planted seed owns its own cell");
-            let (draws, alleles, _) = w.organism_genotype(id).expect("a planted seed has a genome");
-            assert!(w.set_organism_genotype(id, draws, alleles, params), "the organism is live");
+            let (draws, alleles, _, dev) = w.organism_genotype(id).expect("a planted seed has a genome");
+            assert!(w.set_organism_genotype(id, draws, alleles, params, dev), "the organism is live");
             run_with_fields(&mut w, 900);
             // A cheap order-sensitive digest of the grid, the same shape
             // `sim::frame`'s own control test uses: a cell count can come out
@@ -12602,6 +12705,124 @@ The night factor belongs on income only -- see NIGHT_INCOME_FLOOR"
     /// Fails for a renumbering, a re-purposing, or any change to how a
     /// draw is derived — the three things that silently rewrite every
     /// genome ever measured.
+    /// **The default key is the shipped key, byte for byte.**
+    ///
+    /// `DevelopmentalKey` moves every plant in both games at any setting but
+    /// its default, so the claim that has to hold is not "the new path is
+    /// good" but "the old path is untouched". Written as an equality against
+    /// the historical expression rather than as a stand hash, because a stand
+    /// hash would also pass if both sides were broken the same way.
+    #[test]
+    fn the_default_developmental_key_reproduces_the_shipped_stream() {
+        let mut w = test_world();
+        w.seed = 4_242;
+        assert_eq!(w.developmental_key, organism::DevelopmentalKey::World, "the default must be the shipped behaviour");
+        let tree = w.species.id_of("tree").expect("tree species is compiled in");
+        let id = w.push_organism(tree).expect("an organism slot is free");
+        w.frame = 137;
+        // Stamp an origin, so this is not passing merely because the plant
+        // has none to key on -- the fallback would give the same answer and
+        // prove nothing (`CLAUDE.md`: a guard must be able to fail).
+        stamp_origin(&mut w, id, 11, 22);
+        assert!(w.organism(id).expect("live").origin.is_some(), "test setup: the origin must be stamped");
+        let mut want = rng::stream(id as u64, 30_u64, 40_u64, 137);
+        let mut got = growth_stream(&w, id, 30, 40);
+        assert_eq!(got.next_u64(), want.next_u64(), "the World key must be the historical expression");
+    }
+
+    /// **The plant key actually changes the stream**, which the test above
+    /// cannot show and which a whole experiment rests on.
+    ///
+    /// The positive control for `the_default_developmental_key_reproduces_
+    /// the_shipped_stream`: same organism, same cell, same frame, different
+    /// key, and the two must differ. A key that silently fell back would
+    /// leave every measurement reading *the change did nothing*.
+    #[test]
+    fn the_plant_key_moves_the_stream_and_the_offsets_are_relative() {
+        let mut w = test_world();
+        w.seed = 4_242;
+        w.developmental_key = organism::DevelopmentalKey::Plant { coarseness: 0 };
+        let tree = w.species.id_of("tree").expect("tree species is compiled in");
+        let a = w.push_organism(tree).expect("an organism slot is free");
+        w.frame = 100;
+        seed_genotype(&mut w, a, 11, 22);
+        stamp_origin(&mut w, a, 11, 22);
+
+        let shipped = rng::stream(a as u64, 15_u64, 26_u64, 100).next_u64();
+        let plant = growth_stream(&w, a, 15, 26).next_u64();
+        assert_ne!(plant, shipped, "the plant key must not reproduce the world key");
+
+        // **The same offset in another plant's body, at the same age, draws
+        // the same numbers when the lineage seed matches** -- that is the
+        // whole mechanism, and it is what makes two clones develop alike.
+        let b = w.push_organism(tree).expect("a second organism slot is free");
+        let seed = w.organism(a).expect("live").lineage_seed;
+        w.frame = 500;
+        if let Some(state) = w.organism_mut(b) {
+            state.lineage_seed = seed;
+        }
+        stamp_origin(&mut w, b, 300, 90);
+        // `a` germinated at frame 100 and `b` at 500, four cells right and
+        // four down in each body: same offset, same age, same lineage.
+        const AGE: u64 = 360;
+        w.frame = 100 + AGE;
+        let early = growth_stream(&w, a, 11 + 4, 22 + 4).next_u64();
+        w.frame = 500 + AGE;
+        let later = growth_stream(&w, b, 300 + 4, 90 + 4).next_u64();
+        assert_eq!(early, later, "one lineage at one offset and one age must draw one sequence");
+        // ...and the control: a *different* offset in the same body must not.
+        let elsewhere = growth_stream(&w, b, 300 + 5, 90 + 4).next_u64();
+        assert_ne!(later, elsewhere, "two cells of one plant must still diverge");
+    }
+
+    /// **A bred seed inherits its parent's developmental identity**, which is
+    /// what makes form heritable at all — and takes no draw doing it, which
+    /// is what keeps `set_seed_leaves_the_callers_rng_position_alone` green.
+    #[test]
+    fn a_bred_seed_inherits_its_parents_lineage_seed() {
+        let mut w = test_world();
+        w.seed = 31_337;
+        let herb = w.species.id_of("herb").expect("herb species is compiled in");
+        let parent = w.push_organism(herb).expect("an organism slot is free");
+        seed_genotype(&mut w, parent, 60, 40);
+        let want = w.organism(parent).expect("live").lineage_seed;
+        assert_ne!(want, 0, "test setup: a founder must draw a non-zero lineage seed");
+
+        let seed_material = w.materials.id_of("seed").expect("seed material is compiled in");
+        let mut rng = rng::stream(1, 2, 3, 4);
+        assert!(bear_seed_at(&mut w, 62, 40, parent, 0.2, seed_material, &mut rng), "the seed should be borne");
+        let child = w.get(62, 40).organism_id();
+        assert_ne!(child, 0, "test setup: the borne seed owns its cell");
+        assert_eq!(
+            w.organism(child).expect("live child").lineage_seed,
+            want,
+            "a child must carry its parent's developmental identity unchanged"
+        );
+    }
+
+    /// **Folding is a no-op at coarseness 0 and bands at coarseness k**, with
+    /// the negative control that two positions in one band agree and two in
+    /// different bands do not.
+    #[test]
+    fn folding_a_germination_coordinate_bands_at_its_coarseness() {
+        use organism::DevelopmentalKey;
+        let seed = 0xDEAD_BEEF_u64;
+        assert_eq!(DevelopmentalKey::Plant { coarseness: 0 }.fold(seed, 10, 20), seed, "coarseness 0 must drop position");
+        assert_eq!(DevelopmentalKey::World.fold(seed, 10, 20), seed, "the world key never reads dev_seed");
+
+        let k8 = DevelopmentalKey::Plant { coarseness: 8 };
+        assert_eq!(k8.fold(seed, 16, 0), k8.fold(seed, 23, 0), "two columns in one band must agree");
+        assert_ne!(k8.fold(seed, 16, 0), k8.fold(seed, 24, 0), "two columns in different bands must not");
+        // Negative coordinates: `div_euclid`, not `/`. Truncating division
+        // folds -1 and 0 into one bucket and then mirrors, so a bed straddling
+        // the origin would band asymmetrically about x = 0.
+        assert_eq!(k8.fold(seed, -8, 0), k8.fold(seed, -1, 0), "a band below zero must be a band");
+        assert_ne!(k8.fold(seed, -1, 0), k8.fold(seed, 0, 0), "and must not run into the band above it");
+
+        let k1 = DevelopmentalKey::Plant { coarseness: 1 };
+        assert_ne!(k1.fold(seed, 10, 20), k1.fold(seed, 11, 20), "at full resolution every column differs");
+    }
+
     #[test]
     fn a_genome_slots_draw_is_a_pure_function_of_its_own_index() {
         let mut w = test_world();

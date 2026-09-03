@@ -1697,6 +1697,15 @@ pub struct World {
     /// test's result from another thread. **A tunable that is process-global
     /// is a hidden argument to every test that reads it.** Per-world, each
     /// test's bed carries its own and nothing leaks.
+    /// **What a plant's growth draws are keyed on** — see
+    /// [`organism::DevelopmentalKey`], which carries the whole rationale.
+    ///
+    /// Defaults to `World`, the shipped behaviour, so neither game moves
+    /// until something sets it. A field on the world for `mutation_sigma`'s
+    /// reason, stated at length above and worth restating because this one
+    /// would hit it harder: a process-global would be a hidden argument to
+    /// every test that grows a plant, and the suite runs in parallel.
+    pub developmental_key: super::organism::DevelopmentalKey,
     pub mutation_sigma: f32,
     /// **The chance a seed is born with one of its parent's fate rules
     /// changed** — the coarser of the two heredity dials. See
@@ -2472,6 +2481,7 @@ impl World {
             // On, because it is the shipped behaviour and a default that
             // silently disables a mechanism is a mechanism nobody measures.
             plant_load_failure: true,
+            developmental_key: super::organism::DevelopmentalKey::default(),
             mutation_sigma: super::plant::MUTATION_SIGMA,
             fate_mutation_chance: super::plant::fate_mutation_chance_seed(),
             param_mutation_chance: super::plant::param_mutation_chance_seed(),
@@ -2995,6 +3005,17 @@ impl World {
             // with the parent's mutated copy for a bred seed, in the same
             // call, exactly as it does for `fates`.
             params: super::organism::ParamGenome::default(),
+            // **Stamped later, not here**, and the two have different
+            // owners: `plant::seed_genotype` draws `lineage_seed` for a
+            // founder, `plant::bear_seed_at` copies the parent's for a bred
+            // seed, and the germination paths stamp `dev_seed`/`origin`/
+            // `germination_frame` once the plant knows where it is. A
+            // creature keeps all four at their zero values and never reads
+            // them.
+            lineage_seed: 0,
+            dev_seed: 0,
+            origin: None,
+            germination_frame: 0,
             water: 0.0,
             water_status: 1.0,
             water_uptake: 0.0,
@@ -3321,12 +3342,32 @@ impl World {
         draws: [f32; super::organism::GENOTYPE_TRAITS],
         alleles: [u8; super::organism::DISCRETE_LOCI],
         params: super::organism::ParamGenome,
+        lineage_seed: u64,
     ) -> bool {
+        // Read before the mutable borrow below takes `self`.
+        let key = self.developmental_key;
         match self.organism_mut(organism_id) {
             Some(state) => {
                 state.genotype_draws = draws;
                 state.alleles = alleles;
                 state.params = params;
+                // **The lineage seed rides with the genome, and leaving it
+                // out would make the clone arm vacuous.** Under
+                // `DevelopmentalKey::Plant` this decides which shape a genome
+                // grows into, so a harness that writes the draws and not this
+                // produces founders carrying one genome and N different
+                // developments -- which is a clone stand that is not one, and
+                // it reads as *the change did nothing*. That is precisely how
+                // the `ref=` argument was inert for a whole night
+                // (`Reports/plant-engine-rethink-2026-09-03.md` §2.1).
+                state.lineage_seed = lineage_seed;
+                // `dev_seed` follows from it, but the origin is only known
+                // once the plant has germinated; a founder written before
+                // then gets it stamped by the germination path, and one
+                // written after keeps the fold it already had.
+                if let Some((gx, gy)) = state.origin {
+                    state.dev_seed = key.fold(lineage_seed, gx, gy);
+                }
                 state.inherited = true;
                 true
             }
@@ -3353,8 +3394,8 @@ impl World {
     pub fn organism_genotype(
         &self,
         organism_id: u16,
-    ) -> Option<([f32; super::organism::GENOTYPE_TRAITS], [u8; super::organism::DISCRETE_LOCI], super::organism::ParamGenome)> {
-        self.organism(organism_id).map(|s| (s.genotype_draws, s.alleles, s.params))
+    ) -> Option<([f32; super::organism::GENOTYPE_TRAITS], [u8; super::organism::DISCRETE_LOCI], super::organism::ParamGenome, u64)> {
+        self.organism(organism_id).map(|s| (s.genotype_draws, s.alleles, s.params, s.lineage_seed))
     }
 
     /// **Overwrite one live organism's brain genome**, for a harness that

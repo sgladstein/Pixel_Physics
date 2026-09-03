@@ -41,6 +41,7 @@ use serde::{Deserialize, Serialize};
 
 use super::cell::Cell;
 use super::material::MaterialKind;
+use super::rng;
 use super::surface::CellSurface;
 use super::world::World;
 
@@ -4625,6 +4626,119 @@ pub struct OrganismState {
     /// state — an organism was live until its cells were gone, so a dead
     /// trunk held its slot for ever.
     pub senescent: bool,
+    /// **The lineage's developmental identity — inherited whole, never
+    /// mutated.**
+    ///
+    /// Drawn positionally by a founder in `plant::seed_genotype` (stream 72)
+    /// and copied parent-to-child by `plant::bear_seed_at` beside `alleles`,
+    /// `fates` and `params`. It decides *which shape* a genome grows into,
+    /// under [`DevelopmentalKey::Plant`].
+    ///
+    /// **Deliberately not a gene**, and that is the owner's call: it is an
+    /// identity rather than a lever, so it takes no share of the one point
+    /// mutation a birth spends across `ParamGenome`'s 804 addresses. A
+    /// re-drawing seed would be a jump rather than a step — selection cannot
+    /// refine a hash — so mutating it would buy variety at the price of
+    /// making form unselectable, which is the whole thing this exists to fix.
+    pub lineage_seed: u64,
+    /// **The seed the per-cell growth draws actually use**, stamped once at
+    /// germination: `lineage_seed` folded with the germination coordinate at
+    /// `World::developmental_key`'s coarseness. See [`DevelopmentalKey`].
+    ///
+    /// Stamped rather than recomputed per draw because it is read once per
+    /// organism cell per tick; changing the coarseness mid-run therefore
+    /// affects plants that germinate after the change, not those already
+    /// standing, which is the behaviour a sweep wants anyway.
+    pub dev_seed: u64,
+    /// **Where this plant germinated** — immutable, stamped once.
+    ///
+    /// **Not `collar_y`, and the distinction cost a design pass.**
+    /// `collar_y` is live state: `plant::organism_upkeep` recomputes it every
+    /// organism tick as the plant's *lowest shoot row*, so keying a growth
+    /// draw on it would re-key every cell in the plant the moment the collar
+    /// settled a row lower — a worse coupling than the one
+    /// [`DevelopmentalKey`] exists to remove. This never moves.
+    ///
+    /// `None` on a creature, and on any organism that never went through a
+    /// germination path.
+    pub origin: Option<(i32, i32)>,
+    /// **The frame this plant germinated on**, so growth draws advance on the
+    /// plant's own clock rather than the world's. Zero on a creature.
+    pub germination_frame: u64,
+}
+
+/// **What a plant's growth draws are keyed on** — the developmental-noise
+/// dial, held by `World::developmental_key`.
+///
+/// `Reports/plant-engine-rethink-2026-09-03.md` §2.3 measured the problem:
+/// growth draws come from `rng::stream(organism_id, cell_x, cell_y, frame)`,
+/// so **a plant one column over is a different plant**. Twelve genetically
+/// identical plants, alone in identical beds, came out between 83 and 181
+/// cells and between 27 and 63 rows tall — CV 0.280 on size, which is the
+/// floor under every plant comparison this project has published. Two clones
+/// cannot develop alike however identical their genomes, so selection cannot
+/// see form at all.
+///
+/// **The two settings answer different questions and are measured by
+/// different instruments.** Getting this backwards is the easiest mistake
+/// here, so it is written down rather than left to be rediscovered:
+///
+/// - **`Plant { coarseness: 0 }`** drops the germination coordinate, so
+///   siblings sharing a `lineage_seed` develop identically and **broad-sense
+///   heritability is the point — it should move.**
+/// - **`Plant { coarseness: 1 }`** folds the germination coordinate in at
+///   full resolution. Every plant is still a different form, so **H2 may not
+///   move at all**; what changes is that a plant becomes *coherent* rather
+///   than a mosaic of thousands of independent per-cell draws. That is
+///   plausibly what reads as alive rather than stamped, and it is invisible
+///   to every descriptor §2 measures — so there the rendered comparison is
+///   the primary instrument and "H2 did not move" is not a failure.
+///
+/// **The coarsening is applied to the germination coordinate once, before
+/// hashing — never inside the per-cell key.** Coarsening position per cell is
+/// the block-nearest coarse-field trap `CLAUDE.md` records hitting four times
+/// on three lines and never once caught by a test; it would put artifacts on
+/// the quantisation grid. Folding a *plant's* origin once is instead
+/// `plant::seed_genotype`'s own idiom — position captured once, per plant, at
+/// germination — applied to development rather than to the genome draw.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum DevelopmentalKey {
+    /// `stream(organism_id, cell_x, cell_y, world.frame)` — the shipped
+    /// behaviour, and the default, so nothing in either game moves until
+    /// somebody sets this.
+    #[default]
+    World,
+    /// `stream(dev_seed, x - origin_x, y - origin_y, frame - germination_frame)`
+    /// — the plant's own frame of reference.
+    ///
+    /// `coarseness` is the whole dial: `0` drops the germination coordinate
+    /// from `dev_seed` entirely, `1` folds it at full resolution, and `k > 1`
+    /// folds `germ_x / k` so plants within a `k`-wide band share a form. The
+    /// two arms are two settings of one number, which is what lets an A/B
+    /// differ by exactly one thing and lets the answer land between them.
+    Plant { coarseness: u32 },
+}
+
+impl DevelopmentalKey {
+    /// Fold a germination coordinate into a lineage seed at this coarseness.
+    ///
+    /// Returns the lineage seed unchanged under `World` (which never reads
+    /// `dev_seed`) and under `Plant { coarseness: 0 }` (which is the point of
+    /// that setting).
+    pub fn fold(self, lineage_seed: u64, germ_x: i32, germ_y: i32) -> u64 {
+        match self {
+            DevelopmentalKey::World => lineage_seed,
+            DevelopmentalKey::Plant { coarseness: 0 } => lineage_seed,
+            DevelopmentalKey::Plant { coarseness } => {
+                let k = coarseness as i32;
+                // `div_euclid`, not `/`: truncating division folds -1 and 0
+                // into the same bucket and then reflects, so a bed straddling
+                // the origin would band asymmetrically around x = 0.
+                let (bx, by) = (germ_x.div_euclid(k), germ_y.div_euclid(k));
+                rng::stream(lineage_seed, bx as u64, by as u64, 0x444E_4156_5F47_524D).next_u64()
+            }
+        }
+    }
 }
 
 /// How many independently-jittered traits a genotype carries — the width of
