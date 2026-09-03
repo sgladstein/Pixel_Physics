@@ -2043,9 +2043,14 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   none of which are heritable, and the species id is copied to offspring
   unchanged so **speciation is impossible by construction**. The fate genome is
   the one place the engine already does what the thesis asks, and it is the
-  existence proof. Carries the standing constraints (the reallocation scar, the
-  outdoor-game line, the positive-control rule) and a reading map that says
-  which of the four 60k–97k documents not to open whole.
+  existence proof. Carries the standing constraints (the outdoor-game line, the
+  positive-control rule, frame cost) and a reading map that says which of the
+  four 60k–97k documents not to open whole. **It deliberately imposes no
+  hold-back on shipping**: the draft carried one, requiring a review card
+  before any change that reallocates a weighted budget, and the owner removed
+  it by hand in `87a2c35c` — which is the brief's own autonomy clause applied
+  to the brief. `why-changes-cost-so-much-2026-08-27.md` survives in the
+  reading map as evidence a session may weigh, not as a gate it must pass.
 
 ## Licensing and distribution
 
