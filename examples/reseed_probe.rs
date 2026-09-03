@@ -234,6 +234,7 @@ fn main() {
         colonies: arg("colonies").unwrap_or(0),
         species: species.clone(),
         seed: arg("seed").unwrap_or(1),
+        lamp_spacing: arg("lamps").unwrap_or_else(|| LabBox::default().lamp_spacing),
         ..LabBox::default()
     };
     let (mut world, mut placed) = spec.build_counted();
@@ -271,6 +272,7 @@ fn main() {
         );
     println!("  germination gate: light >= {light_bar:.3}, plant-available soil water >= {water_bar:.3}, and something underneath");
 
+    let started = std::time::Instant::now();
     let mut particles = ParticleSystem::new();
     let mut blasts = Blasts::new();
     let tuning = player::Tuning::default();
@@ -392,7 +394,7 @@ fn main() {
                  | seeds {:>4} [air {:>3} dry-mat {:>3} (pile {:>3}, plant {:>3}) too-dry {:>3} dark {:>3} ready {:>3}] \
                  | to plant 0-1 {:>3} 2-3 {:>3} 4-7 {:>3} 8-15 {:>3} 16+ {:>3} \
                  | cols {:>3} span {:>3}-{:>3} from founder 0-3 {:>3} 4-7 {:>3} 8-15 {:>3} 16+ {:>3} \
-                 | born {:>5} set {:>5} germ {:>5} fruit {:>4} | shed shade {:>5} drought {:>5} | refused {}",
+                 | born {:>5} set {:>5} germ {:>5} (in place {:>4}) fruit {:>4} | shed shade {:>5} drought {:>5} | refused {}",
                 st.seedlings + st.established,
                 st.established,
                 st.seedlings,
@@ -423,6 +425,7 @@ fn main() {
                 world.seeds_borne,
                 seeds_set_total,
                 world.germinations,
+                world.germinations_in_place,
                 world.fruit_dropped,
                 world.shed_shade,
                 world.shed_drought,
@@ -435,14 +438,25 @@ fn main() {
     }
 
     let (st, _) = census(&world, est, seed_id, windfall_id, light_bar, water_bar, &founder_cols);
+    // **A wall clock, and it is only quoted beside a counter.** What this
+    // arm could cost is `field::apply_sky`'s beam walk, which a tile takes
+    // only if it emits -- so the load-independent number is how many field
+    // tiles do, and the timing is the sanity check beside it.
     println!(
-        "FUNNEL {species} scatter={scatter} colonies={} seed={}: seed cells born {} (id-keyed undercount {seeds_born}, parents claim {seeds_set_total}, fruit {}) -> germinated {} -> alive {} (established {}) \
+        "COST lamps={} fixtures {} | {:.3} ms/frame over {frames} frames",
+        spec.lamp_spacing,
+        spec.lamp_columns().0.len(),
+        started.elapsed().as_secs_f64() * 1000.0 / (frames.max(1)) as f64,
+    );
+    println!(
+        "FUNNEL {species} scatter={scatter} colonies={} seed={}: seed cells born {} (id-keyed undercount {seeds_born}, parents claim {seeds_set_total}, fruit {}) -> germinated {} (of which relabelled in place, never borne: {}) -> alive {} (established {}) \
          | columns held {}/{} span {}-{} | plants 16+ cells from a founder column: {} | scattered {scattered}",
         spec.colonies,
         spec.seed,
         world.seeds_borne,
         world.fruit_dropped,
         world.germinations,
+        world.germinations_in_place,
         st.seedlings + st.established,
         st.established,
         st.columns,

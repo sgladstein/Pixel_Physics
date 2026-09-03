@@ -2015,6 +2015,19 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   2.6x and the coverage in half. Ships `examples/reseed_probe.rs` and
   `World::seeds_borne`, and files [`open-bugs-handoff.md`](open-bugs-handoff.md)
   §Z4 — germinations exceeding the seeds that ever existed, 164 against 79.
+  **§6, same day, on the owner's direction: the bench is now evenly lit and
+  §Z4 is fixed.** Fifteen fixtures tile the ceiling instead of eight standing
+  apart, bench light **0.36–2.40 → 1.95–2.40**, and over four world seeds
+  plants alive **+38%**, established **+67%**, and plants that reached ground
+  more than 15 columns from a founder **4.1x** — a spreading number moved by a
+  *lighting* change, because seeds could not cross the gap and there was
+  nothing for them if they did. A founder at column 256 survives on 4 of 4
+  where it survived on 0 of 4. The cost is nothing: with `founders=0` the two
+  lighting arms time identically at 0.025 ms/frame, and the 0.36 ms the
+  planted run adds is a 3.3x larger stand. §Z4's mechanism is named by
+  `World::germinations_in_place` (108 of 164 on the runaway arm, **5 of 336 on
+  the shipped bed**, so it was live on `main`) and fixed at the one fate
+  lookup, without narrowing what a lineage can reach.
 
 ## Licensing and distribution
 

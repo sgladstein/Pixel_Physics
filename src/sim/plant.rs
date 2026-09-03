@@ -1109,13 +1109,62 @@ fn fate_for_under(
         .map(|s| s.fates)
         .filter(|g| !g.is_empty())
         .and_then(|g| g.fate(cell_type, when, metamers));
-    match mode {
+    let found = match mode {
         FateLookup::GenomeOnly => genome,
         FateLookup::NoSpecies => genome.or_else(|| builtin_fate(cell_type, when)),
         FateLookup::Full => genome
             .or_else(|| world.species.get(species_id).fate(cell_type, when, metamers))
             .or_else(|| builtin_fate(cell_type, when)),
+    };
+    found.map(|f| detachment_only_ripens(f, cell_type))
+}
+
+/// **A cell may only become a `Seed` by letting go, and only `FateWhen::Ripe`
+/// knows how** — `Reports/open-bugs-handoff.md` §Z4.
+///
+/// `becomes: Seed` means *this cell detaches and falls carrying a seed*, and
+/// exactly one path in the engine implements it: the organ clock's `Ripe`
+/// arm, which hands the cell to a fresh child organism through
+/// [`drop_organ`] and charges the parent for provisioning it. Every other
+/// `when` — `Grew`, `Node`, `Stale`, `Flush` — reaches a plain relabel
+/// instead, and a relabel to `Seed` puts a `CellType::Seed` on a living
+/// multi-cell body, where `Behavior::Germinate` then fires **for free**: no
+/// seed was borne, nothing was paid, and `plant::germinate` redraws
+/// `seed_genotype` over the individual's existing genome. It repeats every
+/// time the rule fires.
+///
+/// **Measured, on the shipped bed, not hypothetically.** `FateGenome`'s
+/// `Retarget` and `Insert` both draw `becomes` uniformly from
+/// `organism::PLANT_CELL_TYPES`, which includes `Seed`, and pair it with a
+/// `when` drawn just as uniformly from `ALL_FATE_WHENS` — so four of the
+/// five conditions produce this. `examples/reseed_probe` at
+/// `founders=8 seed=2`, 13,500 frames, counted **5 of 336 germinations**
+/// arriving this way, and a single-founder lineage that caught it ran
+/// **108 of 164**. `World::germinations_in_place` is the census, and it
+/// reads 0 with this in place.
+///
+/// **Neutralised rather than declined, and the rest of the rule is kept.**
+/// Dropping the whole `Fate` would throw away its `child` and `lateral`
+/// fields, which are doing legitimate work; rewriting `becomes` to the
+/// cell's own type is precisely "this rule does not change what this cell
+/// is", which is what the engine can actually honour here.
+///
+/// **This narrows nothing a lineage can reach.** The rule survives in the
+/// genome, is inherited, and goes live the moment `FateOp::Recondition`
+/// moves its `when` to `Ripe` — which is a single draw from a five-element
+/// set. The detaching-propagule growth form stays reachable by mutation;
+/// what is removed is a free germination the engine could not honour.
+///
+/// The fuller repair — routing a non-`Ripe` `becomes: Seed` through
+/// `drop_organ` so the mutation *means* something at every `when` — is the
+/// follow-up recorded in §Z4. It touches four separate control flows that
+/// each have to learn "this cell is no longer ours", and it is not what a
+/// correctness fix should carry.
+fn detachment_only_ripens(fate: organism::Fate, cell_type: CellType) -> organism::Fate {
+    if fate.becomes == CellType::Seed && fate.when != organism::FateWhen::Ripe {
+        return organism::Fate { becomes: cell_type, ..fate };
     }
+    fate
 }
 
 /// **What a cell of this type is made of**, for the species that owns it.
@@ -8193,6 +8242,13 @@ fn germinate(world: &mut World, x: i32, y: i32, organism_id: u16, cell: Cell, rn
     // answer "did any seed germinate at all", and which published inference
     // this exists to replace with a measurement.
     world.germinations += 1;
+    // **The §Z4 probe**: a seed is a one-cell organism, so a germination on
+    // an organism that holds anything else is a `CellType::Seed` that was
+    // never borne -- a live cell relabelled in place. One `len()` at a site
+    // that fires a few hundred times a run. See `World::germinations_in_place`.
+    if world.organism(organism_id).is_some_and(|st| st.cells.len() > 1) {
+        world.germinations_in_place += 1;
+    }
     // No `schedule_structural_check_around` on either the new tip or the
     // root -- see the identical reasoning on `Behavior::Grow`'s own child
     // creation above. A freshly germinated seed is not yet connected to any
@@ -11241,6 +11297,65 @@ The night factor belongs on income only -- see NIGHT_INCOME_FLOOR"
     ///
     /// So the case has to be one where the two *disagree*: a `tree` organism
     /// whose own genome says something `tree.ron` does not.
+    /// **`open-bugs-handoff.md` §Z4**: a mutated `becomes: Seed` on any
+    /// condition but `Ripe` reaches a plain relabel, which puts a
+    /// `CellType::Seed` on a living multi-cell body and hands it a free
+    /// germination. `fate_for` neutralises it; `Ripe`, which routes through
+    /// `drop_organ` and can honour it, is untouched.
+    ///
+    /// **Written against the pre-fix code first and watched go red**, per
+    /// `CLAUDE.md`: without `detachment_only_ripens` the `Grew` arm returns
+    /// `Seed` and the first assertion fails. The `Ripe` arm is the positive
+    /// control that says the guard is not simply refusing everything -- a
+    /// guard that neutralised both would pass a one-sided test with the
+    /// mechanic it protects deleted.
+    #[test]
+    fn only_a_ripe_fate_may_turn_a_cell_into_a_seed() {
+        use organism::{FateWhen, PLANT_CELL_TYPES};
+        let mut w = test_world();
+        let id = w.species.id_of("herb").expect("herb is compiled in");
+        let organism = w.push_organism(id).expect("an organism slot is free");
+
+        let rule = |when: FateWhen| organism::Fate { when, becomes: CellType::Seed, child: None, lateral: None, after_metamers: None };
+        // Every `when` the mutation operator can draw, on one cell type, so
+        // adding a `FateWhen` variant cannot quietly open the hole again.
+        for &when in &organism::ALL_FATE_WHENS {
+            if let Some(state) = w.organism_mut(organism) {
+                state.fates = organism::FateGenome::from_table(&[(CellType::MatureBody, vec![rule(when)])]);
+            }
+            let answer = fate_for(&w, organism, id, CellType::MatureBody, when, 0).map(|f| f.becomes);
+            let expected = if when == FateWhen::Ripe { CellType::Seed } else { CellType::MatureBody };
+            assert_eq!(
+                answer,
+                Some(expected),
+                "a `becomes: Seed` on {when:?} must resolve to {expected:?}: only `Ripe` routes through \
+                 `drop_organ`, and every other path relabels in place -- which is a free germination on a \
+                 cell nobody paid for (open-bugs-handoff.md #Z4)"
+            );
+        }
+
+        // The neutralisation must keep the rest of the rule, or a legitimate
+        // `child`/`lateral` is thrown away with the illegal `becomes`.
+        if let Some(state) = w.organism_mut(organism) {
+            state.fates = organism::FateGenome::from_table(&[(
+                CellType::GrowingTip,
+                vec![organism::Fate {
+                    when: FateWhen::Grew,
+                    becomes: CellType::Seed,
+                    child: Some(CellType::GrowingTip),
+                    lateral: Some(CellType::Leaf),
+                    after_metamers: None,
+                }],
+            )]);
+        }
+        let kept = fate_for(&w, organism, id, CellType::GrowingTip, FateWhen::Grew, 0).expect("the rule still answers");
+        assert_eq!((kept.child, kept.lateral), (Some(CellType::GrowingTip), Some(CellType::Leaf)), "only `becomes` is neutralised; the rest of the rule stands");
+
+        // And the operator really can draw the combination this guards --
+        // otherwise the guard is protecting against something unreachable.
+        assert!(PLANT_CELL_TYPES.contains(&CellType::Seed), "the mutation operator draws `becomes` from PLANT_CELL_TYPES, so this guard is only needed while Seed is in it");
+    }
+
     #[test]
     fn an_individuals_genome_shadows_its_species_table() {
         use organism::FateWhen::Node;

@@ -330,18 +330,134 @@ every=13500 founders=1 col=60 seed=3`, with `falls_through_organisms: true` on
 
 ---
 
-## 5. What to do next, in the order the evidence supports
+## 6. What was fixed, same day, on the owner's direction
 
-1. **Light the whole bench, or show the player where the light is.** §2.2 is
-   the largest single effect measured here and the only one that kills a plant
-   outright. It is also the one that matches the owner's direction exactly —
-   the fix is an overlay and a lamp the player can move, not a tuned constant.
-2. **Decide the seed/branch inconsistency in §3**, which is one line and a
+*Owner's replies to the above: Q1 wants deep thought and belongs to a larger
+plant-genome exploration — deferred. **Q2.1: "Fix this. Light should be even
+(or mostly even) across the whole surface in the lab."** Q2.2: the gate's
+behaviour is right — no germinating in branches or in seed piles — and sand
+should probably work eventually. Q2.3: the ants are fine, plants should
+overcome them. Q2.4: yes, that is §Z. §Z4: fix it now.*
+
+### 6.1 The bench is evenly lit
+
+The fixtures now tile the ceiling: `lamp_spacing` defaults to one bar's width
+plus a two-cell gap, and `lamp_columns` places them cell-centred rather than
+through `LabBox::spread`, whose formula leaves a whole spacing of unlit bed at
+each end of a compartment. Fifteen 31-cell fixtures on a 512-wide bed instead
+of eight, each the same object as before.
+
+| bench light, every 8 columns | before | after |
+|---|---|---|
+| under a fixture | 2.40 | 2.40 |
+| between fixtures | **0.36 – 0.69** | **1.95 – 2.25** |
+| spread across the interior | **6.7x** | **1.23x** |
+
+8 founders, no ants, 13,500 frames, four world seeds:
+
+| | before | after |
+|---|---|---|
+| plants alive | 67 / 90 / 69 / 63 | **101 / 114 / 87 / 104** |
+| established | 46 / 54 / 43 / 45 | **75 / 89 / 73 / 89** |
+| columns of 512 holding a plant | 237 / 287 / 239 / 252 | **320 / 376 / 311 / 354** |
+| plants >15 columns from a founder | 10 / 8 / 4 / 7 | **41 / 35 / 25 / 33** |
+
+The last row is 29 pooled against 134 — **4.1x** — and it is the spreading
+number this whole report is about. It moved that far on a *lighting* change
+because §2.2 and dispersal are one wall seen from two sides: seeds could not
+cross the gap, and there was nothing for them if they did. And the acid test
+inverts cleanly — a founder at column 256, the column that killed 4 of 4,
+**now survives on 4 of 4**.
+
+**It costs nothing, and the control is what says so.** `CLAUDE.md`'s *a cost
+that vanishes may be work that vanished*, run the other way: a cost that
+*appears* may be biomass that appeared. With `founders=0` — no plants at all,
+so only the lighting differs — the two arms time **identically at 0.025
+ms/frame**, three alternating reps each, one binary, pinned threads. The
+planted run is 0.36 ms/frame slower and grows **1,412 plant cells against 431**
+at frame 4,000.
+
+**Two things it cost that are recorded rather than tidied away.** It reverses
+`lamp_columns`' own note that fixtures should share `spread` with the founders
+so that a plant station and a light station coincide — right about the symptom,
+wrong remedy: it stood the *founders* in the pools instead of lighting the bed,
+so anything the **player** planted between two fixtures was still in the dark.
+And at the default spacing there is no slack to *slide* a fixture:
+`move_lamp` now refuses a destination that would drive two bars into contact,
+because `lamps_in` reads fixtures back as contiguous runs and a merged pair
+reports one centre belonging to neither, after which no verb can pick either
+up. That was always reachable and tiling made it easy, so the refusal is a
+repair; the consequence is that the light-pattern verb on the default bed is
+**pull a fixture out**, and `LabBox::place_lamp` now exists so that is
+reversible.
+
+### 6.2 §Z4 is confirmed and fixed
+
+`World::germinations_in_place` — germinations on an organism holding more than
+one cell, which a borne seed can never be — is the discriminator, and it
+**names the mechanism outright**: the runaway arm reads **108 of its 164
+germinations** arriving that way, and the shipped 8-founder bed reads **5 of
+336** on world seed 2, so it was live on `main` and not an artifact of the
+experiment.
+
+`FateGenome`'s `Retarget` and `Insert` both draw `becomes` uniformly from
+`organism::PLANT_CELL_TYPES`, which contains `Seed`, and pair it with a `when`
+drawn just as uniformly from `ALL_FATE_WHENS`. Only `FateWhen::Ripe` routes a
+`becomes: Seed` through `drop_organ`; the other four reach a plain relabel,
+which puts a `CellType::Seed` on a living multi-cell body where
+`Behavior::Germinate` fires for free.
+
+Fixed at `fate_for`, the one lookup all four application sites go through:
+`detachment_only_ripens` rewrites a non-`Ripe` `becomes: Seed` to the cell's
+own type, keeping the rest of the rule. The repro arm goes **79 borne / 164
+germinated / 108 in place → 104 borne / 45 germinated / 0 in place**.
+
+**It narrows nothing a lineage can reach**, which is why it does not cut
+against the owner's 2026-08-29 "most flexible operator available" call: the
+rule stays in the genome, is inherited, and goes live the moment
+`FateOp::Recondition` moves its `when` to `Ripe` — one draw from a five-element
+set. Guarded by `only_a_ripe_fate_may_turn_a_cell_into_a_seed`, which sweeps
+every `FateWhen` and was watched going red with the fix removed.
+
+The fuller repair — routing a non-`Ripe` `becomes: Seed` through `drop_organ`
+so the mutation *means* something at every `when`, which would make a plant
+that sheds propagules from its shoot tips a reachable growth form — is left as
+the follow-up in §Z4. It touches four separate control flows that each have to
+learn "this cell is no longer ours", and that is not what a correctness fix
+should carry.
+
+### 6.3 Q2.2, answered rather than changed
+
+The gate's *behaviour* is what the owner wants and it is not being changed: a
+seed does not germinate in a branch and does not germinate on a pile of seeds.
+What is worth writing down is that it gets there by the wrong route — it tests
+"does the cell below hold water", not "is this a seedbed" — and that has two
+consequences the behaviour does not advertise. **Sand will not work when it is
+wanted**: `sand` declares no `water_capacity`, so it reads bone dry for ever
+and no threshold reaches it; making it a seedbed is a `water_capacity` on the
+material, not a change to the gate. And **fresh soil does not work either** —
+`seedbed_probe`'s sharpest result, 0 of 16 on a mat of soil, because created
+ground is dry and does not wet from the damp soil below. That second one is the
+same defect as §2.1 and its repair is the soil water model.
+
+The one thing that *does* follow from the owner's view is §3's flag. It does
+not make seeds germinate in branches — it stops them **sitting** there,
+dropping them to the ground where the soil is, which is what the flag already
+does for `windfall` on an argument that applies more strongly to a seed. It
+remains uncommitted, still for the reason given: it reaches every forest in the
+outdoor game.
+
+## 7. What to do next, in the order the evidence supports
+
+1. ~~**Light the whole bench.**~~ **Done, §6.1.**
+2. ~~**File and fix §4.**~~ **Done, §6.2**, and it is §Z4 in the register.
+3. **Decide the seed/branch inconsistency in §3**, which is one line and a
    doubled germination rate, once someone has looked at what it does outdoors.
-3. **Then dispersal**, from §1's list — and note that until §2.2 is fixed,
-   spreading seeds further mostly spreads them into the dark.
-4. **File and fix §4**, which is cheap and which currently makes every
-   germination-rate measurement in this engine an overcount of unknown size.
+4. **Then dispersal**, from §1's list — and it is now the next thing rather
+   than the third, because the bed it would spread seeds into is lit.
+5. **Wire `remove_lamp`/`place_lamp` to a control.** With the bench flat, what
+   changes the light pattern is pulling a fixture out, and nothing on the bar
+   does that yet — see §6.1's limitation.
 
 The germination gate (§2.1) is deliberately last: it is known, its obvious fix
 is a recorded dead end, and the honest repair is the soil water model rather

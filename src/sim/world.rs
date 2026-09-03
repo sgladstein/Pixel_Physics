@@ -1325,6 +1325,20 @@ pub struct World {
     /// (`organisms_refused`) is not counted as one.
     pub seeds_borne: u64,
 
+    /// **Germinations on an organism that holds more than one cell** — the
+    /// discriminator for `open-bugs-handoff.md` §Z4.
+    ///
+    /// A borne seed is a fresh child organism holding exactly one cell
+    /// (`plant::bear_seed_at`), so it can never be counted here. Anything
+    /// this counts is a `CellType::Seed` that appeared on a *living* body
+    /// without going through `bear_seed_at` — a relabel in place — and each
+    /// one is a free germination on a cell nobody paid for, plus a fresh
+    /// `plant::seed_genotype` draw over an individual's existing genome.
+    ///
+    /// Zero is the expected reading. A non-zero one says `germinations` is
+    /// an overcount and by how much.
+    pub germinations_in_place: u64,
+
     /// Decay events, split by which side of `DECAY_MOISTURE_THRESHOLD` the
     /// field humidity was on when the roll was made.
     ///
@@ -2370,6 +2384,7 @@ impl World {
             organ_ripening_paid: 0,
             fruit_dropped: 0,
             seeds_borne: 0,
+            germinations_in_place: 0,
             decayed_damp: 0,
             decayed_dry: 0,
             rotted_to_solid: 0,

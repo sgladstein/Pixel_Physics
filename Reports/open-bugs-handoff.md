@@ -11,7 +11,7 @@ Read `CLAUDE.md` first; it holds the method these bugs keep re-teaching.
 
 <!-- BEGIN GENERATED INDEX -- regenerate with scripts/bugindex.py -->
 
-**46 open, 91 bugs** (plus 20 landing-note items,
+**45 open, 91 bugs** (plus 20 landing-note items,
 marked `note`). Generated from the headings by
 `scripts/bugindex.py` -- a bug's verdict is written into its own heading, so
 this is derived, never maintained by hand. Entries are never moved when they
@@ -136,7 +136,7 @@ point.
 | -- | note | 8670 | Unmerged at close, and one of it is a fix main needs anyway |
 | 1n | note | 8688 | grass sets zero seeds on main |
 | B2 | **OPEN** | 8881 | A living plant in the lab pulls its own anchorage out from under itself and is felled whole |
-| Z4 | **OPEN** | 8949 | World::germinations can exceed the number of seeds that ever existed |
+| Z4 | closed | 8949 | World::germinations can exceed the number of seeds that ever existed |
 
 <!-- END GENERATED INDEX -->
 
@@ -8946,7 +8946,7 @@ version of it does not reach these plants.
 
 ---
 
-### Z4. `World::germinations` can exceed the number of seeds that ever existed — **OPEN, 2026-09-03**
+### Z4. `World::germinations` can exceed the number of seeds that ever existed — **FIXED 2026-09-03**
 
 **Reproduction**, one command, and it is deterministic:
 
@@ -8989,11 +8989,44 @@ live, every germination rate quoted anywhere is an overcount of unknown
 size — the arms in that report where `germinations < seeds borne` are safe,
 and any arm where it approaches the seed count should be re-read.
 
-**First thing to check**, and it is cheap: print the fate table of the
-offending lineage (`FateGenome::to_table`) at the moment the count runs
-away, and confirm or refute a non-`Ripe` `becomes: Seed`. If it is confirmed,
-the fix is a decision rather than a patch — either `Insert` must not be able
-to write `Seed` outside a `Ripe` rule, or the general path must route a
-`becomes: Seed` through `drop_organ` like the `Ripe` path does. The second is
-the one that keeps the mutation operator as flexible as the owner's 2026-08-29
-call asked for.
+**Confirmed and fixed the same day, on the owner's direction.**
+
+`World::germinations_in_place` counts germinations on an organism holding more
+than one cell — which a borne seed, being a fresh one-cell child, can never
+be. It named the mechanism outright: the runaway arm reads **108 of its 164
+germinations** arriving that way, and **the shipped 8-founder bed reads 5 of
+336** on world seed 2, so this was live on `main` rather than an artifact of
+the experiment that found it. The counter reads 0 on every arm with the fix
+in, and 0 on the four baseline arms that never caught the mutation — which is
+the specificity half.
+
+The route is the suspected one. `FateGenome`'s `Retarget` and `Insert` draw
+`becomes` uniformly from `organism::PLANT_CELL_TYPES`, which contains `Seed`,
+and pair it with a `when` drawn just as uniformly from `ALL_FATE_WHENS` — so
+four of five conditions produce it.
+
+**Fixed at `plant::fate_for`**, the one lookup all four application sites go
+through: `detachment_only_ripens` rewrites a non-`Ripe` `becomes: Seed` to the
+cell's own type and keeps the rest of the rule, so a legitimate `child` or
+`lateral` is not thrown away with the illegal `becomes`. The repro arm goes
+**79 borne / 164 germinated / 108 in place → 104 borne / 45 germinated / 0 in
+place**. Guarded by `plant::tests::only_a_ripe_fate_may_turn_a_cell_into_a_
+seed`, which sweeps every `FateWhen`, asserts the `Ripe` arm still passes
+`Seed` through as its positive control, and was watched going red with the fix
+removed.
+
+**It narrows nothing a lineage can reach**, which is why it does not cut
+against the owner's 2026-08-29 "most flexible operator available" call: the
+rule stays in the genome, is inherited, and goes live the moment
+`FateOp::Recondition` moves its `when` to `Ripe`, one draw from a five-element
+set.
+
+**The follow-up, deliberately not carried by the correctness fix.** Routing a
+non-`Ripe` `becomes: Seed` through `drop_organ` so the mutation *means*
+something at every `when` would make "a plant that sheds propagules from its
+shoot tips" a growth form mutation can reach, which is strictly better than
+neutralising it. It touches four separate control flows (`self_type_after_
+grow` at `plant.rs:3212`/`:3350`/`:3558`, the `Stale` fate, and bud `Flush`)
+that each have to learn "this cell is no longer ours, stop touching it", and
+that is a feature change rather than a repair. `detachment_only_ripens` is the
+one place it would be removed from.

@@ -121,15 +121,29 @@ pub struct LabBox {
     /// eight times more thinly, and so every compartment gets at least one
     /// fixture however many compartments there are.
     ///
-    /// **64 rather than 128 since the fixtures became the light source.** A
+    /// **One bar's width plus its gap, so the fixtures tile the ceiling and
+    /// the bench is evenly lit** — owner, 2026-09-03: *"Light should be even
+    /// (or mostly even) across the whole surface in the lab."*
+    ///
+    /// It was 64 — and before that 128 — while the reasoning was that "a
     /// lamp's pool is its own width plus what `field::LIGHT_DECAY` bleeds
-    /// sideways -- about 55 columns all told, measured -- so at 128 the bed
-    /// was lit in four islands with dark ground between them and the founders
-    /// stood in the dark half. At 64 over a 512 bed this places one fixture
-    /// per founder station, from the same `spread` the founders use, and
-    /// adjacent pools overlap the way `LAMP_REACH_FRACTION` always claimed
-    /// they did. A working grow room is the default; making it *not* work by
-    /// dragging a fixture off its bed is the mechanic.
+    /// sideways, about 55 columns all told". **That bleed is far weaker than
+    /// 55 columns**, and the bench profile is what says so: a fixture's light
+    /// goes *straight down its own column* (`field::apply_sky` re-seeds the
+    /// carried light from `Material::beam`), and `LIGHT_DECAY` is a glow, not
+    /// a second sun. Measured at 64, every 8 columns across the bench:
+    /// **2.40 under a bar and 0.69** in the widest gaps, four consecutive
+    /// field blocks of it. A herb founded in one of those bands **died
+    /// without setting a single seed on 4 of 4 world seeds** where 4 of 4
+    /// bred under a fixture (`Reports/plant-reseeding-2026-09-03.md` §2.2).
+    /// At this spacing the same profile reads **2.25–2.40 from wall to
+    /// wall**.
+    ///
+    /// Fifteen fixtures on a 512 bed rather than eight, each the same object
+    /// it always was — so a working grow room is still the default, and
+    /// **dragging a fixture off its bed is still the mechanic**: pulling one
+    /// out now opens a dark band exactly one fixture wide, which is more
+    /// legible than dimming a pool that overlapped its neighbours.
     pub lamp_spacing: i32,
     pub seed: u64,
     /// **Walls the player dropped by hand**, as column numbers.
@@ -246,7 +260,7 @@ impl Default for LabBox {
             // this box was taken unhunted, and a default of 1 would silently
             // re-baseline all of them.
             predators: 0,
-            lamp_spacing: 64,
+            lamp_spacing: 2 * LAMP_HALF + 1 + LAMP_GAP,
             seed: 1,
             extra_walls: Vec::new(),
         }
@@ -319,6 +333,22 @@ const LAMP_MATERIAL: &str = "growlamp";
 /// at 8 has no dead cell in it either. The expression only bites if the field
 /// is coarsened, which is a live proposal.
 const LAMP_HALF: i32 = if field::FIELD_SCALE - 1 > 7 { field::FIELD_SCALE - 1 } else { 7 };
+/// Cells of ceiling between two adjacent fixtures, and the reason
+/// [`LabBox::lamp_columns`] never lets them get closer.
+///
+/// **It must not be zero.** [`LabBox::lamps_in`] reads the fixtures back out
+/// of the world as *contiguous runs* of fixture cells, which is what makes a
+/// lamp an object the player can pull out and drag rather than a number on
+/// the spec. Bars that touch are one run, so a bed full of fixtures would
+/// read as a single object spanning it, and `remove_lamp`, `move_lamp`,
+/// `lamp_near` and the interior renderer's lamp list would all be pointed at
+/// that one thing.
+///
+/// Two cells cost almost nothing in light, and that is measured rather than
+/// assumed: a block's `beam` is the **mean over its `FIELD_SCALE` columns**
+/// (`field::FieldTile::beam`), so a two-cell gap takes 2/16 off exactly the
+/// block it falls in -- 2.40 to 2.10 -- and nothing off any other.
+const LAMP_GAP: i32 = 2;
 /// Rows of the ceiling a fixture is recessed into. Recessed rather than
 /// hung: a bar bolted under the ceiling has a span to support and would be
 /// the one thing in the box that can fall on the crop, which is a mechanic
@@ -499,18 +529,37 @@ impl LabBox {
     /// make one arm of an isolation experiment fail for a reason that has
     /// nothing to do with isolation.
     pub fn lamp_columns(&self) -> (Vec<i32>, i32) {
-        let spacing = self.lamp_spacing.max(8);
-        let usable: i32 = self.compartment_spans().iter().map(|(lo, hi)| hi - lo).sum();
-        // **The same `spread` the founders get, not a placement of its own.**
-        // Two independent even spacings across one bed interleave rather than
-        // coincide: at eight of each, the old midpoint formula put every
-        // fixture 3 to 25 columns off a founder, which did not matter while
-        // the fixtures lit nothing and decides the stand now that they do.
-        // One function means a plant station and a light station are the same
-        // place by construction.
-        let n = ((usable as f32 / spacing as f32).round() as usize).max(self.compartments.max(1));
+        // **Never closer than a bar and a gap**, or `lamps_in` cannot tell two
+        // fixtures apart and every verb that acts on one acts on both.
+        let spacing = self.lamp_spacing.max(2 * LAMP_HALF + 1 + LAMP_GAP);
         let reach = ((spacing as f32 * LAMP_REACH_FRACTION).round() as i32).max(4);
-        (self.spread(n), reach)
+        // **Cell-centred, so the bars tile the compartment edge to edge** --
+        // `spread`'s formula puts the first item a whole spacing in from the
+        // wall and the last a whole spacing short of the far one, which is a
+        // fixture's worth of unlit bed at each end.
+        //
+        // **This deliberately stops using `spread`, and that reverses an
+        // earlier call.** `lamp_columns` used `spread` so that a light
+        // station and a plant station were the same column by construction,
+        // on the reasoning that a founder off a fixture "did not matter while
+        // the fixtures lit nothing and decides the stand now that they do".
+        // That reasoning was right and its remedy was the wrong half: it made
+        // the founders stand in the pools instead of making the bed evenly
+        // lit, so anything the *player* planted between two fixtures was
+        // still in the dark. Measured 2026-09-03, one founder, four world
+        // seeds: **4 of 4 bred on a fixture column and 4 of 4 died between
+        // two**, having set not one seed. With the bench flat the coincidence
+        // buys nothing, and a bed the player can plant anywhere in is what it
+        // was standing in for.
+        let mut cols = Vec::new();
+        for (lo, hi) in self.compartment_spans() {
+            let n = (((hi - lo) as f32 / spacing as f32).round() as i32).max(1);
+            for j in 0..n {
+                cols.push(lo + (hi - lo) * (2 * j + 1) / (2 * n));
+            }
+        }
+        cols.sort_unstable();
+        (cols, reach)
     }
 
     /// The rows a fixture is recessed into.
@@ -593,6 +642,28 @@ impl LabBox {
         out
     }
 
+    /// **Put a fixture into the ceiling at `cx`**, the inverse of
+    /// [`LabBox::remove_lamp`].
+    ///
+    /// It exists because removing became the mechanic. With the fixtures
+    /// tiling the ceiling there is no dark ground to slide one into, so what
+    /// changes the light pattern is pulling one out — and a verb that can
+    /// only be run one way is a light you can break and not mend. Refuses,
+    /// changing nothing, where [`LabBox::move_lamp`] would: off the bed, or
+    /// close enough to a standing fixture that the two bars would read as one
+    /// object.
+    pub fn place_lamp(&self, world: &mut World, cx: i32) -> bool {
+        if cx - LAMP_HALF < SHELL || cx + LAMP_HALF >= self.width - SHELL {
+            return false;
+        }
+        if self.lamps_in(world).into_iter().any(|c| (c - cx).abs() < 2 * LAMP_HALF + 1 + LAMP_GAP) {
+            return false;
+        }
+        let out = self.paint_lamp(world, cx, true);
+        self.resync_enclosure(world);
+        out
+    }
+
     /// **Move the fixture centred at `from` so its centre lands at `to`.**
     ///
     /// This is the whole of the mechanic the owner asked for — *adjust plant
@@ -606,8 +677,25 @@ impl LabBox {
     /// the wall. Sub-`FIELD_SCALE` moves are real: the block a fixture emits
     /// from is averaged across its CA columns, so a one-cell drag moves an
     /// eighth of a block's worth of light rather than nothing at all.
+    ///
+    /// **It also refuses a destination that would touch another fixture, and
+    /// that is a repair rather than a restriction.** `lamps_in` reads the
+    /// fixtures back as contiguous runs of cells, so two bars driven into
+    /// contact stop being two objects: the pair reports one centre at the
+    /// middle of the merged run, which is neither lamp's column, and no
+    /// verb can pick either of them up again. It was always reachable —
+    /// a bar's width apart is all it took — and it became easy the moment
+    /// the fixtures were packed close enough to light the bed evenly, which
+    /// is how it was found: a test dragging a lamp 24 columns turned two
+    /// fixtures into one and the room's lamp list lost both their columns.
     pub fn move_lamp(&self, world: &mut World, from: i32, to: i32) -> bool {
         if to - LAMP_HALF < SHELL || to + LAMP_HALF >= self.width - SHELL {
+            return false;
+        }
+        // Every other fixture must keep a clear gap. `from` itself is
+        // excluded — a bar is allowed to overlap where it currently stands,
+        // which is what makes a one-cell nudge legal.
+        if self.lamps_in(world).into_iter().any(|c| c != from && (c - to).abs() < 2 * LAMP_HALF + 1 + LAMP_GAP) {
             return false;
         }
         if !self.lamps_in(world).contains(&from) {
@@ -1086,17 +1174,17 @@ mod tests {
     #[test]
     fn the_box_declares_itself_a_room_and_says_where_its_lights_are() {
         let b = LabBox::default();
-        let mut w = b.build();
-        let e = w.enclosure().expect("a sealed box is an enclosure or it draws as sky").clone();
+        let mut w2 = b.build();
+        let e = w2.enclosure().expect("a sealed box is an enclosure or it draws as sky").clone();
         assert_eq!(e.ceiling_y, b.room_top());
         assert_eq!(e.floor_y, b.ground_y);
         assert_eq!(e.lamps, b.lamp_columns().0);
         // ...and the fixtures are really in the ceiling, not just in the
         // table. A painted lamp over an empty ceiling is the channel with a
         // reader and no writer.
-        let lamp = w.materials.id_of(LAMP_MATERIAL).expect("the fixture material is compiled in");
+        let lamp = w2.materials.id_of(LAMP_MATERIAL).expect("the fixture material is compiled in");
         for &x in &e.lamps {
-            assert_eq!(w.get(x, b.room_top() - 1).material, lamp, "no fixture over the pool at x={x}");
+            assert_eq!(w2.get(x, b.room_top() - 1).material, lamp, "no fixture over the pool at x={x}");
         }
         // **And the table follows the fixture when it moves**, which is the
         // half a build-time check cannot see: `Enclosure::lamps` is set once
@@ -1104,11 +1192,30 @@ mod tests {
         // the room stays lit under its old one is exactly the
         // picture-disagrees-with-physics defect this whole change closes,
         // reintroduced by the fix for it.
-        let home = e.lamps[0];
-        assert!(b.move_lamp(&mut w, home, home + 24));
+        // **On a bed with slack in it, deliberately.** The default bed's
+        // fixtures tile the ceiling so the bench is evenly lit, which leaves
+        // nowhere to slide one to — `move_lamp` correctly refuses a
+        // destination that would drive two bars into contact, because a
+        // merged pair reports one centre and neither lamp can be picked up
+        // again. What is under test here is that the *room's table* follows
+        // a fixture that does move, so the bed it is tested on is one where
+        // moving is legal.
+        let wide = LabBox { lamp_spacing: 128, ..LabBox::default() };
+        let mut w = wide.build();
+        let home = wide.lamp_columns().0[1];
+        assert!(wide.move_lamp(&mut w, home, home + 24), "a quarter-bay move on a widely-spaced bed should be legal");
         let moved = w.enclosure().expect("still a room").lamps.clone();
         assert!(!moved.contains(&home), "the room is still lit where the fixture used to be: {moved:?}");
         assert!(moved.contains(&(home + 24)), "the room is not lit where the fixture went: {moved:?}");
+
+        // **Removing is the default bed's light verb, and it has to be
+        // reversible**, or the fixtures tiling the ceiling turns a knob into
+        // a one-way break.
+        let gone = b.lamp_columns().0[3];
+        assert!(b.remove_lamp(&mut w2, gone), "a standing fixture refused to come out");
+        assert!(!w2.enclosure().expect("still a room").lamps.contains(&gone), "the room is still lit where the fixture was pulled out");
+        assert!(b.place_lamp(&mut w2, gone), "the fixture refused to go back where it came from");
+        assert!(w2.enclosure().expect("still a room").lamps.contains(&gone), "the room is not lit where the fixture was put back");
     }
 
     /// **The bed's floor has to clear the control bar, and the visible bed
