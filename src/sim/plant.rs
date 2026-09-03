@@ -2720,6 +2720,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 heading_inertia,
                 leaf_cluster,
                 organ_cluster,
+                leaf_spread,
                 juvenile_size,
                 juvenile_plastochron,
                 juvenile_branch,
@@ -4021,7 +4022,41 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                             if open.is_empty() {
                                 continue;
                             }
-                            let pick = open.remove(rng.below(open.len() as u32) as usize);
+                            // **The shape of the spray** — see
+                            // `Behavior::Grow::leaf_spread`. Uniform is the
+                            // shipped behaviour and leaves the cluster's form
+                            // to the RNG; at a positive spread the walk
+                            // prefers the candidate that carries it furthest
+                            // along the direction it already left the stem in,
+                            // so eight cells make a line rather than a blob.
+                            //
+                            // **The zero guard is not an optimisation.** The
+                            // extra `chance` draw would shift this `rng`'s
+                            // whole downstream sequence, and this stream is
+                            // the growth walk itself -- every plant in the
+                            // world would become a different plant. Returning
+                            // before it is what makes the shipped default
+                            // bit-identical.
+                            let pick = if leaf_spread > 0.0 && rng.chance(leaf_spread) {
+                                // Furthest along `away`, the direction the
+                                // first leaf already left the node in. Ties
+                                // break on the first candidate, which is
+                                // `NEIGHBOURS_8` order and therefore stable.
+                                let away = normalize(((lx - x) as f32, (ly - y) as f32));
+                                let best = open
+                                    .iter()
+                                    .enumerate()
+                                    .max_by(|(_, &a), (_, &b)| {
+                                        let sa = dot(normalize(((a.0 - lx) as f32, (a.1 - ly) as f32)), away);
+                                        let sb = dot(normalize(((b.0 - lx) as f32, (b.1 - ly) as f32)), away);
+                                        sa.partial_cmp(&sb).unwrap_or(std::cmp::Ordering::Equal)
+                                    })
+                                    .map(|(i, _)| i)
+                                    .unwrap_or(0);
+                                open.remove(best)
+                            } else {
+                                open.remove(rng.below(open.len() as u32) as usize)
+                            };
                             cluster.push(pick);
                             frontier.push(pick);
                         }
@@ -10711,6 +10746,133 @@ The night factor belongs on income only -- see NIGHT_INCOME_FLOOR"
     /// Kept for the tests whose subject is free *water* rather than soil
     /// moisture -- a soil bed would supply the plant before its root ever
     /// reached the puddle, which is the confound rather than the mechanism.
+    /// **A leaf spray of one is a line and a spray of zero is a blob**, and
+    /// the two are measurably different shapes — the claim
+    /// `Behavior::Grow::leaf_spread` exists to make.
+    ///
+    /// **Measured as elongation, not as a picture**, because the picture is a
+    /// contact sheet the eye judges and this has to be a number the suite can
+    /// hold: the *extent* of a cluster (its bounding box's long side) against
+    /// the *count* of cells in it. Eight cells in a line have extent 8;
+    /// eight in a compact blob have extent 3 or 4. `CLAUDE.md`'s rule about
+    /// checking a planned step can demonstrate itself, applied before the
+    /// step rather than after it.
+    #[test]
+    fn a_spread_leaf_cluster_is_longer_than_a_blob() {
+        fn mean_elongation(spread: f32) -> f32 {
+            let mut w = test_world();
+            w.seed = 11;
+            let tree = w.species.id_of("tree").expect("tree is compiled in");
+            assert!(
+                w.species.set_param(tree, CellType::GrowingTip, organism::ParamId::LeafSpread, 0, spread),
+                "the write must land, or this arm is the control wearing another name"
+            );
+            // **6,000 frames, not 1,200, and the reason is the rule this
+            // test is an instance of.** At 1,200 the tree has put out one
+            // spray of three or more cells, and a mean over one cluster is
+            // not a mean -- the scene could not contain the phenomenon, which
+            // `CLAUDE.md` says to fix in the scene rather than in the bar.
+            plant_tree_on_ground(&mut w, 100, 60);
+            run_with_fields(&mut w, 6_000);
+            // Every leaf cell, grouped into 8-connected clusters, then the
+            // long side of each cluster's bounding box against its size.
+            let mut leaves: std::collections::HashSet<(i32, i32)> = std::collections::HashSet::new();
+            for y in 30..80 {
+                for x in 70..130 {
+                    let c = w.get(x, y);
+                    if c.organism_id() != 0 && organism::cell_type(c.aux()) == Some(CellType::Leaf) {
+                        leaves.insert((x, y));
+                    }
+                }
+            }
+            let mut seen: std::collections::HashSet<(i32, i32)> = std::collections::HashSet::new();
+            let (mut total, mut n) = (0.0f32, 0usize);
+            for &start in leaves.iter() {
+                if seen.contains(&start) {
+                    continue;
+                }
+                let mut stack = vec![start];
+                let mut group = Vec::new();
+                seen.insert(start);
+                while let Some(p) = stack.pop() {
+                    group.push(p);
+                    for (dx, dy) in NEIGHBOURS_8 {
+                        let q = (p.0 + dx, p.1 + dy);
+                        if leaves.contains(&q) && seen.insert(q) {
+                            stack.push(q);
+                        }
+                    }
+                }
+                if group.len() < 3 {
+                    continue; // a one- or two-cell spray has no shape to measure
+                }
+                let (x0, x1) = (group.iter().map(|p| p.0).min().unwrap(), group.iter().map(|p| p.0).max().unwrap());
+                let (y0, y1) = (group.iter().map(|p| p.1).min().unwrap(), group.iter().map(|p| p.1).max().unwrap());
+                let extent = (x1 - x0 + 1).max(y1 - y0 + 1) as f32;
+                total += extent / group.len() as f32;
+                n += 1;
+            }
+            assert!(n >= 3, "only {n} clusters of three or more cells grew -- this scene cannot answer the question");
+            total / n as f32
+        }
+        let blob = mean_elongation(0.0);
+        let line = mean_elongation(1.0);
+        assert!(
+            line > blob * 1.15,
+            "a fully spread spray should be measurably longer per cell than a random one: blob {blob:.3}, line {line:.3}"
+        );
+    }
+
+    /// The negative half: at the shipped zero the cluster walk takes **no
+    /// extra draw**, so the whole stand is bit-identical.
+    ///
+    /// This is the guard that matters more than the one above. The spread
+    /// draw sits inside the growth RNG — the stream that decides every cell
+    /// every plant places — so one extra `chance` at spread 0 would make
+    /// every plant in both games a different plant, silently.
+    #[test]
+    fn a_zero_leaf_spread_takes_no_draw() {
+        fn stand(set_zero: bool) -> u64 {
+            let mut w = test_world();
+            w.seed = 11;
+            if set_zero {
+                let tree = w.species.id_of("tree").expect("tree is compiled in");
+                w.species.set_param(tree, CellType::GrowingTip, organism::ParamId::LeafSpread, 0, 0.0);
+            }
+            plant_tree_on_ground(&mut w, 100, 60);
+            run_with_fields(&mut w, 1_200);
+            let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+            for y in 30..80 {
+                for x in 70..130 {
+                    let c = w.get(x, y);
+                    for v in [c.material.0 as u64, c.aux() as u64, c.organism_id() as u64] {
+                        h = (h ^ v).wrapping_mul(0x0000_0100_0000_01b3);
+                    }
+                }
+            }
+            h
+        }
+        assert_eq!(stand(false), stand(true), "writing an explicit zero moved the stand -- the guard is not before the draw");
+        // ...and the sensitivity half, or the assertion above passes for a
+        // mechanism that never fires at any setting.
+        let mut w = test_world();
+        w.seed = 11;
+        let tree = w.species.id_of("tree").expect("tree is compiled in");
+        w.species.set_param(tree, CellType::GrowingTip, organism::ParamId::LeafSpread, 0, 1.0);
+        plant_tree_on_ground(&mut w, 100, 60);
+        run_with_fields(&mut w, 1_200);
+        let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+        for y in 30..80 {
+            for x in 70..130 {
+                let c = w.get(x, y);
+                for v in [c.material.0 as u64, c.aux() as u64, c.organism_id() as u64] {
+                    h = (h ^ v).wrapping_mul(0x0000_0100_0000_01b3);
+                }
+            }
+        }
+        assert_ne!(stand(false), h, "a spread of 1.0 left the stand identical -- the lever is not connected");
+    }
+
     /// **A seed thrown at a wall stops at the wall.** The property that
     /// separates `seed_launch` from a teleport, which is the objection
     /// `plant-reseeding-2026-09-03.md` §1 raises against the cheapest form of

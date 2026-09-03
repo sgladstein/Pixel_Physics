@@ -801,11 +801,70 @@ inventing a representation. It is still not the harder half, which is that a
 `SpeciesId` is copied to offspring unchanged and every consumer of it assumes
 species are a fixed set.
 
-### 6.3 Leaf-cluster shape, seasons, sex
+### 6.3 Leaf-cluster shape — built, and the check that came before it
 
-Named in §4 and not started. Leaf-cluster shape is the one this session would
-build next if it had another night, for the reason §4 gives: it is the only
-item on the list that is ink rather than a label.
+§4 called this the cheapest unbuilt lever. It is built:
+`Behavior::Grow::leaf_spread`.
+
+**The check first, because this line has a record.**
+`plant-appearance-design.md` describes three levers that fired, were counted,
+and were invisible, and `CLAUDE.md` turns that into a rule: *ask which pixels a
+lever moves, before ranking it by silhouette*. So before writing anything, what
+does `leaf_cluster` actually do?
+
+`plant.rs` places the first leaf behind the apex and then grows the rest as a
+**breadth-first walk off it that picks one open 8-neighbour at random** at every
+step. So a cluster is a contiguous blob of up to `leaf_cluster` cells — and its
+**shape is drawn fresh from the RNG at every node of every plant**. Nothing has
+ever controlled it.
+
+That answers the question in the right direction. Giving the walk a form
+changes **which cells are green**, at every node, with the same number of cells
+placed. It relabels nothing, which is precisely what the three invisible levers
+did.
+
+**And it has a second payoff that only §2 makes visible.** Cluster shape was
+one of the per-position draws behind the heritability result: foliage
+arrangement was noise. As a `ParamId` it is heritable, so the axis moves out of
+the noise column and into the genome — which is the only lever on this list
+that does that.
+
+`leaf_spread` is the probability that each step of the walk takes the
+best-aligned candidate rather than a uniform one, so the outcome is graded
+rather than a switch between two shapes. Measured on `herb`, 10 founders,
+14,000 frames, one bed:
+
+| | leaf cells | clusters of 3+ | mean elongation |
+|---|---|---|---|
+| `leaf_spread: 0` (shipped) | 3,203 | 229 | **0.634** |
+| `leaf_spread: 1` | 3,389 | 226 | **0.769** |
+
+Elongation **+21%** with leaf-cell count within 6% — the arrangement moved and
+the amount did not. `a_spread_leaf_cluster_is_longer_than_a_blob` is the guard,
+and its own first run is worth recording: at 1,200 frames the scene grew **one**
+cluster of three or more cells, so the harness could not answer its question.
+Fixed in the scene (6,000 frames) rather than in the bar.
+
+**Whether it is *visible* is not settled here and must not be**, because that is
+the exact claim this line keeps getting wrong. It is a blind A/B in the review
+queue (`20260903T120950045Z-4f14bd`), asked so that *"these look the same"* is
+an available answer — and if that is the answer, the lever should be retired
+rather than kept as a knob nobody can see.
+
+**Two properties worth carrying.** It is a `ParamKind::Probability`, so it
+**sidesteps §6.1's empty-corpus limitation** outright — a probability's bound is
+`[0, 1]` whatever the corpus says, so unlike `seed_launch` it is fully reachable
+from the day it lands. That is the kind system doing its job, and it is an
+argument for preferring a probability-shaped parameter when a new channel has a
+choice. And the **zero guard is not an optimisation**: the spread draw sits
+inside the growth walk itself, so one extra `chance` at zero would shift that
+stream and make every plant in both games a different plant, silently.
+`a_zero_leaf_spread_takes_no_draw` asserts both halves — zero is bit-identical,
+and 1.0 is not.
+
+### 6.4 Seasons and sex
+
+Named in §4 and not started.
 
 ---
 
@@ -844,7 +903,9 @@ item on the list that is ink rather than a label.
    also the section that shows a static census of this bed cannot tell a sucker
    from a buried collar. The instrument wants to follow the launched shoot
    rather than census the bed.
-4. **Leaf-cluster shape**, §4.
+4. ~~**Leaf-cluster shape**~~ — **built, §6.3, and out for review.** What is
+   left on it is the owner's verdict: if the two stands read the same, retire
+   the lever rather than keep a knob nobody can see.
 5. **Then the parameter-genome rate**, once generation depth is deep enough to
    test §5.4's prediction — and run `genome_reach -- drift=1` first, because
    the free-lever list is the thing to price, not the rate.

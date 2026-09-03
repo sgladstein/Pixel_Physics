@@ -3,8 +3,11 @@
 *What plants do, and what it looks like when they are working. No code, no
 file names — see `Reports/` for why any of it is built the way it is.*
 
-*Current as of: 2026-09-03 (plants can now throw their seed, though none of
-them does yet -- **seed launch** is a new number on the parameters page,
+*Current as of: 2026-09-03 (a plant's leaves can now be arranged as well as
+counted -- **leaf spread** is a new number on the parameters page, zero for
+every species, and turning it up makes foliage reach out in lines instead of
+bunching, without changing how much leaf there is. Also: plants can now throw
+their seed, though none of them does yet -- **seed launch** is a new number on the parameters page,
 zero for every species, and turning it up is what stops a stand sitting in
 clumps under the plants that made it. Also: a plant can now inherit numbers
 its species never wrote down, though nothing does yet: the lab's parameters page has a new
@@ -422,6 +425,15 @@ of a plant is leaf, how much is root, whether it is a spire or a dome. So if
 you are looking for the effect of a change to how plants grow, look at the
 *shape* of them and not at how large they are; size will be noisy whatever you
 do, and a bigger plant beside a smaller one is usually just a better spot.
+
+**A clump of leaves has no shape of its own, and now it can.** A node grows a
+fixed number of leaf cells and puts them out one at a time, each one landing
+somewhere open next to the last — and *where* was pure chance, so every clump
+on every plant was a differently-shaped blob. **Leaf spread** on the parameters
+page changes that: turned up, a clump reaches away from the stem in a line
+instead of bunching, and foliage reads spiky rather than bushy. It does not
+give a plant more leaf — the same cells go down in a different arrangement. It
+is at zero for every species, so nothing looks different until you move it.
 
 **Seed goes where it falls, and that is most of why a stand is clumpy.** A
 seed is a falling powder. It appears beside the plant that made it, drops, and
