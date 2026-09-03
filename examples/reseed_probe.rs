@@ -119,8 +119,10 @@ fn is_seed_material(world: &World, m: MaterialId, seed_id: Option<MaterialId>, w
 }
 
 fn census(world: &World, est: usize, seed_id: Option<MaterialId>, windfall_id: Option<MaterialId>, light_bar: f32, water_bar: f32, founders: &[i32]) -> (Stand, Seeds) {
-    let mut st = Stand::default();
-    st.span = (i32::MAX, i32::MIN);
+    // `span` starts inverted so the first cell sets both ends; the rest of
+    // the fields want their zeroes, hence the struct-update form (clippy
+    // rejects assigning a field after `Default::default()`).
+    let mut st = Stand { span: (i32::MAX, i32::MIN), ..Stand::default() };
     let mut cols: std::collections::HashSet<i32> = std::collections::HashSet::new();
     let mut sd = Seeds::default();
     // Rooted plant tissue, for the distance column. Collected first because
