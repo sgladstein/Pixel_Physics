@@ -120,11 +120,23 @@ from losing its apex"* — and the value is literally zero. The intent and the
 number disagree, and the multiplier form turns that slip into a permanent
 property of the lineage.
 
-**`moss` is not in the census and that is a finding rather than an omission.**
-It declares one behaviour, `Divide`, and no `Grow` — so it has no
-`genotype_variance` vector at all and **none of the ten continuous slots is
-expressed for it**. Its whole continuous genome is drawn, inherited, mutated
-and read by nothing.
+**`moss` is not in the census and that is a finding rather than an omission —
+and the sharp version of it is sharper than "no slots".** It declares one
+behaviour, `Divide`, and no `Grow`, so it has no `genotype_variance` vector and
+**none of the ten continuous slots is expressed for it**: its whole continuous
+genome is drawn, inherited, mutated and read by nothing.
+
+But `Divide` writes `with_organism_id(organism_id)` — **the same organism** —
+so a moss patch is one individual spreading, and it never bears anything. Every
+heredity channel in this engine hangs off `plant::bear_seed_at`: the continuous
+jitter, the discrete allele jump, the fate mutation, and now the parameter
+mutation. **So no heredity of any kind reaches moss. It is outside evolution
+entirely**, and the parameter genome does not change that — it would give moss
+three addresses (`Divide`'s cost and its two chances) and there is no event at
+which one could ever mutate.
+
+That is not a defect to fix tonight; it is a shipped species that the whole
+evolution programme silently excludes, and nothing in the record said so.
 
 ### 1.3 The correction: a slot can have two consumers, and one does
 

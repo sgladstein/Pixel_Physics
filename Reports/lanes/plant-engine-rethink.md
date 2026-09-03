@@ -69,6 +69,13 @@ before that card is answered.** Collect with
 - **`tree` reaches generation 1** in a 20,000-frame run, so the clone/population
   split is not measurable on it — 23 established plants and four variance ratios
   above 1.0. The woody species need a horizon nobody has run.
+- **`moss` is outside evolution entirely**, and nothing in the record said so.
+  It has no `Grow`, so none of the ten continuous slots is expressed; and
+  `Divide` writes **the same organism id**, so a patch is one individual
+  spreading and never bears. Every heredity channel hangs off
+  `plant::bear_seed_at`, so none of them reaches it — the parameter genome
+  included. Any evolution result that says "across the shipped species" has
+  been excluding one of them.
 
 ## The limitation to hit first, in the mechanism this session built
 
