@@ -305,6 +305,15 @@ clones already shows. That matters more than it looks:
 lever"* the genome has on seed dispersal, since a wider crown rains seed over a
 wider footprint. It is measured here as a lever the genome cannot pull.
 
+**On `tree` the same measurement is too weak to quote and that is worth
+saying rather than omitting.** A 20,000-frame run establishes 23 plants, and
+four of the seven variance ratios come out above 1.0 — including one at 6.7 —
+which at that n is sampling noise rather than negative heritability. `tree`
+reaches generation 1 in a run of this length (`FATE_MUTATION_CHANCE`'s own doc
+records that its whole 0–0.30 ladder leaves a tree stand bit-identical for the
+same reason), so the woody species need a horizon this harness has not been run
+at. Only the `herb` table above is a result.
+
 **How much the reference genome matters is itself the finding behind the
 finding.** `ref=3` reads 0.376 on cells where the other three read ~0.03, which
 means the *environmental* variance a genome experiences depends on the genome —
@@ -327,8 +336,26 @@ Two things follow that a player would not guess:
 
 `clone_variance -- shift=1` isolates it: one founder, alone, in an identical
 bed, moved one column at a time, with a single reference genome written onto
-every run. Whatever spread that shows is the floor under any claim that two
-genomes differ.
+every run. No neighbours, no competition, no genetic difference. Twelve
+positions, `herb`, 12,000 frames:
+
+| | range over twelve positions | coefficient of variation |
+|---|---|---|
+| cells | **83 → 181** | 0.280 |
+| height | **27 → 63 rows** | 0.260 |
+| width | 10 → 31 | 0.358 |
+| **foliage share** | 0.387 → 0.495 | **0.075** |
+| root share | 0.081 → 0.278 | 0.319 |
+| foliage centre | 0.536 → 0.719 | 0.090 |
+
+**Twelve genetically identical plants, alone in identical beds, come out
+anywhere between 83 and 181 cells and between 27 and 63 rows tall.** That is
+the floor under every plant comparison this project has published. And it
+carries §2.2's split in miniature and from a completely different direction:
+**size varies by 28% and composition by 7.5%** — the same four-fold gap between
+what position does to a plant's *size* and what it does to its *proportions*.
+
+Review card `20260903T060947894Z-4646f4` renders those twelve side by side.
 
 ### 2.4 What this means for everything else on the plant line
 

@@ -59,6 +59,7 @@
 
 mod common;
 
+use pixel_physics::render::Renderer;
 use pixel_physics::sim::organism;
 use pixel_physics::sim::parallel;
 use pixel_physics::sim::world::World;
@@ -180,6 +181,87 @@ fn shapes(w: &World, ids: &[(u16, i32, i32)]) -> Vec<Shape> {
         });
     }
     out
+}
+
+/// Render one world cropped **tight to the plant in both axes**, for the
+/// shift arm — where the question is what one genome looks like ten times
+/// over, and a bed of mostly soil between them buries it.
+///
+/// Every panel is cropped to the same *height* so the strip lines up: a
+/// per-panel crop would scale each plant differently and turn a size
+/// difference into a framing difference, which is the one thing this card
+/// must not do.
+fn render_plant_tight(w: &World, pad_x: i32, panel_h: u32) -> (Vec<u8>, u32, u32) {
+    let b = w.bounds().expect("the plant scene sets bounds");
+    let (width, height) = ((b.max_x - b.min_x + 1) as u32, (b.max_y - b.min_y + 1) as u32);
+    let mut buf = vec![0u8; (width * height * 4) as usize];
+    let mut renderer = Renderer::new();
+    renderer.pinned_light = Some(pixel_physics::sky::frame_for_daylight(1.0));
+    let particles = pixel_physics::sim::particle::ParticleSystem::new();
+    renderer.draw(w, &particles, &std::collections::HashSet::new(), &mut buf, (width, height), true);
+    let (mut x0, mut x1, mut y1) = (i32::MAX, i32::MIN, i32::MIN);
+    for y in b.min_y..=b.max_y {
+        for x in b.min_x..=b.max_x {
+            if w.get(x, y).organism_id() != 0 {
+                x0 = x0.min(x);
+                x1 = x1.max(x);
+                y1 = y1.max(y);
+            }
+        }
+    }
+    if x0 > x1 {
+        return (vec![0u8; 0], 0, 0);
+    }
+    // Anchored at the *bottom* of the plant, not centred: every panel shares
+    // a ground line, so a taller plant reads as taller rather than as
+    // differently framed.
+    let bottom = (y1 + 4).min(b.max_y);
+    let top = (bottom - panel_h as i32 + 1).max(b.min_y);
+    let (x0, x1) = ((x0 - pad_x).max(b.min_x), (x1 + pad_x).min(b.max_x));
+    let (pw, ph) = ((x1 - x0 + 1) as u32, (bottom - top + 1) as u32);
+    let mut out = vec![0u8; (pw * ph * 4) as usize];
+    for row in 0..ph {
+        for col in 0..pw {
+            let src = (((top - b.min_y) as u32 + row) * width + (x0 - b.min_x) as u32 + col) * 4;
+            let dst = ((row * pw) + col) * 4;
+            out[dst as usize..dst as usize + 4].copy_from_slice(&buf[src as usize..src as usize + 4]);
+        }
+    }
+    (out, pw, ph)
+}
+
+/// Lay panels out left to right on a common baseline, with a one-pixel rule
+/// between them so the eye can tell where one plant ends.
+fn tile(panels: &[(Vec<u8>, u32, u32)]) -> (Vec<u8>, u32, u32) {
+    let h = panels.iter().map(|p| p.2).max().unwrap_or(0);
+    let gap = 3u32;
+    let total_w: u32 = panels.iter().map(|p| p.1 + gap).sum::<u32>().saturating_sub(gap);
+    let mut out = vec![0u8; (total_w * h * 4) as usize];
+    // Fill with the sky colour of the first panel's top-left pixel, so the
+    // gaps read as background rather than as black bars.
+    if let Some((first, fw, _)) = panels.first() {
+        if *fw > 0 {
+            for px in out.chunks_exact_mut(4) {
+                px.copy_from_slice(&first[0..4]);
+            }
+        }
+    }
+    let mut x = 0u32;
+    for (buf, pw, ph) in panels {
+        if *pw == 0 {
+            continue;
+        }
+        let y_off = h - ph;
+        for row in 0..*ph {
+            for col in 0..*pw {
+                let src = ((row * pw) + col) * 4;
+                let dst = (((row + y_off) * total_w) + x + col) * 4;
+                out[dst as usize..dst as usize + 4].copy_from_slice(&buf[src as usize..src as usize + 4]);
+            }
+        }
+        x += pw + gap;
+    }
+    (out, total_w, h)
 }
 
 fn mean(v: &[f32]) -> f32 {
@@ -310,6 +392,28 @@ fn apply_arm(w: &mut World, ids: &[(u16, i32, i32)], arm: Arm, reference: usize)
 }
 
 fn run(species: &str, founders: usize, frames: u64, worldseed: Option<u64>, arm: Arm, reference: usize) -> Vec<Shape> {
+    run_and_maybe_render(species, founders, frames, worldseed, arm, reference, None).0
+}
+
+/// **The picture, on the same run that produced the numbers.**
+///
+/// `CLAUDE.md`: *having rendered something, show it — don't describe it*, and
+/// the specific reason a card needs this rather than a re-render is that a
+/// contact sheet made from a second run of "the same" scene is a different
+/// bed. The image and the `H2` above it come out of one `World`.
+///
+/// Through the shipped `Renderer`, not a hand-rolled palette walk: what
+/// reaches the screen is what the lighting makes of the palette, which is
+/// exactly the difference `burrow_probe`'s `contrast=1` arm exists to catch.
+fn run_and_maybe_render(
+    species: &str,
+    founders: usize,
+    frames: u64,
+    worldseed: Option<u64>,
+    arm: Arm,
+    reference: usize,
+    png: Option<&str>,
+) -> (Vec<Shape>, ()) {
     let (mut w, ids) = build(species, founders, worldseed, None);
     apply_arm(&mut w, &ids, arm, reference);
     for _ in 0..frames {
@@ -317,7 +421,57 @@ fn run(species: &str, founders: usize, frames: u64, worldseed: Option<u64>, arm:
         w.step_active_sites();
         w.step_fields();
     }
-    shapes(&w, &ids)
+    if let Some(path) = png {
+        let (buf, width, ch) = render_stand(&w);
+        image::save_buffer(path, &buf, width, ch, image::ColorType::Rgba8).expect("write png");
+        println!("  wrote {path} ({width}x{ch})");
+    }
+    (shapes(&w, &ids), ())
+}
+
+/// Render one world through the shipped `Renderer`, cropped to the band the
+/// stand occupies. Returns `(rgba, width, height)`.
+fn render_stand(w: &World) -> (Vec<u8>, u32, u32) {
+    {
+        let b = w.bounds().expect("the plant scene sets bounds");
+        let (width, height) = ((b.max_x - b.min_x + 1) as u32, (b.max_y - b.min_y + 1) as u32);
+        let mut buf = vec![0u8; (width * height * 4) as usize];
+        let mut renderer = Renderer::new();
+        // **Pinned to noon.** `sky::frame_for_daylight` exists because the
+        // day/night cycle is a designed oscillator and a card rendered at an
+        // arbitrary phase is a card about the hour it was taken -- the first
+        // sheet from this harness came out at night and the stand was barely
+        // legible. `CLAUDE.md`'s "divide the oscillator out" applied to a
+        // picture rather than to a number.
+        renderer.pinned_light = Some(pixel_physics::sky::frame_for_daylight(1.0));
+        let particles = pixel_physics::sim::particle::ParticleSystem::new();
+        renderer.draw(w, &particles, &std::collections::HashSet::new(), &mut buf, (width, height), true);
+        // Crop to the band the stand occupies, with margin -- the scene is
+        // 200 rows of sky over a bed, and a card of mostly sky is a card
+        // nobody can judge. `review/SKILL.md`: render wide, declare tight.
+        let (mut top, mut bottom) = (i32::MAX, i32::MIN);
+        for y in b.min_y..=b.max_y {
+            for x in b.min_x..=b.max_x {
+                if w.get(x, y).organism_id() != 0 {
+                    top = top.min(y);
+                    bottom = bottom.max(y);
+                }
+            }
+        }
+        let (top, bottom) = if top <= bottom {
+            ((top - 12).max(b.min_y), (bottom + 8).min(b.max_y))
+        } else {
+            (b.min_y, b.max_y)
+        };
+        let ch = (bottom - top + 1) as u32;
+        let mut crop = vec![0u8; (width * ch * 4) as usize];
+        for row in 0..ch {
+            let src = ((top - b.min_y) as u32 + row) * width * 4;
+            crop[(row * width * 4) as usize..((row + 1) * width * 4) as usize]
+                .copy_from_slice(&buf[src as usize..(src + width * 4) as usize]);
+        }
+        (crop, width, ch)
+    }
 }
 
 fn table(label: &str, arms: &[Shape]) {
@@ -351,7 +505,17 @@ fn main() {
     );
 
     if shift > 0 {
-        one_cell_over(&species, founders, frames, worldseed);
+        one_cell_over(&species, founders, frames, worldseed, sarg("png"));
+        return;
+    }
+    // **`png=` renders the three arms from the runs that produced the
+    // numbers**, so a card and its `meta` cannot come from different beds.
+    if let Some(stem) = sarg("png") {
+        for (arm, name) in [(Arm::Pop, "pop"), (Arm::Clone, "clone"), (Arm::Spread, "spread")] {
+            let path = format!("{stem}_{name}.png");
+            let shapes = run_and_maybe_render(&species, founders, frames, worldseed, arm, reference, Some(&path)).0;
+            println!("  {name}: {} established, median cells {:.0}", shapes.len(), median(&shapes.iter().map(|s| s.cells).collect::<Vec<_>>()));
+        }
         return;
     }
 
@@ -462,7 +626,7 @@ fn main() {
 /// would not guess: a plant one column over is a different plant, and a plant
 /// that germinates into organism slot 7 rather than 6 is a different plant
 /// again.
-fn one_cell_over(species: &str, n: usize, frames: u64, worldseed: Option<u64>) {
+fn one_cell_over(species: &str, n: usize, frames: u64, worldseed: Option<u64>, png: Option<String>) {
     println!("\n  one founder, alone, same genome, moved one column at a time ({n} positions):");
     print!("  {:<15}", "");
     for c in COLUMNS {
@@ -484,6 +648,7 @@ fn one_cell_over(species: &str, n: usize, frames: u64, worldseed: Option<u64>) {
         return;
     };
     let mut all: Vec<Shape> = Vec::new();
+    let mut panels: Vec<(Vec<u8>, u32, u32)> = Vec::new();
     for step in 0..n {
         // `PlantScene` centres a single founder, so the column is moved by
         // widening the bed by one -- which keeps the founder's surroundings
@@ -499,6 +664,9 @@ fn one_cell_over(species: &str, n: usize, frames: u64, worldseed: Option<u64>) {
             w.step_fields();
         }
         let s = shapes(&w, &ids);
+        if png.is_some() {
+            panels.push(render_plant_tight(&w, 3, 96));
+        }
         if let Some(s0) = s.first() {
             all.push(*s0);
             print!("  {:<15}", format!("+{step} col"));
@@ -520,4 +688,11 @@ fn one_cell_over(species: &str, n: usize, frames: u64, worldseed: Option<u64>) {
         "  -- every row above is the SAME genome. Whatever spread this shows is the floor under \
          any claim that two genomes differ."
     );
+    if let Some(path) = png {
+        let (buf, w, h) = tile(&panels);
+        if w > 0 {
+            image::save_buffer(&path, &buf, w, h, image::ColorType::Rgba8).expect("write png");
+            println!("  wrote {path} ({w}x{h}) -- {} panels, one genome", panels.len());
+        }
+    }
 }
