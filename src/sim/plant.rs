@@ -812,6 +812,36 @@ fn water_status(world: &World, x: i32, y: i32) -> f32 {
     world.water_at(x, y).1
 }
 
+/// **The behaviour this *individual* runs**, not the one its species
+/// authors — the species table with this organism's `ParamGenome` applied.
+///
+/// **Every read of a behaviour parameter outside `organism_tick`'s dispatch
+/// buffer must come through here, and that is a correctness constraint rather
+/// than a style rule.** The two `behavior_buf` fills patch their copies; a
+/// site that reads `world.species.get(id).behaviors(ct)` directly would give
+/// one plant *two different values for one number* — its own on the frontier
+/// and its species' in whatever pass read around the buffer. That is the
+/// shape of `CLAUDE.md`'s "a traversal must use the same neighbourhood the
+/// writer used", one level up: a reader must use the same table the writer
+/// used.
+///
+/// Costs a `Copy` of one `Behavior` per hit and a length check on an empty
+/// genome, which is every founder.
+pub(crate) fn individual_behavior<T>(
+    world: &World,
+    organism_id: u16,
+    cell_type: CellType,
+    pick: impl Fn(&Behavior) -> Option<T>,
+) -> Option<T> {
+    let state = world.organism(organism_id)?;
+    let (species_id, params) = (state.species, state.params);
+    world.species.get(species_id).behaviors(cell_type).iter().find_map(|b| {
+        let mut b = *b;
+        params.apply(cell_type, &mut b);
+        pick(&b)
+    })
+}
+
 /// Stamp a freshly created cell's branch order.
 ///
 /// Like `deposit_canopy`, must follow the `World::set` that creates the
@@ -1480,6 +1510,75 @@ pub fn fate_mutation_chance_seed() -> f32 {
     })
 }
 
+/// **The chance a seed is born with one of its parent's species parameters
+/// overridden** — the third heredity dial, and the newest.
+///
+/// **Zero by default, and that is a decision about calibration rather than
+/// about the mechanism.** The machinery is complete and measured
+/// (`Reports/plant-engine-rethink-2026-09-03.md` §5); what is *not* measured
+/// is what rate this world wants, and there is a specific reason not to guess
+/// it. `plant-heritability-survey-design-2026-08-27.md` §2 states the trap in
+/// as many words: **a free lever made heritable produces uniformity, not
+/// diversity** — a quantity with a benefit and no counterweight has exactly
+/// one optimum, which a working economy finds and holds every plant at. Its
+/// §4a inventory then names nine parameters as free *today*, `turgor_source`,
+/// `turgor_yield` and the `Photosynthesize` rate among them. Turning this on
+/// at a working rate makes all forty-three heritable at once, free ones
+/// included, so the first thing a population would do is run the free ones to
+/// their bound. That is a real prediction, it is measurable with this
+/// mechanism and nothing else, and shipping the rate before measuring it
+/// would be changing every forest in the outdoor game on an argument.
+///
+/// **So this is the dial and not the finding.** It is `pub`, it is on
+/// `World`, and it is on the lab's parameters page, which is where the
+/// owner's standing direction puts it: *"Give me the tools, data, access to
+/// the parameters that need to be tweaked and I do that testing myself."*
+/// `PIXEL_PHYSICS_PARAM_MUTATION_CHANCE` sets it for a harness.
+///
+/// **At zero the engine is bit-identical to before this existed**, which is
+/// what makes the mechanism safe to land unmeasured: founders carry no
+/// overrides, the roll is taken from a keyed substream so the caller's `Rng`
+/// position does not move, and an empty `ParamGenome` applies nothing.
+/// `an_empty_parameter_genome_changes_no_behaviour` and the existing stand
+/// hashes are the guards.
+///
+/// **What to measure before raising it**, in order: which parameters run to
+/// their `clamp_param` bound (that list *is* the free-lever list, measured
+/// rather than inventoried); whether establishment and throughput move; and
+/// whether the stand still reads as its species by eye.
+pub const PARAM_MUTATION_CHANCE: f32 = 0.0;
+
+/// **How far one parameter mutation moves**, as a fraction of the corpus
+/// scale for that parameter (`SpeciesRegistry::param_scale`).
+///
+/// 0.25 rather than `MUTATION_SIGMA`'s 0.08 because the two are steps on
+/// different quantities and the smaller number would be a much smaller step:
+/// `MUTATION_SIGMA` jitters a *unit draw* that is then multiplied by an
+/// authored variance of 0.15-0.7, so one generation's move on the continuous
+/// genome is roughly `0.08 x 0.4 = 3%` of the species value. A parameter
+/// override moves `sigma x corpus_scale`, and the corpus scale is the
+/// *largest* value any species authors — so 0.25 of it is a step that
+/// crosses the gap between two species' settings in a handful of
+/// generations, which is what "a lineage may leave the box its species
+/// defines" has to mean to be worth the machinery. **Uniform on
+/// `[-sigma, sigma]`, not Gaussian**, matching `genotype_jitter` exactly so
+/// the two heredity channels cannot drift apart in shape.
+pub const PARAM_MUTATION_SIGMA: f32 = 0.25;
+
+/// The env seed for [`PARAM_MUTATION_CHANCE`], on the same terms as
+/// [`fate_mutation_chance_seed`] — a harness override that cannot go stale
+/// against a prebuilt binary the way a `.ron` field would.
+pub fn param_mutation_chance_seed() -> f32 {
+    static SEED: std::sync::OnceLock<f32> = std::sync::OnceLock::new();
+    *SEED.get_or_init(|| {
+        std::env::var("PIXEL_PHYSICS_PARAM_MUTATION_CHANCE")
+            .ok()
+            .and_then(|v| v.parse::<f32>().ok())
+            .filter(|c| settable_rate(*c))
+            .unwrap_or(PARAM_MUTATION_CHANCE)
+    })
+}
+
 /// Whether a width or rate may be stored — the shared predicate behind both
 /// heredity rows on the parameters page, so the contract can be checked
 /// without writing to a world.
@@ -1579,6 +1678,13 @@ const ORGAN_BAND_STREAM: u64 = 200;
 /// The substream slot the fate mutation draws from — see `ORGAN_BAND_STREAM`
 /// for why these sit well above `GENOTYPE_TRAITS`.
 const FATE_MUTATION_STREAM: u64 = 201;
+
+/// The substream slot the parameter mutation draws from — see
+/// `ORGAN_BAND_STREAM` for why these sit well above `GENOTYPE_TRAITS`, and
+/// `bear_seed_at` for why a *new* channel must never draw from the caller's
+/// shared `Rng`: that stream outlives the call and its position on return is
+/// a measured property with a guard over it.
+const PARAM_MUTATION_STREAM: u64 = 202;
 
 /// **How often a seed's production rule takes a point mutation.**
 ///
@@ -1724,9 +1830,9 @@ fn set_seed(world: &mut World, x: i32, y: i32, parent_id: u16, seed_cost: f32, r
 /// sequence *choose a spot, draw a shade, mutate the genome* exactly where it
 /// was. The drop path has no spot draw at all: a fruit lets go where it hangs.
 fn bear_seed_at(world: &mut World, sx: i32, sy: i32, parent_id: u16, seed_cost: f32, seed_material: material::MaterialId, rng: &mut Rng) -> bool {
-    let Some((species, draws, generation, parent_alleles, parent_fates, parent_lineage)) = world
+    let Some((species, draws, generation, parent_alleles, parent_fates, parent_params, parent_lineage)) = world
         .organism(parent_id)
-        .map(|s| (s.species, s.genotype_draws, s.generation, s.alleles, s.fates, s.lineage))
+        .map(|s| (s.species, s.genotype_draws, s.generation, s.alleles, s.fates, s.params, s.lineage))
     else {
         return false;
     };
@@ -1736,6 +1842,13 @@ fn bear_seed_at(world: &mut World, sx: i32, sy: i32, parent_id: u16, seed_cost: 
     // `organism_mut` takes `world` mutably below.
     let sigma = world.mutation_sigma;
     let fate_chance = world.fate_mutation_chance;
+    // Read here for the same reason `sigma` and `fate_chance` are: the
+    // `organism_mut` borrow below holds `world` for the whole block.
+    let param_chance = world.param_mutation_chance;
+    let param_sigma = world.param_mutation_sigma;
+    // **The registry, cloned out? No — the mutation needs it and the borrow
+    // cannot span the block, so the parameter roll happens *after* the state
+    // borrow ends.** See the second half of this function.
     let (foliage_first, foliage_count, bark_bands, flower_bands, fruit_bands) = {
         let sp = world.species.get(species);
         (sp.foliage_bands.first, sp.foliage_bands.count, sp.bark_bands, sp.flower_bands, sp.fruit_bands)
@@ -1804,6 +1917,13 @@ fn bear_seed_at(world: &mut World, sx: i32, sy: i32, parent_id: u16, seed_cost: 
         // every rule a little would smear a population into one cloud instead
         // of letting a morph hold together between excursions.
         state.fates = parent_fates;
+        // **And the parent's own numbers.** Copied whole and point-mutated
+        // after this borrow ends, which is the discrete loci's shape rather
+        // than the continuous traits': an override table is a set of
+        // decisions, not an axis to drift along, and a version that jittered
+        // every override a little every generation would smear a population
+        // into one cloud instead of letting a morph hold together.
+        state.params = parent_params;
         // **The lineage label rides with the genome and is never mutated.**
         // It names the founder this descent came from, which is what makes a
         // descendant attributable to an arm in `examples/selection_arena.rs`
@@ -1904,6 +2024,41 @@ fn bear_seed_at(world: &mut World, sx: i32, sy: i32, parent_id: u16, seed_cost: 
         state.endowment = seed_cost;
         state.inherited = true;
         state.generation = generation.saturating_add(1);
+    }
+    // **The parameter mutation, outside the `organism_mut` borrow.**
+    //
+    // It needs `world.species` (to find the addresses this species has, the
+    // value in force at one of them, and what the corpus says that parameter
+    // is worth) *and* `&mut` on the child's state, which cannot both be held.
+    // The genome is therefore read out, mutated, and written back — one
+    // `Copy` of 72 bytes, which is what `ParamGenome`'s fixed array buys.
+    //
+    // **From its own keyed substream, never from `rng`**, for the reason the
+    // fate mutation above gives at length: `rng` is `&mut`, it outlives this
+    // call, and `set_seed_leaves_the_callers_rng_position_alone` asserts that
+    // its position on return did not move. A channel added on the shared
+    // stream would shift every draw the caller makes afterwards, and whether
+    // that is observable depends on the order behaviours happen to sit in a
+    // `.ron`.
+    let mut param_rolled = false;
+    let mut param_applied = false;
+    if let Some(child_params) = world.organism(child).map(|s| s.params) {
+        let mut params = child_params;
+        let mut prng =
+            rng::stream(world_seed ^ APPENDED_JITTER_SALT, sx as u64, sy as u64, (generation as u64) << 8 | PARAM_MUTATION_STREAM);
+        param_rolled = true;
+        if prng.chance(param_chance) {
+            param_applied = organism::mutate_params(&mut params, &world.species, species, param_sigma, &mut prng);
+            if let Some(state) = world.organism_mut(child) {
+                state.params = params;
+            }
+        }
+    }
+    if param_rolled {
+        world.param_mutation_rolls += 1;
+        if param_applied {
+            world.param_mutations_applied += 1;
+        }
     }
     if fate_rolled {
         world.fate_mutation_rolls += 1;
@@ -2309,6 +2464,11 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
         return Vec::new();
     };
     let species_id = state.species;
+    // **This individual's own numbers**, read out beside its species id and
+    // applied to every behaviour the dispatch below copies. See
+    // `organism::ParamGenome`: empty on every founder, so the cost here is a
+    // `Copy` of 72 bytes and a length check.
+    let params = state.params;
     let Some(mut cell_type) = organism::cell_type(cell.aux()) else {
         return Vec::new(); // unrecognized cell-type bits -- nothing this dispatch knows how to run
     };
@@ -2342,7 +2502,14 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
         );
         let n = defined.len().min(MAX_BEHAVIORS_PER_CELL_TYPE);
         for (slot, behavior) in behavior_buf.iter_mut().zip(&defined[..n]) {
-            *slot = Some(*behavior);
+            let mut b = *behavior;
+            // **The one seam the whole parameter genome hangs on.** Every
+            // consumer below reads from this buffer, so patching the copy
+            // here reaches all of them at once -- which is why the addressable
+            // set could be the *whole* behaviour table rather than a handful
+            // of fields with bespoke plumbing.
+            params.apply(cell_type, &mut b);
+            *slot = Some(b);
         }
         n
     };
@@ -6343,18 +6510,15 @@ fn note_root_tip_exit(_which: usize) {}
 fn break_root_tips(world: &mut World, organism_id: u16) {
     let Some(state) = world.organism(organism_id) else { return };
     note_root_tip_exit(ROOT_TIP_CALLS);
-    let species_id = state.species;
     let status = state.water_status;
     if status >= ROOT_REINITIATION_STATUS {
         note_root_tip_exit(ROOT_TIP_GATED);
         return; // demand met -- nothing to fix, and canopy is the better buy
     }
-    let Some((cost, max_active_tips)) =
-        world.species.get(species_id).behaviors(CellType::RootTip).iter().find_map(|b| match b {
-            Behavior::Grow { cost, max_active_tips, .. } => Some((*cost, *max_active_tips)),
-            _ => None,
-        })
-    else {
+    let Some((cost, max_active_tips)) = individual_behavior(world, organism_id, CellType::RootTip, |b| match b {
+        Behavior::Grow { cost, max_active_tips, .. } => Some((*cost, *max_active_tips)),
+        _ => None,
+    }) else {
         return; // a species whose roots do not grow
     };
     // **Priced in the same currency the new tip will spend in.** Both the
@@ -6489,11 +6653,11 @@ fn break_buds(world: &mut World, organism_id: u16) {
     // the species' own `GrowingTip` `Grow`, so a species cannot set them
     // inconsistently.
     let (Some((cost, max_active_tips, leaf_cluster)), Some(bud_cost)) = (
-        world.species.get(species_id).behaviors(CellType::GrowingTip).iter().find_map(|b| match b {
+        individual_behavior(world, organism_id, CellType::GrowingTip, |b| match b {
             Behavior::Grow { cost, max_active_tips, leaf_cluster, .. } => Some((*cost, *max_active_tips, *leaf_cluster)),
             _ => None,
         }),
-        world.species.get(species_id).behaviors(CellType::DormantBud).iter().find_map(|b| match b {
+        individual_behavior(world, organism_id, CellType::DormantBud, |b| match b {
             Behavior::BudBreak { cost, acrotony, .. } => Some((*cost, *acrotony)),
             _ => None,
         }),
@@ -6674,20 +6838,16 @@ fn allocate_to_frontier(world: &mut World, organism_id: u16) {
     if state.cells.is_empty() {
         return;
     }
-    // The species' own node size, for the income currency — see
-    // `INCOME_PER_NODE`. A species with no shoot `Grow` has no light
-    // economy to allocate.
-    let species_of = state.species;
-    let leaf_cluster = world
-        .species
-        .get(state.species)
-        .behaviors(CellType::GrowingTip)
-        .iter()
-        .find_map(|b| match b {
-            Behavior::Grow { leaf_cluster, .. } => Some(*leaf_cluster),
-            _ => None,
-        })
-        .unwrap_or(1);
+    // **This individual's** node size, for the income currency — see
+    // `INCOME_PER_NODE`. A plant with no shoot `Grow` has no light economy
+    // to allocate. (It read the *species'* until the parameter genome
+    // landed; a plant carrying a `leaf_cluster` override would otherwise
+    // have been paid for one node size and have built another.)
+    let leaf_cluster = individual_behavior(world, organism_id, CellType::GrowingTip, |b| match b {
+        Behavior::Grow { leaf_cluster, .. } => Some(*leaf_cluster),
+        _ => None,
+    })
+    .unwrap_or(1);
     // Sorted for the same determinism reason `transport` sorts: `cells` is
     // a `HashMap` and `f32` addition is not associative.
     let mut cells: Vec<(i32, i32)> = state.cells.keys().copied().collect();
@@ -6835,16 +6995,11 @@ fn allocate_to_frontier(world: &mut World, organism_id: u16) {
     // trait: a ruderal commits a large share of its surplus to seed and
     // stays small, a competitor commits little and grows. Read the same way
     // `leaf_cluster` is read above.
-    let reproductive_allocation = world
-        .species
-        .get(species_of)
-        .behaviors(CellType::MatureBody)
-        .iter()
-        .find_map(|b| match b {
-            Behavior::Reproduce { reproductive_allocation, .. } => Some(*reproductive_allocation),
-            _ => None,
-        })
-        .unwrap_or(0.0);
+    let reproductive_allocation = individual_behavior(world, organism_id, CellType::MatureBody, |b| match b {
+        Behavior::Reproduce { reproductive_allocation, .. } => Some(*reproductive_allocation),
+        _ => None,
+    })
+    .unwrap_or(0.0);
     let reproductive_share = surplus * reproductive_allocation;
     if let Some(state) = world.organism_mut(organism_id) {
         state.reproductive_budget = (state.reproductive_budget + reproductive_share).min(REPRODUCTIVE_BUDGET_CAP);
@@ -6980,38 +7135,46 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
     // function, but the genome lives on `Grow`, so both are read from the
     // species' own `GrowingTip` vector rather than duplicated onto other
     // behaviours -- one plant, one genotype.
-    let (shoot_variance, upkeep_leaf_cluster) = world
+    // **The variance stays a species property and the cluster does not**, and
+    // the split is deliberate: `genotype_variance` is the *width* of the
+    // continuous genome's jitter, which `ParamId`'s own doc records as
+    // deliberately not addressable (a gene for how fast the other genes move
+    // is recursive enough to want its own measurement). `leaf_cluster` is an
+    // ordinary phenotype parameter and must read the individual's, or a plant
+    // with an override would build clusters of one size and be charged
+    // upkeep for another.
+    let shoot_variance = world
         .species
         .get(species_id)
         .behaviors(CellType::GrowingTip)
         .iter()
         .find_map(|b| match b {
-            Behavior::Grow { genotype_variance, leaf_cluster, .. } => Some((*genotype_variance, *leaf_cluster)),
+            Behavior::Grow { genotype_variance, .. } => Some(*genotype_variance),
             _ => None,
         })
-        .unwrap_or(([0.0; organism::GENOTYPE_TRAITS], 1));
+        .unwrap_or([0.0; organism::GENOTYPE_TRAITS]);
+    let upkeep_leaf_cluster = individual_behavior(world, organism_id, CellType::GrowingTip, |b| match b {
+        Behavior::Grow { leaf_cluster, .. } => Some(*leaf_cluster),
+        _ => None,
+    })
+    .unwrap_or(1);
     let pipe_variance = shoot_variance[4];
 
     // **What a primed lateral has to be able to afford**: one root growth
     // step, in the individual's own currency (density scales the price of
     // every cell it builds). `None` for a species whose roots do not grow,
     // which switches the whole primed path off rather than defaulting it.
-    let root_grow = world.species.get(species_id).behaviors(CellType::RootTip).iter().find_map(|b| match b {
+    let root_grow = individual_behavior(world, organism_id, CellType::RootTip, |b| match b {
         Behavior::Grow { cost, max_active_tips, .. } => Some((*cost, *max_active_tips)),
         _ => None,
     });
     let density = wood_density_mult(world, organism_id);
     let (root_step_cost, root_max_tips) = root_grow.map_or((f32::INFINITY, 0), |(c, m)| (c * density, m as usize));
 
-    let bud_survival = world
-        .species
-        .get(species_id)
-        .behaviors(CellType::DormantBud)
-        .iter()
-        .find_map(|b| match b {
-            Behavior::BudBreak { thickening_survival, .. } => Some(*thickening_survival),
-            _ => None,
-        })
+    let bud_survival = individual_behavior(world, organism_id, CellType::DormantBud, |b| match b {
+        Behavior::BudBreak { thickening_survival, .. } => Some(*thickening_survival),
+        _ => None,
+    })
         .unwrap_or(1.0);
 
     // The leaf-economy multipliers, once for the whole walk -- the demand
@@ -7075,7 +7238,7 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
             // quantity over a count of bad cells, because counts give
             // knife-edge margins and sums separate cleanly.
             if let Some(t) = ty {
-                let transpiration = world.species.get(species_id).behaviors(t).iter().find_map(|b| match b {
+                let transpiration = individual_behavior(world, organism_id, t, |b| match b {
                     // **Derived from the rate, not authored beside it**
                     // -- see `TRANSPIRATION_PER_RATE`.
                     Behavior::Photosynthesize { rate, .. } => Some(*rate * TRANSPIRATION_PER_RATE),
@@ -7378,11 +7541,17 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
 
         let mut rng = rng::stream(organism_id as u64, cx as u64, cy as u64, world.frame);
         let mut behavior_buf = [None::<Behavior>; MAX_BEHAVIORS_PER_CELL_TYPE];
+        // The mature-tissue pass's half of the seam above -- both fills apply
+        // the individual's overrides, or a plant would run its own numbers on
+        // its frontier and its species' on its trunk.
+        let params = world.organism(organism_id).map(|s| s.params).unwrap_or_default();
         let behavior_count = {
             let defined = world.species.get(species_id).behaviors(cell_type);
             let n = defined.len().min(MAX_BEHAVIORS_PER_CELL_TYPE);
             for (slot, behavior) in behavior_buf.iter_mut().zip(&defined[..n]) {
-                *slot = Some(*behavior);
+                let mut b = *behavior;
+                params.apply(cell_type, &mut b);
+                *slot = Some(b);
             }
             n
         };
@@ -8299,16 +8468,11 @@ fn germinate(world: &mut World, x: i32, y: i32, organism_id: u16, cell: Cell, rn
     // loosened earlier: refusing to root in bare *stone* is correct
     // behaviour, so the gate could not be fixed honestly until roots had
     // somewhere legitimate to go.
-    let root_force = world
-        .species
-        .get(world.organism(organism_id).map(|s| s.species).expect("germinating organism exists"))
-        .behaviors(CellType::RootTip)
-        .iter()
-        .find_map(|b| match b {
-            Behavior::Grow { penetration_force, .. } => Some(*penetration_force),
-            _ => None,
-        })
-        .unwrap_or(0.0);
+    let root_force = individual_behavior(world, organism_id, CellType::RootTip, |b| match b {
+        Behavior::Grow { penetration_force, .. } => Some(*penetration_force),
+        _ => None,
+    })
+    .unwrap_or(0.0);
     if growable(world, x, y + 1, root_force) {
         // The companion root is `rootwood`, and that choice propagates for
         // free: every cell `Grow` creates copies its parent's material, so
@@ -8449,22 +8613,11 @@ fn thicken(world: &mut World, x: i32, y: i32, organism_id: u16, pipe_ratio: f32,
     // `WOOD_CONSTRUCTION_MULTIPLE`. Read the same way `allocate_to_frontier`
     // reads `leaf_cluster`; wood density deliberately does *not* scale it,
     // for the reason `tissue_cost` carries at the leaf site.
-    let wood_cost = world
-        .organism(organism_id)
-        .map(|st| st.species)
-        .map(|sp| {
-            world
-                .species
-                .get(sp)
-                .behaviors(CellType::GrowingTip)
-                .iter()
-                .find_map(|b| match b {
-                    Behavior::Grow { cost, .. } => Some(*cost),
-                    _ => None,
-                })
-                .unwrap_or(0.0)
-        })
-        .unwrap_or(0.0)
+    let wood_cost = individual_behavior(world, organism_id, CellType::GrowingTip, |b| match b {
+        Behavior::Grow { cost, .. } => Some(*cost),
+        _ => None,
+    })
+    .unwrap_or(0.0)
         * WOOD_CONSTRUCTION_MULTIPLE;
     let axis = cross_section_axis(world, x, y);
     // **Cheapest possible rejection first.** The flood fill below is
@@ -8800,6 +8953,7 @@ pub(crate) fn sow_specimen_seed(
     draws: [f32; organism::GENOTYPE_TRAITS],
     alleles: [u8; organism::DISCRETE_LOCI],
     fates: organism::FateGenome,
+    params: organism::ParamGenome,
     flower_band: u8,
     fruit_band: u8,
     endowment: f32,
@@ -8824,6 +8978,13 @@ pub(crate) fn sow_specimen_seed(
         state.genotype_draws = draws;
         state.alleles = alleles;
         state.fates = fates;
+        // **The jar keeps the individual's own numbers too.** A shelf that
+        // stored `draws`, `alleles` and `fates` and dropped this would hand
+        // the player back a plant that is not the one they kept -- and
+        // silently, because the released specimen still looks like its
+        // species. Same failure the module doc records for a `Vec` that is
+        // shorter than the engine's current width.
+        state.params = params;
         state.flower_band = flower_band;
         state.fruit_band = fruit_band;
         state.endowment = endowment;

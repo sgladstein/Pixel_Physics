@@ -1602,6 +1602,823 @@ pub const PLANT_CELL_TYPES: [CellType; 8] = [
     CellType::Fruit,
 ];
 
+
+// ---------------------------------------------------------------------
+// The parameter genome
+// ---------------------------------------------------------------------
+
+/// **An organism's own numbers — the species file's scalars as heritable
+/// material rather than as a frame the lineage is nailed to.**
+///
+/// `FateGenome` above did this for the *production rule* and is the reason
+/// this exists: it is the engine's only channel through which a lineage can
+/// acquire something its species file never had, and everything else about a
+/// plant is authored. Counted 2026-09-03 over the seven species that grow, a
+/// plant is specified by roughly **85 named fields** in its `.ron`, against
+/// **10 continuous draws and 6 discrete loci** of heredity — and of the ten
+/// draws, `examples/genome_reach` measures **6 of 70 (species x slot) cells
+/// caged outright**, because the continuous genome expresses as
+/// `base * (1 + draw * variance)` and **zero times any genome is zero**.
+/// Three of the seven species cannot evolve a branching root system at any
+/// mutation rate for ever; `herb` cannot evolve a branching shoot; `grass`
+/// cannot evolve a node or a thickening stem.
+///
+/// **The fix is not a wider multiplier, it is a different meaning for a
+/// genome slot.** An override *replaces* the authored number rather than
+/// scaling it, so an authored zero is a starting point rather than a cage —
+/// which is the whole of the owner's *"we don't want to design specific
+/// behavior but create a flexible system that will allow variety to
+/// evolve"*, applied to the layer that holds nearly all of the design.
+///
+/// **Founders carry none, and that is what makes this safe to land.** An
+/// empty genome reads the species file exactly, so a stand planted today
+/// grows the plant it grew yesterday, cell for cell — asserted by
+/// `plant::tests::an_unmutated_stand_is_byte_identical_to_the_species_file`.
+/// Drift enters only at `plant::bear_seed_at`, one point mutation per birth
+/// at `World::param_mutation_chance`, from its own keyed substream so the
+/// caller's `Rng` position is untouched (the failure `set_seed`'s own guard
+/// exists for).
+///
+/// **What it deliberately does not do.** It cannot invent a *material*, a
+/// cell type, or a behaviour — an override names a number that already has a
+/// consumer. Those are the next two layers and they are named in
+/// `Reports/plant-engine-rethink-2026-09-03.md`, not started here.
+#[derive(Clone, Copy, PartialEq, Debug, Default)]
+pub struct ParamGenome {
+    overrides: [ParamOverride; MAX_PARAM_OVERRIDES],
+    len: u8,
+}
+
+/// One override: *this cell type's* `param`, at *this branch order*, is this
+/// number.
+///
+/// **`tier` is carried rather than flattened, and that is a correction to the
+/// first design.** Several `Grow` fields are `ByOrder` — `branch_chance:
+/// [0.03, 0.12, 0.2, 0.25]` on `tree` is an order-graded profile, and an
+/// override that replaced the whole profile with one number would make every
+/// mutation to a tiered field also a decision to throw the grading away. That
+/// is two changes wearing one operator, and it would have made the mutation
+/// look far more destructive than it is. A scalar parameter ignores `tier`
+/// and is stored at 0.
+#[derive(Clone, Copy, PartialEq, Debug, Deserialize, Serialize)]
+pub struct ParamOverride {
+    pub cell_type: CellType,
+    pub param: ParamId,
+    pub tier: u8,
+    pub value: f32,
+}
+
+impl Default for ParamOverride {
+    fn default() -> Self {
+        Self { cell_type: CellType::GrowingTip, param: ParamId::GrowCost, tier: 0, value: 0.0 }
+    }
+}
+
+/// How many overrides one individual can carry.
+///
+/// The same shape and the same reasoning as [`MAX_FATES`]: a fixed array so
+/// `OrganismState` stays `Clone` and allocation-free, and a cap so a lineage
+/// that mutates for ever has a bounded footprint. Eight is 8 x 8 = 64 bytes
+/// per organism and is above what any measured lineage reaches — `herb`'s
+/// mean generation in the lab bed is ~2.3, so a run that saturates this is a
+/// run whose pedigree got far deeper than anything measured, which is a
+/// finding rather than a limit to raise blindly.
+pub const MAX_PARAM_OVERRIDES: usize = 8;
+
+/// **How far outside the authored corpus a lineage may go**, as a multiple
+/// of the largest magnitude any species authors for that parameter.
+///
+/// The one number in this mechanism that is neither derived nor per-species,
+/// and it is deliberately a *reach* rather than a bound per parameter: the
+/// alternative is a table of thirty-odd hand-set ranges, which is precisely
+/// the hardcoding this whole mechanism exists to remove. What a parameter's
+/// units are, the corpus already knows — `ParamId::corpus_scale` reads it —
+/// and all that is left to say is how far past the authored range is still a
+/// plant rather than a divide-by-zero.
+///
+/// Exposed on `World` (`param_reach`) so the lab's parameters page can move
+/// it, per the owner's standing direction: *"give me the tools, data, access
+/// to the parameters that need to be tweaked and I do that testing myself"*.
+pub const PARAM_REACH: f32 = 4.0;
+
+/// The floor a [`ParamKind::Divisor`] may not go below, as a fraction of the
+/// corpus scale — a parameter that divides cannot reach zero without making
+/// the quantity it divides infinite. `turgor_per_cell` is the live case:
+/// height ceiling is `(turgor_source - turgor_yield) / turgor_per_cell`, so a
+/// zero there is an unbounded plant rather than an interesting mutant.
+pub const PARAM_DIVISOR_FLOOR: f32 = 1.0 / 64.0;
+
+/// What kind of quantity a parameter is — which is all the engine needs to
+/// say about it, because the *scale* comes from the corpus.
+///
+/// **This is the line between a bound and a cage**, and it is worth stating
+/// because the distinction is the whole design. A cage says *this species may
+/// not branch*. A kind says *a probability lies in [0,1]* — which designs no
+/// behaviour, cannot collapse to a point, and stays true when someone writes
+/// a new species file tomorrow.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ParamKind {
+    /// `[0, 1]`, whatever the corpus says.
+    Probability,
+    /// May be either sign — `scrambler` authors `acrotony: -1.4`.
+    Weight,
+    /// Non-negative: a rate, a cost, a force, a threshold.
+    Magnitude,
+    /// A non-negative magnitude that something divides by, so it may not
+    /// reach zero. See [`PARAM_DIVISOR_FLOOR`].
+    Divisor,
+    /// A whole number of cells or ticks. Rounded on the way in; **zero is
+    /// meaningful and is kept** — `plastochron: 0` is "this axis has no
+    /// nodes", which is what every shipped species' root declares and what
+    /// a lineage discovering rhizomes would have to leave.
+    Count,
+}
+
+/// **Every scalar a plant's behaviour table holds, as an address a mutation
+/// can name.**
+///
+/// Ordered by the behaviour that owns it, and each name carries that
+/// behaviour, because four different behaviours have a field called `cost`
+/// and three have one called `rate` — a `ParamId` that named only the field
+/// would be ambiguous inside a cell type that runs two of them (`MatureBody`
+/// runs `Reproduce`, `SecondaryThicken` and `Absorb` together).
+///
+/// **Deliberately not `sympodial`, `tropism` or `genotype_variance`.** The
+/// first two are already heritable as discrete loci and a second channel on
+/// one quantity is `CLAUDE.md`'s *when several knobs move the same number,
+/// check what each one trades* — this one would trade nothing the locus does
+/// not already trade. `genotype_variance` is the *evolvability* of the
+/// continuous genome, i.e. a gene for how fast the other genes move; making
+/// it heritable is a real and interesting proposal and it is recursive enough
+/// to want its own measurement rather than riding in on this one.
+///
+/// **Positional in `ALL_PARAM_IDS` only, not in storage.** An override stores
+/// the variant, not an index, so this list may be reordered or extended
+/// freely — the property `GENOTYPE_TRAITS`' never-renumber rule exists
+/// because the ten slots *are* indices and this is what it costs not to be
+/// one.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Deserialize, Serialize)]
+pub enum ParamId {
+    // --- Grow, the shoot's and the root's ------------------------------
+    GrowCost,
+    BranchChance,
+    ContinuationWeight,
+    LightWeight,
+    WindWeight,
+    UpwardWeight,
+    CrowdingWeight,
+    MaxActiveTips,
+    Plastochron,
+    BranchPriming,
+    HeadingInertia,
+    LeafCluster,
+    OrganCluster,
+    JuvenileSize,
+    JuvenilePlastochron,
+    JuvenileBranch,
+    TurgorTaper,
+    BranchAngle,
+    Internode,
+    StemStiffness,
+    PenetrationForce,
+    TurgorSource,
+    TurgorYield,
+    TurgorPerCell,
+    // --- the rest of the table -----------------------------------------
+    PhotosynthesizeRate,
+    ShadeDeath,
+    DroughtDeath,
+    TranspireRate,
+    AbsorbRate,
+    SeedCost,
+    ReproductiveAllocation,
+    SeedMaturity,
+    PipeRatio,
+    RipenRate,
+    RipenCost,
+    GerminateLight,
+    GerminateWater,
+    BudBreakCost,
+    BudBreakAcrotony,
+    ThickeningSurvival,
+    DivideCost,
+    DivideDampChance,
+    DivideDryChance,
+}
+
+/// Every address a mutation may draw from — the alphabet, exactly as
+/// `PLANT_CELL_TYPES` and `ALL_FATE_WHENS` are the fate genome's.
+pub const ALL_PARAM_IDS: [ParamId; 43] = [
+    ParamId::GrowCost,
+    ParamId::BranchChance,
+    ParamId::ContinuationWeight,
+    ParamId::LightWeight,
+    ParamId::WindWeight,
+    ParamId::UpwardWeight,
+    ParamId::CrowdingWeight,
+    ParamId::MaxActiveTips,
+    ParamId::Plastochron,
+    ParamId::BranchPriming,
+    ParamId::HeadingInertia,
+    ParamId::LeafCluster,
+    ParamId::OrganCluster,
+    ParamId::JuvenileSize,
+    ParamId::JuvenilePlastochron,
+    ParamId::JuvenileBranch,
+    ParamId::TurgorTaper,
+    ParamId::BranchAngle,
+    ParamId::Internode,
+    ParamId::StemStiffness,
+    ParamId::PenetrationForce,
+    ParamId::TurgorSource,
+    ParamId::TurgorYield,
+    ParamId::TurgorPerCell,
+    ParamId::PhotosynthesizeRate,
+    ParamId::ShadeDeath,
+    ParamId::DroughtDeath,
+    ParamId::TranspireRate,
+    ParamId::AbsorbRate,
+    ParamId::SeedCost,
+    ParamId::ReproductiveAllocation,
+    ParamId::SeedMaturity,
+    ParamId::PipeRatio,
+    ParamId::RipenRate,
+    ParamId::RipenCost,
+    ParamId::GerminateLight,
+    ParamId::GerminateWater,
+    ParamId::BudBreakCost,
+    ParamId::BudBreakAcrotony,
+    ParamId::ThickeningSurvival,
+    ParamId::DivideCost,
+    ParamId::DivideDampChance,
+    ParamId::DivideDryChance,
+];
+
+impl ParamId {
+    /// A short name for a log or a debug readout.
+    pub fn name(self) -> &'static str {
+        match self {
+            ParamId::GrowCost => "grow_cost",
+            ParamId::BranchChance => "branch_chance",
+            ParamId::ContinuationWeight => "continuation_weight",
+            ParamId::LightWeight => "light_weight",
+            ParamId::WindWeight => "wind_weight",
+            ParamId::UpwardWeight => "upward_weight",
+            ParamId::CrowdingWeight => "crowding_weight",
+            ParamId::MaxActiveTips => "max_active_tips",
+            ParamId::Plastochron => "plastochron",
+            ParamId::BranchPriming => "branch_priming",
+            ParamId::HeadingInertia => "heading_inertia",
+            ParamId::LeafCluster => "leaf_cluster",
+            ParamId::OrganCluster => "organ_cluster",
+            ParamId::JuvenileSize => "juvenile_size",
+            ParamId::JuvenilePlastochron => "juvenile_plastochron",
+            ParamId::JuvenileBranch => "juvenile_branch",
+            ParamId::TurgorTaper => "turgor_taper",
+            ParamId::BranchAngle => "branch_angle",
+            ParamId::Internode => "internode",
+            ParamId::StemStiffness => "stem_stiffness",
+            ParamId::PenetrationForce => "penetration_force",
+            ParamId::TurgorSource => "turgor_source",
+            ParamId::TurgorYield => "turgor_yield",
+            ParamId::TurgorPerCell => "turgor_per_cell",
+            ParamId::PhotosynthesizeRate => "photosynthesize_rate",
+            ParamId::ShadeDeath => "shade_death",
+            ParamId::DroughtDeath => "drought_death",
+            ParamId::TranspireRate => "transpire_rate",
+            ParamId::AbsorbRate => "absorb_rate",
+            ParamId::SeedCost => "seed_cost",
+            ParamId::ReproductiveAllocation => "reproductive_allocation",
+            ParamId::SeedMaturity => "seed_maturity",
+            ParamId::PipeRatio => "pipe_ratio",
+            ParamId::RipenRate => "ripen_rate",
+            ParamId::RipenCost => "ripen_cost",
+            ParamId::GerminateLight => "germinate_light",
+            ParamId::GerminateWater => "germinate_water",
+            ParamId::BudBreakCost => "budbreak_cost",
+            ParamId::BudBreakAcrotony => "acrotony",
+            ParamId::ThickeningSurvival => "thickening_survival",
+            ParamId::DivideCost => "divide_cost",
+            ParamId::DivideDampChance => "divide_damp_chance",
+            ParamId::DivideDryChance => "divide_dry_chance",
+        }
+    }
+
+    /// What kind of quantity this is — see [`ParamKind`].
+    pub fn kind(self) -> ParamKind {
+        match self {
+            ParamId::BranchChance
+            | ParamId::JuvenileBranch
+            | ParamId::ThickeningSurvival
+            | ParamId::DivideDampChance
+            | ParamId::DivideDryChance
+            | ParamId::ShadeDeath
+            | ParamId::DroughtDeath
+            | ParamId::ReproductiveAllocation
+            | ParamId::HeadingInertia
+            | ParamId::GerminateLight
+            | ParamId::GerminateWater => ParamKind::Probability,
+            ParamId::ContinuationWeight
+            | ParamId::LightWeight
+            | ParamId::WindWeight
+            | ParamId::UpwardWeight
+            | ParamId::CrowdingWeight
+            | ParamId::BudBreakAcrotony
+            | ParamId::TurgorTaper
+            | ParamId::StemStiffness => ParamKind::Weight,
+            ParamId::MaxActiveTips
+            | ParamId::Plastochron
+            | ParamId::BranchPriming
+            | ParamId::LeafCluster
+            | ParamId::OrganCluster
+            | ParamId::JuvenileSize
+            | ParamId::Internode
+            | ParamId::SeedMaturity => ParamKind::Count,
+            // `turgor_per_cell` divides into the height ceiling and
+            // `pipe_ratio` divides into the girth a stem is allowed; both
+            // are infinite at zero.
+            ParamId::TurgorPerCell | ParamId::PipeRatio => ParamKind::Divisor,
+            _ => ParamKind::Magnitude,
+        }
+    }
+}
+
+impl ParamGenome {
+    pub fn is_empty(self) -> bool {
+        self.len == 0
+    }
+
+    pub fn len(self) -> usize {
+        self.len as usize
+    }
+
+    pub fn overrides(&self) -> &[ParamOverride] {
+        &self.overrides[..self.len as usize]
+    }
+
+    /// The value in force for this address, if this individual carries one.
+    fn find(&self, cell_type: CellType, param: ParamId, tier: u8) -> Option<f32> {
+        self.overrides[..self.len as usize]
+            .iter()
+            .find(|o| o.cell_type == cell_type && o.param == param && o.tier == tier)
+            .map(|o| o.value)
+    }
+
+    /// Write an override, replacing any this individual already held at the
+    /// same address. Returns `false` when the genome is full and the address
+    /// is new — a declined mutation, exactly as `FateGenome::insert_one`
+    /// declines at `MAX_FATES`.
+    pub fn set(&mut self, cell_type: CellType, param: ParamId, tier: u8, value: f32) -> bool {
+        if let Some(slot) =
+            self.overrides[..self.len as usize].iter_mut().find(|o| o.cell_type == cell_type && o.param == param && o.tier == tier)
+        {
+            slot.value = value;
+            return true;
+        }
+        if (self.len as usize) >= MAX_PARAM_OVERRIDES {
+            return false;
+        }
+        self.overrides[self.len as usize] = ParamOverride { cell_type, param, tier, value };
+        self.len += 1;
+        true
+    }
+
+    /// Rebuild from a stored list — the specimen shelf's way back in.
+    /// Silently drops anything past the cap, the way `FateGenome::from_table`
+    /// truncates at `MAX_FATES` rather than panicking on data.
+    pub fn from_overrides(list: &[ParamOverride]) -> Self {
+        let mut g = Self::default();
+        for o in list {
+            if (g.len as usize) >= MAX_PARAM_OVERRIDES {
+                break;
+            }
+            g.overrides[g.len as usize] = *o;
+            g.len += 1;
+        }
+        g
+    }
+
+    /// **Apply this individual's numbers to a copy of its species'
+    /// behaviour.** The one function every consumer goes through.
+    ///
+    /// A no-op on an empty genome, which is every founder and every plant in
+    /// a world with `param_mutation_chance` at zero — so the hot path pays a
+    /// length check, which is `CLAUDE.md`'s *guard hot-path work at the call
+    /// site that already has the data*.
+    pub fn apply(&self, cell_type: CellType, behavior: &mut Behavior) {
+        if self.len == 0 {
+            return;
+        }
+        for o in &self.overrides[..self.len as usize] {
+            if o.cell_type != cell_type {
+                continue;
+            }
+            apply_one(o, behavior);
+        }
+    }
+}
+
+/// Write one override into one behaviour, if that behaviour is the one that
+/// owns the parameter.
+///
+/// A `ParamId` that names a field of a behaviour this cell type does not run
+/// is simply not written — the same silence `FateGenome` gives a rule whose
+/// owner is a cell type the species never grows. It is dead weight in the
+/// genome rather than an error, and `genome_drift`'s census of *distinct
+/// tables alive* is the shape that would show it accumulating.
+fn apply_one(o: &ParamOverride, behavior: &mut Behavior) {
+    let tier = (o.tier as usize).min(BRANCH_ORDERS - 1);
+    let set_f32 = |b: &mut ByOrder<f32>, v: f32| b.values[tier] = v;
+    let set_u8 = |b: &mut ByOrder<u8>, v: f32| b.values[tier] = v.round().clamp(0.0, 255.0) as u8;
+    match behavior {
+        Behavior::Grow {
+            cost,
+            branch_chance,
+            continuation_weight,
+            light_weight,
+            wind_weight,
+            upward_weight,
+            crowding_weight,
+            max_active_tips,
+            plastochron,
+            branch_priming,
+            heading_inertia,
+            leaf_cluster,
+            organ_cluster,
+            juvenile_size,
+            juvenile_plastochron,
+            juvenile_branch,
+            turgor_taper,
+            branch_angle,
+            internode,
+            stem_stiffness,
+            penetration_force,
+            turgor_source,
+            turgor_yield,
+            turgor_per_cell,
+            ..
+        } => match o.param {
+            ParamId::GrowCost => *cost = o.value,
+            ParamId::BranchChance => set_f32(branch_chance, o.value),
+            ParamId::ContinuationWeight => *continuation_weight = o.value,
+            ParamId::LightWeight => set_f32(light_weight, o.value),
+            ParamId::WindWeight => *wind_weight = o.value,
+            ParamId::UpwardWeight => set_f32(upward_weight, o.value),
+            ParamId::CrowdingWeight => *crowding_weight = o.value,
+            ParamId::MaxActiveTips => *max_active_tips = o.value.round().clamp(0.0, 4096.0) as u32,
+            ParamId::Plastochron => set_u8(plastochron, o.value),
+            ParamId::BranchPriming => set_u8(branch_priming, o.value),
+            ParamId::HeadingInertia => *heading_inertia = o.value,
+            ParamId::LeafCluster => *leaf_cluster = o.value.round().clamp(0.0, 255.0) as u8,
+            ParamId::OrganCluster => *organ_cluster = o.value.round().clamp(0.0, 255.0) as u8,
+            ParamId::JuvenileSize => *juvenile_size = o.value.round().clamp(0.0, 4096.0) as u32,
+            ParamId::JuvenilePlastochron => *juvenile_plastochron = o.value,
+            ParamId::JuvenileBranch => *juvenile_branch = o.value,
+            ParamId::TurgorTaper => *turgor_taper = o.value,
+            ParamId::BranchAngle => set_f32(branch_angle, o.value),
+            ParamId::Internode => set_u8(internode, o.value),
+            ParamId::StemStiffness => set_f32(stem_stiffness, o.value),
+            ParamId::PenetrationForce => *penetration_force = o.value,
+            ParamId::TurgorSource => *turgor_source = o.value,
+            ParamId::TurgorYield => *turgor_yield = o.value,
+            ParamId::TurgorPerCell => *turgor_per_cell = o.value,
+            _ => {}
+        },
+        Behavior::Photosynthesize { rate, shade_death, drought_death } => match o.param {
+            ParamId::PhotosynthesizeRate => *rate = o.value,
+            ParamId::ShadeDeath => *shade_death = o.value,
+            ParamId::DroughtDeath => *drought_death = o.value,
+            _ => {}
+        },
+        Behavior::Transpire { rate } => {
+            if o.param == ParamId::TranspireRate {
+                *rate = o.value;
+            }
+        }
+        Behavior::Absorb { rate } => {
+            if o.param == ParamId::AbsorbRate {
+                *rate = o.value;
+            }
+        }
+        Behavior::Reproduce { seed_cost, reproductive_allocation, seed_maturity } => match o.param {
+            ParamId::SeedCost => *seed_cost = o.value,
+            ParamId::ReproductiveAllocation => *reproductive_allocation = o.value,
+            ParamId::SeedMaturity => *seed_maturity = o.value.round().clamp(0.0, 100_000.0) as u32,
+            _ => {}
+        },
+        Behavior::SecondaryThicken { pipe_ratio } => {
+            if o.param == ParamId::PipeRatio {
+                *pipe_ratio = o.value;
+            }
+        }
+        Behavior::Ripen { rate, cost } => match o.param {
+            ParamId::RipenRate => *rate = o.value,
+            ParamId::RipenCost => *cost = o.value,
+            _ => {}
+        },
+        Behavior::Germinate { light_threshold, soil_water_threshold, .. } => match o.param {
+            ParamId::GerminateLight => *light_threshold = o.value,
+            ParamId::GerminateWater => *soil_water_threshold = o.value,
+            _ => {}
+        },
+        Behavior::BudBreak { acrotony, cost, thickening_survival } => match o.param {
+            ParamId::BudBreakAcrotony => *acrotony = o.value,
+            ParamId::BudBreakCost => *cost = o.value,
+            ParamId::ThickeningSurvival => *thickening_survival = o.value,
+            _ => {}
+        },
+        Behavior::Divide { cost, damp_chance, dry_chance, .. } => match o.param {
+            ParamId::DivideCost => *cost = o.value,
+            ParamId::DivideDampChance => *damp_chance = o.value,
+            ParamId::DivideDryChance => *dry_chance = o.value,
+            _ => {}
+        },
+        Behavior::StructuralAnchor => {}
+    }
+}
+
+/// Read one parameter's authored value out of one behaviour — the inverse of
+/// [`apply_one`], and the reason a mutation does not need a per-parameter
+/// starting value written down anywhere.
+///
+/// `None` means *this behaviour does not own this parameter*, which is how
+/// both the corpus scan and the mutation find out which addresses exist for a
+/// species without a second table saying so.
+pub fn read_param(behavior: &Behavior, param: ParamId, tier: u8) -> Option<f32> {
+    let t = (tier as usize).min(BRANCH_ORDERS - 1) as u8;
+    match behavior {
+        Behavior::Grow {
+            cost,
+            branch_chance,
+            continuation_weight,
+            light_weight,
+            wind_weight,
+            upward_weight,
+            crowding_weight,
+            max_active_tips,
+            plastochron,
+            branch_priming,
+            heading_inertia,
+            leaf_cluster,
+            organ_cluster,
+            juvenile_size,
+            juvenile_plastochron,
+            juvenile_branch,
+            turgor_taper,
+            branch_angle,
+            internode,
+            stem_stiffness,
+            penetration_force,
+            turgor_source,
+            turgor_yield,
+            turgor_per_cell,
+            ..
+        } => Some(match param {
+            ParamId::GrowCost => *cost,
+            ParamId::BranchChance => branch_chance.at(t),
+            ParamId::ContinuationWeight => *continuation_weight,
+            ParamId::LightWeight => light_weight.at(t),
+            ParamId::WindWeight => *wind_weight,
+            ParamId::UpwardWeight => upward_weight.at(t),
+            ParamId::CrowdingWeight => *crowding_weight,
+            ParamId::MaxActiveTips => *max_active_tips as f32,
+            ParamId::Plastochron => plastochron.at(t) as f32,
+            ParamId::BranchPriming => branch_priming.at(t) as f32,
+            ParamId::HeadingInertia => *heading_inertia,
+            ParamId::LeafCluster => *leaf_cluster as f32,
+            ParamId::OrganCluster => *organ_cluster as f32,
+            ParamId::JuvenileSize => *juvenile_size as f32,
+            ParamId::JuvenilePlastochron => *juvenile_plastochron,
+            ParamId::JuvenileBranch => *juvenile_branch,
+            ParamId::TurgorTaper => *turgor_taper,
+            ParamId::BranchAngle => branch_angle.at(t),
+            ParamId::Internode => internode.at(t) as f32,
+            ParamId::StemStiffness => stem_stiffness.at(t),
+            ParamId::PenetrationForce => *penetration_force,
+            ParamId::TurgorSource => *turgor_source,
+            ParamId::TurgorYield => *turgor_yield,
+            ParamId::TurgorPerCell => *turgor_per_cell,
+            _ => return None,
+        }),
+        Behavior::Photosynthesize { rate, shade_death, drought_death } => Some(match param {
+            ParamId::PhotosynthesizeRate => *rate,
+            ParamId::ShadeDeath => *shade_death,
+            ParamId::DroughtDeath => *drought_death,
+            _ => return None,
+        }),
+        Behavior::Transpire { rate } => (param == ParamId::TranspireRate).then_some(*rate),
+        Behavior::Absorb { rate } => (param == ParamId::AbsorbRate).then_some(*rate),
+        Behavior::Reproduce { seed_cost, reproductive_allocation, seed_maturity } => Some(match param {
+            ParamId::SeedCost => *seed_cost,
+            ParamId::ReproductiveAllocation => *reproductive_allocation,
+            ParamId::SeedMaturity => *seed_maturity as f32,
+            _ => return None,
+        }),
+        Behavior::SecondaryThicken { pipe_ratio } => (param == ParamId::PipeRatio).then_some(*pipe_ratio),
+        Behavior::Ripen { rate, cost } => Some(match param {
+            ParamId::RipenRate => *rate,
+            ParamId::RipenCost => *cost,
+            _ => return None,
+        }),
+        Behavior::Germinate { light_threshold, soil_water_threshold, .. } => Some(match param {
+            ParamId::GerminateLight => *light_threshold,
+            ParamId::GerminateWater => *soil_water_threshold,
+            _ => return None,
+        }),
+        Behavior::BudBreak { acrotony, cost, thickening_survival } => Some(match param {
+            ParamId::BudBreakAcrotony => *acrotony,
+            ParamId::BudBreakCost => *cost,
+            ParamId::ThickeningSurvival => *thickening_survival,
+            _ => return None,
+        }),
+        Behavior::Divide { cost, damp_chance, dry_chance, .. } => Some(match param {
+            ParamId::DivideCost => *cost,
+            ParamId::DivideDampChance => *damp_chance,
+            ParamId::DivideDryChance => *dry_chance,
+            _ => return None,
+        }),
+        Behavior::StructuralAnchor => None,
+    }
+}
+
+/// Does this parameter vary by branch order?
+///
+/// Read off `read_param`'s own shape rather than declared twice: only the
+/// `ByOrder` fields answer differently at different tiers, and a scalar
+/// stores its override at tier 0 so that two mutations to the same scalar
+/// address collide rather than filling the genome with duplicates.
+pub fn param_is_tiered(param: ParamId) -> bool {
+    matches!(
+        param,
+        ParamId::BranchChance
+            | ParamId::LightWeight
+            | ParamId::UpwardWeight
+            | ParamId::Plastochron
+            | ParamId::BranchPriming
+            | ParamId::BranchAngle
+            | ParamId::Internode
+            | ParamId::StemStiffness
+    )
+}
+
+/// One address a mutation can name: which cell type, which parameter, which
+/// branch order.
+pub type ParamAddress = (CellType, ParamId, u8);
+
+impl SpeciesRegistry {
+    /// **The corpus scale for a parameter: the largest magnitude any species
+    /// in the registry authors for it.**
+    ///
+    /// This is where the units come from, and taking them from the corpus
+    /// rather than from a table is the whole reason this mechanism is not
+    /// itself a hardcode. A root's `plastochron` is `[0]` in every shipped
+    /// species, so nothing local says how big a plastochron is — but the
+    /// shoot's is 14 on `conifer`, and *that is the engine's own statement of
+    /// what a plastochron is worth*. A mutation on the root's node spacing is
+    /// therefore drawn on the same scale as the shoot's, which is what makes
+    /// rhizomes reachable at all.
+    ///
+    /// **Across cell types deliberately, not within one.** The alternative —
+    /// scale a root parameter by what roots author — is exactly the cage this
+    /// replaces: it would make every all-zero column scale-free and therefore
+    /// unmutatable, reproducing the defect one level up.
+    ///
+    /// Falls back to `1.0` when no species authors a non-zero value anywhere,
+    /// which today is true of `stem_stiffness`. A parameter with no corpus
+    /// has no units, and 1.0 is the honest guess; it is also visible in
+    /// `genome_reach`'s table rather than buried.
+    pub fn param_scale(&self, param: ParamId) -> f32 {
+        let mut scale = 0.0f32;
+        for i in 0..self.len() {
+            let sp = self.get(SpeciesId(i as u16));
+            for &ct in PLANT_CELL_TYPES.iter() {
+                for b in sp.behaviors(ct) {
+                    for tier in 0..BRANCH_ORDERS as u8 {
+                        if let Some(v) = read_param(b, param, tier) {
+                            scale = scale.max(v.abs());
+                        }
+                        if !param_is_tiered(param) {
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        if scale > 0.0 { scale } else { 1.0 }
+    }
+
+    /// **Every address this species actually has** — the alphabet one of its
+    /// individuals may mutate.
+    ///
+    /// Derived from the species' own behaviour table rather than from
+    /// `ALL_PARAM_IDS`, and that matters for the same reason `FateGenome`
+    /// draws its `when` from `ALL_FATE_WHENS` and its owner from the rules it
+    /// holds: a uniform draw over 43 parameters x 8 cell types x 4 tiers
+    /// would land on an address the species does not have roughly 97% of the
+    /// time, so the *effective* mutation rate would be a thirtieth of the
+    /// stated one and would differ per species. `CLAUDE.md`'s "ask what your
+    /// number counts" applied to a rate: a mutation chance that mostly draws
+    /// nothing is not the rate anyone set.
+    pub fn param_addresses(&self, id: SpeciesId) -> Vec<ParamAddress> {
+        let sp = self.get(id);
+        let mut out = Vec::new();
+        for &ct in PLANT_CELL_TYPES.iter() {
+            for b in sp.behaviors(ct) {
+                for &param in ALL_PARAM_IDS.iter() {
+                    let tiers = if param_is_tiered(param) { BRANCH_ORDERS as u8 } else { 1 };
+                    for tier in 0..tiers {
+                        if read_param(b, param, tier).is_some() {
+                            out.push((ct, param, tier));
+                        }
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    /// The value in force at one address for one individual — its override if
+    /// it carries one, else what its species authored.
+    pub fn param_in_force(&self, id: SpeciesId, genome: &ParamGenome, addr: ParamAddress) -> Option<f32> {
+        let (ct, param, tier) = addr;
+        if let Some(v) = genome.find(ct, param, tier) {
+            return Some(v);
+        }
+        self.get(id).behaviors(ct).iter().find_map(|b| read_param(b, param, tier))
+    }
+}
+
+/// **One point mutation on the parameter genome.**
+///
+/// The operator, and the three properties it is shaped by:
+///
+/// **It is a random walk in the parameter's own units, not a multiplier.**
+/// `v' = v + jitter * scale`, where `scale` is what the corpus says the
+/// parameter is worth. A multiplier is what the continuous genome already
+/// does and it is precisely why six of the seventy (species x slot) cells
+/// `examples/genome_reach` censuses are dead: **zero times any genome is
+/// zero**. An additive step leaves zero on about half its draws, which is
+/// what makes a `herb` lineage able to discover branching and a `tree`
+/// lineage a branching root system.
+///
+/// **It starts from the value in force, so an unmutated address begins at
+/// the species' own number.** A lineage therefore *diverges from* its
+/// species rather than being redrawn away from it — the same relationship
+/// `FateGenome` has to the authored table, and the reason a first mutation is
+/// a small change rather than a new plant.
+///
+/// **It can decline, and declining is counted rather than hidden.** A full
+/// genome refuses a new address, exactly as `FateGenome::insert_one` refuses
+/// at `MAX_FATES`. Merging "the roll fired" with "the genome changed" is what
+/// `FateGenome::apply`'s own doc records inflating a rate.
+pub fn mutate_params(
+    genome: &mut ParamGenome,
+    registry: &SpeciesRegistry,
+    species: SpeciesId,
+    sigma: f32,
+    rng: &mut super::rng::Rng,
+) -> bool {
+    let addresses = registry.param_addresses(species);
+    if addresses.is_empty() {
+        return false;
+    }
+    let addr = addresses[rng.below(addresses.len() as u32) as usize];
+    let (ct, param, tier) = addr;
+    let Some(current) = registry.param_in_force(species, genome, addr) else {
+        return false;
+    };
+    let scale = registry.param_scale(param);
+    // The same arithmetic `plant::genotype_jitter` uses, inlined rather than
+    // imported because `organism` is below `plant` in the module graph. Both
+    // are `(below(2000)/1000 - 1) * sigma`, i.e. one draw, uniform on
+    // `[-sigma, sigma]`; if these ever disagree the two channels drift apart,
+    // which is the failure `bear_seed_at`'s own doc records.
+    let step = (rng.below(2_000) as f32 / 1_000.0 - 1.0) * sigma * scale;
+    let proposed = current + step;
+    let bounded = clamp_param(param, proposed, scale);
+    if (bounded - current).abs() <= f32::EPSILON {
+        return false;
+    }
+    genome.set(ct, param, tier, bounded)
+}
+
+/// Keep a proposed value inside what its *kind* allows — see [`ParamKind`].
+///
+/// **A bound, never a cage**: every branch here is an interval with a real
+/// interior, and none of them depends on the species. The one asymmetric case
+/// is [`ParamKind::Divisor`], whose floor is [`PARAM_DIVISOR_FLOOR`] of the
+/// corpus scale because the quantity it divides is infinite at zero.
+pub fn clamp_param(param: ParamId, value: f32, scale: f32) -> f32 {
+    let reach = PARAM_REACH * scale;
+    match param.kind() {
+        ParamKind::Probability => value.clamp(0.0, 1.0),
+        ParamKind::Weight => value.clamp(-reach, reach),
+        ParamKind::Magnitude => value.clamp(0.0, reach),
+        ParamKind::Divisor => value.clamp(PARAM_DIVISOR_FLOOR * scale, reach),
+        ParamKind::Count => value.round().clamp(0.0, reach.round()),
+    }
+}
+
 #[derive(Deserialize, Serialize)]
 pub struct SpeciesDef {
     pub name: String,
@@ -3650,6 +4467,13 @@ pub struct OrganismState {
     /// already do. Empty on a creature and on anything founded before this
     /// existed, which falls back to the species table exactly as before.
     pub fates: FateGenome,
+    /// **This individual's own numbers** — see [`ParamGenome`].
+    ///
+    /// Empty on every founder, on every creature, and on anything founded
+    /// before this existed, which reads the species file exactly. Drift
+    /// enters at `plant::bear_seed_at`, one override at a time, at
+    /// `World::param_mutation_chance`.
+    pub params: ParamGenome,
     /// **This seed was told "not yet" at least once.** Set on the
     /// germination path's not-ready branch and read in `germinate`, so
     /// `World::seeds_germinated_after_waiting` counts only the seeds that
@@ -6597,6 +7421,227 @@ mod tests {
         // An allele past the table (a widened `LOCUS_ALLELES` read by
         // stale state) clamps rather than walking off the palette.
         assert_eq!(bark_band_for_density(bands, 200), 1, "an out-of-range allele must clamp to the top band");
+    }
+
+    // --- the parameter genome -------------------------------------------
+
+    /// The registry every test below reads — the shipped species files, so
+    /// these are guards over what the engine actually ships rather than over
+    /// a hand-built fixture that can drift away from it.
+    fn shipped() -> SpeciesRegistry {
+        use super::super::chunk::Rect;
+        use super::super::world::World;
+        World::new(Rect::new(0, 0, 15, 15)).species
+    }
+
+    /// **The claim the whole mechanism exists for.**
+    ///
+    /// `herb.ron` authors `branch_chance: [0.0, 0.0]` on its shoot, and the
+    /// continuous genome expresses as `base * (1 + draw*variance)` — so no
+    /// setting of any genome, at any mutation rate, for any number of
+    /// generations, can make a herb branch. `examples/genome_reach` measures
+    /// six such cells across the shipped species.
+    ///
+    /// **Watched going red with the fix removed**, which is the only reason
+    /// to trust it: replacing the additive step in `mutate_params` with a
+    /// multiplicative one leaves the value pinned at 0.0 for ever and this
+    /// fails on every draw.
+    #[test]
+    fn a_parameter_mutation_can_leave_an_authored_zero() {
+        let reg = shipped();
+        let herb = reg.id_of("herb").expect("herb is compiled in");
+        let addr = (CellType::GrowingTip, ParamId::BranchChance, 0);
+        let authored = reg.param_in_force(herb, &ParamGenome::default(), addr).expect("herb's shoot has a branch chance");
+        assert_eq!(authored, 0.0, "the premise of this test is that herb authors a zero here");
+
+        let mut escaped = 0;
+        for seed in 0..200u64 {
+            let mut g = ParamGenome::default();
+            let mut rng = super::super::rng::Rng::new(seed);
+            // Drive to this address rather than waiting for a uniform draw to
+            // find it: the operator picks among ~100 addresses, so a test that
+            // relied on chance would be measuring the address count.
+            let scale = reg.param_scale(ParamId::BranchChance);
+            let step = (rng.below(2_000) as f32 / 1_000.0 - 1.0) * 0.25 * scale;
+            g.set(addr.0, addr.1, addr.2, clamp_param(ParamId::BranchChance, authored + step, scale));
+            if reg.param_in_force(herb, &g, addr).is_some_and(|v| v > 0.0) {
+                escaped += 1;
+            }
+        }
+        assert!(
+            escaped > 50,
+            "an additive step from zero must leave zero on roughly half its draws; it escaped {escaped} times in 200"
+        );
+    }
+
+    /// The negative control for the one above: an empty genome is the species
+    /// file exactly, on every behaviour and every parameter.
+    ///
+    /// This is what makes the mechanism safe to land inert — if it can be
+    /// broken, a founder is no longer the plant its `.ron` describes.
+    #[test]
+    fn an_empty_parameter_genome_changes_no_behaviour() {
+        let reg = shipped();
+        let empty = ParamGenome::default();
+        for i in 0..reg.len() {
+            let id = SpeciesId(i as u16);
+            for &ct in PLANT_CELL_TYPES.iter() {
+                for b in reg.get(id).behaviors(ct) {
+                    let mut patched = *b;
+                    empty.apply(ct, &mut patched);
+                    for &param in ALL_PARAM_IDS.iter() {
+                        for tier in 0..BRANCH_ORDERS as u8 {
+                            assert_eq!(
+                                read_param(b, param, tier),
+                                read_param(&patched, param, tier),
+                                "{}: {} at tier {tier} moved under an empty genome",
+                                reg.get(id).name,
+                                param.name()
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Every parameter round-trips: write a value, read it back.
+    ///
+    /// Two failures this catches and nothing else would. A `ParamId` added to
+    /// `ALL_PARAM_IDS` and to `read_param` but **not** to `apply_one` is a
+    /// heritable address that silently does nothing — the
+    /// channel-with-no-reader failure `dead-ends.md` records this project
+    /// hitting three times. And a tiered parameter wired to tier 0 only would
+    /// pass every other test here.
+    #[test]
+    fn every_parameter_writes_where_it_reads() {
+        let reg = shipped();
+        let mut checked = 0;
+        for i in 0..reg.len() {
+            let id = SpeciesId(i as u16);
+            for &ct in PLANT_CELL_TYPES.iter() {
+                for b in reg.get(id).behaviors(ct) {
+                    for &param in ALL_PARAM_IDS.iter() {
+                        let tiers = if param_is_tiered(param) { BRANCH_ORDERS as u8 } else { 1 };
+                        for tier in 0..tiers {
+                            if read_param(b, param, tier).is_none() {
+                                continue;
+                            }
+                            // A value inside every kind's own bound, so the
+                            // clamp cannot be what makes this pass or fail.
+                            let want = match param.kind() {
+                                ParamKind::Probability => 0.5,
+                                ParamKind::Count => 3.0,
+                                _ => 0.5,
+                            };
+                            let mut g = ParamGenome::default();
+                            assert!(g.set(ct, param, tier, want), "a fresh genome must accept one override");
+                            let mut patched = *b;
+                            g.apply(ct, &mut patched);
+                            assert_eq!(
+                                read_param(&patched, param, tier),
+                                Some(want),
+                                "{} at tier {tier} did not read back what was written -- it is in `read_param` and not in `apply_one`",
+                                param.name()
+                            );
+                            checked += 1;
+                        }
+                    }
+                }
+            }
+        }
+        assert!(checked > 100, "only {checked} addresses were exercised -- the shipped species should offer far more");
+    }
+
+    /// **A bound, never a cage.** Every kind's clamp interval has a real
+    /// interior, at every scale the corpus can produce.
+    ///
+    /// The whole argument for `ParamKind` over a table of hand-set ranges is
+    /// that a kind cannot collapse to a point. This is that argument as a
+    /// test, and it is the one to keep if a future kind is added.
+    #[test]
+    fn no_parameter_kind_collapses_to_a_point() {
+        let reg = shipped();
+        for &param in ALL_PARAM_IDS.iter() {
+            let scale = reg.param_scale(param);
+            assert!(scale > 0.0, "{} has a zero corpus scale -- the 1.0 fallback did not fire", param.name());
+            let lo = clamp_param(param, -1e6, scale);
+            let hi = clamp_param(param, 1e6, scale);
+            assert!(hi > lo, "{} clamps to a single point [{lo}, {hi}]", param.name());
+            // ...and the interior is reachable, not just the endpoints.
+            let mid = clamp_param(param, (lo + hi) * 0.5, scale);
+            assert!(mid > lo && mid < hi || param.kind() == ParamKind::Count, "{} has no reachable interior", param.name());
+        }
+    }
+
+    /// The mutation only ever names an address the species actually has.
+    ///
+    /// A uniform draw over `ALL_PARAM_IDS x PLANT_CELL_TYPES x BRANCH_ORDERS`
+    /// would miss ~97% of the time, so the *effective* rate would be a
+    /// thirtieth of the stated one and would differ per species — a rate that
+    /// mostly draws nothing is not the rate anyone set.
+    #[test]
+    fn a_mutation_only_names_addresses_the_species_has() {
+        let reg = shipped();
+        for i in 0..reg.len() {
+            let id = SpeciesId(i as u16);
+            let addresses = reg.param_addresses(id);
+            for &(ct, param, tier) in addresses.iter() {
+                assert!(
+                    reg.get(id).behaviors(ct).iter().any(|b| read_param(b, param, tier).is_some()),
+                    "{} offers {} on {ct:?} and has no behaviour that owns it",
+                    reg.get(id).name,
+                    param.name()
+                );
+            }
+            // The positive control: a species that grows must offer *some*
+            // addresses, or a rate over an empty alphabet reads as "mutation
+            // does nothing" while meaning "the census is broken".
+            if reg.get(id).behaviors(CellType::GrowingTip).iter().any(|b| matches!(b, Behavior::Grow { .. })) {
+                assert!(addresses.len() > 20, "{} offers only {} addresses", reg.get(id).name, addresses.len());
+            }
+        }
+    }
+
+    /// The genome fills and then declines, rather than growing without bound
+    /// or silently dropping the newest override.
+    #[test]
+    fn a_full_parameter_genome_declines_a_new_address() {
+        let mut g = ParamGenome::default();
+        for i in 0..MAX_PARAM_OVERRIDES {
+            assert!(g.set(CellType::GrowingTip, ALL_PARAM_IDS[i], 0, 1.0), "override {i} should fit");
+        }
+        assert_eq!(g.len(), MAX_PARAM_OVERRIDES);
+        assert!(
+            !g.set(CellType::GrowingTip, ALL_PARAM_IDS[MAX_PARAM_OVERRIDES], 0, 1.0),
+            "a full genome must decline a new address"
+        );
+        // ...but must still accept a write to an address it already holds,
+        // or a lineage would be frozen at whatever eight addresses it first
+        // happened to touch.
+        assert!(g.set(CellType::GrowingTip, ALL_PARAM_IDS[0], 0, 2.0), "a full genome must still accept an existing address");
+        assert_eq!(g.len(), MAX_PARAM_OVERRIDES, "rewriting an address must not grow the genome");
+    }
+
+    /// The corpus is where the units come from, and a root's node spacing is
+    /// the case that proves it matters.
+    ///
+    /// Every shipped species authors `plastochron: [0]` on its root, so a
+    /// scale taken *within* the root would be zero and no mutation could ever
+    /// move it — reproducing the cage one level up. Taken across the whole
+    /// registry, the shoot's 14 is what says how big a plastochron is.
+    #[test]
+    fn the_corpus_scale_crosses_cell_types() {
+        let reg = shipped();
+        let herb = reg.id_of("herb").expect("herb is compiled in");
+        let root_authored = reg
+            .param_in_force(herb, &ParamGenome::default(), (CellType::RootTip, ParamId::Plastochron, 0))
+            .expect("herb's root has a plastochron");
+        assert_eq!(root_authored, 0.0, "the premise: every shipped root authors no nodes");
+        assert!(
+            reg.param_scale(ParamId::Plastochron) >= 5.0,
+            "the corpus scale for plastochron must come from the shoots, or a root can never discover a node"
+        );
     }
 
     #[test]

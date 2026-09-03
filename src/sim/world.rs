@@ -1198,6 +1198,24 @@ pub struct World {
     /// carried by a seed that never establishes.
     pub fate_mutations_applied: u64,
 
+    /// **How many births rolled for a parameter override** — the "it fired"
+    /// counter for `organism::ParamGenome`, on the same footing as
+    /// `fate_mutation_rolls`.
+    pub param_mutation_rolls: u64,
+    /// **How many of those actually changed the genome** — the effect
+    /// counter from the far side of the call, which `CLAUDE.md` requires
+    /// beside every "it fired" one.
+    ///
+    /// The two differ for three reasons and all three are real: the roll can
+    /// miss at `World::param_mutation_chance`; the genome can be full at
+    /// `organism::MAX_PARAM_OVERRIDES` and refuse a new address; and a step
+    /// can land inside `f32::EPSILON` of the value already in force, which is
+    /// the same *declined* class `FateGenome::apply` counts separately and
+    /// for the same reason — a declined operator grows the *base* plant, so
+    /// counting it as a mutation the substrate tolerated is quoting the
+    /// positive control back as a result.
+    pub param_mutations_applied: u64,
+
     /// **Leaf cells a node wanted and could not pay for** — the effect
     /// counter for `plant::LEAF_CONSTRUCTION_MULTIPLE`.
     ///
@@ -1666,6 +1684,27 @@ pub struct World {
     /// built, so the existing harness override still works and still cannot
     /// go stale against a prebuilt binary the way a `.ron` field would.
     pub fate_mutation_chance: f32,
+    /// **The chance a seed is born with one of its parent's species
+    /// parameters overridden** — the third heredity dial, and the one that
+    /// lets a lineage leave a number its species file authored. See
+    /// [`organism::ParamGenome`].
+    ///
+    /// A field beside the other two and for the same reason
+    /// ([`Self::mutation_sigma`]): a process global is a hidden argument to
+    /// every test that reads it, and the owner's standing direction wants the
+    /// heredity rates reachable from the lab's parameters page while the box
+    /// runs.
+    pub param_mutation_chance: f32,
+    /// **How far one parameter mutation moves**, as a fraction of what the
+    /// corpus says that parameter is worth (`SpeciesRegistry::param_scale`).
+    ///
+    /// Separate from [`Self::mutation_sigma`] because the two are different
+    /// quantities on different scales: that one is the width of a jitter on a
+    /// **unit draw** in `-1..=1`, this one is a fraction of a parameter's own
+    /// authored magnitude. One number wearing both meanings was the first
+    /// design and it is the shape `CLAUDE.md` records as *a knob nobody can
+    /// tune in either direction may be a counterweight*.
+    pub param_mutation_sigma: f32,
     /// How long a disturbance keeps licensing failures near it, in frames.
     /// Generous by default: a cave-in that arrives a few seconds after you
     /// undermine something is the mechanic, not a bug.
@@ -2370,6 +2409,8 @@ impl World {
             fate_mutation_rolls: 0,
             fate_mutations_fired: 0,
             fate_mutations_applied: 0,
+            param_mutation_rolls: 0,
+            param_mutations_applied: 0,
             leaf_cells_unaffordable: 0,
             leaf_cells_built: 0,
             wood_cells_built: 0,
@@ -2410,6 +2451,8 @@ impl World {
             plant_load_failure: true,
             mutation_sigma: super::plant::MUTATION_SIGMA,
             fate_mutation_chance: super::plant::fate_mutation_chance_seed(),
+            param_mutation_chance: super::plant::param_mutation_chance_seed(),
+            param_mutation_sigma: super::plant::PARAM_MUTATION_SIGMA,
             chain_window: crate::sim::structural::CHAIN_WINDOW_FRAMES,
             disturbances: std::collections::VecDeque::new(),
             staged_fractures: std::collections::VecDeque::new(),
@@ -2923,6 +2966,12 @@ impl World {
         let fates = super::organism::FateGenome::from_table(self.species.get(species).fate_table());
         let state = OrganismState {
             fates,
+            // **Founders carry no overrides**, which is what makes the
+            // parameter genome inert until something breeds — see
+            // `organism::ParamGenome`. `plant::bear_seed_at` overwrites this
+            // with the parent's mutated copy for a bred seed, in the same
+            // call, exactly as it does for `fates`.
+            params: super::organism::ParamGenome::default(),
             water: 0.0,
             water_status: 1.0,
             water_uptake: 0.0,
@@ -3217,6 +3266,72 @@ impl World {
             }
             None => false,
         }
+    }
+
+    /// **Set one organism's whole heritable genome** — the continuous draws,
+    /// the discrete alleles, and its parameter overrides — and freeze it
+    /// against redraw.
+    ///
+    /// The same harness seam as [`Self::set_organism_fates`] and added for
+    /// the same reason: a question that needs **one bed and two genomes**
+    /// cannot be asked by registering variant species, because that makes the
+    /// arms differ in their species table as well as in their genome.
+    ///
+    /// It exists for `examples/clone_variance.rs`, whose whole question is
+    /// *how much of the difference between two plants is their genome and how
+    /// much is where they stood* — which needs a stand of genetically
+    /// identical individuals, and `plant::seed_genotype` keys a founder's
+    /// draws on its **germination coordinate**, so no two founders of a
+    /// normal stand can be clones.
+    ///
+    /// **Sets `inherited`, and that is not optional.** `seed_genotype` runs
+    /// at germination and redraws the whole genome unless the organism is
+    /// marked as having received one; a harness that writes draws into a
+    /// seed and does not set this has them silently overwritten the moment
+    /// the seed sprouts, which reads as *the clone arm behaved exactly like
+    /// the control* — a null indistinguishable from the finding.
+    ///
+    /// Returns whether the organism was live.
+    pub fn set_organism_genotype(
+        &mut self,
+        organism_id: u16,
+        draws: [f32; super::organism::GENOTYPE_TRAITS],
+        alleles: [u8; super::organism::DISCRETE_LOCI],
+        params: super::organism::ParamGenome,
+    ) -> bool {
+        match self.organism_mut(organism_id) {
+            Some(state) => {
+                state.genotype_draws = draws;
+                state.alleles = alleles;
+                state.params = params;
+                state.inherited = true;
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// **This organism's parameter overrides** — the census half of the
+    /// parameter genome, so a harness can ask *what did this population
+    /// actually move* without `OrganismState` becoming public.
+    ///
+    /// `CLAUDE.md` requires an "it fired" counter to be paired with an effect
+    /// counter from the far side of the call; `World::param_mutations_applied`
+    /// is the first and this is the second — a rate that fires and a
+    /// population that carries nothing are different findings and look
+    /// identical without it.
+    pub fn organism_params(&self, organism_id: u16) -> Option<super::organism::ParamGenome> {
+        self.organism(organism_id).map(|s| s.params)
+    }
+
+    /// The genome this organism is carrying — the read half of
+    /// [`Self::set_organism_genotype`], so a harness can copy one individual
+    /// onto another rather than inventing a genome.
+    pub fn organism_genotype(
+        &self,
+        organism_id: u16,
+    ) -> Option<([f32; super::organism::GENOTYPE_TRAITS], [u8; super::organism::DISCRETE_LOCI], super::organism::ParamGenome)> {
+        self.organism(organism_id).map(|s| (s.genotype_draws, s.alleles, s.params))
     }
 
     /// **Overwrite one live organism's brain genome**, for a harness that

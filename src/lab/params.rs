@@ -542,7 +542,29 @@ fn plant_mechanics_rows(world: &World, out: &mut Vec<Param>) {
         "fate_drift",
         world.fate_mutation_chance,
         span(0.0, 1.0, 0.01),
-        "THE CHANCE A SEED IS BORN WITH ONE OF ITS PARENT'S FATE RULES CHANGED -- WHAT A CELL TURNS INTO WHEN ITS TIME COMES, WHICH IS THE PART OF A PLANT'S GENOME THAT DECIDES ITS SHAPE RATHER THAN ITS SIZE. THE COARSER OF THE TWO DIALS ON THIS PAGE: A CHANGED FATE IS A DIFFERENT ARCHITECTURE, WHERE THE DRIFT ABOVE IS THE SAME PLANT NUDGED. LASTS THE SESSION.",
+        "THE CHANCE A SEED IS BORN WITH ONE OF ITS PARENT'S FATE RULES CHANGED -- WHAT A CELL TURNS INTO WHEN ITS TIME COMES, WHICH IS THE PART OF A PLANT'S GENOME THAT DECIDES ITS SHAPE RATHER THAN ITS SIZE. THE COARSER OF THE THREE DIALS ON THIS PAGE: A CHANGED FATE IS A DIFFERENT ARCHITECTURE, WHERE THE DRIFT ABOVE IS THE SAME PLANT NUDGED. LASTS THE SESSION.",
+    ));
+    // **Shipped at 0, and the row is how it gets turned on.** See
+    // `plant::PARAM_MUTATION_CHANCE`: the mechanism is complete and what is
+    // unmeasured is the rate this world wants, so the honest place for it is
+    // a dial the owner can move rather than a constant a session guessed.
+    out.push(float(
+        Group::Plant,
+        Knob::Heredity { field: "param_mutation_chance" },
+        "heredity",
+        "species_drift",
+        world.param_mutation_chance,
+        span(0.0, 1.0, 0.01),
+        "THE CHANCE A SEED IS BORN HAVING LEFT ONE OF ITS SPECIES' OWN NUMBERS BEHIND. THE OTHER TWO DIALS MOVE A PLANT INSIDE THE BOX ITS SPECIES FILE DRAWS -- EVERY GENE THERE IS A MULTIPLIER ON AN AUTHORED VALUE, SO A SPECIES THAT SAYS ZERO STAYS AT ZERO FOR EVER, WHICH IS WHY NO TREE, CONIFER OR SHRUB CAN EVOLVE A BRANCHING ROOT SYSTEM AND NO HERB A BRANCHING SHOOT. THIS ONE REPLACES THE NUMBER INSTEAD OF SCALING IT, SO A LINEAGE CAN LEAVE THE BOX ALTOGETHER: NODES UNDERGROUND, A DIFFERENT LEAF SIZE, A CHEAPER SEED. SHIPPED AT 0 BECAUSE WHAT IT COSTS HAS NOT BEEN MEASURED OVER A LONG RUN -- SEVERAL OF THESE NUMBERS HAVE A BENEFIT AND NO PRICE, AND A FREE LEVER MADE HERITABLE MAKES EVERY PLANT THE SAME RATHER THAN DIFFERENT. LASTS THE SESSION.",
+    ));
+    out.push(float(
+        Group::Plant,
+        Knob::Heredity { field: "param_mutation_sigma" },
+        "heredity",
+        "species_drift_step",
+        world.param_mutation_sigma,
+        span(0.0, 1.0, 0.01),
+        "HOW FAR ONE OF THOSE NUMBERS MOVES WHEN IT MOVES, AS A FRACTION OF WHAT THAT NUMBER IS WORTH ACROSS EVERY SPECIES IN THE BOX. SMALL VALUES ARE A LINEAGE EDGING AWAY FROM ITS SPECIES; LARGE ONES ARE A LINEAGE THAT ARRIVES SOMEWHERE ELSE IN ONE GENERATION AND USUALLY DIES THERE. LASTS THE SESSION.",
     ));
 }
 
@@ -766,6 +788,8 @@ pub fn write(world: &mut World, spec: &mut LabBox, knob: &Knob, value: f32) -> b
             match *field {
                 "mutation_sigma" => world.mutation_sigma = value,
                 "fate_mutation_chance" => world.fate_mutation_chance = value,
+                "param_mutation_chance" => world.param_mutation_chance = value,
+                "param_mutation_sigma" => world.param_mutation_sigma = value,
                 _ => return false,
             }
             true
