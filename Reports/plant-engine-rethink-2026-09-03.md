@@ -165,10 +165,20 @@ harness that patched the wrong species, or patched after the founders were
 planted, reports every slot dead and looks like a decisive finding. The
 **negative** control is slot 9, which has no consumer and must not move.
 
-Result, `herb`, 8 founders, 16,000 frames, three world seeds: every one of the
-eight live slots moved the world on every seed, and `branch` — the caged one —
-was **byte-identical on every seed**. On `tree` all eight live slots moved and
-so did slot 1, which is what produced §1.3.
+Result over three species x three world seeds, 8 founders, 16,000 frames —
+**every live slot moved the world and every caged slot was byte-identical, on
+every seed**:
+
+| species | live slots that moved | caged slots the world confirms dead |
+|---|---|---|
+| `herb` | 8 of 8, on 3 of 3 seeds | `branch` |
+| `tree` | 9 of 9, on 3 of 3 seeds | none — and this is what produced §1.3 |
+| `grass` | 6 of 7 (`alloc` did not) | `plast`, `pipe` |
+
+`grass`'s one exception is the scene rather than the slot: it establishes ~8
+organisms holding 123 cells in this bed, so the allocation bias never has a
+regime to express in. `grass` is a species whose numbers in this bed are mostly
+about the bed.
 
 **And the same run at a shorter horizon is a trap worth recording.** At 4,000
 frames and 4 founders, five of the eight live slots read `identical`
