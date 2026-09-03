@@ -183,7 +183,46 @@ fn quantiles(v: &mut [i32]) -> String {
 struct Arm {
     tree: bool,
     ants: bool,
+    /// Carve a lined gallery straight through the root zone before the roots
+    /// reach it, and census whether root tissue crosses it.
+    ///
+    /// The owner's question, 2026-09-03: *"Will roots be able to grow through
+    /// ant tunnels though? Isn't that still air?"* `plant::growable` returns
+    /// `true` for `EMPTY`, so the code says yes -- but `CLAUDE.md` is explicit
+    /// that a mechanism which reads correctly may still not fire, so this asks
+    /// the world instead of the source.
+    tunnel: bool,
 }
+
+/// A gallery the shape an ant actually leaves: an empty lumen with **packed**
+/// walls.
+///
+/// Lined, and that is not decoration. `burrow_probe` measured a bare gallery
+/// cut in soil gone in **5 frames** -- soil is a `Powder` and closes straight
+/// back up -- so an unlined carve would test "do roots cross ground that
+/// refilled", which is a different question with the same picture. Packed soil
+/// is `self_supporting`, which is exactly why `line_burrow` tamps.
+fn carve_tunnel(w: &mut World, x0: i32, x1: i32, y0: i32, y1: i32) {
+    let packed = w.materials.id_of("packedsoil").expect("packedsoil is a compiled-in material");
+    for x in x0..x1 {
+        for y in (y0 - 1)..=(y1 + 1) {
+            if y < y0 || y > y1 {
+                w.set(x, y, Cell::new(packed, 0).with_aux(material::SOIL_FIELD_CAPACITY));
+            } else {
+                w.set(x, y, Cell::EMPTY);
+            }
+        }
+    }
+}
+
+/// The gallery's own footprint, so the census and the carve cannot disagree.
+const TUNNEL_X0: i32 = TREE_X - 40;
+const TUNNEL_X1: i32 = TREE_X + 40;
+/// Cut through the root zone rather than under it: `labsoil` measured roots
+/// maxing out at **13 rows** over 48 runs, so a gallery below that would be a
+/// gallery the roots never reach and would answer nothing.
+const TUNNEL_Y0: i32 = GROUND_Y + 6;
+const TUNNEL_Y1: i32 = GROUND_Y + 8;
 
 struct Outcome {
     digs: u64,
@@ -199,6 +238,14 @@ struct Outcome {
     plant_before: usize,
     plant_after: usize,
     top: Vec<(i32, i32, bool)>,
+    /// Root cells standing **inside the gallery lumen** at the end.
+    roots_in_lumen: usize,
+    /// Cells of that lumen still open. **Read it before the line above**: a
+    /// gallery that refilled reports zero roots crossing for a reason that has
+    /// nothing to do with roots, and the two are the same number.
+    lumen_open: usize,
+    /// The lumen's whole area, so `lumen_open` has a denominator.
+    lumen_area: usize,
 }
 
 fn run(arm: &Arm, seed: u64, grow: usize, frames: usize, ants: i32) -> Outcome {
@@ -206,6 +253,13 @@ fn run(arm: &Arm, seed: u64, grow: usize, frames: usize, ants: i32) -> Outcome {
 
     if arm.tree {
         w.plant_tree(TREE_X, GROUND_Y - 1);
+        // Carved *before* the growth run, so the roots meet the gallery on
+        // their way down rather than being asked to grow into one that
+        // appeared around them. Those are different questions and this is the
+        // one the owner asked.
+        if arm.tunnel {
+            carve_tunnel(&mut w, TUNNEL_X0, TUNNEL_X1, TUNNEL_Y0, TUNNEL_Y1);
+        }
         live(&mut w, grow);
     }
 
@@ -256,6 +310,18 @@ fn run(arm: &Arm, seed: u64, grow: usize, frames: usize, ants: i32) -> Outcome {
             .map(|y| (0..WIDTH).filter(|&x| w.materials.kind(w.get(x, y).material) == MaterialKind::Plant).count())
             .sum::<usize>(),
         top,
+        roots_in_lumen: {
+            let root = w.materials.id_of("rootwood");
+            (TUNNEL_Y0..=TUNNEL_Y1)
+                .flat_map(|y| (TUNNEL_X0..TUNNEL_X1).map(move |x| (x, y)))
+                .filter(|&(x, y)| root.is_some_and(|r| w.get(x, y).material == r))
+                .count()
+        },
+        lumen_open: (TUNNEL_Y0..=TUNNEL_Y1)
+            .flat_map(|y| (TUNNEL_X0..TUNNEL_X1).map(move |x| (x, y)))
+            .filter(|&(x, y)| w.get(x, y).material == material::EMPTY)
+            .count(),
+        lumen_area: ((TUNNEL_Y1 - TUNNEL_Y0 + 1) * (TUNNEL_X1 - TUNNEL_X0)) as usize,
     }
 }
 
@@ -273,9 +339,10 @@ fn main() {
     println!("  spoil heights are rows ABOVE the original surface: + is proud of the ground, - is down in the workings\n");
 
     for (label, arm) in [
-        ("tree+ants", Arm { tree: true, ants: true }),
-        ("ants     ", Arm { tree: false, ants: true }),
-        ("tree     ", Arm { tree: true, ants: false }),
+        ("tree+ants", Arm { tree: true, ants: true, tunnel: false }),
+        ("ants     ", Arm { tree: false, ants: true, tunnel: false }),
+        ("tree     ", Arm { tree: true, ants: false, tunnel: false }),
+        ("tree+gallery", Arm { tree: true, ants: false, tunnel: true }),
     ] {
         for seed in 1..=seeds {
             let o = run(&arm, seed, grow, frames, ants);
@@ -297,6 +364,12 @@ fn main() {
                 o.plant_before,
                 o.plant_after,
             );
+            if arm.tunnel {
+                println!(
+                    "      gallery: {} of {} lumen cells still open, {} root cells standing inside it",
+                    o.lumen_open, o.lumen_area, o.roots_in_lumen
+                );
+            }
             if dump && !o.top.is_empty() {
                 let shown: Vec<String> = o
                     .top

@@ -9022,6 +9022,23 @@ colony to clear it. Loosening the tip predicate so that voids no longer
 disqualify a root would *increase* that, which is why it is not proposed
 here: the owner raised exactly this objection when it was, 2026-09-03.
 
+**Measured, because the owner asked whether roots really do cross air**
+(`spoil_destination arms=tree+gallery`): a lined gallery is cut through the
+root zone before the growth run, and root cells are counted inside its lumen.
+Four seeds: **79 / 1 / 28 / 21** root cells standing in the gallery footprint.
+So yes — air is no barrier to root *growth*; it is a barrier only to
+branching from a fully-enveloped cell, and to drinking.
+
+**Two caveats, both real.** The lumen did not stay fully open in any seed
+(62 / 196 / 1 / 116 of 240 cells), so a root inside the footprint may have
+grown through refilled soil rather than through air — the measurement is
+consistent with `growable` but does not isolate it, and the roof-and-floor
+lining used here is weaker than what `line_burrow` builds. And the carve
+happens before growth, so this arm's trees diverge from the tree-only arm
+from frame zero (`roots_before` 223 against 131 on seed 1); it answers *"do
+roots enter the lumen"* and **must not** be read as a controlled comparison
+of stand size.
+
 **The root census is directional and not established**, and is reported that
 way. Same seeds, tree+ants against tree-only (`roots_before` is identical
 per seed, which is the arms-agree check):
