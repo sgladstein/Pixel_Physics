@@ -10653,6 +10653,79 @@ The night factor belongs on income only -- see NIGHT_INCOME_FLOOR"
     /// Kept for the tests whose subject is free *water* rather than soil
     /// moisture -- a soil bed would supply the plant before its root ever
     /// reached the puddle, which is the confound rather than the mechanism.
+    /// **Does an override actually change what grows?** — the end-to-end
+    /// positive control for `organism::ParamGenome`, and the one claim its
+    /// unit tests cannot make.
+    ///
+    /// `organism::tests::every_parameter_writes_where_it_reads` proves an
+    /// override reaches the `Behavior` struct, and `genome_reach -- drift=1`
+    /// proves a population accumulates them. Neither says a plant grows
+    /// differently: between them sit the two `behavior_buf` fills and the
+    /// twelve sites routed through `individual_behavior`, and a mechanism that
+    /// wrote its overrides into a buffer nobody read would pass both while
+    /// doing nothing — `dead-ends.md`'s "channel with a writer and no reader",
+    /// which this project has hit three times.
+    ///
+    /// **Every arm writes a genome, and only the override table differs.**
+    /// The first version of this test compared *writing a genome* against
+    /// *not writing one*, and its own negative control caught it: writing an
+    /// empty table moved the plant, because `set_organism_genotype` also sets
+    /// `inherited`, which stops `seed_genotype` redrawing at germination. Two
+    /// arms differing in two things, which `CLAUDE.md` records as an A/B whose
+    /// paint path carried half the effect. The negative arm below is now an
+    /// override *at the species' own authored value*, which is a real test of
+    /// the plumbing being transparent rather than a tautology.
+    #[test]
+    fn an_override_changes_what_grows() {
+        fn grow(params: organism::ParamGenome) -> u64 {
+            let mut w = test_world();
+            w.seed = 7;
+            plant_tree_on_ground(&mut w, 100, 60);
+            let id = w.get(100, 60).organism_id();
+            assert_ne!(id, 0, "test setup: the planted seed owns its own cell");
+            let (draws, alleles, _) = w.organism_genotype(id).expect("a planted seed has a genome");
+            assert!(w.set_organism_genotype(id, draws, alleles, params), "the organism is live");
+            run_with_fields(&mut w, 900);
+            // A cheap order-sensitive digest of the grid, the same shape
+            // `sim::frame`'s own control test uses: a cell count can come out
+            // equal for two different plants, and what has to be shown here is
+            // only that the world moved at all.
+            let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+            for y in 40..80 {
+                for x in 80..120 {
+                    let c = w.get(x, y);
+                    for v in [c.material.0 as u64, c.aux() as u64, c.organism_id() as u64] {
+                        h = (h ^ v).wrapping_mul(0x0000_0100_0000_01b3);
+                    }
+                }
+            }
+            h
+        }
+        let authored = {
+            let w = test_world();
+            let tree = w.species.id_of("tree").expect("tree is compiled in");
+            w.species
+                .param_in_force(tree, &organism::ParamGenome::default(), (CellType::GrowingTip, organism::ParamId::Plastochron, 0))
+                .expect("tree's shoot has a plastochron")
+        };
+        assert!(authored > 2.0, "the premise: the authored value and the test value must differ");
+
+        let empty = grow(organism::ParamGenome::default());
+
+        // **Negative: an override that restates the species' own number must
+        // change nothing.** This is what says the seam is transparent — an
+        // `apply_one` that wrote to the wrong field, or a `read_param` that
+        // read a different tier, would move the plant here.
+        let mut same = organism::ParamGenome::default();
+        assert!(same.set(CellType::GrowingTip, organism::ParamId::Plastochron, 0, authored));
+        assert_eq!(empty, grow(same), "an override at the authored value changed the plant -- the seam is not transparent");
+
+        // **Positive: a different value must move the world.**
+        let mut changed = organism::ParamGenome::default();
+        assert!(changed.set(CellType::GrowingTip, organism::ParamId::Plastochron, 0, 2.0));
+        assert_ne!(empty, grow(changed), "a `plastochron` override reached no consumer -- the plumbing is not connected");
+    }
+
     fn plant_tree_on_bare_ground(w: &mut World, x: i32, y: i32) {
         for fx in (x - 6)..=(x + 6) {
             w.set(fx, y + 1, Cell::new(material::STONE, 0));
