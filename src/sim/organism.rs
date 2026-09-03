@@ -492,6 +492,48 @@ pub enum Behavior {
         /// outcome is a distribution.
         #[serde(default = "one_u8")]
         organ_cluster: u8,
+        /// **How elongated a leaf cluster is** — 0 is the shipped random
+        /// blob, 1 is a straight line reaching away from the stem.
+        ///
+        /// `leaf_cluster` says *how many* cells a node's foliage gets;
+        /// nothing said what **shape** they make. `plant.rs` grows the spray
+        /// as a breadth-first walk off the first leaf that picks **one open
+        /// neighbour at random** at every step, so a cluster's form is drawn
+        /// fresh from the RNG at every node of every plant. This is the dial
+        /// on that draw: at each step it takes the best-aligned candidate
+        /// with probability `leaf_spread` and a uniform one otherwise, so the
+        /// outcome is graded rather than a switch between two shapes — the
+        /// ethos's first law, and the reason it is a probability rather than
+        /// a mode.
+        ///
+        /// **Why this is worth a parameter when three architectural levers
+        /// were not.** `Reports/plant-appearance-design.md`'s diagnosis of
+        /// sympody, tropism and acrotony is that each *relabels a cell* and
+        /// cannot move a silhouette that texture and composition set. This
+        /// moves no labels at all: the same number of leaf cells are placed,
+        /// in different positions. Eight cells in a line and eight in a blob
+        /// are a different canopy texture at every node.
+        ///
+        /// **And it converts noise into signal**, which is the other half.
+        /// `Reports/plant-engine-rethink-2026-09-03.md` §2 measures plant
+        /// size as very nearly unheritable — a clone stand is as varied as a
+        /// mixed one — because so much of a plant is drawn per position
+        /// rather than inherited. Cluster shape was one of those draws. As a
+        /// `ParamId` it is heritable, so a lineage's foliage arrangement
+        /// becomes something selection can act on.
+        ///
+        /// **Zero in every shipped species, and zero is bit-identical**: the
+        /// consumer returns before touching the RNG, so no extra draw is
+        /// taken and every stand measured before this existed is unchanged.
+        ///
+        /// **A `ParamKind::Probability`, which sidesteps the empty-corpus
+        /// trap `SpeciesRegistry::param_scale` documents.** A `Magnitude`
+        /// nobody authors is evolvable only within `PARAM_REACH * 1.0` of
+        /// zero — the limitation `seed_launch` runs into. A probability's
+        /// bound is `[0, 1]` whatever the corpus says, so this channel is
+        /// fully reachable from the day it lands.
+        #[serde(default)]
+        leaf_spread: f32,
         /// Shoot cells below which this plant is **juvenile**. `0` disables
         /// the whole juvenile stage.
         ///
@@ -1821,6 +1863,7 @@ pub enum ParamId {
     HeadingInertia,
     LeafCluster,
     OrganCluster,
+    LeafSpread,
     JuvenileSize,
     JuvenilePlastochron,
     JuvenileBranch,
@@ -1857,7 +1900,7 @@ pub enum ParamId {
 
 /// Every address a mutation may draw from — the alphabet, exactly as
 /// `PLANT_CELL_TYPES` and `ALL_FATE_WHENS` are the fate genome's.
-pub const ALL_PARAM_IDS: [ParamId; 44] = [
+pub const ALL_PARAM_IDS: [ParamId; 45] = [
     ParamId::GrowCost,
     ParamId::BranchChance,
     ParamId::ContinuationWeight,
@@ -1871,6 +1914,7 @@ pub const ALL_PARAM_IDS: [ParamId; 44] = [
     ParamId::HeadingInertia,
     ParamId::LeafCluster,
     ParamId::OrganCluster,
+    ParamId::LeafSpread,
     ParamId::JuvenileSize,
     ParamId::JuvenilePlastochron,
     ParamId::JuvenileBranch,
@@ -1921,6 +1965,7 @@ impl ParamId {
             ParamId::HeadingInertia => "heading_inertia",
             ParamId::LeafCluster => "leaf_cluster",
             ParamId::OrganCluster => "organ_cluster",
+            ParamId::LeafSpread => "leaf_spread",
             ParamId::JuvenileSize => "juvenile_size",
             ParamId::JuvenilePlastochron => "juvenile_plastochron",
             ParamId::JuvenileBranch => "juvenile_branch",
@@ -1968,7 +2013,8 @@ impl ParamId {
             | ParamId::ReproductiveAllocation
             | ParamId::HeadingInertia
             | ParamId::GerminateLight
-            | ParamId::GerminateWater => ParamKind::Probability,
+            | ParamId::GerminateWater
+            | ParamId::LeafSpread => ParamKind::Probability,
             ParamId::ContinuationWeight
             | ParamId::LightWeight
             | ParamId::WindWeight
@@ -2103,6 +2149,7 @@ fn apply_one(o: &ParamOverride, behavior: &mut Behavior) {
             heading_inertia,
             leaf_cluster,
             organ_cluster,
+            leaf_spread,
             juvenile_size,
             juvenile_plastochron,
             juvenile_branch,
@@ -2129,6 +2176,7 @@ fn apply_one(o: &ParamOverride, behavior: &mut Behavior) {
             ParamId::HeadingInertia => *heading_inertia = o.value,
             ParamId::LeafCluster => *leaf_cluster = o.value.round().clamp(0.0, 255.0) as u8,
             ParamId::OrganCluster => *organ_cluster = o.value.round().clamp(0.0, 255.0) as u8,
+            ParamId::LeafSpread => *leaf_spread = o.value,
             ParamId::JuvenileSize => *juvenile_size = o.value.round().clamp(0.0, 4096.0) as u32,
             ParamId::JuvenilePlastochron => *juvenile_plastochron = o.value,
             ParamId::JuvenileBranch => *juvenile_branch = o.value,
@@ -2220,6 +2268,7 @@ pub fn read_param(behavior: &Behavior, param: ParamId, tier: u8) -> Option<f32> 
             heading_inertia,
             leaf_cluster,
             organ_cluster,
+            leaf_spread,
             juvenile_size,
             juvenile_plastochron,
             juvenile_branch,
@@ -2246,6 +2295,7 @@ pub fn read_param(behavior: &Behavior, param: ParamId, tier: u8) -> Option<f32> 
             ParamId::HeadingInertia => *heading_inertia,
             ParamId::LeafCluster => *leaf_cluster as f32,
             ParamId::OrganCluster => *organ_cluster as f32,
+            ParamId::LeafSpread => *leaf_spread,
             ParamId::JuvenileSize => *juvenile_size as f32,
             ParamId::JuvenilePlastochron => *juvenile_plastochron,
             ParamId::JuvenileBranch => *juvenile_branch,

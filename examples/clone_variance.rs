@@ -272,6 +272,49 @@ fn tile(panels: &[(Vec<u8>, u32, u32)]) -> (Vec<u8>, u32, u32) {
     (out, total_w, h)
 }
 
+/// Leaf cells, and how elongated their clusters are — the pair that says
+/// whether a change moved foliage *shape* or foliage *amount*.
+fn leaf_shape_census(w: &World) -> (usize, f32, usize) {
+    let Some(b) = w.bounds() else { return (0, 0.0, 0) };
+    let mut leaves: std::collections::HashSet<(i32, i32)> = std::collections::HashSet::new();
+    for y in b.min_y..=b.max_y {
+        for x in b.min_x..=b.max_x {
+            let c = w.get(x, y);
+            if c.organism_id() != 0 && organism::cell_type(c.aux()) == Some(organism::CellType::Leaf) {
+                leaves.insert((x, y));
+            }
+        }
+    }
+    const N8: [(i32, i32); 8] = [(-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1)];
+    let mut seen: std::collections::HashSet<(i32, i32)> = std::collections::HashSet::new();
+    let (mut total, mut n) = (0.0f32, 0usize);
+    for &start in leaves.iter() {
+        if seen.contains(&start) {
+            continue;
+        }
+        let mut stack = vec![start];
+        let mut group = Vec::new();
+        seen.insert(start);
+        while let Some(p) = stack.pop() {
+            group.push(p);
+            for (dx, dy) in N8 {
+                let q = (p.0 + dx, p.1 + dy);
+                if leaves.contains(&q) && seen.insert(q) {
+                    stack.push(q);
+                }
+            }
+        }
+        if group.len() < 3 {
+            continue;
+        }
+        let (x0, x1) = (group.iter().map(|p| p.0).min().unwrap(), group.iter().map(|p| p.0).max().unwrap());
+        let (y0, y1) = (group.iter().map(|p| p.1).min().unwrap(), group.iter().map(|p| p.1).max().unwrap());
+        total += (x1 - x0 + 1).max(y1 - y0 + 1) as f32 / group.len() as f32;
+        n += 1;
+    }
+    (leaves.len(), if n > 0 { total / n as f32 } else { 0.0 }, n)
+}
+
 fn mean(v: &[f32]) -> f32 {
     if v.is_empty() {
         return 0.0;
@@ -514,6 +557,54 @@ fn main() {
 
     if shift > 0 {
         one_cell_over(&species, founders, frames, worldseed, sarg("png"));
+        return;
+    }
+    // **`spread=` renders one bed per leaf-spread setting.** Separate from
+    // the three-arm mode because the question is different: those arms are
+    // about *variance* between plants, this is about the *shape of the
+    // foliage* on all of them, and mixing them on one card would ask the
+    // owner two questions at once.
+    if let Some(vals) = sarg("spread") {
+        let stem = sarg("png").unwrap_or_else(|| "/tmp/spread".to_string());
+        for v in vals.split(',') {
+            let value: f32 = v.parse().expect("spread values are comma-separated floats");
+            let d = common::PlantScene::default();
+            let scene = common::PlantScene {
+                trees: founders,
+                width: d.width * (founders as i32).max(1) / d.trees as i32,
+                species: species.clone(),
+                seed: worldseed,
+                ..Default::default()
+            };
+            let mut w = scene.build();
+            let id = w.species.id_of(&species).expect("species is compiled in");
+            // Through `set_param` into the live registry -- editing the
+            // `.ron` and re-running a prebuilt binary is the `include_str!`
+            // trap, and it produces bit-identical "runs".
+            assert!(
+                w.species.set_param(id, organism::CellType::GrowingTip, organism::ParamId::LeafSpread, 0, value),
+                "leaf_spread={value} matched no Grow on {species}"
+            );
+            for _ in 0..frames {
+                parallel::step(&mut w);
+                w.step_active_sites();
+                w.step_fields();
+            }
+            // **The two numbers the card needs, from the run that made the
+            // picture.** `leaf cells` says the arms place the same amount of
+            // foliage -- if it moved, the card is about how much leaf there
+            // is and not about its shape, which is a different question and
+            // the one this lever must not be answering. `elongation` is the
+            // shape itself: the long side of each 8-connected leaf cluster's
+            // bounding box divided by its cell count, so a line reads high
+            // and a blob low.
+            let (leaf_cells, elong, clusters) = leaf_shape_census(&w);
+            let (buf, pw, ph) = render_stand(&w);
+            let path = format!("{stem}_{}.png", v.replace('.', "p"));
+            image::save_buffer(&path, &buf, pw, ph, image::ColorType::Rgba8).expect("write png");
+            println!("  leaf cells {leaf_cells}, clusters of 3+ {clusters}, mean elongation {elong:.3}");
+            println!("  leaf_spread={value}: wrote {path} ({pw}x{ph})");
+        }
         return;
     }
     // **`png=` renders the three arms from the runs that produced the

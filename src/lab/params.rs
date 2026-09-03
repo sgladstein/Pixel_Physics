@@ -406,12 +406,13 @@ fn ground(world: &World, out: &mut Vec<Param>) {
 fn grow_value(world: &World, species: &str, field: &str) -> Option<f32> {
     let id = world.species.id_of(species)?;
     world.species.get(id).behaviors(CellType::GrowingTip).iter().find_map(|b| match b {
-        Behavior::Grow { cost, continuation_weight, wind_weight, crowding_weight, max_active_tips, .. } => Some(match field {
+        Behavior::Grow { cost, continuation_weight, wind_weight, crowding_weight, max_active_tips, leaf_spread, .. } => Some(match field {
             "cost" => *cost,
             "continuation_weight" => *continuation_weight,
             "wind_weight" => *wind_weight,
             "crowding_weight" => *crowding_weight,
             "max_active_tips" => *max_active_tips as f32,
+            "leaf_spread" => *leaf_spread,
             _ => return None,
         }),
         _ => None,
@@ -470,6 +471,8 @@ fn plant_rows(world: &World, species: &str, out: &mut Vec<Param>) {
         "HOW MUCH THE AIR IN THE BOX PUSHES A GROWING TIP AROUND. IN A SEALED BED THERE IS LITTLE WIND, SO THIS DOES LESS HERE THAN IT DOES OUTDOORS.");
     grow("max_active_tips", span(1.0, 64.0, 1.0), true,
         "HOW MANY SHOOT TIPS MAY BE GROWING AT ONCE. IT IS THE CEILING ON HOW BUSHY A PLANT CAN GET, AND IT IS ALSO A FRAME-COST KNOB -- EVERY ACTIVE TIP IS WORK EVERY TICK.");
+    grow("leaf_spread", span(0.0, 1.0, 0.05), false,
+        "THE SHAPE OF A CLUMP OF LEAVES, NOT HOW MANY THERE ARE. EACH NODE GETS A FIXED NUMBER OF LEAF CELLS AND THEN GROWS THEM OUTWARD ONE AT A TIME; AT 0 -- WHERE EVERY SPECIES SHIPS -- EACH STEP GOES SOMEWHERE RANDOM, SO A CLUMP IS A BLOB WHOSE SHAPE IS PURE CHANCE. TURN IT UP AND THE CLUMP REACHES AWAY FROM THE STEM IN A LINE INSTEAD, WHICH MAKES FOLIAGE READ AS SPIKY RATHER THAN BUSHY. IT MOVES NO EXTRA LEAF -- THE SAME CELLS GO DOWN IN A DIFFERENT ARRANGEMENT. LASTS THE SESSION.");
 
     let mut repro = |field: &'static str, s: Span, integral, note: &str| {
         let Some(value) = repro_value(world, species, field) else { return };
@@ -741,13 +744,14 @@ pub fn write(world: &mut World, spec: &mut LabBox, knob: &Knob, value: f32) -> b
             let Some(id) = world.species.id_of(species) else { return false };
             let mut wrote = false;
             for b in world.species.get_mut(id).behaviors_mut(CellType::GrowingTip) {
-                if let Behavior::Grow { cost, continuation_weight, wind_weight, crowding_weight, max_active_tips, .. } = b {
+                if let Behavior::Grow { cost, continuation_weight, wind_weight, crowding_weight, max_active_tips, leaf_spread, .. } = b {
                     match *field {
                         "cost" => *cost = value,
                         "continuation_weight" => *continuation_weight = value,
                         "wind_weight" => *wind_weight = value,
                         "crowding_weight" => *crowding_weight = value,
                         "max_active_tips" => *max_active_tips = value.max(1.0).round() as u32,
+                        "leaf_spread" => *leaf_spread = value.clamp(0.0, 1.0),
                         _ => continue,
                     }
                     wrote = true;
