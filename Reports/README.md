@@ -2029,6 +2029,24 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   the shipped bed**, so it was live on `main`) and fixed at the one fate
   lookup, without narrowing what a lineage can reach.
 
+- [plant-engine-rethink-brief-2026-09-03.md](plant-engine-rethink-brief-2026-09-03.md)
+  — **a brief, not a report, written 2026-09-03 for an unattended overnight
+  session on the plant engine.** The owner's thesis is its spine: *"nothing
+  should be hard coded, we don't want to design specific behavior but create a
+  flexible system that will allow variety to evolve"*, with explicit
+  authorisation to reconsider closed decisions and to recommend a full
+  overhaul. Deliberately sets direction and constraints rather than steps. Its
+  most reusable part is the **inventory of where the design currently lives** —
+  a genotype is ten scalars *multiplying* authored species constants, `CellType`
+  and `Behavior` and `FateWhen` are closed enums, a tip scores on a fixed set of
+  six terms, allele meanings are authored tables, a species names six materials
+  none of which are heritable, and the species id is copied to offspring
+  unchanged so **speciation is impossible by construction**. The fate genome is
+  the one place the engine already does what the thesis asks, and it is the
+  existence proof. Carries the standing constraints (the reallocation scar, the
+  outdoor-game line, the positive-control rule) and a reading map that says
+  which of the four 60k–97k documents not to open whole.
+
 ## Licensing and distribution
 
 - [dependency-license-audit.md](dependency-license-audit.md) — **settled
