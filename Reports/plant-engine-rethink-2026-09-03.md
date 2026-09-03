@@ -53,11 +53,14 @@ scrambler, so the first of `plant-appearance-design.md`'s two stated causes for
 the invisible architectural levers **is stale**. `grass` reads **0** — it owns
 no `CellType::Leaf` at all. §3.
 
-**Two claims this session made and then withdrew by measurement**, both
-recorded because the withdrawal is the useful part: that tree, conifer and
-shrub cannot evolve a branching root system (§1.3 — slot 1 has a second
-consumer), and a first heritability table taken with a knob that was never
-connected (§2.1).
+**Three claims this session made and then withdrew**, all recorded because the
+withdrawal is the useful part: that tree, conifer and shrub cannot evolve a
+branching root system (§1.3 — slot 1 has a second consumer); a first
+heritability table taken with a `ref=` knob that was never connected (§2.1);
+and *"the organism id in the growth key is a per-individual random seed and
+removing it is a one-line fix"* — the arm that would show that holds the id
+fixed by construction, so what it measures is position alone (§2.3), and the
+real repair is a larger one (§7 item 2).
 
 ---
 
@@ -321,23 +324,20 @@ some genomes are developmentally stable and some are not. Any future claim of
 the form "this change made plants more consistent" has to be made against
 several reference genomes or it is a claim about one of them.
 
-### 2.3 Where the scatter comes from, and the part that is not environmental
+### 2.3 Where the scatter comes from
 
 `plant.rs`'s growth draws come from `rng::stream(organism_id, cx, cy, frame)`.
-Two things follow that a player would not guess:
+Two things follow that a player would not guess: **a plant one column over is a
+different plant**, because the cell coordinate is in the key, and **a plant that
+germinated into organism slot 7 rather than 6 is a different plant again**,
+because the id is too.
 
-- **A plant one column over is a different plant.** The stream is keyed on the
-  cell coordinate, so moving a founder one cell sideways redraws every growth
-  decision it will ever make.
-- **A plant that germinated into organism slot 7 rather than 6 is a different
-  plant again.** The organism id is in the key. That is not environmental
-  variation and it is not heritable — it is a per-individual random seed, and
-  it is the one source of scatter a player has no way to read as *anything*.
-
-`clone_variance -- shift=1` isolates it: one founder, alone, in an identical
-bed, moved one column at a time, with a single reference genome written onto
-every run. No neighbours, no competition, no genetic difference. Twelve
-positions, `herb`, 12,000 frames:
+`clone_variance -- shift=1` measures the first of those on its own. One
+founder, alone, with a single reference genome written onto every run, in a bed
+made two columns wider each time so the plant stands one column further right —
+no neighbours, no competition, no genetic difference, **and the same organism
+id every run**, since each run builds a fresh world and plants one thing.
+Twelve positions, `herb`, 12,000 frames:
 
 | | range over twelve positions | coefficient of variation |
 |---|---|---|
@@ -351,11 +351,19 @@ positions, `herb`, 12,000 frames:
 **Twelve genetically identical plants, alone in identical beds, come out
 anywhere between 83 and 181 cells and between 27 and 63 rows tall.** That is
 the floor under every plant comparison this project has published. And it
-carries §2.2's split in miniature and from a completely different direction:
+carries §2.2's split in miniature, from a completely different direction:
 **size varies by 28% and composition by 7.5%** — the same four-fold gap between
-what position does to a plant's *size* and what it does to its *proportions*.
+what position does to a plant's size and what it does to its proportions.
 
 Review card `20260903T060947894Z-4646f4` renders those twelve side by side.
+
+**The organism-id term is a *hypothesis* here and not a result, and an earlier
+draft of this report had it the other way round.** The arm above holds the id
+fixed by construction, so it attributes the whole 0.28 to position; whether the
+id adds anything on top is unmeasured, and the arm that would measure it —
+same coordinate, different slot — needs a way to advance the organism counter
+without putting another plant in the bed. Since position alone already produces
+that spread, the id is not the lever it looked like.
 
 ### 2.4 What this means for everything else on the plant line
 
@@ -373,10 +381,10 @@ gets built next.
    `selection_arena`'s own finding is that a null there is a statement about
    the world; this says how big the statement has to be before it can be
    heard.
-3. **The cheapest lever nobody has pulled is reducing the noise, not widening
-   the genome.** Halving developmental variance does the same thing to the
-   signal-to-noise ratio as doubling genetic variance, and it is a change to
-   one RNG key rather than to the genome's shape. §7 item 2.
+3. **Halving developmental variance does the same thing to the signal-to-noise
+   ratio as doubling genetic variance**, and nobody has tried the first. §7
+   item 2 says what that would take, and it is not the one-line change it
+   looked like before §2.3 was measured properly.
 
 ---
 
@@ -647,14 +655,30 @@ item on the list that is ink rather than a label.
 
 1. **Post §2's result to the owner and get a verdict on the noise floor.** It
    is the finding that reorders everything else, and it is one number.
-2. **Attack the noise floor before widening anything.** Halving developmental
-   variance does the same thing to signal-to-noise as doubling genetic
-   variance. The concrete lever is `rng::stream(organism_id, cx, cy, frame)`:
-   the organism id in that key is a per-individual random seed that is neither
-   heritable nor environmental. Removing it does not make plants identical —
-   position still varies everything — and it would make a clone *stand* read as
-   a clone. That is one line and a measurement, and it is the highest-leverage
-   thing on this list.
+2. **Make development heritable, which is the real form of "attack the noise
+   floor".** §2.3 measures the cause: growth is drawn from
+   `rng::stream(organism_id, cx, cy, frame)`, so a plant's whole development is
+   a function of **where in the world it is standing**. Two clones therefore
+   cannot develop alike, ever, however identical their genomes and their
+   surroundings — which is why a clone stand is as varied as a mixed one.
+
+   The change that would fix it is to key the stream on the plant's **own**
+   frame rather than the world's: `(developmental_seed, x - collar_x,
+   y - collar_y, frame - germination_frame)`, with `developmental_seed`
+   **inherited** like any other gene. Then two plants carrying the same genome
+   and the same seed grow the same shape wherever they stand, differing only by
+   what the environment actually does to them — and a lineage's characteristic
+   form becomes something selection can act on instead of something re-rolled
+   every generation. That is the whole of *"a flexible system that will allow
+   variety to evolve"* applied to the half of the variety that is currently not
+   inherited at all.
+
+   **It is not a one-line change and it should not be attempted unattended**:
+   it moves every plant in both games, it needs `collar_x`/`germination_frame`
+   on `OrganismState`, and it needs the review card
+   (`20260903T060947894Z-4646f4`) answered first — some of the present scatter
+   is what makes a stand read as alive rather than stamped, and flattening it
+   is a design decision rather than a repair.
 3. **Give the root a node.** `plastochron` on `RootTip` is `0` in every species
    and no genome slot addresses it; a non-zero value plus a `RootTip` fate with
    `child: GrowingTip` is rhizomes, runners and suckers, which is one of the
