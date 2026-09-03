@@ -1,0 +1,44 @@
+{
+  "id": "20260903T060947894Z-4646f4",
+  "created": "2026-09-03T06:09:47Z",
+  "board": "plants",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/plant-engine-rethink-brief-rk7lq5",
+    "commit": "2eb7983f",
+    "agent": null,
+    "session_id": "2fd32b8c-66a6-5662-ac48-04f7486d66f4",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Twelve plants, one genome, one column apart",
+  "question": "These twelve are genetically identical. Is this amount of difference between clones something you want, or something to cut down?",
+  "context_md": "Twelve separate runs. Each one plants **the same genome**, alone, in an identical bed with no neighbours and nothing to compete with, and the only difference between runs is that the plant stands one column further right. Same species, same soil, same light, same length of run.\n\nSo everything you can see here is the engine's *developmental noise*, with genetics and competition both removed. It is the floor under every plant comparison in this project: a change to how plants grow has to move things by more than this before anybody can see it.\n\nThe cause is that a plant's growth decisions are drawn from a stream keyed on **where it is standing and which organism slot it happened to get** -- so a plant one cell over is a different plant, and a plant that germinated seventh rather than sixth is a different plant again. The second half of that is not the world varying, it is a per-individual coin toss with nothing behind it, and it could be removed in one line.\n\nWhat I am not sure of, and what the card is for: some of this is what makes a stand look alive rather than stamped, and I would rather not quietly flatten it.",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "same genome, twelve positions",
+      "files": [
+        "20260903T060947894Z-4646f4/000-shift.png"
+      ],
+      "caption": "herb, 12,000 frames, one plant per run, no neighbours",
+      "meta": {
+        "plants shown": 12,
+        "genomes shown": 1,
+        "smallest to largest plant": "83 to 181 cells",
+        "shortest to tallest": "27 to 63 rows",
+        "how much size varies (0 = identical)": 0.28,
+        "how much leaf-vs-stem varies (0 = identical)": 0.075
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
