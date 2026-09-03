@@ -1,0 +1,58 @@
+{
+  "id": "20260903T031256403Z-750a6f",
+  "created": "2026-09-03T03:12:56Z",
+  "board": "plants",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/evolution-lab-plant-reseeding-jjn7r0",
+    "commit": "f142da2e",
+    "agent": null,
+    "session_id": "6dcebb26-facf-510e-94c5-9c6d42643a5c",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Even light in the lab bed — fifteen fixtures that tile the ceiling",
+  "question": "Is the bench even enough, and does the ceiling still read as grow lights rather than a strip light?",
+  "context_md": "Same command both sides (`labshot founders=8 colonies=0`), frames 0 / 4,500 / 13,500 / 27,000 top to bottom, no ants, one binary per side.\n\n**What changed:** a fixture's light goes *straight down its own column* — the sideways bleed is a glow, not a second sun — so eight 31-cell bars 56 columns apart lit 55% of the bed. The fixtures now sit a bar's width apart and tile the ceiling: fifteen of them, each the same object it always was.\n\n**Bench light, every 8 columns:** was **0.36–2.40** with four-block troughs at 0.69; now **1.95–2.40** wall to wall.\n\n**It costs nothing.** With no plants in the box the two arms time **identically, 0.025 ms/frame, three alternating reps each**. The run *with* plants is 0.36 ms/frame slower and that is the 3.3x bigger stand, not the lighting.\n\n**One thing I have not fixed and would rather you saw:** at the default spacing the fixtures are packed tight enough that there is nowhere to *slide* one — `move_lamp` refuses a destination that would drive two bars into contact, because a merged pair reports one centre and neither can be picked up again. So the light-pattern verb is now pull one out (and `place_lamp` puts it back), not drag. Tell me if you want dragging back and I will find room for it.",
+  "kind": "before_after",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "before — 8 fixtures 56 columns apart",
+      "files": [
+        "20260903T031256403Z-750a6f/000-eight_founders.png"
+      ],
+      "caption": "eight clumps under eight lamps, dark stripes between",
+      "meta": {
+        "plants alive at 13,500": 67,
+        "established": 46,
+        "columns of 512 holding a plant": 237,
+        "plants 16+ columns from a founder": 10,
+        "bench light, dimmest to brightest": "0.36 - 2.40"
+      },
+      "focus": null
+    },
+    {
+      "label": "after — 15 fixtures tiling the ceiling",
+      "files": [
+        "20260903T031256403Z-750a6f/001-eight_founders_lit.png"
+      ],
+      "caption": "same seed, same 8 founders, same 27,000 frames",
+      "meta": {
+        "plants alive at 13,500": 101,
+        "established": 75,
+        "columns of 512 holding a plant": 320,
+        "plants 16+ columns from a founder": 41,
+        "bench light, dimmest to brightest": "1.95 - 2.40"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
