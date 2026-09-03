@@ -2233,6 +2233,13 @@ fn bear_seed_at(world: &mut World, sx: i32, sy: i32, parent_id: u16, seed_cost: 
         state.inherited = true;
         state.generation = generation.saturating_add(1);
     }
+    // **The cumulative generation clock, updated at the one place a
+    // generation is ever created.** A high-water mark rather than a census:
+    // every existing readout in this repo is a max or a mean over the
+    // *living*, and those equilibrate once births balance deaths rather than
+    // accumulating -- `selection_arena` prints its own axis as saturated for
+    // exactly that reason. See `World::deepest_generation`.
+    world.deepest_generation = world.deepest_generation.max(generation.saturating_add(1));
     // **The parameter mutation, outside the `organism_mut` borrow.**
     //
     // It needs `world.species` (to find the addresses this species has, the
@@ -11077,6 +11084,49 @@ The night factor belongs on income only -- see NIGHT_INCOME_FLOOR"
         assert!(travelled > 8, "with the walls removed a reach of 20 moved the seed past one cell only {travelled} times in 64");
     }
 
+
+    /// **The cumulative generation clock accumulates where a mean over the
+    /// living does not** — which is the entire reason it exists.
+    ///
+    /// The positive control is two births in one lineage: the clock must read
+    /// 2. The *negative* control is the one that matters, and it is what no
+    /// existing readout passes — kill the deep lineage and the clock must
+    /// **stay** at 2, where a max-or-mean over living organisms would fall
+    /// back to 0. `selection_arena` prints `*** THE GENERATION AXIS IS
+    /// SATURATED ***` on precisely that artifact.
+    #[test]
+    fn the_generation_clock_accumulates_and_does_not_fall_back() {
+        let mut w = test_world();
+        w.seed = 8_191;
+        assert_eq!(w.generation_clock().0, 0, "a world where nothing has bred is generation 0");
+
+        let herb = w.species.id_of("herb").expect("herb species is compiled in");
+        let founder = w.push_organism(herb).expect("an organism slot is free");
+        seed_genotype(&mut w, founder, 60, 40);
+        let seed_material = w.materials.id_of("seed").expect("seed material is compiled in");
+        let mut rng = rng::stream(5, 6, 7, 8);
+
+        assert!(bear_seed_at(&mut w, 62, 40, founder, 0.2, seed_material, &mut rng), "the first seed should be borne");
+        let child = w.get(62, 40).organism_id();
+        assert_eq!(w.generation_clock().0, 1, "one birth is one generation deep");
+
+        assert!(bear_seed_at(&mut w, 64, 40, child, 0.2, seed_material, &mut rng), "the second seed should be borne");
+        let grandchild = w.get(64, 40).organism_id();
+        assert_eq!(w.generation_clock().0, 2, "a child of a child is two generations deep");
+
+        // **The negative control.** Take the deep lineage out of the world
+        // entirely: a mean or max over the living would now read 0, and the
+        // clock must not.
+        w.free_organism(grandchild);
+        w.free_organism(child);
+        assert_eq!(
+            w.generation_clock().0,
+            2,
+            "the clock must not fall back when the deep lineage dies -- that is the artifact it exists to avoid"
+        );
+        let (_, births, _) = w.generation_clock();
+        assert!(births >= 3, "births must count the founder and both descendants, got {births}");
+    }
 
     /// **A launch is priced, and pricing it is why it is not a free lever.**
     ///

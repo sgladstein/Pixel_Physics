@@ -1706,6 +1706,30 @@ pub struct World {
     /// would hit it harder: a process-global would be a hidden argument to
     /// every test that grows a plant, and the suite runs in parallel.
     pub developmental_key: super::organism::DevelopmentalKey,
+    /// **The deepest generation any lineage has ever reached** — a high-water
+    /// mark, never decremented, and the reason it exists is that every other
+    /// generation readout in this repo cannot answer the question.
+    ///
+    /// `examples/selection_arena.rs` records the failure in its own output:
+    /// over a 150,000-frame run the population's mean generation rose to ~2.9
+    /// by frame ~50,000 and then **fell back** — 2.88, 2.85, 2.77, 2.73, 2.63,
+    /// 2.60 — and it prints `*** THE GENERATION AXIS IS SATURATED ***` when
+    /// the span is under 3.0. Nothing is wrong with the world when that
+    /// happens. **Mean generation is taken over *living* organisms, and at
+    /// steady state deaths of old plants balance births of new ones, so it
+    /// equilibrates rather than accumulating.** Every readout in the repo is a
+    /// max or a mean over the living, so all of them do this.
+    ///
+    /// The consequence is that "did this change make lineages deeper?" was
+    /// unanswerable: a lever that doubled the birth rate would move a
+    /// mean-over-living by nothing at all. This counter accumulates, so it
+    /// can only go up, and a bed that turns over faster reaches a given depth
+    /// sooner. Pair it with `organism_turnover` for the rate.
+    ///
+    /// Zero in a world where nothing has bred, which is the honest reading
+    /// and not a bug: a founder is generation 0.
+    pub deepest_generation: u16,
+
     pub mutation_sigma: f32,
     /// **The chance a seed is born with one of its parent's fate rules
     /// changed** — the coarser of the two heredity dials. See
@@ -2482,6 +2506,7 @@ impl World {
             // silently disables a mechanism is a mechanism nobody measures.
             plant_load_failure: true,
             developmental_key: super::organism::DevelopmentalKey::default(),
+            deepest_generation: 0,
             mutation_sigma: super::plant::MUTATION_SIGMA,
             fate_mutation_chance: super::plant::fate_mutation_chance_seed(),
             param_mutation_chance: super::plant::param_mutation_chance_seed(),
@@ -3254,6 +3279,24 @@ impl World {
     /// their difference is the live count `organism_slot_usage` reports.
     pub fn organism_turnover(&self) -> (u64, u64) {
         (self.organisms_born, self.organisms_died)
+    }
+
+    /// **How deep the pedigree has ever run, and how many births it took** —
+    /// the cumulative generation clock.
+    ///
+    /// Returns `(deepest_generation, births, live)`. Read the first against
+    /// the frames it took: *generations per hour* is what the parameter
+    /// genome's whole search depends on, because one point mutation per birth
+    /// spread over 804 addresses on a lineage two generations deep is a
+    /// search that cannot arrive.
+    ///
+    /// **`births / live` is the second half and it is not redundant.** A bed
+    /// can turn over briskly and still never deepen, if every recruit dies
+    /// before breeding — high births, flat depth. A bed can also deepen with
+    /// almost no births if one lineage runs away. The pair separates them;
+    /// either alone does not.
+    pub fn generation_clock(&self) -> (u16, u64, usize) {
+        (self.deepest_generation, self.organisms_born, self.live_organism_ids().len())
     }
 
     /// How many organism slots are currently allocated, and how many of
