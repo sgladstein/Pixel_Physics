@@ -5119,7 +5119,14 @@ const SUPPORT_COST_HANGING: u16 = 2;
 /// reason `organism_upkeep` does it that way: a retired root and a retired
 /// branch are both `MatureBody`, and only the material tells them apart.
 fn is_structural_anchor(world: &World, x: i32, y: i32, organism_id: u16) -> bool {
-    let cell = world.get(x, y);
+    // **Look through a body standing in this cell.** A creature may occupy
+    // living tissue without destroying it (`World::occlude`), and the grid
+    // then reports the animal. Reading the grid alone made an ant walking
+    // over a root plate *delete anchors* -- and roots are what anchor a tree,
+    // so a colony foraging through the root zone quietly severed the plant
+    // above it. `World::covered_at` is `None` for every ordinary cell, so
+    // this costs one `organism_id()` test on the value already in hand.
+    let cell = world.covered_at(x, y).unwrap_or_else(|| world.get(x, y));
     if cell.organism_id() != organism_id {
         return false; // the list can outlive the grid by a tick
     }
@@ -6048,7 +6055,12 @@ fn anchor_support(world: &mut World, organism_id: u16) {
         // its twig, so leaf-to-leaf carries; wood holds leaf; leaf never
         // holds wood. With the direction in, the same three breaks sever
         // **810 cells at 91% pieces**.
-        let source_is_leaf = organism::cell_type(world.get(x, y).aux()) == Some(CellType::Leaf);
+        // Through an occluding body, for `is_structural_anchor`'s reason: a
+        // covered cell must conduct as the tissue it is, not as whatever is
+        // standing in it. Immaterial for roots, which are never leaves, and
+        // load-bearing the moment `creature_passable` reaches `leaf`.
+        let source_is_leaf =
+            organism::cell_type(world.covered_at(x, y).unwrap_or_else(|| world.get(x, y)).aux()) == Some(CellType::Leaf);
         for (dx, dy) in NEIGHBOURS_8 {
             let Some(&j) = index.get(&(x + dx, y + dy)) else { continue };
             if source_is_leaf {

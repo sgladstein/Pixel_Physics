@@ -3463,6 +3463,22 @@ pub struct OrganismState {
     /// `creature::creature_dies` drops it beside the corpse. There is no
     /// third.
     pub spoil: Option<Spoil>,
+    /// **What this body is currently standing *in*** — living tissue it has
+    /// covered rather than destroyed, to be put back when it moves off.
+    ///
+    /// The gnome needs nothing like this: he is an off-grid rectangle drawn
+    /// over the world, so walking through a tree costs him no storage. A
+    /// creature *is* cells in the grid, so "pass through" has to mean
+    /// "occupy, remembering what was there" — see `World::occlude` /
+    /// `World::reveal` for why the write cannot go through the ordinary seam.
+    ///
+    /// Parallel to nothing: it holds only the covered positions, which is
+    /// usually none and at most the body's own length. Every entry is an
+    /// obligation — `creature::relocate_chain` discharges it when the body
+    /// steps off, and `creature::creature_dies` when it does not step off
+    /// again — because an entry dropped on the floor is a root cell deleted
+    /// from the world, which is exactly what this mechanism exists to avoid.
+    pub occluded: Vec<((i32, i32), super::cell::Cell)>,
     /// Ticks since this creature last touched nest material.
     ///
     /// **This is how an ant finds its way home without ever asking where

@@ -9086,13 +9086,50 @@ the sweep and lengthen the horizon first.
    intact root plate leaves every root cell with soil neighbours, so root
    growth is unaffected. Relocating the excavation out of the root zone is
    not a side effect of this fix, it **is** the fix.
-4. **The option none of the three covers**, and the one the owner arrived at
-   independently: make root tissue **passable to ants while staying
-   un-diggable**. That dissolves the mutual blocking rather than arbitrating
-   it — ants tunnel through the root zone, roots grow across the galleries,
-   neither destroys the other. `rootwood.ron` already makes precisely this
-   argument for the *gnome* (*"a root threading through soil used to stop a
-   tunnel dead… It still cannot be dug — it simply is not a wall any more"*);
-   the creature half is the unfinished part of that change. It needs the
-   occlusion write described for the trunk case, but at far smaller scope and
-   with none of the canopy-side risks, since it is underground.
+4. **Root tissue passable to ants while staying un-diggable** — the option
+   none of the other three covers, and the one the owner arrived at
+   independently. **Built 2026-09-03, measured, and left switched off.** The
+   mechanism is correct and is kept live behind
+   `Material::creature_passable`, `World::occlude`/`reveal`,
+   `PIXEL_PHYSICS_ROOT_PASSABLE` and
+   `an_ant_walks_through_a_root_and_leaves_it_standing`; the opt-in is
+   withdrawn in `rootwood.ron`. Two measured reasons, four seeds, both arms
+   from one binary:
+
+   **It buys nothing, because roots are not what blocks a colony.** Ants
+   meet a root **1, 5, 24 and 31 times** in 9,000 frames, and the
+   blocked-move rate does not move: 0.089 / 0.076 / 0.075 / 0.074 with the
+   feature against 0.083 / 0.074 / 0.089 / 0.070 without — no direction, and
+   the same ~7–9% either way. The premise the work was scoped on is simply
+   not there.
+
+   **And it costs trees.** An occluded cell reads as somebody else's to
+   **twelve** separate `organism_id() != organism_id` guards in `plant.rs`,
+   so while an ant stands in a root that root stops absorbing water and
+   stops conducting carbon. On a marginal tree it is fatal:
+
+   | seed | occlusions | standing plant cells, on → off |
+   |---|---|---|
+   | 1 | 1 | 4,522 → 4,630 |
+   | 2 | **5** | **4 → 3,113** |
+   | 3 | 24 | 1,699 → 3,049 |
+   | 4 | 31 | 3,665 → 3,369 |
+
+   Five occlusions killed seed 2's tree. Two of four seeds lost most of
+   their canopy, one was flat, one gained.
+
+   **What caught it is worth recording**, because nothing aimed at plants
+   did: `lab::tests::copies_carry_what_was_planted_and_still_diverge`, a test
+   about whether a rack's copies carry their seed, went to `plant_cells 0` in
+   all three copies against 19/20/0 ablated. Its `animals`/`animal_cells`
+   columns were **identical across copies in both arms**, so despite its own
+   comment saying it reads on the animals, its entire discriminating power
+   sits in the plant column it disclaims as uncontrolled. That is a real
+   weakness in the test and it is the only reason this regression was seen at
+   all — worth fixing on its own terms rather than left as luck.
+
+   **Re-enabling means first** routing those twelve plant reads through
+   `World::covered_at`, the way `plant::is_structural_anchor` now does
+   (fixing the anchor site alone was tried and was **not** sufficient — the
+   lab test stayed red). Given reason 1, the case for doing that work is
+   weak: it would remove the cost without supplying a benefit.

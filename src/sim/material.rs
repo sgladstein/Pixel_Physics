@@ -671,6 +671,38 @@ pub struct MaterialDef {
     /// up.
     #[serde(default)]
     pub climbable: bool,
+    /// Whether a **creature** walks through this material rather than into
+    /// it — `climbable`'s sibling on the other character, and deliberately
+    /// not the same flag.
+    ///
+    /// `climbable` is a *player* property and its own doc says so twice; the
+    /// creature half was left undone on purpose (`player::footing`: *"One-way,
+    /// deliberately: `creature::move_cost` is untouched, so ants still cannot
+    /// walk into plants"*). This is that half, and it is separate because the
+    /// two characters are allowed to disagree: the gnome walks through a whole
+    /// tree, and an ant — for now — only through roots.
+    ///
+    /// **Only ever true of a cell that belongs to a living organism**; the
+    /// dispatch site tests `Cell::organism_id() != 0` alongside it, exactly as
+    /// `player::footing` does, because material alone cannot separate a grown
+    /// root from `wood` someone painted and both must stay possible.
+    ///
+    /// **Passability, never diggability.** A creature may occupy the cell; it
+    /// still cannot remove one — `penetration_resistance` defaults to 100
+    /// against an ant's `dig_force` of 1.0 and this does not touch that. The
+    /// pair is the whole point: it dissolves the mutual blocking between a
+    /// colony and a root plate instead of arbitrating it. Roots already grow
+    /// through open air (`plant::growable` returns `true` for `EMPTY`,
+    /// measured at 79/1/28/21 root cells inside a carved gallery over four
+    /// seeds), so before this a root crossing a tunnel plugged it *permanently*
+    /// — the ant could neither pass nor cut. See `open-bugs-handoff.md` §Z4.
+    ///
+    /// Turning it on for `wood` and `leaf` is what makes the whole tree
+    /// passable; that is a bigger change with canopy-side consequences
+    /// (footing is not floor, ants that cannot fall out of a crown) and is
+    /// deliberately not taken here.
+    #[serde(default)]
+    pub creature_passable: bool,
     /// Whether this powder is too light to impede the character at all --
     /// he moves through it as if it were not there.
     ///
@@ -1715,6 +1747,8 @@ pub struct Material {
     pub self_supporting: bool,
     /// See `MaterialDef::climbable`.
     pub climbable: bool,
+    /// See `MaterialDef::creature_passable`.
+    pub creature_passable: bool,
     /// See `MaterialDef::insubstantial`.
     pub insubstantial: bool,
     /// See `MaterialDef::falls_through_organisms`.
@@ -2072,6 +2106,7 @@ impl From<MaterialDef> for Material {
             reinforces_powder: def.reinforces_powder,
             self_supporting: def.self_supporting,
             climbable: def.climbable,
+            creature_passable: def.creature_passable,
             insubstantial: def.insubstantial,
             falls_through_organisms: def.falls_through_organisms,
             scenery: def.scenery,
@@ -2472,6 +2507,7 @@ impl MaterialRegistry {
             reinforces_powder: false,
             self_supporting: false,
             climbable: false,
+            creature_passable: false,
             insubstantial: false,
             falls_through_organisms: false,
             scenery: false,
@@ -2552,6 +2588,7 @@ impl MaterialRegistry {
             reinforces_powder: false,
             self_supporting: false,
             climbable: false,
+            creature_passable: false,
             insubstantial: false,
             falls_through_organisms: false,
             scenery: false,

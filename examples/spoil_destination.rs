@@ -225,6 +225,11 @@ const TUNNEL_Y0: i32 = GROUND_Y + 6;
 const TUNNEL_Y1: i32 = GROUND_Y + 8;
 
 struct Outcome {
+    /// **Did the pass-through fire at all?** A root a colony never met and a
+    /// root it walked through harmlessly are the same root count.
+    occlusions: u64,
+    moves: u64,
+    blocked: u64,
     digs: u64,
     dumped: u64,
     lifted: u64,
@@ -295,6 +300,9 @@ fn run(arm: &Arm, seed: u64, grow: usize, frames: usize, ants: i32) -> Outcome {
     top.sort_unstable_by_key(|&(h, x, _)| (std::cmp::Reverse(h), x));
     top.truncate(12);
     Outcome {
+        occlusions: w.creature_stats.occlusions - base.occlusions,
+        moves: w.creature_stats.moves - base.moves,
+        blocked: w.creature_stats.moves_blocked - base.moves_blocked,
         digs: w.creature_stats.digs - base.digs,
         dumped: w.creature_stats.spoil_dumped - base.spoil_dumped,
         lifted: w.creature_stats.spoil_lifted - base.spoil_lifted,
@@ -347,9 +355,13 @@ fn main() {
         for seed in 1..=seeds {
             let o = run(&arm, seed, grow, frames, ants);
             println!(
-                "{label} seed={seed} | digs {:5} dumped {:5} lifted {:5} ({:4.1}%) lift_max {:3} \
+                "{label} seed={seed} | occl {:5} | blocked {:5}/{:6} ({:5.3}) | digs {:5} dumped {:5} lifted {:5} ({:4.1}%) lift_max {:3} \
                  | spoil {:5} of which above ground {:5} touching plant {:4} | {} \
                  | roots {} -> {} | plant {} -> {}",
+                o.occlusions,
+                o.blocked,
+                o.moves,
+                if o.moves > 0 { o.blocked as f64 / o.moves as f64 } else { 0.0 },
                 o.digs,
                 o.dumped,
                 o.lifted,

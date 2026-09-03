@@ -267,6 +267,15 @@ pub struct CreatureStats {
     /// only way spoil reaches a cell that is not adjacent to a dig, and
     /// splitting the two is what says whether a mound was carried or
     /// teleported. `spoil_dumped` alone cannot: both branches increment it.
+    /// **Body cells that stepped into living tissue instead of being stopped
+    /// by it** — the "did it fire at all" counter for `World::occlude`.
+    ///
+    /// A pass-through that never happens and a pass-through that happens and
+    /// is harmless are the same picture and the same root count; only this
+    /// says which. `CLAUDE.md`'s standing rule, and it is what settled
+    /// whether a lab regression was the mechanism firing or the RNG stream
+    /// diverging underneath it.
+    pub occlusions: u64,
     pub spoil_lifted: u64,
     /// The longest single lift, in rows. Read beside `spoil_lifted`, which
     /// says only that the branch fired: a colony lifting one row out of its
@@ -2959,6 +2968,7 @@ impl World {
             energy: 0.0,
             crop: None,
             spoil: None,
+            occluded: Vec::new(),
             since_nest: 0,
             forage_anchor: (0, 0),
             forage_max: 0,
@@ -4245,6 +4255,91 @@ impl World {
     /// promotion — this exists now so the seam is already in place (and
     /// `promote_liquid_body`/`demote_body` already route their own flag
     /// writes through it) before a later step's solver needs it for real.
+    /// **What is really at `(x, y)`, when a body is standing in it** — the
+    /// tissue `occlude` covered, or `None` if nothing is covered here.
+    ///
+    /// Membership alone was not enough, and this is the correction. `occlude`
+    /// keeps a plant's *claim* on an occupied position, so `anchor_support`
+    /// still conducts through it — but `plant::is_structural_anchor` reads the
+    /// **grid**, and bailed on `cell.organism_id() != organism_id`. An ant
+    /// standing in a root therefore deleted that root from the tree's anchor
+    /// set, and roots are what anchor a tree: enough of them at once and the
+    /// support walk finds the plant unreachable and sheds it. Measured by
+    /// `lab::tests::copies_carry_what_was_planted_and_still_diverge`, which
+    /// went to **plant_cells 0 in all three copies** against 19/20/0 with the
+    /// mechanism ablated — a test that is not about ants at all, and the only
+    /// thing in the suite that caught it.
+    ///
+    /// **One organism lookup and a scan of at most a body's length**, so it
+    /// stays a single source of truth rather than a second map to keep in
+    /// step: the covering animal already holds the obligation in
+    /// `OrganismState::occluded`, and this reads it back through the id the
+    /// grid cell is carrying anyway.
+    pub fn covered_at(&self, x: i32, y: i32) -> Option<Cell> {
+        let id = self.get(x, y).organism_id();
+        if id == 0 {
+            return None;
+        }
+        self.organism(id)?.occluded.iter().find(|&&(p, _)| p == (x, y)).map(|&(_, c)| c)
+    }
+
+    /// **Write a body cell over living tissue without the tissue losing its
+    /// place.** The near half of `reveal` below; see that pair before using
+    /// either.
+    ///
+    /// A creature is cells in the grid, where the gnome is an off-grid
+    /// rectangle drawn over the world — which is why passability was free for
+    /// him and is not for an ant. An ant stepping into a root through the
+    /// ordinary `set` would do two things, and the second is the one that
+    /// bites: it overwrites the root, *and* the seam's
+    /// `reindex_organism_cell` drops that position from the tree's own cell
+    /// list. `plant::anchor_support` then re-walks from the anchors, finds
+    /// everything past the gap unreachable, and sheds it. An ant walking
+    /// through a root would sever it.
+    ///
+    /// So this inserts the newcomer's claim and **deliberately does not
+    /// remove the occupant's**: `reindex_organism_cell(x, y, 0, …)`. The
+    /// plant keeps the position in `state.cells` for as long as the body
+    /// stands there, its support chain is unbroken, and its scalars are never
+    /// round-tripped through the seam — which matters because that seam
+    /// re-inserts a moved cell with a **zeroed** `OrganismCell`, so a root
+    /// that left and came back would come back with its carbon wiped (that
+    /// function's own doc says so: *"the moment a carbon-carrying cell can
+    /// move, this needs a move-aware seam"*).
+    ///
+    /// The plant's own passes are already defensive about finding somebody
+    /// else's cell at one of their positions — the tip-conversion walk skips
+    /// on `cell.organism_id() != organism_id`, and `anchor_support` reads
+    /// only the cell type, which a body cell answers as not-a-leaf, so
+    /// conduction is unchanged.
+    pub(crate) fn occlude(&mut self, x: i32, y: i32, body: Cell) {
+        let old = self.write_cell(x, y, body);
+        if old.managed() {
+            self.demote_body_at(x, y);
+        }
+        self.reindex_organism_cell(x, y, 0, body.organism_id());
+    }
+
+    /// **Put back what a body was covering**, the far half of `occlude`.
+    ///
+    /// The mirror image: remove the *body's* claim and do not re-insert the
+    /// occupant's, because the occupant never lost it. Passing the covered
+    /// cell's own owner as `now` would be the bug this pair exists to avoid —
+    /// it would re-insert through the seam and hand a root back a zeroed
+    /// `OrganismCell`.
+    ///
+    /// Every `occlude` must be matched by one of these. The two callers are
+    /// `creature::relocate_chain`, when a body vacates, and
+    /// `creature::creature_dies`, so that a corpse never buries the tissue it
+    /// happened to be standing in.
+    pub(crate) fn reveal(&mut self, x: i32, y: i32, covered: Cell) {
+        let old = self.write_cell(x, y, covered);
+        if old.managed() {
+            self.demote_body_at(x, y);
+        }
+        self.reindex_organism_cell(x, y, old.organism_id(), 0);
+    }
+
     pub(crate) fn set_owned(&mut self, x: i32, y: i32, cell: Cell) {
         self.write_cell(x, y, cell);
     }
