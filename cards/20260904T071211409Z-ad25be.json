@@ -1,0 +1,46 @@
+{
+  "id": "20260904T071211409Z-ad25be",
+  "created": "2026-09-04T07:12:11Z",
+  "board": "plants",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/plant-engine-rethink-brief-rk7lq5",
+    "commit": "0b194c71",
+    "agent": null,
+    "session_id": "2fd32b8c-66a6-5662-ac48-04f7486d66f4",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Five clones and five strangers, in a bed with nothing else growing",
+  "question": "One bed is five copies of ONE tree. The other is five different trees. Click the bed you think is the clones.",
+  "context_md": "**This is your suggestion, and it changed the answer.** Turning seeding off means every plant here is one that was planted -- no offspring crowding in between. The earlier card had breeding on, and that turned out to be why nothing was visible: over a long run the founders breed, the seedlings fill the gaps, and what you end up judging is a thicket rather than the plants you set out.\n\n**Did it fire.** Both beds: **0 seeds borne** over 26,000 frames, against 90 and 62 on the same beds with breeding on -- so nothing here reproduced. One bed carries **1 distinct genome and 1 developmental seed**, the other **5 and 5**, censused after germination on these exact runs. Five founders each, same world, same flat soil, same light.\n\n**With the numbers to match.** Pooled over six world seeds with seeding off, plant size is heritable in every bed I tested -- H2 **0.41 to 0.77**. With seeding on, the same measurement read **0.000**. That is the whole finding, and it is yours.\n\n*(Both images come from the same world the numbers came from -- which was not true until an hour ago. The render path was leaving the world seed unset while the tables started at seed 1, so every card this harness ever made was a picture of one world captioned with another's numbers.)*",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "clone bed - 1 genome, 1 developmental seed",
+      "files": [
+        "20260904T071211409Z-ad25be/000-sfc_clone.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "mixed bed - 5 genomes, 5 developmental seeds",
+      "files": [
+        "20260904T071211409Z-ad25be/001-sfc_pop.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
