@@ -2034,7 +2034,20 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   empty lab runs at **1024x**) is what refuted it -- `ca_sweep` and `field`
   both fall alongside a change that touches neither. What it costs is
   **fecundity**: the tick is the plant's economy, so a tree on a 5x interval
-  seeds 5x more slowly. Defaults left off pending the owner's verdict.
+  seeds 5x more slowly. Landed on the owner's *"looks good"* and **scoped to
+  the lab bed**, engine defaults untouched. **§15 then retires the field as a
+  target**: both items §8 handed forward are stale -- the moisture pass it
+  wanted a `ChunkView` for costs **0.006 ms**, and the all-or-nothing early-out
+  it wanted replaced now solves **25 tiles of ~640 (4%)** -- so a
+  handed-forward estimate is a measurement of the build it was taken on, and
+  this one outlived its build by two sections. The next item instead comes
+  from the owner's CPU meter reading 40%: `scheduler.rs`, `plant.rs`,
+  `creature.rs` and `structural.rs` contain **no rayon at all**, so
+  `step_active_sites` is serial, and Amdahl on 4 cores predicts exactly the
+  utilisation observed. Also records that the **draw is not the limiter**
+  (2.59 ms/frame at 512x320, worth 16% of the dial) and that `FIELD_PASS` had
+  the same one-frame sampling defect as `ORGANISM_PASS` -- **three instruments
+  in one session**.
 - [plant-reseeding-2026-09-03.md](plant-reseeding-2026-09-03.md) —
   **measured 2026-09-03.** Answers the owner's two questions about why the
   lab's plants never spread. **Q1: no, a plant cannot evolve better seed

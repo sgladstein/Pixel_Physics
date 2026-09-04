@@ -1151,3 +1151,96 @@ have gone on measuring the old behaviour under the new bed's name. Both knobs
 are now `Option`: unset means *use the bed*, and the echo line prints `(bed)`
 so a reader can see which it was. That is the disconnected-knob trap wearing
 its other face — a knob that is connected to the wrong end.
+
+
+---
+
+## 15. §8's two leftovers are both stale — 2026-09-04
+
+*§14.4 left the field as the next target: after the cadence change it is the
+**largest** phase, 0.889 ms of a 2.1 ms tick, its share risen from 23% to 42%
+purely because the plants got cheaper. Measured, the two items §8 handed
+forward are worth almost nothing, and this section is why.*
+
+### 15.1 `FIELD_PASS` had the same defect `ORGANISM_PASS` did
+
+It printed one sampled frame. For this pass that is worse than for
+`step_organisms`: the field is driven by the sky, so a single frame is a
+single **phase of a designed oscillator**, and `frame % every == 0` pins the
+reading to whichever phase that lands on. `CLAUDE.md`'s own rule — a designed
+cycle must be divided out of every number it reaches — and the instrument was
+doing the opposite. It now averages over the window.
+
+**That makes three instruments in this repo found with the same defect in one
+session** (`ORGANISM_PASS`, and `FIELD_PASS` here). The shape is worth naming
+once: **a profiler that samples one frame is measuring whatever that frame
+happens to be a sample of** — the stagger, for a staggered schedule; the
+phase, for anything the sky drives.
+
+### 15.2 What the field actually costs
+
+Per frame, averaged over the 8,000 ending at 32,000, `plant_load=0`, cadence
+on. **`solved` is 25.4 tiles per frame** of roughly 640 in the box:
+
+| pass | ms | share |
+|---|---|---|
+| `blocked` | 0.178 | 21% |
+| `advection` | 0.144 | 17% |
+| `velocity` | 0.139 | 17% |
+| `sky` | 0.118 | 14% |
+| `pressure` | 0.096 | 11% |
+| `diffusion` | 0.092 | 11% |
+| `sky temperature` | 0.057 | 7% |
+| **`moisture`** | **0.006** | **0.7%** |
+| `converged` | 0.005 | 0.6% |
+| **total** | **0.836** | |
+
+### 15.3 Both handed-forward items are gone
+
+**"A `ChunkView` for the moisture pass — worth about another 1.0 ms."** The
+moisture pass costs **0.006 ms**. The estimate was made before §8's own
+moisture work landed and nothing has re-read it since; the work it was
+proposed to save has already been saved by a different change. **A
+handed-forward estimate is a measurement of the build it was taken on**, and
+this one outlived its build by two sections.
+
+**"The field's all-or-nothing early-out, still gated on *any* chunk being
+awake anywhere."** Also stale: the per-tile selective solve exists now, and it
+is working — 25.4 tiles solved of ~640, **4%**. Whatever the whole-world flag
+costs, it is not costing a solve of the world.
+
+**And the largest pass has already had its hoists.** `rebuild_blocked` fetches
+the chunk once per chunk and hoists the tile pointer out of both inner loops,
+with a comment recording the 4,096 `World::get` calls that used to be there.
+Its remaining early-exit was removed *deliberately*, for a measured
+correctness reason (`moss_spreads_over_damp_stone_and_not_over_dry`), and
+must not be put back.
+
+So the field is **not** where the next win is. Its cost is spread across eight
+passes with no dominant one, over a solve set that is already 4% of the box.
+
+### 15.4 What the next win is, and it came from the owner's CPU meter
+
+Owner, 2026-09-04: *"are we set up to run in multiple cores? I thought we were
+but my CPU is only 40% active."*
+
+Counted: `parallel.rs`, `field.rs` and `render.rs` use rayon. **`scheduler.rs`,
+`plant.rs`, `creature.rs` and `structural.rs` contain none** — so
+`World::step_active_sites`, both halves of it, is serial.
+
+The arithmetic lands on the observation. On the build the owner is running,
+`active_sites` is ~65% of the frame and serial, so Amdahl on 4 cores gives
+`1/(0.65 + 0.35/4)` = **1.36x, or 34% utilisation**. After the cadence change
+the serial share falls to ~34% and the ceiling rises to ~45%.
+
+**Parallelising `active_sites` is now the largest single item**, worth up to
+0.54 ms of a 2.1 ms frame — the dial from 7.7x to about 10x — and it is the
+only remaining item with a number that size. It is also the riskiest: those
+passes write to a shared world and `PLAN.md` requires same-build determinism,
+so it needs `parallel.rs`'s region discipline rather than a `par_iter`.
+
+**And the draw is not the limiter**, which is worth recording because it was
+the obvious suspect. At 512x320 the render costs **2.592 ms/frame**, taking
+the dial from `x sim` 7.7x to `x@60Hz` **6.5x** — about 16%. Real, secondary,
+and it scales with window size, which no measurement in this report has
+varied.
