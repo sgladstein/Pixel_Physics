@@ -351,6 +351,7 @@ fn median(v: &[f32]) -> f32 {
 
 /// Which arm the founders' genomes come from.
 #[derive(Clone, Copy, PartialEq)]
+#[derive(Debug)]
 enum Arm {
     /// The shipped stand.
     Pop,
@@ -498,17 +499,58 @@ struct Bed<'a> {
     frames: u64,
     worldseed: Option<u64>,
     key: organism::DevelopmentalKey,
+    /// **How far apart the founders stand**, as a multiple of the width the
+    /// scene would pick for this many. Exists because a card comparing two
+    /// stands has to hold the *environment* as still as it can: at the
+    /// default spacing a tree's crown reaches its neighbour's, so part of
+    /// what separates two plants is who stood next to them rather than what
+    /// they are. Widening the bed buys each tree its own light.
+    spacing: f32,
 }
 
 fn run_and_maybe_render(bed: Bed<'_>, arm: Arm, reference: usize, png: Option<&str>) -> (Vec<Shape>, ()) {
-    let Bed { species, founders, frames, worldseed, key } = bed;
-    let (mut w, ids) = build(species, founders, worldseed, None, key);
+    let Bed { species, founders, frames, worldseed, key, spacing } = bed;
+    let d = common::PlantScene::default();
+    let wide = ((d.width as f32 * (founders as f32).max(1.0) / d.trees as f32) * spacing) as i32;
+    let (mut w, ids) = build(species, founders, worldseed, Some(wide), key);
+    // **How many DIFFERENT plants this arm actually planted**, printed for
+    // every arm. `CLAUDE.md`: an image shows what and where and cannot show
+    // whether the thing you built is what produced it -- and this harness has
+    // twice shipped an arm that was silently uniform (`ref=` cloning the
+    // species mean, and the spread arm at developmental seed 0). A clone bed
+    // that reads 10 distinct genomes is not a clone bed, and a card built on
+    // one would be a picture of the harness.
+    let distinct = |w: &World, ids: &[(u16, i32, i32)]| -> (usize, usize) {
+        let mut genomes: std::collections::BTreeSet<Vec<u32>> = std::collections::BTreeSet::new();
+        let mut seeds: std::collections::BTreeSet<u64> = std::collections::BTreeSet::new();
+        for &(id, _, _) in ids {
+            if let Some((draws, alleles, _, dev)) = w.organism_genotype(id) {
+                let mut key: Vec<u32> = draws.iter().map(|d| d.to_bits()).collect();
+                key.extend(alleles.iter().map(|a| *a as u32));
+                genomes.insert(key);
+                seeds.insert(dev);
+            }
+        }
+        (genomes.len(), seeds.len())
+    };
     apply_arm(&mut w, &ids, arm, reference);
     for _ in 0..frames {
         parallel::step(&mut w);
         w.step_active_sites();
         w.step_fields();
     }
+    // **Counted AFTER the run, and the first version was not.** At frame 0
+    // every founder is an ungerminated `Seed` holding the species mean --
+    // `PlantScene::build` never calls `seed_genotype`, which is this
+    // harness's own recorded finding -- so a census there reports ONE genome
+    // for every arm including the mixed one, and reads as "the arms are
+    // identical". A genotype is drawn at germination; this is the first
+    // moment there is anything to count.
+    let (g1, s1) = distinct(&w, &ids);
+    println!(
+        "  {arm:?}: {} founders grew into {g1} distinct genome(s) and {s1} distinct developmental seed(s)",
+        ids.len()
+    );
     if let Some(path) = png {
         let (buf, width, ch) = render_stand(&w);
         image::save_buffer(path, &buf, width, ch, image::ColorType::Rgba8).expect("write png");
@@ -605,7 +647,8 @@ fn main() {
         },
     };
     println!("  developmental key: {key:?}");
-    let bed = Bed { species: &species, founders, frames, worldseed, key };
+    let spacing: f32 = arg("spacing").unwrap_or(1.0);
+    let bed = Bed { species: &species, founders, frames, worldseed, key, spacing };
     if shift > 0 {
         one_cell_over(&species, founders, frames, worldseed, sarg("png"), key);
         return;
