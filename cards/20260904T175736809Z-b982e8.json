@@ -1,0 +1,37 @@
+{
+  "id": "20260904T175736809Z-b982e8",
+  "created": "2026-09-04T17:57:36Z",
+  "board": "plants",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/plant-engine-rethink-brief-rk7lq5",
+    "commit": "4534d3b9",
+    "agent": null,
+    "session_id": "2fd32b8c-66a6-5662-ac48-04f7486d66f4",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Twelve clones, planted one column apart",
+  "question": "These are twelve copies of ONE tree, each grown alone in an identical bed, differing only by which column it was planted in. Is this the variability you were complaining about -- or does it read as a species that varies rather than a bug?",
+  "context_md": "**You asked whether the earlier cards showed the identical plants. They did not** -- in both, the clones stood in different columns, which is exactly when they diverge. This is that comparison done properly: same genome, same developmental seed, same flat soil, pinned clear weather, no breeding, each plant **alone in its own world**, and the same organism id in every arm. The only thing that differs is the column: 276 through 287, left to right, top row then bottom.\n\n**The control that makes it mean something:** two clones planted in the *same* column come out **cell-for-cell identical**. So everything you see here is produced by moving the seed one column.\n\n**Living cells, in panel order:** 2651, 1646, 2707, 2551, 1368, 1752 / 2044, 2541, 2127, **151**, 2219, 3368.\n\nThe **151** is the fourth panel on the bottom row, and it is not a small tree -- it is a tree that **died back**, 151 living cells standing inside a skeleton of its own dead wood. That is the graded death working as intended; it is not a failure.\n\n**Building this card overturned my own finding.** I had reported that four-fifths of clones sit inside a 5% band with a few escapes. That was measured at 6,000 frames, where a `tree` is a seedling with nothing built yet to differ with. At 20,000 frames -- these plants -- only 3 of 12 are within 15% of the median. Your reading of the beds was right and my number was wrong; the report now says so.",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "twelve clones, columns 276-287, 20,000 frames",
+      "files": [
+        "20260904T175736809Z-b982e8/000-clone_grid_20k.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
