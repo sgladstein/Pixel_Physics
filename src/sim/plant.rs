@@ -6207,41 +6207,39 @@ pub struct CellStress {
 pub const PLANT_SIZE_CADENCE: [(usize, u64); 5] =
     [(50, 1), (200, 2), (800, 3), (3200, 4), (usize::MAX, 5)];
 
-/// **A steeper table for the giants only**, selected by `PLANT_CADENCE=steep`.
+/// **Steepness presets, selected by `PLANT_CADENCE=<name>`.** Every one keeps
+/// the two smallest bands identical, so a seedling is never slowed; they
+/// differ only in how hard a *grown* plant is charged.
 ///
-/// The shipped table stops scaling at 3,200 cells, and a tree on this bed
-/// reaches **5,573** — so the plants that cost the most are exactly the ones
-/// whose interval stops growing, which is the opposite of what the owner
-/// asked for (*"it gets bigger and bigger"*). Every band below 3,200 is
-/// identical to the shipped one, so nothing a small or medium plant does
-/// changes; only the giants wait longer.
-///
-/// An env switch rather than a second constant because it is an experiment
-/// until measured: `CLAUDE.md`'s *ship a runtime selector rather than
-/// choosing*.
-/// **Steepened from 800 cells upward, which is where the work is.**
-///
-/// The first version of this table steepened only above 3,200 and measured
-/// almost nothing -- `active_sites` 0.868 -> 0.827 ms, a 5% move. That was
-/// the experiment being wrong, not the lever: §13.2's size curve puts
-/// **76.9% of the pass in the 800-3199 band and 19.7% above 3,200**, so
-/// steepening only the top band aimed at a fifth of the load and left the
-/// rest at 4x. `CLAUDE.md`'s *check that a planned step can demonstrate
-/// itself, before promising it will* -- asked one question earlier (which
-/// cells does this rule actually reach?) it would not have been built that
-/// way.
-pub const PLANT_SIZE_CADENCE_STEEP: [(usize, u64); 6] =
+/// **Aimed from 800 cells upward, which is where the work is.** The first
+/// steep table steepened only above 3,200 and measured almost nothing --
+/// `active_sites` 0.868 -> 0.827 ms, a 5% move. That was the experiment being
+/// wrong, not the lever: §13.2's size curve puts **76.9% of the pass in the
+/// 800-3199 band** and only 19.7% above 3,200, so steepening the top band
+/// alone aimed at a fifth of the load. `CLAUDE.md`'s *check that a planned
+/// step can demonstrate itself, before promising it will*.
+pub const CADENCE_SHIPPED: [(usize, u64); 5] = PLANT_SIZE_CADENCE;
+pub const CADENCE_MID: [(usize, u64); 6] =
+    [(50, 1), (200, 2), (800, 3), (3200, 6), (12800, 8), (usize::MAX, 10)];
+pub const CADENCE_STEEP: [(usize, u64); 6] =
     [(50, 1), (200, 2), (800, 4), (3200, 8), (12800, 12), (usize::MAX, 16)];
 
-/// Which table `size_cadence` reads. `PLANT_CADENCE=steep` picks the steep
-/// one; anything else keeps the shipped bands.
-fn cadence_table() -> &'static [(usize, u64)] {
+/// Which table `size_cadence` reads. `off` disables the rule outright, which
+/// is the control arm rather than a setting anyone would play.
+fn cadence_table() -> Option<&'static [(usize, u64)]> {
     use std::sync::OnceLock;
-    static STEEP: OnceLock<bool> = OnceLock::new();
-    if *STEEP.get_or_init(|| std::env::var("PLANT_CADENCE").as_deref() == Ok("steep")) {
-        &PLANT_SIZE_CADENCE_STEEP
-    } else {
-        &PLANT_SIZE_CADENCE
+    static SEL: OnceLock<u8> = OnceLock::new();
+    let sel = *SEL.get_or_init(|| match std::env::var("PLANT_CADENCE").as_deref() {
+        Ok("off") => 0,
+        Ok("mid") => 2,
+        Ok("steep") => 3,
+        _ => 1,
+    });
+    match sel {
+        0 => None,
+        2 => Some(&CADENCE_MID),
+        3 => Some(&CADENCE_STEEP),
+        _ => Some(&CADENCE_SHIPPED),
     }
 }
 
@@ -6251,7 +6249,8 @@ fn size_cadence(world: &World, cells: usize) -> u64 {
     if !world.plant_size_cadence {
         return 1;
     }
-    cadence_table().iter().find(|(hi, _)| cells < *hi).map_or(1, |&(_, mult)| mult)
+    let Some(table) = cadence_table() else { return 1 };
+    table.iter().find(|(hi, _)| cells < *hi).map_or(1, |&(_, mult)| mult)
 }
 
 fn bend_enabled() -> bool {
