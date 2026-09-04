@@ -1315,6 +1315,53 @@ reach every one of the 804 addresses, so neither is an unattended change.
 
 ---
 
+### 6.10 The rest of the free-lever audit: two decisions, one measurement
+
+§6.9 leaves three on the genuinely-free list. Two of them resolve without
+building anything, and the third is now known to be worth building.
+
+**`heading_inertia` is not free, and the audit that called it free asked the
+wrong question.** It asked *does anything charge carbon for it*; nothing does.
+But it blends stored heading against intent (`plant.rs:3547-3548`), so **high
+inertia is a plant ignoring its own light gradient** — it grows straight
+regardless of where the light is. The counterweight is *functional* rather than
+economic and it is already in the model: the optimum depends on the light
+field, so there is no single value selection can pin every plant at, which is
+the only thing §2's law actually forbids.
+
+**So it stays unpriced, deliberately.** A carbon price on top would be a fake
+price on an already-traded lever — worse than nothing, because it would bias
+the outcome toward wander for a reason no later reader could find. Recorded
+here so the next audit does not re-add it.
+
+**The turgor ceiling is worth pricing, and — unlike `seed_maturity` — a
+lineage can actually reach it.** §6.9's finding is that a price is worthless if
+the corpus scale puts the lever out of reach, so that check now comes first.
+Measured across all seven species that grow:
+
+| | corpus range | `param_scale` | drift step at σ=0.25 |
+|---|---|---|---|
+| `turgor_source` | 0.13 – **1.0** | 1.0 | 0.25 |
+| `turgor_yield` | **0.1 in every species** | 0.1 | 0.025 |
+| `turgor_per_cell` | 0.006 – 0.0075 | 0.0075 | 0.002 |
+
+A step of 0.25 against `herb`'s authored 0.32 is coarse but usable — it lands
+at 0.07 or 0.57, both meaningful heights — where `seed_maturity`'s step was
+**three times** its authored value. **So the turgor ceiling is the first free
+lever whose price would actually be exercised**, and it is the one to build
+next.
+
+**And `turgor_yield` is a constant wearing a parameter.** All seven species
+author exactly `0.1`. Nothing in the corpus varies it, so nobody has ever used
+it as a design axis — yet `ParamGenome` makes it heritable, which hands a
+lineage a lever the authors never pulled. That is not automatically wrong, and
+it is worth knowing before the ceiling is priced: **price the ceiling, not the
+two ends**, because `h_max = (turgor_source − turgor_yield) / turgor_per_cell`
+and pricing each end separately lets a lineage move both and raise the ceiling
+while each end looks individually restrained.
+
+---
+
 ## 7. What to do next, in the order the evidence supports
 
 1. **Post §2's result to the owner and get a verdict on the noise floor.** It
