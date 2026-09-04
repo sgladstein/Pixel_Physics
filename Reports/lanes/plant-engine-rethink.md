@@ -172,10 +172,27 @@ is the corpus doing its job. Applies to every future `ParamId` whose corpus is
 all zeros — check the reachable range against the range the mechanism needs
 before calling the channel evolvable.
 
-## The two things shipped inert, and what would turn them on
+## The four things shipped inert, and what would turn each one on
 
-`plant::PARAM_MUTATION_CHANCE = 0.0` and `Behavior::Reproduce::seed_launch`
-at 0 in every species. For the rate: the mechanism is measured, the rate is
+**The count has been wrong before and it matters**, because "landed" and
+"live" read the same in a changelog: the game is behaviourally identical to
+before any of this, and a later session reading the commit subjects would not
+guess that.
+
+| shipped at | turned on by | what is still owed |
+|---|---|---|
+| `plant::PARAM_MUTATION_CHANCE = 0.0` | lab `species_drift` | the free-lever list, below |
+| `Behavior::Reproduce::seed_launch` 0 in every species | lab `seed_launch`, or a species file | nothing — it is priced (§6.6) |
+| `Behavior::Grow::leaf_spread` 0 in every species | lab `leaf_spread` | the owner's verdict on card `…-4f14bd` |
+| `DevelopmentalKey::World` | lab `shared_development` | the owner's verdict on the two `dev=` cards |
+
+**`shared_development` is the one to be careful about**: it is the only one of
+the four whose *default* is a mode rather than a rate, and moving it re-folds
+every plant already standing (`World::refold_developmental_seeds`). Without
+that re-fold the box runs two rules at once and the panel reports a setting it
+is not applying — which is what it did until the guard caught it.
+
+For the drift rate: the mechanism is measured, the rate is
 not. **Run `genome_reach -- drift=1` before raising it** — the addresses that
 pile up at their `clamp_param` bound are the free-lever list measured rather
 than inventoried, and pricing those is the prerequisite. At rate 0.3 nothing
