@@ -765,9 +765,22 @@ fn main() {
     // **`png=` renders the three arms from the runs that produced the
     // numbers**, so a card and its `meta` cannot come from different beds.
     if let Some(stem) = sarg("png") {
+        // **The picture and the table must be the same world, and until
+        // 2026-09-04 they were not.** This branch passed `bed` through with
+        // its `worldseed` still `None`, which leaves `World::new`'s own
+        // seed; the measurement loop below starts at `Some(1)`. So every
+        // card this harness ever produced was rendered on one world while
+        // the numbers quoted beside it came from another -- and the two
+        // disagree enormously, because outcomes here are chaotic in the
+        // seed: the same arguments gave a clone bed of median 2,784 cells
+        // in the table and median 57 in the render. `CLAUDE.md` asks for the
+        // discrete count from *the run that made the image*; this is the
+        // other half of that rule, and nothing was checking it.
+        let rendered = Bed { worldseed: bed.worldseed.or(Some(1)), ..bed };
+        println!("  rendering world seed {:?} -- the same seed the table starts at", rendered.worldseed);
         for (arm, name) in [(Arm::Pop, "pop"), (Arm::Clone, "clone"), (Arm::Spread, "spread")] {
             let path = format!("{stem}_{name}.png");
-            let shapes = run_and_maybe_render(bed, arm, reference, Some(&path)).0;
+            let shapes = run_and_maybe_render(rendered, arm, reference, Some(&path)).0;
             println!("  {name}: {} established, median cells {:.0}", shapes.len(), median(&shapes.iter().map(|s| s.cells).collect::<Vec<_>>()));
         }
         return;
