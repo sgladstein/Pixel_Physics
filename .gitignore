@@ -43,3 +43,19 @@ scripts/.branchcheck-selftest-mutant.sh
 # one would only ever grow. Promoting a jar into `assets/species/` is what
 # makes a specimen part of the game, and that lands as a tracked file.
 /assets/shelf/
+
+# Contact sheets the `examples/` harnesses write to whatever directory they
+# are run from, which is normally the repo root. They are output to be looked
+# at and thrown away -- `labui` alone is 5 MB a run -- and every PNG that is
+# genuinely tracked here lives under `docs/screenshots/` or `Reports/img/`,
+# put there deliberately. Named individually rather than as a blanket `*.png`
+# so that curating a sheet into either of those directories still works
+# without a force-add.
+/filmstrip.png
+/lab_resolution.png
+/labshot.png
+/labui.png
+/labzoom.png
+/uishot.png
+/vision_probe.png
+/labdial.gif

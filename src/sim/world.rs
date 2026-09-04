@@ -1697,6 +1697,39 @@ pub struct World {
     /// test's result from another thread. **A tunable that is process-global
     /// is a hidden argument to every test that reads it.** Per-world, each
     /// test's bed carries its own and nothing leaks.
+    /// **What a plant's growth draws are keyed on** — see
+    /// [`organism::DevelopmentalKey`], which carries the whole rationale.
+    ///
+    /// Defaults to `World`, the shipped behaviour, so neither game moves
+    /// until something sets it. A field on the world for `mutation_sigma`'s
+    /// reason, stated at length above and worth restating because this one
+    /// would hit it harder: a process-global would be a hidden argument to
+    /// every test that grows a plant, and the suite runs in parallel.
+    pub developmental_key: super::organism::DevelopmentalKey,
+    /// **The deepest generation any lineage has ever reached** — a high-water
+    /// mark, never decremented, and the reason it exists is that every other
+    /// generation readout in this repo cannot answer the question.
+    ///
+    /// `examples/selection_arena.rs` records the failure in its own output:
+    /// over a 150,000-frame run the population's mean generation rose to ~2.9
+    /// by frame ~50,000 and then **fell back** — 2.88, 2.85, 2.77, 2.73, 2.63,
+    /// 2.60 — and it prints `*** THE GENERATION AXIS IS SATURATED ***` when
+    /// the span is under 3.0. Nothing is wrong with the world when that
+    /// happens. **Mean generation is taken over *living* organisms, and at
+    /// steady state deaths of old plants balance births of new ones, so it
+    /// equilibrates rather than accumulating.** Every readout in the repo is a
+    /// max or a mean over the living, so all of them do this.
+    ///
+    /// The consequence is that "did this change make lineages deeper?" was
+    /// unanswerable: a lever that doubled the birth rate would move a
+    /// mean-over-living by nothing at all. This counter accumulates, so it
+    /// can only go up, and a bed that turns over faster reaches a given depth
+    /// sooner. Pair it with `organism_turnover` for the rate.
+    ///
+    /// Zero in a world where nothing has bred, which is the honest reading
+    /// and not a bug: a founder is generation 0.
+    pub deepest_generation: u16,
+
     pub mutation_sigma: f32,
     /// **The chance a seed is born with one of its parent's fate rules
     /// changed** — the coarser of the two heredity dials. See
@@ -2472,6 +2505,8 @@ impl World {
             // On, because it is the shipped behaviour and a default that
             // silently disables a mechanism is a mechanism nobody measures.
             plant_load_failure: true,
+            developmental_key: super::organism::DevelopmentalKey::default(),
+            deepest_generation: 0,
             mutation_sigma: super::plant::MUTATION_SIGMA,
             fate_mutation_chance: super::plant::fate_mutation_chance_seed(),
             param_mutation_chance: super::plant::param_mutation_chance_seed(),
@@ -2995,6 +3030,17 @@ impl World {
             // with the parent's mutated copy for a bred seed, in the same
             // call, exactly as it does for `fates`.
             params: super::organism::ParamGenome::default(),
+            // **Stamped later, not here**, and the two have different
+            // owners: `plant::seed_genotype` draws `lineage_seed` for a
+            // founder, `plant::bear_seed_at` copies the parent's for a bred
+            // seed, and the germination paths stamp `dev_seed`/`origin`/
+            // `germination_frame` once the plant knows where it is. A
+            // creature keeps all four at their zero values and never reads
+            // them.
+            lineage_seed: 0,
+            dev_seed: 0,
+            origin: None,
+            germination_frame: 0,
             water: 0.0,
             water_status: 1.0,
             water_uptake: 0.0,
@@ -3235,6 +3281,52 @@ impl World {
         (self.organisms_born, self.organisms_died)
     }
 
+    /// **Re-fold every standing plant's developmental seed**, for when the
+    /// dial moves under a box that is already growing.
+    ///
+    /// `dev_seed` is stamped once at germination, from the coarseness in
+    /// force at that moment — which is right for the hot path (it is read
+    /// once per organism cell per tick) and wrong for a live control. Without
+    /// this, moving the dial from 0 to 2 would leave every plant already
+    /// standing folded at the *old* setting: they would switch to the plant
+    /// key, as intended, but at coarseness 0 rather than 1, so the box would
+    /// be running two different rules at once and the dial would be lying
+    /// about what it did.
+    ///
+    /// One pass over live organisms per dial move, which is a keypress rather
+    /// than a frame. Plants with no origin — creatures, and anything that
+    /// never went through a germination path — are skipped: they have no
+    /// coordinate to fold and `growth_stream` falls back to the world key for
+    /// them anyway.
+    pub fn refold_developmental_seeds(&mut self) {
+        let key = self.developmental_key;
+        for id in self.live_organism_ids() {
+            if let Some(state) = self.organism_mut(id) {
+                if let Some((gx, gy)) = state.origin {
+                    state.dev_seed = key.fold(state.lineage_seed, gx, gy);
+                }
+            }
+        }
+    }
+
+    /// **How deep the pedigree has ever run, and how many births it took** —
+    /// the cumulative generation clock.
+    ///
+    /// Returns `(deepest_generation, births, live)`. Read the first against
+    /// the frames it took: *generations per hour* is what the parameter
+    /// genome's whole search depends on, because one point mutation per birth
+    /// spread over 804 addresses on a lineage two generations deep is a
+    /// search that cannot arrive.
+    ///
+    /// **`births / live` is the second half and it is not redundant.** A bed
+    /// can turn over briskly and still never deepen, if every recruit dies
+    /// before breeding — high births, flat depth. A bed can also deepen with
+    /// almost no births if one lineage runs away. The pair separates them;
+    /// either alone does not.
+    pub fn generation_clock(&self) -> (u16, u64, usize) {
+        (self.deepest_generation, self.organisms_born, self.live_organism_ids().len())
+    }
+
     /// How many organism slots are currently allocated, and how many of
     /// those are live — the high-water reading the 4,095 ceiling is judged
     /// against.
@@ -3321,12 +3413,32 @@ impl World {
         draws: [f32; super::organism::GENOTYPE_TRAITS],
         alleles: [u8; super::organism::DISCRETE_LOCI],
         params: super::organism::ParamGenome,
+        lineage_seed: u64,
     ) -> bool {
+        // Read before the mutable borrow below takes `self`.
+        let key = self.developmental_key;
         match self.organism_mut(organism_id) {
             Some(state) => {
                 state.genotype_draws = draws;
                 state.alleles = alleles;
                 state.params = params;
+                // **The lineage seed rides with the genome, and leaving it
+                // out would make the clone arm vacuous.** Under
+                // `DevelopmentalKey::Plant` this decides which shape a genome
+                // grows into, so a harness that writes the draws and not this
+                // produces founders carrying one genome and N different
+                // developments -- which is a clone stand that is not one, and
+                // it reads as *the change did nothing*. That is precisely how
+                // the `ref=` argument was inert for a whole night
+                // (`Reports/plant-engine-rethink-2026-09-03.md` §2.1).
+                state.lineage_seed = lineage_seed;
+                // `dev_seed` follows from it, but the origin is only known
+                // once the plant has germinated; a founder written before
+                // then gets it stamped by the germination path, and one
+                // written after keeps the fold it already had.
+                if let Some((gx, gy)) = state.origin {
+                    state.dev_seed = key.fold(lineage_seed, gx, gy);
+                }
                 state.inherited = true;
                 true
             }
@@ -3353,8 +3465,8 @@ impl World {
     pub fn organism_genotype(
         &self,
         organism_id: u16,
-    ) -> Option<([f32; super::organism::GENOTYPE_TRAITS], [u8; super::organism::DISCRETE_LOCI], super::organism::ParamGenome)> {
-        self.organism(organism_id).map(|s| (s.genotype_draws, s.alleles, s.params))
+    ) -> Option<([f32; super::organism::GENOTYPE_TRAITS], [u8; super::organism::DISCRETE_LOCI], super::organism::ParamGenome, u64)> {
+        self.organism(organism_id).map(|s| (s.genotype_draws, s.alleles, s.params, s.lineage_seed))
     }
 
     /// **Overwrite one live organism's brain genome**, for a harness that

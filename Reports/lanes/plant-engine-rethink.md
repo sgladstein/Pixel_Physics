@@ -7,7 +7,7 @@ The findings are in
 and are not repeated here. **This note holds only what a later session cannot
 reconstruct** — what was overturned, and what is waiting on an answer.*
 
-## Waiting on the owner — four review cards, all open at hand-off
+## Waiting on the owner — six review cards, all open at hand-off
 
 | card | asks | what it gates |
 |---|---|---|
@@ -15,6 +15,8 @@ reconstruct** — what was overturned, and what is waiting on an answer.*
 | `20260903T060536659Z-91838d` | the genome's two extremes alternating — two kinds of plant, or one kind at two sizes | nothing |
 | `20260903T060947894Z-4646f4` | twelve clones one column apart — is that scatter wanted, or to be cut down | **§7 item 2**, below |
 | `20260903T120950045Z-4f14bd` | blind A/B of leaf-cluster shape, `leaf_spread` 0 against 1 | whether `leaf_spread` **stays**: if the two stands read the same, retire the lever rather than tune it (§7 item 4) |
+| *(posted 2026-09-04)* | blind A/B, shipped against `dev=0` — a lineage with one inherited form | **which end of `shared_development` ships.** H2 on plant size 0.034 → 0.650 and crown width 0.227 → 0.658; the cost is that siblings grow alike |
+| *(posted 2026-09-04)* | blind A/B, shipped against `dev=1` — each plant one coherent form | whether coherence alone is worth having. **This card is the primary instrument at that end**, not the H2 table |
 
 **The fourth card was posted after the first three and this table did not have
 it for a while**, which is worth a line because the table is the only place a
@@ -73,6 +75,53 @@ before that card is answered.** Collect with
    of the shipped species' "second stems" occur on seeds whose launch counter
    reads zero. Had the treated arm been read alone, five second stems would
    have looked like the mechanism working.
+
+## Round two — the owner's direction on PR #225, and what it overturned
+
+All three items built and measured; the lab is wired so they can be played
+with (`PARAMS -> HEREDITY`). What a later session cannot reconstruct:
+
+1. **The Spread arm was developmentally uniform and its own control said so.**
+   `H2 (control)` read 0.000 on every descriptor at `dev=0`. A founder has no
+   lineage seed until something draws one, so reading it off an ungerminated
+   founder returns 0 and writing that onto all sixteen collapses `Var(spread)`
+   — the denominator of every H2. **The `ref=` failure, in the same file,
+   caught by a control rather than by a byte-identical output.** Before
+   trusting any H2 row here, check the control row in the same file is
+   non-zero.
+2. **`dev=1` moves heritability, which the review predicted it would not.**
+   ~0.32 on `cells` against a shipped 0.034. The reasoning — germination
+   position still fully selects the form — was sound and the conclusion was
+   wrong. The rendered comparison is still the primary instrument at that end.
+3. **Composition gets *worse* under `dev=0`** (foliage share 0.61 → 0.48)
+   while size and width get much better. Developmental noise was masking shape,
+   not composition. Do not report the change as a uniform improvement.
+4. **Age-neutral mortality is not a generation lever.** `Hazard.chance` 0.02
+   adds nothing to depth (5 against 5, 8 against 8) and costs 11% of the
+   births. The intuition that more death means deeper lineages is wrong here
+   because the hazard is deliberately independent of age.
+5. **The report's §5.4 free-lever list was stale** — three of nine are priced
+   now. Genuinely free: `turgor_source`, `turgor_yield`, `heading_inertia`,
+   `seed_maturity`, `branch_angle`.
+6. **Pricing `seed_launch` retired §6.1's own +38% headline.** Priced, the
+   far-dispersal column is flat; coverage and establishment survive. An
+   unpriced lever's headline number is a measurement of the free lunch.
+
+## Traps in the lab UI that cost a build each
+
+- **`OrganismState::collar_y` is not an origin.** It is recomputed every
+  organism tick as the plant's *lowest shoot row*, so keying a growth draw on
+  it re-keys every cell the moment the collar settles a row lower. The
+  developmental key uses a separate immutable `origin`.
+- **The PLANT params page is capped at 20 rows** and was at 21 with one dial
+  added. `no_page_is_longer_than_two_screens` catches it; the fix was a
+  HEREDITY page, not a raised cap.
+- **The LIFE panel has a fixed border** and a second generation row painted
+  past it. `the_page_stays_inside_its_own_border` catches it. Both numbers now
+  share one line.
+- **`Knob::Heredity` runs everything through `settable_rate`**, which bounds
+  0..=1. A row that is a *mode* rather than a rate has to be handled ahead of
+  that guard or every setting above 1 is silently refused.
 
 ## The blocker a later session will hit on underground shoots
 

@@ -361,7 +361,7 @@ enum Arm {
     Spread,
 }
 
-fn build(species: &str, founders: usize, worldseed: Option<u64>, width_override: Option<i32>) -> (World, Vec<(u16, i32, i32)>) {
+fn build(species: &str, founders: usize, worldseed: Option<u64>, width_override: Option<i32>, key: organism::DevelopmentalKey) -> (World, Vec<(u16, i32, i32)>) {
     let d = common::PlantScene::default();
     let scene = common::PlantScene {
         trees: founders,
@@ -370,7 +370,14 @@ fn build(species: &str, founders: usize, worldseed: Option<u64>, width_override:
         seed: worldseed,
         ..Default::default()
     };
-    let w = scene.build();
+    let mut w = scene.build();
+    // **Set before a single seed germinates, which is what makes this a
+    // per-run arm rather than a mid-run change.** `PlantScene::build` places
+    // `Seed` cells; germination happens during stepping, and `stamp_origin`
+    // folds the key at that moment -- so a key written here reaches every
+    // plant in the bed and a key written later would reach only the seeds
+    // still waiting.
+    w.developmental_key = key;
     // The founders and where each one is standing, in a deterministic order:
     // the scene plants them left to right, so scanning the grid in column
     // order names them the same way every run.
@@ -416,13 +423,20 @@ fn apply_arm(w: &mut World, ids: &[(u16, i32, i32)], arm: Arm, reference: usize)
             // species mean until something calls this, so without it every
             // `ref=` clones the same all-zero draw and the argument is inert.
             pixel_physics::sim::plant::seed_genotype(w, src, sx, sy);
-            let Some((draws, alleles, params)) = w.organism_genotype(src) else { return };
+            let Some((draws, alleles, params, dev)) = w.organism_genotype(src) else { return };
+            // **The developmental seed is written too, and leaving it out
+            // would make this arm measure nothing under
+            // `DevelopmentalKey::Plant`.** It decides which shape a genome
+            // grows into, so a "clone" stand carrying one genome and sixteen
+            // different developments is not a clone stand -- and the failure
+            // is invisible, because it reads as *the change did nothing*.
+            // Exactly how `ref=` was inert (report SS2.1).
             for &(id, _, _) in ids {
-                w.set_organism_genotype(id, draws, alleles, params);
+                w.set_organism_genotype(id, draws, alleles, params, dev);
             }
         }
         Arm::Spread => {
-            let Some((_, _, params)) = ids.first().and_then(|&(id, _, _)| w.organism_genotype(id)) else { return };
+            let Some((_, _, params, _)) = ids.first().and_then(|&(id, _, _)| w.organism_genotype(id)) else { return };
             // **The discrete loci go to their extremes too, not just the
             // continuous draws.** The point of this arm is *the widest
             // contrast the engine can express*; half of that vocabulary is
@@ -434,16 +448,34 @@ fn apply_arm(w: &mut World, ids: &[(u16, i32, i32)], arm: Arm, reference: usize)
                 *h = organism::LOCUS_ALLELES[locus].saturating_sub(1);
                 low[locus] = 0;
             }
-            for (i, &(id, _, _)) in ids.iter().enumerate() {
+            for (i, &(id, x, y)) in ids.iter().enumerate() {
                 let (v, a) = if i % 2 == 0 { (-1.0, low) } else { (1.0, high) };
-                w.set_organism_genotype(id, [v; organism::GENOTYPE_TRAITS], a, params);
+                // **Each founder gets its OWN developmental seed here**, and
+                // that is the opposite of the clone arm on purpose: this arm
+                // is the denominator of the sensitivity control, so it must
+                // carry every source of variation the engine has.
+                //
+                // **`seed_genotype` first, and the first version of this line
+                // did not, which made the whole arm developmentally uniform.**
+                // A founder has no lineage seed until something draws one --
+                // `PlantScene::build` never calls `seed_genotype` -- so
+                // reading it back off an ungerminated founder returns 0, and
+                // writing 0 onto all sixteen made every one of them the same
+                // plant. Under `DevelopmentalKey::Plant` that collapses
+                // `Var(spread)`, which is the denominator of every H2 in the
+                // table. **The control row caught it**: it read 0.000 across
+                // the board where the world key reads 0.44-0.82, which is the
+                // estimator saying its own numbers are void.
+                pixel_physics::sim::plant::seed_genotype(w, id, x, y);
+                let dev = w.organism_genotype(id).map(|g| g.3).unwrap_or(0);
+                w.set_organism_genotype(id, [v; organism::GENOTYPE_TRAITS], a, params, dev);
             }
         }
     }
 }
 
-fn run(species: &str, founders: usize, frames: u64, worldseed: Option<u64>, arm: Arm, reference: usize) -> Vec<Shape> {
-    run_and_maybe_render(species, founders, frames, worldseed, arm, reference, None).0
+fn run(bed: Bed<'_>, arm: Arm, reference: usize) -> Vec<Shape> {
+    run_and_maybe_render(bed, arm, reference, None).0
 }
 
 /// **The picture, on the same run that produced the numbers.**
@@ -456,16 +488,21 @@ fn run(species: &str, founders: usize, frames: u64, worldseed: Option<u64>, arm:
 /// Through the shipped `Renderer`, not a hand-rolled palette walk: what
 /// reaches the screen is what the lighting makes of the palette, which is
 /// exactly the difference `burrow_probe`'s `contrast=1` arm exists to catch.
-fn run_and_maybe_render(
-    species: &str,
+/// The five things that describe *which bed* a run happens in, bundled
+/// because they travel together through every entry point here and because
+/// the alternative is an eight-argument function.
+#[derive(Clone, Copy)]
+struct Bed<'a> {
+    species: &'a str,
     founders: usize,
     frames: u64,
     worldseed: Option<u64>,
-    arm: Arm,
-    reference: usize,
-    png: Option<&str>,
-) -> (Vec<Shape>, ()) {
-    let (mut w, ids) = build(species, founders, worldseed, None);
+    key: organism::DevelopmentalKey,
+}
+
+fn run_and_maybe_render(bed: Bed<'_>, arm: Arm, reference: usize, png: Option<&str>) -> (Vec<Shape>, ()) {
+    let Bed { species, founders, frames, worldseed, key } = bed;
+    let (mut w, ids) = build(species, founders, worldseed, None, key);
     apply_arm(&mut w, &ids, arm, reference);
     for _ in 0..frames {
         parallel::step(&mut w);
@@ -555,8 +592,22 @@ fn main() {
         pixel_physics::sim::plant::param_mutation_chance_seed()
     );
 
+    // **Which developmental key this run uses** -- `world` (today's, and the
+    // default so an unqualified run is the shipped behaviour), or an integer
+    // coarseness for `DevelopmentalKey::Plant`. `dev=0` drops the germination
+    // coordinate; `dev=1` folds it at full resolution. See
+    // `organism::DevelopmentalKey`, which carries which instrument reads
+    // which end -- they are not the same question.
+    let key = match sarg("dev").unwrap_or_else(|| "world".to_string()).as_str() {
+        "world" | "control" => organism::DevelopmentalKey::World,
+        n => organism::DevelopmentalKey::Plant {
+            coarseness: n.parse().expect("dev= takes `world` or an integer coarseness"),
+        },
+    };
+    println!("  developmental key: {key:?}");
+    let bed = Bed { species: &species, founders, frames, worldseed, key };
     if shift > 0 {
-        one_cell_over(&species, founders, frames, worldseed, sarg("png"));
+        one_cell_over(&species, founders, frames, worldseed, sarg("png"), key);
         return;
     }
     // **`spread=` renders one bed per leaf-spread setting.** Separate from
@@ -612,7 +663,7 @@ fn main() {
     if let Some(stem) = sarg("png") {
         for (arm, name) in [(Arm::Pop, "pop"), (Arm::Clone, "clone"), (Arm::Spread, "spread")] {
             let path = format!("{stem}_{name}.png");
-            let shapes = run_and_maybe_render(&species, founders, frames, worldseed, arm, reference, Some(&path)).0;
+            let shapes = run_and_maybe_render(bed, arm, reference, Some(&path)).0;
             println!("  {name}: {} established, median cells {:.0}", shapes.len(), median(&shapes.iter().map(|s| s.cells).collect::<Vec<_>>()));
         }
         return;
@@ -632,9 +683,10 @@ fn main() {
     let (mut all_pop, mut all_clone, mut all_spread): (Vec<Shape>, Vec<Shape>, Vec<Shape>) = (vec![], vec![], vec![]);
     for k in 0..seeds.max(1) {
         let ws = worldseed.map(|w| w + k as u64).or(Some(1 + k as u64));
-        let pop = run(&species, founders, frames, ws, Arm::Pop, reference);
-        let clones = run(&species, founders, frames, ws, Arm::Clone, reference);
-        let spread = run(&species, founders, frames, ws, Arm::Spread, reference);
+        let seeded = Bed { worldseed: ws, ..bed };
+        let pop = run(seeded, Arm::Pop, reference);
+        let clones = run(seeded, Arm::Clone, reference);
+        let spread = run(seeded, Arm::Spread, reference);
         println!("\n  --- worldseed {:?}, ref founder {reference} ---", ws);
         print!("  {:<9} {:<5}", "arm", "");
         for c in COLUMNS {
@@ -725,7 +777,7 @@ fn main() {
 /// would not guess: a plant one column over is a different plant, and a plant
 /// that germinates into organism slot 7 rather than 6 is a different plant
 /// again.
-fn one_cell_over(species: &str, n: usize, frames: u64, worldseed: Option<u64>, png: Option<String>) {
+fn one_cell_over(species: &str, n: usize, frames: u64, worldseed: Option<u64>, png: Option<String>, key: organism::DevelopmentalKey) {
     println!("\n  one founder, alone, same genome, moved one column at a time ({n} positions):");
     print!("  {:<15}", "");
     for c in COLUMNS {
@@ -735,7 +787,7 @@ fn one_cell_over(species: &str, n: usize, frames: u64, worldseed: Option<u64>, p
     // A single reference genome, taken from the first bed and written onto
     // every subsequent one, so the only thing that differs between runs is
     // the column the plant stands in.
-    let (w0, ids0) = build(species, 1, worldseed, None);
+    let (w0, ids0) = build(species, 1, worldseed, None, key);
     let Some(&(src, sx, sy)) = ids0.first() else {
         println!("  REFUSING: the reference bed planted nothing.");
         return;
@@ -753,9 +805,14 @@ fn one_cell_over(species: &str, n: usize, frames: u64, worldseed: Option<u64>, p
         // widening the bed by one -- which keeps the founder's surroundings
         // identical in *kind* while moving its coordinate.
         let d = common::PlantScene::default();
-        let (mut w, ids) = build(species, 1, worldseed, Some(d.width + 2 * step as i32));
+        let (mut w, ids) = build(species, 1, worldseed, Some(d.width + 2 * step as i32), key);
         for &(id, _, _) in &ids {
-            w.set_organism_genotype(id, reference.0, reference.1, reference.2);
+            // `reference.3` is the developmental seed, and it is the whole
+            // point of this arm under `DevelopmentalKey::Plant`: one genome
+            // AND one development, moved one column at a time. Without it
+            // every position would still be a different plant and the CV
+            // below could not fall however well the key change worked.
+            w.set_organism_genotype(id, reference.0, reference.1, reference.2, reference.3);
         }
         for _ in 0..frames {
             parallel::step(&mut w);

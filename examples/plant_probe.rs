@@ -83,6 +83,7 @@ fn main() {
             .find_map(|a| a.strip_prefix("hazardevery=").map(|v| v.parse().expect("hazardevery")))
             .unwrap_or(1800),
     };
+    let species_name = species.clone();
     let scene = common::PlantScene {
         ground_y: ground_y(),
         trees,
@@ -96,6 +97,22 @@ fn main() {
     };
     let (width, height) = (scene.width, scene.height);
     let mut w = scene.build();
+    // **`maturity=` moves the shipped `seed_maturity`**, the lever
+    // `lab::params` already calls *the single biggest lever on whether a
+    // generation ever turns over: a herb breeds at 60 cells and a tree at
+    // 600*. Written through the live registry rather than the `.ron`, because
+    // a species file is `include_str!`d into the binary and editing one and
+    // re-running a prebuilt example produces bit-identical "runs". Refuses
+    // rather than reporting a null if the write matched nothing.
+    if let Some(cells) = std::env::args().find_map(|a| a.strip_prefix("maturity=").map(|v| v.parse::<f32>().expect("maturity"))) {
+        let sp = w.species.id_of(&species_name).expect("species is compiled in");
+        assert!(
+            w.species.set_param(sp, organism::CellType::MatureBody, organism::ParamId::SeedMaturity, 0, cells),
+            "maturity={cells} matched no Reproduce behaviour on {species_name} -- an arm whose edit matched nothing \
+             reads as `the mechanism does nothing`"
+        );
+        println!("plant_probe: seed_maturity overridden to {cells}");
+    }
     // Different worlds grow different individuals: genotypes are drawn
     // from (world seed, germination coordinate), so a genetic-variability
     // study replicates by varying this. Applied before any stepping --
@@ -1098,6 +1115,25 @@ when he counted all four. §Z is cards-only. Reports/open-bugs-handoff.md §Z ha
             "  established plants carrying an inherited genome: {descendants} of {} (deepest generation {deepest}) \
 -- at ~0 every claim from this run is about founders",
             per_organism.len()
+        );
+        // **The cumulative clock, and the line above is why it is here.**
+        // `deepest` is a max over the *living*, so it falls back the moment a
+        // deep lineage dies -- `selection_arena` records a mean over living
+        // rising to 2.9 and then drifting back to 2.60 over one run and
+        // prints its own axis as saturated. `World::generation_clock` only
+        // ever goes up, so "did this bed deepen?" has an answer.
+        //
+        // Read `deepest ever` against the frames it took; that ratio is
+        // generations per hour, and it is what the parameter genome's whole
+        // search depends on. `births per standing plant` separates a bed that
+        // turns over briskly without deepening (recruits dying before they
+        // breed) from one that deepens on very few births.
+        let (ever, births, live) = w.generation_clock();
+        let per_standing = if live > 0 { births as f32 / live as f32 } else { 0.0 };
+        println!(
+            "  GENERATION CLOCK: deepest ever {ever} over {frames} frames ({:.1} frames per generation) \
+             | births {births} over {live} standing ({per_standing:.1} per standing plant)",
+            if ever > 0 { frames as f32 / ever as f32 } else { f32::INFINITY }
         );
     }
 

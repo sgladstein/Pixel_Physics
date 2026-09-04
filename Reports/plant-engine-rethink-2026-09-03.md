@@ -823,6 +823,14 @@ number this is actually about — plants that reached ground more than fifteen
 columns from anything anyone planted — **+38%, up on 3 of 3 seeds**. Reach 4
 is up on 2 of 3 and is inside the spread.
 
+> **The +38% is withdrawn: it was the free-lunch half of an unpriced lever.**
+> §6.6 gives `seed_launch` the cost this section should have given it, and
+> re-measures the same statistic on the same bed. Priced, the far-dispersal
+> column reads **71 / 71 / 56 against 66 / 69 / 61 — flat**. What survives
+> pricing is coverage (+12.5%) and establishment (+11%), both up on 3 of 3;
+> distance does not. Read the table above as *what an unpriced launch buys*,
+> which is not what ships.
+
 For scale, `plant-reseeding-2026-09-03.md` §6.1 moved that same statistic
 **4.1x** by lighting the bench evenly. So dispersal is real, it is worth having,
 and it is still not the headline — which is what that report's `scatter=1`
@@ -1015,11 +1023,241 @@ So the shape, when someone picks this up:
 frame-cost question — whether a wind-borne powder keeps chunks awake — has not
 been measured.
 
+## 6.8 The developmental seed, built as one dial
+
+§2.3 measured the problem: growth draws come from
+`rng::stream(organism_id, cell_x, cell_y, frame)`, so **a plant one column over
+is a different plant**, and twelve genetically identical plants alone in
+identical beds come out between 83 and 181 cells and 27 and 63 rows tall.
+
+**One dial rather than two designs**, which is the owner's correction and it
+matters: per-cell draws key on the plant's own frame *in every arm*, and the
+arms differ only in how coarsely `dev_seed` carries the germination
+coordinate. So an A/B differs by exactly one number and the answer can land
+between the endpoints.
+
+| `shared_development` | `DevelopmentalKey` | what it is |
+|---|---|---|
+| 0 | `World` | today: `(organism_id, cell_x, cell_y, frame)` |
+| 1 | `Plant { coarseness: 0 }` | position dropped — a lineage has **one inherited form** |
+| 2 | `Plant { coarseness: 1 }` | folded at full resolution — every plant its own **coherent** form |
+| 3+ | `Plant { coarseness: k }` | plants within `k` columns share a form |
+
+**Coarsening is applied to the germination coordinate once, before hashing,
+never inside the per-cell key.** The latter is the block-nearest coarse-field
+trap `CLAUDE.md` records hitting four times on three lines and never once
+catching in a test. This is instead `seed_genotype`'s own idiom — position
+captured once, per plant, at germination — applied to development rather than
+to the genome draw.
+
+### The acceptance test
+
+`clone_variance -- shift=1`: one founder, alone, moved one column at a time,
+with the reference genome **and reference lineage seed** written onto it.
+
+| | CV cells | CV height | CV width |
+|---|---|---|---|
+| shipped | **0.280** | 0.260 | 0.358 |
+| `dev=0` | **0.074** | 0.143 | 0.121 |
+| `dev=1` | 0.374 | 0.252 | 0.542 |
+
+Adjacent columns give 91 and 92 cells at `dev=0` where the shipped key gave 153
+and 173. The residual 0.074 is environmental response — the bed widens by two
+columns per step — which is the variation worth keeping.
+
+**`dev=1` reads *higher* than the shipped key, and that is a finding rather
+than a fault.** Per-cell noise partially cancels across a plant; per-plant
+noise does not. Folding position once makes each plant coherent **and** makes
+plants differ from one another more.
+
+### Heritability, `herb`, 16 founders, 12,000 frames, four world seeds pooled
+
+`H2 = 1 - Var(clone)/Var(pop)`, per reference genome:
+
+| descriptor | shipped (median) | `dev=0` (median) | `dev=1` (median) |
+|---|---|---|---|
+| **cells** | **0.034** | **0.650** | 0.323 |
+| height | 0.502 | 0.599 | 0.363 |
+| **width** | **0.227** | **0.658** | 0.354 |
+| slenderness | 0.208 | 0.729 | 0.532 |
+| foliage share | 0.610 | 0.483 | 0.227 |
+| root share | 0.359 | 0.175 | 0.354 |
+| foliage centre | 0.328 | 0.465 | 0.145 |
+
+Three readings:
+
+- **Plant size becomes heritable**, 0.034 → 0.650. It was the least heritable
+  thing the engine produced within a species.
+- **So does crown width**, 0.227 → 0.658 — and §2.2 measured width's *positive
+  control* at 0.000 on all four reference genomes, i.e. as a lever the genome
+  could not pull at all. `plant-reseeding-2026-09-03.md` §1 calls crown width
+  the genome's *"one indirect lever"* on seed dispersal.
+- **Composition does not improve and may fall** — foliage share 0.610 → 0.483.
+  That is coherent rather than contradictory: developmental noise was masking
+  *size and shape*, not *composition*, because composition is an allocation
+  ratio the genome sets directly while shape is where the per-cell dice landed.
+
+**`dev=1` moves heritability substantially, which was predicted not to.** The
+review's expectation was that folding position once would leave H2 untouched,
+since germination position still fully selects which form a plant gets. It
+reads ~0.32 on `cells` against the shipped 0.034 — less than `dev=0`, but not
+nothing. The rendered comparison is still the primary instrument at that end;
+the prediction about the number was simply wrong.
+
+### And a withdrawal, caught by a control that was already there
+
+A first `dev=0` table was measured and is **void**. The estimator's sensitivity
+control read **0.000 on every descriptor**, where the shipped key reads
+0.44–0.82 — the row whose whole job is to say *these numbers mean nothing*.
+
+A founder has no lineage seed until something draws one, because
+`PlantScene::build` never calls `seed_genotype` (§2.1). So the Spread arm read
+`0` off every ungerminated founder and wrote `0` onto all sixteen, making the
+**widest-genetic-contrast arm developmentally uniform** and collapsing
+`Var(spread)`, the denominator of every H2 in the table. The Clone arm already
+had the fix and a comment saying why; its sibling did not.
+
+**It is the `ref=` failure repeating in the same file**, and the difference
+worth carrying is that a *control* caught it rather than a byte-identical
+output. With the fix the control returns to 0.612 on `cells`.
+
+---
+
+## 6.6 Pricing `seed_launch`, and what the price took away
+
+**§6.1 built a tenth free lever while §5.4 was stating the law against exactly
+that**, and neither the report nor its author noticed. Caught in review, and
+the owner reached it independently: *"this seems like a lever that is only a
+benefit. If there is no trade off then everything will evolve towards a single
+maximum."*
+
+`launch_price(reach)` scales what the **parent** is charged:
+
+```
+charge = seed_cost * (1 + 0.25 * sqrt(reach))
+```
+
+No new economy. `seed_cost` already sets how many seeds a plant can afford
+(`budget / cost`), so scaling it by reach *is* the dispersal/fecundity
+trade-off — throw far and set fewer. It is `TRANSPIRATION_PER_RATE`'s pattern,
+a price **derived** from the lever so tuning cannot decouple them, rather than
+a second authored number somebody can set to zero.
+
+`herb`, 8 founders, 27,000 frames, three world seeds:
+
+| | seeds set | columns held | plants ≥16 cols out | established |
+|---|---|---|---|---|
+| launch 0 | 3,203 / 4,237 / 2,947 | 398 / 454 / 396 | 66 / 69 / 61 | 105 / 106 / 93 |
+| launch 12 | 2,115 / 2,573 / 1,731 | 483 / 480 / 442 | 71 / 71 / 56 | 110 / 116 / 110 |
+
+Pooled: **seeds −38%** (down 3 of 3), **coverage +12.5%** (up 3 of 3),
+**established +11%** (up 3 of 3).
+
+**And the price ate the headline, which is the finding.** §6.1 published +38%
+on far-dispersal for an unpriced reach of 12. Priced, that column is flat. So
+the number this report led its dispersal section with was measuring a free
+lunch; what survives is coverage and establishment, not distance. The lever is
+still worth having in this bed — it is now a trade rather than a dominant
+strategy, which is what the law asks for.
+
+**Three traps, each of which breaks it silently:**
+
+- **Square root, not linear.** `REPRODUCTIVE_BUDGET_CAP` is `RESOURCE_SCALE`
+  (4.0), and a charge above it makes `budget >= charge` unsatisfiable —
+  **permanent, silent sterility**, which is the failure
+  `a_lit_sward_funds_a_reproductive_budget` already documents for `grass`. A
+  concave price also matches the mechanism, since `launch_offset` walks and
+  stops at the first obstruction, so realised distance grows more slowly than
+  requested reach.
+- **`seed_cost` is also the child's endowment.** The parent pays `charge`, the
+  child is handed the unscaled `seed_cost` — otherwise a far-flung seed
+  germinates *richer* and the cost pays itself back.
+- **Exactly 1.0 at reach 0**, which every shipped species authors, so both
+  games are untouched.
+
+The fruit/windfall path reaches `bear_seed_at` directly and stays unpriced: a
+fruit lets go where it hangs.
+
+**§5.4's free-lever inventory was stale and is corrected here.** It listed
+nine; three are no longer free. `Photosynthesize.rate` is priced by
+`TRANSPIRATION_PER_RATE`, built expressly to kill that free lever, and
+`plastochron` / `juvenile_plastochron` are partly priced now that leaves cost
+carbon at `LEAF_CONSTRUCTION_MULTIPLE` and maintenance for ever. **Genuinely
+free today: `turgor_source`, `turgor_yield`, `heading_inertia`,
+`seed_maturity`, and `branch_angle`** — whose wide path takes its own
+candidate set at uniform score and so bypasses the light and crowding filters
+entirely, which is the bypass rather than a weighting.
+
+---
+
+## 6.7 Generations per hour, and the clock that can measure it
+
+**The instrument had to come first, because every existing readout answers a
+different question.** `examples/selection_arena.rs` records it in its own
+output: over 150,000 frames the population's mean generation rose to ~2.9 and
+then **fell back** — 2.88, 2.85, 2.77, 2.73, 2.63, 2.60 — and it prints
+`*** THE GENERATION AXIS IS SATURATED ***` when the span is under 3.0. Nothing
+is wrong with the world when that happens. **Mean generation is taken over
+*living* organisms, and at steady state deaths balance births, so it
+equilibrates rather than accumulating.** Every generation readout in this repo
+is a max or a mean over the living, so all of them do this, and "did this
+change make lineages deeper?" was unanswerable.
+
+`World::deepest_generation` is a high-water mark updated at `bear_seed_at`,
+the one place a generation is ever created. `World::generation_clock` returns
+it with cumulative births and the standing count.
+
+**It caught its own artifact on the first run.** `tree`'s deepest *living*
+generation is 1 and its deepest *ever* is 2; `scrambler` reads 4 living
+against 5 ever. The deep lineage died, and both numbers would have been
+reported as the depth.
+
+`plant_probe`, 8 founders, 30,000 frames, world seed 1:
+
+| arm | deepest ever | frames per generation | births | standing |
+|---|---|---|---|---|
+| `tree` — the default bed | 2 | 15,000 | 968 | 283 |
+| `herb` | 5 | 6,000 | 6,474 | 2,381 |
+| `scrambler` | 5 | 6,000 | 5,443 | 1,491 |
+| `herb`, `seed_maturity` 20 | **8** | **3,750** | 6,815 | 2,523 |
+| `herb`, maturity 20 + hazard 0.02 | 8 | 3,750 | 5,987 | 2,100 |
+| `herb`, hazard 0.02 | 5 | 6,000 | 5,765 | 1,949 |
+
+**Two levers, and together they are 4x.** Species is 2.5x — and the default
+bed is `tree`, so anything measured on `PlantScene::default()` has been paying
+that. `seed_maturity` 60 → 20 is a further 1.6x and costs nothing: births and
+standing biomass are both *up* slightly. `lab::params` already called it *"the
+single biggest lever on whether a generation ever turns over"*.
+
+**Hazard is a clean negative and is worth recording as one.** Age-neutral
+mortality adds **nothing** to depth (5 against 5, and 8 against 8 on top of
+the maturity change) while costing 11% of the births and 18% of the standing
+plants. That follows from its own design — it is deliberately independent of
+age, size and genotype, so it removes recruits as readily as adults — but the
+intuition that "more death means more turnover means deeper lineages" is
+wrong here, and it would have been an easy thing to assume.
+
+**What is not built, and is the owner's call.** `examples/genome_drift.rs`
+records the deep cause: *nothing in the engine kills a healthy adult*, so once
+a stand closes the founding cohort **is** the population. There is no age
+gate, no lifespan, and reproduction reads no age anywhere. Engine-side adult
+mortality would reach every forest in the outdoor game, so it is a decision
+rather than an unattended change — but the bed-side levers above are worth
+4x before it is needed.
+
+---
+
 ## 7. What to do next, in the order the evidence supports
 
 1. **Post §2's result to the owner and get a verdict on the noise floor.** It
    is the finding that reorders everything else, and it is one number.
-2. **Make development heritable, which is the real form of "attack the noise
+2. ~~**Make development heritable**~~ — **built, §6.8, and the acceptance test
+   passed.** `DevelopmentalKey` on the world, one dial, default unchanged. What
+   is left is the owner's verdict on which end of the dial ships.
+
+   *The original entry follows, because its caveats still hold.*
+
+   **Make development heritable, which is the real form of "attack the noise
    floor".** §2.3 measures the cause: growth is drawn from
    `rng::stream(organism_id, cx, cy, frame)`, so a plant's whole development is
    a function of **where in the world it is standing**. Two clones therefore
@@ -1054,9 +1292,15 @@ been measured.
 4. ~~**Leaf-cluster shape**~~ — **built, §6.3, and out for review.** What is
    left on it is the owner's verdict: if the two stands read the same, retire
    the lever rather than keep a knob nobody can see.
-5. **Then the parameter-genome rate**, once generation depth is deep enough to
-   test §5.4's prediction — and run `genome_reach -- drift=1` first, because
-   the free-lever list is the thing to price, not the rate.
+5. **Then the parameter-genome rate.** Two of its three prerequisites are now
+   done: the free-lever list is corrected and `seed_launch` is priced (§6.6),
+   and generation depth is 4x cheaper to reach than it was (§6.7). What is
+   still owed is pricing the four remaining free levers — `turgor_source`,
+   `turgor_yield`, `heading_inertia`, `seed_maturity` — and `seed_maturity` is
+   the one to do first, because §6.7 makes it the generation lever and
+   `plant.rs` says in as many words that it *"makes precocious reproduction
+   unreachable rather than expensive"*. Pricing it and using it are the same
+   work.
 6. **Then the dispersal *verb*.** §6.1 built the trait; what it does not build
    is something the player turns on. Wind on light powders is the candidate,
    and `dead-ends.md`'s reverted steady-wind entry says it has to ride gusts.

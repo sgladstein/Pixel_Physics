@@ -66,11 +66,17 @@ pub enum Group {
     Ants,
     /// The bed itself, and the lamps over it.
     Box,
+    /// **How heredity itself works** — global to the world rather than to any
+    /// one species, and its own page because there are now six of them and
+    /// the plant page was mixing *this species' numbers* with *how breeding
+    /// behaves for everything*. Two different questions, and the second is
+    /// what the lab is for.
+    Heredity,
 }
 
 /// In tab order. One list, so the tab strip, the key and the tests cannot
 /// disagree about what pages exist — `ui::TOOLS`' reason.
-pub const GROUPS: [Group; 4] = [Group::Ground, Group::Plant, Group::Ants, Group::Box];
+pub const GROUPS: [Group; 5] = [Group::Ground, Group::Plant, Group::Heredity, Group::Ants, Group::Box];
 
 impl Group {
     pub fn label(self) -> &'static str {
@@ -79,6 +85,7 @@ impl Group {
             Group::Plant => "PLANT",
             Group::Ants => "ANTS",
             Group::Box => "BOX",
+            Group::Heredity => "HEREDITY",
         }
     }
 
@@ -89,6 +96,7 @@ impl Group {
             Group::Plant => "THE PLANT THE SPECIES CHIP ON THE BAR HAS ARMED. THESE ARE THE SPECIES' OWN NUMBERS, NOT ONE INDIVIDUAL'S -- MOVING ONE CHANGES EVERY PLANT OF THAT SPECIES ALREADY STANDING, ON THE NEXT TICK, AS WELL AS EVERY SEED YOU PLANT AFTERWARDS.",
             Group::Ants => "THE COLONY SPECIES. SAME RULE AS THE PLANT PAGE: THESE ARE THE SPECIES' NUMBERS AND THEY REACH EVERY ANT ALIVE. AN INDIVIDUAL'S OWN INHERITED TRAITS ARE ON THE CELL PAGE -- CLICK AN ANT WITH THE LOOK TOOL.",
             Group::Box => "THE BED AND THE LAMPS OVER IT. THE LAMP IS LIVE. EVERYTHING ELSE HERE IS THE SPEC THE BOX IS BUILT FROM, SO IT TAKES EFFECT WHEN YOU REBUILD -- CHANGE IT, THEN PRESS REBUILD.",
+            Group::Heredity => "HOW BREEDING BEHAVES, FOR EVERY PLANT IN THE BOX AT ONCE -- NOT ONE SPECIES' NUMBERS. THIS IS THE PAGE THE LAB IS ACTUALLY FOR. EVERYTHING HERE IS FELT AT THE NEXT SEED RATHER THAN THE NEXT TICK, SO GIVE IT A GENERATION BEFORE DECIDING IT DID NOTHING, AND NONE OF IT IS SAVED TO A SPECIES FILE -- IT LASTS THE SESSION.",
         }
     }
 }
@@ -533,7 +541,7 @@ fn plant_mechanics_rows(world: &World, out: &mut Vec<Param>) {
         "WHETHER A LIVING PLANT MAY BE PULLED APART BY MECHANICS. ON IS THE SHIPPED BEHAVIOUR: A STEM SNAPS WHERE THE BENDING STRESS BEATS THE WOOD, A LIMB REACHING FURTHER THAN IT CAN HOLD GIVES WAY, AND ONE THAT LOSES ITS FOOTING COMES DOWN WHOLE. OFF HOLDS EVERY LIVING PLANT IN THE BOX TOGETHER HOWEVER FAR IT LEANS AND WHATEVER IS DUG OUT FROM UNDER IT, WHICH IS WHAT YOU WANT WHILE YOU ARE LOOKING AT GROWTH RATHER THAN AT MECHANICS. DEAD WOOD STILL COMES APART EITHER WAY, SO CULLING AND ROT STILL CLEAR THE BOX. IT REACHES EVERY SPECIES, IT IS FELT ON THE NEXT TICK, AND IT LASTS THE SESSION.",
     ));
     out.push(float(
-        Group::Plant,
+        Group::Heredity,
         Knob::Heredity { field: "mutation_sigma" },
         "heredity",
         "genotype_drift",
@@ -542,7 +550,7 @@ fn plant_mechanics_rows(world: &World, out: &mut Vec<Param>) {
         "HOW FAR ONE OF A PLANT'S TEN CONTINUOUS GENES MAY MOVE IN A SINGLE GENERATION. THIS IS THE MUTAGEN DIAL. AT 0 EVERY SEED IS A CLONE OF ITS PARENT ON THOSE TEN AXES, WHICH IS NOT A DISABLED FEATURE BUT THE CONTROL ARM: IT IS THE NULL A SELECTED RUN HAS TO BEAT. TURNED UP, LINEAGES WANDER FASTER AND SELECTION HAS MORE TO SORT -- AND MORE OF WHAT IT SORTS IS NOISE. IT REACHES EVERY PLANT IN THE BOX, IT IS FELT AT THE NEXT SEED RATHER THAN ON THE NEXT TICK, AND IT LASTS THE SESSION.",
     ));
     out.push(float(
-        Group::Plant,
+        Group::Heredity,
         Knob::Heredity { field: "fate_mutation_chance" },
         "heredity",
         "fate_drift",
@@ -555,7 +563,7 @@ fn plant_mechanics_rows(world: &World, out: &mut Vec<Param>) {
     // unmeasured is the rate this world wants, so the honest place for it is
     // a dial the owner can move rather than a constant a session guessed.
     out.push(float(
-        Group::Plant,
+        Group::Heredity,
         Knob::Heredity { field: "param_mutation_chance" },
         "heredity",
         "species_drift",
@@ -564,13 +572,29 @@ fn plant_mechanics_rows(world: &World, out: &mut Vec<Param>) {
         "THE CHANCE A SEED IS BORN HAVING LEFT ONE OF ITS SPECIES' OWN NUMBERS BEHIND. THE OTHER TWO DIALS MOVE A PLANT INSIDE THE BOX ITS SPECIES FILE DRAWS -- EVERY GENE THERE IS A MULTIPLIER ON AN AUTHORED VALUE, SO A SPECIES THAT SAYS ZERO STAYS AT ZERO FOR EVER, WHICH IS WHY NO TREE, CONIFER OR SHRUB CAN EVOLVE A BRANCHING ROOT SYSTEM AND NO HERB A BRANCHING SHOOT. THIS ONE REPLACES THE NUMBER INSTEAD OF SCALING IT, SO A LINEAGE CAN LEAVE THE BOX ALTOGETHER: NODES UNDERGROUND, A DIFFERENT LEAF SIZE, A CHEAPER SEED. SHIPPED AT 0 BECAUSE WHAT IT COSTS HAS NOT BEEN MEASURED OVER A LONG RUN -- SEVERAL OF THESE NUMBERS HAVE A BENEFIT AND NO PRICE, AND A FREE LEVER MADE HERITABLE MAKES EVERY PLANT THE SAME RATHER THAN DIFFERENT. LASTS THE SESSION.",
     ));
     out.push(float(
-        Group::Plant,
+        Group::Heredity,
         Knob::Heredity { field: "param_mutation_sigma" },
         "heredity",
         "species_drift_step",
         world.param_mutation_sigma,
         span(0.0, 1.0, 0.01),
         "HOW FAR ONE OF THOSE NUMBERS MOVES WHEN IT MOVES, AS A FRACTION OF WHAT THAT NUMBER IS WORTH ACROSS EVERY SPECIES IN THE BOX. SMALL VALUES ARE A LINEAGE EDGING AWAY FROM ITS SPECIES; LARGE ONES ARE A LINEAGE THAT ARRIVES SOMEWHERE ELSE IN ONE GENERATION AND USUALLY DIES THERE. LASTS THE SESSION.",
+    ));
+    // **Shipped OFF, and this row is how it gets turned on.** See
+    // `organism::DevelopmentalKey`: the mechanism is measured and which end
+    // of it the box should live at is an eye question, so it belongs on a
+    // dial the owner can move rather than in a constant a session chose.
+    out.push(float(
+        Group::Heredity,
+        Knob::Heredity { field: "developmental_key" },
+        "heredity",
+        "shared_development",
+        match world.developmental_key {
+            crate::sim::organism::DevelopmentalKey::World => 0.0,
+            crate::sim::organism::DevelopmentalKey::Plant { coarseness } => coarseness as f32 + 1.0,
+        },
+        span(0.0, 8.0, 1.0),
+        "WHETHER TWO PLANTS OF THE SAME GENOME GROW THE SAME SHAPE. 0 IS THE SHIPPED BEHAVIOUR AND IT IS THE PROBLEM THIS DIAL EXISTS FOR: EVERY CELL OF EVERY PLANT ROLLS ITS OWN DICE OFF ITS POSITION IN THE WORLD, SO A PLANT ONE COLUMN OVER IS A DIFFERENT PLANT -- TWELVE IDENTICAL SEEDS IN IDENTICAL BEDS COME OUT BETWEEN 83 AND 181 CELLS AND BETWEEN 27 AND 63 ROWS TALL. THAT SPREAD IS BIGGER THAN ANYTHING THE GENES DO, WHICH MEANS SELECTION CANNOT SEE SHAPE AT ALL. 1 GIVES EACH LINE ONE INHERITED FORM: BROTHERS AND SISTERS GROW ALIKE AND WHAT IS LEFT BETWEEN THEM IS WHAT THE LIGHT AND THE WATER AND THE NEIGHBOURS DID, WHICH IS THE VARIATION WORTH KEEPING. 2 GIVES EVERY PLANT ITS OWN FORM BUT MAKES IT WHOLE INSTEAD OF A MOSAIC -- STILL ALL DIFFERENT, EACH ONE COHERENT. 3 AND UP MAKE PATCHES: PLANTS WITHIN THAT MANY COLUMNS GROW ALIKE. MOVING IT REACHES EVERY PLANT IN THE BOX AT ONCE, INCLUDING ONES ALREADY STANDING -- BUT A PLANT THAT HAS FINISHED GROWING WILL NOT RESHAPE ITSELF, SO GIVE IT A GENERATION BEFORE DECIDING IT DID NOTHING. LASTS THE SESSION.",
     ));
 }
 
@@ -790,6 +814,29 @@ pub fn write(world: &mut World, spec: &mut LabBox, knob: &Knob, value: f32) -> b
             true
         }
         Knob::Heredity { field } => {
+            // **Handled ahead of the rate guard**, which bounds the four
+            // drift dials to 0..=1. This row is a mode rather than a rate and
+            // its span runs to 8, so the shared predicate would refuse every
+            // setting above `INHERITED`.
+            if *field == "developmental_key" {
+                if !(0.0..=8.0).contains(&value) {
+                    return false;
+                }
+                let n = value.round() as u32;
+                world.developmental_key = if n == 0 {
+                    crate::sim::organism::DevelopmentalKey::World
+                } else {
+                    crate::sim::organism::DevelopmentalKey::Plant { coarseness: n - 1 }
+                };
+                // **Every plant already standing is re-folded**, or the box
+                // runs two rules at once: `dev_seed` is stamped at
+                // germination, so without this a plant that came up before
+                // the dial moved would keep the old coarseness and the dial
+                // would be lying about what it did. See
+                // `World::refold_developmental_seeds`.
+                world.refold_developmental_seeds();
+                return true;
+            }
             if !crate::sim::plant::settable_rate(value) {
                 return false;
             }
@@ -798,6 +845,10 @@ pub fn write(world: &mut World, spec: &mut LabBox, knob: &Knob, value: f32) -> b
                 "fate_mutation_chance" => world.fate_mutation_chance = value,
                 "param_mutation_chance" => world.param_mutation_chance = value,
                 "param_mutation_sigma" => world.param_mutation_sigma = value,
+                // **Its own arm, because it is the one row here that is not a
+                // rate.** `settable_rate` bounds the four above to 0..=1; this
+                // is a mode, so it is checked against its own span and mapped
+                // before the shared guard would reject anything above 1.
                 _ => return false,
             }
             true
@@ -1304,6 +1355,50 @@ mod tests {
     ///
     /// Watched failing rather than assumed green: deleting any one arm of
     /// `write` reds this immediately and names the row.
+    /// **The developmental dial is live for plants already standing**, not
+    /// only for ones that germinate after it moves.
+    ///
+    /// `dev_seed` is stamped once at germination from the coarseness in force
+    /// then, which is right for a hot path read once per organism cell per
+    /// tick and wrong for a control the owner turns mid-run. The fault this
+    /// pins is specific and was really there: without
+    /// `World::refold_developmental_seeds`, a plant that came up at setting 0
+    /// and then saw the dial moved to 2 kept `dev_seed == lineage_seed` — the
+    /// *coarseness 0* fold — so the box ran one rule for old plants and
+    /// another for new ones and the dial reported a setting it was not
+    /// applying.
+    ///
+    /// Written as three settings rather than two because the failure needs
+    /// the pair to disagree: at coarseness 0 the fold is the identity, so a
+    /// version that never re-folded would still pass a 0-versus-off check.
+    #[test]
+    fn moving_the_developmental_dial_reaches_plants_already_standing() {
+        let (mut world, spec) = bed();
+        let herb = world.species.id_of("herb").expect("herb is compiled in");
+        let id = world.push_organism(herb).expect("a slot is free");
+        crate::sim::plant::seed_genotype(&mut world, id, 40, 30);
+        // Germinate it under the shipped key, which is the case that matters:
+        // a box the owner has been watching before touching the dial.
+        crate::sim::plant::stamp_origin(&mut world, id, 40, 30);
+        let lineage = world.organism(id).expect("live").lineage_seed;
+        assert_ne!(lineage, 0, "test setup: a founder must draw a lineage seed");
+
+        let row = registry(&world, &spec, Some(herb))
+            .into_iter()
+            .find(|p| matches!(p.knob, Knob::Heredity { field: "developmental_key" }))
+            .expect("the shared_development row is registered");
+
+        let mut spec = spec;
+        let mut folded = Vec::new();
+        for setting in [1.0f32, 2.0, 3.0] {
+            assert!(write(&mut world, &mut spec, &row.knob, setting), "setting {setting} must be writable");
+            folded.push(world.organism(id).expect("live").dev_seed);
+        }
+        assert_eq!(folded[0], lineage, "setting 1 drops position, so the fold is the lineage seed itself");
+        assert_ne!(folded[1], folded[0], "setting 2 folds the germination coordinate in and must differ");
+        assert_ne!(folded[2], folded[1], "setting 3 bands at a different coarseness and must differ again");
+    }
+
     #[test]
     fn every_writable_parameter_actually_moves() {
         let (mut world, mut spec) = bed();
