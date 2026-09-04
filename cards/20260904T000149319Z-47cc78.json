@@ -1,0 +1,46 @@
+{
+  "id": "20260904T000149319Z-47cc78",
+  "created": "2026-09-04T00:01:49Z",
+  "board": "plants",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/plant-engine-rethink-brief-rk7lq5",
+    "commit": "e9c27500",
+    "agent": null,
+    "session_id": "2fd32b8c-66a6-5662-ac48-04f7486d66f4",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Plant shape: coherent plants, or a mosaic?",
+  "question": "Same bed, same everything. In one of these, each plant's shape is decided ONCE where it germinated, so the plant is one coherent thing; in the other, every cell of every plant rolled its own dice independently, so a plant is a mosaic of thousands of separate rolls. Every plant is still different in both. Does one read as more like a real plant to you -- or are they close enough that it is not worth having?",
+  "context_md": "This is the middle of the dial: it keeps every plant distinct but makes each one internally consistent. It also moves heritability on plant size from 0.03 to ~0.34 -- less than dev=0's 0.65, but not the nothing that was predicted. Live in the lab as PARAMS -> HEREDITY -> shared_development = 2.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "shipped (every cell rolls its own dice)",
+      "files": [
+        "20260904T000149319Z-47cc78/000-ab_world_pop.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "dev=1 (each plant one whole form, still all different)",
+      "files": [
+        "20260904T000149319Z-47cc78/001-ab_1_pop.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
