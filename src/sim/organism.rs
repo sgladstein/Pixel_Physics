@@ -6395,8 +6395,10 @@ pub fn transport(world: &mut crate::sim::world::World, organism_id: u16) {
     // differ run to run. `PLAN.md` requires same-build determinism, so the
     // pass fixes a canonical order once here. Row-major, matching the
     // sweep's own convention.
+    let prologue = crate::sim::plant::prologue_start();
     let mut cells: Vec<(i32, i32)> = state.cells.keys().copied().collect();
     cells.sort_unstable_by_key(|&(x, y)| (y, x));
+    crate::sim::plant::prologue_end(prologue, cells.len());
 
     // Resolve the topology once per tick rather than once per substep: for
     // each cell, the indices of its same-organism `Plant` 4-neighbours.

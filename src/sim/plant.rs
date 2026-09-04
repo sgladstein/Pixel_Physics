@@ -5025,9 +5025,29 @@ impl OrganismTiming {
         }
     }
 
+    /// The prologue total, against the whole pass it sits inside.
+    fn report_prologue(frame: u64) {
+        use std::sync::atomic::Ordering::Relaxed;
+        let every = prologue_every();
+        if every == 0 || !frame.is_multiple_of(every) {
+            return;
+        }
+        let n = ACCUM.prologue_n.swap(0, Relaxed);
+        let ns = ACCUM.prologue_ns.swap(0, Relaxed);
+        let cells = ACCUM.prologue_cells.swap(0, Relaxed);
+        println!(
+            "  [prologue] frame {frame:>6}: {n} collect+sorts over {cells} cells cost {:.1} ms \
+             ({:.3} us each, {:.4} us/cell)",
+            ns as f64 / 1.0e6,
+            ns as f64 / 1.0e3 / n.max(1) as f64,
+            ns as f64 / 1.0e3 / cells.max(1) as f64,
+        );
+    }
+
     fn report(&self, frame: u64) {
         use std::sync::atomic::Ordering::Relaxed;
         self.report_size(frame);
+        Self::report_prologue(frame);
         if self.every == 0 {
             return;
         }
@@ -5062,6 +5082,43 @@ impl OrganismTiming {
     }
 }
 
+/// **What the nine separate cell-list prologues cost**, together.
+///
+/// `ORGANISM_PROLOGUE=<every N frames>`. Off by default and free when off.
+///
+/// Nine passes in one organism tick each open by materialising the same list:
+/// `state.cells.keys().copied().collect()` then `sort_unstable_by_key` on
+/// `(y, x)` — `transport`, `allocate_to_frontier`, `accumulate_support`,
+/// `anchor_support`, `stress_field`, `break_root_tips`, `break_buds`,
+/// `organism_upkeep`, and `rot_remains` for the senescent. The cell set does
+/// change during a tick (bending moves cells, breaking removes them, a bud
+/// flush adds them), so they are **not** trivially shareable — but nine
+/// rebuilds of a 5,000-entry list, sorted each time, is worth a number before
+/// anyone decides whether to restructure for it.
+///
+/// This exists because §13.4 estimated that number at "~15% of the pass" from
+/// arithmetic on sort sizes and said in the same breath not to trust it. This
+/// is the measurement that replaces the estimate.
+pub(crate) fn prologue_every() -> u64 {
+    use std::sync::OnceLock;
+    static EVERY: OnceLock<u64> = OnceLock::new();
+    *EVERY.get_or_init(|| std::env::var("ORGANISM_PROLOGUE").ok().and_then(|v| v.parse().ok()).unwrap_or(0))
+}
+
+/// Open the prologue clock, or `None` when the switch is off.
+pub(crate) fn prologue_start() -> Option<std::time::Instant> {
+    (prologue_every() != 0).then(std::time::Instant::now)
+}
+
+/// Charge one prologue — one collect-and-sort — to the running total.
+pub(crate) fn prologue_end(t: Option<std::time::Instant>, cells: usize) {
+    use std::sync::atomic::Ordering::Relaxed;
+    let Some(t) = t else { return };
+    ACCUM.prologue_ns.fetch_add(t.elapsed().as_nanos() as u64, Relaxed);
+    ACCUM.prologue_n.fetch_add(1, Relaxed);
+    ACCUM.prologue_cells.fetch_add(cells as u64, Relaxed);
+}
+
 /// The window `OrganismTiming::report` averages over — see its doc for why a
 /// single frame could not answer this.
 struct OrganismAccum {
@@ -5075,6 +5132,10 @@ struct OrganismAccum {
     size_ns: [std::sync::atomic::AtomicU64; OrganismTiming::SIZE_BUCKETS.len()],
     size_cells: [std::sync::atomic::AtomicU64; OrganismTiming::SIZE_BUCKETS.len()],
     size_n: [std::sync::atomic::AtomicU64; OrganismTiming::SIZE_BUCKETS.len()],
+    /// The nine cell-list prologues — see `prologue_every`.
+    prologue_ns: std::sync::atomic::AtomicU64,
+    prologue_n: std::sync::atomic::AtomicU64,
+    prologue_cells: std::sync::atomic::AtomicU64,
 }
 
 static ACCUM: OrganismAccum = OrganismAccum {
@@ -5086,6 +5147,9 @@ static ACCUM: OrganismAccum = OrganismAccum {
     size_ns: [const { std::sync::atomic::AtomicU64::new(0) }; OrganismTiming::SIZE_BUCKETS.len()],
     size_cells: [const { std::sync::atomic::AtomicU64::new(0) }; OrganismTiming::SIZE_BUCKETS.len()],
     size_n: [const { std::sync::atomic::AtomicU64::new(0) }; OrganismTiming::SIZE_BUCKETS.len()],
+    prologue_ns: std::sync::atomic::AtomicU64::new(0),
+    prologue_n: std::sync::atomic::AtomicU64::new(0),
+    prologue_cells: std::sync::atomic::AtomicU64::new(0),
 };
 
 pub fn step_organisms(world: &mut World) {
@@ -5312,8 +5376,10 @@ fn rot_remains(world: &mut World, organism_id: u16) {
     }
     // Row-major, for the same determinism reason `relocated_seed` sorts:
     // `cells` is a `HashMap` and `PLAN.md` requires same-build determinism.
+    let prologue = prologue_start();
     let mut cells: Vec<(i32, i32)> = state.cells.keys().copied().collect();
     cells.sort_unstable_by_key(|&(x, y)| (y, x));
+    prologue_end(prologue, cells.len());
     for (x, y) in cells {
         if world.get(x, y).organism_id() != organism_id {
             continue; // burned, erased or overwritten since the list was taken
@@ -6638,8 +6704,10 @@ pub fn stress_field(world: &World, organism_id: u16) -> std::collections::HashMa
     // Sorted for the same determinism reason `anchor_support` sorts: `cells`
     // is a `HashMap` and the visit order must be a property of the world
     // rather than of the hasher's seed.
+    let prologue = prologue_start();
     let mut cells: Vec<(i32, i32)> = state.cells.keys().copied().collect();
     cells.sort_unstable_by_key(|&(x, y)| (y, x));
+    prologue_end(prologue, cells.len());
     // **Every world read this function makes is hoisted to one pass, and
     // that is the whole optimisation.** It changes no arithmetic: the
     // signature is `&World`, nothing here writes, so `support` and
@@ -6865,8 +6933,10 @@ fn anchor_support(world: &mut World, organism_id: u16) {
     // sorts: `cells` is a `HashMap` with no stable iteration order, and the
     // heap's tie-break has to be a property of the world rather than of the
     // hasher's seed.
+    let prologue = prologue_start();
     let mut cells: Vec<(i32, i32)> = state.cells.keys().copied().collect();
     cells.sort_unstable_by_key(|&(x, y)| (y, x));
+    prologue_end(prologue, cells.len());
     let index: std::collections::HashMap<(i32, i32), usize> = cells.iter().enumerate().map(|(i, &p)| (p, i)).collect();
     // **Leaf-ness hoisted out of the walk.** The rule below asks it of the
     // cell being expanded *and* of every one of its eight neighbours, so a
@@ -7021,8 +7091,10 @@ fn anchor_support(world: &mut World, organism_id: u16) {
 fn accumulate_support(world: &mut World, organism_id: u16) {
     let Some(state) = world.organism(organism_id) else { return };
     let Some(collar) = state.collar_y else { return };
+    let prologue = prologue_start();
     let mut cells: Vec<(i32, i32)> = state.cells.keys().copied().collect();
     cells.sort_unstable_by_key(|&(x, y)| (y, x));
+    prologue_end(prologue, cells.len());
     let index: std::collections::HashMap<(i32, i32), usize> = cells.iter().enumerate().map(|(i, &p)| (p, i)).collect();
 
     // Roots first: everything at or below the collar is the anchor, so the
@@ -7206,8 +7278,10 @@ fn break_root_tips(world: &mut World, organism_id: u16) {
     // re-initiated root dead on arrival.
     let cost = cost * wood_density_mult(world, organism_id);
 
+    let prologue = prologue_start();
     let mut cells: Vec<(i32, i32)> = state.cells.keys().copied().collect();
     cells.sort_unstable_by_key(|&(x, y)| (y, x));
+    prologue_end(prologue, cells.len());
 
     // Candidates, and the richest cell to pay from -- the same shape
     // `break_buds` uses, and for the same reason: the trunk sits near the
@@ -7322,8 +7396,10 @@ fn break_root_tips(world: &mut World, organism_id: u16) {
 fn break_buds(world: &mut World, organism_id: u16) {
     let Some(state) = world.organism(organism_id) else { return };
     let species_id = state.species;
+    let prologue = prologue_start();
     let mut cells: Vec<(i32, i32)> = state.cells.keys().copied().collect();
     cells.sort_unstable_by_key(|&(x, y)| (y, x));
+    prologue_end(prologue, cells.len());
 
     // The price of a flush, the cost this bud's tip will then pay per
     // growth step, and the species' tip-concurrency cap -- all read from
@@ -7527,8 +7603,10 @@ fn allocate_to_frontier(world: &mut World, organism_id: u16) {
     .unwrap_or(1);
     // Sorted for the same determinism reason `transport` sorts: `cells` is
     // a `HashMap` and `f32` addition is not associative.
+    let prologue = prologue_start();
     let mut cells: Vec<(i32, i32)> = state.cells.keys().copied().collect();
     cells.sort_unstable_by_key(|&(x, y)| (y, x));
+    prologue_end(prologue, cells.len());
 
     let mut frontier: Vec<(i32, i32)> = Vec::new();
     let mut frontier_is_root: Vec<bool> = Vec::new();
@@ -7800,8 +7878,10 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
     // 5872 and 5881 organism cells on three consecutive runs. With the sort
     // it gives 5806 three times. `PLAN.md` requires same-build determinism;
     // it was not being met here.
+    let prologue = prologue_start();
     let mut cells: Vec<(i32, i32)> = state.cells.keys().copied().collect();
     cells.sort_unstable_by_key(|&(x, y)| (y, x));
+    prologue_end(prologue, cells.len());
 
     // How likely a bud is to survive being thickened past. Read once for
     // the organism rather than per cell: it belongs to the *bud's* own

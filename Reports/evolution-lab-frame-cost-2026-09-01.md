@@ -946,13 +946,12 @@ change it:
 
 1. **Cheaper per cell.** §12 took 1.34x this way and the remaining passes have
    never been examined. Each is worth ~15% of the pass if it can be halved.
-2. **Fewer full walks.** A tick makes **eight** separate whole-organism passes,
-   five of which build their own sorted cell list and three of which build
-   their own `HashMap` index — for a 5,000-cell tree, every 45 frames, from
-   scratch. Sharing one sorted list and one index across the passes is a pure
-   optimisation and nobody has tried it. **Estimated at ~15% of the pass and
-   explicitly not measured** — the estimate is arithmetic on sort sizes, which
-   is exactly the kind of number this file says not to trust until it is run.
+2. **Fewer full walks.** A tick makes **nine** separate whole-organism passes,
+   each of which opens by rebuilding the same sorted cell list — for a
+   5,000-cell tree, every 45 frames, from scratch. Sharing one list across
+   them looks like a pure optimisation. **Measured at 4.9%, against the ~15%
+   this paragraph first estimated — see §13.5, which is why the estimate was
+   published as an estimate.**
 3. **Less often, or less of it.** Ticking a 5,000-cell tree on a longer
    interval than a seedling is the only lever with a large number behind it,
    and it is **a behaviour change, not an optimisation** — the tick *is* the
@@ -964,8 +963,10 @@ change it:
 §11.4's list survives with its second item deleted and its reason rewritten:
 
 1. **The remaining plant passes** — `frontier`, `upkeep`, `transport`, worth
-   ~1.5 ms combined and never examined. Shared scratch (item 2 above) is the
-   cheapest test and covers all of them at once.
+   ~1.5 ms combined and never examined. Shared scratch (item 2 above) looked
+   like the cheapest test covering all three at once; **§13.5 measured it and
+   it is not worth building**, so these three need looking at individually or
+   not at all.
 2. **`field` at ~1.1 ms** — §8's two leftovers. **Now known to be pure
    per-frame cost**: it is 0.92-1.22 ms in *every* band, so unlike the plants
    it is not tail work and every millisecond taken off it is taken off every
@@ -981,3 +982,35 @@ to be linear in a stand the owner deliberately grew. **Optimisation alone does
 not reach 10x on this bed**; it reaches perhaps 5-6x, and the rest has to come
 from the box holding fewer plant cells or ticking them less often, both of
 which are design decisions rather than performance work.
+
+
+### 13.5 The shared-scratch estimate was 3x too high — measured, not built
+
+§13.3's second lever priced sharing one cell list across the nine
+per-organism passes at "~15% of the pass", from arithmetic on sort sizes, and
+said in the same sentence not to trust it. `ORGANISM_PROLOGUE` was built to
+replace the estimate with a number. Tree bed, 16 founders, `plant_load=0`, the
+8,000 frames ending at 32,000:
+
+| | |
+|---|---|
+| collect+sorts in the window | **896,068** |
+| cells sorted | **34,531,983** |
+| cost | **1,132.6 ms** |
+| against `step_organisms` | ~23,251 ms — **4.9%** |
+| per cell, per prologue | 0.0328 us |
+
+A *perfect* sharing therefore buys about **0.16 ms of a 5.15 ms frame, ~3%**
+— and it is not a drop-in, because the cell set genuinely changes during a
+tick: bending moves cells, breaking removes them, a bud flush adds them. That
+is real per-pass invalidation surface for 3%, so **it is not built**, and the
+entry in `dead-ends.md` records the ratio it was rejected on rather than the
+idea, so a later session with 20,000-cell organisms can re-ask it.
+
+**The general shape is worth more than the number.** A cost that is obviously
+*repeated* — nine times, on every tick, over thousands of cells — reads as
+obviously *large*. It is 4.9%. **Repetition is not magnitude**, and the only
+thing that separates the two is measuring it. This is the same session's
+binary-search result from the other direction: there, an obviously-cheaper
+container was slower; here, an obviously-wasteful repetition is small. Both
+were settled in one run and neither would have been settled by argument.
