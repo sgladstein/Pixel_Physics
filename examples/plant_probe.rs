@@ -1147,6 +1147,43 @@ when he counted all four. §Z is cards-only. Reports/open-bugs-handoff.md §Z ha
             let hi = stakes.iter().cloned().fold(0.0f32, f32::max);
             println!("  SEED PROVISIONING: {} endowed seeds, mean {mean:.4} min {lo:.4} max {hi:.4} -- a spread means precocity is being priced", stakes.len());
         }
+        // **Is the turgor ceiling's price actually binding?** The effect
+        // counter for `thirst`, and the reason it exists is SS6.9: a price
+        // whose lever the corpus scale puts out of reach never fires, and
+        // that is invisible without asking. A plant is charged only where it
+        // has grown PAST its species' authored ceiling, so this counts the
+        // plants that have.
+        let ceiling = w
+            .live_organism_ids()
+            .first()
+            .and_then(|&id| w.organism_state(id).map(|st| st.species))
+            .map(|sp| pixel_physics::sim::plant::authored_height_ceiling_for(&w, sp))
+            .unwrap_or(0.0);
+        if ceiling > 0.0 {
+            // **Path length along the shoot, not row height**, and the
+            // difference is not cosmetic: row height spans roots as well, so
+            // the first version of this counter read 4 of 100 plants past a
+            // 60-row ceiling when what it had measured was 60 rows of shoot
+            // plus 4 of root. `thirst` is charged against `path_len_at` on
+            // foliage cells, so that is what this has to read.
+            let mut reach: std::collections::BTreeMap<u16, f32> = std::collections::BTreeMap::new();
+            for &(x, y, ty, _, _) in &cells {
+                if !matches!(ty, Some(organism::CellType::Leaf) | Some(organism::CellType::GrowingTip)) {
+                    continue;
+                }
+                let id = w.get(x, y).organism_id();
+                let p = pixel_physics::sim::plant::path_len_at_for(&w, x, y) as f32;
+                let e = reach.entry(id).or_insert(0.0);
+                *e = e.max(p);
+            }
+            let tall: Vec<f32> = reach.values().copied().collect();
+            let over = tall.iter().filter(|&&h| h > ceiling).count();
+            let tallest = tall.iter().cloned().fold(0.0f32, f32::max);
+            println!(
+                "  TURGOR CEILING: species ceiling {ceiling:.0} rows | tallest plant {tallest:.0} | {over} of {} plants past it -- the price binds only on those",
+                tall.len()
+            );
+        }
         let (ever, births, live) = w.generation_clock();
         let per_standing = if live > 0 { births as f32 / live as f32 } else { 0.0 };
         println!(

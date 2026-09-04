@@ -247,6 +247,22 @@ pub struct PlantGenetics {
     /// carried so a released specimen starts from the stake the original
     /// had rather than a founder's.
     pub endowment: f32,
+    /// **`OrganismState::lineage_seed` — the developmental identity.**
+    ///
+    /// Under `DevelopmentalKey::Plant` this decides *which shape* a genome
+    /// grows into, so a jar that stored `draws`, `alleles`, `fates` and
+    /// `params` and dropped this hands the player back a plant that grows
+    /// like something else — the exact failure `params`' own note records,
+    /// a few fields up. **Worse than that one**, because a specimen is sown
+    /// with `inherited = true` and so never draws a seed of its own: every
+    /// copy released from every jar shared **0**, making a shelf of different
+    /// specimens a shelf of one developmental clone.
+    ///
+    /// `#[serde(default)]` so jars written before this field existed still
+    /// load; they load as 0, which is exactly what a plant kept before the
+    /// developmental key existed actually had.
+    #[serde(default)]
+    pub lineage_seed: u64,
 }
 
 /// Everything a creature passes to its bud, and nothing else.
@@ -418,6 +434,7 @@ fn genetics_of(species: &Species, state: &OrganismState) -> Genetics {
             flower_band: state.flower_band,
             fruit_band: state.fruit_band,
             endowment: state.endowment,
+            lineage_seed: state.lineage_seed,
         })
     }
 }
@@ -639,6 +656,7 @@ pub fn release(world: &mut World, spec: &Specimen, x: i32, y: i32, broods: u32, 
                 g.flower_band,
                 g.fruit_band,
                 g.endowment,
+                g.lineage_seed,
                 rng,
             );
             let organism = seeded.ok_or(ShelfError::NoRoom)?;
@@ -839,6 +857,13 @@ mod tests {
         state.flower_band = 3;
         state.fruit_band = 2;
         state.endowment = 4.25;
+        // **A distinctive plant needs a distinctive development too**, or the
+        // round-trip test asserts over a field that is zero on both sides and
+        // would pass with the jar dropping it -- which is how the real defect
+        // reached a play test. `plant_tree_species` writes the cell without
+        // drawing a genome (the lane note's finding), so this is set the way
+        // `seed_genotype` would.
+        state.lineage_seed = 0xC0FF_EE00_D15E_A5E5;
         id
     }
 
@@ -877,6 +902,8 @@ mod tests {
         let before = w.organism(id).expect("live plant");
         let (draws, alleles, fates) = (before.genotype_draws, before.alleles, before.fates);
         let (flower, fruit, endowment) = (before.flower_band, before.fruit_band, before.endowment);
+        let lineage_seed = before.lineage_seed;
+        assert_ne!(lineage_seed, 0, "test setup: the kept plant must have a developmental identity to lose");
 
         let spec = capture(&w, id, "keeper").expect("a plant is keepable");
         let mut r = shelf_rng();
@@ -885,6 +912,16 @@ mod tests {
         assert_eq!(out.moved, 0);
         let after = w.organism(out.organism).expect("the sown seed");
         assert_eq!(after.genotype_draws, draws, "the continuous genome did not survive the jar");
+        // **The developmental identity, and it was dropped once already.**
+        // A specimen is sown with `inherited = true`, so `seed_genotype`
+        // returns at the top and never draws one: without the jar carrying
+        // it, every copy of every specimen came back as seed 0 -- a shelf of
+        // different genomes that all grow the same shape. Reported from a
+        // play test, not caught here, which is why this assertion exists.
+        assert_eq!(
+            after.lineage_seed, lineage_seed,
+            "the developmental identity did not survive the jar -- the released plant grows like something else"
+        );
         assert_eq!(after.alleles, alleles, "the discrete loci did not survive the jar");
         assert_eq!(after.fates, fates, "the production rule did not survive the jar");
         assert_eq!((after.flower_band, after.fruit_band), (flower, fruit));

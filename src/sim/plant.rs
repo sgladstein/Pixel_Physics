@@ -1802,6 +1802,80 @@ fn launch_price(reach: f32) -> f32 {
     1.0 + LAUNCH_PRICE_PER_ROOT_CELL * reach.sqrt()
 }
 
+/// **What a leaf this far from the collar costs in water**, as a multiple of
+/// what the same leaf at the species' authored height would cost.
+///
+/// The turgor ceiling — `(turgor_source - turgor_yield) / turgor_per_cell` — is
+/// the last of `plant-heritability-survey-design-2026-08-27.md` §4a's free
+/// levers with a benefit and no counterweight: raising `turgor_source` or
+/// lowering `turgor_yield` buys height and costs nothing, so selection pins
+/// every lineage at the clamp and every plant in the box is the same height.
+///
+/// **The counterweight is the physics that was missing.** Cohesion-tension:
+/// water is pulled up a continuous column under negative pressure, and the
+/// taller the column the more tension it takes to hold. The demand loop this
+/// feeds already scales a leaf's draw by its rate and by the light it reads;
+/// it did not scale by *how far up* the leaf is, so a hundred-row plant paid
+/// what a ten-row plant paid.
+///
+/// **Charged against the species' authored ceiling, not against zero**, which
+/// is what makes it a no-op on both games: every shipped plant grows inside
+/// the height its own species file already permits, so `path <= ceiling` and
+/// the multiplier is exactly 1.0. Only a lineage that has *evolved* a higher
+/// ceiling **and used it** pays, which is the trade — high ceiling and short
+/// is free, high ceiling and tall is thirsty, and which wins depends on how
+/// wet the bed is.
+///
+/// This is `seed_stake`'s shape (§6.9) reused deliberately: a price measured
+/// against the species constant rather than the individual's evolved value,
+/// because against its own the lineage is always exactly at its ceiling and
+/// the price is identically 1.0.
+///
+/// **Cliff**: unmet demand drives `water_status` down, which scales income
+/// continuously long before `water_desiccation` kills — so this is graded
+/// rather than a step, and the guard must show a tall lineage *thirstier*
+/// rather than dead.
+fn thirst(path: f32, authored_ceiling: f32) -> f32 {
+    if authored_ceiling <= 0.0 {
+        return 1.0;
+    }
+    1.0 + THIRST_PER_EXCESS_HEIGHT * (path / authored_ceiling - 1.0).max(0.0)
+}
+
+/// How much more water a leaf draws per whole species-ceiling of extra height.
+///
+/// Set against the ceiling itself rather than by eye: at 1.0 a plant grown to
+/// twice its species' authored height pays double for every leaf, which is
+/// steep enough to be a real trade and gentle enough that the first row past
+/// the ceiling is not a cliff. `MAINTENANCE_PER_CELL` already charges carbon
+/// for the extra tissue; this is the water half, which nothing charged.
+const THIRST_PER_EXCESS_HEIGHT: f32 = 1.0;
+
+/// The height this **species** can reach on its own authored turgor numbers —
+/// `(turgor_source - turgor_yield) / turgor_per_cell`, the same arithmetic the
+/// growth gate runs per cell.
+///
+/// Read past any individual override, for `seed_stake`'s reason: it is the
+/// yardstick, and a yardstick a lineage can move is not one.
+pub fn authored_height_ceiling_for(world: &World, species_id: organism::SpeciesId) -> f32 {
+    authored_height_ceiling(world, species_id)
+}
+
+fn authored_height_ceiling(world: &World, species_id: organism::SpeciesId) -> f32 {
+    world
+        .species
+        .get(species_id)
+        .behaviors(CellType::GrowingTip)
+        .iter()
+        .find_map(|b| match b {
+            Behavior::Grow { turgor_source, turgor_yield, turgor_per_cell, .. } if *turgor_per_cell > 0.0 => {
+                Some(((*turgor_source - *turgor_yield) / *turgor_per_cell).max(0.0))
+            }
+            _ => None,
+        })
+        .unwrap_or(0.0)
+}
+
 /// **What a seed borne by a plant this size is endowed with.**
 ///
 /// One function rather than two lines at the call site, and that is a
@@ -2398,6 +2472,15 @@ fn write_path_len(world: &mut World, x: i32, y: i32, parent: u16) {
 }
 
 /// This cell's own path length, or 0 if it has no sidecar yet.
+/// The path length a harness must read to check the turgor price, exposed for
+/// the same reason `authored_height_ceiling_for` is: an effect counter built
+/// on row height instead measures **root depth as well as shoot**, which is
+/// not the quantity `thirst` is charged against and reads as the price binding
+/// where it does not.
+pub fn path_len_at_for(world: &World, x: i32, y: i32) -> u16 {
+    path_len_at(world, x, y)
+}
+
 fn path_len_at(world: &World, x: i32, y: i32) -> u16 {
     world.organism_cell(x, y).map_or(0, |c| c.path_len)
 }
@@ -7989,7 +8072,11 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
                     // The leaf-economy allele's bill: the expensive leaf
                     // spends more water for its higher rate, which is the
                     // whole trade -- see `LEAF_TRANSPIRATION_ALLELES`.
-                    demand += rate * leaf_transp_mult * (light / crate::sim::field::MAX_LIGHT).clamp(0.0, 1.0);
+                    //
+                    // ...and the height bill, which is what makes the turgor
+                    // ceiling a trade rather than a free option. See `thirst`.
+                    let lift = thirst(path_len_at(world, cx, cy) as f32, authored_height_ceiling(world, species_id));
+                    demand += rate * leaf_transp_mult * lift * (light / crate::sim::field::MAX_LIGHT).clamp(0.0, 1.0);
                 }
             }
         }
@@ -9724,6 +9811,7 @@ pub(crate) fn sow_specimen_seed(
     flower_band: u8,
     fruit_band: u8,
     endowment: f32,
+    lineage_seed: u64,
     rng: &mut Rng,
 ) -> Option<u16> {
     let seed_material = world.materials.id_of("seed").or_else(|| world.materials.id_of("wood"))?;
@@ -9755,6 +9843,13 @@ pub(crate) fn sow_specimen_seed(
         state.flower_band = flower_band;
         state.fruit_band = fruit_band;
         state.endowment = endowment;
+        // **The developmental identity comes out of the jar too.** A specimen
+        // is sown with `inherited = true`, so `seed_genotype` returns at the
+        // top and never draws one -- without this every copy of every
+        // specimen carries seed 0, and the shelf hands back a row of
+        // different genomes that all grow the same shape. Reported from a
+        // play test rather than caught here.
+        state.lineage_seed = lineage_seed;
         state.foliage_band = foliage_first + alleles[organism::LOCUS_LEAF_ECONOMY].min(foliage_count.saturating_sub(1));
         state.bark_band = organism::bark_band_for_density(bark_bands, alleles[organism::LOCUS_WOOD_DENSITY]);
         state.lineage = lineage;
@@ -11596,6 +11691,63 @@ The night factor belongs on income only -- see NIGHT_INCOME_FLOOR"
         );
         let (_, births, _) = w.generation_clock();
         assert!(births >= 3, "births must count the founder and both descendants, got {births}");
+    }
+
+    /// **Height past the species' ceiling costs water, and height inside it
+    /// costs nothing** — the counterweight that stops the turgor ceiling
+    /// being a free lever.
+    ///
+    /// The no-op half is what protects both games: every shipped plant grows
+    /// inside the height its own species file permits, so the multiplier is
+    /// exactly 1.0 and no stand measured before this existed moves.
+    #[test]
+    fn height_past_a_species_ceiling_costs_water_and_height_inside_it_does_not() {
+        // Inside the ceiling: exactly free, at every depth.
+        for path in [0.0f32, 1.0, 50.0, 99.0, 100.0] {
+            assert_eq!(thirst(path, 100.0), 1.0, "a leaf at {path} rows under a 100-row ceiling must cost nothing extra");
+        }
+        // Past it: graded, and monotone.
+        let a = thirst(120.0, 100.0);
+        let b = thirst(200.0, 100.0);
+        assert!(a > 1.0, "a leaf past the ceiling must cost more, got {a}");
+        assert!(b > a, "and further past it must cost more still: {b} against {a}");
+        assert_eq!(b, 2.0, "a plant at twice its species' ceiling pays double per leaf");
+        // A species with no ceiling to exceed cannot be charged against one.
+        assert_eq!(thirst(500.0, 0.0), 1.0, "a species with no turgor bound has no yardstick");
+    }
+
+    /// **The yardstick is the species' authored ceiling**, computed from the
+    /// same arithmetic the growth gate runs — and every shipped species has
+    /// one, which is what makes the no-op above meaningful rather than
+    /// vacuous.
+    ///
+    /// Put the fault back by pointing `authored_height_ceiling` at
+    /// `individual_behavior`: a lineage is then always exactly at its own
+    /// ceiling and the price is identically 1.0.
+    #[test]
+    fn every_growing_species_has_a_height_ceiling_to_be_charged_against() {
+        let w = test_world();
+        let mut checked = 0;
+        for i in 0..w.species.len() {
+            let id = organism::SpeciesId(i as u16);
+            let name = w.species.get(id).name.clone();
+            // Only species that actually grow a shoot have one; `moss` has no
+            // `Grow` at all, and reading 0.0 for it is the honest answer.
+            let grows = w
+                .species
+                .get(id)
+                .behaviors(CellType::GrowingTip)
+                .iter()
+                .any(|b| matches!(b, Behavior::Grow { .. }));
+            if !grows {
+                continue;
+            }
+            let ceiling = authored_height_ceiling(&w, id);
+            assert!(ceiling > 0.0, "{name} grows a shoot but has no height ceiling to price against");
+            assert!(ceiling < 10_000.0, "{name}'s ceiling {ceiling} is past anything this bed can grow -- the price would never bind");
+            checked += 1;
+        }
+        assert!(checked >= 5, "only {checked} species checked -- this guard is not covering the corpus it claims to");
     }
 
     /// **A precocious plant's seedlings start poorer, and never empty.**
