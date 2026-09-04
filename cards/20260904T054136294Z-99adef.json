@@ -1,0 +1,46 @@
+{
+  "id": "20260904T054136294Z-99adef",
+  "created": "2026-09-04T05:41:36Z",
+  "board": "plants",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/plant-engine-rethink-brief-rk7lq5",
+    "commit": "e5e19601",
+    "agent": null,
+    "session_id": "2fd32b8c-66a6-5662-ac48-04f7486d66f4",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "One of these two beds is a single tree, ten times",
+  "question": "One bed is ten copies of ONE tree. The other is ten different trees. Click the bed you think is the clones. If they read the same to you, say that -- that answer is the finding, not a failure of the test.",
+  "context_md": "This is your play-test complaint set up as a test: **shared development = 1**, the setting you had on.\n\n**Did it fire.** Between them these two beds carry **11 distinct genomes and 11 distinct developmental seeds** -- one bed has **1 and 1**, the other has **10 and 10**, censused after germination on the exact runs that produced these images. So one of them really is a clone bed.\n\n**The environment is held as still as the engine allows.** Flat soil, one moisture, one depth, one ground line, same world seed, same weather. The founders stand **2.2x further apart than usual** so no tree is standing in its neighbour's shade -- that was the last environmental term I could control.\n\nEach bed is one long strip, cut at a gap between trees and stacked into two rows so it fits a screen. Top row is the left half of the bed, bottom row the right half. 26,000 frames.\n\n**One number that matters for how you read this.** At **6,000** frames these same two beds are not close: plant size varies by CV **0.092** in the clone bed against **0.480** in the mixed one -- five times less. Whatever makes clones diverge, it accumulates.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "clone bed - 1 genome, 1 developmental seed",
+      "files": [
+        "20260904T054136294Z-99adef/000-card_clone.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "mixed bed - 10 genomes, 10 developmental seeds",
+      "files": [
+        "20260904T054136294Z-99adef/001-card_pop.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
