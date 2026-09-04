@@ -1247,6 +1247,74 @@ output. With the fix the control returns to 0.612 on `cells`.
 
 ---
 
+### 6.9 Pricing `seed_maturity` — and finding the price cannot yet fire
+
+`seed_maturity_met`'s own doc names the defect: it *"makes precocious
+reproduction unreachable rather than **expensive**"*. A fence has one optimum,
+which is to stand as close to it as the clamp allows.
+
+**The trade is seed provisioning, not fecundity**, which is the botany — a
+small mother makes small seeds. A precocious plant pays the full `seed_cost`
+out of its own budget and its seedlings start **poorer**:
+
+```
+stake = seed_cost * clamp(shoot_cells / AUTHORED maturity, 0.25, 1.0)
+```
+
+Two things in that line are the whole design:
+
+- **The obvious version is backwards.** Making an early seed *cheaper* looks
+  like a penalty and is a second benefit — `affordable = budget / seed_cost`,
+  so a cheaper seed means *more* seeds. The cost has to land on the child, and
+  it can only land there because §6.6 already split the parent's charge from
+  the child's endowment.
+- **Measured against the species' authored maturity, never the
+  individual's.** Against its own evolved value a lineage is by definition
+  exactly mature whenever it breeds, and the price is identically 1.0. This
+  also gives the owner's lab dial the right meaning: turning `seed_maturity`
+  down on the *species* declares an early-breeding plant provisioned for it and
+  costs nothing — so §6.7's **1.6x survives by construction**, and it was
+  re-measured to confirm: 6,000 -> 3,750 frames per generation, unchanged.
+
+**And then the positive control failed, which is the finding.** With
+`param_mutation_chance` at 0.5 over 30,000 frames, endowment across 2,428
+standing plants reads **mean 0.1800, min 0.1800, max 0.1800** — not one
+precocious seed. The generation clock *did* move (deepest ever 5 -> 7), so
+lineages are moving `seed_maturity` and breeding earlier. The price simply
+never engages.
+
+`genome_reach -- drift=1` says why in one row:
+
+| address | n | authored | median | bound |
+|---|---|---|---|---|
+| `MatureBody/seed_maturity/t0` | 10 | 60 | **115** | 2800 |
+
+**The mutation step is calibrated to a different species.** `param_scale`
+takes its units from the corpus, and `conifer` authors `seed_maturity: 700`,
+so a step is `sigma * scale` = 0.25 x 700 = **175** — against `herb`'s
+authored **60**. A herb lineage cannot make a *small* downward move: it
+overshoots to the clamp at 0 or lands far above, and the observed median is
+115, i.e. lineages breeding **later** rather than earlier.
+
+**This is the same defect the lane note already records for `seed_launch`**,
+in a new place: *a parameter whose corpus is dominated by another species is
+evolvable only in that species' units*. There it made the useful range
+unreachable; here it makes an entire strategy — precocity — nearly
+unreachable, and the price built for it therefore untested in the field.
+
+**The price still lands**, because it is right, its arithmetic is guarded, and
+it costs nothing until something reaches it. What it is **not** is measured in
+a live stand, and that distinction is the whole reason this section exists
+rather than a claim that the lever is now priced.
+
+**What would fix it is not a per-parameter range table** — that is the
+hardcode `ParamKind` exists to remove. The candidates are a *relative* step
+(a fraction of the species' own authored value rather than of the corpus
+maximum), or a per-species scale. Both are changes to `param_scale` itself and
+reach every one of the 804 addresses, so neither is an unattended change.
+
+---
+
 ## 7. What to do next, in the order the evidence supports
 
 1. **Post §2's result to the owner and get a verdict on the noise floor.** It
