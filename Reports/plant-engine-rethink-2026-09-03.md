@@ -1503,25 +1503,66 @@ consecutive columns, one genome, 6,000 frames:
 | CV over all 33 | **0.286** |
 | CV with the three largest dropped | **0.074** |
 
-So it is not that every clone is different. **Four-fifths of them are nearly
-the same plant**, and a minority escape and run away to two or three times
-the size -- and those few set both the eye's impression and the whole of the
-variance. That is a different defect from "the developmental model is noisy",
-and a much more tractable one: **something lets an occasional individual
-break out of the band**, and once it has, the difference compounds. The
-onset data says the same thing directly -- two clones stay bit-identical for
-1,500 to 2,550 frames, then differ by one or two cells, then run apart.
+**That table is withdrawn as a claim about clones, and the sentence it
+carried -- "four-fifths of them are nearly the same plant, and a minority
+escape" -- was wrong.** It is left standing above because the numbers in it
+are real and because what it *is* a measurement of matters: **`tree`
+seedlings**. Nothing in it is a measurement of trees.
+
+**6,000 frames is a fifth of a `tree` generation.** §6.12 says in its own
+last paragraph that `tree` is the worst species to judge this on -- 600
+shoot cells to maturity, ~15,000 frames per generation -- and this section
+then measured it at 6,000 and read the result as a property of clones. At
+that age a `tree` is a whip of ~190 cells with almost nothing built yet, and
+plants with nothing built cannot differ much. The band was an artifact of
+looking too early, and the onset data in this same section says why: two
+clones stay **bit-identical for 1,500 to 2,550 frames**, so a census at
+6,000 catches them barely past the moment they separate.
+
+**The same twelve columns, grown to 20,000 frames:**
+
+| | 6,000 frames | 20,000 frames |
+|---|---|---|
+| within +/-15% of the median | 28 of 33 | **3 of 12** |
+| CV | 0.286 | **0.374** |
+| largest / smallest | 2.7x | **22x** |
+
+Cell counts at 20,000: 151, 1368, 1646, 1752, 2044, 2127, 2219, 2541, 2551,
+2651, 2707, 3368. Dropping the 151 -- a plant that is alive and not
+senescent, checked, so a real outcome rather than a dead one -- still leaves
+1,368 to 3,368, a **2.5x** spread with 5 of 11 near the median.
+
+So there is **no tight band with a few escapes**. There is wide spread, and
+the owner's reading of the rendered beds was right where this section's
+number was wrong. What survives from the ablation above is untouched and is
+the finding: two clones **in the same column** are cell-for-cell identical,
+and every environmental term can be removed without stopping the divergence
+between columns. What does not survive is any claim about the *shape* of the
+resulting distribution.
 
 Note what this does to §6.12's own reading. That section attributed the
 owner's complaint to *environmental response* and pointed the next step at
 the scoring weights. The environment here is uniform to the byte, and the
-plants still diverge, so the target is the escape rather than the response.
+plants still diverge, so the target is what amplifies a one-cell difference,
+not the response.
 
-**Scope.** One species, one world seed, 6,000 and 8,000 frames. The escape
-rate is not measured against age, and at 8,000 frames the whole distribution
-was larger and looser than at 6,000, so it plausibly grows. Re-verified after
-merging `main`: column 256 gives 225 cells both before and after, and the
-same-column control still reads 1.0000.
+**Two method notes, both paid for here.**
+
+*Look before you measure* is this file's first rule and the withdrawal above
+is what skipping it costs. The band was tabulated and never rendered; one
+look at twelve panels of thin whips would have said "these are seedlings"
+before any of it reached a report.
+
+And **`cells` counts roots**. The first render of those twelve columns
+cropped 30 rows below the collar, so a 22x difference in cell count read as
+about 1.5x on screen and the panels looked far more alike than the plants
+were. A picture and a count that disagree by an order of magnitude are
+answering different questions -- the same trap §6.11's turgor counter hit,
+measuring a row height that spanned the roots.
+
+**Scope.** One species, one world seed. 6,000, 8,000 and 20,000 frames.
+Re-verified after merging `main`: column 256 gives 225 cells both before and
+after, and the same-column control still reads 1.0000.
 
 ---
 
