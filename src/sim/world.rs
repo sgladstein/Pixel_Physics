@@ -1681,6 +1681,42 @@ pub struct World {
     /// setting. The lab's parameters panel writes this one; see
     /// `lab::params::Knob::Rule`.
     pub plant_load_failure: bool,
+    /// **Whether a plant may lean under load and wind.** `plant.rs`'s
+    /// `bend_under_load`, and the `stress_field` that feeds it.
+    ///
+    /// Its own switch rather than a second meaning for `plant_load_failure`,
+    /// because they are different promises to the player: that one is
+    /// *whether a plant can be pulled apart*, this one is *whether it bends
+    /// at all*. Off, a stem stands where it grew however hard the wind blows.
+    ///
+    /// **Off costs nothing rather than a little**, which is the whole reason
+    /// it is worth having as a switch: with this off and `plant_load_failure`
+    /// off, nothing consumes `stress_field` and `step_organisms` skips
+    /// building it entirely — measured at 28% of the pass. Before this
+    /// existed, `BEND=off` still paid for the field and threw it away.
+    ///
+    /// Defaults **on**, so the engine and every existing test are unchanged;
+    /// the lab box turns it off, which is where the owner asked for it off.
+    pub plant_bending: bool,
+    /// **Whether a big plant ticks less often than a seedling.**
+    ///
+    /// `step_organisms` costs almost exactly its cells (measured flat at
+    /// 3.3-6.0 us/cell across four orders of magnitude, `Reports/evolution-
+    /// lab-frame-cost-2026-09-01.md` §13.2), and on a grown tree bed
+    /// **eleven trees are 96.6% of the pass** while 676 seeds are 3.2%. So
+    /// the one lever with a large number behind it is to charge the big ones
+    /// less often, which is what this does — `PLANT_SIZE_CADENCE` bands a
+    /// plant by cell count and multiplies its tick interval.
+    ///
+    /// **It is a behaviour change and not a hidden one.** The tick *is* the
+    /// plant's economy — photosynthesis, transport, upkeep, and the budget
+    /// growth draws on — so a tree on a 4x interval does not merely update
+    /// less, it lives slower, while seeds and the CA around it keep normal
+    /// time. That is a real change to how big and small plants compete, and
+    /// it is a switch rather than a constant for exactly that reason.
+    ///
+    /// Defaults **off**, so nothing changes until it is asked for.
+    pub plant_size_cadence: bool,
     /// **How far one of a plant's ten continuous genes may drift in a
     /// generation** — the mutagen dial, read by `plant::genotype_jitter`.
     ///
@@ -2505,6 +2541,8 @@ impl World {
             // On, because it is the shipped behaviour and a default that
             // silently disables a mechanism is a mechanism nobody measures.
             plant_load_failure: true,
+            plant_bending: true,
+            plant_size_cadence: false,
             developmental_key: super::organism::DevelopmentalKey::default(),
             deepest_generation: 0,
             mutation_sigma: super::plant::MUTATION_SIGMA,

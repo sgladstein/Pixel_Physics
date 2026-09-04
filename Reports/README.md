@@ -2023,7 +2023,18 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   organism *count* was counting the 97% that does not matter, there is no
   super-linearity to exploit, and **optimisation alone does not reach 10x on
   this bed** -- roughly 5-6x, with the rest a design decision about how many
-  plant cells the box holds.
+  plant cells the box holds. **§14 takes that design decision and corrects
+  §13's ceiling** (2026-09-04). The owner's design -- a plant waits longer
+  between ticks the bigger it is -- measures **2.25x -> 5.95x median over ten
+  seeds, every seed faster, per-seed ratio median 2.73x and worst 1.68x**, and
+  the box does not die anywhere: it holds +7% biomass and **1.60x the leaf** in
+  a third as many plants, with no overlap at all on leaf between the arms. The
+  ceiling was wrong because §13 read `field` being *flat across the tail bands*
+  as *independent of the plants*; it is not, and the owner's own control (an
+  empty lab runs at **1024x**) is what refuted it -- `ca_sweep` and `field`
+  both fall alongside a change that touches neither. What it costs is
+  **fecundity**: the tick is the plant's economy, so a tree on a 5x interval
+  seeds 5x more slowly. Defaults left off pending the owner's verdict.
 - [plant-reseeding-2026-09-03.md](plant-reseeding-2026-09-03.md) —
   **measured 2026-09-03.** Answers the owner's two questions about why the
   lab's plants never spread. **Q1: no, a plant cannot evolve better seed

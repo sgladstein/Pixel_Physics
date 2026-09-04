@@ -113,13 +113,24 @@ fn main() {
         // precondition for one. That is a judge-by-eye question and this is
         // the harness that answers it.
         colony_species: arg::<String>("species").unwrap_or_else(|| LabBox::default().colony_species),
+        // **The *plant* species, which `species=` does not set.** That one
+        // names the animal a colony is founded from, and until this existed
+        // there was no way to point this harness at a different flora at all
+        // -- so a `species=tree` on the command line silently rendered the
+        // default herb bed and looked exactly like a correct run. Caught by
+        // the counts disagreeing with `lab_cost` on the same arguments
+        // (10,308 cells against 27,520), which is the only thing that could
+        // have caught it: `CLAUDE.md`'s "an unknown argument is silently
+        // ignored", and its sibling, a scene that contradicts the code looks
+        // like a bug in the code.
+        species: arg::<String>("plant").unwrap_or_else(|| LabBox::default().species),
         predators: arg("predators").unwrap_or(0),
         compartments: arg("walls").unwrap_or(1),
         ..LabBox::default()
     };
     println!(
-        "labshot: {}x{} soil={} founders={} colonies={} of {} predators={} walls={} interior={interior} light={} frames={:?}",
-        spec.width, spec.height, spec.soil_depth, spec.founders, spec.colonies, spec.colony_species, spec.predators,
+        "labshot: {}x{} soil={} founders={} of {} colonies={} of {} predators={} walls={} interior={interior} light={} frames={:?}",
+        spec.width, spec.height, spec.soil_depth, spec.founders, spec.species, spec.colonies, spec.colony_species, spec.predators,
         spec.compartments,
         arg::<f32>("light").map_or("held at noon".to_string(), |f| format!("{f}")),
         stops
@@ -162,6 +173,15 @@ fn main() {
     // `BEND`/`BREAK` it has no `env::var` and nothing could measure it.
     if let Some(v) = arg::<i32>("loadfail") {
         world.plant_load_failure = v != 0;
+    }
+    // The other two plant-mechanics rows, same shape and for the same reason
+    // -- both are settings on the world, so a sheet of the box under them can
+    // only be made if the harness can write them.
+    if let Some(v) = arg::<i32>("bending") {
+        world.plant_bending = v != 0;
+    }
+    if let Some(v) = arg::<i32>("size_cadence") {
+        world.plant_size_cadence = v != 0;
     }
     if arg::<i32>("lamps") == Some(0) {
         for cx in spec.lamps_in(&world) {

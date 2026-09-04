@@ -1014,3 +1014,140 @@ thing that separates the two is measuring it. This is the same session's
 binary-search result from the other direction: there, an obviously-cheaper
 container was slower; here, an obviously-wasteful repetition is small. Both
 were settled in one run and neither would have been settled by argument.
+
+
+---
+
+## 14. A big plant on a slower clock — 2026-09-04
+
+*The owner's own design, and the first lever measured that reaches the speed
+they asked for: **"I kind of like the idea of the bigger plants get the fewer
+ticks they have... seedlings run at 1x, medium size plants 2 ticks, larger
+plants every three and it gets bigger and bigger."* Built, swept over ten
+seeds, and queued for their eye. Defaults deliberately unchanged.*
+
+### 14.0 First, the correction — §13.4's ceiling was wrong
+
+§13.4 said plant sacrifices could not pass ~7.9x, because zeroing
+`step_organisms` entirely still left 2.10 ms of `field` and `ca_sweep`. **That
+treated those two phases as independent of the plants, and they are not.** A
+growing plant keeps chunks awake, and an awake chunk is exactly what makes
+`field::step` skip its early-out and the sweep find dirty regions.
+
+The owner refuted it with a number this report had no answer to: **an empty
+lab runs at 1024x.** The measurement below shows the mechanism directly — the
+cadence rule touches only `step_organisms`, and `ca_sweep` falls **1.09 -> 0.29
+ms** and `field` **1.34 -> 0.93** alongside it.
+
+The error is worth naming because it was not a slip in arithmetic. §13.1's band
+table showed `field` flat across every tail band, and that was read as *"a
+constant per-frame cost"*. Flat across bands only means **not correlated with
+the tail**. It says nothing about whether the phase would still be there if the
+plants were not — and the control that answers *that* is the empty box, which
+nobody had run.
+
+### 14.1 The rule
+
+`PLANT_SIZE_CADENCE` bands a plant by cell count and multiplies its tick
+interval: `<50` 1x, `<200` 2x, `<800` 3x, `<3200` 4x, `3200+` 5x. Per-frame
+cost is `cells / interval` and the cost is flat per cell (§13.2), so
+multiplying the interval divides the cost exactly. Creatures are not banded —
+an ant's tick is its brain rather than an economy that can run slower.
+
+It is behind `World::plant_size_cadence`, **default off**. Beside it,
+`World::plant_bending` (default **on**) splits "may a plant lean" from "may a
+plant be pulled apart", and with both it and `plant_load_failure` off,
+`stress_field` is **no longer built at all** — nothing consumes it, and before
+this it was computed in full and dropped, so `BEND=off` bought far less than
+it appeared to.
+
+### 14.2 Ten seeds, and every one is faster
+
+`species=tree founders=16 colonies=0 plant_load=0`, 64,000 frames, seeds 1-10.
+The cadence arm also has bending off.
+
+| | normal clock | slower clock |
+|---|---|---|
+| dial, median | 2.25x | **5.95x** |
+| **per-seed ratio** | | median **2.73x**, range **1.68-3.81x** |
+| **seeds improved** | | **10 of 10, none worse** |
+| plants standing, median | 428 | **154** |
+| plant cells, median | 27,878 | **29,834** (+7%) |
+| leaf, median | 7,164 | **11,480** (1.60x) |
+
+**The per-seed ratio is the statistic to read**, not the medians: it is paired,
+so it cancels the seed-to-seed spread that makes single runs on this bed
+untrustworthy. Its worst case is 1.68x and it never goes the wrong way.
+
+**The box does not die anywhere.** It holds *more* biomass and 60% more leaf
+in a third as many plants — and the leaf result does not overlap at all: every
+slow-clock run has more leaf than every normal-clock run.
+
+### 14.3 What it costs is fecundity
+
+Standing seeds fall with the population, and the mechanism is direct: a tree
+ticking five times more slowly also *seeds* five times more slowly. The tick
+**is** the plant's economy — photosynthesis, transport, upkeep, and the budget
+growth draws on — so a slowed tree does not merely update less, it lives
+slower while the seeds around it keep normal time. **That changes which plants
+win**, and it is a design decision rather than a tuning one, which is why the
+switch defaults off and why card `20260904T071622944Z-f07357` puts the two
+boxes in front of the owner blind.
+
+### 14.4 A settled comparison, and one tile that is not real
+
+96,000 frames, seed 1, dial by tile:
+
+| | 16k | 32k | 48k | 64k | 80k | 96k |
+|---|---|---|---|---|---|---|
+| normal clock | 2.9x | 2.3x | 2.5x | 2.2x | 2.0x | 2.2x |
+| slower clock | 5.2x | 7.8x | 6.4x | 6.9x | 7.0x | **3.6x** |
+
+**The last tile is the box, not the simulation.** Its `us/cell` jumps 0.08 ->
+0.16 while the stand barely moves (29,186 -> 28,698 cells): a doubled *unit
+price* with no change in what is being priced. The normal-clock arm's own
+`us/cell` holds at 0.26 throughout. Four consecutive tiles at 6.4-7.8x are the
+signal.
+
+This also corrects the first reading of these arms. Compared at 32,000 frames
+the population looked like 677 -> 193; but **the normal-clock arm peaks at
+32,000 and then sheds**, so that was its peak against an arm still climbing.
+Settled, it is 331 -> 135. `CLAUDE.md`'s *a cascade censused before it settles*,
+on a population curve, for the second time in this document.
+
+### 14.5 `labshot` was rendering a different bed
+
+Worth recording because it nearly shipped a review card of the wrong world.
+`labshot`'s `species=` sets **`colony_species`** — the animal a colony is
+founded from — and the harness had **no way to set the plant species at all**.
+So `species=tree` silently rendered the default herb bed, and the sheet looked
+entirely reasonable.
+
+Caught only by the counts disagreeing with `lab_cost` on nominally identical
+arguments: **10,308 cells against 27,520**. `plant=` now sets it and the echo
+line names it, so the next disconnected knob is visible rather than plausible.
+This is `CLAUDE.md`'s *an unknown argument is silently ignored* and *a scene
+that contradicts the code looks like a bug in the code*, arriving together.
+
+### 14.6 Landed on, and scoped to, the lab
+
+Owner, 2026-09-04, on the two boxes: *"looks good."* Both switches now open
+**on in the lab** — `LabBox::build_counted` sets `plant_size_cadence` on and
+`plant_bending` off — and the **engine defaults are unchanged**.
+
+**Scoped rather than global, deliberately.** Everything measured here is the
+lab's tree bed; nobody has measured what either switch does to the outdoor
+game, where a gust laying grass over is something you can see. Setting them on
+the bed gives the owner the box they asked for without changing a game this
+report never ran. Both are rows on the parameters page, so it is the value the
+box *opens at* rather than one it is stuck with.
+
+The shipped lab bed now measures **7.7x** at 32,000 frames on the
+16-founder tree bed, against 2.4x before.
+
+**One harness trap closed on the way in.** `lab_cost` set both switches
+unconditionally from its own defaults, so once the bed carried them it would
+have gone on measuring the old behaviour under the new bed's name. Both knobs
+are now `Option`: unset means *use the bed*, and the echo line prints `(bed)`
+so a reader can see which it was. That is the disconnected-knob trap wearing
+its other face — a knob that is connected to the wrong end.

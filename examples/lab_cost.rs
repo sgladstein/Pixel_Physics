@@ -388,6 +388,8 @@ fn census(w: &World, spec: &LabBox, ids: &Ids, tile: &mut Tile) {
 fn run_arm(
     spec: &LabBox,
     plant_load: bool,
+    bending: Option<bool>,
+    size_cadence: Option<bool>,
     frames: u64,
     every: u64,
     fans: usize,
@@ -422,6 +424,17 @@ fn run_arm(
         world = spec.build();
     }
     world.plant_load_failure = plant_load;
+    // **Only when asked**, so an un-passed knob measures the bed the lab
+    // actually ships rather than a value this harness invented. `LabBox`
+    // sets both, and a harness that overwrote them unconditionally would
+    // have gone on measuring the old behaviour while reporting the new bed's
+    // name -- the disconnected-knob trap wearing its other face.
+    if let Some(v) = bending {
+        world.plant_bending = v;
+    }
+    if let Some(v) = size_cadence {
+        world.plant_size_cadence = v;
+    }
 
     let ids = Ids::of(&world);
     let mut particles = ParticleSystem::new();
@@ -624,6 +637,11 @@ fn main() {
     // plays with it OFF -- so a cost measured with it on is not a cost they
     // ever pay. It is a field on `World`, set after the bed is built.
     let plant_load: bool = arg::<u32>("plant_load").unwrap_or(1) == 1;
+    // Both default to the engine's own value, so an un-passed knob measures
+    // the shipped build -- `LabBox`'s rule, and the reason the echo line
+    // below prints them.
+    let bending: Option<bool> = arg::<u32>("bending").map(|v| v == 1);
+    let size_cadence: Option<bool> = arg::<u32>("size_cadence").map(|v| v == 1);
 
     let walls: Vec<usize> = walls.split(',').map(|s| s.parse().expect("a wall count")).collect();
 
@@ -644,11 +662,14 @@ fn main() {
     println!(
         "lab_cost: {width}x{height} soil={soil} ground_y={} founders={founders} species={species} \
          colonies={colonies} seed={seed} walls={walls:?} fans={fans} reps={reps} frames={frames} \
-         every={every} phases={} render_every={render_every} plant_load={} gut={} \
+         every={every} phases={} render_every={render_every} plant_load={} bending={} \
+         size_cadence={} gut={} \
          (bed defaults from LabBox::default(), soil {} rows)",
         base.ground_y,
         if split { 1 } else { 0 },
         u8::from(plant_load),
+        bending.map_or("(bed)".to_string(), |v| u8::from(v).to_string()),
+        size_cadence.map_or("(bed)".to_string(), |v| u8::from(v).to_string()),
         gut.map_or("(ant.ron)".to_string(), |g| format!("{g:+.2}")),
         LabBox::default().soil_depth,
     );
@@ -692,6 +713,8 @@ fn main() {
             let (tiles, world, founder_ids) = run_arm(
                 &spec,
                 plant_load,
+                bending,
+                size_cadence,
                 frames,
                 every,
                 fans,
