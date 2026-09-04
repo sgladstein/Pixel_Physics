@@ -345,6 +345,17 @@ the correctness surface; it is **not** (4.9%, against a ~15% estimate --
 expensive" question, where the answer is usually that **repetition is not
 magnitude**.
 
+**`FIELD_PASS=<every N>` splits `field::step` ten ways**, and prints `solved`
+and `momentum` beside the timings -- how many tiles the selective solve
+actually visited, which is the number that says whether a field cost is "too
+much work" or "too much per unit of work". **It averages over the window as of
+2026-09-04**, and for this pass that matters more than for its siblings: the
+field is driven by the sky, so a single sampled frame is a single *phase of a
+designed oscillator*, and `frame % every == 0` pins the reading to whichever
+phase it lands on. It is what established that §8's two handed-forward field
+items are both stale (moisture is 0.006 ms; the selective solve visits 4% of
+the box).
+
 **`SCHED_PASS=<every N>` splits `scheduler::step` six ways**, one per
 `ActiveKind`, and prints `sites` / `produced` / `deferred` beside the times.
 Same shape as `FIELD_PASS` and `ORGANISM_PASS`, and the counters are again the
