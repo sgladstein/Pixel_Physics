@@ -506,13 +506,57 @@ struct Bed<'a> {
     /// what separates two plants is who stood next to them rather than what
     /// they are. Widening the bed buys each tree its own light.
     spacing: f32,
+    /// **Whether the founders may breed.**
+    ///
+    /// Off, a bed measures the ten plants that were planted in it. On --
+    /// which is the shipped behaviour and was this harness's only mode --
+    /// it measures those ten *plus everything they produced*, and over a
+    /// long run that second population is most of the bed. That matters
+    /// here for a reason that is not obvious: a widely spaced bed does not
+    /// stay widely spaced. Its founders breed, the offspring establish
+    /// between them, and by 26,000 frames the bed is crowded whatever it
+    /// was planted at -- so `spacing` buys time rather than room, and the
+    /// two cannot be told apart while reproduction is on.
+    ///
+    /// Implemented as `seed_maturity` set past any size a plant reaches,
+    /// through the live registry: editing a species `.ron` and re-running a
+    /// prebuilt example is the `include_str!` trap and produces
+    /// bit-identical "runs". `World::seeds_borne` is the effect counter --
+    /// a switch that is merely *called* is the counter trap this file
+    /// already carries one scar from.
+    sterile: bool,
+}
+
+/// **Stop this bed breeding**, by moving `seed_maturity` past any size a
+/// plant in it can reach.
+///
+/// Written through the live registry rather than a species `.ron`, which is
+/// `include_str!`d into the binary -- editing one and re-running a prebuilt
+/// example produces bit-identical "runs", and this repo has three of those on
+/// record. `set_param` returning false means the edit matched no `Reproduce`
+/// behaviour, which reads as *the switch does nothing*; refuse instead.
+///
+/// `f32::MAX` is deliberately not used: `seed_maturity` is compared against a
+/// cell count that is summed into an `f32`, and a comparison against MAX is
+/// fine while an arithmetic combination of it is not. 1e9 cells is larger than
+/// the world by six orders of magnitude and stays an ordinary number.
+fn make_sterile(w: &mut World, species: &str) {
+    let sp = w.species.id_of(species).expect("species is compiled in");
+    assert!(
+        w.species.set_param(sp, organism::CellType::MatureBody, organism::ParamId::SeedMaturity, 0, 1.0e9),
+        "sterile=1 matched no Reproduce behaviour on {species} -- an arm whose edit matched nothing reads as \
+         `the mechanism does nothing`"
+    );
 }
 
 fn run_and_maybe_render(bed: Bed<'_>, arm: Arm, reference: usize, png: Option<&str>) -> (Vec<Shape>, ()) {
-    let Bed { species, founders, frames, worldseed, key, spacing } = bed;
+    let Bed { species, founders, frames, worldseed, key, spacing, sterile } = bed;
     let d = common::PlantScene::default();
     let wide = ((d.width as f32 * (founders as f32).max(1.0) / d.trees as f32) * spacing) as i32;
     let (mut w, ids) = build(species, founders, worldseed, Some(wide), key);
+    if sterile {
+        make_sterile(&mut w, species);
+    }
     // **How many DIFFERENT plants this arm actually planted**, printed for
     // every arm. `CLAUDE.md`: an image shows what and where and cannot show
     // whether the thing you built is what produced it -- and this harness has
@@ -550,6 +594,20 @@ fn run_and_maybe_render(bed: Bed<'_>, arm: Arm, reference: usize, png: Option<&s
     println!(
         "  {arm:?}: {} founders grew into {g1} distinct genome(s) and {s1} distinct developmental seed(s)",
         ids.len()
+    );
+    // **The effect counter for `sterile`, from the far side of the call.**
+    // `make_sterile` asserts its *write* landed, which says the parameter
+    // moved and nothing about whether a plant then failed to breed -- the
+    // exact shape of the counter trap recorded in `CLAUDE.md` (200 cuts
+    // reported against a flat queue, because the counter counted calls).
+    // `seeds_borne` is incremented on success only, so it is the far side.
+    // Printed in BOTH modes on purpose: the fertile reading is the positive
+    // control, and a 0 here means nothing unless a non-zero was seen at the
+    // same bed with the switch off.
+    println!(
+        "    seeds borne {} ({})",
+        w.seeds_borne,
+        if sterile { "sterile=1, expect 0" } else { "fertile -- this is the positive control for sterile=1" }
     );
     if let Some(path) = png {
         let (buf, width, ch) = render_stand(&w);
@@ -648,7 +706,10 @@ fn main() {
     };
     println!("  developmental key: {key:?}");
     let spacing: f32 = arg("spacing").unwrap_or(1.0);
-    let bed = Bed { species: &species, founders, frames, worldseed, key, spacing };
+    // **`sterile=1` stops the founders breeding.** Default off, so an
+    // unqualified run is every earlier run in this file's history.
+    let sterile: bool = arg::<u32>("sterile").unwrap_or(0) != 0;
+    let bed = Bed { species: &species, founders, frames, worldseed, key, spacing, sterile };
     if shift > 0 {
         one_cell_over(&species, founders, frames, worldseed, sarg("png"), key);
         return;
