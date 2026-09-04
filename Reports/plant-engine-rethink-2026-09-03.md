@@ -1402,7 +1402,7 @@ limited by light and crowding well before turgor. So the price is sound, its
 no-op is measured, and it is **untested in the field** — the same honest
 position §6.9 records, reached by a different route.
 
-## 6.12 What a play test found that none of this did
+### 6.12 What a play test found that none of this did
 
 The owner set `shared_development` to 1, cloned a tree, planted the copies, and
 reported: *"everyone looks 100% different."*
