@@ -733,6 +733,17 @@ fn main() {
         );
     }
 
+    // --- bit-identity ----------------------------------------------------
+    // **The check a pure optimisation is judged by.** `world_hash` is the
+    // same full-grid digest `split_tick_matches_frame_step` uses; printed
+    // here it lets two builds of this harness be compared for *identical
+    // output* rather than merely similar counters. A refactor that claims to
+    // change no behaviour and moves this number has changed behaviour, and a
+    // census that agrees to five significant figures will not say so.
+    if let Some((world, _, _)) = &last {
+        println!("\nworld hash at frame {frames}: {:#018x}", world_hash(world));
+    }
+
     // --- the founder question -------------------------------------------
     if let Some((world, founder_ids, spec)) = &last {
         println!("\n=== the founders: germination or invisibility? ===");

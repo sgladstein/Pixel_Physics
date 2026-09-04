@@ -1997,7 +1997,20 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   organism 1.7x dearer. Its most transferable finding is a measurement trap:
   **the default 8-founder bed reports that regression as a 1.3x improvement**,
   because `bin/lab.rs` opens empty and the bed being played is not the bed being
-  measured.
+  measured. **§10 and §11 narrow it to the regime the owner plays** (collapse
+  off), where nothing got dearer at all -- `active_sites` per plant cell is
+  unchanged at ~0.15 us and simply charged over a 2.5x larger stand. **§12 is
+  the fix, built 2026-09-03**: `plant::step_organisms` **3.74 -> 2.79 ms**,
+  `active_sites` **1.24x**, the whole tick **1.15x** and the dial **3.0 ->
+  3.5x**, with a **byte-identical world hash** on both settings of the collapse
+  switch. Two findings outlast the numbers. **`ORGANISM_PASS` was off by ~50x**
+  because it printed one sampled frame of a *staggered* schedule -- it caught
+  14 one-cell organisms and reported the pass at 0.08 ms against a true 3.74 --
+  and it had no slots for the three calls that turned out to dominate. And **a
+  binary search over an already-sorted list is slower than the `HashMap` it
+  replaces** at these sizes (0.152 -> 0.292 ms on one pass): the cost was never
+  the container, it was reading the world through it, and only measuring the
+  two halves of the change separately shows that.
 - [plant-reseeding-2026-09-03.md](plant-reseeding-2026-09-03.md) —
   **measured 2026-09-03.** Answers the owner's two questions about why the
   lab's plants never spread. **Q1: no, a plant cannot evolve better seed
