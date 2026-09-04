@@ -31,6 +31,7 @@
 //! cargo run --release --example clone_identity -- species=tree plants=2 frames=8000
 //! cargo run --release --example clone_identity -- species=tree plants=2 frames=8000 gap=200
 //! ```
+use pixel_physics::render::Renderer;
 use pixel_physics::sim::{organism, parallel, plant, World};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -85,6 +86,40 @@ fn jaccard(a: &Body, b: &Body) -> f32 {
     } else {
         inter / union
     }
+}
+
+/// One plant, rendered in a **fixed window anchored on its own collar**, so
+/// every panel of a column strip is the same size and the same crop.
+///
+/// A per-plant tight crop would be the wrong picture here: the question the
+/// strip asks is *how much do these differ*, and a crop that rescales itself
+/// to each plant hides exactly the difference being asked about -- a plant
+/// twice the size would come back the same size on the card. So the window is
+/// constant and the plant is drawn at whatever fraction of it it fills.
+///
+/// Pinned to noon for the same reason `clone_variance::render_stand` is: the
+/// day/night cycle is a designed oscillator, and a card rendered at an
+/// arbitrary phase is a card about the hour it was taken.
+fn render_window(w: &World, cx: i32, gy: i32, half_w: i32, up: i32, down: i32) -> (Vec<u8>, u32, u32) {
+    let b = w.bounds().expect("the plant scene sets bounds");
+    let (ww, wh) = ((b.max_x - b.min_x + 1) as u32, (b.max_y - b.min_y + 1) as u32);
+    let mut buf = vec![0u8; (ww * wh * 4) as usize];
+    let mut renderer = Renderer::new();
+    renderer.pinned_light = Some(pixel_physics::sky::frame_for_daylight(1.0));
+    let particles = pixel_physics::sim::particle::ParticleSystem::new();
+    renderer.draw(w, &particles, &std::collections::HashSet::new(), &mut buf, (ww, wh), true);
+    let (x0, x1) = ((cx - half_w).max(b.min_x), (cx + half_w).min(b.max_x));
+    let (y0, y1) = ((gy - up).max(b.min_y), (gy + down).min(b.max_y));
+    let (cw, ch) = ((x1 - x0 + 1) as u32, (y1 - y0 + 1) as u32);
+    let mut crop = vec![0u8; (cw * ch * 4) as usize];
+    for row in 0..ch {
+        let sy = (y0 - b.min_y) as u32 + row;
+        let sx = (x0 - b.min_x) as u32;
+        let src = ((sy * ww + sx) * 4) as usize;
+        let dst = (row * cw * 4) as usize;
+        crop[dst..dst + (cw * 4) as usize].copy_from_slice(&buf[src..src + (cw * 4) as usize]);
+    }
+    (crop, cw, ch)
 }
 
 fn main() {
@@ -322,6 +357,21 @@ fn main() {
             }
             let b = relative_bodies(&wk).remove(&id).unwrap_or_default();
             println!("  column {cx}: organism id {id}, {} cells", b.len());
+            if let Some(stem) = sarg("png") {
+                // **The window is an argument because the right one depends on
+                // the age.** At 6,000 frames a `tree` is a whip and a tight
+                // window is generous; at 20,000 it has a crown and the same
+                // window crops it, which would make a big plant *look* the
+                // same size as a small one -- the exact difference the strip
+                // exists to show.
+                let win = sarg("win").unwrap_or_else(|| "70,150,22".to_string());
+                let v: Vec<i32> = win.split(',').map(|n| n.parse().expect("win=halfw,up,down")).collect();
+                assert_eq!(v.len(), 3, "win takes three numbers: halfw,up,down");
+                let (buf, pw, ph) = render_window(&wk, cx, gy, v[0], v[1], v[2]);
+                let path = format!("{stem}_{cx}.png");
+                image::save_buffer(&path, &buf, pw, ph, image::ColorType::Rgba8).expect("write png");
+                println!("    wrote {path} ({pw}x{ph})");
+            }
             bodies.push((cx, id, b));
         }
         let one_id = bodies.iter().all(|b| b.1 == bodies[0].1);
