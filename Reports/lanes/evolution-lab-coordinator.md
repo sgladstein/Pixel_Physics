@@ -365,6 +365,48 @@ it with plant structural damage off first."* Two results:
   the target, and it is a pure win**: no behaviour change, no seed sweep, no
   owner verdict.
 
+## Round eight, 2026-09-04 — the parameter half of "no save," closed
+
+*Owner: "I need parameters in the evolution lab game to persist when I close
+the game and reopen it even if I recompile ideally." Branch
+`claude/evolution-lab-persistence-tv32nw`. Full account in README's "Lab
+parameters status".*
+
+Round three's "no save" turned out to be two gaps, and only the save *action*
+had ever been built — nowhere for it to be read back from.
+
+- **The lab never reloaded `assets/materials`/`assets/species` at startup.**
+  `params::save` already wrote a real, parsed `.ron` (found already on
+  `main`, not built this round); a save from a previous session was
+  invisible to the next one until the binary was rebuilt, which is why it
+  looked like it survived a recompile and never a plain restart.
+  `bin/lab.rs` now reloads both directories, then rebuilds the box a second
+  time on top of the fresh registry before applying anything saved — the
+  founders a saved bed places have to be seeded from the reloaded data too,
+  not only their offspring. **Confirmed live, not just by test**: a saved
+  `founders=40 colonies=3 colony_ants=52` bed opened at exactly **156
+  animals** — 3×52 — at frame 0, paused, before simulation could have
+  produced that number by any other path.
+- **`LabBox` (the bed spec) and the eight `Rule`/`Heredity` `World` dials had
+  no file at all**, and it was worse than a restart: `Lab::reset` was
+  already carrying the three damage switches across an in-session `REBUILD`
+  by hand and silently dropping all five heredity numbers on every one —
+  nothing had caught it because nothing else read them back either. Both now
+  round-trip through their own file (`scene::LabBox::save`/`load_saved`,
+  `params::Dials::save`/`load_saved`, one small struct apiece), the same
+  `S`-to-save gesture every other row already used, and `reset` now carries
+  all eight dials through `Dials` instead of three by hand.
+- **Gitignored** (`assets/lab_bed.ron`, `assets/lab_dials.ron`), on the
+  specimen shelf's own reasoning rather than `player.ron`/`explosion.ron`'s:
+  this is one player's current box, not authored content the whole game
+  ships.
+
+**Deliberately not touched:** `Knob::Heredity`'s own doc already argues
+against a species-file heredity field (it would reintroduce the
+bit-identical-sweep problem `fate_mutation_chance`'s doc records). The new
+file is a separate, gitignored, runtime-only state file rather than a
+species field, so that argument still holds and was not re-litigated.
+
 ## Deliberately not being built yet
 
 The score and the economy — the guide's Gate 5. **Gate 2, does selection have

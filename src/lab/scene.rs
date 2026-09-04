@@ -55,7 +55,7 @@ use crate::sim::weather::Pin;
 use crate::sim::world::World;
 
 /// A lab box, as data. `build` is the only way a lab world is made.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct LabBox {
     pub width: i32,
     pub height: i32,
@@ -360,6 +360,46 @@ const LAMP_ROWS: i32 = 4;
 const LAMP_REACH_FRACTION: f32 = 0.62;
 
 impl LabBox {
+    /// Where the parameters page persists the bed spec.
+    ///
+    /// Gitignored, like the specimen shelf (`sim::specimen::SHELF_DIR`) and
+    /// `params::Dials` beside it -- this is one player's current box, not
+    /// authored content shared by both games the way `player.ron` and
+    /// `explosion.ron` are. Same reasoning as the shelf, same env-override
+    /// shape, so a test or a second lab in this container can point it
+    /// elsewhere instead of the shared file.
+    pub const ASSET_PATH: &'static str = "assets/lab_bed.ron";
+    /// Environment override for [`ASSET_PATH`](Self::ASSET_PATH).
+    pub const ASSET_PATH_ENV: &'static str = "PIXEL_PHYSICS_LAB_BED";
+
+    fn state_path() -> std::path::PathBuf {
+        std::env::var(Self::ASSET_PATH_ENV).map(std::path::PathBuf::from).unwrap_or_else(|_| Self::ASSET_PATH.into())
+    }
+
+    /// The saved bed, if the parameters page has ever saved one and it
+    /// still parses. `None` -- absent, or stale and unparseable alike --
+    /// means the caller falls back to whatever bed it opened before this
+    /// existed: `LabBox::default()` for a harness, `empty_bed()` for the
+    /// interactive lab (`bin/lab.rs`'s own doc says why those two are
+    /// different on purpose, and this must not collapse that).
+    pub fn load_saved() -> Option<Self> {
+        let text = std::fs::read_to_string(Self::state_path()).ok()?;
+        ron::from_str(&text).ok()
+    }
+
+    /// Write this spec to [`ASSET_PATH`](Self::ASSET_PATH) whole, like
+    /// `player::Tuning::save` -- a generated file with no comments to lose,
+    /// unlike a material's careful span-edit.
+    pub fn save(&self) -> Result<(), String> {
+        let path = Self::state_path();
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
+        }
+        let pretty = ron::ser::PrettyConfig::new().struct_names(false);
+        let text = ron::ser::to_string_pretty(self, pretty).map_err(|e| e.to_string())?;
+        std::fs::write(&path, text).map_err(|e| format!("{}: {e}", path.display()))
+    }
+
     /// The frame the grow light is held at.
     ///
     /// **Measured, not assumed** — the sun's hump is a cosine over half the
@@ -895,6 +935,35 @@ pub struct Planted {
 mod tests {
     use super::*;
     use std::collections::HashSet;
+
+    /// A private bed file for the whole test, same reasoning as
+    /// `lab::tests`' `SHELF_LOCK`: [`LabBox::ASSET_PATH_ENV`] resolves
+    /// through process-global state, and `cargo test` runs in parallel.
+    static BED_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn scratch_path(tag: &str) -> std::path::PathBuf {
+        std::env::temp_dir().join(format!("pixel_physics_lab_{tag}_{}.ron", std::process::id()))
+    }
+
+    #[test]
+    fn a_saved_bed_round_trips_and_a_missing_file_reports_none() {
+        let _guard = BED_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let path = scratch_path("bed_roundtrip");
+        let _ = std::fs::remove_file(&path);
+        std::env::set_var(LabBox::ASSET_PATH_ENV, &path);
+
+        assert!(LabBox::load_saved().is_none(), "nothing saved yet");
+
+        let bed = LabBox { width: 777, founders: 3, species: "moss".to_string(), ..LabBox::default() };
+        bed.save().expect("save");
+        let loaded = LabBox::load_saved().expect("a just-saved bed parses back");
+        assert_eq!(loaded.width, 777);
+        assert_eq!(loaded.founders, 3);
+        assert_eq!(loaded.species, "moss");
+
+        let _ = std::fs::remove_file(&path);
+        std::env::remove_var(LabBox::ASSET_PATH_ENV);
+    }
 
     /// Every cell reachable from `start` through non-solid cells, four ways.
     /// A partition seals iff this cannot leave the compartment it starts in.
