@@ -1362,6 +1362,85 @@ while each end looks individually restrained.
 
 ---
 
+### 6.11 The turgor ceiling priced, and a play test that found a real bug
+
+**The price.** The turgor ceiling — `(turgor_source - turgor_yield) /
+turgor_per_cell` — was the last free lever with a benefit and no
+counterweight. The counterweight is the physics that was missing:
+cohesion-tension, where a taller column takes more tension to hold. The demand
+loop already scaled a leaf's water draw by its rate and by the light it reads;
+it did **not** scale by how far up the leaf is, so a hundred-row plant paid
+what a ten-row plant paid.
+
+```
+thirst = 1 + (path / AUTHORED ceiling - 1).max(0)
+```
+
+`seed_stake`'s shape reused: charged against the **species'** authored
+ceiling, so a plant growing inside the height its own species file permits pays
+exactly 1.0, and only a lineage that has *evolved* a higher ceiling **and used
+it** pays. High ceiling and short is free; high ceiling and tall is thirsty.
+
+**The no-op is measured, not asserted.** `herb`, 8 founders, 20,000 frames:
+species ceiling 60 rows, tallest plant **59**, **0 of 122** plants past it. The
+turgor gate stops growth at the ceiling, so no shipped plant is ever charged —
+and the full suite's stand fingerprints are unchanged.
+
+**Its first effect counter was wrong and read as a positive.** It measured a
+plant's *row height* (topmost minus lowest row), which spans the **roots** as
+well, and reported "4 of 100 plants past a 60-row ceiling" — 60 rows of shoot
+plus 4 of root. `thirst` is charged against `path_len_at` on foliage cells, so
+that is what the counter had to read. Corrected, it reads 0. **A counter that
+answers a different question than the price does looks exactly like the price
+binding.**
+
+**And the price does not fire under drift either**, for a different reason than
+§6.9's: `GrowingTip/turgor_source` shows **10 carriers, authored 0.46, median
+0.587** at rate 0.5 — the lever *is* being pulled, upward, and those lineages
+still do not out-grow the ceiling within 30,000 frames. Height in this bed is
+limited by light and crowding well before turgor. So the price is sound, its
+no-op is measured, and it is **untested in the field** — the same honest
+position §6.9 records, reached by a different route.
+
+## 6.12 What a play test found that none of this did
+
+The owner set `shared_development` to 1, cloned a tree, planted the copies, and
+reported: *"everyone looks 100% different."*
+
+**A real defect, and it is in the clone path rather than the mechanism.**
+`sim::specimen`'s jar stores `draws`, `alleles`, `fates` and `params` — and did
+not store `lineage_seed`. A specimen is sown with `inherited = true`, so
+`seed_genotype` returns at the top and never draws one either. **Every copy of
+every specimen came back carrying seed 0.**
+
+The field immediately above the one that was missing carries a doc comment
+warning about exactly this failure for `params`: *"a shelf that stored `draws`,
+`alleles` and `fates` and dropped this would hand the player back a plant that
+is not the one they kept."* The same omission was made one field later, by a
+session that had just read that sentence.
+
+**But the fix does not explain what was seen, and that matters more than the
+bug.** All copies sharing seed 0 would make them *more* alike, not less. So the
+divergence the owner saw is **environmental response**, which the dial removes
+nothing of — by design. `shared_development` removes the per-cell dice roll
+keyed on where a cell sits in the world; it deliberately leaves a plant's
+response to its own surroundings, because the review that specified it argued
+that is *the variation worth keeping*.
+
+The measured claim is CV **0.280 -> 0.074** for one plant moved one column in
+an otherwise **identical** bed. That is not a claim that two trees in different
+parts of a lamp-lit box will look alike, and the hand-off said the dial was
+ready without drawing that line.
+
+**So the open question is now the owner's**: if clones *should* look alike in
+different parts of a real bed, the next thing to attack is the scoring weights
+— light, crowding, water — and that is a much larger change than an RNG key.
+`tree` is also the worst species to judge it on: 600 shoot cells to maturity
+and 15,000 frames per generation, against `herb`'s 6,000 or 3,750 at
+`seed_maturity` 20.
+
+---
+
 ## 7. What to do next, in the order the evidence supports
 
 1. **Post §2's result to the owner and get a verdict on the noise floor.** It
