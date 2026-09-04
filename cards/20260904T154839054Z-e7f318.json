@@ -1,0 +1,92 @@
+{
+  "id": "20260904T154839054Z-e7f318",
+  "created": "2026-09-04T15:48:39Z",
+  "board": "lab",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/plant-cadence-steepness",
+    "commit": "4b288be1",
+    "agent": null,
+    "session_id": "7098fc80-f009-5c8f-9043-c3d8092e7bf8",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "How slow should a big plant's clock be?",
+  "question": "Three of these four cost the SAME speed. Which box do you want to play in? (And if it is the top one, say so — that is the slow one and worth knowing you want it.)",
+  "context_md": "You asked for a gallery with the plants given room, so this is a wider bed — 1024 across, 6 founders — at 40,000 frames. Each tree is its own, not a merged canopy.\n\n**The headline is that steepness has stopped buying speed.** A plant waiting longer between ticks the bigger it gets is worth a lot the first time (2.6x -> 5.2x). Pushing it further does exactly what it should to the plant work — that pass keeps halving, 0.445 -> 0.331 -> 0.226 ms — but the frame barely moves, because on a box this wide the CA sweep (1.4 ms) and the field (1.4 ms) dominate and neither cares how often a plant ticks.\n\nSo among the bottom three, **you are choosing a look, not a speed.**\n\n**Why this bed and not the one I measured before.** On a 512-wide box the plant pass is 43% of the frame and the steep setting was worth 1.7x. Here it is 14% and worth nothing. Same lever, same effect, different denominator — the sweep and field scale with the *area* of the box, the plants do not. If you mostly play a big box, plant cadence is close to spent and the sweep is the next target.\n\n**What to ignore:** the exact tree count. These are one seed each; the ten-seed sweep comes after you pick, not before.\n\n**What I am unsure of:** whether the sparser boxes read as a healthy stand or as a box that lost its undergrowth. The counts say more leaf per plant and the same biomass, but I cannot tell you whether it *looks* like a wood.",
+  "kind": "gallery",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A — every plant on the same clock (2.6x)",
+      "files": [
+        "20260904T154839054Z-e7f318/000-gal_off.png"
+      ],
+      "caption": "current engine default; the slow one",
+      "meta": {
+        "speed the box runs at": "2.6x",
+        "plants standing": 1066,
+        "plant material (cells)": 44938,
+        "leaf": 15904,
+        "seeds in the soil": 4384,
+        "biggest single plant (cells)": 7064
+      },
+      "focus": null
+    },
+    {
+      "label": "B — gentle: a grown tree waits 5x (5.2x)",
+      "files": [
+        "20260904T154839054Z-e7f318/001-gal_shipped.png"
+      ],
+      "caption": "what the lab ships today",
+      "meta": {
+        "speed the box runs at": "5.2x",
+        "plants standing": 223,
+        "plant material (cells)": 26698,
+        "leaf": 11513,
+        "seeds in the soil": 832,
+        "biggest single plant (cells)": 4667
+      },
+      "focus": null
+    },
+    {
+      "label": "C — middle: a grown tree waits 10x (5.5x)",
+      "files": [
+        "20260904T154839054Z-e7f318/002-gal_mid.png"
+      ],
+      "caption": "same speed as B, fewer and larger plants",
+      "meta": {
+        "speed the box runs at": "5.5x",
+        "plants standing": 174,
+        "plant material (cells)": 30986,
+        "leaf": 13599,
+        "seeds in the soil": 603,
+        "biggest single plant (cells)": 4824
+      },
+      "focus": null
+    },
+    {
+      "label": "D — steep: a grown tree waits 16x (5.3x)",
+      "files": [
+        "20260904T154839054Z-e7f318/003-gal_steep.png"
+      ],
+      "caption": "same speed again, fewest plants",
+      "meta": {
+        "speed the box runs at": "5.3x",
+        "plants standing": 139,
+        "plant material (cells)": 26178,
+        "leaf": 12064,
+        "seeds in the soil": 439,
+        "biggest single plant (cells)": 4659
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
