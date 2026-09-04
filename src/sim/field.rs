@@ -1604,18 +1604,56 @@ impl PassTiming {
     /// costs 0.00 ms looks the same whether it was skipped or merely fast,
     /// and this repo has already read "the feature never once executed" as
     /// "the feature is working". The count says which.
+    ///
+    /// **Averaged over the window, not sampled from one frame**, and for this
+    /// pass the reason is sharper than for `plant.rs`'s sibling: the field is
+    /// driven by the sky, so a single frame is a single *phase* of a designed
+    /// oscillator. `CLAUDE.md` is explicit that such a cycle must be divided
+    /// out of any number it reaches, and sampling `frame % every == 0` does
+    /// the opposite -- it pins the reading to whichever phase that lands on.
+    /// The window spans many days and averages the phase out.
     fn report(&self, frame: u64, solved: usize, momentum: usize) {
-        if self.every == 0 || !frame.is_multiple_of(self.every) {
+        use std::sync::atomic::Ordering::Relaxed;
+        if self.every == 0 {
             return;
         }
-        let total: f64 = self.marks.iter().map(|(_, ms)| ms).sum();
-        let detail: Vec<String> = self.marks.iter().map(|(n, ms)| format!("{n} {ms:.2}")).collect();
+        {
+            let mut acc = PASS_ACC.lock().expect("field pass accumulator");
+            for (name, ms) in &self.marks {
+                match acc.iter_mut().find(|(n, _)| n == name) {
+                    Some((_, total)) => *total += ms,
+                    None => acc.push((name, *ms)),
+                }
+            }
+        }
+        PASS_FRAMES.fetch_add(1, Relaxed);
+        PASS_SOLVED.fetch_add(solved as u64, Relaxed);
+        PASS_MOMENTUM.fetch_add(momentum as u64, Relaxed);
+        if !frame.is_multiple_of(self.every) {
+            return;
+        }
+        let frames = PASS_FRAMES.swap(0, Relaxed).max(1) as f64;
+        let mut acc = PASS_ACC.lock().expect("field pass accumulator");
+        let total: f64 = acc.iter().map(|(_, ms)| ms).sum::<f64>() / frames;
+        let detail: Vec<String> = acc.iter().map(|(n, ms)| format!("{n} {:.3}", ms / frames)).collect();
+        acc.clear();
         println!(
-            "  [pass] frame {frame:>6} solved {solved:>5} momentum {momentum:>5} total {total:>7.2}ms | {}",
+            "  [pass] frame {frame:>6} per frame over {frames:.0}: solved {:>7.1} momentum {:>7.1} \
+             total {total:>7.3}ms | {}",
+            PASS_SOLVED.swap(0, Relaxed) as f64 / frames,
+            PASS_MOMENTUM.swap(0, Relaxed) as f64 / frames,
             detail.join("  ")
         );
     }
 }
+
+/// The window [`PassTiming::report`] averages over. A `Mutex` rather than
+/// atomics because the pass names are only known as they are timed; it is
+/// touched solely when `FIELD_PASS` is set, so a shipped frame never locks it.
+static PASS_ACC: std::sync::Mutex<Vec<(&'static str, f64)>> = std::sync::Mutex::new(Vec::new());
+static PASS_FRAMES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static PASS_SOLVED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static PASS_MOMENTUM: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 /// Per-channel attribution of *why* the solve set is not shrinking, printed
 /// when `FIELD_DRIFT=<every N frames>` is set. Off by default and reading one

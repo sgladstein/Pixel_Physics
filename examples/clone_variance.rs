@@ -351,6 +351,7 @@ fn median(v: &[f32]) -> f32 {
 
 /// Which arm the founders' genomes come from.
 #[derive(Clone, Copy, PartialEq)]
+#[derive(Debug)]
 enum Arm {
     /// The shipped stand.
     Pop,
@@ -498,17 +499,116 @@ struct Bed<'a> {
     frames: u64,
     worldseed: Option<u64>,
     key: organism::DevelopmentalKey,
+    /// **How far apart the founders stand**, as a multiple of the width the
+    /// scene would pick for this many. Exists because a card comparing two
+    /// stands has to hold the *environment* as still as it can: at the
+    /// default spacing a tree's crown reaches its neighbour's, so part of
+    /// what separates two plants is who stood next to them rather than what
+    /// they are. Widening the bed buys each tree its own light.
+    spacing: f32,
+    /// **Whether the founders may breed.**
+    ///
+    /// Off, a bed measures the ten plants that were planted in it. On --
+    /// which is the shipped behaviour and was this harness's only mode --
+    /// it measures those ten *plus everything they produced*, and over a
+    /// long run that second population is most of the bed. That matters
+    /// here for a reason that is not obvious: a widely spaced bed does not
+    /// stay widely spaced. Its founders breed, the offspring establish
+    /// between them, and by 26,000 frames the bed is crowded whatever it
+    /// was planted at -- so `spacing` buys time rather than room, and the
+    /// two cannot be told apart while reproduction is on.
+    ///
+    /// Implemented as `seed_maturity` set past any size a plant reaches,
+    /// through the live registry: editing a species `.ron` and re-running a
+    /// prebuilt example is the `include_str!` trap and produces
+    /// bit-identical "runs". `World::seeds_borne` is the effect counter --
+    /// a switch that is merely *called* is the counter trap this file
+    /// already carries one scar from.
+    sterile: bool,
+}
+
+/// **Stop this bed breeding**, by moving `seed_maturity` past any size a
+/// plant in it can reach.
+///
+/// Written through the live registry rather than a species `.ron`, which is
+/// `include_str!`d into the binary -- editing one and re-running a prebuilt
+/// example produces bit-identical "runs", and this repo has three of those on
+/// record. `set_param` returning false means the edit matched no `Reproduce`
+/// behaviour, which reads as *the switch does nothing*; refuse instead.
+///
+/// `f32::MAX` is deliberately not used: `seed_maturity` is compared against a
+/// cell count that is summed into an `f32`, and a comparison against MAX is
+/// fine while an arithmetic combination of it is not. 1e9 cells is larger than
+/// the world by six orders of magnitude and stays an ordinary number.
+fn make_sterile(w: &mut World, species: &str) {
+    let sp = w.species.id_of(species).expect("species is compiled in");
+    assert!(
+        w.species.set_param(sp, organism::CellType::MatureBody, organism::ParamId::SeedMaturity, 0, 1.0e9),
+        "sterile=1 matched no Reproduce behaviour on {species} -- an arm whose edit matched nothing reads as \
+         `the mechanism does nothing`"
+    );
 }
 
 fn run_and_maybe_render(bed: Bed<'_>, arm: Arm, reference: usize, png: Option<&str>) -> (Vec<Shape>, ()) {
-    let Bed { species, founders, frames, worldseed, key } = bed;
-    let (mut w, ids) = build(species, founders, worldseed, None, key);
+    let Bed { species, founders, frames, worldseed, key, spacing, sterile } = bed;
+    let d = common::PlantScene::default();
+    let wide = ((d.width as f32 * (founders as f32).max(1.0) / d.trees as f32) * spacing) as i32;
+    let (mut w, ids) = build(species, founders, worldseed, Some(wide), key);
+    if sterile {
+        make_sterile(&mut w, species);
+    }
+    // **How many DIFFERENT plants this arm actually planted**, printed for
+    // every arm. `CLAUDE.md`: an image shows what and where and cannot show
+    // whether the thing you built is what produced it -- and this harness has
+    // twice shipped an arm that was silently uniform (`ref=` cloning the
+    // species mean, and the spread arm at developmental seed 0). A clone bed
+    // that reads 10 distinct genomes is not a clone bed, and a card built on
+    // one would be a picture of the harness.
+    let distinct = |w: &World, ids: &[(u16, i32, i32)]| -> (usize, usize) {
+        let mut genomes: std::collections::BTreeSet<Vec<u32>> = std::collections::BTreeSet::new();
+        let mut seeds: std::collections::BTreeSet<u64> = std::collections::BTreeSet::new();
+        for &(id, _, _) in ids {
+            if let Some((draws, alleles, _, dev)) = w.organism_genotype(id) {
+                let mut key: Vec<u32> = draws.iter().map(|d| d.to_bits()).collect();
+                key.extend(alleles.iter().map(|a| *a as u32));
+                genomes.insert(key);
+                seeds.insert(dev);
+            }
+        }
+        (genomes.len(), seeds.len())
+    };
     apply_arm(&mut w, &ids, arm, reference);
     for _ in 0..frames {
         parallel::step(&mut w);
         w.step_active_sites();
         w.step_fields();
     }
+    // **Counted AFTER the run, and the first version was not.** At frame 0
+    // every founder is an ungerminated `Seed` holding the species mean --
+    // `PlantScene::build` never calls `seed_genotype`, which is this
+    // harness's own recorded finding -- so a census there reports ONE genome
+    // for every arm including the mixed one, and reads as "the arms are
+    // identical". A genotype is drawn at germination; this is the first
+    // moment there is anything to count.
+    let (g1, s1) = distinct(&w, &ids);
+    println!(
+        "  {arm:?}: {} founders grew into {g1} distinct genome(s) and {s1} distinct developmental seed(s)",
+        ids.len()
+    );
+    // **The effect counter for `sterile`, from the far side of the call.**
+    // `make_sterile` asserts its *write* landed, which says the parameter
+    // moved and nothing about whether a plant then failed to breed -- the
+    // exact shape of the counter trap recorded in `CLAUDE.md` (200 cuts
+    // reported against a flat queue, because the counter counted calls).
+    // `seeds_borne` is incremented on success only, so it is the far side.
+    // Printed in BOTH modes on purpose: the fertile reading is the positive
+    // control, and a 0 here means nothing unless a non-zero was seen at the
+    // same bed with the switch off.
+    println!(
+        "    seeds borne {} ({})",
+        w.seeds_borne,
+        if sterile { "sterile=1, expect 0" } else { "fertile -- this is the positive control for sterile=1" }
+    );
     if let Some(path) = png {
         let (buf, width, ch) = render_stand(&w);
         image::save_buffer(path, &buf, width, ch, image::ColorType::Rgba8).expect("write png");
@@ -605,7 +705,11 @@ fn main() {
         },
     };
     println!("  developmental key: {key:?}");
-    let bed = Bed { species: &species, founders, frames, worldseed, key };
+    let spacing: f32 = arg("spacing").unwrap_or(1.0);
+    // **`sterile=1` stops the founders breeding.** Default off, so an
+    // unqualified run is every earlier run in this file's history.
+    let sterile: bool = arg::<u32>("sterile").unwrap_or(0) != 0;
+    let bed = Bed { species: &species, founders, frames, worldseed, key, spacing, sterile };
     if shift > 0 {
         one_cell_over(&species, founders, frames, worldseed, sarg("png"), key);
         return;
@@ -661,9 +765,22 @@ fn main() {
     // **`png=` renders the three arms from the runs that produced the
     // numbers**, so a card and its `meta` cannot come from different beds.
     if let Some(stem) = sarg("png") {
+        // **The picture and the table must be the same world, and until
+        // 2026-09-04 they were not.** This branch passed `bed` through with
+        // its `worldseed` still `None`, which leaves `World::new`'s own
+        // seed; the measurement loop below starts at `Some(1)`. So every
+        // card this harness ever produced was rendered on one world while
+        // the numbers quoted beside it came from another -- and the two
+        // disagree enormously, because outcomes here are chaotic in the
+        // seed: the same arguments gave a clone bed of median 2,784 cells
+        // in the table and median 57 in the render. `CLAUDE.md` asks for the
+        // discrete count from *the run that made the image*; this is the
+        // other half of that rule, and nothing was checking it.
+        let rendered = Bed { worldseed: bed.worldseed.or(Some(1)), ..bed };
+        println!("  rendering world seed {:?} -- the same seed the table starts at", rendered.worldseed);
         for (arm, name) in [(Arm::Pop, "pop"), (Arm::Clone, "clone"), (Arm::Spread, "spread")] {
             let path = format!("{stem}_{name}.png");
-            let shapes = run_and_maybe_render(bed, arm, reference, Some(&path)).0;
+            let shapes = run_and_maybe_render(rendered, arm, reference, Some(&path)).0;
             println!("  {name}: {} established, median cells {:.0}", shapes.len(), median(&shapes.iter().map(|s| s.cells).collect::<Vec<_>>()));
         }
         return;

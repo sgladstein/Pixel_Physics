@@ -1402,7 +1402,7 @@ limited by light and crowding well before turgor. So the price is sound, its
 no-op is measured, and it is **untested in the field** — the same honest
 position §6.9 records, reached by a different route.
 
-## 6.12 What a play test found that none of this did
+### 6.12 What a play test found that none of this did
 
 The owner set `shared_development` to 1, cloned a tree, planted the copies, and
 reported: *"everyone looks 100% different."*
@@ -1438,6 +1438,90 @@ different parts of a real bed, the next thing to attack is the scoring weights
 `tree` is also the worst species to judge it on: 600 shoot cells to maturity
 and 15,000 frames per generation, against `herb`'s 6,000 or 3,750 at
 `seed_maturity` 20.
+
+### 6.13 Can two clones grow *identically*? Yes -- in the same column
+
+§6.12 left the owner's complaint standing: a clone bed still shows *"an
+extreme amount of variability"*. Their instruction was to try hardest --
+hold the environment as uniform as the engine allows and see whether two
+copies of one plant can come out the same.
+
+**A coefficient of variation cannot answer that**, which is why the whole
+line had been unable to settle it. CV 0.074 is compatible with "two plants
+differing by a handful of cells" and with "two plants sharing a third of
+their bodies", and those want different fixes. `examples/clone_identity`
+measures identity instead: every organism-owned cell expressed relative to
+its own plant's collar, compared as a set. Translation-invariant by
+construction, because two plants at different `x` are the same plant only up
+to where they stand.
+
+**The answer, with its control.** Two clones planted in the same column, in
+two runs of the same world, are **cell-for-cell identical -- Jaccard
+1.0000**, at columns 256 and 320 alike. That is the determinism control and
+it is what makes every number below mean something. Move the plant **one
+column** and it is a different plant.
+
+**What was ablated to get there.** Each of these was removed and the
+divergence stayed:
+
+| removed | diverges? |
+|---|---|
+| neighbours -- each clone alone in its own world (`solo=1`) | yes |
+| weather -- `Pin::Clear`, no gust and no bolt | yes, **at the identical frame** |
+| reproduction (`sterile=1`) | yes |
+| position in the growth key (`dev=0`) | yes |
+| the organism id -- held at 3 in every arm (`columns=`) | yes |
+| **the column** | **no: Jaccard 1.0000** |
+
+The weather row is the sharpest. Pinning the sky did not move the divergence
+frame at all -- 2,550 in both arms -- so weather is not what breaks the
+symmetry, though it does change how fast the difference grows (final Jaccard
+0.5456 pinned against 0.2577 live). And `solo=1` returned **the same numbers**
+as the two-plants-together run at the same spacing, so at 256 columns apart
+the two are not interacting at all: the divergence is position, not
+neighbours.
+
+**It is not a gradient and not a grid alias.** Divergence does not scale with
+distance -- one column apart gives 464 cells against **1,057**, Jaccard 0.29,
+while 192 columns apart gives 585 against 587, Jaccard **0.9831**. Over 33
+consecutive columns there is no period at 4, 16 (`FIELD_SCALE`) or 64
+(`CHUNK_SIZE`); the outlier columns are scattered. The initial bed really is
+uniform -- `Relief::Flat` writes one moisture and one depth per column, and
+the only thing that varies column to column is the soil cell's **shade byte**,
+which is carried but never read by physics (`frame.rs` hashes it; nothing
+else consumes it).
+
+**And the distribution is the part that reframes the complaint.** 33
+consecutive columns, one genome, 6,000 frames:
+
+| | |
+|---|---|
+| median | 198 cells |
+| middle half | 190-200 -- a **5% band** |
+| within +/-15% of median | **28 of 33** |
+| the rest | 225, 242, 243, 338, **487** |
+| CV over all 33 | **0.286** |
+| CV with the three largest dropped | **0.074** |
+
+So it is not that every clone is different. **Four-fifths of them are nearly
+the same plant**, and a minority escape and run away to two or three times
+the size -- and those few set both the eye's impression and the whole of the
+variance. That is a different defect from "the developmental model is noisy",
+and a much more tractable one: **something lets an occasional individual
+break out of the band**, and once it has, the difference compounds. The
+onset data says the same thing directly -- two clones stay bit-identical for
+1,500 to 2,550 frames, then differ by one or two cells, then run apart.
+
+Note what this does to §6.12's own reading. That section attributed the
+owner's complaint to *environmental response* and pointed the next step at
+the scoring weights. The environment here is uniform to the byte, and the
+plants still diverge, so the target is the escape rather than the response.
+
+**Scope.** One species, one world seed, 6,000 and 8,000 frames. The escape
+rate is not measured against age, and at 8,000 frames the whole distribution
+was larger and looser than at 6,000, so it plausibly grows. Re-verified after
+merging `main`: column 256 gives 225 cells both before and after, and the
+same-column control still reads 1.0000.
 
 ---
 
