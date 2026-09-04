@@ -302,12 +302,48 @@ between arms, or the sweep is one world wearing N labels; `render_cost`'s
 "visible pixels are empty sky" and `scale_probe`'s worldgen census lines both
 serve.
 
-**`ORGANISM_PASS=<every N>` splits `step_organisms` seven ways** (in
+**`ORGANISM_PASS=<every N>` splits `step_organisms` ten ways** (in
 `plant.rs`, same shape as `FIELD_PASS`), and prints `live`/`ticked`/`cells`
 beside the timings. The counters are the point: they are what said the cost is
 per *cell ticked* rather than per live organism, which killed a plausible
 optimisation before it was written. Reach for it for any "is this cost the
 item count or the item size" question.
+
+**It averages over a window, and that correction was worth 50x.** It printed
+one *sampled* frame until 2026-09-03. Organisms tick on a stagger of
+`ORGANISM_TICK_INTERVAL` (45), so any single frame holds ~1/45th of the
+population and *which* 1/45th is a lottery: on the tree bed it caught **14
+organisms holding 14 cells between them** and reported the pass at 0.08 ms
+against a true 3.74. **Any profiler over a staggered schedule has this
+shape** -- if the thing being sampled does not run every frame, one frame is
+measuring the stagger. Its seven slots also missed `stress_field`,
+`bend_under_load` and `break_under_load`, which is where the cost turned out
+to be; it now covers all ten calls and the slots sum to within 0.02 ms of a
+whole-function clock, so a gap between them is real and not uninstrumented
+code.
+
+**`ORGANISM_SIZE=<every N>` answers "is a big organism dear in proportion to
+its size, or worse than that?"** -- it charges each organism's whole tick to a
+geometric bucket by cell count and prints `us/tick` and **`us/cell`**. The
+`us/cell` column is the one that decides whether a tail is worth attacking:
+flat means linear and irreducible without per-cell work, rising means size is
+being punished and there is an algorithmic win. Because ticks-per-organism
+over a window is a known constant (`frames / 45`), **its `ticks` column is a
+headcount** -- which is how §13 established that eleven trees are 96.6% of all
+organism work and the other 676 organisms are 3.2%. Deliberately a separate
+switch from `ORGANISM_PASS`: ten `Instant::now()` pairs per organism is a
+per-*organism* overhead and would tilt the very curve being measured, taxing a
+1-cell seed as hard as a 3,000-cell tree.
+
+**`ORGANISM_PROLOGUE=<every N>` totals the nine cell-list rebuilds** one tick
+pays -- the `collect()` + `sort_unstable_by_key` that opens `transport`,
+`allocate_to_frontier`, `accumulate_support`, `anchor_support`,
+`stress_field`, `break_root_tips`, `break_buds`, `organism_upkeep` and
+`rot_remains`. Built to settle whether sharing one list across them is worth
+the correctness surface; it is **not** (4.9%, against a ~15% estimate --
+`dead-ends.md`). Generalises to any "this obviously-repeated thing must be
+expensive" question, where the answer is usually that **repetition is not
+magnitude**.
 
 **`SCHED_PASS=<every N>` splits `scheduler::step` six ways**, one per
 `ActiveKind`, and prints `sites` / `produced` / `deferred` beside the times.
