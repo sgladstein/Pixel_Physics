@@ -594,7 +594,7 @@ fn plant_mechanics_rows(world: &World, out: &mut Vec<Param>) {
             crate::sim::organism::DevelopmentalKey::Plant { coarseness } => coarseness as f32 + 1.0,
         },
         span(0.0, 8.0, 1.0),
-        "WHETHER TWO PLANTS OF THE SAME GENOME GROW THE SAME SHAPE. 0 IS THE SHIPPED BEHAVIOUR AND IT IS THE PROBLEM THIS DIAL EXISTS FOR: EVERY CELL OF EVERY PLANT ROLLS ITS OWN DICE OFF ITS POSITION IN THE WORLD, SO A PLANT ONE COLUMN OVER IS A DIFFERENT PLANT -- TWELVE IDENTICAL SEEDS IN IDENTICAL BEDS COME OUT BETWEEN 83 AND 181 CELLS AND BETWEEN 27 AND 63 ROWS TALL. THAT SPREAD IS BIGGER THAN ANYTHING THE GENES DO, WHICH MEANS SELECTION CANNOT SEE SHAPE AT ALL. 1 GIVES EACH LINE ONE INHERITED FORM: BROTHERS AND SISTERS GROW ALIKE AND WHAT IS LEFT BETWEEN THEM IS WHAT THE LIGHT AND THE WATER AND THE NEIGHBOURS DID, WHICH IS THE VARIATION WORTH KEEPING. 2 GIVES EVERY PLANT ITS OWN FORM BUT MAKES IT WHOLE INSTEAD OF A MOSAIC -- STILL ALL DIFFERENT, EACH ONE COHERENT. 3 AND UP MAKE PATCHES: PLANTS WITHIN THAT MANY COLUMNS GROW ALIKE. IT REACHES PLANTS THAT GERMINATE AFTER YOU MOVE IT, NOT ONES ALREADY STANDING, SO GIVE IT A GENERATION. LASTS THE SESSION.",
+        "WHETHER TWO PLANTS OF THE SAME GENOME GROW THE SAME SHAPE. 0 IS THE SHIPPED BEHAVIOUR AND IT IS THE PROBLEM THIS DIAL EXISTS FOR: EVERY CELL OF EVERY PLANT ROLLS ITS OWN DICE OFF ITS POSITION IN THE WORLD, SO A PLANT ONE COLUMN OVER IS A DIFFERENT PLANT -- TWELVE IDENTICAL SEEDS IN IDENTICAL BEDS COME OUT BETWEEN 83 AND 181 CELLS AND BETWEEN 27 AND 63 ROWS TALL. THAT SPREAD IS BIGGER THAN ANYTHING THE GENES DO, WHICH MEANS SELECTION CANNOT SEE SHAPE AT ALL. 1 GIVES EACH LINE ONE INHERITED FORM: BROTHERS AND SISTERS GROW ALIKE AND WHAT IS LEFT BETWEEN THEM IS WHAT THE LIGHT AND THE WATER AND THE NEIGHBOURS DID, WHICH IS THE VARIATION WORTH KEEPING. 2 GIVES EVERY PLANT ITS OWN FORM BUT MAKES IT WHOLE INSTEAD OF A MOSAIC -- STILL ALL DIFFERENT, EACH ONE COHERENT. 3 AND UP MAKE PATCHES: PLANTS WITHIN THAT MANY COLUMNS GROW ALIKE. MOVING IT REACHES EVERY PLANT IN THE BOX AT ONCE, INCLUDING ONES ALREADY STANDING -- BUT A PLANT THAT HAS FINISHED GROWING WILL NOT RESHAPE ITSELF, SO GIVE IT A GENERATION BEFORE DECIDING IT DID NOTHING. LASTS THE SESSION.",
     ));
 }
 
@@ -828,6 +828,13 @@ pub fn write(world: &mut World, spec: &mut LabBox, knob: &Knob, value: f32) -> b
                 } else {
                     crate::sim::organism::DevelopmentalKey::Plant { coarseness: n - 1 }
                 };
+                // **Every plant already standing is re-folded**, or the box
+                // runs two rules at once: `dev_seed` is stamped at
+                // germination, so without this a plant that came up before
+                // the dial moved would keep the old coarseness and the dial
+                // would be lying about what it did. See
+                // `World::refold_developmental_seeds`.
+                world.refold_developmental_seeds();
                 return true;
             }
             if !crate::sim::plant::settable_rate(value) {
@@ -1348,6 +1355,50 @@ mod tests {
     ///
     /// Watched failing rather than assumed green: deleting any one arm of
     /// `write` reds this immediately and names the row.
+    /// **The developmental dial is live for plants already standing**, not
+    /// only for ones that germinate after it moves.
+    ///
+    /// `dev_seed` is stamped once at germination from the coarseness in force
+    /// then, which is right for a hot path read once per organism cell per
+    /// tick and wrong for a control the owner turns mid-run. The fault this
+    /// pins is specific and was really there: without
+    /// `World::refold_developmental_seeds`, a plant that came up at setting 0
+    /// and then saw the dial moved to 2 kept `dev_seed == lineage_seed` — the
+    /// *coarseness 0* fold — so the box ran one rule for old plants and
+    /// another for new ones and the dial reported a setting it was not
+    /// applying.
+    ///
+    /// Written as three settings rather than two because the failure needs
+    /// the pair to disagree: at coarseness 0 the fold is the identity, so a
+    /// version that never re-folded would still pass a 0-versus-off check.
+    #[test]
+    fn moving_the_developmental_dial_reaches_plants_already_standing() {
+        let (mut world, spec) = bed();
+        let herb = world.species.id_of("herb").expect("herb is compiled in");
+        let id = world.push_organism(herb).expect("a slot is free");
+        crate::sim::plant::seed_genotype(&mut world, id, 40, 30);
+        // Germinate it under the shipped key, which is the case that matters:
+        // a box the owner has been watching before touching the dial.
+        crate::sim::plant::stamp_origin(&mut world, id, 40, 30);
+        let lineage = world.organism(id).expect("live").lineage_seed;
+        assert_ne!(lineage, 0, "test setup: a founder must draw a lineage seed");
+
+        let row = registry(&world, &spec, Some(herb))
+            .into_iter()
+            .find(|p| matches!(p.knob, Knob::Heredity { field: "developmental_key" }))
+            .expect("the shared_development row is registered");
+
+        let mut spec = spec;
+        let mut folded = Vec::new();
+        for setting in [1.0f32, 2.0, 3.0] {
+            assert!(write(&mut world, &mut spec, &row.knob, setting), "setting {setting} must be writable");
+            folded.push(world.organism(id).expect("live").dev_seed);
+        }
+        assert_eq!(folded[0], lineage, "setting 1 drops position, so the fold is the lineage seed itself");
+        assert_ne!(folded[1], folded[0], "setting 2 folds the germination coordinate in and must differ");
+        assert_ne!(folded[2], folded[1], "setting 3 bands at a different coarseness and must differ again");
+    }
+
     #[test]
     fn every_writable_parameter_actually_moves() {
         let (mut world, mut spec) = bed();

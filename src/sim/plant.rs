@@ -1347,7 +1347,7 @@ fn growth_stream(world: &World, organism_id: u16, x: i32, y: i32) -> Rng {
 /// Idempotent by the `is_none` guard: a seed that is told "not yet" and
 /// re-tries germination keeps the first stamp, so its clock does not restart
 /// and its `dev_seed` does not change under it.
-fn stamp_origin(world: &mut World, organism_id: u16, x: i32, y: i32) {
+pub(crate) fn stamp_origin(world: &mut World, organism_id: u16, x: i32, y: i32) {
     let key = world.developmental_key;
     let frame = world.frame;
     if let Some(state) = world.organism_mut(organism_id) {

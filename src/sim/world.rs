@@ -3281,6 +3281,34 @@ impl World {
         (self.organisms_born, self.organisms_died)
     }
 
+    /// **Re-fold every standing plant's developmental seed**, for when the
+    /// dial moves under a box that is already growing.
+    ///
+    /// `dev_seed` is stamped once at germination, from the coarseness in
+    /// force at that moment — which is right for the hot path (it is read
+    /// once per organism cell per tick) and wrong for a live control. Without
+    /// this, moving the dial from 0 to 2 would leave every plant already
+    /// standing folded at the *old* setting: they would switch to the plant
+    /// key, as intended, but at coarseness 0 rather than 1, so the box would
+    /// be running two different rules at once and the dial would be lying
+    /// about what it did.
+    ///
+    /// One pass over live organisms per dial move, which is a keypress rather
+    /// than a frame. Plants with no origin — creatures, and anything that
+    /// never went through a germination path — are skipped: they have no
+    /// coordinate to fold and `growth_stream` falls back to the world key for
+    /// them anyway.
+    pub fn refold_developmental_seeds(&mut self) {
+        let key = self.developmental_key;
+        for id in self.live_organism_ids() {
+            if let Some(state) = self.organism_mut(id) {
+                if let Some((gx, gy)) = state.origin {
+                    state.dev_seed = key.fold(state.lineage_seed, gx, gy);
+                }
+            }
+        }
+    }
+
     /// **How deep the pedigree has ever run, and how many births it took** —
     /// the cumulative generation clock.
     ///
