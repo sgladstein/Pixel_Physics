@@ -1,0 +1,46 @@
+{
+  "id": "20260904T000116178Z-3c8cc8",
+  "created": "2026-09-04T00:01:16Z",
+  "board": "plants",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/plant-engine-rethink-brief-rk7lq5",
+    "commit": "e9c27500",
+    "agent": null,
+    "session_id": "2fd32b8c-66a6-5662-ac48-04f7486d66f4",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Plant shape: should a lineage grow one form?",
+  "question": "Both are herb swards, 16 founders, 12,000 frames, same world. One of them has had a change that makes plant SHAPE heritable for the first time -- broad-sense heritability on plant size goes from 0.03 to 0.65, and crown width from unreachable to 0.66. The cost is that brothers and sisters now grow alike. Does either stand read as STAMPED or repetitive to you, rather than alive? If they look the same, say so -- that is the answer that ships the change.",
+  "context_md": "Report SS2.3 measured the problem: growth draws key on a cell's position in the world, so twelve identical seeds in identical beds come out between 83 and 181 cells and 27 and 63 rows tall. That spread is larger than anything the genes do, so selection cannot see shape at all. dev=0 keys growth on the plant's own frame with an inherited seed instead. Live in the lab as PARAMS -> HEREDITY -> shared_development.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "shipped (every cell rolls its own dice)",
+      "files": [
+        "20260904T000116178Z-3c8cc8/000-ab_world_pop.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "dev=0 (a lineage has one inherited form)",
+      "files": [
+        "20260904T000116178Z-3c8cc8/001-ab_0_pop.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
