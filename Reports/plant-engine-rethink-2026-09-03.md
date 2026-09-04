@@ -1528,9 +1528,27 @@ clones stay **bit-identical for 1,500 to 2,550 frames**, so a census at
 | largest / smallest | 2.7x | **22x** |
 
 Cell counts at 20,000: 151, 1368, 1646, 1752, 2044, 2127, 2219, 2541, 2551,
-2651, 2707, 3368. Dropping the 151 -- a plant that is alive and not
-senescent, checked, so a real outcome rather than a dead one -- still leaves
-1,368 to 3,368, a **2.5x** spread with 5 of 11 near the median.
+2651, 2707, 3368. Dropping the 151 still leaves 1,368 to 3,368, a **2.5x**
+spread with 5 of 11 near the median.
+
+**The 151 is real and it is worth naming, because chasing it cost two wrong
+readings.** That plant renders as a full standing tree, and measuring the
+panels put **16 plant pixels per counted cell** against 0.92-1.04 for the
+other eleven -- which looks exactly like `cells` being wrong about a plant's
+size. It is not. The plant is **alive with 151 living cells inside a skeleton
+of its own dead wood**, which `rot_remains` is carrying out at the species
+half-life. `cells` counts living organism tissue; the picture shows living
+*and* dead. Both are right and they answer different questions.
+
+The census that was supposed to settle it reported **"unowned plant cells:
+0"** and was believed. `deadwood` and `deadleaf` are `MaterialKind::Powder`,
+not `Plant`, so that counter could not have returned anything else -- an
+unvalidated null over exactly the tissue in question, and the second
+instrument in this section to count something other than what it was read as
+saying. The first was the crop that hid the roots.
+
+So the graded death this repo's ethos section asks for is visibly working:
+a plant here does not vanish, it dies back and stands.
 
 So there is **no tight band with a few escapes**. There is wide spread, and
 the owner's reading of the rendered beds was right where this section's

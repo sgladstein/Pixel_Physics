@@ -356,7 +356,50 @@ fn main() {
                 wk.step_fields();
             }
             let b = relative_bodies(&wk).remove(&id).unwrap_or_default();
-            println!("  column {cx}: organism id {id}, {} cells", b.len());
+            // **What the count counts, printed beside it.** Column 285 measured
+            // 151 cells and rendered a full tree -- a number and a picture
+            // answering different questions, which is `CLAUDE.md`'s standing
+            // trap. `relative_bodies` counts cells the organism still *owns*;
+            // a senescent plant's tissue keeps rendering as wood and foliage
+            // while `rot_remains` carries it out, and dead cells stop being
+            // owned. So a small count beside a big picture is a plant that
+            // died, not an instrument fault -- but only these three numbers
+            // can tell those apart.
+            let (alive, senescent, owned) = match wk.organism(id) {
+                Some(st) => (true, st.senescent, st.cells.len()),
+                None => (false, false, 0),
+            };
+            println!(
+                "  column {cx}: organism id {id}, {} cells | alive {alive} senescent {senescent} owned {owned}",
+                b.len()
+            );
+            // **Every organism id standing in the world at the end, and the
+            // plant material owned by none.** Column 285 measured 151 cells
+            // and rendered a full crown -- 16 plant pixels per counted cell
+            // where the other eleven columns read 0.92 to 1.04 -- so ~2,300
+            // cells of wood and foliage are standing that this organism does
+            // not own. Either they were disowned or they belong to a second
+            // organism, and `cells` is wrong about the plant's size in both
+            // cases. `dead-ends.md` records the neighbouring failure (a freed
+            // slot leaving 160 orphan cells carrying its id) but not this one.
+            {
+                let mut per_id: BTreeMap<u16, usize> = BTreeMap::new();
+                let mut unowned_plant = 0usize;
+                if let Some(bb) = wk.bounds() {
+                    for x in bb.min_x..=bb.max_x {
+                        for y in bb.min_y..=bb.max_y {
+                            let cell = wk.get(x, y);
+                            let oid = cell.organism_id();
+                            if oid != 0 {
+                                *per_id.entry(oid).or_default() += 1;
+                            } else if wk.materials.kind(cell.material) == pixel_physics::sim::material::MaterialKind::Plant {
+                                unowned_plant += 1;
+                            }
+                        }
+                    }
+                }
+                println!("    ids standing: {per_id:?} | unowned plant cells {unowned_plant}");
+            }
             if let Some(stem) = sarg("png") {
                 // **The window is an argument because the right one depends on
                 // the age.** At 6,000 frames a `tree` is a whip and a tight
