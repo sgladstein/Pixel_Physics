@@ -396,8 +396,12 @@ impl Lab {
         // builder take them, so the list of what is a *setting* rather than
         // part of the box is readable in one place.
         let plant_load_failure = self.world.plant_load_failure;
+        let plant_bending = self.world.plant_bending;
+        let plant_size_cadence = self.world.plant_size_cadence;
         self.world = self.spec.build();
         self.world.plant_load_failure = plant_load_failure;
+        self.world.plant_bending = plant_bending;
+        self.world.plant_size_cadence = plant_size_cadence;
         earth_toned_nest(&mut self.world);
         self.particles = ParticleSystem::new();
         self.blasts = Blasts::new();

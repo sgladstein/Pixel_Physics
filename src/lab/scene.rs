@@ -739,6 +739,23 @@ impl LabBox {
     pub fn build_counted(&self) -> (World, Planted) {
         let mut w = World::new(crate::sim::chunk::Rect::new(0, 0, self.width - 1, self.height - 1));
         w.seed = self.seed;
+        // **The lab's own answer to two plant-mechanics rows, and not the
+        // engine's.** Owner, 2026-09-04: *"I kind of like the idea of the
+        // bigger plants get the fewer ticks they have... we can turn off
+        // bending and stress by default."*
+        //
+        // Set on the bed rather than in `World::new` deliberately. Both are
+        // measured *here* -- ten seeds of the tree bed, `Reports/evolution-
+        // lab-frame-cost-2026-09-01.md` §14 -- and nobody has measured what
+        // either does to the outdoor game, where a gust laying grass over is
+        // a thing you can see. `two-games-one-repo` says which is scoped and
+        // which is shared; this is scoped, and the engine default is left
+        // where it was.
+        //
+        // Both are rows on the parameters page, so this is the value the box
+        // opens at rather than a value it is stuck with.
+        w.plant_size_cadence = true;
+        w.plant_bending = false;
         let soil = w.materials.id_of("soil").expect("soil is a compiled-in material");
         let ceiling = self.ceiling_y();
         let bed_bottom = self.bed_bottom();
