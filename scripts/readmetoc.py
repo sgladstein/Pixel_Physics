@@ -122,6 +122,10 @@ GAME = {
     # outdoor game grows a way to keep an individual.
     "keeping, cloning and mutating an individual": "lab",
     "reading one specimen off the screen": "lab",
+    # `TunableGroup::Lab` is deliberately excluded from the sandbox panel's
+    # own menu cycle (`tunables.rs`'s own doc) -- the outdoor game has its
+    # own separate save path and never reaches `lab::params`.
+    "tuning and saving the box's own numbers": "lab",
 }
 
 TOPICS = {
@@ -250,6 +254,13 @@ TOPICS = {
     # the owner actually asks, and it routes to a *frame*, not to a fixture.
     "the speed dial, and what a tick costs": [
         "Lab speed-dial status — what the dial is actually short of",
+    ],
+    # The fourth lab row: the parameters page's own save path -- what
+    # persists, what doesn't, and where the files live. Separate from the
+    # hand-verbs row above, which is about the tools that populate the box
+    # rather than the numbers a player tunes once it exists.
+    "tuning and saving the box's own numbers": [
+        "Lab parameters status — a save that reaches the founders, not just the file",
     ],
 }
 

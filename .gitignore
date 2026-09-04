@@ -44,6 +44,15 @@ scripts/.branchcheck-selftest-mutant.sh
 # makes a specimen part of the game, and that lands as a tracked file.
 /assets/shelf/
 
+# The lab's own session state: the bed spec (`lab::scene::LabBox::save`) and
+# the world-level rule/heredity dials (`lab::params::Dials::save`) a player
+# saved from the parameters page. Same rationale as the shelf above -- one
+# player's current box, not authored content -- and unlike `assets/player.ron`
+# or `assets/explosion.ron`, which are the shipped game's own tuning and are
+# meant to be committed.
+/assets/lab_bed.ron
+/assets/lab_dials.ron
+
 # Contact sheets the `examples/` harnesses write to whatever directory they
 # are run from, which is normally the repo root. They are output to be looked
 # at and thrown away -- `labui` alone is 5 MB a run -- and every PNG that is

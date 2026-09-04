@@ -387,21 +387,20 @@ impl Lab {
 
     /// Rebuild the box from the same spec, keeping the view and the dial.
     pub fn reset(&mut self) {
-        // **The rules the player set survive the rebuild; the box does not.**
-        // `spec.build()` returns a brand-new `World` at its defaults, so a
-        // switch thrown on the parameters page would silently come back on
-        // the next `REBUILD` -- and `REBUILD` is exactly what a player presses
-        // after changing the bed, i.e. in the middle of the experiment the
-        // switch was set for. Carried explicitly rather than by making the
-        // builder take them, so the list of what is a *setting* rather than
-        // part of the box is readable in one place.
-        let plant_load_failure = self.world.plant_load_failure;
-        let plant_bending = self.world.plant_bending;
-        let plant_size_cadence = self.world.plant_size_cadence;
+        // **The rules and dials the player set survive the rebuild; the box
+        // does not.** `spec.build()` returns a brand-new `World` at its
+        // defaults, so a switch or a heredity number thrown on the
+        // parameters page would silently come back on the next `REBUILD` --
+        // and `REBUILD` is exactly what a player presses after changing the
+        // bed, i.e. in the middle of the experiment the switch was set for.
+        // `params::Dials` is the one list of what is a *setting* rather than
+        // part of the box, shared with what a saved session restores at
+        // startup (`bin/lab.rs`) -- two lists here would be two answers to
+        // "does this survive a rebuild", and until this carried only the
+        // three rule switches, heredity silently did not survive one.
+        let dials = params::Dials::from_world(&self.world);
         self.world = self.spec.build();
-        self.world.plant_load_failure = plant_load_failure;
-        self.world.plant_bending = plant_bending;
-        self.world.plant_size_cadence = plant_size_cadence;
+        dials.apply_to(&mut self.world);
         earth_toned_nest(&mut self.world);
         self.particles = ParticleSystem::new();
         self.blasts = Blasts::new();
@@ -2288,7 +2287,7 @@ impl Lab {
         };
         let list = self.ui.page_params(&self.world, &self.spec);
         let Some(param) = list.get(index) else { return };
-        let message = match params::save(param) {
+        let message = match params::save(param, &self.world, &self.spec) {
             Ok(ok) => ok,
             Err(e) => e.to_uppercase(),
         };

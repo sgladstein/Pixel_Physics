@@ -166,10 +166,37 @@ struct Held {
 
 impl Handler {
     fn new() -> Self {
+        // **Interactive entry point only** -- every test and sweep harness
+        // builds a `Lab` through `Lab::new` alone and must keep seeing the
+        // committed asset tree and the shipped `World` defaults, not
+        // whatever a previous interactive run (or a developer's in-progress
+        // edit) happens to have left on disk. `Lab::new`/`LabBox::build`
+        // stay exactly as deterministic as before this file existed; only
+        // this binary reaches for what was saved.
+        //
+        // `Lab::new` below builds the box from the *compiled-in* material
+        // and species snapshot, same as it always has. The reload that
+        // follows re-reads both directories -- exactly why `App::new`
+        // reloads them in the sandbox -- so `params::save`'s writes from an
+        // earlier session reach this one. `reset()` then rebuilds the box a
+        // second time so any founders the saved bed places are seeded from
+        // that fresh data too, not from the snapshot `Lab::new` happened to
+        // start with; on the shipped empty bed there is nothing to place
+        // yet and the extra build is free. Only then are the saved rule and
+        // heredity dials applied, or `reset()`'s own carry-over would just
+        // re-apply the box's ordinary defaults over them.
+        let spec = LabBox::load_saved().unwrap_or_else(empty_bed);
+        let mut lab = Lab::new(spec);
+        let _ = lab.world.materials.reload(pixel_physics::sim::material::ASSET_DIR);
+        let _ = lab.world.species.reload(pixel_physics::sim::organism::ASSET_DIR);
+        lab.reset();
+        if let Some(dials) = pixel_physics::lab::params::Dials::load_saved() {
+            dials.apply_to(&mut lab.world);
+        }
         Self {
             window: None,
             pixels: None,
-            lab: Lab::new(empty_bed()),
+            lab,
             last_frame: Instant::now(),
             last_title: Instant::now(),
             fps: 0.0,
