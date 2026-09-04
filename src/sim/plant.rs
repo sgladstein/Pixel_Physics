@@ -4726,6 +4726,12 @@ struct OrganismTiming {
     /// they are meant to add up to — the gap is the per-organism cadence
     /// gate and the reclamation walk, which no slot covers.
     start: Option<std::time::Instant>,
+    /// `ORGANISM_SIZE=<every N frames>`, and **deliberately a separate switch
+    /// from `ORGANISM_PASS`** — it wants one clock around the whole organism,
+    /// not ten inside it, because ten `Instant::now()` pairs per organism is
+    /// a per-*organism* overhead and would tilt exactly the curve this is
+    /// measuring (it would tax a 1-cell seed as hard as a 3,000-cell tree).
+    size_every: u64,
 }
 
 impl OrganismTiming {
@@ -4747,6 +4753,9 @@ impl OrganismTiming {
         static EVERY: OnceLock<u64> = OnceLock::new();
         let every =
             *EVERY.get_or_init(|| std::env::var("ORGANISM_PASS").ok().and_then(|v| v.parse().ok()).unwrap_or(0));
+        static SIZE_EVERY: OnceLock<u64> = OnceLock::new();
+        let size_every =
+            *SIZE_EVERY.get_or_init(|| std::env::var("ORGANISM_SIZE").ok().and_then(|v| v.parse().ok()).unwrap_or(0));
         OrganismTiming {
             every,
             ms: [0.0; Self::PASSES],
@@ -4754,7 +4763,33 @@ impl OrganismTiming {
             ticked: 0,
             cells: 0,
             start: (every != 0).then(std::time::Instant::now),
+            size_every,
         }
+    }
+
+    /// Cell-count buckets for the size curve. Geometric, because organism
+    /// size here spans four orders of magnitude — a standing seed is 1 cell
+    /// and a mature tree is thousands — and a linear bucketing would put
+    /// every plant that matters in one row.
+    const SIZE_BUCKETS: [usize; 7] = [1, 10, 50, 200, 800, 3200, usize::MAX];
+
+    fn size_bucket(cells: usize) -> usize {
+        Self::SIZE_BUCKETS.iter().position(|&hi| cells < hi || hi == usize::MAX).unwrap_or(0)
+    }
+
+    /// Start the whole-organism clock, or `None` when the switch is off.
+    fn organism_start(&self) -> Option<std::time::Instant> {
+        (self.size_every != 0).then(std::time::Instant::now)
+    }
+
+    /// Charge one organism's whole tick to its size bucket.
+    fn organism_end(&self, t: Option<std::time::Instant>, cells: usize) {
+        use std::sync::atomic::Ordering::Relaxed;
+        let Some(t) = t else { return };
+        let b = Self::size_bucket(cells);
+        ACCUM.size_ns[b].fetch_add(t.elapsed().as_nanos() as u64, Relaxed);
+        ACCUM.size_cells[b].fetch_add(cells as u64, Relaxed);
+        ACCUM.size_n[b].fetch_add(1, Relaxed);
     }
 
     fn time<R>(&mut self, slot: usize, f: impl FnOnce() -> R) -> R {
@@ -4781,8 +4816,47 @@ impl OrganismTiming {
     /// 4.04. Averaged over the window instead, the same build reports the
     /// cost that is actually being paid. A profiler that samples one frame
     /// of a staggered schedule is measuring the stagger.
+    /// **Is a big organism dear in proportion to its size, or worse than
+    /// that?** The question the tail profile reduces to.
+    ///
+    /// §12's band table put essentially the whole heavy tail in
+    /// `active_sites`, which is `step_organisms`. But rescheduling a lumpy
+    /// pass cannot move the speed dial — the dial reads the *mean*, and the
+    /// mean is total work over frames however the work is spread. So the
+    /// only thing that decides whether the tail is worth attacking is
+    /// whether the work in it is **reducible**, and that is what a us/cell
+    /// column against size says: flat means linear and irreducible without
+    /// per-cell work, rising means a big plant is punished for its size and
+    /// there is an algorithmic win in it.
+    fn report_size(&self, frame: u64) {
+        use std::sync::atomic::Ordering::Relaxed;
+        if self.size_every == 0 || !frame.is_multiple_of(self.size_every) {
+            return;
+        }
+        println!("  [orgsize] frame {frame:>6}: cost of one organism tick, by how big the organism is");
+        println!("  {:>12} {:>9} {:>10} {:>10} {:>9} {:>9}", "cells", "ticks", "cells tot", "ms tot", "us/tick", "us/cell");
+        let mut lo = 0usize;
+        for (b, &hi) in Self::SIZE_BUCKETS.iter().enumerate() {
+            let n = ACCUM.size_n[b].swap(0, Relaxed);
+            let cells = ACCUM.size_cells[b].swap(0, Relaxed);
+            let ns = ACCUM.size_ns[b].swap(0, Relaxed);
+            let label =
+                if hi == usize::MAX { format!("{lo}+") } else if lo + 1 == hi { format!("{lo}") } else { format!("{lo}-{}", hi - 1) };
+            if n > 0 {
+                println!(
+                    "  {label:>12} {n:>9} {cells:>10} {:>10.1} {:>9.2} {:>9.3}",
+                    ns as f64 / 1.0e6,
+                    ns as f64 / 1.0e3 / n as f64,
+                    ns as f64 / 1.0e3 / cells.max(1) as f64,
+                );
+            }
+            lo = hi;
+        }
+    }
+
     fn report(&self, frame: u64) {
         use std::sync::atomic::Ordering::Relaxed;
+        self.report_size(frame);
         if self.every == 0 {
             return;
         }
@@ -4825,6 +4899,11 @@ struct OrganismAccum {
     frames: std::sync::atomic::AtomicU64,
     ticked: std::sync::atomic::AtomicU64,
     cells: std::sync::atomic::AtomicU64,
+    /// The size curve: whole-organism nanoseconds, cells and ticks, per
+    /// `OrganismTiming::SIZE_BUCKETS` band.
+    size_ns: [std::sync::atomic::AtomicU64; OrganismTiming::SIZE_BUCKETS.len()],
+    size_cells: [std::sync::atomic::AtomicU64; OrganismTiming::SIZE_BUCKETS.len()],
+    size_n: [std::sync::atomic::AtomicU64; OrganismTiming::SIZE_BUCKETS.len()],
 }
 
 static ACCUM: OrganismAccum = OrganismAccum {
@@ -4833,6 +4912,9 @@ static ACCUM: OrganismAccum = OrganismAccum {
     frames: std::sync::atomic::AtomicU64::new(0),
     ticked: std::sync::atomic::AtomicU64::new(0),
     cells: std::sync::atomic::AtomicU64::new(0),
+    size_ns: [const { std::sync::atomic::AtomicU64::new(0) }; OrganismTiming::SIZE_BUCKETS.len()],
+    size_cells: [const { std::sync::atomic::AtomicU64::new(0) }; OrganismTiming::SIZE_BUCKETS.len()],
+    size_n: [const { std::sync::atomic::AtomicU64::new(0) }; OrganismTiming::SIZE_BUCKETS.len()],
 };
 
 pub fn step_organisms(world: &mut World) {
@@ -4907,8 +4989,10 @@ pub fn step_organisms(world: &mut World) {
             // upkeep has always read an already-diffused value. Running it
             // after would hand `Photosynthesize`/`Absorb`/decay the previous
             // tick's distribution.
+            let cells_here = world.organism(organism_id).map_or(0, |st| st.cells.len());
             timing.ticked += 1;
-            timing.cells += world.organism(organism_id).map_or(0, |st| st.cells.len());
+            timing.cells += cells_here;
+            let solo = timing.organism_start();
             timing.time(0, || organism::transport(world, organism_id));
             timing.time(1, || allocate_to_frontier(world, organism_id));
             // Before both of the passes that read it.
@@ -4951,6 +5035,11 @@ pub fn step_organisms(world: &mut World) {
             // `water_status`, which is what this gates on.
             timing.time(5, || break_root_tips(world, organism_id));
             timing.time(6, || organism_upkeep(world, organism_id));
+            // Charged to the size it was when the tick began -- growth
+            // during the tick belongs to the next one's bucket, and using
+            // the after size would let a plant that just doubled read as
+            // cheap per cell.
+            timing.organism_end(solo, cells_here);
         }
         // **Outside the guard, and that is load-bearing.** Reclamation is
         // the one thing here that is genuinely for *every* organism: a

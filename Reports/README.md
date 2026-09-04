@@ -2010,7 +2010,20 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   binary search over an already-sorted list is slower than the `HashMap` it
   replaces** at these sizes (0.152 -> 0.292 ms on one pass): the cost was never
   the container, it was reading the world through it, and only measuring the
-  two halves of the change separately shows that.
+  two halves of the change separately shows that. **§13 profiles the tail
+  (2026-09-03) and overturns its own premise**: the heavy tail is *entirely*
+  `active_sites` (0.37 ms in the cheapest half of frames against 44.0 in the
+  worst, while `field` is flat at 0.9-1.2 in every band), but **flattening a
+  tail cannot move the speed dial** -- the dial reads the mean and the mean is
+  total work however it is spread, so a tail is a hitching complaint and not a
+  throughput one. What the profile is *for* is targeting, and the size curve
+  behind it is the finding: **eleven trees are 96.6% of all organism work and
+  the other 676 organisms are 3.2%**, with `us/cell` **flat** across four
+  orders of magnitude of organism size. So every framing that reasoned from
+  organism *count* was counting the 97% that does not matter, there is no
+  super-linearity to exploit, and **optimisation alone does not reach 10x on
+  this bed** -- roughly 5-6x, with the rest a design decision about how many
+  plant cells the box holds.
 - [plant-reseeding-2026-09-03.md](plant-reseeding-2026-09-03.md) —
   **measured 2026-09-03.** Answers the owner's two questions about why the
   lab's plants never spread. **Q1: no, a plant cannot evolve better seed

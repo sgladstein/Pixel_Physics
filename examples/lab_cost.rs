@@ -107,6 +107,76 @@ fn arg<T: std::str::FromStr>(key: &str) -> Option<T> {
 /// `sim::frame`'s own control test uses, and for the same reason: what it has
 /// to catch is a phase running in the wrong order, which moves cells rather
 /// than counts them.
+/// **What the expensive frames are doing** — the phase table, split by how
+/// dear the frame was.
+///
+/// `Reports/evolution-lab-frame-cost-2026-09-01.md` §11.3: the lab's mean
+/// frame runs about twice its median, so roughly half of all time spent is in
+/// frames above the median and **the per-phase means describe that tail as
+/// much as they describe the typical frame**. Reading them as "what a frame
+/// costs" is the error this exists to stop.
+///
+/// Frames are ranked by their own total and cut at the quartile boundaries
+/// that matter for a heavy tail. For each band it prints the share of *all*
+/// time the band holds, the mean frame in it, and the per-phase means inside
+/// it — so a phase that is flat across the bands is a per-frame cost and one
+/// that climbs is the tail.
+///
+/// **The share column is the one to read**, not the mean: a band holding 4%
+/// of the frames and 40% of the time is the whole problem however ordinary
+/// its per-phase split looks, and a band that is dear but rare is not.
+fn report_tail(frame: u64, rows: &[[f64; PHASES.len()]]) {
+    if rows.is_empty() {
+        return;
+    }
+    let total = |r: &[f64; PHASES.len()]| r.iter().sum::<f64>();
+    let mut idx: Vec<usize> = (0..rows.len()).collect();
+    idx.sort_by(|&a, &b| total(&rows[a]).partial_cmp(&total(&rows[b])).expect("no NaN"));
+    let n = rows.len();
+    let grand: f64 = idx.iter().map(|&i| total(&rows[i])).sum();
+    println!("\n  [tail] frame {frame}: {n} frames, {grand:.0} ms of work in the window");
+    println!(
+        "  {:>9} {:>7} {:>8} {:>9} | {}",
+        "band",
+        "frames",
+        "% of ms",
+        "mean ms",
+        PHASES.iter().map(|p| format!("{p:>13}")).collect::<Vec<_>>().join(" ")
+    );
+    let bands: [(usize, usize, &str); 5] = [
+        (0, n / 2, "p0-50"),
+        (n / 2, n * 9 / 10, "p50-90"),
+        (n * 9 / 10, n * 99 / 100, "p90-99"),
+        (n * 99 / 100, n.saturating_sub(1), "p99-99.9"),
+        (n.saturating_sub(1), n, "worst"),
+    ];
+    for (lo, hi, name) in bands {
+        if hi <= lo {
+            continue;
+        }
+        let count = hi - lo;
+        let band: f64 = idx[lo..hi].iter().map(|&i| total(&rows[i])).sum();
+        let per: Vec<String> = (0..PHASES.len())
+            .map(|k| format!("{:>13.3}", idx[lo..hi].iter().map(|&i| rows[i][k]).sum::<f64>() / count as f64))
+            .collect();
+        println!(
+            "  {name:>9} {count:>7} {:>7.1}% {:>9.3} | {}",
+            band / grand * 100.0,
+            band / count as f64,
+            per.join(" ")
+        );
+    }
+    // **The single most expensive frames, itemised.** A band mean can hide
+    // one 150 ms frame among ninety ordinary ones; these say whether the
+    // worst frames are one phase running away or every phase rising at once,
+    // which want completely different fixes.
+    println!("  the five dearest frames, by phase:");
+    for &i in idx.iter().rev().take(5) {
+        let per: Vec<String> = rows[i].iter().map(|ms| format!("{ms:>13.3}")).collect();
+        println!("  {:>9} {:>7} {:>8} {:>9.3} | {}", "", "", "", total(&rows[i]), per.join(" "));
+    }
+}
+
 fn world_hash(w: &World) -> u64 {
     fn fnv1a(h: u64, v: u64) -> u64 {
         (h ^ v).wrapping_mul(0x0000_0100_0000_01b3)
@@ -374,6 +444,12 @@ fn run_arm(
 
     let mut window: Vec<f64> = Vec::new();
     let mut phase_sums = [0.0f64; PHASES.len()];
+    // **Every frame's phase row, kept rather than only summed** -- the phase
+    // table above is a mean over the whole window, and a mean cannot say
+    // whether a phase is dear on every frame or ruinous on a few. §11.3 asks
+    // exactly that question and the summed form cannot answer it. `TAIL=1`.
+    let tail_on: bool = std::env::var("TAIL").as_deref() == Ok("1");
+    let mut frame_phase: Vec<[f64; PHASES.len()]> = Vec::new();
     let mut solved = 0u64;
     let mut awake = 0u64;
     let mut sw_visited = 0u64;
@@ -417,10 +493,15 @@ fn run_arm(
             world.step_pheromones();
             marks[8] = Instant::now();
             let mut total = 0.0;
+            let mut row = [0.0f64; PHASES.len()];
             for i in 0..PHASES.len() {
                 let d = marks[i + 1].duration_since(marks[i]).as_secs_f64() * 1000.0;
                 phase_sums[i] += d;
+                row[i] = d;
                 total += d;
+            }
+            if tail_on {
+                frame_phase.push(row);
             }
             total
         } else {
@@ -477,6 +558,10 @@ fn run_arm(
             t.phase_ms = phase_sums.map(|s| s / n as f64);
             t.render_ms = if render_n > 0 { render_sum / render_n as f64 } else { 0.0 };
             tiles.push(t);
+            if tail_on {
+                report_tail(f, &frame_phase);
+                frame_phase.clear();
+            }
             window.clear();
             phase_sums = [0.0; PHASES.len()];
             solved = 0;

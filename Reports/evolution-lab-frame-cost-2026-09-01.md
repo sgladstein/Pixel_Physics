@@ -853,3 +853,131 @@ opened, **was answered on 2026-09-03**: *"They look the same."* The soil reads
 the same with moisture off the movement sweep as on it, so PR #212's placement
 stands. `PIXEL_PHYSICS_MOISTURE=sweep` stays as the escape hatch and
 `update::moisture_phase_enabled`'s default does not move.
+
+
+---
+
+## 13. The tail, profiled — 2026-09-03
+
+*§11.4 item 2. Two instruments: `TAIL=1` splits `lab_cost`'s phase table by how
+dear the frame was, and `ORGANISM_SIZE=<every>` charges each organism's whole
+tick to a bucket by how big the organism is. Between them they answer §11.3 and
+**overturn the reason it was on the list**.*
+
+### 13.0 First, the correction — flattening a tail cannot move the dial
+
+§11.3 and §12.5 both name the tail as the next thing to chase, on the strength
+of the mean running about twice the median. The implied prize — *make every
+frame cost the median and the dial doubles* — **is arithmetically impossible**,
+and it took building the instrument to see it.
+
+The dial is `16.67 / mean`, and the mean is total work over frames **however
+the work is spread**. Rescheduling a lumpy pass moves cost between frames and
+leaves the total exactly where it was. A tail is worth attacking for
+**hitching** — a 47 ms frame is a visible stutter — but the owner's complaint
+is *"I max out at 4x"*, which is throughput, and throughput only responds to
+work that is **removed**.
+
+So the tail profile's value is not a fix. It is **targeting**: it says where
+the work is, and the size curve below says whether that work can be taken away.
+
+### 13.1 The tail is entirely `active_sites`
+
+`species=tree founders=16 colonies=0 seed=1 plant_load=0`, the 8,000 frames
+ending at 32,000, frames ranked by their own total:
+
+| band | frames | % of all ms | mean frame | `ca_sweep` | **`active_sites`** | `field` |
+|---|---|---|---|---|---|---|
+| p0-50 | 4,000 | 17.7% | 1.82 | 0.53 | **0.37** | 0.92 |
+| p50-90 | 3,200 | 42.7% | 5.51 | 1.00 | **3.40** | 1.09 |
+| p90-99 | 720 | 32.9% | 18.84 | 1.20 | **16.46** | 1.18 |
+| p99-99.9 | 79 | 6.6% | 34.23 | 0.96 | **32.07** | 1.18 |
+| worst | 1 | 0.1% | 46.68 | 1.46 | **43.99** | 1.22 |
+
+**`field` is flat across every band** — 0.92 to 1.22, a per-frame cost with no
+tail in it at all. `ca_sweep` is nearly flat. `active_sites` runs **0.37 to
+43.99, a 120x swing**, and is the entire tail.
+
+Half the frames hold 17.7% of the time; the dearest 10% hold 39.6%.
+
+### 13.2 Eleven trees are 97% of it
+
+The size curve, same window. `ORGANISM_TICK_INTERVAL` is 45, so 8,000 frames
+is 177.8 ticks per organism and **the tick column is a headcount**:
+
+| cells | ticks | = organisms | cells total | ms total | **% of pass** | us/cell |
+|---|---|---|---|---|---|---|
+| 1-9 | 120,246 | **676** | 122,223 | 737 | 3.2% | 6.03 |
+| 10-49 | 458 | 2.6 | 9,310 | 37 | 0.2% | 4.03 |
+| 50-199 | 88 | 0.5 | 5,553 | 18 | 0.1% | 3.32 |
+| 800-3199 | 1,780 | **10.0** | 3,824,570 | **17,871** | **76.9%** | 4.67 |
+| 3200+ | 178 | **1.0** | 880,711 | **4,587** | **19.7%** | 5.21 |
+
+**Eleven organisms consume 96.6% of `step_organisms`. The other 676 consume
+3.2%**, and the census agrees exactly — 677 live organisms, of which all but
+eleven are 1-9 cell seeds and seedlings.
+
+That is the tail, completely explained: a frame that ticks one of the eleven
+costs 10-30 ms, a frame that ticks only seeds costs 0.37, and with eleven big
+trees on a 45-frame stagger about a quarter of frames carry one.
+
+**It is not "many organisms". It is eleven trees**, and every framing in §9
+and §10 that reasoned from organism *count* — "2.7x more organisms, each 1.7x
+dearer" — was counting the 97% that does not matter. The population curve and
+the cost curve are different questions and the seeds are only on one of them.
+
+### 13.3 And the cost is linear, so there is no algorithmic prize
+
+The `us/cell` column is the one that decides what to do next, and it is
+**flat**: 6.03, 4.03, 3.32, 4.67, 5.21 across four orders of magnitude of
+organism size, lowest in the middle. A big plant is **not** punished for being
+big — it costs what its cells cost.
+
+**Positive control**: 4.67 us/cell/tick over a 45-frame interval is 0.104
+us/cell/frame, which is §12.5's independently-measured `active_sites` unit
+price to three figures. Two instruments that share no code agree, so the curve
+is measuring what it claims to.
+
+So there is no super-linearity to exploit and no single dominant pass left
+(§12.2 after the hoists: `frontier` 0.599, `upkeep` 0.469, `stress` 0.469,
+`transport` 0.403, `bend` 0.300, `anchor` 0.257 — spread). **Total organism
+work is simply proportional to standing plant cells**, and only three things
+change it:
+
+1. **Cheaper per cell.** §12 took 1.34x this way and the remaining passes have
+   never been examined. Each is worth ~15% of the pass if it can be halved.
+2. **Fewer full walks.** A tick makes **eight** separate whole-organism passes,
+   five of which build their own sorted cell list and three of which build
+   their own `HashMap` index — for a 5,000-cell tree, every 45 frames, from
+   scratch. Sharing one sorted list and one index across the passes is a pure
+   optimisation and nobody has tried it. **Estimated at ~15% of the pass and
+   explicitly not measured** — the estimate is arithmetic on sort sizes, which
+   is exactly the kind of number this file says not to trust until it is run.
+3. **Less often, or less of it.** Ticking a 5,000-cell tree on a longer
+   interval than a seedling is the only lever with a large number behind it,
+   and it is **a behaviour change, not an optimisation** — the tick *is* the
+   plant's economy, so a slower tree is a different plant. That is the owner's
+   call, not a lane's.
+
+### 13.4 What this does to the order of work
+
+§11.4's list survives with its second item deleted and its reason rewritten:
+
+1. **The remaining plant passes** — `frontier`, `upkeep`, `transport`, worth
+   ~1.5 ms combined and never examined. Shared scratch (item 2 above) is the
+   cheapest test and covers all of them at once.
+2. **`field` at ~1.1 ms** — §8's two leftovers. **Now known to be pure
+   per-frame cost**: it is 0.92-1.22 ms in *every* band, so unlike the plants
+   it is not tail work and every millisecond taken off it is taken off every
+   frame.
+3. **The tail as hitching, if the owner cares about stutter** — worth saying
+   out loud that this is a *different complaint* from the dial, and the fix
+   for it (spreading a big organism's tick) buys smoothness and no throughput.
+4. Damage-on (§10.1) stays last: `break` is 0.013 ms on this bed.
+
+**And the honest ceiling.** At 5.15 ms the dial reads 3.2x. 10x needs 1.67 ms
+— 68% of the frame removed — when `active_sites` is 65% of it and is now known
+to be linear in a stand the owner deliberately grew. **Optimisation alone does
+not reach 10x on this bed**; it reaches perhaps 5-6x, and the rest has to come
+from the box holding fewer plant cells or ticking them less often, both of
+which are design decisions rather than performance work.
