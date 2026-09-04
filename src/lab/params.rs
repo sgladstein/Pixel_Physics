@@ -540,6 +540,22 @@ fn plant_mechanics_rows(world: &World, out: &mut Vec<Param>) {
         world.plant_load_failure,
         "WHETHER A LIVING PLANT MAY BE PULLED APART BY MECHANICS. ON IS THE SHIPPED BEHAVIOUR: A STEM SNAPS WHERE THE BENDING STRESS BEATS THE WOOD, A LIMB REACHING FURTHER THAN IT CAN HOLD GIVES WAY, AND ONE THAT LOSES ITS FOOTING COMES DOWN WHOLE. OFF HOLDS EVERY LIVING PLANT IN THE BOX TOGETHER HOWEVER FAR IT LEANS AND WHATEVER IS DUG OUT FROM UNDER IT, WHICH IS WHAT YOU WANT WHILE YOU ARE LOOKING AT GROWTH RATHER THAN AT MECHANICS. DEAD WOOD STILL COMES APART EITHER WAY, SO CULLING AND ROT STILL CLEAR THE BOX. IT REACHES EVERY SPECIES, IT IS FELT ON THE NEXT TICK, AND IT LASTS THE SESSION.",
     ));
+    out.push(toggle(
+        Group::Plant,
+        Knob::Rule { field: "plant_bending" },
+        "plant mechanics",
+        "bend_under_load",
+        world.plant_bending,
+        "WHETHER A PLANT LEANS. ON, A STEM BOWS UNDER WHAT IT CARRIES AND LIES OVER IN A GUST; OFF, IT STANDS WHERE IT GREW HOWEVER HARD THE WIND BLOWS. SEPARATE FROM COLLAPSE ABOVE BECAUSE THEY ARE DIFFERENT PROMISES -- THAT ONE IS WHETHER A PLANT CAN BE PULLED APART, THIS ONE IS WHETHER IT BENDS AT ALL. TURNING IT OFF IS ALSO THE CHEAPEST THING ON THIS PAGE: WITH BOTH THIS AND COLLAPSE OFF, NOTHING READS THE STRESS FIELD AND THE BOX STOPS BUILDING IT, WHICH IS ABOUT A QUARTER OF THE PER-PLANT WORK. IT REACHES EVERY SPECIES, IT IS FELT ON THE NEXT TICK, AND IT LASTS THE SESSION.",
+    ));
+    out.push(toggle(
+        Group::Plant,
+        Knob::Rule { field: "plant_size_cadence" },
+        "plant mechanics",
+        "big_plants_tick_slower",
+        world.plant_size_cadence,
+        "WHETHER A BIG PLANT RUNS ON A SLOWER CLOCK THAN A SEEDLING. OFF, EVERY PLANT TICKS AT THE SAME RATE WHATEVER ITS SIZE, WHICH IS THE SHIPPED BEHAVIOUR. ON, A PLANT WAITS LONGER BETWEEN TICKS THE BIGGER IT IS -- A SEEDLING EVERY TICK, A GROWN TREE EVERY FIFTH. THIS IS THE ONE DIAL ON THIS PAGE THAT BUYS REAL SPEED IN A FULL BOX, BECAUSE A HANDFUL OF LARGE TREES IS ALMOST ALL OF THE WORK. IT IS ALSO NOT FREE: THE TICK IS THE PLANT'S ECONOMY, SO A SLOWED TREE DOES NOT MERELY UPDATE LESS, IT LIVES SLOWER WHILE THE SEEDS AROUND IT DO NOT -- WHICH CHANGES WHO WINS. LASTS THE SESSION.",
+    ));
     out.push(float(
         Group::Heredity,
         Knob::Heredity { field: "mutation_sigma" },
@@ -857,6 +873,8 @@ pub fn write(world: &mut World, spec: &mut LabBox, knob: &Knob, value: f32) -> b
             let on = value >= 0.5;
             match *field {
                 "plant_load_failure" => world.plant_load_failure = on,
+                "plant_bending" => world.plant_bending = on,
+                "plant_size_cadence" => world.plant_size_cadence = on,
                 _ => return false,
             }
             true

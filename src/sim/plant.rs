@@ -5088,8 +5088,15 @@ pub fn step_organisms(world: &mut World) {
         // frames, which with a busy nest is a slot-exhaustion path opened by
         // a knob that has nothing to do with creatures. Found by review, not
         // by a test; there is no guard that would have shown it.
-        let is_creature =
-            world.organism(organism_id).is_some_and(|s| world.species.get(s.species).creature.is_some());
+        // One slot lookup for both, where there were two questions: which
+        // knob gates this organism, and how big it is -- the size the
+        // cadence rule below bands on. A missing organism reads as a
+        // zero-cell plant, which lands in the 1x band and is gated exactly
+        // as it was before the rule existed.
+        let (is_creature, cell_count) = match world.organism(organism_id) {
+            Some(s) => (world.species.get(s.species).creature.is_some(), s.cells.len()),
+            None => (false, 0),
+        };
         // Spread the load: each organism keeps the same cadence as the
         // active-site schedule, on its own offset.
         //
@@ -5099,10 +5106,18 @@ pub fn step_organisms(world: &mut World) {
         // rolls it funds would make a slowed tree a rich one rather than a
         // slow one. See `sim::clock::Clock::growth_slowdown`, which is the
         // whole argument for one knob per subsystem.
+        // **Creatures are not banded**, and that is deliberate rather than an
+        // omission: an ant's tick is its brain, not an economy that can run
+        // slower without becoming a different animal, and creatures are small
+        // enough that they are not where the cost is (measured: eleven trees
+        // are 96.6% of this pass).
         let interval = if is_creature {
             world.clock.creature_interval(ORGANISM_TICK_INTERVAL)
         } else {
-            world.clock.organism_interval(ORGANISM_TICK_INTERVAL)
+            world
+                .clock
+                .organism_interval(ORGANISM_TICK_INTERVAL)
+                .saturating_mul(size_cadence(world, cell_count))
         };
         if !(world.frame + organism_id as u64).is_multiple_of(interval) {
             continue;
@@ -5168,6 +5183,19 @@ pub fn step_organisms(world: &mut World) {
             // recompute cost +0.43 ms/frame against BREAK=off, and this is
             // bit-identical to it because the recompute still happens on
             // exactly the ticks where the world changed under it.
+            // **Built only if something can act on it.** `stress_field` is a
+            // readout; its two consumers are the bend and the break, and each
+            // has its own pair of switches. With both off it was computed in
+            // full and dropped -- so `BEND=off` used to buy far less than it
+            // looked like it should, because the field it stopped using was
+            // still being built. Measured at 28% of `step_organisms` on the
+            // tree bed (`stress` 0.469 + `bend` 0.300 of 2.789).
+            //
+            // The condition mirrors the two consumers exactly, so this can
+            // only skip work that provably had no reader.
+            let wants_bend = bend_enabled() && world.plant_bending;
+            let wants_break = break_enabled() && world.plant_load_failure;
+            if wants_bend || wants_break {
             let field = timing.time(7, || stress_field(world, organism_id));
             let field = if timing.time(8, || bend_under_load(world, organism_id, &field)) {
                 timing.time(7, || stress_field(world, organism_id))
@@ -5178,6 +5206,7 @@ pub fn step_organisms(world: &mut World) {
             // whatever is still over its strength once the plant has leaned
             // as far as it can is what actually cannot hold.
             timing.time(9, || break_under_load(world, organism_id, &field));
+            }
             // Before upkeep, so a bud that flushes this tick is already a
             // `GrowingTip` when `thicken` runs and can be counted as frontier
             // rather than thickened over on the same tick it woke up.
@@ -6071,6 +6100,39 @@ pub struct CellStress {
 /// once for the fall, once here. Comparing two *binaries* cannot do it: the
 /// counters that catch the error are added alongside the mechanism, so the
 /// arm being measured against does not have them.
+/// **How many organism-tick intervals a plant waits, by how big it is** —
+/// `(fewer than this many cells, multiply the interval by this)`, first match
+/// wins.
+///
+/// The shape the owner asked for: *"seedlings run at 1x, medium size plants 2
+/// ticks, larger plants every three and it gets bigger and bigger."* The
+/// bands are the ones `ORGANISM_SIZE` already reports, so the instrument and
+/// the rule are read on the same axis rather than on two that have to be
+/// mentally aligned.
+///
+/// **Why this is the lever with a number behind it.** `step_organisms` costs
+/// its cells — flat at 3.3-6.0 us/cell across four orders of magnitude — so
+/// per-frame cost is `cells / interval` and multiplying the interval divides
+/// the cost exactly. On the measured tree bed the bands below take the pass
+/// from ~23,251 ms to ~6,168 ms over one window, **3.8x**, because the two
+/// bands that hold 96.6% of the work are the two that wait longest.
+///
+/// **What it costs is not frame budget, it is plant time.** A tree at 5x
+/// runs its whole economy five times more slowly while the seeds beside it
+/// do not, so this changes which plants win, not just what the frame costs.
+/// See `World::plant_size_cadence`.
+pub const PLANT_SIZE_CADENCE: [(usize, u64); 5] =
+    [(50, 1), (200, 2), (800, 3), (3200, 4), (usize::MAX, 5)];
+
+/// This organism's interval multiplier — `1` when the rule is off, so the
+/// switch costs one `bool` test and the arithmetic is unchanged.
+fn size_cadence(world: &World, cells: usize) -> u64 {
+    if !world.plant_size_cadence {
+        return 1;
+    }
+    PLANT_SIZE_CADENCE.iter().find(|(hi, _)| cells < *hi).map_or(1, |&(_, mult)| mult)
+}
+
 fn bend_enabled() -> bool {
     use std::sync::OnceLock;
     static ON: OnceLock<bool> = OnceLock::new();
@@ -6211,7 +6273,11 @@ fn break_under_load(world: &mut World, organism_id: u16, field: &std::collection
 }
 
 fn bend_under_load(world: &mut World, organism_id: u16, field: &std::collections::HashMap<(i32, i32), CellStress>) -> bool {
-    if !bend_enabled() {
+    // Two switches, the same shape as `break_under_load`'s pair: `BEND=off`
+    // is the process-wide ablation this rule was measured against and must
+    // stay for that, and `World::plant_bending` is the player's, live on the
+    // world. Both must be on.
+    if !bend_enabled() || !world.plant_bending {
         return false;
     }
     // Every cell that wants to bend, most-deflected first — not just the
