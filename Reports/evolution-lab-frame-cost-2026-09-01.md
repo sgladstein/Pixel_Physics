@@ -1128,3 +1128,26 @@ arguments: **10,308 cells against 27,520**. `plant=` now sets it and the echo
 line names it, so the next disconnected knob is visible rather than plausible.
 This is `CLAUDE.md`'s *an unknown argument is silently ignored* and *a scene
 that contradicts the code looks like a bug in the code*, arriving together.
+
+### 14.6 Landed on, and scoped to, the lab
+
+Owner, 2026-09-04, on the two boxes: *"looks good."* Both switches now open
+**on in the lab** — `LabBox::build_counted` sets `plant_size_cadence` on and
+`plant_bending` off — and the **engine defaults are unchanged**.
+
+**Scoped rather than global, deliberately.** Everything measured here is the
+lab's tree bed; nobody has measured what either switch does to the outdoor
+game, where a gust laying grass over is something you can see. Setting them on
+the bed gives the owner the box they asked for without changing a game this
+report never ran. Both are rows on the parameters page, so it is the value the
+box *opens at* rather than one it is stuck with.
+
+The shipped lab bed now measures **7.7x** at 32,000 frames on the
+16-founder tree bed, against 2.4x before.
+
+**One harness trap closed on the way in.** `lab_cost` set both switches
+unconditionally from its own defaults, so once the bed carried them it would
+have gone on measuring the old behaviour under the new bed's name. Both knobs
+are now `Option`: unset means *use the bed*, and the echo line prints `(bed)`
+so a reader can see which it was. That is the disconnected-knob trap wearing
+its other face — a knob that is connected to the wrong end.
