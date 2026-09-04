@@ -163,6 +163,15 @@ fn main() {
     if let Some(v) = arg::<i32>("loadfail") {
         world.plant_load_failure = v != 0;
     }
+    // The other two plant-mechanics rows, same shape and for the same reason
+    // -- both are settings on the world, so a sheet of the box under them can
+    // only be made if the harness can write them.
+    if let Some(v) = arg::<i32>("bending") {
+        world.plant_bending = v != 0;
+    }
+    if let Some(v) = arg::<i32>("size_cadence") {
+        world.plant_size_cadence = v != 0;
+    }
     if arg::<i32>("lamps") == Some(0) {
         for cx in spec.lamps_in(&world) {
             spec.remove_lamp(&mut world, cx);
