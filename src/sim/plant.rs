@@ -6207,13 +6207,51 @@ pub struct CellStress {
 pub const PLANT_SIZE_CADENCE: [(usize, u64); 5] =
     [(50, 1), (200, 2), (800, 3), (3200, 4), (usize::MAX, 5)];
 
+/// **A steeper table for the giants only**, selected by `PLANT_CADENCE=steep`.
+///
+/// The shipped table stops scaling at 3,200 cells, and a tree on this bed
+/// reaches **5,573** — so the plants that cost the most are exactly the ones
+/// whose interval stops growing, which is the opposite of what the owner
+/// asked for (*"it gets bigger and bigger"*). Every band below 3,200 is
+/// identical to the shipped one, so nothing a small or medium plant does
+/// changes; only the giants wait longer.
+///
+/// An env switch rather than a second constant because it is an experiment
+/// until measured: `CLAUDE.md`'s *ship a runtime selector rather than
+/// choosing*.
+/// **Steepened from 800 cells upward, which is where the work is.**
+///
+/// The first version of this table steepened only above 3,200 and measured
+/// almost nothing -- `active_sites` 0.868 -> 0.827 ms, a 5% move. That was
+/// the experiment being wrong, not the lever: §13.2's size curve puts
+/// **76.9% of the pass in the 800-3199 band and 19.7% above 3,200**, so
+/// steepening only the top band aimed at a fifth of the load and left the
+/// rest at 4x. `CLAUDE.md`'s *check that a planned step can demonstrate
+/// itself, before promising it will* -- asked one question earlier (which
+/// cells does this rule actually reach?) it would not have been built that
+/// way.
+pub const PLANT_SIZE_CADENCE_STEEP: [(usize, u64); 6] =
+    [(50, 1), (200, 2), (800, 4), (3200, 8), (12800, 12), (usize::MAX, 16)];
+
+/// Which table `size_cadence` reads. `PLANT_CADENCE=steep` picks the steep
+/// one; anything else keeps the shipped bands.
+fn cadence_table() -> &'static [(usize, u64)] {
+    use std::sync::OnceLock;
+    static STEEP: OnceLock<bool> = OnceLock::new();
+    if *STEEP.get_or_init(|| std::env::var("PLANT_CADENCE").as_deref() == Ok("steep")) {
+        &PLANT_SIZE_CADENCE_STEEP
+    } else {
+        &PLANT_SIZE_CADENCE
+    }
+}
+
 /// This organism's interval multiplier — `1` when the rule is off, so the
 /// switch costs one `bool` test and the arithmetic is unchanged.
 fn size_cadence(world: &World, cells: usize) -> u64 {
     if !world.plant_size_cadence {
         return 1;
     }
-    PLANT_SIZE_CADENCE.iter().find(|(hi, _)| cells < *hi).map_or(1, |&(_, mult)| mult)
+    cadence_table().iter().find(|(hi, _)| cells < *hi).map_or(1, |&(_, mult)| mult)
 }
 
 fn bend_enabled() -> bool {
