@@ -1,0 +1,60 @@
+{
+  "id": "20260904T071622944Z-f07357",
+  "created": "2026-09-04T07:16:22Z",
+  "board": "lab",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/optimize-step-organisms-kxhbws",
+    "commit": "dfdfa3a6",
+    "agent": null,
+    "session_id": "7098fc80-f009-5c8f-9043-c3d8092e7bf8",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Big plants on a slower clock",
+  "question": "Which box looks more like a living stand of trees to you? Pick one — the numbers under each are real and both boxes are alive.",
+  "context_md": "You asked whether big plants could tick less often the bigger they get. Built: a plant waits longer between ticks by size (seedling every tick, a grown tree every fifth), and bending is off in both panes here.\n\n**It works on the clock — 10 seeds, every one faster, median 2.7x, worst 1.7x.** What I cannot judge is whether it still looks like your box.\n\nSame bed, same seed, same 64,000 frames. Four stops down each sheet: frames 8,000 / 24,000 / 48,000 / 64,000.\n\n**What the change does to the stand, and it is not subtle:** roughly a third as many plants, slightly *more* plant material, and about **60% more leaf**. Fewer, bigger, much leafier trees. That held on all 10 seeds — every slow-clock run had more leaf than every normal run.\n\n**What to ignore:** the speed. I am not asking which is faster, I know which is faster. I am asking whether the thinner, leafier box is one you would want to play in, or whether losing two-thirds of the individuals reads as an emptier world.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A — normal clock (current behaviour)",
+      "files": [
+        "20260904T071622944Z-f07357/000-shot_base.png"
+      ],
+      "caption": "every plant ticks at the same rate whatever its size",
+      "meta": {
+        "plants standing": 462,
+        "plant material in the box (cells)": 27520,
+        "leaf": 7091,
+        "seeds lying in the soil": 3789,
+        "biggest single plant (cells)": 5573,
+        "speed the box runs at": "2.3x"
+      },
+      "focus": null
+    },
+    {
+      "label": "B — big plants on a slower clock",
+      "files": [
+        "20260904T071622944Z-f07357/001-shot_cad.png"
+      ],
+      "caption": "a seedling ticks every time, a grown tree every fifth",
+      "meta": {
+        "plants standing": 167,
+        "plant material in the box (cells)": 29069,
+        "leaf": 11432,
+        "seeds lying in the soil": 1103,
+        "biggest single plant (cells)": 4316,
+        "speed the box runs at": "7.1x"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
