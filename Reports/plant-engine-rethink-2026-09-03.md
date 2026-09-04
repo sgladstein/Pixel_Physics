@@ -1023,6 +1023,106 @@ So the shape, when someone picks this up:
 frame-cost question — whether a wind-borne powder keeps chunks awake — has not
 been measured.
 
+## 6.8 The developmental seed, built as one dial
+
+§2.3 measured the problem: growth draws come from
+`rng::stream(organism_id, cell_x, cell_y, frame)`, so **a plant one column over
+is a different plant**, and twelve genetically identical plants alone in
+identical beds come out between 83 and 181 cells and 27 and 63 rows tall.
+
+**One dial rather than two designs**, which is the owner's correction and it
+matters: per-cell draws key on the plant's own frame *in every arm*, and the
+arms differ only in how coarsely `dev_seed` carries the germination
+coordinate. So an A/B differs by exactly one number and the answer can land
+between the endpoints.
+
+| `shared_development` | `DevelopmentalKey` | what it is |
+|---|---|---|
+| 0 | `World` | today: `(organism_id, cell_x, cell_y, frame)` |
+| 1 | `Plant { coarseness: 0 }` | position dropped — a lineage has **one inherited form** |
+| 2 | `Plant { coarseness: 1 }` | folded at full resolution — every plant its own **coherent** form |
+| 3+ | `Plant { coarseness: k }` | plants within `k` columns share a form |
+
+**Coarsening is applied to the germination coordinate once, before hashing,
+never inside the per-cell key.** The latter is the block-nearest coarse-field
+trap `CLAUDE.md` records hitting four times on three lines and never once
+catching in a test. This is instead `seed_genotype`'s own idiom — position
+captured once, per plant, at germination — applied to development rather than
+to the genome draw.
+
+### The acceptance test
+
+`clone_variance -- shift=1`: one founder, alone, moved one column at a time,
+with the reference genome **and reference lineage seed** written onto it.
+
+| | CV cells | CV height | CV width |
+|---|---|---|---|
+| shipped | **0.280** | 0.260 | 0.358 |
+| `dev=0` | **0.074** | 0.143 | 0.121 |
+| `dev=1` | 0.374 | 0.252 | 0.542 |
+
+Adjacent columns give 91 and 92 cells at `dev=0` where the shipped key gave 153
+and 173. The residual 0.074 is environmental response — the bed widens by two
+columns per step — which is the variation worth keeping.
+
+**`dev=1` reads *higher* than the shipped key, and that is a finding rather
+than a fault.** Per-cell noise partially cancels across a plant; per-plant
+noise does not. Folding position once makes each plant coherent **and** makes
+plants differ from one another more.
+
+### Heritability, `herb`, 16 founders, 12,000 frames, four world seeds pooled
+
+`H2 = 1 - Var(clone)/Var(pop)`, per reference genome:
+
+| descriptor | shipped (median) | `dev=0` (median) | `dev=1` (median) |
+|---|---|---|---|
+| **cells** | **0.034** | **0.650** | 0.323 |
+| height | 0.502 | 0.599 | 0.363 |
+| **width** | **0.227** | **0.658** | 0.354 |
+| slenderness | 0.208 | 0.729 | 0.532 |
+| foliage share | 0.610 | 0.483 | 0.227 |
+| root share | 0.359 | 0.175 | 0.354 |
+| foliage centre | 0.328 | 0.465 | 0.145 |
+
+Three readings:
+
+- **Plant size becomes heritable**, 0.034 → 0.650. It was the least heritable
+  thing the engine produced within a species.
+- **So does crown width**, 0.227 → 0.658 — and §2.2 measured width's *positive
+  control* at 0.000 on all four reference genomes, i.e. as a lever the genome
+  could not pull at all. `plant-reseeding-2026-09-03.md` §1 calls crown width
+  the genome's *"one indirect lever"* on seed dispersal.
+- **Composition does not improve and may fall** — foliage share 0.610 → 0.483.
+  That is coherent rather than contradictory: developmental noise was masking
+  *size and shape*, not *composition*, because composition is an allocation
+  ratio the genome sets directly while shape is where the per-cell dice landed.
+
+**`dev=1` moves heritability substantially, which was predicted not to.** The
+review's expectation was that folding position once would leave H2 untouched,
+since germination position still fully selects which form a plant gets. It
+reads ~0.32 on `cells` against the shipped 0.034 — less than `dev=0`, but not
+nothing. The rendered comparison is still the primary instrument at that end;
+the prediction about the number was simply wrong.
+
+### And a withdrawal, caught by a control that was already there
+
+A first `dev=0` table was measured and is **void**. The estimator's sensitivity
+control read **0.000 on every descriptor**, where the shipped key reads
+0.44–0.82 — the row whose whole job is to say *these numbers mean nothing*.
+
+A founder has no lineage seed until something draws one, because
+`PlantScene::build` never calls `seed_genotype` (§2.1). So the Spread arm read
+`0` off every ungerminated founder and wrote `0` onto all sixteen, making the
+**widest-genetic-contrast arm developmentally uniform** and collapsing
+`Var(spread)`, the denominator of every H2 in the table. The Clone arm already
+had the fix and a comment saying why; its sibling did not.
+
+**It is the `ref=` failure repeating in the same file**, and the difference
+worth carrying is that a *control* caught it rather than a byte-identical
+output. With the fix the control returns to 0.612 on `cells`.
+
+---
+
 ## 6.6 Pricing `seed_launch`, and what the price took away
 
 **§6.1 built a tenth free lever while §5.4 was stating the law against exactly
