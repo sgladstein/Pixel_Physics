@@ -1128,6 +1128,25 @@ when he counted all four. §Z is cards-only. Reports/open-bugs-handoff.md §Z ha
         // search depends on. `births per standing plant` separates a bed that
         // turns over briskly without deepening (recruits dying before they
         // breed) from one that deepens on very few births.
+        // **Endowment across the standing population** -- the effect counter
+        // for `seed_stake`. A lineage that has evolved its `seed_maturity`
+        // below its species' authored value endows its seedlings with less,
+        // and `CLAUDE.md` requires an "it fired" counter to be paired with an
+        // effect counter from the far side of the call: without this the
+        // price is only ever visible in a unit test.
+        let stakes: Vec<f32> = w
+            .live_organism_ids()
+            .iter()
+            .filter_map(|&id| w.organism_state(id).map(|s| s.endowment))
+            .filter(|&e| e > 0.0)
+            .collect();
+        if !stakes.is_empty() {
+            let n = stakes.len() as f32;
+            let mean = stakes.iter().sum::<f32>() / n;
+            let lo = stakes.iter().cloned().fold(f32::INFINITY, f32::min);
+            let hi = stakes.iter().cloned().fold(0.0f32, f32::max);
+            println!("  SEED PROVISIONING: {} endowed seeds, mean {mean:.4} min {lo:.4} max {hi:.4} -- a spread means precocity is being priced", stakes.len());
+        }
         let (ever, births, live) = w.generation_clock();
         let per_standing = if live > 0 { births as f32 / live as f32 } else { 0.0 };
         println!(

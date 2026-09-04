@@ -1802,6 +1802,94 @@ fn launch_price(reach: f32) -> f32 {
     1.0 + LAUNCH_PRICE_PER_ROOT_CELL * reach.sqrt()
 }
 
+/// **What a seed borne by a plant this size is endowed with.**
+///
+/// One function rather than two lines at the call site, and that is a
+/// structural decision rather than tidiness. The mechanism's whole content is
+/// *which* maturity precocity is measured against — the species' authored
+/// number, not the individual's evolved one — and a call site that assembled
+/// `provisioning(shoot_cells, <some maturity>)` itself could be handed the
+/// wrong one by anybody, with a guard over `provisioning` alone staying green.
+/// That is not hypothetical: the first version of this was exactly that, and
+/// injecting the fault left the test passing, so **the test was blind rather
+/// than weak** (`CLAUDE.md`: put the fault back and watch it go red).
+///
+/// Taking no `organism_id` is what fixes it. The individual cannot reach this
+/// computation, so the fault has nowhere to live.
+fn seed_stake(world: &World, species_id: organism::SpeciesId, cell_type: CellType, shoot_cells: u32, seed_cost: f32) -> f32 {
+    seed_cost * provisioning(shoot_cells, authored_seed_maturity(world, species_id, cell_type))
+}
+
+/// **What share of a full stake a plant this size can put in a seed.**
+///
+/// `plant-heritability-survey-design-2026-08-27.md` §2's law again:
+/// `seed_maturity` is a **free lever**, and `seed_maturity_met`'s own doc says
+/// exactly why — it *"makes precocious reproduction unreachable rather than
+/// expensive"*. A fence has one optimum, which is to stand as close to it as
+/// the clamp allows, so a lineage that can move it moves it to zero and every
+/// plant in the box breeds at two cells.
+///
+/// The trade is **seed provisioning, not fecundity**, which is the botany: a
+/// small mother makes small seeds. So a precocious plant pays the full
+/// `seed_cost` out of its own budget and its seedlings start **poorer**, and
+/// whether that wins depends on the bed — many weak recruits beat few strong
+/// ones on open ground and lose under a closed canopy. A local optimum instead
+/// of a global one, which is the objective.
+///
+/// **The obvious version of this is backwards and worth naming.** Making an
+/// early seed *cheaper* looks like a penalty and is a second benefit:
+/// `affordable = budget / seed_cost`, so a cheaper seed means *more* seeds.
+/// The cost has to land on the child, and it can only land there because
+/// `launch_price` already split the parent's charge from the child's
+/// endowment.
+///
+/// **Measured against the species' authored maturity, never the
+/// individual's.** An individual's `seed_maturity` is what `ParamGenome` moves;
+/// measured against that, a lineage is by definition exactly mature whenever
+/// it breeds and the price is identically 1.0. Against the species constant, a
+/// lineage that halves its maturity halves its seedlings' stake. That also
+/// gives the owner's lab dial the right meaning: turning `seed_maturity` down
+/// on the *species* declares an early-breeding plant whose seeds are
+/// provisioned for it, and costs nothing — so §6.7's measured 1.6x on
+/// generations per hour survives by construction.
+///
+/// **Cliff**: a stake of zero is a seedling with no carbon at all, which must
+/// photosynthesise on its first tick or starve — a silent sterility of the
+/// next generation rather than this one. `MIN_PROVISIONING` is the floor, and
+/// `a_precocious_seed_is_poorer_but_never_empty` is the guard.
+fn provisioning(shoot_cells: u32, authored_maturity: u32) -> f32 {
+    if authored_maturity == 0 {
+        return 1.0;
+    }
+    (shoot_cells as f32 / authored_maturity as f32).clamp(MIN_PROVISIONING, 1.0)
+}
+
+/// The least a seedling may be given, as a share of `seed_cost`.
+///
+/// Not zero, and not by taste: `germinate` writes the endowment as the
+/// seedling's first carbon, so a zero stake is a plant that must earn before
+/// it spends and dies in the dark under its parent. A floor keeps the lever a
+/// trade rather than a way for a lineage to sterilise its own descendants.
+const MIN_PROVISIONING: f32 = 0.25;
+
+/// The **species'** authored `seed_maturity`, read past any individual
+/// override — the yardstick `provisioning` measures precocity against.
+///
+/// `individual_behavior` is the right way to read a behaviour *for a plant*;
+/// this is deliberately the other thing, and the difference is the mechanism.
+fn authored_seed_maturity(world: &World, species_id: organism::SpeciesId, cell_type: CellType) -> u32 {
+    world
+        .species
+        .get(species_id)
+        .behaviors(cell_type)
+        .iter()
+        .find_map(|b| match b {
+            Behavior::Reproduce { seed_maturity, .. } => Some(*seed_maturity),
+            _ => None,
+        })
+        .unwrap_or(0)
+}
+
 /// How much of `seed_cost` one root-cell of launch reach adds.
 ///
 /// Set from the ceiling rather than by eye: `REPRODUCTIVE_BUDGET_CAP` is
@@ -8223,7 +8311,15 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
                         // make a far-flung seed germinate *richer* -- a launch
                         // cost that pays itself back, which is not a trade-off
                         // at all.
-                        if budget >= charge && rng.chance(place_here) && set_seed(world, cx, cy, organism_id, seed_cost, seed_launch, &mut rng) {
+                        // **What a precocious plant's seedlings start with**
+                        // -- see `provisioning`. Read against the SPECIES'
+                        // authored maturity, which is in the registry rather
+                        // than in the individual's overridden `seed_maturity`
+                        // above, and that distinction is the whole mechanism:
+                        // measured against its own evolved value a lineage is
+                        // always exactly mature and the price is free.
+                        let stake = seed_stake(world, species_id, cell_type, shoot_cells, seed_cost);
+                        if budget >= charge && rng.chance(place_here) && set_seed(world, cx, cy, organism_id, stake, seed_launch, &mut rng) {
                             if let Some(state) = world.organism_mut(organism_id) {
                                 state.reproductive_budget -= charge;
                             }
@@ -11354,6 +11450,73 @@ The night factor belongs on income only -- see NIGHT_INCOME_FLOOR"
         );
         let (_, births, _) = w.generation_clock();
         assert!(births >= 3, "births must count the founder and both descendants, got {births}");
+    }
+
+    /// **A precocious plant's seedlings start poorer, and never empty.**
+    ///
+    /// `seed_maturity` was a fence rather than a price —
+    /// `seed_maturity_met`'s own doc says it *"makes precocious reproduction
+    /// unreachable rather than expensive"* — so a lineage that can move it
+    /// moves it to zero. This pins the trade that replaces the fence.
+    ///
+    /// **The no-op is the half that protects both games**: a plant breeding at
+    /// or above its species' authored size is provisioned in full, which every
+    /// shipped species does, so nothing moves until a lineage evolves past it.
+    ///
+    /// **And the floor is the cliff.** A stake of zero is a seedling with no
+    /// carbon at all, which must photosynthesise on its first tick or starve —
+    /// a lineage sterilising its own descendants a generation later, where
+    /// nothing would point at the cause.
+    #[test]
+    fn a_precocious_seed_is_poorer_but_never_empty() {
+        // Full provisioning at and above the authored size: the no-op.
+        assert_eq!(provisioning(60, 60), 1.0, "a plant at its species' size must be fully provisioned");
+        assert_eq!(provisioning(600, 60), 1.0, "and a plant well past it must not be provisioned MORE");
+        assert_eq!(provisioning(1, 0), 1.0, "a species with no maturity fence has nothing to be precocious against");
+
+        // Precocity is graded, not a step.
+        let half = provisioning(30, 60);
+        let third = provisioning(20, 60);
+        assert!(half < 1.0, "breeding at half the species' size must cost something, got {half}");
+        assert!(third < half, "breeding earlier still must cost more: {third} against {half}");
+
+        // The floor, and that it binds before zero.
+        // The floor binds, and it binds ABOVE zero -- routed through the
+        // function rather than asserted on the constant, which clippy
+        // correctly calls out as an assertion that cannot fail.
+        assert_eq!(provisioning(0, 600), MIN_PROVISIONING, "a stake must never fall to nothing");
+        assert!(
+            provisioning(0, 600) > 0.0,
+            "a zero floor is a lineage that can sterilise its own descendants a generation later, where nothing points at the cause"
+        );
+    }
+
+    /// **A plant breeding below its species' size endows its seeds with
+    /// less**, through the function the growth path actually calls.
+    ///
+    /// **This replaced a blind guard and the replacement is the point.** The
+    /// first version asserted that `authored_seed_maturity` ignores an
+    /// individual's override — true, and it tested a helper the call site was
+    /// free not to use. Injecting the fault (measure precocity against the
+    /// individual's own evolved maturity, so a lineage is always exactly
+    /// mature and the price is identically 1.0) left it **passing**. The
+    /// repair was structural rather than a cleverer assertion: `seed_stake`
+    /// takes no `organism_id`, so the individual cannot reach the computation
+    /// and the fault has nowhere to live. What is left to assert is the
+    /// behaviour, through the one function that computes it.
+    #[test]
+    fn a_plant_that_breeds_early_endows_its_seeds_with_less() {
+        let w = test_world();
+        let herb = w.species.id_of("herb").expect("herb is compiled in");
+        let authored = authored_seed_maturity(&w, herb, CellType::MatureBody);
+        assert!(authored > 3, "test setup: herb must author a maturity fence worth dividing, got {authored}");
+
+        const COST: f32 = 0.18;
+        let full = seed_stake(&w, herb, CellType::MatureBody, authored, COST);
+        let early = seed_stake(&w, herb, CellType::MatureBody, authored / 3, COST);
+        assert_eq!(full, COST, "a plant at its species' size must endow a full stake");
+        assert!(early < full, "a plant breeding at a third of its species' size must endow less: {early} against {full}");
+        assert!(early > 0.0, "and never nothing -- a seedling with no carbon starves in its parent's shade");
     }
 
     /// **A launch is priced, and pricing it is why it is not a free lever.**

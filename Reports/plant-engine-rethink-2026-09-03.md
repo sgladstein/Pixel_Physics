@@ -1023,7 +1023,131 @@ So the shape, when someone picks this up:
 frame-cost question — whether a wind-borne powder keeps chunks awake — has not
 been measured.
 
-## 6.8 The developmental seed, built as one dial
+### 6.6 Pricing `seed_launch`, and what the price took away
+
+**§6.1 built a tenth free lever while §5.4 was stating the law against exactly
+that**, and neither the report nor its author noticed. Caught in review, and
+the owner reached it independently: *"this seems like a lever that is only a
+benefit. If there is no trade off then everything will evolve towards a single
+maximum."*
+
+`launch_price(reach)` scales what the **parent** is charged:
+
+```
+charge = seed_cost * (1 + 0.25 * sqrt(reach))
+```
+
+No new economy. `seed_cost` already sets how many seeds a plant can afford
+(`budget / cost`), so scaling it by reach *is* the dispersal/fecundity
+trade-off — throw far and set fewer. It is `TRANSPIRATION_PER_RATE`'s pattern,
+a price **derived** from the lever so tuning cannot decouple them, rather than
+a second authored number somebody can set to zero.
+
+`herb`, 8 founders, 27,000 frames, three world seeds:
+
+| | seeds set | columns held | plants ≥16 cols out | established |
+|---|---|---|---|---|
+| launch 0 | 3,203 / 4,237 / 2,947 | 398 / 454 / 396 | 66 / 69 / 61 | 105 / 106 / 93 |
+| launch 12 | 2,115 / 2,573 / 1,731 | 483 / 480 / 442 | 71 / 71 / 56 | 110 / 116 / 110 |
+
+Pooled: **seeds −38%** (down 3 of 3), **coverage +12.5%** (up 3 of 3),
+**established +11%** (up 3 of 3).
+
+**And the price ate the headline, which is the finding.** §6.1 published +38%
+on far-dispersal for an unpriced reach of 12. Priced, that column is flat. So
+the number this report led its dispersal section with was measuring a free
+lunch; what survives is coverage and establishment, not distance. The lever is
+still worth having in this bed — it is now a trade rather than a dominant
+strategy, which is what the law asks for.
+
+**Three traps, each of which breaks it silently:**
+
+- **Square root, not linear.** `REPRODUCTIVE_BUDGET_CAP` is `RESOURCE_SCALE`
+  (4.0), and a charge above it makes `budget >= charge` unsatisfiable —
+  **permanent, silent sterility**, which is the failure
+  `a_lit_sward_funds_a_reproductive_budget` already documents for `grass`. A
+  concave price also matches the mechanism, since `launch_offset` walks and
+  stops at the first obstruction, so realised distance grows more slowly than
+  requested reach.
+- **`seed_cost` is also the child's endowment.** The parent pays `charge`, the
+  child is handed the unscaled `seed_cost` — otherwise a far-flung seed
+  germinates *richer* and the cost pays itself back.
+- **Exactly 1.0 at reach 0**, which every shipped species authors, so both
+  games are untouched.
+
+The fruit/windfall path reaches `bear_seed_at` directly and stays unpriced: a
+fruit lets go where it hangs.
+
+**§5.4's free-lever inventory was stale and is corrected here.** It listed
+nine; three are no longer free. `Photosynthesize.rate` is priced by
+`TRANSPIRATION_PER_RATE`, built expressly to kill that free lever, and
+`plastochron` / `juvenile_plastochron` are partly priced now that leaves cost
+carbon at `LEAF_CONSTRUCTION_MULTIPLE` and maintenance for ever. **Genuinely
+free today: `turgor_source`, `turgor_yield`, `heading_inertia`,
+`seed_maturity`, and `branch_angle`** — whose wide path takes its own
+candidate set at uniform score and so bypasses the light and crowding filters
+entirely, which is the bypass rather than a weighting.
+
+---
+
+### 6.7 Generations per hour, and the clock that can measure it
+
+**The instrument had to come first, because every existing readout answers a
+different question.** `examples/selection_arena.rs` records it in its own
+output: over 150,000 frames the population's mean generation rose to ~2.9 and
+then **fell back** — 2.88, 2.85, 2.77, 2.73, 2.63, 2.60 — and it prints
+`*** THE GENERATION AXIS IS SATURATED ***` when the span is under 3.0. Nothing
+is wrong with the world when that happens. **Mean generation is taken over
+*living* organisms, and at steady state deaths balance births, so it
+equilibrates rather than accumulating.** Every generation readout in this repo
+is a max or a mean over the living, so all of them do this, and "did this
+change make lineages deeper?" was unanswerable.
+
+`World::deepest_generation` is a high-water mark updated at `bear_seed_at`,
+the one place a generation is ever created. `World::generation_clock` returns
+it with cumulative births and the standing count.
+
+**It caught its own artifact on the first run.** `tree`'s deepest *living*
+generation is 1 and its deepest *ever* is 2; `scrambler` reads 4 living
+against 5 ever. The deep lineage died, and both numbers would have been
+reported as the depth.
+
+`plant_probe`, 8 founders, 30,000 frames, world seed 1:
+
+| arm | deepest ever | frames per generation | births | standing |
+|---|---|---|---|---|
+| `tree` — the default bed | 2 | 15,000 | 968 | 283 |
+| `herb` | 5 | 6,000 | 6,474 | 2,381 |
+| `scrambler` | 5 | 6,000 | 5,443 | 1,491 |
+| `herb`, `seed_maturity` 20 | **8** | **3,750** | 6,815 | 2,523 |
+| `herb`, maturity 20 + hazard 0.02 | 8 | 3,750 | 5,987 | 2,100 |
+| `herb`, hazard 0.02 | 5 | 6,000 | 5,765 | 1,949 |
+
+**Two levers, and together they are 4x.** Species is 2.5x — and the default
+bed is `tree`, so anything measured on `PlantScene::default()` has been paying
+that. `seed_maturity` 60 → 20 is a further 1.6x and costs nothing: births and
+standing biomass are both *up* slightly. `lab::params` already called it *"the
+single biggest lever on whether a generation ever turns over"*.
+
+**Hazard is a clean negative and is worth recording as one.** Age-neutral
+mortality adds **nothing** to depth (5 against 5, and 8 against 8 on top of
+the maturity change) while costing 11% of the births and 18% of the standing
+plants. That follows from its own design — it is deliberately independent of
+age, size and genotype, so it removes recruits as readily as adults — but the
+intuition that "more death means more turnover means deeper lineages" is
+wrong here, and it would have been an easy thing to assume.
+
+**What is not built, and is the owner's call.** `examples/genome_drift.rs`
+records the deep cause: *nothing in the engine kills a healthy adult*, so once
+a stand closes the founding cohort **is** the population. There is no age
+gate, no lifespan, and reproduction reads no age anywhere. Engine-side adult
+mortality would reach every forest in the outdoor game, so it is a decision
+rather than an unattended change — but the bed-side levers above are worth
+4x before it is needed.
+
+---
+
+### 6.8 The developmental seed, built as one dial
 
 §2.3 measured the problem: growth draws come from
 `rng::stream(organism_id, cell_x, cell_y, frame)`, so **a plant one column over
@@ -1123,127 +1247,118 @@ output. With the fix the control returns to 0.612 on `cells`.
 
 ---
 
-## 6.6 Pricing `seed_launch`, and what the price took away
+### 6.9 Pricing `seed_maturity` — and finding the price cannot yet fire
 
-**§6.1 built a tenth free lever while §5.4 was stating the law against exactly
-that**, and neither the report nor its author noticed. Caught in review, and
-the owner reached it independently: *"this seems like a lever that is only a
-benefit. If there is no trade off then everything will evolve towards a single
-maximum."*
+`seed_maturity_met`'s own doc names the defect: it *"makes precocious
+reproduction unreachable rather than **expensive**"*. A fence has one optimum,
+which is to stand as close to it as the clamp allows.
 
-`launch_price(reach)` scales what the **parent** is charged:
+**The trade is seed provisioning, not fecundity**, which is the botany — a
+small mother makes small seeds. A precocious plant pays the full `seed_cost`
+out of its own budget and its seedlings start **poorer**:
 
 ```
-charge = seed_cost * (1 + 0.25 * sqrt(reach))
+stake = seed_cost * clamp(shoot_cells / AUTHORED maturity, 0.25, 1.0)
 ```
 
-No new economy. `seed_cost` already sets how many seeds a plant can afford
-(`budget / cost`), so scaling it by reach *is* the dispersal/fecundity
-trade-off — throw far and set fewer. It is `TRANSPIRATION_PER_RATE`'s pattern,
-a price **derived** from the lever so tuning cannot decouple them, rather than
-a second authored number somebody can set to zero.
+Two things in that line are the whole design:
 
-`herb`, 8 founders, 27,000 frames, three world seeds:
+- **The obvious version is backwards.** Making an early seed *cheaper* looks
+  like a penalty and is a second benefit — `affordable = budget / seed_cost`,
+  so a cheaper seed means *more* seeds. The cost has to land on the child, and
+  it can only land there because §6.6 already split the parent's charge from
+  the child's endowment.
+- **Measured against the species' authored maturity, never the
+  individual's.** Against its own evolved value a lineage is by definition
+  exactly mature whenever it breeds, and the price is identically 1.0. This
+  also gives the owner's lab dial the right meaning: turning `seed_maturity`
+  down on the *species* declares an early-breeding plant provisioned for it and
+  costs nothing — so §6.7's **1.6x survives by construction**, and it was
+  re-measured to confirm: 6,000 -> 3,750 frames per generation, unchanged.
 
-| | seeds set | columns held | plants ≥16 cols out | established |
+**And then the positive control failed, which is the finding.** With
+`param_mutation_chance` at 0.5 over 30,000 frames, endowment across 2,428
+standing plants reads **mean 0.1800, min 0.1800, max 0.1800** — not one
+precocious seed. The generation clock *did* move (deepest ever 5 -> 7), so
+lineages are moving `seed_maturity` and breeding earlier. The price simply
+never engages.
+
+`genome_reach -- drift=1` says why in one row:
+
+| address | n | authored | median | bound |
 |---|---|---|---|---|
-| launch 0 | 3,203 / 4,237 / 2,947 | 398 / 454 / 396 | 66 / 69 / 61 | 105 / 106 / 93 |
-| launch 12 | 2,115 / 2,573 / 1,731 | 483 / 480 / 442 | 71 / 71 / 56 | 110 / 116 / 110 |
+| `MatureBody/seed_maturity/t0` | 10 | 60 | **115** | 2800 |
 
-Pooled: **seeds −38%** (down 3 of 3), **coverage +12.5%** (up 3 of 3),
-**established +11%** (up 3 of 3).
+**The mutation step is calibrated to a different species.** `param_scale`
+takes its units from the corpus, and `conifer` authors `seed_maturity: 700`,
+so a step is `sigma * scale` = 0.25 x 700 = **175** — against `herb`'s
+authored **60**. A herb lineage cannot make a *small* downward move: it
+overshoots to the clamp at 0 or lands far above, and the observed median is
+115, i.e. lineages breeding **later** rather than earlier.
 
-**And the price ate the headline, which is the finding.** §6.1 published +38%
-on far-dispersal for an unpriced reach of 12. Priced, that column is flat. So
-the number this report led its dispersal section with was measuring a free
-lunch; what survives is coverage and establishment, not distance. The lever is
-still worth having in this bed — it is now a trade rather than a dominant
-strategy, which is what the law asks for.
+**This is the same defect the lane note already records for `seed_launch`**,
+in a new place: *a parameter whose corpus is dominated by another species is
+evolvable only in that species' units*. There it made the useful range
+unreachable; here it makes an entire strategy — precocity — nearly
+unreachable, and the price built for it therefore untested in the field.
 
-**Three traps, each of which breaks it silently:**
+**The price still lands**, because it is right, its arithmetic is guarded, and
+it costs nothing until something reaches it. What it is **not** is measured in
+a live stand, and that distinction is the whole reason this section exists
+rather than a claim that the lever is now priced.
 
-- **Square root, not linear.** `REPRODUCTIVE_BUDGET_CAP` is `RESOURCE_SCALE`
-  (4.0), and a charge above it makes `budget >= charge` unsatisfiable —
-  **permanent, silent sterility**, which is the failure
-  `a_lit_sward_funds_a_reproductive_budget` already documents for `grass`. A
-  concave price also matches the mechanism, since `launch_offset` walks and
-  stops at the first obstruction, so realised distance grows more slowly than
-  requested reach.
-- **`seed_cost` is also the child's endowment.** The parent pays `charge`, the
-  child is handed the unscaled `seed_cost` — otherwise a far-flung seed
-  germinates *richer* and the cost pays itself back.
-- **Exactly 1.0 at reach 0**, which every shipped species authors, so both
-  games are untouched.
-
-The fruit/windfall path reaches `bear_seed_at` directly and stays unpriced: a
-fruit lets go where it hangs.
-
-**§5.4's free-lever inventory was stale and is corrected here.** It listed
-nine; three are no longer free. `Photosynthesize.rate` is priced by
-`TRANSPIRATION_PER_RATE`, built expressly to kill that free lever, and
-`plastochron` / `juvenile_plastochron` are partly priced now that leaves cost
-carbon at `LEAF_CONSTRUCTION_MULTIPLE` and maintenance for ever. **Genuinely
-free today: `turgor_source`, `turgor_yield`, `heading_inertia`,
-`seed_maturity`, and `branch_angle`** — whose wide path takes its own
-candidate set at uniform score and so bypasses the light and crowding filters
-entirely, which is the bypass rather than a weighting.
+**What would fix it is not a per-parameter range table** — that is the
+hardcode `ParamKind` exists to remove. The candidates are a *relative* step
+(a fraction of the species' own authored value rather than of the corpus
+maximum), or a per-species scale. Both are changes to `param_scale` itself and
+reach every one of the 804 addresses, so neither is an unattended change.
 
 ---
 
-## 6.7 Generations per hour, and the clock that can measure it
+### 6.10 The rest of the free-lever audit: two decisions, one measurement
 
-**The instrument had to come first, because every existing readout answers a
-different question.** `examples/selection_arena.rs` records it in its own
-output: over 150,000 frames the population's mean generation rose to ~2.9 and
-then **fell back** — 2.88, 2.85, 2.77, 2.73, 2.63, 2.60 — and it prints
-`*** THE GENERATION AXIS IS SATURATED ***` when the span is under 3.0. Nothing
-is wrong with the world when that happens. **Mean generation is taken over
-*living* organisms, and at steady state deaths balance births, so it
-equilibrates rather than accumulating.** Every generation readout in this repo
-is a max or a mean over the living, so all of them do this, and "did this
-change make lineages deeper?" was unanswerable.
+§6.9 leaves three on the genuinely-free list. Two of them resolve without
+building anything, and the third is now known to be worth building.
 
-`World::deepest_generation` is a high-water mark updated at `bear_seed_at`,
-the one place a generation is ever created. `World::generation_clock` returns
-it with cumulative births and the standing count.
+**`heading_inertia` is not free, and the audit that called it free asked the
+wrong question.** It asked *does anything charge carbon for it*; nothing does.
+But it blends stored heading against intent (`plant.rs:3547-3548`), so **high
+inertia is a plant ignoring its own light gradient** — it grows straight
+regardless of where the light is. The counterweight is *functional* rather than
+economic and it is already in the model: the optimum depends on the light
+field, so there is no single value selection can pin every plant at, which is
+the only thing §2's law actually forbids.
 
-**It caught its own artifact on the first run.** `tree`'s deepest *living*
-generation is 1 and its deepest *ever* is 2; `scrambler` reads 4 living
-against 5 ever. The deep lineage died, and both numbers would have been
-reported as the depth.
+**So it stays unpriced, deliberately.** A carbon price on top would be a fake
+price on an already-traded lever — worse than nothing, because it would bias
+the outcome toward wander for a reason no later reader could find. Recorded
+here so the next audit does not re-add it.
 
-`plant_probe`, 8 founders, 30,000 frames, world seed 1:
+**The turgor ceiling is worth pricing, and — unlike `seed_maturity` — a
+lineage can actually reach it.** §6.9's finding is that a price is worthless if
+the corpus scale puts the lever out of reach, so that check now comes first.
+Measured across all seven species that grow:
 
-| arm | deepest ever | frames per generation | births | standing |
-|---|---|---|---|---|
-| `tree` — the default bed | 2 | 15,000 | 968 | 283 |
-| `herb` | 5 | 6,000 | 6,474 | 2,381 |
-| `scrambler` | 5 | 6,000 | 5,443 | 1,491 |
-| `herb`, `seed_maturity` 20 | **8** | **3,750** | 6,815 | 2,523 |
-| `herb`, maturity 20 + hazard 0.02 | 8 | 3,750 | 5,987 | 2,100 |
-| `herb`, hazard 0.02 | 5 | 6,000 | 5,765 | 1,949 |
+| | corpus range | `param_scale` | drift step at σ=0.25 |
+|---|---|---|---|
+| `turgor_source` | 0.13 – **1.0** | 1.0 | 0.25 |
+| `turgor_yield` | **0.1 in every species** | 0.1 | 0.025 |
+| `turgor_per_cell` | 0.006 – 0.0075 | 0.0075 | 0.002 |
 
-**Two levers, and together they are 4x.** Species is 2.5x — and the default
-bed is `tree`, so anything measured on `PlantScene::default()` has been paying
-that. `seed_maturity` 60 → 20 is a further 1.6x and costs nothing: births and
-standing biomass are both *up* slightly. `lab::params` already called it *"the
-single biggest lever on whether a generation ever turns over"*.
+A step of 0.25 against `herb`'s authored 0.32 is coarse but usable — it lands
+at 0.07 or 0.57, both meaningful heights — where `seed_maturity`'s step was
+**three times** its authored value. **So the turgor ceiling is the first free
+lever whose price would actually be exercised**, and it is the one to build
+next.
 
-**Hazard is a clean negative and is worth recording as one.** Age-neutral
-mortality adds **nothing** to depth (5 against 5, and 8 against 8 on top of
-the maturity change) while costing 11% of the births and 18% of the standing
-plants. That follows from its own design — it is deliberately independent of
-age, size and genotype, so it removes recruits as readily as adults — but the
-intuition that "more death means more turnover means deeper lineages" is
-wrong here, and it would have been an easy thing to assume.
-
-**What is not built, and is the owner's call.** `examples/genome_drift.rs`
-records the deep cause: *nothing in the engine kills a healthy adult*, so once
-a stand closes the founding cohort **is** the population. There is no age
-gate, no lifespan, and reproduction reads no age anywhere. Engine-side adult
-mortality would reach every forest in the outdoor game, so it is a decision
-rather than an unattended change — but the bed-side levers above are worth
-4x before it is needed.
+**And `turgor_yield` is a constant wearing a parameter.** All seven species
+author exactly `0.1`. Nothing in the corpus varies it, so nobody has ever used
+it as a design axis — yet `ParamGenome` makes it heritable, which hands a
+lineage a lever the authors never pulled. That is not automatically wrong, and
+it is worth knowing before the ceiling is priced: **price the ceiling, not the
+two ends**, because `h_max = (turgor_source − turgor_yield) / turgor_per_cell`
+and pricing each end separately lets a lineage move both and raise the ceiling
+while each end looks individually restrained.
 
 ---
 
