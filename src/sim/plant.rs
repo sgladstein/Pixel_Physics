@@ -527,10 +527,10 @@ fn absorb_water(world: &mut World, x: i32, y: i32, rate: f32) {
                         let want = rate.min(capacity - water);
                         if want > 0.0 {
                             let fill = update::liquid_fill(n);
-                            let asked = (want / rate.max(f32::EPSILON) * SOIL_UPTAKE_PER_TICK as f32) as u16;
+                            let asked = (want / rate.max(f32::EPSILON) * soil_uptake_per_tick() as f32) as u16;
                             let taken = asked.min(fill);
                             if taken > 0 {
-                                water += taken as f32 / SOIL_UPTAKE_PER_TICK as f32 * rate;
+                                water += taken as f32 / soil_uptake_per_tick() as f32 * rate;
                                 let left = fill - taken;
                                 world.set(nx, ny, if left == 0 { Cell::EMPTY } else { n.with_aux(left) });
                             }
@@ -608,7 +608,7 @@ fn absorb_water(world: &mut World, x: i32, y: i32, rate: f32) {
                                 // and air humidity over drying ground falls
                                 // out of `apply_moisture_sources` on its own,
                                 // at the resolution the field actually has.
-                                let taken = (drawn / rate.max(f32::EPSILON) * SOIL_UPTAKE_PER_TICK as f32) as u16;
+                                let taken = (drawn / rate.max(f32::EPSILON) * soil_uptake_per_tick() as f32) as u16;
                                 let held = update::soil_moisture(n);
                                 let left = held.saturating_sub(taken);
                                 world.set(nx, ny, n.with_aux(left));
@@ -747,8 +747,68 @@ fn wood_density_mult(world: &World, organism_id: u16) -> f32 {
 /// A floor of one root cell's worth so a seedling that has just germinated,
 /// with no root system at all yet, still has somewhere to put its first
 /// drink.
-fn water_capacity_of(contact_root_cells: u32) -> f32 {
-    organism::WATER_SCALE * contact_root_cells.max(1) as f32
+/// **Public so a harness reads the real value rather than re-deriving it.**
+/// `examples/plant_severance` carried its own copy of the arithmetic behind
+/// a comment claiming a drift would "show up as a wrong number rather than
+/// as a compile error nobody sees" -- and when `water_tank_contact_cap`
+/// landed it printed `cap 1244` where the engine used 128, silently
+/// corrupting its `fill` column too. A wrong number only helps if someone
+/// reads it; a shared function cannot drift at all.
+pub fn water_capacity_of(contact_root_cells: u32) -> f32 {
+    organism::WATER_SCALE * contact_root_cells.clamp(1, water_tank_contact_cap()) as f32
+}
+
+/// **How many contact roots may count toward *storage*** — past this, more
+/// root buys uptake and anchorage but not a bigger tank.
+///
+/// **`u32::MAX` ships**, i.e. the unbounded formula exactly, so this is
+/// inert; `PIXEL_PHYSICS_WATER_TANK_CAP=32` is the measured setting and the
+/// arm every number below was taken on. It is off for the same reason the
+/// root gate is — see `root_gate_is_local`; the two only make sense
+/// together, and neither is blocked by its own evidence.
+///
+/// **Swept, and it is a band rather than a threshold**, against
+/// `a_tree_denied_water_dies_and_a_watered_one_does_not` with the local
+/// gate on: 8 and 16 stunt the tree to 155 cells so the *watered* one dies,
+/// unbounded lets the *droughted* one live, and 32 and 64 both pass. 32
+/// gives about four ticks of buffer against a ~29-per-tick demand, down
+/// from thirty-five, which is the "well under a day's transpiration" the
+/// biology asks for.
+///
+/// **Why a bound is wanted at all.** Capacity is `WATER_SCALE x
+/// contact_root_cells` and nothing limits it, so at `WATER_SCALE` 4.0 the
+/// tank equals a mature tree's ~29-per-tick demand at about **7** contact
+/// cells while the tree grows **250-320** — a buffer of thirty-five ticks
+/// where a real plant stores well under a day's transpiration.
+///
+/// **And why it is now a blocker rather than a tidy-up.** With
+/// `PIXEL_PHYSICS_ROOT_GATE=local` a thirsty plant answers by rooting
+/// (measured: contact 175 -> 576), which inflates the tank 3.29x, which
+/// raises `water_status` because that is `min(stock/demand, openness)`
+/// against the inflated tank (measured: worst plant 0.723 -> 1.000), which
+/// props up income because income multiplies by it — so **a droughted plant
+/// roots its way to a bigger bucket and reads as well-watered**, and
+/// `a_tree_denied_water_dies_and_a_watered_one_does_not` fails. Capping the
+/// storage term is what breaks that loop without touching what roots buy in
+/// *uptake*, which is the channel that should matter.
+///
+/// Biologically it is the right place to cut: water is stored in sapwood,
+/// not in fine roots, so root count was never the quantity storage should
+/// have scaled with.
+/// **Live at 32 since 2026-09-05**, alongside the local root gate; it was
+/// landed inert at `u32::MAX` one commit earlier so the two could be
+/// measured apart. `PIXEL_PHYSICS_WATER_TANK_CAP=4294967295` restores the
+/// unbounded tank as an ablation.
+const WATER_TANK_CONTACT_CAP: u32 = 32;
+
+/// `WATER_TANK_CONTACT_CAP`, swept per process — a measurement instrument in
+/// the shape of `soil_uptake_per_tick` and `root_gate_is_local` beside it.
+fn water_tank_contact_cap() -> u32 {
+    use std::sync::OnceLock;
+    static N: OnceLock<u32> = OnceLock::new();
+    *N.get_or_init(|| {
+        std::env::var("PIXEL_PHYSICS_WATER_TANK_CAP").ok().and_then(|v| v.parse().ok()).unwrap_or(WATER_TANK_CONTACT_CAP)
+    })
 }
 
 /// Settle one organism's water balance for this tick — the arithmetic
@@ -854,6 +914,30 @@ pub(crate) fn individual_behavior<T>(
 /// `1 ± variance`, from the unit draw this individual took at germination
 /// (`seed_genotype`). `slot` indexes both the draw and the variance array,
 /// so the two cannot drift apart.
+/// Which `genotype_draws` slot a tip's branch chance reads: **1 for a root,
+/// 0 for a shoot**.
+///
+/// A one-line map, named rather than inlined so the claim
+/// `slot_1_is_a_root_locus_and_not_a_shoot_one` makes can be asserted
+/// against the wiring instead of inferred from grown plants. It was
+/// inferred for a year, and the inference did not work: the statistic was
+/// the shoot's mass spread under a root draw, tested against an absolute
+/// 20% bar, and a genuine *shoot* draw moves the shoot by only 0.3–15.8% on
+/// half the seeds it is measured over — so slot 0's own consumer clears the
+/// bar, and a slot 1 wired straight into it would have cleared it too.
+///
+/// Two halves of one plant varying independently is what makes a
+/// deep-rooted morph reachable by selection at all: while a root's every
+/// multiplier was the shoot's draw, no amount of selection could produce
+/// one.
+pub(crate) fn branch_chance_slot(cell_type: CellType) -> usize {
+    if cell_type == CellType::RootTip {
+        1
+    } else {
+        0
+    }
+}
+
 pub fn genotype(world: &World, organism_id: u16, slot: usize, variance: f32) -> f32 {
     if variance <= 0.0 {
         return 1.0;
@@ -2651,7 +2735,90 @@ const ROOT_MOISTURE_DEPLETION: f32 = 1.0;
 /// its neighbours for a finite local store, and an instant drain would
 /// make every root independent of every other. Untuned beyond that
 /// reasoning, and a first-class target for the economy pass.
+/// **Chance a root cell in fully exhausted soil is shed, per organism
+/// tick** — fine-root turnover, and the counterweight the local-scarcity
+/// root gate needs.
+///
+/// Real fine roots live weeks to months and die *because the soil around
+/// them is spent*; fine-root production is often a third or more of NPP. In
+/// this engine a root that has mined its cell out earns nothing for ever and
+/// costs `MAINTENANCE_PER_CELL` for ever, so the optimum has no interior:
+/// `Reports/dead-ends.md:781` records unbounded root growth as the shipped
+/// state once soil gave roots income everywhere.
+///
+/// **Measured need**, and this is why it is not optional: with
+/// `PIXEL_PHYSICS_ROOT_GATE=local` and no turnover, a 6-row bed loses
+/// **88% of its income** (12 paired seeds) because the plant keeps buying
+/// roots that land in soil already dead. A 34-row bed gains, because there
+/// the roots reach soil no root has drunk. A rule whose sign depends on bed
+/// geometry is missing a term, and this is the term.
+///
+/// **Zero, so the mechanism ships inert** — the `ANCHOR_DEMAND = 0`
+/// discipline. At zero the roll is not merely false, it is **never taken**:
+/// a `chance(0.0)` still consumes a draw, and `decay.rs` records a
+/// `chance(1.0)` doing exactly that and breaking an unrelated test.
+/// Swept through `PIXEL_PHYSICS_ROOT_TURNOVER`.
+const ROOT_TURNOVER_PER_TICK: f32 = 0.0;
+
+/// Local availability at or above which a root is not a turnover candidate
+/// at all — it is drinking, so it is earning its keep.
+///
+/// The shed chance ramps from zero here to `ROOT_TURNOVER_PER_TICK` at
+/// fully exhausted soil, so the outcome is a **distribution over a
+/// gradient** rather than a cliff at a threshold — the ethos's first law,
+/// and the reason this is a ramp and not a test.
+const ROOT_TURNOVER_WET: f32 = 0.5;
+
+/// Most of a plant's roots one tick of turnover may take. A bound on pace,
+/// never a gate on whether turnover happens — the distinction
+/// `CLAUDE.md` draws about size caps, and the same shape
+/// `MAX_DIEBACK_FRACTION` already has.
+const MAX_TURNOVER_FRACTION: f32 = 0.02;
+
+/// Salt for turnover's own RNG stream.
+///
+/// **Its own stream, not `growth_stream`'s.** Every `growth_stream` call for
+/// one cell in one frame returns the *same* stream, so drawing turnover's
+/// coin from it would hand two unrelated decisions the identical roll.
+const ROOT_TURNOVER_SALT: u64 = 0x0072_006f_006f_0074;
+
+/// `ROOT_TURNOVER_PER_TICK`, overridable per process for the sweep — see
+/// `soil_uptake_per_tick` for why these are `OnceLock`s and not settings.
+fn root_turnover_per_tick() -> f32 {
+    use std::sync::OnceLock;
+    static N: OnceLock<f32> = OnceLock::new();
+    *N.get_or_init(|| {
+        std::env::var("PIXEL_PHYSICS_ROOT_TURNOVER").ok().and_then(|v| v.parse().ok()).unwrap_or(ROOT_TURNOVER_PER_TICK)
+    })
+}
+
 const SOIL_UPTAKE_PER_TICK: u16 = 60;
+
+/// `SOIL_UPTAKE_PER_TICK`, overridable for one process by
+/// `PIXEL_PHYSICS_SOIL_UPTAKE` — **a measurement instrument, not a
+/// setting**, exactly like `BEND=off` and `BREAK=off` beside it.
+///
+/// It exists because this constant is the one lever that moves the *soil*
+/// without moving the *economy*: `absorb_water`'s Powder arm computes the
+/// credited `drawn` from `rate x available` and only then derives `taken`
+/// from this number, so raising it changes how fast a cell draws down and
+/// leaves income per drink alone (the Liquid arm derives both from it and is
+/// likewise income-neutral). That makes it testable without re-deriving
+/// `INCOME_PER_NODE`, `Grow.cost` or anything else calibrated against
+/// income — see `Reports/plant-soil-nutrient-plan-2026-09-05.md` §1a and
+/// `open-bugs-handoff.md` §W2.
+///
+/// **A `OnceLock`, so one process is one arm.** Two arms therefore mean two
+/// processes off *one binary*, which is what keeps the comparison immune to
+/// the stale-binary trap; pin `RAYON_NUM_THREADS` when comparing counters
+/// across them.
+fn soil_uptake_per_tick() -> u16 {
+    use std::sync::OnceLock;
+    static N: OnceLock<u16> = OnceLock::new();
+    *N.get_or_init(|| {
+        std::env::var("PIXEL_PHYSICS_SOIL_UPTAKE").ok().and_then(|v| v.parse().ok()).unwrap_or(SOIL_UPTAKE_PER_TICK)
+    })
+}
 
 /// Water drawn out of adjacent soil by **transpiration**, per root cell per
 /// organism tick, on `material::SOIL_SATURATED`'s scale — and credited to
@@ -3178,7 +3345,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 // behaviour's own vector, so the root widths live in the
                 // species file's RootTip entry.
                 let is_root = cell_type == CellType::RootTip;
-                let bc_slot = if is_root { 1 } else { 0 };
+                let bc_slot = branch_chance_slot(cell_type);
                 let branch_chance = branch_chance.at(order) * genotype(world, organism_id, bc_slot, genotype_variance[bc_slot]);
                 // The shoot's upward/light jitters are gone, not moved:
                 // both measured flat across 1,024 genomes (upward at
@@ -7342,10 +7509,125 @@ fn note_root_tip_exit(_which: usize) {}
 /// Gated on water stress rather than run unconditionally, so a plant with
 /// its demand fully met spends on canopy instead — that, with
 /// `ROOT_BIAS_AT_FULL_WATER`, is the whole of functional balance.
+/// Whether `break_root_tips` reads the **local** root-zone water rather than
+/// the whole-plant tank. **On by default since 2026-09-05**;
+/// `PIXEL_PHYSICS_ROOT_GATE=whole` is the ablation that restores the old
+/// reading, and every paired number below was taken across it.
+///
+/// The evidence *for* it is a depth sweep, 12 paired seeds at each of four
+/// bed depths:
+///
+/// | soil rows | income off -> on | seeds up | root cells |
+/// |---|---|---|---|
+/// | 6 | 1.588 -> 0.189 (**0.12x**) | 2/12 | 1.18x |
+/// | 12 | 3.758 -> 3.469 (0.92x) | 5/12 | 2.26x |
+/// | 20 | 4.168 -> **5.585 (1.34x)** | **10/12** | 3.46x |
+/// | 34 | 4.785 -> 4.765 (1.00x) | 7/12 | 3.93x |
+///
+/// The root-zone column is what orders that: the rule only pays where the
+/// roots can actually reach soil no root has drunk, and the recovery it
+/// achieves runs 0.000 / 0.016 / 0.280 / 0.570 across those depths. At six
+/// rows there is no "elsewhere" and the rule is pure cost — but that bed is
+/// already marginal before any change (income 1.588 against 4.785, worst
+/// plant at water status 0.063), and both shipped worlds are far deeper:
+/// `assets/worldgen.ron` gives 48-135 rows outdoors and `lab::scene`'s
+/// `DEFAULT_SOIL_DEPTH` is 96.
+///
+/// What it buys where it ships: **root:shoot 7.3% -> 23.3%**, against a real
+/// tree's 20-25%, for no measurable income.
+///
+/// **It shipped off for one commit, and what held it there was two guards
+/// rather than the mechanism.** Both went red when it was flipped, and
+/// neither was measuring what its name claimed — so both were rebuilt from
+/// their own sweeps first, and the switch followed. Recorded because the
+/// obvious move was to widen the bars until they went green, and that would
+/// have landed this change by deleting the only two tests standing near it:
+///
+/// - `a_spread_leaf_cluster_is_longer_than_a_blob` missed its 1.15 bar at
+///   **1.098** — on one seed, where the *population* of that ratio spans
+///   0.765 to 1.676 and the seed the bar was set on sat at 1.157, six
+///   thousandths clear. It is now a median over twelve paired seeds plus a
+///   direction count, measured 1.195 with these switches off and 1.406 with
+///   them on.
+/// - `slot_1_is_a_root_locus_and_not_a_shoot_one` fired, and it had been
+///   passing **vacuously**: it bounded how far the shoot moves under a root
+///   draw against an absolute 20%, while a genuine *shoot* draw moves the
+///   shoot by 162.6 / 97.9 / 15.8 / 10.0 % over the same four seeds — two of
+///   them under the bar. Slot 0's own consumer passed the test for "not
+///   moving the shoot". It is now asserted against `branch_chance_slot`, the
+///   one line of wiring it was always about, and the 165 s sweep is kept as
+///   an `#[ignore]`d probe.
+///
+/// With the tank capped (`WATER_TANK_CONTACT_CAP` 32), 12 paired seeds on
+/// the 34-row bed: root cells **4.74x** and contact roots **4.13x**, both
+/// **12/12**; **income +30%**, total cells **+41% (12/12)**, shoot +22%;
+/// uptake +57%; the worst plant in each bed 0.792 -> **1.000**; the water
+/// in the root zone 0.016 -> **0.839**; and **root:shoot 7.5% -> 22.4%**
+/// against a real tree's 20-25%. Alone it was income-neutral; with the tank
+/// bounded it is income-*positive*.
+///
+/// **Why it could not ship alone: switched on with an unbounded tank, a
+/// tree denied water for twenty thousand frames does not die.** It ends at 221 cells with **zero**
+/// consecutive starving ticks — not marginal, comfortable — and
+/// `a_tree_denied_water_dies_and_a_watered_one_does_not` fails. That test
+/// asserts the owner's 2026-08-24 ruling (*"if a tree doesn't get watered,
+/// it will eventually die"*), so this is a regression rather than a number
+/// that moved, and it is not the test's to absorb.
+///
+/// **The loop, which is this rule meeting an older defect rather than a
+/// fault of its own.** `water_capacity_of` is `WATER_SCALE x
+/// contact_root_cells`, so roots buy *storage*. Open the gate and a thirsty
+/// plant answers by rooting — measured, contact roots 175 -> 576, a 3.29x
+/// tank — and `water_status` is `min(stock/demand, openness)` against that
+/// inflated tank, so it **rises**: measured, the worst plant in each bed
+/// went 0.723 -> 1.000. Income carries `water_status` as a multiplier, so
+/// income stays above the starvation line and nothing ever fires. **A
+/// droughted plant roots its way to a bigger bucket and reads as
+/// well-watered.**
+///
+/// So the prerequisite is the one the diagnosis report listed and this plan
+/// kept deferring: **capacity must stop scaling without bound with contact
+/// roots** (`plant-roots-and-transport-2026-09-05.md` §7b). Until then the
+/// gate is correct and unshippable, which is a statement about the tank and
+/// not about the gate.
+fn root_gate_is_local() -> bool {
+    use std::sync::OnceLock;
+    static ON: OnceLock<bool> = OnceLock::new();
+    // **On by default since 2026-09-05.** `PIXEL_PHYSICS_ROOT_GATE=whole`
+    // restores the whole-plant reading as an ablation, which is how the
+    // paired numbers in this doc were taken and how the next person should
+    // re-take them.
+    *ON.get_or_init(|| !matches!(std::env::var("PIXEL_PHYSICS_ROOT_GATE").as_deref(), Ok("whole")))
+}
+
 fn break_root_tips(world: &mut World, organism_id: u16) {
     let Some(state) = world.organism(organism_id) else { return };
     note_root_tip_exit(ROOT_TIP_CALLS);
-    let status = state.water_status;
+    // **Which signal says "this plant is short of water".**
+    //
+    // `water_status` is the shipped one and it is the wrong quantity, though
+    // the threshold on it is fine. It is `min(stock/demand, openness)`, so it
+    // is **ceiling-clipped** and flat over roughly 80% of the tank's range —
+    // and the tank is sized `WATER_SCALE x contact_root_cells`, which a
+    // mature tree overshoots by an order of magnitude. Measured across four
+    // beds and two genotype draws, this gate refuses **95–99.6%** of
+    // initiations while `ROOT_TIP_POOR` — the carbon exit — is **zero in
+    // every run**: root extension is bounded by neither the tip cap, nor a
+    // shortage of sites, nor the economy, but by a plant that reads "demand
+    // met" while the soil its roots touch sits at **0.016** available.
+    //
+    // `root_zone_water` is that local reading, and it is the same threshold
+    // against a signal that is not saturated. **The threshold is
+    // deliberately not retuned**: 0.95 on a fraction-of-full scale means the
+    // same thing on both, and moving both the input and the constant at once
+    // would make the arms uncomparable.
+    //
+    // Behind a switch, default off, because this is a change to what bounds
+    // root growth and `dead-ends.md` records unbounded root growth as the
+    // shipped state once soil gave roots income everywhere — one process is
+    // one arm, so both come off one binary and neither can be a stale build.
+    // `Reports/plant-soil-nutrient-plan-2026-09-05.md` §2b-ii.
+    let status = if root_gate_is_local() { state.root_zone_water } else { state.water_status };
     if status >= ROOT_REINITIATION_STATUS {
         note_root_tip_exit(ROOT_TIP_GATED);
         return; // demand met -- nothing to fix, and canopy is the better buy
@@ -8044,6 +8326,13 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
     // `OrganismState::contact_root_cells`. Four-neighbour, because an
     // exchange crosses a face.
     let mut contact_root_cells = 0u32;
+    // Numerator and denominator kept apart until the end -- a running mean
+    // would weight early cells more, and the walk's order is row-major
+    // rather than meaningful.
+    let mut root_zone_faces = 0u32;
+    let mut root_zone_available = 0.0f32;
+    let turnover_rate = root_turnover_per_tick();
+    let mut turnover_candidates: Vec<(i32, i32, f32)> = Vec::new();
     // The crown's overturning demand, accumulated as `Σ y` and turned into
     // `Σ (collar − y)` once the collar is known. A mass times a lever arm,
     // in one sum, from the walk that is already running.
@@ -8147,8 +8436,53 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
             // and free water is drinkable too. `absorb_water` discriminates
             // on exactly this field, so the surface counted here is the
             // surface that actually earns.
-            if NEIGHBOURS_4.iter().any(|&(dx, dy)| world.materials.get(world.get(cx + dx, cy + dy).material).water_capacity > 0) {
+            // **The same look now answers a second question, at no extra
+            // cost: how much water is actually left in the soil this root is
+            // standing in.**
+            //
+            // `break_root_tips` needs it because the signal it gates on
+            // today -- `water_status` -- is ceiling-clipped and reads 1.000
+            // across most of the tank's range, so the plant reports "demand
+            // met" while the soil its roots touch sits at 0.016 available.
+            // Measured, that gate refuses **95-99.6%** of root-tip
+            // initiations across four beds and two genotype draws, while the
+            // carbon exit refuses **none** -- see
+            // `Reports/plant-soil-nutrient-plan-2026-09-05.md` §2b.
+            //
+            // A **mean over drinkable faces**, not over root cells: a root
+            // walled in by its siblings has no face and must not drag the
+            // average toward zero, or a dense root ball would read as
+            // drought. Same denominator as `contact_root_cells` for that
+            // reason, and the two are accumulated together so they can never
+            // disagree about which faces counted.
+            let mut wet_faces = 0u32;
+            let mut available = 0.0f32;
+            for (dx, dy) in NEIGHBOURS_4 {
+                let n = world.get(cx + dx, cy + dy);
+                if world.materials.get(n.material).water_capacity > 0 {
+                    wet_faces += 1;
+                    available += update::plant_available_fraction(n);
+                }
+            }
+            if wet_faces > 0 {
                 contact_root_cells += 1;
+                root_zone_faces += wet_faces;
+                root_zone_available += available;
+                // **Turnover candidate: a root drinking from spent soil.**
+                // Collected here because this is where the local reading
+                // already exists; shed after the walk, like die-back's own
+                // candidates, so the pace cap reads a whole-plant count that
+                // does not drift as the walk proceeds.
+                //
+                // Gated on the rate *before* anything else so that at the
+                // shipped zero this costs one `f32` compare and takes no RNG
+                // draw at all.
+                if turnover_rate > 0.0 {
+                    let local = available / wet_faces as f32;
+                    if local < ROOT_TURNOVER_WET {
+                        turnover_candidates.push((cx, cy, local));
+                    }
+                }
             }
             // **The primed site's own affordability check**, in the walk
             // that is already happening rather than in a traversal of its
@@ -8279,6 +8613,13 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
     if let Some(state) = world.organism_mut(organism_id) {
         state.root_cells = root_cells;
         state.contact_root_cells = contact_root_cells;
+        // **1.0 when a plant has no roots in soil at all**, which is the
+        // safe default in the same sense `OrganismCell::default`'s
+        // `support = 0` is: it reads "not short of water", so the rule that
+        // consumes it defers rather than fires. A seedling that has not put
+        // a root down yet must not read as droughted.
+        state.root_zone_water =
+            if root_zone_faces > 0 { root_zone_available / root_zone_faces as f32 } else { 1.0 };
         state.shoot_cells = shoot_cells;
         state.organ_cells = organ_cells;
         state.collar_y = collar_y;
@@ -8871,6 +9212,62 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
             shed_stranded_leaves(world, cx, cy, organism_id);
             recovered += bill;
             starved_cells += 1;
+        }
+    }
+
+    // **Fine-root turnover: shed roots whose own soil is spent.**
+    //
+    // The counterweight to `break_root_tips`' local-scarcity gate. That rule
+    // says *extend when the soil here is spent*; without this one nothing
+    // ever stops paying for the roots it built, so a plant in a bed with
+    // nowhere left to reach buys tissue that returns zero — measured at
+    // **88% of income** on a 6-row bed.
+    //
+    // **Deliberately not keyed on the plant's carbon deficit**, which is
+    // what die-back above reads. The measurement that motivated this found
+    // `ROOT_TIP_POOR` at **zero in every run**: the plant is not broke, it
+    // is simply keeping tissue that has stopped earning. A rule keyed on
+    // solvency could never fire here.
+    //
+    // Guards, in order, and each is the same one die-back needed:
+    // never strand a growing tip; never split the plant
+    // (`removal_would_disconnect_a_neighbour`, whose doc records die-back
+    // leaving a tree at 52% connectivity without it); and a pace cap so a
+    // dry spell thins a root system rather than deleting it.
+    if turnover_rate > 0.0 && !turnover_candidates.is_empty() {
+        // Driest first, then row-major so the choice is a property of the
+        // world rather than of the hasher's seed.
+        turnover_candidates.sort_unstable_by(|a, b| {
+            a.2.total_cmp(&b.2).then((a.1, a.0).cmp(&(b.1, b.0)))
+        });
+        let cap = (((root_cells as f32) * MAX_TURNOVER_FRACTION).ceil() as usize).max(1);
+        let mut shed = 0usize;
+        for &(cx, cy, local) in &turnover_candidates {
+            if shed >= cap {
+                break;
+            }
+            if world.get(cx, cy).organism_id() != organism_id {
+                continue; // already gone this tick
+            }
+            if NEIGHBOURS_8.iter().any(|&(dx, dy)| {
+                let n = world.get(cx + dx, cy + dy);
+                n.organism_id() == organism_id && organism::cell_type(n.aux()).is_some_and(is_frontier)
+            }) {
+                continue; // a tip is working here
+            }
+            if removal_would_disconnect_a_neighbour(world, cx, cy, organism_id) {
+                continue;
+            }
+            // Ramped from zero at `ROOT_TURNOVER_WET` to the full rate in
+            // dead soil, so this is a gradient rather than a cliff.
+            let pressure = ((ROOT_TURNOVER_WET - local) / ROOT_TURNOVER_WET).clamp(0.0, 1.0);
+            let mut rng = rng::stream(world.seed ^ ROOT_TURNOVER_SALT, cx as u64, cy as u64, world.frame);
+            if !rng.chance(turnover_rate * pressure) {
+                continue;
+            }
+            shed_to_litter(world, cx, cy);
+            world.roots_shed += 1;
+            shed += 1;
         }
     }
 
@@ -11537,70 +11934,270 @@ The night factor belongs on income only -- see NIGHT_INCOME_FLOOR"
     /// eight in a compact blob have extent 3 or 4. `CLAUDE.md`'s rule about
     /// checking a planned step can demonstrate itself, applied before the
     /// step rather than after it.
+    ///
+    /// **One seed per arm was the shape this guard shipped in, and it is the
+    /// shape `CLAUDE.md` names as the recurring flake here** -- twelve
+    /// identical trees from one genome span 31 to 153 cells, so a bar set
+    /// from one run is a sample from a wide distribution. It is now a sweep
+    /// with a per-seed direction count; see
+    /// `a_spread_leaf_cluster_is_longer_than_a_blob` for the bar and
+    /// `print_leaf_spread_elongation_seed_sweep` for the table it was set
+    /// from. This function is one seed of it.
+    fn leaf_cluster_elongation(spread: f32, seed: u64) -> (usize, f32) {
+        let mut w = test_world();
+        w.seed = seed;
+        let tree = w.species.id_of("tree").expect("tree is compiled in");
+        assert!(
+            w.species.set_param(tree, CellType::GrowingTip, organism::ParamId::LeafSpread, 0, spread),
+            "the write must land, or this arm is the control wearing another name"
+        );
+        // **6,000 frames, not 1,200, and the reason is the rule this
+        // test is an instance of.** At 1,200 the tree has put out one
+        // spray of three or more cells, and a mean over one cluster is
+        // not a mean -- the scene could not contain the phenomenon, which
+        // `CLAUDE.md` says to fix in the scene rather than in the bar.
+        plant_tree_on_ground(&mut w, 100, 60);
+        run_with_fields(&mut w, 6_000);
+        // Every leaf cell, grouped into 8-connected clusters, then the
+        // long side of each cluster's bounding box against its size.
+        let mut leaves: std::collections::HashSet<(i32, i32)> = std::collections::HashSet::new();
+        for y in 30..80 {
+            for x in 70..130 {
+                let c = w.get(x, y);
+                if c.organism_id() != 0 && organism::cell_type(c.aux()) == Some(CellType::Leaf) {
+                    leaves.insert((x, y));
+                }
+            }
+        }
+        let mut seen: std::collections::HashSet<(i32, i32)> = std::collections::HashSet::new();
+        let (mut total, mut n) = (0.0f32, 0usize);
+        for &start in leaves.iter() {
+            if seen.contains(&start) {
+                continue;
+            }
+            let mut stack = vec![start];
+            let mut group = Vec::new();
+            seen.insert(start);
+            while let Some(p) = stack.pop() {
+                group.push(p);
+                for (dx, dy) in NEIGHBOURS_8 {
+                    let q = (p.0 + dx, p.1 + dy);
+                    if leaves.contains(&q) && seen.insert(q) {
+                        stack.push(q);
+                    }
+                }
+            }
+            if group.len() < 3 {
+                continue; // a one- or two-cell spray has no shape to measure
+            }
+            let (x0, x1) = (group.iter().map(|p| p.0).min().unwrap(), group.iter().map(|p| p.0).max().unwrap());
+            let (y0, y1) = (group.iter().map(|p| p.1).min().unwrap(), group.iter().map(|p| p.1).max().unwrap());
+            let extent = (x1 - x0 + 1).max(y1 - y0 + 1) as f32;
+            total += extent / group.len() as f32;
+            n += 1;
+        }
+        // **Returned, not asserted.** A seed on which the tree has not put
+        // out three sprays of three cells cannot answer the question, and
+        // that is a property of the seed rather than a failure -- measured
+        // 2026-09-05, seed 1 grows **zero** such clusters in 6,000 frames
+        // while seed 11 grows plenty. Panicking here made the sweep unable
+        // to sweep. The caller drops those seeds and counts how many were
+        // left, which is itself worth guarding: if the answerable count
+        // collapses, leaves have stopped growing.
+        (n, if n == 0 { 0.0 } else { total / n as f32 })
+    }
+
+    /// One paired arm per seed: the blob at spread 0 and the line at spread 1
+    /// on the *same* bed and the same founders, so everything the lever is
+    /// not about cancels.
+    fn leaf_spread_elongation_sweep(seeds: u64) -> Vec<(f32, f32)> {
+        leaf_spread_elongation_sweep_at(seeds, 0.0, 1.0)
+    }
+
+    /// The sweep with both arms' spread settings exposed, so the control can
+    /// run it at 0.0 against 0.0 and watch the statistic collapse.
+    fn leaf_spread_elongation_sweep_at(seeds: u64, low: f32, high: f32) -> Vec<(f32, f32)> {
+        (1..=seeds)
+            .filter_map(|s| {
+                let (nb, blob) = leaf_cluster_elongation(low, s);
+                let (nl, line) = leaf_cluster_elongation(high, s);
+                // Both arms, or neither: a pair where only one side grew
+                // enough leaves is not a paired comparison, it is one arm
+                // against a constant.
+                (nb >= 3 && nl >= 3).then_some((blob, line))
+            })
+            .collect()
+    }
+
+    /// The three numbers the guard reads: the median of the per-seed ratios,
+    /// how many seeds ordered the right way, and how many could answer at
+    /// all. One place, so the guard and its control cannot compute the
+    /// statistic differently.
+    fn leaf_elongation_verdict(pairs: &[(f32, f32)]) -> (f32, usize, usize) {
+        let mut ratios: Vec<f32> = pairs.iter().map(|(blob, line)| line / blob.max(f32::EPSILON)).collect();
+        let up = ratios.iter().filter(|&&r| r > 1.0).count();
+        ratios.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        let median = if ratios.is_empty() { 0.0 } else { ratios[ratios.len() / 2] };
+        (median, up, ratios.len())
+    }
+
+    /// Why the sweep drops seeds, in numbers: leaf cells and clusters per
+    /// seed per arm. Run this before changing `LEAF_ELONGATION_SEEDS` --
+    /// the answerable fraction is what decides how many seeds buy how many
+    /// data points.
+    #[test]
+    #[ignore]
+    fn print_leaf_spread_scene_census() {
+        println!("{:>5} {:>12} {:>12}   answerable", "seed", "blob clusters", "line clusters");
+        let mut ok = 0;
+        for seed in 1..=16u64 {
+            let (nb, blob) = leaf_cluster_elongation(0.0, seed);
+            let (nl, line) = leaf_cluster_elongation(1.0, seed);
+            let good = nb >= 3 && nl >= 3;
+            ok += good as usize;
+            println!(
+                "{seed:>5} {nb:>12} {nl:>12}   {}   blob {blob:.3} line {line:.3} ratio {:.3}",
+                if good { "yes" } else { "no " },
+                line / blob.max(f32::EPSILON)
+            );
+        }
+        println!("{ok}/16 seeds can answer");
+    }
+
+    /// The table `LEAF_ELONGATION_BAR` and `LEAF_ELONGATION_SEEDS_UP` were set
+    /// from. Prints every seed's pair so the next person can re-derive the
+    /// bar instead of trusting it.
+    #[test]
+    #[ignore]
+    fn print_leaf_spread_elongation_seed_sweep() {
+        let sweep = leaf_spread_elongation_sweep(8);
+        println!("{:>5}  {:>7}  {:>7}  {:>7}", "seed", "blob", "line", "ratio");
+        let mut ratios: Vec<f32> = Vec::new();
+        for (i, (blob, line)) in sweep.iter().enumerate() {
+            let r = line / blob.max(f32::EPSILON);
+            ratios.push(r);
+            println!("{:>5}  {blob:>7.3}  {line:>7.3}  {r:>7.3}", i + 1);
+        }
+        ratios.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        let n = ratios.len();
+        println!(
+            "min {:.3}  p50 {:.3}  max {:.3}   seeds with line > blob: {}/{n}",
+            ratios[0],
+            ratios[n / 2],
+            ratios[n - 1],
+            ratios.iter().filter(|&&r| r > 1.0).count()
+        );
+    }
+
+    /// **A spread spray is longer per cell than a random one — over a sweep,
+    /// because on one seed it is not even true.**
+    ///
+    /// The bar was `line > blob * 1.15` on `seed = 11` alone. Measured
+    /// 2026-09-05 over sixteen seeds, that is the single-seed shape
+    /// `CLAUDE.md` says gets rubber-stamped and then flips on an unrelated
+    /// change, and both halves of the prediction landed:
+    ///
+    /// - **It was sitting on its measured value.** Seed 11 gives **1.157**
+    ///   against a 1.15 bar — 0.6% of headroom, on a quantity whose
+    ///   population spans 0.765 to 1.676.
+    /// - **It flipped.** With the root switches on it lands at 1.098, a miss,
+    ///   while the lever itself is untouched.
+    /// - **And one seed cannot see the lever fail**, because on two of
+    ///   sixteen the lever runs the *other way* (0.765 on seed 1, 0.981 on
+    ///   seed 16) and on two more the tree grows too few sprays to measure at
+    ///   all. Whether seed 11 happened to be a good one was the whole test.
+    ///
+    /// Over twelve paired seeds the effect is real and it is not 1.15:
+    ///
+    /// | | median ratio | seeds ordering | seeds answerable |
+    /// |---|---|---|---|
+    /// | switches off | 1.195 | 9/11 | 11/12 |
+    /// | switches on | 1.406 | 10/10 | 10/12 |
+    ///
+    /// (Sixteen seeds, for the population the bars must survive: 14/16
+    /// answerable either way, median 1.195 off and 1.326 on.)
+    ///
+    /// **Three bars, and they fail for three different reasons on purpose.**
+    /// The **median** catches the lever getting weaker. The **direction
+    /// count** catches it getting noisier without getting weaker — a median
+    /// can be held up by two seeds while half the population has stopped
+    /// ordering. The **answerable count** catches the scene going out from
+    /// under both, which is the failure `CLAUDE.md` calls a scene
+    /// contradicting the code: if the trees stop growing sprays, the other
+    /// two bars go quiet rather than red.
+    ///
+    /// The median bar is set from the **weaker** of the two configurations,
+    /// so it is not secretly measuring the switches, and it has real headroom
+    /// rather than the 0.6% it had: 1.05 against a measured 1.195 and 1.406.
+    /// It needs that, because determinism here is *same-build* — a rebuild
+    /// reshuffles which seed is the bad one, which is exactly why this is an
+    /// order statistic and not a per-seed baseline.
+    ///
+    /// `print_leaf_spread_scene_census` prints the per-seed table, and
+    /// `leaf_spread_selftest_a_dead_lever_is_caught` puts the fault back.
     #[test]
     fn a_spread_leaf_cluster_is_longer_than_a_blob() {
-        fn mean_elongation(spread: f32) -> f32 {
-            let mut w = test_world();
-            w.seed = 11;
-            let tree = w.species.id_of("tree").expect("tree is compiled in");
-            assert!(
-                w.species.set_param(tree, CellType::GrowingTip, organism::ParamId::LeafSpread, 0, spread),
-                "the write must land, or this arm is the control wearing another name"
-            );
-            // **6,000 frames, not 1,200, and the reason is the rule this
-            // test is an instance of.** At 1,200 the tree has put out one
-            // spray of three or more cells, and a mean over one cluster is
-            // not a mean -- the scene could not contain the phenomenon, which
-            // `CLAUDE.md` says to fix in the scene rather than in the bar.
-            plant_tree_on_ground(&mut w, 100, 60);
-            run_with_fields(&mut w, 6_000);
-            // Every leaf cell, grouped into 8-connected clusters, then the
-            // long side of each cluster's bounding box against its size.
-            let mut leaves: std::collections::HashSet<(i32, i32)> = std::collections::HashSet::new();
-            for y in 30..80 {
-                for x in 70..130 {
-                    let c = w.get(x, y);
-                    if c.organism_id() != 0 && organism::cell_type(c.aux()) == Some(CellType::Leaf) {
-                        leaves.insert((x, y));
-                    }
-                }
-            }
-            let mut seen: std::collections::HashSet<(i32, i32)> = std::collections::HashSet::new();
-            let (mut total, mut n) = (0.0f32, 0usize);
-            for &start in leaves.iter() {
-                if seen.contains(&start) {
-                    continue;
-                }
-                let mut stack = vec![start];
-                let mut group = Vec::new();
-                seen.insert(start);
-                while let Some(p) = stack.pop() {
-                    group.push(p);
-                    for (dx, dy) in NEIGHBOURS_8 {
-                        let q = (p.0 + dx, p.1 + dy);
-                        if leaves.contains(&q) && seen.insert(q) {
-                            stack.push(q);
-                        }
-                    }
-                }
-                if group.len() < 3 {
-                    continue; // a one- or two-cell spray has no shape to measure
-                }
-                let (x0, x1) = (group.iter().map(|p| p.0).min().unwrap(), group.iter().map(|p| p.0).max().unwrap());
-                let (y0, y1) = (group.iter().map(|p| p.1).min().unwrap(), group.iter().map(|p| p.1).max().unwrap());
-                let extent = (x1 - x0 + 1).max(y1 - y0 + 1) as f32;
-                total += extent / group.len() as f32;
-                n += 1;
-            }
-            assert!(n >= 3, "only {n} clusters of three or more cells grew -- this scene cannot answer the question");
-            total / n as f32
-        }
-        let blob = mean_elongation(0.0);
-        let line = mean_elongation(1.0);
-        assert!(
-            line > blob * 1.15,
-            "a fully spread spray should be measurably longer per cell than a random one: blob {blob:.3}, line {line:.3}"
+        const LEAF_ELONGATION_SEEDS: u64 = 12;
+        const LEAF_ELONGATION_BAR: f32 = 1.05;
+        const LEAF_ELONGATION_ANSWERABLE: usize = 8;
+        let sweep = leaf_spread_elongation_sweep(LEAF_ELONGATION_SEEDS);
+        let (median, up, answered) = leaf_elongation_verdict(&sweep);
+        // Two thirds of whatever answered, rather than a count: how many
+        // seeds can answer is a property of the scene and moves on its own,
+        // so a fixed numerator would silently tighten as it drifted.
+        let floor = answered * 2 / 3;
+        println!(
+            "leaf spread over {LEAF_ELONGATION_SEEDS} seeds: median ratio {median:.3}, {up}/{answered} ordering, \
+{answered}/{LEAF_ELONGATION_SEEDS} answerable"
         );
+        assert!(
+            answered >= LEAF_ELONGATION_ANSWERABLE,
+            "the scene has stopped containing the phenomenon: only {answered} of {LEAF_ELONGATION_SEEDS} seeds grew \
+three sprays of three leaf cells in both arms, floor {LEAF_ELONGATION_ANSWERABLE} (measured 11 and 10). The other \
+two bars cannot fail while this is true, so fix the scene before reading them."
+        );
+        assert!(
+            median > LEAF_ELONGATION_BAR,
+            "a fully spread spray should be measurably longer per cell than a random one: median ratio over \
+{answered} answerable seeds is {median:.3}, bar {LEAF_ELONGATION_BAR} (measured 1.195 with the root switches off \
+and 1.406 with them on)"
+        );
+        assert!(
+            up >= floor,
+            "the spread lever has stopped ordering on most seeds: only {up}/{answered} put the spread spray above \
+the blob, floor {floor}. A median can be held up by two seeds while the rest have gone flat, which is what this \
+second bar is for."
+        );
+    }
+
+    /// **The positive control: kill the lever and watch the guard go red.**
+    /// `CLAUDE.md` asks for this before a guard's green is cited as evidence,
+    /// and this guard's green is about to be cited for flipping two defaults.
+    ///
+    /// The fault is "spread does nothing", modelled by running both arms at
+    /// spread 0.0. The two arms are then bit-identical by construction, so
+    /// every ratio is exactly 1.000 — the median lands under the bar and the
+    /// direction count lands at zero, which is both live bars firing.
+    ///
+    /// Four seeds rather than twelve: at identical settings the collapse is
+    /// structural, not statistical, so more seeds buy nothing.
+    #[test]
+    #[ignore = "runs the 6,000-frame scene eight times; the guard it controls is the one CI runs"]
+    fn leaf_spread_selftest_a_dead_lever_is_caught() {
+        let dead = leaf_spread_elongation_sweep_at(4, 0.0, 0.0);
+        let (median, up, answered) = leaf_elongation_verdict(&dead);
+        println!("dead lever over {answered} answerable seeds: median {median:.3}, {up} ordering");
+        assert!(answered >= 2, "the control needs seeds that can answer, or it proves nothing: {answered}");
+        assert!(
+            (median - 1.0).abs() < 1e-6,
+            "the injected fault must collapse the statistic to exactly 1.0 -- the two arms are the same setting, so \
+they are the same world. Got {median}, which means something other than the lever is moving these runs."
+        );
+        assert!(
+            median <= 1.05,
+            "the median bar would stay green through a dead lever: {median} against the guard's 1.05"
+        );
+        assert_eq!(up, 0, "the direction bar would stay green through a dead lever: {up} seeds still ordering");
     }
 
     /// The negative half: at the shipped zero the cluster walk takes **no
@@ -16794,68 +17391,130 @@ scheduler::step is currently dispatching (open-bugs-handoff.md §3)"
         stat("shoot mature", &mut shoot_mature);
     }
 
-    /// **Slot 1 is a root locus, not a shoot one — the half of bug §A's
-    /// guard that is still true, swept over seeds rather than run on one.**
+    /// **Slot 1 is a root locus, not a shoot one — asserted against the
+    /// wiring, because the behavioural version could not fail.**
     ///
-    /// The original guard asserted two things at once off a **single seed**:
-    /// that root mass orders with the draw, and that shoot mass does not.
-    /// The first is dead (see `root_and_shoot_branching_read_different_slots`
-    /// below, now the `#[ignore]`d reproduction). The second is not, and it
-    /// is not vacuous either: what it catches is the draw reaching *slot 0's*
-    /// consumer, which is a real way for a genome re-map to go wrong and the
-    /// reason slot 1 exists separately from slot 0 at all.
+    /// The claim is that a *root* branch draw reaches the root's consumer and
+    /// not the shoot's. It was tested for a year by growing plants and
+    /// bounding how far the shoot's mass moved under a root draw: an absolute
+    /// 20% bar on `SlotPair::shoot_spread`, over four seeds.
     ///
-    /// Four seeds and an order statistic, per `CLAUDE.md` — a guard over a
-    /// system whose twelve identical trees span 31 to 153 cells cannot be one
-    /// seed per arm, and that is precisely how §A came to flip red and green
-    /// on unrelated changes to ground cover. Four rather than eight is a CI
-    /// cost decision; see `GUARD_FRAMES` for what was measured and rejected.
+    /// **Measured 2026-09-05, that bar could not discriminate.** The control
+    /// it needed is what a genuine *shoot* draw does to the shoot on the same
+    /// four seeds (`shoot_branch_slot_sweep`, printed by
+    /// `print_slot_0_and_slot_1_shoot_spread`), and it is **162.6 / 97.9 /
+    /// 15.8 / 10.0 %** — two of the four *under* the 20% bar. So slot 0's own
+    /// consumer passes the test for "not moving the shoot", and a slot 1
+    /// wired straight into slot 0 would have passed it too. `CLAUDE.md`: a
+    /// green suite does not prove a test *could* fail, and the remedy for a
+    /// blind guard is to replace it rather than to widen its assertion.
     ///
-    /// Two bars, both set from the sweep with headroom and neither sitting on
-    /// it.
+    /// Widening was tried first and rejected. The obvious repair is the ratio
+    /// `slot 1 / slot 0` rather than an absolute bar, and it is still not a
+    /// usable statistic at this cost: slot 0's per-seed spread spans **0.3%
+    /// to 162.6%**, so the denominator is one seed wide, the per-seed ratios
+    /// run 0.19 / **51.7** / 1.50 / 0.29, and buying it down needs seeds at
+    /// **~41 s each per arm** in release. That is the wrong instrument for a
+    /// claim that is one line of code.
     ///
-    /// `SHOOT_SPREAD_BAR` stays at the original guard's 20% — what changes is
-    /// that it now stands on a sweep instead of one seed. Measured over all
-    /// eight: per-seed spreads 1, 3, 0, 8, 2, 0, 0, 13 %, mean **4.8%, SE
-    /// 1.8%**. Over this guard's own four: **mean 3.2%, worst seed 8.5%**. So
-    /// the bar is far above the quantity it tests on either reading, and clear
-    /// of the worst seed in the whole population — which is what stops it
-    /// flaking the way §A's root half did.
+    /// So this asserts the line. `branch_chance_slot` is the map, and the two
+    /// assertions below are of different kinds on purpose: the first pins the
+    /// map, and the second proves `genotype` is actually **slot-sensitive**,
+    /// so the map cannot be right while the reader ignores it. Both are tight
+    /// assertions on deterministic functions, which is the one shape
+    /// `CLAUDE.md` exempts from the put-the-fault-back ceremony — and the
+    /// ceremony is cheap here anyway: `print_slot_0_and_slot_1_shoot_spread`
+    /// keeps the behavioural measurement, and
+    /// `slot_1_root_locus_selftest_the_miswiring_is_caught` puts the
+    /// mis-wiring back and watches this go red.
     ///
-    /// `ROOT_INVERSION_BAR` is the *other* side of the dead lever. The mean
-    /// ratio measures **0.994, SE 0.046** over eight seeds (1.022 over this
-    /// guard's four) — 0.1 SE from exactly no effect — so a two-sided bar is
-    /// impossible and a *forward* bar is unreachable. A floor at 0.85 catches
-    /// slot 1 coming back **backwards** (three SE below the measurement)
-    /// without punishing anyone who revives it forwards. One-sided is the only
-    /// honest shape when the measured value is no effect at all.
+    /// **What is deliberately no longer asserted, and why that is not a
+    /// loss.** The old test also carried `ROOT_INVERSION_BAR`, a floor at
+    /// 0.85 on the mean root ratio. It belongs to bug §A's dead lever, whose
+    /// measured value is **0.994, SE 0.046** — data consistent with exactly
+    /// no effect — and its reproduction below owns that claim, `#[ignore]`d
+    /// and runnable by name, per the revert convention. A floor three SE
+    /// below a null is not a guard, and paying 165 s per CI job for it twice
+    /// over is not either.
     #[test]
     fn slot_1_is_a_root_locus_and_not_a_shoot_one() {
-        const SHOOT_SPREAD_BAR: f32 = 0.20;
-        const ROOT_INVERSION_BAR: f32 = 0.85;
-        let sweep = root_branch_slot_sweep(GUARD_SEEDS, GUARD_FRAMES);
-        let mean = |v: Vec<f32>| v.iter().sum::<f32>() / v.len() as f32;
-        let shoot = mean(sweep.iter().map(|r| r.shoot_spread()).collect());
-        let root = mean(sweep.iter().map(|r| r.root_ratio()).collect());
-        let worst = sweep.iter().map(|r| r.shoot_spread()).fold(0.0f32, f32::max);
-        println!(
-            "slot 1 over {GUARD_SEEDS} seeds at {GUARD_FRAMES} frames: mean root ratio {root:.3}, \
-mean shoot spread {:.1}% (worst seed {:.1}%)",
-            100.0 * shoot,
-            100.0 * worst
+        assert_eq!(branch_chance_slot(CellType::RootTip), 1, "a root tip's branch chance must read slot 1");
+        for shoot in [CellType::GrowingTip, CellType::DormantBud, CellType::MatureBody, CellType::Leaf] {
+            assert_eq!(
+                branch_chance_slot(shoot),
+                0,
+                "{shoot:?} is not a root, so its branch chance must read slot 0 -- a shoot reading the ROOT draw is \
+the same defect as a root reading the shoot's, wearing the other sign"
+            );
+        }
+        // The map being right is worth nothing if the reader ignores the
+        // slot it is handed, so prove `genotype` separates them. Distinct
+        // draws in the two slots, distinct variances, and the products must
+        // come out distinct in the right direction.
+        let mut w = test_world();
+        let soil = w.materials.id_of("soil").expect("soil is compiled in");
+        for dy in 1..=4 {
+            w.set(100, 60 + dy, Cell::new(soil, 0).with_aux(material::SOIL_FIELD_CAPACITY));
+        }
+        w.plant_tree(100, 60);
+        let id = w.get(100, 60).organism_id();
+        assert_ne!(id, 0, "test setup: the planted seed should own its own cell");
+        {
+            let st = w.organism_mut(id).expect("a just-planted seed has state");
+            st.inherited = true;
+            st.genotype_draws[0] = -1.0;
+            st.genotype_draws[1] = 1.0;
+        }
+        let shoot_mult = genotype(&w, id, branch_chance_slot(CellType::GrowingTip), 0.5);
+        let root_mult = genotype(&w, id, branch_chance_slot(CellType::RootTip), 0.5);
+        assert!(
+            (shoot_mult - 0.5).abs() < 1e-6,
+            "the shoot read {shoot_mult} from slot {} -- slot 0 holds -1.0 at variance 0.5, so it must be 0.5",
+            branch_chance_slot(CellType::GrowingTip)
         );
         assert!(
-            shoot < SHOOT_SPREAD_BAR,
-            "slot 1 is moving the shoot: mean spread over {GUARD_SEEDS} seeds is {:.1}%, bar {:.1}%. A shoot that moves \
-with a ROOT draw means the draw is reaching slot 0's consumer.",
-            100.0 * shoot,
-            100.0 * SHOOT_SPREAD_BAR
+            (root_mult - 1.5).abs() < 1e-6,
+            "the root read {root_mult} from slot {} -- slot 1 holds +1.0 at variance 0.5, so it must be 1.5",
+            branch_chance_slot(CellType::RootTip)
         );
+    }
+
+    /// **The positive control: put the mis-wiring back and watch the guard
+    /// above go red.** `CLAUDE.md` asks for this before a guard's green is
+    /// cited as evidence, and the guard it replaced could not have passed it.
+    ///
+    /// The fault is one character — `branch_chance_slot` returning 0 for a
+    /// root — so it is modelled by reading slot 0 for both and asserting the
+    /// two multipliers then agree, which is exactly what the guard forbids.
+    #[test]
+    fn slot_1_root_locus_selftest_the_miswiring_is_caught() {
+        let mut w = test_world();
+        let soil = w.materials.id_of("soil").expect("soil is compiled in");
+        for dy in 1..=4 {
+            w.set(100, 60 + dy, Cell::new(soil, 0).with_aux(material::SOIL_FIELD_CAPACITY));
+        }
+        w.plant_tree(100, 60);
+        let id = w.get(100, 60).organism_id();
+        {
+            let st = w.organism_mut(id).expect("a just-planted seed has state");
+            st.inherited = true;
+            st.genotype_draws[0] = -1.0;
+            st.genotype_draws[1] = 1.0;
+        }
+        // The mis-wired world: the root's consumer handed slot 0.
+        let miswired_root = genotype(&w, id, 0, 0.5);
+        let shoot = genotype(&w, id, branch_chance_slot(CellType::GrowingTip), 0.5);
         assert!(
-            root > ROOT_INVERSION_BAR,
-            "slot 1 is ordering root mass BACKWARDS: mean of per-seed ratios is {root:.3} over {GUARD_SEEDS} seeds, \
-floor {ROOT_INVERSION_BAR}. Measured 0.994 (SE 0.046) when this bar was set -- see \
-`root_and_shoot_branching_read_different_slots` for why the forward claim is not asserted."
+            (miswired_root - shoot).abs() < 1e-6,
+            "the injected fault must actually collapse the two multipliers, or this control proves nothing: \
+mis-wired root {miswired_root}, shoot {shoot}"
+        );
+        // ...and the live wiring must not agree with it, which is the guard.
+        let live_root = genotype(&w, id, branch_chance_slot(CellType::RootTip), 0.5);
+        assert!(
+            (live_root - miswired_root).abs() > 0.5,
+            "the guard cannot see the fault: the live root multiplier {live_root} is indistinguishable from the \
+mis-wired {miswired_root}, so `slot_1_is_a_root_locus_and_not_a_shoot_one` would stay green through it"
         );
     }
 
@@ -16873,6 +17532,20 @@ floor {ROOT_INVERSION_BAR}. Measured 0.994 (SE 0.046) when this bar was set -- s
     /// | at calibration, one seed (336 against 448) | **1.33** | — |
     /// | 2026-08-22, 8 seeds (`open-bugs-handoff.md` §A) | 0.92, SE 0.056 | 1/8 |
     /// | 2026-08-23, 8 seeds, after the P1 water fixes | **0.994, SE 0.046** | 2/8 |
+    /// | 2026-09-05, 8 seeds, with the local root gate ON | **0.957** | **0/8** |
+    ///
+    /// **The 2026-09-05 row tests a specific theory and does not support
+    /// it.** `open-bugs-handoff.md` §A proposes that `break_root_tips` is
+    /// the *amplifier* for this lever — it re-initiates a `RootTip` from
+    /// mature tissue and is itself genotype-blind, so a world where it
+    /// fires often multiplies the lineages slot 1 is supposed to order, and
+    /// a world where it is gated shut does not. `root_gate_is_local` is by
+    /// far the largest change anyone has made to that firing rate: it took
+    /// root cells **4.74x** on the paired bed and the gate from refusing
+    /// 95–99.6% of initiations to refusing few. The lever did not move
+    /// (0.994 -> 0.957 is 0.8 SE, and the seeds clearing 1.10 went 2/8 ->
+    /// 0/8). So whatever holds slot 1 flat, **it is not the amplifier being
+    /// switched off**, and the next hypothesis should look elsewhere.
     ///
     /// **0.1 SE from exactly no effect.** `CLAUDE.md` says to set a bar from
     /// measurement with headroom and, where a report asks for a number the
@@ -17366,6 +18039,69 @@ floor {ROOT_INVERSION_BAR}. Measured 0.994 (SE 0.046) when this bar was set -- s
 
     /// The 8-seed pairing both the guard and the probe read. One place, so
     /// the bar and the number it was set from cannot drift apart.
+    /// The same pairing for **slot 0**, the shoot locus — the control the
+    /// root guard needs now that roots have downstream consequences.
+    ///
+    /// A root draw that moves the shoot is only evidence of mis-wiring if it
+    /// moves the shoot *as a shoot draw would*. Comparing the two on the same
+    /// seeds cancels the seed-to-seed spread, which a bar on the absolute
+    /// number cannot.
+    fn shoot_branch_slot_sweep(seeds: u64, frames: usize) -> Vec<SlotPair> {
+        (1..=seeds)
+            .map(|seed| {
+                let (root_low, shoot_low) = root_slot_run(seed, 0, -1.0, frames);
+                let (root_high, shoot_high) = root_slot_run(seed, 0, 1.0, frames);
+                SlotPair { root_low, root_high, shoot_low, shoot_high }
+            })
+            .collect()
+    }
+
+    /// Measurement only: what a *shoot* draw does to the shoot — the control
+    /// that showed the old behavioural guard could not discriminate, and the
+    /// reason `slot_1_is_a_root_locus_and_not_a_shoot_one` now asserts the
+    /// wiring instead.
+    ///
+    /// Measured 2026-09-05 at `GUARD_SEEDS` 4 / `GUARD_FRAMES` 12,000, root
+    /// switches off and then on:
+    ///
+    /// | | slot 1 (root draw) | slot 0 (shoot draw) | ratio |
+    /// |---|---|---|---|
+    /// | switches off | 13.1% (per-seed 21.7 / 19.4 / 1.1 / 10.2) | 71.6% (162.6 / 97.9 / 15.8 / 10.0) | 0.183 |
+    /// | switches on | 16.3% (14.0 / 15.5 / 29.8 / 5.9) | 28.6% (73.6 / 0.3 / 19.9 / 20.6) | 0.571 |
+    ///
+    /// Two readings, and both kill the old bar. **Half of slot 0's own seeds
+    /// come in under the 20% absolute bar it used**, so the shoot locus
+    /// passes the test for "not moving the shoot". And the obvious repair —
+    /// bar the *ratio* rather than the absolute — is not usable at this cost
+    /// either: the denominator ranges 0.3% to 162.6%, so the per-seed ratios
+    /// run 0.19 / 51.7 / 1.50 / 0.29 and buying that down costs seeds at
+    /// ~41 s each per arm.
+    #[test]
+    #[ignore]
+    fn print_slot_0_and_slot_1_shoot_spread() {
+        let mean = |v: Vec<f32>| v.iter().sum::<f32>() / v.len() as f32;
+        let mut means: Vec<f32> = Vec::new();
+        for (label, sweep) in [
+            ("slot 1 (root locus)", root_branch_slot_sweep(GUARD_SEEDS, GUARD_FRAMES)),
+            ("slot 0 (shoot locus)", shoot_branch_slot_sweep(GUARD_SEEDS, GUARD_FRAMES)),
+        ] {
+            let spreads: Vec<f32> = sweep.iter().map(|r| r.shoot_spread()).collect();
+            let worst = spreads.iter().fold(0.0f32, |a, &b| a.max(b));
+            println!(
+                "{label}: mean shoot spread {:.1}%, worst seed {:.1}%, per-seed {:?}",
+                100.0 * mean(spreads.clone()),
+                100.0 * worst,
+                spreads.iter().map(|v| (1000.0 * v).round() / 10.0).collect::<Vec<_>>()
+            );
+            means.push(mean(spreads));
+        }
+        // The number the guard's bar is actually set from: slot 1's shoot
+        // movement as a fraction of slot 0's. An absolute bar on the
+        // numerator alone cannot separate them -- see
+        // `slot_1_is_a_root_locus_and_not_a_shoot_one`.
+        println!("ratio slot1/slot0 = {:.3}", means[0] / means[1].max(f32::EPSILON));
+    }
+
     fn root_branch_slot_sweep(seeds: u64, frames: usize) -> Vec<SlotPair> {
         (1..=seeds)
             .map(|seed| {
@@ -17376,8 +18112,15 @@ floor {ROOT_INVERSION_BAR}. Measured 0.994 (SE 0.046) when this bar was set -- s
             .collect()
     }
 
-    /// How long a `root_slot_run` arm is given inside the *live* guard, and
-    /// how many seeds it pairs.
+    /// How long a `root_slot_run` arm is given, and how many seeds it pairs.
+    ///
+    /// **No longer read by anything CI runs.** Until 2026-09-05 this was the
+    /// live guard's budget; the guard is now
+    /// `slot_1_is_a_root_locus_and_not_a_shoot_one`, which asserts the
+    /// wiring directly and costs microseconds, and these two constants serve
+    /// the `#[ignore]`d probes that keep the behavioural measurement. The
+    /// reasoning below is kept because it is about the *scene*, not about the
+    /// guard, and it is what anyone reviving a behavioural version needs.
     ///
     /// **A shorter arm was tried and is vacuous — do not retry it.** Eight
     /// seeds at 12,000 frames is 16 runs and **181 s** in release, so 4,000
