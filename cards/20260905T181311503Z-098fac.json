@@ -1,0 +1,46 @@
+{
+  "id": "20260905T181311503Z-098fac",
+  "created": "2026-09-05T18:13:11Z",
+  "board": "plants",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/plant-roots-transport-lj7nip",
+    "commit": "306220e8",
+    "agent": null,
+    "session_id": "fe8bc5b9-4346-539e-8191-8d1ce81b894d",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The ground under the grove: with roots and without, 6k to 24k frames",
+  "question": "Read the two lower tiles of each sheet. Is losing the bed at 18,000 frames something you have seen in the game, or is it new to me?",
+  "context_md": "Follow-up to card 20260905T180757522Z-168b0f, which asked this and could not answer it. Four stops per sheet, reading left-to-right then top-to-bottom: frames 6,000 / 12,000 / 18,000 / 24,000. Same world, same seed, same weather, one constant apart, one binary.\n\nWITHOUT roots the soil bed AND its stone floor are intact at 6k and 12k, and gone by 18k -- the whole bed is lying at the bottom of the world and the trees are standing on rafts. WITH roots the bed is there at all four stops.\n\nRoot cells at those four stops: off 772 / 1,479 / 1,517 / 1,662. On 2,478 / 5,059 / 6,116 / 6,545.\nRoot:shoot: off 5.9 / 6.2 / 7.0 / 8.2 %. On 18.0 / 19.2 / 24.4 / 30.0 %.\n\nThe likely mechanism is the one wiki/plants.md already claims -- root-threaded soil holds ground that bare soil loses. I have NOT proved causation. What I did rule out is the obvious alternative, that heavier trees break the ground: the roots-on arm carries the BIGGER stand at every stop (31,400 cells against 25,377 at 12k) and is the one that keeps its bed.\n\nNot blinded, because the question is about recognition rather than preference.",
+  "kind": "ab",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "roots off (shipped until today)",
+      "files": [
+        "20260905T181311503Z-098fac/000-ts_off.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "roots on (this change)",
+      "files": [
+        "20260905T181311503Z-098fac/001-ts_on.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
