@@ -2195,35 +2195,32 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   ranking is revised by `plant-soil-nutrient-plan-2026-09-05.md` below** —
   read that before acting on §7b, which is withdrawn there.
 - [plant-soil-nutrient-plan-2026-09-05.md](plant-soil-nutrient-plan-2026-09-05.md)
-  — **plan, 2026-09-05, second draft after three reviews; nothing built.**
-  What to do about the report above. **Its first draft proposed an immobile
-  soil nutrient as step one and was wrong about the cause**, which the
-  adversarial review found by reading a constant's doc and running
-  `git log -S`: `SOIL_UPTAKE_PER_TICK`'s own doc states this plan's goal as
-  its design intent (*"a root system competing with itself and its neighbours
-  for a finite local store"*) and calls itself untuned, and the capillary rest
-  gap that bounds the depletion zone fell **380 → 60** one day later, cutting
-  per-cell uptake loss **86% → 14%**. Filed as `open-bugs-handoff.md` §W2.
-  **So the cheapest lever is one constant** — raise `SOIL_UPTAKE_PER_TICK`,
-  which moves how fast the soil draws down and leaves income per drink
-  untouched, so none of the five calibrated economy constants need
-  re-deriving. Two blockers must be cleared for it to show anything, and
-  neither is about resources: `break_root_tips` returns early at
-  `water_status >= 0.95`, so wherever the water term is at its ceiling **the
-  plant cannot re-initiate root tips at all**; and without root turnover a
-  mined-out root earns nothing for ever while costing for ever, so there is no
-  interior optimum. The nutrient stays on the list, second, with a **smaller
-  job** — two viable morphologies in different beds, and decoupling root
-  income from rainfall — and with storage switched to a per-chunk dense array
-  plus a recovery stamp, because the first draft's sparse position-keyed
-  sidecar and its decay-site recovery are both in `dead-ends.md` (`:685`,
-  `:583`/`:585`, the latter with a measured runaway). §4 restates the success
-  claims so they can fail, and **drops the taproot-vs-fibrous claim**: roots
-  cannot thicken at all (`can_widen` needs an `EMPTY` or own-`Leaf`
-  neighbour), so that family is inexpressible at any resource setting. **§9
-  is the part worth reading** — seven things the first draft got wrong,
-  including grepping `dead-ends.md` for the subject rather than the
-  mechanism.
+  — **plan, 2026-09-05, third draft; one arm measured, nothing built.** What
+  to do about the report above. **Read §0a first: the depletion story that
+  drafts one and two argued over is refuted by measurement.** Soil touching
+  roots sits at **0.016** plant-available against **1.000** away from roots
+  at the constant on `main` — the zone is already at the wilting floor, so
+  there was never anything to restore. The reasoning that missed it is the
+  reusable part: the capillary rest gap bounds the difference between two
+  *adjacent* soil cells, so it caps how **steep** the depletion boundary is,
+  not how **deep** it goes, and the measured profile is that staircase almost
+  exactly (61.9 units per cell against a 60-unit gap). The 2026-08-31 change
+  therefore made the zone **wider**, not shallower — more overlap between
+  neighbouring roots, so *more* competition. **The cheap lever is refuted
+  too**: `PIXEL_PHYSICS_SOIL_UPTAKE` over 12 seeds and four arms drives roots
+  up reliably (12/12 seeds at 8x) and income down harder at every setting
+  (0.78x / 0.46x / **0.11x**), with no usable band, because a bigger draw on
+  spent soil only pushes water status down. So **root *reach* is the binding
+  constraint, not root income**, and the immobile nutrient stays on the list
+  second-order. Also carries the geometric bound that survives all of it
+  (`dead-ends.md:892`: a handicap removed 23% of root cells and **3%** of
+  uptake surface, so contact roots are ~8x redundant and the payoff variable
+  is distinct soil cells), and drops the taproot claim outright — `can_widen`
+  needs an `EMPTY` or own-`Leaf` neighbour, so a buried root can never
+  thicken. **§9 is the part worth reading**: three drafts, three classes of
+  error, the last being that three documents and two reviewers argued about
+  how deep a depletion zone was when one census answered it in thirty
+  seconds.
 
 ## Licensing and distribution
 

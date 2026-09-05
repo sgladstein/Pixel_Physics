@@ -1,15 +1,24 @@
-# Plan: make roots pay — the cheap lever first, then an immobile nutrient
+# Plan: make roots pay — root reach is the constraint, not root income
 
-**Status: plan, 2026-09-05, revised the same day after three reviews.
-Nothing built.** Successor to
+**Status: plan, 2026-09-05, third draft; one arm measured, nothing built.** Successor to
 [`plant-roots-and-transport-2026-09-05.md`](plant-roots-and-transport-2026-09-05.md),
 whose §7 ranking this revises and whose §3 evidence it corrects (that
 report's §3z).
 
-**This is the second draft. The first proposed an immobile soil nutrient as
-step one; three reviews said build it second, and one found the actual
-cause.** §9 records what changed and why, because the first draft's errors
-are more instructive than its conclusion.
+**Third draft. The first proposed an immobile soil nutrient as step one;
+three reviews said build it second and one found what looked like the actual
+cause; then the experiment that cause implied was run over 12 seeds and
+refuted it.** §9 records the whole chain, because the errors are more
+instructive than the conclusion.
+
+> **The headline, after measurement: neither the cheap lever nor the
+> depletion story survives.** Soil touching roots is at **0.016**
+> plant-available against **1.000** away from roots, at the *shipped*
+> constant — the depletion zone is already at the wilting floor, so there is
+> nothing to restore. Raising `SOIL_UPTAKE_PER_TICK` drives roots up (12/12
+> seeds at 8x) and income down harder (0.11x) at every setting, with no
+> usable band. **The binding constraint is root *reach*, not root income.**
+> §0a and `open-bugs-handoff.md` §W2a.
 
 ## 0. The problem, restated with the corrected numbers
 
@@ -35,19 +44,46 @@ quantity is unpriced at the margin and nothing selects on it.
 Two things make the margin worthless, and the first draft only saw the
 second.
 
-### 0a. The root's depletion zone is 6.3x shallower than it was designed to be — and that is a dated regression
+### 0a. The depletion zone is already at the floor — measured, and this replaces the second draft's story
 
-**Filed as `open-bugs-handoff.md` §W2.** `SOIL_UPTAKE_PER_TICK`'s own doc
-states this plan's goal as its design intent — *"the interesting behaviour is
-a root system **competing with itself and its neighbours for a finite local
-store**"* — and calls itself untuned. The maximum standing depletion a root
-can hold is the capillary rest gap, and that gap fell **380 → 60** in
-`3c46ddad` (2026-08-31), one day after `SOIL_UPTAKE_PER_TICK` landed in
-`aef0a53d` (2026-08-30). Per-cell uptake loss went **86% → 14%**.
+The second draft blamed a dated constant regression: the capillary rest gap
+fell 380 -> 60 one day after `SOIL_UPTAKE_PER_TICK` landed, so (the argument
+went) the depletion zone a root can hold was flattened 6.3x. **Measured over
+12 seeds, that is false**, and the reasoning behind it was wrong in a way
+worth keeping:
 
-So a crowded root and an isolated root now drink essentially the same water.
-**Root density buys nothing because the depletion zone was flattened, not
-because water is the wrong resource.**
+**The rest gap bounds the difference between two *adjacent* soil cells, so
+it caps how *steep* the depletion boundary is, not how *deep* the depletion
+goes.** A root system draws its whole neighbourhood to the wilting point in
+a staircase of 60-unit steps. The measured profile is that staircase almost
+exactly: `near` 0.016 to `far` 1.000 is moisture 187 to 620, a 433-unit rise
+across the 7 cells from BFS distance 1 to 8 — **61.9 units per cell against
+a 60-unit rest gap.**
+
+So the 2026-08-31 change made the depletion zone **wider**, not shallower —
+a 7-cell ramp instead of a 1-2 cell cliff — and a wider zone means *more*
+overlap between neighbouring root systems, which is *more* competition for a
+local store, not less.
+
+**And the lever it implied does not work.** `PIXEL_PHYSICS_SOIL_UPTAKE` at
+1x/2x/4x/8x, 12 seeds, paired, frame 24,000:
+
+| arm | root | contact | income | status | `near` |
+|---|---|---|---|---|---|
+| 60 (1x) | 224 | 175 | **4.785** | 1.000 | 0.016 |
+| 120 (2x) | 305 | 241 | 3.744 | 0.944 | 0.007 |
+| 240 (4x) | 362 | 289 | 2.191 | 0.571 | 0.002 |
+| 480 (8x) | 467 | 313 | **0.506** | 0.346 | 0.000 |
+
+Roots rise monotonically and reliably — **12 of 12 seeds at 8x** — and
+income falls faster at every step (0.78x / 0.46x / **0.11x**; income up in
+1 of 12 seeds at both 4x and 8x). Roots double, income falls to a ninth.
+**There is no usable band**, because with `near` already at 0.016 a bigger
+draw takes the same nearly-zero water faster and only pushes status down.
+
+**What survives:** `SOIL_UPTAKE_PER_TICK`'s doc does state this plan's goal
+and does call itself untuned. That is an observation about the record, not a
+regression, and the constant is not the lever.
 
 ### 0b. Roots are geometrically redundant, so "more root" is the wrong payoff variable
 
@@ -63,39 +99,26 @@ cell mostly touches soil another root already drank from.** Any mechanism
 here has to be keyed on the soil cell and split among the roots touching it,
 or it measures root mass and calls it uptake.
 
-## 1. The revised ranking
+## 1. The ranking, after the experiment
 
-| | first draft | now | why |
+| | second draft | now | why |
 |---|---|---|---|
-| **1** | immobile nutrient | **raise `SOIL_UPTAKE_PER_TICK` 6–10x** | one constant, no income re-derivation, restores the designed depletion zone (§0a) |
-| **2** | — | **open the root-tip gate** | §2b — without it the plant cannot grow the roots anything rewards |
-| **3** | — | **root turnover** | §2c — without it there is no interior optimum for any of this to find |
-| **4** | *lower the water rates* | **withdrawn, for a corrected reason** | §1a |
-| **5** | — | immobile nutrient | §3 — its unique job is smaller than the first draft claimed |
+| **1** | raise `SOIL_UPTAKE_PER_TICK` | **refuted — do not build** | §0a: monotone tax, no usable band, 12 seeds |
+| **2** | open the root-tip gate | **root reach** — extension into fresh soil | §0a/§0b: the exhausted zone is what roots can reach, so reach is the constraint |
+| **3** | root turnover | unchanged, and now more clearly necessary | §2c: a mined-out root at `near` 0.016 earns nothing for ever and costs for ever |
+| **4** | *lower the water rates* | still withdrawn, and for a third reason | §1a |
+| **5** | immobile nutrient | unchanged, still second-order | §3 |
 | — | economy reads attachment | unchanged, cheap, independent | predecessor §7a |
-| — | price the pool by path | unchanged; girdling is its acceptance test | §8 |
 
-### 1a. Why "lower the water rates" stays withdrawn, but not for the reason I gave
+### 1a. Why every water lever is now withdrawn
 
-The first draft withdrew it as *"making water behave like an immobile
-resource."* **That reasoning is backwards.** The equilibrium depletion a root
-sustains is `g* = extraction / (faces x rate x wetness)`; *lowering*
-`Absorb.rate` reduces extraction and makes water **more** mobile relative to
-the root. Lowering `WATER_SCALE` shrinks the tank and touches depletion not
-at all. Neither creates a depletion zone — they only move the knee, which is
-the same arithmetic under a different name, and both move income and so drag
-the five-constant re-derivation with them.
-
-**`SOIL_UPTAKE_PER_TICK` is a different lever and the first draft never
-named it.** It changes how fast the *soil* goes down and leaves income per
-drink untouched — `absorb_water`'s own comment says so in as many words:
-*"**Income is unchanged**… What changes is how fast the pond goes down…
-this is a conservation fix, not an economy change."* `drawn` does not
-reference it; only `taken` does.
-
-And `dead-ends.md:892` names *raising the uptake price* and *a per-cell
-depletion zone* as the **same** reopening condition. The first draft took the
-second and discarded the first.
+Three have been tried in reasoning and one in measurement, and they fail for
+three different reasons. `WATER_SCALE` moves the tank and not the depletion.
+`Absorb.rate` *reduces* extraction, so it makes water more mobile relative
+to the root, not less. `SOIL_UPTAKE_PER_TICK` moves the depletion and is
+measured above as a monotone tax. **The common cause is that soil water near
+roots is already spent**, so no lever on how it is drawn changes what is
+there to draw.
 
 ## 2. What has to be true for any of this to work
 
@@ -333,9 +356,29 @@ xylem/phloem systems"* at the design-philosophy level (*"model the signals,
 not the biochemistry carrying them"*), so this has to argue past that, not
 only past scope.
 
-## 9. What the first draft got wrong
+## 9. What each draft got wrong
 
-Kept because how a plan went wrong is worth more than its conclusion.
+Kept because how a plan went wrong is worth more than its conclusion — and
+this one went wrong three times, each time in a way the next step caught.
+
+**Draft two's error, found by running its own experiment.** It blamed a
+dated constant regression and proposed raising `SOIL_UPTAKE_PER_TICK` as the
+cheap fix. Both halves failed: the rest gap caps the depletion's *steepness*
+and not its *depth*, so nothing was flattened (§0a), and the lever is a
+monotone tax across 12 seeds with no usable band. **The error was reasoning
+about a depletion zone without ever measuring one** — three documents and
+two reviewers argued about how deep it was, and the answer took one census
+and thirty seconds of runtime. `CLAUDE.md`'s first method rule is *look
+before you measure*; all of us went straight to arithmetic.
+
+**And a null this design cannot deliver, stated so nobody re-reads it as
+one.** Splitting the 48 runs on `break_root_tips`' 0.95 gate gives median
+root 305 shut against 364 open — but the groups also differ 8x in `near`,
+because the arm drives both. Arm is a confounder; the split cannot separate
+the gate from the depletion. §2b is still open and needs an arm that moves
+the gate alone.
+
+### 9a. Draft one's errors
 
 1. **Misattributed the cause.** Blamed "water flows, in this engine and in
    nature." The real cause is at least partly two constants that stopped
