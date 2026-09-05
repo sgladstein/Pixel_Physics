@@ -2061,9 +2061,9 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   the same one-frame sampling defect as `ORGANISM_PASS` -- **three instruments
   in one session**.
 - [sweep-positional-rng-2026-09-05.md](sweep-positional-rng-2026-09-05.md) —
-  **measured 2026-09-05, a decision document; nothing built, and adversarially
-  reviewed before being put forward (§8 records what the review changed,
-  including two claims that were wrong).** Prices the unlock
+  **built, measured and STOPPED 2026-09-05; adversarially reviewed before
+  being put forward (§8 records what the review changed, including two claims
+  that were wrong).** Prices the unlock
   `evolution-lab-frame-cost-2026-09-01.md` §5 named and did not cost:
   replacing the CA sweep's per-chunk stateful `Rng` with a draw keyed on
   `(world seed, x, y, frame)`, after which narrowing the swept region stops
@@ -2104,8 +2104,27 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   proposal twice: there is **no bit-identical intermediate** (a positional
   draw *is* the divergence), and it does **not** unblock parallelising
   `active_sites`, which is held by `&mut World` aliasing and not by the RNG.
-  Asks for steps 1-2 only — about a day, nothing irreversible — and a
-  re-decision on their numbers.
+  Asked for steps 1-2 only — about a day, nothing irreversible — and a
+  re-decision on their numbers. **§9 is that re-decision, and it is a stop.**
+  Steps 1-2 were built and both stop conditions fired. **The positional draw
+  costs +0.149 ms/tick** at box density on a 2.631 ms tick — about the whole
+  of what the spans save — so the two together are **2.631 -> 2.636 ms with
+  overlapping ranges, no measurable gain**; the microbench that put this at
+  <= 0.02 ms was **7x under**, having flagged that it could not know the sign
+  and then treated the magnitude as settled. **And the premise is false**:
+  with the RNG removed from the question entirely the two sweep arms still
+  diverge, identical through frame 4,329 and **first differing at frame
+  4,330**, bisected to the frame with every arm's hash reproducing across
+  three reps. So per-row dirty spans are **not** behaviour-neutral and the RNG
+  was one reason among at least two — the leading unmeasured hypothesis for
+  the rest is chunk wakefulness feeding `field::step`'s `active_chunk_count()`
+  gate, and frame 4,330 on `seed=1` is the handle. Both `dead-ends.md` entries
+  updated: the row-spans entry's re-test condition is **met with the answer
+  no**. What survives and is worth keeping: `rng::sweep` and
+  `surface::VisitRng` behind `PIXEL_PHYSICS_RNG=positional`, off by default
+  and bit-identical when off, as the instrument that measured §9.3; and three
+  fault-controlled quality guards in `rng.rs` whose fault arms are assertions
+  inside the tests, so CI proves they can fail every run.
 - [plant-reseeding-2026-09-03.md](plant-reseeding-2026-09-03.md) —
   **measured 2026-09-03.** Answers the owner's two questions about why the
   lab's plants never spread. **Q1: no, a plant cannot evolve better seed

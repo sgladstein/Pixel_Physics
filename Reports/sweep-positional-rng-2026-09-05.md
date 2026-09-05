@@ -10,8 +10,18 @@ every timing below holds against this tree). Continues
 seeded from `(world seed, x, y, frame)`, so narrowing the swept region stops
 changing behaviour.
 
-**The recommendation: green-light steps 1 and 2 only — about a day's work,
-nothing irreversible — and re-decide on their numbers.** §5 priced this at
+> **BUILT AND MEASURED 2026-09-05 — §9 supersedes the recommendation below.**
+> Steps 1 and 2 are done. **Both of step 2's stop conditions fired**: the
+> positional draw costs **+0.149 ms/tick**, which is the whole of what the
+> spans save, so the change end to end is worth **nothing measurable**; and
+> the premise turns out to be **false** — with the RNG removed from the
+> question entirely, the two sweep arms still diverge, first at **frame
+> 4,330**. Step 3+4 is not started and should not be. §1–§7 are left as
+> written, because the case they make is the one the measurement answered.
+
+**The recommendation as put on 2026-09-05, before the work: green-light steps
+1 and 2 only — about a day's work, nothing irreversible — and re-decide on
+their numbers.** §5 priced this at
 **1.19x of the whole frame**; re-measured here it is **1.05x**, because #228,
 #234 and #235 shrank the frame around it. The phase win is unchanged. But the
 case for going further than step 2 cannot be made from anything measurable
@@ -673,3 +683,148 @@ as an impossible mean; it is the median of three, now labelled. And it could
 not find `dead-ends.md`'s record of why the sweep's stream became per-chunk;
 it is there, at line 1360, under the `README.md` M5 address rather than a
 `chunk.rs` one.
+
+---
+
+## 9. Built, measured, stopped — 2026-09-05
+
+Steps 1 and 2 as §4 specifies them. **Both of step 2's stop conditions fired,
+so step 3+4 was not started.** The switch ships off by default and
+bit-identical, as the instrument that measured this — the same disposition
+`PIXEL_PHYSICS_SWEEP=rows` has, and for the same reason.
+
+### 9.1 Step 1 landed green and inert
+
+`PIXEL_PHYSICS_RNG=positional` selects `rng::sweep(seed, x, y, frame)`;
+unset keeps the per-chunk stream. `CellSurface::begin_visit` opens the visit,
+and `surface::VisitRng` constructs the generator lazily on the visit's first
+draw, so a cell that never draws never pays the hash. Both `CellSurface`
+impls changed; **the 20 draw sites are untouched, as designed.**
+
+**§5.5's guard earned its place immediately, and changed the design.** §3.2
+said `update_cell` was the only place that needed to open a visit, on a grep
+for `fire::update` callers *outside* `fire.rs` — which found two, both tests.
+The `debug_assert!` found **22 failing tests** on its first run: `fire.rs`'s
+own test module calls `fire::update` directly **26 times**. Fixing 26 call
+sites would have been the wrong repair, and left the 27th to whoever wrote
+the next fire test. Instead **`fire::update` opens its own visit** — it is a
+per-cell entry point in its own right, taking `(x, y)` — and `VisitRng::begin`
+became **idempotent for a position already open**, so the call `update_cell`
+already made is not disturbed and the order of the two stops mattering.
+
+That also removes a fragility §3.2 had documented without eliminating: a
+second `begin` mid-visit would have reset the generator and handed the
+movement rules a sequence fire had already drawn from, which is precisely the
+key collision §2.5 identifies as the only quality failure that survives. The
+idempotence makes it unreachable rather than merely unlikely.
+
+After the redesign the debug run is **7 failures, down from 22** — the other
+15 were the guard. All seven panic in their own assertions rather than in
+`surface.rs`, checked, so the guard is satisfied and what is left is ordinary
+divergence: the positional arm is a different world, so emergent tests move,
+exactly as the two red under `PIXEL_PHYSICS_SWEEP=rows` do. **That is the
+arm's expected state, not a defect** — the shipping configuration is the
+default, which is green on all 1,414 tests and bit-identical.
+
+**The redesign did not move the arm**, checked rather than assumed: the
+positional bed still hashes `0xddb39ab874e7afb4` at frame 2,000 with box and
+rows identical, and the divergence boundary is still exactly 4,329 identical
+/ 4,330 diverged. Every number in §9.2 and §9.3 stands against the code as
+landed.
+
+**The default is bit-identical, checked rather than assumed**: the bed
+reproduces `0xc149d7087558064d` at frame 2,000, exactly the pre-change value.
+
+§2.5's statistics and both their fault controls are now `rng.rs` unit tests
+(`a_sweep_key_is_injective_over_a_realistic_box`,
+`a_sweep_draw_is_uncorrelated_with_its_neighbours`,
+`a_sweep_draw_has_no_per_cell_bias`), with §5.4's two missing offsets added —
+the falling grain's diagonal and the stride-2 the `rightward` alternation
+runs on. **The fault arms are assertions inside the tests, not prose**, so CI
+proves the statistics can fail every run. 0.14 s for all three.
+
+### 9.2 Gate A: the draw costs the whole of what the spans save
+
+The 2x2, three reps a side, alternating. Medians, with ranges:
+
+| whole tick, ms | `sweep=box` | `sweep=rows` |
+|---|---|---|
+| **chunk stream** (shipped) | **2.631** `[2.621–2.649]` | 2.542 `[2.538–2.555]` |
+| **positional** | 2.780 `[2.770–2.808]` | **2.636** `[2.592–2.639]` |
+
+Read down a column for the draw's cost, across a row for the spans' saving:
+
+- **The positional draw costs +0.149 ms/tick at box density** (+5.7%), +0.094
+  at rows density. `ca_sweep` alone goes 1.154 -> 1.283.
+- The spans save 0.089 ms under the chunk stream and 0.144 under positional.
+- **End to end — what shipping the whole proposal would buy — 2.631 -> 2.636.
+  The ranges overlap. There is no measurable gain at all.**
+
+**§2.6's bound was wrong by about 7x, and in the direction that matters.** It
+put |Δ| at ≲0.02 ms/tick; the truth is +0.149. The report flagged the *sign*
+as unknowable from a microbench and treated the *magnitude* as settled, which
+was the error — a microbench that cannot tell you the sign of a difference
+has no claim on its size either. The cost is not only the hash: it is
+`begin_visit` on every one of ~10,326 visited cells, an `Option` test on every
+draw, and a generator that now lives behind a field instead of in the tight
+per-chunk path.
+
+This is exactly the stop condition §4 named — *"if positional costs more than
+the spans save in the shipping configuration"* — and it is worth noting that
+the threshold as originally drafted (+0.05 ms measured with spans off) would
+have **passed** this change at rows density while the end-to-end result is
+nil. The review's fix, measuring in the configuration that would actually
+ship, is what caught it.
+
+### 9.3 Gate B: the premise is false
+
+§5.0's test, and it is the more important result because it outlives this
+proposal. Under positional draws the two sweep arms **must** produce a
+bit-identical world if narrowing only ever drops cells no rule could act on:
+
+| frames | `positional` box vs rows |
+|---|---|
+| 2,000 | identical — `0xddb39ab874e7afb4` |
+| 4,000 | identical |
+| **4,330** | **first diverging frame** |
+| 40,000 | `0xc686c0eaaeb4fc96` vs `0x34fef6b42b4cb6fe` |
+
+Bisected to the frame; every arm's hash reproduces exactly across all three
+reps, so the engine's determinism is intact and this is a real behaviour
+difference rather than noise. The control sits in the same table: under the
+chunk stream the same two arms differ from the first frames, so the test can
+report a difference and does.
+
+**So per-row dirty spans are not behaviour-neutral, and the RNG was never the
+whole reason.** Removing the stream shift moved the divergence from frame ~1
+to frame 4,330; it did not remove it. Four documents in this repo assert the
+premise — `chunk.rs`'s `row_spans_enabled`, `dead-ends.md:1339`, the
+predecessor report's §5, and §1 here — and it is false.
+
+**A single event, not a drift.** 4,329 frames identical then a split is one
+cell behaving differently once, not an accumulating error. The leading
+hypothesis is chunk wakefulness: `field::step` is gated on
+`active_chunk_count()`, so a narrower sweep letting one chunk settle a frame
+earlier changes the field's solve set, and the field feeds light, heat and
+moisture back into everything. **That is a hypothesis and nothing here
+measures it** — it is written down so the next session starts from a
+candidate rather than from the beginning. Frame 4,330 on `seed=1` is the
+handle.
+
+### 9.4 What this changes, and what is worth keeping
+
+- **The proposal is dead as a performance change**, on this bed. Not "small" —
+  nil, with overlapping ranges.
+- **Per-row dirty spans are dead as a *free* change**, which is a stronger
+  statement than the one `dead-ends.md` currently carries. Today's entry says
+  the spans cost an RNG stream shift and names the positional draw as the
+  unlock. The unlock exists now, and the spans still change the world.
+- **The three `rng.rs` tests are worth keeping regardless.** They are the
+  first fault-controlled quality guards over a positional key in this repo,
+  and any future positional draw inherits them.
+- **`rng::sweep` and `VisitRng` are worth keeping as the instrument**, off by
+  default, exactly as `PIXEL_PHYSICS_SWEEP` is. Without them nobody can re-run
+  §9.3, and §9.3 is the finding.
+- **What the frame budget still wants** is unchanged and is elsewhere: §15.4's
+  serial `active_sites`, worth ~0.28 ms of a 2.63 ms tick on this bed against
+  this change's nil.

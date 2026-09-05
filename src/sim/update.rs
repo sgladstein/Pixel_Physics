@@ -153,6 +153,15 @@ fn sweep_row<S: CellSurface>(surface: &mut S, y: i32, min_x: i32, max_x: i32, ri
 }
 
 fn update_cell<S: CellSurface>(surface: &mut S, x: i32, y: i32, rightward: bool) {
+    // Opens this cell's draw, before any rule can take one. Under the default
+    // this is inert; under `PIXEL_PHYSICS_RNG=positional` it is what keys the
+    // visit's generator on `(x, y, frame)` instead of on visit order. This is
+    // the sweep's only per-cell entry point, and `fire::update` below runs
+    // *inside* the visit rather than opening its own, which is correct: today
+    // it shares the chunk stream with the movement rules, and it shares the
+    // positional one the same way.
+    surface.begin_visit(x, y);
+
     let cell = surface.get(x, y);
 
     // Owned by a promoted liquid body (`Reports/liquid-heightfield-
