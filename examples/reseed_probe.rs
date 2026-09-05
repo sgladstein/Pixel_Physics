@@ -254,6 +254,27 @@ fn main() {
              reads as `the mechanism does nothing`"
         );
     }
+    // **`maturity=` is the same seam, on the gate that decides whether a
+    // species can breed at all.** `Behavior::Reproduce::seed_maturity` is a
+    // hard size gate in **shoot cells**, not a rate and not frames, and the
+    // way it fails is silent: authored above the size a species ever reaches,
+    // the plant simply never sets a seed and every downstream number reads as
+    // "the mechanism does nothing". `assets/species/grass.ron` already
+    // carries that story in its own comments -- at a drafted 150 no grass
+    // plant could ever reproduce -- and `creeper` ships the same defect
+    // today, gated at 250 against a plant measured at 89 cells in total over
+    // 60,000 frames. Sweeping it needs the registry seam for exactly the
+    // reason `launch=` does: the species file is `include_str!`d, so an
+    // edit-and-rerun sweep over a prebuilt binary produces bit-identical
+    // "runs" and a whole invalid table.
+    if let Some(gate) = arg::<f32>("maturity") {
+        let id = world.species.id_of(&species).expect("species is compiled in");
+        assert!(
+            world.species.set_param(id, CellType::MatureBody, organism::ParamId::SeedMaturity, 0, gate),
+            "maturity={gate} matched no Reproduce behaviour on {species} -- an arm whose edit matched nothing \
+             reads as `the mechanism does nothing`"
+        );
+    }
     // **`col=` moves the single founder to a named column.** `spread(1)` puts
     // one founder at the bed's centre, which at `lamp_spacing 64` is exactly
     // half way between two fixtures -- so a one-founder run is not a smaller
