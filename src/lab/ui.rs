@@ -4450,7 +4450,11 @@ impl Ui {
             let species = param_label(&world.species.get(r.species).name);
             let state_tint = match r.state {
                 roster::RowState::Senescent | roster::RowState::Starving => POOR,
-                roster::RowState::Hungry | roster::RowState::Lost => FAIR,
+                roster::RowState::Hungry => FAIR,
+                // `Far` is neutral, not a warning: it says an animal is deep
+                // in an excursion, which is what a forager is for. See
+                // `roster::RowState::Far` for why it stopped being `LOST`.
+                roster::RowState::Far => VALUE,
                 roster::RowState::Carrying => GOOD,
                 roster::RowState::Ok => FAINT,
             };

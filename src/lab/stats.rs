@@ -307,6 +307,19 @@ pub struct Census {
     /// about**, and the one nobody could see.
     pub plant_generation: u16,
     pub animal_generation: u16,
+    /// **The deepest generation any lineage has EVER reached**, against the
+    /// two above which are maxima over the *living*.
+    ///
+    /// They are not the same number and the difference is the point: a max
+    /// over the living falls back the moment a deep lineage dies, so a box
+    /// that bred five deep and lost the line reads 1. `selection_arena`
+    /// records a mean over the living rising to 2.9 over 150,000 frames and
+    /// then drifting back to 2.60, and prints its own axis as saturated. See
+    /// `World::deepest_generation`.
+    pub deepest_ever: u16,
+    /// Organisms ever born, cumulative — the other half of the clock. Depth
+    /// says how far a line got; this says how much breeding it took.
+    pub births_ever: u64,
     /// How the living population distributes over generations, both kingdoms
     /// together, last bucket open-ended.
     pub generations: [u32; GEN_BUCKETS],
@@ -870,10 +883,32 @@ impl Stats {
             HEADING,
             "HOW MANY ANCESTORS DEEP THE POPULATION HAS GOT. THIS IS THE THING THE LAB IS FOR, AND IT IS THE NUMBER NOTHING USED TO SHOW.",
         ));
+        // **Now and ever on one line, because the comparison IS the
+        // reading.** `plant_generation` is a max over what is alive, so it
+        // drops when a deep line dies out; `deepest_ever` never drops. A box
+        // showing NOW 1 / EVER 5 has already bred five deep and lost the
+        // line, which is a completely different state from one that never got
+        // past 1 -- and nothing in this panel could tell them apart before.
+        // `selection_arena` records a mean over the living rising to 2.9 and
+        // then drifting back to 2.60 over one run, and prints its own axis as
+        // saturated for exactly this reason.
+        //
+        // One row rather than two: the page has a fixed border and a second
+        // row painted past it, which `the_page_stays_inside_its_own_border`
+        // caught immediately.
         rows.push(Row::text(
-            format!("DEEPEST  PLANT {}   ANIMAL {}", census.plant_generation, census.animal_generation),
-            if census.plant_generation > 0 || census.animal_generation > 0 { GREEN } else { DIM },
-            "0 MEANS NOTHING OF THAT KIND HAS BRED: EVERY ONE ALIVE IS SOMETHING YOU OR THE BOX PUT THERE. 1 MEANS ONE ROUND OF INHERITANCE HAS HAPPENED, AND SELECTION HAS SOMETHING TO WORK ON.",
+            format!(
+                "DEEPEST NOW {}/{}  EVER {}  BIRTHS {}",
+                census.plant_generation, census.animal_generation, census.deepest_ever, census.births_ever
+            ),
+            if census.deepest_ever > census.plant_generation.max(census.animal_generation) {
+                AMBER
+            } else if census.plant_generation > 0 || census.animal_generation > 0 {
+                GREEN
+            } else {
+                DIM
+            },
+            "NOW IS PLANTS/ANIMALS ALIVE RIGHT NOW; EVER IS THE DEEPEST ANY LINE HAS REACHED SINCE THE BOX WAS BUILT, AND IT NEVER DROPS. 0 MEANS NOTHING HAS BRED: EVERYTHING ALIVE IS SOMETHING YOU OR THE BOX PUT THERE. WHEN EVER READS HIGHER THAN NOW -- THE AMBER STATE -- THE BOX HAS ALREADY BRED THAT DEEP AND LOST THE LINE, WHICH IS THE COMMONEST WAY A RUN LOOKS STUCK WHEN IT IS ACTUALLY TURNING OVER. BIRTHS AGAINST EVER IS THE RATE: MANY BIRTHS AND FLAT DEPTH MEANS RECRUITS ARE DYING BEFORE THEY BREED.",
         ));
         rows.push(Row {
             body: Body::Generations,
@@ -1097,6 +1132,8 @@ fn take_census(
         germinations: world.germinations,
         plant_generation: 0,
         animal_generation: 0,
+        deepest_ever: world.deepest_generation,
+        births_ever: world.organism_turnover().0,
         generations: [0; GEN_BUCKETS],
         lineages: 0,
         top_lineage: 0.0,
@@ -1690,7 +1727,10 @@ mod tests {
         let c = bred.census().expect("a census");
         assert_eq!(c.plant_generation, 3);
         assert_eq!(c.generations[3], 1, "{:?}", c.generations);
-        assert!(dump(&bred, &world).iter().any(|r| r.contains("PLANT 3")));
+        // The label is `NOW <plants>/<animals>` since the row absorbed the
+        // cumulative clock -- one line, because two overflowed the page's own
+        // border.
+        assert!(dump(&bred, &world).iter().any(|r| r.contains("NOW 3/0")), "{:?}", dump(&bred, &world));
     }
 
     /// **The shipped ant cannot pay for a child, and the page says by how

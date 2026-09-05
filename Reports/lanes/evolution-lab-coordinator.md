@@ -87,10 +87,17 @@ the box changes even at the top of the dial.
    creature half of the game.
 2. **`sky_light` in an enclosed world.** 2.8 ms of a 4.78 ms draw, bought by
    a check the room already knows how to answer.
-3. **Gate 2 — does selection have teeth in *this* bed.** Still never run,
-   and `selection_arena`'s whole finding is that a null there is a statement
-   about the world rather than the genome, so it invalidates every evolution
-   result measured in the bed until it is done.
+3. ~~**Gate 2 — does selection have teeth in *this* bed.**~~ **Run, and
+   passed, 2026-09-02** — `examples/creature_arena.rs`, on branch
+   `claude/pr-213-report-impl-dxp7lw`. The zeroed-brain arm loses on 4 seeds
+   of 4 and a random genome loses on 5 of 6, against an identical-arms
+   control sitting at the null. **The line every reader of this note needs**:
+   the bed only discriminates *past the founding grant*. At `labbatch`'s
+   9,000-frame horizon the zeroed brain **wins**, 65.8% on 4 seeds of 4,
+   because an ant's grant is 12,000 frames of doing nothing and starving is
+   not yet possible inside the window — so any creature result taken at 9,000
+   frames in this bed is a reading of who was given more, not who earned
+   more. Design: `Reports/creature-genome-flexibility-2026-09-02.md` §9.
 4. **Gate 4's two verbs**, cull and partition, which the premise most
    depends on and which have no engine support.
 
@@ -464,6 +471,147 @@ would have passed with the roll-up deleted.
    Sample` carries no frame, so its x-axis is the call cadence. `stats::Sample`
    carries one and only loses resolution. Both `observe` calls belong in
    `Lab::tick`; three lines, and the watch ring depends on it.
+
+### The merge, 2026-09-05 — what the brain rewrite cost this branch
+
+*117 behind, `BxF` 1638. The reconciliation was real work, not conflict
+resolution, and it produced one finding worth more than the merge.*
+
+- **The page was right and the ant was broken.** `plainspeak`'s guard went red
+  asserting `ALWAYS LAYS HOME SCENT`, which it should have — that weight was
+  deliberately deleted. But the sentence that replaced it did not appear
+  either, and chasing *that absence* reached `open-bugs-handoff.md` **§Z5**:
+  the ant's homing odometer charges at `0.0005` against a `W_EPS` of `0.01`,
+  so `eval_brain` skips the wire and **no ant has laid channel-A pheromone
+  since 2026-09-02**. Measured through `eval_brain` on the shipped genome —
+  `h4` flat at 0.000000 through 400 ticks standing *on* the nest. Both
+  species that author an odometer have it, and they are the only sub-`W_EPS`
+  authored weights in the tree. **Do not "fix" it by raising the weight**: the
+  output weight and bias were fitted against the old charge rate.
+- **A page that reads a genome back in English is a reader for channels
+  nothing else reads.** That is why this surfaced here and not on the creature
+  line: the design note verified the odometer's curve by simulating the
+  recurrence directly, which is right about the arithmetic and never saw the
+  evaluator. `CLAUDE.md`'s *ask what your number counts*, with the instrument
+  named as a **simulation**.
+- **`LOST` could not survive and was not renameable.** `nest_memory` is gone
+  and homing is now per-individual genome, so no Rust threshold can say an
+  animal's way home has gone. Rebuilt as `FAR` on `forage_max` — spatial,
+  re-anchored at every nest contact, threshold 30 from a measured
+  distribution — and taken **out** of the `IN TROUBLE` filter, because a deep
+  excursion is a forager working. README's "Roster status" carries it.
+- **A sampling guard wearing an exhaustive claim.** `every_phrase_fits_the_
+  column` samples 24 random genomes and sees only each one's top five drives;
+  `generic`'s doc claimed it proved the width "over every combination". Main's
+  two new slots made `SURFACECURVATURE > DROPSPOIL` 28 characters against a
+  26-character budget, and neither guard nor page noticed. Replaced with a
+  walk of `INPUTS` x `OUTPUTS`.
+- **`World::seeds_set` and `World::seeds_borne` were the same counter, built
+  twice.** Both sides added a world-level cumulative seed count at the same
+  site in `bear_seed_at`. Item 2 above told this branch that `World::seeds_set`
+  did not exist, so it built one; main built `seeds_borne` meanwhile. Kept
+  main's, and note the branch's had **a writer and no reader** — `ui.rs` still
+  walks the live list.
+
+## Round eight, 2026-09-03 — the frame cost re-measured, and the target has moved
+
+*Owner: "performance has gotten a lot worse." It has, it reproduces, and it is
+**not** a regression in the speed work — the account is
+[`../evolution-lab-frame-cost-2026-09-01.md`](../evolution-lab-frame-cost-2026-09-01.md)
+§9. Three things bind on whatever comes next:*
+
+- **The default bed reports the regression as a 1.3x improvement.** `bin/lab.rs`
+  opens *empty* and the owner paints the population in, so the 8-founder bed
+  every lab measurement in this repo uses is not the bed being played. Measure
+  on **`founders=128 colonies=1`, 12,000 frames**; that is where it shows.
+- **Every phase is unchanged except `active_sites`, which is 4.5x** (0.49 ->
+  2.22 ms). The CA sweep, the field and the moisture channel all held across 81
+  commits. Inside it, the scheduler is 0.3 ms of the 1.7 ms growth and
+  **`plant::step_organisms` is the other 1.4** -- once per organism, never
+  optimised, ~11x.
+- **Two terms multiply and both are real: 2.7x more organisms (441 -> 1,174),
+  each 1.7x dearer.** The average organism is *smaller* (7.2 cells against
+  9.1), so the per-organism rise is new work rather than more cells. This is the
+  germination fix and seed dispersal doing what they were built to do; the
+  optimisation target has simply moved off the sweep and onto the plants.
+
+**Also in play now:** organism slots at **1,239 of 4,095** on a medium bed at
+12,000 frames and still climbing.
+
+**Then the owner named the regime, and it sharpened all of the above (§10).**
+*"Previously 10-30x with plant structural damage off; now I max out at 4x"* and
+*"the toggle doesn't change anything right away but once a plant grows and
+collapses, the collapse destroys performance."* Three results:
+
+- **`plant_load_failure` off used to buy nothing (3.95 vs 3.95 ms) and now buys
+  1.32x**, halving `active_sites`. Over half that phase's new cost is collapse
+  work on living tissue -- the thing the owner turns off by hand.
+- **The big-plant box no longer self-limits.** `species=tree founders=16
+  colonies=0`, 32,000 frames: the old stand peaks at 6,100 cells / 93 organisms
+  and *falls* to 2,961 / 33, dial recovering to **6.5x**; the new one climbs to
+  **27,013 / 646 and is still climbing**, dial pinned at **2.5x from frame
+  8,000 onward**. Find what used to make it stop.
+- **The median frame barely moved (2.07 -> 2.25 ms); the mean went 2.57 ->
+  6.78.** Two-thirds of all time is now in frames above the median, and the
+  dial reports the mean -- so a box whose typical frame is fine reads as
+  permanently slow. **Chase the tail, not the phase table.**
+
+**Corrected, and then narrowed by the owner (§11).** *"I would prefer to solve
+it with plant structural damage off first."* Two results:
+
+- **"The new box never self-limits" was wrong** -- an extrapolation from a run
+  that stopped before the turn. At 64,000 frames it does turn over; the brake
+  engages ~4x later and at ~4.5x the population. *A cascade censused before it
+  settles*, arriving on a population curve.
+- **With damage OFF, nothing got dearer per cell.** `active_sites` 1.77 -> 4.19
+  ms while `ca_sweep` and `field` hold, and **per plant cell it is 0.159 ->
+  0.151 us -- unchanged.** The box just grows 2.5x more plant. `active_sites`
+  was already the largest phase on the old build in this regime (49%) and is
+  now **70%**, and `plant::step_organisms` has never been optimised. **That is
+  the target, and it is a pure win**: no behaviour change, no seed sweep, no
+  owner verdict.
+
+## Round nine, 2026-09-04 — the parameter half of "no save," closed
+
+*Owner: "I need parameters in the evolution lab game to persist when I close
+the game and reopen it even if I recompile ideally." Branch
+`claude/evolution-lab-persistence-tv32nw`. Full account in README's "Lab
+parameters status".*
+
+Round three's "no save" turned out to be two gaps, and only the save *action*
+had ever been built — nowhere for it to be read back from.
+
+- **The lab never reloaded `assets/materials`/`assets/species` at startup.**
+  `params::save` already wrote a real, parsed `.ron` (found already on
+  `main`, not built this round); a save from a previous session was
+  invisible to the next one until the binary was rebuilt, which is why it
+  looked like it survived a recompile and never a plain restart.
+  `bin/lab.rs` now reloads both directories, then rebuilds the box a second
+  time on top of the fresh registry before applying anything saved — the
+  founders a saved bed places have to be seeded from the reloaded data too,
+  not only their offspring. **Confirmed live, not just by test**: a saved
+  `founders=40 colonies=3 colony_ants=52` bed opened at exactly **156
+  animals** — 3×52 — at frame 0, paused, before simulation could have
+  produced that number by any other path.
+- **`LabBox` (the bed spec) and the eight `Rule`/`Heredity` `World` dials had
+  no file at all**, and it was worse than a restart: `Lab::reset` was
+  already carrying the three damage switches across an in-session `REBUILD`
+  by hand and silently dropping all five heredity numbers on every one —
+  nothing had caught it because nothing else read them back either. Both now
+  round-trip through their own file (`scene::LabBox::save`/`load_saved`,
+  `params::Dials::save`/`load_saved`, one small struct apiece), the same
+  `S`-to-save gesture every other row already used, and `reset` now carries
+  all eight dials through `Dials` instead of three by hand.
+- **Gitignored** (`assets/lab_bed.ron`, `assets/lab_dials.ron`), on the
+  specimen shelf's own reasoning rather than `player.ron`/`explosion.ron`'s:
+  this is one player's current box, not authored content the whole game
+  ships.
+
+**Deliberately not touched:** `Knob::Heredity`'s own doc already argues
+against a species-file heredity field (it would reintroduce the
+bit-identical-sweep problem `fate_mutation_chance`'s doc records). The new
+file is a separate, gitignored, runtime-only state file rather than a
+species field, so that argument still holds and was not re-litigated.
 
 ## Deliberately not being built yet
 

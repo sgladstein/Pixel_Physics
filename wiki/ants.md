@@ -1,6 +1,24 @@
 # Ants
 
-*Current as of: 2026-09-01, when the lab learned to put **one** animal of any
+*Current as of: 2026-09-05, when it was measured that the home scent above is
+not being laid at all — see the note under "They leave smells behind". Before
+that, 2026-09-02, when biting became something a mouth can fail at —
+so a hard-shelled animal is harder to eat than a soft one, and a beetle simply
+cannot get through some of them — and when an animal that loses the middle of
+its body came apart at the bite instead of dying whole, the far half left lying
+where it fell as meat. The same day it was measured that an ant that can feel
+whether the ground under it bulges or hollows digs itself a **rounder and
+smaller** chamber than one that cannot, for the same amount of digging. Also
+2026-09-02, when it was measured that making a crowded ant dig
+harder does **not** give a colony rooms, and that its preference for unloading
+on uneven ground is about a tenth rather than the threefold this page implied.
+Also 2026-09-02: a living beetle and a living worm became things something else
+can eat, which neither had been — and a beetle that loses a cell to a bite
+stopped coming apart wrongly, which nothing could make it do before. Earlier the same day, when ants got eyes and a bill for using them,
+when home stopped being a patch of ground painted under the colony before it
+arrived, and when a creature that steps back into its own body stopped
+quietly losing its head. Before that:
+2026-09-01, when the lab learned to put **one** animal of any
 kind in the box rather than only a colony of ants, and an animal released from
 a jar stopped arriving paralysed. Before that:
 2026-08-31, when digging stopped destroying the ground it
@@ -110,9 +128,28 @@ outward from home, and the map is strongest exactly where home is. An ant
 carrying food leaves a second, different scent — a food trail — which is
 what draws other ants toward something worth having.
 
+**How long the fade lasts is no longer a fact about the species.** It used
+to be one number every ant of a kind was born with and none could change.
+Now it is part of what an ant inherits, along with which of the two scents
+it treats as the one pointing home — so a lineage can lay a longer trail, or
+a shorter one, or swap the two scents over entirely, and whether any of that
+is a good idea is for the world to decide rather than for us.
+
 Both smells fade. A path nobody walks disappears; a path everybody walks
 gets stronger. Nothing decides where a trail goes: it is just the leftovers
 of where ants have been.
+
+**Except that right now the home scent is not being laid at all, and this
+page is describing the intention rather than the box.** Measured 2026-09-05:
+the shipped ants lay none of it, ever — not a faint one, none. The food trail
+is unaffected and works as described above. What broke it was the change
+directly above this paragraph: moving the fade out of the species and into
+what an ant inherits left the inherited setting a shade too quiet for the
+engine to hear at all, so the smell is mixed at zero strength. It is one
+number in the ants' inheritance and it is written down as a known fault. Until
+it is put right, an ant finds its way home by walking rather than by
+smelling — which is worth knowing before reading anything into how a colony
+ranges.
 
 **They eat, and they carry.** A hungry ant eats what it finds. An ant that
 is not hungry picks the food up instead and tries to take it home, which is
@@ -213,6 +250,17 @@ looking at the bank rather than at the ants to see it. But it is genuinely
 enclosed ground, with soil standing over the top of it, and that is the
 thing a slumping bank can never produce.
 
+**Rooms, and why there are not any yet.** A real ant nest starts as a round
+chamber and sprouts side tunnels as it grows, and the reason is crowding: a
+small cavity packed with diggers is worked evenly all over, and once it has
+outgrown the colony the digging thins out and goes to a few spots. That was
+tried here — ants digging harder when pressed together — and it did not produce
+it. The rooms did not come out any rounder over twelve worlds, no side tunnels
+appeared, and the one thing that did change was that the colony left a *smaller*
+hollow for the same amount of chewing. So what a worked bank has in it is still
+what the paragraphs above describe: galleries branching back from the face the
+ants came in by, sized by how much fifty-odd ants can chew, and no chamber.
+
 **Water is what takes it away.** Packed ground is grains pressed together,
 and wetting it past what it can hold turns it back into loose soil that
 falls like any other. A nest driven below the water table does not survive;
@@ -220,12 +268,23 @@ one that takes on standing water loses the wettest part — the shaft it came
 in by — and keeps the deeper galleries. Nothing else threatens a burrow, so
 staying dry is the whole of what a colony is defending.
 
-**They build without being told to.** An ant carrying something is more
-likely to put it down where the ground is drying out unevenly, and more
-likely to dig where it is damp. Nobody wrote a rule that says "build a
-wall". Walls, pillars and chambers are just what happens when a lot of ants
-follow that one preference in the same place — which is, as far as anyone
-can tell, how real termites do it too.
+**They build without being told to — and the preference is far weaker than
+this page used to say.** An ant carrying something is a little more likely to
+put it down where the ground is drying out unevenly, and a little less likely
+to cut into ground that is. Nobody wrote a rule that says "build a wall", and
+that part stands.
+
+But *a little* is the honest word, and getting to it took throwing out the
+measurement this page's old claim rested on. Compared against the whole depth of
+the bank, an ant looks three times as likely to unload on uneven ground — and
+that figure survives deleting the preference entirely, because it is measuring
+the fact that an ant stands on a **surface** and a surface is uneven, rather
+than anything the ant wants. Compared against where those same laden ants were
+standing and chose *not* to put anything down, which is the only fair
+comparison, the ground they pick is about a tenth steeper. That is real, and it
+is not enough to build a wall out of: walls, pillars and chambers are something
+this preference could in principle grow into rather than something you will
+watch happen.
 
 **Ants starve now, and a colony settles at a size instead of running down.**
 An ant carries a store of energy, spends it on standing still, walking and
@@ -339,8 +398,26 @@ nothing at all, and neither does it see its own body. This is the same rule
 its mouth uses: an animal that steered toward food it cannot digest would be
 running on bookkeeping rather than on appetite.
 
-**Nothing else in the world has eyes.** Ants do not, and the ant you place
-behaves exactly as it did before this existed.
+**Ants can see now too, and they pay for it.** An ant looks about thirty
+cells — half a beetle's reach, and about twice as far as it usually wanders
+from home — and what it is looking for is *its own kind* rather than food.
+That is what replaced the nest: see below.
+
+**Looking costs food, and it costs by the cell.** An eye is not free and was
+for a while, which is a bad thing for a world where eyes are meant to be
+something a lineage can grow or lose: if seeing costs nothing, more eye is
+always better and every animal ends up with the largest eye there is,
+expressing nothing. So an animal is billed for every cell its gaze actually
+crosses. Two things fall out of that which nobody wrote down as rules:
+
+- **A full sweep of open ground costs about a tenth of a life** — the same
+  share the animal's own brain costs it. Looking hard is roughly as expensive
+  as thinking hard.
+- **Shelter pays for itself twice.** A ray stops at the first rock or bank of
+  soil, so it is only charged for what it got through. An animal standing in
+  a tunnel is both harder to see and cheaper to look out of; one sweeping an
+  open plain pays full price. Nobody designed that — it falls out of charging
+  honestly for the work.
 
 ### What it does not yet do well
 
@@ -386,6 +463,17 @@ patch along whatever surface is there and stands about fifty ants on it.
 Fifty, not one, because fewer than that does not look like ants. It follows
 the terrain, so it works on a hillside or in a cave mouth as well as on flat
 ground.
+
+**The patch is laid for an ant because an ant has a home to be laid.** That
+sentence used to be untrue: the patch went down whatever you were placing,
+which meant founding a colony painted the very thing the colony then
+appeared to discover. A creature that has no notion of home now gets animals
+on the ground and nothing else — no patch, no head start, and no gradient
+handed to it. Whether such a creature gathers anyway, and whether gathering
+turns into a place worth coming back to, is a question with an answer now
+instead of an assumption. It is quite possible the answer is that they
+wander and nothing happens; that is a real finding and it is why the
+question was asked this way round.
 
 Where it *cannot* put an ant, it puts none, and the number it managed is
 reported rather than quietly rounded up. Water is the clearest case: ants are

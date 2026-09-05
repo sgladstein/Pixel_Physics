@@ -310,7 +310,6 @@
         //
         // It has to exceed the *travel* time to the far side of the
         // foraging range, not the round trip: an ant lays this outbound.
-        nest_memory: 3000,
 
         // Measured, not assumed: pheromone.rs's trail_following_sweep puts
         // on-trail tracking at 0.817 for 6, against 0.755 at 4, 0.743 at 8

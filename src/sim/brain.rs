@@ -32,9 +32,27 @@
 
 use serde::{Deserialize, Serialize};
 
-pub const BRAIN_INPUTS: usize = 18;
-pub const BRAIN_HIDDEN: usize = 4;
-pub const BRAIN_OUTPUTS: usize = 11;
+pub const BRAIN_INPUTS: usize = 22;
+/// **Eight, not four, since 2026-09-02.**
+///
+/// Four was the whole of an animal's internal state, and `ant.ron` already
+/// spent all four on one gated pair -- so there was no room to author the
+/// odometer that replaces `since_nest`
+/// (`Reports/creature-genome-flexibility-2026-09-02.md` §4). Lawful under
+/// the reserve: `HIDDEN_SLOTS` is 64, `GENOME_LEN` does not change, and not
+/// one existing weight moves.
+///
+/// **It is not free, and the cost is the mutable surface.** `live_slots`
+/// goes 318 -> 524 with the three new senses and the `DropSpoil` verb beside
+/// it, so the same `mutation_rate` moves 65% more of the genome per birth -- a shared-budget
+/// reallocation, and `CLAUDE.md` requires the constant be re-derived as part
+/// of the work rather than inherited. It also changes the *draw sequence*
+/// `brain::mutate` walks, so two births are not comparable across this
+/// change even at a re-derived rate. `random_genome` also draws more
+/// values, so a sampled genome at a given seed is a different animal and
+/// every `creature_space` baseline taken before this is void.
+pub const BRAIN_HIDDEN: usize = 8;
+pub const BRAIN_OUTPUTS: usize = 12;
 
 /// **Reserved storage dimensions.** The live counts above say how much of
 /// the scaffold is wired; these say how much room the layout leaves it to
@@ -192,8 +210,100 @@ pub const INPUT_NAMES: [&str; BRAIN_INPUTS] = [
     "PheroBAlong",
     "PreyNear",
     "PreyBearing",
+    "KinNear",
+    "KinBearing",
+    "MoistureGrad",
+    "SurfaceCurvature",
 ];
-pub const OUTPUT_NAMES: [&str; BRAIN_OUTPUTS] = ["Turn", "Move", "EmitA", "EmitB", "Dig", "Drop", "Persist", "Tumble", "Caution", "Feed", "Impulse"];
+pub const OUTPUT_NAMES: [&str; BRAIN_OUTPUTS] =
+    ["Turn", "Move", "EmitA", "EmitB", "Dig", "Drop", "Persist", "Tumble", "Caution", "Feed", "Impulse", "DropSpoil"];
+
+/// **The genome's shape, as a stored jar remembers it.**
+///
+/// `genome_manifest` is one `u32`, which can only answer *equal or not*, and
+/// that is too blunt for the one change the scaffold is designed to allow.
+/// `INPUT_SLOTS`/`HIDDEN_SLOTS`/`OUTPUT_SLOTS` are all 64 against live counts
+/// of 18/4/11 precisely so that appending a sense lights up storage that
+/// already existed and moves **no existing weight** — but the manifest hashes
+/// the live counts, so a lawful append invalidates every specimen on the
+/// shelf anyway. Trait vectors already handle this correctly (a `Vec`, padded
+/// with the species mean when short, refused when long); the brain axis was
+/// the only brittle one, and this is it adopting its neighbour's rule.
+///
+/// **Names, not just sizes, and stored as a prefix check.** A rename or a
+/// removal already fails at *deserialisation* — the wiring is addressed by
+/// `BrainInput`/`BrainOutput` variant names, so a vanished name has nothing
+/// to parse into. What the names add here is the reorder: `io_slot` is
+/// `output * INPUT_SLOTS + input as usize`, so moving a variant moves every
+/// weight addressed by it, and a jar written before the move would be read
+/// as a different animal. A prefix is exactly "appended and nothing else".
+///
+/// **And the dimensions have to be `<=`, not equal, which is the clause the
+/// obvious form of this rule gets wrong.** Growing `BRAIN_HIDDEN` 4 -> 8 is
+/// the change this was written for, and **hidden units have no names** —
+/// they are positional, as `specimen.rs` says outright. A name-prefix rule
+/// on its own therefore still rejects every jar on precisely the change it
+/// exists to permit.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+pub struct GenomeLayout {
+    pub input_names: Vec<String>,
+    pub output_names: Vec<String>,
+    pub hidden: usize,
+    pub input_slots: usize,
+    pub output_slots: usize,
+    pub hidden_slots: usize,
+    pub genome_len: usize,
+}
+
+/// This build's layout.
+pub fn layout() -> GenomeLayout {
+    GenomeLayout {
+        input_names: INPUT_NAMES.iter().map(|s| s.to_string()).collect(),
+        output_names: OUTPUT_NAMES.iter().map(|s| s.to_string()).collect(),
+        hidden: BRAIN_HIDDEN,
+        input_slots: INPUT_SLOTS,
+        output_slots: OUTPUT_SLOTS,
+        hidden_slots: HIDDEN_SLOTS,
+        genome_len: GENOME_LEN,
+    }
+}
+
+impl GenomeLayout {
+    /// **Can this build read a genome stored under `self`?**
+    ///
+    /// `Ok` for a pure append in any of the three directions. `Err` names
+    /// the clause that failed, because "this jar predates the current brain
+    /// layout" is unactionable and "output 9 was `Feed`, is now `Impulse`"
+    /// is not.
+    pub fn accepts(&self) -> Result<(), String> {
+        let now = layout();
+        let prefix = |stored: &[String], current: &[String], what: &str| -> Result<(), String> {
+            if stored.len() > current.len() {
+                return Err(format!("{what}: the jar has {} of them and this build has {}, so it is from a newer build", stored.len(), current.len()));
+            }
+            for (i, name) in stored.iter().enumerate() {
+                if &current[i] != name {
+                    return Err(format!("{what} {i} was '{name}' when this was stored and is '{}' now -- a rename or a reorder, not an append, so its weights would be read as a different animal", current[i]));
+                }
+            }
+            Ok(())
+        };
+        prefix(&self.input_names, &now.input_names, "input")?;
+        prefix(&self.output_names, &now.output_names, "output")?;
+        for (stored, current, what) in [
+            (self.hidden, now.hidden, "hidden units"),
+            (self.input_slots, now.input_slots, "INPUT_SLOTS"),
+            (self.output_slots, now.output_slots, "OUTPUT_SLOTS"),
+            (self.hidden_slots, now.hidden_slots, "HIDDEN_SLOTS"),
+            (self.genome_len, now.genome_len, "GENOME_LEN"),
+        ] {
+            if stored > current {
+                return Err(format!("{what}: the jar was stored with {stored} and this build has {current}, so it is from a newer build"));
+            }
+        }
+        Ok(())
+    }
+}
 
 fn fnv(h: u32, b: u8) -> u32 {
     (h ^ b as u32).wrapping_mul(0x0100_0193)
@@ -453,6 +563,97 @@ pub enum BrainInput {
     /// difference of two samples of a block-nearest field at all: it is one
     /// bearing to one cell found by a ray traced at CA resolution.
     PreyBearing = 17,
+    /// **How close the nearest living animal of my own species is**, 1.0
+    /// touching and 0.0 out of sight — the same scale as `PreyNear` and for
+    /// the same reason.
+    ///
+    /// **Home stops being a material and becomes a place.**
+    /// `Reports/creature-genome-flexibility-2026-09-02.md` §4: `AtNest` is
+    /// the only sense in this suite that *pre-categorises* what it senses —
+    /// it is a contact scan for a material literally named `nest`, which
+    /// nothing creature-side can ever make, so home arrives from the scene
+    /// and placing a colony paints the precondition for the behaviour we
+    /// then observe. This is the honest generalisation: aggregation makes a
+    /// place, a place makes a gradient, a gradient makes central-place
+    /// foraging — or it does not, and that is a real finding rather than a
+    /// confirmation of our own scene painting.
+    ///
+    /// Not filtered by the gut, unlike `PreyNear`: my own kind are my own
+    /// kind whatever my diet gene says. See `is_visible_kin`.
+    KinNear = 18,
+    /// Signed turn-to-nestmate, positive to the right. `PreyBearing`'s
+    /// argument transfers word for word — *"a magnitude says there is
+    /// something, a direction says that way, and the pair makes pursuit
+    /// reachable by one connection from each"* — and aggregation is pursuit
+    /// with a different target.
+    ///
+    /// A full-circle bearing to one cell found by a ray traced at CA
+    /// resolution, which is explicitly **not** a two-point difference on the
+    /// coarse field: `CLAUDE.md`'s degeneracy, hit four times on three lines
+    /// and never once caught by a test.
+    KinBearing = 19,
+    /// **Local `|grad moisture|`, normalised** — the same number
+    /// `creature::moisture_gradient` returns, now readable by the brain
+    /// instead of only by two hardcoded multipliers.
+    ///
+    /// It was a *coefficient*: drop probability was multiplied by it and dig
+    /// probability by its inverse, so every animal in the world had the same
+    /// fixed relationship to it for ever and no lineage could evolve a
+    /// different one.
+    /// `Reports/creature-genome-flexibility-2026-09-02.md` §5 — the critique
+    /// is narrower than "it is hardcoded", because unlike the nest this
+    /// asserts a *physical fact* rather than an outcome, and the fact is
+    /// worth keeping.
+    ///
+    /// **What the fact turned out to be is not what the mechanism claims,
+    /// and this matters to anyone weighting it.** Measured 2026-09-02 with
+    /// `examples/field_sense_probe.rs`: a convex crest and a flat plateau at
+    /// the same elevation read **1.012x** apart at the shipped ±4 sample
+    /// span, and 1.003x at ±24 — so widening the sampler makes it *worse*,
+    /// not better. What this channel carries is the vertical air/soil step,
+    /// which every surface in the world has. It is a **depth** signal, not
+    /// the surface-curvature signal the termite literature it was built from
+    /// is about. That does not make it useless — depth is a real thing to
+    /// build against — but a weight on it is a weight on how deep you are,
+    /// and calling it curvature would send the next reader at the wrong fix.
+    MoistureGrad = 20,
+    /// **Signed terrain curvature under the head: convex positive, concave
+    /// negative, zero on a straight surface.** A solid-neighbour count in a
+    /// small disc, opt-in per species through
+    /// `CreatureDef::curvature_radius`; an animal that does not author one
+    /// reads a flat 0.0 and pays one branch.
+    ///
+    /// **Geometric, and that is why it exists beside `MoistureGrad` rather
+    /// than replacing it.** The moisture channel turned out to be a depth
+    /// signal (see above), and no widening of it recovers curvature. This
+    /// reads the lattice instead, so it is per-cell by construction: immune
+    /// to the block-nearest degeneracy that has cost this project four
+    /// separate bugs, and indifferent to whether the bed has any spatial
+    /// field structure at all. The lab box builds its soil at a uniform
+    /// moisture and develops only a vertical drying profile, so a
+    /// field-based curvature attempt would have been dead on arrival there;
+    /// this one works identically in a uniform bed.
+    ///
+    /// **What it is measured to do, before anyone weights it**
+    /// (`examples/spoil_curvature.rs`, 12 seeds):
+    ///
+    /// | bed | p10 | p50 | p90 | spread |
+    /// |---|---|---|---|---|
+    /// | `LabBox` | +0.000 | +0.000 | +0.000 | **0.000** |
+    /// | worked bank | -0.250 | +0.417 | +0.833 | 1.083 |
+    ///
+    /// So it is a real channel on a bank an animal has worked, and a
+    /// **constant** in the level lab bed. A weight on it does nothing
+    /// whatever in the lab, and that is a fact about the bed rather than
+    /// about the sense -- but it means a lab result on this input is not
+    /// evidence either way.
+    ///
+    /// **Flesh is excluded from the disc.** Counting it read -0.083 at every
+    /// one of 18,720 samples -- flat ground plus the ant's own second body
+    /// cell -- which is a sense that is a function of the senser. Nestmates
+    /// go with it: an ant in a crowd would otherwise read as standing in a
+    /// hollow, and `Crowding` already counts exactly that.
+    SurfaceCurvature = 21,
 }
 
 /// Which output slot. Positional and append-only, as above.
@@ -546,13 +747,45 @@ pub enum BrainOutput {
     /// verb (`creature-motion-design.md` §3): the reserve is free, the wiring
     /// is not.
     ///
-    /// **The slot after this one stays unnamed on purpose** — §4d and the
-    /// owner's call 2. The condition for spending it is written down in §4b:
-    /// the day something in the world moves a creature against its will, a
-    /// grip verb has a benefit to point at. Naming it now and changing it
-    /// later renumbers nothing but does mislead every species file that
-    /// authored the name.
+    /// **The slot after this one was held unnamed on purpose, and was spent
+    /// on 2026-09-02.** It is worth keeping the reasoning rather than
+    /// deleting it, because the condition it set is still the right one for
+    /// the *next* slot.
+    ///
+    /// It was held by §4d and the owner's call 2, against the condition in
+    /// §4b: the day something in the world moves a creature against its
+    /// will, a grip verb has a benefit to point at. That day has not come —
+    /// slot 11 went to `DropSpoil` instead, because the drop's hardcoded
+    /// moisture coefficient moving into the genome left one output carrying
+    /// two different probabilities (see `DropSpoil` below for the argument).
+    /// **A grip verb now goes to slot 12**, on the same condition and with
+    /// nothing else changed: `OUTPUT_SLOTS` is 64 against a live count of
+    /// 12, so naming it renumbers nothing.
+    ///
+    /// The caution that paragraph carried still stands and is why this note
+    /// exists: naming a slot and changing it later misleads every species
+    /// file that authored the name. `DropSpoil` is named because a species
+    /// file authors it *today*; slot 12 is not.
     Impulse = 10,
+    /// **Putting down a dug pellet, which was the same gene as putting down
+    /// food and should never have been.**
+    ///
+    /// Exactly the argument that split `Feed` out of `Dig`, one verb later:
+    /// while two acts share an output, evolution cannot select for one
+    /// against the other, and a weight added for one silently moves the
+    /// other. It bound here as soon as the drop's hardcoded moisture
+    /// coefficient moved into the genome
+    /// (`Reports/creature-genome-flexibility-2026-09-02.md` §2c and §5) --
+    /// the food drop away from home was `drop_urge * moisture_gradient` and
+    /// the spoil dump was bare `drop_urge`, so **one output was already
+    /// carrying two different probabilities** and only the Rust could tell
+    /// them apart. Re-authoring `Drop` to carry the food rule would have cut
+    /// spoil dumping fifteenfold and jammed every digger holding a pellet it
+    /// could not put down, which is `labnest`'s own failure mode.
+    ///
+    /// Appended, so `GENOME_LEN` does not change and no existing weight
+    /// moves: `OUTPUT_SLOTS` is 64 against a live count of 11.
+    DropSpoil = 11,
 }
 
 /// One authored connection, as a species file writes it:
@@ -671,6 +904,10 @@ pub const INPUTS: [BrainInput; BRAIN_INPUTS] = [
     BrainInput::PheroBAlong,
     BrainInput::PreyNear,
     BrainInput::PreyBearing,
+    BrainInput::KinNear,
+    BrainInput::KinBearing,
+    BrainInput::MoistureGrad,
+    BrainInput::SurfaceCurvature,
 ];
 /// See [`INPUTS`].
 pub const OUTPUTS: [BrainOutput; BRAIN_OUTPUTS] = [
@@ -685,6 +922,7 @@ pub const OUTPUTS: [BrainOutput; BRAIN_OUTPUTS] = [
     BrainOutput::Caution,
     BrainOutput::Feed,
     BrainOutput::Impulse,
+    BrainOutput::DropSpoil,
 ];
 
 /// A genome written back out as the four sparse lists a species file
@@ -976,7 +1214,56 @@ mod tests {
         }
     }
 
+/// **Every authored weight in every shipped species is one `eval_brain`
+    /// will actually read.**
+    ///
+    /// `wiring_from_genome` deliberately emits sub-`W_EPS` weights and a
+    /// guard above asserts it does, because such a weight is one birth away
+    /// from existing and its sign is inherited. That is right for *storage*
+    /// and it is exactly wrong for an **authored** weight: `eval_brain` gates
+    /// every input->output and input->hidden contribution on
+    /// `w.abs() >= W_EPS`, so a species file that authors one below it has
+    /// written a connection the engine does not evaluate. It reads as a
+    /// deliberate small influence and is silence.
+    ///
+    /// **`#[ignore]`d because it is red today** -- it is the reproduction for
+    /// `open-bugs-handoff.md` §Z5, kept per `CLAUDE.md`'s revert convention
+    /// rather than weakened until it passes. Both shipped odometers charge at
+    /// 0.0005 against a `W_EPS` of 0.01, so neither has ever charged:
+    ///
+    /// ```text
+    /// ant:      DEAD hidden  AtNest  -> h4 = 0.0005
+    /// ancestor: DEAD hidden  KinNear -> h4 = 0.0005
+    /// ```
+    ///
+    /// Un-ignore it with the fix. It is the whole class, not those two lines:
+    /// any future species authoring a weight the evaluator skips fails here.
     #[test]
+    #[ignore = "red until open-bugs-handoff.md §Z5 is fixed -- this is its reproduction"]
+    fn every_authored_weight_is_one_the_evaluator_reads() {
+        let world = crate::sim::world::World::new(crate::sim::chunk::Rect::new(0, 0, 63, 63));
+        let mut dead: Vec<String> = Vec::new();
+        for i in 0..world.species.len() as u16 {
+            let def = world.species.get(crate::sim::organism::SpeciesId(i));
+            if def.creature.is_none() || def.genome.len() != GENOME_LEN {
+                continue;
+            }
+            let w = wiring_from_genome(&def.genome);
+            let sub = |x: f32| x != 0.0 && x.abs() < W_EPS;
+            for x in w.instincts.iter().filter(|x| sub(x.2)) {
+                dead.push(format!("{}: {:?} -> {:?} = {}", def.name, x.0, x.1, x.2));
+            }
+            for x in w.hidden.iter().filter(|x| sub(x.2)) {
+                dead.push(format!("{}: {:?} -> h{} = {}", def.name, x.0, x.1, x.2));
+            }
+            for x in w.outputs.iter().filter(|x| sub(x.2)) {
+                dead.push(format!("{}: h{} -> {:?} = {}", def.name, x.0, x.1, x.2));
+            }
+        }
+        assert!(dead.is_empty(), "authored weights below W_EPS ({W_EPS}), which `eval_brain` skips entirely:\n  {}", dead.join("\n  "));
+    }
+
+        #[test]
     fn the_recurrence_block_is_reachable_only_through_the_fourth_list() {
         // The gap this found, made mechanical. `eval_brain` reads `hh[h]`
         // and `is_live_slot` calls those four slots live, so a sampled or
@@ -1017,6 +1304,26 @@ mod tests {
         assert_eq!(genome_from_wiring_struct(&w), g);
     }
 
+    /// **`mutation_rate` is authored per *live slot*, so it is a constant
+    /// calibrated against this number** — `CLAUDE.md`'s "fixing a bug often
+    /// exposes a constant that was compensating for it", in its second
+    /// shape: a constant calibrated against a quantity that then moved.
+    ///
+    /// Pinned so that the next append cannot silently change how much of
+    /// every genome in the world is rewritten per birth. `ant.ron`'s comment
+    /// said **268** for the whole time the true figure was 318, which is
+    /// exactly the drift a literal in prose cannot catch.
+    #[test]
+    fn the_live_slot_count_is_pinned_because_mutation_rate_is_derived_from_it() {
+        let live = live_slots().count();
+        assert_eq!(
+            live,
+            BRAIN_OUTPUTS * BRAIN_INPUTS + BRAIN_HIDDEN * BRAIN_INPUTS + BRAIN_HIDDEN + BRAIN_OUTPUTS * BRAIN_HIDDEN,
+            "live_slots disagrees with the block arithmetic"
+        );
+        assert_eq!(live, 544, "the mutable surface moved; re-derive every species' mutation_rate against it in the same change");
+    }
+
     #[test]
     fn the_genome_manifest_is_pinned() {
         // Not a checksum for its own sake: this is the thing that fails when
@@ -1038,7 +1345,28 @@ mod tests {
         // 64-wide reserve that already existed and were already zero,
         // `GENOME_LEN` is unchanged at 12,352, and not one existing weight
         // moves. This is exactly the append S2 reserved the dimensions for.
-        assert_eq!(genome_manifest(), 1_520_499_525);
+        //
+        // **Moved again 2026-09-02 by `KinNear`, `KinBearing`,
+        // `MoistureGrad`, the `DropSpoil` verb and `BRAIN_HIDDEN` 4 -> 8** (`creature-genome-flexibility-2026-09-02.md`
+        // §4, §5 and §8). Lawful on both axes and for the same reason:
+        // 18 -> 21 inputs and 4 -> 8 hidden units light up storage in reserves of
+        // 64 that were already there and already zero, `GENOME_LEN` is still
+        // 12,352, and no existing weight moves.
+        //
+        // **What this append changed that the last two did not is the
+        // meaning of `mutation_rate`.** `live_slots` goes 318 -> 524, a 65%
+        // wider mutable surface, so the same per-slot rate moves 63% more of
+        // the genome per birth. That is a shared-budget reallocation rather
+        // than a free append, and it is re-derived in the same change.
+        //
+        // **Moved again 2026-09-02 by `SurfaceCurvature`** (§5f), lawfully
+        // on the input axis exactly as the two appends above: 21 -> 22
+        // lights up one column of the 64-wide reserve, `GENOME_LEN` is still
+        // 12,352, no existing weight moves. `live_slots` 524 -> 544, and
+        // `ant.ron`/`ancestor.ron` carry the re-derived rate
+        // (0.0060687 -> 0.0058456) in this same change, holding the expected
+        // 3.18 point mutations per child.
+        assert_eq!(genome_manifest(), 1_242_463_370);
     }
 
     #[test]

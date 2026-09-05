@@ -258,6 +258,15 @@ does with an impulse rather than separate abilities.
 - **It leaves one slot in reserve**, and §3's fourth cost says the slot after
   that is a migration of every saved genome. Holding one back is itself a
   cost-and-benefit decision.
+  **Spent 2026-09-02, and not on a grip verb.** Slot 11 went to
+  `BrainOutput::DropSpoil`: the drop's hardcoded moisture coefficient moving
+  into the genome left one output carrying two different probabilities
+  (`drop_urge * moisture_gradient` for food, bare `drop_urge` for spoil), and
+  only the Rust could tell them apart — the same argument that split `Feed`
+  out of `Dig`. The condition set here was not met and still stands; **a grip
+  verb now goes to slot 12**, with `OUTPUT_SLOTS` at 64 against a live count
+  of 12, so naming it still renumbers nothing.
+  `Reports/creature-genome-flexibility-2026-09-02.md` §2c, PR #214.
 - **It is the smallest change that can fail visibly.** Given §2d's history —
   two attempts, falls at 59–80% of moves — the first airborne mechanism in
   this engine should be the one with the fewest confounds. Ship one verb, read

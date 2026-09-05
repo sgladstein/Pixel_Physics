@@ -492,6 +492,34 @@ pub struct CreatureStats {
     pub deaths: u64,
     /// Creatures that lost a body cell and survived it.
     pub injuries: u64,
+    /// **Bites refused by armour**: a mouthful this gut valued and this
+    /// mouth could not open, counted where `adjacent_food_counted` walks
+    /// the neighbourhood.
+    ///
+    /// The "did it fire at all" counter for the armour gate, and it is the
+    /// pair `CLAUDE.md` asks for beside `eats`: a bite that bounced and a
+    /// bite that was never offered are the same silence in `eats` alone.
+    /// Reads 0 in every scene that contains no armoured flesh, which is
+    /// every shipped scene bar one -- so a non-zero here is the whole
+    /// evidence that the mechanism exists.
+    pub bites_refused: u64,
+    /// **Severing events**: a creature that lost a body cell and came apart
+    /// at it, rather than merely shortening.
+    ///
+    /// Distinct from `injuries`, which counts every survived loss. A bite
+    /// that takes the last cell of a chain is an injury and not a severing;
+    /// a bite in the middle of one is both.
+    pub severings: u64,
+    /// Of `severings`, the cells that actually detached and are now
+    /// standing in the world as meat.
+    ///
+    /// **The pair is the metric, not either half** -- the same reading
+    /// `severed_organism_pieces` gets beside `severed_organism_cells` on
+    /// the plant side. One event that drops eleven cells and eleven events
+    /// that drop one are the difference between an animal coming apart and
+    /// an animal being nibbled, and `severings` alone cannot tell them
+    /// apart.
+    pub severed_body_cells: u64,
     /// **Children born to a living parent** — S6's "did it fire at all"
     /// counter, and the only thing that separates a population that is
     /// breeding from one that is merely still standing
@@ -1189,15 +1217,6 @@ pub struct World {
     /// at `free_organism`, which is the one function that decides a release
     /// really happened.
     pub dead_life: organism::LifeCounters,
-    /// **Seeds set, cumulatively, over the whole run.**
-    ///
-    /// This did not exist, and the code said so: `lab::ui`'s own seeds figure
-    /// *"walks the live organism list rather than reading a world-level
-    /// counter, because there is not one"*, and `lab::stats`' `seeds_borne` is
-    /// a **proxy** -- `fate_mutation_rolls`, which only moves when the fate
-    /// roll fires. So the only cumulative seed count in the engine was an
-    /// estimate that fell whenever a bearer died. This is the real one.
-    pub seeds_set: u64,
     /// Deaths by cause, indexed by `organism::DeathCause::index`.
     ///
     /// The far side of the run log's `died` events, and the only place §B2's
@@ -1324,6 +1343,46 @@ pub struct World {
     /// carried by a seed that never establishes.
     pub fate_mutations_applied: u64,
 
+    /// **How many births rolled for a parameter override** — the "it fired"
+    /// counter for `organism::ParamGenome`, on the same footing as
+    /// `fate_mutation_rolls`.
+    /// **Shoots launched off a root tip** — the event counter for clonal
+    /// spread (rhizomes, runners, suckers).
+    ///
+    /// **Not zero in the shipped game, and that is the finding.** Every
+    /// species authors `plastochron: [0]` on its `RootTip`, so no root ever
+    /// reaches a `Node` fate — but `FateOp::Retarget` can point the root's
+    /// **`Grew`** rule's `lateral` at a `GrowingTip`, and then every root
+    /// growth step launches a shoot. Measured on `herb`, 4 founders, 20,000
+    /// frames, three world seeds: **0 / 4 / 0 launches at the shipped
+    /// `FATE_MUTATION_CHANCE`, and 0 / 0 / 0 with it turned off** — so a
+    /// lineage can already discover a growth form nobody authored, which is
+    /// the owner's *"a flexible system that will allow variety to evolve"*
+    /// working, rarely, today. Giving the root a `plastochron` as well takes
+    /// it to 13 / 29 (`examples/genome_reach -- rhizome=1`).
+    ///
+    /// **A counter rather than a census, because a census provably cannot
+    /// answer this.** Shoot tissue below the ground line reads 1 / 3 / 2 in
+    /// the *unmodified* species — a plant whose collar was buried by a cell of
+    /// moving soil — and even four rows down the control reaches nine on one
+    /// seed. Both readings are indistinguishable from a treated arm's.
+    /// `CLAUDE.md`: *"did it fire at all" needs a counter, not a picture*.
+    pub root_shoots_launched: u64,
+    pub param_mutation_rolls: u64,
+    /// **How many of those actually changed the genome** — the effect
+    /// counter from the far side of the call, which `CLAUDE.md` requires
+    /// beside every "it fired" one.
+    ///
+    /// The two differ for three reasons and all three are real: the roll can
+    /// miss at `World::param_mutation_chance`; the genome can be full at
+    /// `organism::MAX_PARAM_OVERRIDES` and refuse a new address; and a step
+    /// can land inside `f32::EPSILON` of the value already in force, which is
+    /// the same *declined* class `FateGenome::apply` counts separately and
+    /// for the same reason — a declined operator grows the *base* plant, so
+    /// counting it as a mutation the substrate tolerated is quoting the
+    /// positive control back as a result.
+    pub param_mutations_applied: u64,
+
     /// **Leaf cells a node wanted and could not pay for** — the effect
     /// counter for `plant::LEAF_CONSTRUCTION_MULTIPLE`.
     ///
@@ -1429,6 +1488,41 @@ pub struct World {
     /// `organs_built` says fruit were made, and only this says any of them
     /// were ever dispersed.
     pub fruit_dropped: u64,
+
+    /// **Seed cells actually borne**, every one of them: the mature-cell
+    /// path (`plant::set_seed`) and the fruit drop (`plant::drop_organ`)
+    /// alike, counted where they share a floor in `plant::bear_seed_at`.
+    ///
+    /// **It exists because the obvious outside-in count of the same thing
+    /// cannot be made to work, and that took two tries to find out.** A
+    /// harness can see `OrganismState::seeds_set` on the parent and it can
+    /// watch for organism ids appearing as fresh single-`Seed` organisms;
+    /// both are keyed on the organism slot, and `World::push_organism`
+    /// re-uses the slot a dead plant just released — often in the same
+    /// frame a new seed is borne into it. So both counts miss the recycled
+    /// births, agree with each other while doing so, and disagreed with
+    /// `germinations` by more than 2x (80 seeds against 164 germinations,
+    /// which is impossible). `CLAUDE.md`'s *ask what your number counts*:
+    /// two independent instruments can share one blind spot and then
+    /// corroborate each other into a wrong answer.
+    ///
+    /// Incremented on success only, so a refused birth
+    /// (`organisms_refused`) is not counted as one.
+    pub seeds_borne: u64,
+
+    /// **Germinations on an organism that holds more than one cell** — the
+    /// discriminator for `open-bugs-handoff.md` §Z4.
+    ///
+    /// A borne seed is a fresh child organism holding exactly one cell
+    /// (`plant::bear_seed_at`), so it can never be counted here. Anything
+    /// this counts is a `CellType::Seed` that appeared on a *living* body
+    /// without going through `bear_seed_at` — a relabel in place — and each
+    /// one is a free germination on a cell nobody paid for, plus a fresh
+    /// `plant::seed_genotype` draw over an individual's existing genome.
+    ///
+    /// Zero is the expected reading. A non-zero one says `germinations` is
+    /// an overcount and by how much.
+    pub germinations_in_place: u64,
 
     /// Decay events, split by which side of `DECAY_MOISTURE_THRESHOLD` the
     /// field humidity was on when the roll was made.
@@ -1732,6 +1826,42 @@ pub struct World {
     /// setting. The lab's parameters panel writes this one; see
     /// `lab::params::Knob::Rule`.
     pub plant_load_failure: bool,
+    /// **Whether a plant may lean under load and wind.** `plant.rs`'s
+    /// `bend_under_load`, and the `stress_field` that feeds it.
+    ///
+    /// Its own switch rather than a second meaning for `plant_load_failure`,
+    /// because they are different promises to the player: that one is
+    /// *whether a plant can be pulled apart*, this one is *whether it bends
+    /// at all*. Off, a stem stands where it grew however hard the wind blows.
+    ///
+    /// **Off costs nothing rather than a little**, which is the whole reason
+    /// it is worth having as a switch: with this off and `plant_load_failure`
+    /// off, nothing consumes `stress_field` and `step_organisms` skips
+    /// building it entirely — measured at 28% of the pass. Before this
+    /// existed, `BEND=off` still paid for the field and threw it away.
+    ///
+    /// Defaults **on**, so the engine and every existing test are unchanged;
+    /// the lab box turns it off, which is where the owner asked for it off.
+    pub plant_bending: bool,
+    /// **Whether a big plant ticks less often than a seedling.**
+    ///
+    /// `step_organisms` costs almost exactly its cells (measured flat at
+    /// 3.3-6.0 us/cell across four orders of magnitude, `Reports/evolution-
+    /// lab-frame-cost-2026-09-01.md` §13.2), and on a grown tree bed
+    /// **eleven trees are 96.6% of the pass** while 676 seeds are 3.2%. So
+    /// the one lever with a large number behind it is to charge the big ones
+    /// less often, which is what this does — `PLANT_SIZE_CADENCE` bands a
+    /// plant by cell count and multiplies its tick interval.
+    ///
+    /// **It is a behaviour change and not a hidden one.** The tick *is* the
+    /// plant's economy — photosynthesis, transport, upkeep, and the budget
+    /// growth draws on — so a tree on a 4x interval does not merely update
+    /// less, it lives slower, while seeds and the CA around it keep normal
+    /// time. That is a real change to how big and small plants compete, and
+    /// it is a switch rather than a constant for exactly that reason.
+    ///
+    /// Defaults **off**, so nothing changes until it is asked for.
+    pub plant_size_cadence: bool,
     /// **How far one of a plant's ten continuous genes may drift in a
     /// generation** — the mutagen dial, read by `plant::genotype_jitter`.
     ///
@@ -1748,6 +1878,39 @@ pub struct World {
     /// test's result from another thread. **A tunable that is process-global
     /// is a hidden argument to every test that reads it.** Per-world, each
     /// test's bed carries its own and nothing leaks.
+    /// **What a plant's growth draws are keyed on** — see
+    /// [`organism::DevelopmentalKey`], which carries the whole rationale.
+    ///
+    /// Defaults to `World`, the shipped behaviour, so neither game moves
+    /// until something sets it. A field on the world for `mutation_sigma`'s
+    /// reason, stated at length above and worth restating because this one
+    /// would hit it harder: a process-global would be a hidden argument to
+    /// every test that grows a plant, and the suite runs in parallel.
+    pub developmental_key: super::organism::DevelopmentalKey,
+    /// **The deepest generation any lineage has ever reached** — a high-water
+    /// mark, never decremented, and the reason it exists is that every other
+    /// generation readout in this repo cannot answer the question.
+    ///
+    /// `examples/selection_arena.rs` records the failure in its own output:
+    /// over a 150,000-frame run the population's mean generation rose to ~2.9
+    /// by frame ~50,000 and then **fell back** — 2.88, 2.85, 2.77, 2.73, 2.63,
+    /// 2.60 — and it prints `*** THE GENERATION AXIS IS SATURATED ***` when
+    /// the span is under 3.0. Nothing is wrong with the world when that
+    /// happens. **Mean generation is taken over *living* organisms, and at
+    /// steady state deaths of old plants balance births of new ones, so it
+    /// equilibrates rather than accumulating.** Every readout in the repo is a
+    /// max or a mean over the living, so all of them do this.
+    ///
+    /// The consequence is that "did this change make lineages deeper?" was
+    /// unanswerable: a lever that doubled the birth rate would move a
+    /// mean-over-living by nothing at all. This counter accumulates, so it
+    /// can only go up, and a bed that turns over faster reaches a given depth
+    /// sooner. Pair it with `organism_turnover` for the rate.
+    ///
+    /// Zero in a world where nothing has bred, which is the honest reading
+    /// and not a bug: a founder is generation 0.
+    pub deepest_generation: u16,
+
     pub mutation_sigma: f32,
     /// **The chance a seed is born with one of its parent's fate rules
     /// changed** — the coarser of the two heredity dials. See
@@ -1757,6 +1920,27 @@ pub struct World {
     /// built, so the existing harness override still works and still cannot
     /// go stale against a prebuilt binary the way a `.ron` field would.
     pub fate_mutation_chance: f32,
+    /// **The chance a seed is born with one of its parent's species
+    /// parameters overridden** — the third heredity dial, and the one that
+    /// lets a lineage leave a number its species file authored. See
+    /// [`organism::ParamGenome`].
+    ///
+    /// A field beside the other two and for the same reason
+    /// ([`Self::mutation_sigma`]): a process global is a hidden argument to
+    /// every test that reads it, and the owner's standing direction wants the
+    /// heredity rates reachable from the lab's parameters page while the box
+    /// runs.
+    pub param_mutation_chance: f32,
+    /// **How far one parameter mutation moves**, as a fraction of what the
+    /// corpus says that parameter is worth (`SpeciesRegistry::param_scale`).
+    ///
+    /// Separate from [`Self::mutation_sigma`] because the two are different
+    /// quantities on different scales: that one is the width of a jitter on a
+    /// **unit draw** in `-1..=1`, this one is a fraction of a parameter's own
+    /// authored magnitude. One number wearing both meanings was the first
+    /// design and it is the shape `CLAUDE.md` records as *a knob nobody can
+    /// tune in either direction may be a counterweight*.
+    pub param_mutation_sigma: f32,
     /// How long a disturbance keeps licensing failures near it, in frames.
     /// Generous by default: a cave-in that arrives a few seconds after you
     /// undermine something is the mechanic, not a bug.
@@ -2454,7 +2638,6 @@ impl World {
             organisms_born: 0,
             organisms_died: 0,
             dead_life: organism::LifeCounters::default(),
-            seeds_set: 0,
             deaths_by_cause: [0; organism::DEATH_CAUSES],
             run_log: RunLog::default(),
             organisms_refused: 0,
@@ -2465,6 +2648,9 @@ impl World {
             fate_mutation_rolls: 0,
             fate_mutations_fired: 0,
             fate_mutations_applied: 0,
+            root_shoots_launched: 0,
+            param_mutation_rolls: 0,
+            param_mutations_applied: 0,
             leaf_cells_unaffordable: 0,
             leaf_cells_built: 0,
             wood_cells_built: 0,
@@ -2478,6 +2664,8 @@ impl World {
             organ_ripening_blocked: 0,
             organ_ripening_paid: 0,
             fruit_dropped: 0,
+            seeds_borne: 0,
+            germinations_in_place: 0,
             decayed_damp: 0,
             decayed_dry: 0,
             rotted_to_solid: 0,
@@ -2501,8 +2689,14 @@ impl World {
             // On, because it is the shipped behaviour and a default that
             // silently disables a mechanism is a mechanism nobody measures.
             plant_load_failure: true,
+            plant_bending: true,
+            plant_size_cadence: false,
+            developmental_key: super::organism::DevelopmentalKey::default(),
+            deepest_generation: 0,
             mutation_sigma: super::plant::MUTATION_SIGMA,
             fate_mutation_chance: super::plant::fate_mutation_chance_seed(),
+            param_mutation_chance: super::plant::param_mutation_chance_seed(),
+            param_mutation_sigma: super::plant::PARAM_MUTATION_SIGMA,
             chain_window: crate::sim::structural::CHAIN_WINDOW_FRAMES,
             disturbances: std::collections::VecDeque::new(),
             staged_fractures: std::collections::VecDeque::new(),
@@ -3024,6 +3218,23 @@ impl World {
             born_frame: self.frame,
             life: organism::LifeCounters::default(),
             senescence_cause: organism::DeathCause::Unknown,
+            // **Founders carry no overrides**, which is what makes the
+            // parameter genome inert until something breeds — see
+            // `organism::ParamGenome`. `plant::bear_seed_at` overwrites this
+            // with the parent's mutated copy for a bred seed, in the same
+            // call, exactly as it does for `fates`.
+            params: super::organism::ParamGenome::default(),
+            // **Stamped later, not here**, and the two have different
+            // owners: `plant::seed_genotype` draws `lineage_seed` for a
+            // founder, `plant::bear_seed_at` copies the parent's for a bred
+            // seed, and the germination paths stamp `dev_seed`/`origin`/
+            // `germination_frame` once the plant knows where it is. A
+            // creature keeps all four at their zero values and never reads
+            // them.
+            lineage_seed: 0,
+            dev_seed: 0,
+            origin: None,
+            germination_frame: 0,
             water: 0.0,
             water_status: 1.0,
             water_uptake: 0.0,
@@ -3324,6 +3535,52 @@ impl World {
         (self.organisms_born, self.organisms_died)
     }
 
+    /// **Re-fold every standing plant's developmental seed**, for when the
+    /// dial moves under a box that is already growing.
+    ///
+    /// `dev_seed` is stamped once at germination, from the coarseness in
+    /// force at that moment — which is right for the hot path (it is read
+    /// once per organism cell per tick) and wrong for a live control. Without
+    /// this, moving the dial from 0 to 2 would leave every plant already
+    /// standing folded at the *old* setting: they would switch to the plant
+    /// key, as intended, but at coarseness 0 rather than 1, so the box would
+    /// be running two different rules at once and the dial would be lying
+    /// about what it did.
+    ///
+    /// One pass over live organisms per dial move, which is a keypress rather
+    /// than a frame. Plants with no origin — creatures, and anything that
+    /// never went through a germination path — are skipped: they have no
+    /// coordinate to fold and `growth_stream` falls back to the world key for
+    /// them anyway.
+    pub fn refold_developmental_seeds(&mut self) {
+        let key = self.developmental_key;
+        for id in self.live_organism_ids() {
+            if let Some(state) = self.organism_mut(id) {
+                if let Some((gx, gy)) = state.origin {
+                    state.dev_seed = key.fold(state.lineage_seed, gx, gy);
+                }
+            }
+        }
+    }
+
+    /// **How deep the pedigree has ever run, and how many births it took** —
+    /// the cumulative generation clock.
+    ///
+    /// Returns `(deepest_generation, births, live)`. Read the first against
+    /// the frames it took: *generations per hour* is what the parameter
+    /// genome's whole search depends on, because one point mutation per birth
+    /// spread over 804 addresses on a lineage two generations deep is a
+    /// search that cannot arrive.
+    ///
+    /// **`births / live` is the second half and it is not redundant.** A bed
+    /// can turn over briskly and still never deepen, if every recruit dies
+    /// before breeding — high births, flat depth. A bed can also deepen with
+    /// almost no births if one lineage runs away. The pair separates them;
+    /// either alone does not.
+    pub fn generation_clock(&self) -> (u16, u64, usize) {
+        (self.deepest_generation, self.organisms_born, self.live_organism_ids().len())
+    }
+
     /// How many organism slots are currently allocated, and how many of
     /// those are live — the high-water reading the 4,095 ceiling is judged
     /// against.
@@ -3374,6 +3631,126 @@ impl World {
         match self.organism_mut(organism_id) {
             Some(state) => {
                 state.fates = fates;
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// **Set one organism's whole heritable genome** — the continuous draws,
+    /// the discrete alleles, and its parameter overrides — and freeze it
+    /// against redraw.
+    ///
+    /// The same harness seam as [`Self::set_organism_fates`] and added for
+    /// the same reason: a question that needs **one bed and two genomes**
+    /// cannot be asked by registering variant species, because that makes the
+    /// arms differ in their species table as well as in their genome.
+    ///
+    /// It exists for `examples/clone_variance.rs`, whose whole question is
+    /// *how much of the difference between two plants is their genome and how
+    /// much is where they stood* — which needs a stand of genetically
+    /// identical individuals, and `plant::seed_genotype` keys a founder's
+    /// draws on its **germination coordinate**, so no two founders of a
+    /// normal stand can be clones.
+    ///
+    /// **Sets `inherited`, and that is not optional.** `seed_genotype` runs
+    /// at germination and redraws the whole genome unless the organism is
+    /// marked as having received one; a harness that writes draws into a
+    /// seed and does not set this has them silently overwritten the moment
+    /// the seed sprouts, which reads as *the clone arm behaved exactly like
+    /// the control* — a null indistinguishable from the finding.
+    ///
+    /// Returns whether the organism was live.
+    pub fn set_organism_genotype(
+        &mut self,
+        organism_id: u16,
+        draws: [f32; super::organism::GENOTYPE_TRAITS],
+        alleles: [u8; super::organism::DISCRETE_LOCI],
+        params: super::organism::ParamGenome,
+        lineage_seed: u64,
+    ) -> bool {
+        // Read before the mutable borrow below takes `self`.
+        let key = self.developmental_key;
+        match self.organism_mut(organism_id) {
+            Some(state) => {
+                state.genotype_draws = draws;
+                state.alleles = alleles;
+                state.params = params;
+                // **The lineage seed rides with the genome, and leaving it
+                // out would make the clone arm vacuous.** Under
+                // `DevelopmentalKey::Plant` this decides which shape a genome
+                // grows into, so a harness that writes the draws and not this
+                // produces founders carrying one genome and N different
+                // developments -- which is a clone stand that is not one, and
+                // it reads as *the change did nothing*. That is precisely how
+                // the `ref=` argument was inert for a whole night
+                // (`Reports/plant-engine-rethink-2026-09-03.md` §2.1).
+                state.lineage_seed = lineage_seed;
+                // `dev_seed` follows from it, but the origin is only known
+                // once the plant has germinated; a founder written before
+                // then gets it stamped by the germination path, and one
+                // written after keeps the fold it already had.
+                if let Some((gx, gy)) = state.origin {
+                    state.dev_seed = key.fold(lineage_seed, gx, gy);
+                }
+                state.inherited = true;
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// **This organism's parameter overrides** — the census half of the
+    /// parameter genome, so a harness can ask *what did this population
+    /// actually move* without `OrganismState` becoming public.
+    ///
+    /// `CLAUDE.md` requires an "it fired" counter to be paired with an effect
+    /// counter from the far side of the call; `World::param_mutations_applied`
+    /// is the first and this is the second — a rate that fires and a
+    /// population that carries nothing are different findings and look
+    /// identical without it.
+    pub fn organism_params(&self, organism_id: u16) -> Option<super::organism::ParamGenome> {
+        self.organism(organism_id).map(|s| s.params)
+    }
+
+    /// The genome this organism is carrying — the read half of
+    /// [`Self::set_organism_genotype`], so a harness can copy one individual
+    /// onto another rather than inventing a genome.
+    pub fn organism_genotype(
+        &self,
+        organism_id: u16,
+    ) -> Option<([f32; super::organism::GENOTYPE_TRAITS], [u8; super::organism::DISCRETE_LOCI], super::organism::ParamGenome, u64)> {
+        self.organism(organism_id).map(|s| (s.genotype_draws, s.alleles, s.params, s.lineage_seed))
+    }
+
+    /// **Overwrite one live organism's brain genome**, for a harness that
+    /// races two genomes in one bed.
+    ///
+    /// The sibling of `set_organism_fates` above, and it exists for the same
+    /// reason that one does rather than the obvious alternative: registering
+    /// each arm as its own *species* would make the two arms differ in the
+    /// species table as well as in the genome, and half the creature tick
+    /// consults `CreatureDef` — `tick_interval`, `sight_range`,
+    /// `idle_cost_per_cell` — so the arms would no longer differ only in the
+    /// thing under test.
+    ///
+    /// **Length is checked rather than trusted.** A genome of the wrong
+    /// length does not fail loudly anywhere downstream: `eval_brain`
+    /// indexes by slot and a short vector would panic deep inside a tick,
+    /// while a long one would simply carry weights nothing reads. Both are
+    /// worse than a refusal here.
+    ///
+    /// Returns whether the organism was live — `false` for a stale or
+    /// recycled handle rather than a panic, matching `organism`.
+    pub fn set_organism_genome(&mut self, organism_id: u16, genome: Vec<f32>) -> bool {
+        assert_eq!(
+            genome.len(),
+            super::brain::GENOME_LEN,
+            "a genome is always exactly GENOME_LEN; a short one means a slot layout changed under this caller"
+        );
+        match self.organism_mut(organism_id) {
+            Some(state) => {
+                state.genome = genome;
                 true
             }
             None => false,

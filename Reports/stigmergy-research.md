@@ -157,6 +157,23 @@ the one a naive implementation will omit.
 
 **This is the most important section in this file for the current plan.**
 
+> **STATUS 2026-09-02: the engine does not implement this section, and the
+> reason is measurable rather than a tuning gap.** The literature below is
+> unchanged and is still what the design is aimed at; what changed is a
+> reading of what shipped. `creature::moisture_gradient` — the channel built
+> to carry the evaporation-flux/curvature bias this section describes — was
+> measured with `examples/field_sense_probe.rs` on a bed built to have
+> curvature, and a convex crest reads **1.012x** a flat plateau at the same
+> elevation (1.003x if the sampler is widened to ±24). It carries the
+> vertical air/soil step, which every surface has, and is therefore a
+> **depth** signal. Deposition does follow it, and pillars and galleries do
+> appear — but not for the reason stated here, so *"deposition follows
+> curvature"* is not a premise anything may be built on until a channel
+> carrying surface shape exists. Full numbers on
+> `creature::moisture_gradient`;
+> `Reports/creature-genome-flexibility-2026-09-02.md` §5 carries the same
+> status line.
+
 The classical model of termite construction assumes a **cement pheromone**: a
 chemical added to deposited material that stimulates further deposition nearby,
 producing the positive feedback that grows pillars. Deneubourg's 1977

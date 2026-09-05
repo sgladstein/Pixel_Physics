@@ -912,6 +912,29 @@ drift that two of these documents still reflect.**
   already the best of the values tested, and a nine-cell pale body puts less
   on screen than the shipped two-cell dark one. The creature-side answer to
   `plant-appearance-design.md`.
+- [creature-shape-reachability-2026-09-02.md](creature-shape-reachability-2026-09-02.md)
+  — **measurement only, no body plan built.** Three pre-checks for
+  `creature-genome-flexibility-2026-09-02.md` §13's articulated-body
+  proposal, run before anyone designs one. A rigid footprint's blocked-move
+  rate is set by **width**, not height or cell count, and it is a step
+  rather than a gradient: ≤2 cells wide blocks 8-13% median (12 seeds), ≥3
+  wide blocks 47-58% median, on `rolling`. The never-measured 2x2 (the
+  shipped `beetle`) lands at 12.4% median. Both taper directions (small
+  head/big abdomen and its mirror), measured as monolithic 14-cell bodies,
+  land at the same ~54-57% regardless of which end carries the wide part —
+  the floor a genuinely decoupled body would be measured against, since a
+  wide part cannot benefit from a narrower part's cleared ground whichever
+  end it sits at. So articulation's measured value is **length at
+  near-chain mobility, provided every part stays ≤2 cells wide** — not the
+  wide "small head, big abdomen" insect silhouette the proposal reaches for,
+  which costs the same as a plain rigid block with or without articulation.
+  Separately, shape at constant extent (a filled 6x6 block against a
+  waisted 36-cell "insect") still moves nothing measurable on `ink` (~0.5%
+  median, not the ~15% a legibility-threshold-crossing would predict) —
+  `creature-appearance-design.md`'s 9-cell finding generalises to 36 rather
+  than being a small-size artifact. A blind gallery card of six candidate
+  silhouettes is posted and unanswered as of this report
+  (`20260902T194120383Z-3860b1`).
 - [creature-gates-to-mechanism-2026-08-31.md](creature-gates-to-mechanism-2026-08-31.md)
   — **built and landed 2026-08-31, PRs #190, #192, #194.** The authored
   eat-vs-carry gates come out: a crop that digests as the animal walks
@@ -937,6 +960,43 @@ drift that two of these documents still reflect.**
   *tidier than the truth*. Corrects `larder-reachability-2026-08-30.md` and
   supersedes `creature-gate0-births-2026-08-30.md`'s mechanism (below).
   Ships `predation_probe mode=range` and `LabBox::predators`.
+- [armour-severing-curvature-2026-09-02.md](armour-severing-curvature-2026-09-02.md)
+  — **built**, executing `creature-genome-flexibility-2026-09-02.md` §11 and
+  §5f. Three of its five findings are nulls or reversals and those are the
+  useful part. **The rider first: `creature_arena`'s default horizon is
+  shorter than the founding grant**, so at `frames=9000` a *random* genome
+  beats the authored ant in 8 of 12 seeds and at 18,000 it loses 12 of 12 —
+  the harness prints that warning one line above the table that contradicts
+  it, which is the general shape of *a guard that prints and does not stop*.
+  **Armour** routes the bite through the dig's own force-vs-resistance test,
+  with the seventeen food materials priced from the shipped forces (§11b says
+  sixteen; `ancestor.ron` was missed); the gate lives in `Gut` rather than at
+  the bite, because gating at the bite builds a starvation trap out of
+  `adjacent_food` returning the *best* mouthful. **Severing** replaces
+  reconcile_chain's kill rule with an 8-connected walk — and **has never fired
+  in any shipped scene** (0 severings against 20 injuries in
+  `predation_probe`), because a two-cell ant has no middle, which is §11e's
+  own prediction arriving as a measurement. **The curvature sense ships with
+  three findings that generalise.** Its sensor read *exactly* −0.083 at all
+  18,720 samples until flesh was excluded — it was counting the ant's own
+  second body cell, a sense that is a function of the senser. It is a
+  **constant in `LabBox`** (spread 0.000, the bed is level) and alive on a
+  worked bank (1.083), so a lab null on it means nothing. And the lever's
+  first positive was the §14g confound exactly — `digs` down 12 of 12, the
+  weight buying shape by digging less — which rate-matching collapses to a
+  coin flip. **The control that makes it readable is new**: curvature on a
+  bank has a positive median, so a positive weight is also a constant offset;
+  `PIXEL_PHYSICS_CURVATURE=flat` holds the mean and removes only the spatial
+  variation, and against *that* the live arm is rounder in 10 of 12 and
+  smaller in **12 of 12** — the offset alone moving size the other way. **And
+  the authored weight stays at 0.169 anyway**, because 0.5 turns three shipped
+  guards over ordinary behaviour red — a stronger drop urge is a stronger drop
+  urge *everywhere*, so the ant sheds its load before carrying it anywhere.
+  The lever's working range and its visible range do not overlap, which is the
+  shared-budget rule arriving as a measurement. Ships `examples/spoil_curvature.rs`, `burrow_probe curvdrop=`,
+  a scene assertion on `field_sense_probe mode=lab` (whose default horizon was
+  censusing a starved-out colony), and `bite_force` / `curvature_radius` on
+  `CreatureDef`.
 - [creature-genome-flexibility-2026-09-02.md](creature-genome-flexibility-2026-09-02.md)
   — **design, not built.** The owner's standing objection re-raised and scoped
   to the **lab**: *"I don't like that we have directly encoded there being a
@@ -958,10 +1018,19 @@ drift that two of these documents still reflect.**
   both cost paths went per-cell on 2026-08-30. §5 keeps the moisture gradient
   and explains why — it asserts a *physical fact* (Facchini 2024: deposition
   tracks evaporation flux, which tracks curvature; no cement pheromone) rather
-  than an outcome — while reporting a dated finding: **`moisture_gradient`
-  samples at ±4 cells and `FIELD_SCALE` doubled 8 → 16 on 2026-08-30**
-  (`ca7e9042`), one day after those offsets were last touched, so the sampler
-  was never re-derived. §9 is why the **creature Gate 2 does not exist** and
+  than an outcome. **§5 was revised 2026-09-02 after `field_sense_probe`
+  measured that the shipped channel does not implement it**: curvature moves it
+  1.012x at the shipped ±4 span and **1.003x at ±24**, so widening the sampler
+  moves *toward* 1.0. It is a **surface-proximity detector** — moisture is
+  sourced by damp soil and blocked by solids, so `|∇m|` peaks at the air/ground
+  interface — which makes the shipped rules read *drop when you surface, dig
+  once you are inside*. The consequence that matters is structural: Facchini's
+  mechanism is self-amplifying (deposit raises curvature, curvature attracts
+  deposit) while a surface detector is self-neutralising, so **this signal
+  yields accretion and can never yield architecture, at any coefficient in any
+  genome**. §5f keeps the surviving half of the argument — the response still
+  belongs in the genome — and recommends adding a discrete curvature signal
+  beside it, cheaply, from a solid-neighbour count. §9 is why the **creature Gate 2 does not exist** and
   must come first: `labbatch` puts the seed alone at **2.42×–3.12×** on the lab
   census with no true effect present. **§11 is predation and defence**, on the
   owner's ruling that size should buy survival: the encoding has no predator
@@ -994,6 +1063,47 @@ drift that two of these documents still reflect.**
   the owner's "perfect cube" is a shape reading at 36 cells — carries the
   finding that **no instrument here measures whether something reads as an
   animal**, so this lever is judged by blind A/B and not by a number.
+  **§14 is the one to read if what you want is rooms**, and it corrects §5g: a
+  chamber is **dug, not built**, so the spoil-placement rules were the wrong
+  thing to argue with, and `line_burrow` already cements an excavation's walls
+  into `self_supporting` ground — the engine can hold a room open, nothing digs
+  one. The mechanism is `stigmergy-research.md` §5 (Toffin et al., *PNAS* 2009,
+  controlled for heterogeneity): high worker density on a small perimeter gives
+  **uniform digging and a round chamber**, and as the cavity outgrows the colony
+  density falls and **localized buds sprout into tunnels**. That note's own
+  conclusion — *"this needs no new channel at all"* — has stood unacted on since
+  2026-08, and `BrainInput::Crowding` is exactly the density it names, **wired
+  to `Move` and nothing else** in every species file. So rooms are plausibly one
+  instinct weight, `(Crowding, Dig, w)`. The measurement it needs is the half
+  `burrow_probe` cannot give: it counts **roofed void**, a volume, while the
+  finding is entirely about **shape** — a round chamber and a ramified warren of
+  equal size are the same number and opposite results. **§14 was then built and
+  the recommendation withdrawn (PR #216)**: the weight is out of both species
+  files, which are comment-only diffs against `main`. Running the twelve seeds
+  the review asked for found first that `burrow_probe` **could not produce more
+  than seven colonies** — founder placement walked out of the valid region past
+  seed 7 and read `digs 0` in *both* arms, which looks exactly like an effect
+  vanishing at larger samples — and then that the result does not survive:
+  **4 of 4 seeds became 16 of 33 seed pairs**, with the sign reversing between
+  colony sizes, and the interaction test reading −0.316 wired against −0.333
+  ablated. The one effect that survived is the *opposite* of the goal — a
+  smaller cavity for more digging. §14g and §14h record it, including that the
+  positive control the section specified could not fail and that its confidence
+  was inverted: the half it called confident is the half that reversed.
+  **§14i then asks how much the null establishes, and finds one thing nobody
+  noticed:** `Crowding` is clamped at 1.0 and ran mean **0.995 → 0.675** with
+  the max pinned, so a mechanism that is specifically about density falling
+  *below a critical value* was measured over a sensor that spent the run near
+  its ceiling — and the pre-check that passed asked *"is this a dead channel?"*
+  rather than *"does it reach the regime the model is about?"*, which is the
+  vacuous-control error in a third costume. **The general finding is bigger than
+  the ants**: this repo has extensive machinery for not trusting a *positive*
+  and almost none for not trusting a *null*, and the question that belongs
+  beside every null — **what effect size would this design have detected?** —
+  was not asked. The standing check it proposes: **an input that never leaves
+  saturation cannot demonstrate a mechanism about its low end**, so assert the
+  driving input's realised range as a precondition and refuse the run, the way
+  `creature_arena` refuses a verdict inside the founding grant.
   **Independently reviewed 2026-09-02 and revised; §16 is the errata and is the
   most reusable section in the file.** The review found four confirmed errors,
   and three of them came from checking a claim against a *neighbouring* file
@@ -1829,6 +1939,30 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   solves for movements of at most 20 bytes in 18,193**, which is the headroom
   nobody has taken and is a harder change than this one.
 
+- [lab-race-verb-2026-09-02.md](lab-race-verb-2026-09-02.md) — **design, not
+  built.** The owner's question: is `creature_arena` a player feature or only a
+  dev tool? **Both, and they are two surfaces over one engine.** The game
+  feature is a **tournament between two shelf jars**, and it closes the loop the
+  specimen shelf left open — you can already keep, clone and mutate a creature
+  and have no way to find out whether the mutant is any good. **It is also fast
+  enough to watch**, which is the fact that changes the answer: a valid run is
+  24,000 frames and the dial does 12 ticks per displayed frame, so a match is
+  **~33 seconds**, not a batch job. §3 is the part that must not be softened —
+  the mirror runs invisibly and is never optional (`arm=same mirror=off` reads
+  **42.9%–70.0%** on position alone), the founding-grant horizon is **enforced
+  rather than warned** (at 9,000 frames a brain with every weight zeroed wins
+  **65.8% on 4 of 4 seeds**, so a player racing short concludes their worst
+  creature is their best), and one race is a coin flip against a **2.42×–3.12×**
+  seed spread — which turns out to make the feature *better*, because the honest
+  readout is a **best-of-N** rather than a single match. §5 finds the UI answer
+  already precedented: the bar is measurably full at seven, but `WALL` reached
+  the tree by key alone with no bar cell, and `Tool::Release` has no button at
+  all, so **RACE belongs on the rack page**, where jar actions already moved. Flags that `arm=random` rests on
+  **six seeds** and needs twelve before it becomes a player-facing benchmark,
+  and that a race is a verdict and therefore edges into the deliberately
+  deferred Gate 5. **The guard before it ships: race a jar against itself and
+  check it comes back at the null** — if a creature beats itself, every verdict
+  the feature has shown is void.
 - [evolution-lab-frame-cost-2026-09-01.md](evolution-lab-frame-cost-2026-09-01.md)
   — **measured and landed 2026-09-01.** The first performance review of the
   **lab's own** frame; every earlier one in this index is an outdoor
@@ -1856,7 +1990,163 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   that the measurement could not — a phase written into `frame::step` is
   invisible to the **155 call sites** that drive the world through a CA driver
   directly, and a chunk-local prefilter over the moisture region is *slower*
-  because 88% of that region is soil.
+  because 88% of that region is soil. **§9 re-measures it on main 2026-09-03**
+  after 81 commits: the owner's "performance got a lot worse" reproduces and is
+  **not** a regression in any of this -- every phase holds except
+  `active_sites`, which is 4.5x because the box got 2.7x more fertile and each
+  organism 1.7x dearer. Its most transferable finding is a measurement trap:
+  **the default 8-founder bed reports that regression as a 1.3x improvement**,
+  because `bin/lab.rs` opens empty and the bed being played is not the bed being
+  measured. **§10 and §11 narrow it to the regime the owner plays** (collapse
+  off), where nothing got dearer at all -- `active_sites` per plant cell is
+  unchanged at ~0.15 us and simply charged over a 2.5x larger stand. **§12 is
+  the fix, built 2026-09-03**: `plant::step_organisms` **3.74 -> 2.79 ms**,
+  `active_sites` **1.24x**, the whole tick **1.15x** and the dial **3.0 ->
+  3.5x**, with a **byte-identical world hash** on both settings of the collapse
+  switch. Two findings outlast the numbers. **`ORGANISM_PASS` was off by ~50x**
+  because it printed one sampled frame of a *staggered* schedule -- it caught
+  14 one-cell organisms and reported the pass at 0.08 ms against a true 3.74 --
+  and it had no slots for the three calls that turned out to dominate. And **a
+  binary search over an already-sorted list is slower than the `HashMap` it
+  replaces** at these sizes (0.152 -> 0.292 ms on one pass): the cost was never
+  the container, it was reading the world through it, and only measuring the
+  two halves of the change separately shows that. **§13 profiles the tail
+  (2026-09-03) and overturns its own premise**: the heavy tail is *entirely*
+  `active_sites` (0.37 ms in the cheapest half of frames against 44.0 in the
+  worst, while `field` is flat at 0.9-1.2 in every band), but **flattening a
+  tail cannot move the speed dial** -- the dial reads the mean and the mean is
+  total work however it is spread, so a tail is a hitching complaint and not a
+  throughput one. What the profile is *for* is targeting, and the size curve
+  behind it is the finding: **eleven trees are 96.6% of all organism work and
+  the other 676 organisms are 3.2%**, with `us/cell` **flat** across four
+  orders of magnitude of organism size. So every framing that reasoned from
+  organism *count* was counting the 97% that does not matter, there is no
+  super-linearity to exploit, and **optimisation alone does not reach 10x on
+  this bed** -- roughly 5-6x, with the rest a design decision about how many
+  plant cells the box holds. **§14 takes that design decision and corrects
+  §13's ceiling** (2026-09-04). The owner's design -- a plant waits longer
+  between ticks the bigger it is -- measures **2.25x -> 5.95x median over ten
+  seeds, every seed faster, per-seed ratio median 2.73x and worst 1.68x**, and
+  the box does not die anywhere: it holds +7% biomass and **1.60x the leaf** in
+  a third as many plants, with no overlap at all on leaf between the arms. The
+  ceiling was wrong because §13 read `field` being *flat across the tail bands*
+  as *independent of the plants*; it is not, and the owner's own control (an
+  empty lab runs at **1024x**) is what refuted it -- `ca_sweep` and `field`
+  both fall alongside a change that touches neither. What it costs is
+  **fecundity**: the tick is the plant's economy, so a tree on a 5x interval
+  seeds 5x more slowly. Landed on the owner's *"looks good"* and **scoped to
+  the lab bed**, engine defaults untouched. **§15 then retires the field as a
+  target**: both items §8 handed forward are stale -- the moisture pass it
+  wanted a `ChunkView` for costs **0.006 ms**, and the all-or-nothing early-out
+  it wanted replaced now solves **25 tiles of ~640 (4%)** -- so a
+  handed-forward estimate is a measurement of the build it was taken on, and
+  this one outlived its build by two sections. The next item instead comes
+  from the owner's CPU meter reading 40%: `scheduler.rs`, `plant.rs`,
+  `creature.rs` and `structural.rs` contain **no rayon at all**, so
+  `step_active_sites` is serial, and Amdahl on 4 cores predicts exactly the
+  utilisation observed. Also records that the **draw is not the limiter**
+  (2.59 ms/frame at 512x320, worth 16% of the dial) and that `FIELD_PASS` had
+  the same one-frame sampling defect as `ORGANISM_PASS` -- **three instruments
+  in one session**.
+- [plant-reseeding-2026-09-03.md](plant-reseeding-2026-09-03.md) —
+  **measured 2026-09-03.** Answers the owner's two questions about why the
+  lab's plants never spread. **Q1: no, a plant cannot evolve better seed
+  spreading here, and it is a missing channel rather than a tuning gap** —
+  not one step of a seed's journey has a heritable dial and two of the three
+  have no dial at all. Wind reaches gases only; `roll_along_slope` gives a
+  `seed` a reach of **0.70 cells**; `friction_angle` is a material property;
+  and the ten continuous slots and six discrete loci contain nothing about
+  seeds. The one indirect lever, crown width, is **off by construction on
+  `herb`**: every slot is a multiplier on an authored constant and
+  `branch_chance` is `[0.0, 0.0]`, so no mutation can make a herb branch.
+  **Q2: no, dispersal is not the only reason, and it is not the largest** —
+  scattering every seed to a random column is worth ~1.5x germination and
+  ~1.3x coverage, against three bigger effects measured here for the first
+  time: only **`soil` and `packedsoil` declare `water_capacity`** in the whole
+  material set, so 313 of 332 standing seeds rest on ground that reads bone
+  dry for ever (and **183 of them are resting on the parent plant**, not on
+  the seed pile the report was expected to find); the grow lamps leave
+  **32-column dead bands at 0.69 against 2.40**, in which **4 of 4** founders
+  die without setting one seed, and `LabBox::spread(1)` puts a single founder
+  in one; and the shipped colony is a **seed predator**, cutting the stand
+  2.6x and the coverage in half. Ships `examples/reseed_probe.rs` and
+  `World::seeds_borne`, and files [`open-bugs-handoff.md`](open-bugs-handoff.md)
+  §Z4 — germinations exceeding the seeds that ever existed, 164 against 79.
+  **§6, same day, on the owner's direction: the bench is now evenly lit and
+  §Z4 is fixed.** Fifteen fixtures tile the ceiling instead of eight standing
+  apart, bench light **0.36–2.40 → 1.95–2.40**, and over four world seeds
+  plants alive **+38%**, established **+67%**, and plants that reached ground
+  more than 15 columns from a founder **4.1x** — a spreading number moved by a
+  *lighting* change, because seeds could not cross the gap and there was
+  nothing for them if they did. A founder at column 256 survives on 4 of 4
+  where it survived on 0 of 4. The cost is nothing: with `founders=0` the two
+  lighting arms time identically at 0.025 ms/frame, and the 0.36 ms the
+  planted run adds is a 3.3x larger stand. §Z4's mechanism is named by
+  `World::germinations_in_place` (108 of 164 on the runaway arm, **5 of 336 on
+  the shipped bed**, so it was live on `main`) and fixed at the one fate
+  lookup, without narrowing what a lineage can reach.
+
+- [plant-engine-rethink-brief-2026-09-03.md](plant-engine-rethink-brief-2026-09-03.md)
+  — **a brief, not a report, written 2026-09-03 for an unattended overnight
+  session on the plant engine.** The owner's thesis is its spine: *"nothing
+  should be hard coded, we don't want to design specific behavior but create a
+  flexible system that will allow variety to evolve"*, with explicit
+  authorisation to reconsider closed decisions and to recommend a full
+  overhaul. Deliberately sets direction and constraints rather than steps. Its
+  most reusable part is the **inventory of where the design currently lives** —
+  a genotype is ten scalars *multiplying* authored species constants, `CellType`
+  and `Behavior` and `FateWhen` are closed enums, a tip scores on a fixed set of
+  six terms, allele meanings are authored tables, a species names six materials
+  none of which are heritable, and the species id is copied to offspring
+  unchanged so **speciation is impossible by construction**. The fate genome is
+  the one place the engine already does what the thesis asks, and it is the
+  existence proof. Carries the standing constraints (the outdoor-game line, the
+  positive-control rule, frame cost) and a reading map that says which of the
+  four 60k–97k documents not to open whole. **It deliberately imposes no
+  hold-back on shipping**: the draft carried one, requiring a review card
+  before any change that reallocates a weighted budget, and the owner removed
+  it by hand in `87a2c35c` — which is the brief's own autonomy clause applied
+  to the brief. `why-changes-cost-so-much-2026-08-27.md` survives in the
+  reading map as evidence a session may weigh, not as a gate it must pass.
+- [plant-engine-rethink-2026-09-03.md](plant-engine-rethink-2026-09-03.md) —
+  **measured and built 2026-09-03**, the overnight answer to the brief above.
+  Two instruments and one mechanism. **`examples/genome_reach` censuses what a
+  lineage can reach**: the continuous genome is `base * (1 + draw*variance)`
+  with both `base` and `variance` authored per species and never inherited, so
+  the reachable set is a closed interval fixed when the `.ron` is written and
+  **an authored zero is a cage** — 3 of 70 (species x slot) cells are caged,
+  60 live, 7 have no consumer at all, and `moss` has no `Grow` so **none** of
+  its ten slots is expressed. Its `grow=1` arm widens one slot to its maximum
+  and hashes the whole grid, which corrected the static table before it landed:
+  **a slot can have two consumers**, and slot 1 divides `branch_priming` as
+  well as multiplying `branch_chance`, so the three species reported unable to
+  evolve a branching root system can. **`examples/clone_variance` splits a
+  stand's spread into genome and position**, and is the reply to the owner's
+  *"clones of the same plant end up growing very different"*: **broad-sense
+  heritability of plant size is 0.013 / 0.054 / 0.000** over three reference
+  genomes, against a positive control reaching 0.75–0.82 on foliage share — so
+  a clone stand is 99% as variable in size as a stand of different genomes,
+  composition is the heritable half, and **size is the least heritable thing
+  the engine produces within a species**. The consequence, which reframes the
+  appearance line: an architectural lever can fire, be counted and still be
+  invisible because four fifths of what the eye sees on a contact sheet is
+  developmental noise — a second mechanism for `plant-appearance-design.md`'s
+  outcome that was never on the list. **Ships `organism::ParamGenome`**: every
+  scalar in a species' behaviour table as a heritable per-individual override
+  that *replaces* the authored number rather than scaling it, so an authored
+  zero is a starting point — **70 continuous slots become 804 addresses**,
+  with units taken from the corpus rather than a table and bounds from a
+  `ParamKind` that cannot collapse to a point. Founders carry none, so at its
+  shipped rate of **0.0** the engine is bit-identical to before it existed. The
+  rate is zero deliberately and §5.4 says what must be measured first: a free
+  lever made heritable produces uniformity, nine parameters are inventoried
+  free, and at rate 0.3 nothing piles at a bound except `juvenile_size` because
+  the pedigree is only ~2.3 generations deep. Also re-tests one stale verdict —
+  **foliage share is 43 / 42 / 41 / 37 / 31%, not ~5%** — and answers what
+  separates real plants at this pixel scale, where the cheapest unbuilt lever
+  is the **shape of a leaf cluster** (ink, not a label) and the second is a
+  node underground, which every species forbids by authoring
+  `plastochron: [0]` on its root.
 
 ## Licensing and distribution
 

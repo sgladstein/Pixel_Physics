@@ -389,17 +389,20 @@ impl Lab {
 
     /// Rebuild the box from the same spec, keeping the view and the dial.
     pub fn reset(&mut self) {
-        // **The rules the player set survive the rebuild; the box does not.**
-        // `spec.build()` returns a brand-new `World` at its defaults, so a
-        // switch thrown on the parameters page would silently come back on
-        // the next `REBUILD` -- and `REBUILD` is exactly what a player presses
-        // after changing the bed, i.e. in the middle of the experiment the
-        // switch was set for. Carried explicitly rather than by making the
-        // builder take them, so the list of what is a *setting* rather than
-        // part of the box is readable in one place.
-        let plant_load_failure = self.world.plant_load_failure;
+        // **The rules and dials the player set survive the rebuild; the box
+        // does not.** `spec.build()` returns a brand-new `World` at its
+        // defaults, so a switch or a heredity number thrown on the
+        // parameters page would silently come back on the next `REBUILD` --
+        // and `REBUILD` is exactly what a player presses after changing the
+        // bed, i.e. in the middle of the experiment the switch was set for.
+        // `params::Dials` is the one list of what is a *setting* rather than
+        // part of the box, shared with what a saved session restores at
+        // startup (`bin/lab.rs`) -- two lists here would be two answers to
+        // "does this survive a rebuild", and until this carried only the
+        // three rule switches, heredity silently did not survive one.
+        let dials = params::Dials::from_world(&self.world);
         self.world = self.spec.build();
-        self.world.plant_load_failure = plant_load_failure;
+        dials.apply_to(&mut self.world);
         earth_toned_nest(&mut self.world);
         self.particles = ParticleSystem::new();
         self.blasts = Blasts::new();
@@ -2388,7 +2391,7 @@ impl Lab {
         };
         let list = self.ui.page_params(&self.world, &self.spec);
         let Some(param) = list.get(index) else { return };
-        let message = match params::save(param) {
+        let message = match params::save(param, &self.world, &self.spec) {
             Ok(ok) => ok,
             Err(e) => e.to_uppercase(),
         };
@@ -2629,8 +2632,19 @@ mod tests {
         // change -- which is what a coin flip looks like.)
         let mut lab = Lab::new(scene::LabBox { colonies: 1, founders: 12, ..rack_bed(1) });
         run(&mut lab, 400);
-        let alive = lab.world.live_organism_count();
-        assert!(alive > 0, "the bed never germinated, so this test cannot see the thing it is about");
+        // **Counted as plants, not as organisms, and that distinction is the
+        // whole precondition.** `live_organism_count` includes the colony's
+        // 52 ants, so it is satisfied by a bed in which nothing germinated at
+        // all -- and the assertion below is about *plants* in the copies.
+        // Read the wrong way round this reports "the copy mechanism is
+        // broken" for a source bed that simply had no plants in it, which is
+        // `CLAUDE.md`'s check-that-a-guard's-inputs-vary-what-it-guards.
+        let plants_here = (1..4096u16)
+            .filter(|&id| {
+                lab.world.organism(id).is_some_and(|st| lab.world.species.get(st.species).creature.is_none())
+            })
+            .count();
+        assert!(plants_here > 0, "the bed germinated no PLANTS, so this test cannot see the thing it is about (organisms alive: {})", lab.world.live_organism_count());
 
         // **The recipe is emptied.** Anything alive in a copy now has to have
         // come from the world, which is the whole claim.
@@ -2654,10 +2668,39 @@ mod tests {
         assert_eq!(landed.len(), 3, "three copies");
         for r in &landed {
             let c = r.census.as_ref().expect("a census");
+            // **Read on "did anything the recipe cannot produce come across",
+            // not on the plant column alone.**
+            //
+            // The recipe is `founders: 0, colonies: 0`, so a copy built from
+            // it holds *nothing at all* -- which means any life here is proof
+            // the box was copied, and the colony is the strongest proof of it:
+            // 52 animals cannot have arrived from a recipe that founds no
+            // colonies.
+            //
+            // `c.plants > 0` alone was the assertion and it is **not** the
+            // claim: a copy runs 600 frames of its own after being taken, so
+            // that column is a plant-survival reading over a horizon this
+            // test does not control. Measured 2026-09-02 across the
+            // creature-genome work: the source bed held 9 plants and two
+            // copies finished at 1 and 0, while carrying 52 animals each --
+            // the copy mechanism working perfectly and the assertion red.
+            // The lab census's own seed spread on that column is **2.1x-2.8x**
+            // (`labbatch`, 12 rows), so a single copy landing at zero is
+            // inside the noise. This test's own comment already recorded the
+            // column flaking once on an unrelated change, "seed 1 only ...
+            // which is what a coin flip looks like"; this is that, and the
+            // fix is to assert the claim rather than to re-tune the flake.
             assert!(
-                c.plants > 0,
-                "a copy came out EMPTY -- it was built from the recipe (0 founders) instead of copied \
-                 from the box, which is exactly the bug this test is named for"
+                c.plants + c.animals > 0,
+                "a copy came out EMPTY -- it was built from the recipe (0 founders, 0 colonies) instead of \
+                 copied from the box, which is exactly the bug this test is named for"
+            );
+            assert!(
+                c.animals > 0,
+                "a copy carries no animals, and the recipe founds no colonies -- so the box was not copied. \
+                 (plants {} here, {plants_here} in the source; the plant column is a survival reading over \
+                 the copy's own 600 frames and is not what this test is about)",
+                c.plants
             );
         }
         // Read on the animals, for the reason at the top: they are the half

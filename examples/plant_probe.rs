@@ -83,6 +83,7 @@ fn main() {
             .find_map(|a| a.strip_prefix("hazardevery=").map(|v| v.parse().expect("hazardevery")))
             .unwrap_or(1800),
     };
+    let species_name = species.clone();
     let scene = common::PlantScene {
         ground_y: ground_y(),
         trees,
@@ -96,6 +97,22 @@ fn main() {
     };
     let (width, height) = (scene.width, scene.height);
     let mut w = scene.build();
+    // **`maturity=` moves the shipped `seed_maturity`**, the lever
+    // `lab::params` already calls *the single biggest lever on whether a
+    // generation ever turns over: a herb breeds at 60 cells and a tree at
+    // 600*. Written through the live registry rather than the `.ron`, because
+    // a species file is `include_str!`d into the binary and editing one and
+    // re-running a prebuilt example produces bit-identical "runs". Refuses
+    // rather than reporting a null if the write matched nothing.
+    if let Some(cells) = std::env::args().find_map(|a| a.strip_prefix("maturity=").map(|v| v.parse::<f32>().expect("maturity"))) {
+        let sp = w.species.id_of(&species_name).expect("species is compiled in");
+        assert!(
+            w.species.set_param(sp, organism::CellType::MatureBody, organism::ParamId::SeedMaturity, 0, cells),
+            "maturity={cells} matched no Reproduce behaviour on {species_name} -- an arm whose edit matched nothing \
+             reads as `the mechanism does nothing`"
+        );
+        println!("plant_probe: seed_maturity overridden to {cells}");
+    }
     // Different worlds grow different individuals: genotypes are drawn
     // from (world seed, germination coordinate), so a genetic-variability
     // study replicates by varying this. Applied before any stepping --
@@ -1098,6 +1115,81 @@ when he counted all four. §Z is cards-only. Reports/open-bugs-handoff.md §Z ha
             "  established plants carrying an inherited genome: {descendants} of {} (deepest generation {deepest}) \
 -- at ~0 every claim from this run is about founders",
             per_organism.len()
+        );
+        // **The cumulative clock, and the line above is why it is here.**
+        // `deepest` is a max over the *living*, so it falls back the moment a
+        // deep lineage dies -- `selection_arena` records a mean over living
+        // rising to 2.9 and then drifting back to 2.60 over one run and
+        // prints its own axis as saturated. `World::generation_clock` only
+        // ever goes up, so "did this bed deepen?" has an answer.
+        //
+        // Read `deepest ever` against the frames it took; that ratio is
+        // generations per hour, and it is what the parameter genome's whole
+        // search depends on. `births per standing plant` separates a bed that
+        // turns over briskly without deepening (recruits dying before they
+        // breed) from one that deepens on very few births.
+        // **Endowment across the standing population** -- the effect counter
+        // for `seed_stake`. A lineage that has evolved its `seed_maturity`
+        // below its species' authored value endows its seedlings with less,
+        // and `CLAUDE.md` requires an "it fired" counter to be paired with an
+        // effect counter from the far side of the call: without this the
+        // price is only ever visible in a unit test.
+        let stakes: Vec<f32> = w
+            .live_organism_ids()
+            .iter()
+            .filter_map(|&id| w.organism_state(id).map(|s| s.endowment))
+            .filter(|&e| e > 0.0)
+            .collect();
+        if !stakes.is_empty() {
+            let n = stakes.len() as f32;
+            let mean = stakes.iter().sum::<f32>() / n;
+            let lo = stakes.iter().cloned().fold(f32::INFINITY, f32::min);
+            let hi = stakes.iter().cloned().fold(0.0f32, f32::max);
+            println!("  SEED PROVISIONING: {} endowed seeds, mean {mean:.4} min {lo:.4} max {hi:.4} -- a spread means precocity is being priced", stakes.len());
+        }
+        // **Is the turgor ceiling's price actually binding?** The effect
+        // counter for `thirst`, and the reason it exists is SS6.9: a price
+        // whose lever the corpus scale puts out of reach never fires, and
+        // that is invisible without asking. A plant is charged only where it
+        // has grown PAST its species' authored ceiling, so this counts the
+        // plants that have.
+        let ceiling = w
+            .live_organism_ids()
+            .first()
+            .and_then(|&id| w.organism_state(id).map(|st| st.species))
+            .map(|sp| pixel_physics::sim::plant::authored_height_ceiling_for(&w, sp))
+            .unwrap_or(0.0);
+        if ceiling > 0.0 {
+            // **Path length along the shoot, not row height**, and the
+            // difference is not cosmetic: row height spans roots as well, so
+            // the first version of this counter read 4 of 100 plants past a
+            // 60-row ceiling when what it had measured was 60 rows of shoot
+            // plus 4 of root. `thirst` is charged against `path_len_at` on
+            // foliage cells, so that is what this has to read.
+            let mut reach: std::collections::BTreeMap<u16, f32> = std::collections::BTreeMap::new();
+            for &(x, y, ty, _, _) in &cells {
+                if !matches!(ty, Some(organism::CellType::Leaf) | Some(organism::CellType::GrowingTip)) {
+                    continue;
+                }
+                let id = w.get(x, y).organism_id();
+                let p = pixel_physics::sim::plant::path_len_at_for(&w, x, y) as f32;
+                let e = reach.entry(id).or_insert(0.0);
+                *e = e.max(p);
+            }
+            let tall: Vec<f32> = reach.values().copied().collect();
+            let over = tall.iter().filter(|&&h| h > ceiling).count();
+            let tallest = tall.iter().cloned().fold(0.0f32, f32::max);
+            println!(
+                "  TURGOR CEILING: species ceiling {ceiling:.0} rows | tallest plant {tallest:.0} | {over} of {} plants past it -- the price binds only on those",
+                tall.len()
+            );
+        }
+        let (ever, births, live) = w.generation_clock();
+        let per_standing = if live > 0 { births as f32 / live as f32 } else { 0.0 };
+        println!(
+            "  GENERATION CLOCK: deepest ever {ever} over {frames} frames ({:.1} frames per generation) \
+             | births {births} over {live} standing ({per_standing:.1} per standing plant)",
+            if ever > 0 { frames as f32 / ever as f32 } else { f32::INFINITY }
         );
     }
 

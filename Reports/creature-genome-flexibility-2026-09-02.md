@@ -52,10 +52,10 @@ labelled as such — §13c's mobility argument and §13d's shape-threshold claim
 the two that matter, and both have a named pre-check in §10 Track B. **Do not
 promote either to a premise without running its check first.**
 
-**What was wrong in the first draft, and why that matters to you:** §16. An
+**What was wrong in the first draft, and why that matters to you:** §17. An
 independent review found four confirmed errors, one of which would have stopped
 every animal in the world from eating on the first run. They are corrected in
-place. §16 exists because the *shape* of those errors is the most reusable thing
+place. §17 exists because the *shape* of those errors is the most reusable thing
 here — three of the four came from checking a claim against a neighbouring file
 instead of the actual one.
 
@@ -423,12 +423,20 @@ four hidden units on that pair. An authored odometer needs more. `BRAIN_HIDDEN`
 
 ---
 
-## 5. The moisture gradient — the one that should mostly survive
+## 5. The moisture gradient — what it is actually reading, and why that changes the recommendation
 
-`creature.rs:2589`:
+**Revised 2026-09-02.** The first version of this section recommended keeping
+this channel on the grounds that it implements the termite construction result —
+deposition tracking evaporation flux, which tracks surface curvature. **It does
+not, and that was measured rather than argued.** `examples/field_sense_probe.rs`
+(PR #214, Stage 0a) found curvature does not move this channel at any sampling
+span. The recommendation changes; the *argument* behind it mostly survives, and
+§5f says which half is which.
+
+`creature.rs`:
 
 ```rust
-fn moisture_gradient(world: &World, x: i32, y: i32) -> f32 {
+pub fn moisture_gradient(world: &World, x: i32, y: i32) -> f32 {
     let m = |px, py| world.field_at_bilinear(px as f32, py as f32).moisture;
     let gx = m(x + 4, y) - m(x - 4, y);
     let gy = m(x, y + 4) - m(x, y - 4);
@@ -436,99 +444,270 @@ fn moisture_gradient(world: &World, x: i32, y: i32) -> f32 {
 }
 ```
 
-Drop probability is multiplied by this; dig probability by its inverse.
+Food drop probability away from home is multiplied by this; dig probability by
+its inverse.
 
-### The thinking, and it is good
+### 5a. The design intent, which is good and is worth keeping on the page
 
 Source is [`stigmergy-research.md`](stigmergy-research.md) §4 on Facchini et
 al., *eLife* 2024. The classical model of termite construction — Deneubourg
 1977 and every agent model after it — assumes a **cement pheromone**: a marker
 added to deposited material that stimulates further deposition nearby. That
 study ran *Coptotermes gestroi* on clay arenas with pellets **sterilised to
-remove chemical marking**, tracking collection and deposition as separate
-events. Findings:
+remove chemical marking**, tracking collection and deposition separately:
 
 1. **Collection is uniform across the arena; deposition is concentrated.** That
    asymmetry is the whole algorithm.
-2. The single feature shared by every deposition region was that it was a local
-   maximum in **evaporation flux** — which is provably proportional to local
-   surface curvature.
-3. Convex regions attract deposition; concave regions attract digging. This
-   reconciled an earlier study that had reported the opposite sign, because that
-   study could not separate digging from building.
+2. Every deposition region was a local maximum in **evaporation flux** — which
+   is provably proportional to local surface curvature.
+3. Convex regions attract deposition; concave regions attract digging.
 4. A salt-solution control with **no termites** deposited salt in precisely the
    regions where termites had built.
 
-So this is the **opposite** of the nest. The nest asserts an outcome. This
-asserts a *physical fact about drying* and lets the outcome emerge. Pillars,
-walls, galleries and chambers are consequences. `act`'s own comment states the
-discipline: *"There is no 'build a wall' behaviour and wanting to write one is
-the signal to re-read that section."*
+This is the right kind of mechanism for this engine: it asserts a *physical
+fact* and lets the outcome emerge, rather than asserting the outcome. Nothing
+below retracts that. What is retracted is the claim that the shipped channel
+implements it.
 
-**This is the design the owner is asking for, already done right. Keep the
-channel.**
+### 5b. The measurement: curvature does not move this channel at any span
 
-### The critique, which is narrower than "it's hardcoded"
+`field_sense_probe`'s control bed holds three curvatures **in one elevation
+band**, because an earlier version compared a crest against a plain 30 rows
+lower and could not say which of the two it was reading. Convex crest against
+flat plateau at the same elevation:
 
-**The coefficient is fixed.** Every animal in the world has the same
-relationship to curvature, at the same strength, with the same sign, for ever.
-A lineage that nests in hollows instead of building on ridges is not a point in
-the search space — there is no gene to be one with. And `dead-ends.md` entry 983
-already prescribes the remedy in general terms, from the neighbouring case of
-gating the spoil drop on `LightHere`:
+| span | crest | flat | ratio |
+|---|---|---|---|
+| ±4 (shipped) | 0.1746 | 0.1724 | **1.012x** |
+| ±8 | 0.3652 | 0.3613 | 1.011x |
+| ±16 | 0.7777 | 0.7732 | 1.006x |
+| ±24 | 1.2087 | 1.2047 | 1.003x |
 
-> *It wants to be a wired instinct on its own brain output rather than a
-> coefficient in `act`, so a lineage can lose it.*
+**Widening the sampler moves the ratio *toward* 1.0.** The probe's own positive
+control passes — depth moves the reading 1.74x — so this is a statement about
+the channel and not about the probe. `dy` runs 0.17–0.33 while `dx` is 0.0009 at
+the crest and 0.0000 at the notch.
 
-**So: add a `MoistureGrad` input carrying the scalar this function already
-computes, delete both multipliers from `act`, and author `ant.ron` with the
-weights that reproduce today's behaviour.** The termite bias, its inverse, and
-everything between become reachable. The physics stays in code; the *response
-to* the physics moves into the genome. That is the mechanism/policy line
-applied exactly.
+**Do not put a bar on the `dx` column**: an earlier version did and reported a
+clean 0.09x separation, which is an artifact twice over — a symmetric ridge's
+apex has `dx = 0` by symmetry, and the flat reference sat near its plateau's
+edge.
 
-This also retires §2c for free: with the drop bias a weight rather than a
-multiplier, there is no `at_nest` branch to privilege.
+### 5c. What it is actually reading: an interface detector
 
-### A dated finding: the sampler predates the field it samples
+*(This reading is inferred from `field.rs` rather than separately measured; the
+numbers above are what it explains.)*
 
-**`moisture_gradient` samples at ±4 cells. `FIELD_SCALE` is 16.**
+`apply_moisture_sources` makes **damp soil and standing liquid moisture
+sources** — `moisture_source` is `held / water_capacity` for soil, full for
+liquid. Air carries moisture only by diffusion, and diffusion is gated on
+`blocked`, which `rebuild_blocked` sets for a whole block if one cell in it is
+`Solid`.
 
-- `field.rs:48` — `pub const FIELD_SCALE: i32 = 16;`
-- `ca7e9042`, **2026-08-30**, *"field: FIELD_SCALE 8 -> 16, the light resolution
-  the owner picked by eye"*, on `main`.
-- The `m(x + 4, y) - m(x - 4, y)` lines were last touched by `fac79156`,
-  **2026-08-29**.
+So the field is high in and at damp ground, decays upward into air, and is
+near-uniform deep inside the ground. `|∇moisture|` therefore peaks **at the
+air/ground interface** and falls toward zero in both directions — deep
+underground, and high in open air.
 
-So the ±4 offsets were chosen when a field block was 8 cells — half a block
-each side, a full block across, which is a sensible sampling span. The field
-then doubled to 16 and **nobody re-derived the sampler.** The two reads are now
-8 cells apart inside a 16-cell block. `field_at_bilinear` saves it from being
-the outright block-nearest degeneracy, but the gradient returned is a fraction
-of the true inter-block gradient, and the fraction changed silently under a
-commit about light.
+**It is a surface-proximity detector.** Depth is simply the axis along which it
+varies, which is why depth moved it 1.74x.
 
-This is `CLAUDE.md`'s *fixing a bug often exposes a constant that was
-compensating for it*, in its second shape: a constant calibrated against a
-quantity that then moved.
+Read the two shipped rules with that substituted in:
 
-**And there is a second, larger concern, which is unmeasured.** Field diffusion
-is gated on `blocked`, and `rebuild_blocked` marks a whole block blocked if
-**one** cell in it is `Solid` — with a deliberate exception only for blocks that
-are themselves moisture *sources*. The lab's own round-three finding is the
-sibling of this: *"roots steer by air humidity, not soil water — hydrotropism
-reads the coarse field channel, which does not diffuse inside solid ground, so
-below the surface it has no gradient, which is why roots stop at 13 rows."*
+| rule | what it actually says |
+|---|---|
+| food drop away from home = `drop_urge × surface_proximity` | drop what you are carrying **when you surface** |
+| dig = `dig_urge × (1 − surface_proximity)` | dig **once you are already inside the ground** |
 
-If that holds for `moisture_gradient` too, then **inside a burrow** the drop
-term goes to ~0 and the dig term to full `dig_urge`, unshaped — meaning the
-termite construction mechanism is **inert exactly where a nest gets dug**, while
-galleries still appear for other reasons (`line_burrow`'s tamping, and the
-pellet-placement predicate). That is the signature of a mechanism that looks
-like it works and is not the thing producing the result.
+That is a coherent hauling rule and arguably a good one — roughly *carry the
+spoil out and dump it at the mouth*. It is not stigmergy, and it is not
+Facchini.
 
-**This is a hypothesis with a cheap test and it is owed before anything is built
-on the channel** — see §10.
+### 5d. Why it structurally cannot produce architecture
+
+**This is the part that matters more than the mis-citation.**
+
+Facchini's mechanism is **self-amplifying**: deposit → raises local curvature →
+curvature attracts more deposition → a pillar grows. The positive feedback is
+what produces pillars, walls and chambers.
+
+A surface detector is **self-neutralising**: deposit at the surface, and the new
+surface reads the same value the old one did. Nothing accumulates an advantage.
+And a placed pellet is `packedsoil` with `water_capacity: 1000` carrying its own
+moisture, so it re-sources the field and remains a surface.
+
+**No positive feedback means accretion, not architecture.** So the old §5's
+*"pillars, walls and chambers are consequences of that bias"* is not merely
+mis-sourced — it is **unreachable with this signal, at any coefficient, in any
+genome.** No amount of moving the response into the brain fixes that, because
+the fault is in the signal rather than in the response to it.
+
+### 5e. A hypothesis about the guard, with the control named
+
+**Unmeasured. Stated so it is tested rather than assumed.**
+
+`ascii`'s deposition scene measures mean `|∇m|` at the cells ants dropped on
+against the mean over a 12-row band — 2.94x before this work, 2.97x after. Its
+own comment records that an earlier version was replaced because it *"passed
+harder for the broken build"*.
+
+But drops land where an ant is standing, which is a surface, and surfaces are
+exactly where `|∇m|` is high; the band average includes deep air and buried
+soil, which are both near zero. **So the ratio may read ~3x purely because
+drops happen at surfaces, with no contribution from the moisture term at all.**
+
+**The control is one run**: delete the moisture term from the drop probability
+and re-measure *the ratio* — not the counts, which is what the previous version
+got wrong. If the ratio stays near 2.9x, the guard is measuring "ants drop on
+surfaces" and the rewrite traded one blind guard for another.
+
+### 5f. What survives, what dies, and the recommendation
+
+**Survives, and gets stronger — and it has now shipped.** The channel is still
+a real field the world computes rather than an authored outcome, and moving the
+response coefficient into the genome was still right — more right, because a
+fixed coefficient was encoding a rule nobody had correctly identified. **Done in
+PR #214**: the coefficient is `BrainInput::MoistureGrad`, and `ant.ron` authors
+`(MoistureGrad, Dig, -0.55)` and `(MoistureGrad, Drop, 0.169)` — a weight with a
+free sign and magnitude where there was a fixed multiplier. That was this section's
+actual argument and the measurement does not touch it. `dead-ends.md` entry 983
+prescribes the same move in general terms: *"it wants to be a wired instinct on
+its own brain output rather than a coefficient in `act`, so a lineage can lose
+it."*
+
+**Dies.** The claim about what the channel produces; Facchini as a description
+of the shipped mechanism (it stays as the design *intent*); and the name —
+`moisture_gradient` is accurate about the arithmetic and misleading about the
+meaning.
+
+**Also retired: the first version's "dated finding".** It reported that the ±4
+offsets predate `FIELD_SCALE` doubling 8 → 16 on 2026-08-30 (`ca7e9042`, one day
+after `fac79156` last touched those lines) and proposed re-deriving them. **The
+dating is correct and the remedy is wrong**: §5b shows widening the span moves
+the ratio toward 1.0. Recorded rather than deleted, because the *shape* of the
+error is the one `CLAUDE.md` names — a constant calibrated against a quantity
+that then moved is worth suspecting, and here it was worth suspecting and was
+not the fault.
+
+#### The decision: build the curvature signal
+
+**Owner's call, 2026-09-02, and two of the three objections against it were
+withdrawn under his challenge.** They are recorded because the *withdrawals*
+are the useful part.
+
+**Withdrawn 1 — "the ecology is not ready" is an ordering argument, not a
+don't-do-it.** It was presented as the latter. Building the sense is also how
+you find out whether the ecology needs changing.
+
+**Withdrawn 2 — "nothing selects for shelter" is wrong, and the data says so
+in the column nobody read.** `predation_probe mode=range`, 12 seeds, paired
+against `beetles=0`:
+
+| | no predator | beetles | advantage |
+|---|---|---|---|
+| roofed vs open | 0.59 / 1.36 | 0.54 / 1.41 | 2.31x → 2.61x |
+| predator cannot fit vs could reach | 0.43 / 1.22 | 0.56 / 1.18 | 2.84x → 2.11x |
+
+**Shelter pays 2.3–2.8x with no predator in the world at all.** The two tables
+disagree about the *sign* of the beetle term, and at 231 deaths with beetles
+against 190 without — about 3.4 extra deaths per seed — predation's
+contribution is inside the noise. So the correct statement is the narrow one:
+*predation* does not select for shelter, and something else does, strongly.
+**The gradient a builder would climb already exists.** What is missing is not a
+reason to shelter but the ability to make shelter of a good shape, which is
+what this signal is for.
+
+**Not withdrawn, but corrected — the visibility concern.** The worry was that a
+three-cell pillar sits below the world's 1–2 cell texture grain, on
+`creature-appearance-design.md` §2's decoy counts (127 at 2 cells, 15 at 9, 0
+at 16). That finding is real and it was **over-extended here**, three ways: it
+measures *finding an animal* rather than *reading as built*, and what reads as
+built is **regularity and repetition**, which `decoys` scores independently and
+therefore cannot see; the resolution step (#179/#181) doubled cell density, so
+the old three-cell feature is six; and structure **accumulates over a run**,
+where `motion_look` found a changing feature has 0–2 competitors against a still
+one's 141. The concern survives as a question, not as a reason to wait.
+
+**So: build it.**
+
+1. **`SurfaceCurvature` as a brain input** — signed, from a solid-neighbour
+   count in a disc (negative concave, positive convex), opt-in per species the
+   way `sight_range` is.
+2. **Rename the existing channel** to what it measures and keep it. The
+   *response* is already a weight (above); what is still misnamed is the
+   *signal*. Two honestly-named signals, weighed independently, rather than one
+   mislabelled one.
+3. **Author the ant and the ancestor a starting weight**, so generation zero
+   carries the termite bias *for real* — which it has never actually had.
+4. **Feed both drop genes independently.** PR #214 split `Drop` and
+   `DropSpoil`, so a lineage can evolve to build with spoil and cache food on
+   different criteria. That falls out for free and is a better outcome than one
+   coefficient ever allowed.
+
+**One check, folded into the build rather than gating it:** render the bank with
+the bias forced on and off, blind A/B. Not permission to proceed — the thing
+that distinguishes "it works" from "it works and needs to be bigger". If the
+arms are indistinguishable the answer is extent, which is the same answer as the
+creature-silhouette work and not a reason to have skipped this.
+
+### 5g. The placement predicate, and why it should not change in the same step
+
+`act`'s spoil drop admits a cell only if it is empty, **at least two of the
+three cells directly beneath are solid**, and `SPOIL_HEADROOM = 3` cells above
+are clear. Both clauses are measured: without the footing, censused floating
+ground runs **26–38** pieces with no path to the floor against **2–6** with it;
+without the headroom, `burrow_probe arms=colony` reads roofed void **2–4**
+against **89–139** — the colony backfills its own nest.
+
+**The footing clause is specifically anti-pillar.** On a one-cell-wide pillar
+top the cells beneath are empty / solid / empty, so the count is 1 and the site
+fails. It went from "one beneath" to "two of three" because unmotivated stacking
+grew *"thin vertical fingers, which a rendered sheet shows plainly."*
+
+**And a finger and a pillar are the same geometry.** One is noise, the other is
+curvature-driven deposition, and the predicate cannot see the difference. That
+is exactly `CLAUDE.md`'s *when a rule must tell apart two things that can look
+identical, state the difference as data* — the rule four successive support
+models learned by failing, each either strong enough to hold a mountain or weak
+enough to let a player's tower break, because geometry cannot distinguish a
+mountain from a wall someone stacked. **Relaxing 2 to 1 is that mistake in a new
+costume, and it should not ride along with the curvature change**: two edits to
+one outcome cannot be attributed apart.
+
+**So: leave the predicate alone in this step.** Add curvature within it and see
+what it does to the *wide* features it can already shape — mound profile, ridge
+thickening, hollow filling. If those read as built, narrow pillars may not be
+wanted at all. What distinguishes architecture from noise is regularity, and
+regularity would come from the bias being consistent rather than from the
+placement rule.
+
+**If pillars specifically turn out to be wanted, the change is one line with its
+acceptance bar already in the tree:** relax the footing to one cell beneath and
+re-run the floating-ground census against its measured 2–6 / 26–38.
+
+#### The clause that actually binds is the headroom, and nobody has said so
+
+`SPOIL_HEADROOM` is 3, and its own comment records that *"a gallery cut by
+`line_burrow` is one to three cells tall"*. So inside a gallery there is never
+three cells of clear air above the floor, and **a pellet can never be placed
+inside a burrow.**
+
+That is deliberate and it is load-bearing — it is what stops the colony
+backfilling its own workings. But the consequence has not been stated anywhere:
+**all construction is necessarily external.** Mounds, banks and ridges are
+reachable; partitions, chamber walls and any thickening from inside are not. No
+curvature signal changes that, because the site is refused before preference is
+consulted.
+
+**So if "ants building homes" means rooms rather than mounds, the headroom
+clause is the binding constraint and the curvature work will not reach it.**
+And unlike the footing clause, this one *can* be restated as data rather than
+geometry: a pellet may go inside a burrow when it is **against a wall** —
+adjacent to solid on a side, which is what a lining is — as opposed to standing
+in open gallery space, which is backfill. That is a different question from
+"clear air above" and it would admit internal structure without reopening the
+failure the headroom clause was built for. **Not proposed here**; recorded so
+the next person asking for chambers knows which rule to argue with.
 
 ---
 
@@ -597,7 +776,7 @@ failure in a new costume.
 | gene | why it cannot ratchet |
 |---|---|
 | `sensor_offset` | measured interior optimum: 0.755 at 4, **0.817 at 6**, 0.743 at 8, 0.727 at 10 |
-| the moisture response (§5) | a sign *and* a magnitude; both extremes are bad architecture |
+| the moisture response (§5) | a sign *and* a magnitude; both extremes are bad. **But see §5c** — the channel is a surface detector, so the response is to depth rather than to curvature, and the lever is narrower than this row assumed |
 | all steering weights | already heritable; listed for completeness |
 
 ### Kind 2 — already priced, safe now
@@ -886,11 +1065,14 @@ against the first draft of this plan:
 
 ### Stage 0 — measurements owed before anything is built
 
-**0a. Does `moisture_gradient` read anything underground?** (§5) Print the value
-for ants inside a `labnest` gallery against ants on open surface. **Positive
-control first**: a hand-built convex ridge must read high and a flat plain low,
-or the probe measures nothing. If the burrow reads flat, §5's remedy changes
-from "move the coefficient into the genome" to "fix the sensor, *then* move it".
+**0a. ~~Does `moisture_gradient` read anything underground?~~ ANSWERED, and
+the answer was bigger than the question** (§5b). `field_sense_probe`, PR #214.
+Curvature does not move this channel at **any** sampling span — 1.012x at the
+shipped ±4, and 1.011 / 1.006 / **1.003** at ±8 / ±16 / ±24, so widening it
+moves *toward* 1.0. The channel is a surface-proximity detector, the termite
+citation does not describe the shipped mechanism, and §5's remedy changed from
+"re-derive the sampler" to §5f's three options. **Nothing further is owed
+here**; what is owed is §5e's blind-guard control, which is a different run.
 
 **0b. What does an ant-sized eye cost?** `vision_probe mode=cost` at radius 16,
 32, 64 with ~50 animals. Read `rN` **minus `locate`** — that harness's own notes
@@ -1128,7 +1310,7 @@ survival."**
 **Revised 2026-09-02 after independent review**, which found the first version
 of §11c would have stopped every animal in the world from eating anything, and
 found two factual claims that were checked against the wrong files. Both
-corrections are folded in below rather than appended; §16 records what changed
+corrections are folded in below rather than appended; §17 records what changed
 and why, because the *errors* are more instructive than the text that replaced
 them.
 
@@ -1163,6 +1345,16 @@ with a reader and no writer.
 
 **Prerequisite P1: author `food_energy` and `food_class` on `beetle.ron` and
 `worm.ron`.** Small, and everything in §11f depends on it.
+
+> **P1 is DONE — landed on `main` 2026-09-02, verified in this tree after
+> merging main in.** `beetle.ron` now carries `food_energy: 200.0,
+> food_class: 1.0` and `worm.ron` `food_energy: 480.0, food_class: 1.0`,
+> both with the flesh-pricing invariant stated in a comment beside them
+> (a material's `food_energy` tracks its species' own energy, and
+> `food_class: 1.0` is flesh, the value `ant` and `corpse` already carried).
+> **Do not re-do this**, and read the paragraphs above as the record of why
+> it was needed rather than as outstanding work. What it unblocks is §11f:
+> predation is now two-way in the data as well as in the mechanism.
 
 ### 11b. The finding: digging respects hardness, biting does not
 
@@ -1388,8 +1580,35 @@ Two further costs the "one line" framing hid:
   cells. Deriving it from a cell count needs a joules-per-body-cell multiplier
   that nobody has derived — precisely the unpriced constant §3 warns about.
 
+**And the arithmetic above is the *generous* case.** It assumes the crop is
+filled every trip, so delivery is `k·b`. Drop that — if fill is bounded by how
+much food the animal actually meets rather than by capacity, delivery is some
+fixed *F* independent of *b* — and cost per delivered cell becomes
+`(idle·b·T + move·b·(1+k)·D) / F`, which **rises linearly in *b***. So:
+
+| does the crop fill each trip? | what size-linked capacity does |
+|---|---|
+| always | exactly **neutral** — the *b* cancels |
+| not always | **strictly worse** — cost per delivered cell rises with size |
+
+**There is no regime in which this is a payoff.** Note which way that cuts: the
+saturation that would look like a natural brake on the lever is the thing that
+turns it into a penalty.
+
 **Recommendation: keep `crop_capacity` authored for now.** It is not the lever
 that makes size pay; §11d-with-§13 is.
+
+> **Errata, 2026-09-02, recorded because the wrong version left this session.**
+> Asked by another session for the most promising payoff to attach to size, I
+> recommended exactly this lever — scaling `crop_capacity` with body cells —
+> arguing that trip saturation would give it an interior optimum. **That is
+> wrong, and this section already contained the arithmetic refuting it**; I
+> answered without re-reading my own work. Withdrawn to that session within
+> minutes and recorded here because they hold the message and a later reader
+> holds the report. The failure is worth naming for its shape rather than its
+> subject: **an argument carried into a regime it was not derived in** — which
+> is the same class of error this document had just finished flagging in
+> someone else's, in the paragraph immediately before making it.
 
 ### 11f. The gap that blocks an arms race, and it is one-sided
 
@@ -1518,7 +1737,7 @@ The owner, 2026-09-02, on his single biggest issue with the body:
 
 **Revised 2026-09-02 after independent review**, which found this section
 citing a bug that had already been diagnosed and closed, and found the mobility
-argument only half-working. Both are corrected in place; §16 records them.
+argument only half-working. Both are corrected in place; §17 records them.
 
 ### 13a. This is already written down in the engine, in the same words
 
@@ -1546,9 +1765,15 @@ there perfect cube creatures in our world?"* — is literally the second row.
 ### 13b. Shape costs an order of magnitude of mobility — and the *other* blocker was a counter bug
 
 **The mobility gap is real and survives everything.** A rigid body is blocked
-**25–43%** of its moves; a chain **2–6%** (`creature-appearance-design.md` §4–5,
-across all three trees it was taken on; note the *within*-rigid ranking in that
-section is explicitly withdrawn — only the coarse gap survives).
+**~54%** of its moves; a chain **~6%**. Those are the 12-seed medians from
+`creature-shape-reachability-2026-09-02.md` §1.2 and **supersede the 25–43% /
+2–6% this section carried from `creature-appearance-design.md` §4–5**, which
+were single-seed samples: `ant_block`'s 12-seed range is **21.1–67.8%**, which
+contains the old 43% comfortably below its own median, so the earlier figure
+was a draw from a wide distribution rather than a different measurement. The
+chain reproduces within noise. The *within*-rigid ranking was already
+explicitly withdrawn in the earlier report, and the 12 seeds confirm it —
+`ant_block` (55.8%) and `ant_wide` (56.6%) land within a point of each other.
 
 So: **a body with an interesting outline cannot move, and a body that moves has
 no outline.** Any answer to D1 must break that trade rather than pick a side.
@@ -1602,7 +1827,9 @@ are unrepresentable rather than rejected.
 
 The first version predicted articulated bodies land *"between the chain's 2–6%
 and the rigid body's 25–43%, much nearer the chain"*, on the grounds that a part
-moves into ground the part ahead has vacated and proven passable.
+moves into ground the part ahead has vacated and proven passable. (Those two
+figures are the superseded single-seed ones; at 12 seeds the gap is ~6% against
+~54% — wider, so the prediction's shape is unchanged.)
 
 **That is true of trailing parts and false of the one that matters.** Blocking is
 set by the **leading** part, which moves into fresh ground and is a rigid body of
@@ -1618,17 +1845,70 @@ alone**, and two consequences follow that the first version did not draw:
   this section is reaching for — is exactly the case the mechanism does not
   help.**
 
+**That second bullet was measured, and it is wrong in the direction that costs
+more.** `creature-shape-reachability-2026-09-02.md` §1.3–1.4 factorially
+separates width from cell count and from height, which nothing here had done:
+`domino_v` (1 wide) and `domino_h` (2 wide) hold cell count fixed and land in
+the same ~8–10% bucket; `strip3` (3 wide) and `strip4` (4 wide) hold height
+fixed at one row and land in the same ~47–53% bucket — matching a 3×3 and a
+5×2 despite two to three times fewer cells and a third the height. Pooled, 36
+runs at width ≤2 median **10.3%** against 48 runs at width ≥3 median **54.2%**,
+the buckets overlapping only over 18–27%.
+
+**So width sets it, as a step and not a gradient, and neither height nor cell
+count moves it at all.** The consequence for the taper claim: a rearward taper
+is *not* free, because a rearward taper is precisely the body whose **leading**
+part is the wide one, and the leading part is the one this section already
+established sets the cost. Both monolithic tapers measured at ~54–57%,
+indistinguishable from each other and from a plain block, and §1.4's argument
+for the articulated case is that a decoupled rearward taper could do no better
+than its own 3-wide head's standalone rate — which is ~50%.
+
+**The transferable rule is therefore harsher and simpler than "taper
+backwards": every part must be at most 2 cells wide, or the body pays the full
+rigid tax wherever the wide part sits.** A single wide part anywhere sets the
+whole body's cost. The 3-cell threshold itself was measured only on `rolling`
+and is presumably scaled to that preset's terrain grain, so treat *"there is a
+sharp width threshold"* as the claim that transfers and *"it is at 3"* as
+local.
+
+**And for this document's own scope, "local" is stronger than it sounds: the
+lab bed has no terrain at all.** `src/lab/scene.rs:663` fills it as
+`for x in 0..width { for y in ground_y..(ground_y + soil_depth) { …soil… } }`
+with `ground_y` a single `i32` (160) and `soil_depth` 96 — **dead flat across
+the full width, uniform soil, and no worldgen pass anywhere under `src/lab/`.**
+So the mechanism that produces the width tax — a rigid footprint failing to fit
+against terrain relief — **is absent by construction in the evolution lab**,
+which is the game the owner scoped this line to.
+
+**Read every mobility number in §13 as an outdoor-game result until someone
+measures the lab.** Width may well still cost something there, but through
+different mechanisms: excavation volume when digging, and
+`penetration_resistance` against `dig_force`, which `creature.rs` reads at
+exactly one site (`:2910`, the dig branch). Neither is what `creature_scale
+mode=walk` measures. `examples/creature_body_probe.rs` already clones a
+`CreatureDef` and overrides `body`, so pointing it at a `LabScene` bed rather
+than a generated world is a small change and would settle it — **and it should
+be settled before a body plan is designed around a constraint the lab does not
+impose.**
+
 **This is a real limit on the proposal, not a detail.** What articulation buys
 is a body that is *longer and jointed* at near-chain mobility, with modest
 widening and free rearward taper. What it does not buy, for free, is an
 arbitrary outline.
 
-**And the number that would settle it does not exist.** There is **no measured
-blocked rate for a 2×2 rigid body anywhere**, even though the shipped beetle is
-one: `creature-appearance-design.md` §5 has `Chain(2)` 5%, `Chain(6)` 4%,
-`Rigid` 3×3 43%, `Rigid` 5×2 41%, and nothing at four cells. One
-`creature_scale mode=walk` run converts this whole argument from a prediction
-into a number, and it is now pre-check 2.
+**The number that would settle it did not exist, and now does — pre-check 2 is
+answered.** There was **no measured blocked rate for a 2×2 rigid body
+anywhere**, even though the shipped beetle is one:
+`creature-appearance-design.md` §5 had `Chain(2)` 5%, `Chain(6)` 4%, `Rigid`
+3×3 43%, `Rigid` 5×2 41%, and nothing at four cells.
+`creature-shape-reachability-2026-09-02.md` §1.3 measured it at 12 seeds:
+**`beetle`, Rigid 2×2, median 12.4%** (mean 13.0%, range 6.4–19.2%) — about
+twice the shipped chain and a full order of magnitude below anything ≥3 wide.
+**The prediction this section made survives, but for a different reason than it
+gave**: a 2×2 body is cheap because it is *narrow*, not because it is *small*,
+and that distinction is what the bullet above gets wrong. Pre-check 2 is
+closed; do not re-run it.
 
 #### What it does buy, stated at the strength the evidence supports
 
@@ -1681,6 +1961,20 @@ animals — and articulation is only the means of making bigger animals still
 mobile. **That would still be a win, and it is worth saying now so it is not
 later dressed up as a failure.**
 
+**Half of that prediction is now measured, and it came back as the half that
+cuts against articulation** — `creature-shape-reachability-2026-09-02.md` §2:
+at constant 36-cell extent, shape does not move the number and extent does.
+**But read the scope, because it is exactly the distinction the paragraph below
+is about**: `creature_look` answers *findability*, so what is confirmed is
+"articulation at constant extent does not make an animal easier to **find**".
+Whether it makes one read as an animal is untouched — that is D1, that is the
+standing gap, and no instrument in this repository measures it. The report's
+own §0 initially carried the findability null across to the legibility question
+(*"reads as more than a chain… is answered by making them bigger"*) and
+corrected it on review from this line; do not re-import the uncorrected
+version. **So: the extent answer is real and the legibility answer is still
+owed by the review queue.**
+
 **And the standing gap: no instrument in this repository measures whether
 something reads as an animal rather than a smudge.** Every appearance number
 answers *can it be seen*. That gap is exactly how a shape lever fires and is
@@ -1690,26 +1984,56 @@ metric**, and *before* the lever is built.
 
 ### 13e. The pre-checks, before any of this is built
 
+> **Status, 2026-09-02: 2 and 4 are answered, 3 is posted-and-open, 1 is
+> outstanding.** `Reports/creature-shape-reachability-2026-09-02.md` (PR #219)
+> ran them at 12 seeds each on `rolling`; the results are folded into 13b–13d
+> above. **Do not re-run 2 or 4.** What is left before Track B starts is 1
+> (`relocate_chain`), 3's verdict, and — per that report's own §3 correction —
+> the fact that a *null* verdict on 3 would not close it, because the card
+> renders monolithic proxies standing still and articulation's visible
+> contribution is the bend a still image cannot show.
+
 1. **Fix `relocate_chain`'s self-overwrite** (13b). Stage one of the body work
    by the owner's decision. Everything else here is measured on a body that
    currently mis-reports itself, so this is not optional sequencing.
-2. **Does it actually move?** `creature_scale mode=walk`, which is the body-plan
-   mobility instrument and carries a standing positive control: **`Chain(2)` must
-   reproduce 5%** (`examples/creature_scale.rs:31`, `:320` — the first version of
-   this section quoted 5.2%, which is not the instrument's own figure). Measure
-   **the missing 2×2 rigid** in the same run, then the articulated plans. If they
-   do not land near the chain, the trade in 13b is unbroken and the proposal
-   fails.
+2. **Does it actually move?** ✅ **Answered** — `creature-shape-reachability`
+   §1, 12 seeds per shape, control reproduced (`Chain(2)` at 6.2% median against
+   the instrument's standing 5%). The missing 2×2 is **12.4%**, and the factorial
+   that report added — which this pre-check did not think to ask for — found the
+   driver is **width, at a sharp threshold**, not size. The articulated plans
+   themselves remain unmeasurable until a real multi-part `BodyPlan` exists, so
+   what §1.4 establishes is the *floor* an articulated body would be compared
+   against, not the body itself. Original text: *`creature_scale mode=walk`, the
+   body-plan mobility instrument, carries a standing positive control —
+   `Chain(2)` must reproduce 5% (`examples/creature_scale.rs:31`, `:320`; the
+   first version of this section quoted 5.2%, which is not the instrument's own
+   figure). If they do not land near the chain, the trade in 13b is unbroken and
+   the proposal fails.*
 3. **Does anyone want these shapes?** Render candidates — 3 parts vs 5, uniform
    vs waisted vs tapered — at shipped resolution and post a **blind A/B**.
    `creature_scale mode=size` already renders one body per panel cropped to fixed
    *physical* units. If the owner cannot tell them apart, the lever is below
    threshold and the answer is extent, not articulation.
-4. **The cheap test 13d needs and the first version omitted:** run
-   `creature_look` on **two 36-cell bodies of different shape at constant
-   extent**. If the 0.8% becomes ~15%, the threshold claim is supported and §13
-   has a number. If it stays near 1%, the appearance report generalises and
-   articulation's value is extent alone. One run.
+4. **The cheap test 13d needs and the first version omitted:** ✅ **Answered,
+   and it came back the way that cuts against articulation.**
+   `creature-shape-reachability` **Q2 — "is shape *findable* at all at 36
+   cells?"**, renamed from "legible" on review from this session so the
+   question's own name matches the instrument that answers it — ran
+   `creature_look` on 36-cell bodies of different shape at constant extent:
+   **shape did not move findability; extent did.** §2.1 adds that extent grown as *length at the mobility-safe width* — 2
+   wide, 18 tall, still 36 cells — scores in the same band as extent grown as a
+   compact block, so the mobility answer and the findability answer are not in
+   tension.
+   **Read the scope carefully, because this is where that report initially
+   over-read itself and corrected on review**: `creature_look` measures
+   **findability** — can you locate the animal against a textured world. It does
+   *not* measure whether the animal reads as an animal, which is D1's actual
+   complaint and the standing gap 13d names. So this closes the half of 13d's
+   split prediction that says *articulation at constant extent moves nothing*
+   — confirmed, for findability — and leaves the other half open. Original
+   text: *If the 0.8% becomes ~15%, the threshold claim is supported and §13 has
+   a number. If it stays near 1%, the appearance report generalises and
+   articulation's value is extent alone. One run.*
 
 ### 13f. What this changes in §12's contract
 
@@ -1733,7 +2057,307 @@ for what it was load-bearing for, and this work does not go near it.
 
 ---
 
-## 14. What not to re-derive
+## 14. Rooms are dug, not built — and the mechanism was built, measured, and withdrawn
+
+Added 2026-09-02 on the owner's *"I want rooms"*, and it opens with a
+correction I owe.
+
+> **STATUS 2026-09-02, after implementation (PR #216): the mechanism this
+> section recommends does not produce the outcome, and the recommendation to
+> build it first was wrong. Read §14g before acting on anything below.**
+>
+> `(Crowding, Dig, 0.6)` was built, rate-matched, swept and **withdrawn**. The
+> weight is out of `ant.ron` and `ancestor.ron`; both files are now
+> comment-only diffs against `main`. The reasoning in §14a–§14d is still
+> correct as far as it goes — the mechanism is real, the channel was genuinely
+> unwired, and the lever genuinely fires — and it does not deliver rooms in
+> this bed. `Reports/dead-ends.md` carries the full record and three retry
+> conditions.
+
+### 14a. I pointed at the wrong rule
+
+§5g named `SPOIL_HEADROOM` as the constraint blocking chambers, on the
+reasoning that it forbids placing a pellet inside a burrow so all construction
+is necessarily external. **The observation is true and the conclusion was
+wrong: a chamber is not built, it is dug.** Forcing spoil out of the burrow is
+correct ant behaviour and is what puts a mound at the entrance. The headroom
+clause blocks internal *deposition*, which is how you would get partitions and
+linings — not how you get a room.
+
+**And the engine can already hold a room open.** `line_burrow` packs all eight
+neighbours of every dug cell into `packedsoil`, which is `self_supporting`, so
+an excavated space gets cemented walls that carry their own roof. Nothing about
+chambers is blocked by physics. **Nothing digs one.**
+
+### 14b. The mechanism, from a controlled experiment
+
+[`stigmergy-research.md`](stigmergy-research.md) §5, on Toffin et al., *PNAS*
+2009 — 2D nest-digging in deliberately homogeneous conditions, with no
+environmental heterogeneity to bias anything:
+
+> A morphological transition occurs during excavation: the initial circular
+> cavity evolves into a ramified, branching structure. The transition happens
+> regardless of the number of ants, but more often with more workers.
+
+And the mechanism:
+
+> **A large number of digging ants relative to nest area produces uniform
+> digging**, because ant density along the initially small nest perimeter is
+> high. **As the nest grows, average density falls to a critical value, at which
+> point localized excavated buds appear** through amplification.
+
+High perimeter density → uniform digging → a **round chamber**. The chamber
+outgrows the colony, density falls → digging localizes → **tunnels sprout**.
+
+The research note's own conclusion, written 2026-08 and never acted on:
+*"This needs no new channel at all. Ant density along a perimeter is already
+implicit in where the agents are."*
+
+### 14c. The channel exists and is wired to the wrong verb
+
+`BrainInput::Crowding` is *"creature cells within r=2 of the head, over 8"* —
+local density, at about the right radius for density along a perimeter.
+
+**It is wired to `Move`, and to nothing else.** `(Crowding, Move, -0.3)`, in
+`ant.ron` and in `ancestor.ron` alike. Its doc explains it as the
+trail-adaptation term — *"without a crowding input a colony ossifies on the
+first path it finds"* — and **nothing has ever connected it to digging.**
+
+So the room mechanism is plausibly **one instinct weight**: `(Crowding, Dig, w)`.
+That is the same shape as `dig_force` gaining a second job in §11c — an existing
+sense doing a second job, rather than a new channel with its own cost.
+
+### 14d. What each half would do, and which half is uncertain
+
+**The chamber half is the confident one.** With a positive weight, a small
+cavity crowded with ants has everyone digging, so it grows evenly and stays
+round; as it grows, density falls, the dig rate falls, growth slows. That is a
+**self-limiting chamber whose size tracks colony size** — Toffin's first half,
+and a genuinely good emergent property rather than a tuned one.
+
+**The branching half is not guaranteed, and saying so now is cheaper than
+finding out later.** Localization needs positive feedback: a dug spot must
+attract more digging. Two candidates already exist in the engine, neither
+verified for this purpose:
+
+- **Momentum.** `dig` cuts the cell in front of the heading, so an ant that digs
+  keeps digging forward. `(Crowding, Persist, -w)` would make a sparse ant more
+  persistent — driving a tunnel rather than milling. `Persist` is already an
+  output.
+- **Trails.** A trail into a bud draws more ants, which dig there. Both
+  pheromone planes already exist and are now symmetric (§4).
+
+### 14e. What must be measured, because this is where levers fire and move nothing
+
+`burrow_probe` counts **roofed void** — a volume. Toffin's finding is entirely
+about **shape**, and a volume census cannot see shape. That is `larder_probe`'s
+lesson in a new costume: a count of absence cannot distinguish a round chamber
+from a ramified warren of the same size, and those are the two opposite findings
+this work exists to tell apart.
+
+Two columns it does not have:
+
+- **Circularity** — perimeter² / area, or an equivalent. This is the transition
+  itself.
+- **Bud count** — distinct protrusions off the main cavity.
+
+**And the positive control writes itself, which is rare here: chamber size
+should track colony size.** Run the same bed at 12, 26 and 52 ants; the cavity
+should scale with the colony. If it does not, the weight is not doing what the
+model says and the null is readable rather than ambiguous.
+
+### 14f. Why this outranks the curvature work
+
+They compose rather than compete — excavation makes the room, deposition shapes
+the spoil mound the excavation produces — but if only one gets built:
+
+| | curvature signal (§5f) | density-dependent digging |
+|---|---|---|
+| what it buys | external shaping: mound profile, ridge thickening | **rooms**, which is what was asked for |
+| new sense | yes, a new input plus a disc read | **none** — `Crowding` exists |
+| new code path | yes | **none** — one authored weight |
+| evidence behind it | a mechanism we would be porting | **a controlled experiment with the confounds removed** |
+| what is unproven | whether ants use it, whether it reads | whether branching emerges; the chamber half is straightforward |
+
+**Recommend this first.** It is smaller, better evidenced, and it is the thing
+the owner asked for.
+
+---
+
+### 14g. What happened when it was built, and what it cost me to be wrong
+
+**PR #216 ran it. Two findings, and the first one invalidates the second's
+predecessor.**
+
+**The harness could not produce more than seven colonies.** `burrow_probe`'s
+colony arm placed founders at `off = (seed - 1) * 3`, which walks the founder
+row rightward as the seed climbs — and `bank_x0` is 40, so **from seed 8 every
+ant is placed inside the bank**, `plant_ant` refuses, and the world runs 8,000
+frames with no colony in it. Seeds 8–12 read `digs 0`, `packed 0`, `roofed 0` in
+**both arms**, which reads exactly like *"the effect disappears at larger
+samples"* and is an empty scene. It went unseen because every run before the
+review was `seeds=4`.
+
+**The general form, which is not about ants:** any harness that derives a scene
+parameter from its seed by *translation* eventually walks that parameter out of
+the region the scene is valid in, and the failure is silent because the run
+completes. Bound the derived parameter and assert the scene.
+
+**With that fixed, the result did not survive.** Cavity more compact, wired
+against ablated, paired seed by seed in one binary:
+
+| | result |
+|---|---|
+| four seeds | 4 of 4 at 52 ants, 4 of 4 at 26 |
+| **twelve seeds** | **16 of 33 seed pairs** — 3/9 at 12, 9/12 at 26, 4/12 at 52 |
+
+A coin flip, with the sign reversing between colony sizes. Buds never moved in
+either arm at any size. **And the interaction test §14e's successor proposed —
+does `circ` fall faster with colony size when the weight is live — reads
+−0.316 wired against −0.333 ablated**, i.e. identical.
+
+**The one effect that survived twelve seeds is the opposite of the goal:** the
+wired arm cuts a *smaller* cavity for the same or more digging — 54.5 cells
+against 67.5 at 52 ants on 541 digs against 508. Density-dependent digging makes
+less nest, not a better-shaped one.
+
+**What survives.** The instrument: `circ` / `inradius` / `buds`,
+`arms=selftest`, the `crowd` pre-check, and `crowddig=` / `digbias=`. It ships
+**because the null is only readable through it** — which is §0's argument
+arriving as a result rather than as a recommendation.
+
+**And the `crowd` pre-check passed**, so this is not a dead channel or a
+disconnected lever: crowding reads mean **0.995 at spawn falling to 0.675 by
+frame 4,000**, and the weight moved digging hard enough to need `(Bias, Dig)`
+re-derived to hold the rate. **The mechanism fires and does not deliver**, which
+is a different and more useful finding than "it was never wired".
+
+### 14h. Three things this section got wrong, recorded because the errors are the reusable part
+
+**1. The positive control I specified could not fail.** §14e said *"chamber size
+should track colony size"*. More ants dig more cells whether or not the weight
+exists, and the ablated arm scales identically — so it would have passed at
+`(Crowding, Dig, 0.0)`. I spent this document objecting to controls that cannot
+fail and then wrote one.
+
+**2. "Recommend this first" was built on four seeds that had not been run yet.**
+§14f ranked this above §5f's curvature signal partly on *"a controlled
+experiment with the confounds removed"* — which describes Toffin's paper, not
+this engine. **A well-controlled result in the literature is evidence that a
+mechanism exists in nature, not that a port of it works here**, and the section
+treated the two as the same kind of support.
+
+**3. The section's confidence was inverted.** §14d called the chamber half
+*"the confident one"* and the branching half *"not guaranteed"*. Measured: the
+branching half was a clean null in both arms, and the chamber half is the one
+that reversed. The half labelled confident is the half that failed.
+
+**What this does not change:** §14a's correction still stands — a chamber is dug
+rather than built, `line_burrow` already cements excavation walls, and the
+headroom clause was the wrong rule to argue with. The diagnosis survives; the
+prescription did not.
+
+---
+
+### 14i. How much the null actually establishes, and the check nobody ran
+
+**Added after the owner asked the right question: *"couldn't it be that we don't
+have the correct weights or environment or test metric… I worry that we come up
+with the best mechanisms and then give up on them after an imperfect test."***
+
+**The measurement is sound about what it tested. What it tested is narrower
+than "the mechanism", in four named ways, and one of them was not noticed by
+anybody.**
+
+#### The one that was missed: the sensor spent the run saturated
+
+`Crowding` is `(crowd / crowd_scale).min(1.0)` — **clamped at 1.0**. The
+`crowd` pre-check reported mean **0.995 at spawn**, falling to **0.675** by
+frame 4,000, **max pinned at 1.0**.
+
+**Toffin's mechanism is specifically about density falling *below a critical
+value*** — that is what turns uniform digging into localized buds. If crowding
+sits in the top third of its range for the whole run, **the regime the model is
+about was never entered**, and a null says nothing about it.
+
+**And note what the pre-check asked.** *"Is crowding a dead channel?"* It
+passed, and the answer is real — the channel is alive and the lever moves
+digging. But that is the question **does it vary at all**, not **does it reach
+the regime the mechanism requires**. That is the vacuous-control error in a
+third costume: §14h's positive control could not fail, and this pre-check could
+not discriminate. Both passed, and neither tested the claim.
+
+The statistics that would settle it — the low tail and the spread, rather than
+the mean and the max — were not reported.
+
+#### Three more the null does not rule out
+
+- **The scene may not contain the phenomenon.** Toffin's arena is homogeneous
+  with no exposed face; ants dig into uniform medium from a point. This bed is
+  dominated by quarrying the open face of a bank, and the roofed cavity is **a
+  fifth** of the largest void component. This is PR #216's own first retry
+  condition and it is the right one.
+- **The horizon may stop before the interesting regime.** The transition
+  requires the cavity to outgrow the colony. At 54 cells with 52 ants it plainly
+  has not. This is the saturation finding from the other end — one cause, two
+  symptoms.
+- **The metric is a snapshot of a trajectory.** Toffin measured a shape
+  transition *over time* — round first, ramified later. `circ` at frame 8,000
+  over one component is an end state, and a mechanism producing the right
+  sequence with the wrong end state reads as a null here.
+
+And on weights: **one value of the slope was tested.** The dig-rate sweep varied
+`(Bias, Dig)` — the *rate* — not `(Crowding, Dig)` — the *slope*.
+
+#### The systemic gap this exposes, which is bigger than the ants
+
+**This repository has extensive machinery for not trusting a positive** —
+positive controls, seed sweeps, the tidiness tell, *ask what your number counts
+when nothing is wrong*, and `gene_probe`. **It has almost none for not trusting
+a null.**
+
+The question that belongs beside every null and was not asked here:
+
+> **What effect size would this design have detected, if the effect were
+> real?**
+
+A null without that is *"we did not see it"*, not *"it is not there"*. And the
+incentives run the wrong way: a false positive ships a wrong feature and is
+visible and embarrassing, while a false negative kills a right idea and looks
+like rigour. So nulls are accepted more cheaply than positives, and good
+mechanisms die quietly. **That asymmetry is the thing to fix, and it is not
+specific to this mechanism or this line.**
+
+#### The standing check that comes out of it
+
+**An input that never leaves saturation cannot demonstrate a mechanism about
+its low end.** So: **assert the driving input's realised range as a
+precondition of the run**, and refuse rather than report when it is not met —
+exactly as `creature_arena` now refuses to draw a verdict inside the founding
+grant. A lever swept over a range its sensor never visits is the sensory
+equivalent of a negative control that cannot lose.
+
+#### What this changes, and what it does not
+
+**It does not make the withdrawal wrong.** Shipping a weight whose comment
+claims it makes rooms, when it measurably does not in the only bed we have,
+plants exactly the kind of false belief §5 spent a section undoing. And the
+withdrawal costs almost nothing to reverse — `crowddig=` and `digbias=` are
+runtime switches on a shipped instrument, so a re-test is a command.
+
+**What it changes is the size of the claim.** What has been shown is that *this
+weight, at this value, in this bed, at this horizon, read by this metric* does
+not produce rooms. That is a much smaller statement than *density-dependent
+digging does not work here*, and the record should not be allowed to compress
+into the second.
+
+**The re-test, when someone takes it up, is a different experiment rather than a
+re-run:** a bed with no open face, run long enough for the cavity to outgrow the
+colony, with crowding's realised range asserted before the run counts.
+
+---
+
+## 15. What not to re-derive
 
 - **Whether `store_in_body` needs a slot.** It does not; the `Feed`/`Drop`
   weights already express both forks and are conditioned on everything the brain
@@ -1760,7 +2384,7 @@ for what it was load-bearing for, and this work does not go near it.
 
 ---
 
-## 15. The honest risk
+## 16. The honest risk
 
 The change cannot lose the ant. Three independent guarantees: the positional law
 forbids removing `AtNest`; every code-side coefficient becomes an authored
@@ -1783,7 +2407,7 @@ uninterpretable and the session produces an opinion.
 
 ---
 
-## 16. What the independent review changed, and the shape of the errors
+## 17. What the independent review changed, and the shape of the errors
 
 A reviewer with no stake in this document checked its claims against source on
 2026-09-02. It found **four confirmed errors severe enough to change what gets
@@ -1796,7 +2420,7 @@ recorded here because the errors generalise better than the corrections do.
 |---|---|---|
 | **§11c** | `bite_force` defaulting to `dig_force` means *"nothing changes until a species says so"* | **All sixteen food materials** sit at the 100.0 "impenetrable" default and `act`'s ingest branch is one branch for *all* food, so the gate would have been `1.0 >= 100.0` for every mouthful in the world. **Nothing eats anything, ever** |
 | **§13b/e** | *"no chain longer than two cells leaves a living colony"*, cited as a live blocker | Superseded. `creature-chain-head-loss-2026-08-30.md` diagnosed it as a **head-cell counter reading zero over a living population**; `Reports/README.md` records *"the extent lever is recoverable"* |
-| **§11a/b** | the four creature materials are *"identical in every food property"*, so predation is *"symmetric by construction"* | `beetle.ron` and `worm.ron` author **no `food_energy` and no `food_class`**. Nothing in the world can eat a living beetle at any gut bias, and §11b's own headline example was unreachable |
+| **§11a/b** | the four creature materials are *"identical in every food property"*, so predation is *"symmetric by construction"* | `beetle.ron` and `worm.ron` author **no `food_energy` and no `food_class`**. Nothing in the world can eat a living beetle at any gut bias, and §11b's own headline example was unreachable. **Closed on `main` 2026-09-02** — both now author flesh values; see §11a's status block |
 | **§11d/§12b** | a body's cells and cell count are body-plan-independent | `body_after_step` re-derives a **`Rigid` body's template from the head every step**, so a bitten beetle regrows its cells for free. Severing was incompatible with the one row §12 promised nothing would touch |
 
 ### The shape of them, which is the reusable part

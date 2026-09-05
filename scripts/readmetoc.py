@@ -131,6 +131,10 @@ GAME = {
     # The fifth lab row: what an individual has done, as opposed to what it
     # is. Also engine-side -- the counters live on `OrganismState`.
     "what an individual has done, and what killed it": "lab",
+    # `TunableGroup::Lab` is deliberately excluded from the sandbox panel's
+    # own menu cycle (`tunables.rs`'s own doc) -- the outdoor game has its
+    # own separate save path and never reaches `lab::params`.
+    "tuning and saving the box's own numbers": "lab",
 }
 
 TOPICS = {
@@ -138,6 +142,7 @@ TOPICS = {
         "M16 status",
         "Plant lines merged: the genome, and the ecology",
         "Inheritance status \u2014 the growth program has no fallback under it",
+        "Parameter-genome status \u2014 a species file is a starting point, and it ships inert",
         "The economy re-derived: standing tissue costs something",
         "Plants that stop: organs, determinacy, and a price on both",
         "The generation loop: plants die, seeds expire, slots come back",
@@ -283,6 +288,13 @@ TOPICS = {
     # the owner actually asks, and it routes to a *frame*, not to a fixture.
     "the speed dial, and what a tick costs": [
         "Lab speed-dial status — what the dial is actually short of",
+    ],
+    # The fourth lab row: the parameters page's own save path -- what
+    # persists, what doesn't, and where the files live. Separate from the
+    # hand-verbs row above, which is about the tools that populate the box
+    # rather than the numbers a player tunes once it exists.
+    "tuning and saving the box's own numbers": [
+        "Lab parameters status — a save that reaches the founders, not just the file",
     ],
 }
 

@@ -24,7 +24,8 @@
     fall_drag: 0.15,
     // Foliage is not wood. Well under `wood`'s 0.9.
     density: 0.25,
-    // **Eight hue bands of four tonal steps** — see `organism::PALETTE_BAND`.
+    // **Eight hue bands of four tonal steps** — see
+    // `organism::PALETTE_BAND`.
     // A species declares which bands it draws from (`foliage_bands`) and an
     // individual draws one band inside that range at germination, so a
     // stand is a spread of related greens instead of sixteen draws of one.
@@ -125,7 +126,8 @@
     //
     // `plant::anchor_support` changed what the number is measured against:
     // it is now the cell's reach along its own load path from the plant's
-    // anchors, which for any leaf in a crown is tens of cells. The first run
+    // anchors, which for any leaf in a crown is tens of cells. The first
+    // run
     // with checks actually firing took median leaves per tree from 1,376 to
     // **1**, and the stand from 31,731 cells to 7,171 once the income went
     // with them.
@@ -177,26 +179,33 @@
 
     // **Foliage bends, and it is the only part of a tree that does.**
     //
-    // Set against the foliage's own measured moments rather than the stand's
+    // Set against the foliage's own measured moments rather than the
+    // stand's
     // pooled ones, which is a distinction that cost a wrong reading: trunks
-    // dominate a pooled distribution and foliage sits two orders of magnitude
-    // below it. Censused on `scene=grove` (`filmstrip`'s per-material line),
+    // dominate a pooled distribution and foliage sits two orders of
+    // magnitude
+    // below it. Censused on `scene=grove` (`filmstrip`'s per-material
+    // line),
     // 5,265 and 10,189 leaf cells on two frames:
     //
     //     p50 4.1-5.9   p90 260-348   p99 2,393-4,923   max 12,614-30,494
     //
     // 1000 sits between p90 and p99, so the few percent of foliage that is
     // genuinely carrying a loaded cluster on a long lever lies over in a
-    // gust, and the quiet interior of a crown does not creep. Set in the gap
+    // gust, and the quiet interior of a crown does not creep. Set in the
+    // gap
     // rather than on a measured value, per `CLAUDE.md`.
     //
     // **Why foliage and not wood**, when a limb sagging before it breaks is
     // the more wanted picture: a bend relieves its moment by shortening a
-    // *horizontal* lever, and a trunk's wind moment is a vertical one that a
-    // one-cell lean does not shorten. So a trunk given a stiffness would lean
+    // *horizontal* lever, and a trunk's wind moment is a vertical one that
+    // a
+    // one-cell lean does not shorten. So a trunk given a stiffness would
+    // lean
     // again every tick for as long as the wind blew, with nothing in the
     // model to stop it. What stops a real trunk is that it breaks, and that
-    // is stage 3's business. A leaf cluster has no such problem: it hangs off
+    // is stage 3's business. A leaf cluster has no such problem: it hangs
+    // off
     // the end of everything, its moment is nearly all wind, and swinging it
     // downwind takes that load off directly.
     stiffness: 1000.0,
@@ -205,5 +214,15 @@
     // `eat_energy` paid for any mouthful, so the ant's economy is unchanged
     // by the move from eater-constant to food-property.
     food_energy: 480.0,
+    // **The armour table's soft band -- see `material.rs`'s
+    // `penetration_resistance` doc for the whole derivation.** Everything
+    // a shipped mouth must be able to eat is priced below the *weakest*
+    // shipped bite (`beetle.ron`'s `dig_force: 0.3`), because `act`'s
+    // ingest gate is one branch for all food: a food priced above every
+    // bite force in the world is not armoured, it is inedible.
+    //
+    // In MPa like every other value of this field. Live soft tissue: a
+    // lamina punctures at almost nothing.
+    penetration_resistance: 0.1,
     food_class: -1.0,
 )

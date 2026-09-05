@@ -106,11 +106,19 @@ fn phrasebook(input: BrainInput, output: BrainOutput) -> Option<(&'static str, &
         // anonymous planes, and what a channel *means* is decided entirely by
         // which weights emit onto it. Naming A "the food trail" in a table
         // like this one is an assumption dressed as a fact, and for the
-        // shipped ant it is probably backwards: every ant lays A all the time
-        // (`Bias -> EmitA`), which pools it wherever the colony is, while
-        // only a laden ant lays B (`Carrying -> EmitB`), which marks the way
-        // back from food. `scent_phrase` derives the label from the
+        // shipped ant it is backwards: A is the ant's *home* scent and B is
+        // the food route. `scent_phrase` derives the label from the
         // individual's own emissions instead.
+        //
+        // **This comment used to justify that by `Bias -> EmitA` -- "every
+        // ant lays A all the time" -- and that weight is gone.** 2026-09-02
+        // moved homing out of Rust and into the genome: `ant.ron` now lays A
+        // from a self-recurrent hidden unit charged at the nest, and what
+        // survives of `Bias -> EmitA` is a -0.35 offset that unit's fit
+        // needs. So A is laid *always but fading since home* rather than
+        // flat, which is the gradient itself rather than a pool around the
+        // colony. `memories` is what reads that; see `RowState::Far` in
+        // `roster.rs` for the same change seen from the other side.
 
         // -- food.
         (I::FoodAdjacent, O::Move) => ("HURRIES PAST FOOD", "STOPS DEAD ON FOOD"),
@@ -143,6 +151,55 @@ fn phrasebook(input: BrainInput, output: BrainOutput) -> Option<(&'static str, &
         (I::MoistureLateral, O::Turn) => ("STEERS TOWARD DAMP", "STEERS AWAY FROM DAMP"),
         (I::LightHere, O::Move) => ("TRAVELS IN THE LIGHT", "TRAVELS IN THE DARK"),
         (I::LightHere, O::Turn) => ("TURNS TOWARD THE LIGHT", "TURNS AWAY FROM LIGHT"),
+
+        // -- **the colony, sensed rather than assumed.** `KinNear`/
+        //    `KinBearing` are `PreyNear`/`PreyBearing`'s argument applied to
+        //    one's own kind: a magnitude says there is something, a direction
+        //    says that way. They arrived with the 2026-09-02 scaffold and had
+        //    no sentences, so an animal wired to aggregate read as a row of
+        //    `KINNEAR > MOVE`.
+        (I::KinNear, O::Move) => ("FOLLOWS ITS OWN KIND", "KEEPS AWAY FROM KIN"),
+        (I::KinNear, O::Turn) => ("TURNS INTO THE COLONY", "TURNS OUT OF THE COLONY"),
+        (I::KinNear, O::Feed) => ("FEEDS BESIDE ITS KIN", "WILL NOT FEED NEAR KIN"),
+        (I::KinNear, O::Dig) => ("DIGS WHERE ITS KIN DIG", "DIGS AWAY FROM ITS KIN"),
+        (I::KinNear, O::Persist) => ("STAYS WITH THE COLONY", "BREAKS FROM THE COLONY"),
+        (I::KinBearing, O::Turn) => ("TURNS TOWARD ITS KIN", "TURNS AWAY FROM ITS KIN"),
+
+        // -- **depth, and it is deliberately not called damp.** `MoistureGrad`
+        //    reads as a moisture gradient and measurably is not one: a convex
+        //    crest and a flat plateau at the same elevation read 1.012x apart,
+        //    and widening the sampler makes that *worse*. What it carries is
+        //    the vertical air/soil step -- how deep you are
+        //    (`brain.rs`'s own variant doc, measured with
+        //    `examples/field_sense_probe.rs`). Phrasing it as wet/dry would
+        //    put a measured falsehood on the page in plain English, which is
+        //    worse than the generic fallback, not better.
+        (I::MoistureGrad, O::Dig) => ("DIGS DEEPER", "DIGS UP TOWARD THE AIR"),
+        (I::MoistureGrad, O::Move) => ("HEADS DEEPER UNDER", "HEADS FOR THE SURFACE"),
+        (I::MoistureGrad, O::Turn) => ("STEERS DEEPER", "STEERS UP TO THE SURFACE"),
+        (I::MoistureGrad, O::Drop) => ("PUTS FOOD DOWN DEEP", "CARRIES FOOD UP TOP"),
+
+        // -- **the shape of the ground, which most animals cannot feel.**
+        //    Opt-in per species through `CreatureDef::curvature_radius`; one
+        //    that authors none reads a flat 0.0, so a weight here is live
+        //    storage wired to a constant. The `HAS EYES, IGNORES THEM` shape
+        //    below covers the inverse.
+        (I::SurfaceCurvature, O::Turn) => ("TURNS ALONG A RIDGE", "TURNS INTO A HOLLOW"),
+        (I::SurfaceCurvature, O::Move) => ("HURRIES OVER A RIDGE", "HURRIES THROUGH HOLLOWS"),
+        (I::SurfaceCurvature, O::Dig) => ("DIGS AT A RIDGE", "DIGS INTO A HOLLOW"),
+
+        // -- **spoil, which is not food and used to share a gene with it.**
+        //    `Drop` puts down what it is carrying to eat; `DropSpoil` puts
+        //    down a dug pellet. They were one output until 2026-09-02, and
+        //    while they were, evolution could not select for one against the
+        //    other. Two verbs need two vocabularies or the page re-merges
+        //    what the genome just split.
+        (I::AtNest, O::DropSpoil) => ("DUMPS SPOIL AT THE NEST", "CARRIES SPOIL PAST HOME"),
+        (I::Bias, O::DropSpoil) => ("DUMPS SPOIL ANYWHERE", "HOLDS ON TO ITS SPOIL"),
+        (I::FoodAdjacent, O::DropSpoil) => ("DUMPS SPOIL ON FOOD", "KEEPS SPOIL OFF FOOD"),
+        (I::Crowding, O::DropSpoil) => ("DUMPS SPOIL IN A CROWD", "DUMPS SPOIL WHEN ALONE"),
+        (I::MoistureGrad, O::DropSpoil) => ("DUMPS SPOIL DOWN DEEP", "CARRIES SPOIL UP TOP"),
+        (I::Carrying, O::DropSpoil) => ("DUMPS SPOIL WHEN LADEN", "KEEPS SPOIL WHEN LADEN"),
 
         // -- hunting. The only distal sense in this scaffold.
         (I::PreyNear, O::Move) => ("CHARGES PREY IT SEES", "BACKS OFF FROM PREY"),
@@ -177,6 +234,35 @@ fn phrasebook(input: BrainInput, output: BrainOutput) -> Option<(&'static str, &
 /// One laid **at the nest** marks the nest. One nobody lays is still
 /// followable and has no name.
 fn scent_label(w: &brain::Wiring, channel: BrainOutput) -> &'static str {
+    // **A memory that lays the channel outranks every direct weight on it,
+    // and for the shipped ant that is the whole of the answer.** Its only
+    // direct weight into `EmitA` is a -0.35 *offset* the odometer's fit
+    // needs; what actually lays A is hidden unit 4, charged at the nest and
+    // decaying (`memories`). Ranking the two by magnitude is not the test --
+    // the layers are on different scales by design, which is what
+    // `WORTH_SAYING` is a share for -- so this is a precedence rule, not a
+    // comparison.
+    //
+    // **It named A correctly before this and by accident**, off the sign of
+    // that offset: delete the offset from `ant.ron` and every A sentence on
+    // the page degraded to "A SCENT" while the ant's behaviour was
+    // unchanged. A label derived from a term that is not the mechanism is a
+    // right answer waiting to become a wrong one.
+    for m in memories(w) {
+        if m.output != channel {
+            continue;
+        }
+        return match m.from {
+            // Charged at the nest and fading: laid everywhere, strongest
+            // nearest home. That is the homing gradient, and it is a
+            // *different* thing from a channel laid only while standing on
+            // the nest, which is the `AtNest` instinct case below.
+            BrainInput::AtNest => "HOME SCENT",
+            BrainInput::FoodAdjacent | BrainInput::Carrying => "FOOD ROUTE",
+            BrainInput::KinNear => "COLONY SCENT",
+            _ => "A SCENT",
+        };
+    }
     let mut best: Option<(BrainInput, f32)> = None;
     for i in w.instincts.iter().filter(|i| i.1 == channel && i.2.abs() > brain::W_EPS) {
         if best.is_none_or(|(_, m)| i.2.abs() > m) {
@@ -229,6 +315,111 @@ fn scent_phrase(w: &brain::Wiring, input: BrainInput, output: BrainOutput) -> Op
         O::Turn => (format!("STEERS TO {name}"), format!("STEERS OFF {name}")),
         _ => (format!("{name} > {}", brain::OUTPUT_NAMES[output as usize].to_uppercase()), format!("{name} < {}", brain::OUTPUT_NAMES[output as usize].to_uppercase())),
     })
+}
+
+/// **One remembered thing, decoded out of a self-recurrent hidden unit.**
+///
+/// A unit wired to itself is an *odometer*: it charges from whatever feeds
+/// it and leaks a fixed fraction per tick, so its level says "how long since"
+/// rather than "how much now". That is a different kind of sentence from
+/// `Gated`'s -- a condition says *while*, a memory says *since* -- and until
+/// 2026-09-02 this page had no vocabulary for one because nothing in the
+/// tree used one.
+///
+/// **Then the ant's way home became one, and the page went quiet about it.**
+/// `creature_tick` used to scale channel-A deposit by `1 - since_nest /
+/// nest_memory` in Rust; that line and the `nest_memory` constant behind it
+/// are both gone, replaced by three authored weights on hidden unit 4
+/// (`Reports/creature-genome-flexibility-2026-09-02.md` §2b). `gated` cannot
+/// see it -- it requires two non-bias inputs on a unit, to tell a gate from
+/// the sensor beside it, and an odometer has one. So the single most
+/// important thing an ant does, finding its way home, produced **no sentence
+/// at all**, and the page did not look broken: it looked like an ant that
+/// simply did not lay a home scent.
+struct Memory {
+    /// What charges it.
+    from: BrainInput,
+    output: BrainOutput,
+    /// Sign of the charge's effect on the output through this unit.
+    effect: f32,
+    /// The self-weight -- how much of its level survives each tick.
+    retention: f32,
+}
+
+/// **How much of its own level a unit must carry forward to be a memory.**
+///
+/// Below this it is a slightly-smoothed passthrough, and describing it as
+/// remembering anything would overstate it. The ant authors **0.9999**,
+/// which is a half-life of some thousands of ticks; this is far enough below
+/// that to admit a much shorter memory as one, and far enough above a
+/// smoother that a random genome's small self-weight does not read as
+/// recall.
+const REMEMBERS: f32 = 0.9;
+
+/// Read the hidden layer as memories.
+///
+/// **The charge is the strongest non-bias input, and there is usually only
+/// one.** An odometer authored the way `ant.ron` authors it has exactly one
+/// way in; a unit with several is being used for something else as well, and
+/// naming its largest is the same choice `gated` makes for its gate.
+fn memories(w: &brain::Wiring) -> Vec<Memory> {
+    let mut out: Vec<Memory> = Vec::new();
+    for r in w.recurrence.iter().filter(|r| r.1.abs() >= REMEMBERS) {
+        let unit = r.0;
+        let outs: Vec<&brain::OutputWire> = w.outputs.iter().filter(|o| o.0 == unit && o.2.abs() > brain::W_EPS).collect();
+        if outs.is_empty() {
+            continue;
+        }
+        // **`W_EPS` on the charge wire, and it is load-bearing rather than
+        // copied from `gated`.** `eval_brain` gates every input->hidden
+        // contribution on `w.abs() >= W_EPS` (the recurrence term is added
+        // unconditionally; only the *inputs* are gated), so a charge below it
+        // is not a weak connection, it is **no connection**: the unit never
+        // charges and its output is whatever it decays to. Reporting such a
+        // unit as a memory would put a sentence on this page describing a
+        // mechanism the engine does not run, which is the one thing this
+        // module exists not to do.
+        //
+        // It is not hypothetical -- it is what both shipped odometers do
+        // today. See `open-bugs-handoff.md` §Z5.
+        let mut ins: Vec<&brain::HiddenWire> =
+            w.hidden.iter().filter(|h| h.1 == unit && h.0 != BrainInput::Bias && h.2.abs() >= brain::W_EPS).collect();
+        ins.sort_by(|a, b| b.2.abs().total_cmp(&a.2.abs()));
+        // **A memory with nothing charging it is not reported.** It is a unit
+        // that decays from whatever it happened to hold, which is a
+        // free-running level rather than a recollection of anything, and
+        // there is no honest "since what" to put in the sentence.
+        let Some(charge) = ins.first() else { continue };
+        for o in outs {
+            let effect = charge.2 * o.2;
+            let already =
+                out.iter().any(|m| m.from == charge.0 && m.output == o.1 && (m.effect >= 0.0) == (effect >= 0.0));
+            if !already {
+                out.push(Memory { from: charge.0, output: o.1, effect, retention: r.1 });
+            }
+        }
+    }
+    out
+}
+
+/// The sentence for a memory, which is *not* the sentence for the same pair
+/// wired directly.
+///
+/// **An emit output gets its own form, because the generic one would be a
+/// lie in exactly the interesting case.** `scent_phrase` would render the
+/// ant's odometer as `AT NEST: LAYS HOME SCENT` -- laid *only while standing
+/// on the nest*, which is the opposite of what an odometer does and would
+/// describe an ant that leaves no trail behind it at all. The whole point is
+/// that it lays everywhere and the level falls off behind it.
+fn memory_phrase(w: &brain::Wiring, m: &Memory) -> Option<(String, String)> {
+    let name = match m.output {
+        BrainOutput::EmitA | BrainOutput::EmitB => scent_label(w, m.output),
+        _ => return None,
+    };
+    // "LAYS " + name + ", GROWING" is 14 + name, and the longest label is
+    // COLONY SCENT at 12 -- exactly `PHRASE_COLUMNS`.
+    // `every_phrase_fits_the_column` holds the pair of them together.
+    Some((format!("LAYS {name}, FADING"), format!("LAYS {name}, GROWING")))
 }
 
 /// **One conditional behaviour, decoded out of a hidden unit.**
@@ -323,11 +514,34 @@ fn generic(input: BrainInput, output: BrainOutput) -> (String, String) {
     // **`>` and `<`, because the English form does not fit.** "LESS EMITB
     // WHEN MOISTURELATERAL IS HIGH" is thirty-nine characters against a
     // twenty-six character column, and an over-wide row widens the whole cell
-    // page rather than wrapping. The longest pair the scaffold can produce is
+    // page rather than wrapping.
+    //
+    // **The spaces come out when the pair is too wide, and that clause is
+    // here because the scaffold outgrew the arithmetic this comment used to
+    // state.** It read: *"the longest pair the scaffold can produce is
     // MOISTURELATERAL (15) against IMPULSE (7), which is 25 with the arrow --
     // so this form always fits, and `every_phrase_fits_the_column` proves it
-    // over every combination rather than over the ones I thought of.
-    (format!("{i} > {o}"), format!("{i} < {o}"))
+    // over every combination rather than over the ones I thought of"*. Both
+    // halves stopped being true on 2026-09-02, silently. `SurfaceCurvature`
+    // (16) and `DropSpoil` (9) make **28**, and `MoistureLateral` against
+    // `DropSpoil` makes 27 -- two pairs that would have slid the cell page
+    // over the roster. And the guard never proved anything over every
+    // combination: it samples 24 random genomes and only ever sees each
+    // one's top `MOST_DRIVES`, so a pair has to be in an animal's five
+    // strongest drives before it is measured at all. It was blind to both,
+    // and it stayed green. `every_generic_pair_fits_the_column` is the
+    // exhaustive one, and it is exhaustive because it walks `brain::INPUTS`
+    // x `brain::OUTPUTS` rather than a population.
+    //
+    // Tight, the widest the scaffold can currently build is 16 + 1 + 9 = 26,
+    // which is exactly the column. A future sense longer than that fails the
+    // guard rather than the page.
+    let spaced = (format!("{i} > {o}"), format!("{i} < {o}"));
+    if spaced.0.chars().count() <= PHRASE_COLUMNS {
+        spaced
+    } else {
+        (format!("{i}>{o}"), format!("{i}<{o}"))
+    }
 }
 
 /// **Describe the individual `id` in `world`.**
@@ -510,6 +724,32 @@ fn creature(world: &World, species: SpeciesId, genome: &[f32], traits: &[f32]) -
         ));
     }
 
+    // -- **what it remembers, which is how it gets home.** Read after the
+    //    conditionals because the ant's reads as the other half of them:
+    //    `LAYS HOME SCENT, FADING` beside `LADEN: FOLLOWS HOME SCENT` is the
+    //    round trip in two lines. Before this the second line was on the page
+    //    and the first was not, so the summary described an ant following a
+    //    trail that, as far as the page said, nothing laid.
+    for m in memories(&wiring) {
+        let Some((pos, neg)) = memory_phrase(&wiring, &m) else {
+            // A memory driving something other than a scent channel. The
+            // behaviour phrase is still the right sentence -- what the
+            // memory changes is that it *persists* -- so it is the gated
+            // pattern with a different marker, including the same drop-the-
+            // marker-rather-than-wrap fallback.
+            let (pos, neg) = scent_phrase(&wiring, m.from, m.output)
+                .or_else(|| phrasebook(m.from, m.output).map(|(p, n)| (p.to_string(), n.to_string())))
+                .unwrap_or_else(|| generic(m.from, m.output));
+            let body = if m.effect >= 0.0 { pos } else { neg };
+            let full = format!("{body}, FADING");
+            let text = if full.chars().count() <= PHRASE_COLUMNS { full } else { body.clone() };
+            out.push(Phrase::new(text, memory_detail(&m)));
+            continue;
+        };
+        let text = if m.effect >= 0.0 { pos } else { neg };
+        out.push(Phrase::new(text, memory_detail(&m)));
+    }
+
     // -- **the absences, which are half the value.** A sense the animal has
     //    and does not use is a different animal from one that cannot sense at
     //    all, and only this half can say so.
@@ -527,6 +767,40 @@ fn creature(world: &World, species: SpeciesId, genome: &[f32], traits: &[f32]) -
         out.push(Phrase::new(
             "CANNOT FOLLOW A TRAIL",
             "NO LIVE WEIGHT FROM ANY FOOD-SCENT INPUT. IT MAY STILL LAY ONE FOR OTHERS -- LAYING AND FOLLOWING ARE DIFFERENT WEIGHTS -- BUT IT WILL NOT FIND ITS WAY BACK ALONG IT.".to_string(),
+        ));
+    }
+    // **A channel it follows and does not lay**, which is the absence that
+    // found `open-bugs-handoff.md` §Z5. An animal wired to walk up a
+    // gradient and wired to put nothing into it is not a forager with a
+    // route home; it is a forager depending entirely on somebody else.
+    let follows = |a: BrainInput, b: BrainInput, c: BrainInput| uses(a) || uses(b) || uses(c);
+    // **A unit with no live input never leaves zero**, so an output wire off
+    // one contributes nothing however large it is. `eval_brain` seeds the
+    // hidden state at zero and a self-recurrence term multiplies it, so a
+    // unit whose only wire in is sub-`W_EPS` is pinned there for the animal's
+    // whole life. This is the ant's hidden unit 4 exactly -- a 1609.1 output
+    // wire carrying zero.
+    let unit_live = |unit: u8| wiring.hidden.iter().any(|h| h.1 == unit && h.2.abs() >= brain::W_EPS);
+    // **A positive instinct, not a live one, and that distinction is the
+    // whole finding.** `emit_a` is `outputs[EmitA].clamp(0.0, 1.0)`, so a
+    // channel whose only direct weight is negative cannot be laid at all --
+    // the clamp floors it at zero. The ant's is `(Bias, EmitA, -0.35)`, an
+    // offset the odometer's fit needs, and reading it as "this animal lays A"
+    // is what hid §Z5 from this page for the length of one merge. A hidden
+    // unit's activation is signed, so either sign of *its* output wire can
+    // raise the channel -- hence the asymmetry between the two arms.
+    let lays = |channel: BrainOutput| -> bool {
+        wiring.instincts.iter().any(|i| i.1 == channel && i.2 >= brain::W_EPS)
+            || wiring.outputs.iter().any(|o| o.1 == channel && o.2.abs() >= brain::W_EPS && unit_live(o.0))
+    };
+    let orphaned = (follows(BrainInput::PheroAFront, BrainInput::PheroALateral, BrainInput::PheroAAlong)
+        && !lays(BrainOutput::EmitA))
+        || (follows(BrainInput::PheroBFront, BrainInput::PheroBLateral, BrainInput::PheroBAlong)
+            && !lays(BrainOutput::EmitB));
+    if orphaned {
+        out.push(Phrase::new(
+            "LAYS NOTHING IT FOLLOWS",
+            "IT CARRIES LIVE WEIGHT FROM A PHEROMONE CHANNEL AND NOTHING THAT CAN RAISE IT: IT WILL WALK UP THAT TRAIL AND ADD NOTHING TO IT. LAYING AND FOLLOWING ARE DIFFERENT WEIGHTS, SO THIS IS A REAL ANIMAL AND NOT A BROKEN ONE -- BUT THE ROUTE ONLY EXISTS WHILE SOMETHING ELSE IN THE BOX IS LAYING IT.".to_string(),
         ));
     }
     if !uses(BrainInput::Crowding) {
@@ -554,6 +828,24 @@ fn creature(world: &World, species: SpeciesId, genome: &[f32], traits: &[f32]) -
         ));
     }
     out
+}
+
+/// The explanation under a memory phrase.
+///
+/// **It names the retention rather than a half-life in ticks**, because the
+/// tick a creature runs on is `CreatureDef::tick_interval` -- 6 for the ant
+/// -- and converting here would put a species constant into a sentence about
+/// an individual's genome. The same trap `since_nest` fell into: a number
+/// whose scale is a species constant reads as a distance and is not one.
+fn memory_detail(m: &Memory) -> String {
+    format!(
+        "THROUGH A SELF-RECURRENT HIDDEN UNIT: {} CHARGES IT AND IT KEEPS {:.4} OF ITS LEVEL EACH TICK, SO {} IS DRIVEN {} BY HOW RECENTLY -- NOT HOW MUCH -- THIS ANIMAL MET {}. THAT DECAY IS WHAT MAKES THE TRAIL A GRADIENT INSTEAD OF A POOL, AND IT IS THREE INHERITED WEIGHTS RATHER THAN A RULE IN THE ENGINE.",
+        brain::INPUT_NAMES[m.from as usize].to_uppercase(),
+        m.retention,
+        brain::OUTPUT_NAMES[m.output as usize].to_uppercase(),
+        if m.effect >= 0.0 { "UP" } else { "DOWN" },
+        brain::INPUT_NAMES[m.from as usize].to_uppercase(),
+    )
 }
 
 fn dig_word(force: f32) -> &'static str {
@@ -811,10 +1103,34 @@ mod tests {
         let mut world = world();
         let id = animal(&mut world, "ant");
 
-        // The shipped ant: A laid unconditionally, B only while carrying.
+        // **The shipped ant lays B while laden -- and lays no A at all.**
+        //
+        // This assertion used to read `ALWAYS LAYS HOME SCENT`, and it went
+        // red on the 2026-09-02 brain rather than on any change to this
+        // module. Chasing the red is what found `open-bugs-handoff.md` §Z5:
+        // `Bias -> EmitA` was the whole of "lays A all the time" and it was
+        // deliberately removed, because a constant floor on A drowns the very
+        // falloff that *is* the homing gradient. What replaced it is a
+        // self-recurrent unit charged at the nest -- whose charge wire is
+        // 0.0005 against a `W_EPS` of 0.01, so `eval_brain` skips it and the
+        // unit never charges. Measured, not read: `h4` holds 0.000000 through
+        // 400 ticks standing on the nest and `EmitA` clamps to 0 throughout.
+        //
+        // So the page is right to say nothing about laying A, and the honest
+        // sentence is the *absence* one below. **Do not "fix" this by
+        // asserting `LAYS HOME SCENT, FADING` here** -- that would put the
+        // expectation back and make this guard green over a dead mechanism,
+        // which is exactly what it just caught.
         let said = describe(&world, id);
-        assert!(says(&said, "ALWAYS LAYS HOME SCENT"), "A is laid by every ant all the time and was not named for it: {said:#?}");
-        assert!(says(&said, "LADEN: LAYS FOOD ROUTE"), "B is laid only while laden and was not named for it");
+        assert!(says(&said, "LADEN: LAYS FOOD ROUTE"), "B is laid only while laden and was not named for it: {said:#?}");
+        assert!(
+            !says(&said, "LAYS HOME SCENT, FADING"),
+            "the ant was described as laying a fading home scent, but its odometer's charge wire is below W_EPS and never fires -- see §Z5"
+        );
+        assert!(
+            says(&said, "LAYS NOTHING IT FOLLOWS"),
+            "the ant follows channel A and emits none, and the page did not say so: {said:#?}"
+        );
         // ...and the loop it implies, which lives entirely in the hidden
         // layer and which this page said nothing about until it read one.
         assert!(says(&said, "LADEN: FOLLOWS HOME SCENT"), "the laden half of the foraging loop is missing");
@@ -1062,6 +1378,135 @@ mod tests {
         );
     }
 
+    /// **Every pair the scaffold can build fits the column -- all of them,
+    /// not the ones a sampled population happened to show.**
+    ///
+    /// `every_phrase_fits_the_column` walks 24 random genomes per species and
+    /// reads each one's top `MOST_DRIVES`, so a pair is measured only if it
+    /// lands in some animal's five strongest drives. That is a population
+    /// sample wearing an exhaustive claim, and `generic`'s own doc made the
+    /// claim out loud. It was blind to `SURFACECURVATURE > DROPSPOIL` (28
+    /// characters) and `MOISTURELATERAL > DROPSPOIL` (27) from the moment
+    /// those two slots were appended, and stayed green.
+    ///
+    /// This walks `brain::INPUTS` x `brain::OUTPUTS` instead, so appending a
+    /// sense either fits or fails here. **Both sentences of each pair**, and
+    /// through the same selection path the page uses -- a phrasebook entry
+    /// that fits in one sign and not the other is the same defect.
+    #[test]
+    fn every_generic_pair_fits_the_column() {
+        let mut world = world();
+        let id = animal(&mut world, "ant");
+        let wiring = brain::wiring_from_genome(&world.organism(id).expect("alive").genome.clone());
+        let mut worst = (0usize, String::new());
+        for &i in brain::INPUTS.iter() {
+            for &o in brain::OUTPUTS.iter() {
+                let (pos, neg) = scent_phrase(&wiring, i, o)
+                    .or_else(|| phrasebook(i, o).map(|(p, n)| (p.to_string(), n.to_string())))
+                    .unwrap_or_else(|| generic(i, o));
+                for text in [pos, neg] {
+                    let n = text.chars().count();
+                    if n > worst.0 {
+                        worst = (n, text);
+                    }
+                }
+            }
+        }
+        // The memory sentences are built from a closed set of scent labels
+        // rather than from the input names, so they are measured against that
+        // set rather than against the product above.
+        for name in ["HOME SCENT", "FOOD ROUTE", "COLONY SCENT", "NEST MARK", "A SCENT"] {
+            for text in [format!("LAYS {name}, FADING"), format!("LAYS {name}, GROWING")] {
+                let n = text.chars().count();
+                if n > worst.0 {
+                    worst = (n, text);
+                }
+            }
+        }
+        assert!(worst.0 > 0, "no pairs were measured, so this guard is checking nothing");
+        assert!(
+            worst.0 <= PHRASE_COLUMNS,
+            "{:?} is {} characters against a {PHRASE_COLUMNS}-character column -- it will widen the cell page and slide it over the roster",
+            worst.1,
+            worst.0
+        );
+    }
+
+    /// **The page says how the animal gets home, and says it because the
+    /// animal does it -- not because this module knows about ants.**
+    ///
+    /// The positive control `CLAUDE.md` asks for: the shipped ant is the
+    /// arm where the answer is known, and a genome with the recurrence
+    /// stripped is the arm where it must go away. Without the second, a
+    /// phrase hardcoded into `creature` would pass the first identically.
+    #[test]
+    fn a_self_recurrent_unit_is_read_as_a_memory() {
+        use BrainInput as I;
+        use BrainOutput as O;
+        let mut world = world();
+        let id = animal(&mut world, "ant");
+
+        // **Hand-built, and it has to be: no shipped species has a working
+        // odometer.** Both that author one (`ant`, `ancestor`) charge it at
+        // 0.0005 against a `W_EPS` of 0.01, so `eval_brain` skips the charge
+        // and the unit never leaves zero -- `open-bugs-handoff.md` §Z5. Using
+        // the ant as the positive arm would have made this guard green on a
+        // mechanism that does not run, which is the failure it exists to
+        // catch. The charge here is `W_EPS * 2`: the smallest thing the
+        // engine will actually evaluate.
+        let live = brain::genome_from_wiring(
+            &[],
+            &[brain::HiddenWire(I::AtNest, 0, brain::W_EPS * 2.0)],
+            &[brain::OutputWire(0, O::EmitA, 3.0)],
+            &[brain::Recurrence(0, 0.99)],
+        );
+        world.organism_mut(id).expect("alive").genome = live.clone();
+        let wiring = brain::wiring_from_genome(&live);
+        let found = memories(&wiring);
+        assert!(
+            found.iter().any(|m| m.from == I::AtNest && m.output == O::EmitA && m.effect > 0.0),
+            "a self-recurrent unit charged above W_EPS was not read as a memory: {:?}",
+            found.iter().map(|m| (m.from, m.output, m.effect, m.retention)).collect::<Vec<_>>()
+        );
+        let said = describe(&world, id);
+        assert!(says(&said, "LAYS HOME SCENT, FADING"), "the memory fired but produced no sentence: {said:#?}");
+        // **Not the nest-only lay**, which is what the direct-weight
+        // vocabulary would have called it: an ant that lays nothing on the
+        // way out leaves no gradient to walk back up, and that is a different
+        // animal, not a shorter sentence about this one.
+        assert!(!says(&said, "AT NEST: LAYS HOME SCENT"), "the odometer was described as a nest-only lay, which is the opposite animal");
+
+        // **Control 1: delete the self-wire.** Same weights otherwise, so
+        // anything still saying "FADING" is not reading the recurrence.
+        let flat = brain::genome_from_wiring(
+            &[],
+            &[brain::HiddenWire(I::AtNest, 0, brain::W_EPS * 2.0)],
+            &[brain::OutputWire(0, O::EmitA, 3.0)],
+            &[],
+        );
+        world.organism_mut(id).expect("alive").genome = flat;
+        assert!(
+            !says(&describe(&world, id), "LAYS HOME SCENT, FADING"),
+            "the memory sentence survived the recurrence being deleted, so it is not derived from it"
+        );
+
+        // **Control 2: keep the self-wire, starve the charge.** This is the
+        // §Z5 shape exactly, and it is the arm that a `> W_EPS` filter and a
+        // missing filter disagree on -- so it is what stops this module
+        // describing a dead odometer as a live one.
+        let starved = brain::genome_from_wiring(
+            &[],
+            &[brain::HiddenWire(I::AtNest, 0, brain::W_EPS * 0.05)],
+            &[brain::OutputWire(0, O::EmitA, 3.0)],
+            &[brain::Recurrence(0, 0.99)],
+        );
+        world.organism_mut(id).expect("alive").genome = starved;
+        assert!(
+            !says(&describe(&world, id), "LAYS HOME SCENT, FADING"),
+            "a unit whose charge is below W_EPS was described as a memory; eval_brain skips that wire, so nothing charges it"
+        );
+    }
+
     /// **The same individual, described live and out of a jar, reads the
     /// same.** The shelf is where *"what did I keep?"* is actually asked, and
     /// a jar that described itself differently from the animal it was taken
@@ -1118,3 +1563,4 @@ mod tests {
         );
     }
 }
+

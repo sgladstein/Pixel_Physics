@@ -80,7 +80,7 @@ already changed decisions:
 | `wiki/*.md` | What a material or mechanic *does*, in plain language — no code, no file names. `Reports/*.md` is *why it's built that way*; this is *what it looks like when it's right*, which makes it **the written form of the bar your change is judged against**. ~34k tokens over 11 pages, so read the one page, not the directory. **Which page owns your file is not guessable for half of them**, and the map lives here because the wiki refuses file names by design: `field.rs`/`decay.rs`/`sky.rs` → `world-cycles.md`; `structural.rs`/`load.rs`/`rigid.rs` → `structural-collapse.md`; `explosion.rs`/`fracture_field.rs` → `explosions.md`; `plant.rs`/`organism.rs`/`assets/species` → `plants.md`; `creature.rs`/`brain.rs` → `ants.md`; `player.rs` → `the-gnome.md`; `worldgen/` → `the-world.md`; `lab/`, `bin/lab.rs` → no page yet, read `Reports/lanes/evolution-lab-coordinator.md`; `update.rs`/`material.rs` → `powders.md` and `liquids-and-gases.md`; `liquid.rs` → `liquids-and-gases.md`; `fire.rs` → `fire-and-heat.md`; `weather.rs` → `weather.md` |
 | `PLAN.md` | Roadmap, settled decisions, the issues backlog; the append-only progress log lives beside it in `PLAN-log.md`. **~60k tokens — do not read it whole**: start from its Contents, and in any session-handoff section read the dated *(State …)* line rather than the heading, which records only what was true when written |
 | `Reports/README.md` | **The index of every design report**, with per-report status and an in-flight section for documents still on unmerged branches — check a report's standing there before trusting it or writing a new one. **Its sections are tagged by game**, so a lab session can skip `outdoor` and vice versa; `engine` is shared and is most of the index |
-| `Reports/dead-ends.md` | **Tried-and-reverted approaches** (595 at last census, 2026-08-26), each with the condition its rejection depended on and where the full record lives. **~97k tokens — grep the *mechanism* you are about to touch or propose, never your subsystem.** Measured 2026-08-26: `thicken` returns ~2,460 tokens, `max_unsupported_span` ~650, `chunk seam` ~250, and `rot_remains` **zero** — a real answer, cheaply. Grepping an area instead costs ~12k–31k, more than this file. For a genuine survey, grep the address prefix (`^- \*\*.\?src/sim/plant`) rather than the prose: 99% of entries open with the file they apply to, which halves it |
+| `Reports/dead-ends.md` | **Tried-and-reverted approaches** (726 at last census, 2026-09-02), each with the condition its rejection depended on and where the full record lives. **~97k tokens — grep the *mechanism* you are about to touch or propose, never your subsystem.** Measured 2026-08-26: `thicken` returns ~2,460 tokens, `max_unsupported_span` ~650, `chunk seam` ~250, and `rot_remains` **zero** — a real answer, cheaply. Grepping an area instead costs ~12k–31k, more than this file. For a genuine survey, grep the address prefix (`^- \*\*.\?src/sim/plant`) rather than the prose: 99% of entries open with the file they apply to, which halves it |
 | `Reports/open-bugs-handoff.md` | **Open bugs.** Working reproductions and what has been ruled out *by measurement*. **~97k tokens — do not read it whole**: its generated status index is the first table in the file, so read that, then only the sections it lists for your area. (`dead-ends.md` owns "was this tried?"; this owns "is this broken?") |
 | `Reports/design-philosophy.md` | Settles arguments about constants, hardcoding, and scope boundaries |
 | **`Reports/lanes/evolution-lab-coordinator.md`** | **Working on the lab? Start here and nowhere else.** `cargo run --release --bin lab` is the second game — a sealed box of soil under grow lights where the shipped plants and ants live. This note carries who owns which file, the decisions the owner has already taken, and **what each round *overturned*, which is the part a later session cannot reconstruct**. The design of record is [`Reports/evolution-lab-design-guide-2026-08-30.md`](Reports/evolution-lab-design-guide-2026-08-30.md), with [`evolution-lab-feasibility-2026-08-30.md`](Reports/evolution-lab-feasibility-2026-08-30.md) under it — both on `main` since PR #158 |
@@ -126,7 +126,7 @@ something that cost effort to find.
 ## Commands
 
 ```
-cargo test                                       # unit + integration. The --skip this line carried until 2026-08-26 is vestigial: bug A's test is #[ignore]d, so it does not run. Measured: `cargo test --lib` with no flag gives 943 passed / 0 failed / 54 ignored
+cargo test                                       # unit + integration. The --skip this line carried until 2026-08-26 is vestigial: bug A's test is #[ignore]d, so it does not run. Measured 2026-09-02: `cargo test --lib` with no flag gives 1,324 passed / 0 failed / 55 ignored (943/54 on 2026-08-26 -- the suite grew, nothing regressed)
 cargo clippy --all-targets --release --locked -- -D warnings   # exactly what CI runs. `rust-toolchain.toml` pins 1.98 so this needs no `+1.98.0`
 cargo run --release --example ascii              # headless behaviour + worst-frame timing; CI runs it
 cargo run --release --example filmstrip -- scene=fall zoom=2 crop=0,140,256,110
@@ -1462,8 +1462,10 @@ consider it at all.
   **two gating failures on `main` for a whole day**
   (`Reports/open-bugs-handoff.md` §M). **The specific instance is closed and
   the general rule is not.** Bug A's test is now `#[ignore]`d, so it no longer
-  runs and no longer blocks anything: measured 2026-08-26, `cargo test --lib`
-  with no flag gives **943 passed / 0 failed / 54 ignored**. The `--skip
+  runs and no longer blocks anything: measured 2026-09-02, `cargo test --lib`
+  with no flag gives **1,324 passed / 0 failed / 55 ignored** (943 / 54 when
+  this was written on 2026-08-26 -- the suite grew by 381 tests, and the point
+  the number is making is unchanged). The `--skip
   root_and_shoot_branching_read_different_slots` this bullet and the Commands
   section both insisted on is therefore vestigial, and CI still passes it
   harmlessly. What survives, and is the reason to keep this entry: **while any

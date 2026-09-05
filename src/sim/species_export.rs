@@ -329,7 +329,7 @@ mod tests {
         assert_eq!(out.eats_kin, src.eats_kin);
         assert_eq!(out.nest, src.nest);
         assert_eq!(out.dig_force, src.dig_force);
-        assert_eq!(out.nest_memory, src.nest_memory);
+        assert_eq!(out.bite_force, src.bite_force, "an unauthored bite_force must survive as None, not be written out as a number -- the Option is what keeps 'bites as hard as it digs' readable in a species file");
         assert_eq!(out.sensor_offset, src.sensor_offset);
         assert_eq!(out.sight_range, src.sight_range, "the eye is a species field and has to survive an export like every other one");
         assert_eq!(back.cell_types().len(), ant.cell_types().len());
@@ -357,7 +357,19 @@ mod tests {
         for (i, slot) in inputs.iter_mut().enumerate() {
             *slot = 0.1 + i as f32 * 0.037;
         }
-        let (mut a, mut b) = ([0.3, -0.2, 0.7, -0.9], [0.3, -0.2, 0.7, -0.9]);
+        // **Built from `BRAIN_HIDDEN`, not written out.** A literal
+        // four-element array here was a compile error the moment the hidden
+        // layer grew, which is the good case; the bad one is a literal that
+        // happens to still be the right length and silently stops covering
+        // the new units.
+        let seed_state = || {
+            let mut v = [0.0f32; brain::BRAIN_HIDDEN];
+            for (i, slot) in v.iter_mut().enumerate() {
+                *slot = 0.3 - 0.5 * (i % 4) as f32 + 0.2 * (i / 4) as f32;
+            }
+            v
+        };
+        let (mut a, mut b) = (seed_state(), seed_state());
         // Two ticks, because the second is the one that reads the
         // recurrence weights this export exists to carry.
         for _ in 0..2 {

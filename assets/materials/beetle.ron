@@ -21,4 +21,37 @@
     burn_duration: 60,
     burns_into: "corpse",
     heat_conductivity: 0.1,
+
+    // **Live flesh, so a beetle is food to whatever can catch one.** It
+    // authored neither of these until 2026-09-02 and defaulted to 0.0, which
+    // meant `food_value` returned 0, `diet_yield` returned 0, and
+    // `is_visible_prey` was false **at every gut bias** -- so nothing in this
+    // world could eat a living beetle, at any point on the diet axis. That is
+    // the failure class this repo keeps finding, a channel with a reader and
+    // no writer: the predation mechanism is symmetric and the shipped data was
+    // not. `Reports/creature-genome-flexibility-2026-09-02.md` 11a (P1).
+    //
+    // **200, from `beetle.ron`'s own `body_energy: 200.0`, not from the 480
+    // the ant family carries.** The flesh-pricing invariant `standing_meat`
+    // documents is that a material's `food_energy` equals its species'
+    // `body_energy`, so that flesh bitten off a living animal is worth exactly
+    // the stamp that body was granted at spawn and the ledger's live-flesh
+    // seam cancels. The beetle prices its own body lower than an ant does
+    // (200 x 4 cells against 480 x 2), and copying the ant's number here would
+    // have made a beetle worth more eaten than it cost to build.
+    //
+    // `food_class: 1.0` is flesh, the same value `ant` and `corpse` carry: a
+    // carnivore gut digests a beetle well and a plant gut barely at all, which
+    // is `diet_yield`'s matched filter doing the work with no rule about
+    // beetles anywhere.
+    food_energy: 200.0,
+    // In MPa like every other value of this field. **The hardest flesh in
+    // the world -- a beetle's shell -- and it is still under the ant's
+    // `dig_force` of 1.0**, because a food priced above every shipped bite
+    // force is not armoured, it is inedible (`material.rs`'s
+    // `penetration_resistance`, *the food table*). Well above the beetle's
+    // own 0.3, so a beetle cannot crack another beetle: armour is the one
+    // thing size and material buy in defence today.
+    penetration_resistance: 0.8,
+    food_class: 1.0,
 )

@@ -77,21 +77,43 @@ pub enum RowState {
     Hungry,
     /// An animal carrying food.
     Carrying,
-    /// **An animal that has not touched the nest inside its own memory
-    /// window**, so the `AtNest` sense it steers home by has decayed to zero.
+    /// **An animal deep in an excursion** -- further from the last place it
+    /// touched home than `FAR_FROM_HOME`, in cells.
     ///
-    /// The threshold is `nest_memory` itself rather than a fraction of it,
-    /// because that constant is exactly the window: `creature.rs` computes
-    /// the sense as `1 - since_nest / nest_memory`, so past it there is no
-    /// signal left. `specimen_sections` already says the same thing in words
-    /// -- *"a number that only ever climbs is an ant that is lost"*.
+    /// **This row used to be `LOST`, and the state it named no longer
+    /// exists.** It read `since_nest >= nest_memory`: past that window the
+    /// `recency` multiplier scaling channel-A deposit was exactly zero, so
+    /// the ant had no gradient home and "lost" was a fact about the engine.
+    /// 2026-09-02 deleted both halves -- `nest_memory` is gone, and homing
+    /// is now three authored weights on a self-recurrent hidden unit
+    /// (`creature.rs`'s deposit block, and
+    /// `Reports/creature-genome-flexibility-2026-09-02.md` §2b). That curve
+    /// is hyperbolic and **never reaches zero**, and its decay rate is each
+    /// individual's own genome rather than a species constant. So there is
+    /// no threshold in Rust at which an animal's way home has gone, and a
+    /// roster column claiming otherwise would be re-inventing the species
+    /// constant main deleted.
+    ///
+    /// What survives is honest and is a different question: *how deep is the
+    /// excursion in progress*. `forage_max` answers it in **cells**, and it
+    /// re-anchors at every nest contact, so -- unlike `since_nest`, whose
+    /// resets were 136-of-142 loitering -- standing on the nest cannot
+    /// manufacture one. See `OrganismState::forage_anchor`.
+    ///
+    /// **Gated on the species declaring a nest.** `CreatureDef::nest` is
+    /// optional since the same change; a species without one never
+    /// re-anchors, so its `forage_max` is just distance from where it
+    /// hatched and would climb to FAR and stay there for ever. An animal
+    /// with no home cannot be far from it.
     ///
     /// **The first version of this row was `HOME`, on `since_nest <
     /// nest_memory`, and it was vacuous**: the ant's window is 3,000 ticks
     /// and a nine-hundred-frame bed had every animal at 182, so the column
     /// said HOME fifty-two times. Same defect as the hunger floor below it,
-    /// found the same way -- by looking at the drawn table.
-    Lost,
+    /// found the same way -- by looking at the drawn table. That is the
+    /// reason `FAR_FROM_HOME` is set from a measured distribution rather
+    /// than picked.
+    Far,
     Ok,
 }
 
@@ -102,15 +124,22 @@ impl RowState {
             RowState::Starving => "STARVING",
             RowState::Hungry => "HUNGRY",
             RowState::Carrying => "LADEN",
-            RowState::Lost => "LOST",
+            RowState::Far => "FAR",
             RowState::Ok => "OK",
         }
     }
 
     /// Whether this is a state worth being told about -- what the `IN
     /// TROUBLE` filter keeps.
+    ///
+    /// **`Far` is deliberately not in this set, and it is the one that
+    /// changed.** Its predecessor `Lost` was: past `nest_memory` an ant had
+    /// no gradient home, which is a failure. `Far` measures excursion depth
+    /// instead, and a deep excursion is an ant doing its job -- a colony
+    /// whose animals never went far would be the thing worth reporting. See
+    /// `RowState::Far`.
     pub fn is_trouble(self) -> bool {
-        matches!(self, RowState::Senescent | RowState::Starving | RowState::Hungry | RowState::Lost)
+        matches!(self, RowState::Senescent | RowState::Starving | RowState::Hungry)
     }
 }
 
@@ -131,6 +160,35 @@ impl RowState {
 /// column to itself -- and the only thing that showed it was reading the
 /// rendered table.
 const HUNGRY_FRACTION: f32 = 0.35;
+
+/// **An animal whose current excursion has reached this many cells from the
+/// last place it touched home is `FAR`.** Chebyshev cells, read off
+/// `OrganismState::forage_max`.
+///
+/// **Set from the measured distribution, because the two row states written
+/// before it were both set by eye and both came out vacuous** -- `HOME` said
+/// HOME fifty-two times, and the first hunger floor said HUNGRY down all
+/// fifty-two rows. `what_the_bed_ranges` is the readout, on the shipped bed
+/// with one colony:
+///
+/// | frame | p10 | p50 | p90 | max | rows reading FAR |
+/// |---|---|---|---|---|---|
+/// | 900 | 0 | 13 | 26 | 38 | 3 of 52 |
+/// | 2,000 | 2 | 16 | 37 | 51 | 12 of 52 |
+/// | 4,000 | 5 | 23 | 48 | 64 | 9 of 51 |
+/// | 9,000 | 12 | 32 | 61 | 75 | 8 of 16 |
+///
+/// 30 sits just above the settled early bed's p90 (26 at frame 900), so it
+/// marks the top of the range rather than the middle of it, and it stays a
+/// minority as the distribution walks right. **It never reads zero rows and
+/// never reads all of them at any tile**, which is the only property the two
+/// failures above lacked.
+///
+/// **It climbs through a run and that is the measure working, not drifting.**
+/// `forage_max` is the deepest point of the excursion *in progress* and
+/// re-anchors only on nest contact, so an animal that stops going home keeps
+/// climbing. That is the thing worth seeing.
+const FAR_FROM_HOME: u16 = 30;
 
 /// One individual, as the table draws it.
 ///
@@ -282,8 +340,8 @@ fn row_of(world: &World, id: u16, state: &crate::sim::organism::OrganismState) -
         let floor = c.start_energy * HUNGRY_FRACTION;
         if bank < floor {
             RowState::Hungry
-        } else if state.since_nest >= c.nest_memory {
-            RowState::Lost
+        } else if !c.nest.is_empty() && state.forage_max >= FAR_FROM_HOME {
+            RowState::Far
         } else if state.crop.is_some() {
             RowState::Carrying
         } else {
@@ -365,5 +423,55 @@ pub fn compare(a: &RosterRow, b: &RosterRow, sort: SortKey, desc: bool) -> std::
         // The tie-break is the whole point -- see the doc above.
         let ord = ord.then(a.who.id.cmp(&b.who.id)).then(a.who.born_frame.cmp(&b.who.born_frame));
         if desc { ord.reverse() } else { ord }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::lab::{scene, Lab};
+
+    /// **What excursion depths the bed actually produces** — the readout
+    /// `FAR_FROM_HOME` is set from, and the one that has twice caught a row
+    /// state that never varies.
+    ///
+    /// A readout rather than an assertion, for the reason the two vacuous
+    /// versions before it were both found by eye: the failure mode here is
+    /// not "wrong number", it is "same word down all fifty-two rows", and
+    /// that is a property of the distribution rather than of any one row.
+    /// `cargo test --release --lib -- --ignored --nocapture what_the_bed_ranges`
+    #[test]
+    #[ignore = "a readout, not an assertion -- cargo test -- --ignored --nocapture what_the_bed_ranges"]
+    fn what_the_bed_ranges() {
+        let mut lab = Lab::new(scene::LabBox { colonies: 1, founders: 8, ..scene::LabBox::default() });
+        for tile in [900u32, 2000, 4000, 9000] {
+            while lab.world.frame < tile as u64 {
+                lab.tick();
+            }
+            let rows = rows(&lab.world, Kingdom::Creatures, SortKey::Slot, false, Filter::All);
+            let mut depths: Vec<u16> = rows
+                .iter()
+                .filter_map(|r| lab.world.organism(r.who.id).map(|st| st.forage_max))
+                .collect();
+            depths.sort_unstable();
+            let q = |p: f64| -> u16 {
+                if depths.is_empty() {
+                    return 0;
+                }
+                depths[((depths.len() - 1) as f64 * p) as usize]
+            };
+            let mut states: std::collections::BTreeMap<&str, usize> = std::collections::BTreeMap::new();
+            for r in &rows {
+                *states.entry(r.state.label()).or_default() += 1;
+            }
+            println!(
+                "frame {tile:5}  animals {:3}  forage_max p10 {:4} p50 {:4} p90 {:4} max {:4}   states {states:?}",
+                rows.len(),
+                q(0.10),
+                q(0.50),
+                q(0.90),
+                depths.last().copied().unwrap_or(0),
+            );
+        }
     }
 }

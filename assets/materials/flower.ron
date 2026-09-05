@@ -27,7 +27,8 @@
     climbable: true,
     // **No `fall_drag`, unlike `leaf`.** A crown catches a fall because it
     // is a deep mass of foliage; a flower is a handful of cells at the end
-    // of an axis and arrests nothing. Deliberately absent rather than small.
+    // of an axis and arrests nothing. Deliberately absent rather than
+    // small.
     // Lighter than foliage (0.25). Petals are mostly air.
     density: 0.15,
     // **Eight hue bands of four tonal steps**, exactly `leaf.ron`'s scheme
@@ -100,7 +101,8 @@
     // number is now reach along the load path from the anchors, which for
     // anything up an axis is tens of cells, and a small value there
     // amputates rather than restrains. Attachment is still tested
-    // separately, so cutting the stem a flower sits on still brings it down.
+    // separately, so cutting the stem a flower sits on still brings it
+    // down.
     max_unsupported_span: 1,
     // Petals fall. Same floor as everything else a plant sheds.
     breaks_into: "litter",
@@ -111,5 +113,8 @@
     // half of this and without it the value is inert -- the same trap
     // `litter.ron` records having shipped once already.
     food_energy: 1440.0,
+    // In MPa like every other value of this field. Live soft tissue: a
+    // lamina punctures at almost nothing.
+    penetration_resistance: 0.1,
     food_class: -1.0,
 )

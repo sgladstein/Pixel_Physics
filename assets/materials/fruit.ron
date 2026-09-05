@@ -29,7 +29,8 @@
     // Ripe colours only. An unripe fruit is not a separate palette here: it
     // is a separate *stage*, and the stage lives in the `OrganismCell`
     // sidecar (`ripeness`) rather than in `aux`, which is already spent on
-    // band identity plus grain. `Reports/plant-organs-handoff-2026-08-28.md`
+    // band identity plus grain.
+    // `Reports/plant-organs-handoff-2026-08-28.md`
     // §5.3 records that `Reports/plant-morphology-reach-2026-08-23.md` §2a
     // is wrong about `aux` being a free colour readout.
     //
@@ -81,16 +82,22 @@
     // rule -- see `flower.ron` and `leaf.ron` for why a small number there
     // amputates instead of restraining.
     max_unsupported_span: 1,
-    // **A fruit knocked off the plant is a windfall**, which is exactly what
-    // it becomes when it ripens off it too. Same destination by both routes,
+    // **A fruit knocked off the plant is a windfall**, which is exactly
+    // what
+    // it becomes when it ripens off it too. Same destination by both
+    // routes,
     // deliberately: where a fruit ends up is the ground either way, and the
     // whole difference the ripening path buys is that a ripe one carries a
     // live genome down with it and a knocked-off one does not.
     breaks_into: "windfall",
     severs_into: "windfall",
-    // **Twice a leaf, and this is the plant-to-creature coupling the ecology
+    // **Twice a leaf, and this is the plant-to-creature coupling the
+    // ecology
     // design keeps asking for** -- fruit is food worth walking to, which is
     // what makes an animal a disperser rather than a grazer.
     food_energy: 960.0,
+    // In MPa like every other value of this field. The hard part of plant
+    // matter is the coat and the rind, not the flesh; level with `snow`.
+    penetration_resistance: 0.2,
     food_class: -1.0,
 )

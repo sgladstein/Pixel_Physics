@@ -323,6 +323,62 @@ pub struct MaterialDef {
     /// Defaults high, so a material that says nothing is impenetrable.
     /// That is the safe direction: a new material silently letting roots
     /// eat through it would be discovered as roots growing through a floor.
+    ///
+    /// # The food table, and why the default was a live bug in it
+    ///
+    /// This field is also **armour**: `creature.rs`'s ingest gate compares
+    /// it against the biter's `bite_force`, the same force-against-
+    /// resistance test the dig and the root already use, so a hard body is
+    /// hard to bite with no new concept and no name whitelist
+    /// (`Reports/creature-genome-flexibility-2026-09-02.md` §11c).
+    ///
+    /// **The default is exactly wrong for food, and silently.** Until
+    /// 2026-09-02 every one of the seventeen materials that authors a
+    /// `food_energy` sat at the 100.0 default, and nothing read it on the
+    /// bite path -- so the day the gate went in, `ant.ron`'s `dig_force:
+    /// 1.0` met `1.0 >= 100.0` for **every mouthful in the world** and
+    /// herbivory, scavenging and predation would have stopped on frame
+    /// one. That is `CLAUDE.md`'s named ban wearing the syntactic test's
+    /// clothes: exhausting this gate produces an *answer* (`not food`),
+    /// not merely less work. The gate and the table are therefore one
+    /// atomic change, and the acceptance bar for it is the **positive**
+    /// control -- `eats` non-zero on the herbivore path, `harvested_corpse`
+    /// non-zero on the scavenger path -- because the negative one (a force
+    /// above every resistance reproduces today) cannot see a gate that is
+    /// shut on everything.
+    ///
+    /// **The table is derived from the shipped forces, not picked.** Two
+    /// anchors, both already in the tree: the *weakest* mouth in the world
+    /// is `beetle.ron`'s `dig_force: 0.3`, and the strongest is the ant
+    /// family's `1.0`. Everything a shipped animal must be able to eat is
+    /// priced below 0.3; armour is priced *between* 0.3 and 1.0, so it
+    /// stops a beetle and not an ant; nothing food-bearing goes above 1.0,
+    /// because that is the bug above in a narrower costume.
+    ///
+    /// ```text
+    /// 0.05  deadleaf, litter, windfall     dead, half-rotted tissue
+    /// 0.10  leaf, flower, moss, corpse     live soft tissue; carrion
+    /// 0.20  seed, fruit                    coat and rind; level with snow
+    /// 0.25  ant + variants, ancestor       live cuticle -- what 0.3 was for
+    /// 0.50  chitin_pale                    armour: beetle-proof, ant-cuttable
+    /// 0.70  chitin_mid                     armour, harder still
+    /// ```
+    ///
+    /// The values stay in MPa and stay physically ordered, so the published
+    /// bound the rest of this doc rests on is not broken to make the game
+    /// work: litter is softer than a seed coat, a seed coat softer than
+    /// live cuticle, and carrion softer than the living animal it came
+    /// from -- which is what keeps scavenging the cheap meal.
+    ///
+    /// **The coupling is real and is the price of not inventing a second
+    /// field.** Roots read this (`plant.rs`, `Powder` only) and so does
+    /// digging, so pricing `litter`, `deadleaf`, `windfall`, `seed` and
+    /// `corpse` below every root's `penetration_force` makes them
+    /// root-penetrable for the first time. That is wanted -- a root should
+    /// thread leaf litter -- and it was measured on both sides with
+    /// `seedbed_probe` rather than assumed. The fallback, if it ever turns
+    /// out not to be wanted, is a `bite_resistance` defaulting to this: a
+    /// second knob, and therefore the second choice.
     #[serde(default = "default_penetration_resistance")]
     pub penetration_resistance: f32,
     /// Most water this `Powder` can hold in its own pore space, on
@@ -2352,6 +2408,9 @@ const EMBEDDED: &[&str] = &[
     // Both are at the end because ids are positional, and both are addressed
     // by name -- `id_of("growlamp")` -- never by number.
     include_str!("../../assets/materials/growlamp.ron"),
+    // **Appended at the end so no existing material's position moves.**
+    // The lab ancestor's flesh -- see `assets/materials/ancestor.ron`.
+    include_str!("../../assets/materials/ancestor.ron"),
 ];
 
 /// Where the loader looks for material files, relative to the working directory.

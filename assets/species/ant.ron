@@ -110,6 +110,89 @@
         // harness then carried a hand-applied correction; a ratio needs no
         // correction to remember.
         synapse_fraction: 0.0000022222222,
+        // **The price of an eye, authored on an animal that does not have
+        // one -- and that is deliberate.**
+        // `Reports/creature-genome-flexibility-2026-09-02.md` §4 and §6.
+        //
+        // **The outdoor ant was given a 32-cell eye on 2026-09-02 and it was
+        // taken away again the same day, on a measurement.** The kin senses
+        // need a cast to find anything, so an eye is what makes
+        // `KinNear`/`KinBearing` read other than a constant -- but *this*
+        // animal has a nest, and the kin senses exist to replace a nest for
+        // an animal that has none. It was paying for a sense it does not
+        // need.
+        //
+        // Measured with `forage_probe seeds=12 spacing=4`, against a binary
+        // built at this branch's base, read per seed rather than on a mean:
+        //
+        // | column | with the eye | with no eye |
+        // |---|---|---|
+        // | deliveries | **down on 10 of 12 seeds**, median 5.0 -> 2.5 | down 6, up 4, tied 2, median 5.0 -> 4.0 |
+        // | moves | **down on 12 of 12**, median 16,752 -> 16,307 | down 6, up 6, median 16,752 -> **16,761** |
+        // | excursion depth | down 7, up 4, median 55 -> 44 | down 5, up 6, median 55 -> 46 |
+        // | falls/move | 0.248 -> 0.247 | 0.248 -> 0.245 |
+        //
+        // **The cost is the eye and nothing else.** `forage_probe`'s control
+        // arm is one ant with no food anywhere -- it cannot forage, so a
+        // change there is metabolism and not behaviour -- and it fell on
+        // **12 of 12 seeds**, uniformly ~4%. Take the eye off and `moves`
+        // returns to the null exactly (6 down, 6 up).
+        //
+        // **What does not fully recover is `trips`**: 9 of 12 seeds down in
+        // both arms, median 36 -> 32.5. That residual is not the eye. The
+        // likeliest cause is the odometer's curve -- hyperbolic where
+        // `recency` was linear, so channel A fades faster early and an ant
+        // re-anchors on a different schedule. ~10% on a column whose seed
+        // spread is 22-47; recorded rather than chased.
+        //
+        // **`sight_fraction` stays** so the price is already set the day
+        // `sight_range` becomes heritable (§7's Kind 2, stage 6). That is
+        // the whole point of pricing before granting: the gene arrives into
+        // a world that already charges for it.
+        //
+        // **32 was the range, if it comes back.**
+        // `foraging-range-measurement.md` puts real excursions at 12-19
+        // cells with a thin tail past 32, so it covers an ant's normal range
+        // with margin at a little over half the beetle's cost.
+        // `assets/species/ancestor.ron` -- which has no nest and genuinely
+        // needs to find its own kind -- carries it.
+        //
+        // **Never the range without the fraction.** Seeing was free until
+        // 2026-08-31, which made `sight_range` a ratchet -- more eye
+        // strictly better, and a heritable range would go to its cap on the
+        // first generation expressing nothing. The pricing landed and then
+        // *nothing opted in*: a reader with no writer, which
+        // `dead-ends.md` names as the failure this project has hit three
+        // times. This closes it for the ant.
+        //
+        // **Derived, not chosen**, the way `synapse_fraction` above is:
+        //
+        //   sight_tax  = sight_fraction * start_energy * sight_reads   (per tick)
+        //   idle ticks = start_energy / (idle_cost_per_cell * cells) = 200 / 0.10 = 2,000
+        //   share S of an idle lifetime  =>  sight_fraction = S / (ticks * reads)
+        //
+        // `start_energy` cancels, which is exactly why a *fraction* is the
+        // right form: an absolute silently becomes a different tax every
+        // time the budget moves. Measured with
+        // `field_sense_probe mode=control eye=32`, one cast on bare open
+        // floor reads **616 cells** (328 at r16, 1,186 at r64). At S = 0.10:
+        //
+        //   0.10 / (2,000 * 616) = 8.1169e-8
+        //
+        // **S = 0.10 matches the brain.** `synapse_fraction` above prices
+        // about 22 active synapses at ~10% of an idle life, so a full-reach
+        // sweep over open ground now costs the same order as the brain that
+        // reads it. Nothing balances the *range*: the cell-read is priced
+        // and selection is left to settle where the eye lands, which is the
+        // whole point -- picking a "correct" range by hand would be the
+        // authored-behaviour failure in a new costume.
+        //
+        // **Charged per cell actually read, not per cast**, so a ray that
+        // dies on a wall costs only what it traversed: an ant in a tunnel
+        // pays less to look than one sweeping open ground, and shelter pays
+        // for itself twice. Nobody wrote that rule; it falls out of pricing
+        // the work honestly.
+        sight_fraction: 0.000000081168831,
         // **120, which is exactly what a corpse cell was worth before.**
         // Under `eat_energy` any mouthful paid the eater 120, so pricing an
         // ant's own meat at 120 a cell leaves scavenging worth precisely
@@ -371,13 +454,39 @@
         // Full arithmetic in `Reports/creature-birth-grant-2026-08-30.md`
         // and `Reports/creature-gate0-births-2026-08-30.md`.
         reproduce_threshold: 1100.0,
-        // Per live genome slot, per birth. 268 slots are live, so this is
-        // about 2.7 point mutations per child -- enough that a lineage
-        // drifts within a run, far short of the density explosion an
-        // unrated operator produces (see `brain::mutate`). Set to 0.0 for
-        // the clonal control, which is the null every lineage-share
-        // reading is measured against rather than an off switch.
-        mutation_rate: 0.01,
+        // Per live genome slot, per birth -- so it is a constant calibrated
+        // against `brain::live_slots().count()`, and it has to be re-derived
+        // whenever that moves. Enough that a lineage drifts within a run,
+        // far short of the density explosion an unrated operator produces
+        // (see `brain::mutate`). Set to 0.0 for the clonal control, which is
+        // the null every lineage-share reading is measured against rather
+        // than an off switch.
+        //
+        // **0.0058456, re-derived 2026-09-02** when `SurfaceCurvature` took
+        // the live surface **524 -> 544** (one input x 12 outputs + 8 hidden
+        // = 20 slots). Held at the same expected count the colony has been
+        // running throughout -- `3.18` point mutations per child, so
+        // `3.18 / 544 = 0.0058456`. Inheriting 0.0060687 across a wider
+        // genome would have raised the expected count to 3.30 silently,
+        // which is the shared-budget reallocation `CLAUDE.md` requires be
+        // re-derived as part of the work rather than carried.
+        //
+        // The previous derivation, kept because the *shape* of its error is
+        // the reusable part: **0.0060687** held 318 x 0.01 = 3.18 across the
+        // 318 -> 524 growth, and the comment it replaced claimed **268
+        // slots** for the whole time the true figure was 318 -- the drift a
+        // literal in prose cannot catch, which is why `brain.rs` now pins
+        // the count in a test.
+        //
+        // **This cannot be made byte-identical and it is worth knowing
+        // why.** `brain::mutate` draws one `unit_f32` per live slot, so a
+        // wider genome consumes a different number of draws per birth and
+        // every draw after the first birth diverges. Measured on
+        // `examples/ascii`: every scene that does not breed is identical,
+        // and both ant scenes diverge from birth 1 -- deliveries 584 -> 526,
+        // forage trips 54 -> 49, births 8 -> 5, one seed, same regime. A
+        // comparison across this change has to be a seed sweep, not a diff.
+        mutation_rate: 0.0058456,
 
         // **A living nestmate counts as ground.** Footing only, never
         // passability -- two ants still cannot walk through each other --
@@ -480,6 +589,14 @@
         // and is stopped by rock, which is the behaviour worth having and
         // it comes from two numbers rather than from a rule.
         dig_force: 1.0,
+        // **The terrain-curvature disc, opt-in exactly as `sight_range` is.**
+        // 2 is 24 `World::get` per decision, against 328-1,186 for one sight
+        // cast -- and the ant has no eyes, so this is the only distal sense
+        // it pays for at all. Measured range at ant head positions on a
+        // worked bank: p10 -0.250, p50 +0.417, p90 +0.833
+        // (`examples/spoil_curvature.rs`). **In the level lab bed it is a
+        // constant**, so a lab run cannot test the weights below.
+        curvature_radius: 2,
 
         // Ticks over which nest scent fades to nothing.
         //
@@ -494,7 +611,6 @@
         //
         // It has to exceed the *travel* time to the far side of the
         // foraging range, not the round trip: an ant lays this outbound.
-        nest_memory: 3000,
 
         // Measured, not assumed: pheromone.rs's trail_following_sweep puts
         // on-trail tracking at 0.817 for 6, against 0.755 at 4, 0.743 at 8
@@ -568,10 +684,18 @@
             // 164 after 22,138 ant-moves -- a trail that was, for every
             // practical purpose, not there.
             (Carrying, EmitB, 2.5),
-            // Everyone leaks nest scent. Scaled in code by how recently
-            // this ant touched the nest, which is what turns a uniform
-            // emission into a gradient that points home.
-            (Bias, EmitA, 2.0),
+            // **Everyone leaks nest scent, and what makes it a gradient is
+            // now three weights instead of a line of Rust.** `creature_tick`
+            // used to multiply this output by `1 - since_nest /
+            // nest_memory`; hidden unit 4 below is that odometer, authored
+            // (`Reports/creature-genome-flexibility-2026-09-02.md` §2b).
+            //
+            // **`(Bias, EmitA, 2.0)` had to go, not just shrink.** A constant
+            // floor on channel A drowns the very falloff that *is* the homing
+            // gradient -- with it, the emitted value ran 0.909 -> 0.767 over
+            // 3,000 ticks instead of 0.785 -> 0.046. What is left here is the
+            // -0.35 offset the odometer's fit needs.
+            (Bias, EmitA, -0.35),
 
             // -- the verbs -------------------------------------------
             // **A standing drive to dig, and its absence was a hole in the
@@ -586,8 +710,48 @@
             //
             // Ants dig. It does not need a reason in the world; it needs a
             // reason in the animal.
+            // **A standing drive to dig, and its absence was a hole in the
+            // authored brain rather than in the code.** With `FoodAdjacent`
+            // as the only route to this output, an ant facing a bank of
+            // soil computed a dig urge of exactly zero: the verb was
+            // implemented, reachable, tested -- and never once fired,
+            // measured at 0 digs against 19,114 moves and 27,928 blocked
+            // ticks, a colony standing at a soil face doing nothing at all.
+            // The picture of it looked like ants milling by a wall, which
+            // is also what a broken dig would look like.
+            //
+            // Ants dig. It does not need a reason in the world; it needs a
+            // reason in the animal.
+            //
+            // **`(Crowding, Dig, w)` belongs here and is not here, and that
+            // is a measured null rather than an oversight.** Toffin et al.
+            // (*PNAS* 2009) has density-dependent digging producing a round
+            // cavity that ramifies as it outgrows its colony, and
+            // `BrainInput::Crowding` is exactly that density -- so the room
+            // mechanism looked like one authored weight
+            // (`Reports/creature-genome-flexibility-2026-09-02.md` §14). It
+            // was built, rate-matched against its own ablation in one binary,
+            // and swept: on **four** seeds the cavity came out more compact on
+            // 4 of 4 at two colony sizes, and on **twelve** it came out more
+            // compact on **16 of 33** -- a coin flip. Buds never moved either
+            // way. The one effect that survived is that density-dependent
+            // digging cuts a *smaller* nest for the same effort, which is the
+            // opposite of what it was built for.
+            //
+            // Do not re-author it from §14 without reading the entry in
+            // `Reports/dead-ends.md`, which carries the numbers, the two
+            // instrument bugs the sweep exposed, and the conditions under
+            // which it is worth retrying.
             (Bias, Dig, 0.4),
             (FoodAdjacent, Dig, 0.8),
+            // **Digging was `dig_urge * (1 - moisture_gradient)` in Rust** --
+            // an inverse coefficient no lineage could alter, so every animal
+            // in the world had one fixed relationship to that channel for
+            // ever (§5). Fitted at the two ends of the lab bed's measured
+            // range (m = 0.006 underground, 0.080 on the surface): the old
+            // rule gives 0.2840 and 0.2628, and `squash(0.4 - 0.55m)` gives
+            // 0.2840 and 0.2629. The sign is a gene now as well as the size.
+            (MoistureGrad, Dig, -0.55),
             // **Feeding, authored at the weights it inherited from Dig.**
             // Until the split these two lines *were* the dig lines: one
             // gene decided both excavating and eating, so §13d's
@@ -599,11 +763,118 @@
             // tuning rather than from a hole.
             (Bias, Feed, 0.4),
             (FoodAdjacent, Feed, 0.8),
-            (AtNest, Drop, 0.9),
+            // **The food drop, which had a privileged branch at home and a
+            // multiplied moisture bias away from it. Both are weights now**
+            // (§2c, §5), fitted to reproduce all three of today's numbers:
+            //
+            //   at the nest, laden   squash(-0.2 + 1.0889 + 0.2 + 0.169m)
+            //                        = 0.524, and the old `drop_urge` at the
+            //                        nest was squash(0.9 + 0.2) = 0.524
+            //   route, m = 0.006     0.0010, against the old 0.1667m = 0.0010
+            //   route, m = 0.080     0.0133, against the old        = 0.0133
+            //
+            // **The form changes from multiplicative to additive**, and that
+            // is a real difference rather than a detail: the old coefficient
+            // *scaled* the probability and a weight inside `squash` *shifts*
+            // it, so the endpoints match and the curve between them does not.
+            // That is the trade the report asks for -- what was one fixed
+            // relationship for every animal for ever is now a sign and a
+            // magnitude that selection can move.
+            //
             // Drop what you are carrying only when you have arrived; an
             // ant that drops at random is an ant that builds walls in the
             // middle of nowhere. Carrying alone must not be enough.
+            (Bias, Drop, -0.2),
+            (AtNest, Drop, 1.0889),
             (Carrying, Drop, 0.2),
+            (MoistureGrad, Drop, 0.169),
+            // **The termite bias, for the first time as the thing it was
+            // always described as.** §5f: the moisture channel it was
+            // supposed to be riding turned out to read *depth*, so
+            // generation zero has never actually carried a curvature
+            // preference. This is it -- convex positive, so a positive
+            // weight means *put it where the ground bulges*, which is the
+            // self-amplifying half a surface detector structurally cannot
+            // have: deposit raises local curvature, curvature attracts more
+            // deposit.
+            //
+            // **0.169, matched to `(MoistureGrad, Drop, 0.169)` deliberately
+            // rather than fitted.** There is no measured value to fit to --
+            // nothing has ever run with this input -- and inventing one
+            // would be the unpriced constant §3 warns about. Starting the
+            // two channels at equal strength makes the *first* run the
+            // measurement, and makes the ablation clean: this weight to 0.0
+            // is the control arm, and the difference is attributable to
+            // exactly one lever.
+            // **0.5, and it is measured rather than guessed -- which the
+            // first draft of this weight could not be.** Authored at 0.169
+            // to match `MoistureGrad`'s, on the honest grounds that nothing
+            // had ever run with this input. It has now run:
+            // `burrow_probe arms=colony seeds=12`, rate-matched at
+            // `digbias=0.50` so the arms dig equally, against the
+            // **mean-matched** control (`PIXEL_PHYSICS_CURVATURE=flat`,
+            // which holds the input at the +0.417 an ant on a bank actually
+            // reads and removes only the spatial variation):
+            //
+            // | slope | circ | cells | digs |
+            // |---|---|---|---|
+            // | 0.0 | 0.194 | 77.5 | 605 |
+            // | 0.169 | 0.250 | 70.5 | 604 |
+            // | **0.5** | **0.287** | **59.5** | 608 |
+            // | 1.5 | 0.275 | 55.0 | 600 |
+            //
+            // At **0.169 it is a null** -- 8 of 12 seeds, median +0.05 on a
+            // per-seed spread of 0.10, which would need ~69 seeds to
+            // resolve. At 0.5 it is 10 of 12 against the mean-matched
+            // control on `circ` and **12 of 12** on `cells`. 1.5 buys
+            // nothing over 0.5.
+            //
+            // **So why is this 0.169 and not 0.5? Because 0.5 breaks the
+            // foraging loop, and that is the finding.** Authored at 0.5,
+            // three shipped guards over ordinary behaviour go red:
+            // `a_laden_animal_pays_more_to_move_than_an_empty_one`,
+            // `a_predator_eats_a_creature_and_needs_no_predation_code_to_do_it`
+            // and `an_ant_eats_a_living_worm_...`. All three pass with the
+            // term ablated, so it is this weight and not the armour gate
+            // that moves them. The mechanism is the obvious one once seen:
+            // a stronger drop urge is a stronger drop urge *everywhere*, so
+            // the ant sheds its load before it has carried it anywhere, and
+            // an animal that will not stay laden fails every test about
+            // being laden.
+            //
+            // **The lever's working range and its visible range do not
+            // overlap.** That is `CLAUDE.md`'s shared-budget rule arriving
+            // as a measurement rather than a warning -- a correct mechanism
+            // at inherited constants is a regression, and the constants
+            // this one reallocates are the whole drop economy (`(Bias,
+            // Drop)`, `(AtNest, Drop)`, `(Carrying, Drop)`). Re-deriving
+            // those is its own piece of work with its own acceptance bar,
+            // and doing it here would be two changes to one outcome.
+            //
+            // The trade at 0.5, recorded so the next attempt starts from
+            // it: a rounder cavity, **smaller** at 77.5 cells -> 59.5 for
+            // the same digging. The mean offset alone moves size the *other*
+            // way (89.0), so the spatial term is consolidating a ramified
+            // void rather than the colony simply dropping more.
+            (SurfaceCurvature, Drop, 0.169),
+
+            // **The spoil dump, unchanged, on a verb of its own.** These two
+            // are exactly what `drop_urge` was before the split, so a digger
+            // dumps a pellet at precisely the rate it used to. It needs its
+            // own output because the food drop above no longer rolls the same
+            // number -- and while two acts share one gene, evolution cannot
+            // select for either. See `brain::BrainOutput::DropSpoil`.
+            (AtNest, DropSpoil, 0.9),
+            (Carrying, DropSpoil, 0.2),
+            // **Fed separately, and that is what PR #214's verb split buys
+            // here.** `Drop` puts food down and `DropSpoil` puts tailings
+            // down; a lineage can now evolve to build with spoil on one
+            // criterion and cache food on another, which one shared
+            // coefficient never allowed. Authored equal for the same reason
+            // as above -- the run is the measurement.
+            // Same slope, still fed separately -- see `Drop` above for the
+            // sweep. A lineage can move one without the other.
+            (SurfaceCurvature, DropSpoil, 0.169),
         ],
 
         // **The gate a single layer cannot express**, authored as weights
@@ -682,6 +953,30 @@
         // -+18 version, which is the price of keeping the saturation.
         hidden_wiring: [
             // units 0,1 -- channel A along the heading, gated ON a full crop
+            // **Unit 4 is the odometer**, and it is three weights: one in
+            // from what this species counts as home, one on itself setting
+            // the decay (`recurrence` below), one out into the channel it
+            // fades (`hidden_outputs` below). What was the species constant
+            // `nest_memory: 3000` is a number selection can move now, and
+            // channel A is the homing plane only because these weights say
+            // so rather than because `creature_tick` did.
+            //
+            // **Verified before it was built, because §4's claim that the
+            // outdoor ant survives this rests on it.** `squash` is
+            // `x/(1+|x|)` and saturates, so a 3,000-tick decay out of three
+            // weights is not obvious. Simulated over the real recurrence:
+            // after a **5-tick** nest touch -- a brush past, not a stay --
+            // the emitted value runs 0.785 -> 0.046 monotonically across
+            // 3,000 ticks against the old 0.667 -> 0.0 (rms 0.040), and a
+            // 400-tick stay saturates at 0.972 rather than running away.
+            //
+            // **The decay is hyperbolic where the old one was linear**: it
+            // falls faster early and never quite reaches zero, which for a
+            // gradient-laying rule is the better end. An ant past
+            // `nest_memory` used to lay nothing at all, and so stopped
+            // contributing to the gradient it was itself navigating by.
+            (AtNest,      4,   0.0005),
+
             (Bias,        0, -45.0),
             (Carrying,    0,  75.0),
             (PheroAAlong, 0,   6.0),
@@ -707,6 +1002,18 @@
             (1, Move, -2.5),
             (2, Move,  2.5),
             (3, Move, -2.5),
+            // The odometer's output leg. Large because the unit itself sits
+            // at ~0.0025: `squash` compresses a high activation *and* a high
+            // activation decays fast, so a slow decay has to be carried by a
+            // small state that the output weight rescales. That is a property
+            // of the squash, not a magic number -- the fit is above.
+            (4, EmitA, 1609.1),
+        ],
+        // **The fourth list, and this ant had none until now.**
+        // Self-recurrence is what makes unit 4 an odometer rather than a
+        // gate; the other four units are pure feed-forward and stay so.
+        recurrence: [
+            (4, 0.9999),
         ],
     )),
 )
