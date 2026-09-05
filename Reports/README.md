@@ -2217,10 +2217,21 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   uptake surface, so contact roots are ~8x redundant and the payoff variable
   is distinct soil cells), and drops the taproot claim outright — `can_widen`
   needs an `EMPTY` or own-`Leaf` neighbour, so a buried root can never
-  thicken. **§9 is the part worth reading**: three drafts, three classes of
-  error, the last being that three documents and two reviewers argued about
-  how deep a depletion zone was when one census answered it in thirty
-  seconds.
+  thicken. **And §2b is the result the whole line was after**: `break_root_tips`
+  already carries a six-bucket exit census, and across four beds and two
+  genotype draws the `water_status >= 0.95` gate refuses **95-99.6%** of
+  root-tip initiations while `poor` — the carbon exit — is **zero in all six
+  runs**. Root extension is bounded by neither the tip cap, nor sites, nor
+  the economy. It is bounded by a gate reading a **saturated** signal: the
+  plant reads "demand met, not thirsty" while the soil its roots touch sits
+  at 0.016. That also explains why every water lever failed — they all move
+  `water_status`, and the only way they open the gate is by starving the
+  whole plant. §2b-ii proposes the small change that follows (key the gate on
+  local soil scarcity, not on the tank) with the exit census as its guard and
+  a specific prediction: `gated` down, `FIRED` up, `poor` **still zero**.
+  **§9 is the method part**: three drafts, three classes of error, the last
+  being that three documents and two reviewers argued about how deep a
+  depletion zone was when one census answered it in thirty seconds.
 
 ## Licensing and distribution
 

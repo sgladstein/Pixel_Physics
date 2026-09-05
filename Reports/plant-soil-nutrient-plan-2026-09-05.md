@@ -18,7 +18,11 @@ instructive than the conclusion.
 > nothing to restore. Raising `SOIL_UPTAKE_PER_TICK` drives roots up (12/12
 > seeds at 8x) and income down harder (0.11x) at every setting, with no
 > usable band. **The binding constraint is root *reach*, not root income.**
-> §0a and `open-bugs-handoff.md` §W2a.
+> §0a and `open-bugs-handoff.md` §W2a. **And §2b now measures what does
+> bind**: the root-tip gate refuses 95-99.6% of initiations while carbon
+> refuses none, because it reads a saturated signal — the plant reads "not
+> thirsty" while its roots sit in soil at 0.016. §2b-ii is the change that
+> follows, and it is small.
 
 ## 0. The problem, restated with the corrected numbers
 
@@ -104,7 +108,7 @@ or it measures root mass and calls it uptake.
 | | second draft | now | why |
 |---|---|---|---|
 | **1** | raise `SOIL_UPTAKE_PER_TICK` | **refuted — do not build** | §0a: monotone tax, no usable band, 12 seeds |
-| **2** | open the root-tip gate | **root reach** — extension into fresh soil | §0a/§0b: the exhausted zone is what roots can reach, so reach is the constraint |
+| **2** | open the root-tip gate | **key `break_root_tips` on local soil scarcity, not `water_status`** | §2b: measured — the gate refuses 95-99.6% of initiations and carbon refuses none |
 | **3** | root turnover | unchanged, and now more clearly necessary | §2c: a mined-out root at `near` 0.016 earns nothing for ever and costs for ever |
 | **4** | *lower the water rates* | still withdrawn, and for a third reason | §1a |
 | **5** | immobile nutrient | unchanged, still second-order | §3 |
@@ -138,21 +142,83 @@ produces a density response.
 `contact_root_cells`. If that ratio is near 1, root **reach** is the
 prerequisite and everything here is step two.
 
-### 2b. The root-tip gate is shut wherever the water term is at its ceiling
+### 2b. MEASURED: the gate refuses 95-99.6% of root-tip initiations, and carbon never refuses one
 
-`break_root_tips` (`plant.rs:7329`) returns early when
-`water_status >= ROOT_REINITIATION_STATUS` (0.95, `plant.rs:5992`). On the
-seeds where water status sits at 1.000 — the majority, 28 of 42 readings —
-**the plant cannot re-initiate root tips at all.** A mechanism that rewards
-root proliferation through a channel that cannot open is
-`plant-appearance-design.md`'s failure repeated: a lever that fires, is
-counted, and moves nothing.
+The second draft inferred this and left it open, noting that the
+uptake-sweep split could not separate the gate from depletion because the
+arm drove both. **`break_root_tips` already carries a six-bucket exit
+census** (`ROOT_TIP_EXITS`, `plant.rs:7279`) whose whole purpose is this
+question — *"did this fire, and if not, which line turned it back"* — and it
+is a **within-run decomposition**, so no cross-arm confounding applies.
 
-Anything here must also wire its stress term into this gate and into
-`root_weight` (`plant.rs:7892`), not only into income. Note `root_weight`'s
-own comment prescribes the composition — *"The two stresses **add** rather
-than multiply… either alone still moves it, which a product would not"* —
-so a third additive stress is the house pattern.
+Two existing print tests, four beds and two genotype draws:
+
+| bed / draw | gated | at_cap | no_candidate | **poor** | FIRED |
+|---|---|---|---|---|---|
+| 17x8, moisture 310 | 94.5% | 0.0% | 0.5% | **0.0%** | 5.0% |
+| 17x8, moisture 620 | 95.6% | 0.0% | 0.1% | **0.0%** | 4.3% |
+| 61x30, moisture 310 | 98.8% | 0.0% | 0.0% | **0.0%** | 1.2% |
+| 61x30, moisture 620 | 98.9% | 0.0% | 0.0% | **0.0%** | 1.0% |
+| slot draw -1.0 | 98.9% | 0.0% | 0.1% | **0.0%** | 1.0% |
+| slot draw +1.0 | 99.6% | 0.0% | 0.1% | **0.0%** | 0.3% |
+
+**The `status >= 0.95` gate swallows nearly everything, and `poor` is zero
+in all six runs.** Root extension is not bounded by the tip cap
+(`at_cap` 0.0%), not by a lack of sites to grow from (`no_candidate`
+<= 0.5%), and **not by carbon** — which kills outright the "a thirsty plant
+cannot afford tissue" reading the counter's own doc says §U predicted would
+dominate this column. The bigger bed gates *more* (98.9% against 95.6%), so
+the outdoor bed is on the wrong side of that trend.
+
+### 2b-i. Why that is the whole answer, and it joins every other finding
+
+The gate reads `water_status`. Three facts, each measured separately in this
+session, compose:
+
+1. `water_status` is **ceiling-clipped** and flat across roughly 80% of the
+   tank's range (predecessor §3z) — it cannot tell a fifth-full tank from a
+   brim-full one.
+2. The soil the plant's roots actually touch is at **0.016** plant-available
+   (§0a) — scraped to the wilting floor.
+3. So the plant reads **"demand met, not thirsty"** while standing in
+   exhausted soil, and refuses to build the roots that would reach soil that
+   is not exhausted.
+
+**That is why every water lever failed.** They all move `water_status`, and
+raising `SOIL_UPTAKE_PER_TICK` did open the gate — which is exactly why
+roots rose in 12 of 12 seeds at 8x. But the only way it opens the gate is by
+starving the **whole plant**, which is why income collapsed to 0.11x in the
+same runs. The gate's threshold was never the problem.
+
+### 2b-ii. The change this implies: swap the gate's input, do not move its threshold
+
+`break_root_tips` should ask *"is the soil my roots are in exhausted?"*
+rather than *"is my tank low?"*. The quantity is one the engine already
+computes cell by cell — `update::plant_available_fraction` over the soil
+cells this organism's root tissue touches, which is the plant-side twin of
+the `near` column `plant_severance` now prints. It reads **0.016** where
+`water_status` reads 1.000.
+
+Why this is the right shape rather than a retune:
+
+- **It is not a threshold move.** Lowering 0.95 makes the plant build roots
+  when its *tank* dips, which is a different and noisier signal; the
+  measured 0.016/1.000 contrast is enormous and unambiguous.
+- **It opens the gate without starving the plant** — the failure mode that
+  sank the uptake lever.
+- **It makes reach pay for the right reason**: a root in spent soil reads
+  scarcity and extends; a root in fresh soil does not need to. That is the
+  exploration response §0b says the payoff variable demands, keyed on the
+  soil cell exactly as §2a requires.
+- It costs one four-neighbour look per root cell in a walk
+  (`organism_upkeep`) that already makes it.
+
+**What must be measured before believing it**, because this is a rule over
+emergent behaviour and green is its default state: the exit census is the
+guard, and the prediction is specific — `gated` must fall and `FIRED` rise,
+with `poor` **staying at zero** (if `poor` becomes large the constraint has
+merely moved to carbon), and income must not fall the way it did under every
+uptake arm. Run it against the same four beds so the before/after is paired.
 
 ### 2c. Without root turnover there is no interior optimum
 
