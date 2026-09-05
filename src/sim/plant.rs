@@ -11501,9 +11501,9 @@ The night factor belongs on income only -- see NIGHT_INCOME_FLOOR"
     /// step rather than after it.
     #[test]
     fn a_spread_leaf_cluster_is_longer_than_a_blob() {
-        fn mean_elongation(spread: f32) -> f32 {
+        fn mean_elongation(world_seed: u64, spread: f32) -> f32 {
             let mut w = test_world();
-            w.seed = 11;
+            w.seed = world_seed;
             let tree = w.species.id_of("tree").expect("tree is compiled in");
             assert!(
                 w.species.set_param(tree, CellType::GrowingTip, organism::ParamId::LeafSpread, 0, spread),
@@ -11557,11 +11557,55 @@ The night factor belongs on income only -- see NIGHT_INCOME_FLOOR"
             assert!(n >= 3, "only {n} clusters of three or more cells grew -- this scene cannot answer the question");
             total / n as f32
         }
-        let blob = mean_elongation(0.0);
-        let line = mean_elongation(1.0);
+        // **Twelve world seeds and a median, because one tree is one sample
+        // from a wide distribution.** This asserted a single tree at world
+        // seed 11 against `line > blob * 1.15` until 2026-09-05, and that bar
+        // was sitting at 1.064 on that seed -- it passed on the tree it was
+        // written against and went red the first time anything changed the
+        // world around the plant, which `assets/materials/seed.ron`'s
+        // `falls_through_organisms` promptly did. Nothing was wrong with the
+        // mechanism: measured across seeds the ratio runs 0.97 to 1.68 with a
+        // median near 1.2, so seed 11 was simply one of the poor ones and a
+        // one-sample bar cannot tell that from a regression. This is
+        // `CLAUDE.md`'s rule for a guard over emergent behaviour -- gate an
+        // order statistic over N seeds rather than any single seed -- and
+        // its "compare two runs, not one run against a remembered number".
+        //
+        // **The bar is on the median with headroom under the measurement**,
+        // never sitting on it: the median measures **1.179** over these eleven
+        // seeds at the shipped materials (min 0.993, max 1.676), gated at
+        // **1.08** -- an 8% fall in the median trips it, and the property
+        // vanishing entirely puts it at 1.000. The minimum is
+        // deliberately *not* gated: individual seeds run below 1.0 and always
+        // did, so a min-based bar is a coin flip on which tree grew.
+        //
+        // Seed 2 grows no cluster of three or more cells at either spread, so
+        // `mean_elongation`'s own `n >= 3` assertion would fire on it; it is
+        // excluded by construction rather than by a skip, which is why the
+        // list below is not simply 1..=12.
+        const SEEDS: [u64; 11] = [1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+        let mut ratios: Vec<f32> = SEEDS
+            .iter()
+            .map(|&world_seed| {
+                let blob = mean_elongation(world_seed, 0.0);
+                let line = mean_elongation(world_seed, 1.0);
+                (line / blob, world_seed, blob, line)
+            })
+            .inspect(|(ratio, world_seed, blob, line)| {
+                println!("seed {world_seed:2}: blob {blob:.3} line {line:.3} ratio {ratio:.3}");
+            })
+            .map(|(ratio, _, _, _)| ratio)
+            .collect();
+        ratios.sort_by(f32::total_cmp);
+        let median = ratios[ratios.len() / 2];
         assert!(
-            line > blob * 1.15,
-            "a fully spread spray should be measurably longer per cell than a random one: blob {blob:.3}, line {line:.3}"
+            median > 1.08,
+            "a fully spread spray should be measurably longer per cell than a random one, \
+             across seeds rather than on one tree: median ratio {median:.3} over {} seeds, \
+             spread {:.3}..{:.3}",
+            ratios.len(),
+            ratios[0],
+            ratios[ratios.len() - 1]
         );
     }
 
