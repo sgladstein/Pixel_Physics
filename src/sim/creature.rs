@@ -1998,12 +1998,30 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
     // one sweeping open ground — which is the term that makes shelter pay
     // for itself twice.
     let sight_tax = def.sight_fraction * def.start_energy * sight_reads as f32;
-    let mut spent = idle + synapse_tax + sight_tax;
+    // **Standing in the open costs, if the species authors a price for it.**
+    // Charged beside `idle` because it *is* metabolism -- the animal is
+    // paying to be somewhere rather than to do something -- and gated on the
+    // authored price so a species that has not opted in pays not even the
+    // roof test, which is three `World::get`s on every creature tick.
+    //
+    // Read at the head rather than over the whole body: a two-cell ant half
+    // in a doorway is either in or out, and the head is the cell every other
+    // sense in this function is read from.
+    let exposure = if def.exposure_cost_per_cell > 0.0 && !is_sheltered(world, x, y) {
+        def.exposure_cost_per_cell * body_cells
+    } else {
+        0.0
+    };
+    let mut spent = idle + synapse_tax + sight_tax + exposure;
     // Booked as metabolism rather than as an account of its own: it is
     // metabolism, and a new sink would have to be added to
     // `EnergyLedger::expected_live_total` for no attribution the
     // `sight_cells_read` counter does not already give.
-    world.energy_ledger.metabolized += (idle + sight_tax) as f64;
+    world.energy_ledger.metabolized += (idle + sight_tax + exposure) as f64;
+    world.creature_stats.exposure_energy += exposure as f64;
+    if exposure > 0.0 {
+        world.creature_stats.exposed_ticks += 1;
+    }
     world.energy_ledger.synapse_tax += synapse_tax as f64;
 
     // --- the four verbs, before moving: an ant that is going to pick
@@ -3665,6 +3683,21 @@ const SPOIL_LIFT: i32 = 160;
 /// here now that the drop also needs a floor -- the two together already
 /// exclude a shaft.
 const SPOIL_HEADROOM: i32 = 3;
+
+/// **Is this cell under a roof?** — the shelter test, and deliberately the
+/// same one `act`'s spoil drop already uses rather than a second definition.
+///
+/// `SPOIL_HEADROOM` clear cells above is what this engine already calls the
+/// *outside* of a burrow, so anything else above is a roof. Two subtly
+/// different notions of "indoors" is how the drop rule and the exposure
+/// charge would come to disagree about the same cell, and nothing would
+/// catch it.
+///
+/// Out of bounds above the world is open sky, which `World::is_empty`
+/// already answers correctly for the rows above row 0.
+fn is_sheltered(world: &World, x: i32, y: i32) -> bool {
+    !(1..=SPOIL_HEADROOM).all(|dy| world.is_empty(x, y - dy))
+}
 
 /// The ablation switch for hauling, on by default.
 ///

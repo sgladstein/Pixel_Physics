@@ -3011,6 +3011,38 @@ pub struct CreatureDef {
     /// of you"*.
     #[serde(default)]
     pub spoil_weight_cells: f32,
+    /// **What it costs to stand in the open, per body cell per tick** — the
+    /// hazard a burrow shelters against, and the reason nest architecture
+    /// could not be selected for before it existed.
+    ///
+    /// **The gap this closes is structural rather than a tuning.** An animal
+    /// dies in exactly two ways — energy reaching zero, or its cells being
+    /// destroyed (`Reports/selective-environments-2026-09-05.md` §1) — and
+    /// nothing in the world routed either of them through *where the animal
+    /// was standing*. So a roofed cell was worth exactly as much as an open
+    /// one, no amount of digging skill could pay, and `burrow_probe` could
+    /// measure chamber shape beautifully while nothing in the world cared
+    /// what shape it was. Measured the same day: ablating the dig drive
+    /// **wins** 4 seeds of 4, and still wins 3 of 3 with ten beetles in the
+    /// bed, because a beetle authors `dig_force: 0.3` against soil's 0.8 and
+    /// cannot cut ground — the one hazard the engine already had does not
+    /// make shelter pay either.
+    ///
+    /// **Sheltered means the same thing it already meant.** `SPOIL_HEADROOM`
+    /// clear cells above the head is what `creature::act` already calls the
+    /// outside of a burrow, and reusing it is deliberate: a second, subtly
+    /// different definition of "indoors" is how the drop rule and the
+    /// exposure rule would come to disagree about the same cell.
+    ///
+    /// **Per cell per tick, matching `idle_cost_per_cell`**, so it reads as
+    /// a multiplier on the cost of living: at `idle_cost_per_cell` 0.05 an
+    /// exposure of 0.05 means standing outside costs double.
+    ///
+    /// Ships at **0.0** — the world exactly as it was — because whether
+    /// shelter *should* pay, and how much, is a decision about the game
+    /// rather than a fact to be measured.
+    #[serde(default)]
+    pub exposure_cost_per_cell: f32,
     /// Charged per **active** synapse per tick, as a fraction of
     /// `start_energy`.
     ///
@@ -3429,6 +3461,7 @@ impl CreatureDef {
             dig_cost_in_moves,
             emit_cost_in_moves,
             spoil_weight_cells,
+            exposure_cost_per_cell,
             synapse_fraction,
             sight_fraction,
             shade_rule,
@@ -3552,6 +3585,10 @@ impl CreatureDef {
             dig_cost_in_moves: *dig_cost_in_moves,
             emit_cost_in_moves: *emit_cost_in_moves,
             spoil_weight_cells: *spoil_weight_cells,
+            // A per-cell-per-decision rate exactly like `idle_cost_per_cell`,
+            // and scaled by the same divisor for the same reason: what has to
+            // stay invariant is joules per frame, not joules per tick.
+            exposure_cost_per_cell: exposure_cost_per_cell / burn,
             instincts: instincts.clone(),
             hidden_wiring: hidden_wiring.clone(),
             hidden_outputs: hidden_outputs.clone(),
