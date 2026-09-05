@@ -1,6 +1,12 @@
 # Ants
 
-*Current as of: 2026-09-02, when biting became something a mouth can fail at —
+*Current as of: 2026-09-05, when digging, trail-laying and hauling spoil
+became things that can be made to cost something — they are all still free on
+arrival, which is why a bed with ants in it ends up as one big pit, and there
+are now three dials that change that. The same day it was measured that
+survival in this world tracks **how much an ant eats and essentially nothing
+else**, so a behaviour the world does not charge for is one it also cannot
+select for. Before that: 2026-09-02, when biting became something a mouth can fail at —
 so a hard-shelled animal is harder to eat than a soft one, and a beetle simply
 cannot get through some of them — and when an animal that loses the middle of
 its body came apart at the bite instead of dying whole, the far half left lying
@@ -191,6 +197,34 @@ it excavates presses the ground around it into packed soil, which holds
 itself up (see [Powders](powders.md)), so the tunnel is lined as fast as it
 is opened and the roof has something to rest on. The verb and the thing it
 leaves behind are the same act.
+
+**But digging is free, and that is why a bed with ants in it becomes one
+enormous hole.** An ant pays to exist, to walk, to think and to look. It has
+never paid to dig, and it has never paid to carry the spoil away either — so
+excavation is the one thing an ant does that the world does not charge for.
+That matters more than it sounds, because an ant is *born wanting to dig*:
+the urge is not a response to anything, it is a standing drive it inherits,
+put there because ants that only dug when it paid never dug at all. Free and
+unconditional together mean nothing can ever talk a colony out of it. An ant
+that digs all day and one that never digs cost the same to be, so no amount
+of time and no number of generations can tell them apart, and the pit in the
+middle of the bed is not something the colony learned. It is what it was born
+doing, with nothing in the world able to price it.
+
+**There are now three dials that put a price on it**, and all three arrive at
+zero, which is exactly the behaviour above. Digging one cell can be made to
+cost a number of steps' worth of energy; laying a full-strength scent trail
+can be made to cost the same way; and a lump of dug earth can be given a
+weight to carry, the way a mouthful of food already has one. Turn any of them
+up and the verb becomes something an ant can spend itself on and get wrong —
+which is the precondition for a colony ever digging *less* than it can.
+
+Turning them up is not free either, and the first thing you will see is not a
+better nest. A colony that suddenly has to pay for what it was doing anyway is
+simply a poorer colony: measured on one bed, pricing a dig at four steps
+roughly halved both the standing population and the number of ants ever born.
+The dial creates the choice; it does not make the animal good at it, and the
+ants that would be good at it have to be bred.
 
 **And the ground it takes out has to go somewhere, which it did not used to.**
 Digging destroyed what it removed — the cell was simply gone from the world —

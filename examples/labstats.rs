@@ -72,6 +72,33 @@ fn main() {
     }
 
     let mut lab = Lab::new(spec);
+    // **The verb prices, patched into the live registry.** They are
+    // `CreatureDef` fields compiled in via `include_str!`, so editing
+    // `ant.ron` and re-running a prebuilt binary gives bit-identical "runs"
+    // -- `CLAUDE.md` records three of those. Echoed on its own line whatever
+    // it is set to, per the harness rule: a knob nobody can see the value of
+    // is a knob nobody can tell is disconnected.
+    {
+        let dig_cost: Option<f32> = arg("digcost");
+        let emit_cost: Option<f32> = arg("emitcost");
+        let spoil_weight: Option<f32> = arg("spoilweight");
+        let id = lab.world.species.id_of("ant").expect("ant species");
+        let mut def = lab.world.species.get(id).creature.as_ref().expect("creature").clone();
+        if let Some(v) = dig_cost {
+            def.dig_cost_in_moves = v;
+        }
+        if let Some(v) = emit_cost {
+            def.emit_cost_in_moves = v;
+        }
+        if let Some(v) = spoil_weight {
+            def.spoil_weight_cells = v;
+        }
+        println!(
+            "labstats: prices dig_cost_in_moves={} emit_cost_in_moves={} spoil_weight_cells={}",
+            def.dig_cost_in_moves, def.emit_cost_in_moves, def.spoil_weight_cells
+        );
+        lab.world.species.set_creature(id, def);
+    }
     // The cull control needs a moment of stand to cull; everything else runs
     // straight through.
     let cull_at = if control == "cull" { frames / 2 } else { u64::MAX };

@@ -2938,6 +2938,72 @@ pub struct CreatureDef {
     /// side of that transaction; renaming it apart from the function was a
     /// small side benefit of the change above.
     pub move_cost_per_cell: f32,
+    /// **What excavating one cell costs, in multiples of one step.**
+    ///
+    /// Zero — today's behaviour, and the reason this field exists. The dig
+    /// verb charged *nothing*, in a tick that already prices standing still,
+    /// walking, thinking and looking, so excavation sat outside the economy
+    /// altogether: measured 2026-09-05, survival across 24 random genomes
+    /// correlates **+0.895 with feeding and +0.151 with travelling**, and
+    /// with digging not at all, because there was no term for it to
+    /// correlate with (`Reports/creature-behaviour-ceiling-2026-09-05.md`).
+    /// A behaviour that cannot be paid for cannot be selected for — and the
+    /// converse bit harder: `ant.ron`'s `(Bias, Dig, 0.4)` is an
+    /// unconditional standing drive, so with the verb free it was
+    /// **selectively neutral**, which is what makes the hole in the middle
+    /// of the screen survive any horizon. It is not evolved behaviour. It is
+    /// generation zero's instinct in a world with no way to price it.
+    ///
+    /// **In multiples of a step rather than in joules**, following
+    /// `LAUNCH_COST_IN_MOVES`, which is the same problem already solved
+    /// once: a verb's price wants to scale with the animal paying it, and
+    /// `move_cost_per_cell * body_cells` is that scale already computed. It
+    /// also reads as a sentence a tuner can hold — *"digging a cell costs
+    /// three steps"* — where a joule figure means nothing without
+    /// `start_energy` beside it.
+    ///
+    /// **Defaulted to zero deliberately, and that is not timidity.**
+    /// `CLAUDE.md`: a change that reallocates a shared budget must budget
+    /// re-deriving the constants calibrated against the old one, and
+    /// `start_energy`, `reproduce_threshold` and the authored dig weight
+    /// were every one of them fitted with digging free. At 0.0 the tick is
+    /// bit-identical and the sweep that sets a real value is separable from
+    /// the mechanism that makes one possible.
+    #[serde(default)]
+    pub dig_cost_in_moves: f32,
+    /// **What laying a full-strength trail on one channel costs, in
+    /// multiples of one step**, charged in proportion to what was actually
+    /// deposited.
+    ///
+    /// The pheromone planes were the other free verb, and free is the one
+    /// setting at which a trail cannot be a *strategy*: laying signal that
+    /// costs nothing is strictly better than laying none, so the only
+    /// gradient on `EmitA`/`EmitB` came from what the trail did for the ant
+    /// downstream — second-order, and swamped. With a price the two planes
+    /// become a trade an ant can lose, which is the precondition for
+    /// selection producing a route rather than a smear.
+    ///
+    /// Proportional rather than per-event because the deposit itself is
+    /// continuous (`emit * pheromone::DEPOSIT`): a per-event charge would
+    /// price a whisper and a shout the same, and the cheapest way to dodge
+    /// it would be one enormous deposit rather than none.
+    #[serde(default)]
+    pub emit_cost_in_moves: f32,
+    /// **What a held lump of spoil weighs while walking, in body cells.**
+    ///
+    /// Carrying *food* has always cost — `creature::carried_cells` divides
+    /// the crop's worth by `body_energy` and the movement charge reads it —
+    /// but that function looks only at `crop`, so `OrganismState::spoil`,
+    /// the lump of ground in the mandibles, rode free for up to
+    /// `SPOIL_LIFT` (160) cells. The excavation loop was therefore unpriced
+    /// end to end: free to cut, free to haul, free to put down.
+    ///
+    /// In body cells rather than in joules because that is the unit
+    /// `carried_cells` already returns and the unit the movement charge
+    /// already multiplies. 1.0 reads as *"a pellet is as heavy as one cell
+    /// of you"*.
+    #[serde(default)]
+    pub spoil_weight_cells: f32,
     /// Charged per **active** synapse per tick, as a fraction of
     /// `start_energy`.
     ///
@@ -3353,6 +3419,9 @@ impl CreatureDef {
             start_energy,
             idle_cost_per_cell,
             move_cost_per_cell,
+            dig_cost_in_moves,
+            emit_cost_in_moves,
+            spoil_weight_cells,
             synapse_fraction,
             sight_fraction,
             shade_rule,
@@ -3451,6 +3520,31 @@ impl CreatureDef {
             // Dimensionless like `dig_force`, and against the same
             // resolution-invariant material field: x 1.
             bite_force: *bite_force,
+
+            // ---- verb prices, in multiples of a term that already scales:
+            // ---- x 1, with a limit worth stating rather than hiding ----
+            //
+            // Each is a ratio against a quantity this function has already
+            // classified -- a step's cost for the two `_in_moves` fields, a
+            // body cell for `spoil_weight_cells` -- so passing them through
+            // unchanged holds **the price of one dig, one deposit and one
+            // held pellet** invariant, which is what their names promise and
+            // what a tuner is holding in mind.
+            //
+            // **It does not hold the cost of excavating a fixed *physical*
+            // volume invariant**, and that gap is left visible per
+            // `CLAUDE.md` rather than relabelled away. A supersampled world
+            // cuts the same hole in `cell_factor` times as many digs, so the
+            // joules to empty a given room rise with resolution. Correcting
+            // it wants `x time_factor / cell_factor`, which is neither
+            // `burn` nor `time_factor` and is a third divisor in a function
+            // whose own comments record two near-misses on exactly this.
+            // Not worth inventing against a field that ships at 0.0 and has
+            // never been swept at k > 1: derive it from a measurement when
+            // one exists, not from this comment.
+            dig_cost_in_moves: *dig_cost_in_moves,
+            emit_cost_in_moves: *emit_cost_in_moves,
+            spoil_weight_cells: *spoil_weight_cells,
             instincts: instincts.clone(),
             hidden_wiring: hidden_wiring.clone(),
             hidden_outputs: hidden_outputs.clone(),

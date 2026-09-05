@@ -263,6 +263,113 @@ six different prices, and (1) and (2) look different depending on which one
 is wanted. That question is the owner's, and it is cheaper to answer than to
 guess.
 
+## 7. Built, same day: the free verbs have a price — and what it bought
+
+The owner picked *price the free verbs* off §"What this changes about next
+steps", naming trails, nest architecture and predator–prey cycles as targets,
+and adding the answer that reframes them: *"the real answer is anything
+visually interesting. Clear variety in behavior. Different methods of
+movement. Visual collection of food (although this might just be a coloration
+thing). Any change in behavior over time."*
+
+Three fields on `CreatureDef`, all `#[serde(default)]` and all shipping at
+**0.0**, all three on the lab parameters page under Ants:
+
+| field | prices |
+|---|---|
+| `dig_cost_in_moves` | excavating one cell |
+| `emit_cost_in_moves` | one full-strength deposit, pro-rated on what was laid |
+| `spoil_weight_cells` | a held pellet, while walking |
+
+**One correction to §2 of this report, found while building it.**
+`carried_cells` reads `state.crop` **only**, so it was never just the three
+verbs — hauling the spoil was free as well, for up to `SPOIL_LIFT` (160)
+cells. The excavation loop was unpriced end to end: free to cut, free to
+haul, free to put down. Carrying *food* has always cost.
+
+Priced in multiples of one step, following `LAUNCH_COST_IN_MOVES` rather than
+inventing a unit: the price then scales with the animal exactly as walking
+does, and *"digging a cell costs three steps"* is a sentence a tuner can hold
+where a joule figure needs `start_energy` beside it.
+
+### The measurement, and it is not the flattering answer
+
+One bed, **one seed**, 40,000 frames, 32 plant founders, one colony:
+
+| `dig_cost_in_moves` | standing animals | born | died | deepest animal generation |
+|---|---|---|---|---|
+| 0 | 57 | 88 | 83 | 6 |
+| 4 | 36 | 45 | 61 | 3 |
+| 16 | 33 | 47 | 66 | 5 |
+
+A price roughly **halves the colony and halves its births**, and deaths
+overtake births. Read that as one seed — the generation column is
+non-monotone and this bed's seed-alone spread is 2.4–3.1x, so only the
+population and birth effects are large enough to survive it.
+
+**Why it costs rather than teaches, and the number that says so.** The dig
+drive is `(Bias, Dig, 0.4)` — *unconditional*, on the bias input, so an ant
+cannot dig less in response to anything. Selection has to walk that one
+weight down. At `mutation_rate: 0.0058456` a given slot is touched about
+**once per 171 births**; a run here produces 45–88 births, so that weight is
+touched **about once in a whole run**. The gradient is now real and the
+population is far too small and too short-lived to climb it.
+
+So pricing the verb is **necessary and not sufficient**, and the gap is not a
+tuning: it is that this bed does not run long enough, or breed enough
+animals, for one weight to move. That is the same finding as §3 arriving from
+the other side.
+
+### A first measurement that measured nothing, kept because it is the trap
+
+The first sweep was run on `burrow_probe arms=colony`, whose bank is bare
+soil with **no food**, at its 8,000-frame default. Chamber size read 69 → 68
+→ 67 cells across prices 0 → 2 → 8: essentially flat. Two faults at once,
+both of them named elsewhere in this report:
+
+- **8,000 frames is inside the ant's 12,000-frame founding grant** (§"How to
+  re-run"), so nothing could starve and a charge that only bites at the
+  bottom of the bank could not show.
+- Re-run at 24,000 frames the rows came back **byte-identical apart from the
+  frame column** — the tell `CLAUDE.md` names for a disconnected knob. The
+  cause was neither: the colony is dead by 8,000 frames in a bed with no
+  food, so there was nothing left alive to charge. *"An ablation in a broken
+  economy measures nothing"* (`creature-direction.md` §13f).
+
+The number that finally moved was measured in the lab bed, which has plants
+in it.
+
+### Not built, and why
+
+**`Drop`/`DropSpoil` are left free.** §2 listed them as unpriced, and the
+carrying charge above is the reason not to charge them again: an animal
+already pays to hold a load every step it takes, so the release is the moment
+it *stops* paying. Charging the drop as well would price one act twice and
+would specifically tax delivering food to the nest, which is the behaviour
+worth having.
+
+**Nothing was re-derived, and no default moved.** `start_energy`,
+`reproduce_threshold` and the authored dig weight were all fitted against
+free digging, and `CLAUDE.md` requires budgeting their re-derivation as part
+of any change that reallocates the shared budget. At 0.0 that bill is not
+owed. It comes due the moment a non-zero default is proposed, and the table
+above is the first instalment of the evidence for one.
+
+### The other half of the owner's answer, not addressed here
+
+*"Visual collection of food (although this might just be a coloration
+thing)"* is a live question with a recorded prior, and it is not this change.
+`OrganismState::crop` is internal state, never a cell in the world, and its
+own doc says a carried cell was rejected as *"no payoff at all at the zoom a
+creature is seen at"* — a judgement the owner has now contradicted.
+`render.rs`'s gut-tint constants carry the rest: a hue A/B was posted and the
+owner chose **untinted**, because *"an ant is one or two cells at play zoom,
+the readable signal at that size is contrast against the ground rather than
+hue"*, and the note says the untried axis is **brightness**, to be posted as
+its own blind A/B rather than argued. `Crop` already carries `material` and
+`shade`, so the data for a laden ant to look different is present and unread.
+That is a review-queue question, not a report one.
+
 ## How to re-run any of this
 
 ```
