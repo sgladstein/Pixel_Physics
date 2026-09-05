@@ -1,0 +1,62 @@
+{
+  "id": "20260905T153847290Z-6287bd",
+  "created": "2026-09-05T15:38:47Z",
+  "board": "lab",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/evolution-lab-plant-dynamics-16i1fu",
+    "commit": "c83eea97",
+    "agent": null,
+    "session_id": "5625e4a4-fdd2-5a2e-a1d9-03dc7df98bdf",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "One herb seed, 120,000 frames: does it fill the bench now?",
+  "question": "Right-hand strip is with the fix. Does that read like a plant colonising the bench rather than a patch being painted in -- and is crossing the bed in ~120,000 frames the pace you want?",
+  "context_md": "Both strips are **one seed**, planted at the centre of an otherwise empty bed, stepped to the same four frames: **12,000 / 40,000 / 80,000 / 120,000**. Same world, same species, same lamps. The only difference is two lines on the seed material.\n\nYour report was that a plant makes a small cluster and then everything stops. It reproduces exactly, and the cause turned out not to be the plant economy: **a seed could not get away from its parent.** Of the roughly 200 seeds standing at any moment, 157 were resting on plant tissue and 42 on their own seed pile, and a seed can only sprout on ground that holds water -- leaves, wood and other seeds hold none. So a plant's own canopy was where its seed went to expire. A fallen *fruit* already dropped through a canopy to the floor; the bare seed inside it did not, which was an omission rather than a decision. It now does, and a seed rolls off a leaf instead of perching on it.\n\n**What I am unsure about and want your eye on**, not the spread itself: the litter and loose seed lying along the ground -- there is a lot more of it in the right-hand strip, and by 120,000 frames the floor is thick with it. Also whether the stand looks too uniform once it is full.\n\nIgnore the root threads wandering down through the soil; that is a separate known issue and not what changed here.",
+  "kind": "frames",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "As shipped",
+      "files": [
+        "20260905T153847290Z-6287bd/000-before_0.png",
+        "20260905T153847290Z-6287bd/001-before_1.png",
+        "20260905T153847290Z-6287bd/002-before_2.png",
+        "20260905T153847290Z-6287bd/003-before_3.png"
+      ],
+      "caption": "12,000 / 40,000 / 80,000 / 120,000 frames",
+      "meta": {
+        "plants standing at 80,000": 286,
+        "plants standing at 120,000": 238,
+        "plant cells at 80,000": 3664,
+        "plant cells at 120,000": 3591
+      },
+      "focus": null
+    },
+    {
+      "label": "Seed falls through a canopy, and rolls",
+      "files": [
+        "20260905T153847290Z-6287bd/004-after_0.png",
+        "20260905T153847290Z-6287bd/005-after_1.png",
+        "20260905T153847290Z-6287bd/006-after_2.png",
+        "20260905T153847290Z-6287bd/007-after_3.png"
+      ],
+      "caption": "same four frames, same world",
+      "meta": {
+        "plants standing at 80,000": 665,
+        "plants standing at 120,000": 654,
+        "plant cells at 80,000": 9602,
+        "plant cells at 120,000": 11107
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
