@@ -3128,6 +3128,43 @@ pub struct CreatureDef {
     /// bit-identical to the tree before this existed.
     #[serde(default)]
     pub curvature_fraction: f32,
+    /// Charged per **unit of jaw force this animal carries** per tick, as a
+    /// fraction of `start_energy` — the muscular twin of `synapse_fraction`
+    /// and `sight_fraction`.
+    ///
+    /// **Strength was the last free capability.** `dig_force` is a threshold
+    /// tested against a material's `penetration_resistance`, so a higher one
+    /// is *strictly* more of the world you can cut and eat, at no cost —
+    /// exactly the ratchet `sight_range` was before `sight_fraction`, and
+    /// `curvature_radius` was before `curvature_fraction`. Owner's ruling,
+    /// 2026-09-05: *everything should be priced*.
+    ///
+    /// **A standing cost, not a per-swing one, and the distinction is the
+    /// whole design.** `dig_cost_in_moves` already charges for *using* the
+    /// jaw; this charges for *having* it. Pricing only the swing would leave
+    /// an animal free to carry mandibles it never opens, and then the gene
+    /// has no gradient for any lineage that does not happen to dig — which
+    /// is most of them. You grow the muscle and you feed it whether or not
+    /// you bite today.
+    ///
+    /// **On the larger of `dig_force` and `bite_force`, never their sum.**
+    /// One apparatus, rated for the harder job. `bite_force` defaults to
+    /// `dig_force`, so summing would silently bill every species that
+    /// authored only the one field twice over — a doubling nobody wrote and
+    /// nobody would see, since both numbers read correctly on the page.
+    ///
+    /// **What it buys is a capability, so the trade is legible**: the beetle
+    /// authors `dig_force: 0.3` against soil's `penetration_resistance` of
+    /// 0.8 and therefore cannot cut ground at all. Under this price a beetle
+    /// lineage *can* evolve to 0.8 and start burrowing — and pays for the
+    /// jaw every tick of its life, whether it digs or not. That is the
+    /// question "can a predator learn to make a nest" turned into an
+    /// affordable-or-not rather than a rule.
+    ///
+    /// Defaults to 0, so a species that has authored nothing is
+    /// bit-identical to the tree before this existed.
+    #[serde(default)]
+    pub force_fraction: f32,
     /// **What one cell of this animal's body is worth as meat**, granted at
     /// spawn alongside `start_energy` and stamped into its corpse cells when
     /// it dies.
@@ -3436,7 +3473,7 @@ impl CreatureDef {
     /// | a length in cells | `k` | `body`, `sensor_offset`, `sight_range` |
     /// | a time in ticks per decision | `1/k` | `tick_interval` |
     /// | a rate charged per body cell per decision | `1/(cells x k)` | `idle_cost_per_cell`, `move_cost_per_cell` |
-    /// | a rate per decision, per animal | `1/k` | `digest_rate` |
+    /// | a rate per decision, per animal | `1/k` | `digest_rate`, `force_fraction` |
     /// | a rate per cell *read* per decision | `1/(k x k)` | `sight_fraction`, `curvature_fraction` |
     /// | dimensionless, or an energy in joules | `1` | everything else |
     ///
@@ -3501,6 +3538,7 @@ impl CreatureDef {
             synapse_fraction,
             sight_fraction,
             curvature_fraction,
+            force_fraction,
             shade_rule,
             body_energy,
             crop_capacity,
@@ -3589,6 +3627,13 @@ impl CreatureDef {
             // already scaled as a length, so the read count carries `k*k` on
             // its own and only the per-cell rate is corrected here.
             curvature_fraction: curvature_fraction / (k * time_factor).max(f32::EPSILON),
+            // **`digest_rate`'s class, not the two sensory ones above.** The
+            // tax is `fraction * start_energy * force` -- joules per
+            // decision per *animal*, with no length and no cell count in it,
+            // because `dig_force` is a dimensionless threshold against
+            // `penetration_resistance` and does not scale with the grid. So
+            // only the decision rate has to be corrected.
+            force_fraction: force_fraction / time_factor.max(f32::EPSILON),
             shade_rule: *shade_rule,
             body_energy: *body_energy,
             crop_capacity: *crop_capacity,

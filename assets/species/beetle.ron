@@ -142,6 +142,25 @@
         mutation_rate: 0.0058456,
 
         nest: "nest",
+        // **The jaw price, derived at this animal's own constants** -- see
+        // `ant.ron`'s for the argument. A beetle is much larger and much
+        // longer-lived, so the same share of a lifetime is a different
+        // fraction:
+        //
+        //   idle ticks = 1600 / (0.0375 * 4) = 10,666.7
+        //   S = 0.05 at this species' dig_force of 0.3
+        //   0.05 / (10,666.7 * 0.3) = 1.5625e-5
+        //
+        // **And this is the line that makes the burrowing question
+        // answerable rather than a rule.** `dig_force: 0.3` is below soil's
+        // `penetration_resistance` of 0.8, so a beetle cannot cut ground at
+        // all -- which is why adding beetles to a bed has never made shelter
+        // pay (`Reports/selective-environments-2026-09-05.md`). With the
+        // force priced and heritable, a beetle lineage *can* reach 0.8 and
+        // start digging, and will pay for the jaw every tick of its life
+        // whether or not it uses it. Whether that trade is worth taking is
+        // then a question the bed answers, which is the whole point.
+        force_fraction: 0.000015625,
         dig_force: 0.3,
         // **The eye, and it is the whole of what this animal was missing.**
         // 64 cells, all-round, sized before it was built by

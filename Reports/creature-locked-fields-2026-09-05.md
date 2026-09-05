@@ -72,8 +72,8 @@ property of the animal gets priced and opened.
 | `sight_range` | *was* | yes | unlocked 2026-09-05 |
 | `crop_capacity` | **yes** | **yes**, `carried_cells` charges a load | **ready — next** |
 | `body` (cell count) | **yes** | **yes**, every cost is per cell | **ready**, but it is S8 and larger than a slot |
-| `dig_force` | **yes** | **no** | price to author — next |
-| `bite_force` | **yes** | **no** | price to author, with `dig_force` |
+| `dig_force` | *was* | **now yes**, `force_fraction` | **priced here**; unlock next |
+| `bite_force` | *was* | **now yes**, the same `force_fraction` | **priced here**, on the max of the two |
 | `curvature_radius` | *was* | **now yes**, `curvature_fraction` | **priced here**; unlock next |
 | `digest_rate` | **yes** | **no** | price to author |
 | `sensor_offset` | **yes** | no — but see below | **safe unpriced**, uniquely |
@@ -236,13 +236,29 @@ row open — rather than a set of candidates.
 2. **`crop_capacity`** — locked, already priced by `carried_cells`, and its own
    doc names it as "the codomain of a future capacity gene". No price to
    author; it is an unlock.
-3. **A price for strength**, then `dig_force` and `bite_force`. The verb price
-   exists (`dig_cost_in_moves`) but is flat in force, so a stronger jaw is free
-   today. The idiom is settled by the two sensory prices: a per-tick fraction
-   of `start_energy` per unit of force, since what you are paying for is the
-   muscle you carry whether or not you swing it. Charged on the **max** of the
-   two rather than the sum — one apparatus, rated for the harder job — so an
-   animal authoring only `dig_force` is not billed twice.
+3. **`force_fraction`** — **done, this change.** A per-tick fraction of
+   `start_energy` per unit of force, on the **max** of `dig_force` and
+   `bite_force` and never their sum: `bite_force` defaults to `dig_force`, so
+   summing would silently bill every species authoring only the one field
+   twice over, with both asset lines still reading correctly.
+
+   **A standing cost, not a per-swing one, and that is the design rather than
+   a detail.** `dig_cost_in_moves` already charges for *using* the jaw. This
+   charges for *having* it — otherwise an animal carries mandibles it never
+   opens for free, and any lineage that does not happen to dig faces no
+   gradient at all. Derived at each species' own constants, S = 0.05 of an
+   idle lifetime: 2.5e-5 for the ant (0.005 J a tick against an idle 0.10),
+   1.5625e-5 for the beetle. Half the brain's share and half a full eye
+   sweep's — a jaw is expensive tissue but it is not a brain, and the number
+   also has to leave the shipped colony's economy where it was.
+
+   **This is the line that makes the burrowing question answerable.** The
+   beetle authors `dig_force: 0.3` against soil's `penetration_resistance` of
+   0.8, so it cannot cut ground at all — which is why adding beetles to a bed
+   has never made shelter pay. With force priced and heritable a beetle
+   lineage *can* reach 0.8 and start digging, and pays for the jaw every tick
+   of its life whether it uses it or not. Whether that trade is worth taking
+   becomes a question the bed answers rather than a rule an author wrote.
 4. **A price for digestion**, then `digest_rate`. The least settled of the
    four, and the reason is worth stating: a fast gut is strictly better today
    (energy sooner, and less weight carried, since `carried_cells` charges for

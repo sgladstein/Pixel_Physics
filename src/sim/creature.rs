@@ -2091,6 +2091,17 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
     // species gate and the two debug switches all resolve to a bill of zero
     // without a second condition being written anywhere.
     let curvature_tax = def.curvature_fraction * def.start_energy * curvature_reads as f32;
+    // **Carrying a jaw costs, whether or not you open it.** `dig_force` is a
+    // threshold against `penetration_resistance`, so a bigger one is
+    // strictly more of the world you can cut -- the last free capability,
+    // and the same ratchet the two senses above used to be. Owner's ruling,
+    // 2026-09-05: *everything should be priced*.
+    //
+    // On the LARGER of the two forces, never their sum: `bite_force`
+    // defaults to `dig_force`, so summing would silently bill every species
+    // that authored only the one field twice, and both numbers would still
+    // read correctly on the page.
+    let force_tax = def.force_fraction * def.start_energy * def.dig_force.max(def.bite_force());
     // **Standing in the open costs, if the species authors a price for it.**
     // Charged beside `idle` because it *is* metabolism -- the animal is
     // paying to be somewhere rather than to do something -- and gated on the
@@ -2105,12 +2116,13 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
     } else {
         0.0
     };
-    let mut spent = idle + synapse_tax + sight_tax + curvature_tax + exposure;
+    let mut spent = idle + synapse_tax + sight_tax + curvature_tax + force_tax + exposure;
     // Booked as metabolism rather than as an account of its own: it is
     // metabolism, and a new sink would have to be added to
     // `EnergyLedger::expected_live_total` for no attribution the
     // `sight_cells_read` counter does not already give.
-    world.energy_ledger.metabolized += (idle + sight_tax + curvature_tax + exposure) as f64;
+    world.energy_ledger.metabolized += (idle + sight_tax + curvature_tax + force_tax + exposure) as f64;
+    world.creature_stats.force_energy += force_tax as f64;
     world.creature_stats.curvature_cells_read += curvature_reads;
     world.creature_stats.curvature_energy += curvature_tax as f64;
     world.creature_stats.exposure_energy += exposure as f64;
@@ -6493,6 +6505,86 @@ mod tests {
             narrow < authored && authored < wide,
             "a sharper eye must read more of the world: allele -0.75 read {narrow}, 0.0 read {authored}, +0.75 read {wide} -- \
              equal figures mean the allele is not reaching the cast"
+        );
+    }
+
+    /// **A jaw is billed for being carried, on the larger of the two forces
+    /// and not on their sum.**
+    ///
+    /// Owner's ruling, 2026-09-05: *everything should be priced*.
+    /// `dig_force` is a threshold against `penetration_resistance`, so a
+    /// bigger one was strictly more of the world an animal could cut, free.
+    ///
+    /// **The sum-versus-max assertion is the one worth having.**
+    /// `bite_force` defaults to `dig_force`, so charging the sum would
+    /// silently bill every species that authored only the one field *twice*
+    /// — and nothing on the page would look wrong, because both numbers are
+    /// individually correct. That is the shape of bug this repo names as
+    /// arithmetically right and about the wrong thing.
+    #[test]
+    fn a_jaw_is_billed_for_being_carried_not_for_being_used() {
+        let scene = |fraction: f32, dig: f32, bite: Option<f32>| -> (f64, u64, u64) {
+            let mut w = test_world();
+            if let Some(id) = w.species.id_of("ant") {
+                if let Some(mut def) = w.species.get(id).creature.clone() {
+                    def.force_fraction = fraction;
+                    def.dig_force = dig;
+                    def.bite_force = bite;
+                    def.reproduce_threshold = 0.0;
+                    w.species.set_creature(id, def);
+                }
+            }
+            w.plant_ant(100, 95);
+            let ant = w.get(100, 95).organism_id();
+            assert_ne!(ant, 0, "the ant was not placed; this scene does not contain the situation the test is about");
+            if let Some(st) = w.organism_mut(ant) {
+                st.energy = 100_000.0;
+            }
+            run(&mut w, 600);
+            (w.creature_stats.force_energy, w.creature_stats.ticks, w.creature_stats.digs)
+        };
+
+        const RATE: f32 = 2.5e-5;
+        let (paid, ticks, digs) = scene(RATE, 1.0, None);
+        assert!(ticks > 0, "the ant never took a turn, so this measures a dead animal rather than a jaw");
+
+        // **Carried, not used**: the bill is the tick count times the rate,
+        // with no term for how much was actually dug. This is the assertion
+        // that a per-swing price would fail.
+        let expected = f64::from(RATE) * 200.0 * 1.0 * ticks as f64;
+        assert!(
+            (paid - expected).abs() < expected * 1e-3,
+            "a jaw must be billed once per tick regardless of use: {paid} against {expected} over {ticks} ticks and {digs} digs"
+        );
+
+        // **The zero arm is a positive control on the guard.**
+        // `force_fraction` defaults to 0.0, so a charge that was never wired
+        // reports 0.0 and would pass a test asserting only the default.
+        let (free, _, _) = scene(0.0, 1.0, None);
+        assert_eq!(free, 0.0, "the 0.0 default must charge exactly nothing: a species that has not opted in has to be bit-identical");
+
+        // Stronger costs more, which is the gradient the price exists for.
+        let (strong, strong_ticks, _) = scene(RATE, 2.0, None);
+        assert!(
+            strong > paid * 1.5 && strong_ticks > 0,
+            "twice the force must cost about twice as much: {paid} -> {strong}"
+        );
+
+        // **The max, not the sum.** An animal authoring no `bite_force`
+        // bites as hard as it digs, so `dig 1.0 / bite None` and
+        // `dig 1.0 / bite Some(1.0)` are the same animal and must be billed
+        // the same. Under a sum they would differ by exactly 2x, and both
+        // asset lines would still read correctly.
+        let (explicit, _, _) = scene(RATE, 1.0, Some(1.0));
+        assert!(
+            (explicit - paid).abs() < paid * 1e-6,
+            "authoring bite_force equal to dig_force must not change the bill -- one jaw, not two: {paid} against {explicit}"
+        );
+        // And the larger of the two is what is charged, whichever field holds it.
+        let (big_bite, _, _) = scene(RATE, 1.0, Some(2.0));
+        assert!(
+            big_bite > paid * 1.5,
+            "a mouth rated harder than the digger must be what sets the bill: {paid} -> {big_bite}"
         );
     }
 
