@@ -1,0 +1,69 @@
+{
+  "id": "20260905T062117283Z-6179f0",
+  "created": "2026-09-05T06:21:17Z",
+  "board": "creatures",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/creature-behavior-analysis-m28jo2",
+    "commit": "79eeab2f",
+    "agent": null,
+    "session_id": "3482c79e-7df3-503b-ab1a-9d969c08021a",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Can you see which ants are carrying food?",
+  "question": "In which of these can you pick out the ants that are carrying a load — and does the difference between a light load and a full one read at all?",
+  "context_md": "You said the real answer was **anything visually interesting**, and named *\"visual collection of food (although this might just be a coloration thing)\"*. It was invisible: what an ant is carrying is internal state that has never been drawn.\n\nSame world, same frame, same seed. **Only the colour rule differs** — nothing about the simulation changed between these three.\n\n**Two things I measured, so you don't have to take them on trust:**\n\n- **\"Carrying food\" is not an event.** 34 of the 38 ants are holding food at this instant, and none is below a quarter-full. So a simple on/off cue would paint nearly the whole colony one colour and tell you nothing. What actually varies is *how heavy the load is*, so these show it in three steps: faint, medium, strong.\n- **The cue does fire, and hard** — it repaints 1,664 pixels by up to 171 levels. So if you cannot see it, that is about legibility against this bed, not about the rule being broken.\n\n**What I am unsure about, and why this is a three-way rather than a before/after:** the ground line here is already crowded with pale litter, stems and seed cells, so making an ant *brighter* may just make it look like more litter. The other candidate ignores that and uses a colour nothing else in the bed wears. I expect you may find it garish — say so and I will pull it back; **the question I am stuck on is only whether you can see them at all.**\n\nOne thing worth looking for either way: the ants are not only on the ground. Some are up in the herbs.",
+  "kind": "gallery",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A — no cue (current)",
+      "files": [
+        "20260905T062117283Z-6179f0/000-card_off.png"
+      ],
+      "caption": "what the game looks like today",
+      "meta": {
+        "ants in this view carrying food": 13,
+        "whole colony carrying food": "34 of 38",
+        "pixels the cue repaints": 0
+      },
+      "focus": null
+    },
+    {
+      "label": "B — heavier load draws brighter",
+      "files": [
+        "20260905T062117283Z-6179f0/001-card_brightness.png"
+      ],
+      "caption": "load shown as brightness, three steps",
+      "meta": {
+        "ants in this view carrying food": 13,
+        "whole colony carrying food": "34 of 38",
+        "pixels the cue repaints": 1664,
+        "strongest colour shift": "171 of 255"
+      },
+      "focus": null
+    },
+    {
+      "label": "C — heavier load draws pinker",
+      "files": [
+        "20260905T062117283Z-6179f0/002-card_hue.png"
+      ],
+      "caption": "load shown as a colour nothing else in the bed wears",
+      "meta": {
+        "ants in this view carrying food": 13,
+        "whole colony carrying food": "34 of 38",
+        "pixels the cue repaints": 1664,
+        "strongest colour shift": "178 of 255"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
