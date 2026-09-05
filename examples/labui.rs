@@ -446,6 +446,77 @@ fn main() {
             tiles.push((format!("WATCH: {what} SERIES"), shot(&mut lab)));
         }
     }
+    // 6a-quater. **SPARE and CULL REST: keep these, kill the others.**
+    //            Driven through the real chips, because the gesture is the
+    //            feature: pin a row, press SPARE, pin another, press SPARE,
+    //            then press CULL REST once. The counts either side of it are
+    //            the whole proof -- a graded cull changes nothing on screen
+    //            for thousands of frames, so a tile of the moment after the
+    //            press looks identical to a tile of the press having missed.
+    {
+        let kingdom = roster::Kingdom::Creatures;
+        open_list(&mut lab, Panel::Ants, Panel::AntList);
+        let (key, desc) = lab.ui.roster_sort_key(kingdom);
+        let before = roster::rows(&lab.world, kingdom, key, desc, roster::Filter::All).len();
+        // Spare three, by walking the list the way a player would.
+        for row in 0..3usize.min(before) {
+            let at = centre(&lab, Action::RosterSelect(row));
+            click(&mut lab, at);
+            let _ = shot(&mut lab);
+            let at = centre(&lab, Action::RosterSpare);
+            click(&mut lab, at);
+            let _ = shot(&mut lab);
+        }
+        let spared: Vec<roster::Individual> = lab.ui.spared_list().to_vec();
+        fired.push(format!("CULL: spared {} of {before} animals", spared.len()));
+        lab.set_cursor(None);
+        tiles.push(("CULL: THREE SPARED".into(), shot(&mut lab)));
+
+        let aimed = lab.ui.cull_rest_targets(&lab.world, kingdom);
+        let doomed = aimed.len();
+        let at = centre(&lab, Action::RosterCullRest);
+        click(&mut lab, at);
+        let _ = shot(&mut lab);
+        // A cull marks senescent; `rot_remains` carries the bodies out at the
+        // species half-life, measured at ~3,400 ticks for an animal
+        // (`roster::how_long_a_cull_takes`). So the count is read twice: the
+        // rows that went ROTTING immediately, and the population once the
+        // bodies are actually gone.
+        let rotting = roster::rows(&lab.world, kingdom, key, desc, roster::Filter::All)
+            .iter()
+            .filter(|r| matches!(r.state, roster::RowState::Senescent))
+            .count();
+        fired.push(format!("CULL REST: aimed at {doomed}, {rotting} rows now rotting, {before} before"));
+        lab.set_cursor(None);
+        tiles.push(("CULL: AFTER CULL REST".into(), shot(&mut lab)));
+        for _ in 0..6000 {
+            lab.tick_for_harness();
+        }
+        let after = roster::rows(&lab.world, kingdom, key, desc, roster::Filter::All).len();
+        // **Name the individuals, do not count the population.** A count
+        // cannot say the *right* ones lived: the box breeds, so 16 -> 10 is
+        // consistent with the cull having missed and ten animals having been
+        // born. `Individual` is `(organism_id, born_frame)`, so a slot reused
+        // by a newborn does not read as the spared one surviving.
+        let kept = spared
+            .iter()
+            .filter(|who| roster::rows(&lab.world, kingdom, key, desc, roster::Filter::All)
+                .iter()
+                .any(|r| r.who == **who && !matches!(r.state, roster::RowState::Senescent)))
+            .count();
+        let doomed_left = aimed
+            .iter()
+            .filter(|who| roster::rows(&lab.world, kingdom, key, desc, roster::Filter::All)
+                .iter()
+                .any(|r| r.who == **who && !matches!(r.state, roster::RowState::Senescent)))
+            .count();
+        fired.push(format!(
+            "CULL REST: {before} animals -> {after} once the bodies rotted; {kept} of {} spared still alive, {doomed_left} of {doomed} doomed still alive",
+            spared.len()
+        ));
+        lab.ui.clear_spared();
+    }
+
     // 6a-ter. **COMPARE: two individuals side by side.** Driven through the
     //         real chips -- HOLD on one row, pin another, VS -- rather than
     //         by setting the two slots directly, because the thing most
@@ -457,26 +528,12 @@ fn main() {
         let kingdom = roster::Kingdom::Creatures;
         let list = Panel::AntList;
         let cover = Panel::Ants;
-        // Close whatever is open first, then cover, then list -- the same
-        // three steps the roster loop above uses. `Action::Panel` toggles, so
-        // clicking the cover while the cover is already open *closes* it and
-        // the list heading never appears; the harness panics on the missing
-        // widget, which is the right failure and how this was found.
-        if let Some(open) = lab.ui.panel {
-            let at = match open {
-                Panel::PlantList => centre(&lab, Action::Panel(Panel::Plants)),
-                Panel::AntList => centre(&lab, Action::Panel(Panel::Ants)),
-                _ => centre(&lab, Action::Panel(open)),
-            };
-            click(&mut lab, at);
-            let _ = shot(&mut lab);
-        }
-        let at = centre(&lab, Action::Panel(cover));
-        click(&mut lab, at);
-        let _ = shot(&mut lab);
-        let at = centre(&lab, Action::Panel(list));
-        click(&mut lab, at);
-        let _ = shot(&mut lab);
+        // `open_list` rather than a hand-rolled close-cover-list, because
+        // `Action::Panel` toggles: pressing the cover chip while the cover is
+        // already open *closes* it and the list heading never appears. This
+        // block is where that bit -- the CULL block above leaves the roster
+        // open, where every earlier block left it shut.
+        open_list(&mut lab, cover, list);
         let (key, desc) = lab.ui.roster_sort_key(kingdom);
         let rows = roster::rows(&lab.world, kingdom, key, desc, lab.ui.roster_filter());
         if rows.len() >= 2 {
@@ -1193,6 +1250,45 @@ fn shot(lab: &mut Lab) -> Vec<u8> {
     let mut frame = blank();
     lab.draw(&mut frame, 60.0);
     frame
+}
+
+/// Open `list` from its cover page, from *whatever* is open now.
+///
+/// **A loop rather than a fixed close-cover-list sequence**, because
+/// `Action::Panel` toggles and the roster's own way out is its cover's bar
+/// chip: pressing ANTS while the animal roster is open lands on the ANIMALS
+/// cover, so the next press of ANTS *closes* it and the list heading never
+/// appears. Three blocks below hand-rolled that sequence and the third one
+/// panicked on the missing heading, because the block before it left the
+/// roster open where the earlier blocks had left it shut. The fixed point is
+/// the same in every starting state: step towards the list, redraw, look
+/// again.
+fn open_list(lab: &mut Lab, cover: Panel, list: Panel) {
+    for _ in 0..6 {
+        match lab.ui.panel {
+            Some(p) if p == list => return,
+            Some(p) if p == cover => {
+                let at = centre(lab, Action::Panel(list));
+                click(lab, at);
+            }
+            Some(p) => {
+                // Off any other page by its own button; a roster leaves by its
+                // cover's chip, which is the case that made this a loop.
+                let at = match p {
+                    Panel::PlantList => centre(lab, Action::Panel(Panel::Plants)),
+                    Panel::AntList => centre(lab, Action::Panel(Panel::Ants)),
+                    other => centre(lab, Action::Panel(other)),
+                };
+                click(lab, at);
+            }
+            None => {
+                let at = centre(lab, Action::Panel(cover));
+                click(lab, at);
+            }
+        }
+        let _ = shot(lab);
+    }
+    panic!("could not reach {list:?} from {:?}", lab.ui.panel);
 }
 
 /// The middle of the button for `action`, from the retained layout.

@@ -529,6 +529,58 @@ resolution, and it produced one finding worth more than the merge.*
   main's, and note the branch's had **a writer and no reader** — `ui.rs` still
   walks the live list.
 
+### Keep-and-clear, 2026-09-05 — and three defects only the picture showed
+
+*Owner's ask, verbatim: "there should be options to cull plants/creatures from
+the menu or select the ones you want to save and cull all others." The lists
+were already there — `F1`/`F2` then `LIST EVERY PLANT`/`LIST EVERY ANIMAL` —
+the verbs were not.*
+
+- **`SPARE` on the pinned row, `CULL REST n` on the table's header.** Four
+  decisions in it, all recorded in README's "Roster status": it works with no
+  pin, it ignores the filter on purpose, it excludes already-rotting rows from
+  its count so the face says what the press will take, and the keep list is
+  **not** pruned when its members die.
+- **A population count cannot verify a cull, and the harness printed one for
+  an hour before anyone noticed.** *16 animals → 10* is equally consistent
+  with the cull having missed and ten having been born, because the box breeds
+  while the bodies rot. The tile now names individuals: *3 of 3 spared still
+  alive, 0 of 12 doomed still alive*. This is `CLAUDE.md`'s *ask what your
+  number counts* with the instrument named as a **census**, and the tidiness
+  tell was there too — 16 → 10 is a clean-looking halving.
+- **The keep mark shipped as a blank gap.** The 5x7 font has no `*` — the
+  **fourth** time that omission has been found here, and the first the glyph
+  guard could not have caught, because the mark was a `format!` inside
+  `paint_roster` rather than a string the guard walks. Now `SPARED_MARK`, and
+  the guard walks it. The params guard that used to lean on `*` having *no*
+  glyph to catch markdown emphasis now asserts on `**` directly, which is what
+  it was always trying to say; `lab::time`'s `the_glyph_check_can_fail` moved
+  its control to `~`, which its own message told it to do.
+- **The cell page was overpainting the roster's header, and the first fix was
+  blind.** The cell page is drawn second and slides left when it will not fit
+  beside the table, so a wide one ate the right-hand end of `BACK` — for as
+  long as both pages have existed. Clamping the header against `inspect_box`
+  passed its own test and changed nothing on screen: `inspect_box` is **last
+  frame's** rectangle and the frame that clips is the frame the `WORDS` group
+  opens and the page suddenly widens. The bound has to be *the widest the page
+  can ever be*, derived from `plainspeak::PHRASE_COLUMNS` — whose own guard
+  already said why, in a message reading *"it will widen the cell page and
+  slide it over the roster"*.
+- **Pinning a row moved the cell page's cell and not the individual it
+  follows.** `follow_inspected` then dragged the page back to whatever had
+  last been clicked in the world, one frame later, for as long as the pin was
+  held: row highlighted, marker on the ant, `FOLLOW` walking the camera after
+  it, page reading a plant across the bed. `inspect_at` takes the organism
+  now. Nothing in 1,397 tests saw any of these three; all three came off one
+  cropped contact sheet.
+- **`labui`'s close-then-open navigation is a fixed point, not a sequence.**
+  Three blocks hand-rolled *close whatever is open, click the cover, click the
+  list*, and the third panicked — because the block before it left the roster
+  open where the earlier ones left it shut, and `Action::Panel` toggles: the
+  roster's way out is its cover's chip, so pressing the cover from the roster
+  lands on the cover and the next press closes it. `open_list` loops towards
+  the list instead and is correct from any starting state.
+
 ## Round eight, 2026-09-03 — the frame cost re-measured, and the target has moved
 
 *Owner: "performance has gotten a lot worse." It has, it reproduces, and it is

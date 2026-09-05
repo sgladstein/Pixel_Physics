@@ -49,6 +49,7 @@ use crate::render;
 use crate::sim::world::{self, World};
 
 use super::params;
+use super::plainspeak;
 use super::roster;
 use super::scene::LabBox;
 use super::{HEIGHT as H, WIDTH as W};
@@ -508,6 +509,13 @@ pub enum Action {
     RosterFollow,
     /// Let the pinned individual go.
     RosterRelease,
+    /// Spare the pinned individual, or stop sparing it. The set is what
+    /// `RosterCullRest` keeps.
+    RosterSpare,
+    /// Cull the pinned individual.
+    RosterCull,
+    /// Cull every individual in this table that is not spared.
+    RosterCullRest,
     /// Hold the pinned individual as the thing to compare against, or --
     /// when one is already held and the pin has moved -- open the
     /// comparison. One chip rather than two, because the state it is in
@@ -1922,6 +1930,18 @@ pub struct Ui {
     /// which reorders under a sort, and never a cell, which the individual
     /// walks off.
     held: Option<roster::Individual>,
+    /// **The individuals a cull-the-rest will keep.**
+    ///
+    /// A set rather than a second pin, because the question it answers is
+    /// *"keep these"* and there is no reason that is one. Identities, like
+    /// everything else that names an individual here -- a row index reorders
+    /// under a sort and a cell is somewhere the animal walks off.
+    ///
+    /// **Not pruned when its members die.** A spared individual that starves
+    /// is simply no longer in the table, and a set that quietly forgot it
+    /// would make `SPARE` look like it had failed. `CULL REST` resolves
+    /// against the world each time it runs, so a dead entry costs nothing.
+    spared: Vec<roster::Individual>,
     /// Last frame's layout. See the module doc: a click arrives between
     /// frames, so this is the bar the player was looking at.
     bar: Bar,
@@ -2496,6 +2516,69 @@ impl Ui {
         self.watch.span()
     }
 
+    /// Whether `who` is on the spare list.
+    pub fn is_spared(&self, who: roster::Individual) -> bool {
+        self.spared.contains(&who)
+    }
+
+    /// How many individuals are spared.
+    pub fn spared_count(&self) -> usize {
+        self.spared.len()
+    }
+
+    /// Who is spared. For a harness or a guard that has to check the *right*
+    /// ones lived: a population count cannot, because the box breeds while
+    /// the culled bodies rot and a birth looks exactly like a survival.
+    pub fn spared_list(&self) -> &[roster::Individual] {
+        &self.spared
+    }
+
+    /// Spare the pinned individual, or stop sparing it. Returns what to say.
+    pub fn toggle_spared(&mut self) -> String {
+        let Some(who) = self.pinned else {
+            return "PIN ONE FIRST".to_string();
+        };
+        match self.spared.iter().position(|s| *s == who) {
+            Some(i) => {
+                self.spared.remove(i);
+                format!("NO LONGER SPARED -- {} KEPT", self.spared.len())
+            }
+            None => {
+                self.spared.push(who);
+                format!("SPARED -- {} KEPT", self.spared.len())
+            }
+        }
+    }
+
+    /// Forget every spared individual.
+    pub fn clear_spared(&mut self) {
+        self.spared.clear();
+    }
+
+    /// **Who a cull-the-rest would take**, resolved against the world now.
+    ///
+    /// Returned rather than acted on, so `Lab` owns the killing and this owns
+    /// the selection -- the same split every other verb on this page uses.
+    /// Computed from the *kingdom*, not from the visible rows: culling only
+    /// what a filter happens to be showing would make the same button mean
+    /// different things depending on a chip pressed two clicks ago, and a
+    /// destructive verb is the last place for that.
+    ///
+    /// **Already-rotting rows are not targets**, and that is what makes the
+    /// count on the button honest. A cull is graded, so the culled stay in
+    /// the table saying ROTTING for thousands of frames; counting them left
+    /// the face reading `CULL REST 13` immediately after a press that had
+    /// taken all thirteen, so a button whose whole job is to say what it will
+    /// do was promising thirteen deaths and delivering none.
+    pub fn cull_rest_targets(&self, world: &World, kingdom: roster::Kingdom) -> Vec<roster::Individual> {
+        roster::rows(world, kingdom, roster::SortKey::Slot, false, roster::Filter::All)
+            .into_iter()
+            .filter(|r| !matches!(r.state, roster::RowState::Senescent))
+            .map(|r| r.who)
+            .filter(|w| !self.spared.contains(w))
+            .collect()
+    }
+
     /// The individual held for comparison, if any.
     pub fn held(&self) -> Option<roster::Individual> {
         self.held
@@ -2606,8 +2689,20 @@ impl Ui {
     /// make the page flicker on and off at sixty hertz the moment an animal
     /// stood still. Same distinction, and the same reason, as `arm_tool`
     /// against `set_tool`.
-    pub fn inspect_at(&mut self, cell: (i32, i32)) {
+    ///
+    /// **It takes the individual too, and that is not decoration.** The cell
+    /// page keeps a second field, `inspect_organism`, and `follow_inspected`
+    /// re-points the page at *that* organism's nearest cell once per frame.
+    /// Setting only the cell left the latch on whoever was clicked in the
+    /// world last, so `follow_inspected` dragged the page straight back one
+    /// frame later: pinning an ant from the roster put the marker and the
+    /// FOLLOW camera on the ant and left the page reading a plant across the
+    /// bed, for as long as the pin was held. Found by cropping a contact
+    /// sheet -- the row was highlighted, the pin resolved, and the page was
+    /// simply somebody else's.
+    pub fn inspect_at(&mut self, cell: (i32, i32), organism: u16) {
         self.inspect = Some(cell);
+        self.inspect_organism = Some(organism);
     }
 
     /// Sort the open roster on a column, or reverse it if it is already the
@@ -3908,6 +4003,33 @@ fn roster_page_width(kingdom: roster::Kingdom) -> i32 {
     (col[7] + hud::text_width(last.1) + PAGE_PAD * 2).min(W as i32 - MARGIN * 2)
 }
 
+/// **The widest the cell page can ever be drawn.**
+///
+/// Not a measurement of the page as it is -- a bound on every page it can
+/// become. The roster's header has to stay clear of it and is painted
+/// *first*, so anything read off the cell page's own rectangle is a frame
+/// stale, and the one frame that matters is the frame the WORDS group opens
+/// and the page suddenly widens.
+///
+/// The bound holds because `plainspeak` caps every phrase at
+/// [`plainspeak::PHRASE_COLUMNS`] and guards it, in a test whose message
+/// already says why: a wider one *"will widen the cell page and slide it
+/// over the roster"*. Built through `Row::width` and `page_rect`'s own
+/// arithmetic rather than written down, so it cannot drift from them.
+fn widest_cell_page() -> i32 {
+    let phrase = "W".repeat(plainspeak::PHRASE_COLUMNS);
+    Row::value(&phrase, "", VALUE, "").width().max(120) + PAGE_PAD * 2
+}
+
+/// **What a spared row's number carries in front of it.**
+///
+/// A const rather than an inline `format!("*{}", ..)` so the glyph guard can
+/// reach it: as a literal buried in `paint_roster` it was drawable only by
+/// luck, and it was not -- the 5x7 set had no `*` and the mark shipped as a
+/// blank gap. `every_string_the_bar_can_draw_is_drawable` could not have
+/// caught that, because nothing it walks contained the character.
+pub(crate) const SPARED_MARK: &str = "*";
+
 /// **Every fixed string the roster page draws, in one list.**
 ///
 /// Named rather than inlined so `every_string_the_bar_can_draw_is_drawable`
@@ -4831,9 +4953,33 @@ impl Ui {
         // pass: `widget_rect` could not aim a click at a page it could not
         // leave, which is exactly the player's problem in miniature.
         let cover = if kingdom == roster::Kingdom::Plants { Panel::Plants } else { Panel::Ants };
+        // **The header buttons stop short of where the cell page can reach.**
+        // The two pages are open together by design -- pinning a row is how
+        // the cell page gets pointed at an individual -- and the cell page is
+        // painted after this one, sized to its own widest row and slid left
+        // when it will not fit beside this one. A wide one reaches into this
+        // page's header and simply paints over whatever is there. It has been
+        // eating the right-hand end of BACK for as long as both pages have
+        // existed; adding a destructive verb to this row is what made it
+        // worth fixing, because a CULL REST hidden under another panel is a
+        // different order of problem from a clipped `K`. The *table* keeps
+        // its full width -- its last column is STATE and its values are
+        // short -- so only the buttons move.
+        //
+        // **The bound is the widest the cell page can ever be, not the width
+        // it happens to have.** `inspect_box` is last frame's rectangle, and
+        // one frame is exactly the error: opening the WORDS group is the
+        // event that widens the page, so the frame that clips is the frame
+        // last frame's rectangle knows nothing about. That is the version
+        // that shipped and was photographed.
+        let bar_right = if self.inspect.is_some() {
+            right.min(W as i32 - MARGIN - widest_cell_page() - 3)
+        } else {
+            right
+        };
         let bw = cell_width(hud::text_width("BACK"), "", PAD) + 4;
         widgets.push(Widget {
-            rect: Rect { x: right - bw, y: rect.y + 3, w: bw, h: 11 },
+            rect: Rect { x: bar_right - bw, y: rect.y + 3, w: bw, h: 11 },
             line1: "BACK".into(),
             line2: String::new(),
             action: Some(Action::Panel(cover)),
@@ -4849,7 +4995,7 @@ impl Ui {
         let filter_label = view.filter.label();
         let fw = cell_width(hud::text_width(&filter_label), "", PAD) + 4;
         widgets.push(Widget {
-            rect: Rect { x: right - bw - fw - 4, y: rect.y + 3, w: fw, h: 11 },
+            rect: Rect { x: bar_right - bw - fw - 4, y: rect.y + 3, w: fw, h: 11 },
             line1: filter_label,
             line2: String::new(),
             action: Some(Action::RosterFilter),
@@ -4858,6 +5004,38 @@ impl Ui {
             ratio: None,
             note: "WHAT THE LIST IS SHOWING. IN TROUBLE KEEPS ONLY THE ONES STARVING, ROTTING OR HUNGRY, WHICH IS THE QUESTION A LIST OF A HUNDRED IS OPENED TO ASK. LINE KEEPS ONE FOUNDING LINE, AND IT NEEDS A ROW PINNED FIRST BECAUSE OTHERWISE THERE IS NO LINE TO MEAN.".into(),
         });
+
+        // **CULL REST, on the table's own bar and not on the pinned row.**
+        // It is a verb about the *whole list*, and it has to work with
+        // nothing pinned -- the gesture is walk the list sparing the few you
+        // want, then press this once. A verb that needed a pin would make
+        // "keep these, kill the rest" require an arbitrary survivor to be
+        // selected as well.
+        //
+        // **The count is on the face of it.** `CULL REST 48` says what the
+        // press will do before it is pressed, which for the one destructive
+        // verb on this page is the difference between a button and a trap.
+        // It is also the only feedback available at the moment of pressing:
+        // a cull is graded, so nothing vanishes and an unlabelled button
+        // would read as having done nothing.
+        let doomed = self.cull_rest_targets(world, kingdom).len();
+        let kept = self.spared.len();
+        let cull_label = format!("CULL REST {doomed}");
+        let cw = cell_width(hud::text_width(&cull_label), "", PAD) + 4;
+        widgets.push(Widget {
+            rect: Rect { x: bar_right - bw - fw - cw - 8, y: rect.y + 3, w: cw, h: 11 },
+            line1: cull_label,
+            line2: String::new(),
+            action: Some(Action::RosterCullRest),
+            latched: kept > 0,
+            icon: None,
+            ratio: None,
+            note: format!(
+                "KILL EVERY {} IN THE BOX EXCEPT THE {kept} YOU HAVE SPARED. THE NUMBER ON THE BUTTON IS HOW MANY THAT IS RIGHT NOW. IT IGNORES THE FILTER ON PURPOSE -- CULLING ONLY WHAT A FILTER HAPPENS TO BE SHOWING WOULD MAKE ONE BUTTON MEAN DIFFERENT THINGS DEPENDING ON A CHIP PRESSED TWO CLICKS AGO. USE SPARE ON A PINNED ROW TO BUILD THE KEEP LIST.",
+                if kingdom == roster::Kingdom::Plants { "PLANT" } else { "ANIMAL" }
+            ),
+        });
+
         for x in rect.x + 1..rect.right() - 1 {
             render::put(frame, W, H, x, rect.y + PAGE_HEADER - 4, DIVIDER);
         }
@@ -4933,8 +5111,23 @@ impl Ui {
                 note: String::new(),
             });
 
-            let tint = if selected { TITLE } else { FAINT };
-            text(frame, left, y + 2, &format!("{}", n + 1), tint);
+            // **A spared row says so in its number.** The keep list is built
+            // by walking the table pressing SPARE, so the one thing it has to
+            // be possible to see at a glance is which rows are already in it
+            // -- otherwise building a list of six out of a hundred means
+            // remembering which six. `*` rather than a colour, because the
+            // number column is already tinted for selection and two meanings
+            // on one channel is how a readout stops being read.
+            let spared = self.is_spared(r.who);
+            let tint = if selected {
+                TITLE
+            } else if spared {
+                GOOD
+            } else {
+                FAINT
+            };
+            let label = if spared { format!("{SPARED_MARK}{}", n + 1) } else { format!("{}", n + 1) };
+            text(frame, left, y + 2, &label, tint);
             let species = param_label(&world.species.get(r.species).name);
             let state_tint = match r.state {
                 roster::RowState::Senescent | roster::RowState::Starving => POOR,
@@ -5020,6 +5213,10 @@ impl Ui {
                  "KEEP THE CAMERA ON THIS ONE WHILE IT MOVES. AN ANT IS TWO DARK CELLS AT PLAY ZOOM AND YOU FIND IT ONLY BECAUSE IT MOVES, SO A MARKER ALONE IS HALF AN ANSWER: THIS IS THE OTHER HALF."),
                 ("LINE", Action::RosterFilter, alive,
                  "SHOW ONLY THIS ONE'S FOUNDING LINE. TWO INDIVIDUALS WITH THE SAME LINE SHARE AN ANCESTOR IN THIS BOX; TWO WITH DIFFERENT ONES DO NOT, SO THIS IS HOW YOU WATCH ONE LINE TAKE THE BOX OVER."),
+                (if self.is_spared(who) { "SPARED" } else { "SPARE" }, Action::RosterSpare, true,
+                 "KEEP THIS ONE OUT OF A CULL-THE-REST. PRESS IT AGAIN TO STOP SPARING IT. THE SET SURVIVES CHANGING THE PIN, SO THE WAY TO CLEAR A BOX DOWN TO THE FEW YOU WANT IS TO WALK THE LIST SPARING THEM AND THEN PRESS CULL REST ONCE."),
+                ("CULL", Action::RosterCull, alive,
+                 "KILL THIS ONE. IT IS THE SAME GRADED DEATH THE BRUSH DEALS -- IT KEEPS ITS CELLS UNTIL THEY ROT AND ITS ROW SAYS ROTTING WHILE THEY DO, SO NOTHING VANISHES OFF THE SCREEN THE INSTANT YOU PRESS IT."),
                 (if self.held.is_some() { "VS" } else { "HOLD" }, Action::RosterCompare, true,
                  "HOLD THIS ONE, THEN PIN ANOTHER AND PRESS IT AGAIN TO PUT THE TWO SIDE BY SIDE. THE QUESTION A SELECTION EXPERIMENT IS ACTUALLY ASKING IS WHY ONE DID BETTER THAN ANOTHER, AND READING THAT OFF TWO CELL PAGES MEANS COMPARING THIRTY NUMBERS FROM MEMORY."),
                 ("RELEASE", Action::RosterRelease, true,
@@ -6455,6 +6652,64 @@ mod tests {
         assert_eq!(all.action, Some(Action::Panel(Panel::Chambers)));
     }
 
+    /// **The roster's header buttons are never under the cell page.**
+    ///
+    /// Both pages are open together by design and the cell page is painted
+    /// second, sized to its own widest row and slid left when it will not fit
+    /// beside this one -- so a wide one silently overpaints this page's
+    /// header. It had been eating the right-hand end of BACK since both pages
+    /// existed, found by cropping a contact sheet rather than by anything
+    /// here, and the row now also carries CULL REST.
+    ///
+    /// **Asserted against the bound, not against a rendered page.** The first
+    /// version of this guard read `inspect_box` -- last frame's rectangle --
+    /// and passed for the broken build, because the frame that clips is the
+    /// frame the WORDS group opens and the page has not been that wide
+    /// before. Blind, in the way `CLAUDE.md` means it.
+    #[test]
+    fn the_roster_header_stays_clear_of_the_cell_page() {
+        let world = world();
+        let edge = W as i32 - MARGIN - widest_cell_page();
+        // 177 is what the widest cell page actually measured in
+        // `labui-roster--plants-pinned.png`, WORDS open, read off the pixels;
+        // BACK ended at 339 there and the page began at 331.
+        assert!(widest_cell_page() >= 177, "the bound is under the widest page ever photographed");
+        for open in [false, true] {
+            for kingdom in [roster::Kingdom::Plants, roster::Kingdom::Creatures] {
+                let mut ui = Ui::new();
+                ui.panel = Some(if kingdom == roster::Kingdom::Plants {
+                    Panel::PlantList
+                } else {
+                    Panel::AntList
+                });
+                if open {
+                    ui.inspect = Some((10, 10));
+                }
+                let mut buf = vec![0u8; (W * H * 4) as usize];
+                let _ = ui.paint_roster(&mut buf, &world, kingdom);
+                let mut seen = 0;
+                for wid in &ui.roster_bar.widgets {
+                    let Some(action) = wid.action else { continue };
+                    if !matches!(action, Action::Panel(_) | Action::RosterFilter | Action::RosterCullRest) {
+                        continue;
+                    }
+                    seen += 1;
+                    if open {
+                        assert!(
+                            wid.rect.right() <= edge,
+                            "{kingdom:?}: {action:?} ends at {} and the cell page can reach {edge}",
+                            wid.rect.right()
+                        );
+                    }
+                    // ...and still on the page rather than shoved off its left
+                    // side, which is the way a clamp fails quietly.
+                    assert!(wid.rect.x > MARGIN, "{kingdom:?}: {action:?} was pushed off the page");
+                }
+                assert_eq!(seen, 3, "{kingdom:?}: the header should carry CULL REST, the filter and BACK");
+            }
+        }
+    }
+
     /// **The font cannot draw everything, and what it cannot draw it draws as
     /// nothing.** `[`/`]`, then `_`/`<`/`>`, then `;`/`'` have each shipped
     /// blank in this engine's UI for as long as they were bound — three
@@ -6511,6 +6766,13 @@ mod tests {
             for literal in RACK_LITERALS {
                 check(literal, "rack literal");
             }
+            for literal in ROSTER_LITERALS {
+                check(literal, "roster literal");
+            }
+            // The keep mark, which is drawn in front of a spared row's number
+            // and is the one string on this page that is neither a widget
+            // face nor an empty state. It shipped blank.
+            check(SPARED_MARK, "roster keep mark");
         }
 
         // **The parameters page's own rows, and this was a blind spot.**
@@ -6539,6 +6801,12 @@ mod tests {
                     check(&param_label(&p.tunable.name), "parameter name");
                     check(&p.tunable.category.to_uppercase(), "parameter category");
                     check(&p.note, "parameter explanation");
+                    // **Markdown emphasis, asserted directly.** This used to
+                    // ride on `*` having no glyph; the roster's keep mark
+                    // gave the font one, so the note that found the bed's
+                    // `**bold**` would now draw asterisks instead of gaps --
+                    // visible, but still not what the page means to say.
+                    assert!(!p.note.contains("**"), "markdown emphasis in a hover note: {:?}", p.note);
                     if let Some(shown) = &p.shown {
                         check(shown, "parameter value");
                     }

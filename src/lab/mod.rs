@@ -1739,7 +1739,7 @@ impl Lab {
             // click do the whole job: the page, the marker and the numbers
             // are the ones that already existed, aimed by identity instead of
             // by wherever the player happened to click on the ground.
-            self.ui.inspect_at(row.at);
+            self.ui.inspect_at(row.at, row.who.id);
             format!("PINNED {species} AT {},{}", row.at.0, row.at.1)
         } else {
             "LET GO".to_string()
@@ -1766,7 +1766,7 @@ impl Lab {
         };
         let at = roster::anchor_of(state);
         if let Some(at) = at {
-            self.ui.inspect_at(at);
+            self.ui.inspect_at(at, who.id);
             if self.ui.following() {
                 // `Renderer::follow`, not a hard centring: it is a dead-zone
                 // follow, and the reason is a frame cost rather than a feel.
@@ -2060,6 +2060,45 @@ impl Lab {
                 // something the player cannot predict.
                 self.ui.clear_held();
                 self.ui.say("LET GO".to_string());
+            }
+            ui::Action::RosterSpare => {
+                let said = self.ui.toggle_spared();
+                self.ui.say(said);
+            }
+            // **The same graded death the brush deals, not a deletion.** Both
+            // of these go through `mark_organism_senescent`, so a culled thing
+            // keeps its cells until they rot and its row keeps saying
+            // ROTTING while they do. That is the owner's own ruling that a
+            // cull is graded rather than a disappearance, and it is also what
+            // puts the individual in the graveyard with `CULLED` on it rather
+            // than making it vanish from every page at once.
+            ui::Action::RosterCull => {
+                let Some(who) = self.ui.pinned() else {
+                    self.ui.say("PIN ONE FIRST".to_string());
+                    return;
+                };
+                if self.world.mark_organism_senescent(who.id) {
+                    self.ui.say(format!("CULLED {}", who.id));
+                } else {
+                    self.ui.say("ALREADY GONE".to_string());
+                }
+            }
+            ui::Action::RosterCullRest => {
+                let Some(kingdom) = self.ui.roster_kingdom() else { return };
+                let targets = self.ui.cull_rest_targets(&self.world, kingdom);
+                let kept = self.ui.spared_count();
+                let mut took = 0;
+                for who in targets {
+                    if self.world.mark_organism_senescent(who.id) {
+                        took += 1;
+                    }
+                }
+                // **The count is the whole feedback.** Nothing on screen
+                // changes for a while -- a culled thing rots rather than
+                // vanishing -- so a verb that said nothing would read as a
+                // button that did nothing, which is exactly how the graded
+                // cull was misread the first time it shipped.
+                self.ui.say(format!("CULLED {took}, KEPT {kept}"));
             }
             ui::Action::RosterCompare => {
                 let (said, open) = self.ui.compare_or_hold();
@@ -4031,6 +4070,132 @@ mod tests {
             .map(|(x, y)| u32::from(lab.world.get(x, y).material == corpse))
             .sum();
         assert!(corpses > 0, "the culled ant vanished instead of leaving meat");
+    }
+
+    /// **Pinning a row from the list moves the cell page to *that* one.**
+    ///
+    /// The page keeps two things -- a cell and the individual it is following
+    /// -- and `follow_inspected` re-points the cell from the individual every
+    /// drawn frame. A pin that set only the cell was therefore undone one
+    /// frame later by the latch that was still on whatever had been clicked
+    /// in the world: the roster row highlighted, the marker sat on the ant,
+    /// and the page went on reading the plant. Nothing said so -- the pin
+    /// resolved, the verbs worked, and only a cropped contact sheet showed
+    /// the page was somebody else's.
+    ///
+    /// **The draw is the test.** Asserting straight after the click passes
+    /// for the broken build, because the drag happens in `follow_inspected`
+    /// and `follow_inspected` runs from `draw`.
+    #[test]
+    fn pinning_a_row_moves_the_cell_page_off_whatever_was_clicked_before() {
+        let mut lab = bench();
+        let x = lab.spec.width / 2;
+        let surface = lab.spec.ground_y;
+        lab.act(ui::Action::Tool(ui::Tool::Colony));
+        click_cell(&mut lab, x, surface);
+
+        lab.act(ui::Action::Panel(ui::Panel::Ants));
+        lab.act(ui::Action::Panel(ui::Panel::AntList));
+        let rows = roster::rows(
+            &lab.world,
+            roster::Kingdom::Creatures,
+            roster::SortKey::Slot,
+            false,
+            roster::Filter::All,
+        );
+        assert!(rows.len() >= 2, "test setup: {} animals, need two", rows.len());
+        let (wanted, other, other_at) = (rows[0].who, rows[1].who, rows[1].at);
+
+        // Open the cell page on the *other* one by clicking the ground it is
+        // standing on, which is what latches `inspect_organism` on somebody
+        // else. Two animals rather than a plant and an animal, only because
+        // `bench()`'s bed has no plants in it -- the defect is about the
+        // latch, not about kingdoms.
+        lab.act(ui::Action::Tool(ui::Tool::Look));
+        click_cell(&mut lab, other_at.0, other_at.1);
+        assert_eq!(lab.ui.inspected_organism(), Some(other.id), "test setup: the click did not latch the other one");
+
+        lab.act(ui::Action::RosterSelect(0));
+        assert_eq!(lab.ui.pinned(), Some(wanted), "test setup: row 0 pinned somebody else");
+
+        let mut buf = vec![0u8; (WIDTH * HEIGHT * 4) as usize];
+        lab.draw(&mut buf, 60.0);
+        assert_eq!(
+            lab.ui.inspected_organism(),
+            Some(wanted.id),
+            "the cell page went back to the one that was clicked before the pin"
+        );
+        let at = lab.ui.inspecting().expect("the cell page is open");
+        assert_eq!(
+            lab.world.get(at.0, at.1).organism_id(),
+            wanted.id,
+            "the page is pointed at a cell the pinned animal does not own"
+        );
+    }
+
+    /// **CULL REST keeps the marked ones and takes everything else.**
+    ///
+    /// Asserted on *individuals*, never on a population count. The box breeds
+    /// while the culled bodies rot, so "sixteen animals became ten" is
+    /// equally consistent with the cull having missed and ten having been
+    /// born -- `labui`'s own tile printed exactly that number and it said
+    /// nothing. `Individual` is `(organism_id, born_frame)`, so a slot reused
+    /// by a newborn cannot read as the spared one surviving either.
+    ///
+    /// Both halves are asserted because a verb that spares everything and a
+    /// verb that spares nothing each pass one of them: the spared must live
+    /// (sensitivity) *and* the rest must die (specificity).
+    #[test]
+    fn cull_rest_keeps_the_spared_and_takes_the_others() {
+        let mut lab = bench();
+        let x = lab.spec.width / 2;
+        let surface = lab.spec.ground_y;
+        lab.act(ui::Action::Tool(ui::Tool::Colony));
+        click_cell(&mut lab, x, surface);
+        lab.act(ui::Action::Panel(ui::Panel::Ants));
+        lab.act(ui::Action::Panel(ui::Panel::AntList));
+
+        let kingdom = roster::Kingdom::Creatures;
+        let (key, desc) = lab.ui.roster_sort_key(kingdom);
+        let rows = roster::rows(&lab.world, kingdom, key, desc, roster::Filter::All);
+        assert!(rows.len() >= 4, "test setup: only {} animals to cull from", rows.len());
+
+        // Spare the first two through the real gesture -- pin, then SPARE --
+        // rather than by writing the list, because the gesture is the half
+        // most likely to be wrong.
+        let spared: Vec<roster::Individual> = rows.iter().take(2).map(|r| r.who).collect();
+        for who in &spared {
+            lab.ui.pin(*who);
+            lab.act(ui::Action::RosterSpare);
+        }
+        assert_eq!(lab.ui.spared_list(), spared.as_slice(), "SPARE did not build the keep list");
+
+        let doomed: Vec<roster::Individual> =
+            rows.iter().map(|r| r.who).filter(|w| !spared.contains(w)).collect();
+        assert!(!doomed.is_empty(), "test setup: nothing left to cull");
+
+        lab.act(ui::Action::RosterCullRest);
+        for who in &spared {
+            assert!(
+                lab.world.organism_state(who.id).is_some_and(|st| !st.senescent),
+                "a spared animal was culled: {who:?}"
+            );
+        }
+        for who in &doomed {
+            let st = lab.world.organism_state(who.id);
+            assert!(
+                st.is_none() || st.is_some_and(|st| st.senescent || st.energy == 0.0),
+                "CULL REST left {who:?} untouched"
+            );
+        }
+        // **And the button now says nothing is left to take.** The count on
+        // its face is the only feedback at the moment of pressing -- a graded
+        // cull makes nothing vanish -- so a face still reading the old number
+        // is a button promising a cull it will not perform.
+        assert!(
+            lab.ui.cull_rest_targets(&lab.world, kingdom).is_empty(),
+            "CULL REST still offers to kill the ones it has already taken"
+        );
     }
 
     /// **The two `aux` conventions point opposite ways, and getting either
