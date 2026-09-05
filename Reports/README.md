@@ -831,6 +831,26 @@ drift that two of these documents still reflect.**
 
 ## Creatures and ecology  ·  `engine`
 
+- [creature-programme-plan-2026-09-05.md](creature-programme-plan-2026-09-05.md)
+  — **plan, 2026-09-05; nothing built by it, and under review at the time of
+  writing.** Where the creature line goes after a day whose three findings all
+  landed somewhere other than where they were predicted. **Its through-line is
+  a correction to two framings, mine and the owner's**: the bottleneck was
+  called *population size* and then *the environment*, and of the three things
+  measured only one was an environment problem — pricing the free verbs, which
+  worked immediately. The other two were the **animal**: the trail pathway is
+  95% saturated off outside a narrow carry band, and the ant is blind and
+  cannot tell a tunnel from a pit. Hence the standing rule it proposes,
+  **audit the animal before building the environment** — *can it perceive the
+  thing, can it express the response* — which was skipped twice in one day and
+  cost a wrong claim each time. Splits the work into **the world selects**
+  (needs all three of expressible, paid for, and enough population) against
+  **the player selects** (needs only that variation exists and a person can
+  see it), and puts the behaviour prospector first on the grounds that it is
+  diagnostic rather than merely useful. Also names three decisions as the
+  owner's rather than measurable, which is the part a reviewer should attack
+  hardest
+
 - [selective-environments-2026-09-05.md](selective-environments-2026-09-05.md)
   — **method and one worked demonstration, 2026-09-05.** The owner's
   correction — *"not just population size and run length but actually setting
