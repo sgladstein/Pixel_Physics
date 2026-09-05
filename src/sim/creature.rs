@@ -1466,6 +1466,16 @@ pub fn reproduce_at_of(def: &CreatureDef, traits: &[f32; CREATURE_TRAITS]) -> Op
 /// — so the axis is scaled to the biggest eye in the game rather than to a
 /// number chosen for its own sake, and `+1` on a blind lineage is exactly a
 /// beetle's eye.
+/// **The most of a meal a digestive overhead may consume.**
+///
+/// 0.9 rather than 1.0. At 1.0 an animal eats and absorbs nothing, which is
+/// not a strategy but a misconfiguration, and the arithmetic above 1.0 would
+/// hand it a *negative* meal -- food it owed energy for. A cap on a share is
+/// the safe kind: exhausting it still produces a real answer (a very poor
+/// meal), which is `CLAUDE.md`'s test for a size cap that bounds work rather
+/// than gating whether something happens.
+pub const MAX_DIGEST_OVERHEAD: f32 = 0.9;
+
 const SIGHT_SPAN: f32 = 64.0;
 
 /// **The ceiling on an evolved eye**, in cells. Twice `SIGHT_SPAN`, so a
@@ -2338,7 +2348,21 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
             // between the two is the digestive loss `max_standing_meat`
             // already carries as one-directional slack.
             let quality = diet_quality(world, c.material, gut.bias);
-            let gain = c.unit * quality;
+            // **The digestive overhead, priced per unit of throughput.**
+            // A faster gut turns crop into body sooner *and* lightens the
+            // animal, since `carried_cells` charges movement for whatever is
+            // still in the crop -- so `digest_rate` was strictly-better on
+            // two axes with nothing pushing back. Owner's ruling,
+            // 2026-09-05: *everything should be priced*.
+            //
+            // Multiplied into the same product `quality` is, deliberately.
+            // There is already exactly one loss on this path and it is
+            // booked by crediting the post-loss figure rather than by
+            // opening a second sink; the live identity between
+            // `sum(state.energy)` and `expected_live_total` is why. Booking
+            // the gross and subtracting afterwards would break it.
+            let overhead = (def.digest_fraction * def.digest_rate).clamp(0.0, MAX_DIGEST_OVERHEAD);
+            let gain = c.unit * quality * (1.0 - overhead);
             let left = c.cells - 1;
             if let Some(state) = world.organism_mut(organism) {
                 // **An empty crop is `None`, remainder and all.** Keeping a
@@ -2359,6 +2383,12 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
                 world.energy_ledger.harvested_plant += gain as f64;
             }
             world.creature_stats.digested_face += c.unit as f64;
+            // **What the overhead ate, counted rather than inferred.** A loss
+            // that only shows up as a smaller credit is indistinguishable
+            // from food that was never eaten, and those want different
+            // fixes. `CLAUDE.md`: pair every "it fired" counter with an
+            // effect counter from the far side of the call.
+            world.creature_stats.digest_overhead_energy += (c.unit * quality * overhead) as f64;
             // **One mouthful, one event.** Whole-cell consumption gives `eats`
             // its old meaning back -- a bite -- where the continuous version
             // had no events to count at all.
@@ -6508,6 +6538,82 @@ mod tests {
         );
     }
 
+    /// **A faster gut keeps less of every meal, and the loss is counted
+    /// rather than merely absent.**
+    ///
+    /// Owner's ruling, 2026-09-05: *everything should be priced*. A higher
+    /// `digest_rate` turned crop into body sooner *and* lightened the animal,
+    /// since `carried_cells` charges movement for what is still in the crop —
+    /// strictly better on two axes with nothing pushing back.
+    ///
+    /// **The counter is half the guard.** A loss that shows up only as a
+    /// smaller credit is indistinguishable from food that was never eaten,
+    /// and those want opposite fixes, so `digest_overhead_energy` is asserted
+    /// beside the energy actually gained.
+    #[test]
+    fn a_faster_gut_keeps_less_of_every_meal() {
+        let scene = |fraction: f32, rate: f32| -> (f64, f64, u64) {
+            let mut w = test_world();
+            if let Some(id) = w.species.id_of("ant") {
+                if let Some(mut def) = w.species.get(id).creature.clone() {
+                    def.digest_fraction = fraction;
+                    def.digest_rate = rate;
+                    def.reproduce_threshold = 0.0;
+                    w.species.set_creature(id, def);
+                }
+            }
+            w.plant_ant(100, 95);
+            let ant = w.get(100, 95).organism_id();
+            assert_ne!(ant, 0, "the ant was not placed; this scene does not contain the situation the test is about");
+            // **A wall of food, laid AFTER the ant and only into empty
+            // cells.** Laid first it covered (100, 95) and `plant_ant` had
+            // nowhere to stand, so the scene did not contain the situation
+            // the test is about -- `CLAUDE.md`'s *a scene that contradicts
+            // the code looks like a bug in the code*, caught by the guard's
+            // own placement assertion.
+            let leaf = w.materials.id_of("leaf").unwrap_or(material::STONE);
+            for x in 96..106 {
+                for y in 92..97 {
+                    if w.get(x, y).material == material::EMPTY {
+                        w.set(x, y, Cell::new(leaf, 0));
+                    }
+                }
+            }
+            run(&mut w, 1_500);
+            let gained = w.energy_ledger.harvested_plant + w.energy_ledger.harvested_corpse;
+            (gained, w.creature_stats.digest_overhead_energy, w.creature_stats.eats)
+        };
+
+        let (free_gain, free_lost, free_eats) = scene(0.0, 3.3);
+        assert!(free_eats > 0, "nothing was eaten in either arm, so this measures a fasting ant rather than a gut");
+        // **The zero arm is a positive control.** `digest_fraction` defaults
+        // to 0.0, so an overhead that was never wired reports 0.0 lost and
+        // would pass a test asserting only the default.
+        assert_eq!(free_lost, 0.0, "the 0.0 default must waste exactly nothing: a species that has not opted in has to be bit-identical");
+
+        let (paid_gain, paid_lost, paid_eats) = scene(0.01515, 3.3);
+        assert!(paid_lost > 0.0, "the overhead was authored and wasted nothing -- a writer with no effect");
+        assert!(paid_gain < free_gain, "an overhead must leave the animal with less: {free_gain} -> {paid_gain}");
+
+        // The loss and the shortfall are the same joules seen from two sides,
+        // which is what says the credit was reduced rather than a meal
+        // skipped -- the two readings this counter exists to separate.
+        let per_meal = |g: f64, e: u64| if e == 0 { 0.0 } else { g / e as f64 };
+        assert!(
+            (per_meal(free_gain, free_eats) - per_meal(paid_gain + paid_lost, paid_eats)).abs()
+                < per_meal(free_gain, free_eats) * 0.01,
+            "gain plus overhead per meal must match the unpriced arm's gain per meal, or the loss is not where it is booked: \
+             {free_gain}/{free_eats} against ({paid_gain}+{paid_lost})/{paid_eats}"
+        );
+
+        // Faster wastes more, which is the gradient the price exists for.
+        let (_, quick_lost, quick_eats) = scene(0.01515, 6.6);
+        assert!(
+            quick_eats > 0 && per_meal(quick_lost, quick_eats) > per_meal(paid_lost, paid_eats) * 1.5,
+            "twice the rate must waste about twice the share of each meal"
+        );
+    }
+
     /// **A jaw is billed for being carried, on the larger of the two forces
     /// and not on their sum.**
     ///
@@ -7915,7 +8021,7 @@ mod tests {
     /// hand.
     #[test]
     fn the_eat_verb_pays_the_filter_not_the_face_value() {
-        let gain_per_bite = |bias: f32| -> f64 {
+        let gain_per_bite = |bias: f32, overhead: f32| -> f64 {
             let mut w = test_world();
             let soil = w.materials.id_of("soil").expect("soil");
             for x in 70..150 {
@@ -7956,6 +8062,16 @@ mod tests {
                 // gives 1.0. The gut filter is what this test is named for, so
                 // the other path is switched off rather than corrected for.
                 def.reproduce_threshold = 0.0;
+                // **The digestive overhead is the second such path, and it is
+                // set by the caller for the same stated reason.** It is a
+                // separate loss on the same product -- a matched gut still
+                // pays to process a meal -- so leaving it on would make this
+                // read `quality * (1 - overhead)` and call the difference a
+                // filter change. Two of the three arms below zero it to
+                // isolate the filter; the third leaves it at the authored
+                // value and asserts the product, so this test gained a claim
+                // when the overhead landed rather than losing one.
+                def.digest_fraction = overhead;
                 w.species.set_creature(id, def);
             }
             run(&mut w, 2_000);
@@ -7989,10 +8105,23 @@ mod tests {
         // is still read above as the setup assertion that the scene contains
         // food at all.
         assert!(face > 0.0, "the leaf must be worth something or neither arm can digest");
-        let herbivore = gain_per_bite(-1.0);
-        let generalist = gain_per_bite(0.0);
+        let herbivore = gain_per_bite(-1.0, 0.0);
+        let generalist = gain_per_bite(0.0, 0.0);
         assert!((herbivore - 1.0).abs() < 0.01, "a matched gut should absorb all of what it digests, got {herbivore:.3}");
         assert!((generalist - 0.25).abs() < 0.01, "a neutral gut should absorb a quarter of it, got {generalist:.3}");
+
+        // **And the two losses compose, which is the claim the overhead
+        // added.** At the ant's authored digest_fraction of 0.01515 and
+        // digest_rate of 3.3 the overhead is 0.05, so a perfectly matched gut
+        // keeps 0.95 rather than 1.0 -- a perfect DIETARY match does not make
+        // processing free. Asserting the product here is what stops the
+        // overhead from being silently absorbed into the filter's number by
+        // whoever next re-derives one of them.
+        let taxed = gain_per_bite(-1.0, 0.01515);
+        assert!(
+            (taxed - 0.95).abs() < 0.01,
+            "a matched gut paying the authored overhead should keep 0.95 of what it digests, got {taxed:.3}"
+        );
     }
 
     /// **Every shipped food is biteable by a shipped mouth, and this is

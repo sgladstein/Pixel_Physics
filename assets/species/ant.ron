@@ -327,6 +327,28 @@
         // Both brackets move if `start_energy`, the per-cell costs or the
         // food table move, and re-deriving them is part of that change rather
         // than after it.
+        // **The digestive overhead: what processing a meal costs, as a share
+        // of the meal, per unit of digest_rate.** Owner's ruling, 2026-09-05:
+        // *everything should be priced*. A faster gut was strictly better on
+        // two axes at once -- energy sooner, and a lighter animal, because
+        // `carried_cells` charges movement for whatever is still in the crop
+        // -- with nothing anywhere pushing back.
+        //
+        // **An overhead on the meal rather than a tax per tick**, unlike the
+        // three prices above it. Those buy standing capabilities and are
+        // charged for standing. A fast gut buys THROUGHPUT, so the honest
+        // price is per unit processed -- which is also the real biology,
+        // specific dynamic action rising with how fast a meal is pushed
+        // through.
+        //
+        //   0.05 of the meal lost at this species' digest_rate of 3.3
+        //   0.05 / 3.3 = 0.01515
+        //
+        // So the shipped gut keeps 95% of what it absorbs, a gut twice as
+        // fast keeps 90%, and one half as fast keeps 97.5% but carries its
+        // load twice as long and waits twice as long to be paid. Two-sided,
+        // which a per-tick tax could not have made it.
+        digest_fraction: 0.01515,
         digest_rate: 3.3,
 
         // **Detritus only, for now.** Owner open question #2: herbivory on

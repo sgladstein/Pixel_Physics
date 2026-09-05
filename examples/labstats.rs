@@ -219,6 +219,28 @@ fn main() {
             l.moved,
             l.synapse_tax
         );
+        // **The four prices the "everything should be priced" ruling added,
+        // itemised.** They all land inside `metabolized`, so without this
+        // line the only way to see what any of them costs is to turn it off
+        // and diff -- and the whole point of pricing a lever is being able
+        // to read what it is worth. The digestive overhead is the odd one
+        // out and is printed against INTAKE rather than burn, because it is
+        // food that never arrived rather than energy that was spent.
+        let intake = l.harvested_plant + l.harvested_corpse;
+        println!(
+            "--- the priced levers --- curvature {:.1} ({:.2}% of burn) force {:.1} ({:.2}%) exposure {:.1} ({:.2}%) \
+             | digest overhead {:.1} of {:.1} intake ({:.2}%) | ground felt {} cells",
+            st.curvature_energy,
+            share(st.curvature_energy),
+            st.force_energy,
+            share(st.force_energy),
+            st.exposure_energy,
+            share(st.exposure_energy),
+            st.digest_overhead_energy,
+            intake,
+            if intake > 0.0 { 100.0 * st.digest_overhead_energy / (intake + st.digest_overhead_energy) } else { 0.0 },
+            st.curvature_cells_read,
+        );
         // **How much of an animal's life is spent in the open** -- the number
         // that decides whether an exposure price can select for anything at
         // all. A colony outdoors on essentially every tick has no sheltering

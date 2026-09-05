@@ -220,6 +220,43 @@ change of its own with those re-derived, which is `CLAUDE.md`'s
 *name the constants calibrated against the current behaviour* rule and not a
 reason to refuse it.
 
+## What the prices actually cost, measured
+
+Three seeds, the sealed bed, 9,000 frames, all four prices at their authored
+values. **One of these numbers contradicts the derivation that set it, and the
+derivation was the thing that was loosely stated.**
+
+| lever | share of burn | derived as |
+|---|---|---|
+| `curvature_fraction` | **0.13%** | 0.39% of an *idle* lifetime |
+| `force_fraction` | **1.6%** | 0.05 of an *idle* lifetime |
+| `exposure_cost_per_cell` | 0.00% | ships at 0 |
+| `digest_fraction` | **4.5–4.6% of intake** | 0.05 of the meal |
+
+**`S = 0.05 of an idle lifetime` is not 5% of what an animal spends, and the
+two got conflated.** An idle lifetime prices standing still; a working ant
+also *moves*, and `moved` (8,346 J) is larger than everything metabolic put
+together (6,913 J). So a lever sized against idle alone lands at roughly a
+third of that share of the real bill. The derivations are arithmetically right
+and each says "of an idle lifetime" in its own comment — but read quickly they
+invite "5% of the budget", which is wrong by 3x.
+
+The remedy is not to re-tune: the sizes are defensible and the ratios between
+them are what was being chosen. It is to **quote both**, which is what
+`labstats`' *priced levers* line now does, and to size any future price
+against **burn** if that is the share meant.
+
+The digestive overhead is the exception and lands where it was aimed, because
+it was derived against the meal rather than against a lifetime — a share of
+throughput priced per unit of throughput.
+
+**What this does not show.** These runs sit on a `main` that also landed
+roots-on-by-default (+30% plant income), so the colony numbers here — 19–21
+animals and 2 births at 9,000 frames against 13–17 and 0–1 earlier in the day
+— are **not** attributable to the prices and are not claimed to be. Comparing
+those would need the paired arms, which is the standing rule about a baseline
+measured on a different tree.
+
 ## The queue
 
 Under the ruling this is a work list with a known end — every row priced, every

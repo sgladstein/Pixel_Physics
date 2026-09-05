@@ -659,6 +659,7 @@ fn creature_value(world: &World, species: &str, field: &str) -> Option<f32> {
         "dig_cost_in_moves" => def.dig_cost_in_moves,
         "emit_cost_in_moves" => def.emit_cost_in_moves,
         "spoil_weight_cells" => def.spoil_weight_cells,
+        "digest_fraction" => def.digest_fraction,
         "synapse_fraction" => def.synapse_fraction,
         "sight_fraction" => def.sight_fraction,
         "force_fraction" => def.force_fraction,
@@ -772,6 +773,8 @@ fn cost_rows(world: &World, out: &mut Vec<Param>) {
         "WHAT IT COSTS AN ANT TO FEEL THE SHAPE OF THE GROUND UNDER IT, PER CELL OF GROUND IT FEELS, PER TURN. THE SENSE READS A SQUARE PATCH AROUND THE ANT, SO WIDENING IT COSTS FOUR TIMES AS MUCH FOR TWICE THE REACH -- WHICH IS WHY NO CAP IS NEEDED TO KEEP IT HONEST. IT IS SET TO THE SAME PRICE PER CELL AS EYESIGHT, BECAUSE LOOKING AT A CELL COSTS WHAT IT COSTS WHICHEVER SENSE DOES THE LOOKING; THE ANT'S PATCH IS SMALL, SO IT COMES TO A FORTIETH OF WHAT A FULL SWEEP OF EYESIGHT WOULD.");
     cr("exposure_cost_per_cell", span(0.0, 1.0, 0.01), false,
         "WHAT IT COSTS TO STAND IN THE OPEN, PER CELL OF BODY, PER TURN -- ON TOP OF THE IDLE COST ABOVE. AN ANT IS SHELTERED WHEN THERE IS GROUND OVER ITS HEAD, WHICH IS THE SAME TEST THE ANTS THEMSELVES USE FOR THE INSIDE OF A BURROW. IT SHIPS AT ZERO, AND AT ZERO A ROOFED CELL IS WORTH EXACTLY AS MUCH AS AN OPEN ONE -- WHICH IS WHY DIGGING A NEST HAS NEVER PAID. TURN IT UP AND BEING CAUGHT OUTSIDE COSTS SOMETHING. BE WARNED THAT ON ITS OWN IT IS MOSTLY A FLAT TAX ON BEING ALIVE: MEASURED, ANTS ARE IN THE OPEN TWO TICKS IN THREE AND A PRICE WORTH A FIFTH OF EVERYTHING THEY BURN STILL DID NOT MAKE DIGGING WORTH IT.");
+    cr("digest_fraction", span(0.0, 0.1, 0.001), false,
+        "WHAT PROCESSING FOOD COSTS, AS A SHARE OF THE MEAL, FOR EACH UNIT OF DIGEST RATE. IT IS THE ONE PRICE HERE CHARGED ON A MEAL RATHER THAN PER TURN, BECAUSE WHAT A FAST GUT BUYS IS THROUGHPUT RATHER THAN A CAPABILITY. WITHOUT IT A FAST GUT IS FREE TWICE OVER -- FOOD TURNS INTO ANT SOONER, AND THE ANT IS LIGHTER FOR THE WALK HOME, SINCE CARRYING A FULL CROP COSTS MOVEMENT. WITH IT, A QUICK GUT WASTES MORE OF EVERY MEAL AND A SLOW ONE KEEPS MORE BUT WAITS, AND CARRIES.");
     cr("synapse_fraction", span(0.0, 0.00002, 0.0000002), false,
         "WHAT ONE LIVE CONNECTION IN AN ANT'S BRAIN COSTS PER TURN, AS A SHARE OF ITS WHOLE BUDGET. THINKING IS EXPENSIVE TISSUE IN REAL ANIMALS AND IT IS HERE TOO: A CONNECTION THAT DOES NOT EARN ITS KEEP GETS PRUNED BY SELECTION, WHICH IS BOTH WHY EVOLVED BRAINS STAY SMALL ENOUGH TO READ AND A REAL TRADE AN ANT CAN GET WRONG. AT ZERO, BRAINS GROW DENSE AND MEAN NOTHING.");
     cr("sight_fraction", span(0.0, 0.0000005, 0.000000005), false,
@@ -972,6 +975,7 @@ pub fn write(world: &mut World, spec: &mut LabBox, knob: &Knob, value: f32) -> b
                 "dig_cost_in_moves" => def.dig_cost_in_moves = value,
                 "emit_cost_in_moves" => def.emit_cost_in_moves = value,
                 "spoil_weight_cells" => def.spoil_weight_cells = value,
+                "digest_fraction" => def.digest_fraction = value,
                 "synapse_fraction" => def.synapse_fraction = value,
                 "sight_fraction" => def.sight_fraction = value,
                 "force_fraction" => def.force_fraction = value,
@@ -1918,6 +1922,7 @@ mod tests {
             "sight_fraction",
             "curvature_fraction",
             "force_fraction",
+            "digest_fraction",
         ];
         let (world, spec) = bed();
         let costs: Vec<String> = registry(&world, &spec, None)

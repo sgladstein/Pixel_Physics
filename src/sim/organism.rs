@@ -3165,6 +3165,49 @@ pub struct CreatureDef {
     /// bit-identical to the tree before this existed.
     #[serde(default)]
     pub force_fraction: f32,
+    /// **What processing food costs, as a share of the meal, per unit of
+    /// `digest_rate`** — the digestive overhead, and the last of the four
+    /// prices the locked-field audit named.
+    ///
+    /// **A fast gut was strictly better, and for two reasons rather than
+    /// one.** A higher `digest_rate` turns crop into body sooner *and*
+    /// lightens the animal, because `creature::carried_cells` charges
+    /// movement for whatever is still in the crop. Nothing anywhere pushed
+    /// back. Owner's ruling, 2026-09-05: *everything should be priced*.
+    ///
+    /// **An overhead on the meal, not a tax per tick, and that is the whole
+    /// design.** The two sensory prices and `force_fraction` are standing
+    /// costs because what they buy is a standing capability. Digestion is
+    /// not: what a fast gut buys is *throughput*, so the honest price is
+    /// paid per unit processed. It is also the real biology — specific
+    /// dynamic action, the metabolic cost of digesting a meal, which rises
+    /// with how fast the meal is pushed through.
+    ///
+    /// So the trade is two-sided in a way a per-tick tax could not make it:
+    ///
+    /// | | fast gut | slow gut |
+    /// |---|---|---|
+    /// | energy arrives | sooner | later |
+    /// | load carried | lighter | heavier, and `carried_cells` charges it |
+    /// | share of the meal kept | **less** | **more** |
+    ///
+    /// **The loss is multiplicative on the same value `diet_quality`
+    /// already scales**, which is what keeps the energy ledger honest: there
+    /// is already exactly one such loss on this path, booked by crediting
+    /// the post-loss figure rather than by opening a second sink, and this
+    /// is the second term in the same product. Crediting the gross and
+    /// subtracting afterwards would break the live identity between
+    /// `sum(state.energy)` and `expected_live_total`.
+    ///
+    /// Clamped at `creature::MAX_DIGEST_OVERHEAD`: an overhead of 1.0 is an
+    /// animal that eats and absorbs nothing, which is not a strategy but a
+    /// misconfiguration, and above 1.0 the arithmetic would pay the animal
+    /// to eat food it then owed energy for.
+    ///
+    /// Defaults to 0, so a species that has authored nothing is
+    /// bit-identical to the tree before this existed.
+    #[serde(default)]
+    pub digest_fraction: f32,
     /// **What one cell of this animal's body is worth as meat**, granted at
     /// spawn alongside `start_energy` and stamped into its corpse cells when
     /// it dies.
@@ -3475,7 +3518,7 @@ impl CreatureDef {
     /// | a rate charged per body cell per decision | `1/(cells x k)` | `idle_cost_per_cell`, `move_cost_per_cell` |
     /// | a rate per decision, per animal | `1/k` | `digest_rate`, `force_fraction` |
     /// | a rate per cell *read* per decision | `1/(k x k)` | `sight_fraction`, `curvature_fraction` |
-    /// | dimensionless, or an energy in joules | `1` | everything else |
+    /// | dimensionless, or an energy in joules | `1` | `digest_fraction`, everything else |
     ///
     /// **`tick_interval` is the row that is easy to miss.** A creature
     /// steps one cell per decision (`creature::step_chain`), so at `k=2` a
@@ -3539,6 +3582,7 @@ impl CreatureDef {
             sight_fraction,
             curvature_fraction,
             force_fraction,
+            digest_fraction,
             shade_rule,
             body_energy,
             crop_capacity,
@@ -3634,6 +3678,12 @@ impl CreatureDef {
             // `penetration_resistance` and does not scale with the grid. So
             // only the decision rate has to be corrected.
             force_fraction: force_fraction / time_factor.max(f32::EPSILON),
+            // **Dimensionless, and one of the few things here that really is.**
+            // It is a share of a meal per unit of `digest_rate`, and
+            // `digest_rate` is itself corrected by `time_factor` two lines
+            // below -- so the product is already right and correcting this
+            // as well would apply the same factor twice.
+            digest_fraction: *digest_fraction,
             shade_rule: *shade_rule,
             body_energy: *body_energy,
             crop_capacity: *crop_capacity,
