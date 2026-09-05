@@ -103,6 +103,28 @@ fn main() {
                 }
             }
         }
+        // **The sight allele, on the one shipped species that has an eye.**
+        // The ant is authored blind, so a bed of ants cannot demonstrate that
+        // `TRAIT_SIGHT_RANGE` reaches a running world at all -- the beetle
+        // can, and it is the honest positive control for the gene rather
+        // than a claim from the arithmetic.
+        if let Some(v) = arg::<f32>("beetlesight") {
+            if let Some(bid) = lab.world.species.id_of("beetle") {
+                if let Some(def) = lab.world.species.get(bid).creature.as_ref() {
+                    let mut def = def.clone();
+                    def.traits[pixel_physics::sim::organism::TRAIT_SIGHT_RANGE] = v;
+                    println!(
+                        "labstats: beetle sight allele {v} -> reach {} (authored {}). NOTE: this sets what the next \
+                         beetle INHERITS; the ones already standing keep the traits they were founded with, so a short \
+                         run shows no change. The gene's positive control is the unit test \
+                         `a_sharper_eye_reads_more_of_the_world`.",
+                        pixel_physics::sim::creature::sight_range_of(&def, &def.traits),
+                        def.sight_range
+                    );
+                    lab.world.species.set_creature(bid, def);
+                }
+            }
+        }
         let id = lab.world.species.id_of("ant").expect("ant species");
         let mut def = lab.world.species.get(id).creature.as_ref().expect("creature").clone();
         if let Some(v) = dig_cost {
@@ -186,6 +208,10 @@ fn main() {
             100.0 * st.exposed_ticks as f64 / ticks as f64,
             st.exposure_energy,
             share(st.exposure_energy)
+        );
+        println!(
+            "--- eyes --- sight casts {} | cells read {} | sightings {}",
+            st.sight_casts, st.sight_cells_read, st.sightings
         );
     }
 
