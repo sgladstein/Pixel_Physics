@@ -1,0 +1,56 @@
+{
+  "id": "20260905T175025607Z-c413d5",
+  "created": "2026-09-05T17:50:25Z",
+  "board": "plants",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/evolution-lab-plant-dynamics-16i1fu",
+    "commit": "62ff7901",
+    "agent": null,
+    "session_id": "5625e4a4-fdd2-5a2e-a1d9-03dc7df98bdf",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "One grass seed, before and after grass could earn",
+  "question": "Is this the spreading, filling sward you were after — and does the bare dip at the left of the last panel look like something going wrong?",
+  "context_md": "**The same command in both panels**: plant ONE grass seed in the middle of an empty bed, no ants, and leave it. Each panel is three stops stacked top to bottom — **frame 6,000 / 20,000 / 60,000**.\n\nOnly one thing differs. The engine worked out a plant's income by counting its **leaf** cells, and grass has no leaves — the blade *is* the plant. So grass's income was zero however much light it was actually catching, which left it with no growth budget and no seed budget at all. It now counts whatever tissue the species itself says does the earning, and is charged for standing there in the same way.\n\nThings to ignore, or that I already know about:\n\n- The **empty left panel is not a rendering failure** — that is the real bed. One tuft grew, set nothing, and died.\n- The **coloured specks** in the after panel are real and were not authored: grass ships with no flower or fruit at all, so those arrived by mutation during the run. First time I have seen a species grow an organ it was never given.\n- The **bare dip at the left of the last panel** is what I am least sure about, hence the question. Roots hold the bank together, and 2,059 living plants were cut loose by the support check over that run.\n\nOne run each, and outcomes here spread widely, so read the shape rather than the exact counts.",
+  "kind": "before_after",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "before",
+      "files": [
+        "20260905T175025607Z-c413d5/000-grass_before.png"
+      ],
+      "caption": "as shipped — one tuft, then nothing",
+      "meta": {
+        "seeds the plant ever set": 0,
+        "plants alive at the end": 0,
+        "how much of the floor it held": "0 of 512 columns",
+        "flowers and fruit standing": 0
+      },
+      "focus": null
+    },
+    {
+      "label": "after",
+      "files": [
+        "20260905T175025607Z-c413d5/001-grass_after.png"
+      ],
+      "caption": "grass earns, is billed, and seeds",
+      "meta": {
+        "seeds the plant ever set": 7965,
+        "plants alive at the end": 391,
+        "how much of the floor it held": "486 of 512 columns",
+        "flowers and fruit standing": 356
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
