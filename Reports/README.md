@@ -2350,8 +2350,9 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   whole plant. §2b-ii proposes the small change that follows (key the gate on
   local soil scarcity, not on the tank) with the exit census as its guard and
   a specific prediction: `gated` down, `FIRED` up, `poor` **still zero**.
-  **§2b-iii is that change built, default-off behind
-  `PIXEL_PHYSICS_ROOT_GATE=local`, and measured over 12 paired seeds: root
+  **§2b-iii is that change built, now ON by default
+  (`PIXEL_PHYSICS_ROOT_GATE=whole` ablates it), and measured over 12 paired
+  seeds: root
   cells 3.93x in 12/12 seeds with income FLAT (1.00x)** — the opposite shape
   to the uptake lever, which bought the same root response at a cost of 89%
   of income. It buys roots with reach rather than starvation: the root zone
@@ -2360,8 +2361,12 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   20-25%**. `poor` stays zero so the constraint did not move to carbon, the
   gate still refuses 86-98% so it is not always-open, and `ascii`,
   `acceptance.sh` and the full lib suite are green with it on. The one
-  measured cost is shallow beds losing canopy, which is why it is not yet
-  the default.
+  measured cost is shallow beds losing canopy: the depth sweep puts it at
+  **0.12x income on a 6-row bed, 1.34x on 20 rows, neutral on 34**, and both
+  shipped worlds are deep (48-135 rows outdoors, 96 in the lab). **§2b-v is
+  the prerequisite that had to land with it** -- capping the water tank's
+  storage term, without which a droughted plant roots its way to a bigger
+  bucket, reads as well-watered and does not die.
   **§9 is the method part**: three drafts, three classes of error, the last
   being that three documents and two reviewers argued about how deep a
   depletion zone was when one census answered it in thirty seconds.

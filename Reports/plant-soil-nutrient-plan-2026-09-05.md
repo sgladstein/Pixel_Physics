@@ -1,6 +1,9 @@
 # Plan: make roots pay — root reach is the constraint, not root income
 
-**Status: plan, 2026-09-05, third draft; one arm measured, nothing built.** Successor to
+**Status: LANDED, 2026-09-05, third draft. §2b-iii and §2b-v are built,
+measured and ON by default** (`PIXEL_PHYSICS_ROOT_GATE=whole` and
+`PIXEL_PHYSICS_WATER_TANK_CAP` ablate them); §1's immobile soil nutrient is
+**not** built and is not proposed any more -- §9 says why. Successor to
 [`plant-roots-and-transport-2026-09-05.md`](plant-roots-and-transport-2026-09-05.md),
 whose §7 ranking this revises and whose §3 evidence it corrects (that
 report's §3z).
@@ -223,16 +226,20 @@ uptake arm. Run it against the same four beds so the before/after is paired.
 
 ### 2b-iii. BUILT and MEASURED — it works, and it is income-neutral
 
-Shipped default-off behind `PIXEL_PHYSICS_ROOT_GATE=local`
-(`plant.rs`'s `root_gate_is_local`), reading
+Shipped **on by default** (`plant.rs`'s `root_gate_is_local`;
+`PIXEL_PHYSICS_ROOT_GATE=whole` is the ablation). It landed inert for one
+commit so it could be measured apart from the tank cap it needs -- see
+§2b-v -- and was switched on once the two guards standing in the way had
+been rebuilt from their own sweeps rather than widened. Reads
 `OrganismState::root_zone_water` — the mean `plant_available_fraction` over
 the drinkable faces `contact_root_cells` already counts, accumulated in that
 same four-neighbour look. **The threshold is not retuned**: 0.95 means the
 same thing on both fraction-of-full scales.
 
-**Default is inert, verified rather than asserted**: with the switch off the
-root-tip exit census reads byte-identical to the pre-change run on all four
-beds.
+**The switch was inert at landing, verified rather than asserted**: with it
+off the root-tip exit census read byte-identical to the pre-change run on all
+four beds. That is what made the paired measurement below trustworthy, and
+`PIXEL_PHYSICS_ROOT_GATE=whole` still buys it back.
 
 **12 paired seeds, outdoor bed, frame 24,000:**
 
