@@ -198,6 +198,23 @@ not appear at outdoor width.
 
 ## 5. Per-row dirty spans: 1.19x, and why it is off by default
 
+> **SUPERSEDED 2026-09-05 by
+> [`sweep-positional-rng-2026-09-05.md`](sweep-positional-rng-2026-09-05.md),
+> on both of this section's conclusions.** The unlock it names below — seeding
+> the per-cell draw from position and frame — was built and measured. It costs
+> **+0.149 ms/tick**, about the whole of what the spans save, so the two
+> together are worth nothing; and the premise this section argues from is
+> **false** — with the draw keyed positionally, so visit order cannot reach it,
+> the two sweep arms **still diverge**, first at frame 4,330
+> (`open-bugs-handoff.md` §E2). The "3.0x / 7.8x" ceiling in the table below
+> comes from `labperf`'s `est_` columns, which are ~90% soil moisture and,
+> since §8 gave moisture its own dirty channel, do not wake the sweep at all —
+> so they fail that instrument's own stated control. The 1.19x is also a
+> **phase** figure; on today's tree the same spans are 1.05x of the tick.
+> The section is left as written because it is the record of what was measured
+> on 2026-09-01.
+
+
 `Chunk::dirty` is a **bounding box**, so two writes at opposite corners of a
 64x64 chunk dirty everything between them — which is exactly the shape 410
 scattered soil writes produce. Replacing it with **one x-span per row** is
