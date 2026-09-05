@@ -1,0 +1,46 @@
+{
+  "id": "20260905T180757522Z-168b0f",
+  "created": "2026-09-05T18:07:57Z",
+  "board": "plants",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/plant-roots-transport-lj7nip",
+    "commit": "306220e8",
+    "agent": null,
+    "session_id": "fe8bc5b9-4346-539e-8191-8d1ce81b894d",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Roots on vs off: the same grove at 24,000 frames",
+  "question": "Which of these reads as a wood standing in ground? Same world, same seed, same frame, one constant apart.",
+  "context_md": "Counts for THESE two runs, not a lab bed: standing cells 21,932 -> 28,390; ROOT cells 1,662 -> 6,545 (3.94x); shoot 20,270 -> 21,845; root:shoot 8.2% -> 30.0%; live plants 197 -> 335.\n\nThe change: a root tip used to stop growing as soon as the plant read itself as watered, and it nearly always did, because that reading was taken against a water store that grows with the root count. It now asks about the soil it is actually standing in. Second constant, which had to move with it: the store stops growing without limit with root count, so a plant dying of thirst can no longer root its way to a bigger bucket and read as well-watered.\n\nWhat I am NOT sure of and would like your eye on: the off arm's ground appears to have drained out from under the grove, leaving trees on rafts. If that is what the game has looked like all along, it is a bigger finding than the roots. Both arms are one binary, scene=grove start=24000, daylight pinned; the off arm is PIXEL_PHYSICS_ROOT_GATE=whole with an unbounded tank.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "roots off (shipped until today)",
+      "files": [
+        "20260905T180757522Z-168b0f/000-full_off.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "roots on (this change)",
+      "files": [
+        "20260905T180757522Z-168b0f/001-full_on.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
