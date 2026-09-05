@@ -1,6 +1,13 @@
 # Ants
 
-*Current as of: 2026-09-02, when biting became something a mouth can fail at —
+*Current as of: 2026-09-05, when digging, trail-laying and hauling spoil
+stopped being free — an ant now pays for all three, at prices measured from
+what each is worth as a share of everything it burns, and each is a dial you
+can turn back to nothing. Across six beds that bought about a sixth less
+digging at no cost in ants. The same day it was measured that
+survival in this world tracks **how much an ant eats and essentially nothing
+else**, so a behaviour the world does not charge for is one it also cannot
+select for. Before that: 2026-09-02, when biting became something a mouth can fail at —
 so a hard-shelled animal is harder to eat than a soft one, and a beetle simply
 cannot get through some of them — and when an animal that loses the middle of
 its body came apart at the bite instead of dying whole, the far half left lying
@@ -191,6 +198,46 @@ it excavates presses the ground around it into packed soil, which holds
 itself up (see [Powders](powders.md)), so the tunnel is lined as fast as it
 is opened and the roof has something to rest on. The verb and the thing it
 leaves behind are the same act.
+
+**But digging is free, and that is why a bed with ants in it becomes one
+enormous hole.** An ant pays to exist, to walk, to think and to look. It has
+never paid to dig, and it has never paid to carry the spoil away either — so
+excavation is the one thing an ant does that the world does not charge for.
+That matters more than it sounds, because an ant is *born wanting to dig*:
+the urge is not a response to anything, it is a standing drive it inherits,
+put there because ants that only dug when it paid never dug at all. Free and
+unconditional together mean nothing can ever talk a colony out of it. An ant
+that digs all day and one that never digs cost the same to be, so no amount
+of time and no number of generations can tell them apart, and the pit in the
+middle of the bed is not something the colony learned. It is what it was born
+doing, with nothing in the world able to price it.
+
+**There are now three dials that put a price on it, and the ants pay them.**
+Digging a cell costs what walking six cells costs. Laying a full-strength
+scent trail costs about a sixth of a step — small each time, but a trail is
+laid on every step an ant takes, so it adds up to roughly what *thinking*
+costs the animal. And a lump of dug earth now has weight in the jaws, about
+half the ant's own mass, the way a mouthful of food already did. Set any of
+them to zero and that verb goes back to being free.
+
+The three numbers are not guesses. They come from measuring what each verb
+would cost as a share of everything an ant burns, and the surprise is how far
+apart two of them are: at equal prices, laying trails costs an ant **sixty
+times** what digging does, because it digs a few hundred times in a long run
+and lays scent on every single step. Priced as they ship, digging is a couple
+of percent of an ant's budget and trail-laying about six.
+
+**What that buys is less digging, and it does not cost the colony anything.**
+Across six beds, the ants dug about a sixth less — in every one of the six —
+and the number of ants left alive went up in two and down in four, which is
+to say it did not move at all. Excavation is now something an ant spends
+itself on rather than something it does for nothing.
+
+**What it does not do is make the ants clever about it, yet.** They are still
+born wanting to dig, and now they simply pay for wanting to. For the colony
+to actually dig *less* than it can afford, the wanting itself has to change,
+and that is bred rather than set — it needs far more ants over far more
+generations than a bed currently produces.
 
 **And the ground it takes out has to go somewhere, which it did not used to.**
 Digging destroyed what it removed — the cell was simply gone from the world —
