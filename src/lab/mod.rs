@@ -2055,7 +2055,18 @@ impl Lab {
             }
             ui::Action::RosterRelease => {
                 self.ui.release_pin();
+                // The held one goes with it: a half-set comparison outliving
+                // the pin that set it is a chip that says VS and does
+                // something the player cannot predict.
+                self.ui.clear_held();
                 self.ui.say("LET GO".to_string());
+            }
+            ui::Action::RosterCompare => {
+                let (said, open) = self.ui.compare_or_hold();
+                if open {
+                    self.ui.toggle_panel(ui::Panel::Compare);
+                }
+                self.ui.say(said);
             }
             ui::Action::ChamberClear => {
                 let said = self.clear_rack();

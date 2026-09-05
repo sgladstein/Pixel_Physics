@@ -446,6 +446,64 @@ fn main() {
             tiles.push((format!("WATCH: {what} SERIES"), shot(&mut lab)));
         }
     }
+    // 6a-ter. **COMPARE: two individuals side by side.** Driven through the
+    //         real chips -- HOLD on one row, pin another, VS -- rather than
+    //         by setting the two slots directly, because the thing most
+    //         likely to be wrong is the gesture rather than the page: one
+    //         chip means two things depending on state, and a chip that does
+    //         the wrong one is invisible in a screenshot of the page it
+    //         opened.
+    {
+        let kingdom = roster::Kingdom::Creatures;
+        let list = Panel::AntList;
+        let cover = Panel::Ants;
+        // Close whatever is open first, then cover, then list -- the same
+        // three steps the roster loop above uses. `Action::Panel` toggles, so
+        // clicking the cover while the cover is already open *closes* it and
+        // the list heading never appears; the harness panics on the missing
+        // widget, which is the right failure and how this was found.
+        if let Some(open) = lab.ui.panel {
+            let at = match open {
+                Panel::PlantList => centre(&lab, Action::Panel(Panel::Plants)),
+                Panel::AntList => centre(&lab, Action::Panel(Panel::Ants)),
+                _ => centre(&lab, Action::Panel(open)),
+            };
+            click(&mut lab, at);
+            let _ = shot(&mut lab);
+        }
+        let at = centre(&lab, Action::Panel(cover));
+        click(&mut lab, at);
+        let _ = shot(&mut lab);
+        let at = centre(&lab, Action::Panel(list));
+        click(&mut lab, at);
+        let _ = shot(&mut lab);
+        let (key, desc) = lab.ui.roster_sort_key(kingdom);
+        let rows = roster::rows(&lab.world, kingdom, key, desc, lab.ui.roster_filter());
+        if rows.len() >= 2 {
+            let at = centre(&lab, Action::RosterSelect(0));
+            click(&mut lab, at);
+            let _ = shot(&mut lab);
+            let at = centre(&lab, Action::RosterCompare);
+            click(&mut lab, at);
+            let _ = shot(&mut lab);
+            fired.push(format!("COMPARE: after HOLD, held {:?}", lab.ui.held()));
+            let at = centre(&lab, Action::RosterSelect(1));
+            click(&mut lab, at);
+            let _ = shot(&mut lab);
+            let at = centre(&lab, Action::RosterCompare);
+            click(&mut lab, at);
+            let _ = shot(&mut lab);
+            fired.push(format!(
+                "COMPARE: page {:?}, held {:?}, pinned {:?}",
+                lab.ui.panel,
+                lab.ui.held(),
+                lab.ui.pinned()
+            ));
+            tiles.push(("COMPARE: TWO ANTS".into(), shot(&mut lab)));
+        } else {
+            fired.push(format!("COMPARE: only {} rows, need two", rows.len()));
+        }
+    }
     lab.ui.release_pin();
 
     // 6b. The rack, and the rack with a row picked -- which is the half that

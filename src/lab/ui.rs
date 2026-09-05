@@ -508,6 +508,11 @@ pub enum Action {
     RosterFollow,
     /// Let the pinned individual go.
     RosterRelease,
+    /// Hold the pinned individual as the thing to compare against, or --
+    /// when one is already held and the pin has moved -- open the
+    /// comparison. One chip rather than two, because the state it is in
+    /// is written on its own face and in the notice it leaves.
+    RosterCompare,
     /// How many ticks each copy runs for, same.
     BatchFrames(i32),
 }
@@ -748,6 +753,20 @@ pub enum Panel {
     /// in this interface comes from `LifeCounters` and `CreatureStats`, which
     /// are unbounded.
     Log,
+    /// **Two individuals, side by side, with what differs marked.**
+    ///
+    /// The question a selection experiment is actually asking -- *why did
+    /// this one do better than that one* -- and nothing on this interface
+    /// could answer it. Every other page is about one individual or about the
+    /// whole box; a difference between two is neither, and reading it by
+    /// flipping between two cell pages means holding thirty numbers in your
+    /// head and comparing them from memory.
+    ///
+    /// **Reached from the roster's own footer, not from the bar**, for
+    /// `PlantList`'s reason: the bar has been measured full twice and there
+    /// is no seventh chip. The roster is also where both individuals get
+    /// chosen, so the verb sits where its operands do.
+    Compare,
 }
 
 impl Panel {
@@ -762,6 +781,7 @@ impl Panel {
             Panel::PlantList => "EVERY PLANT",
             Panel::AntList => "EVERY ANIMAL",
             Panel::Log => "WHAT HAPPENED",
+            Panel::Compare => "SIDE BY SIDE",
         }
     }
 }
@@ -1893,6 +1913,15 @@ pub struct Ui {
     /// The pinned individual's trail and per-individual series.
     /// Per-box, and swapped with the chamber like `history`.
     pub(crate) watch: Watch,
+    /// **The other individual**, for `Panel::Compare`.
+    ///
+    /// Deliberately not a second pin: only one individual is marked in the
+    /// box and followed at a time, because two markers on a 512-wide bed is
+    /// two things to find rather than one. This is a *held* identity, and
+    /// like the pin it is `(organism_id, born_frame)` -- never a row index,
+    /// which reorders under a sort, and never a cell, which the individual
+    /// walks off.
+    held: Option<roster::Individual>,
     /// Last frame's layout. See the module doc: a click arrives between
     /// frames, so this is the bar the player was looking at.
     bar: Bar,
@@ -2467,6 +2496,42 @@ impl Ui {
         self.watch.span()
     }
 
+    /// The individual held for comparison, if any.
+    pub fn held(&self) -> Option<roster::Individual> {
+        self.held
+    }
+
+    /// **The `VS` gesture.** Returns what to say about it.
+    ///
+    /// Hold the pin when nothing is held, or when the held one *is* the pin
+    /// (so pressing it twice on one row is a no-op that reads as one); open
+    /// the comparison once the pin has moved to somebody else. Returning the
+    /// notice rather than setting it keeps `Ui` out of the business of
+    /// phrasing, which is `Lab::act`'s throughout this interface.
+    pub fn compare_or_hold(&mut self) -> (String, bool) {
+        let Some(pin) = self.pinned else {
+            return ("PIN ONE FIRST".to_string(), false);
+        };
+        if self.held == Some(pin) {
+            self.held = None;
+            return ("LET THE FIRST ONE GO".to_string(), false);
+        }
+        match self.held {
+            None => {
+                self.held = Some(pin);
+                ("HELD. NOW PIN ANOTHER AND PRESS VS".to_string(), false)
+            }
+            Some(_) => ("SIDE BY SIDE".to_string(), true),
+        }
+    }
+
+    /// Forget the held individual. Called when the pin is released, because a
+    /// half-set comparison outliving the thing that set it is a chip that
+    /// says VS and does nothing recognisable.
+    pub fn clear_held(&mut self) {
+        self.held = None;
+    }
+
     pub fn following(&self) -> bool {
         self.following
     }
@@ -2857,6 +2922,134 @@ impl Ui {
 // count was zero all run.
 
 impl Ui {
+    /// **Two individuals, paired by row label, with what differs marked.**
+    ///
+    /// Built out of `params::specimen_rows` rather than out of a second copy
+    /// of that arithmetic, so a number can never read one way here and
+    /// another way on the cell page -- which would be the worst possible
+    /// defect on a page whose entire job is comparison.
+    ///
+    /// **Paired by label, and the union rather than the intersection.** Two
+    /// animals produce the same rows, but a plant against an animal does not,
+    /// and the rows that exist for only one of them are exactly the ones
+    /// worth seeing (`SEEDS SET` against `DELIVERED` says which kingdom you
+    /// picked by mistake). A missing side reads `--`, which is a fact about
+    /// that individual rather than a gap in the page.
+    ///
+    /// **Rows whose label carries a frame number never pair, by design.**
+    /// `specimen_rows` stamps a few life events into the label itself
+    /// (`F636 FIRST FED`), so two individuals that both fed produce two rows
+    /// rather than one, each with `--` on the other side. That reads
+    /// correctly -- it says when *each* of them first fed, which is the fact
+    /// -- and it does inflate the differing count by one per such event.
+    ///
+    /// **The difference is marked, not computed.** A numeric delta was the
+    /// obvious build and is wrong here: half these rows are not numbers
+    /// (`ORIGIN FOUNDER`, `CROP EMPTY`, `STARVING NO`), and a page that
+    /// subtracts where it can and does not where it cannot is a page whose
+    /// blank cells mean two different things. Same-or-different is defined
+    /// for every row.
+    fn compare_rows(&self, world: &World) -> Vec<Row> {
+        let (Some(a), Some(b)) = (self.held, self.pinned) else {
+            return vec![Row::value(
+                "NOTHING TO COMPARE",
+                "--",
+                FAINT,
+                "PIN AN INDIVIDUAL, PRESS HOLD, THEN PIN A SECOND ONE AND PRESS VS. THIS PAGE NEEDS TWO.".to_string(),
+            )];
+        };
+        let name = |who: roster::Individual| -> String {
+            match who.resolve(world) {
+                Some(st) => format!("{} {}", param_label(&world.species.get(st.species).name), who.id),
+                // **Dead is a legitimate side of a comparison and is the
+                // interesting one.** "Why did this one die and that one not"
+                // is the question; a page that refused to show a corpse would
+                // refuse exactly when it is most wanted. The graveyard keeps
+                // the record, so the rows below still have something to read.
+                None => format!("#{} (DIED)", who.id),
+            }
+        };
+        // **Back to the list it was opened from, not to a fixed page.** Both
+        // individuals were chosen there, so it is where a player who wants a
+        // different pair is going; `paint_roster` learned the same lesson the
+        // hard way, that a page a click cannot leave is a page a player
+        // cannot leave.
+        let home = match self.pinned.and_then(|w| w.resolve(world)) {
+            Some(st) if world.species.get(st.species).creature.is_some() => Panel::AntList,
+            _ => Panel::PlantList,
+        };
+        let mut rows = vec![
+            Row::head("BACK TO THE LIST", false, 0, Action::Panel(home), "RETURN TO THE ROSTER BOTH OF THESE WERE PICKED FROM."),
+            Row::value(
+                "HELD",
+                name(a),
+                TITLE,
+                "THE ONE YOU PRESSED HOLD ON. IT IS NOT MARKED IN THE BOX -- ONLY THE PIN IS, BECAUSE TWO MARKERS ON ONE BED IS TWO THINGS TO FIND RATHER THAN ONE.".to_string(),
+            ),
+            Row::value(
+                "PINNED",
+                name(b),
+                TITLE,
+                "THE ONE CURRENTLY PINNED, MARKED IN THE BOX. PIN A DIFFERENT ROW AND COME BACK AND THIS SIDE CHANGES -- THE HELD ONE STAYS PUT.".to_string(),
+            ),
+            Row::gap(),
+        ];
+
+        let left = params::specimen_rows(world, a.id);
+        let right = params::specimen_rows(world, b.id);
+        let find = |rs: &[(String, String, String)], label: &str| -> Option<(String, String)> {
+            rs.iter().find(|(l, _, _)| l == label).map(|(_, v, n)| (v.clone(), n.clone()))
+        };
+        let mut seen: Vec<String> = Vec::new();
+        let mut differing = 0usize;
+        let (mut unlike, mut alike): (Vec<Row>, Vec<Row>) = (Vec::new(), Vec::new());
+        for (label, _, _) in left.iter().chain(right.iter()) {
+            if seen.iter().any(|s| s == label) {
+                continue;
+            }
+            seen.push(label.clone());
+            let lv = find(&left, label);
+            let rv = find(&right, label);
+            let note = lv.as_ref().or(rv.as_ref()).map(|(_, n)| n.clone()).unwrap_or_default();
+            let (lt, rt) = (
+                lv.map(|(v, _)| v).unwrap_or_else(|| "--".to_string()),
+                rv.map(|(v, _)| v).unwrap_or_else(|| "--".to_string()),
+            );
+            let same = lt == rt;
+            if !same {
+                differing += 1;
+            }
+            let row = Row::value(label, format!("{lt}  |  {rt}"), if same { FAINT } else { VALUE }, note);
+            if same { alike.push(row) } else { unlike.push(row) }
+        }
+        // **What differs comes first, and that is the page's whole argument.**
+        // Kept in specimen order the two shipped ants put fourteen identical
+        // plain-speech lines above the nine rows that actually differed, so
+        // the answer to "why is this one doing better" was below the fold on
+        // a page opened to ask exactly that. `fit_rows` trims from the
+        // bottom, so ordering is also what decides which rows survive a page
+        // that overruns -- the identical ones are the right ones to lose.
+        let alike_count = alike.len();
+        rows.extend(unlike);
+        rows.extend(alike);
+        // **The count, and it is not decoration.** A page of forty rows all
+        // dimmed reads identically to a page that failed to load, and this
+        // interface has already paid for that once -- a collapse read as
+        // "chunks are working" off a picture whose body count was zero all
+        // run. Two clones of one genome legitimately differ nowhere, and the
+        // number is what says so out loud.
+        rows.insert(
+            3,
+            Row::value(
+                "DIFFER",
+                format!("{differing} OF {}", differing + alike_count),
+                if differing == 0 { FAINT } else { VALUE },
+                "HOW MANY ROWS BELOW ARE NOT IDENTICAL. THEY ARE LISTED FIRST, BRIGHT, WITH THE MATCHING ONES DIMMED UNDER THEM -- SO WHAT YOU OPENED THIS PAGE TO SEE IS AT THE TOP OF IT. ZERO IS A REAL ANSWER AND NOT A BROKEN PAGE: TWO COPIES OF ONE JAR, PLACED THE SAME MOMENT, DIFFER NOWHERE UNTIL THE BOX HAS DONE SOMETHING TO THEM.".to_string(),
+            ),
+        );
+        rows
+    }
+
     fn panel_rows(&self, panel: Panel, world: &World, spec: &LabBox, fps: f32) -> Vec<Row> {
         let orgs = world.live_organism_count();
         let ants = world.live_creature_count();
@@ -2867,6 +3060,7 @@ impl Ui {
             // this is called, and the arm is here so that a page added to
             // `Panel` cannot be silently left out of both.
             Panel::Params | Panel::Shelf | Panel::Chambers | Panel::PlantList | Panel::AntList => Vec::new(),
+            Panel::Compare => self.compare_rows(world),
             Panel::Plants => {
                 let (d, tint) = delta_text(self.history.delta(|s| s.plants as i64));
                 let (gd, gtint) = delta_text(self.history.delta(|s| s.germinations as i64));
@@ -4826,8 +5020,10 @@ impl Ui {
                  "KEEP THE CAMERA ON THIS ONE WHILE IT MOVES. AN ANT IS TWO DARK CELLS AT PLAY ZOOM AND YOU FIND IT ONLY BECAUSE IT MOVES, SO A MARKER ALONE IS HALF AN ANSWER: THIS IS THE OTHER HALF."),
                 ("LINE", Action::RosterFilter, alive,
                  "SHOW ONLY THIS ONE'S FOUNDING LINE. TWO INDIVIDUALS WITH THE SAME LINE SHARE AN ANCESTOR IN THIS BOX; TWO WITH DIFFERENT ONES DO NOT, SO THIS IS HOW YOU WATCH ONE LINE TAKE THE BOX OVER."),
+                (if self.held.is_some() { "VS" } else { "HOLD" }, Action::RosterCompare, true,
+                 "HOLD THIS ONE, THEN PIN ANOTHER AND PRESS IT AGAIN TO PUT THE TWO SIDE BY SIDE. THE QUESTION A SELECTION EXPERIMENT IS ACTUALLY ASKING IS WHY ONE DID BETTER THAN ANOTHER, AND READING THAT OFF TWO CELL PAGES MEANS COMPARING THIRTY NUMBERS FROM MEMORY."),
                 ("RELEASE", Action::RosterRelease, true,
-                 "LET GO OF THIS ONE. THE MARKER COMES OFF THE BOX AND THE PAGE STOPS FOLLOWING IT."),
+                 "LET GO OF THIS ONE. THE MARKER COMES OFF THE BOX, THE PAGE STOPS FOLLOWING IT, AND ANY HELD COMPARISON IS FORGOTTEN."),
             ] {
                 let bw = cell_width(hud::text_width(label), "", PAD) + 6;
                 if on {
@@ -5617,7 +5813,14 @@ impl Ui {
             self.roster_bar = Bar::default();
         }
 
-        if let Some(at) = self.inspect {
+        // **Not beside `Panel::Compare`, which is the one page that already
+        // holds it.** Every other page answers a different question from the
+        // cell page, so the two sit side by side. Compare's left column *is*
+        // the pinned individual's cell page, row for row, and a pin forces
+        // `inspect` open -- so leaving both up draws the same numbers twice,
+        // takes the width that made the comparison legible, and puts the
+        // duplicate on the side the reader is scanning toward.
+        if let Some(at) = self.inspect.filter(|_| self.panel != Some(Panel::Compare)) {
             let rows = self.inspect_rows(world, at);
             // Beside the open page rather than under it, so opening a page
             // does not hide the cell you are inspecting.
@@ -7239,6 +7442,89 @@ mod tests {
                 pair[1],
                 pair[1] - pair[0]
             );
+        }
+    }
+
+    /// **The comparison pairs by label, counts what differs, and puts those
+    /// rows first.**
+    ///
+    /// The ordering is the claim worth guarding, not the pairing: kept in
+    /// specimen order, the two shipped ants put fourteen identical
+    /// plain-speech lines above the nine rows that actually differed, so a
+    /// page opened to ask "why is this one doing better" answered below the
+    /// fold. `fit_rows` trims from the bottom, so this is also what decides
+    /// which rows survive an overrun.
+    #[test]
+    fn the_comparison_leads_with_what_differs() {
+        let mut lab = crate::lab::Lab::new(crate::lab::scene::LabBox {
+            colonies: 1,
+            founders: 2,
+            ..crate::lab::scene::LabBox::default()
+        });
+        for _ in 0..2000 {
+            lab.tick_for_harness();
+        }
+        let live = roster::rows(
+            &lab.world,
+            roster::Kingdom::Creatures,
+            roster::SortKey::Slot,
+            false,
+            roster::Filter::All,
+        );
+        assert!(live.len() >= 2, "need two animals to compare, got {}", live.len());
+        let (a, b) = (live[0].who, live[1].who);
+
+        // **Nothing held: the page says so rather than drawing blank.**
+        lab.ui.pin(b);
+        let none = lab.ui.compare_rows(&lab.world);
+        assert!(
+            none.iter().any(|r| matches!(&r.body, Body::Value { label, .. } if label == "NOTHING TO COMPARE")),
+            "a half-set comparison drew something other than its own empty state"
+        );
+
+        // **The positive control, and it is an individual against itself.**
+        // Every row must match, so a `DIFFER` that is not zero here means the
+        // pairing is wrong rather than the individuals being different --
+        // which no comparison of two *different* animals could tell apart.
+        lab.ui.held = Some(b);
+        let mirror = lab.ui.compare_rows(&lab.world);
+        let differ_of = |rows: &[Row]| -> (usize, usize) {
+            for r in rows {
+                if let Body::Value { label, value, .. } = &r.body {
+                    if label == "DIFFER" {
+                        let mut it = value.split(" OF ");
+                        let d = it.next().and_then(|v| v.parse().ok()).unwrap_or(usize::MAX);
+                        let t = it.next().and_then(|v| v.parse().ok()).unwrap_or(0);
+                        return (d, t);
+                    }
+                }
+            }
+            panic!("the comparison page has no DIFFER row at all, in {} rows", rows.len())
+        };
+        let (d, total) = differ_of(&mirror);
+        assert_eq!(d, 0, "an individual differs from itself in {d} of {total} rows");
+        assert!(total > 10, "only {total} rows were paired at all; the page is not reading the specimen");
+
+        // **Two different animals differ somewhere**, or the page is
+        // reporting sameness it cannot have established.
+        lab.ui.held = Some(a);
+        let real = lab.ui.compare_rows(&lab.world);
+        let (d, total) = differ_of(&real);
+        assert!(d > 0, "two different animals compared identical across all {total} rows");
+
+        // ...and those rows lead. Every bright row before every dim one.
+        let tints: Vec<[u8; 4]> = real
+            .iter()
+            .skip_while(|r| !matches!(&r.body, Body::Value { label, .. } if label != "DIFFER" && label != "HELD" && label != "PINNED"))
+            .filter_map(|r| match &r.body {
+                Body::Value { tint, .. } => Some(*tint),
+                _ => None,
+            })
+            .collect();
+        let last_bright = tints.iter().rposition(|t| *t == VALUE);
+        let first_dim = tints.iter().position(|t| *t == FAINT);
+        if let (Some(bright), Some(dim)) = (last_bright, first_dim) {
+            assert!(bright < dim, "a matching row ({dim}) sorts above a differing one ({bright})");
         }
     }
 

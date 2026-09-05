@@ -135,6 +135,9 @@ GAME = {
     # three above are all readable from a stopped frame, and a trail is
     # not -- it is accumulated history and only exists because time passed.
     "watching one individual over time": "lab",
+    # The seventh lab row. The only one whose subject is a *pair*: every
+    # other page is one individual or the whole box.
+    "comparing two individuals": "lab",
     # `TunableGroup::Lab` is deliberately excluded from the sandbox panel's
     # own menu cycle (`tunables.rs`'s own doc) -- the outdoor game has its
     # own separate save path and never reaches `lab::params`.
@@ -279,6 +282,9 @@ TOPICS = {
     ],
     "watching one individual over time": [
         "Watch status — where one individual has been, and how its numbers moved",
+    ],
+    "comparing two individuals": [
+        "Side-by-side status — two individuals, with what differs marked",
     ],
     # The third lab row: the hand verbs and the view they are aimed through.
     # Separate from "the box and its lights", which is what the box *is*, and
