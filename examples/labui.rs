@@ -846,6 +846,27 @@ fn main() {
         }
         tiles.push((format!("SPECIMEN: {what}"), shot(&mut lab)));
 
+        // **The WORDS group, opened the same way, and it had no tile at all
+        // until 2026-09-05.** It is the group the plain-speech work exists
+        // for and it is *collapsed by default*, so every tile above shows it
+        // as `+ WORDS 14` and none of them can answer "do the sentences read
+        // right" -- which is what the review card asking about it had to be
+        // hand-built to show. A feature with no tile is a feature the sheet
+        // cannot be used to judge.
+        let words = pixel_physics::lab::ui::Action::SpecimenSection(0);
+        match lab.ui.widget_rect(words) {
+            Some(r) => {
+                click(&mut lab, (r.x + 20, r.y + 4));
+                fired.push(format!(
+                    "SPECIMEN {what}: clicking WORDS left the page showing group {}",
+                    lab.ui.specimen_section()
+                ));
+                lab.set_cursor(None);
+                tiles.push((format!("SPECIMEN: {what} WORDS"), shot(&mut lab)));
+            }
+            None => fired.push(format!("SPECIMEN {what}: no WORDS heading to click")),
+        }
+
         // **Open the genome group by clicking its heading**, which is the
         // whole click path -- the heading is drawn by `paint_page`, collected
         // into `inspect_bar` in the same loop, hit-tested by `Ui::hit` and
