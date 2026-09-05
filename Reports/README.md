@@ -819,6 +819,32 @@ drift that two of these documents still reflect.**
 
 ## Creatures and ecology  ·  `engine`
 
+- [creature-behaviour-ceiling-2026-09-05.md](creature-behaviour-ceiling-2026-09-05.md)
+  — **diagnosis, measured, 2026-09-05; nothing tuned and nothing built.** The
+  owner's question — *are the interesting behaviours impossible, unselected,
+  or merely rare?* — answered as a measurement. **Unselected, in a form none
+  of the three named: the world scores exactly one thing.** Over 24 random
+  genomes survival correlates **+0.895 with feeding** and with nothing else
+  (`travelled` +0.151, `commute` +0.236), because `creature.rs` has **one
+  income channel** (`diet_yield` on an adjacent cell) and
+  `spent = idle + synapse_tax + sight_tax` plus movement — so **`Dig`, `EmitA`,
+  `EmitB`, `Drop` and `DropSpoil` cost nothing**, and excavation, trails and
+  cargo are outside the economy entirely. The space itself is fine (7 of 16
+  behaviour cells occupied; authored 2.107 against 1.121 for the best random
+  genome and 0.420 zeroed), which is what rules out the *impossible* reading.
+  Three findings a later session should not have to re-derive: **the giant
+  hole is `(Bias, Dig, 0.4)` in `ant.ron`, is free, and is therefore
+  selectively neutral at any horizon**; **`beetle.ron` has no
+  `reproduce_threshold`, so a beetle can never bud** and a predator-prey
+  equilibrium is unreachable rather than rare; and in the stable bed **1,171
+  births are denied for want of a cell beside the parent against 157 born**,
+  with 4 of 54 ants hungry — the population is space-limited, not
+  food-limited. Generation depth is **7 per 60,000 frames** in that bed and
+  **1 per 27,000** in the crashing one, which is why *more generations* is a
+  second-order answer. Horizon is the trap throughout: an ant's founding
+  grant is 12,000 frames, so nothing here is read at `labbatch`'s 9,000-frame
+  default
+
 - [mechanism-vs-behaviour-audit-2026-08-31.md](mechanism-vs-behaviour-audit-2026-08-31.md)
   — **audit and staged plan, baseline `943ace17`, 2026-08-31; nothing built and
   nothing measured by it. Independently reviewed and corrected in eleven
