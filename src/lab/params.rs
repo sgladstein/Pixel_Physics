@@ -628,6 +628,9 @@ fn creature_value(world: &World, species: &str, field: &str) -> Option<f32> {
         "tick_interval" => def.tick_interval as f32,
         "idle_cost_per_cell" => def.idle_cost_per_cell,
         "move_cost_per_cell" => def.move_cost_per_cell,
+        "dig_cost_in_moves" => def.dig_cost_in_moves,
+        "emit_cost_in_moves" => def.emit_cost_in_moves,
+        "spoil_weight_cells" => def.spoil_weight_cells,
         _ => return None,
     })
 }
@@ -665,6 +668,12 @@ fn ant_rows(world: &World, out: &mut Vec<Param>) {
         "WHAT IT COSTS AN ANT TO SIMPLY EXIST, PER CELL OF BODY, PER TURN. IT IS THE CLOCK ON EVERY ANIMAL IN THE BOX.");
     cr("move_cost_per_cell", span(0.0, 4.0, 0.02), false,
         "WHAT IT COSTS TO MOVE, PER CELL OF BODY. AGAINST THE IDLE COST IT IS THE PRICE OF LOOKING FOR FOOD VERSUS THE PRICE OF WAITING FOR IT.");
+    cr("dig_cost_in_moves", span(0.0, 40.0, 0.5), false,
+        "WHAT DIGGING ONE CELL COSTS, COUNTED IN STEPS -- AT 3 IT COSTS AN ANT THE SAME AS WALKING THREE CELLS. IT SHIPS AT ZERO, WHICH MEANS EXCAVATION IS FREE AND THE COLONY WILL DIG WHATEVER IT DIGS WITHOUT EVER PAYING FOR IT. THAT IS WHY A BED WITH ANTS IN IT ENDS UP AS ONE ENORMOUS HOLE: THE ANTS ARE BORN WANTING TO DIG AND NOTHING IN THE WORLD CAN TALK THEM OUT OF IT. TURN IT UP AND DIGGING BECOMES A CHOICE THEY CAN GET WRONG.");
+    cr("emit_cost_in_moves", span(0.0, 40.0, 0.5), false,
+        "WHAT LAYING A FULL-STRENGTH SCENT TRAIL COSTS, COUNTED IN STEPS. ALSO ZERO ON ARRIVAL, AND FOR THE SAME REASON IT MATTERS: A TRAIL THAT COSTS NOTHING IS ALWAYS WORTH LAYING, SO NOTHING SEPARATES AN ANT THAT MARKS A ROUTE FROM ONE THAT MARKS EVERYWHERE IT GOES.");
+    cr("spoil_weight_cells", span(0.0, 8.0, 0.1), false,
+        "WHAT A LUMP OF DUG EARTH WEIGHS WHILE AN ANT CARRIES IT, IN CELLS OF ITS OWN BODY. CARRYING FOOD HAS ALWAYS COST SOMETHING; CARRYING SPOIL HAS NOT, SO AN ANT COULD HAUL DIRT ONE HUNDRED AND SIXTY CELLS FOR FREE. AT 1 A PELLET IS AS HEAVY AS HALF THE ANT.");
 
     if let Some(id) = world.species.id_of(species) {
         if let Some(def) = world.species.get(id).creature.as_ref() {
@@ -869,6 +878,9 @@ pub fn write(world: &mut World, spec: &mut LabBox, knob: &Knob, value: f32) -> b
                 "tick_interval" => def.tick_interval = value.max(1.0).round() as u64,
                 "idle_cost_per_cell" => def.idle_cost_per_cell = value,
                 "move_cost_per_cell" => def.move_cost_per_cell = value,
+                "dig_cost_in_moves" => def.dig_cost_in_moves = value,
+                "emit_cost_in_moves" => def.emit_cost_in_moves = value,
+                "spoil_weight_cells" => def.spoil_weight_cells = value,
                         _ => return false,
             }
             world.species.set_creature(id, def);

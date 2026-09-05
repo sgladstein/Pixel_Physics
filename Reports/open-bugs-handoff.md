@@ -9128,6 +9128,27 @@ special-casing it reaches the whole evolutionary operator.
 Left open rather than fixed here because it is creature-line work with its
 own measurement burden, on a branch whose job is the lab's tracking UI.
 
+#### What else is being measured on top of it
+
+**Anything calibrated against trail behaviour since 2026-09-02 was calibrated
+with half the trail system dead**, and that is worth knowing before those
+numbers are re-used rather than after.
+
+The clearest case is the same day this was found. `CreatureDef::
+emit_cost_in_moves` prices trail-laying at `move_cost * body_cells *
+emit_cost_in_moves * (emit_a + emit_b)` -- and `emit_a` is structurally 0
+here, so **the price is being paid on channel B alone**. Nothing is
+double-charged and nothing is broken by it; the point is narrower. That
+lane's finding, that pricing the free verbs bought about a sixth less digging
+at no cost in ants, is a measurement of a colony with one working pheromone
+channel, not two. Re-derive it once the odometers charge, because a working
+channel A is a second thing to pay for *and* a route home that reduces how
+far an ant has to wander -- and those pull opposite ways on the same budget.
+
+The same caution applies to `creature_arena` and to any Gate 2 result read
+since that date: the homing half of the foraging loop has not been running in
+any of them.
+
 #### Guards left behind
 
 - `brain.rs`'s `every_authored_weight_is_one_the_evaluator_reads` — the

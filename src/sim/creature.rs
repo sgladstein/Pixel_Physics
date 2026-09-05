@@ -1357,11 +1357,26 @@ fn live_body_cells(world: &World, organism: u16, def: &CreatureDef) -> f32 {
 /// not doing work against its load, and the honest term is the one a forager
 /// pays per step — which is also what makes load size trade against travel
 /// distance rather than against time (Kramer & Nowell's central-place result).
+///
+/// **Spoil counts too, at `spoil_weight_cells`, and until 2026-09-05 it did
+/// not.** This function read `crop` alone, so a lump of dug ground was
+/// hauled up to `SPOIL_LIFT` (160) cells for free -- which made the whole
+/// excavation loop unpriced end to end, cut free and carried free, and left
+/// the *food* half of carrying as the only load an animal could ever trade
+/// against. Weighing it is the same argument the paragraph above makes for
+/// the crop, applied to the other thing an ant can have in its mandibles.
+/// It stays at the species default of 0.0 unless authored, so nothing that
+/// has not opted in changes by a bit.
 fn carried_cells(world: &World, organism: u16, def: &CreatureDef) -> f32 {
     if def.body_energy <= 0.0 {
         return 0.0;
     }
-    world.organism(organism).and_then(|s| s.crop).map_or(0.0, |c| c.worth() / def.body_energy)
+    let Some(state) = world.organism(organism) else {
+        return 0.0;
+    };
+    let food = state.crop.map_or(0.0, |c| c.worth() / def.body_energy);
+    let ground = if state.spoil.is_some() { def.spoil_weight_cells } else { 0.0 };
+    food + ground
 }
 
 /// **What one birth costs the parent**: the child's metabolic grant plus
@@ -1993,7 +2008,23 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
 
     // --- the four verbs, before moving: an ant that is going to pick
     // --- something up should do it from where it can reach it.
-    act(world, x, y, organism, def, &outputs, &mut draw);
+    //
+    // **Excavation is charged here, and until 2026-09-05 it was charged
+    // nowhere.** `dig_cost_in_moves` is a multiple of one step, so the price
+    // scales with the animal exactly as walking does, and the whole term
+    // vanishes at the 0.0 default -- `dug` is 0 on the overwhelming majority
+    // of ticks and the multiply is skipped, so a species that has not opted
+    // in is bit-identical and pays not even the arithmetic.
+    let dug = act(world, x, y, organism, def, &outputs, &mut draw);
+    if dug > 0 && def.dig_cost_in_moves > 0.0 {
+        let cost = def.move_cost_per_cell * body_cells * def.dig_cost_in_moves * dug as f32;
+        spent += cost;
+        // Booked as metabolism for `sight_tax`'s stated reason: a new sink
+        // would have to be added to the conservation identity for no
+        // attribution `CreatureStats::digs` does not already give.
+        world.energy_ledger.metabolized += cost as f64;
+        world.creature_stats.dig_energy += cost as f64;
+    }
 
     // --- move -----------------------------------------------------------
     // **Run, or tumble.** `Move` is the run probability, and the brain
@@ -2098,6 +2129,24 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
         let emit_b = outputs[brain::BrainOutput::EmitB as usize].clamp(0.0, 1.0);
         world.deposit_pheromone(Channel::A, hx, hy, (emit_a * pheromone::DEPOSIT as f32) as u8);
         world.deposit_pheromone(Channel::B, hx, hy, (emit_b * pheromone::DEPOSIT as f32) as u8);
+        // **Laying a trail costs, and until 2026-09-05 it did not.** Charged
+        // on the sum of both planes and in proportion to what was actually
+        // put down, so a whisper is cheaper than a shout -- a per-event
+        // charge would price them the same and make one enormous deposit the
+        // cheapest way to dodge it. Free is the one setting at which a trail
+        // cannot be a strategy: signal that costs nothing is strictly better
+        // than no signal, so the only gradient on these two outputs came
+        // from what the trail did for some *other* ant later, which is
+        // second-order and measured swamped.
+        if def.emit_cost_in_moves > 0.0 {
+            let laid = emit_a + emit_b;
+            if laid > 0.0 {
+                let cost = def.move_cost_per_cell * body_cells * def.emit_cost_in_moves * laid;
+                spent += cost;
+                world.energy_ledger.metabolized += cost as f64;
+                world.creature_stats.emit_energy += cost as f64;
+            }
+        }
     }
 
     if let Some(state) = world.organism_mut(organism) {
@@ -3127,7 +3176,15 @@ pub fn moisture_gradient(world: &World, x: i32, y: i32) -> f32 {
 /// a boolean gate cannot express. A graded outcome also simply beats a
 /// binary one here (the house ethos): ants that sometimes drop early build
 /// ragged, real-looking walls, where a threshold builds a clean line.
-fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outputs: &[f32; brain::BRAIN_OUTPUTS], draw: &mut rng::Rng) {
+/// Returns **how many cells this animal excavated**, so the caller can
+/// charge for them.
+///
+/// **The count comes back rather than the charge going out from here**, and
+/// that is the same rule `launch` follows: *"charged where it is decided,
+/// not inside `launch`, so the energy ledger has one owner"*. `creature_tick`
+/// owns `spent`; a second function reaching into the bank is how a cost ends
+/// up applied twice or not at all.
+fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outputs: &[f32; brain::BRAIN_OUTPUTS], draw: &mut rng::Rng) -> u32 {
     use brain::BrainOutput as O;
     let crop = world.organism(organism).and_then(|s| s.crop);
     let dig_urge = outputs[O::Dig as usize].clamp(0.0, 1.0);
@@ -3298,7 +3355,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
                 // two verbs merged when the decision between them went away.
                 world.creature_stats.eats += 1;
                 world.creature_stats.best_bite = world.creature_stats.best_bite.max(worth);
-                return;
+                return 0;
             }
         }
     }
@@ -3376,7 +3433,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
                     }
                 }
             }
-            return;
+            return 0;
         }
     }
 
@@ -3465,7 +3522,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
         // Laden either way: a full mandible is a mandible that cannot cut,
         // which is what makes a burrow grow at the rate the colony can clear
         // it rather than at the rate a constant sets.
-        return;
+        return 0;
     }
 
     // --- dig --------------------------------------------------------------
@@ -3586,8 +3643,10 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
                 state.life.digs += 1;
             }
             line_burrow(world, tx, ty);
+            return 1;
         }
     }
+    0
 }
 
 /// How far up a pellet may be carried to reach the surface, in cells.
@@ -6411,6 +6470,103 @@ mod tests {
         assert!(lost * 100 < digs as usize, "{lost} of {digs} pellets died with their carrier -- that is a sink, not an edge case");
     }
 
+    /// One ant on a bank of soil at a given `dig_cost_in_moves`, returning
+    /// what it dug, what that cost, and what it had left.
+    ///
+    /// Shares `digging_moves_the_ground_rather_than_eating_it`'s scene
+    /// deliberately: that one is already known to produce digs, so a null
+    /// here cannot be "the ant never dug" wearing a price failure's clothes.
+    fn dig_price_scene(price: f32) -> (u64, f64, f32) {
+        let mut w = test_world();
+        let soil = w.materials.id_of("soil").expect("soil");
+        for x in 90..=140 {
+            for y in 96..=101 {
+                w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+            }
+        }
+        for x in 102..=138 {
+            for y in 88..=95 {
+                w.set(x, y, Cell::new(soil, 0));
+            }
+        }
+        for y in 80..=101 {
+            w.set(90, y, Cell::new(material::STONE, 0).with_attached(true));
+            w.set(140, y, Cell::new(material::STONE, 0).with_attached(true));
+        }
+        let species = w.species.id_of("ant").expect("ant species");
+        let mut def = w.species.get(species).creature.as_ref().expect("creature").clone();
+        def.dig_cost_in_moves = price;
+        let per_dig = def.move_cost_per_cell * def.body.len() as f32 * price;
+        w.species.set_creature(species, def.clone());
+        w.species.set_genome(
+            species,
+            brain::genome_from_wiring(
+                &[
+                    brain::Instinct(brain::BrainInput::Bias, brain::BrainOutput::Move, 2.0),
+                    brain::Instinct(brain::BrainInput::Bias, brain::BrainOutput::Dig, 3.0),
+                ],
+                &def.hidden_wiring,
+                &def.hidden_outputs,
+                &def.recurrence,
+            ),
+        );
+        w.plant_ant(100, 95);
+        let ant = w.get(100, 95).organism_id();
+        assert_ne!(ant, 0, "the ant was not placed; the scene does not contain the situation this test is about");
+        if let Some(state) = w.organism_mut(ant) {
+            state.energy = 100_000.0;
+        }
+        run(&mut w, 2_000);
+        (w.creature_stats.digs, w.creature_stats.dig_energy, per_dig)
+    }
+
+    /// **Excavation is charged, at exactly the price the field names.**
+    ///
+    /// **What this deliberately does *not* assert, because the obvious
+    /// stronger version was written first and is false:** that a priced ant
+    /// digs the same cells as a free one. It does not, and it must not —
+    /// `BrainInput::Energy` is a brain input, so an animal that has been
+    /// charged is an animal in a different state, and by the next decision
+    /// the two runs are different worlds (`CLAUDE.md`, *a cascade censused
+    /// before it settles*). Measured here: 50 cells free against 53 at four
+    /// steps a cell, from a charge of well under a tenth of a percent of the
+    /// bank. That divergence is the mechanism working, and a test demanding
+    /// its absence would have to be satisfied by a price that does nothing.
+    ///
+    /// So the invariant asserted is the one that survives the divergence:
+    /// **joules booked per cell excavated**, which is a property of the
+    /// charge rather than of the trajectory, and is exact.
+    ///
+    /// **The zero arm is a positive control on the guard, not a formality.**
+    /// `dig_cost_in_moves` defaults to 0.0, so a charge that was never wired
+    /// at all reports `dig_energy == 0.0` and passes any test that only
+    /// asserted the default.
+    #[test]
+    fn digging_costs_exactly_its_authored_price_per_cell() {
+        let (free_digs, free_spend, free_per_dig) = dig_price_scene(0.0);
+        let (paid_digs, paid_spend, paid_per_dig) = dig_price_scene(4.0);
+
+        assert!(free_digs > 0, "nothing was dug in either arm, so this measures an idle ant rather than a price");
+        assert_eq!(free_per_dig, 0.0, "the scene's own arithmetic disagrees with the 0.0 arm");
+        assert_eq!(
+            free_spend, 0.0,
+            "the default is 0.0 and must charge exactly nothing: a species that has not opted in has to be bit-identical, got {free_spend}"
+        );
+        assert!(
+            paid_spend > 0.0,
+            "{paid_digs} digs at a price of 4 steps booked {paid_spend} joules -- the charge is not wired, and the zero arm above would pass either way"
+        );
+        // The identity. `dig_energy` is booked once per excavated cell at
+        // `move_cost_per_cell * body cells * price`, so dividing it back out
+        // must return that price whatever the ant went on to do.
+        let booked_per_dig = paid_spend / paid_digs as f64;
+        assert!(
+            (booked_per_dig - paid_per_dig as f64).abs() < paid_per_dig as f64 * 1e-3,
+            "{paid_digs} digs booked {paid_spend} joules, {booked_per_dig} each, against an authored {paid_per_dig} -- \
+             the charge is not the price the field names"
+        );
+    }
+
     /// One hungry ant, a bank of soil to its right and a corpse to its
     /// left, driven by a genome that authors exactly one of the two verbs.
     ///
@@ -8697,6 +8853,15 @@ mod tests {
         intake / spent.max(1.0)
     }
 
+    /// **What a larder actually yielded**, in joules eaten -- the quantity
+    /// `a_lone_grazer_cannot_farm_a_moss_lawn_forever` compares, and
+    /// deliberately not [`grazing_ratio`]. See that test for why an
+    /// efficiency could not answer the question it was being asked.
+    fn grazing_intake(w: &World) -> f64 {
+        let l = w.energy_ledger;
+        l.harvested_plant + l.harvested_corpse
+    }
+
     /// **The sessile-grazer probe**, and the reason moss's `food_energy` is
     /// not free to choose.
     ///
@@ -8738,8 +8903,11 @@ mod tests {
             "test setup: an animal standing inside an inexhaustible larder starved anyway, so this scene cannot feed anything             and the moss arm proves nothing (ratio {ceiling:.3})"
         );
 
+        let larder_intake = grazing_intake(&unlimited);
+
         let lawn = grazer_scene(Larder::Renewable, horizon);
         let renewable = grazing_ratio(&lawn);
+        let lawn_intake = grazing_intake(&lawn);
 
         // **`renewable < 1.0` stood here and is deleted, because it asserted
         // that a herbivore must not reproduce.**
@@ -8774,9 +8942,57 @@ mod tests {
         //
         // What survives is the claim that is both true and worth guarding: a
         // renewable lawn is a *bounded* niche.
+        //
+        // **Compared on what each larder YIELDED, not on intake/spend, and
+        // that changed on 2026-09-05 because the ratio could not answer
+        // this question.** `grazing_ratio` is an *efficiency*, and a sessile
+        // animal wins an efficiency by construction: it eats less and
+        // spends far less. The two were ordered correctly only for as long
+        // as the denominators happened to stay close.
+        //
+        // Pricing the free verbs (`dig_cost_in_moves`, `emit_cost_in_moves`)
+        // pulled them apart, because the new charges fall on an animal that
+        // *acts* and spare one that sits still -- which is the mechanism
+        // working, not a regression. Measured both ways at the moment it
+        // flipped:
+        //
+        //     arm                intake  spent  births  ratio
+        //     unlimited, free      4676   1180       3  3.962
+        //     unlimited, priced    4201   1747       2  2.404
+        //     renewable, free      2415    789       1  3.060
+        //     renewable, priced    2415    847       1  2.850
+        //
+        // The niche ordering is identical in both: the inexhaustible larder
+        // yields ~1.7x the food and two to three times the offspring. Only
+        // the *ratio* inverted, and it inverted because `spent` rose 48% for
+        // the forager against 7% for the grazer. Asserting on it would have
+        // read "the moss lawn is the better niche" about a scene where it
+        // produced a third of the intake and a third of the children.
+        //
+        // This is `CLAUDE.md`'s worst-recurring failure -- *ask what your
+        // number counts* -- and this test's own comment above already names
+        // the trap without following it through: *"it measures viability and
+        // was being read as sessility"*. Intake is the yield the claim is
+        // about, it is continuous rather than knife-edge on an integer birth
+        // count (the ratio moved ~0.9 per birth against a 0.90 margin, i.e.
+        // it sat exactly one birth from failing throughout), and it stays
+        // sensitive in the direction that matters: moss becoming a pump
+        // shows up as a lawn out-yielding an unlimited wall of leaf.
+        //
+        // `ceiling` and `renewable` are still computed and still printed on
+        // failure, because the efficiency is worth seeing next to the yield.
         assert!(
-            renewable <= ceiling,
-            "a renewable lawn fed an animal better than an inexhaustible one ({renewable:.3} against {ceiling:.3}), which is             not a fact about moss -- it is a fact about the scene, and the scene is wrong"
+            lawn_intake <= larder_intake,
+            "a renewable lawn yielded more food than an inexhaustible one ({lawn_intake:.0} J against {larder_intake:.0} J), \
+             which is not a fact about moss -- it is a fact about the scene, and the scene is wrong. \
+             (efficiencies, for context: renewable {renewable:.3}, unlimited {ceiling:.3})"
+        );
+        assert!(
+            lawn.creature_stats.births <= unlimited.creature_stats.births,
+            "a renewable lawn bred an animal more than an inexhaustible one ({} against {}) -- the same finding as the intake \
+             assertion above, on the quantity that actually decides whether a lineage persists",
+            lawn.creature_stats.births,
+            unlimited.creature_stats.births
         );
     }
 

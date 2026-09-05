@@ -1158,6 +1158,37 @@ fn colony_arm(seeds: u64, ants: i32, frames: u64, bud_k: f64, png: Option<&str>)
                 }
             }
         }
+
+        // **The verb prices, swept from here for the same reason the genome
+        // weights above are**: they are `CreatureDef` fields compiled in via
+        // `include_str!`, so editing `ant.ron` and re-running a prebuilt
+        // binary produces bit-identical "runs" -- the gotcha `CLAUDE.md`
+        // records three of. Patching the live registry is the only way to
+        // sweep them without a rebuild between every point.
+        {
+            let dig_cost = arg::<f32>("digcost");
+            let emit_cost = arg::<f32>("emitcost");
+            let spoil_weight = arg::<f32>("spoilweight");
+            if dig_cost.is_some() || emit_cost.is_some() || spoil_weight.is_some() {
+                let id = world.species.id_of("ant").expect("ant");
+                let mut def = world.species.get(id).creature.as_ref().expect("creature").clone();
+                if let Some(v) = dig_cost {
+                    def.dig_cost_in_moves = v;
+                }
+                if let Some(v) = emit_cost {
+                    def.emit_cost_in_moves = v;
+                }
+                if let Some(v) = spoil_weight {
+                    def.spoil_weight_cells = v;
+                }
+                world.species.set_creature(id, def);
+                if seed == 1 {
+                    println!(
+                        "  PATCHED prices: dig_cost_in_moves = {dig_cost:?}, emit_cost_in_moves = {emit_cost:?}, spoil_weight_cells = {spoil_weight:?}   [ant.ron authors 0.0 for all three]"
+                    );
+                }
+            }
+        }
         // **Founder placement is a seeded shuffle of the ground left of the
         // bank, and the version this replaced could not produce more than
         // seven colonies.**
