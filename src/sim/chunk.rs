@@ -344,31 +344,59 @@ fn full_rows(coord: ChunkCoord) -> [(i16, i16); SPAN_ROWS] {
 ///
 /// # Why this is off by default, which is the part to read before turning it on
 ///
-/// The spans are **not** a free optimisation, and the reason generalises past
-/// this switch: **the CA sweep's random draws are consumed per visited cell,
-/// not per cell that acts.** `update_liquid` and `update_powder` each open
-/// with `surface.rng().flip()`, on every visit, whether or not anything
-/// moves. So *any* narrowing of the swept region — however provably it only
-/// removes cells no rule could have acted on — shifts the per-chunk RNG
-/// stream and therefore every pile, front and stand downstream of it. This is
-/// the `sort_unstable` tie-order gotcha in another costume: the free-looking
-/// half of the trade does not exist.
+/// **These spans change the world, and not only through the RNG. That was
+/// measured 2026-09-05 and it is the opposite of what this comment used to
+/// say**, so read this paragraph before reasoning from anything downstream of
+/// it.
 ///
-/// Measured 2026-09-01 in the evolution lab, paired, three runs a side:
-/// the CA sweep **3.67 -> 2.67 ms** and the whole tick **6.51 -> 5.49 ms**,
-/// ranges not overlapping. And two guards go red, both from the stream shift
-/// rather than from a lost cell: `frame_step_matches_the_sequence_app_update_
-/// ran_before_extraction` holds a hash taken on `origin/main`, and
-/// `a_determinate_species_terminates_its_axes_in_organs_and_an_indeterminate_
-/// one_does_not` asserts an organ is standing at one instant 30,000 frames in,
-/// which a phase shift moves.
+/// The original argument was: the sweep's draws are consumed per *visited*
+/// cell, so narrowing the region shifts the per-chunk `Rng` stream, and the
+/// unlock is therefore to seed the draw from position and frame instead. That
+/// was built (`rng::sweep`, `surface::VisitRng`,
+/// `PIXEL_PHYSICS_RNG=positional`) and it settles the question the other way:
 ///
-/// **1.19x does not buy a change to how every pile in the world lands**, so
-/// this ships as the instrument that measured it rather than as the default.
-/// What would: seeding the per-cell draw from position and frame instead of a
-/// per-chunk stream, after which sweep-region work becomes free and is worth
-/// up to 3x of this phase (`est_rows` in `examples/labperf.rs`). Full account
-/// in `Reports/evolution-lab-frame-cost-2026-09-01.md`.
+/// - **The premise is false.** With the draw keyed on position and frame, so
+///   that visit order cannot reach it at all, box and rows **still diverge** —
+///   identical through frame 4,329 and first differing at **frame 4,330** on
+///   the standard lab bed, bisected to the frame, every arm's hash
+///   reproducing exactly across three reps. So the spans are *not* a superset
+///   of every cell the rules can act on, the RNG was one coupling among at
+///   least two, and the second one is unidentified. Filed as **§E2** in
+///   `Reports/open-bugs-handoff.md` with the reproduction; the leading
+///   unmeasured hypothesis is chunk wakefulness feeding `field::step`'s
+///   `active_chunk_count()` gate.
+/// - **And the economics are gone anyway.** The positional draw costs
+///   **+0.149 ms/tick**, about the whole of what the spans save, so the two
+///   together measured 2.631 -> 2.636 ms with overlapping ranges. The "worth
+///   up to 3x of this phase" this comment used to quote came from `labperf`'s
+///   `est_` columns, which are ~90% soil moisture and — since moisture got its
+///   own dirty channel — do not wake the sweep at all, so they fail that
+///   instrument's own stated control.
+///
+/// One factual correction while it is in view, because three documents
+/// inherited it from here: `update_liquid` and `update_powder` do **not** each
+/// "open with `surface.rng().flip()` on every visit". `update_powder` begins
+/// at `update.rs:701` and its flip is at `:966` behind five returns;
+/// `update_liquid`'s is at `:1352`, after a straight-down `try_move` that
+/// returns at `:1349`. Neither runs at all for `Empty`, `Solid`, `Plant` or
+/// `Creature`. The draws are still consumed in visit order, which is why the
+/// stream shift was real; there are just far fewer of them than the old
+/// wording implies.
+///
+/// Measured 2026-09-01 in the evolution lab, paired, three runs a side: the
+/// CA sweep **3.67 -> 2.67 ms** and the whole tick **6.51 -> 5.49 ms**. Both
+/// numbers are stale as a *frame* argument — re-measured 2026-09-05 the same
+/// spans are 1.19x on the phase and **1.05x on the tick**, because everything
+/// around them got cheaper. Which guards go red also reshuffles between
+/// builds: it was `frame_step_matches_the_sequence_app_update_ran_before_
+/// extraction` plus the determinacy guard, and is now that hash plus
+/// `a_spread_leaf_cluster_is_longer_than_a_blob`.
+///
+/// **So this stays off, and the reason is no longer "it costs a stream
+/// shift" — it is that narrowing the region is a behaviour change nobody has
+/// explained.** Full account in
+/// `Reports/sweep-positional-rng-2026-09-05.md`, which supersedes
+/// `Reports/evolution-lab-frame-cost-2026-09-01.md` §5 on every point above.
 ///
 /// Read once per process through a `OnceLock` and consulted once per chunk
 /// per pass, never per cell.
