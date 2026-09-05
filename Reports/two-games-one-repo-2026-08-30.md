@@ -154,6 +154,40 @@ is a smaller win than the first draft claimed, and it is a real one.
 
 ### Two live bugs that must be settled before any of this is built
 
+**Settled 2026-09-05, and neither reproduces. `paths:` scoping and nested
+`CLAUDE.md` are both available; step 7 is unblocked and step 6 is done.** The
+instrument this section asks for at its end now exists —
+`scripts/contextprobe.sh`, over the `InstructionsLoaded` hook — and it was run
+from a shell rather than from an agent worktree, which is what makes it
+settleable at all: the tree on disk is the tree being measured. Six runs, CLI
+2.1.261, four on an isolated fixture and two in this repo:
+
+| the session | what loaded |
+|---|---|
+| touched no files | root `CLAUDE.md`, unscoped rule — both `session_start` |
+| read `src/lab/mod.rs` | ...**plus** nested `CLAUDE.md` (`nested_traversal`) and the scoped rule (`path_glob_match`) |
+| read `src/other/thing.rs` | neither — **the glob discriminates** |
+| read `src/lab/mod.rs` **in a git worktree** | all four, exactly as in the main checkout |
+
+So #16299 does not reproduce — a scoped rule loads on `path_glob_match`, not at
+session start — and neither does #23569, the disqualifying one. Both controls
+live in `--selftest` rather than in this paragraph, because "nothing extra
+loaded" reads identically whether the scoping works or the hook never fired.
+
+**What this does not license.** The measurement is about *loading*, not about
+*compliance*, and those are different claims. A path-scoped rule arrives when a
+matching file is read — so the test for moving any given rule out is **does
+reading the file precede the mistake the rule prevents?** For a gotcha about
+`Cell::aux` it plainly does; for "the app locks its own exe", which bites at
+`cargo build` before anything is read, it does not. That judgement is per rule
+and is not settled by this table.
+
+**The reasoning that stood while it was unmeasurable is kept below**, because
+the decision it produced was correct on the evidence available — two
+independent upstream reports, and a local probe that was void for a reason
+worth more than the experiment.
+
+
 - [#16299](https://github.com/anthropics/claude-code/issues/16299) — **open,
   confirmed, with a repro**: `paths:`-scoped rules load at session start
   regardless of the glob.
@@ -200,6 +234,11 @@ way to make any future claim about always-loaded cost checkable. Note that an
 unrecognised hook name is silently ignored, so its own firing has to be
 established before its silence means anything.
 
+**Built 2026-09-05** as `scripts/contextprobe.sh`, with the silence problem
+this paragraph names handled the way it prescribes: the script's `--selftest`
+plants a scoped rule and a nested `CLAUDE.md` and fails unless the probe
+reports both, so its firing is established before its silence is read.
+
 ---
 
 ## 4. The divergence risk nothing guards
@@ -235,8 +274,8 @@ form over the outdoor *stand* would catch the economy fork.
 | 3 | **A game column in `README.md`'s By-topic table and `Reports/README.md`** | scopes the two routing layers every agent is sent to first, **71.5k + 24k tokens**, by convention and at once | none; reversible |
 | 4 | **A guard that the outdoor game is unchanged** (§4) | catches the constant fork | none |
 | 5 | **Teach `contextbudget.py` to count `.claude/rules/*.md` and nested `CLAUDE.md`** | makes step 7 measurable at all | none |
-| 6 | **Settle #23569 in a worktree** (§3) | says whether step 7's mechanism works here | none |
-| 7 | **Move the evidence narrative to a routed report** | ~25,474 → ~12,000, *if* 5 and 6 come back clean | see §3 |
+| 6 | ~~**Settle #23569 in a worktree** (§3)~~ | **done 2026-09-05 — it does; neither bug reproduces, see §3** | — |
+| 7 | **Move the evidence narrative to a routed report** | ~25,474 → ~12,000; **6 came back clean, so `paths:` scoping is available to it as well** | see §3 |
 | 8 | **`Reports/{engine,outdoor,lab}/`** | scopes the grep structurally | **see below — not link churn** |
 | 9 | Path-filtered outdoor gates | ~12 min off a lab-only PR | a gate that quietly stops running |
 

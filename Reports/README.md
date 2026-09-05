@@ -56,8 +56,10 @@ by somebody about to try it on creatures.
   evidence could actually go, the precedent this repo already set
   (`session-programs.md`, moved out for exactly this reason), two live Claude
   Code bugs that would void the saving **inside a git worktree, which
-  `CLAUDE.md` mandates**, and the correction that `Reports/` is neither flat
-  nor 14 MB of prose. Names the largest miss: **`README.md` is 71,561 tokens,
+  `CLAUDE.md` mandates** — **both measured 2026-09-05 and neither reproduces
+  on CLI 2.1.261, so `paths:` scoping and nested `CLAUDE.md` are available
+  after all; see its §3 and `scripts/contextprobe.sh`** — and the correction
+  that `Reports/` is neither flat nor 14 MB of prose. Names the largest miss: **`README.md` is 71,561 tokens,
   the biggest document in the repo, overwhelmingly outdoor, and every agent is
   routed to it first.**
 - [why-changes-cost-so-much-2026-08-27.md](why-changes-cost-so-much-2026-08-27.md)
@@ -141,6 +143,16 @@ by somebody about to try it on creatures.
   The twelve-issue backlog; nine-plus closed, #11 (slice-identifier on
   `ChunkCoord`) has a land-before-save-format deadline and #12 (grass does
   not spread) was owner-filed 2026-08-24.
+- [method-worked-cases-2026-09-05.md](method-worked-cases-2026-09-05.md) —
+  **living record.** The evidence behind `CLAUDE.md`'s Method rules: what
+  `seedsweep.sh`'s default frame budget misses and the water-cycle control
+  that explains its drift, the five instruments that have each lied and the
+  four numbers that could not have moved, the relaxation pass whose 300x was a
+  region made immune, and the field gate that removed 91% of the work and made
+  the frame slower. **Every rule and every headline number stayed in
+  `CLAUDE.md`** — this is what you need once you are inside the manoeuvre, not
+  before. Split out 2026-09-05 with the section that took always-loaded context
+  from 26,314 to 21,390 tokens.
 - [concurrent-sessions.md](concurrent-sessions.md) — **living record.** The
   narratives behind `CLAUDE.md`'s "Working alongside another session" rules:
   the incidents, their measurements, and the forensics for recognising each
