@@ -26,6 +26,105 @@ use super::material::{MaterialKind, MaterialRegistry};
 use super::rng::Rng;
 use super::scheduler::ActiveSite;
 
+/// Whether the CA sweep's per-cell draw is keyed on position and frame
+/// instead of taken from a stream advanced in visit order.
+/// `PIXEL_PHYSICS_RNG=positional` turns it on; anything else keeps the
+/// per-chunk stream the engine has always used.
+///
+/// **Off by default, and the default is bit-identical** — this ships as the
+/// switch that prices it, exactly as `chunk.rs`'s `PIXEL_PHYSICS_SWEEP` did
+/// for the row spans, and for the same reason: turning it on is a one-time
+/// divergence of every world in the engine, which is the owner's call and not
+/// a free one. Full account, including what it is worth and what it is not,
+/// in `Reports/sweep-positional-rng-2026-09-05.md`.
+///
+/// Read once per process through a `OnceLock` and consulted once per
+/// `VisitRng`, never per draw.
+fn positional_draw_enabled() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_RNG").as_deref() == Ok("positional"))
+}
+
+/// The per-visit draw state both `CellSurface` implementations embed.
+///
+/// One of these per surface, not per cell: `begin` resets it and `get`
+/// constructs the generator **lazily, on the first draw of the visit**. That
+/// laziness is not a micro-optimisation — most visited cells never draw at
+/// all (`update_powder`'s flip sits behind five returns, `update_liquid`'s
+/// behind one, and neither runs for `Empty`, `Solid`, `Plant` or `Creature`),
+/// so a cell that never draws never pays the hash.
+#[derive(Clone)]
+pub struct VisitRng {
+    positional: bool,
+    /// `(seed, x, y, frame)` of the visit currently open, or `None` before
+    /// any has been. See [`CellSurface::begin_visit`].
+    key: Option<(u64, i32, i32, u64)>,
+    rng: Option<Rng>,
+}
+
+/// What [`VisitRng::get`] keys on when no visit has been opened. Reached only
+/// through a path a `debug_assert!` rejects; it exists so the release build is
+/// deterministic and position-free rather than handing back whichever cell
+/// drew last, which would present as a behaviour bug far from its cause.
+const NO_VISIT: (u64, i32, i32, u64) = (0, i32::MIN, i32::MIN, 0);
+
+impl VisitRng {
+    pub fn new() -> Self {
+        Self { positional: positional_draw_enabled(), key: None, rng: None }
+    }
+
+    /// Open a visit at `(x, y)`.
+    ///
+    /// **Idempotent for a position already open**, which is what lets two
+    /// owners call it. `update::update_cell` opens the visit for the cell it
+    /// is about to run every rule on, and `fire::update` opens one too
+    /// because it is a per-cell entry point in its own right that tests call
+    /// directly — 26 of them in `fire.rs` alone. Without the early return the
+    /// second call would reset the generator mid-visit and hand the movement
+    /// rules a sequence fire had already drawn from, which is the one quality
+    /// failure a positional key actually has (a key collision). With it, the
+    /// order of the two calls stops mattering at all.
+    #[inline]
+    pub fn begin(&mut self, seed: u64, x: i32, y: i32, frame: u64) {
+        if !self.positional {
+            return;
+        }
+        let key = (seed, x, y, frame);
+        if self.key == Some(key) {
+            return;
+        }
+        self.key = Some(key);
+        self.rng = None;
+    }
+
+    /// The generator for the visit in progress, or `stream` under the
+    /// default. `stream` is the caller's own field — `World::rng` or the
+    /// chunk's — so this is a field borrow on both sides and not a second
+    /// borrow of the surface.
+    #[inline]
+    pub fn get<'a>(&'a mut self, stream: &'a mut Rng) -> &'a mut Rng {
+        if !self.positional {
+            return stream;
+        }
+        if self.rng.is_none() {
+            debug_assert!(
+                self.key.is_some(),
+                "a draw was taken outside a cell visit -- CellSurface::begin_visit must be called \
+                 first, and update::update_cell is the only place that should be doing it"
+            );
+            let (seed, x, y, frame) = self.key.unwrap_or(NO_VISIT);
+            self.rng = Some(super::rng::sweep(seed, x, y, frame));
+        }
+        self.rng.as_mut().expect("set immediately above")
+    }
+}
+
+impl Default for VisitRng {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 pub trait CellSurface {
     fn get(&self, x: i32, y: i32) -> Cell;
     fn set(&mut self, x: i32, y: i32, cell: Cell);
@@ -64,10 +163,54 @@ pub trait CellSurface {
 
     fn materials(&self) -> &MaterialRegistry;
 
-    /// Movement tie-breaks, fire's ignition rolls, reaction chances. `World`
-    /// hands out its single shared generator; `ChunkView` hands out its own
-    /// chunk's — see `Chunk::rng` for why splitting the stream per chunk is
-    /// what the parallel sweep needs.
+    /// **Open a cell's visit**, before any rule reads or writes it.
+    ///
+    /// Two callers, and [`VisitRng::begin`] is idempotent for a position
+    /// already open so their order does not matter:
+    /// `update::update_cell`, the sweep's per-cell entry point, and
+    /// `fire::update`, which is one in its own right and which 26 tests in
+    /// `fire.rs` call directly.
+    ///
+    /// It exists for [`Self::rng`]: under `PIXEL_PHYSICS_RNG=positional` the
+    /// draw is keyed on the cell's position and the frame rather than taken
+    /// from a stream advanced in visit order, and this is what tells the
+    /// surface which cell is being visited. Under the default it does
+    /// nothing an optimiser cannot see through.
+    ///
+    /// **The invariant this relies on is one drawing visit per *position* per
+    /// frame** — not per *cell*, which is a different quantity and the one an
+    /// earlier draft of this work confused it with (`moved` is a flag that
+    /// travels with the material, so it says nothing about positions). It
+    /// holds on three separate facts, listed here because they are what a
+    /// later change could break:
+    ///
+    /// - `Chunk::sweep_region` intersects with the chunk's own bounds, and
+    ///   `sweep_plan` keeps them, so a chunk only visits its own cells — and
+    ///   chunk bounds are disjoint.
+    /// - `World::chunks_to_sweep` walks `chunks.values()`, and
+    ///   `parallel::step` gives each coord exactly one pass key, so each
+    ///   active chunk is swept exactly once per frame.
+    /// - `parallel::run_pass`'s reinsert-then-replay loop replays *writes*,
+    ///   never re-sweeps, so no position is visited twice. A cell that moves
+    ///   across a chunk boundary lands at a different position and draws from
+    ///   a different key either way.
+    fn begin_visit(&mut self, x: i32, y: i32);
+
+    /// Movement tie-breaks, fire's ignition rolls, reaction chances.
+    ///
+    /// Under the default, `World` hands out its single shared generator and
+    /// `ChunkView` its own chunk's — see `Chunk::rng` for why splitting the
+    /// stream per chunk is what the parallel sweep needs. Under
+    /// `PIXEL_PHYSICS_RNG=positional`, both hand out one generator per *cell
+    /// visit*, keyed by [`rng::sweep`] on `(seed, x, y, frame)` and
+    /// constructed lazily on the first draw of the visit — so a cell that
+    /// never draws never pays the hash, and the sequence a cell gets no
+    /// longer depends on what else was swept. See [`Self::begin_visit`].
+    ///
+    /// Calling this outside a visit is a bug: it trips a `debug_assert!`, and
+    /// in release falls back to a fixed sentinel key rather than silently
+    /// handing back the previous cell's stream, which would present as a
+    /// behaviour bug far from its cause.
     fn rng(&mut self) -> &mut Rng;
 
     /// Raise ambient field temperature in a filled circle around a cell —

@@ -547,6 +547,12 @@ struct ChunkView<'w> {
     /// outcomes in a fixed order, so the same run adds the same partial
     /// sums in the same sequence. See the `determinism.rs` pair.
     meat_lost: f64,
+    /// This worker's per-visit draw when `PIXEL_PHYSICS_RNG=positional`;
+    /// inert under the default, where `chunk.rng_mut()` is handed out
+    /// unchanged. Per *view* rather than per cell — `VisitRng` resets on each
+    /// `begin_visit` and constructs lazily on the visit's first draw. See
+    /// `surface::VisitRng`.
+    visit_rng: crate::sim::surface::VisitRng,
 }
 
 impl<'w> ChunkView<'w> {
@@ -570,6 +576,7 @@ impl<'w> ChunkView<'w> {
             phase_counts: crate::sim::fire::PhaseCounts::default(),
             sky_condensate: 0,
             meat_lost: 0.0,
+            visit_rng: crate::sim::surface::VisitRng::new(),
         }
     }
 
@@ -712,8 +719,15 @@ impl CellSurface for ChunkView<'_> {
         &self.world.materials
     }
 
+    fn begin_visit(&mut self, x: i32, y: i32) {
+        let (seed, frame) = (self.world.seed, self.world.frame);
+        self.visit_rng.begin(seed, x, y, frame);
+    }
+
     fn rng(&mut self) -> &mut Rng {
-        self.chunk.rng_mut()
+        // `visit_rng` and `chunk` are distinct fields, so this is a pair of
+        // field borrows rather than two borrows of the view.
+        self.visit_rng.get(self.chunk.rng_mut())
     }
 
     fn add_heat(&mut self, x: i32, y: i32, radius: i32, amount: f32) {
