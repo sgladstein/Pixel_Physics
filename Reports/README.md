@@ -831,6 +831,56 @@ drift that two of these documents still reflect.**
 
 ## Creatures and ecology  ·  `engine`
 
+- [creature-programme-plan-2026-09-05.md](creature-programme-plan-2026-09-05.md)
+  — **plan, 2026-09-05; nothing built by it, and under review at the time of
+  writing.** Where the creature line goes after a day whose three findings all
+  landed somewhere other than where they were predicted. **Its through-line is
+  a correction to two framings, mine and the owner's**: the bottleneck was
+  called *population size* and then *the environment*, and of the three things
+  measured only one was an environment problem — pricing the free verbs, which
+  worked immediately. The other two were the **animal**: the trail pathway is
+  95% saturated off outside a narrow carry band, and the ant is blind and
+  cannot tell a tunnel from a pit. Hence the standing rule it proposes,
+  **audit the animal before building the environment** — *can it perceive the
+  thing, can it express the response* — which was skipped twice in one day and
+  cost a wrong claim each time. Splits the work into **the world selects**
+  (needs all three of expressible, paid for, and enough population) against
+  **the player selects** (needs only that variation exists and a person can
+  see it), and puts the behaviour prospector first on the grounds that it is
+  diagnostic rather than merely useful. Also names three decisions as the
+  owner's rather than measurable, which is the part a reviewer should attack
+  hardest
+
+- [selective-environments-2026-09-05.md](selective-environments-2026-09-05.md)
+  — **method and one worked demonstration, 2026-09-05.** The owner's
+  correction — *"not just population size and run length but actually setting
+  up the appropriate environment to select for them"* — answered as a
+  measurement. **There are exactly two currencies**: an animal dies of energy
+  reaching zero or of its cells being destroyed, and nothing else (no thermal
+  death, no age, no disease), so every selective pressure that will ever exist
+  has to route through one of them — the first check against any proposed
+  environment. **Never argue an environment, ablate it**: `creature_arena`
+  now takes `arm=ablate input=<sense> [output=<verb>]` and can vary the
+  economy in the same run, because an arena that only varies the genome
+  answers half the question. The demonstration is the dig drive at three
+  economies, same genome and seeds throughout: **all verbs free gives median
+  50.0% and 1 seed of 4 — the null — and the shipped prices give 63.6% and 4
+  of 4.** One environment change turned a selectively invisible behaviour
+  into a selected one. Two things it overturned: `spoil_weight_cells`, sized
+  at a negligible **0.3% of movement cost** across the population, is
+  decisive **in the contrast** because only one arm carries spoil — a general
+  warning about sizing a lever by its share of a total; and a first reading of
+  `arm=notrail` that called it inseparable, **which was wrong and is corrected
+  in place**: the pheromone weights feed differential pairs that cancel
+  exactly at zero signal, so the ablation leaves `Bias -> Move` intact and does
+  mean what it says (3 seeds of 4, median 37.8%). **A behaviour that is not
+  separable cannot be selected for by any environment** — but the check is
+  tracing what a pathway is *worth*, not noting which output it reaches, and
+  the arithmetic that settled it found the better finding: the trail mechanism
+  is **saturation-gated on carry state**, worth 18% of the `Move` decision at
+  ~60% laden and under 1% empty or full. Carries the ant's full separability
+  audit
+
 - [creature-behaviour-ceiling-2026-09-05.md](creature-behaviour-ceiling-2026-09-05.md)
   — **diagnosis, measured, 2026-09-05; nothing tuned and nothing built.** The
   owner's question — *are the interesting behaviours impossible, unselected,
