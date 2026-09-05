@@ -72,6 +72,33 @@ fn main() {
     }
 
     let mut lab = Lab::new(spec);
+    // **The verb prices, patched into the live registry.** They are
+    // `CreatureDef` fields compiled in via `include_str!`, so editing
+    // `ant.ron` and re-running a prebuilt binary gives bit-identical "runs"
+    // -- `CLAUDE.md` records three of those. Echoed on its own line whatever
+    // it is set to, per the harness rule: a knob nobody can see the value of
+    // is a knob nobody can tell is disconnected.
+    {
+        let dig_cost: Option<f32> = arg("digcost");
+        let emit_cost: Option<f32> = arg("emitcost");
+        let spoil_weight: Option<f32> = arg("spoilweight");
+        let id = lab.world.species.id_of("ant").expect("ant species");
+        let mut def = lab.world.species.get(id).creature.as_ref().expect("creature").clone();
+        if let Some(v) = dig_cost {
+            def.dig_cost_in_moves = v;
+        }
+        if let Some(v) = emit_cost {
+            def.emit_cost_in_moves = v;
+        }
+        if let Some(v) = spoil_weight {
+            def.spoil_weight_cells = v;
+        }
+        println!(
+            "labstats: prices dig_cost_in_moves={} emit_cost_in_moves={} spoil_weight_cells={}",
+            def.dig_cost_in_moves, def.emit_cost_in_moves, def.spoil_weight_cells
+        );
+        lab.world.species.set_creature(id, def);
+    }
     // The cull control needs a moment of stand to cull; everything else runs
     // straight through.
     let cull_at = if control == "cull" { frames / 2 } else { u64::MAX };
@@ -94,6 +121,34 @@ fn main() {
         if f < frames {
             tick(&mut lab);
         }
+    }
+
+    // **The verb-price accounts, and what they are a share of.** Sizing a
+    // price needs the denominator beside it: `dig_energy` alone says the
+    // charge fired, and only `dig_energy / (metabolized + moved)` says
+    // whether it is a rounding error or the whole animal's budget. That
+    // ratio is the number a default is derived from -- `CLAUDE.md`'s "set
+    // bars from measurement with headroom", where the measurement is a share
+    // rather than a joule count that means nothing on its own.
+    {
+        let l = &lab.world.energy_ledger;
+        let st = &lab.world.creature_stats;
+        let burn = l.metabolized + l.moved + l.synapse_tax;
+        let share = |x: f64| if burn > 0.0 { 100.0 * x / burn } else { 0.0 };
+        println!(
+            "\n--- verb accounts --- digs {} spoil_dumped {} | dig_energy {:.1} ({:.1}% of burn) emit_energy {:.1} ({:.1}%) \
+             | burn {:.1} = metabolized {:.1} + moved {:.1} + synapse {:.1}",
+            st.digs,
+            st.spoil_dumped,
+            st.dig_energy,
+            share(st.dig_energy),
+            st.emit_energy,
+            share(st.emit_energy),
+            burn,
+            l.metabolized,
+            l.moved,
+            l.synapse_tax
+        );
     }
 
     println!("\n--- the page, as text ---");

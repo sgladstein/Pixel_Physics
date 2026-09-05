@@ -122,6 +122,78 @@
         idle_cost_per_cell: 0.05,
         move_cost_per_cell: 0.125,
 
+        // --- the verb prices -------------------------------------------
+        //
+        // **Digging, laying a trail and hauling spoil charged nothing until
+        // 2026-09-05, and that is why a bed with a colony in it becomes one
+        // enormous hole.** The tick priced existing, walking, thinking and
+        // looking and nothing else, so three of the twelve outputs sat
+        // outside the economy -- measured over 24 random genomes, survival
+        // correlates **+0.895 with feeding** and +0.151 with travelling and
+        // with digging not at all, because there was no term for it to
+        // correlate with (`Reports/creature-behaviour-ceiling-2026-09-05.md`).
+        // `(Bias, Dig, 0.4)` below is an *unconditional* drive, so with the
+        // verb free it was **selectively neutral**: nothing in the world
+        // could tell an ant that digs all day from one that never digs, at
+        // any horizon or mutation rate.
+        //
+        // **All three are sized from a share of the burn, not chosen.** One
+        // bed, 40,000 frames, `labstats -- digcost=1 emitcost=1
+        // spoilweight=1`, against a total burn of 82,409 J:
+        //
+        //     verb    at price 1      what that is
+        //     dig       129.8 J       0.2% of burn   -- 519 events in 40,000 frames
+        //     emit   10,336.2 J      12.5% of burn   -- laid on every step, both planes
+        //     spoil     +152 J        0.3% of moved  -- a pellet is carried briefly
+        //
+        // **The 60x gap between dig and emit is the whole sizing problem and
+        // it is not intuition-shaped**: a dig is a rare event and a deposit
+        // happens on every successful move, so equal prices would have made
+        // trail-laying the animal's largest single cost and digging a
+        // rounding error. Anyone re-tuning these should re-measure that
+        // table first rather than move the numbers proportionally.
+
+        // **Six steps to cut one cell.** Lands digging at 1.5-2.2% of burn
+        // across six seeds -- a real term, below the synapse tax, and it
+        // reads as a sentence: chewing through packed soil costs what
+        // walking six cells costs.
+        dig_cost_in_moves: 6.0,
+        // **A sixth of a step for a full-strength deposit**, which puts
+        // trail-laying at 5.7-6.3% of burn -- deliberately about what
+        // *thinking* costs (synapse tax runs 5-6%), because a signal an
+        // animal broadcasts constantly should sit in the same bracket as the
+        // brain that decides to broadcast it. At 1.0 it was 12.5% and the
+        // largest single line in the budget, which is a species that cannot
+        // afford to speak.
+        emit_cost_in_moves: 0.5,
+        // **A pellet weighs one body cell** -- half of this two-cell animal,
+        // which is roughly what a real ant carries. Honest rather than
+        // powerful: it moves `moved` by 0.3%, because an ant puts spoil down
+        // almost at once (646 digs, 646 dumps). Left at a physically
+        // truthful value rather than inflated to make it bite, per
+        // `CLAUDE.md` -- a bar set from an aspiration is not a measurement.
+        spoil_weight_cells: 1.0,
+        //
+        // **What the three together buy, paired over six seeds**, 24,000
+        // frames, 32 founders and one colony, priced against free:
+        //
+        //     digs      down in 6 of 6, median -15.5%, range -2.2% to -32.7%
+        //     animals   down in 4, up in 2 -- no direction, i.e. noise
+        //
+        // So excavation falls about a sixth and the colony does not pay for
+        // it. **An earlier single-seed reading said a price halved the
+        // colony (57 -> 36 animals); six paired seeds say that was the
+        // seed.** This bed's seed-alone spread is 2.4-3.1x and a difference
+        // of two single runs is not a result -- the exact trap `CLAUDE.md`
+        // records, walked into and then measured out of.
+        //
+        // **What this does NOT yet do is make the animal good at it**, and
+        // that is the open question rather than a tuning. The dig drive is on
+        // `Bias`, so selection has to walk that one weight down; at
+        // `mutation_rate` 0.0058456 a given slot is touched about once per
+        // 171 births, against 45-88 births in a run. The gradient is real and
+        // the population is too small and too short-lived to climb it.
+
         // Per active synapse per tick, **as a fraction of start_energy**:
         // 2.2222222e-6 * 900 was the 0.002 this was authored as, exactly,
         // in f32 at that budget and at the 90 the sweep harness cuts it to.
