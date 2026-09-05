@@ -1,0 +1,57 @@
+{
+  "id": "20260905T065238511Z-3cd1b6",
+  "created": "2026-09-05T06:52:38Z",
+  "board": "lab",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/evolution-lab-tracking-e6o5eo",
+    "commit": "2daa9708",
+    "agent": null,
+    "session_id": "5ab42928-53c2-5437-a51b-bce70dafe472",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "WATCH: where one ant has been, and how its bank moved",
+  "question": "Does the trail read as a path -- can you tell which way it was walking? And is the fading the right way round, or would you rather the oldest end were the bright one?",
+  "context_md": "The rosters got you **to** an individual and the life record said what it had **done**. This is the part that shows it doing it.\n\nPin anything and it grows a trail: 128 dots, one every 12 simulated frames, so about 1,500 frames of path. Oldest is dimmest, newest brightest, with the marker on top -- the idea being you can read direction without an arrowhead, which at this size is three pixels and looks like dirt.\n\nUnder STATE there are now two strips for the individual itself. **BANK is the one worth looking at**: this ant's energy runs 264 down to 349-ish and *falls* across the whole window. It is spending and not refilling.\n\nOne thing I changed after looking at the first version, and it is the difference between the two strips being useful and being wallpaper. The population strip scales its bars from zero, which is right for a headcount -- zero means everything died. For one animal's bank it is wrong: 264-349 is all between 76% and 100% of the peak, so it drew as a **solid green block** and the sawtooth you actually want to see was invisible. These are scaled to their own range instead, and the caption carries the real numbers so you are never fooled into thinking the floor is zero.\n\nBODY is flat at 2-2 cells, which is the truth about an ant and is the control: if that one ever draws a shape, something has bitten a piece off it.\n\nThe trail also **outlives the animal**. A dead one stops adding and loses nothing -- where it got to before it starved is exactly what a graveyard row cannot tell you.",
+  "kind": "gallery",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "THE TRAIL",
+      "files": [
+        "20260905T065238511Z-3cd1b6/000-wt8-watch--ant-trail.png"
+      ],
+      "caption": "Zoomed in, FOLLOW on. The dotted line running left from the marker is roughly 1,500 frames of walking.",
+      "meta": {
+        "samples in the ring": 128,
+        "frames covered": 1524,
+        "cells travelled": 145,
+        "one sample every": 12
+      },
+      "focus": null
+    },
+    {
+      "label": "THE STRIPS",
+      "files": [
+        "20260905T065238511Z-3cd1b6/001-wt8-watch--ant-series.png"
+      ],
+      "caption": "STATE, with RANGE 145 at the top -- this is the ant that ranged furthest, which is how the tile picks its subject.",
+      "meta": {
+        "bank low": 264,
+        "bank high": 349,
+        "body cells": 2,
+        "walked": 916,
+        "blocked": 42
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
