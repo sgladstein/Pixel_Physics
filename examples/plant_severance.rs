@@ -81,12 +81,14 @@ fn census(w: &World) -> Vec<(u16, Row)> {
                 contact: st.contact_root_cells,
                 unreached,
                 water: st.water,
-                // `water_capacity_of` is private; it is
-                // `WATER_SCALE * contact.max(1)` and is reproduced here
-                // rather than exported, with the multiplication written out
-                // so a drift shows up as a wrong number rather than as a
-                // compile error nobody sees.
-                capacity: organism::WATER_SCALE * st.contact_root_cells.max(1) as f32,
+                // **The engine's own function, not a copy of its
+                // arithmetic.** This line used to reproduce the formula
+                // behind a comment arguing that a drift would show up as a
+                // wrong number -- and it did drift, the moment
+                // `water_tank_contact_cap` landed: this printed 1244 where
+                // the engine used 128, and silently corrupted `fill` with
+                // it. A wrong number only helps if someone reads it.
+                capacity: pixel_physics::sim::plant::water_capacity_of(st.contact_root_cells),
                 status: st.water_status,
                 demand: st.water_demand,
                 uptake: st.water_uptake,

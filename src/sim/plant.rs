@@ -747,7 +747,14 @@ fn wood_density_mult(world: &World, organism_id: u16) -> f32 {
 /// A floor of one root cell's worth so a seedling that has just germinated,
 /// with no root system at all yet, still has somewhere to put its first
 /// drink.
-fn water_capacity_of(contact_root_cells: u32) -> f32 {
+/// **Public so a harness reads the real value rather than re-deriving it.**
+/// `examples/plant_severance` carried its own copy of the arithmetic behind
+/// a comment claiming a drift would "show up as a wrong number rather than
+/// as a compile error nobody sees" -- and when `water_tank_contact_cap`
+/// landed it printed `cap 1244` where the engine used 128, silently
+/// corrupting its `fill` column too. A wrong number only helps if someone
+/// reads it; a shared function cannot drift at all.
+pub fn water_capacity_of(contact_root_cells: u32) -> f32 {
     organism::WATER_SCALE * contact_root_cells.clamp(1, water_tank_contact_cap()) as f32
 }
 
