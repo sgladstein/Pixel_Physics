@@ -90,8 +90,8 @@
         // mouthful it took before. It also makes the beetle blind to every
         // plant food in the world for free, which the name-list was doing
         // by omission.
-        traits: (1.0, 1.0, 0.0, 0.0, 0.0),
-        trait_variance: (0.15, 0.15, 0.15, 0.15, 0.15),
+        traits: (1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+        trait_variance: (0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15),
 
         // **A beetle can breed, and until 2026-09-05 it could not — the
         // field was simply absent.** `#[serde(default)]` made it 0.0 and
@@ -173,15 +173,27 @@
         //   S = 0.05 at this species' dig_force of 0.3
         //   0.05 / (10,666.7 * 0.3) = 1.5625e-5
         //
-        // **And this is the line that makes the burrowing question
-        // answerable rather than a rule.** `dig_force: 0.3` is below soil's
+        // **What this does and does not make possible, corrected after the
+        // guard for it failed.** `dig_force: 0.3` is below soil's
         // `penetration_resistance` of 0.8, so a beetle cannot cut ground at
         // all -- which is why adding beetles to a bed has never made shelter
-        // pay (`Reports/selective-environments-2026-09-05.md`). With the
-        // force priced and heritable, a beetle lineage *can* reach 0.8 and
-        // start digging, and will pay for the jaw every tick of its life
-        // whether or not it uses it. Whether that trade is worth taking is
-        // then a question the bed answers, which is the whole point.
+        // pay (`Reports/selective-environments-2026-09-05.md`). Priced and
+        // heritable, the force can now evolve past 0.8, so burrowing becomes
+        // AFFORDABLE and PHYSICALLY POSSIBLE for this lineage.
+        //
+        // **It does not make a beetle a burrower, and the first version of
+        // this comment said it did.** The brain below wires `Dig` exactly
+        // once, as `(FoodAdjacent, Dig, 2.0)`: the verb is this animal's
+        // BITE, not an excavation drive. With no food adjacent nothing drives
+        // the output and jaw strength is irrelevant -- measured, a beetle
+        // with the strongest possible jaw in a bank of soil digs ZERO cells.
+        // The drive would have to evolve separately, and there is a free
+        // `(Bias, Dig)` slot for it to evolve into.
+        //
+        // The rule that would have caught this before the claim was made is
+        // in this project's own plan: audit the animal before the
+        // environment -- can it perceive the thing, can it express the
+        // response.
         force_fraction: 0.000015625,
         dig_force: 0.3,
         // **The eye, and it is the whole of what this animal was missing.**

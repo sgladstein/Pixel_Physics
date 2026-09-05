@@ -63,7 +63,7 @@ use super::cell::{Cell, AMBIENT_TEMPERATURE};
 use super::chunk::Rect;
 use super::field;
 use super::material::{self, MaterialKind};
-use super::organism::{pack_cell_type, Carried, CellType, Crop, CreatureDef, Flight, ShadeRule, SpeciesId, Spoil, CREATURE_TRAITS, TRAIT_BIRTH_GRANT, TRAIT_GUT_BIAS, TRAIT_PACE, TRAIT_REPRODUCE_AT, TRAIT_SIGHT_RANGE};
+use super::organism::{pack_cell_type, Carried, CellType, Crop, CreatureDef, Flight, ShadeRule, SpeciesId, Spoil, CREATURE_TRAITS, TRAIT_BIRTH_GRANT, TRAIT_GUT_BIAS, TRAIT_CROP_CAPACITY, TRAIT_CURVATURE_RADIUS, TRAIT_DIGEST_RATE, TRAIT_DIG_FORCE, TRAIT_PACE, TRAIT_REPRODUCE_AT, TRAIT_SIGHT_RANGE};
 use super::pheromone::{self, Channel};
 use super::rng;
 use super::scheduler::{ActiveKind, ActiveSite};
@@ -1476,6 +1476,25 @@ pub fn reproduce_at_of(def: &CreatureDef, traits: &[f32; CREATURE_TRAITS]) -> Op
 /// than gating whether something happens.
 pub const MAX_DIGEST_OVERHEAD: f32 = 0.9;
 
+/// How far one allele may shift a curvature disc, in cells, and the widest
+/// it may ever be. 8 is four times the ant's authored 2; 16 is the ceiling
+/// the quadratic price argues for -- a radius-16 disc reads 1,088 cells a
+/// tick, 17.6% of an ant's idle lifetime, and an unbounded allele would be
+/// an unbounded per-tick cost against a hard frame budget.
+pub const CURVATURE_SPAN: f32 = 8.0;
+pub const CURVATURE_MAX: f32 = 16.0;
+
+/// How far one allele may shift a jaw. 1.0 is the ant's whole authored
+/// `dig_force`, so `+1` doubles it and `-1` takes it to nothing -- and 0.5
+/// is what carries a beetle from 0.3 to soil's 0.8.
+pub const DIG_FORCE_SPAN: f32 = 1.0;
+
+/// The smallest crop a lineage may evolve, in joules of face value.
+/// `CreatureDef::crop_capacity`'s own doc: a cell only leaves the crop at
+/// whole unit worth, so an animal under one unit can never put anything down
+/// again. Three units is the working floor it names.
+pub const CROP_MIN: f32 = 3.0;
+
 const SIGHT_SPAN: f32 = 64.0;
 
 /// **The ceiling on an evolved eye**, in cells. Twice `SIGHT_SPAN`, so a
@@ -1558,10 +1577,118 @@ pub fn reproduce_fraction(t: f32) -> f32 {
 /// quick animal pays its whole bill twice as often per frame. `CreatureDef::
 /// scaled` states the same identity from the other end: idle burn per frame
 /// is `idle_cost_per_cell * cells / tick_interval`.
+/// **One reciprocal factor, for every gene whose field is a rate or a
+/// capacity.**
+///
+/// `1/(1+t)` above zero and `1-t` below it, so `-1` and `+1` are the same
+/// factor in opposite directions and the axis is symmetric in *ratio* — the
+/// symmetry a rate wants, and the one the plain `(1 + t)` of
+/// `reproduce_fraction` does not have. `2f32.powf(t)` is the same curve and
+/// is not available: nothing decision-relevant here may call libm
+/// (`brain::squash`).
+///
+/// **Written once because three slots use it.** `TRAIT_PACE` reads it
+/// inverted — a quick animal is a *shorter* interval — and
+/// `TRAIT_DIGEST_RATE` and `TRAIT_CROP_CAPACITY` read it directly. Three
+/// copies of the same two-line branch is how they would come to disagree
+/// about what an allele of 0.5 means.
+/// **This animal's own trait vector, or its species' if it is not alive.**
+///
+/// Every `*_of` resolver takes a trait array rather than a world, so that the
+/// arithmetic is testable without a running bed. This is the one place that
+/// bridges them, and it exists because the alternative — the same `map_or`
+/// spelled out at each of a dozen call sites — is how one site comes to read
+/// the species where its neighbour reads the individual. `TRAIT_SIGHT_RANGE`
+/// shipped with exactly that split: a harness set the species vector and the
+/// standing animals kept their founded copies, and three alleles returned
+/// byte-identical counters.
+fn traits_of(world: &World, organism: u16, def: &CreatureDef) -> [f32; CREATURE_TRAITS] {
+    world.organism(organism).map_or(def.traits, |st| st.traits)
+}
+
+fn ratio_factor(t: f32) -> f32 {
+    let t = t.clamp(-1.0, 1.0);
+    if t >= 0.0 {
+        1.0 / (1.0 + t)
+    } else {
+        1.0 - t
+    }
+}
+
+/// **How wide a patch of ground this particular animal feels**, in cells.
+///
+/// Additive and ungated, exactly as `sight_range_of` is and for the ruling
+/// it records: a multiplier makes zero absorbing, so a species authoring no
+/// disc could never grow one. Every species but the ant is in that position.
+///
+/// Bounded at `CURVATURE_MAX` because `curvature_fraction` prices the disc
+/// per cell read and the disc is `(2r+1)^2 - 1` cells: an unbounded allele
+/// is an unbounded per-tick cost against a hard frame budget.
+pub fn curvature_radius_of(def: &CreatureDef, traits: &[f32; CREATURE_TRAITS]) -> i32 {
+    let shifted = def.curvature_radius as f32 + traits[TRAIT_CURVATURE_RADIUS].clamp(-1.0, 1.0) * CURVATURE_SPAN;
+    shifted.round().clamp(0.0, CURVATURE_MAX) as i32
+}
+
+/// **How hard this particular animal's jaw is.**
+///
+/// Additive, span 1.0 — the ant's whole authored force — so `+1` doubles it
+/// and `-1` takes it to nothing. `dig_force` is a *threshold* against
+/// `penetration_resistance`, so both ends mean something concrete: the floor
+/// is an animal that cannot cut anything at all, and the ceiling is one that
+/// cuts materials its species never could.
+///
+/// **This is what lets a beetle become a burrower.** It authors 0.3 against
+/// soil's 0.8; at `+0.5` it reaches 0.8 and can break ground. It then pays
+/// `force_fraction` for that jaw every tick whether it digs or not, so the
+/// bed decides whether the trade is worth taking.
+pub fn dig_force_of(def: &CreatureDef, traits: &[f32; CREATURE_TRAITS]) -> f32 {
+    (def.dig_force + traits[TRAIT_DIG_FORCE].clamp(-1.0, 1.0) * DIG_FORCE_SPAN).max(0.0)
+}
+
+/// **This animal's bite, moved by the same allele as its dig.**
+///
+/// One apparatus: `force_fraction` bills the larger of the two and
+/// `bite_force` defaults to `dig_force`, so a gene that moved only one of
+/// them would let a lineage evolve a mouth its own jaw price never saw.
+/// Scaled by the ratio the dig gene produced rather than shifted by the same
+/// span, so a species whose bite and dig differ keeps that difference.
+pub fn bite_force_of(def: &CreatureDef, traits: &[f32; CREATURE_TRAITS]) -> f32 {
+    let authored = def.dig_force.max(f32::EPSILON);
+    (def.bite_force() * (dig_force_of(def, traits) / authored)).max(0.0)
+}
+
+/// **How fast this particular animal's gut is.**
+///
+/// The reciprocal axis, a rate wanting a symmetry in ratio. Two-sided only
+/// because `digest_fraction` prices the throughput — before that landed, this
+/// allele would have gone to its ceiling on the first generation and
+/// expressed nothing.
+pub fn digest_rate_of(def: &CreatureDef, traits: &[f32; CREATURE_TRAITS]) -> f32 {
+    // `+1` is twice the rate, so the allele is read inverted through the
+    // shared factor exactly as `tick_interval_of` reads it un-inverted.
+    def.digest_rate / ratio_factor(traits[TRAIT_DIGEST_RATE]).max(f32::EPSILON)
+}
+
+/// **How much this particular animal's crop holds.**
+///
+/// The reciprocal axis again; a capacity is a scale rather than an offset.
+///
+/// Floored at `CROP_MIN` rather than at zero, because `crop_capacity`'s own
+/// doc records that a cell only leaves the crop at whole unit worth: an
+/// animal whose capacity falls under one unit can never put anything down
+/// again, which is a broken animal rather than a strategy. Three units is
+/// the working floor that doc names.
+pub fn crop_capacity_of(def: &CreatureDef, traits: &[f32; CREATURE_TRAITS]) -> f32 {
+    if def.crop_capacity <= 0.0 {
+        return 0.0;
+    }
+    (def.crop_capacity / ratio_factor(traits[TRAIT_CROP_CAPACITY]).max(f32::EPSILON)).max(CROP_MIN)
+}
+
 pub fn tick_interval_of(def: &CreatureDef, traits: &[f32; CREATURE_TRAITS]) -> u64 {
-    let t = traits[TRAIT_PACE].clamp(-1.0, 1.0);
-    let factor = if t >= 0.0 { 1.0 / (1.0 + t) } else { 1.0 - t };
-    ((def.tick_interval as f32 * factor).round() as u64).max(1)
+    // `ratio_factor` un-inverted: a quick animal is a *shorter* interval, so
+    // the factor multiplies here where `digest_rate_of` divides by it.
+    ((def.tick_interval as f32 * ratio_factor(traits[TRAIT_PACE])).round() as u64).max(1)
 }
 
 /// `tick_interval_of` for an animal that is alive in the world, falling back
@@ -2111,7 +2238,9 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
     // defaults to `dig_force`, so summing would silently bill every species
     // that authored only the one field twice, and both numbers would still
     // read correctly on the page.
-    let force_tax = def.force_fraction * def.start_energy * def.dig_force.max(def.bite_force());
+    let jaw_traits = traits_of(world, organism, def);
+    let force_tax =
+        def.force_fraction * def.start_energy * dig_force_of(def, &jaw_traits).max(bite_force_of(def, &jaw_traits));
     // **Standing in the open costs, if the species authors a price for it.**
     // Charged beside `idle` because it *is* metabolism -- the animal is
     // paying to be somewhere rather than to do something -- and gated on the
@@ -2324,7 +2453,8 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
     // has to land in the same breath as the animal receives it. Crediting at
     // intake would open it by every stomach in the world; crediting at the
     // drop would credit food the animal never absorbed.
-    let digested = if def.digest_rate > 0.0 {
+    let digest_rate = digest_rate_of(def, &traits_of(world, organism, def));
+    let digested = if digest_rate > 0.0 {
         let gut = gut_of(world, organism, def);
         world.organism(organism).and_then(|s| s.crop).map_or(0.0, |c| {
             // **The remainder matures, then a whole cell is spent.** Nothing
@@ -2332,7 +2462,7 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
             // a stock -- so a cell is either standing in the crop, counted at
             // face by `carried_meat`, or absorbed, credited at yield. There is
             // never a fraction for the two censuses to disagree about.
-            let matured = c.digesting + def.digest_rate;
+            let matured = c.digesting + digest_rate;
             if c.unit <= 0.0 || matured < c.unit || c.cells == 0 {
                 // Still chewing, or nothing left to chew. Carry the progress.
                 if let Some(state) = world.organism_mut(organism) {
@@ -2361,7 +2491,7 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
             // opening a second sink; the live identity between
             // `sum(state.energy)` and `expected_live_total` is why. Booking
             // the gross and subtracting afterwards would break it.
-            let overhead = (def.digest_fraction * def.digest_rate).clamp(0.0, MAX_DIGEST_OVERHEAD);
+            let overhead = (def.digest_fraction * digest_rate).clamp(0.0, MAX_DIGEST_OVERHEAD);
             let gain = c.unit * quality * (1.0 - overhead);
             let left = c.cells - 1;
             if let Some(state) = world.organism_mut(organism) {
@@ -2555,7 +2685,8 @@ fn sense(
         // dividing by zero, so a species that never authored a crop is
         // exactly the boolean's `false`.
         let crop_fill = state.crop.map_or(0.0, |c| {
-            if def.crop_capacity > 0.0 { (c.worth() / def.crop_capacity).clamp(0.0, 1.0) } else { 1.0 }
+            let cap = crop_capacity_of(def, &state.traits);
+            if cap > 0.0 { (c.worth() / cap).clamp(0.0, 1.0) } else { 1.0 }
         });
         // **A mandible full of spoil is carrying something, and this sensor
         // used to say it was not.** It read the crop alone, so an animal that
@@ -2681,7 +2812,8 @@ fn sense(
     //
     // Gated at the dispatch site on a field already in cache, so a species
     // with no such sense pays one `i32` compare rather than a call.
-    inputs[I::SurfaceCurvature as usize] = if def.curvature_radius == 0 || !curvature_sense_enabled() {
+    let curvature_reach = curvature_radius_of(def, &traits_of(world, organism, def));
+    inputs[I::SurfaceCurvature as usize] = if curvature_reach == 0 || !curvature_sense_enabled() {
         0.0
     } else if curvature_flattened() {
         // The flattened arm substitutes a constant and performs no reads, so
@@ -2691,7 +2823,7 @@ fn sense(
         // precisely where the comparison is.
         CURVATURE_BANK_MEDIAN
     } else {
-        let r = def.curvature_radius;
+        let r = curvature_reach;
         // `(2r+1)^2 - 1`, which is exactly what `surface_curvature`'s loops
         // traverse: the full disc, centre excluded, with no early exit. The
         // count is derived from the same radius the call gets rather than
@@ -2838,7 +2970,7 @@ fn gut_of(world: &World, organism: u16, def: &CreatureDef) -> Gut {
         bias: world.organism(organism).map_or(0.0, |s| s.traits[TRAIT_GUT_BIAS]),
         species: world.organism(organism).map_or(SpeciesId(0), |s| s.species),
         eats_kin: def.eats_kin,
-        bite: def.bite_force(),
+        bite: bite_force_of(def, &traits_of(world, organism, def)),
     }
 }
 
@@ -3395,7 +3527,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
     // asserted -- and it is falsifiable, which the gates never were: if
     // delivered load does not fall with distance, this model is wrong.
     let gut = gut_of(world, organism, def);
-    let cap = def.crop_capacity;
+    let cap = crop_capacity_of(def, &traits_of(world, organism, def));
 
     // **Which verb an animal reaches for when both are open is a weighted
     // roll, not the order these branches happen to be written in.**
@@ -3713,7 +3845,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
             world.materials.kind(target.material),
             MaterialKind::Creature | MaterialKind::Plant
         );
-        if ground && target.material != material::EMPTY && world.materials.get(target.material).penetration_resistance <= def.dig_force {
+        if ground && target.material != material::EMPTY && world.materials.get(target.material).penetration_resistance <= dig_force_of(def, &traits_of(world, organism, def)) {
             // **The spoil is picked up, not destroyed.** This line read
             // `world.set(tx, ty, Cell::EMPTY)` with a comment calling
             // carrying it out "a stage-4+ refinement -- noted, not built",
@@ -6536,6 +6668,170 @@ mod tests {
             "a sharper eye must read more of the world: allele -0.75 read {narrow}, 0.0 read {authored}, +0.75 read {wide} -- \
              equal figures mean the allele is not reaching the cast"
         );
+    }
+
+    /// **The jaw allele decides what an animal can cut, in a running world —
+    /// and on its own it does not make a beetle a burrower.**
+    ///
+    /// The positive control for `TRAIT_DIG_FORCE`, and the one worth having
+    /// of the four: the others move a number, this one changes what an animal
+    /// can *do*.
+    ///
+    /// **The first version of this test asserted the wrong thing and failed,
+    /// which is the finding.** It gave a beetle a strong jaw and a bank of
+    /// soil and expected burrowing; it dug **zero cells at every allele**.
+    /// `beetle.ron` wires `Dig` exactly once, as `(FoodAdjacent, Dig, 2.0)` —
+    /// the verb is its *bite*, not an excavation drive — so with no food
+    /// adjacent nothing ever drives the output and jaw strength is
+    /// irrelevant. That is `Reports/creature-programme-plan-2026-09-05.md`'s
+    /// own rule going unheeded: **audit the animal before the environment —
+    /// can it perceive the thing, can it express the response.** Pricing and
+    /// unlocking `dig_force` makes burrowing *affordable* and *physically
+    /// possible*; it does not supply the drive, which the beetle's brain
+    /// would have to evolve separately.
+    ///
+    /// So the drive is held fixed here and only the jaw varies, which is the
+    /// ablation discipline: one authored `(Bias, Dig)` weight in both arms,
+    /// and the allele is the only difference between them.
+    ///
+    /// **The arithmetic reaching a running world is a separate claim from the
+    /// arithmetic being right**, and it is the one that was briefly false for
+    /// the eye: a harness that set the species vector after placement gave
+    /// byte-identical counters at three alleles, because a live animal
+    /// carries its own `OrganismState::traits`. So the allele is set on the
+    /// individual here, and `digs` is read from the far side of the call.
+    #[test]
+    fn the_jaw_allele_decides_what_an_animal_can_cut() {
+        let digs_at = |allele: f32| -> u64 {
+            let mut w = test_world();
+            // A bank of soil to cut, and a beetle standing in it. Without the
+            // bank this measures a beetle with nothing to dig, which reports
+            // zero at every allele and reads exactly like a dead gene.
+            let soil = w.materials.id_of("soil").expect("soil");
+            for x in 80..140 {
+                for y in 96..130 {
+                    w.set(x, y, Cell::new(soil, 0).with_attached(true));
+                }
+            }
+            // **The drive, held fixed in both arms.** The shipped beetle
+            // only ever digs at food, so without this the jaw has nothing to
+            // decide and both arms report zero -- which is what the first
+            // version of this test measured.
+            let species = w.species.id_of("beetle").expect("beetle species");
+            let def = w.species.get(species).creature.as_ref().expect("creature").clone();
+            w.species.set_genome(
+                species,
+                brain::genome_from_wiring(
+                    &[
+                        brain::Instinct(brain::BrainInput::Bias, brain::BrainOutput::Move, 2.0),
+                        brain::Instinct(brain::BrainInput::Bias, brain::BrainOutput::Dig, 3.0),
+                    ],
+                    &def.hidden_wiring,
+                    &def.hidden_outputs,
+                    &def.recurrence,
+                ),
+            );
+            let beetle = spawn(&mut w, "beetle", 100, 95);
+            assert_ne!(beetle, 0, "the beetle was not placed; this scene does not contain the situation the test is about");
+            if let Some(st) = w.organism_mut(beetle) {
+                st.traits[TRAIT_DIG_FORCE] = allele;
+                // A bank, so the arm that CAN dig is not stopped by starving
+                // before it gets to. The arm that cannot dig is unaffected.
+                st.energy = 100_000.0;
+            }
+            run(&mut w, 1_200);
+            w.creature_stats.digs
+        };
+
+        let weak = digs_at(0.0);
+        let strong = digs_at(1.0);
+        assert_eq!(
+            weak, 0,
+            "a beetle at its authored jaw of 0.3 must not be able to cut soil at 0.8 however hard it tries, or this test's premise is gone \
+             and the contrast below means nothing: {weak} digs"
+        );
+        assert!(
+            strong > 0,
+            "the jaw allele did not reach the dig threshold: {strong} digs at the top of the axis against {weak} at the authored one, \
+             with the same drive authored into both arms"
+        );
+    }
+
+    /// **The four fields the prices unlocked are heritable, each on the shape
+    /// its quantity wants, and none of them gated on the species.**
+    ///
+    /// Owner's two rulings together: *anything should be able to evolve, don't
+    /// lock* and *everything should be priced*. These four waited on the
+    /// second — every one was a ratchet until the price beside it landed.
+    ///
+    /// **The neutral-allele assertions are the load-bearing ones.** Nine
+    /// slots now move, and if any of them shifted its field at allele 0 then
+    /// every animal in every bed changed the day this landed, silently.
+    #[test]
+    fn the_priced_fields_are_heritable_and_ungated() {
+        let w = test_world();
+        let def_of = |name: &str| {
+            w.species.get(w.species.id_of(name).expect(name)).creature.as_ref().expect("creature").clone()
+        };
+        let at = |slot: usize, t: f32| {
+            let mut traits = [0.0f32; CREATURE_TRAITS];
+            traits[slot] = t;
+            traits
+        };
+        let ant = def_of("ant");
+        let beetle = def_of("beetle");
+
+        // --- generation zero is untouched, on every one of the four ---
+        let zero = [0.0f32; CREATURE_TRAITS];
+        assert_eq!(curvature_radius_of(&ant, &zero), ant.curvature_radius, "a neutral allele must reproduce the authored disc exactly");
+        assert_eq!(dig_force_of(&ant, &zero), ant.dig_force, "a neutral allele must reproduce the authored jaw exactly");
+        assert_eq!(digest_rate_of(&ant, &zero), ant.digest_rate, "a neutral allele must reproduce the authored gut exactly");
+        assert_eq!(crop_capacity_of(&ant, &zero), ant.crop_capacity, "a neutral allele must reproduce the authored crop exactly");
+        assert_eq!(bite_force_of(&ant, &zero), ant.bite_force(), "a neutral allele must reproduce the authored bite exactly");
+
+        // --- the disc: additive, so a species with none can grow one ---
+        assert_eq!(beetle.curvature_radius, 0, "the beetle is this test's senseless species and must author no disc, or the claim below is untested");
+        assert!(
+            curvature_radius_of(&beetle, &at(TRAIT_CURVATURE_RADIUS, 1.0)) > 0,
+            "a species authored with no feel for the ground stayed that way at the top of the axis -- that is the gate that must not come back"
+        );
+        assert!(curvature_radius_of(&ant, &at(TRAIT_CURVATURE_RADIUS, 1.0)) as f32 <= CURVATURE_MAX, "an evolved disc must stay under the ceiling that prices it");
+        assert_eq!(curvature_radius_of(&ant, &at(TRAIT_CURVATURE_RADIUS, -1.0)), 0, "the bottom of the axis is no sense at all");
+
+        // --- the jaw: this is what lets a beetle become a burrower ---
+        let soil = w.materials.id_of("soil").map(|m| w.materials.get(m).penetration_resistance).unwrap_or(0.8);
+        assert!(beetle.dig_force < soil, "the beetle must author a jaw too weak for soil, or the claim below is untested");
+        assert!(
+            dig_force_of(&beetle, &at(TRAIT_DIG_FORCE, 1.0)) >= soil,
+            "a beetle lineage must be able to evolve a jaw that breaks ground: {} against soil's {soil}",
+            dig_force_of(&beetle, &at(TRAIT_DIG_FORCE, 1.0))
+        );
+        assert_eq!(dig_force_of(&ant, &at(TRAIT_DIG_FORCE, -1.0)), 0.0, "the bottom of the axis is an animal that cannot cut anything");
+        // The bite moves with the dig -- one apparatus, and `force_fraction`
+        // bills the larger of the two, so a gene moving only one of them
+        // would let a lineage evolve a mouth its own price never saw.
+        assert!(
+            bite_force_of(&beetle, &at(TRAIT_DIG_FORCE, 1.0)) > beetle.bite_force(),
+            "the bite must follow the jaw gene, or a lineage can grow a mouth the jaw price does not see"
+        );
+
+        // --- the rate axes: reciprocal, so the two ends are the same factor ---
+        for (slot, name) in [(TRAIT_DIGEST_RATE, "gut"), (TRAIT_CROP_CAPACITY, "crop")] {
+            let read = |t: f32| if slot == TRAIT_DIGEST_RATE {
+                digest_rate_of(&ant, &at(slot, t))
+            } else {
+                crop_capacity_of(&ant, &at(slot, t))
+            };
+            let (slow, base, quick) = (read(-1.0), read(0.0), read(1.0));
+            assert!((quick - base * 2.0).abs() < base * 1e-3, "the top of the {name} axis must be twice the authored value: {base} -> {quick}");
+            assert!((slow - base / 2.0).abs() < base * 1e-3, "the bottom of the {name} axis must be half it: {base} -> {slow}");
+            assert!(read(-0.5) < base && base < read(0.5), "the {name} axis must be monotone");
+        }
+        // The crop floor is a real animal rather than a broken one: under one
+        // unit of worth a cell can never leave the crop again.
+        let mut tiny = ant.clone();
+        tiny.crop_capacity = 4.0;
+        assert!(crop_capacity_of(&tiny, &at(TRAIT_CROP_CAPACITY, -1.0)) >= CROP_MIN, "a crop must never evolve below the floor at which it stops delivering");
     }
 
     /// **A faster gut keeps less of every meal, and the loss is counted

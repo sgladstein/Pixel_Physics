@@ -3271,7 +3271,8 @@ pub struct CreatureDef {
     /// **The ancestral value of every heritable body trait**, indexed by
     /// `CREATURE_TRAITS`' slot map: slot 0 is `gut_bias`, slot 1 is
     /// `birth_grant`, slot 2 is `reproduce_at`, slot 3 is `sight_range`,
-    /// slot 4 is `pace`. Each slot has its own `TRAIT_*` constant carrying
+    /// slot 4 is `pace`, slot 5 is `curvature_radius`, slot 6 is
+    /// `dig_force`, slot 7 is `digest_rate`, slot 8 is `crop_capacity`. Each slot has its own `TRAIT_*` constant carrying
     /// what its axis means; this list is the index and those are the
     /// definitions.
     ///
@@ -5139,7 +5140,7 @@ pub const GENOTYPE_TRAITS: usize = 10;
 /// strictly weaker one, which is `CLAUDE.md`'s *when several knobs move the
 /// same number, check what each one trades*: this one trades nothing the
 /// weight does not already trade.
-pub const CREATURE_TRAITS: usize = 5;
+pub const CREATURE_TRAITS: usize = 9;
 
 /// Slot 0 of `CREATURE_TRAITS`: **diet as one heritable number**, `-1`
 /// (plant matter) to `+1` (flesh), scored against `MaterialDef::food_class`
@@ -5296,6 +5297,83 @@ pub const TRAIT_REPRODUCE_AT: usize = 2;
 /// A species authoring `tick_interval: 6` has descendants at 3 and at 12,
 /// and no author's constant stands in the way.
 pub const TRAIT_PACE: usize = 4;
+
+/// Slot 5 of `CREATURE_TRAITS`: **how wide a patch of ground this animal
+/// feels**, read through `creature::curvature_radius_of`.
+///
+/// **Additive, and with no species gate, for `TRAIT_SIGHT_RANGE`'s reason.**
+/// A multiplier makes zero absorbing, so a species authoring
+/// `curvature_radius: 0` — which is every one but the ant — could never grow
+/// the sense at any allele. The owner's ruling is that anything should be
+/// able to evolve, so a beetle lineage can develop a feel for the ground it
+/// was never authored with.
+///
+/// `CURVATURE_SPAN` is 8, four times the ant's authored 2, because the price
+/// is quadratic and the interesting range is small: `+1` on the ant is a
+/// radius-10 disc reading 440 cells a tick, already 17.8% of an idle
+/// lifetime. `CURVATURE_MAX` is 16 for the same reason — 1,088 cells, and an
+/// unbounded allele is an unbounded per-tick cost against a hard frame
+/// budget.
+pub const TRAIT_CURVATURE_RADIUS: usize = 5;
+
+/// Slot 6 of `CREATURE_TRAITS`: **how hard this animal's jaw is**, read
+/// through `creature::dig_force_of`. Scales `bite_force` with it, since one
+/// apparatus is what `force_fraction` bills for.
+///
+/// **Additive, span 1.0** — the ant's whole authored force, so `+1` doubles
+/// it and `-1` takes it to nothing. Two-sided in a way that matters:
+/// `dig_force` is a *threshold* against `penetration_resistance`, so the
+/// bottom of the axis is an animal that cannot cut anything and the top is
+/// one that cuts materials its species never could.
+///
+/// **What this slot does and does not do, corrected after its own guard
+/// failed.** The beetle authors 0.3 against soil's 0.8 and cannot break
+/// ground; at `+0.5` it reaches 0.8 and *can*, paying `force_fraction` for
+/// the jaw every tick whether it digs or not. So this removes the physical
+/// constraint on burrowing.
+///
+/// It does **not** make a beetle burrow. `beetle.ron` wires `Dig` exactly
+/// once, as `(FoodAdjacent, Dig)` — the verb is its bite — so with no food
+/// adjacent nothing drives the output and jaw strength is irrelevant.
+/// Measured: the strongest possible jaw in a bank of soil digs **zero
+/// cells**. `creature::tests::the_jaw_allele_decides_what_an_animal_can_cut`
+/// holds the drive fixed in both arms for exactly this reason.
+///
+/// The general form is worth carrying: **a price and a gene remove a
+/// constraint; they do not supply a motive.**
+pub const TRAIT_DIG_FORCE: usize = 6;
+
+/// Slot 7 of `CREATURE_TRAITS`: **how fast this animal's gut is**, read
+/// through `creature::digest_rate_of`.
+///
+/// **The reciprocal axis `TRAIT_PACE` uses**, and for the same reason: a
+/// rate wants a symmetry in *ratio*, so `-1` and `+1` are the same factor in
+/// opposite directions. `+1` is twice the species' rate and `-1` is half it.
+///
+/// Two-sided because `digest_fraction` prices the throughput: a quick gut
+/// converts sooner and carries less, and wastes more of every meal. Before
+/// that price landed this slot would have gone to its ceiling on the first
+/// generation and expressed nothing.
+pub const TRAIT_DIGEST_RATE: usize = 7;
+
+/// Slot 8 of `CREATURE_TRAITS`: **how much this animal's crop holds**, read
+/// through `creature::crop_capacity_of`.
+///
+/// **The reciprocal axis again**, a capacity being a scale rather than an
+/// offset.
+///
+/// **The only one of these four that needed no new price**, which
+/// `crop_capacity`'s own doc predicted: it called itself "the codomain of a
+/// future capacity gene" and named `creature::carried_cells` as what makes
+/// both ends reachable. A big crop means fewer trips and a heavier walk
+/// home; a small one means a light animal that has to come back.
+///
+/// Floored at `CROP_MIN` rather than at zero. `crop_capacity`'s doc records
+/// that a cell only leaves the crop at whole unit worth, so an animal whose
+/// capacity falls under one unit can never put anything down again — that is
+/// a broken animal rather than a strategy, and three units is the working
+/// floor it names.
+pub const TRAIT_CROP_CAPACITY: usize = 8;
 
 /// The ancestral trait vector for a species file that authors no `traits`
 /// line at all.

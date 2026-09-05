@@ -289,13 +289,26 @@ row open — rather than a set of candidates.
    sweep's — a jaw is expensive tissue but it is not a brain, and the number
    also has to leave the shipped colony's economy where it was.
 
-   **This is the line that makes the burrowing question answerable.** The
-   beetle authors `dig_force: 0.3` against soil's `penetration_resistance` of
-   0.8, so it cannot cut ground at all — which is why adding beetles to a bed
-   has never made shelter pay. With force priced and heritable a beetle
-   lineage *can* reach 0.8 and start digging, and pays for the jaw every tick
-   of its life whether it uses it or not. Whether that trade is worth taking
-   becomes a question the bed answers rather than a rule an author wrote.
+   **What it makes possible, and the overclaim that had to be withdrawn.**
+   The beetle authors `dig_force: 0.3` against soil's `penetration_resistance`
+   of 0.8, so it cannot cut ground at all — which is why adding beetles to a
+   bed has never made shelter pay. Priced and heritable, the force can evolve
+   past 0.8, so burrowing becomes **affordable and physically possible**.
+
+   **It does not make a beetle a burrower, and this report said it did until
+   the guard for it failed.** `beetle.ron` wires `Dig` exactly once, as
+   `(FoodAdjacent, Dig, 2.0)` — the verb is its *bite*. With no food adjacent
+   nothing drives the output, so jaw strength is irrelevant: measured, a
+   beetle with the strongest possible jaw in a bank of soil digs **zero
+   cells at every allele**. The drive would have to evolve separately, into
+   the free `(Bias, Dig)` slot.
+
+   This report's own companion states the rule that would have caught it
+   before the claim was made — *audit the animal before the environment: can
+   it perceive the thing, can it express the response* — and it was written
+   down one document away and still skipped. Worth recording as the recurrence
+   rather than quietly fixing: **a price and a gene remove a constraint; they
+   do not supply a motive.**
 4. **A price for digestion**, then `digest_rate`. The least settled of the
    four, and the reason is worth stating: a fast gut is strictly better today
    (energy sooner, and less weight carried, since `carried_cells` charges for
