@@ -2191,7 +2191,38 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   6,064 cells unreached** grows 4,672 → 6,064 while drinking through roots it
   is not joined to. That switch is therefore making two promises at once, and
   §7a is the change that separates them. Ranked repairs in §7, costed, none
-  built; §9 records what the report itself got wrong on the way.
+  built; §9 records what the report itself got wrong on the way. **Its §7
+  ranking is revised by `plant-soil-nutrient-plan-2026-09-05.md` below** —
+  read that before acting on §7b, which is withdrawn there.
+- [plant-soil-nutrient-plan-2026-09-05.md](plant-soil-nutrient-plan-2026-09-05.md)
+  — **plan, 2026-09-05; nothing built.** What to do about the report above,
+  after comparing its findings against how roots work in nature. **The
+  headline is a withdrawal**: the diagnosis ranked "lower the per-cell water
+  rates" second, and that is wrong as a mechanism — water moves through soil
+  toward a drinking root, here (`update.rs` capillary, rest gap 60 of a
+  440-wide plant-usable band) and in nature, so the measured saturation is
+  the correct consequence of water being the world's only soil resource
+  rather than a defect in the water model. What makes real root systems large
+  and dense is the resource that does **not** move: phosphate's depletion
+  zone is a millimetre or two, so uptake tracks root length and density in
+  unexploited soil and never saturates. This engine has **no nutrient
+  dimension at all** — zero hits across `src/sim/` and `assets/species/` —
+  though `plant-simulation-research.md` §4 and `PLAN.md` both name one, and
+  `dead-ends.md` does not, so it is untried rather than rejected. Proposes one
+  immobile per-soil-cell nutrient as a second Liebig term, riding
+  `absorb_water`'s existing four-neighbour visit, with **recovery
+  event-driven at decay sites** so there is no per-frame recharge sweep —
+  which also closes `PLAN.md`'s "plant → dies → decays → nutrient → plant"
+  loop. **§3 is the part to read first**: a coarse field channel is
+  disqualified outright, because `FIELD_SCALE` is 16 while the measured
+  rooting zone is 13 rows deep, so one block spans the whole root system and
+  reproduces exactly the saturation being fixed. Carries three falsifiable
+  success claims (marginal roots pay; density and exploration pay
+  *separately*; two morphologies viable in different soils), a ship-inert-
+  then-sweep protocol for the weighted-budget re-derivation, and §6's
+  girdling case as the acceptance test for path-priced carbon — a real cut
+  that kills a tree root-first over a season, and is inexpressible today
+  because crown and roots share one undirected pool.
 
 ## Licensing and distribution
 
