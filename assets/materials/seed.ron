@@ -41,7 +41,7 @@
     // on a one-cell perch rolls off it, and a seed pile spreads to a low
     // cone the next seed can slide down instead of a steep heap that holds
     // every sibling above the soil.
-    friction_angle: 55.0,
+    friction_angle: 22.0,
     colors: [
         (126, 96, 52),
         (142, 110, 62),
