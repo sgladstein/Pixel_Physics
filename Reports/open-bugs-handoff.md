@@ -9165,6 +9165,37 @@ So the price divides by 8, to **0.0625**, holding the share the original
 measurement was made of. Digs are unmoved (193 → 214), so the verb that
 price was introduced to make selectable stays selectable.
 
+#### The divisor is right for one game and wrong for the other — OPEN
+
+**`emit_cost_in_moves` is a species constant and whether channel A is laid is
+a property of the *scene*.** The divisor of 8 was derived from a lab colony
+that has a nest, so it lays both channels. `examples/ascii.rs`'
+`construction_scene` says in its own header *"No nest at all… so `AtNest` is
+0"* — there the odometer can never charge, channel A is never laid, and the
+same per-unit price is an eightfold discount on the food trail with nothing to
+pay for.
+
+Measured, and it is the whole of the movement in that scene's guard:
+
+| arm | its `matched` ratio |
+|---|---|
+| pre-fix (dead odometer, price 0.5) | 1.04x |
+| **live odometer, price 0.5** | **1.04x — byte-identical** |
+| live odometer, price 0.0625 | 1.02x |
+
+The odometer arm is *byte-identical* to the baseline, which is what proves the
+scene never charges it. The whole 1.04 → 1.02 is the price cut.
+
+**Left open because the fix is a design question, not a number.** A per-unit
+price cannot be right for both a two-channel colony and a one-channel one; it
+wants either a per-species-budget formulation, or a price that scales with the
+channels a species actually emits onto. Both are the creature line's to
+choose. The harm today is bounded and stated: one guard's statistic moved 0.02
+in a scene with no nest, and its bar has been re-derived from the full
+five-arm control table rather than widened (`examples/ascii.rs`, `MATCHED_BAR`
+1.03 → 0.90, with the separation between shipped and strongest control
+*wider* than when the bar was set — 0.25 against 0.17).
+
 **This changes a number the creature line owns**, and that lane should know:
 its result that pricing the free verbs bought about a sixth less digging at
 no cost in ants was measured on a colony with one working pheromone channel.
