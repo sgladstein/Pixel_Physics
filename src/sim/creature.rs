@@ -6509,7 +6509,30 @@ mod tests {
                     m == soil || m == packed
                 })
                 .count();
-            let held = w.live_organism_ids().iter().filter(|&&id| w.organism(id).is_some_and(|s| s.spoil.is_some())).count();
+            // **Only GROUND spoil, matching what `standing` counts** -- and
+            // it counted any spoil at all until 2026-09-05, which made the
+            // two halves of this identity census *different sets*. An ant
+            // digs whatever its jaw can cut, and `corpse` is 0.1 against a
+            // `dig_force` of 1.0, so a pellet of corpse in the mandibles was
+            // being counted as a ground cell that had never existed.
+            //
+            // It went unseen because it needs a run that *ends* with an ant
+            // holding non-ground spoil, which no trajectory here had reached.
+            // `TRAIT_DIG_FORCE` shifted them and it appeared at once: 296 ->
+            // 297, one cell of ground manufactured out of a corpse.
+            //
+            // Fixing the census rather than the engine, because the engine
+            // was right: nothing was created, the two columns were adding up
+            // different things.
+            let held = w
+                .live_organism_ids()
+                .iter()
+                .filter(|&&id| {
+                    w.organism(id)
+                        .and_then(|s| s.spoil)
+                        .is_some_and(|sp| sp.cell.material == soil || sp.cell.material == packed)
+                })
+                .count();
             standing + held
         };
 
