@@ -81,12 +81,14 @@ fn census(w: &World) -> Vec<(u16, Row)> {
                 contact: st.contact_root_cells,
                 unreached,
                 water: st.water,
-                // `water_capacity_of` is private; it is
-                // `WATER_SCALE * contact.max(1)` and is reproduced here
-                // rather than exported, with the multiplication written out
-                // so a drift shows up as a wrong number rather than as a
-                // compile error nobody sees.
-                capacity: organism::WATER_SCALE * st.contact_root_cells.max(1) as f32,
+                // **The engine's own function, not a copy of its
+                // arithmetic.** This line used to reproduce the formula
+                // behind a comment arguing that a drift would show up as a
+                // wrong number -- and it did drift, the moment
+                // `water_tank_contact_cap` landed: this printed 1244 where
+                // the engine used 128, and silently corrupted `fill` with
+                // it. A wrong number only helps if someone reads it.
+                capacity: pixel_physics::sim::plant::water_capacity_of(st.contact_root_cells),
                 status: st.water_status,
                 demand: st.water_demand,
                 uptake: st.water_uptake,
@@ -166,6 +168,84 @@ fn step(w: &mut World) {
     w.step_fields();
 }
 
+/// **Does a depletion zone exist around roots at all?** Median
+/// plant-available water in soil cells touching root tissue, against soil
+/// cells at the same depths that are far from any root.
+///
+/// This is the positive control for the whole `SOIL_UPTAKE_PER_TICK`
+/// question, and it is a *contrast* rather than a level for the reason
+/// `CLAUDE.md` prefers paired comparisons: bed-wide moisture rides the water
+/// cycle at about +/-1,700 cells, so a single "how wet is the soil" number is
+/// that frame's phase plus the drawdown and the two are not separable. Near
+/// and far are read on the same frame from the same bed, so the cycle
+/// divides out.
+///
+/// `far` is >= `FAR` cells from any root by a capped BFS, and is restricted
+/// to the row band the roots actually occupy — comparing rooted topsoil
+/// against unrooted subsoil would report a depth profile as a depletion
+/// zone.
+///
+/// Returns `(near, far, n_near, n_far)`. A run where `n_near` or `n_far` is
+/// tiny is reporting noise; both counts are printed for that reason.
+fn depletion_contrast(w: &World, width: i32, height: i32) -> (f32, f32, usize, usize) {
+    const FAR: u8 = 8;
+    let idx = |x: i32, y: i32| (y * width + x) as usize;
+    let mut dist: Vec<u8> = vec![u8::MAX; (width * height) as usize];
+    let mut queue: std::collections::VecDeque<(i32, i32)> = std::collections::VecDeque::new();
+    let (mut lo, mut hi) = (i32::MAX, i32::MIN);
+    for y in 0..height {
+        for x in 0..width {
+            let c = w.get(x, y);
+            if c.organism_id() == 0 {
+                continue;
+            }
+            let root = w.materials.get(c.material).reinforces_powder
+                || organism::cell_type(c.aux()) == Some(CellType::RootTip);
+            if root {
+                dist[idx(x, y)] = 0;
+                queue.push_back((x, y));
+                lo = lo.min(y);
+                hi = hi.max(y);
+            }
+        }
+    }
+    while let Some((x, y)) = queue.pop_front() {
+        let d = dist[idx(x, y)];
+        if d >= FAR {
+            continue;
+        }
+        for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
+            let (nx, ny) = (x + dx, y + dy);
+            if nx < 0 || ny < 0 || nx >= width || ny >= height {
+                continue;
+            }
+            if dist[idx(nx, ny)] > d + 1 {
+                dist[idx(nx, ny)] = d + 1;
+                queue.push_back((nx, ny));
+            }
+        }
+    }
+    let (mut near, mut far) = (Vec::new(), Vec::new());
+    if lo <= hi {
+        for y in lo..=hi {
+            for x in 0..width {
+                let c = w.get(x, y);
+                if w.materials.get(c.material).water_capacity == 0 || c.organism_id() != 0 {
+                    continue;
+                }
+                let a = pixel_physics::sim::update::plant_available_fraction(c);
+                match dist[idx(x, y)] {
+                    1 => near.push(a),
+                    d if d >= FAR => far.push(a),
+                    _ => {}
+                }
+            }
+        }
+    }
+    let (n_near, n_far) = (near.len(), far.len());
+    (median(&mut near), median(&mut far), n_near, n_far)
+}
+
 fn median(v: &mut [f32]) -> f32 {
     if v.is_empty() {
         return f32::NAN;
@@ -200,6 +280,13 @@ fn main() {
     let species: String = arg("species", "tree".to_string());
     let rows: i32 = arg("rows", 3);
     let track: usize = arg("track", 4);
+    // **Rows of soil over the stone floor.** Exposed because the one arm
+    // that moves this line's numbers is rooting *volume*, not moisture:
+    // `plant-water-scarcity-2026-08-30.md` §2d took water status 1.000 ->
+    // 0.678 by going from 34 rows to 4, where a 6.3x moisture range moved it
+    // not at all. A bed the roots cannot exhaust cannot test a rule about
+    // running out of soil.
+    let soil: i32 = arg("soil", common::PlantScene::default().soil_depth);
     // **Fine stops immediately after the cut.** The coarse schedule below
     // steps in thousands of frames, and the whole window this harness was
     // built to see can be shorter than one of those steps: measured, a
@@ -217,7 +304,7 @@ fn main() {
     // seed was written by a binary that never had one (`CLAUDE.md`, the
     // 3.5-hour megastudy that was three populations wearing 24 logs).
     println!(
-        "plant_severance: species={species} trees={trees} seeds={seeds} frames={frames} cut={cut} rows={rows} track={track} arms={arms}"
+        "plant_severance: species={species} trees={trees} seeds={seeds} frames={frames} cut={cut} rows={rows} track={track} soil={soil} arms={arms}"
     );
 
     for arm in arms.split(',') {
@@ -226,9 +313,11 @@ fn main() {
                 trees,
                 species: species.clone(),
                 seed: if seed == 0 { None } else { Some(seed) },
+                soil_depth: soil,
                 ..Default::default()
             };
             let ground_y = scene.ground_y;
+            let (width, height) = (scene.width, scene.height);
             let mut w = scene.build();
 
             while w.frame < cut {
@@ -299,7 +388,9 @@ fn main() {
                 live.len(),
                 median(&mut b_status)
             );
-            println!("  frame  plants  cells  d_cells  unreached  shoot   root  contact   water/cap  status  demand  uptake  income");
+            println!(
+                "  frame  plants  cells  d_cells  unreached  shoot   root  contact    fill  cap   status  worst  demand  uptake  income   near    far   gap  n_near/n_far"
+            );
 
             let mut last = cells_at_cut;
             let stops = 6u64;
@@ -329,16 +420,41 @@ fn main() {
                 let mut shoot: Vec<f32> = tracked(&now, &live, |r| r.shoot as f32);
                 let mut root: Vec<f32> = tracked(&now, &live, |r| r.root as f32);
                 let mut contact: Vec<f32> = tracked(&now, &live, |r| r.contact as f32);
-                let mut water: Vec<f32> = tracked(&now, &live, |r| r.water);
+                // **A per-plant fill fraction, not a ratio of medians.** The
+                // first version printed `median(water)` beside `median(cap)`
+                // and invited the reader to divide -- and those two medians
+                // come from *different plants*, so the pair describes no
+                // plant that exists. Measured on seed 1 at frame 32,000 it
+                // printed 202.6/1088 (0.19) where the plant carrying the rest
+                // of that row was at 969.7/1088 (0.89).
+                //
+                // `plant.rs`'s own stomatal-closure census records this exact
+                // mistake being made once before -- "stock/capacity was read
+                // as 0.41 ... from a ratio of *medians* taken across
+                // different plants at one final frame" -- so this is the
+                // second occurrence, and the fix is to divide inside the
+                // plant and take the median of the fractions.
+                let mut fill: Vec<f32> = tracked(&now, &live, |r| r.water / r.capacity.max(f32::EPSILON));
                 let mut cap: Vec<f32> = tracked(&now, &live, |r| r.capacity);
                 let mut status: Vec<f32> = tracked(&now, &live, |r| r.status);
+                // **The minimum beside the median, because the median hides
+                // the finding.** `status` is clipped at 1.0, so an upper
+                // median over four plants reads 1.000 whenever any two are
+                // saturated -- on seed 1 at frame 48,000 the median said
+                // 1.000 while the largest plant sat at 0.677. A ceiling-
+                // clipped channel needs its low tail printed or the run
+                // reports "the coupling is dead" when it is merely quiet.
+                let mut status_min: Vec<f32> = status.clone();
+                status_min.sort_unstable_by(f32::total_cmp);
+                let worst_status = status_min.first().copied().unwrap_or(f32::NAN);
                 let mut demand: Vec<f32> = tracked(&now, &live, |r| r.demand);
                 let mut uptake: Vec<f32> = tracked(&now, &live, |r| r.uptake);
                 let mut income: Vec<f32> = tracked(&now, &live, |r| r.income);
                 let alive = cells.len();
                 let m = median(&mut cells);
+                let (near, far, n_near, n_far) = depletion_contrast(&w, width, height);
                 println!(
-                    "  {:>6}  {:>6}  {:>5.0}  {:>+7.0}  {:>9.0}  {:>5.0}  {:>5.0}  {:>7.0}  {:>5.1}/{:<4.0}  {:>6.3}  {:>6.2}  {:>6.2}  {:>6.3}",
+                    "  {:>6}  {:>6}  {:>5.0}  {:>+7.0}  {:>9.0}  {:>5.0}  {:>5.0}  {:>7.0}  {:>6.3}  {:>4.0}  {:>6.3}  {:>5.3}  {:>6.2}  {:>6.2}  {:>6.3}  {:>5.3}  {:>5.3}  {:>+5.3}  {}/{}",
                     w.frame,
                     alive,
                     m,
@@ -347,12 +463,18 @@ fn main() {
                     median(&mut shoot),
                     median(&mut root),
                     median(&mut contact),
-                    median(&mut water),
+                    median(&mut fill),
                     median(&mut cap),
                     median(&mut status),
+                    worst_status,
                     median(&mut demand),
                     median(&mut uptake),
                     median(&mut income),
+                    near,
+                    far,
+                    far - near,
+                    n_near,
+                    n_far,
                 );
                 last = m;
             }

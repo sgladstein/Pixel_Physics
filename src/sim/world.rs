@@ -240,6 +240,12 @@ pub struct CreatureStats {
     /// because the deposit is continuous rather than an event, so this is
     /// both the fired-and-paid signal at once.
     pub emit_energy: f64,
+    /// **What standing in the open cost**, in joules, and how many creature
+    /// ticks were spent out there. The pair is the point: the joules alone
+    /// cannot say whether a colony is sheltering more or simply dying, and
+    /// the tick count alone cannot say whether the price is biting.
+    pub exposure_energy: f64,
+    pub exposed_ticks: u64,
     /// **Cells of loose ground converted to a tunnel lining** by those digs
     /// — the effect counter on the far side of `digs`, which is a call
     /// counter and nothing more.
@@ -1470,6 +1476,16 @@ pub struct World {
     /// Leaves reclaimed by `shed_stranded_leaves` after either pressure
     /// fired -- consequential fall, not a lever of its own.
     pub shed_stranded: u32,
+    /// **Root cells taken by fine-root turnover** — `plant.rs`'s
+    /// `ROOT_TURNOVER_PER_TICK`, the did-it-fire counter for a mechanism
+    /// that ships at zero.
+    ///
+    /// Its own counter rather than a share of `shed_drought`, because the
+    /// two answer opposite questions: that one is *foliage lost to thirst*
+    /// and this is *root given up because its soil is spent*, and a plant
+    /// doing a lot of the second while none of the first is exactly the
+    /// state turnover exists to produce.
+    pub roots_shed: u32,
     /// M13/issue #4: whether the field grid has already converged to a
     /// fixed point (every cell within `field::step`'s settle epsilon of its
     /// previous value). `field::step` skips its whole five-pass solve when
@@ -2550,6 +2566,7 @@ impl World {
             rotted_onward: 0,
             shed_shade: 0,
             shed_drought: 0,
+            roots_shed: 0,
             shed_stranded: 0,
             fields_settled: false,
             touched_chunks: std::collections::HashSet::new(),
@@ -3115,6 +3132,10 @@ impl World {
             cells: std::collections::HashMap::new(),
             root_cells: 0,
             contact_root_cells: 0,
+            // 1.0, not 0.0 -- see the field's doc. A fresh organism has no
+            // root faces, and the rules keyed on this must read "not short"
+            // and defer rather than fire on a plant that has not rooted yet.
+            root_zone_water: 1.0,
             shoot_cells: 0,
             organ_cells: 0,
             anchor_cells: 0,

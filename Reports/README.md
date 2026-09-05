@@ -831,6 +831,56 @@ drift that two of these documents still reflect.**
 
 ## Creatures and ecology  ·  `engine`
 
+- [creature-programme-plan-2026-09-05.md](creature-programme-plan-2026-09-05.md)
+  — **plan, 2026-09-05; nothing built by it, and under review at the time of
+  writing.** Where the creature line goes after a day whose three findings all
+  landed somewhere other than where they were predicted. **Its through-line is
+  a correction to two framings, mine and the owner's**: the bottleneck was
+  called *population size* and then *the environment*, and of the three things
+  measured only one was an environment problem — pricing the free verbs, which
+  worked immediately. The other two were the **animal**: the trail pathway is
+  95% saturated off outside a narrow carry band, and the ant is blind and
+  cannot tell a tunnel from a pit. Hence the standing rule it proposes,
+  **audit the animal before building the environment** — *can it perceive the
+  thing, can it express the response* — which was skipped twice in one day and
+  cost a wrong claim each time. Splits the work into **the world selects**
+  (needs all three of expressible, paid for, and enough population) against
+  **the player selects** (needs only that variation exists and a person can
+  see it), and puts the behaviour prospector first on the grounds that it is
+  diagnostic rather than merely useful. Also names three decisions as the
+  owner's rather than measurable, which is the part a reviewer should attack
+  hardest
+
+- [selective-environments-2026-09-05.md](selective-environments-2026-09-05.md)
+  — **method and one worked demonstration, 2026-09-05.** The owner's
+  correction — *"not just population size and run length but actually setting
+  up the appropriate environment to select for them"* — answered as a
+  measurement. **There are exactly two currencies**: an animal dies of energy
+  reaching zero or of its cells being destroyed, and nothing else (no thermal
+  death, no age, no disease), so every selective pressure that will ever exist
+  has to route through one of them — the first check against any proposed
+  environment. **Never argue an environment, ablate it**: `creature_arena`
+  now takes `arm=ablate input=<sense> [output=<verb>]` and can vary the
+  economy in the same run, because an arena that only varies the genome
+  answers half the question. The demonstration is the dig drive at three
+  economies, same genome and seeds throughout: **all verbs free gives median
+  50.0% and 1 seed of 4 — the null — and the shipped prices give 63.6% and 4
+  of 4.** One environment change turned a selectively invisible behaviour
+  into a selected one. Two things it overturned: `spoil_weight_cells`, sized
+  at a negligible **0.3% of movement cost** across the population, is
+  decisive **in the contrast** because only one arm carries spoil — a general
+  warning about sizing a lever by its share of a total; and a first reading of
+  `arm=notrail` that called it inseparable, **which was wrong and is corrected
+  in place**: the pheromone weights feed differential pairs that cancel
+  exactly at zero signal, so the ablation leaves `Bias -> Move` intact and does
+  mean what it says (3 seeds of 4, median 37.8%). **A behaviour that is not
+  separable cannot be selected for by any environment** — but the check is
+  tracing what a pathway is *worth*, not noting which output it reaches, and
+  the arithmetic that settled it found the better finding: the trail mechanism
+  is **saturation-gated on carry state**, worth 18% of the `Move` decision at
+  ~60% laden and under 1% empty or full. Carries the ant's full separability
+  audit
+
 - [creature-behaviour-ceiling-2026-09-05.md](creature-behaviour-ceiling-2026-09-05.md)
   — **diagnosis, measured, 2026-09-05; nothing tuned and nothing built.** The
   owner's question — *are the interesting behaviours impossible, unselected,
@@ -2312,7 +2362,64 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   6,064 cells unreached** grows 4,672 → 6,064 while drinking through roots it
   is not joined to. That switch is therefore making two promises at once, and
   §7a is the change that separates them. Ranked repairs in §7, costed, none
-  built; §9 records what the report itself got wrong on the way.
+  built; §9 records what the report itself got wrong on the way. **Its §7
+  ranking is revised by `plant-soil-nutrient-plan-2026-09-05.md` below** —
+  read that before acting on §7b, which is withdrawn there.
+- [plant-soil-nutrient-plan-2026-09-05.md](plant-soil-nutrient-plan-2026-09-05.md)
+  — **plan, 2026-09-05, third draft; one arm measured, nothing built.** What
+  to do about the report above. **Read §0a first: the depletion story that
+  drafts one and two argued over is refuted by measurement.** Soil touching
+  roots sits at **0.016** plant-available against **1.000** away from roots
+  at the constant on `main` — the zone is already at the wilting floor, so
+  there was never anything to restore. The reasoning that missed it is the
+  reusable part: the capillary rest gap bounds the difference between two
+  *adjacent* soil cells, so it caps how **steep** the depletion boundary is,
+  not how **deep** it goes, and the measured profile is that staircase almost
+  exactly (61.9 units per cell against a 60-unit gap). The 2026-08-31 change
+  therefore made the zone **wider**, not shallower — more overlap between
+  neighbouring roots, so *more* competition. **The cheap lever is refuted
+  too**: `PIXEL_PHYSICS_SOIL_UPTAKE` over 12 seeds and four arms drives roots
+  up reliably (12/12 seeds at 8x) and income down harder at every setting
+  (0.78x / 0.46x / **0.11x**), with no usable band, because a bigger draw on
+  spent soil only pushes water status down. So **root *reach* is the binding
+  constraint, not root income**, and the immobile nutrient stays on the list
+  second-order. Also carries the geometric bound that survives all of it
+  (`dead-ends.md:892`: a handicap removed 23% of root cells and **3%** of
+  uptake surface, so contact roots are ~8x redundant and the payoff variable
+  is distinct soil cells), and drops the taproot claim outright — `can_widen`
+  needs an `EMPTY` or own-`Leaf` neighbour, so a buried root can never
+  thicken. **And §2b is the result the whole line was after**: `break_root_tips`
+  already carries a six-bucket exit census, and across four beds and two
+  genotype draws the `water_status >= 0.95` gate refuses **95-99.6%** of
+  root-tip initiations while `poor` — the carbon exit — is **zero in all six
+  runs**. Root extension is bounded by neither the tip cap, nor sites, nor
+  the economy. It is bounded by a gate reading a **saturated** signal: the
+  plant reads "demand met, not thirsty" while the soil its roots touch sits
+  at 0.016. That also explains why every water lever failed — they all move
+  `water_status`, and the only way they open the gate is by starving the
+  whole plant. §2b-ii proposes the small change that follows (key the gate on
+  local soil scarcity, not on the tank) with the exit census as its guard and
+  a specific prediction: `gated` down, `FIRED` up, `poor` **still zero**.
+  **§2b-iii is that change built, now ON by default
+  (`PIXEL_PHYSICS_ROOT_GATE=whole` ablates it), and measured over 12 paired
+  seeds: root
+  cells 3.93x in 12/12 seeds with income FLAT (1.00x)** — the opposite shape
+  to the uptake lever, which bought the same root response at a cost of 89%
+  of income. It buys roots with reach rather than starvation: the root zone
+  goes 0.016 -> 0.570 available, uptake +32%, the worst-off plant 0.723 ->
+  fully watered, and **root:shoot 7.3% -> 23.3% against a real tree's
+  20-25%**. `poor` stays zero so the constraint did not move to carbon, the
+  gate still refuses 86-98% so it is not always-open, and `ascii`,
+  `acceptance.sh` and the full lib suite are green with it on. The one
+  measured cost is shallow beds losing canopy: the depth sweep puts it at
+  **0.12x income on a 6-row bed, 1.34x on 20 rows, neutral on 34**, and both
+  shipped worlds are deep (48-135 rows outdoors, 96 in the lab). **§2b-v is
+  the prerequisite that had to land with it** -- capping the water tank's
+  storage term, without which a droughted plant roots its way to a bigger
+  bucket, reads as well-watered and does not die.
+  **§9 is the method part**: three drafts, three classes of error, the last
+  being that three documents and two reviewers argued about how deep a
+  depletion zone was when one census answered it in thirty seconds.
 
 ## Licensing and distribution
 
