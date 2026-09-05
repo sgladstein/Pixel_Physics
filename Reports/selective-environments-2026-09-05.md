@@ -221,14 +221,43 @@ re-finding a patch beats re-searching for it. In a bed where food is scattered
 along one ground line within a few body lengths of everything, a random walk
 is optimal and a trail is pure cost. The lab bed is that bed.
 
-**Nest architecture.** Needs something outside that a chamber protects
-against, and §1 says it must be energy or destruction. Today a burrow costs
-energy and returns nothing — there is no weather that kills, no predator that
-cannot follow, no thermal load. **A roofed cell is worth exactly as much as an
-open one**, so no amount of digging skill can pay. This is the clearest case
-of an environment that cannot select for the behaviour it was built to
-produce: `burrow_probe` measures chamber shape beautifully and nothing in the
-world cares what shape it is.
+**Nest architecture.** **Experimented on 2026-09-05, and it is the deepest of
+the four — the answer is not the environment.** Three hazards were put on the
+other side of `arm=ablate input=Bias output=Dig`, whose null is known: with no
+hazard the *non*-digger wins 4 seeds of 4. If shelter pays, that flips.
+
+| hazard | non-digger's share | flipped? |
+|---|---|---|
+| none (the null) | median 63.6%, 4 of 4 | — |
+| **ten beetles** | median 60.0%, 3 of 3 | **no** |
+| **exposure at 1x the cost of living** | median 60.9%, 2 of 3 | **no** |
+
+Exposure is not a weak tax — it is **18.2% of the colony's whole energy
+burn**, larger than trail-laying and digging combined — and it still does not
+make digging pay. Three findings, in the order they rule things out:
+
+- **Not a generations problem.** The ablation is a direct fitness race
+  between two arms in one bed; it needs no evolution to answer, and it
+  answers the same way at every hazard tried.
+- **Predation cannot be the pressure, because an ant cannot perceive a
+  predator.** `PreyNear` is gated on `sight()` and the shipped ant authors no
+  `sight_range` at all, so it defaults to 0 — **the ant is blind**. The only
+  sense that fires on a beetle is `Crowding`, which counts *any* creature
+  cell within r=2 and cannot tell a beetle from a nestmate (its own test
+  records it reading "partly a body-size sensor"). There is no input a weight
+  could connect to a retreat, so no bed can select for fleeing indoors.
+- **And the hole they dig is the wrong shape.** Measured with the shelter
+  census: ants are in the open on **66.2% of creature ticks** — under a roof
+  a third of the time, incidentally, while cutting. `(Bias, Dig)` digs along
+  the heading, which from a surface start is a **pit, open to the sky**. A
+  pit is not shelter. Tunnelling into a bank face is, and nothing in the
+  genome distinguishes the two.
+
+So the missing piece is **in the animal, not the world**: no sense of threat,
+and no drive that prefers roofed ground. `exposure_cost_per_cell` ships (at
+0.0) because the hazard half is now real and switchable, and because it is
+the half that was genuinely absent — but on its own it is a flat tax on being
+alive, and a flat tax selects for nothing.
 
 **Predator–prey cycles.** ~~Blocked on a hard fact rather than an
 environment.~~ **Unblocked 2026-09-05, and the result is a capability rather

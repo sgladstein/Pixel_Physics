@@ -86,6 +86,7 @@ fn main() {
         let dig_cost: Option<f32> = arg("digcost");
         let emit_cost: Option<f32> = arg("emitcost");
         let spoil_weight: Option<f32> = arg("spoilweight");
+        let exposure: Option<f32> = arg("exposure");
         // **The beetle's breeding switch, as the control arm.**
         // `reproduce_threshold: 0.0` is the exogenous beetle exactly as it
         // was before 2026-09-05 -- a fixed stock that can only overshoot or
@@ -112,6 +113,9 @@ fn main() {
         }
         if let Some(v) = spoil_weight {
             def.spoil_weight_cells = v;
+        }
+        if let Some(v) = exposure {
+            def.exposure_cost_per_cell = v;
         }
         println!(
             "labstats: prices dig_cost_in_moves={} emit_cost_in_moves={} spoil_weight_cells={}",
@@ -168,6 +172,20 @@ fn main() {
             l.metabolized,
             l.moved,
             l.synapse_tax
+        );
+        // **How much of an animal's life is spent in the open** -- the number
+        // that decides whether an exposure price can select for anything at
+        // all. A colony outdoors on essentially every tick has no sheltering
+        // behaviour for a hazard to reward, however steep the hazard: the
+        // price is then a flat tax on being alive, which selects for nothing.
+        let ticks = st.ticks.max(1);
+        println!(
+            "--- shelter --- exposed on {} of {} creature ticks ({:.1}%) | exposure_energy {:.1} ({:.1}% of burn)",
+            st.exposed_ticks,
+            st.ticks,
+            100.0 * st.exposed_ticks as f64 / ticks as f64,
+            st.exposure_energy,
+            share(st.exposure_energy)
         );
     }
 

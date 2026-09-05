@@ -360,6 +360,9 @@ fn run_world(spec: &LabBox, frames: u64, arm: Arm, mirror: bool, arm_seed: u64) 
         if let Some(v) = arg::<f32>("spoilweight") {
             def.spoil_weight_cells = v;
         }
+        if let Some(v) = arg::<f32>("exposure") {
+            def.exposure_cost_per_cell = v;
+        }
         w.species.set_creature(species_id, def);
     }
     let life = idle_life(w.species.get(species_id).creature.as_ref().expect("the colony species is a creature"));
@@ -472,7 +475,21 @@ fn main() {
     let mut share_cells: Vec<f64> = Vec::new();
     println!("\n{:>5} {:>8} {:>8} {:>9} {:>8} {:>8} {:>9} {:>7} {:>7}", "seed", "A alive", "B alive", "B share", "A cells", "B cells", "B cells%", "A gen", "B gen");
     for seed in 1..=seeds {
-        let spec = LabBox { colonies: 1, founders, colony_ants: ants, colony_species: species.clone(), seed, ..LabBox::default() };
+        // **Predators, which this arena could not place** -- so the one
+        // hazard the engine already has could not be put on the other side
+        // of an ablation. A beetle authors `dig_force: 0.3` against soil's
+        // 0.8, so it cannot cut ground: if a gallery is a refuge at all, it
+        // is a refuge *already*, and `arm=ablate input=Bias output=Dig` with
+        // and without beetles is the whole test.
+        let spec = LabBox {
+            colonies: 1,
+            founders,
+            colony_ants: ants,
+            colony_species: species.clone(),
+            predators: arg("predators").unwrap_or(0),
+            seed,
+            ..LabBox::default()
+        };
         let runs = if mirror { vec![false, true] } else { vec![false] };
         let (mut a, mut b) = (Tally::default(), Tally::default());
         let (mut ea, mut eb) = (0usize, 0usize);
