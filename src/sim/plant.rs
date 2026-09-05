@@ -761,8 +761,19 @@ pub fn water_capacity_of(contact_root_cells: u32) -> f32 {
 /// **How many contact roots may count toward *storage*** — past this, more
 /// root buys uptake and anchorage but not a bigger tank.
 ///
-/// `u32::MAX` ships, so the default is the unbounded formula exactly and
-/// this is inert until swept.
+/// **`u32::MAX` ships**, i.e. the unbounded formula exactly, so this is
+/// inert; `PIXEL_PHYSICS_WATER_TANK_CAP=32` is the measured setting and the
+/// arm every number below was taken on. It is off for the same reason the
+/// root gate is — see `root_gate_is_local`; the two only make sense
+/// together, and neither is blocked by its own evidence.
+///
+/// **Swept, and it is a band rather than a threshold**, against
+/// `a_tree_denied_water_dies_and_a_watered_one_does_not` with the local
+/// gate on: 8 and 16 stunt the tree to 155 cells so the *watered* one dies,
+/// unbounded lets the *droughted* one live, and 32 and 64 both pass. 32
+/// gives about four ticks of buffer against a ~29-per-tick demand, down
+/// from thirty-five, which is the "well under a day's transpiration" the
+/// biology asks for.
 ///
 /// **Why a bound is wanted at all.** Capacity is `WATER_SCALE x
 /// contact_root_cells` and nothing limits it, so at `WATER_SCALE` 4.0 the
@@ -7477,8 +7488,30 @@ fn note_root_tip_exit(_which: usize) {}
 /// What it buys where it ships: **root:shoot 7.3% -> 23.3%**, against a real
 /// tree's 20-25%, for no measurable income.
 ///
-/// **Why it is nevertheless off: switched on, a tree denied water for
-/// twenty thousand frames does not die.** It ends at 221 cells with **zero**
+/// **Default off, and the reason is two guards rather than the mechanism.**
+/// Measured with the tank bounded it is a clear improvement (below); flipped
+/// on, `a_spread_leaf_cluster_is_longer_than_a_blob` misses its 1.15 bar at
+/// **1.098** on a single unseeded run, and
+/// `slot_1_is_a_root_locus_and_not_a_shoot_one` fires — and that one turns
+/// out to have been passing **vacuously**. Its statistic is the shoot's
+/// spread under a root draw, and with roots inert the shoot could not move
+/// whatever the draw did. With roots live it is dominated by seed noise at
+/// four seeds, which the *shoot* locus itself demonstrates: slot 0 gives
+/// per-seed spreads of **121.2 / 3.5 / 28.3 / 17.9 %**, so the control for
+/// "a draw that should move the shoot" is as noisy as the case. Neither
+/// guard should be widened to land this; both want their own measurement,
+/// which is not this change's to do under pressure to go green.
+///
+/// With the tank capped (`WATER_TANK_CONTACT_CAP` 32), 12 paired seeds on
+/// the 34-row bed: root cells **4.74x** and contact roots **4.13x**, both
+/// **12/12**; **income +30%**, total cells **+41% (12/12)**, shoot +22%;
+/// uptake +57%; the worst plant in each bed 0.792 -> **1.000**; the water
+/// in the root zone 0.016 -> **0.839**; and **root:shoot 7.5% -> 22.4%**
+/// against a real tree's 20-25%. Alone it was income-neutral; with the tank
+/// bounded it is income-*positive*.
+///
+/// **Why it could not ship alone: switched on with an unbounded tank, a
+/// tree denied water for twenty thousand frames does not die.** It ends at 221 cells with **zero**
 /// consecutive starving ticks — not marginal, comfortable — and
 /// `a_tree_denied_water_dies_and_a_watered_one_does_not` fails. That test
 /// asserts the owner's 2026-08-24 ruling (*"if a tree doesn't get watered,
@@ -17652,6 +17685,44 @@ floor {ROOT_INVERSION_BAR}. Measured 0.994 (SE 0.046) when this bar was set -- s
 
     /// The 8-seed pairing both the guard and the probe read. One place, so
     /// the bar and the number it was set from cannot drift apart.
+    /// The same pairing for **slot 0**, the shoot locus — the control the
+    /// root guard needs now that roots have downstream consequences.
+    ///
+    /// A root draw that moves the shoot is only evidence of mis-wiring if it
+    /// moves the shoot *as a shoot draw would*. Comparing the two on the same
+    /// seeds cancels the seed-to-seed spread, which a bar on the absolute
+    /// number cannot.
+    fn shoot_branch_slot_sweep(seeds: u64, frames: usize) -> Vec<SlotPair> {
+        (1..=seeds)
+            .map(|seed| {
+                let (root_low, shoot_low) = root_slot_run(seed, 0, -1.0, frames);
+                let (root_high, shoot_high) = root_slot_run(seed, 0, 1.0, frames);
+                SlotPair { root_low, root_high, shoot_low, shoot_high }
+            })
+            .collect()
+    }
+
+    /// Measurement only: what a *shoot* draw does to the shoot, so the root
+    /// guard's bar can be set against it rather than against a constant.
+    #[test]
+    #[ignore]
+    fn print_slot_0_and_slot_1_shoot_spread() {
+        let mean = |v: Vec<f32>| v.iter().sum::<f32>() / v.len() as f32;
+        for (label, sweep) in [
+            ("slot 1 (root locus)", root_branch_slot_sweep(GUARD_SEEDS, GUARD_FRAMES)),
+            ("slot 0 (shoot locus)", shoot_branch_slot_sweep(GUARD_SEEDS, GUARD_FRAMES)),
+        ] {
+            let spreads: Vec<f32> = sweep.iter().map(|r| r.shoot_spread()).collect();
+            let worst = spreads.iter().fold(0.0f32, |a, &b| a.max(b));
+            println!(
+                "{label}: mean shoot spread {:.1}%, worst seed {:.1}%, per-seed {:?}",
+                100.0 * mean(spreads.clone()),
+                100.0 * worst,
+                spreads.iter().map(|v| (1000.0 * v).round() / 10.0).collect::<Vec<_>>()
+            );
+        }
+    }
+
     fn root_branch_slot_sweep(seeds: u64, frames: usize) -> Vec<SlotPair> {
         (1..=seeds)
             .map(|seed| {
