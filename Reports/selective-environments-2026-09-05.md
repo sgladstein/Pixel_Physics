@@ -55,8 +55,8 @@ single weight is reachable; anything needing a new *pathway* is not, at this
 mutation rate.
 
 **(c) B must be separable in the genome.** *This is the condition nobody
-checks, and it silently invalidated a measurement in this very session* — see
-§4.
+checks, and checking it shallowly is worse than not checking it* — §4 has
+both, on the same arm.
 
 **(d) E must not be dominated by a stronger pressure.** If everything starves,
 nothing else is selected. `creature-direction.md` §13f already records this
@@ -133,39 +133,90 @@ dig price off and only spoil and emit priced, the non-digger still wins 3 of
 contrast**, which is a general warning about sizing any lever by its share of
 a total.
 
-### What the same instrument could *not* answer, and why it matters
+### The separability check, and the mistake I made doing it
 
-`arm=notrail` — blind the ant to both pheromone planes — loses badly (28.6%
-and 22.2% on two seeds). It reads as *"the bed selects for following
-trails"*. **It does not, and this is condition (c) failing.**
+**Condition (c) is the one nobody checks, and the first version of this
+report got it wrong in print.** It said `arm=notrail` could not mean what it
+says — that blinding the pheromone senses removes the ant's whole ability to
+modulate movement rather than its trail-following — because `ant.ron` wires
+`PheroAAlong`/`PheroBAlong` into hidden units 0–3 and those units drive
+`Move`.
 
-`ant.ron` wires `PheroAAlong` and `PheroBAlong` into hidden units 0–3, and
-those units drive **`Move`** (`(0, Move, 2.5)`, `(1, Move, -2.5)` …). That is
-the run-and-tumble mechanism: a laden ant walking away from the nest scent
-computes a low `Move`, fails the roll, and re-orients. So blinding the
-pheromone senses does not remove trail-following, it removes **the ant's
-entire ability to modulate movement**. The arm measures "a broken navigator
-loses", which is nearly tautological.
+**That reasoning was too shallow and the conclusion was wrong.** The four
+weights feed **differential pairs**:
 
-**There is currently no clean test of whether trails pay, because one
-mechanism does both jobs.** No environment change can select for trail
-quality while the trail sense and the walk are the same four weights. That is
-a fact about the animal, not the world, and it has to be fixed in the genome
-before any bed can be judged on it.
+```
+h0 = squash(-45 + 75*Carrying + 6*PheroAAlong)      h0 -> Move  +2.5
+h1 = squash(-45 + 75*Carrying - 6*PheroAAlong)      h1 -> Move  -2.5
+h2 = squash(+45 - 75*Carrying + 6*PheroBAlong)      h2 -> Move  +2.5
+h3 = squash(+45 - 75*Carrying - 6*PheroBAlong)      h3 -> Move  -2.5
+```
 
-**The general lesson, and it outranks the specific one:** before designing an
-environment for a behaviour, check that the behaviour is *separable* — that
-there is something you can remove which removes it and nothing else. If there
-is not, no environment selects for it, and an ablation will hand you a
-confident number about something else.
+With the pheromone term zeroed, `h0 == h1` and `h2 == h3` **exactly**, so the
+pairs contribute exactly 0.0 to `Move` and the ablated ant is left with its
+baseline `Bias -> Move (2.0)`, `FoodAdjacent -> Move (-1.5)` and
+`Crowding -> Move (-0.3)`. **Ablating the trail sense is arithmetically
+identical to standing in a world with no trail in it**, which is precisely
+what the arm is supposed to mean. `notrail` is separable, and the measurement
+stands: **3 seeds of 4 below the null, median 37.8%** (28.6 / 22.2 / 56.2 /
+37.8) at 24,000 frames.
+
+**Noting that weights reach an output is not the check. Tracing what the
+pathway is worth is.** The shallow version cost a wrong claim in a pushed
+report; the arithmetic took ten minutes.
+
+### …and doing it properly found something better
+
+Running the same numbers across the input range says the trail mechanism is
+**gated on carry state by saturation**, and the window is narrow:
+
+| `Carrying` | pheromone's share of the `Move` sum | change in p(move) at full signal |
+|---|---|---|
+| 0.0 (empty) | +0.03 | **+0.003** |
+| 0.5 | +1.66 | **+0.119** |
+| 1.0 (full) | +0.06 | **+0.007** |
+
+The gate is `-45 + 75*Carrying`, which only sits near zero — where a `±6`
+pheromone term can still move a saturating `squash` — at **Carrying ≈ 0.6**.
+Away from that band the unit is pinned at ±0.97 and the trail signal is lost
+in the saturation. So an ant reads its trail hard at about three-fifths
+laden, and is **effectively blind to it empty or full**.
+
+Gating trail-following on load is sensible — a laden ant is the one that
+wants to go home. **The width of that window is not a designed quantity**: it
+falls out of the ±45 / ±75 / ±6 magnitudes, and nothing records choosing it.
+It also means the mechanism's selective weight depends on **where the bed
+puts the crop-fill distribution**, which is a property of the world rather
+than the animal: measured on the shipped bed, fill runs 25–75% with nothing
+below a quarter, so ants do spend time in the live band — by luck.
+
+### The audit, for the ant as authored
+
+Every live weight in `ant.ron`, grouped by whether removing it removes one
+behaviour and nothing else:
+
+| behaviour | ablate | separable? |
+|---|---|---|
+| trail-reading | `PheroAAlong`/`PheroBAlong` -> h0–h3 (4 weights) | **yes** — pairs cancel at zero signal |
+| excavation | `(Bias, Dig)`, and `(FoodAdjacent, Dig)`, `(MoistureGrad, Dig)` | **yes** — `Dig` has no other writer |
+| feeding | every weight into `Feed` | **yes** |
+| unloading | `Drop` / `DropSpoil` rows | **yes**, but the two share `AtNest` and `Carrying` with each other |
+| homing (nest scent) | `AtNest` -> h4, h4 -> `EmitA`, h4 self-recurrence | **yes** — h4 writes only `EmitA` |
+| heat avoidance | `(TempAboveAmb, Turn)` | **yes** — the only `Turn` writer at all |
+| baseline locomotion | `(Bias, Move)` | not a behaviour; the floor everything else modulates |
+
+**The ant is more separable than it looked**, which is the useful result:
+every named behaviour has an ablatable set. The one caution is `Carrying`,
+which appears in eight places (both hidden pairs, `EmitB`, `Drop`,
+`DropSpoil`) — ablating *that* input is not a clean test of anything.
 
 ## 5. What each named behaviour would actually need
 
 Applying §1's constraint honestly — every row has to move energy or
 destruction, and every row has to pass (c).
 
-**Trails and foraging routes.** Blocked on separability first (§4). Then the
-environment: food must be **clumped and far**, because a trail only pays when
+**Trails and foraging routes.** Separable after all (§4), and the bed already
+selects for it weakly — 3 seeds of 4, median 37.8%. To select for it *well*: food must be **clumped and far**, because a trail only pays when
 re-finding a patch beats re-searching for it. In a bed where food is scattered
 along one ground line within a few body lengths of everything, a random walk
 is optimal and a trail is pure cost. The lab bed is that bed.
@@ -193,10 +244,10 @@ from reachable.
 
 The order that falls out is not the order these were asked in:
 
-1. **Separability audit before any environment work.** For each behaviour,
-   name the weights whose removal removes it *and nothing else*. §4 shows
-   what happens when you skip this. Cheap: it is reading `ant.ron`'s wiring
-   against `brain.rs`'s slots.
+1. ~~**Separability audit.**~~ **Done for the ant, §4** — every named
+   behaviour has an ablatable set, and the trail pathway turned out separable
+   after a first reading said otherwise. The live caution is `Carrying`,
+   which appears in eight places and is a clean test of nothing.
 2. **Beetles breed.** One field, and it converts "no cycle is possible" into
    a real question.
 3. **Clumped food as a bed parameter**, which is the environment trails need

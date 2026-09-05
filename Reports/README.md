@@ -849,12 +849,17 @@ drift that two of these documents still reflect.**
   into a selected one. Two things it overturned: `spoil_weight_cells`, sized
   at a negligible **0.3% of movement cost** across the population, is
   decisive **in the contrast** because only one arm carries spoil — a general
-  warning about sizing a lever by its share of a total; and `arm=notrail`
-  cannot mean what it says, because `ant.ron` wires both pheromone senses
-  through the hidden units that drive `Move`, so blinding them removes
-  run-and-tumble rather than trail-following. **A behaviour that is not
-  separable in the genome cannot be selected for by any environment**, and an
-  ablation will hand you a confident number about something else
+  warning about sizing a lever by its share of a total; and a first reading of
+  `arm=notrail` that called it inseparable, **which was wrong and is corrected
+  in place**: the pheromone weights feed differential pairs that cancel
+  exactly at zero signal, so the ablation leaves `Bias -> Move` intact and does
+  mean what it says (3 seeds of 4, median 37.8%). **A behaviour that is not
+  separable cannot be selected for by any environment** — but the check is
+  tracing what a pathway is *worth*, not noting which output it reaches, and
+  the arithmetic that settled it found the better finding: the trail mechanism
+  is **saturation-gated on carry state**, worth 18% of the `Move` decision at
+  ~60% laden and under 1% empty or full. Carries the ant's full separability
+  audit
 
 - [creature-behaviour-ceiling-2026-09-05.md](creature-behaviour-ceiling-2026-09-05.md)
   — **diagnosis, measured, 2026-09-05; nothing tuned and nothing built.** The
