@@ -7348,10 +7348,47 @@ fn note_root_tip_exit(_which: usize) {}
 /// Gated on water stress rather than run unconditionally, so a plant with
 /// its demand fully met spends on canopy instead — that, with
 /// `ROOT_BIAS_AT_FULL_WATER`, is the whole of functional balance.
+/// Whether `break_root_tips` reads the **local** root-zone water rather than
+/// the whole-plant tank — `PIXEL_PHYSICS_ROOT_GATE=local`.
+///
+/// A `OnceLock` in the shape of `BEND=off` / `BREAK=off` / the
+/// `PIXEL_PHYSICS_SOIL_UPTAKE` arm beside them: a measurement instrument, so
+/// one process is one arm. Default is the shipped behaviour exactly, and the
+/// read is one relaxed atomic load per organism per tick.
+fn root_gate_is_local() -> bool {
+    use std::sync::OnceLock;
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| matches!(std::env::var("PIXEL_PHYSICS_ROOT_GATE").as_deref(), Ok("local")))
+}
+
 fn break_root_tips(world: &mut World, organism_id: u16) {
     let Some(state) = world.organism(organism_id) else { return };
     note_root_tip_exit(ROOT_TIP_CALLS);
-    let status = state.water_status;
+    // **Which signal says "this plant is short of water".**
+    //
+    // `water_status` is the shipped one and it is the wrong quantity, though
+    // the threshold on it is fine. It is `min(stock/demand, openness)`, so it
+    // is **ceiling-clipped** and flat over roughly 80% of the tank's range —
+    // and the tank is sized `WATER_SCALE x contact_root_cells`, which a
+    // mature tree overshoots by an order of magnitude. Measured across four
+    // beds and two genotype draws, this gate refuses **95–99.6%** of
+    // initiations while `ROOT_TIP_POOR` — the carbon exit — is **zero in
+    // every run**: root extension is bounded by neither the tip cap, nor a
+    // shortage of sites, nor the economy, but by a plant that reads "demand
+    // met" while the soil its roots touch sits at **0.016** available.
+    //
+    // `root_zone_water` is that local reading, and it is the same threshold
+    // against a signal that is not saturated. **The threshold is
+    // deliberately not retuned**: 0.95 on a fraction-of-full scale means the
+    // same thing on both, and moving both the input and the constant at once
+    // would make the arms uncomparable.
+    //
+    // Behind a switch, default off, because this is a change to what bounds
+    // root growth and `dead-ends.md` records unbounded root growth as the
+    // shipped state once soil gave roots income everywhere — one process is
+    // one arm, so both come off one binary and neither can be a stale build.
+    // `Reports/plant-soil-nutrient-plan-2026-09-05.md` §2b-ii.
+    let status = if root_gate_is_local() { state.root_zone_water } else { state.water_status };
     if status >= ROOT_REINITIATION_STATUS {
         note_root_tip_exit(ROOT_TIP_GATED);
         return; // demand met -- nothing to fix, and canopy is the better buy
@@ -8050,6 +8087,11 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
     // `OrganismState::contact_root_cells`. Four-neighbour, because an
     // exchange crosses a face.
     let mut contact_root_cells = 0u32;
+    // Numerator and denominator kept apart until the end -- a running mean
+    // would weight early cells more, and the walk's order is row-major
+    // rather than meaningful.
+    let mut root_zone_faces = 0u32;
+    let mut root_zone_available = 0.0f32;
     // The crown's overturning demand, accumulated as `Σ y` and turned into
     // `Σ (collar − y)` once the collar is known. A mass times a lever arm,
     // in one sum, from the walk that is already running.
@@ -8153,8 +8195,38 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
             // and free water is drinkable too. `absorb_water` discriminates
             // on exactly this field, so the surface counted here is the
             // surface that actually earns.
-            if NEIGHBOURS_4.iter().any(|&(dx, dy)| world.materials.get(world.get(cx + dx, cy + dy).material).water_capacity > 0) {
+            // **The same look now answers a second question, at no extra
+            // cost: how much water is actually left in the soil this root is
+            // standing in.**
+            //
+            // `break_root_tips` needs it because the signal it gates on
+            // today -- `water_status` -- is ceiling-clipped and reads 1.000
+            // across most of the tank's range, so the plant reports "demand
+            // met" while the soil its roots touch sits at 0.016 available.
+            // Measured, that gate refuses **95-99.6%** of root-tip
+            // initiations across four beds and two genotype draws, while the
+            // carbon exit refuses **none** -- see
+            // `Reports/plant-soil-nutrient-plan-2026-09-05.md` §2b.
+            //
+            // A **mean over drinkable faces**, not over root cells: a root
+            // walled in by its siblings has no face and must not drag the
+            // average toward zero, or a dense root ball would read as
+            // drought. Same denominator as `contact_root_cells` for that
+            // reason, and the two are accumulated together so they can never
+            // disagree about which faces counted.
+            let mut wet_faces = 0u32;
+            let mut available = 0.0f32;
+            for (dx, dy) in NEIGHBOURS_4 {
+                let n = world.get(cx + dx, cy + dy);
+                if world.materials.get(n.material).water_capacity > 0 {
+                    wet_faces += 1;
+                    available += update::plant_available_fraction(n);
+                }
+            }
+            if wet_faces > 0 {
                 contact_root_cells += 1;
+                root_zone_faces += wet_faces;
+                root_zone_available += available;
             }
             // **The primed site's own affordability check**, in the walk
             // that is already happening rather than in a traversal of its
@@ -8285,6 +8357,13 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
     if let Some(state) = world.organism_mut(organism_id) {
         state.root_cells = root_cells;
         state.contact_root_cells = contact_root_cells;
+        // **1.0 when a plant has no roots in soil at all**, which is the
+        // safe default in the same sense `OrganismCell::default`'s
+        // `support = 0` is: it reads "not short of water", so the rule that
+        // consumes it defers rather than fires. A seedling that has not put
+        // a root down yet must not read as droughted.
+        state.root_zone_water =
+            if root_zone_faces > 0 { root_zone_available / root_zone_faces as f32 } else { 1.0 };
         state.shoot_cells = shoot_cells;
         state.organ_cells = organ_cells;
         state.collar_y = collar_y;

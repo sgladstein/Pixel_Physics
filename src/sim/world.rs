@@ -3090,6 +3090,10 @@ impl World {
             cells: std::collections::HashMap::new(),
             root_cells: 0,
             contact_root_cells: 0,
+            // 1.0, not 0.0 -- see the field's doc. A fresh organism has no
+            // root faces, and the rules keyed on this must read "not short"
+            // and defer rather than fire on a plant that has not rooted yet.
+            root_zone_water: 1.0,
             shoot_cells: 0,
             organ_cells: 0,
             anchor_cells: 0,
