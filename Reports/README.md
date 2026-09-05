@@ -2060,6 +2060,52 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   (2.59 ms/frame at 512x320, worth 16% of the dial) and that `FIELD_PASS` had
   the same one-frame sampling defect as `ORGANISM_PASS` -- **three instruments
   in one session**.
+- [sweep-positional-rng-2026-09-05.md](sweep-positional-rng-2026-09-05.md) —
+  **measured 2026-09-05, a decision document; nothing built, and adversarially
+  reviewed before being put forward (§8 records what the review changed,
+  including two claims that were wrong).** Prices the unlock
+  `evolution-lab-frame-cost-2026-09-01.md` §5 named and did not cost:
+  replacing the CA sweep's per-chunk stateful `Rng` with a draw keyed on
+  `(world seed, x, y, frame)`, after which narrowing the swept region stops
+  being a behaviour change. **The prize halved while nobody was looking** — §5
+  measured per-row spans at **1.19x of the whole frame** and today they are
+  **1.05x** (tick 2.731 -> 2.592 ms, median of three, non-overlapping),
+  because #228, #234 and #235 shrank the frame around them. The phase ratio is
+  unchanged; the *saving* fell from 1.02 ms to **0.139 ms**, so §5 is the
+  handed-forward-estimate trap §15.3 named happening to §5 itself. **"Up to 3x
+  of this phase" is withdrawn and replaced by no number at all**, for two
+  independent reasons: the `est_` columns are ~90% soil moisture, which since
+  #212 does not wake the sweep, so they fail `labperf`'s own stated control;
+  and the obvious repair — comparing measured `swept` in the two arms — is
+  **also unavailable**, because measured box 10,326 against rows **12,242**,
+  the *narrowed* arm sweeping more since by frame 40,000 the arms are
+  different worlds. **A ceiling is not measurable until the change exists.**
+  What the measurements do support is that the risk is far smaller than
+  recorded: **2 of 1,414 tests go red** under a stream shift against a matched
+  0-of-1,414 control — every integration binary green in both arms — **one**
+  hardcoded cross-build hash exists in the tree, and saved lab boxes are
+  **recipes rather than cell snapshots**, so they regrow differently once
+  rather than becoming invalid. The recorded blast radius is **stale**: the
+  determinacy guard §5 names now passes and `a_spread_leaf_cluster_is_longer_
+  than_a_blob` is red beside the frame hash instead. Quality is settled
+  against the shipping generator rather than against zero (|phi| <= 0.0004 on
+  every neighbour offset; per-cell variance exactly binomial), **with the
+  instrument checked against a deliberately bad key first** (+0.94, and
+  3,900x on the per-cell control) — which turns up the one failure mode that
+  survives, since a weak mixer is laundered by the xorshift round on top:
+  only an actual **key collision** can hurt. Per-draw cost is of order 0.02
+  ms/tick and **the sign is not knowable from a microbench** — a bare loop
+  says positional is faster (it breaks a serial dependency chain), the same
+  loop with realistic memory traffic says slower. **Its most transferable
+  finding is §5.0**, which came out of the review: *"a narrowing removes only
+  cells no rule could have acted on"* is asserted in four places in this repo
+  and **measured in none**, and there is a one-run test for it — under
+  positional draws the two sweep arms must hash identically. Also corrects the
+  proposal twice: there is **no bit-identical intermediate** (a positional
+  draw *is* the divergence), and it does **not** unblock parallelising
+  `active_sites`, which is held by `&mut World` aliasing and not by the RNG.
+  Asks for steps 1-2 only — about a day, nothing irreversible — and a
+  re-decision on their numbers.
 - [plant-reseeding-2026-09-03.md](plant-reseeding-2026-09-03.md) —
   **measured 2026-09-03.** Answers the owner's two questions about why the
   lab's plants never spread. **Q1: no, a plant cannot evolve better seed
