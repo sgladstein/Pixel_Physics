@@ -57,6 +57,10 @@ fn main() {
         founders,
         colonies,
         compartments: arg("walls").unwrap_or(1),
+        // **Predators, which this harness could not place** -- so the one
+        // question a predator-prey bed exists to answer could not be asked
+        // of it at all. `LabBox::default()` is 0.
+        predators: arg("predators").unwrap_or(0),
         seed,
         ..LabBox::default()
     };
@@ -82,6 +86,23 @@ fn main() {
         let dig_cost: Option<f32> = arg("digcost");
         let emit_cost: Option<f32> = arg("emitcost");
         let spoil_weight: Option<f32> = arg("spoilweight");
+        let exposure: Option<f32> = arg("exposure");
+        // **The beetle's breeding switch, as the control arm.**
+        // `reproduce_threshold: 0.0` is the exogenous beetle exactly as it
+        // was before 2026-09-05 -- a fixed stock that can only overshoot or
+        // be swamped. Without this the new behaviour has no null to be read
+        // against, and "beetles bred once in 40,000 frames" cannot be told
+        // from "nothing changed".
+        if let Some(v) = arg::<f32>("beetlebreed") {
+            if let Some(bid) = lab.world.species.id_of("beetle") {
+                if let Some(def) = lab.world.species.get(bid).creature.as_ref() {
+                    let mut def = def.clone();
+                    def.reproduce_threshold = v;
+                    println!("labstats: beetle reproduce_threshold = {v}");
+                    lab.world.species.set_creature(bid, def);
+                }
+            }
+        }
         let id = lab.world.species.id_of("ant").expect("ant species");
         let mut def = lab.world.species.get(id).creature.as_ref().expect("creature").clone();
         if let Some(v) = dig_cost {
@@ -92,6 +113,9 @@ fn main() {
         }
         if let Some(v) = spoil_weight {
             def.spoil_weight_cells = v;
+        }
+        if let Some(v) = exposure {
+            def.exposure_cost_per_cell = v;
         }
         println!(
             "labstats: prices dig_cost_in_moves={} emit_cost_in_moves={} spoil_weight_cells={}",
@@ -148,6 +172,20 @@ fn main() {
             l.metabolized,
             l.moved,
             l.synapse_tax
+        );
+        // **How much of an animal's life is spent in the open** -- the number
+        // that decides whether an exposure price can select for anything at
+        // all. A colony outdoors on essentially every tick has no sheltering
+        // behaviour for a hazard to reward, however steep the hazard: the
+        // price is then a flat tax on being alive, which selects for nothing.
+        let ticks = st.ticks.max(1);
+        println!(
+            "--- shelter --- exposed on {} of {} creature ticks ({:.1}%) | exposure_energy {:.1} ({:.1}% of burn)",
+            st.exposed_ticks,
+            st.ticks,
+            100.0 * st.exposed_ticks as f64 / ticks as f64,
+            st.exposure_energy,
+            share(st.exposure_energy)
         );
     }
 
@@ -210,6 +248,25 @@ fn line(stats: &Stats, world: &World) {
         println!("  (no census)");
         return;
     };
+    // **Split the animals by species, because one total cannot show a
+    // cycle.** A predator-prey question is about two curves and the phase
+    // between them; `c.animals` is their *sum*, in which a rise in one
+    // against a fall in the other is exactly invisible. Printed as its own
+    // short line rather than widened into the row above, which is already at
+    // the width a terminal will wrap.
+    let mut by_species: std::collections::BTreeMap<&str, usize> = Default::default();
+    for id in world.live_organism_ids() {
+        let Some(st) = world.organism(id) else { continue };
+        let sp = world.species.get(st.species);
+        if sp.creature.is_none() {
+            continue;
+        }
+        *by_species.entry(sp.name.as_str()).or_default() += 1;
+    }
+    if by_species.len() > 1 {
+        let split: Vec<String> = by_species.iter().map(|(k, v)| format!("{k} {v}")).collect();
+        println!("  frame {:>7}: animals by species -- {}", c.frame, split.join(", "));
+    }
     println!(
         "  frame {:>7}: plants {:>5} ({:>6} cells, size {:>3}/{:>3}/{:>4})  bank {:>5}  animals {:>4} ({:>5} cells)  senescent {:>4} | borne {:>5} sprouted {:>5} | born {:>4} died {:>4} refused {:>3} | gen p{} a{} {:?} | slots {}/{} | lines {} top {:.0}%",
         c.frame,

@@ -109,6 +109,35 @@ enum Arm {
     /// we wrote over noise? A world in which it does not is a world where
     /// evolving the instinct was never possible.
     Random,
+    /// **Every weight out of one named input, zeroed** — `arm=ablate
+    /// input=SurfaceCurvature`. The generalisation of `NoFeed`/`NoTrail`,
+    /// and the reason it exists is that the fixed rungs answer only the
+    /// questions somebody thought to hard-code.
+    ///
+    /// **This is the shape of the question "does this environment select for
+    /// X?"** — take the sense or the verb X needs, remove it, and see
+    /// whether the bed punishes the animal that lost it. A bed that does not
+    /// is a bed in which X can never evolve, at any population size and any
+    /// number of generations, which is the finding that outranks tuning.
+    ///
+    /// **It cannot separate what the genome does not separate**, and that is
+    /// a limit of the animal rather than of this arm — see `NoTrail`'s own
+    /// doc for the case that taught it.
+    AblateInput(brain::BrainInput),
+    /// **One (input, output) weight, zeroed** — `arm=ablate
+    /// input=Crowding output=Dig`. The sharpest form: a single edge of the
+    /// brain, which is the unit selection actually acts on.
+    AblateEdge(brain::BrainInput, brain::BrainOutput),
+}
+
+/// Look an input up by the name `brain::INPUT_NAMES` gives it, so the
+/// command line speaks the same vocabulary as the species files.
+fn input_by_name(name: &str) -> Option<brain::BrainInput> {
+    brain::INPUTS.iter().copied().find(|i| brain::INPUT_NAMES[*i as usize].eq_ignore_ascii_case(name))
+}
+
+fn output_by_name(name: &str) -> Option<brain::BrainOutput> {
+    brain::OUTPUTS.iter().copied().find(|o| brain::OUTPUT_NAMES[*o as usize].eq_ignore_ascii_case(name))
 }
 
 impl Arm {
@@ -119,6 +148,19 @@ impl Arm {
             "nofeed" => Arm::NoFeed,
             "notrail" => Arm::NoTrail,
             "random" => Arm::Random,
+            "ablate" => {
+                let input = arg_str("input").expect("arm=ablate needs input=<name>, e.g. input=Crowding");
+                let input = input_by_name(&input)
+                    .unwrap_or_else(|| panic!("unknown input {input:?}; known: {:?}", brain::INPUT_NAMES));
+                match arg_str("output") {
+                    Some(o) => {
+                        let output = output_by_name(&o)
+                            .unwrap_or_else(|| panic!("unknown output {o:?}; known: {:?}", brain::OUTPUT_NAMES));
+                        Arm::AblateEdge(input, output)
+                    }
+                    None => Arm::AblateInput(input),
+                }
+            }
             _ => return None,
         })
     }
@@ -177,6 +219,34 @@ impl Arm {
             Arm::Random => {
                 g = brain::random_genome(seed);
                 moved = brain::live_slots().filter(|&i| g[i] != base[i]).count();
+            }
+            Arm::AblateInput(input) => {
+                // Every route out of that sense: straight to a verb, and
+                // through every hidden unit. Missing the hidden half is how
+                // an ablation reports "changed nothing" about an input the
+                // species wires entirely through hidden units -- which is
+                // exactly how `ant.ron` wires its pheromone senses.
+                for &output in brain::OUTPUTS.iter() {
+                    let slot = brain::io_slot(input, output);
+                    if g[slot] != 0.0 {
+                        g[slot] = 0.0;
+                        moved += 1;
+                    }
+                }
+                for h in 0..brain::BRAIN_HIDDEN {
+                    let slot = brain::ih_slot(input, h);
+                    if g[slot] != 0.0 {
+                        g[slot] = 0.0;
+                        moved += 1;
+                    }
+                }
+            }
+            Arm::AblateEdge(input, output) => {
+                let slot = brain::io_slot(input, output);
+                if g[slot] != 0.0 {
+                    g[slot] = 0.0;
+                    moved += 1;
+                }
             }
         }
         (g, moved)
@@ -268,6 +338,33 @@ fn direction(shares: &[f64]) -> (usize, usize, usize) {
 fn run_world(spec: &LabBox, frames: u64, arm: Arm, mirror: bool, arm_seed: u64) -> Outcome {
     let mut w = spec.build();
     let species_id = w.species.id_of(&spec.colony_species).expect("colony species is compiled in");
+    // **The economy, as arguments — because "does this environment select
+    // for X" is a question about the environment, and an arena that can only
+    // vary the *genome* can only ever answer half of it.**
+    //
+    // These are `CreatureDef` fields compiled in via `include_str!`, so
+    // editing the `.ron` and re-running a prebuilt binary gives bit-identical
+    // "runs" (`CLAUDE.md` records three of those). Patching the live registry
+    // is the only way to sweep them, and it is what makes the paired control
+    // possible: the same ablation, run against a world where the verb costs
+    // something and one where it is free, is how you tell a *selective
+    // pressure* from a coincidence.
+    if let Some(def) = w.species.get(species_id).creature.as_ref() {
+        let mut def = def.clone();
+        if let Some(v) = arg::<f32>("digcost") {
+            def.dig_cost_in_moves = v;
+        }
+        if let Some(v) = arg::<f32>("emitcost") {
+            def.emit_cost_in_moves = v;
+        }
+        if let Some(v) = arg::<f32>("spoilweight") {
+            def.spoil_weight_cells = v;
+        }
+        if let Some(v) = arg::<f32>("exposure") {
+            def.exposure_cost_per_cell = v;
+        }
+        w.species.set_creature(species_id, def);
+    }
     let life = idle_life(w.species.get(species_id).creature.as_ref().expect("the colony species is a creature"));
     let base = w.species.get(species_id).genome.clone();
     assert_eq!(base.len(), brain::GENOME_LEN, "the colony species carries no genome; there is nothing to race");
@@ -378,7 +475,21 @@ fn main() {
     let mut share_cells: Vec<f64> = Vec::new();
     println!("\n{:>5} {:>8} {:>8} {:>9} {:>8} {:>8} {:>9} {:>7} {:>7}", "seed", "A alive", "B alive", "B share", "A cells", "B cells", "B cells%", "A gen", "B gen");
     for seed in 1..=seeds {
-        let spec = LabBox { colonies: 1, founders, colony_ants: ants, colony_species: species.clone(), seed, ..LabBox::default() };
+        // **Predators, which this arena could not place** -- so the one
+        // hazard the engine already has could not be put on the other side
+        // of an ablation. A beetle authors `dig_force: 0.3` against soil's
+        // 0.8, so it cannot cut ground: if a gallery is a refuge at all, it
+        // is a refuge *already*, and `arm=ablate input=Bias output=Dig` with
+        // and without beetles is the whole test.
+        let spec = LabBox {
+            colonies: 1,
+            founders,
+            colony_ants: ants,
+            colony_species: species.clone(),
+            predators: arg("predators").unwrap_or(0),
+            seed,
+            ..LabBox::default()
+        };
         let runs = if mirror { vec![false, true] } else { vec![false] };
         let (mut a, mut b) = (Tally::default(), Tally::default());
         let (mut ea, mut eb) = (0usize, 0usize);

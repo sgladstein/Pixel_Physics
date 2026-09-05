@@ -240,6 +240,12 @@ pub struct CreatureStats {
     /// because the deposit is continuous rather than an event, so this is
     /// both the fired-and-paid signal at once.
     pub emit_energy: f64,
+    /// **What standing in the open cost**, in joules, and how many creature
+    /// ticks were spent out there. The pair is the point: the joules alone
+    /// cannot say whether a colony is sheltering more or simply dying, and
+    /// the tick count alone cannot say whether the price is biting.
+    pub exposure_energy: f64,
+    pub exposed_ticks: u64,
     /// **Cells of loose ground converted to a tunnel lining** by those digs
     /// — the effect counter on the far side of `digs`, which is a call
     /// counter and nothing more.
