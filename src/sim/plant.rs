@@ -17494,6 +17494,20 @@ mis-wired {miswired_root}, so `slot_1_is_a_root_locus_and_not_a_shoot_one` would
     /// | at calibration, one seed (336 against 448) | **1.33** | — |
     /// | 2026-08-22, 8 seeds (`open-bugs-handoff.md` §A) | 0.92, SE 0.056 | 1/8 |
     /// | 2026-08-23, 8 seeds, after the P1 water fixes | **0.994, SE 0.046** | 2/8 |
+    /// | 2026-09-05, 8 seeds, with the local root gate ON | **0.957** | **0/8** |
+    ///
+    /// **The 2026-09-05 row tests a specific theory and does not support
+    /// it.** `open-bugs-handoff.md` §A proposes that `break_root_tips` is
+    /// the *amplifier* for this lever — it re-initiates a `RootTip` from
+    /// mature tissue and is itself genotype-blind, so a world where it
+    /// fires often multiplies the lineages slot 1 is supposed to order, and
+    /// a world where it is gated shut does not. `root_gate_is_local` is by
+    /// far the largest change anyone has made to that firing rate: it took
+    /// root cells **4.74x** on the paired bed and the gate from refusing
+    /// 95–99.6% of initiations to refusing few. The lever did not move
+    /// (0.994 -> 0.957 is 0.8 SE, and the seeds clearing 1.10 went 2/8 ->
+    /// 0/8). So whatever holds slot 1 flat, **it is not the amplifier being
+    /// switched off**, and the next hypothesis should look elsewhere.
     ///
     /// **0.1 SE from exactly no effect.** `CLAUDE.md` says to set a bar from
     /// measurement with headroom and, where a report asks for a number the
