@@ -1214,6 +1214,205 @@ mod tests {
         }
     }
 
+    /// **What an odometer at given weights actually emits, through the real
+    /// evaluator.** The readout any fix for `open-bugs-handoff.md` §Z5 has to
+    /// be judged against.
+    ///
+    /// **Through `eval_brain`, not a side simulation, and that is the whole
+    /// point.** The curve §Z5 broke was verified by simulating the recurrence
+    /// directly -- right about the arithmetic, and it never saw the `W_EPS`
+    /// gate that makes the mechanism dead. A replacement checked the same way
+    /// would reproduce the same class of error.
+    ///
+    /// `cargo test --release --lib -- --ignored --nocapture what_an_odometer_emits`
+    #[test]
+    #[ignore = "a readout, not an assertion -- cargo test -- --ignored --nocapture what_an_odometer_emits"]
+    fn what_an_odometer_emits() {
+        // The Rust rule this replaced: `squash(2.0) * (1 - since/3000)`, i.e.
+        // 0.667 falling linearly to zero across the window.
+        let target = |t: usize| (0.6667f32 * (1.0 - t as f32 / 3000.0)).max(0.0);
+        for (name, w_in, w_rec, w_out, bias) in [
+            ("authored (dead: w_in < W_EPS)", 0.0005f32, 0.9999f32, 1609.1f32, -0.35f32),
+            ("w_in raised to W_EPS*2 alone", 0.02, 0.9999, 1609.1, -0.35),
+        ] {
+            println!("{name:34}  {}", odometer_curve(w_in, w_rec, w_out, bias, 5, 3000, &target));
+        }
+        println!("W_EPS = {W_EPS}; the rule it replaced ran 0.667 -> 0.000 linearly");
+
+        // **The search, and the grid has to include the authored values.**
+        // The first grid did not and every winner sat on its boundary, which
+        // is the tell that the optimum is outside it -- the "best" fits
+        // scored 0.315 against 0.126 for simply raising `w_in`.
+        //
+        // **The decay is dominated by `squash`, not by `w_rec`, and that is
+        // why the original charge was tiny.** `eval_brain` computes
+        // `h = squash(w_rec * h)`, and `squash` compresses: at `h = 0.08` it
+        // takes about 8% off every tick, swamping a `w_rec` of 0.9999. Held
+        // near zero the unit is in `squash`'s linear region and `w_rec` alone
+        // sets the half-life, which is exactly what a 0.0005 charge and a
+        // 1609.1 output weight buy. The fix therefore wants the *smallest*
+        // charge the evaluator will still read, not a comfortable one.
+        let mut best: Vec<(f32, f32, f32, f32, f32, usize)> = Vec::new();
+        for &w_in in &[0.02f32, 0.025, 0.03, 0.04, 0.05, 0.08] {
+            for &w_rec in &[0.9994f32, 0.9997, 0.9999, 0.99995, 1.0] {
+                for &bias in &[0.0f32, -0.1, -0.2, -0.35, -0.5] {
+                    for &w_out in &[4.0f32, 8.0, 14.0, 22.0, 32.0, 48.0, 70.0, 110.0, 180.0, 300.0] {
+                        let g = genome_from_wiring(
+                            &[Instinct(BrainInput::Bias, BrainOutput::EmitA, bias)],
+                            &[HiddenWire(BrainInput::AtNest, 4, w_in)],
+                            &[OutputWire(4, BrainOutput::EmitA, w_out)],
+                            &[Recurrence(4, w_rec)],
+                        );
+                        let mut state = [0.0f32; BRAIN_HIDDEN];
+                        let mut inputs = [0.0f32; BRAIN_INPUTS];
+                        inputs[BrainInput::Bias as usize] = 1.0;
+                        inputs[BrainInput::AtNest as usize] = 1.0;
+                        for _ in 0..5 {
+                            eval_brain(&g, &inputs, &mut state);
+                        }
+                        inputs[BrainInput::AtNest as usize] = 0.0;
+                        let mut sse = 0.0f32;
+                        let mut prev = f32::MAX;
+                        let mut monotone = true;
+                        let mut emitted = Vec::with_capacity(3000);
+                        for t in 0..3000 {
+                            let (out, _) = eval_brain(&g, &inputs, &mut state);
+                            let e = out[BrainOutput::EmitA as usize].clamp(0.0, 1.0);
+                            if e > prev + 1e-6 {
+                                monotone = false;
+                            }
+                            prev = e;
+                            sse += (e - target(t)).powi(2);
+                            emitted.push(e);
+                        }
+                        // **Two constraints the rms cannot see, and both are
+                        // about the mechanism rather than the curve.**
+                        //
+                        // A charge that sits just above `W_EPS` is one point
+                        // mutation from being the bug again -- `MUT_ABS_FLOOR`
+                        // is sized against `W_EPS` precisely so a weight can
+                        // cross it -- so the sweep starts at twice it rather
+                        // than reporting a winner it would have to reject.
+                        //
+                        // And **how long it stays saturated, not how
+                        // saturated it starts.** The first cut tested the
+                        // value at t=0, which is the single most saturated
+                        // instant there is, and rejected every curve that
+                        // desaturates promptly -- leaving only cliffs that
+                        // hit zero by t=1000 and scored 0.33 against 0.08.
+                        // What actually harms a gradient is a *stretch* over
+                        // which every ant lays the same near-maximum, so that
+                        // is what is measured. 200 ticks of a 3,000-tick
+                        // window is under 7% of it.
+                        // **Peak amplitude, not just shape.** The rule this
+                        // replaces emitted `squash(2.0) = 0.667` at its
+                        // strongest, and a replacement that peaks at 0.99
+                        // matches the *curve* while laying half as much again
+                        // -- which `emit_cost_in_moves` charges for. Measured:
+                        // a 0.99-peak fit took the colony from 12 survivors
+                        // to 2 at the shipped price, because the price was
+                        // calibrated when channel A cost nothing at all.
+                        // Amplitude is a term in a shared budget, so it is
+                        // constrained rather than left to the fit.
+                        let peak = emitted[0];
+                        if monotone && peak <= 0.75 {
+                            best.push(((sse / 3000.0).sqrt(), w_in, w_rec, w_out, bias, (peak * 1000.0) as usize));
+                        }
+                    }
+                }
+            }
+        }
+        best.sort_by(|a, b| a.0.total_cmp(&b.0));
+        println!("-- best monotone fits against the rule it replaced, w_in >= W_EPS*2 --");
+        for (rms, w_in, w_rec, w_out, bias, sat) in best.iter().take(6) {
+            println!(
+                "  rms {rms:.4}  w_in {w_in}  w_rec {w_rec}  w_out {w_out}  bias {bias}  peak/1000 {sat:3}  {}",
+                odometer_curve(*w_in, *w_rec, *w_out, *bias, 5, 3000, &target)
+            );
+        }
+        // **The chosen fit, and why it is not simply the sweep's first row.**
+        //
+        // `w_in` turns out barely to matter: 0.02 through 0.08 all score
+        // within 0.002 rms, because whatever the charge, the level drops into
+        // `squash`'s harmonic regime within a few dozen ticks and the shape
+        // from there is the same. So it is free to be chosen for robustness
+        // instead, and it should be: `MUT_ABS_FLOOR` is **0.04**, wider than
+        // `W_EPS` itself, so a charge at 2x `W_EPS` is inside one mutation of
+        // being deleted. That deletion is lawful -- it is the mechanism that
+        // lets evolution prune and grow connections, and every small weight
+        // has it -- but a *shipped* value should not start there. 0.05 is 5x
+        // `W_EPS` and just outside one mutation width.
+        //
+        // `w_rec` takes 0.99995 rather than the sweep's 1.0, at a cost of
+        // 0.0006 rms: a unit that retains exactly all of its level is
+        // decaying only because `squash` bleeds it, which is true and reads
+        // as "remembers for ever". A leak that is a leak says what it is.
+        println!("-- the chosen fit --");
+        println!("  w_in 0.05  w_rec 0.99995  w_out 900  bias -0.2");
+        for touch in [1usize, 5, 30, 400] {
+            println!("  touch {touch:4}  {}", odometer_curve(0.05, 0.99995, 900.0, -0.2, touch, 3000, &target));
+        }
+
+        // **A fit that only works at one touch duration is not a fit.** The
+        // discarded thirty-tick version is the precedent, so the best is
+        // re-run at a brush and at a stay.
+        if let Some((_, w_in, w_rec, w_out, bias, _)) = best.first() {
+            println!("-- the best fit at other nest-touch durations --");
+            for touch in [1usize, 5, 30, 400] {
+                println!("  touch {touch:4}  {}", odometer_curve(*w_in, *w_rec, *w_out, *bias, touch, 3000, &target));
+            }
+        }
+    }
+
+    /// Run one odometer through `eval_brain` and describe what came out.
+    ///
+    /// `touch` is the nest-contact duration in ticks and is a parameter
+    /// rather than a constant because the fit depends on it: the design note
+    /// discarded an earlier set of weights for assuming a thirty-tick stay
+    /// when a real ant brushes past in about five.
+    fn odometer_curve(
+        w_in: f32,
+        w_rec: f32,
+        w_out: f32,
+        bias: f32,
+        touch: usize,
+        window: usize,
+        target: &dyn Fn(usize) -> f32,
+    ) -> String {
+        let g = genome_from_wiring(
+            &[Instinct(BrainInput::Bias, BrainOutput::EmitA, bias)],
+            &[HiddenWire(BrainInput::AtNest, 4, w_in)],
+            &[OutputWire(4, BrainOutput::EmitA, w_out)],
+            &[Recurrence(4, w_rec)],
+        );
+        let mut state = [0.0f32; BRAIN_HIDDEN];
+        let mut inputs = [0.0f32; BRAIN_INPUTS];
+        inputs[BrainInput::Bias as usize] = 1.0;
+        inputs[BrainInput::AtNest as usize] = 1.0;
+        for _ in 0..touch {
+            eval_brain(&g, &inputs, &mut state);
+        }
+        inputs[BrainInput::AtNest as usize] = 0.0;
+        let mut emitted = Vec::with_capacity(window);
+        for _ in 0..window {
+            let (out, _) = eval_brain(&g, &inputs, &mut state);
+            emitted.push(out[BrainOutput::EmitA as usize].clamp(0.0, 1.0));
+        }
+        let rms = (emitted.iter().enumerate().map(|(t, e)| (e - target(t)).powi(2)).sum::<f32>()
+            / emitted.len() as f32)
+            .sqrt();
+        let monotone = emitted.windows(2).all(|w| w[1] <= w[0] + 1e-6);
+        format!(
+            "emit {:.3} -> {:.3} (t={} {:.3}, t={} {:.3})  monotone {monotone}  rms {rms:.3}",
+            emitted[0],
+            emitted[window - 1],
+            window / 3,
+            emitted[window / 3],
+            2 * window / 3,
+            emitted[2 * window / 3],
+        )
+    }
+
 /// **Every authored weight in every shipped species is one `eval_brain`
     /// will actually read.**
     ///
@@ -1226,20 +1425,20 @@ mod tests {
     /// written a connection the engine does not evaluate. It reads as a
     /// deliberate small influence and is silence.
     ///
-    /// **`#[ignore]`d because it is red today** -- it is the reproduction for
-    /// `open-bugs-handoff.md` §Z5, kept per `CLAUDE.md`'s revert convention
-    /// rather than weakened until it passes. Both shipped odometers charge at
-    /// 0.0005 against a `W_EPS` of 0.01, so neither has ever charged:
+    /// **This was the reproduction for `open-bugs-handoff.md` §Z5 and is now
+    /// the guard against it returning.** It landed `#[ignore]`d and red, with
+    /// both shipped odometers charging at 0.0005 against a `W_EPS` of 0.01:
     ///
     /// ```text
     /// ant:      DEAD hidden  AtNest  -> h4 = 0.0005
     /// ancestor: DEAD hidden  KinNear -> h4 = 0.0005
     /// ```
     ///
-    /// Un-ignore it with the fix. It is the whole class, not those two lines:
-    /// any future species authoring a weight the evaluator skips fails here.
+    /// Both were re-fitted on 2026-09-05 and it runs for real. It is the
+    /// whole class, not those two lines: any future species authoring a
+    /// weight the evaluator skips fails here, which is the only mechanical
+    /// thing in the repo that would have caught the original.
     #[test]
-    #[ignore = "red until open-bugs-handoff.md §Z5 is fixed -- this is its reproduction"]
     fn every_authored_weight_is_one_the_evaluator_reads() {
         let world = crate::sim::world::World::new(crate::sim::chunk::Rect::new(0, 0, 63, 63));
         let mut dead: Vec<String> = Vec::new();

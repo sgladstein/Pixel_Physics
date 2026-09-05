@@ -5448,6 +5448,128 @@ mod tests {
         );
     }
 
+    /// **What the §Z5 fix costs a colony** -- the readout that says whether
+    /// reviving channel A can be paid for.
+    ///
+    /// A live odometer is not free. `emit_cost_in_moves` charges
+    /// `move_cost * body_cells * emit_cost * (emit_a + emit_b)`, and until
+    /// 2026-09-05 `emit_a` was structurally zero, so **the price was
+    /// calibrated on a colony laying one channel and now applies to two**.
+    /// `CLAUDE.md`'s shared-budget rule exactly: the constant was named as
+    /// at-risk when the bug was filed, and this is it binding.
+    ///
+    /// `cargo test --release --lib -- --ignored --nocapture what_the_odometer_costs`
+    #[test]
+    #[ignore = "a readout, not an assertion -- cargo test -- --ignored --nocapture what_the_odometer_costs"]
+    fn what_the_odometer_costs() {
+        // **The paired arm is the dead odometer at the shipped price**, which
+        // is the state every measurement of this colony since 2026-09-02 was
+        // taken in. Without it the numbers below say "a colony dies at
+        // emit_cost 0.5" without saying whether that is new.
+        //
+        // **And the fit is judged here, not by curve-matching.** An rms
+        // against the Rust rule this replaced ranks a 0.99-peak curve best,
+        // and that curve took the colony from 12 survivors to 2 -- it matches
+        // the *shape* while laying half as much again, which
+        // `emit_cost_in_moves` charges for. Survival is the number that
+        // decides; the curve readout in `brain.rs` is how the candidates are
+        // generated, not how they are chosen.
+        for (arm, w_in, w_rec, w_out, bias) in [
+            ("DEAD as shipped 09-02", 0.0005f32, 0.99995f32, 900.0f32, -0.2f32),
+            ("peak 0.99", 0.05, 0.99995, 900.0, -0.2),
+            ("peak 0.87", 0.05, 0.99995, 110.0, -0.1),
+            ("peak 0.79", 0.05, 0.99995, 48.0, 0.0),
+            ("peak 0.74", 0.05, 0.99995, 32.0, 0.0),
+            ("peak 0.65", 0.05, 0.99995, 22.0, 0.0),
+        ] {
+            let price = 0.5f32;
+            let (mut w, low) = colony_bed();
+            if let Some(id) = w.species.id_of("ant") {
+                let g = w.species.get(id).genome.clone();
+                let mut wiring = brain::wiring_from_genome(&g);
+                for h in wiring.hidden.iter_mut() {
+                    if h.1 == 4 {
+                        h.2 = w_in;
+                    }
+                }
+                for o in wiring.outputs.iter_mut() {
+                    if o.0 == 4 {
+                        o.2 = w_out;
+                    }
+                }
+                for r in wiring.recurrence.iter_mut() {
+                    if r.0 == 4 {
+                        r.1 = w_rec;
+                    }
+                }
+                for i in wiring.instincts.iter_mut() {
+                    if i.0 == brain::BrainInput::Bias && i.1 == brain::BrainOutput::EmitA {
+                        i.2 = bias;
+                    }
+                }
+                w.species.get_mut(id).genome =
+                    brain::genome_from_wiring(&wiring.instincts, &wiring.hidden, &wiring.outputs, &wiring.recurrence);
+                if let Some(c) = w.species.get_mut(id).creature.as_mut() {
+                    c.emit_cost_in_moves = price;
+                }
+            }
+            let placed = w.found_colony(200, low - 32);
+            run(&mut w, 4_000);
+            println!(
+                "{arm:24} w_out {w_out:6.1} bias {bias:+.2}  placed {placed:3}  alive at 4,000 {:3}  deaths {:3}  emit energy {:.0}  moves {}",
+                w.live_creature_count(),
+                w.deaths_by_cause.iter().sum::<u64>(),
+                w.creature_stats.emit_energy,
+                w.creature_stats.moves,
+            );
+        }
+
+        // **Re-deriving the price, holding the share the lane calibrated.**
+        // The candidates above all cost far more than the 72 the price of 0.5
+        // was set against, and lowering the peak barely helps: 0.99 down to
+        // 0.65 moves the spend 846 -> 556, because the cost is driven by how
+        // *often* channel A is laid (every move) rather than by how much.
+        // Channel B is laid only while laden, so a per-unit price applied to
+        // both costs roughly eight times what it did.
+        println!("-- the same odometer (peak 0.74) at re-derived prices --");
+        for price in [0.5f32, 0.125, 0.0625, 0.04, 0.02, 0.0] {
+            let (mut w, low) = colony_bed();
+            if let Some(id) = w.species.id_of("ant") {
+                let g = w.species.get(id).genome.clone();
+                let mut wiring = brain::wiring_from_genome(&g);
+                for h in wiring.hidden.iter_mut() {
+                    if h.1 == 4 {
+                        h.2 = 0.05;
+                    }
+                }
+                for o in wiring.outputs.iter_mut() {
+                    if o.0 == 4 {
+                        o.2 = 32.0;
+                    }
+                }
+                for i in wiring.instincts.iter_mut() {
+                    if i.0 == brain::BrainInput::Bias && i.1 == brain::BrainOutput::EmitA {
+                        i.2 = 0.0;
+                    }
+                }
+                w.species.get_mut(id).genome =
+                    brain::genome_from_wiring(&wiring.instincts, &wiring.hidden, &wiring.outputs, &wiring.recurrence);
+                if let Some(c) = w.species.get_mut(id).creature.as_mut() {
+                    c.emit_cost_in_moves = price;
+                }
+            }
+            let placed = w.found_colony(200, low - 32);
+            run(&mut w, 4_000);
+            println!(
+                "  emit_cost {price:.4}  placed {placed:3}  alive at 4,000 {:3}  deaths {:3}  emit energy {:.0}  digs {}",
+                w.live_creature_count(),
+                w.deaths_by_cause.iter().sum::<u64>(),
+                w.creature_stats.emit_energy,
+                w.creature_stats.digs,
+            );
+        }
+    }
+
     /// **The notable events reach the log through the production path.**
     ///
     /// The unit tests in `world.rs` prove `RunLog` keeps and trims correctly;

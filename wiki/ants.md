@@ -7,9 +7,10 @@ burns, and each is a dial you can turn back to nothing. Across six beds that
 bought about a sixth less digging at no cost in ants. It was also measured
 that survival in this world tracks **how much an ant eats and essentially
 nothing else**, so a behaviour the world does not charge for is one it also
-cannot select for. And separately, that the home scent below is not being laid
-at all — see the note under "They leave smells behind", which is worth reading
-beside the new trail-laying price. Before that: 2026-09-02, when biting became
+cannot select for. And separately, the home scent below turned out
+not to have been laid at all for three days and was put right — see the note
+under "They leave smells behind", which is worth reading beside the new
+trail-laying price, because the two interact. Before that: 2026-09-02, when biting became
 something a mouth can fail at —
 so a hard-shelled animal is harder to eat than a soft one, and a beetle simply
 cannot get through some of them — and when an animal that loses the middle of
@@ -147,17 +148,21 @@ Both smells fade. A path nobody walks disappears; a path everybody walks
 gets stronger. Nothing decides where a trail goes: it is just the leftovers
 of where ants have been.
 
-**Except that right now the home scent is not being laid at all, and this
-page is describing the intention rather than the box.** Measured 2026-09-05:
-the shipped ants lay none of it, ever — not a faint one, none. The food trail
-is unaffected and works as described above. What broke it was the change
-directly above this paragraph: moving the fade out of the species and into
-what an ant inherits left the inherited setting a shade too quiet for the
-engine to hear at all, so the smell is mixed at zero strength. It is one
-number in the ants' inheritance and it is written down as a known fault. Until
-it is put right, an ant finds its way home by walking rather than by
-smelling — which is worth knowing before reading anything into how a colony
-ranges.
+**That was broken for three days, and it is worth knowing what it cost.**
+Between 2 and 5 September the home scent was not being laid at all — not
+faintly, not at all — because moving the fade out of the species and into what
+an ant inherits left the inherited setting a shade too quiet for the engine to
+hear. It is fixed. Ants find their way home by smell again.
+
+**Putting it back was not free, and the reason is worth the sentence.** Ants
+pay for laying a scent. That price was set while only the food trail was
+really being laid, so switching the home scent back on doubled what an ant was
+being charged for and roughly octupled it in practice — the food trail is only
+laid while carrying something, and the home scent on every step. At the old
+price a colony of twenty-seven went down to two survivors. The price per step
+came down by the same factor the work went up by, and the colony is back where
+it was. Digging is unaffected, which was the thing the price was introduced to
+make worth choosing.
 
 **They eat, and they carry.** A hungry ant eats what it finds. An ant that
 is not hungry picks the food up instead and tries to take it home, which is

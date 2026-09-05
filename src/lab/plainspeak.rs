@@ -1033,15 +1033,19 @@ mod tests {
         // The channels are named for what the animal does with them, so the
         // words to look for are those names rather than "TRAIL".
         //
-        // **Channel A is `A SCENT` and that is not a gap in the naming.**
-        // `scent_label`'s fourth case is *"one nobody lays is still
-        // followable and has no name"*, and nobody lays this one: the
-        // odometer that should is dead (`open-bugs-handoff.md` §Z5) and the
-        // only direct weight left is a -0.35 offset, which cannot raise a
-        // deposit that is clamped at zero. It reads `HOME SCENT` again the
-        // moment either of those changes -- the memory branch names it, or a
-        // positive weight does.
-        assert!(says(&base, "A SCENT"), "channel A is followed and unlaid, and the page gave it no name at all: {base:#?}");
+        // **Channel A is `HOME SCENT`, and where that name now comes from is
+        // the point.** It is read off the *memory* that lays it -- hidden
+        // unit 4, charged at the nest -- and not off the direct weights,
+        // whose only entry for `EmitA` is a negative offset that cannot raise
+        // a deposit clamped at zero.
+        //
+        // This assertion has been three things. It read `HOME SCENT` off that
+        // offset by accident, then `A SCENT` for the stretch when
+        // `open-bugs-handoff.md` §Z5 left the odometer unable to charge and
+        // the channel genuinely unlaid, and now `HOME SCENT` again for the
+        // right reason. The control below is what tells the first case from
+        // the third.
+        assert!(says(&base, "HOME SCENT"), "the ant lays a fading home scent and the page did not name it: {base:#?}");
         assert!(says(&base, "FOOD ROUTE"), "the ant marks the way back from food and the page said nothing about it");
         assert!(base.len() <= 4 + MOST_DRIVES + 4 + 2, "the summary has grown into a paragraph: {} lines", base.len());
 
@@ -1136,33 +1140,35 @@ mod tests {
         let mut world = world();
         let id = animal(&mut world, "ant");
 
-        // **The shipped ant lays B while laden -- and lays no A at all.**
+        // **The shipped ant: A laid always but fading since home, B only
+        // while laden.**
         //
-        // This assertion used to read `ALWAYS LAYS HOME SCENT`, and it went
-        // red on the 2026-09-02 brain rather than on any change to this
-        // module. Chasing the red is what found `open-bugs-handoff.md` §Z5:
-        // `Bias -> EmitA` was the whole of "lays A all the time" and it was
-        // deliberately removed, because a constant floor on A drowns the very
-        // falloff that *is* the homing gradient. What replaced it is a
-        // self-recurrent unit charged at the nest -- whose charge wire is
-        // 0.0005 against a `W_EPS` of 0.01, so `eval_brain` skips it and the
-        // unit never charges. Measured, not read: `h4` holds 0.000000 through
-        // 400 ticks standing on the nest and `EmitA` clamps to 0 throughout.
+        // The arc behind this assertion is worth keeping, because it is the
+        // one that found a live engine bug. It read `ALWAYS LAYS HOME SCENT`
+        // and went red on the 2026-09-02 brain rather than on any change to
+        // this module -- correctly, since `Bias -> EmitA` was deliberately
+        // removed: a constant floor on A drowns the very falloff that *is*
+        // the homing gradient. But the sentence that should have replaced it
+        // did not appear either, and chasing *that absence* reached
+        // `open-bugs-handoff.md` §Z5 -- the replacement odometer's charge
+        // wire was 0.0005 against a `W_EPS` of 0.01, so `eval_brain` skipped
+        // it and no ant had laid a grain of channel A since the day it
+        // landed. For that stretch this guard asserted the honest broken
+        // state: no fading-scent line, and `LAYS NOTHING IT FOLLOWS` instead.
         //
-        // So the page is right to say nothing about laying A, and the honest
-        // sentence is the *absence* one below. **Do not "fix" this by
-        // asserting `LAYS HOME SCENT, FADING` here** -- that would put the
-        // expectation back and make this guard green over a dead mechanism,
-        // which is exactly what it just caught.
+        // Re-fitted 2026-09-05, so it asserts the working behaviour again.
+        // **If it goes red claiming the fading line is missing, suspect the
+        // odometer before this module** -- that is the failure it has already
+        // caught once, and `brain::what_an_odometer_emits` is the readout.
         let said = describe(&world, id);
         assert!(says(&said, "LADEN: LAYS FOOD ROUTE"), "B is laid only while laden and was not named for it: {said:#?}");
         assert!(
-            !says(&said, "LAYS HOME SCENT, FADING"),
-            "the ant was described as laying a fading home scent, but its odometer's charge wire is below W_EPS and never fires -- see §Z5"
+            says(&said, "LAYS HOME SCENT, FADING"),
+            "the ant's homing odometer produced no sentence -- check it still charges (brain::what_an_odometer_emits), see §Z5: {said:#?}"
         );
         assert!(
-            says(&said, "LAYS NOTHING IT FOLLOWS"),
-            "the ant follows channel A and emits none, and the page did not say so: {said:#?}"
+            !says(&said, "LAYS NOTHING IT FOLLOWS"),
+            "the page says the ant follows a channel it never lays, but its odometer lays one: {said:#?}"
         );
         // ...and the loop it implies, which lives entirely in the hidden
         // layer and which this page said nothing about until it read one.
@@ -1173,7 +1179,22 @@ mod tests {
         // lays it. A page that called it the home scent here would be
         // describing the round trip the ant was designed for rather than the
         // one it is currently capable of.
-        assert!(says(&said, "LADEN: FOLLOWS A SCENT"), "the laden half of the foraging loop is missing: {said:#?}");
+        assert!(says(&said, "LADEN: FOLLOWS HOME SCENT"), "the laden half of the foraging loop is missing: {said:#?}");
+        // **And the name comes from the odometer, not from the offset.**
+        // Strip the recurrence and `scent_label` falls through to the direct
+        // weights, whose only entry for `EmitA` is negative -- so the channel
+        // becomes the unnamed one it honestly is. Without this the assertion
+        // above would pass just as well on the accident it used to be.
+        let mut flat = brain::wiring_from_genome(&world.organism(id).expect("alive").genome.clone());
+        flat.recurrence.clear();
+        let before = world.organism(id).expect("alive").genome.clone();
+        world.organism_mut(id).expect("alive").genome =
+            brain::genome_from_wiring(&flat.instincts, &flat.hidden, &flat.outputs, &flat.recurrence);
+        assert!(
+            !says(&describe(&world, id), "FOLLOWS HOME SCENT"),
+            "channel A kept its name with the odometer deleted, so the label is not derived from what lays it"
+        );
+        world.organism_mut(id).expect("alive").genome = before;
         assert!(says(&said, "EMPTY: FOLLOWS FOOD ROUTE"), "the empty-handed half of the foraging loop is missing");
 
         // **Swap which channel is laid how, and the names must swap with

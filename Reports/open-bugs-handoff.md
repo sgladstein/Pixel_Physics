@@ -11,7 +11,7 @@ Read `CLAUDE.md` first; it holds the method these bugs keep re-teaching.
 
 <!-- BEGIN GENERATED INDEX -- regenerate with scripts/bugindex.py -->
 
-**46 open, 92 bugs** (plus 20 landing-note items,
+**45 open, 92 bugs** (plus 20 landing-note items,
 marked `note`). Generated from the headings by
 `scripts/bugindex.py` -- a bug's verdict is written into its own heading, so
 this is derived, never maintained by hand. Entries are never moved when they
@@ -137,7 +137,7 @@ point.
 | 1n | note | 8689 | grass sets zero seeds on main |
 | B2 | **OPEN** | 8882 | A living plant in the lab pulls its own anchorage out from under itself and is felled whole |
 | Z4 | closed | 8950 | World::germinations can exceed the number of seeds that ever existed |
-| Z5 | **OPEN** | 9035 | Every homing odometer in the tree is dead: its charge wire is below W_EPS, so eval_brain ... |
+| Z5 | closed | 9035 | Every homing odometer in the tree is dead: its charge wire is below W_EPS, so eval_brain ... |
 
 <!-- END GENERATED INDEX -->
 
@@ -9032,7 +9032,7 @@ that each have to learn "this cell is no longer ours, stop touching it", and
 that is a feature change rather than a repair. `detachment_only_ripens` is the
 one place it would be removed from.
 
-### Z5. Every homing odometer in the tree is dead: its charge wire is below `W_EPS`, so `eval_brain` skips it — **OPEN, found 2026-09-05 while merging `main` into the lab tracking branch**
+### Z5. Every homing odometer in the tree is dead: its charge wire is below `W_EPS`, so `eval_brain` skips it — **FIXED 2026-09-05, same day it was found**
 
 **The shipped ant lays no channel-A pheromone at all, and has not since the
 2026-09-02 brain landed.** Not "less than it should" — exactly zero, for
@@ -9109,24 +9109,66 @@ sub-`W_EPS` weights, and a guard asserts it does), not that an authored
 weight is one the evaluator will read. `scripts/acceptance.sh`, `ascii` and
 the lab suite were all green throughout.
 
-#### What the fix is not
+#### The fix, and what it cost
 
-**Do not just raise `0.0005` to `0.01`.** That is a 20x change in charge
-rate, and `w_out = 1609.1` and the `-0.35` bias were fitted against the old
-one — `CLAUDE.md`'s shared-budget rule applies exactly: a correct mechanism
-at inherited constants is a regression. The fit also depends on the *touch
-duration* (the design note discards an earlier 30-tick fit for being fragile
-against an ant that only brushes the nest), so the re-derivation needs that
-named too. Both species need it, and `ancestor` charges off `KinNear` rather
-than `AtNest`, so its contact statistics are different.
+Both species re-fitted **through `eval_brain`** rather than through a side
+simulation — that is the whole point, since simulating the recurrence
+directly is what missed the gate in the first place. `brain::
+what_an_odometer_emits` is the readout.
 
-The alternative — let a species author a weight the evaluator honours below
-`W_EPS` — is worse than it looks: `W_EPS` is what makes mutation able to
-*delete* a connection (`MUT_ABS_FLOOR` is sized against it), so lowering or
-special-casing it reaches the whole evolutionary operator.
+| | w_in | w_rec | w_out | bias | emits, after a 5-tick touch |
+|---|---|---|---|---|---|
+| before | 0.0005 | 0.9999 | 1609.1 | −0.35 | **0.000 → 0.000** (dead) |
+| after | 0.05 | 0.99995 | 32.0 | — | 0.742 → 0.011, monotone |
 
-Left open rather than fixed here because it is creature-line work with its
-own measurement burden, on a branch whose job is the lab's tracking UI.
+Three things the fit had to satisfy that an rms against the old rule does
+not see:
+
+- **`w_in` is chosen for headroom, not fit.** 0.02 through 0.08 all score
+  within 0.002, because the level drops into `squash`'s harmonic regime
+  within a few dozen ticks whatever it started at. `MUT_ABS_FLOOR` is
+  **0.04** — wider than `W_EPS` itself — so a charge at 2x `W_EPS` sits
+  inside one mutation of deletion. 0.05 is 5x and just outside one width.
+  Deletion by mutation is lawful; shipping it already deleted was not.
+- **The decay is dominated by `squash`, not by `w_rec`, which is why the
+  original charge was tiny.** `h = squash(w_rec * h)` compresses: at
+  `h = 0.08` it takes ~8% off every tick, swamping a `w_rec` of 0.9999. The
+  original kept the unit in `squash`'s linear region with a 0.0005 charge and
+  bought the range back with a 1609.1 output weight. That is coherent, and it
+  is exactly what put the charge under the gate.
+- **Peak amplitude is a term in a shared budget.** The best rms fit peaked at
+  0.99 against the old rule's 0.667.
+
+#### The shared-budget reallocation, which was the real work
+
+`CreatureDef::emit_cost_in_moves` charges `move_cost * body_cells *
+emit_cost * (emit_a + emit_b)`. It was set to **0.5** while `emit_a` was
+structurally zero, so it was pricing **one** channel. A live odometer makes
+it price two — and channel B is laid only while laden where A is laid on
+every move, so the number of charged units goes up roughly **eightfold**.
+
+Measured on `creature::what_the_odometer_costs`, colony bed, 4,000 frames,
+27 ants placed:
+
+| | survivors | emit energy |
+|---|---|---|
+| dead odometer, price 0.5 (as shipped 2026-09-02) | 12–13 | 72 |
+| live odometer, price 0.5 | **2** | 846 |
+| live odometer, price 0.0625 | **13** | 85 |
+
+**Lowering the emitted amplitude does not substitute for re-pricing**, and
+that was checked rather than assumed: dropping the peak from 0.99 to 0.65
+moved the spend only 846 → 556 and left survivors at 2. The cost is driven by
+how *often* A is laid, not by how much.
+
+So the price divides by 8, to **0.0625**, holding the share the original
+measurement was made of. Digs are unmoved (193 → 214), so the verb that
+price was introduced to make selectable stays selectable.
+
+**This changes a number the creature line owns**, and that lane should know:
+its result that pricing the free verbs bought about a sixth less digging at
+no cost in ants was measured on a colony with one working pheromone channel.
+It wants re-running now there are two.
 
 #### What else is being measured on top of it
 
@@ -9151,12 +9193,16 @@ any of them.
 
 #### Guards left behind
 
-- `brain.rs`'s `every_authored_weight_is_one_the_evaluator_reads` — the
-  census above, `#[ignore]`d because it is red today. Un-ignore it with the
-  fix; it is the reproduction.
+- `brain.rs`'s `every_authored_weight_is_one_the_evaluator_reads` — landed
+  `#[ignore]`d and red as the reproduction, now running as the guard. It is
+  the whole class, not those two lines: any future species authoring a weight
+  the evaluator skips fails here, and it is the only mechanical thing in the
+  repo that would have caught the original.
 - `lab::plainspeak::a_self_recurrent_unit_is_read_as_a_memory` — hand-built
   arms, with a control at a sub-`W_EPS` charge, so the page cannot start
   describing a dead odometer as a live one.
-- The ant's cell page now reads **LAYS NOTHING IT FOLLOWS**, which is the
-  honest sentence for an animal wired to walk up a gradient and wired to put
-  nothing into it. That row disappears on its own when this is fixed.
+- The ant's cell page read **LAYS NOTHING IT FOLLOWS** for the duration and
+  now reads **LAYS HOME SCENT, FADING** again — and the channel is named off
+  the odometer that lays it rather than off the negative offset it used to be
+  named off by accident. `plainspeak`'s guard asserts both halves, and the
+  control deletes the recurrence to prove the name is derived.
