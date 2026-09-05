@@ -223,6 +223,23 @@ pub struct CreatureStats {
     pub digested_face: f64,
     pub pickups: u64,
     pub digs: u64,
+    /// **What those digs cost**, in joules, and the far side of the counter
+    /// above.
+    ///
+    /// `digs` says the verb fired; on its own that is exactly the shape
+    /// `CLAUDE.md` warns about — a mining harness once reported 200 cuts
+    /// having removed 0 cells. This says the excavation *was paid for*,
+    /// which is the claim `dig_cost_in_moves` exists to make, and it reads 0
+    /// at that field's 0.0 default. Reading `digs > 0` with this at 0.0 is
+    /// therefore not a bug: it is a species that has not opted in, and the
+    /// pair is the only way to tell that apart from a charge that is not
+    /// wired.
+    pub dig_energy: f64,
+    /// **What trail-laying cost**, in joules. The same pair as `dig_energy`,
+    /// on the other free verb: there is no `emits` counter to sit beside,
+    /// because the deposit is continuous rather than an event, so this is
+    /// both the fired-and-paid signal at once.
+    pub emit_energy: f64,
     /// **Cells of loose ground converted to a tunnel lining** by those digs
     /// — the effect counter on the far side of `digs`, which is a call
     /// counter and nothing more.
@@ -715,6 +732,13 @@ pub struct World {
     cell_scale: f32,
     pub materials: MaterialRegistry,
     pub rng: Rng,
+    /// The CA sweep's per-visit draw when `PIXEL_PHYSICS_RNG=positional`;
+    /// inert under the default, where `rng` above is handed out unchanged.
+    /// Only `<World as CellSurface>` touches it — `World::rng` stays the
+    /// shared world stream that `decay.rs`, `explosion.rs`, `rigid.rs` and
+    /// `player.rs` draw from, and those are unaffected while the switch is
+    /// off. See `surface::VisitRng`.
+    visit_rng: super::surface::VisitRng,
     /// M8: coherent pieces of broken structure currently in flight
     /// (`rigid::ChunkBody`). A plain `Vec`, stepped in index order, because
     /// insertion order is the only tiebreak that stays identical run to run
@@ -2474,6 +2498,7 @@ impl World {
             clock: crate::sim::clock::Clock::default(),
             materials: MaterialRegistry::builtin(),
             rng: Rng::default(),
+            visit_rng: super::surface::VisitRng::new(),
             chunk_bodies: Vec::new(),
             player: None,
             springs: Vec::new(),
@@ -5848,8 +5873,17 @@ impl CellSurface for World {
     }
 
     #[inline]
+    fn begin_visit(&mut self, x: i32, y: i32) {
+        let (seed, frame) = (self.seed, self.frame);
+        self.visit_rng.begin(seed, x, y, frame);
+    }
+
+    #[inline]
     fn rng(&mut self) -> &mut Rng {
-        &mut self.rng
+        // Two field borrows, not two borrows of `self` -- `visit_rng` and
+        // `rng` are distinct fields, which is the whole reason `VisitRng::get`
+        // takes the fallback stream as an argument instead of reaching for it.
+        self.visit_rng.get(&mut self.rng)
     }
 
     #[inline]

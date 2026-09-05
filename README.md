@@ -48,22 +48,22 @@ whole, then run `python3 scripts/readmetoc.py`.
 | [M10 status — the worldgen half](#m10-status--the-worldgen-half) | 3035 |
 | [Weather status](#weather-status) | 3205 |
 | [The ant colony — status](#the-ant-colony--status) | 3222 |
-| [Inheritance status — the growth program has no fallback under it](#inheritance-status--the-growth-program-has-no-fallback-under-it) | 3781 |
-| [Parameter-genome status — a species file is a starting point, and it ships inert](#parameter-genome-status--a-species-file-is-a-starting-point-and-it-ships-inert) | 3884 |
-| [M19 status — started](#m19-status--started) | 3992 |
-| [Felling status — the verb works, and what it produces is pieces](#felling-status--the-verb-works-and-what-it-produces-is-pieces) | 4064 |
-| [Bending status — soft tissue lies over, and the wind is what pushes it](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) | 4301 |
-| [Breaking status — a badly grown tree comes down on its own](#breaking-status--a-badly-grown-tree-comes-down-on-its-own) | 4378 |
-| [Lab lighting status — the fixtures are what light the crop](#lab-lighting-status--the-fixtures-are-what-light-the-crop) | 4571 |
-| [Cell page status — the specimen readout is in three groups, and folds](#cell-page-status--the-specimen-readout-is-in-three-groups-and-folds) | 4698 |
-| [Specimen shelf status — an individual's genetics outlive the box](#specimen-shelf-status--an-individuals-genetics-outlive-the-box) | 4746 |
-| [Lab hand-verbs status — what a click puts in the box, and what the view shows](#lab-hand-verbs-status--what-a-click-puts-in-the-box-and-what-the-view-shows) | 4808 |
-| [Lab parameters status — a save that reaches the founders, not just the file](#lab-parameters-status--a-save-that-reaches-the-founders-not-just-the-file) | 4896 |
-| [Performance](#performance) | 4946 |
-| [World speed — five independent time axes](#world-speed--five-independent-time-axes) | 5143 |
-| [Status](#status) | 5226 |
-| [License](#license) | 5337 |
-| [Lab speed-dial status — what the dial is actually short of](#lab-speed-dial-status--what-the-dial-is-actually-short-of) | 5361 |
+| [Inheritance status — the growth program has no fallback under it](#inheritance-status--the-growth-program-has-no-fallback-under-it) | 3897 |
+| [Parameter-genome status — a species file is a starting point, and it ships inert](#parameter-genome-status--a-species-file-is-a-starting-point-and-it-ships-inert) | 4000 |
+| [M19 status — started](#m19-status--started) | 4108 |
+| [Felling status — the verb works, and what it produces is pieces](#felling-status--the-verb-works-and-what-it-produces-is-pieces) | 4180 |
+| [Bending status — soft tissue lies over, and the wind is what pushes it](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) | 4417 |
+| [Breaking status — a badly grown tree comes down on its own](#breaking-status--a-badly-grown-tree-comes-down-on-its-own) | 4494 |
+| [Lab lighting status — the fixtures are what light the crop](#lab-lighting-status--the-fixtures-are-what-light-the-crop) | 4687 |
+| [Cell page status — the specimen readout is in three groups, and folds](#cell-page-status--the-specimen-readout-is-in-three-groups-and-folds) | 4814 |
+| [Specimen shelf status — an individual's genetics outlive the box](#specimen-shelf-status--an-individuals-genetics-outlive-the-box) | 4862 |
+| [Lab hand-verbs status — what a click puts in the box, and what the view shows](#lab-hand-verbs-status--what-a-click-puts-in-the-box-and-what-the-view-shows) | 4924 |
+| [Lab parameters status — a save that reaches the founders, not just the file](#lab-parameters-status--a-save-that-reaches-the-founders-not-just-the-file) | 5012 |
+| [Performance](#performance) | 5062 |
+| [World speed — five independent time axes](#world-speed--five-independent-time-axes) | 5259 |
+| [Status](#status) | 5342 |
+| [License](#license) | 5453 |
+| [Lab speed-dial status — what the dial is actually short of](#lab-speed-dial-status--what-the-dial-is-actually-short-of) | 5477 |
 
 ### Milestones, in numeric order
 
@@ -84,7 +84,7 @@ order they were written.
 | 16 | [M16 status](#m16-status) | 1602 |
 | 17 | [M17 status](#m17-status) | 1788 |
 | 18 | [M18 status](#m18-status) | 2015 |
-| 19 | [M19 status — started](#m19-status--started) | 3992 |
+| 19 | [M19 status — started](#m19-status--started) | 4108 |
 
 ### By topic
 
@@ -97,7 +97,7 @@ them is named "plants". A section can appear twice; felling is honestly both
 plant work and structural work.
 
 **Known limitations for every topic are collected in one place**:
-[Status](#status), line 5226 — the *last* section in the
+[Status](#status), line 5342 — the *last* section in the
 file, not the first. Read it before concluding something is broken.
 
 **Which game a topic belongs to** is the third column. `engine` is shared
@@ -108,26 +108,26 @@ about what you may read.
 
 | Topic | Game | Sections, primary first |
 |---|---|---|
-| **plants, trees and moss** | engine | [M16 status](#m16-status) 1602, [Plant lines merged](#plant-lines-merged-the-genome-and-the-ecology) 1230, [Inheritance status](#inheritance-status--the-growth-program-has-no-fallback-under-it) 3781, [Parameter-genome status](#parameter-genome-status--a-species-file-is-a-starting-point-and-it-ships-inert) 3884, [The economy re-derived](#the-economy-re-derived-standing-tissue-costs-something) 1352, [Plants that stop](#plants-that-stop-organs-determinacy-and-a-price-on-both) 1534, [The generation loop](#the-generation-loop-plants-die-seeds-expire-slots-come-back) 1300, [Stems draw a line](#stems-draw-a-line-the-growth-walk-renders-its-heading) 1452, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 4064, [Bending status](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) 4301, [Breaking status](#breaking-status--a-badly-grown-tree-comes-down-on-its-own) 4378, [Specimen shelf status](#specimen-shelf-status--an-individuals-genetics-outlive-the-box) 4746, [Cell page status](#cell-page-status--the-specimen-readout-is-in-three-groups-and-folds) 4698 |
-| **creatures — worms and the ant colony** | engine | [M18 status](#m18-status) 2015, [The ant colony](#the-ant-colony--status) 3222, [Specimen shelf status](#specimen-shelf-status--an-individuals-genetics-outlive-the-box) 4746, [Lab hand-verbs status](#lab-hand-verbs-status--what-a-click-puts-in-the-box-and-what-the-view-shows) 4808 |
-| **structural collapse, felling and rigid bodies** | outdoor | [M17 status](#m17-status) 1788, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 4064, [Bending status](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) 4301, [Breaking status](#breaking-status--a-badly-grown-tree-comes-down-on-its-own) 4378, [M8 status](#m8-status--started-not-complete) 2482 |
+| **plants, trees and moss** | engine | [M16 status](#m16-status) 1602, [Plant lines merged](#plant-lines-merged-the-genome-and-the-ecology) 1230, [Inheritance status](#inheritance-status--the-growth-program-has-no-fallback-under-it) 3897, [Parameter-genome status](#parameter-genome-status--a-species-file-is-a-starting-point-and-it-ships-inert) 4000, [The economy re-derived](#the-economy-re-derived-standing-tissue-costs-something) 1352, [Plants that stop](#plants-that-stop-organs-determinacy-and-a-price-on-both) 1534, [The generation loop](#the-generation-loop-plants-die-seeds-expire-slots-come-back) 1300, [Stems draw a line](#stems-draw-a-line-the-growth-walk-renders-its-heading) 1452, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 4180, [Bending status](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) 4417, [Breaking status](#breaking-status--a-badly-grown-tree-comes-down-on-its-own) 4494, [Specimen shelf status](#specimen-shelf-status--an-individuals-genetics-outlive-the-box) 4862, [Cell page status](#cell-page-status--the-specimen-readout-is-in-three-groups-and-folds) 4814 |
+| **creatures — worms and the ant colony** | engine | [M18 status](#m18-status) 2015, [The ant colony](#the-ant-colony--status) 3222, [Specimen shelf status](#specimen-shelf-status--an-individuals-genetics-outlive-the-box) 4862, [Lab hand-verbs status](#lab-hand-verbs-status--what-a-click-puts-in-the-box-and-what-the-view-shows) 4924 |
+| **structural collapse, felling and rigid bodies** | outdoor | [M17 status](#m17-status) 1788, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 4180, [Bending status](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) 4417, [Breaking status](#breaking-status--a-badly-grown-tree-comes-down-on-its-own) 4494, [M8 status](#m8-status--started-not-complete) 2482 |
 | **fire, heat and phase change** | engine | [M14 status](#m14-status) 817, [Materials](#materials) 244 |
 | **explosions, particles and debris** | outdoor | [M15 status](#m15-status) 994, [M7 status](#m7-status) 965 |
 | **liquids and gases** | engine | [Liquid physics](#liquid-physics-compressible-volume-not-discrete-occupied-cells) 791, [The coarse field grid](#the-coarse-field-grid) 502 |
 | **powders and granular flow** | engine | [Materials](#materials) 244, [Architecture](#architecture) 318 |
-| **the coarse field grid — pressure, heat, light** | engine | [The coarse field grid](#the-coarse-field-grid) 502, [M12/M13 status](#m12m13-status) 764, [Lab lighting status](#lab-lighting-status--the-fixtures-are-what-light-the-crop) 4571 |
+| **the coarse field grid — pressure, heat, light** | engine | [The coarse field grid](#the-coarse-field-grid) 502, [M12/M13 status](#m12m13-status) 764, [Lab lighting status](#lab-lighting-status--the-fixtures-are-what-light-the-crop) 4687 |
 | **worldgen and world structure** | outdoor | [M10 status](#m10-status--the-worldgen-half) 3035, [Architecture](#architecture) 318 |
 | **the gnome (player character)** | outdoor | [M9 status](#m9-status--the-gnome) 2595, [Controls](#controls) 178 |
-| **weather, sky and the clock** | engine | [Weather status](#weather-status) 3205, [M19 status](#m19-status--started) 3992, [World speed](#world-speed--five-independent-time-axes) 5143 |
+| **weather, sky and the clock** | engine | [Weather status](#weather-status) 3205, [M19 status](#m19-status--started) 4108, [World speed](#world-speed--five-independent-time-axes) 5259 |
 | **rendering, UI and tunables** | engine | [UI improvements](#ui-improvements--overnight-run-section-9) 2349, [Live tunables panel](#live-tunables-panel--overnight-run-section-10) 2394, [Rendering performance](#rendering-performance--overnight-run-section-11) 2462, [M6 deferral](#m6-deferral) 1125 |
-| **performance and the parallel sweep** | engine | [Performance](#performance) 4946, [M5 status](#m5-status) 1135, [Architecture](#architecture) 318, [Rendering performance](#rendering-performance--overnight-run-section-11) 2462, [Lab speed-dial status](#lab-speed-dial-status--what-the-dial-is-actually-short-of) 5361 |
+| **performance and the parallel sweep** | engine | [Performance](#performance) 5062, [M5 status](#m5-status) 1135, [Architecture](#architecture) 318, [Rendering performance](#rendering-performance--overnight-run-section-11) 2462, [Lab speed-dial status](#lab-speed-dial-status--what-the-dial-is-actually-short-of) 5477 |
 | **materials and the data schema** | engine | [Materials](#materials) 244, [M12/M13 status](#m12m13-status) 764 |
-| **the evolution lab — the box and its lights** | lab | [Lab lighting status](#lab-lighting-status--the-fixtures-are-what-light-the-crop) 4571 |
-| **reading one specimen off the screen** | lab | [Cell page status](#cell-page-status--the-specimen-readout-is-in-three-groups-and-folds) 4698 |
-| **keeping, cloning and mutating an individual** | lab | [Specimen shelf status](#specimen-shelf-status--an-individuals-genetics-outlive-the-box) 4746 |
-| **putting things in the box, and what the view shows** | lab | [Lab hand-verbs status](#lab-hand-verbs-status--what-a-click-puts-in-the-box-and-what-the-view-shows) 4808 |
-| **the speed dial, and what a tick costs** | lab | [Lab speed-dial status](#lab-speed-dial-status--what-the-dial-is-actually-short-of) 5361 |
-| **tuning and saving the box's own numbers** | lab | [Lab parameters status](#lab-parameters-status--a-save-that-reaches-the-founders-not-just-the-file) 4896 |
+| **the evolution lab — the box and its lights** | lab | [Lab lighting status](#lab-lighting-status--the-fixtures-are-what-light-the-crop) 4687 |
+| **reading one specimen off the screen** | lab | [Cell page status](#cell-page-status--the-specimen-readout-is-in-three-groups-and-folds) 4814 |
+| **keeping, cloning and mutating an individual** | lab | [Specimen shelf status](#specimen-shelf-status--an-individuals-genetics-outlive-the-box) 4862 |
+| **putting things in the box, and what the view shows** | lab | [Lab hand-verbs status](#lab-hand-verbs-status--what-a-click-puts-in-the-box-and-what-the-view-shows) 4924 |
+| **the speed dial, and what a tick costs** | lab | [Lab speed-dial status](#lab-speed-dial-status--what-the-dial-is-actually-short-of) 5477 |
+| **tuning and saving the box's own numbers** | lab | [Lab parameters status](#lab-parameters-status--a-save-that-reaches-the-founders-not-just-the-file) 5012 |
 
 <!-- END GENERATED TOC -->
 
@@ -3221,6 +3221,122 @@ absent (thunder, erosion, seasons, a closed water cycle), is
 
 ## The ant colony — status
 
+**What an ant is carrying is on screen, and the default is under review**
+(`render.rs`'s `CarryCue`; `PIXEL_PHYSICS_CARRY_TINT=off|hue` are the control
+and the second candidate). Owner, asked what *interesting* would look like:
+*"anything visually interesting... visual collection of food (although this
+might just be a coloration thing)"*. It was invisible — `OrganismState::crop`
+is internal state and never a cell in the world, and its own doc had rejected
+drawing a carried cell as *"no payoff at all at the zoom a creature is seen
+at"*, which that answer overturns.
+
+**The obvious design was wrong, and `labshot`'s new crop-fill histogram is
+what said so before anything was rendered.** On the shipped bed at four stops:
+
+| animals | carrying food | 0–25% | 25–50% | 50–75% | 75–100% |
+|---|---|---|---|---|---|
+| 52 | 32 | 0 | 17 | 12 | 3 |
+| 35 | 30 | 0 | 14 | 15 | 1 |
+| 33 | 30 | 0 | 12 | 10 | 8 |
+| 38 | 34 | 0 | 9 | 14 | 11 |
+
+So **"carrying food" is not an event** — 30 of 35 hold a whole cell at any
+moment, and a binary cue would have painted 85% of the colony one colour and
+discriminated nothing. What varies is the *load*. And **nothing sits in the
+bottom quarter**, so a ramp over `0..1` would spend its dark end on a state
+that does not occur and pile every real ant mid-ramp — the failure this file
+has already paid for twice (the corpse ramp's *"pretty minor"*, the
+canopy sheet that read as blank). The cue is therefore normalised over
+`CARRY_FILL_FLOOR..1` and **quantised to three steps**, since a two-cell
+animal cannot carry a gradient.
+
+Drawn on the **brightness** axis, which is what `GUT_TINT_*` names as the
+untried one after its hue A/B came back *untinted* — *"an ant is one or two
+cells at play zoom, the readable signal at that size is contrast against the
+ground rather than hue"*. Food lifts, spoil dims.
+
+**It fires hard and may still not read, which is why it is a question rather
+than a claim**: diffed against the control it repaints **1,664 px at up to
+171 levels per channel** and still has to be hunted for, because this bed's
+ground line is already crowded with pale litter, stems and seed cells — the
+dark background the contrast argument assumes is not there. A second
+candidate (`hue`, a magenta nothing else in the bed wears) is shipped beside
+it for that reason, and both went to the owner as a **blind three-way**
+against the current look, card `20260905T062117283Z-6179f0`. **The default
+may change on that verdict.** `labshot -- zoom=8 look=150,132` is the sheet.
+
+**The free verbs have a price now, and the shipped ants pay it**
+(`CreatureDef::dig_cost_in_moves` 6.0, `emit_cost_in_moves` 0.5,
+`spoil_weight_cells` 1.0; all three on the lab's parameters page under Ants,
+struct-default 0.0 so an unauthored species is bit-identical). Measured
+2026-09-05
+([`Reports/creature-behaviour-ceiling-2026-09-05.md`](Reports/creature-behaviour-ceiling-2026-09-05.md)):
+over 24 random genomes at 12,000 frames, survival correlates **+0.895 with
+feeding** and with nothing else — `travelled` +0.151, `commute` +0.236 —
+because the tick charged `idle + synapse_tax + sight_tax` plus movement and
+**nothing else**. Digging, laying a trail and hauling spoil were free, so
+excavation and stigmergy sat outside the economy and no selection could reach
+them. The sharpest consequence: `ant.ron`'s `(Bias, Dig, 0.4)` is an
+*unconditional* standing drive, so with the verb free it was **selectively
+neutral** — which is why a bed ends up as one pit at any horizon. That is
+generation zero's instinct, not evolved behaviour.
+
+Priced in multiples of one step, following `LAUNCH_COST_IN_MOVES` — *"digging
+a cell costs six steps"* scales with the animal and reads as a sentence.
+Booked to `metabolized` (no new sink in the conservation identity,
+`sight_tax`'s precedent) and counted as `CreatureStats::dig_energy` /
+`emit_energy`, the effect counter on the far side of `digs`.
+
+**The three numbers are sized from a share of burn, not chosen.** At price 1
+each, over 40,000 frames against a burn of 82,409 J: a dig is **0.2%** and an
+emit is **12.5%**, a 60x gap, because a deposit lands on every step while
+digs are 519 events. Equal prices would have made trail-laying the largest
+line in the budget and digging a rounding error. The shipped values put
+digging at 1.5–2.2% of burn and trail-laying at 5.7–6.3% — deliberately about
+what *thinking* costs, since the synapse tax runs 5–6%. `spoil_weight_cells`
+is left at a physically truthful 1.0 (a pellet weighs one of the ant's two
+cells) and moves `moved` by only 0.3%, because an ant puts spoil down almost
+at once; not inflated to make it bite.
+
+**What it buys, paired over six seeds**, 24,000 frames, 32 founders and one
+colony, priced against free:
+
+| | result |
+|---|---|
+| digs | **down in 6 of 6**, median −15.5%, range −2.2% to −32.7% |
+| animals | down in 4, up in 2 — **no direction, i.e. noise** |
+
+So excavation falls about a sixth and the colony does not pay for it. **An
+earlier single-seed reading here said a price halved the colony (57 → 36
+animals); six paired seeds say that was the seed** — this bed's seed-alone
+spread is 2.4–3.1x, and a difference of two single runs is not a result.
+
+**What it does not yet do is make the animal good at it**, which is the open
+question rather than a tuning: the dig drive sits on `Bias`, so selection has
+to walk that one weight down, and at `mutation_rate` 0.0058456 a given slot
+is touched about **once per 171 births** against 45–88 births in a run.
+
+Guarded by `digging_costs_exactly_its_authored_price_per_cell`, which asserts
+joules per excavated cell — deliberately *not* that a priced ant digs the
+same cells, which is false and must be: `BrainInput::Energy` is a brain
+input, so a charged animal is in a different state and the runs diverge by
+the next decision (50 cells free against 53 at four steps). Sweep with
+`labstats -- digcost=N emitcost=N spoilweight=N`, which prints the verb
+accounts and their share of burn.
+
+**It also cost one existing guard, and that guard was measuring the wrong
+thing.** `a_lone_grazer_cannot_farm_a_moss_lawn_forever` compared a moss lawn
+against an inexhaustible larder on `intake / spent` — an *efficiency*, which
+a sessile animal wins by construction. The new charges fall on an animal that
+acts and spare one that sits still, so `spent` rose 48% for the forager
+against 7% for the grazer and the ratio inverted (2.850 against 2.404) while
+the niche ordering did not move at all: the larder still yields ~1.7x the
+food and two to three times the offspring. It now asserts **yield and
+births** rather than efficiency. Fault-injected to confirm it still catches
+what it is named for — a 4x denser lawn trips it at 4,414 J against 4,201 —
+and the old ratio provably could not: in that faulted run the efficiencies
+(2.914 against 2.404) are near-identical to the healthy one's.
+
 Built (`Reports/creature-direction.md`'s cell-chain direction): `Y` founds
 a colony. Ants live on the organism substrate like everything else —
 species data in `assets/species/ant.ron`, behaviour behind the deliberate
@@ -5458,8 +5574,20 @@ reach-1 writes make it safe under the existing checkerboard. A chunk-local
 *prefilter* was tried instead and was slower, because 88% of the marked region
 is soil and there was nothing to reject (`dead-ends.md`). The field's early-out
 remains all-or-nothing, so one awake chunk anywhere costs the whole box's
-solve. And per-row dirty spans measure a real 1.19x and ship **off** behind
-`PIXEL_PHYSICS_SWEEP=rows`: the sweep's random draws are consumed per *visited*
-cell, so any narrowing of the region — however provably it only drops cells no
-rule could act on — shifts the RNG stream and moves every pile in the world.
-The unlock is a positional RNG, not a better region.
+solve. And per-row dirty spans measure a real 1.19x on the phase and ship **off**
+behind `PIXEL_PHYSICS_SWEEP=rows`. The reason given for that used to be the
+RNG — the sweep's draws are consumed per *visited* cell, so narrowing the
+region shifts the per-chunk stream — with a positional draw named as the
+unlock. **Measured 2026-09-05, that is wrong twice.** The positional draw was
+built (`PIXEL_PHYSICS_RNG=positional`, off by default, bit-identical when
+off) and it costs **+0.149 ms/tick**, about the whole of what the spans save,
+so the two together are 2.631 → 2.636 ms with overlapping ranges — **no gain
+at all**. And the premise underneath both is false: with the RNG removed from
+the question entirely the two sweep arms **still diverge**, identical through
+frame 4,329 and first differing at **frame 4,330**. So narrowing the sweep
+region is not behaviour-neutral, and the RNG was one reason among at least
+two. The leading unmeasured hypothesis for the rest is chunk wakefulness
+feeding `field::step`'s `active_chunk_count()` gate. What the frame budget
+still wants is `active_sites`, which is serial — ~0.28 ms of a 2.63 ms tick,
+against this change's nil. Report §9,
+[`sweep-positional-rng-2026-09-05.md`](Reports/sweep-positional-rng-2026-09-05.md).

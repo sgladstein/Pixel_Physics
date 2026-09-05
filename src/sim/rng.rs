@@ -135,6 +135,47 @@ pub fn stream(a: u64, b: u64, c: u64, d: u64) -> Rng {
     Rng::new(h)
 }
 
+/// **The CA sweep's per-cell draw, keyed on where and when rather than on
+/// visit order.** One of these per *visited cell*, then ordinary advances
+/// within the visit — see `update::update_cell`, which is the only caller.
+///
+/// # Why this exists
+///
+/// `Chunk::rng` is a stateful stream advanced once per draw in visit order,
+/// and `update_liquid`/`update_powder` both reach a `flip()` before they know
+/// whether anything will move. So **any** narrowing of the swept region —
+/// however provably it only drops cells no rule could have acted on — shifts
+/// the stream and moves every pile, front and stand downstream of it. That is
+/// a standing veto on per-row dirty spans and on every narrowing anyone
+/// proposes later. Keyed on position and frame instead, the draw a cell gets
+/// does not depend on what else was swept, and the veto goes.
+///
+/// It also removes the last shared mutable stream from the hot path:
+/// `plant.rs` has drawn from `stream` since the resource economy landed, and
+/// `scheduler.rs` draws not at all.
+///
+/// # The salt is load-bearing
+///
+/// `lab/mod.rs` already draws `stream(world.seed, x, y, world.frame)` —
+/// **the identical shape, unsalted** — so without `SWEEP_SALT` the sweep
+/// would collide with it exactly rather than incidentally. `plant.rs:2161`
+/// is the same shape with its own salt. Injectivity over `(x, y, frame)` is
+/// the whole quality requirement, and `a_sweep_key_is_injective_over_a_
+/// realistic_box` below is what holds it: measured 2026-09-05, a weak *mixer*
+/// is laundered by `Rng::new` + `next_u64`'s xorshift round, so the only
+/// failure mode that survives is two cells sharing a key.
+///
+/// `x as u32 as u64` rather than `x as u64`, so a negative coordinate wraps
+/// injectively instead of sign-extending into the same high bits a large
+/// positive would reach.
+pub fn sweep(seed: u64, x: i32, y: i32, frame: u64) -> Rng {
+    stream(seed ^ SWEEP_SALT, x as u32 as u64, y as u32 as u64, frame)
+}
+
+/// Separates the sweep's key space from every other `stream` caller's. See
+/// [`sweep`] for the collision this exists to prevent.
+pub const SWEEP_SALT: u64 = 0x5745_4550_5F52_4E47;
+
 /// A stable pseudo-random value in `0.0..1.0` for a world position.
 ///
 /// Used wherever a *decision* must come out the same every frame. Drawing from
@@ -228,6 +269,157 @@ mod jitter_tests {
             distinct.insert(j.to_bits());
         }
         assert!(distinct.len() > 30, "the same position barely varied across 40 time buckets: {} distinct", distinct.len());
+    }
+}
+
+#[cfg(test)]
+mod sweep_tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    /// **The one quality requirement a positional sweep key has**, and the
+    /// reason it is the only one: measured 2026-09-05, a deliberately weak
+    /// *mixer* (the weighted sum with no finaliser, and `jitter`'s 32-bit
+    /// mixer widened) is statistically indistinguishable from `stream`,
+    /// because `Rng::new` + `next_u64` applies a full xorshift64* round on
+    /// top of whatever seed it is handed and that round does the mixing. So
+    /// no test of *mixer* quality is worth writing. What is not recoverable
+    /// is two cells sharing a key -- that is a collision, not weak mixing,
+    /// and it is what this holds.
+    ///
+    /// The box is deliberately wider than the lab bed and spans the origin,
+    /// so the `x as u32 as u64` wrap is exercised on both signs.
+    #[test]
+    fn a_sweep_key_is_injective_over_a_realistic_box() {
+        let mut seen: HashMap<u64, (i32, i32, u64)> = HashMap::new();
+        for frame in 0..12u64 {
+            for y in -40..40i32 {
+                for x in -600..600i32 {
+                    let key = sweep(0xDEAD_BEEF, x, y, frame).0;
+                    if let Some(prev) = seen.insert(key, (x, y, frame)) {
+                        panic!("sweep key collision: {prev:?} and {:?} share state {key:#x}", (x, y, frame));
+                    }
+                }
+            }
+        }
+    }
+
+    /// The draw a cell gets must not be predictable from its neighbour's.
+    ///
+    /// **Measured against the generator that ships, not against zero.** The
+    /// per-chunk stream's own lag-1 correlation is the bar: a positional draw
+    /// only has to be no worse than what it replaces.
+    ///
+    /// **Two of these offsets are the ones the sweep actually traverses**, and
+    /// an earlier version of this measurement had neither. A grain falling one
+    /// cell per frame samples the *diagonal* `(y+1, frame+1)`; and the sweep's
+    /// `rightward` alternation has period 2 in the frame, so a stride-2
+    /// correlation in the frame input would bias left against right in exactly
+    /// the place the alternation exists to cancel.
+    ///
+    /// The fault arm is the positive control, and it is here rather than in a
+    /// comment because `CLAUDE.md` asks for the check to be a command: a
+    /// block-nearest key (the `FIELD_SCALE` gotcha put back on purpose) makes
+    /// neighbours share a key outright and must be caught.
+    #[test]
+    fn a_sweep_draw_is_uncorrelated_with_its_neighbours() {
+        // phi for two balanced binaries is 2 * agreement - 1.
+        fn phi(blocky: bool, dx: i32, dy: i32, df: u64) -> f64 {
+            let key = |x: i32, y: i32, f: u64| {
+                if blocky { sweep(7, x / 16, y / 16, f) } else { sweep(7, x, y, f) }
+            };
+            let (mut agree, mut n) = (0u64, 0u64);
+            for f in 0..8u64 {
+                for y in 0..64i32 {
+                    for x in 0..1024i32 {
+                        if key(x, y, f).flip() == key(x + dx, y + dy, f + df).flip() {
+                            agree += 1;
+                        }
+                        n += 1;
+                    }
+                }
+            }
+            2.0 * (agree as f64 / n as f64) - 1.0
+        }
+
+        // ~524k pairs per offset, so 1 SE is about 0.0014 and this bar is 7 SE.
+        const BAR: f64 = 0.01;
+        for (dx, dy, df, label) in [
+            (1, 0, 0, "east"),
+            (0, 1, 0, "south"),
+            (1, 1, 0, "diagonal"),
+            (64, 0, 0, "a chunk east"),
+            (0, 0, 1, "next frame"),
+            (0, 0, 2, "two frames on -- the rightward alternation's period"),
+            (0, 1, 1, "a grain falling one cell per frame"),
+        ] {
+            let p = phi(false, dx, dy, df);
+            assert!(p.abs() < BAR, "sweep draws correlate {label}: phi {p:+.5}");
+        }
+
+        // The control on all of the above. If this does not fire, the
+        // statistic is blind and its clean results mean nothing.
+        let fault = phi(true, 1, 0, 0);
+        assert!(
+            fault > 0.5,
+            "the block-nearest fault arm read phi {fault:+.5} -- it shares a key between \
+             neighbours and must be caught, so this measurement cannot see a collision at all"
+        );
+    }
+
+    /// **The failure a correlation test cannot see.** A positional key nails a
+    /// cell's draw to its *position*, so a mixer with any per-cell bias makes
+    /// that cell behave differently for ever -- the "grain nailed to the
+    /// screen" failure [`jitter_u8`] exists to avoid, in the movement rules
+    /// instead of the renderer. Asserted as: the spread of per-cell fire rates
+    /// across frames is what a fair coin gives, not wider.
+    ///
+    /// The fault arm drops the frame input, pinning every cell for ever. It
+    /// reads about `frames`x, which is what a variance ratio does when the
+    /// only randomness left is between cells rather than within one.
+    #[test]
+    fn a_sweep_draw_has_no_per_cell_bias() {
+        fn variance_ratio(pinned: bool, p: f32) -> f64 {
+            const FRAMES: u64 = 600;
+            let (w, h) = (128i32, 32i32);
+            let mut rates = Vec::with_capacity((w * h) as usize);
+            for y in 0..h {
+                for x in 0..w {
+                    let mut fired = 0u32;
+                    for f in 0..FRAMES {
+                        let mut r = sweep(7, x, y, if pinned { 0 } else { f });
+                        let _ = r.flip(); // update_powder's opener, so this is the *second* draw
+                        if r.chance(p) {
+                            fired += 1;
+                        }
+                    }
+                    rates.push(fired as f64 / FRAMES as f64);
+                }
+            }
+            let n = rates.len() as f64;
+            let mean = rates.iter().sum::<f64>() / n;
+            let var = rates.iter().map(|r| (r - mean).powi(2)).sum::<f64>() / n;
+            // A fair per-cell coin over FRAMES trials has variance p(1-p)/FRAMES.
+            var / ((p as f64) * (1.0 - p as f64) / FRAMES as f64)
+        }
+
+        // Both tails: moss.ron's two division chances differ by two orders of
+        // magnitude, so a key that was fair in the middle and biased in the low
+        // tail would present as a moisture question nowhere near the generator.
+        for p in [0.5f32, 0.02] {
+            let ratio = variance_ratio(false, p);
+            assert!(
+                (0.7..1.3).contains(&ratio),
+                "per-cell fire rates at p={p} spread {ratio:.3}x a fair coin's -- some cells are sticky"
+            );
+        }
+
+        let fault = variance_ratio(true, 0.5);
+        assert!(
+            fault > 10.0,
+            "the frame-pinned fault arm read {fault:.3}x -- every cell is nailed to one value \
+             for ever there, so a statistic that cannot see it cannot see a subtler bias either"
+        );
     }
 }
 

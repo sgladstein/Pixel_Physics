@@ -831,6 +831,42 @@ drift that two of these documents still reflect.**
 
 ## Creatures and ecology  ·  `engine`
 
+- [creature-behaviour-ceiling-2026-09-05.md](creature-behaviour-ceiling-2026-09-05.md)
+  — **diagnosis, measured, 2026-09-05; nothing tuned and nothing built.** The
+  owner's question — *are the interesting behaviours impossible, unselected,
+  or merely rare?* — answered as a measurement. **Unselected, in a form none
+  of the three named: the world scores exactly one thing.** Over 24 random
+  genomes survival correlates **+0.895 with feeding** and with nothing else
+  (`travelled` +0.151, `commute` +0.236), because `creature.rs` has **one
+  income channel** (`diet_yield` on an adjacent cell) and
+  `spent = idle + synapse_tax + sight_tax` plus movement — so **`Dig`, `EmitA`,
+  `EmitB`, `Drop` and `DropSpoil` cost nothing**, and excavation, trails and
+  cargo are outside the economy entirely. The space itself is fine (7 of 16
+  behaviour cells occupied; authored 2.107 against 1.121 for the best random
+  genome and 0.420 zeroed), which is what rules out the *impossible* reading.
+  Three findings a later session should not have to re-derive: **the giant
+  hole is `(Bias, Dig, 0.4)` in `ant.ron`, is free, and is therefore
+  selectively neutral at any horizon**; **`beetle.ron` has no
+  `reproduce_threshold`, so a beetle can never bud** and a predator-prey
+  equilibrium is unreachable rather than rare; and in the stable bed **1,171
+  births are denied for want of a cell beside the parent against 157 born**,
+  with 4 of 54 ants hungry — the population is space-limited, not
+  food-limited. Generation depth is **7 per 60,000 frames** in that bed and
+  **1 per 27,000** in the crashing one, which is why *more generations* is a
+  second-order answer. Horizon is the trap throughout: an ant's founding
+  grant is 12,000 frames, so nothing here is read at `labbatch`'s 9,000-frame
+  default. **Then acted on, same day**: the three free verbs are priced
+  (`dig_cost_in_moves` 6.0, `emit_cost_in_moves` 0.5, `spoil_weight_cells`
+  1.0 on the shipped ants), sized from a share of burn rather than chosen --
+  and the 60x gap between a dig and a deposit at equal prices is the part
+  that is not intuition-shaped. Six paired seeds: **digs down in 6 of 6,
+  median -15.5%, population no direction.** Two things it overturned, both
+  its own: a single-seed reading that a price *halves* the colony (six seeds
+  say that was the seed), and `a_lone_grazer_cannot_farm_a_moss_lawn_forever`,
+  which asserted on `intake / spent` -- an efficiency a sessile animal wins by
+  construction, and which provably could not tell a moss pump from a healthy
+  economy. It asserts yield and births now
+
 - [mechanism-vs-behaviour-audit-2026-08-31.md](mechanism-vs-behaviour-audit-2026-08-31.md)
   — **audit and staged plan, baseline `943ace17`, 2026-08-31; nothing built and
   nothing measured by it. Independently reviewed and corrected in eleven
@@ -1995,7 +2031,7 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   sweep's random draws are consumed per *visited* cell, not per cell that
   acts**, so *any* narrowing of the swept region is a behaviour change however
   provably correct it is — which is why per-row dirty spans measure a real
-  1.19x and still ship off by default, and why the unlock is a positional RNG
+  1.19x and still ship off by default, and why the unlock looked like a positional RNG
   rather than a better region. **§8 is the fix, built 2026-09-02**: moisture on
   its own dirty channel and its own pass, **tick 6.42 -> 3.81 ms and the dial
   2.6x -> 4.4x with a 9.5% larger stand**, plus two findings the build produced
@@ -2059,7 +2095,92 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   utilisation observed. Also records that the **draw is not the limiter**
   (2.59 ms/frame at 512x320, worth 16% of the dial) and that `FIELD_PASS` had
   the same one-frame sampling defect as `ORGANISM_PASS` -- **three instruments
-  in one session**.
+  in one session**. **§5 is superseded on both its conclusions** by
+  [sweep-positional-rng-2026-09-05.md](sweep-positional-rng-2026-09-05.md):
+  the positional draw it names as the unlock costs +0.149 ms/tick, about the
+  whole of what the spans save, and the premise it argues from is false --
+  keyed positionally the two sweep arms still diverge, at frame 4,330
+  (`open-bugs-handoff.md` §E2).
+- [sweep-positional-rng-2026-09-05.md](sweep-positional-rng-2026-09-05.md) —
+  **built, measured and STOPPED 2026-09-05; adversarially reviewed before
+  being put forward (§8 records what the review changed, including two claims
+  that were wrong).** Prices the unlock
+  `evolution-lab-frame-cost-2026-09-01.md` §5 named and did not cost:
+  replacing the CA sweep's per-chunk stateful `Rng` with a draw keyed on
+  `(world seed, x, y, frame)`, after which narrowing the swept region stops
+  being a behaviour change. **The prize halved while nobody was looking** — §5
+  measured per-row spans at **1.19x of the whole frame** and today they are
+  **1.05x** (tick 2.731 -> 2.592 ms, median of three, non-overlapping),
+  because #228, #234 and #235 shrank the frame around them. The phase ratio is
+  unchanged; the *saving* fell from 1.02 ms to **0.139 ms**, so §5 is the
+  handed-forward-estimate trap §15.3 named happening to §5 itself. **"Up to 3x
+  of this phase" is withdrawn and replaced by no number at all**, for two
+  independent reasons: the `est_` columns are ~90% soil moisture, which since
+  #212 does not wake the sweep, so they fail `labperf`'s own stated control;
+  and the obvious repair — comparing measured `swept` in the two arms — is
+  **also unavailable**, because measured box 10,326 against rows **12,242**,
+  the *narrowed* arm sweeping more since by frame 40,000 the arms are
+  different worlds. **A ceiling is not measurable until the change exists.**
+  What the measurements do support is that the risk is far smaller than
+  recorded: **2 of 1,414 tests go red** under a stream shift against a matched
+  0-of-1,414 control — every integration binary green in both arms — **one**
+  hardcoded cross-build hash exists in the tree, and saved lab boxes are
+  **recipes rather than cell snapshots**, so they regrow differently once
+  rather than becoming invalid. The recorded blast radius is **stale**: the
+  determinacy guard §5 names now passes and `a_spread_leaf_cluster_is_longer_
+  than_a_blob` is red beside the frame hash instead. Quality is settled
+  against the shipping generator rather than against zero (|phi| <= 0.0004 on
+  every neighbour offset; per-cell variance exactly binomial), **with the
+  instrument checked against a deliberately bad key first** (+0.94, and
+  3,900x on the per-cell control) — which turns up the one failure mode that
+  survives, since a weak mixer is laundered by the xorshift round on top:
+  only an actual **key collision** can hurt. Per-draw cost is of order 0.02
+  ms/tick and **the sign is not knowable from a microbench** — a bare loop
+  says positional is faster (it breaks a serial dependency chain), the same
+  loop with realistic memory traffic says slower. **Its most transferable
+  finding is §5.0**, which came out of the review: *"a narrowing removes only
+  cells no rule could have acted on"* is asserted in four places in this repo
+  and **measured in none**, and there is a one-run test for it — under
+  positional draws the two sweep arms must hash identically. Also corrects the
+  proposal twice: there is **no bit-identical intermediate** (a positional
+  draw *is* the divergence), and it does **not** unblock parallelising
+  `active_sites`, which is held by `&mut World` aliasing and not by the RNG.
+  Asked for steps 1-2 only — about a day, nothing irreversible — and a
+  re-decision on their numbers. **§9 is that re-decision, and it is a stop.**
+  Steps 1-2 were built and both stop conditions fired. **The positional draw
+  costs +0.149 ms/tick** at box density on a 2.631 ms tick — about the whole
+  of what the spans save — so the two together are **2.631 -> 2.636 ms with
+  overlapping ranges, no measurable gain**; the microbench that put this at
+  <= 0.02 ms was **7x under**, having flagged that it could not know the sign
+  and then treated the magnitude as settled. **And the premise is false**:
+  with the RNG removed from the question entirely the two sweep arms still
+  diverge, identical through frame 4,329 and **first differing at frame
+  4,330**, bisected to the frame with every arm's hash reproducing across
+  three reps. So per-row dirty spans are **not** behaviour-neutral and the RNG
+  was one reason among at least two — the leading unmeasured hypothesis for
+  the rest is chunk wakefulness feeding `field::step`'s `active_chunk_count()`
+  gate, and frame 4,330 on `seed=1` is the handle. Both `dead-ends.md` entries
+  updated: the row-spans entry's re-test condition is **met with the answer
+  no**. What survives and is worth keeping: `rng::sweep` and
+  `surface::VisitRng` behind `PIXEL_PHYSICS_RNG=positional`, off by default
+  and bit-identical when off, as the instrument that measured §9.3; and three
+  fault-controlled quality guards in `rng.rs` whose fault arms are assertions
+  inside the tests, so CI proves they can fail every run. **§10 then measures
+  the target §9.4 handed forward and it does not survive either**: on the
+  owner's *own* default bed (512x320, `founders=8`, herb, one colony — not the
+  1024x288 tree bed the rest of the report uses), **four cores buy 1.02x**
+  over one, three alternating reps a side, non-overlapping. `field`
+  parallelises and earns it (−0.125 ms) while **`ca_sweep` is 8% *slower* on
+  four threads than on one** (+0.058 ms), because at 7.7 awake chunks the
+  dispatch costs more than the work it splits, and the two nearly cancel. So
+  §15.4's Amdahl case for parallelising `active_sites` has **no numerator** —
+  it assumed the parallel half scales, and the parallel half returns 0.048 ms
+  for 4x the cores. What it does surface is nearly free and small: thread
+  count is **behaviour-neutral, verified** (the bed hashes
+  `0xaf47c0c463f9845d` at 1, 2 and 4 threads), so not fanning the sweep out
+  when there is nothing to fan is worth ~0.058 ms with no divergence attached
+  — the only item this session found that is both free of behaviour change and
+  positive.
 - [plant-reseeding-2026-09-03.md](plant-reseeding-2026-09-03.md) —
   **measured 2026-09-03.** Answers the owner's two questions about why the
   lab's plants never spread. **Q1: no, a plant cannot evolve better seed
