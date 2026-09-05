@@ -56,8 +56,10 @@ by somebody about to try it on creatures.
   evidence could actually go, the precedent this repo already set
   (`session-programs.md`, moved out for exactly this reason), two live Claude
   Code bugs that would void the saving **inside a git worktree, which
-  `CLAUDE.md` mandates**, and the correction that `Reports/` is neither flat
-  nor 14 MB of prose. Names the largest miss: **`README.md` is 71,561 tokens,
+  `CLAUDE.md` mandates** — **both measured 2026-09-05 and neither reproduces
+  on CLI 2.1.261, so `paths:` scoping and nested `CLAUDE.md` are available
+  after all; see its §3 and `scripts/contextprobe.sh`** — and the correction
+  that `Reports/` is neither flat nor 14 MB of prose. Names the largest miss: **`README.md` is 71,561 tokens,
   the biggest document in the repo, overwhelmingly outdoor, and every agent is
   routed to it first.**
 - [why-changes-cost-so-much-2026-08-27.md](why-changes-cost-so-much-2026-08-27.md)
