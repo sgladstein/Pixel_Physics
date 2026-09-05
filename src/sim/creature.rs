@@ -63,7 +63,7 @@ use super::cell::{Cell, AMBIENT_TEMPERATURE};
 use super::chunk::Rect;
 use super::field;
 use super::material::{self, MaterialKind};
-use super::organism::{pack_cell_type, Carried, CellType, Crop, CreatureDef, Flight, ShadeRule, SpeciesId, Spoil, CREATURE_TRAITS, TRAIT_BIRTH_GRANT, TRAIT_GUT_BIAS, TRAIT_REPRODUCE_AT, TRAIT_SIGHT_RANGE};
+use super::organism::{pack_cell_type, Carried, CellType, Crop, CreatureDef, Flight, ShadeRule, SpeciesId, Spoil, CREATURE_TRAITS, TRAIT_BIRTH_GRANT, TRAIT_GUT_BIAS, TRAIT_PACE, TRAIT_REPRODUCE_AT, TRAIT_SIGHT_RANGE};
 use super::pheromone::{self, Channel};
 use super::rng;
 use super::scheduler::{ActiveKind, ActiveSite};
@@ -1249,7 +1249,7 @@ fn place_creature(
             }
         }
     }
-    Some(ActiveSite { x, y, kind: ActiveKind::Creature { organism }, next_frame: world.creature_due(def.tick_interval) })
+    Some(ActiveSite { x, y, kind: ActiveKind::Creature { organism }, next_frame: world.creature_due(organism_tick_interval(world, organism, def)) })
 }
 
 /// This material's palette entries, ordered **darkest first** by luma.
@@ -1518,6 +1518,51 @@ pub fn sight_range_of(def: &CreatureDef, traits: &[f32; CREATURE_TRAITS]) -> i32
 
 pub fn reproduce_fraction(t: f32) -> f32 {
     (1.0 + t).clamp(0.0, 2.0)
+}
+
+/// **How many frames this particular animal waits between decisions** — its
+/// species' authored `tick_interval` scaled by its own `TRAIT_PACE` allele.
+///
+/// **The allele runs the opposite way to the number**, because it is named
+/// for the animal: `+1` is a *quick* animal, which is a *shorter* interval.
+///
+/// | allele | factor | ant (authored 6) |
+/// |---|---|---|
+/// | `-1` | x2 | 12 — half speed, half the cost of living |
+/// | `0` | x1 | **6, as authored** |
+/// | `+1` | /2 | 3 — double speed, double the cost of living |
+///
+/// **A reciprocal pair rather than the plain `(1 + t)` of
+/// `reproduce_fraction`**, so the axis is symmetric in *ratio*: `-1` and
+/// `+1` are the same factor in opposite directions, which is the symmetry a
+/// rate wants. `2f32.powf(-t)` is the same curve and is not available —
+/// nothing decision-relevant here may call libm (`brain::squash`).
+///
+/// Floored at one frame. Not capped at the top: `t` is clamped to `-1..=1`,
+/// so the interval is bounded by construction at twice the authored value
+/// and a ceiling constant would be decoration.
+///
+/// **What this costs the animal is already charged, which is why the gene
+/// needed no new price.** Every per-decision levy — `idle`, `synapse_tax`,
+/// `sight_tax`, exposure — is paid once per call of this interval, so a
+/// quick animal pays its whole bill twice as often per frame. `CreatureDef::
+/// scaled` states the same identity from the other end: idle burn per frame
+/// is `idle_cost_per_cell * cells / tick_interval`.
+pub fn tick_interval_of(def: &CreatureDef, traits: &[f32; CREATURE_TRAITS]) -> u64 {
+    let t = traits[TRAIT_PACE].clamp(-1.0, 1.0);
+    let factor = if t >= 0.0 { 1.0 / (1.0 + t) } else { 1.0 - t };
+    ((def.tick_interval as f32 * factor).round() as u64).max(1)
+}
+
+/// `tick_interval_of` for an animal that is alive in the world, falling back
+/// to the species' authored interval if it is not.
+///
+/// A free function rather than four copies of the same `map_or`, because the
+/// scheduler reads this in three places and the flight path in two: an
+/// individual that is scheduled on its own pace and charged on its species'
+/// would be metabolising at a rate nothing on screen explains.
+pub fn organism_tick_interval(world: &World, organism: u16, def: &CreatureDef) -> u64 {
+    world.organism(organism).map_or_else(|| def.tick_interval.max(1), |st| tick_interval_of(def, &st.traits))
 }
 
 /// Bud a child off `organism` if it can afford one and there is room.
@@ -1959,7 +2004,7 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
     if cell.is_burning() {
         // Same deferral the worm makes, for the same reason: let fire.rs
         // finish deciding this creature's fate first.
-        return vec![ActiveSite { x, y, kind: ActiveKind::Creature { organism }, next_frame: world.creature_due(def.tick_interval) }];
+        return vec![ActiveSite { x, y, kind: ActiveKind::Creature { organism }, next_frame: world.creature_due(organism_tick_interval(world, organism, def)) }];
     }
 
     // Something may have eaten, burned or erased part of this creature
@@ -4546,7 +4591,7 @@ fn step_flight(world: &mut World, organism: u16, def: &CreatureDef) -> Vec<Activ
     // the reset in `line_burrow` for the standing case that this field
     // should probably go entirely.
     let frame = world.frame;
-    let interval = def.tick_interval.max(1);
+    let interval = organism_tick_interval(world, organism, def);
     if let Some(state) = world.organism_mut(organism) {
         state.flight = if landed { None } else { Some(flight) };
         // `is_multiple_of` rather than `% == 0`: `clippy::manual_is_multiple_of`
@@ -4574,7 +4619,7 @@ fn step_flight(world: &mut World, organism: u16, def: &CreatureDef) -> Vec<Activ
     // came from the scheduler rather than from the design. Pro-rating keeps
     // the *rate* identical and leaves `LAUNCH_COST_IN_MOVES` as the only
     // thing the verb actually charges for.
-    let idle = def.idle_cost_per_cell * live_body_cells(world, organism, def) / def.tick_interval.max(1) as f32;
+    let idle = def.idle_cost_per_cell * live_body_cells(world, organism, def) / interval as f32;
     world.energy_ledger.metabolized += idle as f64;
     if landed {
         // Back on the normal schedule, and back to deciding things.
@@ -4892,7 +4937,7 @@ fn apply_creature_energy(world: &mut World, x: i32, y: i32, organism: u16, delta
         creature_dies(world, organism);
         return Vec::new();
     }
-    vec![ActiveSite { x, y, kind: ActiveKind::Creature { organism }, next_frame: world.creature_due(def.tick_interval) }]
+    vec![ActiveSite { x, y, kind: ActiveKind::Creature { organism }, next_frame: world.creature_due(organism_tick_interval(world, organism, def)) }]
 }
 
 /// Every cell of the chain becomes `corpse`, and the slot comes back.
@@ -6364,10 +6409,36 @@ mod tests {
     /// `dig_cost_in_moves` defaults to 0.0, so a charge that was never wired
     /// at all reports `dig_energy == 0.0` and passes any test that only
     /// asserted the default.
+    #[test]
+    fn digging_costs_exactly_its_authored_price_per_cell() {
+        let (free_digs, free_spend, free_per_dig) = dig_price_scene(0.0);
+        let (paid_digs, paid_spend, paid_per_dig) = dig_price_scene(4.0);
+
+        assert!(free_digs > 0, "nothing was dug in either arm, so this measures an idle ant rather than a price");
+        assert_eq!(free_per_dig, 0.0, "the scene's own arithmetic disagrees with the 0.0 arm");
+        assert_eq!(
+            free_spend, 0.0,
+            "the default is 0.0 and must charge exactly nothing: a species that has not opted in has to be bit-identical, got {free_spend}"
+        );
+        assert!(
+            paid_spend > 0.0,
+            "{paid_digs} digs at a price of 4 steps booked {paid_spend} joules -- the charge is not wired, and the zero arm above would pass either way"
+        );
+        // The identity. `dig_energy` is booked once per excavated cell at
+        // `move_cost_per_cell * body cells * price`, so dividing it back out
+        // must return that price whatever the ant went on to do.
+        let booked_per_dig = paid_spend / paid_digs as f64;
+        assert!(
+            (booked_per_dig - paid_per_dig as f64).abs() < paid_per_dig as f64 * 1e-3,
+            "{paid_digs} digs booked {paid_spend} joules, {booked_per_dig} each, against an authored {paid_per_dig} -- \
+             the charge is not the price the field names"
+        );
+    }
+
     /// **The positive control for `TRAIT_SIGHT_RANGE`: a sharper eye reads
     /// more of the world.**
     ///
-    /// `the_eye_is_heritable_but_cannot_be_conjured` checks the arithmetic;
+    /// `a_blind_lineage_can_evolve_an_eye` checks the arithmetic;
     /// this checks the arithmetic *reaches a running world*, which is a
     /// different claim and the one that was briefly false. A harness that
     /// set the allele on the species after the animals were already placed
@@ -6398,6 +6469,131 @@ mod tests {
             narrow < authored && authored < wide,
             "a sharper eye must read more of the world: allele -0.75 read {narrow}, 0.0 read {authored}, +0.75 read {wide} -- \
              equal figures mean the allele is not reaching the cast"
+        );
+    }
+
+    /// **How fast an animal lives is its own, and it is symmetric in ratio.**
+    ///
+    /// The arithmetic half of `TRAIT_PACE`. `+1` and `-1` are the *same*
+    /// factor in opposite directions, which is the claim the reciprocal form
+    /// exists to make and the one a plain `(1 + t)` would fail: on that shape
+    /// `-1` is an interval of zero and `+1` only doubles it.
+    #[test]
+    fn pace_is_this_animals_own_and_symmetric_in_ratio() {
+        let w = test_world();
+        let def = w.species.get(w.species.id_of("ant").expect("ant")).creature.as_ref().expect("creature").clone();
+        let at = |t: f32| {
+            let mut traits = [0.0f32; CREATURE_TRAITS];
+            traits[TRAIT_PACE] = t;
+            tick_interval_of(&def, &traits)
+        };
+
+        assert!(def.tick_interval >= 4, "this test needs an authored interval with room to halve; the ant's is {}", def.tick_interval);
+        assert_eq!(at(0.0), def.tick_interval, "a neutral allele must reproduce the authored interval exactly, or every animal alive changed the day this landed");
+        assert_eq!(at(1.0) * 2, def.tick_interval, "the top of the axis is twice the species' pace");
+        assert_eq!(at(-1.0), def.tick_interval * 2, "the bottom of the axis is half the species' pace");
+
+        // Symmetric in ratio: the quick end and the slow end are reciprocals
+        // of each other about the authored value. This is what a rate axis
+        // wants, and it is the assertion that fails on the `(1 + t)` shape
+        // `reproduce_fraction` uses.
+        assert_eq!(at(1.0) * 4, at(-1.0), "the two ends of the axis must be reciprocal about the authored interval");
+
+        // Monotone in *pace*, so the interval falls as the allele climbs.
+        assert!(at(-0.5) > at(0.0) && at(0.0) > at(0.5), "a higher allele must be a quicker animal: {} {} {}", at(-0.5), at(0.0), at(0.5));
+
+        // A species already deciding every frame cannot be sped up past the
+        // clock, and must not land on zero -- `creature_due` would then
+        // schedule the animal onto the frame it is already on.
+        let mut fastest = def.clone();
+        fastest.tick_interval = 1;
+        let mut traits = [0.0f32; CREATURE_TRAITS];
+        traits[TRAIT_PACE] = 1.0;
+        assert_eq!(tick_interval_of(&fastest, &traits), 1, "an interval must never reach zero, whatever the allele");
+    }
+
+    /// **The positive control for `TRAIT_PACE`: a quicker lineage takes more
+    /// turns and pays for every one of them.**
+    ///
+    /// The sibling of `a_sharper_eye_reads_more_of_the_world`, and it exists
+    /// for the same reason: the arithmetic being right is a different claim
+    /// from the arithmetic *reaching the scheduler*, and the eye's version of
+    /// this was briefly false with byte-identical counters at three alleles.
+    ///
+    /// **Both counters, not one.** `ticks` alone would pass for a gene that
+    /// changed the schedule and nothing else — the thing this slot must not
+    /// be is a free speed-up, so the burn is asserted beside the turns. They
+    /// are checked as an ordering rather than a ratio because an animal that
+    /// starves early stops paying, which is a real behaviour and not a defect
+    /// in the gene.
+    #[test]
+    fn a_quicker_lineage_takes_more_turns_and_burns_more() {
+        const FRAMES: usize = 600;
+        let run_at = |allele: f32| -> (u64, f64) {
+            let mut w = test_world();
+            // **Breeding is switched off, and finding out why is what this
+            // test is for.** The first version left it on with a large bank
+            // and read 1,261 / 4,334 / 13,717 turns -- a ratio of 3.4x and
+            // 3.2x where the arithmetic says exactly 2x. The excess was real
+            // and was not the gene: budding is attempted once per decision,
+            // so a quick ant *breeds* quicker too and the counter was pace
+            // multiplied by a population. `CLAUDE.md`'s tidiness rule
+            // inverted -- an untidy number was the tell, and a clean 2x is
+            // available here only because the confound is removed rather
+            // than corrected for.
+            if let Some(id) = w.species.id_of("ant") {
+                if let Some(mut def) = w.species.get(id).creature.clone() {
+                    def.reproduce_threshold = 0.0;
+                    w.species.set_creature(id, def);
+                }
+            }
+            w.plant_ant(100, 95);
+            let ant = w.get(100, 95).organism_id();
+            assert_ne!(ant, 0, "the ant was not placed; this scene does not contain the situation the test is about");
+            if let Some(st) = w.organism_mut(ant) {
+                st.traits[TRAIT_PACE] = allele;
+                // Enough bank that neither arm starves inside the window --
+                // a dead ant stops ticking, and the quick arm would reach
+                // that first, which is the one way this ordering could
+                // reverse for a reason that is not the gene.
+                st.energy = 100_000.0;
+            }
+            run(&mut w, FRAMES);
+            assert_eq!(w.creature_stats.spawned, 1, "a second animal appeared, so the counters below are a population and not a pace");
+            (w.creature_stats.ticks, w.energy_ledger.metabolized)
+        };
+
+        let (slow_ticks, slow_burn) = run_at(-1.0);
+        let (authored_ticks, authored_burn) = run_at(0.0);
+        let (quick_ticks, quick_burn) = run_at(1.0);
+
+        assert!(authored_ticks > 0, "the ant never took a turn, so this measures a dead animal rather than a gene");
+        assert!(
+            slow_ticks < authored_ticks && authored_ticks < quick_ticks,
+            "a quicker allele must take more turns in the same window: -1 took {slow_ticks}, 0 took {authored_ticks}, +1 took {quick_ticks} -- \
+             equal figures mean the allele is not reaching the scheduler"
+        );
+        // **Exactly twice, to within the tick the window edge clips.** One
+        // animal, a fixed window and no reproduction, so the arithmetic is
+        // reachable rather than merely approachable: measured 50 / 100 / 199
+        // turns and 5.0 / 10.0 / 19.9 J at alleles -1 / 0 / +1. The 199 is
+        // not slack in the gene -- 600 frames at interval 3 has its 200th
+        // slot on frame 600, one past the end of the run -- so the tolerance
+        // is one tick and not a percentage. A ratio that is only *roughly*
+        // two means something else is in the counter, which is exactly what
+        // the first version of this test was reading.
+        assert!(
+            quick_ticks.abs_diff(authored_ticks * 2) <= 1,
+            "the quick arm must take twice the turns of the authored one in the same window: {quick_ticks} against {authored_ticks}"
+        );
+        assert!(
+            authored_ticks.abs_diff(slow_ticks * 2) <= 1,
+            "and the authored arm twice the slow one: {authored_ticks} against {slow_ticks}"
+        );
+        assert!(
+            slow_burn < authored_burn && authored_burn < quick_burn,
+            "and it must pay for them -- living faster has to cost more, or this slot is a free speed-up: \
+             -1 burned {slow_burn:.1}, 0 burned {authored_burn:.1}, +1 burned {quick_burn:.1}"
         );
     }
 
@@ -6445,31 +6641,6 @@ mod tests {
         assert!(at(&sighted, 1.0) as f32 <= SIGHT_MAX, "an evolved eye must stay under the ceiling that prices it");
     }
 
-    #[test]
-    fn digging_costs_exactly_its_authored_price_per_cell() {
-        let (free_digs, free_spend, free_per_dig) = dig_price_scene(0.0);
-        let (paid_digs, paid_spend, paid_per_dig) = dig_price_scene(4.0);
-
-        assert!(free_digs > 0, "nothing was dug in either arm, so this measures an idle ant rather than a price");
-        assert_eq!(free_per_dig, 0.0, "the scene's own arithmetic disagrees with the 0.0 arm");
-        assert_eq!(
-            free_spend, 0.0,
-            "the default is 0.0 and must charge exactly nothing: a species that has not opted in has to be bit-identical, got {free_spend}"
-        );
-        assert!(
-            paid_spend > 0.0,
-            "{paid_digs} digs at a price of 4 steps booked {paid_spend} joules -- the charge is not wired, and the zero arm above would pass either way"
-        );
-        // The identity. `dig_energy` is booked once per excavated cell at
-        // `move_cost_per_cell * body cells * price`, so dividing it back out
-        // must return that price whatever the ant went on to do.
-        let booked_per_dig = paid_spend / paid_digs as f64;
-        assert!(
-            (booked_per_dig - paid_per_dig as f64).abs() < paid_per_dig as f64 * 1e-3,
-            "{paid_digs} digs booked {paid_spend} joules, {booked_per_dig} each, against an authored {paid_per_dig} -- \
-             the charge is not the price the field names"
-        );
-    }
 
     /// One hungry ant, a bank of soil to its right and a corpse to its
     /// left, driven by a genome that authors exactly one of the two verbs.

@@ -3157,7 +3157,10 @@ pub struct CreatureDef {
     pub digest_rate: f32,
     /// **The ancestral value of every heritable body trait**, indexed by
     /// `CREATURE_TRAITS`' slot map: slot 0 is `gut_bias`, slot 1 is
-    /// `birth_grant`, slot 2 is `reproduce_at`.
+    /// `birth_grant`, slot 2 is `reproduce_at`, slot 3 is `sight_range`,
+    /// slot 4 is `pace`. Each slot has its own `TRAIT_*` constant carrying
+    /// what its axis means; this list is the index and those are the
+    /// definitions.
     ///
     /// Authored per species because two ancestors one number apart, living
     /// in different parts of the world and coloured differently, *is* the
@@ -4971,7 +4974,7 @@ pub const GENOTYPE_TRAITS: usize = 10;
 /// strictly weaker one, which is `CLAUDE.md`'s *when several knobs move the
 /// same number, check what each one trades*: this one trades nothing the
 /// weight does not already trade.
-pub const CREATURE_TRAITS: usize = 4;
+pub const CREATURE_TRAITS: usize = 5;
 
 /// Slot 0 of `CREATURE_TRAITS`: **diet as one heritable number**, `-1`
 /// (plant matter) to `+1` (flesh), scored against `MaterialDef::food_class`
@@ -5082,6 +5085,52 @@ pub const TRAIT_BIRTH_GRANT: usize = 1;
 /// this slot says, so making reproduction universal stays S5c's decision
 /// to take deliberately rather than something this slot does quietly.
 pub const TRAIT_REPRODUCE_AT: usize = 2;
+
+/// Slot 4 of `CREATURE_TRAITS`: **how fast this animal lives**, `-1` (half
+/// the species' pace) to `+1` (twice it), read through
+/// `creature::tick_interval_of`.
+///
+/// **Named for the animal rather than for the field, because the allele
+/// runs the opposite way to the number it moves.** `tick_interval` is a
+/// duration — *more* of it is a *slower* animal — and a slot where `+1`
+/// meant "sluggish" would read backwards against the other four and against
+/// what is on screen. So `+1` is a quick animal and the interval it
+/// produces is *shorter*.
+///
+/// **This one needed no new price, and the arithmetic for why is already
+/// written down in `CreatureDef::scaled`**: idle burn per frame is
+/// `idle_cost_per_cell * cells / tick_interval`, so halving the interval
+/// exactly doubles the cost of living per unit of world time. Every charge
+/// an animal pays — `idle`, `synapse_tax`, `sight_tax`, exposure — is
+/// levied once per decision, and a creature steps one cell per decision
+/// (`creature::step_chain`), so the whole budget and the whole output scale
+/// together on this axis.
+///
+/// **Which means it is very nearly neutral at first order, and that is the
+/// point rather than a defect.** Joules per *step* do not move: a quick
+/// animal pays double per frame and takes double the steps. What does not
+/// cancel is everything measured against **world** time — food regrowing,
+/// a predator closing, a rival reaching the same leaf first, a famine to be
+/// outlasted. So the gradient on this slot is supplied by the *bed* and not
+/// by the arithmetic, which is exactly the shape that produces different
+/// answers in different environments instead of one answer everywhere.
+/// Contrast `sight_fraction`, which had to be authored precisely because
+/// reach was otherwise free.
+///
+/// **Bounded by construction, so it needs no `MAX` constant.** The factor
+/// is `1/(1+t)` above zero and `1-t` below it — a reciprocal pair, so the
+/// axis is symmetric in *ratio*, which is the right symmetry for a rate and
+/// the reason this is not the plain `(1 + t)` shape `reproduce_fraction`
+/// uses. `t` is clamped to `-1..=1`, so the interval never leaves
+/// `[authored/2, authored*2]` and only a floor of 1 tick has to be imposed.
+/// The reciprocal is written out rather than reached for as a power because
+/// nothing decision-relevant in this engine may call libm — see
+/// `brain::squash`.
+///
+/// **There is no species gate, per the ruling `TRAIT_SIGHT_RANGE` records.**
+/// A species authoring `tick_interval: 6` has descendants at 3 and at 12,
+/// and no author's constant stands in the way.
+pub const TRAIT_PACE: usize = 4;
 
 /// The ancestral trait vector for a species file that authors no `traits`
 /// line at all.

@@ -851,6 +851,29 @@ drift that two of these documents still reflect.**
   owner's rather than measurable, which is the part a reviewer should attack
   hardest
 
+- [creature-locked-fields-2026-09-05.md](creature-locked-fields-2026-09-05.md)
+  — **an audit and a queue, 2026-09-05.** The owner's ruling on the sight
+  gene — *"anything should be able to evolve. don't lock"* — applied to the
+  rest of `CreatureDef` rather than to the one field it was said about.
+  Classifies every field on two axes that are **not** the same question:
+  *locked* (fixed for the species for ever) and *priced* (does moving it
+  cost anything). **Unlocking an unpriced field is worse than leaving it
+  locked** — the ratchet failure this repo has paid for three times — so the
+  order is price first, unlock second, as `sight_fraction` did a week before
+  `TRAIT_SIGHT_RANGE`. Unlocks `tick_interval` as `TRAIT_PACE`, the one
+  locked field that **needed no price authored**: every levy is charged once
+  per decision, so halving the interval doubles the cost of living, and
+  `CreatureDef::scaled` had already written the identity down. Names
+  `crop_capacity` as the next ready row, four fields as needing a price
+  first, and **`sensor_offset` as uniquely safe unpriced** because its
+  measured curve has an interior maximum (0.817 at offset 6 against 0.755 at
+  4 and 0.727 at 10) — there is nothing to ratchet to, which is the general
+  rule: a lever needs a price only where *more* is monotonically better.
+  Also records a lock of a second kind — **two of the four trait slots were
+  unreachable from the lab**, each having shipped with the older slots
+  registered by hand beside it, so a field can be unlocked in the engine and
+  still locked to the person playing
+
 - [selective-environments-2026-09-05.md](selective-environments-2026-09-05.md)
   — **method and one worked demonstration, 2026-09-05.** The owner's
   correction — *"not just population size and run length but actually setting

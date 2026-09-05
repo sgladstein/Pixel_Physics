@@ -3279,6 +3279,40 @@ impl World {
         }
     }
 
+    /// **Set one heritable trait on one *living* animal**, returning whether
+    /// it was found.
+    ///
+    /// Narrow on purpose, and it exists because `organism_mut` is
+    /// `pub(crate)` and every measurement in this repo lives in `examples/`.
+    /// A gene set on the `CreatureDef` reaches only animals founded *after*
+    /// it, since `place_creature` copies the species vector into
+    /// `OrganismState::traits` — so an instrument that could only set the
+    /// species def could not demonstrate a gene on a bed that was already
+    /// standing. `labstats`' `beetlesight=` shipped with exactly that as a
+    /// printed caveat, which is a harness limitation wearing the costume of
+    /// an engine fact.
+    ///
+    /// **Out-of-range slots are refused rather than clamped**: a caller
+    /// passing a slot that does not exist has a bug, and silently writing
+    /// slot 0 instead would be a measurement of the wrong gene — the failure
+    /// `CLAUDE.md` calls a number that is arithmetically correct and about
+    /// something else.
+    ///
+    /// This is the write half only. Reading an individual's traits is
+    /// `organism(id).traits`, which is already public.
+    pub fn set_organism_trait(&mut self, organism_id: u16, slot: usize, value: f32) -> bool {
+        if slot >= crate::sim::organism::CREATURE_TRAITS {
+            return false;
+        }
+        match self.organism_mut(organism_id) {
+            Some(state) => {
+                state.traits[slot] = value;
+                true
+            }
+            None => false,
+        }
+    }
+
     pub(crate) fn organism_mut(&mut self, organism_id: u16) -> Option<&mut OrganismState> {
         let (slot_index, generation) = decode_organism_id(organism_id);
         if slot_index == 0 {

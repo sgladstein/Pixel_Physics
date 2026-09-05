@@ -1,6 +1,13 @@
 # Ants
 
-*Current as of: 2026-09-05, when **how far an animal can see stopped being
+*Current as of: 2026-09-05, when **how fast an animal lives stopped being
+fixed for its whole kind** — one lineage takes its turn twice as often as its
+neighbours and another half as often, so a bed can hold ants that scurry and
+ants that plod, and the difference is on screen without an overlay. It is not
+a free turn of speed: everything an ant pays for is charged once per turn, so
+living twice as fast burns twice as fast, and which pace wins is a question
+about the bed rather than one with an answer written down. Earlier the same
+day, **how far an animal can see stopped being
 fixed for its whole kind** — a sharp-eyed beetle and a short-sighted one are
 now two different beetles, and which one leaves more young is something the
 world decides rather than something written down. **A kind born with no eyes
@@ -732,6 +739,24 @@ nothing, so its next lean hour kills it, while one that waits survives lean
 hours and has fewer young. Which strategy wins is a question about the world
 an ant is living in, and the colony settles it by the descendants each kind
 leaves behind.
+
+**How fast an ant lives is now something it inherits too**, and it is the
+first of these that a person can simply watch. One lineage takes its turn
+twice as often as the kind it came from — it scurries, covers ground, finds
+food sooner and digs nearly twice as much — and another takes its turn half
+as often and plods. Neither is a free upgrade, because everything an ant pays
+for is charged once per turn: the quick one burns through its stores at twice
+the rate, and in a bed where food is scarce that is how it dies first. Which
+one leaves more descendants depends on the bed and not on the arithmetic,
+which is the reason it is worth having as a thing that varies rather than a
+number somebody chose.
+
+**And every one of these is now on the ants page and in the look tool.** Two
+of them were not, until this was noticed: an ant's own inherited numbers were
+half hidden, so you could see what a lineage had done to its gut and its
+children but not to its patience or its eyes. Click an animal and all five of
+its inherited numbers are there, beside the ancestral value its kind started
+from — the gap between the two is how far that lineage has drifted.
 
 **What still holds a colony back is where its food is, not what a child
 costs.** Put food on the ground beside a nest and a colony breeds hard —
