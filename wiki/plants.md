@@ -14,7 +14,12 @@ instead of a thirteenth -- which is about what a real tree does -- and the
 whole plant ends up **two-fifths larger** because it can actually drink.
 The change is easiest to see in a bed that has been standing a while: the
 soil under a plant is worked through with root rather than holding one thin
-line of it. Related, and the reason this could not ship on its own: a
+line of it -- and **a wood that has stood for a long time now keeps its
+ground**. Watched over four stops out to twenty-four thousand frames, a
+grove without this kept its bed for the first half and then lost it: the
+soil went out from under the trees and left them standing on rafts their own
+root balls were holding, which is exactly what too little root looks like
+when the ground is the thing depending on it. Related, and the reason this could not ship on its own: a
 plant's **water store no longer grows without limit** with its root count.
 It used to, so a plant dying of thirst could root its way to a bigger bucket
 and read as well-watered -- and would not die.)
