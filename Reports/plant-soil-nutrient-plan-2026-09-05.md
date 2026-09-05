@@ -108,7 +108,7 @@ or it measures root mass and calls it uptake.
 | | second draft | now | why |
 |---|---|---|---|
 | **1** | raise `SOIL_UPTAKE_PER_TICK` | **refuted — do not build** | §0a: monotone tax, no usable band, 12 seeds |
-| **2** | open the root-tip gate | **key `break_root_tips` on local soil scarcity, not `water_status`** | §2b: measured — the gate refuses 95-99.6% of initiations and carbon refuses none |
+| **2** | open the root-tip gate | **BUILT, default-off: key `break_root_tips` on local soil scarcity** | §2b-iii: roots 3.93x in 12/12 seeds, **income flat**, root:shoot 7.3% -> 23.3% |
 | **3** | root turnover | unchanged, and now more clearly necessary | §2c: a mined-out root at `near` 0.016 earns nothing for ever and costs for ever |
 | **4** | *lower the water rates* | still withdrawn, and for a third reason | §1a |
 | **5** | immobile nutrient | unchanged, still second-order | §3 |
@@ -219,6 +219,61 @@ guard, and the prediction is specific — `gated` must fall and `FIRED` rise,
 with `poor` **staying at zero** (if `poor` becomes large the constraint has
 merely moved to carbon), and income must not fall the way it did under every
 uptake arm. Run it against the same four beds so the before/after is paired.
+
+### 2b-iii. BUILT and MEASURED — it works, and it is income-neutral
+
+Shipped default-off behind `PIXEL_PHYSICS_ROOT_GATE=local`
+(`plant.rs`'s `root_gate_is_local`), reading
+`OrganismState::root_zone_water` — the mean `plant_available_fraction` over
+the drinkable faces `contact_root_cells` already counts, accumulated in that
+same four-neighbour look. **The threshold is not retuned**: 0.95 means the
+same thing on both fraction-of-full scales.
+
+**Default is inert, verified rather than asserted**: with the switch off the
+root-tip exit census reads byte-identical to the pre-change run on all four
+beds.
+
+**12 paired seeds, outdoor bed, frame 24,000:**
+
+| | gate off | gate local | ratio | seeds up |
+|---|---|---|---|---|
+| root cells | 224 | **879** | **3.93x** | **12/12** |
+| contact roots | 175 | 576 | 3.29x | **12/12** |
+| **income** | 4.785 | 4.765 | **1.00x** | 7/12 |
+| water in the root zone (`near`) | 0.016 | **0.570** | **35.6x** | **12/12** |
+| uptake | 16.5 | 21.8 | 1.32x | 10/12 |
+| worst plant's water status | 0.723 | **1.000** | 1.38x | 8/12 |
+| shoot cells | 3,724 | 3,515 | 0.94x | 4/12 |
+| total cells | 3,941 | 4,159 | 1.06x | 6/12 |
+| **root:shoot** | **7.3%** | **23.3%** | | real trees ~20-25% |
+
+**The predictions held and the shape is the opposite of the uptake lever's.**
+Roots nearly quadruple, unanimously, and **income does not move** — where
+raising `SOIL_UPTAKE_PER_TICK` bought the same root response at a cost of 89%
+of income. It buys roots with *reach* rather than with starvation: the root
+zone goes from scraped-to-the-floor (0.016) to half-full (0.570) because 3.9x
+the roots are spread over enough soil that no cell is exhausted, uptake rises
+32%, and the worst-off plant in each bed goes from 0.723 to fully watered.
+`poor` stayed at zero, so the constraint did not merely move to carbon;
+`at_cap` rose, so the tip cap is the new bound — a bound, not a runaway — and
+the gate still refuses 86-98%, so it has not become always-open.
+
+**And root:shoot lands where the biology says it should**, 23.3% against a
+real tree's 20-25%, from 7.3%. That is the number the owner's original
+observation was really about.
+
+**Repo gates, both with the switch on:** `cargo run --release --example
+ascii` 31 scenes / 0 skipped; `scripts/acceptance.sh` all cases met their
+expectations. `cargo test --lib --release` 1,358 passed / 0 failed.
+
+**The one measured cost, and why this is not yet the default.** On the
+single-run bed comparison the *shallow* beds lost canopy — 17x8 went
+2,181 -> 1,279 cells and 2,452 -> 1,720 — because the local signal reads
+"scarce" wherever roots sit in spent soil, and in a bed with nowhere to go
+that buys root the plant cannot use. The outdoor bed is deep and gains; a
+12-seed paired sweep at `soil=6` is the outstanding measurement, and it is
+also what decides the owner's separate question about shallowing the lab
+bed, because the two interact directly.
 
 ### 2c. Without root turnover there is no interior optimum
 

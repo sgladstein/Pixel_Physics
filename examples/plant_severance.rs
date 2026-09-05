@@ -278,6 +278,13 @@ fn main() {
     let species: String = arg("species", "tree".to_string());
     let rows: i32 = arg("rows", 3);
     let track: usize = arg("track", 4);
+    // **Rows of soil over the stone floor.** Exposed because the one arm
+    // that moves this line's numbers is rooting *volume*, not moisture:
+    // `plant-water-scarcity-2026-08-30.md` §2d took water status 1.000 ->
+    // 0.678 by going from 34 rows to 4, where a 6.3x moisture range moved it
+    // not at all. A bed the roots cannot exhaust cannot test a rule about
+    // running out of soil.
+    let soil: i32 = arg("soil", common::PlantScene::default().soil_depth);
     // **Fine stops immediately after the cut.** The coarse schedule below
     // steps in thousands of frames, and the whole window this harness was
     // built to see can be shorter than one of those steps: measured, a
@@ -295,7 +302,7 @@ fn main() {
     // seed was written by a binary that never had one (`CLAUDE.md`, the
     // 3.5-hour megastudy that was three populations wearing 24 logs).
     println!(
-        "plant_severance: species={species} trees={trees} seeds={seeds} frames={frames} cut={cut} rows={rows} track={track} arms={arms}"
+        "plant_severance: species={species} trees={trees} seeds={seeds} frames={frames} cut={cut} rows={rows} track={track} soil={soil} arms={arms}"
     );
 
     for arm in arms.split(',') {
@@ -304,6 +311,7 @@ fn main() {
                 trees,
                 species: species.clone(),
                 seed: if seed == 0 { None } else { Some(seed) },
+                soil_depth: soil,
                 ..Default::default()
             };
             let ground_y = scene.ground_y;
