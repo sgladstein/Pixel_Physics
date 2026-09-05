@@ -506,6 +506,22 @@ resolution, and it produced one finding worth more than the merge.*
   two new slots made `SURFACECURVATURE > DROPSPOIL` 28 characters against a
   26-character budget, and neither guard nor page noticed. Replaced with a
   walk of `INPUTS` x `OUTPUTS`.
+- **The graveyard landed, and the rendered table caught three things no
+  number did.** Every grave read `AGE 9.8K` -- the column is `world.frame -
+  born_frame`, which for the dead is time since *birth*. The `labui` tile
+  waited on `graveyard.len() >= victims.len()`, already satisfied by four
+  plants an earlier tile had killed, so it waited 0 ticks and rendered an
+  empty animals graveyard holding somebody else's plants -- the counter was
+  right and about the wrong thing. And its filter-reset loop re-used a click
+  position from a different page's layout, so the click missed, the filter
+  never moved and the loop never ended; it read as a *slow* harness for
+  fifteen minutes, not a hung one. **All three were visible in the picture
+  and in nothing else**, which is this file's own method arriving on the lab
+  line.
+- **A cull takes 3,403 ticks for an animal and 3,632 for a plant to reach the
+  graveyard** (`roster::how_long_a_cull_takes`), because `rot_remains` carries
+  the corpse out at the species half-life. Any harness waiting on a death
+  needs sizing from that; two now are.
 - **`World::seeds_set` and `World::seeds_borne` were the same counter, built
   twice.** Both sides added a world-level cumulative seed count at the same
   site in `bear_seed_at`. Item 2 above told this branch that `World::seeds_set`
