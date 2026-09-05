@@ -825,6 +825,76 @@ handle.
 - **`rng::sweep` and `VisitRng` are worth keeping as the instrument**, off by
   default, exactly as `PIXEL_PHYSICS_SWEEP` is. Without them nobody can re-run
   §9.3, and §9.3 is the finding.
-- **What the frame budget still wants** is unchanged and is elsewhere: §15.4's
-  serial `active_sites`, worth ~0.28 ms of a 2.63 ms tick on this bed against
-  this change's nil.
+- **What the frame budget still wants** was handed forward here as §15.4's
+  serial `active_sites`. **§10 measures that and it is wrong** — including as
+  I first wrote it in this section, from arithmetic rather than a run, one
+  section after the same mistake was the subject of §9.2.
+
+---
+
+## 10. The next target was named from arithmetic, and it does not survive a run
+
+*Added the same session, after §9.4 handed `active_sites` forward on §15.4's
+Amdahl estimate. That estimate has a numerator nobody measured.*
+
+### 10.1 On the owner's own bed, four cores buy 1.02x
+
+**Every number above is the 1024x288 `founders=6` `species=tree`
+`colonies=0` bed. The owner's default box is 512x320, `founders=8`, `herb`,
+with a colony of ants** (`LabBox::default`) — a different bed, and this report
+has already been caught once by a ratio that did not transfer. Measured there,
+40,000 frames, three alternating reps a side, box quiet, medians with ranges:
+
+| ms | `RAYON_NUM_THREADS=1` | `=4` | delta |
+|---|---|---|---|
+| **whole tick** | **2.088** `[2.063–2.123]` | **2.040** `[2.023–2.057]` | **−0.048, i.e. 1.02x** |
+| `field` | 0.860 `[0.850–0.868]` | 0.735 `[0.733–0.742]` | **−0.125** |
+| `ca_sweep` | 0.697 `[0.690–0.709]` | 0.755 `[0.743–0.761]` | **+0.058** |
+| `active_sites` | 0.393 `[0.388–0.406]` | 0.408 `[0.406–0.411]` | +0.015 |
+| `pheromones` | 0.137 | 0.141 | +0.004 |
+
+Non-overlapping on the tick and on both phases that move. **Going from one
+core to four is worth 2%.**
+
+The field parallelises and earns its rayon: −0.125 ms, −15%. **The CA sweep is
+*slower* on four threads than on one** — +0.058 ms, +8% — because at 7.7 awake
+chunks the dispatch costs more than the work it splits. The two nearly cancel,
+and that is the whole story of the frame's scaling.
+
+### 10.2 So the Amdahl ceiling on `active_sites` is not there
+
+§15.4 reasoned: `scheduler.rs`, `plant.rs`, `creature.rs` and `structural.rs`
+contain no rayon, so `active_sites` is serial; Amdahl on 4 cores therefore
+predicts ~34% utilisation and parallelising it is worth up to 0.54 ms. **The
+serial half of that is true and the conclusion does not follow**, because
+Amdahl also assumes the *parallel* half scales. Measured, the parallel half
+returns 0.048 ms for a 4x increase in cores. There is no speedup being
+diluted by a serial remainder; there is barely a speedup.
+
+`active_sites` is 0.408 ms of a 2.040 ms tick here — 20%, not the 65% §15.4
+was working from. Parallelising all of it perfectly would be worth 0.31 ms in
+theory, and this bed's own evidence is that a newly-parallelised phase of that
+size on this box will return a fraction of it and may return less than
+nothing, exactly as the sweep does. **It is the riskiest change on the board
+— shared-world writes under a determinism requirement — and its prize is
+unmeasured and probably small. It should not be started on this evidence.**
+
+### 10.3 What this does surface, and it is nearly free
+
+**Thread count is behaviour-neutral, verified rather than assumed**: the bed
+hashes `0xaf47c0c463f9845d` at 1, 2 and 4 threads. So the sweep's dispatch
+width is a pure performance dial with no divergence attached — unlike
+everything else this report has looked at.
+
+That makes "**do not fan the sweep out when there is nothing to fan**" a
+small, safe, measurable change worth **~0.058 ms (2.8%)** on this bed, gated
+on the awake-chunk count rather than applied flatly, because a big outdoor
+world will scale where a 512x320 box with 7.7 awake chunks does not. It is
+not large. It is the only item this session found that is both free of
+behaviour change and positive.
+
+**Not built, and not proposed as more than it is** — the bar this report set
+in §9.2 applies to its own recommendations: 0.058 ms is one rep's worth of
+noise on many beds, and the *right* next step is to measure the dispatch
+threshold across bed sizes before writing any code, not to assume this bed
+generalises. That is the mistake §10.1 exists to correct.

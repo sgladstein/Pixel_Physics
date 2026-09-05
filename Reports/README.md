@@ -2124,7 +2124,22 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   `surface::VisitRng` behind `PIXEL_PHYSICS_RNG=positional`, off by default
   and bit-identical when off, as the instrument that measured §9.3; and three
   fault-controlled quality guards in `rng.rs` whose fault arms are assertions
-  inside the tests, so CI proves they can fail every run.
+  inside the tests, so CI proves they can fail every run. **§10 then measures
+  the target §9.4 handed forward and it does not survive either**: on the
+  owner's *own* default bed (512x320, `founders=8`, herb, one colony — not the
+  1024x288 tree bed the rest of the report uses), **four cores buy 1.02x**
+  over one, three alternating reps a side, non-overlapping. `field`
+  parallelises and earns it (−0.125 ms) while **`ca_sweep` is 8% *slower* on
+  four threads than on one** (+0.058 ms), because at 7.7 awake chunks the
+  dispatch costs more than the work it splits, and the two nearly cancel. So
+  §15.4's Amdahl case for parallelising `active_sites` has **no numerator** —
+  it assumed the parallel half scales, and the parallel half returns 0.048 ms
+  for 4x the cores. What it does surface is nearly free and small: thread
+  count is **behaviour-neutral, verified** (the bed hashes
+  `0xaf47c0c463f9845d` at 1, 2 and 4 threads), so not fanning the sweep out
+  when there is nothing to fan is worth ~0.058 ms with no divergence attached
+  — the only item this session found that is both free of behaviour change and
+  positive.
 - [plant-reseeding-2026-09-03.md](plant-reseeding-2026-09-03.md) —
   **measured 2026-09-03.** Answers the owner's two questions about why the
   lab's plants never spread. **Q1: no, a plant cannot evolve better seed
