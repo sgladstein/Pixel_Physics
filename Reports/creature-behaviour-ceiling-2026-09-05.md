@@ -292,33 +292,124 @@ inventing a unit: the price then scales with the animal exactly as walking
 does, and *"digging a cell costs three steps"* is a sentence a tuner can hold
 where a joule figure needs `start_energy` beside it.
 
-### The measurement, and it is not the flattering answer
+### Sizing the three prices — from a share of burn, not from taste
 
-One bed, **one seed**, 40,000 frames, 32 plant founders, one colony:
+At price 1 on each, one bed, 40,000 frames, against a total burn of
+**82,409 J**:
 
-| `dig_cost_in_moves` | standing animals | born | died | deepest animal generation |
-|---|---|---|---|---|
-| 0 | 57 | 88 | 83 | 6 |
-| 4 | 36 | 45 | 61 | 3 |
-| 16 | 33 | 47 | 66 | 5 |
+| verb | at price 1 | share of burn | why |
+|---|---|---|---|
+| dig | 129.8 J | **0.2%** | 519 events in 40,000 frames |
+| emit | 10,336.2 J | **12.5%** | laid on every step, both planes |
+| spoil (at weight 1.0) | +152 J | **0.3%** of `moved` | a pellet is carried briefly |
 
-A price roughly **halves the colony and halves its births**, and deaths
-overtake births. Read that as one seed — the generation column is
-non-monotone and this bed's seed-alone spread is 2.4–3.1x, so only the
-population and birth effects are large enough to survive it.
+**The 60x gap between dig and emit is the whole sizing problem, and it is not
+intuition-shaped.** Equal prices would have made trail-laying the single
+largest line in an ant's budget and digging a rounding error. Anyone
+re-tuning should re-measure that table before moving the numbers together.
 
-**Why it costs rather than teaches, and the number that says so.** The dig
-drive is `(Bias, Dig, 0.4)` — *unconditional*, on the bias input, so an ant
-cannot dig less in response to anything. Selection has to walk that one
+Shipped values, and what each is:
+
+| field | value | reads as | lands at |
+|---|---|---|---|
+| `dig_cost_in_moves` | **6.0** | cutting a cell costs six steps | 1.5–2.2% of burn |
+| `emit_cost_in_moves` | **0.5** | a full deposit costs a sixth of a step | 5.7–6.3% of burn |
+| `spoil_weight_cells` | **1.0** | a pellet weighs one of two body cells | +0.3% of `moved` |
+
+`emit` is deliberately pitched at about what the **synapse tax** costs (5–6%):
+a signal an animal broadcasts constantly belongs in the same bracket as the
+brain that decides to broadcast it. `spoil_weight_cells` is left at a
+physically truthful value rather than inflated to make it bite — an ant puts
+spoil down almost at once (646 digs, 646 dumps), so it is honest rather than
+powerful, and `CLAUDE.md` forbids setting a bar from an aspiration.
+
+### What it buys — six paired seeds
+
+24,000 frames, 32 founders, one colony, priced against free, same seed both
+arms:
+
+| seed | digs free → priced | Δ | animals free → priced |
+|---|---|---|---|
+| 1 | 485 → 452 | −6.8% | 44 → 40 |
+| 2 | 551 → 371 | −32.7% | 24 → 29 |
+| 3 | 766 → 546 | −28.7% | 24 → 26 |
+| 4 | 493 → 444 | −9.9% | 38 → 33 |
+| 5 | 509 → 430 | −15.5% | 42 → 39 |
+| 6 | 404 → 395 | −2.2% | 44 → 27 |
+
+**Digs down in 6 of 6, median −15.5%. Animals down in 4 and up in 2 — no
+direction, i.e. noise.** So excavation falls about a sixth and the colony
+does not pay for it.
+
+### A single-seed result that this overturned — my own, from earlier the same day
+
+An earlier draft of this report carried:
+
+| `dig_cost_in_moves` | animals | born | died |
+|---|---|---|---|
+| 0 | 57 | 88 | 83 |
+| 4 | 36 | 45 | 61 |
+
+and read it as *"a price roughly halves the colony and its births"*. **It does
+not.** That was one seed against one seed in a bed whose seed-alone spread is
+2.4–3.1x, and the paired six-seed table above puts the population effect at
+nothing. The arithmetic should have caught it before the seeds did: at price
+4 the charge is ~0.6% of an ant's energy budget, which cannot halve anything.
+
+Kept rather than quietly corrected, because it is `CLAUDE.md`'s
+worst-recurring failure caught in the act — *a number that is arithmetically
+correct and answers a different question than the one asked* — and because
+the tell was there to read: the result was **tidy**, and outcomes in this
+engine are not.
+
+### Why it costs nothing and teaches nothing yet
+
+The dig drive is `(Bias, Dig, 0.4)` — *unconditional*, on the bias input, so
+an ant cannot dig less in response to anything. Selection has to walk that one
 weight down. At `mutation_rate: 0.0058456` a given slot is touched about
 **once per 171 births**; a run here produces 45–88 births, so that weight is
-touched **about once in a whole run**. The gradient is now real and the
-population is far too small and too short-lived to climb it.
+touched **about once in a whole run**.
 
 So pricing the verb is **necessary and not sufficient**, and the gap is not a
-tuning: it is that this bed does not run long enough, or breed enough
-animals, for one weight to move. That is the same finding as §3 arriving from
-the other side.
+tuning: this bed does not run long enough, or breed enough animals, for one
+weight to move. That is §3's finding arriving from the other side.
+
+### It cost one existing guard, and the guard was measuring the wrong thing
+
+`a_lone_grazer_cannot_farm_a_moss_lawn_forever` compares a renewable moss
+lawn against an inexhaustible leaf larder, asserting the lawn is the bounded
+niche. It asserted on `intake / spent` — an **efficiency** — and a sessile
+animal wins an efficiency by construction: it eats less and spends far less.
+
+The new charges fall on an animal that *acts* and spare one that sits still,
+which is the mechanism working. Measured at the moment it flipped:
+
+| arm | intake | spent | births | ratio |
+|---|---|---|---|---|
+| unlimited, free | 4,676 | 1,180 | 3 | 3.962 |
+| unlimited, priced | 4,201 | 1,747 | 2 | 2.404 |
+| renewable, free | 2,415 | 789 | 1 | 3.060 |
+| renewable, priced | 2,415 | 847 | 1 | 2.850 |
+
+**The niche ordering never moved**: the larder yields ~1.7x the food and two
+to three times the offspring in both. Only the ratio inverted, because
+`spent` rose **48% for the forager against 7% for the grazer**. Asserting on
+it would have reported *"the moss lawn is the better niche"* about a scene
+where the lawn produced a third of the intake and a third of the children.
+
+It now asserts **yield and births**. That is a strictly stronger guard, not a
+weakened one, and both halves were checked:
+
+- **It still catches its own fault.** A 4x denser lawn trips it at 4,414 J
+  against 4,201.
+- **The old assertion provably could not.** In that faulted run the
+  efficiencies read **2.914 against 2.404** — near-identical to the *healthy*
+  priced run's 2.850 against 2.404. The ratio could not tell a pump from a
+  working economy.
+
+The margin also explains why it survived this long and not longer: the ratio
+moves ~0.9 per birth and the free-price margin was **0.90**, so it sat
+exactly one birth from failing throughout.
 
 ### A first measurement that measured nothing, kept because it is the trap
 

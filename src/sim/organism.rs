@@ -2962,13 +2962,11 @@ pub struct CreatureDef {
     /// three steps"* — where a joule figure means nothing without
     /// `start_energy` beside it.
     ///
-    /// **Defaulted to zero deliberately, and that is not timidity.**
-    /// `CLAUDE.md`: a change that reallocates a shared budget must budget
-    /// re-deriving the constants calibrated against the old one, and
-    /// `start_energy`, `reproduce_threshold` and the authored dig weight
-    /// were every one of them fitted with digging free. At 0.0 the tick is
-    /// bit-identical and the sweep that sets a real value is separable from
-    /// the mechanism that makes one possible.
+    /// **The struct default is zero, so a species that does not author it is
+    /// bit-identical; the shipped ants author 6.0.** That number is measured
+    /// rather than chosen -- see `assets/species/ant.ron`, which carries the
+    /// share-of-burn table it came from and the six-seed paired result. Six
+    /// steps puts digging at 1.5-2.2% of an ant's total burn.
     #[serde(default)]
     pub dig_cost_in_moves: f32,
     /// **What laying a full-strength trail on one channel costs, in
@@ -2987,6 +2985,15 @@ pub struct CreatureDef {
     /// continuous (`emit * pheromone::DEPOSIT`): a per-event charge would
     /// price a whisper and a shout the same, and the cheapest way to dodge
     /// it would be one enormous deposit rather than none.
+    ///
+    /// **Authored at 0.5 on the shipped ants, and it is not the same
+    /// magnitude as `dig_cost_in_moves` for a measured reason.** A deposit
+    /// happens on every successful move and a dig is a rare event, so at
+    /// price 1 emitting is **12.5% of burn against digging's 0.2%** -- a 60x
+    /// gap. Equal prices would make trail-laying the largest single line in
+    /// an ant's budget and digging a rounding error. Anyone re-tuning these
+    /// should re-measure that table (`labstats -- digcost=1 emitcost=1`)
+    /// before moving the two numbers together.
     #[serde(default)]
     pub emit_cost_in_moves: f32,
     /// **What a held lump of spoil weighs while walking, in body cells.**

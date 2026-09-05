@@ -1,9 +1,10 @@
 # Ants
 
 *Current as of: 2026-09-05, when digging, trail-laying and hauling spoil
-became things that can be made to cost something — they are all still free on
-arrival, which is why a bed with ants in it ends up as one big pit, and there
-are now three dials that change that. The same day it was measured that
+stopped being free — an ant now pays for all three, at prices measured from
+what each is worth as a share of everything it burns, and each is a dial you
+can turn back to nothing. Across six beds that bought about a sixth less
+digging at no cost in ants. The same day it was measured that
 survival in this world tracks **how much an ant eats and essentially nothing
 else**, so a behaviour the world does not charge for is one it also cannot
 select for. Before that: 2026-09-02, when biting became something a mouth can fail at —
@@ -211,20 +212,32 @@ of time and no number of generations can tell them apart, and the pit in the
 middle of the bed is not something the colony learned. It is what it was born
 doing, with nothing in the world able to price it.
 
-**There are now three dials that put a price on it**, and all three arrive at
-zero, which is exactly the behaviour above. Digging one cell can be made to
-cost a number of steps' worth of energy; laying a full-strength scent trail
-can be made to cost the same way; and a lump of dug earth can be given a
-weight to carry, the way a mouthful of food already has one. Turn any of them
-up and the verb becomes something an ant can spend itself on and get wrong —
-which is the precondition for a colony ever digging *less* than it can.
+**There are now three dials that put a price on it, and the ants pay them.**
+Digging a cell costs what walking six cells costs. Laying a full-strength
+scent trail costs about a sixth of a step — small each time, but a trail is
+laid on every step an ant takes, so it adds up to roughly what *thinking*
+costs the animal. And a lump of dug earth now has weight in the jaws, about
+half the ant's own mass, the way a mouthful of food already did. Set any of
+them to zero and that verb goes back to being free.
 
-Turning them up is not free either, and the first thing you will see is not a
-better nest. A colony that suddenly has to pay for what it was doing anyway is
-simply a poorer colony: measured on one bed, pricing a dig at four steps
-roughly halved both the standing population and the number of ants ever born.
-The dial creates the choice; it does not make the animal good at it, and the
-ants that would be good at it have to be bred.
+The three numbers are not guesses. They come from measuring what each verb
+would cost as a share of everything an ant burns, and the surprise is how far
+apart two of them are: at equal prices, laying trails costs an ant **sixty
+times** what digging does, because it digs a few hundred times in a long run
+and lays scent on every single step. Priced as they ship, digging is a couple
+of percent of an ant's budget and trail-laying about six.
+
+**What that buys is less digging, and it does not cost the colony anything.**
+Across six beds, the ants dug about a sixth less — in every one of the six —
+and the number of ants left alive went up in two and down in four, which is
+to say it did not move at all. Excavation is now something an ant spends
+itself on rather than something it does for nothing.
+
+**What it does not do is make the ants clever about it, yet.** They are still
+born wanting to dig, and now they simply pay for wanting to. For the colony
+to actually dig *less* than it can afford, the wanting itself has to change,
+and that is bred rather than set — it needs far more ants over far more
+generations than a bed currently produces.
 
 **And the ground it takes out has to go somewhere, which it did not used to.**
 Digging destroyed what it removed — the cell was simply gone from the world —

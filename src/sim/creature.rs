@@ -8578,6 +8578,15 @@ mod tests {
         intake / spent.max(1.0)
     }
 
+    /// **What a larder actually yielded**, in joules eaten -- the quantity
+    /// `a_lone_grazer_cannot_farm_a_moss_lawn_forever` compares, and
+    /// deliberately not [`grazing_ratio`]. See that test for why an
+    /// efficiency could not answer the question it was being asked.
+    fn grazing_intake(w: &World) -> f64 {
+        let l = w.energy_ledger;
+        l.harvested_plant + l.harvested_corpse
+    }
+
     /// **The sessile-grazer probe**, and the reason moss's `food_energy` is
     /// not free to choose.
     ///
@@ -8619,8 +8628,11 @@ mod tests {
             "test setup: an animal standing inside an inexhaustible larder starved anyway, so this scene cannot feed anything             and the moss arm proves nothing (ratio {ceiling:.3})"
         );
 
+        let larder_intake = grazing_intake(&unlimited);
+
         let lawn = grazer_scene(Larder::Renewable, horizon);
         let renewable = grazing_ratio(&lawn);
+        let lawn_intake = grazing_intake(&lawn);
 
         // **`renewable < 1.0` stood here and is deleted, because it asserted
         // that a herbivore must not reproduce.**
@@ -8655,9 +8667,57 @@ mod tests {
         //
         // What survives is the claim that is both true and worth guarding: a
         // renewable lawn is a *bounded* niche.
+        //
+        // **Compared on what each larder YIELDED, not on intake/spend, and
+        // that changed on 2026-09-05 because the ratio could not answer
+        // this question.** `grazing_ratio` is an *efficiency*, and a sessile
+        // animal wins an efficiency by construction: it eats less and
+        // spends far less. The two were ordered correctly only for as long
+        // as the denominators happened to stay close.
+        //
+        // Pricing the free verbs (`dig_cost_in_moves`, `emit_cost_in_moves`)
+        // pulled them apart, because the new charges fall on an animal that
+        // *acts* and spare one that sits still -- which is the mechanism
+        // working, not a regression. Measured both ways at the moment it
+        // flipped:
+        //
+        //     arm                intake  spent  births  ratio
+        //     unlimited, free      4676   1180       3  3.962
+        //     unlimited, priced    4201   1747       2  2.404
+        //     renewable, free      2415    789       1  3.060
+        //     renewable, priced    2415    847       1  2.850
+        //
+        // The niche ordering is identical in both: the inexhaustible larder
+        // yields ~1.7x the food and two to three times the offspring. Only
+        // the *ratio* inverted, and it inverted because `spent` rose 48% for
+        // the forager against 7% for the grazer. Asserting on it would have
+        // read "the moss lawn is the better niche" about a scene where it
+        // produced a third of the intake and a third of the children.
+        //
+        // This is `CLAUDE.md`'s worst-recurring failure -- *ask what your
+        // number counts* -- and this test's own comment above already names
+        // the trap without following it through: *"it measures viability and
+        // was being read as sessility"*. Intake is the yield the claim is
+        // about, it is continuous rather than knife-edge on an integer birth
+        // count (the ratio moved ~0.9 per birth against a 0.90 margin, i.e.
+        // it sat exactly one birth from failing throughout), and it stays
+        // sensitive in the direction that matters: moss becoming a pump
+        // shows up as a lawn out-yielding an unlimited wall of leaf.
+        //
+        // `ceiling` and `renewable` are still computed and still printed on
+        // failure, because the efficiency is worth seeing next to the yield.
         assert!(
-            renewable <= ceiling,
-            "a renewable lawn fed an animal better than an inexhaustible one ({renewable:.3} against {ceiling:.3}), which is             not a fact about moss -- it is a fact about the scene, and the scene is wrong"
+            lawn_intake <= larder_intake,
+            "a renewable lawn yielded more food than an inexhaustible one ({lawn_intake:.0} J against {larder_intake:.0} J), \
+             which is not a fact about moss -- it is a fact about the scene, and the scene is wrong. \
+             (efficiencies, for context: renewable {renewable:.3}, unlimited {ceiling:.3})"
+        );
+        assert!(
+            lawn.creature_stats.births <= unlimited.creature_stats.births,
+            "a renewable lawn bred an animal more than an inexhaustible one ({} against {}) -- the same finding as the intake \
+             assertion above, on the quantity that actually decides whether a lineage persists",
+            lawn.creature_stats.births,
+            unlimited.creature_stats.births
         );
     }
 

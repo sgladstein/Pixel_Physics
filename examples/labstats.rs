@@ -123,6 +123,34 @@ fn main() {
         }
     }
 
+    // **The verb-price accounts, and what they are a share of.** Sizing a
+    // price needs the denominator beside it: `dig_energy` alone says the
+    // charge fired, and only `dig_energy / (metabolized + moved)` says
+    // whether it is a rounding error or the whole animal's budget. That
+    // ratio is the number a default is derived from -- `CLAUDE.md`'s "set
+    // bars from measurement with headroom", where the measurement is a share
+    // rather than a joule count that means nothing on its own.
+    {
+        let l = &lab.world.energy_ledger;
+        let st = &lab.world.creature_stats;
+        let burn = l.metabolized + l.moved + l.synapse_tax;
+        let share = |x: f64| if burn > 0.0 { 100.0 * x / burn } else { 0.0 };
+        println!(
+            "\n--- verb accounts --- digs {} spoil_dumped {} | dig_energy {:.1} ({:.1}% of burn) emit_energy {:.1} ({:.1}%) \
+             | burn {:.1} = metabolized {:.1} + moved {:.1} + synapse {:.1}",
+            st.digs,
+            st.spoil_dumped,
+            st.dig_energy,
+            share(st.dig_energy),
+            st.emit_energy,
+            share(st.emit_energy),
+            burn,
+            l.metabolized,
+            l.moved,
+            l.synapse_tax
+        );
+    }
+
     println!("\n--- the page, as text ---");
     for row in stats::dump(&lab.stats, &lab.world) {
         println!("  {row}");

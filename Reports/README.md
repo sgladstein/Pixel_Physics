@@ -855,7 +855,17 @@ drift that two of these documents still reflect.**
   **1 per 27,000** in the crashing one, which is why *more generations* is a
   second-order answer. Horizon is the trap throughout: an ant's founding
   grant is 12,000 frames, so nothing here is read at `labbatch`'s 9,000-frame
-  default
+  default. **Then acted on, same day**: the three free verbs are priced
+  (`dig_cost_in_moves` 6.0, `emit_cost_in_moves` 0.5, `spoil_weight_cells`
+  1.0 on the shipped ants), sized from a share of burn rather than chosen --
+  and the 60x gap between a dig and a deposit at equal prices is the part
+  that is not intuition-shaped. Six paired seeds: **digs down in 6 of 6,
+  median -15.5%, population no direction.** Two things it overturned, both
+  its own: a single-seed reading that a price *halves* the colony (six seeds
+  say that was the seed), and `a_lone_grazer_cannot_farm_a_moss_lawn_forever`,
+  which asserted on `intake / spent` -- an efficiency a sessile animal wins by
+  construction, and which provably could not tell a moss pump from a healthy
+  economy. It asserts yield and births now
 
 - [mechanism-vs-behaviour-audit-2026-08-31.md](mechanism-vs-behaviour-audit-2026-08-31.md)
   — **audit and staged plan, baseline `943ace17`, 2026-08-31; nothing built and
