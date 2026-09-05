@@ -2147,6 +2147,39 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   is the **shape of a leaf cluster** (ink, not a label) and the second is a
   node underground, which every species forbids by authoring
   `plastochron: [0]` on its root.
+- [plant-roots-and-transport-2026-09-05.md](plant-roots-and-transport-2026-09-05.md)
+  — **measured diagnosis, 2026-09-05; nothing changed.** The owner's *"plants
+  grow fine with tiny or no roots… I have seen plants continue to grow after
+  the trunk has been fully severed near the base"*, traced. **A plant has two
+  transport systems and the one that funds growth is not the one that models
+  plumbing**: `organism::transport` is a real Sachs-canalization model whose
+  only consumer is `supply_direction` — a *direction* — while
+  `allocate_to_frontier` pools every non-frontier cell and writes each tip its
+  share drawn from the richest donor **anywhere in the organism**, with no
+  distance term, and by *assignment*, so it supersedes whatever transport
+  delivered. Water has no transport at all: one `f32` on `OrganismState`.
+  `examples/plant_reach` sizes the gap by running `transport` and nothing else
+  — and its **held-source arm is the one that settles it**, because a fixed
+  charge necessarily stalls: with the root band refilled every tick and total
+  carbon climbing 304 → 971, the usable front advances **21 of the 141 rows to
+  the crown and is flat for the last ten stops**. That is the same wall
+  per-cell water was measured against and withdrawn for. **The roots half
+  needed a correction and it is the useful number**: both root-dependent terms
+  are linear in contact cells against a demand of ~29 — the tank (`4.0` per
+  cell) covers it at about **7**, the refill (`rate: 1.5` per wet neighbour) at
+  about **20** — and a mature tree grows **250–320**, with `uptake` sitting at
+  28.9 against demand 29.0, demand-limited rather than supply-limited. So tiny
+  roots are fine, *no* roots is fatal (`water_status` 0.021, dead in 12,000
+  frames), and everything past the first couple of dozen cells is inert, which
+  is why nothing can select on it. **The severance half refuted the hypothesis it was started on**: at
+  the engine's default a clean basal cut is correctly fatal, and the owner's
+  observation is the **`plant_load_failure` off** configuration, where
+  `structural.rs`'s detached branch returns early for a living plant and
+  nothing in the economy reads attachment — measured, a plant with **5,549 of
+  6,064 cells unreached** grows 4,672 → 6,064 while drinking through roots it
+  is not joined to. That switch is therefore making two promises at once, and
+  §7a is the change that separates them. Ranked repairs in §7, costed, none
+  built; §9 records what the report itself got wrong on the way.
 
 ## Licensing and distribution
 
