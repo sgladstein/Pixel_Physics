@@ -1354,6 +1354,130 @@ const GUT_TINT_FLESH: [f32; 3] = [210.0, 70.0, 70.0];
 /// judged too strong at this value on a fully specialised ant.
 const GUT_TINT_STRENGTH: f32 = 0.45;
 
+/// **What an ant with food in its jaws is pulled toward, and what one
+/// hauling dirt is** — the carry cue.
+///
+/// The owner, asked what "interesting" would look like, answered *"visual
+/// collection of food (although this might just be a coloration thing)"*.
+/// It was not visible at all: `OrganismState::crop` is internal state and
+/// never a cell in the world, and its own doc rejected drawing a carried
+/// cell as *"no payoff at all at the zoom a creature is seen at"* -- a
+/// judgement this answer overturns.
+///
+/// **On the brightness axis, and that is the whole design.** `GUT_TINT_*`
+/// above records the hue attempt and its verdict: a blind A/B of a green
+/// `-1.0` ant came back **A, untinted**, because *an ant is one or two
+/// cells at play zoom, the readable signal at that size is contrast against
+/// the ground rather than hue*, and its own note names **brightness** as
+/// the untried channel — *"brightness being the one channel that reads at
+/// 1-2 px"*. So these two targets are near-white and near-black rather than
+/// a colour: what changes is how far the animal stands off the ground it is
+/// walking on, which is the thing that was measured to work.
+///
+/// **Two states rather than one**, because an ant carries two different
+/// things and conflating them would answer the owner's question with a
+/// light that means "busy". Food lifts, spoil dims — so a colony reads as
+/// bright dots streaming home and dark ones streaming out, which is the
+/// forage loop itself becoming visible.
+const CARRY_TINT_FOOD: [f32; 3] = [245.0, 240.0, 225.0];
+const CARRY_TINT_SPOIL: [f32; 3] = [28.0, 24.0, 20.0];
+
+/// How far toward those targets a laden animal is pulled — **three steps,
+/// over the range a crop is actually observed to hold.**
+///
+/// **Both halves of that are measurements, and the obvious design was wrong
+/// on both.** The first version of this cue was binary: carrying, or not.
+/// Censused before it was ever rendered (`labshot`'s crop-fill line, added
+/// for exactly this), on the shipped bed at four stops between frames 3,000
+/// and 12,000:
+///
+/// ```text
+///   animals   carrying food   crop fill 0-25%  25-50%  50-75%  75-100%
+///      52          32               0            17      12       3
+///      35          30               0            14      15       1
+///      33          30               0            12      10       8
+///      38          34               0             9      14      11
+/// ```
+///
+/// So **"is it carrying food" is not an event** — 30 of 35 animals hold at
+/// least a whole cell at any moment, and a binary cue would have painted 85%
+/// of the colony one colour and discriminated nothing. What varies is the
+/// *load*, which is the thing the owner's *"visual collection of food"*
+/// actually asks to see: an ant brightening as it forages and dimming as it
+/// delivers.
+///
+/// **And the load never goes near empty.** Nothing at all sits in the bottom
+/// quarter, so a ramp over `0..1` would spend its dark end on a state that
+/// does not occur and pile every real ant into the middle — the failure this
+/// file has already paid for twice: the corpse-worth ramp moves red 84 ->
+/// 104 across its whole range and the owner's verdict was *"pretty
+/// minor"*, and the canopy-density sheet that shifted one colour byte by 16
+/// **read as blank**. So the ramp is normalised over `CARRY_FILL_FLOOR..1`.
+///
+/// **Quantised to three steps rather than left continuous**, because a
+/// two-cell animal cannot carry a gradient — the same reasoning that put
+/// five grain modes behind one key instead of a slider. Three levels are
+/// three distinguishable animals at 1-2 px; a smooth ramp is one animal
+/// wearing noise.
+///
+/// **The floor is fitted to one bed and that is the standing risk**, named
+/// here rather than left to be rediscovered: a species or a bed whose ants
+/// genuinely run near-empty saturates the dark end and reads as one flat
+/// colour. Re-run `labshot`'s crop-fill line before trusting this on a bed
+/// unlike the shipped one.
+const CARRY_FILL_FLOOR: f32 = 0.25;
+const CARRY_TINT_STEPS: [f32; 3] = [0.28, 0.48, 0.72];
+/// Spoil is a state and not a quantity — a pellet is one cell or nothing —
+/// so it keeps the single strength the food cue was measured out of.
+const CARRY_SPOIL_STRENGTH: f32 = 0.5;
+
+/// **A carry cue on hue instead of brightness** — the second candidate, and
+/// the reason it exists is a measurement rather than a hunch.
+///
+/// `GUT_TINT_*` records that hue lost a blind A/B and that *contrast against
+/// the ground* is what reads at 1-2 px. That verdict was about a **subtle,
+/// natural** tint — 45% toward a green on a world whose dominant colour is
+/// already green. It is not evidence about a colour nothing else in the bed
+/// wears.
+///
+/// And the brightness arm has a measured weakness of its own: the lab bed's
+/// ground line is not the dark background the contrast argument assumes. It
+/// is crowded with pale litter, stems and seed cells, so a *brighter* ant
+/// competes with everything already bright there. Rendered and diffed, the
+/// cue changes 1,664 px at up to 171 levels per channel and still has to be
+/// hunted for.
+///
+/// Magenta is chosen for being **absent from the palette** rather than for
+/// being pretty: the bed is browns, greens and a blue-grey sky. It is
+/// expected to read as artificial, and that is the point of putting it in
+/// front of the owner beside the honest one — *can you see it* and *do you
+/// want to look at it* are different questions, and only the first is
+/// blocked right now.
+const CARRY_TINT_FOOD_HUE: [f32; 3] = [255.0, 60.0, 200.0];
+
+/// Which carry cue is drawn. `PIXEL_PHYSICS_CARRY_TINT` — `off` is the
+/// control arm, `hue` the second candidate, anything else the brightness
+/// cue.
+///
+/// Read once through a `OnceLock` and never per pixel: `cell_colour` runs
+/// for every pixel on screen, and an env lookup there would cost more than
+/// everything else in this function put together.
+#[derive(Clone, Copy, PartialEq)]
+enum CarryCue {
+    Off,
+    Brightness,
+    Hue,
+}
+
+fn carry_cue() -> CarryCue {
+    static MODE: std::sync::OnceLock<CarryCue> = std::sync::OnceLock::new();
+    *MODE.get_or_init(|| match std::env::var("PIXEL_PHYSICS_CARRY_TINT").as_deref() {
+        Ok("off") => CarryCue::Off,
+        Ok("hue") => CarryCue::Hue,
+        _ => CarryCue::Brightness,
+    })
+}
+
 /// How bright a zero reading draws, as a fraction of the channel's
 /// full-scale colour. Low enough that zero and full are unmistakable at a
 /// glance, high enough that a zero cell still has a visible silhouette.
@@ -4880,6 +5004,46 @@ impl Renderer {
                 let t = bias.abs() * GUT_TINT_STRENGTH;
                 for (c, target) in base.iter_mut().take(3).zip(tint) {
                     *c = (*c as f32 + (target - *c as f32) * t).round().clamp(0.0, 255.0) as u8;
+                }
+                // **What it is carrying, on the brightness axis.** Rides the
+                // organism lookup the gut tint has already paid for -- this
+                // is why it lives here rather than in a pass of its own.
+                //
+                // Food wins when an animal somehow holds both: the crop is
+                // what the owner asked to see, and a dig pellet is put down
+                // almost at once anyway (measured: 646 digs, 646 dumps).
+                let cue = carry_cue();
+                if cue != CarryCue::Off {
+                    // The crop's capacity is the species', so this needs the
+                    // creature def -- one `Vec` index behind the species id
+                    // the state already carries, on the ~150 cells that got
+                    // this far.
+                    let capacity =
+                        world.species.get(state.species).creature.as_ref().map_or(0.0, |d| d.crop_capacity);
+                    let carry = match state.crop {
+                        Some(c) if c.cells > 0 && capacity > 0.0 => {
+                            let fill = (c.worth() / capacity).clamp(0.0, 1.0);
+                            // Normalised over the observed range, then cut
+                            // into three -- see `CARRY_TINT_STEPS`.
+                            let over = ((fill - CARRY_FILL_FLOOR) / (1.0 - CARRY_FILL_FLOOR)).clamp(0.0, 1.0);
+                            let step = ((over * CARRY_TINT_STEPS.len() as f32) as usize)
+                                .min(CARRY_TINT_STEPS.len() - 1);
+                            let target =
+                                if cue == CarryCue::Hue { CARRY_TINT_FOOD_HUE } else { CARRY_TINT_FOOD };
+                            Some((target, CARRY_TINT_STEPS[step]))
+                        }
+                        // Food wins when an animal somehow holds both: the
+                        // crop is what the owner asked to see, and a dig
+                        // pellet is put down almost at once anyway
+                        // (measured: 646 digs, 646 dumps).
+                        _ if state.spoil.is_some() => Some((CARRY_TINT_SPOIL, CARRY_SPOIL_STRENGTH)),
+                        _ => None,
+                    };
+                    if let Some((target, t)) = carry {
+                        for (c, target) in base.iter_mut().take(3).zip(target) {
+                            *c = (*c as f32 + (target - *c as f32) * t).round().clamp(0.0, 255.0) as u8;
+                        }
+                    }
                 }
             }
         }

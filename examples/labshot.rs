@@ -217,9 +217,26 @@ fn main() {
     let tuning = player::Tuning::default();
 
     let (vw, vh) = (spec.width as u32, spec.height as u32);
+    let crop: Option<(i32, i32, i32, i32)> = arg::<String>("crop").map(|s| {
+        let v: Vec<i32> = s.split(',').map(|p| p.trim().parse().expect("crop wants x,y,w,h")).collect();
+        assert_eq!(v.len(), 4, "crop wants exactly x,y,w,h, got {s:?}");
+        (v[0], v[1], v[2], v[3])
+    });
     let mut renderer = Renderer::new();
     for _ in 1..zoom {
         renderer.adjust_zoom(1);
+    }
+    // **`look=x,y` aims the camera, and without it this harness cannot frame
+    // anything above 1x.** `adjust_zoom` alone leaves the view wherever the
+    // camera defaulted, which on this box is the ceiling -- a 4x sheet of the
+    // bed came back as eighty rows of empty air and the lamps. The pair is
+    // the point: zoom decides how big a cell is, `look` decides which cells.
+    // Given as the top-left corner in world cells, clamped to the world.
+    if let Some(spec_look) = arg::<String>("look") {
+        let v: Vec<i32> = spec_look.split(',').map(|p| p.trim().parse().expect("look wants x,y")).collect();
+        assert_eq!(v.len(), 2, "look wants exactly x,y, got {spec_look:?}");
+        let bounds = pixel_physics::sim::chunk::Rect::new(0, 0, spec.width - 1, spec.height - 1);
+        renderer.set_camera(v[0], v[1], (vw, vh), Some(bounds));
     }
 
     // Before a single tick: every organism the scene builder placed. This is
@@ -235,6 +252,68 @@ fn main() {
             let mut buf = vec![0u8; (vw * vh * 4) as usize];
             let touched = world.take_touched_chunks();
             renderer.draw(&world, &particles, &touched, &mut buf, (vw, vh), true);
+            // **How many animals are actually holding something**, printed
+            // beside the picture it is a census of. `CLAUDE.md`: an image
+            // says *what* and *where* and only a count says *whether it
+            // fired* -- a colony once read as "chunks are working" off a
+            // sheet whose body count was zero for the whole run. A card
+            // asking whether a laden ant is legible is exactly that trap: a
+            // frame with nothing carrying looks identical under any render
+            // rule, and looks like the rule failing.
+            {
+                let live = world.live_organism_ids();
+                let (mut food, mut dirt, mut animals) = (0usize, 0usize, 0usize);
+                for id in &live {
+                    let Some(st) = world.organism(*id) else { continue };
+                    if world.species.get(st.species).creature.is_none() {
+                        continue;
+                    }
+                    animals += 1;
+                    if st.crop.is_some_and(|c| c.cells > 0) {
+                        food += 1;
+                    } else if st.spoil.is_some() {
+                        dirt += 1;
+                    }
+                }
+                // **And how full those crops are**, bucketed, because
+                // "carrying food" turned out not to be an event: measured
+                // 2026-09-05 on this bed, 30 of 35 animals hold at least one
+                // whole cell at any moment, so a binary cue would paint 85%
+                // of the colony one colour and discriminate nothing. What
+                // varies is the load.
+                let mut buckets = [0usize; 4];
+                for id in &live {
+                    let Some(st) = world.organism(*id) else { continue };
+                    let Some(def) = world.species.get(st.species).creature.as_ref() else { continue };
+                    let Some(c) = st.crop else { continue };
+                    if def.crop_capacity <= 0.0 {
+                        continue;
+                    }
+                    let fill = (c.worth() / def.crop_capacity).clamp(0.0, 1.0);
+                    buckets[((fill * 4.0) as usize).min(3)] += 1;
+                }
+                // **Where they are**, so a sheet can be aimed at them rather
+                // than at a guess: a 4x tile of this box came back as eighty
+                // rows of empty ceiling, and one of bare soil, before this
+                // line existed.
+                let (mut x0, mut y0, mut x1, mut y1) = (i32::MAX, i32::MAX, i32::MIN, i32::MIN);
+                for id in &live {
+                    let Some(st) = world.organism(*id) else { continue };
+                    if world.species.get(st.species).creature.is_none() {
+                        continue;
+                    }
+                    for &(x, y) in st.cells.keys() {
+                        x0 = x0.min(x);
+                        y0 = y0.min(y);
+                        x1 = x1.max(x);
+                        y1 = y1.max(y);
+                    }
+                }
+                println!(
+                    "  frame {f}: {animals} animal(s), {food} carrying food, {dirt} carrying dirt | crop fill 0-25%:{} 25-50%:{} 50-75%:{} 75-100%:{} | animals span x {x0}..{x1} y {y0}..{y1}",
+                    buckets[0], buckets[1], buckets[2], buckets[3]
+                );
+            }
             let ids = world.live_organism_ids();
             let cells: usize =
                 ids.iter().filter_map(|id| world.organism(*id)).map(|s| s.cells.len()).sum();
@@ -335,7 +414,27 @@ fn main() {
                 world.rotted_to_nothing + world.rotted_onward,
                 if world.plant_load_failure { "ON" } else { "OFF" },
             );
-            tiles.push(buf);
+            // **`crop=x,y,w,h`, in rendered pixels**, because every review
+            // card wants one and this harness had none: the box is 512x320
+            // and an ant is two cells, so a full-frame tile is a picture in
+            // which the thing being judged is invisible. The review skill's
+            // own rule -- crop to the part the question is about, then zoom,
+            // rather than shipping the whole world at 2x.
+            if let Some((cx, cy, cw, ch)) = crop {
+                assert!(
+                    cx + cw <= vw as i32 && cy + ch <= vh as i32 && cx >= 0 && cy >= 0,
+                    "crop {cx},{cy},{cw},{ch} does not fit the {vw}x{vh} view -- an out-of-bounds crop reaches a card as a blank pane"
+                );
+                let mut cut = vec![0u8; (cw * ch * 4) as usize];
+                for row in 0..ch {
+                    let src = (((cy + row) * vw as i32 + cx) * 4) as usize;
+                    let dst = (row * cw * 4) as usize;
+                    cut[dst..dst + (cw * 4) as usize].copy_from_slice(&buf[src..src + (cw * 4) as usize]);
+                }
+                tiles.push(cut);
+            } else {
+                tiles.push(buf);
+            }
             next += 1;
         }
         if f < last {
@@ -344,14 +443,15 @@ fn main() {
     }
 
     // One column, so a tall thin bed stacks readably.
-    let (sw, sh) = (vw, vh * tiles.len() as u32);
+    let (tw, th) = crop.map_or((vw, vh), |(_, _, w, h)| (w as u32, h as u32));
+    let (sw, sh) = (tw, th * tiles.len() as u32);
     let mut sheet = vec![0u8; (sw * sh * 4) as usize];
     for (i, tile) in tiles.iter().enumerate() {
         let y0 = i as u32 * vh;
         for y in 0..vh {
             let src = (y * vw * 4) as usize;
             let dst = ((y0 + y) * sw * 4) as usize;
-            sheet[dst..dst + (vw * 4) as usize].copy_from_slice(&tile[src..src + (vw * 4) as usize]);
+            sheet[dst..dst + (tw * 4) as usize].copy_from_slice(&tile[src..src + (tw * 4) as usize]);
         }
     }
     image::save_buffer(&out, &sheet, sw, sh, image::ColorType::Rgba8).expect("writing the sheet");
