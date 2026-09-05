@@ -21,27 +21,30 @@
     density: 0.6,
     // Steep, so seeds sit where they land instead of running like sand to
     // the bottom of every slope. Real seeds are irregular and interlock.
-    // **A seed is round, hard and small, so it does not stay where it
-    // lands.** 55.0 was a guess and it is the single largest brake on
-    // reseeding in the box: `roll_reach_at` is `1/tan(angle)`, so 55 gives a
-    // reach of **0.70 cells** and `stability_reach_at` (repose + 8) gives
-    // **0.51** -- a seed at rest can look less than one cell along the
-    // surface, which means a seed that comes down on a leaf, a twig or on
-    // the pile of its own siblings never moves again. Measured on
-    // `reseed_probe founders=1 species=herb frames=60000`: **1,446 seeds
-    // borne, 82 germinated (5.7%)**, and of the ~200 standing at any moment
-    // **157 were resting on plant tissue and 42 on a seed pile**, with
-    // `ready` at **0 in every single sample**. Nothing in the germination
-    // gate can ever open on those: it requires `water_capacity > 0`
-    // underneath, and neither tissue nor another seed has any.
+    // **Lowering this was tried, measured and reverted -- do not retry it
+    // as a reseeding fix.** 55 gives `roll_reach_at` 0.70 cells and
+    // `stability_reach_at` 0.51, so a seed at rest can look less than one
+    // cell along the surface, and the obvious reading is that a seed which
+    // lands on a leaf or on the pile of its siblings can never move again.
+    // That reading is right about the mechanism and wrong about the remedy.
     //
-    // 22 degrees is a real granular repose for small hard round grains
-    // (wheat and rape sit near 23-27; sand, already here at 40, is angular
-    // and rougher) and buys reach 2.48 flowing / 1.73 at rest -- so a seed
-    // on a one-cell perch rolls off it, and a seed pile spreads to a low
-    // cone the next seed can slide down instead of a steep heap that holds
-    // every sibling above the soil.
-    friction_angle: 22.0,
+    // Measured in an isolated worktree, one founder, herb, 60,000 frames,
+    // `reseed_probe launch=0`, three arms built from three clean trees:
+    //
+    //   repose 55, no canopy fall   1,446 borne ->    82 germ,  37 alive, 141 cols
+    //   repose 55, canopy fall on   2,680 borne -> 1,291 germ, 120 alive, 330 cols
+    //   repose 22, canopy fall on   2,633 borne ->   702 germ, 120 alive, 315 cols
+    //
+    // So `falls_through_organisms` is the entire effect and 22 **halves** it
+    // -- the seed reaches the floor either way once it can fall through a
+    // canopy, and rolling it further only carries it off the damp patch it
+    // landed on. It also cost `a_spread_leaf_cluster_is_longer_than_a_blob`,
+    // and the mechanism first blamed for that (a founding seed rolling to a
+    // different column) was measured and **refuted**: at world seed 11 the
+    // founder germinates at (100, 60) at both settings, because
+    // `plant_tree_on_ground` packs soil on every side of the spawn point and
+    // there is nothing to roll down.
+    friction_angle: 55.0,
     colors: [
         (126, 96, 52),
         (142, 110, 62),
