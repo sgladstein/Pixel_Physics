@@ -109,7 +109,7 @@ or it measures root mass and calls it uptake.
 |---|---|---|---|
 | **1** | raise `SOIL_UPTAKE_PER_TICK` | **refuted — do not build** | §0a: monotone tax, no usable band, 12 seeds |
 | **2** | open the root-tip gate | **BUILT, default-off: key `break_root_tips` on local soil scarcity** | §2b-iii: roots 3.93x in 12/12 seeds, **income flat**, root:shoot 7.3% -> 23.3% |
-| **3** | root turnover | unchanged, and now more clearly necessary | §2c: a mined-out root at `near` 0.016 earns nothing for ever and costs for ever |
+| **3** | root turnover | **promoted — it is what makes item 2 safe** | §2b-iv: without it the gate buys roots that earn zero, and a shallow bed loses 88% of its income |
 | **4** | *lower the water rates* | still withdrawn, and for a third reason | §1a |
 | **5** | immobile nutrient | unchanged, still second-order | §3 |
 | — | economy reads attachment | unchanged, cheap, independent | predecessor §7a |
@@ -266,14 +266,42 @@ observation was really about.
 ascii` 31 scenes / 0 skipped; `scripts/acceptance.sh` all cases met their
 expectations. `cargo test --lib --release` 1,358 passed / 0 failed.
 
-**The one measured cost, and why this is not yet the default.** On the
-single-run bed comparison the *shallow* beds lost canopy — 17x8 went
-2,181 -> 1,279 cells and 2,452 -> 1,720 — because the local signal reads
-"scarce" wherever roots sit in spent soil, and in a bed with nowhere to go
-that buys root the plant cannot use. The outdoor bed is deep and gains; a
-12-seed paired sweep at `soil=6` is the outstanding measurement, and it is
-also what decides the owner's separate question about shallowing the lab
-bed, because the two interact directly.
+### 2b-iv. The boundary: it works only where there is soil left to reach
+
+The shallow arm, 12 paired seeds at `soil=6`, against the deep default:
+
+| | shallow (6 rows) | | deep (34 rows) | |
+|---|---|---|---|---|
+| | off -> local | seeds up | off -> local | seeds up |
+| root cells | 364 -> 431 (**1.18x**) | 8/12 | 224 -> 879 (**3.93x**) | 12/12 |
+| **income** | 1.588 -> 0.189 (**0.12x**) | **2/12** | 4.785 -> 4.765 (**1.00x**) | 7/12 |
+| shoot | 3,127 -> 2,076 (0.66x) | 2/12 | 3,724 -> 3,515 (0.94x) | 4/12 |
+| root-zone water | 0.016 -> **0.000** | 0/12 | 0.016 -> **0.570** | 12/12 |
+| root:shoot | 11.8% -> 27.4% | | 7.3% -> 23.3% | |
+
+**In a shallow bed the change is harmful, and by the same margin the uptake
+lever was: income falls to 0.12x.** The mechanism is legible in the
+root-zone column. Deep, roots spread into soil no root has drunk and the
+zone recovers to half-full. Shallow, there is nowhere to spread: the gate
+correctly reads "spent", opens, the plant buys roots — and the zone goes to
+**0.000**, fully exhausted, because the new roots land in soil that was
+already dead. It pays carbon for tissue that returns nothing.
+
+**So the rule is right and it is missing its counterweight.** "Extend when
+the local soil is spent" is only correct while extension can reach something
+better; nothing currently stops a plant buying roots that earn zero. That
+missing bound is **§2c, root turnover** — a root in exhausted soil should
+die and stop costing — which this plan already lists as necessary and which
+this measurement upgrades from *necessary in principle* to *the specific
+thing that makes 2b-ii safe*. Without it the gate is conditional on bed
+geometry, which is not a property a rule should have.
+
+**Two consequences for the roadmap.** The gate stays default-off until
+turnover exists; and **shallowing the lab bed and enabling this gate are the
+worst pairing available** — separately measured, the shallow bed is already
+the hostile one (income 1.588 against 4.785 deep, worst-plant water status
+0.063 against 0.723), and the gate makes it worse rather than more
+interesting. The lab's 96 rows are not the problem to solve first.
 
 ### 2c. Without root turnover there is no interior optimum
 
