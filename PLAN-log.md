@@ -4307,3 +4307,61 @@ argument selecting among founders that all held the species mean (because
 `PlantScene::build` plants through the one `World` method that does *not* draw
 a genome), and a rate A/B run against a `plant_probe` that had never been
 rebuilt.
+
+**Answered: what were the roots doing? Almost nothing, and the gate that
+stopped them was reading the wrong dial.** `break_root_tips` refused
+**95–99.6%** of root-tip initiations at `water_status >= 0.95` while the
+carbon exit refused **none** — measured across four beds and two genotype
+draws, so root extension was bounded by neither the tip cap, nor sites, nor
+the economy. `water_status` is `min(stock/demand, openness)` against a tank
+sized `WATER_SCALE x contact_root_cells`, so it is ceiling-clipped, flat over
+most of its range, and inflated by the very roots it is meant to govern: the
+plant read "demand met" while the soil its roots touched sat at **0.016**
+plant-available. The gate now reads `root_zone_water`, the mean available
+fraction over the faces `contact_root_cells` already counts, accumulated in
+the four-neighbour look that was already running — no new traversal, and the
+0.95 threshold is not retuned because it means the same thing on both scales.
+
+**It could not ship alone, and the reason is a loop rather than a bug in
+it.** Open the gate and a thirsty plant answers by rooting; roots buy
+*storage*; so `water_status` rises and income, which multiplies by it, stays
+above the starvation line. Measured: a tree denied water for twenty thousand
+frames ended at 221 cells with **zero** consecutive starving ticks, and
+`a_tree_denied_water_dies_and_a_watered_one_does_not` failed — the owner's
+2026-08-24 ruling, so an invariant rather than a number that moved.
+`WATER_TANK_CONTACT_CAP` bounds the storage term at 32 contact cells; swept,
+it is a band (8 and 16 kill the *watered* tree, unbounded saves the droughted
+one, 32 and 64 both pass).
+
+**Together, 12 paired seeds on a 34-row bed:** root cells **4.74x** and
+contact roots 4.13x, both 12/12; **income +30%** (9/12); total cells **+41%**
+(12/12); uptake +57%; worst plant 0.792 → **1.000**; root-zone water 0.016 →
+**0.839**; **root:shoot 7.5% → 22.4%** against a real tree's 20–25%. Alone
+the gate is income-*neutral*; with the tank bounded it is income-positive.
+Depth-dependent: income 0.12x at 6 soil rows, 0.92x at 12, **1.34x at 20**,
+1.00x at 34 — it pays only where there is unexhausted soil to reach, and both
+shipped worlds are deep (48–135 outdoors, 96 in the lab).
+
+**Refuted on the way, each by measurement rather than argument:** an immobile
+soil nutrient as step one; the depletion-zone story (soil at roots is already
+*at* the wilting floor, so there is nothing to restore); `SOIL_UPTAKE_PER_TICK`
+as the lever (monotone tax — roots 8x, income 0.11x, no usable band);
+fine-root turnover as the shallow-bed counterweight (worse at all three
+rates, a shed-and-rebuild treadmill); and two of this session's own numbers,
+a ratio of medians over different plants and an n=1 read of
+`water_status`.
+
+**Both guards standing in the way turned out to be measuring something other
+than their names, and neither was widened to let this through.**
+`slot_1_is_a_root_locus_and_not_a_shoot_one` bounded the shoot's movement
+under a root draw against an absolute 20% — while a genuine *shoot* draw
+moves the shoot by 162.6 / 97.9 / 15.8 / 10.0 % over the same four seeds, two
+of them under the bar, so slot 0's own consumer passed the test for not being
+slot 0. It now asserts `branch_chance_slot`, the one line it was always
+about, and gives CI back **165 s in each of two jobs**.
+`a_spread_leaf_cluster_is_longer_than_a_blob` was a 1.15 bar on one seed that
+measured 1.157 — six thousandths of headroom on a quantity whose population
+spans 0.765 to 1.676, with the lever running *backwards* on two seeds in
+sixteen. It is now a median plus a direction count plus an answerable count
+over twelve paired seeds (1.195 with the switches off, 1.406 with them on),
+and both new guards have positive controls that put the fault back.

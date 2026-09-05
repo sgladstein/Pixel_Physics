@@ -4,6 +4,18 @@
 instruments (`examples/plant_reach`, `examples/plant_severance`) and the
 numbers they produced. The repairs in §7 are ranked and costed, not built.
 
+> **CORRECTED 2026-09-05, later the same day, by adversarial review — read
+> §3z before §3.** Two of this report's numbers were wrong and one of its
+> conclusions does not survive a wider sample. The §3 table's `water / cap`
+> column was a **ratio of medians over different plants**, its `status`
+> column was an upper median that masked its own low tail, and the claim
+> that `water_status` is pinned at 1.000 is a **seed-1 property**: across
+> six seeds it reads 1.000 / 0.959 / 1.000 / **0.582** / 0.872 / 1.000.
+> §7's ranking is separately revised by
+> [`plant-soil-nutrient-plan-2026-09-05.md`](plant-soil-nutrient-plan-2026-09-05.md).
+> §1, §2, §4, §5 and §6 are unaffected — they are code reading and
+> large-effect measurements, not this sample.
+
 Written to answer the owner's report:
 
 > Many plants can grow just fine with tiny or without any roots at all. In
@@ -84,10 +96,18 @@ let root_weight = (ROOT_BIAS_AT_FULL_WATER + (1.0 - status) + anchor_stress) * g
 Roots buy a larger share of the growth pool for more roots. Real, but a
 closed loop — it changes root:shoot, not what the plant can do.
 
-**`(1.0 - status)` is identically zero in the shipped bed** (§3), so the
-plastic half of functional balance — the thing `wiki/plants.md` describes as
-*"a plant that is short of water spends its growth on roots instead of
-canopy"* — never fires there.
+**`(1.0 - status)` is zero on the seed this was first measured on, and not
+on others** — see §3z. It is 0.418 on seed 4. So the plastic half of
+functional balance — `wiki/plants.md`'s *"a plant that is short of water
+spends its growth on roots instead of canopy"* — is **quiet, not dead**, and
+the original claim here that it "never fires" was drawn from one seed.
+
+There is a second, harder gate on the same channel, and it is not sample-
+dependent: `break_root_tips` (`plant.rs:7329`) returns early whenever
+`water_status >= ROOT_REINITIATION_STATUS` (0.95, `plant.rs:5992`). Wherever
+the water term does sit at its ceiling, the plant **cannot re-initiate root
+tips at all** — so any mechanism that rewards more root has to open this
+gate too, or it rewards a response the plant has no way to make.
 
 ### 2d. Structural anchorage — the one channel that is genuinely root work
 
@@ -123,12 +143,77 @@ tracked from frame 24,000 to 48,000:
 | 40,000 | 5,726 | 5,310 | 402 | 273 | 660.3 / 1,092 | **1.000** | 28.86 | 7.281 |
 | 48,000 | 4,827 | 4,333 | 499 | 317 | 180.9 / 1,268 | **1.000** | 25.88 | 5.731 |
 
-Pinned at 1.000 at every stop, through a stock that swings 180 → 777. This
-is not new and it is not this bed: `plant-water-scarcity-2026-08-30.md` §2c
+**Two columns of that table are invalid and its conclusion was over-read.
+§3z replaces it. The rest of this section stands.**
+
+What survives, from other evidence: `plant-water-scarcity-2026-08-30.md` §2c
 measured 0.966–1.000 across a **6.3×** range of plant-available soil water,
 and §2d found the one thing that does move it is **rooting volume** — a
-four-row skin of soil over stone takes it to 0.678. In a deep bed a stand
-cannot exhaust the water, so the root channel cannot bind.
+four-row skin of soil over stone takes it to 0.678. So the water term does
+sit at or near its ceiling for most plants most of the time in a deep bed.
+That is the defensible claim; "pinned at 1.000" was not.
+
+### 3z. Correction: the table above, and what replaces it
+
+Found by adversarial review the same day, and all three faults are the
+instrument rather than the world.
+
+**(a) `water / cap` was a ratio of medians over different plants.**
+`plant_severance` computed `median(water)` and `median(capacity)`
+independently and printed them as a pair, so the pair describes no plant
+that exists. Seed 1, frame 32,000: the table printed **202.6 / 1,088**
+(0.19) while the plant carrying every other number in that row was at
+**969.7 / 1,088** (0.89). `plant.rs`'s own stomatal-closure census records
+this exact mistake being made once before — *"stock/capacity was read as
+0.41 … from a ratio of **medians** taken across different plants at one
+final frame"* — so this is its second occurrence. The harness now divides
+inside the plant and takes the median of the fractions.
+
+**(b) `status` is ceiling-clipped, and an upper median of four hides its own
+tail.** `settle_water` gives `status = min(stock/demand, openness)`, so it
+saturates once stock clears roughly `max(demand, 0.2 × capacity)` — flat
+across most of the tank's range, and unable to tell a fifth-full tank from a
+brim-full one. With four plants tracked, the median reads 1.000 whenever any
+two are saturated. Seed 1 at frame 48,000: the table says **1.000**; the
+largest plant is at **0.677**. The harness now prints the minimum beside the
+median.
+
+**(c) One seed is not the model.** Six seeds, `median water_status` at the
+cut:
+
+| seed | contact roots | demand | **water_status** | income |
+|---|---|---|---|---|
+| 1 | 252 | 28.95 | **1.000** | 7.613 |
+| 2 | 239 | 37.63 | 0.959 | 4.404 |
+| 3 | 151 | 19.36 | **1.000** | 6.271 |
+| 4 | 122 | 23.50 | **0.582** | 4.095 |
+| 5 | 144 | 42.80 | 0.872 | 4.723 |
+| 6 | 240 | 32.76 | **1.000** | 5.145 |
+
+28 of 42 stop-readings sit at the 1.000 ceiling; **14 are below it, down to
+0.582.** Seed 4's stand runs at 58% of its photosynthetic income at the
+moment this report originally called the channel dead.
+
+**What this changes and what it does not.** The corrected claim is *the
+water term is at its ceiling for most plants most of the time in a deep
+bed*, which is weaker than "pinned" and is a **better** starting point: a
+coupling that is sometimes alive is one a change can move. §3a's arithmetic
+is untouched — it is a derivation, not a sample, and it was independently
+re-derived and confirmed (the measured oversizing factor across these six
+seeds is **7.8× to 13.1×**, against the ~15× this report claimed; right
+order, optimistic end).
+
+**One sentence in §3a is withdrawn outright.** *"Their `uptake` column sits
+at 28.9 against a demand of 29.0 — demand-limited, not supply-limited"* is
+invalid: **uptake ≈ demand is a conservation identity** in any non-dying
+steady state, because the tank is bounded, so what goes in must equal what
+goes out however abundant or scarce the supply. It cannot distinguish 1× slack
+from 15×. This is `CLAUDE.md`'s most-repeated failure — a number that is
+arithmetically correct and answers a different question — committed in a
+report that quotes the rule. The claim rests on the arithmetic and on the
+soil census (median soil cell at exactly field capacity after 24,000 frames
+of a stand drinking, only 8% of the bed below the wilting point), not on
+that sentence.
 
 ### 3a. The number that says it: a tree grows ~15x the root system its water demand needs
 
