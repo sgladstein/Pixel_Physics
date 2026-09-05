@@ -131,6 +131,10 @@ GAME = {
     # The fifth lab row: what an individual has done, as opposed to what it
     # is. Also engine-side -- the counters live on `OrganismState`.
     "what an individual has done, and what killed it": "lab",
+    # The sixth lab row, and the one that needs the box *running*: the
+    # three above are all readable from a stopped frame, and a trail is
+    # not -- it is accumulated history and only exists because time passed.
+    "watching one individual over time": "lab",
     # `TunableGroup::Lab` is deliberately excluded from the sandbox panel's
     # own menu cycle (`tunables.rs`'s own doc) -- the outdoor game has its
     # own separate save path and never reaches `lab::params`.
@@ -272,6 +276,9 @@ TOPICS = {
     # `OrganismState` and both kingdoms carry them.
     "what an individual has done, and what killed it": [
         "Life record status — what an individual has done, and what killed it",
+    ],
+    "watching one individual over time": [
+        "Watch status — where one individual has been, and how its numbers moved",
     ],
     # The third lab row: the hand verbs and the view they are aimed through.
     # Separate from "the box and its lights", which is what the box *is*, and

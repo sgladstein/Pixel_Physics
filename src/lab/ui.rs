@@ -1526,6 +1526,182 @@ struct Sample {
     germinations: u64,
 }
 
+/// **One sample of one watched individual.**
+///
+/// Distinct from `Sample` above, which is the whole box's population: this is
+/// about a single organism and is sampled far more often, because what it is
+/// for is a *path*. A trail sampled at the population strip's 120 frames
+/// would be nine dots across a run.
+#[derive(Clone, Copy, Default, Debug)]
+struct Track {
+    /// The simulated frame it was taken at. Carried for the same reason
+    /// `Sample::frame` now is -- a value with no position cannot be checked
+    /// for even spacing, and the population strip spent a while unevenly
+    /// spaced without anything being able to say so.
+    frame: u64,
+    /// Where it was: a creature's head, a plant's collar. `roster::anchor_of`,
+    /// which is the same point the roster's marker aims at, so the trail ends
+    /// where the marker sits rather than a few cells off it.
+    at: (i32, i32),
+    /// A creature's bank; a plant's water status.
+    energy: f32,
+    cells: u16,
+}
+
+/// **How often the watched individual is sampled**, in simulated frames.
+///
+/// An ant runs on `CreatureDef::tick_interval`, which is 6 for the shipped
+/// one, so this is every second move. Fine enough that the trail is a path
+/// rather than a scatter, coarse enough that `WATCH_SAMPLES` covers a useful
+/// stretch of run.
+const WATCH_EVERY: u64 = 12;
+
+/// **How many samples the watch ring holds.** At `WATCH_EVERY` this is 1,536
+/// simulated frames of history -- long enough to show a foraging excursion
+/// out and back, which is the shape the trail exists to show.
+const WATCH_SAMPLES: usize = 128;
+
+/// **The trail and the per-individual series, for whoever is pinned.**
+///
+/// Per-box state, and it is on `Chamber` for exactly the reason `History` is:
+/// a trail is a set of world coordinates, so one left shared would draw
+/// chamber A's path across chamber B's bed. That is the bleed the chamber
+/// table warns about, one level further down.
+///
+/// **Keyed on the individual, not on the pin.** The ring clears itself when
+/// `who` changes, so it can never show one animal's path under another's
+/// name -- including the case a shared ring would get wrong silently, where a
+/// slot is re-used and the new occupant inherits the old one's trail.
+#[derive(Clone, Debug, Default)]
+pub struct Watch {
+    who: Option<roster::Individual>,
+    samples: VecDeque<Track>,
+    next_at: u64,
+}
+
+impl Watch {
+    /// Sample `who`, if there is one and it is due.
+    fn observe(&mut self, world: &World, who: Option<roster::Individual>) {
+        if self.who != who {
+            self.who = who;
+            self.samples.clear();
+            self.next_at = 0;
+        }
+        let Some(who) = who else { return };
+        // A rebuild puts the frame counter back, and a trail carried across it
+        // would draw a path between two different worlds. Same guard
+        // `History::observe` carries, and it is needed here for a stronger
+        // reason: those are counts, these are coordinates.
+        if self.samples.back().is_some_and(|t| world.frame < t.frame) {
+            self.samples.clear();
+            self.next_at = 0;
+        }
+        if world.frame < self.next_at && !self.samples.is_empty() {
+            return;
+        }
+        // **A dead individual stops adding to its trail and keeps it.** It
+        // resolves to nothing once `free_organism` has run, and the path it
+        // left is the most interesting thing about it -- where it got to
+        // before it starved is exactly what the graveyard row cannot say.
+        let Some(state) = who.resolve(world) else { return };
+        let Some(at) = roster::anchor_of(state) else { return };
+        self.samples.push_back(Track {
+            frame: world.frame,
+            at,
+            energy: state.energy,
+            cells: state.cells.len().min(u16::MAX as usize) as u16,
+        });
+        while self.samples.len() > WATCH_SAMPLES {
+            self.samples.pop_front();
+        }
+        self.next_at = world.frame + WATCH_EVERY;
+    }
+
+    /// The path, oldest first.
+    fn path(&self) -> impl Iterator<Item = (i32, i32)> + '_ {
+        self.samples.iter().map(|t| t.at)
+    }
+
+    /// One channel as a series the sparkline painter can take, **scaled to
+    /// its own range rather than to zero.**
+    ///
+    /// `draw_spark` normalises against the series' peak, which is right for
+    /// the population strip it was written for -- a count of zero means
+    /// extinction and belongs on the floor. It is wrong for a per-individual
+    /// channel, and measurably so: the shipped ant's bank runs 264 to 349
+    /// over a full ring, so every bar lands between 76% and 100% of the peak
+    /// and the strip draws as a solid block. The sawtooth of an animal
+    /// spending and refilling -- the one thing the row exists to show, and
+    /// what its own explanation promises -- is invisible.
+    ///
+    /// This is the same failure `CLAUDE.md` records for the canopy-density
+    /// overlay, where a magnitude-scaled blend produced a sheet that read as
+    /// blank and the obvious conclusion was "the mechanism is dead". The
+    /// remedy there was a full ramp over the real range, and it is the remedy
+    /// here.
+    ///
+    /// **The caption carries the absolute range, so the floor is never
+    /// implied to be zero.** Without that this would be the more dangerous
+    /// error of the two: a bank hovering at 95% of full and one swinging from
+    /// empty would draw identically.
+    ///
+    /// A channel that does not vary at all draws flat rather than dividing by
+    /// zero -- an ant's body is 2 cells for its whole life, and a flat line is
+    /// the true answer for it.
+    fn series(&self, pick: fn(&Track) -> f32) -> Vec<u32> {
+        let (lo, hi) = self.range(pick);
+        let span = hi - lo;
+        if span <= f32::EPSILON {
+            return self.samples.iter().map(|_| 1u32).collect();
+        }
+        self.samples.iter().map(|t| (((pick(t) - lo) / span) * 100.0).clamp(0.0, 100.0) as u32 + 1).collect()
+    }
+
+    pub fn len(&self) -> usize {
+        self.samples.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.samples.is_empty()
+    }
+
+    /// Whether the ring is about the organism in `id`.
+    ///
+    /// **Gated on this and not merely on "something is pinned"**, because the
+    /// cell page follows the cursor and the pin does not: click a second ant
+    /// while the first is pinned and an ungated page draws the *pinned* one's
+    /// series under the *clicked* one's numbers. Every row on that page is
+    /// about one individual or the page is worse than having none.
+    fn about(&self, id: u16) -> bool {
+        self.who.is_some_and(|w| w.id == id) && !self.samples.is_empty()
+    }
+
+    /// The lowest and highest a channel reached across the ring.
+    ///
+    /// The caption needs both, because `draw_spark` normalises against the
+    /// series' own peak -- so a bank that never left 95.4..95.9 draws exactly
+    /// like one that swung from empty to full. Without the range printed, the
+    /// shape is unreadable in the one case a player most wants to trust it.
+    fn range(&self, pick: fn(&Track) -> f32) -> (f32, f32) {
+        let mut lo = f32::MAX;
+        let mut hi = f32::MIN;
+        for t in &self.samples {
+            let v = pick(t);
+            lo = lo.min(v);
+            hi = hi.max(v);
+        }
+        if lo > hi { (0.0, 0.0) } else { (lo, hi) }
+    }
+
+    /// How many simulated frames the trail spans.
+    fn span(&self) -> u64 {
+        match (self.samples.front(), self.samples.back()) {
+            (Some(a), Some(b)) => b.frame.saturating_sub(a.frame),
+            _ => 0,
+        }
+    }
+}
+
 /// The bar's short population strip for **one** chamber.
 ///
 /// `pub` and parked in `Chamber` rather than kept on `Ui`, because a strip
@@ -1714,6 +1890,9 @@ pub struct Ui {
     /// exactly the numbers the page exists to show.
     inspect_organism: Option<u16>,
     pub(crate) history: History,
+    /// The pinned individual's trail and per-individual series.
+    /// Per-box, and swapped with the chamber like `history`.
+    pub(crate) watch: Watch,
     /// Last frame's layout. See the module doc: a click arrives between
     /// frames, so this is the bar the player was looking at.
     bar: Bar,
@@ -2182,6 +2361,11 @@ impl Ui {
 
     pub fn observe(&mut self, world: &World) {
         self.history.observe(world);
+        // **The watch ring is fed from the pin rather than from a separate
+        // selection.** A second way to choose an individual is a second thing
+        // that can disagree with the marker on screen, and the pin is already
+        // the thing that means "this one" everywhere else on this interface.
+        self.watch.observe(world, self.pinned);
     }
 
     /// Where the button for `action` was drawn last frame.
@@ -2268,6 +2452,19 @@ impl Ui {
     pub fn release_pin(&mut self) {
         self.pinned = None;
         self.following = false;
+    }
+
+    /// How many samples the watch ring holds — the count a contact sheet
+    /// must print beside a trail. An image says *what* and *where*; only a
+    /// number says the ring fired at all, and a trail of one dot and a trail
+    /// that was never sampled look identical.
+    pub fn watch_len(&self) -> usize {
+        self.watch.len()
+    }
+
+    /// How many simulated frames the trail spans.
+    pub fn watch_span(&self) -> u64 {
+        self.watch.span()
     }
 
     pub fn following(&self) -> bool {
@@ -2980,6 +3177,36 @@ impl Ui {
     /// than of the cursor, and the inspector is pinned by a click and not by
     /// hover, so it moves when the world moves — an ant walking out from under
     /// it — which is the honest reading of "what is here now".
+    /// **The pinned individual's own series** — two sparklines for the group
+    /// that moves.
+    ///
+    /// Empty unless the pin is on the organism whose page this is, so a page
+    /// never carries somebody else's history. Empty is the right answer and
+    /// not a failure: nothing is pinned yet, or the ring has not filled, and
+    /// in both cases the page is simply the page it always was.
+    fn watch_rows(&self, id: u16) -> Vec<Row> {
+        if !self.watch.about(id) {
+            return Vec::new();
+        }
+        let span = self.watch.span();
+        let (lo, hi) = self.watch.range(|t| t.energy);
+        let (clo, chi) = self.watch.range(|t| t.cells as f32);
+        let mut out = Vec::new();
+        out.push(Row::spark(
+            format!("BANK {lo:.0}-{hi:.0}"),
+            self.watch.series(|t| t.energy),
+            if hi > 0.0 && lo < hi * 0.5 { FAIR } else { GOOD },
+            format!("THIS ONE'S OWN ENERGY OVER THE LAST {} SIMULATED FRAMES, OLDEST ON THE LEFT, ONE SAMPLE EVERY {WATCH_EVERY}. THE BARS ARE SCALED TO ITS OWN PEAK, SO THE CAPTION CARRIES THE RANGE -- A FLAT FULL STRIP AT 95-96 AND ONE AT 0-200 DRAW THE SAME SHAPE. AN ANIMAL WHOSE SAWTOOTH STOPS CLIMBING BACK IS ONE THAT HAS STOPPED FINDING FOOD.", span),
+        ));
+        out.push(Row::spark(
+            format!("BODY {clo:.0}-{chi:.0} CELLS"),
+            self.watch.series(|t| t.cells as f32),
+            VALUE,
+            "HOW MANY CELLS IT HAS HELD OVER THE SAME WINDOW. FOR A PLANT THIS IS GROWTH, AND A STEP DOWN IS SOMETHING EATING IT OR A BRANCH COMING OFF; FOR AN ANIMAL IT IS FLAT UNLESS SOMETHING HAS BITTEN A PIECE OUT OF IT.".to_string(),
+        ));
+        out
+    }
+
     fn inspect_rows(&self, world: &World, at: (i32, i32)) -> Vec<Row> {
         let (x, y) = at;
         let cell = world.get(x, y);
@@ -3050,10 +3277,24 @@ impl Ui {
         // group is shown short and says so, rather than being silently
         // unopenable. A heading that does nothing when clicked is the worse
         // of the two by a long way.
+        // **The watched individual's own series, which belong in `STATE` and
+        // nowhere else.** `STATE` is defined as the group that moves while
+        // the box runs, and a series is precisely the record of it moving.
+        // The alternative -- a fifth group of its own -- was measured and does
+        // not fit: giving the run-log timeline its own heading cost ~15px and
+        // put the page over the screen, and that is the same ~15px again.
+        let mut sparks = self.watch_rows(cell.organism_id());
+        let state_at = sections.iter().position(|(l, _, _)| *l == "STATE");
+        let spark_h: i32 = sparks.iter().map(Row::height).sum();
+
         open[chosen] = true;
         room -= sections[chosen].2.len() as i32 * LINE;
+        if state_at == Some(chosen) {
+            room -= spark_h;
+        }
         for i in 0..sections.len() {
-            let cost = sections[i].2.len() as i32 * LINE;
+            let cost = sections[i].2.len() as i32 * LINE
+                + if state_at == Some(i) { spark_h } else { 0 };
             if !open[i] && cost <= room {
                 open[i] = true;
                 room -= cost;
@@ -3075,6 +3316,12 @@ impl Ui {
             if open {
                 for (label, value, note) in section {
                     rows.push(Row::value(label, value, VALUE, note));
+                }
+                if state_at == Some(i) {
+                    // Moved rather than copied: `Row` is not `Clone` and does
+                    // not need to be -- there is one `STATE` group, so these
+                    // rows have exactly one destination.
+                    rows.append(&mut sparks);
                 }
             }
         }
@@ -5152,6 +5399,42 @@ impl Ui {
         // own measurement is that an ant is findable only because it moves,
         // and a dead one has stopped. A marker that needed motion would fail
         // on exactly the individual you most want to find.
+        // **Where it has been**, under the marker that says where it is.
+        //
+        // Drawn first so the marker sits on top: the trail is context and the
+        // mark is the answer, and a bright dot buried under a path reads as
+        // one more sample. Oldest is dimmest, so the direction of travel is
+        // legible without an arrowhead -- an arrow at this scale is three
+        // pixels and reads as noise.
+        //
+        // **Nothing here needs the individual to still exist.** The ring is
+        // the record; a starved ant's last excursion is exactly the thing its
+        // graveyard row cannot tell you, and it stays on screen while it is
+        // pinned. That is the whole reason the trail is kept on the ring
+        // rather than recomputed from the world every frame.
+        if self.pinned.is_some() {
+            let n = self.watch.len();
+            for (i, (wx, wy)) in self.watch.path().enumerate() {
+                let (x0, y0, x1, y1, _) = renderer.world_rect_to_screen(wx, wy, wx, wy);
+                let (cx, cy) = ((x0 + x1) / 2, (y0 + y1) / 2);
+                if cy >= bar_top() {
+                    continue;
+                }
+                // Fades from a third of full to full across the ring. Not to
+                // zero: the oldest sample is where the excursion *started*,
+                // which is half of what makes a path a path.
+                let t = if n > 1 { i as f32 / (n - 1) as f32 } else { 1.0 };
+                let k = 0.33 + 0.67 * t;
+                let tint = [
+                    (MARKER[0] as f32 * k) as u8,
+                    (MARKER[1] as f32 * k) as u8,
+                    (MARKER[2] as f32 * k) as u8,
+                    255,
+                ];
+                render::put(frame, W, H, cx, cy, tint);
+            }
+        }
+
         if let Some(who) = self.pinned {
             if let Some(state) = who.resolve(world) {
                 let mut b = (i32::MAX, i32::MAX, i32::MIN, i32::MIN);
@@ -6957,6 +7240,93 @@ mod tests {
                 pair[1] - pair[0]
             );
         }
+    }
+
+    /// **The watch ring is about one individual, samples on simulated time,
+    /// and keeps what it saw after that individual dies.**
+    ///
+    /// Three claims in one guard because they share an expensive fixture (a
+    /// bed with a live colony, run far enough to fill a ring), and because
+    /// the third is only meaningful given the first two.
+    #[test]
+    fn the_watch_ring_follows_one_individual_and_outlives_it() {
+        let mut lab = crate::lab::Lab::new(crate::lab::scene::LabBox {
+            colonies: 1,
+            founders: 2,
+            ..crate::lab::scene::LabBox::default()
+        });
+        for _ in 0..400 {
+            lab.tick_for_harness();
+        }
+        let live = roster::rows(
+            &lab.world,
+            roster::Kingdom::Creatures,
+            roster::SortKey::Slot,
+            false,
+            roster::Filter::All,
+        );
+        assert!(live.len() >= 2, "the bed has no colony to watch: {} animals", live.len());
+        let (a, b) = (live[0].who, live[1].who);
+
+        // **Nothing is sampled without a pin.** The ring is fed from the pin
+        // and from nothing else, so an unpinned box must leave it empty --
+        // otherwise it is quietly walking every organism every tick.
+        for _ in 0..200 {
+            lab.tick_for_harness();
+        }
+        assert!(lab.ui.watch.is_empty(), "the ring sampled with nothing pinned");
+
+        lab.ui.pin(a);
+        for _ in 0..(WATCH_EVERY as usize * 6) {
+            lab.tick_for_harness();
+        }
+        let frames: Vec<u64> = lab.ui.watch.samples.iter().map(|t| t.frame).collect();
+        assert!(frames.len() >= 4, "only {} samples: the ring is not being fed", frames.len());
+        for pair in frames.windows(2) {
+            assert_eq!(
+                pair[1] - pair[0],
+                WATCH_EVERY,
+                "samples are {} simulated frames apart, not {WATCH_EVERY}: {frames:?}",
+                pair[1] - pair[0]
+            );
+        }
+        assert!(lab.ui.watch.about(a.id), "the ring does not know who it is about");
+        assert!(!lab.ui.watch.about(b.id), "the ring answers for an individual it is not watching");
+
+        // **Re-pinning clears it.** A ring carried across a change of subject
+        // draws one animal's path under another's name, which is worse than
+        // drawing nothing: it is a wrong answer that looks like a right one.
+        lab.ui.release_pin();
+        lab.ui.pin(b);
+        lab.tick_for_harness();
+        assert!(
+            lab.ui.watch.samples.iter().all(|t| t.frame >= frames[frames.len() - 1]),
+            "the ring kept the previous individual's samples after the pin moved"
+        );
+
+        // **And it survives the death of its subject**, which is the whole
+        // reason the path lives on the ring rather than being recomputed from
+        // the world. Where an ant got to before it starved is exactly what
+        // its graveyard row cannot say.
+        lab.ui.release_pin();
+        lab.ui.pin(a);
+        for _ in 0..(WATCH_EVERY as usize * 8) {
+            lab.tick_for_harness();
+        }
+        let held = lab.ui.watch.len();
+        assert!(held > 0, "nothing to lose before the death");
+        lab.world.mark_organism_senescent(a.id);
+        lab.world.free_organism(a.id);
+        assert!(!a.alive(&lab.world), "the cull did not take");
+        for _ in 0..(WATCH_EVERY as usize * 4) {
+            lab.tick_for_harness();
+        }
+        assert_eq!(
+            lab.ui.watch.len(),
+            held,
+            "the trail changed after its subject died -- it should stop growing and lose nothing"
+        );
+        assert!(lab.ui.watch.about(a.id), "the ring stopped answering for a dead individual it still holds");
     }
 
     /// A rebuild puts the frame counter back to zero, and a series carried

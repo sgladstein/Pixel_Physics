@@ -171,6 +171,7 @@ pub struct Lab {
 /// | `world`, `spec` | the obvious one |
 /// | `stats` | one box's census drawn over another's bed |
 /// | `history` | `Ui`'s population strip, same failure one level down |
+/// | `watch` | the pinned individual's trail, drawn over a bed it never walked |
 /// | `particles`, `blasts` | a blast's debris following you into a box that never had one |
 ///
 /// `Renderer` is deliberately *not* here — it is shared, because it is pure
@@ -197,6 +198,10 @@ pub struct Chamber {
     /// The population strip `Ui` keeps for the bar. Parked with its box for
     /// the reason the table above gives.
     pub history: ui::History,
+    /// The pinned individual's trail. Parked for the same reason and a
+    /// sharper one: it is a list of world coordinates, so a shared ring draws
+    /// one box's path across another's bed.
+    pub watch: ui::Watch,
     /// The last still taken of this box, if any. See [`Thumb`].
     pub thumb: Option<Thumb>,
     /// What to call it on the rack page. `None` is "its number", which is
@@ -545,6 +550,7 @@ impl Lab {
             particles: std::mem::replace(&mut self.particles, incoming.particles),
             blasts: std::mem::replace(&mut self.blasts, incoming.blasts),
             history: std::mem::replace(&mut self.ui.history, incoming.history),
+            watch: std::mem::replace(&mut self.ui.watch, incoming.watch),
             // The outgoing box gets a fresh still on the way out -- this is
             // the one moment its picture is both wanted and free, because the
             // frame just drawn *is* that picture.
@@ -578,6 +584,7 @@ impl Lab {
             particles: ParticleSystem::new(),
             blasts: Blasts::new(),
             history: ui::History::default(),
+            watch: ui::Watch::default(),
             thumb: None,
             label: None,
         }));
@@ -825,6 +832,7 @@ impl Lab {
             particles: ParticleSystem::new(),
             blasts: Blasts::new(),
             history: ui::History::default(),
+            watch: ui::Watch::default(),
             thumb: None,
             label: Some(label),
         }));

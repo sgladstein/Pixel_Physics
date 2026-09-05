@@ -352,6 +352,100 @@ fn main() {
         click(&mut lab, at);
         let _ = shot(&mut lab);
     }
+    // 6a-bis. **WATCH: where the pinned one has been, and how its numbers
+    //         moved.** The trail is the one thing on this interface that
+    //         cannot be judged from a still of the moment it was made -- it
+    //         *is* accumulated history, so the tile has to run the box with a
+    //         pin held and then look. Both kingdoms, because a plant's trail
+    //         being a single dot is the control: it says the ring is tracking
+    //         one individual rather than drawing whatever moved.
+    for (what, animal) in [("ANT", true), ("PLANT", false)] {
+        let kingdom = if animal { roster::Kingdom::Creatures } else { roster::Kingdom::Plants };
+        let (key, desc) = lab.ui.roster_sort_key(kingdom);
+        let live = roster::rows(&lab.world, kingdom, key, desc, roster::Filter::All);
+        // **The one that has been furthest, not row 0.** A trail is only a
+        // trail if its subject moved, and most of this colony has not: row 0
+        // travelled five cells in 1,524 frames, which draws as a dot and says
+        // nothing about whether the ring works. `forage_max` is the roster's
+        // own excursion depth -- the same number `FAR` reads -- so this picks
+        // the individual the table would already be pointing at.
+        let ranger = live
+            .iter()
+            .max_by_key(|r| lab.world.organism(r.who.id).map_or(0, |st| st.forage_max))
+            .map(|r| r.who);
+        let Some(who) = ranger else {
+            fired.push(format!("WATCH {what}: nothing alive to follow"));
+            continue;
+        };
+        lab.ui.release_pin();
+        lab.ui.pin(who);
+        // **FOLLOW on, and the box drawn as it runs.** Both are needed, and
+        // the reason is one this harness had to find twice.
+        //
+        // `Lab::follow_pin` runs in `draw`, not in `tick`, and
+        // `Renderer::follow` is a *dead-zone* follow -- deliberately, because
+        // a strictly-centred camera repaints the whole screen every frame an
+        // animal walks and pays away the dirty-rect skip. So a loop that
+        // ticks 1,600 times and draws once at the end gets exactly one
+        // dead-zone nudge, which does not carry the view from where it was to
+        // where the ant now is. The tile came back byte-identical twice, with
+        // the counter reporting 128 samples both times: the ring was full and
+        // the ant was simply outside the view.
+        //
+        // Drawing every 16 ticks is also what the real thing does -- a player
+        // watching an individual is looking at frames, not at a fast-forward.
+        // **Zoomed in, because at 1:1 the camera cannot move at all.**
+        // Measured: `world_to_screen` is the identity here -- the bed is 512
+        // wide and so is the screen, so `Renderer::follow` has nowhere to pan
+        // and an individual at x=404 stays at x=404, which is under the cell
+        // page. A pin *forces* that page open (`Lab::follow_pin` calls
+        // `inspect_at` every draw, by design), so the only way to see the
+        // subject is to zoom until the view is smaller than the world and let
+        // FOLLOW centre it.
+        lab.renderer.zoom_within(2, (WIDTH, HEIGHT), lab.world.bounds());
+        lab.ui.toggle_following();
+        let before = who.resolve(&lab.world).and_then(roster::anchor_of);
+        let scr_before = before.and_then(|(x, y)| lab.renderer.world_to_screen(x, y));
+        for i in 0..1600 {
+            lab.tick_for_harness();
+            if i % 16 == 0 {
+                let _ = shot(&mut lab);
+            }
+        }
+        let after = who.resolve(&lab.world).and_then(roster::anchor_of);
+        let scr_after = after.and_then(|(x, y)| lab.renderer.world_to_screen(x, y));
+        fired.push(format!(
+            "WATCH {what}: following {}, world {before:?} -> {after:?}, screen {scr_before:?} -> {scr_after:?}",
+            lab.ui.following()
+        ));
+        let moved = lab.ui.watch_len();
+        fired.push(format!(
+            "WATCH {what}: pinned {who:?}, {moved} samples over {} frames, alive {}, page open {}",
+            lab.ui.watch_span(),
+            who.alive(&lab.world),
+            lab.ui.inspecting().is_some()
+        ));
+        lab.set_cursor(None);
+        tiles.push((format!("WATCH: {what} TRAIL"), shot(&mut lab)));
+
+        // ...and the sparklines, which live in STATE. Clicking the
+        // individual's own cell is what puts the page on it -- the pin is
+        // deliberately not enough, so this also exercises the gate that stops
+        // one animal's series appearing under another's numbers.
+        if let Some((wx, wy)) = live.first().map(|r| r.at) {
+            let (sx, sy) = lab.renderer.world_to_screen(wx, wy).unwrap_or((wx, wy));
+            click(&mut lab, (sx, sy));
+            let _ = shot(&mut lab);
+            let state_group = Action::SpecimenSection(2);
+            if let Some(r) = lab.ui.widget_rect(state_group) {
+                click(&mut lab, (r.x + 20, r.y + 4));
+                let _ = shot(&mut lab);
+            }
+            fired.push(format!("WATCH {what}: cell page on group {}", lab.ui.specimen_section()));
+            lab.set_cursor(None);
+            tiles.push((format!("WATCH: {what} SERIES"), shot(&mut lab)));
+        }
+    }
     lab.ui.release_pin();
 
     // 6b. The rack, and the rack with a row picked -- which is the half that
