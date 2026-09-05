@@ -103,6 +103,52 @@ fn main() {
                 }
             }
         }
+        // **The sight allele, on the one shipped species that has an eye.**
+        // The ant is authored blind, so a bed of ants cannot demonstrate that
+        // `TRAIT_SIGHT_RANGE` reaches a running world at all -- the beetle
+        // can, and it is the honest positive control for the gene rather
+        // than a claim from the arithmetic.
+        // **Setting a gene means setting it on the animals that are already
+        // standing, not only on what the next one inherits.**
+        //
+        // `Lab::new` has already placed the bed by the time these overrides
+        // run, and `place_creature` copies the species vector into each
+        // `OrganismState` at founding -- so a species-only override changes
+        // nothing a short run can see. `beetlesight=` shipped with that as a
+        // printed caveat, which was a limitation of this harness dressed as a
+        // fact about the engine. `World::set_organism_trait` closes it, and
+        // this closure does both halves so no future gene has to remember to.
+        let mut set_allele = |species: &str, slot: usize, v: f32| -> usize {
+            let Some(sid) = lab.world.species.id_of(species) else { return 0 };
+            if let Some(def) = lab.world.species.get(sid).creature.as_ref() {
+                let mut def = def.clone();
+                def.traits[slot] = v;
+                lab.world.species.set_creature(sid, def);
+            }
+            let living: Vec<u16> = lab
+                .world
+                .live_organism_ids()
+                .into_iter()
+                .filter(|id| lab.world.organism(*id).is_some_and(|st| lab.world.species.get(st.species).name == species))
+                .collect();
+            for id in &living {
+                lab.world.set_organism_trait(*id, slot, v);
+            }
+            living.len()
+        };
+        if let Some(v) = arg::<f32>("beetlesight") {
+            let n = set_allele("beetle", pixel_physics::sim::organism::TRAIT_SIGHT_RANGE, v);
+            println!("labstats: beetle sight allele {v}, applied to {n} standing beetle(s) and to what they breed");
+        }
+        // **The pace allele, on the ants, because it is the one gene a person
+        // can watch.** A quick ant scurries and a slow one plods, and the
+        // counters below say what that costs: every levy is charged once per
+        // decision, so turns and joules move together or the gene is a free
+        // speed-up.
+        if let Some(v) = arg::<f32>("pace") {
+            let n = set_allele("ant", pixel_physics::sim::organism::TRAIT_PACE, v);
+            println!("labstats: ant pace allele {v}, applied to {n} standing ant(s) and to what they breed");
+        }
         let id = lab.world.species.id_of("ant").expect("ant species");
         let mut def = lab.world.species.get(id).creature.as_ref().expect("creature").clone();
         if let Some(v) = dig_cost {
@@ -186,6 +232,10 @@ fn main() {
             100.0 * st.exposed_ticks as f64 / ticks as f64,
             st.exposure_energy,
             share(st.exposure_energy)
+        );
+        println!(
+            "--- eyes --- sight casts {} | cells read {} | sightings {}",
+            st.sight_casts, st.sight_cells_read, st.sightings
         );
     }
 

@@ -63,7 +63,7 @@ use super::cell::{Cell, AMBIENT_TEMPERATURE};
 use super::chunk::Rect;
 use super::field;
 use super::material::{self, MaterialKind};
-use super::organism::{pack_cell_type, Carried, CellType, Crop, CreatureDef, Flight, ShadeRule, SpeciesId, Spoil, CREATURE_TRAITS, TRAIT_BIRTH_GRANT, TRAIT_GUT_BIAS, TRAIT_REPRODUCE_AT};
+use super::organism::{pack_cell_type, Carried, CellType, Crop, CreatureDef, Flight, ShadeRule, SpeciesId, Spoil, CREATURE_TRAITS, TRAIT_BIRTH_GRANT, TRAIT_GUT_BIAS, TRAIT_PACE, TRAIT_REPRODUCE_AT, TRAIT_SIGHT_RANGE};
 use super::pheromone::{self, Channel};
 use super::rng;
 use super::scheduler::{ActiveKind, ActiveSite};
@@ -1249,7 +1249,7 @@ fn place_creature(
             }
         }
     }
-    Some(ActiveSite { x, y, kind: ActiveKind::Creature { organism }, next_frame: world.creature_due(def.tick_interval) })
+    Some(ActiveSite { x, y, kind: ActiveKind::Creature { organism }, next_frame: world.creature_due(organism_tick_interval(world, organism, def)) })
 }
 
 /// This material's palette entries, ordered **darkest first** by luma.
@@ -1460,8 +1460,109 @@ pub fn reproduce_at_of(def: &CreatureDef, traits: &[f32; CREATURE_TRAITS]) -> Op
 /// axis that is nearly a suicide pact, and it is reachable on purpose:
 /// `CLAUDE.md`'s rule is that a gene with one reachable end expresses
 /// nothing.
+/// **How far one full swing of the sight allele moves an eye**, in cells.
+///
+/// 64, which is the largest reach any shipped species authors (the beetle's)
+/// — so the axis is scaled to the biggest eye in the game rather than to a
+/// number chosen for its own sake, and `+1` on a blind lineage is exactly a
+/// beetle's eye.
+const SIGHT_SPAN: f32 = 64.0;
+
+/// **The ceiling on an evolved eye**, in cells. Twice `SIGHT_SPAN`, so a
+/// species that already authors the largest eye can still double it and the
+/// top of the axis is a real place rather than a clamp nobody reaches.
+///
+/// It exists because `sight_fraction` prices *per cell read* and a cast is
+/// already 328–1,186 `World::get` at reach 64: an unbounded allele is an
+/// unbounded per-tick cost, and the frame is a hard constraint here.
+const SIGHT_MAX: f32 = 128.0;
+
+/// **How far this particular animal can see**, in cells — its species'
+/// authored `sight_range` shifted by its own `TRAIT_SIGHT_RANGE` allele.
+///
+/// **Additive, where `reproduce_fraction` is multiplicative, and that is the
+/// whole point.** A multiplier makes zero absorbing: `0 * anything` is 0, so
+/// a species authored blind could never evolve an eye at any allele, for
+/// ever. The owner's ruling is that **anything should be able to evolve** —
+/// so the allele *shifts* the reach rather than scaling it, and a lineage
+/// that starts with no eyes at all can grow them.
+///
+/// **This deliberately overturns the gate the first version of this gene
+/// shipped with.** That version followed `reproduce_at_of`'s precedent — the
+/// species field stays the switch, so a mutable slot cannot be a back door
+/// through which an eyeless showcase species quietly grows an organ. The
+/// argument is sound and the ruling is against it: a back door is exactly
+/// what an open-ended evolutionary system is *for*, and a species that
+/// cannot cross a line drawn by its author is not evolving, it is being
+/// permitted. The cost is real and is accepted rather than hidden — every
+/// eyeless species in the game can now, given enough generations, start
+/// paying for eyes.
+///
+/// `0` is the species' authored reach exactly, so **generation zero is
+/// unchanged for every species**, blind or sighted: the whole axis is
+/// measured from what the author wrote, and only drift moves it.
+///
+/// | allele | ant (authored 0) | beetle (authored 64) |
+/// |---|---|---|
+/// | `-1` | 0, blind | 0, blind |
+/// | `0` | **0, as authored** | **64, as authored** |
+/// | `+1` | 64 | 128 |
+///
+/// Floored at 0 rather than at 1: an eye that has drifted to nothing *is*
+/// blindness now, and there is no longer a species switch for it to be
+/// confusable with.
+pub fn sight_range_of(def: &CreatureDef, traits: &[f32; CREATURE_TRAITS]) -> i32 {
+    let shifted = def.sight_range as f32 + traits[TRAIT_SIGHT_RANGE].clamp(-1.0, 1.0) * SIGHT_SPAN;
+    shifted.round().clamp(0.0, SIGHT_MAX) as i32
+}
+
 pub fn reproduce_fraction(t: f32) -> f32 {
     (1.0 + t).clamp(0.0, 2.0)
+}
+
+/// **How many frames this particular animal waits between decisions** — its
+/// species' authored `tick_interval` scaled by its own `TRAIT_PACE` allele.
+///
+/// **The allele runs the opposite way to the number**, because it is named
+/// for the animal: `+1` is a *quick* animal, which is a *shorter* interval.
+///
+/// | allele | factor | ant (authored 6) |
+/// |---|---|---|
+/// | `-1` | x2 | 12 — half speed, half the cost of living |
+/// | `0` | x1 | **6, as authored** |
+/// | `+1` | /2 | 3 — double speed, double the cost of living |
+///
+/// **A reciprocal pair rather than the plain `(1 + t)` of
+/// `reproduce_fraction`**, so the axis is symmetric in *ratio*: `-1` and
+/// `+1` are the same factor in opposite directions, which is the symmetry a
+/// rate wants. `2f32.powf(-t)` is the same curve and is not available —
+/// nothing decision-relevant here may call libm (`brain::squash`).
+///
+/// Floored at one frame. Not capped at the top: `t` is clamped to `-1..=1`,
+/// so the interval is bounded by construction at twice the authored value
+/// and a ceiling constant would be decoration.
+///
+/// **What this costs the animal is already charged, which is why the gene
+/// needed no new price.** Every per-decision levy — `idle`, `synapse_tax`,
+/// `sight_tax`, exposure — is paid once per call of this interval, so a
+/// quick animal pays its whole bill twice as often per frame. `CreatureDef::
+/// scaled` states the same identity from the other end: idle burn per frame
+/// is `idle_cost_per_cell * cells / tick_interval`.
+pub fn tick_interval_of(def: &CreatureDef, traits: &[f32; CREATURE_TRAITS]) -> u64 {
+    let t = traits[TRAIT_PACE].clamp(-1.0, 1.0);
+    let factor = if t >= 0.0 { 1.0 / (1.0 + t) } else { 1.0 - t };
+    ((def.tick_interval as f32 * factor).round() as u64).max(1)
+}
+
+/// `tick_interval_of` for an animal that is alive in the world, falling back
+/// to the species' authored interval if it is not.
+///
+/// A free function rather than four copies of the same `map_or`, because the
+/// scheduler reads this in three places and the flight path in two: an
+/// individual that is scheduled on its own pace and charged on its species'
+/// would be metabolising at a rate nothing on screen explains.
+pub fn organism_tick_interval(world: &World, organism: u16, def: &CreatureDef) -> u64 {
+    world.organism(organism).map_or_else(|| def.tick_interval.max(1), |st| tick_interval_of(def, &st.traits))
 }
 
 /// Bud a child off `organism` if it can afford one and there is room.
@@ -1903,7 +2004,7 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
     if cell.is_burning() {
         // Same deferral the worm makes, for the same reason: let fire.rs
         // finish deciding this creature's fate first.
-        return vec![ActiveSite { x, y, kind: ActiveKind::Creature { organism }, next_frame: world.creature_due(def.tick_interval) }];
+        return vec![ActiveSite { x, y, kind: ActiveKind::Creature { organism }, next_frame: world.creature_due(organism_tick_interval(world, organism, def)) }];
     }
 
     // Something may have eaten, burned or erased part of this creature
@@ -1924,9 +2025,12 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
     }
 
     let heading = world.organism(organism).map_or(0, |s| s.heading);
-    let (inputs, seen, sight_reads) = sense(world, x, y, organism, heading, def);
+    let (inputs, seen, sight_reads, curvature_reads) = sense(world, x, y, organism, heading, def);
     let sighting = seen.prey;
-    if def.sight_range > 0 {
+    // **The individual's reach, not the species'** -- an ant whose lineage
+    // has evolved an eye casts, and a counter still gated on the species
+    // field would report it as never having looked.
+    if world.organism(organism).map_or(0, |st| sight_range_of(def, &st.traits)) > 0 {
         world.creature_stats.sight_casts += 1;
         world.creature_stats.sight_cells_read += sight_reads;
         if let Some(seen) = sighting {
@@ -1979,6 +2083,14 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
     // one sweeping open ground — which is the term that makes shelter pay
     // for itself twice.
     let sight_tax = def.sight_fraction * def.start_energy * sight_reads as f32;
+    // **Feeling the ground costs, at the same per-cell rate as looking at
+    // it.** `curvature_radius` was the sensory ratchet `sight_range` used to
+    // be -- a wider disc was strictly better because nothing billed the
+    // `(2r+1)^2` reads it performs. Owner's ruling, 2026-09-05:
+    // *everything should be priced*. Charged per cell actually read, so the
+    // species gate and the two debug switches all resolve to a bill of zero
+    // without a second condition being written anywhere.
+    let curvature_tax = def.curvature_fraction * def.start_energy * curvature_reads as f32;
     // **Standing in the open costs, if the species authors a price for it.**
     // Charged beside `idle` because it *is* metabolism -- the animal is
     // paying to be somewhere rather than to do something -- and gated on the
@@ -1993,12 +2105,14 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
     } else {
         0.0
     };
-    let mut spent = idle + synapse_tax + sight_tax + exposure;
+    let mut spent = idle + synapse_tax + sight_tax + curvature_tax + exposure;
     // Booked as metabolism rather than as an account of its own: it is
     // metabolism, and a new sink would have to be added to
     // `EnergyLedger::expected_live_total` for no attribution the
     // `sight_cells_read` counter does not already give.
-    world.energy_ledger.metabolized += (idle + sight_tax + exposure) as f64;
+    world.energy_ledger.metabolized += (idle + sight_tax + curvature_tax + exposure) as f64;
+    world.creature_stats.curvature_cells_read += curvature_reads;
+    world.creature_stats.curvature_energy += curvature_tax as f64;
     world.creature_stats.exposure_energy += exposure as f64;
     if exposure > 0.0 {
         world.creature_stats.exposed_ticks += 1;
@@ -2272,7 +2386,7 @@ pub fn probe(world: &World, x: i32, y: i32, organism: u16, def: &CreatureDef) ->
     let Some(state) = world.organism(organism) else {
         return ([0.0; brain::BRAIN_INPUTS], [0.0; brain::BRAIN_OUTPUTS], 0);
     };
-    let (inputs, _, _) = sense(world, x, y, organism, state.heading, def);
+    let (inputs, _, _, _) = sense(world, x, y, organism, state.heading, def);
     let mut brain_state = state.brain_state;
     let (outputs, active) = brain::eval_brain(&state.genome, &inputs, &mut brain_state);
     (inputs, outputs, active)
@@ -2296,11 +2410,12 @@ pub fn probe(world: &World, x: i32, y: i32, organism: u16, def: &CreatureDef) ->
 /// authoring a `sight_fraction` needs a measured reads-per-cast at the reach
 /// in question and there was no way to ask for one.
 pub fn sighted(world: &World, x: i32, y: i32, organism: u16, def: &CreatureDef) -> (Sightings, u64) {
-    if def.sight_range <= 0 {
+    let reach = world.organism(organism).map_or(0, |st| sight_range_of(def, &st.traits));
+    if reach <= 0 {
         return (Sightings::default(), 0);
     }
     let mut reads = 0u64;
-    let seen = sight(world, x, y, organism, def, gut_of(world, organism, def), &mut reads);
+    let seen = sight(world, x, y, organism, gut_of(world, organism, def), reach, &mut reads);
     (seen, reads)
 }
 
@@ -2319,7 +2434,7 @@ fn sense(
     organism: u16,
     heading: u8,
     def: &CreatureDef,
-) -> ([f32; brain::BRAIN_INPUTS], Sightings, u64) {
+) -> ([f32; brain::BRAIN_INPUTS], Sightings, u64, u64) {
     use brain::BrainInput as I;
     let mut inputs = [0.0f32; brain::BRAIN_INPUTS];
     inputs[I::Bias as usize] = 1.0;
@@ -2471,8 +2586,15 @@ fn sense(
     // tick and never enters `sight`; the ant, the worm and every plant-side
     // caller are therefore bit-identical to before this input existed.
     let mut sight_reads = 0u64;
-    let seen_all = if def.sight_range > 0 {
-        sight(world, x, y, organism, def, gut_of(world, organism, def), &mut sight_reads)
+    let mut curvature_reads = 0u64;
+    // **This animal's reach, not its species'.** `TRAIT_SIGHT_RANGE` scales
+    // the authored range per individual, so the gate, the cast and both
+    // distance normalisations below have to read the same number -- an eye
+    // that casts to one reach and normalises against another reports a
+    // nearness that does not mean what the brain thinks it means.
+    let reach = world.organism(organism).map_or(0, |st| sight_range_of(def, &st.traits));
+    let seen_all = if reach > 0 {
+        sight(world, x, y, organism, gut_of(world, organism, def), reach, &mut sight_reads)
     } else {
         Sightings::default()
     };
@@ -2484,7 +2606,7 @@ fn sense(
         // *largest* when the prey is furthest, and an authored weight would
         // have to be negative to mean "approach", which is the kind of sign
         // inversion an evolved genome has no reason to find.
-        inputs[I::PreyNear as usize] = (1.0 - seen.dist / def.sight_range as f32).clamp(0.0, 1.0);
+        inputs[I::PreyNear as usize] = (1.0 - seen.dist / reach as f32).clamp(0.0, 1.0);
         // Signed turn-to-target, **positive = to the right**, matching
         // `PheroALateral`. `DIRS` runs anticlockwise on a y-down screen, so
         // a heading index `h` points along `-h * PI/4` in screen radians;
@@ -2520,9 +2642,22 @@ fn sense(
     inputs[I::SurfaceCurvature as usize] = if def.curvature_radius == 0 || !curvature_sense_enabled() {
         0.0
     } else if curvature_flattened() {
+        // The flattened arm substitutes a constant and performs no reads, so
+        // it must not be billed for any. Deriving the charge from the radius
+        // instead of counting here would bill this arm for a sense that did
+        // not fire -- and it is a control arm, so the bill would land
+        // precisely where the comparison is.
         CURVATURE_BANK_MEDIAN
     } else {
-        surface_curvature(world, x, y, def.curvature_radius)
+        let r = def.curvature_radius;
+        // `(2r+1)^2 - 1`, which is exactly what `surface_curvature`'s loops
+        // traverse: the full disc, centre excluded, with no early exit. The
+        // count is derived from the same radius the call gets rather than
+        // instrumented inside the loop, because the loop is unconditional --
+        // and it is asserted against the real thing by
+        // `the_curvature_disc_is_billed_for_every_cell_it_reads`.
+        curvature_reads = ((2 * r + 1) * (2 * r + 1) - 1).max(0) as u64;
+        surface_curvature(world, x, y, r)
     };
 
     // **The kin pair, from the same cast the prey pair came out of.**
@@ -2535,7 +2670,7 @@ fn sense(
         // Nearness rather than distance, and the same normalisation
         // `PreyNear` uses, so a genome that learns one has learned the
         // other's scale.
-        inputs[I::KinNear as usize] = (1.0 - kin.dist / def.sight_range as f32).clamp(0.0, 1.0);
+        inputs[I::KinNear as usize] = (1.0 - kin.dist / reach as f32).clamp(0.0, 1.0);
         let bearing = ((kin.y - y) as f32).atan2((kin.x - x) as f32);
         let heading_angle = -(heading as f32) * std::f32::consts::FRAC_PI_4;
         let mut error = bearing - heading_angle;
@@ -2546,7 +2681,7 @@ fn sense(
         inputs[I::KinBearing as usize] = error / std::f32::consts::PI;
     }
 
-    (inputs, seen_all, sight_reads)
+    (inputs, seen_all, sight_reads, curvature_reads)
 }
 
 /// **What one cell is worth to *this gut*** — S5's matched filter, and the
@@ -2940,8 +3075,7 @@ fn is_visible_kin(world: &World, cell: Cell, species: SpeciesId, self_organism: 
 /// Returns `None` when nothing edible is in sight, which is also what an
 /// eyeless species gets — but an eyeless species never reaches here, since
 /// the caller tests `sight_range` before the call (`CreatureDef::sight_range`).
-fn sight(world: &World, x: i32, y: i32, organism: u16, def: &CreatureDef, gut: Gut, reads: &mut u64) -> Sightings {
-    let reach = def.sight_range;
+fn sight(world: &World, x: i32, y: i32, organism: u16, gut: Gut, reach: i32, reads: &mut u64) -> Sightings {
     debug_assert!(reach > 0, "sight() called for a species with no eyes; the gate belongs at the call site");
 
     // The eye, lifted only through cells that do not themselves block.
@@ -4481,7 +4615,7 @@ fn step_flight(world: &mut World, organism: u16, def: &CreatureDef) -> Vec<Activ
     // the reset in `line_burrow` for the standing case that this field
     // should probably go entirely.
     let frame = world.frame;
-    let interval = def.tick_interval.max(1);
+    let interval = organism_tick_interval(world, organism, def);
     if let Some(state) = world.organism_mut(organism) {
         state.flight = if landed { None } else { Some(flight) };
         // `is_multiple_of` rather than `% == 0`: `clippy::manual_is_multiple_of`
@@ -4509,7 +4643,7 @@ fn step_flight(world: &mut World, organism: u16, def: &CreatureDef) -> Vec<Activ
     // came from the scheduler rather than from the design. Pro-rating keeps
     // the *rate* identical and leaves `LAUNCH_COST_IN_MOVES` as the only
     // thing the verb actually charges for.
-    let idle = def.idle_cost_per_cell * live_body_cells(world, organism, def) / def.tick_interval.max(1) as f32;
+    let idle = def.idle_cost_per_cell * live_body_cells(world, organism, def) / interval as f32;
     world.energy_ledger.metabolized += idle as f64;
     if landed {
         // Back on the normal schedule, and back to deciding things.
@@ -4827,7 +4961,7 @@ fn apply_creature_energy(world: &mut World, x: i32, y: i32, organism: u16, delta
         creature_dies(world, organism);
         return Vec::new();
     }
-    vec![ActiveSite { x, y, kind: ActiveKind::Creature { organism }, next_frame: world.creature_due(def.tick_interval) }]
+    vec![ActiveSite { x, y, kind: ActiveKind::Creature { organism }, next_frame: world.creature_due(organism_tick_interval(world, organism, def)) }]
 }
 
 /// Every cell of the chain becomes `corpse`, and the slot comes back.
@@ -6324,6 +6458,304 @@ mod tests {
              the charge is not the price the field names"
         );
     }
+
+    /// **The positive control for `TRAIT_SIGHT_RANGE`: a sharper eye reads
+    /// more of the world.**
+    ///
+    /// `a_blind_lineage_can_evolve_an_eye` checks the arithmetic;
+    /// this checks the arithmetic *reaches a running world*, which is a
+    /// different claim and the one that was briefly false. A harness that
+    /// set the allele on the species after the animals were already placed
+    /// gave **byte-identical counters at three alleles** — 9,502 casts and
+    /// 9,711,169 cells read at every setting — because a live animal carries
+    /// its own `OrganismState::traits`, copied at founding. That is
+    /// `CLAUDE.md`'s identical-output-across-a-change tell, and without a
+    /// counter beside the picture it would have read as a working gene.
+    #[test]
+    fn a_sharper_eye_reads_more_of_the_world() {
+        let cells_read = |allele: f32| -> u64 {
+            let mut w = test_world();
+            for x in 60..180 {
+                w.set(x, 120, Cell::new(material::STONE, 0).with_attached(true));
+            }
+            let beetle = spawn(&mut w, "beetle", 100, 119);
+            assert_ne!(beetle, 0, "the beetle was not placed; this scene does not contain the situation the test is about");
+            if let Some(st) = w.organism_mut(beetle) {
+                st.traits[TRAIT_SIGHT_RANGE] = allele;
+            }
+            run(&mut w, 200);
+            w.creature_stats.sight_cells_read
+        };
+
+        let (narrow, authored, wide) = (cells_read(-0.75), cells_read(0.0), cells_read(0.75));
+        assert!(authored > 0, "the beetle read nothing at its authored allele, so this measures a blind animal rather than a gene");
+        assert!(
+            narrow < authored && authored < wide,
+            "a sharper eye must read more of the world: allele -0.75 read {narrow}, 0.0 read {authored}, +0.75 read {wide} -- \
+             equal figures mean the allele is not reaching the cast"
+        );
+    }
+
+    /// **The curvature disc is billed for every cell it reads, and for none
+    /// when it does not read.**
+    ///
+    /// Owner's ruling, 2026-09-05: *everything should be priced*. This is
+    /// the guard for the sense that was the clearest unpriced ratchet left —
+    /// a wider disc was strictly better because the `(2r+1)^2` reads it
+    /// performs cost nothing.
+    ///
+    /// **The billed count is derived from the radius, not instrumented
+    /// inside the loop**, which is only sound while `surface_curvature`'s
+    /// loops stay unconditional — they traverse the full disc with the
+    /// centre skipped and no early exit. The arithmetic assertion below is
+    /// the thing that has to be re-derived if that ever changes; an early
+    /// exit would make this over-bill silently.
+    #[test]
+    fn the_curvature_disc_is_billed_for_every_cell_it_reads() {
+        // Read the disc the way `surface_curvature` does, and count. This is
+        // the loop shape the charge assumes, written out so a change to the
+        // real one shows up here rather than as a quiet over-bill.
+        let disc_cells = |r: i32| -> u64 {
+            let mut n = 0u64;
+            for dy in -r..=r {
+                for dx in -r..=r {
+                    if dx == 0 && dy == 0 {
+                        continue;
+                    }
+                    n += 1;
+                }
+            }
+            n
+        };
+        assert_eq!(disc_cells(2), 24, "the r=2 disc is 24 cells, which is the number ant.ron's price is derived against");
+
+        // The ant's authored rate, at f32's actual precision -- the asset
+        // carries more digits than an f32 can hold, and clippy is right that
+        // writing them here is a claim the type cannot keep.
+        const ANT_RATE: f32 = 8.116883e-8;
+        let scene = |fraction: f32, radius: i32| -> (u64, f64, u64) {
+            let mut w = test_world();
+            if let Some(id) = w.species.id_of("ant") {
+                if let Some(mut def) = w.species.get(id).creature.clone() {
+                    def.curvature_fraction = fraction;
+                    def.curvature_radius = radius;
+                    // Breeding off: a second animal would make the read count
+                    // a population rather than a sense, which is the confound
+                    // `a_quicker_lineage_takes_more_turns_and_burns_more`
+                    // records paying for.
+                    def.reproduce_threshold = 0.0;
+                    w.species.set_creature(id, def);
+                }
+            }
+            w.plant_ant(100, 95);
+            let ant = w.get(100, 95).organism_id();
+            assert_ne!(ant, 0, "the ant was not placed; this scene does not contain the situation the test is about");
+            if let Some(st) = w.organism_mut(ant) {
+                st.energy = 100_000.0;
+            }
+            run(&mut w, 600);
+            (w.creature_stats.curvature_cells_read, w.creature_stats.curvature_energy, w.creature_stats.ticks)
+        };
+
+        // The authored sense, priced.
+        let (reads, spent, ticks) = scene(ANT_RATE, 2);
+        assert!(ticks > 0, "the ant never took a turn, so this measures a dead animal rather than a sense");
+        assert_eq!(reads, ticks * disc_cells(2), "every tick of a radius-2 sense must bill its whole disc");
+        assert!(spent > 0.0, "the disc read {reads} cells and was billed nothing -- a reader with no writer, which is the failure this price exists to close");
+
+        // **The zero arm is a positive control on the guard, not a
+        // formality.** `curvature_fraction` defaults to 0.0, so a charge
+        // that was never wired at all reports 0.0 here and would pass any
+        // test that only asserted the default.
+        let (free_reads, free_spent, _) = scene(0.0, 2);
+        assert_eq!(free_reads, reads, "the sense must read the same cells whether or not it is billed");
+        assert_eq!(free_spent, 0.0, "the 0.0 default must charge exactly nothing: a species that has not opted in has to be bit-identical");
+
+        // A species with no such sense reads nothing and pays nothing --
+        // both, and the pair is the point: a bill without reads would mean
+        // the charge is derived from something other than the work.
+        let (off_reads, off_spent, _) = scene(ANT_RATE, 0);
+        assert_eq!((off_reads, off_spent), (0, 0.0), "a species authoring no curvature_radius must neither read nor pay");
+
+        // Quadratic in the radius, which is the gradient that makes a broad
+        // sense expensive without a hand-written cap.
+        let (wide_reads, wide_spent, _) = scene(ANT_RATE, 4);
+        assert_eq!(wide_reads, ticks * disc_cells(4), "a radius-4 disc bills 80 cells a tick");
+        assert!(
+            wide_spent > spent * 3.0,
+            "widening the disc from 2 to 4 must cost more than three times as much (24 -> 80 cells): {spent} -> {wide_spent}"
+        );
+    }
+
+    /// **How fast an animal lives is its own, and it is symmetric in ratio.**
+    ///
+    /// The arithmetic half of `TRAIT_PACE`. `+1` and `-1` are the *same*
+    /// factor in opposite directions, which is the claim the reciprocal form
+    /// exists to make and the one a plain `(1 + t)` would fail: on that shape
+    /// `-1` is an interval of zero and `+1` only doubles it.
+    #[test]
+    fn pace_is_this_animals_own_and_symmetric_in_ratio() {
+        let w = test_world();
+        let def = w.species.get(w.species.id_of("ant").expect("ant")).creature.as_ref().expect("creature").clone();
+        let at = |t: f32| {
+            let mut traits = [0.0f32; CREATURE_TRAITS];
+            traits[TRAIT_PACE] = t;
+            tick_interval_of(&def, &traits)
+        };
+
+        assert!(def.tick_interval >= 4, "this test needs an authored interval with room to halve; the ant's is {}", def.tick_interval);
+        assert_eq!(at(0.0), def.tick_interval, "a neutral allele must reproduce the authored interval exactly, or every animal alive changed the day this landed");
+        assert_eq!(at(1.0) * 2, def.tick_interval, "the top of the axis is twice the species' pace");
+        assert_eq!(at(-1.0), def.tick_interval * 2, "the bottom of the axis is half the species' pace");
+
+        // Symmetric in ratio: the quick end and the slow end are reciprocals
+        // of each other about the authored value. This is what a rate axis
+        // wants, and it is the assertion that fails on the `(1 + t)` shape
+        // `reproduce_fraction` uses.
+        assert_eq!(at(1.0) * 4, at(-1.0), "the two ends of the axis must be reciprocal about the authored interval");
+
+        // Monotone in *pace*, so the interval falls as the allele climbs.
+        assert!(at(-0.5) > at(0.0) && at(0.0) > at(0.5), "a higher allele must be a quicker animal: {} {} {}", at(-0.5), at(0.0), at(0.5));
+
+        // A species already deciding every frame cannot be sped up past the
+        // clock, and must not land on zero -- `creature_due` would then
+        // schedule the animal onto the frame it is already on.
+        let mut fastest = def.clone();
+        fastest.tick_interval = 1;
+        let mut traits = [0.0f32; CREATURE_TRAITS];
+        traits[TRAIT_PACE] = 1.0;
+        assert_eq!(tick_interval_of(&fastest, &traits), 1, "an interval must never reach zero, whatever the allele");
+    }
+
+    /// **The positive control for `TRAIT_PACE`: a quicker lineage takes more
+    /// turns and pays for every one of them.**
+    ///
+    /// The sibling of `a_sharper_eye_reads_more_of_the_world`, and it exists
+    /// for the same reason: the arithmetic being right is a different claim
+    /// from the arithmetic *reaching the scheduler*, and the eye's version of
+    /// this was briefly false with byte-identical counters at three alleles.
+    ///
+    /// **Both counters, not one.** `ticks` alone would pass for a gene that
+    /// changed the schedule and nothing else — the thing this slot must not
+    /// be is a free speed-up, so the burn is asserted beside the turns. They
+    /// are checked as an ordering rather than a ratio because an animal that
+    /// starves early stops paying, which is a real behaviour and not a defect
+    /// in the gene.
+    #[test]
+    fn a_quicker_lineage_takes_more_turns_and_burns_more() {
+        const FRAMES: usize = 600;
+        let run_at = |allele: f32| -> (u64, f64) {
+            let mut w = test_world();
+            // **Breeding is switched off, and finding out why is what this
+            // test is for.** The first version left it on with a large bank
+            // and read 1,261 / 4,334 / 13,717 turns -- a ratio of 3.4x and
+            // 3.2x where the arithmetic says exactly 2x. The excess was real
+            // and was not the gene: budding is attempted once per decision,
+            // so a quick ant *breeds* quicker too and the counter was pace
+            // multiplied by a population. `CLAUDE.md`'s tidiness rule
+            // inverted -- an untidy number was the tell, and a clean 2x is
+            // available here only because the confound is removed rather
+            // than corrected for.
+            if let Some(id) = w.species.id_of("ant") {
+                if let Some(mut def) = w.species.get(id).creature.clone() {
+                    def.reproduce_threshold = 0.0;
+                    w.species.set_creature(id, def);
+                }
+            }
+            w.plant_ant(100, 95);
+            let ant = w.get(100, 95).organism_id();
+            assert_ne!(ant, 0, "the ant was not placed; this scene does not contain the situation the test is about");
+            if let Some(st) = w.organism_mut(ant) {
+                st.traits[TRAIT_PACE] = allele;
+                // Enough bank that neither arm starves inside the window --
+                // a dead ant stops ticking, and the quick arm would reach
+                // that first, which is the one way this ordering could
+                // reverse for a reason that is not the gene.
+                st.energy = 100_000.0;
+            }
+            run(&mut w, FRAMES);
+            assert_eq!(w.creature_stats.spawned, 1, "a second animal appeared, so the counters below are a population and not a pace");
+            (w.creature_stats.ticks, w.energy_ledger.metabolized)
+        };
+
+        let (slow_ticks, slow_burn) = run_at(-1.0);
+        let (authored_ticks, authored_burn) = run_at(0.0);
+        let (quick_ticks, quick_burn) = run_at(1.0);
+
+        assert!(authored_ticks > 0, "the ant never took a turn, so this measures a dead animal rather than a gene");
+        assert!(
+            slow_ticks < authored_ticks && authored_ticks < quick_ticks,
+            "a quicker allele must take more turns in the same window: -1 took {slow_ticks}, 0 took {authored_ticks}, +1 took {quick_ticks} -- \
+             equal figures mean the allele is not reaching the scheduler"
+        );
+        // **Exactly twice, to within the tick the window edge clips.** One
+        // animal, a fixed window and no reproduction, so the arithmetic is
+        // reachable rather than merely approachable: measured 50 / 100 / 199
+        // turns and 5.0 / 10.0 / 19.9 J at alleles -1 / 0 / +1. The 199 is
+        // not slack in the gene -- 600 frames at interval 3 has its 200th
+        // slot on frame 600, one past the end of the run -- so the tolerance
+        // is one tick and not a percentage. A ratio that is only *roughly*
+        // two means something else is in the counter, which is exactly what
+        // the first version of this test was reading.
+        assert!(
+            quick_ticks.abs_diff(authored_ticks * 2) <= 1,
+            "the quick arm must take twice the turns of the authored one in the same window: {quick_ticks} against {authored_ticks}"
+        );
+        assert!(
+            authored_ticks.abs_diff(slow_ticks * 2) <= 1,
+            "and the authored arm twice the slow one: {authored_ticks} against {slow_ticks}"
+        );
+        assert!(
+            slow_burn < authored_burn && authored_burn < quick_burn,
+            "and it must pay for them -- living faster has to cost more, or this slot is a free speed-up: \
+             -1 burned {slow_burn:.1}, 0 burned {authored_burn:.1}, +1 burned {quick_burn:.1}"
+        );
+    }
+
+    /// **An eye's reach is this animal's, not its species' — and a blind
+    /// lineage can grow one.**
+    ///
+    /// Three claims. A neutral allele reproduces the authored reach exactly,
+    /// so every animal alive before this gene existed is unchanged, blind or
+    /// sighted. The allele shifts the reach monotonically. And **a species
+    /// authored with no eyes at all reaches a positive range at a positive
+    /// allele** — which is the owner's ruling that anything should be able to
+    /// evolve, and is the assertion that would have failed under the gated
+    /// first version of this gene.
+    #[test]
+    fn a_blind_lineage_can_evolve_an_eye() {
+        let w = test_world();
+        let def_of = |name: &str| {
+            w.species.get(w.species.id_of(name).expect(name)).creature.as_ref().expect("creature").clone()
+        };
+        let at = |def: &CreatureDef, t: f32| {
+            let mut traits = [0.0f32; CREATURE_TRAITS];
+            traits[TRAIT_SIGHT_RANGE] = t;
+            sight_range_of(def, &traits)
+        };
+
+        let sighted = def_of("beetle");
+        let blind = def_of("ant");
+        assert!(sighted.sight_range > 0, "the beetle is this test's sighted species and must author an eye");
+        assert_eq!(blind.sight_range, 0, "the ant is this test's blind species and must author none, or the claim below is untested");
+
+        // Generation zero is untouched, for both.
+        assert_eq!(at(&sighted, 0.0), sighted.sight_range, "a neutral allele must reproduce the authored reach exactly");
+        assert_eq!(at(&blind, 0.0), 0, "a neutral allele on a blind species must still be blind, or every eyeless animal changed the day this landed");
+
+        // The ruling: blindness is a starting point, not a cage.
+        assert!(
+            at(&blind, 1.0) > 0,
+            "a species authored blind stayed blind at the top of the axis -- anything should be able to evolve, and this is the gate that must not come back"
+        );
+        assert!(at(&blind, 0.5) > 0 && at(&blind, 0.5) < at(&blind, 1.0), "and it must climb gradually, or the eye is a switch rather than a gene");
+
+        // Monotone, and bounded at both ends.
+        assert!(at(&sighted, -0.5) < at(&sighted, 0.0) && at(&sighted, 0.0) < at(&sighted, 0.5), "the allele must be monotone in reach");
+        assert_eq!(at(&sighted, -1.0), 0, "the bottom of the axis is blindness");
+        assert!(at(&sighted, 1.0) as f32 <= SIGHT_MAX, "an evolved eye must stay under the ceiling that prices it");
+    }
+
 
     /// One hungry ant, a bank of soil to its right and a corpse to its
     /// left, driven by a genome that authors exactly one of the two verbs.

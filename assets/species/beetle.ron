@@ -68,8 +68,8 @@
         // mouthful it took before. It also makes the beetle blind to every
         // plant food in the world for free, which the name-list was doing
         // by omission.
-        traits: (1.0, 1.0, 0.0),
-        trait_variance: (0.15, 0.15, 0.15),
+        traits: (1.0, 1.0, 0.0, 0.0, 0.0),
+        trait_variance: (0.15, 0.15, 0.15, 0.15, 0.15),
 
         // **A beetle can breed, and until 2026-09-05 it could not — the
         // field was simply absent.** `#[serde(default)]` made it 0.0 and
