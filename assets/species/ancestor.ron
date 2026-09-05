@@ -463,7 +463,7 @@
         // `place_creature` leaves a parent standing on one joule, which is
         // about three ticks of upkeep, so the low allele very nearly kills
         // whoever expresses it. See `TRAIT_REPRODUCE_AT`.
-        traits: (0.0, -0.2, 0.0),
+        traits: (0.0, -0.2, 0.0, 0.0),
         // The width one birth may move the gut, the grant, and the bar.
         // Authored so it and the ancestral value it widens cannot drift apart
         // in separate commits -- see `CreatureDef::trait_variance`. Read by
@@ -475,7 +475,7 @@
         // threshold -- 165 J for this ant, about half a mouthful of flower.
         // That is a step a lineage can actually be selected on inside a run
         // this long; a tenth of it would drift and never arrive.
-        trait_variance: (0.15, 0.15, 0.15),
+        trait_variance: (0.15, 0.15, 0.15, 0.15),
 
         // **Budding: the bank an ant must reach before it makes another
         // ant** (S6, `Reports/creature-evolution-plan.md` §2.6). This is

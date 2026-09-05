@@ -4971,7 +4971,7 @@ pub const GENOTYPE_TRAITS: usize = 10;
 /// strictly weaker one, which is `CLAUDE.md`'s *when several knobs move the
 /// same number, check what each one trades*: this one trades nothing the
 /// weight does not already trade.
-pub const CREATURE_TRAITS: usize = 3;
+pub const CREATURE_TRAITS: usize = 4;
 
 /// Slot 0 of `CREATURE_TRAITS`: **diet as one heritable number**, `-1`
 /// (plant matter) to `+1` (flesh), scored against `MaterialDef::food_class`
@@ -4982,6 +4982,36 @@ pub const CREATURE_TRAITS: usize = 3;
 /// magnitude is a free dimension with nothing selecting on it, so a
 /// histogram of its alleles measures its own drift and reads as a result.
 /// A scalar on a bounded axis has no such dimension.
+/// Slot 3 of `CREATURE_TRAITS`: **how far this animal can see**, as a
+/// multiplier on its species' authored `sight_range` — `-1` blind, `0` the
+/// species' own reach, `+1` twice it, read through
+/// `creature::sight_range_of`.
+///
+/// **The point is that an eye stops being a designer's constant.** Before
+/// this, `sight_range` was a plain `i32` species field: whether an animal
+/// could see, and how far, was fixed for its whole kind for ever, and no
+/// lineage could trade sharper eyes against their cost or cheaper eyes
+/// against their loss. That is the same defect
+/// `Reports/selective-environments-2026-09-05.md` names for the verbs — a
+/// quantity outside the economy is a quantity selection cannot reach —
+/// arriving on the sensory axis.
+///
+/// **The price for it was authored a week before the gene was.**
+/// `sight_fraction` charges per cell the eye actually reads, and its own
+/// doc says it landed "to stop `sight_range` being a ratchet" so that the
+/// day the reach became heritable "the gene arrives into a world that
+/// already charges for it". This is that day; nothing new has to be priced.
+///
+/// **The species field stays the switch, exactly as `reproduce_threshold`
+/// does.** `sight_range: 0` is blind whatever the trait says, so this slot
+/// is not a back door through which every eyeless species quietly grows
+/// eyes — the same argument `reproduce_at_of` makes in as many words, and
+/// for the same reason: a showcase species must not change because a
+/// mutable slot was appended. A blind lineage therefore cannot evolve
+/// sight, which is a real limit and a deliberate one; opening an eye stays
+/// an authoring decision, and only its *reach* is evolvable.
+pub const TRAIT_SIGHT_RANGE: usize = 3;
+
 pub const TRAIT_GUT_BIAS: usize = 0;
 
 /// Slot 1 of `CREATURE_TRAITS`: **how much of `start_energy` a newborn is

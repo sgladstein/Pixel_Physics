@@ -63,7 +63,7 @@ use super::cell::{Cell, AMBIENT_TEMPERATURE};
 use super::chunk::Rect;
 use super::field;
 use super::material::{self, MaterialKind};
-use super::organism::{pack_cell_type, Carried, CellType, Crop, CreatureDef, Flight, ShadeRule, SpeciesId, Spoil, CREATURE_TRAITS, TRAIT_BIRTH_GRANT, TRAIT_GUT_BIAS, TRAIT_REPRODUCE_AT};
+use super::organism::{pack_cell_type, Carried, CellType, Crop, CreatureDef, Flight, ShadeRule, SpeciesId, Spoil, CREATURE_TRAITS, TRAIT_BIRTH_GRANT, TRAIT_GUT_BIAS, TRAIT_REPRODUCE_AT, TRAIT_SIGHT_RANGE};
 use super::pheromone::{self, Channel};
 use super::rng;
 use super::scheduler::{ActiveKind, ActiveSite};
@@ -1460,6 +1460,34 @@ pub fn reproduce_at_of(def: &CreatureDef, traits: &[f32; CREATURE_TRAITS]) -> Op
 /// axis that is nearly a suicide pact, and it is reachable on purpose:
 /// `CLAUDE.md`'s rule is that a gene with one reachable end expresses
 /// nothing.
+/// **How far this particular animal can see**, in cells — the species'
+/// authored `sight_range` scaled by its own `TRAIT_SIGHT_RANGE` allele.
+///
+/// `-1` blind, `0` the species' reach, `+1` twice it, on the same
+/// `(1.0 + t)` axis `reproduce_fraction` uses. One shape for every scalar
+/// gene is worth more than a per-gene curve: it means the axis means the
+/// same thing to a beetle and to an ant, and a reader who has understood one
+/// slot has understood all four.
+///
+/// **`sight_range: 0` stays blind whatever the allele says**, and that gate
+/// is the whole reason this is safe to append. It is `reproduce_at_of`'s
+/// argument exactly: a mutable slot must not be a back door through which
+/// every showcase species quietly grows an organ it was never authored to
+/// have. So the trait moves the *reach* of an eye that exists; it cannot
+/// conjure one.
+///
+/// Rounded rather than truncated, and floored at 1 for any species that has
+/// an eye at all: a lineage that drifts its allele to the bottom of the axis
+/// should end up nearly blind, not silently eyeless, because eyeless is the
+/// *species* switch and the two must not become confusable.
+pub fn sight_range_of(def: &CreatureDef, traits: &[f32; CREATURE_TRAITS]) -> i32 {
+    if def.sight_range <= 0 {
+        return 0;
+    }
+    let scale = (1.0f32 + traits[TRAIT_SIGHT_RANGE]).clamp(0.0, 2.0);
+    ((def.sight_range as f32 * scale).round() as i32).max(1)
+}
+
 pub fn reproduce_fraction(t: f32) -> f32 {
     (1.0 + t).clamp(0.0, 2.0)
 }
@@ -2296,11 +2324,12 @@ pub fn probe(world: &World, x: i32, y: i32, organism: u16, def: &CreatureDef) ->
 /// authoring a `sight_fraction` needs a measured reads-per-cast at the reach
 /// in question and there was no way to ask for one.
 pub fn sighted(world: &World, x: i32, y: i32, organism: u16, def: &CreatureDef) -> (Sightings, u64) {
-    if def.sight_range <= 0 {
+    let reach = world.organism(organism).map_or(0, |st| sight_range_of(def, &st.traits));
+    if reach <= 0 {
         return (Sightings::default(), 0);
     }
     let mut reads = 0u64;
-    let seen = sight(world, x, y, organism, def, gut_of(world, organism, def), &mut reads);
+    let seen = sight(world, x, y, organism, gut_of(world, organism, def), reach, &mut reads);
     (seen, reads)
 }
 
@@ -2471,8 +2500,14 @@ fn sense(
     // tick and never enters `sight`; the ant, the worm and every plant-side
     // caller are therefore bit-identical to before this input existed.
     let mut sight_reads = 0u64;
-    let seen_all = if def.sight_range > 0 {
-        sight(world, x, y, organism, def, gut_of(world, organism, def), &mut sight_reads)
+    // **This animal's reach, not its species'.** `TRAIT_SIGHT_RANGE` scales
+    // the authored range per individual, so the gate, the cast and both
+    // distance normalisations below have to read the same number -- an eye
+    // that casts to one reach and normalises against another reports a
+    // nearness that does not mean what the brain thinks it means.
+    let reach = world.organism(organism).map_or(0, |st| sight_range_of(def, &st.traits));
+    let seen_all = if reach > 0 {
+        sight(world, x, y, organism, gut_of(world, organism, def), reach, &mut sight_reads)
     } else {
         Sightings::default()
     };
@@ -2484,7 +2519,7 @@ fn sense(
         // *largest* when the prey is furthest, and an authored weight would
         // have to be negative to mean "approach", which is the kind of sign
         // inversion an evolved genome has no reason to find.
-        inputs[I::PreyNear as usize] = (1.0 - seen.dist / def.sight_range as f32).clamp(0.0, 1.0);
+        inputs[I::PreyNear as usize] = (1.0 - seen.dist / reach as f32).clamp(0.0, 1.0);
         // Signed turn-to-target, **positive = to the right**, matching
         // `PheroALateral`. `DIRS` runs anticlockwise on a y-down screen, so
         // a heading index `h` points along `-h * PI/4` in screen radians;
@@ -2535,7 +2570,7 @@ fn sense(
         // Nearness rather than distance, and the same normalisation
         // `PreyNear` uses, so a genome that learns one has learned the
         // other's scale.
-        inputs[I::KinNear as usize] = (1.0 - kin.dist / def.sight_range as f32).clamp(0.0, 1.0);
+        inputs[I::KinNear as usize] = (1.0 - kin.dist / reach as f32).clamp(0.0, 1.0);
         let bearing = ((kin.y - y) as f32).atan2((kin.x - x) as f32);
         let heading_angle = -(heading as f32) * std::f32::consts::FRAC_PI_4;
         let mut error = bearing - heading_angle;
@@ -2940,8 +2975,7 @@ fn is_visible_kin(world: &World, cell: Cell, species: SpeciesId, self_organism: 
 /// Returns `None` when nothing edible is in sight, which is also what an
 /// eyeless species gets — but an eyeless species never reaches here, since
 /// the caller tests `sight_range` before the call (`CreatureDef::sight_range`).
-fn sight(world: &World, x: i32, y: i32, organism: u16, def: &CreatureDef, gut: Gut, reads: &mut u64) -> Sightings {
-    let reach = def.sight_range;
+fn sight(world: &World, x: i32, y: i32, organism: u16, gut: Gut, reach: i32, reads: &mut u64) -> Sightings {
     debug_assert!(reach > 0, "sight() called for a species with no eyes; the gate belongs at the call site");
 
     // The eye, lifted only through cells that do not themselves block.
@@ -6299,6 +6333,83 @@ mod tests {
     /// `dig_cost_in_moves` defaults to 0.0, so a charge that was never wired
     /// at all reports `dig_energy == 0.0` and passes any test that only
     /// asserted the default.
+    /// **The positive control for `TRAIT_SIGHT_RANGE`: a sharper eye reads
+    /// more of the world.**
+    ///
+    /// `the_eye_is_heritable_but_cannot_be_conjured` checks the arithmetic;
+    /// this checks the arithmetic *reaches a running world*, which is a
+    /// different claim and the one that was briefly false. A harness that
+    /// set the allele on the species after the animals were already placed
+    /// gave **byte-identical counters at three alleles** — 9,502 casts and
+    /// 9,711,169 cells read at every setting — because a live animal carries
+    /// its own `OrganismState::traits`, copied at founding. That is
+    /// `CLAUDE.md`'s identical-output-across-a-change tell, and without a
+    /// counter beside the picture it would have read as a working gene.
+    #[test]
+    fn a_sharper_eye_reads_more_of_the_world() {
+        let cells_read = |allele: f32| -> u64 {
+            let mut w = test_world();
+            for x in 60..180 {
+                w.set(x, 120, Cell::new(material::STONE, 0).with_attached(true));
+            }
+            let beetle = spawn(&mut w, "beetle", 100, 119);
+            assert_ne!(beetle, 0, "the beetle was not placed; this scene does not contain the situation the test is about");
+            if let Some(st) = w.organism_mut(beetle) {
+                st.traits[TRAIT_SIGHT_RANGE] = allele;
+            }
+            run(&mut w, 200);
+            w.creature_stats.sight_cells_read
+        };
+
+        let (narrow, authored, wide) = (cells_read(-0.75), cells_read(0.0), cells_read(0.75));
+        assert!(authored > 0, "the beetle read nothing at its authored allele, so this measures a blind animal rather than a gene");
+        assert!(
+            narrow < authored && authored < wide,
+            "a sharper eye must read more of the world: allele -0.75 read {narrow}, 0.0 read {authored}, +0.75 read {wide} -- \
+             equal figures mean the allele is not reaching the cast"
+        );
+    }
+
+    /// **An eye's reach is this animal's, not its species'** — and the
+    /// species field is still the switch.
+    ///
+    /// Three claims, and the third is the one that makes appending this slot
+    /// safe. A neutral allele reproduces the authored range exactly, so every
+    /// animal alive before the gene existed is unchanged; the allele scales
+    /// the reach on the shared `(1 + t)` axis every other trait uses; and
+    /// **a species authored blind stays blind at every allele**, so the slot
+    /// cannot be a back door through which an eyeless showcase species
+    /// quietly grows eyes.
+    #[test]
+    fn the_eye_is_heritable_but_cannot_be_conjured() {
+        let w = test_world();
+        let sighted_def = w.species.get(w.species.id_of("beetle").expect("beetle")).creature.as_ref().expect("creature").clone();
+        assert!(sighted_def.sight_range > 0, "the beetle is this test's sighted species and must have an eye, or nothing below is measured");
+
+        let at = |t: f32| {
+            let mut traits = [0.0f32; CREATURE_TRAITS];
+            traits[TRAIT_SIGHT_RANGE] = t;
+            sight_range_of(&sighted_def, &traits)
+        };
+        assert_eq!(at(0.0), sighted_def.sight_range, "a neutral allele must reproduce the authored range exactly, or every animal that predates this gene changed");
+        assert_eq!(at(1.0), sighted_def.sight_range * 2, "the top of the axis is twice the authored reach");
+        assert!(at(-1.0) >= 1, "the bottom of the axis is nearly blind, never eyeless -- eyeless is the species switch and the two must not be confusable");
+        assert!(at(-0.5) < at(0.0) && at(0.0) < at(0.5), "the allele must be monotone in reach, or it is not a dial");
+
+        // The gate. A species with no eye authored gets none at any allele.
+        let mut blind = sighted_def.clone();
+        blind.sight_range = 0;
+        for t in [-1.0f32, 0.0, 0.5, 1.0] {
+            let mut traits = [0.0f32; CREATURE_TRAITS];
+            traits[TRAIT_SIGHT_RANGE] = t;
+            assert_eq!(
+                sight_range_of(&blind, &traits),
+                0,
+                "a species authored blind grew an eye at allele {t} -- the slot has become a back door"
+            );
+        }
+    }
+
     #[test]
     fn digging_costs_exactly_its_authored_price_per_cell() {
         let (free_digs, free_spend, free_per_dig) = dig_price_scene(0.0);
