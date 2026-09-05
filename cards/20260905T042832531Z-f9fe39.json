@@ -1,0 +1,56 @@
+{
+  "id": "20260905T042832531Z-f9fe39",
+  "created": "2026-09-05T04:28:32Z",
+  "board": "lab",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/evolution-lab-tracking-e6o5eo",
+    "commit": "baae4a1b",
+    "agent": null,
+    "session_id": "5ab42928-53c2-5437-a51b-bce70dafe472",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The graveyard: the dead stay listed, with what killed them",
+  "question": "Does this tell you what went wrong in the box? And is the cause of death the right thing to put in the STATE column, or would you rather that column kept saying something about the living and the cause went somewhere else?",
+  "context_md": "The roster could only ever list the living. That is backwards for what this box is for: an experiment is mostly a record of what did **not** work, and an ant is two dark cells that you find because they move -- so a dead one is unfindable by the only thing that ever found it. The one most worth looking at was the one you could not look at.\n\nThe dead are one click past IN TROUBLE, in their own kingdom's table, and they carry what killed them.\n\n**Read the ANIMALS tile as a finding, not just a layout.** Thirty-nine dead ants and thirty-seven of them STARVED. The living table could never have shown you that -- by the time you looked, they were gone.\n\nTwo columns read zero on purpose. There is no body, so no CELLS, and the bank went with it. Carrying the last-known values was the obvious thing and it is wrong: a corpse showing 95.4 energy reads as an animal that is fine.\n\nAGE is the life it had. It first shipped reading the world clock, so every grave said 9.8K -- the picture is what caught that, not any number beside it.",
+  "kind": "gallery",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "ANIMALS",
+      "files": [
+        "20260905T042832531Z-f9fe39/000-gv2-roster--animals-graveyard.png"
+      ],
+      "caption": "Thirty-nine dead ants, mostly starved. AGE is each one's own lifespan.",
+      "meta": {
+        "graves listed": 39,
+        "starved": 37,
+        "killed": 2,
+        "culled": 1,
+        "still alive": 14
+      },
+      "focus": null
+    },
+    {
+      "label": "PLANTS",
+      "files": [
+        "20260905T042832531Z-f9fe39/001-gv2-roster--plants-graveyard.png"
+      ],
+      "caption": "The plant side: felled whole, and lost their tissue.",
+      "meta": {
+        "graves listed": 6,
+        "felled": 4,
+        "lost its tissue": 2
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
