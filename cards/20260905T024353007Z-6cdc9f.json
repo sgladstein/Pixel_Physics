@@ -1,0 +1,46 @@
+{
+  "id": "20260905T024353007Z-6cdc9f",
+  "created": "2026-09-05T02:43:53Z",
+  "board": "lab",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/evolution-lab-tracking-e6o5eo",
+    "commit": "87ce6eda",
+    "agent": null,
+    "session_id": "5ab42928-53c2-5437-a51b-bce70dafe472",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The genome in plain words, re-derived against the new brain",
+  "question": "Do these fourteen sentences read like a description of an animal? And is LAYS NOTHING IT FOLLOWS clear enough that you'd know it was reporting a fault rather than describing a design?",
+  "context_md": "You asked, on 2 September: *\"is the genome plain text accurate? is it that\nsimple like there is just a switch for drop food at the colony?\"*\n\nThe answer then was yes — one weight, `AtNest -> Drop`. **The card I posted\nthat day is now describing a machine that does not exist**, so please judge\nthis one instead of it.\n\nSince then the brain was rebuilt underneath this work: four new senses, a\ntwelfth verb, twice the hidden layer, and the way an ant finds its way home\nmoved out of the engine and into the genome. Re-deriving these sentences\nagainst the new brain is what this card is.\n\n**Two of the lines here are new because the animal changed:**\n\n- `DUMPS SPOIL AT THE NEST` — putting down dug soil used to be the same gene\n  as putting down food, so nothing could select for one against the other.\n  They are two verbs now, and they needed two vocabularies.\n- `LAYS NOTHING IT FOLLOWS` — and this one is a bug report.\n\n**That last line is the part worth your attention.** Chasing why the old\n`ALWAYS LAYS HOME SCENT` disappeared turned up a live fault: **no ant has\nlaid a home scent since 2 September.** Not a faint one — none, ever. The\nsetting that charges it is about twenty times too quiet for the engine to\nhear at all, so it is mixed at zero. The food trail is unaffected. Both\nspecies that have a homing sense have it, and they are the only two settings\nin the whole tree that are below the engine's hearing.\n\nI have **not** fixed it: turning the setting up twenty-fold changes how fast\nthe scent fades, and the two numbers either side of it were tuned against the\nquiet value, so it needs re-tuning rather than a one-line change. It is\nwritten up as a known fault (§Z5) with the measurement and a reproduction.\n\nSo the page is telling you the truth about an animal that is currently\nmissing half its way home — which is the thing a page like this is for.\n",
+  "kind": "gallery",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "THE ANT",
+      "files": [
+        "20260905T024353007Z-6cdc9f/000-w-specimen--ant-words.png"
+      ],
+      "caption": "All fourteen WORDS lines. RANGE 5 in the group below replaced SINCE NEST, which counted an ant standing still at home as being away.",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "A PLANT",
+      "files": [
+        "20260905T024353007Z-6cdc9f/001-w-specimen--plant-words.png"
+      ],
+      "caption": "The same page for a founder tree, unchanged by the brain work -- here as the control that the page still reads right where nothing moved.",
+      "meta": {},
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
